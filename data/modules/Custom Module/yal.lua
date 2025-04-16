@@ -6749,7 +6749,7 @@ function radioaltitudeb1000steps()
     end
 
     if (procedureloop2.stepindex == 4) then
-        if (get(missedappalt) ~= 0) then
+        if ((get(missedappalt) ~= 0) and (get(missedappalt) > 1000)) then
             missedappalttmp = roundnumber((get(missedappalt) / 100) * 100)
             if (missedappalttmp ~= get(mcpaltitude)) then
                 if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
