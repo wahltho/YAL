@@ -6697,13 +6697,13 @@ function radioaltitudeb1000steps()
     if ((procedureloop2.stepindex > 7) or prodedureabort) then
         radioaltitude1000set = true
         procedureabort = false
-       procedureloop2.lock = NOPROCEDURE
+        procedureloop2.lock = NOPROCEDURE
         procedureloop2.stepindex = 1
         return true
     end
 
     if (procedureloop2.stepindex == 1) then
-        speedbrakeleverrounded = roundnumber(get(speedbrakelever), 1)
+        local speedbrakeleverrounded = roundnumber(get(speedbrakelever), 1)
         if (speedbrakeleverrounded == OFF) then
             if (configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                 set(speedbrakelever, 0.1)
@@ -6749,8 +6749,8 @@ function radioaltitudeb1000steps()
     end
 
     if (procedureloop2.stepindex == 4) then
-        if ((get(missedappalt) ~= 0) and (get(missedappalt) > 1000)) then
-            missedappalttmp = roundnumber((get(missedappalt) / 100) * 100)
+        local missedappalttmp = roundnumber((get(missedappalt) / 100) * 100)
+        if ((missedappalttmp > 1000) and (missedappalttmp % 100 == 0)) then
             if (missedappalttmp ~= get(mcpaltitude)) then
                 if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
                     commandtableentry(ADVICE, "Set M C P Altitude " .. addspaces(missedappalttmp))
