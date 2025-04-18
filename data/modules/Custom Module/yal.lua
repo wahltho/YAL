@@ -9898,17 +9898,13 @@ function ongoingtasks()
     end
 
     if ((procedureloop1.lock == NOPROCEDURE) and (configvalues[CONFIGVOICEADVICEONLY] == ON)  and (get(airgroundsensor) == ON)) then
-        if ((get(starter1pos) == GROUND) and ((get(lefttanklswitch) == OFF) or (get(lefttankrswitch) == OFF) or (get(righttanklswitch) == OFF) or (get(righttankrswitch) == OFF))) then
+        if (((get(starter1pos) == GROUND) or (get(starter2pos) == GROUND)) and (get(beaconlights) == OFF)) then
+            commandtableentry(ADVICE, "Set Collistion Lights On")      
+        elseif (((get(starter1pos) == GROUND) or (get(starter2pos) == GROUND)) and ((get(lefttanklswitch) == OFF) or (get(lefttankrswitch) == OFF) or (get(righttanklswitch) == OFF) or (get(righttankrswitch) == OFF))) then
             commandtableentry(ADVICE, "Set Wing Tank Fuel Pumps On")
-        elseif ((get(starter2pos) == GROUND) and ((get(lefttanklswitch) == OFF) or (get(lefttankrswitch) == OFF) or (get(righttanklswitch) == OFF) or (get(righttankrswitch) == OFF))) then
-            commandtableentry(ADVICE, "Set Wing Tank Fuel Pumps On")
-        elseif ((get(starter1pos) == GROUND) and ((get(packlpos) ~= PACKOFF) or (get(packrpos) ~= PACKOFF))) then
+        elseif (((get(starter1pos) == GROUND) or (get(starter2pos) == GROUND)) and ((get(packlpos) ~= PACKOFF) or (get(packrpos) ~= PACKOFF))) then
             commandtableentry(ADVICE, "Set Both Packs Off")
-        elseif ((get(starter2pos) == GROUND) and ((get(packlpos) ~= PACKOFF) or (get(packrpos) ~= PACKOFF))) then
-            commandtableentry(ADVICE, "Set Both Packs Off")
-        elseif ((get(starter1pos) == GROUND) and (get(bleedairapupos) ~= ON)) then
-            commandtableentry(ADVICE, "Set A P U Bleed Air On")
-        elseif ((get(starter2pos) == GROUND) and (get(bleedairapupos) ~= ON)) then
+        elseif (((get(starter1pos) == GROUND) or (get(starter2pos) == GROUND)) and (get(bleedairapupos) ~= ON)) then
             commandtableentry(ADVICE, "Set A P U Bleed Air On")
         elseif ((get(starter2pos) == GROUND) and (get(isolvalvepos) ~= ISOLVALVEOPEN)) then
             commandtableentry(ADVICE, "Set Isolation Valve Open")
