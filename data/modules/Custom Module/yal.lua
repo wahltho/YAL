@@ -9899,7 +9899,7 @@ function ongoingtasks()
 
     if ((procedureloop1.lock == NOPROCEDURE) and (configvalues[CONFIGVOICEADVICEONLY] == ON)  and (get(airgroundsensor) == ON)) then
         if (((get(starter1pos) == GROUND) or (get(starter2pos) == GROUND)) and (get(beaconlights) == OFF)) then
-            commandtableentry(ADVICE, "Set Collistion Lights On")      
+            commandtableentry(ADVICE, "Set Collision Lights On")      
         elseif (((get(starter1pos) == GROUND) or (get(starter2pos) == GROUND)) and ((get(lefttanklswitch) == OFF) or (get(lefttankrswitch) == OFF) or (get(righttanklswitch) == OFF) or (get(righttankrswitch) == OFF))) then
             commandtableentry(ADVICE, "Set Wing Tank Fuel Pumps On")
         elseif (((get(starter1pos) == GROUND) or (get(starter2pos) == GROUND)) and ((get(packlpos) ~= PACKOFF) or (get(packrpos) ~= PACKOFF))) then
