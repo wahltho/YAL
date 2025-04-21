@@ -345,11 +345,12 @@ function P.initDataref()
     desrwylen = globalProperty("laminar/B738/fms/dest_runway_len")
     desrwy = globalProperty("laminar/B738/fms/dest_runway")
 
-
     nearesticao = globalProperty("laminar/B738/near_apt_icao")
 
     aircraftlatpos = globalPropertyfae("laminar/B738/latlon", 23)
     aircraftlonpos = globalPropertyfae("laminar/B738/latlon", 24)
+
+    sunpitchdegrees = globalProperty("sim/graphics/scenery/sun_pitch_degrees")
 
     flapleverpos = globalProperty("laminar/B738/flt_ctrls/flap_lever")
     speedbrakelever = globalProperty("laminar/B738/flt_ctrls/speedbrake_lever")
@@ -5751,15 +5752,17 @@ function cockpitinitsteps()
     end
 
     if (procedureloop1.stepindex == 2) then
-        if (get(domelightpos) == DOMELIGHTOFF) then
-            if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
-                commandtableentry(ADVICE, "Set Dome Light On")
-                procedureloop1.stepindex = procedureloop1.stepindex - 1
-            else
-                setdomelight(DOMELIGHTDIM)
+        if (get(sunpitchdegrees) < 0) then
+            if (get(domelightpos) == DOMELIGHTOFF) then
+                if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
+                    commandtableentry(ADVICE, "Set Dome Light On")
+                    procedureloop1.stepindex = procedureloop1.stepindex - 1
+                else
+                    setdomelight(DOMELIGHTDIM)
+                end
+            elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
+                commandtableentry(ADVICE, "Dome light Checked and On")
             end
-        elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
-            commandtableentry(ADVICE, "Dome light Checked and On")
         end
     end
 
@@ -7753,12 +7756,16 @@ function atparkingpositionsteps()
 
 
     if (procedureloop1.stepindex == 4) then
-        if (get(domelightpos) == DOMELIGHTOFF) then
-            if (configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
-                setdomelight(DOMELIGHTDIM)
-            elseif (configvalues[CONFIGVOICEADVICEONLY] == ON) then
-                commandtableentry(ADVICE, "Set Domelight On")
-                procedureloop1.stepindex = procedureloop1.stepindex - 1
+        if (get(sunpitchdegrees) < 0) then
+            if (get(domelightpos) == DOMELIGHTOFF) then
+                if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
+                    commandtableentry(ADVICE, "Set Dome Light On")
+                    procedureloop1.stepindex = procedureloop1.stepindex - 1
+                else
+                    setdomelight(DOMELIGHTDIM)
+                end
+            elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
+                commandtableentry(ADVICE, "Dome light Checked and On")
             end
         end
     end
