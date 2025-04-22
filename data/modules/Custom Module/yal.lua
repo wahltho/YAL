@@ -345,11 +345,12 @@ function P.initDataref()
     desrwylen = globalProperty("laminar/B738/fms/dest_runway_len")
     desrwy = globalProperty("laminar/B738/fms/dest_runway")
 
-
     nearesticao = globalProperty("laminar/B738/near_apt_icao")
 
     aircraftlatpos = globalPropertyfae("laminar/B738/latlon", 23)
     aircraftlonpos = globalPropertyfae("laminar/B738/latlon", 24)
+
+    sunpitchdegrees = globalProperty("sim/graphics/scenery/sun_pitch_degrees")
 
     flapleverpos = globalProperty("laminar/B738/flt_ctrls/flap_lever")
     speedbrakelever = globalProperty("laminar/B738/flt_ctrls/speedbrake_lever")
@@ -3802,7 +3803,6 @@ function coldanddarksteps()
 
     if ((procedureloop1.stepindex > 30) or procedureabort) then
         procedureloop1.lock = NOPROCEDURE
-        procedureloop1.stepindex = 1
         procedureabort = false
         return true
     end
@@ -4190,7 +4190,6 @@ function apustartupsteps()
 
     if ((procedureloop1.stepindex > 8) or procedureabort) then
         procedureloop1.lock = NOPROCEDURE
-        procedureloop1.stepindex = 1
         procedureabort = false
         return true
     end
@@ -4344,7 +4343,6 @@ function enginestartsteps()
 
     if ((procedureloop1.stepindex > 34) or procedureabort) then
         procedureloop1.lock = NOPROCEDURE
-        procedureloop1.stepindex = 1
         procedureabort = false
         return true
     end
@@ -4803,7 +4801,6 @@ function engineshutdownsteps()
 
     if ((procedureloop1.stepindex > 18) or procedureabort) then
         procedureloop1.lock = NOPROCEDURE
-        procedureloop1.stepindex = 1
         procedureabort = false
         return true
     end
@@ -5134,7 +5131,6 @@ function shutdownsteps()
 
     if ((procedureloop1.stepindex > 25) or procedureabort) then
         procedureloop1.lock = NOPROCEDURE
-        procedureloop1.stepindex = 1
         procedureabort = false
         return true
     end
@@ -5493,7 +5489,6 @@ function teststeps()
 
     if ((procedureloop1.stepindex > 48) or procedureabort) then
         procedureloop1.lock = NOPROCEDURE
-        procedureloop1.stepindex = 1
         procedureabort = false
         return true
     end
@@ -5745,8 +5740,6 @@ function cockpitinitsteps()
     if ((procedureloop1.stepindex > 25) or procedureabort) then
         procedureloop1.lock = NOPROCEDURE
         procedureabort = false
-        procedureloop1.stepindex = 1
-        procedureabort = false
         return true
     end
 
@@ -5759,15 +5752,17 @@ function cockpitinitsteps()
     end
 
     if (procedureloop1.stepindex == 2) then
-        if (get(domelightpos) == DOMELIGHTOFF) then
-            if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
-                commandtableentry(ADVICE, "Set Dome Light On")
-                procedureloop1.stepindex = procedureloop1.stepindex - 1
-            else
-                setdomelight(DOMELIGHTDIM)
+        if (get(sunpitchdegrees) < 0) then
+            if (get(domelightpos) == DOMELIGHTOFF) then
+                if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
+                    commandtableentry(ADVICE, "Set Dome Light On")
+                    procedureloop1.stepindex = procedureloop1.stepindex - 1
+                else
+                    setdomelight(DOMELIGHTDIM)
+                end
+            elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
+                commandtableentry(ADVICE, "Dome light Checked and On")
             end
-        elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
-            commandtableentry(ADVICE, "Dome light Checked and On")
         end
     end
 
@@ -6113,7 +6108,6 @@ function aftertakeoffsteps()
         aftertakeoffset = true
         procedureloop2.lock = NOPROCEDURE
         procedureabort = false
-        procedureloop2.stepindex = 1
         return true
     end
  
@@ -6174,7 +6168,6 @@ function altitudea10000steps()
     if ((procedureloop1.stepindex > 5) or procedureabort) then
         altitudea10000set = true
         procedureloop1.lock = NOPROCEDURE
-        procedureloop2.stepindex = 1
         procedureabort = false
         return true
     end
@@ -6307,8 +6300,7 @@ function duringclimbsteps()
 
     if ((procedureloop2.stepindex > 13) or procedureabort) then
         duringclimbset = true
-       procedureloop2.lock = NOPROCEDURE
-        procedureloop2.stepindex = 1
+        procedureloop2.lock = NOPROCEDURE
         procedureabort = false
         return true
     end
@@ -6489,7 +6481,6 @@ function altitudeb10000steps()
     if ((procedureloop1.stepindex > 7) or procedureabort) then
         altitudeb10000set = true
         procedureloop1.lock = NOPROCEDURE
-        procedureloop1.stepindex = 1
         procedureabort = false
         return true
     end
@@ -6648,8 +6639,7 @@ function radioaltitudeb2500steps()
 
     if ((procedureloop2.stepindex > 2) or procedureabort) then
         radioaltitude2500set = true
-       procedureloop2.lock = NOPROCEDURE
-        procedureloop2.stepindex = 1
+        procedureloop2.lock = NOPROCEDURE
         procedureabort = false
         return true
     end
@@ -6696,9 +6686,8 @@ function radioaltitudeb1000steps()
 
     if ((procedureloop2.stepindex > 7) or prodedureabort) then
         radioaltitude1000set = true
-        procedureabort = false
         procedureloop2.lock = NOPROCEDURE
-        procedureloop2.stepindex = 1
+        procedureabort = false
         return true
     end
 
@@ -6846,9 +6835,8 @@ function duringdescentsteps()
 
     if ((procedureloop2.stepindex > 4) or procedureabort) then
         duringdescentset = true
+        procedureloop2.lock = NOPROCEDURE
         procedureabort = false
-       procedureloop2.lock = NOPROCEDURE
-        procedureloop2.stepindex = 1
         return true
     end
 
@@ -6958,9 +6946,8 @@ function afterlandingsteps()
 
     if ((procedureloop1.stepindex > 18) or procedureabort) then
         afterlandingset = true
-        procedureabort = false
         procedureloop1.lock = NOPROCEDURE
-        procedureloop1.stepindex = 1
+        procedureabort = false
         return true
     end
 
@@ -7234,9 +7221,8 @@ function beforetaxisteps()
 
     if ((procedureloop1.stepindex > 19) or procedureabort) then
         beforetaxiset = true
-        procedureabort = false
         procedureloop1.lock = NOPROCEDURE
-        procedureloop1.stepindex = 1
+        procedureabort = false
         return true
     end
 
@@ -7524,9 +7510,8 @@ function beforetakeoffsteps()
 
     if ((procedureloop1.stepindex > 12) or procedureabort) then
         beforetakeoffset = true
-        procedureabort = false
         procedureloop1.lock = NOPROCEDURE
-        procedureloop1.stepindex = 1
+        procedureabort = false
         return true
     end
 
@@ -7730,9 +7715,8 @@ function atparkingpositionsteps()
 
     if ((procedureloop1.stepindex > 8) or procedureabort) then
         atparkingpositionset = true
-        procedureabort = false
         procedureloop1.lock = NOPROCEDURE
-        procedureloop1.stepindex = 1
+        procedureabort = false
         return true
     end
 
@@ -7772,12 +7756,16 @@ function atparkingpositionsteps()
 
 
     if (procedureloop1.stepindex == 4) then
-        if (get(domelightpos) == DOMELIGHTOFF) then
-            if (configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
-                setdomelight(DOMELIGHTDIM)
-            elseif (configvalues[CONFIGVOICEADVICEONLY] == ON) then
-                commandtableentry(ADVICE, "Set Domelight On")
-                procedureloop1.stepindex = procedureloop1.stepindex - 1
+        if (get(sunpitchdegrees) < 0) then
+            if (get(domelightpos) == DOMELIGHTOFF) then
+                if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
+                    commandtableentry(ADVICE, "Set Dome Light On")
+                    procedureloop1.stepindex = procedureloop1.stepindex - 1
+                else
+                    setdomelight(DOMELIGHTDIM)
+                end
+            elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
+                commandtableentry(ADVICE, "Dome light Checked and On")
             end
         end
     end
@@ -9919,10 +9907,6 @@ function ongoingtasks()
         end
     end
 
-    if (ongoingtaskstepindex > 9) then
-        ongoingtaskstepindex = 1
-    end
-
     if (ongoingtaskstepindex == 1) then
         if (enginesrunning(BOTH) and (configvalues[CONFIGAUTOCENTERTANKHANDLING] == ON)) then
             if ((configvalues[CONFIGAUTOFUNCTIONS] == ON) and (configvalues[CONFIGVOICEADVICEONLY] ~= ON)) then
@@ -10019,7 +10003,6 @@ function ongoingtasks()
     end
 
     if (((get(airgroundsensor) == ON) and (procedureloop1.lock == NOPROCEDURE) and (get(battery) == ON) and (get(mainbus) ~= OFF) and (flightstate == 0) and (get(taxilight) == OFF))) then
-
         if (ongoingtaskstepindex == 6) then
             if (configvalues[CONFIGAUTOBARO] == ON) then
                 local baroinchtmp, baropastmp = getlocalqnh(DEPARTURE)
@@ -10065,7 +10048,7 @@ function ongoingtasks()
 
         if (ongoingtaskstepindex == 9) then
             local headingrounded = nil
-        if (isvalidicao(get(depicao)) and isvalidrwy(get(deprwy)) and tonumber(get(deprwyheading))) then
+            if (isvalidicao(get(depicao)) and isvalidrwy(get(deprwy)) and tonumber(get(deprwyheading))) then
                 headingrounded = roundnumber(get(deprwyheading))
             end
             local navrwyheading = getrwyheadingfromnavdata(get(depicao), get(deprwy))
@@ -10081,9 +10064,15 @@ function ongoingtasks()
                 end
             end
         end
+    elseif (ongoingtaskstepindex >= 5) then
+        ongoingtaskstepindex = 9
     end
 
-    ongoingtaskstepindex = ongoingtaskstepindex + 1
+    if (ongoingtaskstepindex >= 9) then
+        ongoingtaskstepindex = 1
+    else
+        ongoingtaskstepindex = ongoingtaskstepindex + 1
+    end
 
     return true
 
@@ -10173,7 +10162,11 @@ function procedureloop_1()
             procedureloop1.lock = NOPROCEDURE
         end
 
-        procedureloop1.stepindex = procedureloop1.stepindex + 1
+        if (procedureloop1.lock == NOPROCEDURE) then
+            procedureloop1.stepindex = 1
+        else
+            procedureloop1.stepindex = procedureloop1.stepindex + 1
+        end
 
         if (procedureloop1.stepindex == procedureloop1.stepindexprevious) then
             procedureloop1.steprepeat = true
@@ -10216,7 +10209,11 @@ function procedureloop_2()
            procedureloop2.lock = NOPROCEDURE
         end
 
-        procedureloop2.stepindex = procedureloop2.stepindex + 1
+        if (procedureloop2.lock == NOPROCEDURE) then
+            procedureloop2.stepindex = 1
+        else
+            procedureloop2.stepindex = procedureloop2.stepindex + 1
+        end
 
         if (procedureloop2.stepindex == procedureloop2.previousstepindex) then
             procedureloop2.steprepeat = true
@@ -10268,7 +10265,7 @@ function P.do_yal()
     end
 
     sasl.logDebug("PROCEDURELOOP1: LOCK ".. procedureloop1.lock .. " STEPINDEX " .. procedureloop1.stepindex)
-    sasl.logDebug("PROCEDURELOOP2: LOCK "..procedureloop2.lock .. " STEPINDEX " .. procedureloop2.stepindex)
+    sasl.logDebug("PROCEDURELOOP2: LOCK ".. procedureloop2.lock .. " STEPINDEX " .. procedureloop2.stepindex)
 
     procedureloop_1()
     procedureloop_2()
