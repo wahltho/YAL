@@ -2090,6 +2090,31 @@ end
 my_command_toggleautofunctions = sasl.createCommand(definitions.APPNAMEPREFIX .. "/toggleautofunctions", "Toggle Auto Functions")
 sasl.registerCommandHandler(my_command_toggleautofunctions, 0, toggleautofunctions_)
 
+--------------------------------------------------------------------------------------------------------------
+
+function toggleviewchanges()
+
+    if (configvalues[CONFIGVIEWCHANGES] == ON) then
+        configvalues[CONFIGVIEWCHANGES] = OFF
+        commandtableentry(TEXT, "View Changes Off")
+    else
+        configvalues[CONFIGVIEWCHANGES] = ON
+        commandtableentry(TEXT, "View Changes On")
+    end
+
+    return true
+
+end
+
+function toggleviewchanges_(phase)
+    if phase == SASL_COMMAND_BEGIN then
+        toggleviewchanges()
+    end
+    return 0
+end
+
+my_command_toggleviewchanges = sasl.createCommand(definitions.APPNAMEPREFIX .. "/toggleviewchanges", "Toggle View Changes")
+sasl.registerCommandHandler(my_command_toggleviewchanges, 0, toggleviewchanges_)
 
  --------------------------------------------------------------------------------------------------------------
 
@@ -5292,7 +5317,7 @@ function shutdownsteps()
                     helpers.command_once("laminar/B738/toggle_switch/apu_gen1_up")
                 end
                 if ((get(apupowerbus2) == ON) and (get(announcsourceoff2) == OFF)) then
-                    elpers.command_once("laminar/B738/toggle_switch/apu_gen2_up")
+                    helpers.command_once("laminar/B738/toggle_switch/apu_gen2_up")
                 end
             end
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
@@ -5737,7 +5762,7 @@ sasl.registerCommandHandler(my_command_test, 0, test_)
 
 function cockpitinitsteps()
 
-    if ((procedureloop1.stepindex > 25) or procedureabort) then
+    if ((procedureloop1.stepindex > 26) or procedureabort) then
         procedureloop1.lock = NOPROCEDURE
         procedureabort = false
         return true
@@ -5837,7 +5862,6 @@ function cockpitinitsteps()
         end
     end
 
-    
     if (procedureloop1.stepindex == 7) then
         if (configvalues[CONFIGTRANSPONDER] ~= 0) then
             if (get(transpondercode) ~= configvalues[CONFIGTRANSPONDER]) then
@@ -5847,6 +5871,21 @@ function cockpitinitsteps()
     end
 
     if (procedureloop1.stepindex == 8) then
+        if (get(transponderpos) ~= STANDBY) then
+            if (configvalues[CONFIGTRANSPONDER] ~= 0) then
+                if (configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
+                    toggletransponder(STANDBY)
+                elseif (configvalues[CONFIGVOICEADVICEONLY] == ON) then
+                    commandtableentry(ADVICE, "Set Transponder Standby")
+                    procedureloop1.stepindex = procedureloop1.stepindex - 1
+                end
+            end
+        elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
+            commandtableentry(ADVICE, "Transponder Checked and Standby")
+        end
+    end
+
+    if (procedureloop1.stepindex == 9) then
         if ((get(captainprobepos) ~= OFF) or (get(foprobepos) ~= OFF)) then
             if (configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                 toggleprobeheat(OFF)
@@ -5859,11 +5898,11 @@ function cockpitinitsteps()
         end
     end
 
-    if (procedureloop1.stepindex == 9) then
+    if (procedureloop1.stepindex == 10) then
         setnosmokingsign(NOSMOKINGSIGNON)
     end
 
-    if (procedureloop1.stepindex == 10) then
+    if (procedureloop1.stepindex == 11) then
         if (get(seatbeltsignpos) ~= SEATBELTSIGNOFF) then
             if (configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                 setseatbeltsign(SEATBELTSIGNOFF)
@@ -5876,7 +5915,7 @@ function cockpitinitsteps()
         end
     end
 
-    if (procedureloop1.stepindex == 11) then
+    if (procedureloop1.stepindex == 12) then
         if (get(nosmokingsignpos) ~= NOSMOKINGSIGNON) then
             if (configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                 setnosmokingsign(NOSMOKINGSIGNON)
@@ -5889,7 +5928,7 @@ function cockpitinitsteps()
         end
     end
 
-    if (procedureloop1.stepindex == 12) then
+    if (procedureloop1.stepindex == 13) then
         if(get(positionlights) ~= POSLIGHTSSTEADY) then 
             if (configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                 togglepositionlights(POSLIGHTSSTEADY)
@@ -5902,7 +5941,7 @@ function cockpitinitsteps()
         end
     end
 
-    if (procedureloop1.stepindex == 13) then
+    if (procedureloop1.stepindex == 14) then
         if ((get(llights1) ~= OFF) or (get(llights2) ~= OFF) or (get(llights3) ~= OFF) or (get(llights4) ~= OFF)) then
             if (configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                 togglelandinglights(OFF)
@@ -5915,7 +5954,7 @@ function cockpitinitsteps()
         end
     end
 
-    if (procedureloop1.stepindex == 14) then
+    if (procedureloop1.stepindex == 15) then
         if ((get(rwylightl) == ON) or (get(rwylightl) == ON)) then
             if (configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                 togglerwylights(OFF)
@@ -5928,7 +5967,7 @@ function cockpitinitsteps()
         end
     end
 
-    if (procedureloop1.stepindex == 15) then
+    if (procedureloop1.stepindex == 16) then
         if (get(taxilight)  ~= OFF) then
             if (configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                 toggletaxilights(OFF)
@@ -5941,13 +5980,13 @@ function cockpitinitsteps()
         end
     end
 
-    if (procedureloop1.stepindex == 16) then
+    if (procedureloop1.stepindex == 17) then
         if (get(apdiscpos) == ON) then
             helpers.command_once("laminar/B738/autopilot/disconnect_toggle")
         end
     end
 
-    if (procedureloop1.stepindex == 17) then
+    if (procedureloop1.stepindex == 18) then
         if ((get(fdpilotpos) == ON) or (get(fdfopos) == ON)) then
             if (configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                 togglefds(OFF)
@@ -5960,7 +5999,7 @@ function cockpitinitsteps()
         end
     end
 
-    if (procedureloop1.stepindex == 18) then
+    if (procedureloop1.stepindex == 19) then
         if (get(mcpaltitude) ~= lowerairspacealt) then
             if (configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                 set(mcpaltitude, lowerairspacealt)
@@ -5973,7 +6012,7 @@ function cockpitinitsteps()
         end
     end
 
-    if (procedureloop1.stepindex == 19) then
+    if (procedureloop1.stepindex == 20) then
         if (get(bankanglepos) ~= configvalues[CONFIGBANKANGLEMAX]) then
             if (configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                 setbankanglepos(configvalues[CONFIGBANKANGLEMAX])
@@ -5986,7 +6025,7 @@ function cockpitinitsteps()
         end
     end
 
-    if (procedureloop1.stepindex == 20) then
+    if (procedureloop1.stepindex == 21) then
         if (get(efisdatapilotpos) == OFF) then
             helpers.command_once("laminar/B738/EFIS_control/capt/push_button/data_press")
         end
@@ -5995,13 +6034,13 @@ function cockpitinitsteps()
         end
     end
 
-    if (procedureloop1.stepindex == 21) then
+    if (procedureloop1.stepindex == 22) then
         if (get(aponstat) == ON) then
             set(aponstat, OFF)
         end
     end
 
-     if (procedureloop1.stepindex == 22) then
+     if (procedureloop1.stepindex == 23) then
         if ((not enginesrunning(BOTH)) and ((get(mixture1pos) ~= OFF) or (get(mixture2pos) ~= OFF))) then
             if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 commandtableentry(ADVICE, "Set Both Engine Fuel Levers Cutoff")
@@ -6017,7 +6056,7 @@ function cockpitinitsteps()
         end
     end
 
-    if (procedureloop1.stepindex == 23) then
+    if (procedureloop1.stepindex == 24) then
         speedbrakeleverrounded = roundnumber(get(speedbrakelever), 1)
         if (speedbrakeleverrounded ~= OFF) then
             if (configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
@@ -6029,12 +6068,12 @@ function cockpitinitsteps()
         end
     end
 
-    if (procedureloop1.stepindex == 24) then
+    if (procedureloop1.stepindex == 25) then
         helpers.command_once("laminar/B738/push_button/master_caution1")
         helpers.command_once("laminar/B738/button/fmc1_clr")
     end
 
-    if (procedureloop1.stepindex == 25) then
+    if (procedureloop1.stepindex == 26) then
         if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
             commandtableentry(ADVICE, "Cockpit Initialization Complete")
         else
@@ -6806,6 +6845,7 @@ function radioaltitudeb1000steps()
             if ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop2.steprepeat) then
                 commandtableentry(ADVICE, "Gear Checked and Down")
             end
+            set(nosewheel, OFF)
         end
     end
 
@@ -10327,6 +10367,7 @@ menu_toggle_auto = sasl.appendMenuItem(P.menu_main, "Toggle Auto Functions", tog
 menu_toogle_voice = sasl.appendMenuItem(P.menu_main, "Toggle Voice Readback", togglevoicereadback)
 menu_toogle_adviceonly = sasl.appendMenuItem(P.menu_main, "Toggle Advice Only", toggleadviceonly)
 menu_toogle_freeze = sasl.appendMenuItem(P.menu_main, "Toggle Sim Freeze", togglesimfreeze)
+menu_toggle_view = sasl.appendMenuItem(P.menu_main, "Toggle View Changes", toggleviewchanges)
 menu_yal_reset = sasl.appendMenuItem(P.menu_main, "Reset YAL", yalreset)
 sasl.appendMenuSeparator ( P.menu_main )
 
@@ -10366,6 +10407,7 @@ function P.enableMenus()
     sasl.enableMenuItem(P.menu_main , menu_toogle_voice , enable)
     sasl.enableMenuItem(P.menu_main , menu_toogle_adviceonly , enable)
     sasl.enableMenuItem(P.menu_main , menu_toogle_freeze , enable)
+    sasl.enableMenuItem(P.menu_main , menu_toggle_view , enable)
     sasl.enableMenuItem(P.menu_main , menu_yal_reset , enable)
 
 end
