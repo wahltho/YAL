@@ -9968,12 +9968,22 @@ function ongoingtasks()
     end
 
     if (ongoingtaskstepindex == 2) then
-        if ( (flightstate < 3) and (get(fmccruisealt) ~= 0) and (get(fmccruisealt) ~= 20000) and (get(cabincruisealt)  ~= get(fmccruisealt))) then
-            if ((configvalues[CONFIGAUTOFUNCTIONS] == ON) and (configvalues[CONFIGVOICEADVICEONLY] ~= ON)) then 
-                set(cabincruisealt, get(fmccruisealt))
-            elseif (configvalues[CONFIGVOICEADVICEONLY] == ON) then 
-                commandtableentry(ADVICE, "Set Cabin Cruise Alitude " .. addspaces(get(fmccruisealt)))
-                ongoingtaskstepindex = ongoingtaskstepindex - 1
+        if ( (flightstate < 3) and (get(fmccruisealt) ~= 0) and (get(fmccruisealt) ~= 20000)) then
+            local fmccruisealttmp = get(fmccruisealt)
+            local remainder = fmccruisealttmp % 500
+            if ((remainder < 250) and (remainder ~= 0)) then
+                fmccruisealttmp = fmccruisealttmp - remainder
+            else
+                fmccruisealttmp = fmccruisealttmp + (500 - remainder)
+            end
+
+            if (get(cabincruisealt)  ~= fmccruisealttmp) then
+                if ((configvalues[CONFIGAUTOFUNCTIONS] == ON) and (configvalues[CONFIGVOICEADVICEONLY] ~= ON)) then 
+                    set(cabincruisealt, get(fmccruisealttmp))
+                elseif (configvalues[CONFIGVOICEADVICEONLY] == ON) then 
+                    commandtableentry(ADVICE, "Set Cabin Cruise Alitude " .. addspaces(fmccruisealttmp))
+                    ongoingtaskstepindex = ongoingtaskstepindex - 1
+                end
             end
         end
     end
