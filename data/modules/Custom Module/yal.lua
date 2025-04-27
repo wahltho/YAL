@@ -9969,14 +9969,7 @@ function ongoingtasks()
 
     if (ongoingtaskstepindex == 2) then
         if ( (flightstate < 3) and (get(fmccruisealt) ~= 0) and (get(fmccruisealt) ~= 20000)) then
-            local fmccruisealttmp = get(fmccruisealt)
-            local remainder = fmccruisealttmp % 500
-            if ((remainder < 250) and (remainder ~= 0)) then
-                fmccruisealttmp = fmccruisealttmp - remainder
-            else
-                fmccruisealttmp = fmccruisealttmp + (500 - remainder)
-            end
-
+            local fmccruisealttmp = roundnumber(get(fmccruisealt) / 500) * 500
             if (get(cabincruisealt)  ~= fmccruisealttmp) then
                 if ((configvalues[CONFIGAUTOFUNCTIONS] == ON) and (configvalues[CONFIGVOICEADVICEONLY] ~= ON)) then 
                     set(cabincruisealt, get(fmccruisealttmp))
@@ -9990,6 +9983,7 @@ function ongoingtasks()
 
     if (ongoingtaskstepindex == 3) then
          if ((flightstate < 4) and desmetar.metarfound) then
+            local deslandingalttmp = 0
             if tonumber(desmetar.metar.elevation_m) then
                 deslandingalttmp = roundnumber((desmetar.metar.elevation_m * FEETTOMETER) / 50) * 50
             else
