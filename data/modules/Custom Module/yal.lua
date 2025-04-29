@@ -6204,7 +6204,7 @@ end
 
 function altitudea10000steps()
 
-    if ((procedureloop1.stepindex > 5) or procedureabort) then
+    if ((procedureloop1.stepindex > 7) or procedureabort) then
         altitudea10000set = true
         procedureloop1.lock = NOPROCEDURE
         procedureabort = false
@@ -6222,6 +6222,15 @@ function altitudea10000steps()
     end
 
     if (procedureloop1.stepindex == 2) then
+        if (configvalues[CONFIGVIEWCHANGES] == ON) then
+            helpers.command_once("sim/view/default_view")
+            if not setview(configvalues[CONFIGVIEWOVERHEADPANEL]) then
+                procedureloop1.stepindex = procedureloop1.stepindex - 1
+            end
+        end
+    end
+
+    if (procedureloop1.stepindex == 3) then
         if ((get(llights1) ~= OFF) or (get(llights2) ~= OFF) or (get(llights3) ~= OFF) or (get(llights4) ~= OFF)) then
             if (configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                 togglelandinglights(OFF)
@@ -6234,7 +6243,7 @@ function altitudea10000steps()
         end  
     end
 
-    if (procedureloop1.stepindex == 3) then
+    if (procedureloop1.stepindex == 4) then
         if (get(logolighton) ~= OFF) then
             if (configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                 togglelogolight(OFF)
@@ -6247,7 +6256,7 @@ function altitudea10000steps()
         end 
     end
 
-    if (procedureloop1.stepindex == 4) then     
+    if (procedureloop1.stepindex == 5) then     
         if (get(seatbeltsignpos) ~= SEATBELTSIGNOFF) then
             if (configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                 setseatbeltsign(SEATBELTSIGNOFF)
@@ -6260,7 +6269,7 @@ function altitudea10000steps()
         end
     end
 
-    if (procedureloop1.stepindex == 5) then
+    if (procedureloop1.stepindex == 6) then
         if (get(starterauto) == ON) then
             if ((get(starter1pos) ~= AUTO) or (get(starter2pos) ~= AUTO)) then
                 if (configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
@@ -6282,6 +6291,14 @@ function altitudea10000steps()
                 end 
             elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
                 commandtableentry(ADVICE, "Both Starters Checked and Continuous")
+            end
+        end
+    end
+
+    if (procedureloop1.stepindex == 7) then
+        if (configvalues[CONFIGVIEWCHANGES] == ON) then
+            if not setview(configvalues[CONFIGVIEWMAINPANEL]) then
+                procedureloop1.stepindex = procedureloop1.stepindex - 1
             end
         end
     end
