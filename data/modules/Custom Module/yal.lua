@@ -6539,7 +6539,7 @@ end
 
 function altitudeb10000steps()
 
-    if ((procedureloop1.stepindex > 11) or procedureabort) then
+    if ((procedureloop1.stepindex > 12) or procedureabort) then
         altitudeb10000set = true
         procedureloop1.lock = NOPROCEDURE
         procedureabort = false
@@ -6589,16 +6589,16 @@ function altitudeb10000steps()
         end  
     end
 
-    if (procedureloop2.stepindex == 5) then
+    if (procedureloop1.stepindex == 5) then
         if ((get(starter1pos) ~= FLIGHT) or (get(starter2pos) ~= FLIGHT)) then
             if (configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                 setstarter(BOTH, FLIGHT)
             elseif (configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 commandtableentry(ADVICE, "Set Both Starters Flight")
-                procedureloop2.stepindex = procedureloop2.stepindex - 1
+                procedureloop1.stepindex = procedureloop1.stepindex - 1
             end
         else
-            if ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop2.steprepeat) then
+            if ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
                 commandtableentry(ADVICE, "Both Starters Checked and Flight")
             end
         end
@@ -6619,7 +6619,7 @@ function altitudeb10000steps()
 
     if (procedureloop1.stepindex == 7) then
         if (configvalues[CONFIGVIEWCHANGES] == ON) then
-            if not setview(configvalues[CONFIGVIEWFMS]) then
+            if not setview(configvalues[CONFIGVIEWMAINPANEL]) then
                 procedureloop1.stepindex = procedureloop1.stepindex - 1
             end
         end
@@ -6632,6 +6632,14 @@ function altitudeb10000steps()
     end
 
     if (procedureloop1.stepindex == 9) then
+        if (configvalues[CONFIGVIEWCHANGES] == ON) then
+            if not setview(configvalues[CONFIGVIEWFMS]) then
+                procedureloop1.stepindex = procedureloop1.stepindex - 1
+            end
+        end
+    end
+
+    if (procedureloop1.stepindex == 10) then
         if (configvalues[CONFIGVREF30SET] == ON) then
            local appflapscalc, appvrefcalc = calcappflapsvref(desmetar.decodedmetar)
             if (configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
@@ -6649,7 +6657,7 @@ function altitudeb10000steps()
         end
     end
 
-    if (procedureloop1.stepindex == 10) then
+    if (procedureloop1.stepindex == 11) then
         if (configvalues[CONFIGVIEWCHANGES] == ON) then
             if not setview(configvalues[CONFIGVIEWMAINPANEL]) then
                 procedureloop1.stepindex = procedureloop1.stepindex - 1
@@ -6657,7 +6665,7 @@ function altitudeb10000steps()
         end
     end
 
-    if (procedureloop1.stepindex == 11) then
+    if (procedureloop1.stepindex == 12) then
         if (configvalues[CONFIGVREF30SET] == ON) then
             local autobrake = calcautobrake(get(vref), desmetar.decodedmetar)
             sasl.logDebug("AUTOBRAKE AUTOBRAKEPOS: " .. tostring(get(autobrakepos)) .. " AUTOBRAKE " .. tostring(autobrake))
