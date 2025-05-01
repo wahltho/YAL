@@ -6928,7 +6928,7 @@ end
 
 function duringdescentsteps()
 
-    if ((procedureloop2.stepindex > 6) or procedureabort) then
+    if ((procedureloop2.stepindex > 7) or procedureabort) then
         duringdescentset = true
         procedureloop2.lock = NOPROCEDURE
         procedureabort = false
@@ -6945,7 +6945,7 @@ function duringdescentsteps()
     end
 
     if (procedureloop2.stepindex == 2) then
-        if (configvalues[CONFIGVIEWCHANGES] == ON) then
+        if ((configvalues[CONFIGVIEWCHANGES] == ON) and (configvalues[CONFIGSPDRESTR250] == ON)) then
             helpers.command_once("sim/view/default_view")
             if not setview(configvalues[CONFIGVIEWFMS]) then
                 procedureloop2.stepindex = procedureloop2.stepindex - 1
@@ -6954,6 +6954,12 @@ function duringdescentsteps()
     end
 
     if (procedureloop2.stepindex == 3) then
+        if ((configvalues[CONFIGVIEWCHANGES] == ON) and(configvalues[CONFIGSPDRESTR250] == ON)) then
+            helpers.command_once("laminar/B738/button/fmc1_des")
+        end
+    end
+
+    if (procedureloop2.stepindex == 4) then
         if (configvalues[CONFIGSPDRESTR250] == ON) then
             if (get(speedrestr) ~= 250) then
                 if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
@@ -6969,7 +6975,7 @@ function duringdescentsteps()
         end
     end
 
-    if (procedureloop2.stepindex == 4) then
+    if (procedureloop2.stepindex == 5) then
         if (configvalues[CONFIGVIEWCHANGES] == ON) then
             if not setview(configvalues[CONFIGVIEWMAINPANEL]) then
                 procedureloop2.stepindex = procedureloop2.stepindex - 1
@@ -6977,7 +6983,7 @@ function duringdescentsteps()
         end
     end
 
-    if (procedureloop2.stepindex == 5) then
+    if (procedureloop2.stepindex == 6) then
         if (get(altitude) < get(fmctranslvl)) then
             if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 commandtableentry(ADVICE, "Passing Transition Level")
@@ -6989,7 +6995,7 @@ function duringdescentsteps()
         end
     end
 
-    if (procedureloop2.stepindex == 6) then
+    if (procedureloop2.stepindex == 7) then
         if (configvalues[CONFIGAUTOBARO] == ON) then
             if (get(altitude) < get(fmctranslvl)) then
                 local baroinchtmp, baropastmp = getlocalqnh(ARRIVAL)
