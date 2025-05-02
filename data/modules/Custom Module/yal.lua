@@ -910,22 +910,26 @@ sasl.registerCommandHandler(my_command_readconfig, 0, readconfig_)
 --------------------------------------------------------------------------------------------------------------
 function setview(view)
 
-    if (#commandtable == 0) then
-        if ((configvalues[CONFIGVIEWCHANGES] == ON) and (view ~= nil)) then
-            if view ~= previousview then
-                if (xcamerastatus ~= nil) then
-                    helpers.command_once("SRS/X-Camera/Select_View_ID_" .. view)
-                else
-                    helpers.command_once("sim/view/quick_look_" .. tostring(view - 1))
-                end
-                sasl.logDebug("Setting View #" .. view)
-                previousview = view
-            else
-                sasl.logDebug("View #" .. view .. " already set")
-            end
+    if (configvalues[CONFIGVIEWCHANGES] == ON) then
+        if (view == nil) then
+            return false
         end
-    else
-        return false
+
+        if (view ~= previousview) then
+            if (view == DEFAULTVIEW) then
+                commandtableentry(COMMAND, "sim/view/default_view")
+            else
+                if (xcamerastatus ~= nil) then
+                    commandtableentry(COMMAND, "SRS/X-Camera/Select_View_ID_" .. view)
+                else
+                    commandtableentry(COMMAND, "sim/view/quick_look_" .. tostring(view - 1))
+                end
+            end
+            sasl.logDebug("Setting View #" .. view)
+            previousview = view
+        else
+            sasl.logDebug("View #" .. view .. " already set")
+        end
     end
 
     return true
@@ -3835,12 +3839,8 @@ function coldanddarksteps()
     end
 
     if (procedureloop1.stepindex == 1) then
-        if (configvalues[CONFIGVIEWCHANGES] == ON) then
-            helpers.command_once("sim/view/default_view")
-            if not setview(configvalues[CONFIGVIEWOVERHEADPANEL]) then
-                procedureloop1.stepindex = procedureloop1.stepindex - 1
-            end
-        end
+        setview(DEFAULTVIEW)
+        setview(configvalues[CONFIGVIEWOVERHEADPANEL])
     end
 
     if (procedureloop1.stepindex == 2) then
@@ -3863,9 +3863,7 @@ function coldanddarksteps()
     end
 
     if ((procedureloop1.stepindex == 4)  and (get(sunpitchdegrees) < 0)) then
-        if not setview(configvalues[CONFIGVIEWUPPEROVERHEADPANEL]) then
-            procedureloop1.stepindex = procedureloop1.stepindex - 1
-        end
+        setview(configvalues[CONFIGVIEWUPPEROVERHEADPANEL])
     end
 
     if ((procedureloop1.stepindex == 5) and (get(sunpitchdegrees) < 0)) then
@@ -3882,9 +3880,7 @@ function coldanddarksteps()
     end
 
     if ((procedureloop1.stepindex == 6) and (get(sunpitchdegrees) < 0)) then
-        if not setview(configvalues[CONFIGVIEWOVERHEADPANEL]) then
-            procedureloop1.stepindex = procedureloop1.stepindex - 1
-        end
+        setview(configvalues[CONFIGVIEWOVERHEADPANEL])
     end
 
     if (procedureloop1.stepindex == 7) then
@@ -4057,9 +4053,7 @@ function coldanddarksteps()
     end
 
     if (procedureloop1.stepindex == 20) then
-        if not setview(configvalues[CONFIGVIEWUPPEROVERHEADPANEL]) then
-            procedureloop1.stepindex = procedureloop1.stepindex - 1
-        end
+        setview(configvalues[CONFIGVIEWUPPEROVERHEADPANEL])
     end
 
     if (procedureloop1.stepindex == 21) then
@@ -4086,9 +4080,7 @@ function coldanddarksteps()
     end
 
     if (procedureloop1.stepindex == 23) then
-        if not setview(configvalues[CONFIGVIEWFMS]) then
-            procedureloop1.stepindex = procedureloop1.stepindex - 1
-        end
+        setview(configvalues[CONFIGVIEWFMS])
     end
 
     if (procedureloop1.stepindex == 24) then
@@ -4124,9 +4116,7 @@ function coldanddarksteps()
     end
 
     if (procedureloop1.stepindex == 29) then
-        if not setview(configvalues[CONFIGVIEWMAINPANEL]) then
-            procedureloop1.stepindex = procedureloop1.stepindex - 1
-        end
+        setview(configvalues[CONFIGVIEWMAINPANEL])
     end
 
     if (procedureloop1.stepindex == 30) then
@@ -4222,12 +4212,8 @@ function apustartupsteps()
     end
 
     if (procedureloop1.stepindex == 1) then
-        if (configvalues[CONFIGVIEWCHANGES] == ON) then
-            helpers.command_once("sim/view/default_view")
-            if not setview(configvalues[CONFIGVIEWOVERHEADPANEL]) then
-                procedureloop1.stepindex = procedureloop1.stepindex - 1
-            end
-        end
+        setview(DEFAULTVIEW)
+        setview(configvalues[CONFIGVIEWOVERHEADPANEL])
     end
 
     if (procedureloop1.stepindex == 2) then
@@ -4297,9 +4283,7 @@ function apustartupsteps()
     end
    
     if (procedureloop1.stepindex == 7) then
-        if not setview(configvalues[CONFIGVIEWMAINPANEL]) then
-            procedureloop1.stepindex = procedureloop1.stepindex - 1
-        end
+        setview(configvalues[CONFIGVIEWMAINPANEL])
     end
 
     if (procedureloop1.stepindex == 8) then
@@ -4375,12 +4359,8 @@ function enginestartsteps()
     end
 
     if (procedureloop1.stepindex == 1) then
-        if (configvalues[CONFIGVIEWCHANGES] == ON) then
-            helpers.command_once("sim/view/default_view")
-            if not setview(configvalues[CONFIGVIEWOVERHEADPANEL]) then
-                procedureloop1.stepindex = procedureloop1.stepindex - 1
-            end
-        end
+        setview(DEFAULTVIEW)
+        setview(configvalues[CONFIGVIEWOVERHEADPANEL])
     end
 
     if (procedureloop1.stepindex == 2) then
@@ -4466,9 +4446,7 @@ function enginestartsteps()
     end
 
     if (procedureloop1.stepindex == 8) then
-        if not setview(configvalues[CONFIGVIEWMAINPANEL]) then
-            procedureloop1.stepindex = procedureloop1.stepindex - 1
-        end
+        setview(configvalues[CONFIGVIEWMAINPANEL])
     end
 
     if (procedureloop1.stepindex == 9) then
@@ -4484,9 +4462,7 @@ function enginestartsteps()
     end 
 
     if (procedureloop1.stepindex == 10) then
-        if not setview(configvalues[CONFIGVIEWTHROTTLE]) then
-            procedureloop1.stepindex = procedureloop1.stepindex - 1
-        end
+        setview(configvalues[CONFIGVIEWTHROTTLE])
     end
 
     if (procedureloop1.stepindex == 11) then
@@ -4503,9 +4479,7 @@ function enginestartsteps()
     end
 
     if (procedureloop1.stepindex == 12) then
-        if not setview(configvalues[CONFIGVIEWMAINPANEL]) then
-            procedureloop1.stepindex = procedureloop1.stepindex - 1
-        end
+        setview(configvalues[CONFIGVIEWMAINPANEL])
     end
 
     if (procedureloop1.stepindex == 13) then
@@ -4521,9 +4495,7 @@ function enginestartsteps()
     end
 
     if (procedureloop1.stepindex == 14) then
-        if not setview(configvalues[CONFIGVIEWOVERHEADPANEL]) then
-            procedureloop1.stepindex = procedureloop1.stepindex - 1
-        end
+        setview(configvalues[CONFIGVIEWOVERHEADPANEL])
     end
 
     if (procedureloop1.stepindex == 15) then
@@ -4540,9 +4512,7 @@ function enginestartsteps()
     end
 
     if (procedureloop1.stepindex == 16) then
-        if not setview(configvalues[CONFIGVIEWMAINPANEL]) then
-            procedureloop1.stepindex = procedureloop1.stepindex - 1
-        end
+        setview(configvalues[CONFIGVIEWMAINPANEL])
     end
 
     if (procedureloop1.stepindex == 17) then
@@ -4558,9 +4528,7 @@ function enginestartsteps()
     end
 
     if (procedureloop1.stepindex == 18) then
-        if not setview(configvalues[CONFIGVIEWTHROTTLE]) then
-            procedureloop1.stepindex = procedureloop1.stepindex - 1
-        end
+        setview(configvalues[CONFIGVIEWTHROTTLE])
     end
 
     if (procedureloop1.stepindex == 19) then
@@ -4577,9 +4545,7 @@ function enginestartsteps()
     end
 
     if (procedureloop1.stepindex == 20) then
-        if not setview(configvalues[CONFIGVIEWMAINPANEL]) then
-            procedureloop1.stepindex = procedureloop1.stepindex - 1
-        end
+        setview(configvalues[CONFIGVIEWMAINPANEL])
     end
 
     if (procedureloop1.stepindex == 21) then
@@ -4595,9 +4561,7 @@ function enginestartsteps()
     end
 
     if (procedureloop1.stepindex == 22) then
-        if not setview(configvalues[CONFIGVIEWOVERHEADPANEL]) then
-            procedureloop1.stepindex = procedureloop1.stepindex - 1
-        end
+        setview(configvalues[CONFIGVIEWOVERHEADPANEL])
     end
 
     if (procedureloop1.stepindex == 23) then
@@ -4744,9 +4708,7 @@ function enginestartsteps()
     end
 
     if (procedureloop1.stepindex == 33) then
-        if not setview(configvalues[CONFIGVIEWMAINPANEL]) then
-            procedureloop1.stepindex = procedureloop1.stepindex - 1
-        end
+        setview(configvalues[CONFIGVIEWMAINPANEL])
     end
 
     if (procedureloop1.stepindex == 34) then
@@ -4834,12 +4796,8 @@ function engineshutdownsteps()
 
 
     if (procedureloop1.stepindex == 1) then
-        if (configvalues[CONFIGVIEWCHANGES] == ON) then
-            helpers.command_once("sim/view/default_view")
-            if not setview(configvalues[CONFIGVIEWOVERHEADPANEL]) then
-                procedureloop1.stepindex = procedureloop1.stepindex - 1
-            end
-        end
+        setview(DEFAULTVIEW)
+        setview(configvalues[CONFIGVIEWOVERHEADPANEL])
     end
 
     if (procedureloop1.stepindex == 2) then
@@ -4948,9 +4906,7 @@ function engineshutdownsteps()
     end
 
     if (procedureloop1.stepindex == 9) then
-        if not setview(configvalues[CONFIGVIEWTHROTTLE]) then
-            procedureloop1.stepindex = procedureloop1.stepindex - 1
-        end
+        setview(configvalues[CONFIGVIEWTHROTTLE])
     end
 
     if (procedureloop1.stepindex == 10) then
@@ -4972,9 +4928,7 @@ function engineshutdownsteps()
     end
 
     if (procedureloop1.stepindex == 11) then
-        if not setview(configvalues[CONFIGVIEWOVERHEADPANEL]) then
-            procedureloop1.stepindex = procedureloop1.stepindex - 1
-        end
+        setview(configvalues[CONFIGVIEWOVERHEADPANEL])
     end
 
     if (procedureloop1.stepindex == 12) then
@@ -5045,9 +4999,7 @@ function engineshutdownsteps()
     end
 
     if (procedureloop1.stepindex == 17) then
-        if not setview(configvalues[CONFIGVIEWMAINPANEL]) then
-            procedureloop1.stepindex = procedureloop1.stepindex - 1
-        end
+        setview(configvalues[CONFIGVIEWMAINPANEL])
     end
 
     if (procedureloop1.stepindex == 18) then
@@ -5163,12 +5115,8 @@ function shutdownsteps()
     end
 
     if (procedureloop1.stepindex == 1) then
-        if (configvalues[CONFIGVIEWCHANGES] == ON) then
-            helpers.command_once("sim/view/default_view")
-            if not setview(configvalues[CONFIGVIEWUPPEROVERHEADPANEL]) then
-                procedureloop1.stepindex = procedureloop1.stepindex - 1
-            end
-        end
+        setview(DEFAULTVIEW)
+        setview(configvalues[CONFIGVIEWUPPEROVERHEADPANEL])
     end
 
     if (procedureloop1.stepindex == 2) then
@@ -5188,9 +5136,7 @@ function shutdownsteps()
 
 
     if (procedureloop1.stepindex == 3) then
-        if not setview(configvalues[CONFIGVIEWOVERHEADPANEL]) then
-            procedureloop1.stepindex = procedureloop1.stepindex - 1
-        end
+        setview(configvalues[CONFIGVIEWOVERHEADPANEL])
     end
 
     if (procedureloop1.stepindex == 4) then
@@ -5399,9 +5345,7 @@ function shutdownsteps()
     end
 
     if (procedureloop1.stepindex == 19) then
-        if not setview(configvalues[CONFIGVIEWUPPEROVERHEADPANEL]) then
-            procedureloop1.stepindex = procedureloop1.stepindex - 1
-        end
+        setview(configvalues[CONFIGVIEWUPPEROVERHEADPANEL])
     end
 
     if (procedureloop1.stepindex == 20) then
@@ -5418,9 +5362,7 @@ function shutdownsteps()
     end
 
     if (procedureloop1.stepindex == 21) then
-        if not setview(configvalues[CONFIGVIEWOVERHEADPANEL]) then
-            procedureloop1.stepindex = procedureloop1.stepindex - 1
-        end
+       setview(configvalues[CONFIGVIEWOVERHEADPANEL])
     end
 
     if (procedureloop1.stepindex == 22) then
@@ -5443,9 +5385,7 @@ function shutdownsteps()
     end
 
     if (procedureloop1.stepindex == 24) then
-        if not setview(configvalues[CONFIGVIEWMAINPANEL]) then
-            procedureloop1.stepindex = procedureloop1.stepindex - 1
-        end
+        setview(configvalues[CONFIGVIEWMAINPANEL])
     end
 
     if (procedureloop1.stepindex == 25) then
@@ -5521,12 +5461,8 @@ function teststeps()
     end
 
     if (procedureloop1.stepindex == 1) then
-        if (configvalues[CONFIGVIEWCHANGES] == ON) then
-            helpers.command_once("sim/view/default_view")
-            if not setview(configvalues[CONFIGVIEWTHROTTLE]) then
-                procedureloop1.stepindex = procedureloop1.stepindex - 1
-            end
-        end
+        setview(DEFAULTVIEW)
+        setview(configvalues[CONFIGVIEWTHROTTLE])
     end
 
     if (procedureloop1.stepindex == 2) then
@@ -5571,9 +5507,7 @@ function teststeps()
     end
 
     if (procedureloop1.stepindex == 13) then
-        if not setview(configvalues[CONFIGVIEWUPPEROVERHEADPANEL]) then
-            procedureloop1.stepindex = procedureloop1.stepindex - 1
-        end
+        setview(configvalues[CONFIGVIEWUPPEROVERHEADPANEL])
     end
 
     if (procedureloop1.stepindex == 14) then
@@ -5617,9 +5551,7 @@ function teststeps()
     end
 
     if (procedureloop1.stepindex == 24) then
-        if not setview(configvalues[CONFIGVIEWOVERHEADPANEL]) then
-            procedureloop1.stepindex = procedureloop1.stepindex - 1
-        end
+       setview(configvalues[CONFIGVIEWOVERHEADPANEL])
     end
 
     if (procedureloop1.stepindex == 25) then
@@ -5659,9 +5591,7 @@ function teststeps()
     end
 
     if (procedureloop1.stepindex == 34) then
-        if not setview(configvalues[CONFIGVIEWMAINPANEL]) then
-            procedureloop1.stepindex = procedureloop1.stepindex - 1
-        end
+        setview(configvalues[CONFIGVIEWMAINPANEL])
     end
 
     if (procedureloop1.stepindex == 35) then
@@ -5705,9 +5635,7 @@ function teststeps()
     end
 
     if (procedureloop1.stepindex == 45) then
-        if not setview(configvalues[CONFIGVIEWPEDESTAL]) then
-            procedureloop1.stepindex = procedureloop1.stepindex - 1
-        end
+        setview(configvalues[CONFIGVIEWPEDESTAL])
     end
 
     if (procedureloop1.stepindex == 46) then
@@ -5715,9 +5643,7 @@ function teststeps()
     end
 
     if (procedureloop1.stepindex == 47) then
-        if not setview(configvalues[CONFIGVIEWMAINPANEL]) then
-            procedureloop1.stepindex = procedureloop1.stepindex - 1
-        end
+        setview(configvalues[CONFIGVIEWMAINPANEL])
     end
 
     if (procedureloop1.stepindex == 48) then
@@ -6224,12 +6150,8 @@ function altitudea10000steps()
     end
 
     if (procedureloop1.stepindex == 2) then
-        if (configvalues[CONFIGVIEWCHANGES] == ON) then
-            helpers.command_once("sim/view/default_view")
-            if not setview(configvalues[CONFIGVIEWOVERHEADPANEL]) then
-                procedureloop1.stepindex = procedureloop1.stepindex - 1
-            end
-        end
+        setview(DEFAULTVIEW)
+        setview(configvalues[CONFIGVIEWOVERHEADPANEL])
     end
 
     if (procedureloop1.stepindex == 3) then
@@ -6298,11 +6220,7 @@ function altitudea10000steps()
     end
 
     if (procedureloop1.stepindex == 7) then
-        if (configvalues[CONFIGVIEWCHANGES] == ON) then
-            if not setview(configvalues[CONFIGVIEWMAINPANEL]) then
-                procedureloop1.stepindex = procedureloop1.stepindex - 1
-            end
-        end
+        setview(configvalues[CONFIGVIEWMAINPANEL])
     end
 
     return false
@@ -6557,12 +6475,8 @@ function altitudeb10000steps()
     end
 
     if (procedureloop1.stepindex == 2) then
-        if (configvalues[CONFIGVIEWCHANGES] == ON) then
-            helpers.command_once("sim/view/default_view")
-            if not setview(configvalues[CONFIGVIEWOVERHEADPANEL]) then
-                procedureloop1.stepindex = procedureloop1.stepindex - 1
-            end
-        end
+        setview(DEFAULTVIEW)
+        setview(configvalues[CONFIGVIEWOVERHEADPANEL])
     end
 
     if (procedureloop1.stepindex == 3) then
@@ -6620,11 +6534,7 @@ function altitudeb10000steps()
     end
 
     if (procedureloop1.stepindex == 7) then
-        if (configvalues[CONFIGVIEWCHANGES] == ON) then
-            if not setview(configvalues[CONFIGVIEWMAINPANEL]) then
-                procedureloop1.stepindex = procedureloop1.stepindex - 1
-            end
-        end
+        setview(configvalues[CONFIGVIEWMAINPANEL])
     end
 
     if (procedureloop1.stepindex == 8) then
@@ -6634,11 +6544,7 @@ function altitudeb10000steps()
     end
 
     if (procedureloop1.stepindex == 9) then
-        if (configvalues[CONFIGVIEWCHANGES] == ON) then
-            if not setview(configvalues[CONFIGVIEWFMS]) then
-                procedureloop1.stepindex = procedureloop1.stepindex - 1
-            end
-        end
+        setview(configvalues[CONFIGVIEWFMS])
     end
 
     if (procedureloop1.stepindex == 10) then
@@ -6660,11 +6566,7 @@ function altitudeb10000steps()
     end
 
     if (procedureloop1.stepindex == 11) then
-        if (configvalues[CONFIGVIEWCHANGES] == ON) then
-            if not setview(configvalues[CONFIGVIEWMAINPANEL]) then
-                procedureloop1.stepindex = procedureloop1.stepindex - 1
-            end
-        end
+        setview(configvalues[CONFIGVIEWMAINPANEL])
     end
 
     if (procedureloop1.stepindex == 12) then
@@ -6946,19 +6848,13 @@ function duringdescentsteps()
         end
     end
 
-    if (procedureloop2.stepindex == 2) then
-        if ((configvalues[CONFIGVIEWCHANGES] == ON) and (configvalues[CONFIGSPDRESTR250] == ON)) then
-            helpers.command_once("sim/view/default_view")
-            if not setview(configvalues[CONFIGVIEWFMS]) then
-                procedureloop2.stepindex = procedureloop2.stepindex - 1
-            end
-        end
+    if ((procedureloop2.stepindex == 2) and (configvalues[CONFIGSPDRESTR250] == ON)) then
+        setview(DEFAULTVIEW)
+        setview(configvalues[CONFIGVIEWFMS])
     end
 
-    if (procedureloop2.stepindex == 3) then
-        if ((configvalues[CONFIGVIEWCHANGES] == ON) and(configvalues[CONFIGSPDRESTR250] == ON)) then
-            helpers.command_once("laminar/B738/button/fmc1_des")
-        end
+    if ((procedureloop2.stepindex == 3) and (configvalues[CONFIGSPDRESTR250] == ON)) then
+        helpers.command_once("laminar/B738/button/fmc1_des")
     end
 
     if (procedureloop2.stepindex == 4) then
@@ -6978,11 +6874,7 @@ function duringdescentsteps()
     end
 
     if (procedureloop2.stepindex == 5) then
-        if (configvalues[CONFIGVIEWCHANGES] == ON) then
-            if not setview(configvalues[CONFIGVIEWMAINPANEL]) then
-                procedureloop2.stepindex = procedureloop2.stepindex - 1
-            end
-        end
+        setview(configvalues[CONFIGVIEWMAINPANEL])
     end
 
     if (procedureloop2.stepindex == 6) then
@@ -7080,12 +6972,8 @@ function afterlandingsteps()
     end
 
     if (procedureloop1.stepindex == 2) then
-        if (configvalues[CONFIGVIEWCHANGES] == ON) then
-            helpers.command_once("sim/view/default_view")
-            if not setview(configvalues[CONFIGVIEWOVERHEADPANEL]) then
-                procedureloop1.stepindex = procedureloop1.stepindex - 1
-            end
-        end
+        setview(DEFAULTVIEW)
+        setview(configvalues[CONFIGVIEWOVERHEADPANEL])
     end
 
     if (procedureloop1.stepindex == 3) then
@@ -7154,11 +7042,7 @@ function afterlandingsteps()
     end
 
     if (procedureloop1.stepindex == 8) then
-        if (configvalues[CONFIGVIEWCHANGES] == ON) then
-            if not setview(configvalues[CONFIGVIEWPEDESTAL]) then
-                procedureloop1.stepindex = procedureloop1.stepindex - 1
-            end
-        end
+        setview(configvalues[CONFIGVIEWPEDESTAL])
     end
 
     if (procedureloop1.stepindex == 9) then
@@ -7177,11 +7061,7 @@ function afterlandingsteps()
     end
 
     if (procedureloop1.stepindex == 10) then
-        if (configvalues[CONFIGVIEWCHANGES] == ON) then
-            if not setview(configvalues[CONFIGVIEWTHROTTLE]) then
-                procedureloop1.stepindex = procedureloop1.stepindex - 1
-            end
-        end
+        setview(configvalues[CONFIGVIEWTHROTTLE])
     end
 
     if (procedureloop1.stepindex == 11) then
@@ -7214,11 +7094,7 @@ function afterlandingsteps()
     end
 
     if (procedureloop1.stepindex == 13) then
-        if (configvalues[CONFIGVIEWCHANGES] == ON) then
-            if not setview(configvalues[CONFIGVIEWMAINPANEL]) then
-                procedureloop1.stepindex = procedureloop1.stepindex - 1
-            end
-        end
+        setview(configvalues[CONFIGVIEWMAINPANEL])
     end
 
     if (procedureloop1.stepindex == 14) then
@@ -7368,12 +7244,8 @@ function beforetaxisteps()
     end
 
     if (procedureloop1.stepindex == 2) then
-        if (configvalues[CONFIGVIEWCHANGES] == ON) then
-            helpers.command_once("sim/view/default_view")
-            if not setview(configvalues[CONFIGVIEWUPPEROVERHEADPANEL]) then
-                procedureloop1.stepindex = procedureloop1.stepindex - 1
-            end
-        end
+        setview(DEFAULTVIEW)
+        setview(configvalues[CONFIGVIEWUPPEROVERHEADPANEL])
     end
 
     if (procedureloop1.stepindex == 3) then
@@ -7390,11 +7262,7 @@ function beforetaxisteps()
     end
 
     if (procedureloop1.stepindex == 4) then
-        if (configvalues[CONFIGVIEWCHANGES] == ON) then
-            if not setview(configvalues[CONFIGVIEWOVERHEADPANEL]) then
-                procedureloop1.stepindex = procedureloop1.stepindex - 1
-            end
-        end
+        setview(configvalues[CONFIGVIEWOVERHEADPANEL])
     end
 
     if (procedureloop1.stepindex == 5) then
@@ -7411,9 +7279,7 @@ function beforetaxisteps()
     end
 
     if (procedureloop1.stepindex == 6) then
-        if not setview(configvalues[CONFIGVIEWOVERHEADPANEL]) then
-            procedureloop1.stepindex = procedureloop1.stepindex - 1
-        end
+        setview(configvalues[CONFIGVIEWOVERHEADPANEL])
     end
 
     if (procedureloop1.stepindex == 7) then
@@ -7537,9 +7403,7 @@ function beforetaxisteps()
     end
 
     if (procedureloop1.stepindex == 16) then
-        if not setview(configvalues[CONFIGVIEWFMS]) then
-            procedureloop1.stepindex = procedureloop1.stepindex - 1
-        end
+        setview(configvalues[CONFIGVIEWFMS])
     end
 
     if (procedureloop1.stepindex == 17) then
@@ -7565,9 +7429,7 @@ function beforetaxisteps()
     end
 
     if (procedureloop1.stepindex == 19) then
-        if not setview(configvalues[CONFIGVIEWMAINPANEL]) then
-            procedureloop1.stepindex = procedureloop1.stepindex - 1
-        end
+        setview(configvalues[CONFIGVIEWMAINPANEL])
     end
 
     if (procedureloop1.stepindex == 20) then
@@ -7584,9 +7446,7 @@ function beforetaxisteps()
     end
 
     if (procedureloop1.stepindex == 21) then
-        if not setview(configvalues[CONFIGVIEWTHROTTLE]) then
-            procedureloop1.stepindex = procedureloop1.stepindex - 1
-        end
+        setview(configvalues[CONFIGVIEWTHROTTLE])
     end
 
     if (procedureloop1.stepindex == 22) then
@@ -7607,9 +7467,7 @@ function beforetaxisteps()
     end
 
     if (procedureloop1.stepindex == 23) then
-        if not setview(configvalues[CONFIGVIEWMAINPANEL]) then
-            procedureloop1.stepindex = procedureloop1.stepindex - 1
-        end
+        setview(configvalues[CONFIGVIEWMAINPANEL])
     end
 
     if (procedureloop1.stepindex == 24) then
@@ -7705,12 +7563,8 @@ function beforetakeoffsteps()
     end
 
     if (procedureloop1.stepindex == 2) then
-        if (configvalues[CONFIGVIEWCHANGES] == ON) then
-            helpers.command_once("sim/view/default_view")
-            if not setview(configvalues[CONFIGVIEWPEDESTAL]) then
-                procedureloop1.stepindex = procedureloop1.stepindex - 1
-            end
-        end
+        setview(DEFAULTVIEW)
+        setview(configvalues[CONFIGVIEWPEDESTAL])
     end
 
     if (procedureloop1.stepindex == 3) then
@@ -7729,9 +7583,7 @@ function beforetakeoffsteps()
     end
 
     if (procedureloop1.stepindex == 4) then
-        if not setview(configvalues[CONFIGVIEWOVERHEADPANEL]) then
-            procedureloop1.stepindex = procedureloop1.stepindex - 1
-        end
+        setview(configvalues[CONFIGVIEWOVERHEADPANEL])
     end
 
     if (procedureloop1.stepindex == 5) then
@@ -7787,9 +7639,7 @@ function beforetakeoffsteps()
     end
 
     if (procedureloop1.stepindex == 9) then
-        if not setview(configvalues[CONFIGVIEWMAINPANEL]) then
-            procedureloop1.stepindex = procedureloop1.stepindex - 1
-        end
+        setview(configvalues[CONFIGVIEWMAINPANEL])
     end
 
     if (procedureloop1.stepindex == 10) then
@@ -7931,12 +7781,8 @@ function atparkingpositionsteps()
     end
 
     if (procedureloop1.stepindex == 2) then
-        if (configvalues[CONFIGVIEWCHANGES] == ON) then
-            helpers.command_once("sim/view/default_view")
-            if not setview(configvalues[CONFIGVIEWMAINPANEL]) then
-                procedureloop1.stepindex = procedureloop1.stepindex - 1
-            end
-        end
+        setview(DEFAULTVIEW)
+        setview(configvalues[CONFIGVIEWMAINPANEL])
     end
 
     if (procedureloop1.stepindex == 3) then
@@ -7953,11 +7799,7 @@ function atparkingpositionsteps()
     end
 
     if ((procedureloop1.stepindex == 4) and (get(sunpitchdegrees) < 0)) then
-        if (configvalues[CONFIGVIEWCHANGES] == ON) then
-            if not setview(configvalues[CONFIGVIEWUPPEROVERHEADPANEL]) then
-                procedureloop1.stepindex = procedureloop1.stepindex - 1
-            end
-        end
+        setview(configvalues[CONFIGVIEWUPPEROVERHEADPANEL])
     end
 
     if ((procedureloop1.stepindex == 5) and (get(sunpitchdegrees) < 0)) then
@@ -7974,11 +7816,7 @@ function atparkingpositionsteps()
     end
 
     if (procedureloop1.stepindex == 6) then
-        if (configvalues[CONFIGVIEWCHANGES] == ON) then
-            if not setview(configvalues[CONFIGVIEWPEDESTAL]) then
-                procedureloop1.stepindex = procedureloop1.stepindex - 1
-            end
-        end
+        setview(configvalues[CONFIGVIEWPEDESTAL])
     end
 
     if (procedureloop1.stepindex == 7) then
@@ -7997,11 +7835,7 @@ function atparkingpositionsteps()
     end
 
     if (procedureloop1.stepindex == 8) then
-        if (configvalues[CONFIGVIEWCHANGES] == ON) then
-            if not setview(configvalues[CONFIGVIEWOVERHEADPANEL]) then
-                procedureloop1.stepindex = procedureloop1.stepindex - 1
-            end
-        end
+        setview(configvalues[CONFIGVIEWOVERHEADPANEL])
     end
 
     if (procedureloop1.stepindex == 9) then
@@ -8065,11 +7899,7 @@ function atparkingpositionsteps()
     end
 
     if (procedureloop1.stepindex == 13) then
-        if (configvalues[CONFIGVIEWCHANGES] == ON) then
-            if not setview(configvalues[CONFIGVIEWMAINPANEL]) then
-                procedureloop1.stepindex = procedureloop1.stepindex - 1
-            end
-        end
+        setview(configvalues[CONFIGVIEWMAINPANEL])
     end
 
     if (procedureloop1.stepindex == 14) then
