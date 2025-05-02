@@ -43,6 +43,8 @@ function P.YalinitGlobal()
 
     centertankoffset = false
 
+    lowerairspacealt = 10000
+
     getmetarcounter = 0
 
     depmetar = {icaocode = "XXXX", metarfound = false, metar = {}, decodedmetar = {}}
@@ -6963,14 +6965,14 @@ function duringdescentsteps()
         if (configvalues[CONFIGSPDRESTR250] == ON) then
             if (get(speedrestr) ~= 250) then
                 if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
-                    commandtableentry(ADVICE, "Set Speed below 10000 Feet to 250")
+                    commandtableentry(ADVICE, "Set Speed below " ..lowerairspacealt .. " Feet to 250")
                     procedureloop2.stepindex = procedureloop2.stepindex - 1
                 else
                     set(speedrestr, 250)
                     commandtableentry(TEXT, "Speed 250 below 10000 set")
                 end
             elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop2.steprepeat) then
-                commandtableentry(ADVICE, "Speed 250 below 10000 Feet checked and set")
+                commandtableentry(ADVICE, "Speed 250 below " ..lowerairspacealt .. " Feet checked and set")
             end
         end
     end
