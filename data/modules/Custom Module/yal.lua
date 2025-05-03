@@ -9992,59 +9992,62 @@ function ongoingtasks()
         end
     end
 
-    if (ongoingtaskstepindex == 1) then
-        if (enginesrunning(BOTH) and (configvalues[CONFIGAUTOCENTERTANKHANDLING] == ON)) then
-            if ((configvalues[CONFIGAUTOFUNCTIONS] == ON) and (configvalues[CONFIGVOICEADVICEONLY] ~= ON)) then
-                autocentertanks()
-            elseif (configvalues[CONFIGVOICEADVICEONLY] == ON) then
-                if ((get(centertanklbs) > 1000) and (get(centertanklpress) > 0) and (get(centertankrpress) > 0) and (get(centertankstat) > 0)) then
-                    if ((get(centertanklswitch) == OFF) or (get(centertankrswitch) == OFF)) then
-                        commandtableentry(ADVICE, "Set Center Tank Fuel Pumps On")
-                        ongoingtaskstepindex = ongoingtaskstepindex - 1
-                    end
-                elseif ((get(centertanklbs) <= 1000)) or ((get(centertanklpress) == 0) and (get(centertankrpress) == 0)) then
-                    if ((get(centertanklswitch) == ON) or (get(centertankrswitch) == ON)) then
-                        commandtableentry(ADVICE, "Set Center Tank Fuel Pumps Off")
-                        ongoingtaskstepindex = ongoingtaskstepindex - 1
-                    end
-                end
-            end
-        end
-    end
-
-    if (ongoingtaskstepindex == 2) then
-        if ( (flightstate < 3) and (get(fmccruisealt) ~= 0) and (get(fmccruisealt) ~= 20000)) then
-            local fmccruisealttmp = roundnumber(get(fmccruisealt) / 500) * 500
-            if (get(cabincruisealt)  ~= fmccruisealttmp) then
-                if ((configvalues[CONFIGAUTOFUNCTIONS] == ON) and (configvalues[CONFIGVOICEADVICEONLY] ~= ON)) then 
-                    set(cabincruisealt, get(fmccruisealttmp))
-                elseif (configvalues[CONFIGVOICEADVICEONLY] == ON) then 
-                    commandtableentry(ADVICE, "Set Cabin Cruise Alitude " .. addspaces(fmccruisealttmp))
-                    ongoingtaskstepindex = ongoingtaskstepindex - 1
-                end
-            end
-        end
-    end
-
-    if (ongoingtaskstepindex == 3) then
-         if ((flightstate < 4) and desmetar.metarfound) then
-            local deslandingalttmp = 0
-            if tonumber(desmetar.metar.elevation_m) then
-                deslandingalttmp = roundnumber((desmetar.metar.elevation_m * FEETTOMETER) / 50) * 50
-            else
-                deslandingalttmp = roundnumber(get(desrwyalt) / 50) * 50
-            end
-            if (get(cabinlandingalt) ~= deslandingalttmp) then
+    if (procedureloop1.lock ~= COCKPITINITPROCEDURE) then
+        if (ongoingtaskstepindex == 1) then
+            if (enginesrunning(BOTH) and (configvalues[CONFIGAUTOCENTERTANKHANDLING] == ON)) then
                 if ((configvalues[CONFIGAUTOFUNCTIONS] == ON) and (configvalues[CONFIGVOICEADVICEONLY] ~= ON)) then
-                    set(cabinlandingalt, deslandingalttmp)
-                elseif (configvalues[CONFIGVOICEADVICEONLY] == ON) then 
-                    commandtableentry(ADVICE, "Set Cabin Landing Alitude " .. addspaces(deslandingalttmp))
-                    ongoingtaskstepindex = ongoingtaskstepindex - 1
+                    autocentertanks()
+                elseif (configvalues[CONFIGVOICEADVICEONLY] == ON) then
+                    if ((get(centertanklbs) > 1000) and (get(centertanklpress) > 0) and (get(centertankrpress) > 0) and (get(centertankstat) > 0)) then
+                        if ((get(centertanklswitch) == OFF) or (get(centertankrswitch) == OFF)) then
+                            commandtableentry(ADVICE, "Set Center Tank Fuel Pumps On")
+                            ongoingtaskstepindex = ongoingtaskstepindex - 1
+                        end
+                    elseif ((get(centertanklbs) <= 1000)) or ((get(centertanklpress) == 0) and (get(centertankrpress) == 0)) then
+                        if ((get(centertanklswitch) == ON) or (get(centertankrswitch) == ON)) then
+                            commandtableentry(ADVICE, "Set Center Tank Fuel Pumps Off")
+                            ongoingtaskstepindex = ongoingtaskstepindex - 1
+                        end
+                    end
                 end
             end
         end
-    end
 
+        if (ongoingtaskstepindex == 2) then
+            if ( (flightstate < 3) and (get(fmccruisealt) ~= 0) and (get(fmccruisealt) ~= 20000)) then
+                local fmccruisealttmp = roundnumber(get(fmccruisealt) / 500) * 500
+                if (get(cabincruisealt)  ~= fmccruisealttmp) then
+                    if ((configvalues[CONFIGAUTOFUNCTIONS] == ON) and (configvalues[CONFIGVOICEADVICEONLY] ~= ON)) then 
+                        set(cabincruisealt, get(fmccruisealttmp))
+                    elseif (configvalues[CONFIGVOICEADVICEONLY] == ON) then 
+                        commandtableentry(ADVICE, "Set Cabin Cruise Alitude " .. addspaces(fmccruisealttmp))
+                        ongoingtaskstepindex = ongoingtaskstepindex - 1
+                    end
+                end
+            end
+        end
+
+        if (ongoingtaskstepindex == 3) then
+             if ((flightstate < 4) and desmetar.metarfound) then
+                local deslandingalttmp = 0
+                if tonumber(desmetar.metar.elevation_m) then
+                    deslandingalttmp = roundnumber((desmetar.metar.elevation_m * FEETTOMETER) / 50) * 50
+                else
+                    deslandingalttmp = roundnumber(get(desrwyalt) / 50) * 50
+                end
+                if (get(cabinlandingalt) ~= deslandingalttmp) then
+                    if ((configvalues[CONFIGAUTOFUNCTIONS] == ON) and (configvalues[CONFIGVOICEADVICEONLY] ~= ON)) then
+                        set(cabinlandingalt, deslandingalttmp)
+                    elseif (configvalues[CONFIGVOICEADVICEONLY] == ON) then 
+                        commandtableentry(ADVICE, "Set Cabin Landing Alitude " .. addspaces(deslandingalttmp))
+                        ongoingtaskstepindex = ongoingtaskstepindex - 1
+                    end
+                end
+            end
+        end
+    elseif (ongoingtaskstepindex == 1) then
+        ongoingtaskstepindex = 3
+    end
     
     if (ongoingtaskstepindex == 4) then
         if (configvalues[CONFIGAUTOANTIICE] == ON) then
