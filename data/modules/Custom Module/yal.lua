@@ -179,8 +179,6 @@ function P.initDataref()
     ngeardeployed = globalPropertyfae("sim/aircraft/parts/acf_gear_deploy", 2)
     rgeardeployed = globalPropertyfae("sim/aircraft/parts/acf_gear_deploy", 3)
 
-    nosewheel = globalProperty("laminar/B738/axis/nosewheel")
-
     altitude = globalProperty("laminar/B738/autopilot/altitude")
     fmccruisealt = globalProperty("laminar/B738/autopilot/fmc_cruise_alt")
     radioaltitude = globalProperty("sim/cockpit2/gauges/indicators/radio_altimeter_height_ft_pilot")
@@ -6086,7 +6084,6 @@ function aftertakeoffsteps()
                     procedureloop2.stepindex = procedureloop2.stepindex - 1
                 else
                     set(gearhandlepos, GEARUP)
-                    set(nosewheel, OFF)
                 end
             elseif ((get(gearhandlepos) == GEARDOWN) and (configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop2.steprepeat) then
                 commandtableentry(ADVICE, "Gear Checked and Up")
@@ -6661,7 +6658,6 @@ function radioaltitudeb2500steps()
         if ((convflaplevertoflappos(get(flapleverpos)) >= configvalues[CONFIGGEARDOWNFLAPS]) and (get(gearhandlepos) < GEARDOWN)) then
             if (configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                 set(gearhandlepos, GEARDOWN)
-                set(nosewheel, OFF)
             elseif (configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 commandtableentry(ADVICE, "Set Gear Down")
                 procedureloop2.stepindex = procedureloop2.stepindex - 1
@@ -6795,7 +6791,6 @@ function radioaltitudeb1000steps()
         if (get(gearhandlepos) < GEARDOWN) then
             if (configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                 set(gearhandlepos, GEARDOWN)
-                set(nosewheel, OFF)
             elseif (configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 commandtableentry(ADVICE, "Set Gear Down")
                 procedureloop2.stepindex = procedureloop2.stepindex - 1
@@ -6804,7 +6799,6 @@ function radioaltitudeb1000steps()
             if ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop2.steprepeat) then
                 commandtableentry(ADVICE, "Gear Checked and Down")
             end
-            set(nosewheel, OFF)
         end
     end
 
