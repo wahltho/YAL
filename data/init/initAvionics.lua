@@ -59,30 +59,44 @@ local function setupAvionicsComponent(name, size, components)
     c.position = createProperty({ 0, 0, size[1], size[2] })
     c.size = size
     c.components = components
+    c._mEv = {}
+    c._mEv.hold = { false, false }
     set(c.visible, true)
     return c
 end
 
-local function processDraw(component)
+local function avProcessDraw(component)
     private.drawComponent(component)
 end
 
+local mouseEvent = {
+    clickDown = 1,
+    clickDrag = 2,
+    clickUp = 3
+}
 local mouseClickEvents = {
     processMouseDown,
     processMouseHold,
     processMouseUp
 }
-local function processMouseClick(component, x, y, button, event)
+local function avProcessMouseClick(component, x, y, button, event)
     private.eventCounter = 0
-    return mouseClickEvents[event](component, x, y, button)
+    if event == mouseEvent.clickDrag then
+        return true
+    else
+        local mouseHold = component._mEv.hold
+        local handled = mouseClickEvents[event](component, x, y, button)
+        mouseHold[button] = handled and (event == mouseEvent.clickDown)
+        return handled
+    end
 end
 
-local function processMouseWheel(component, x, y, wheelClicks)
+local function avProcessMouseWheel(component, x, y, wheelClicks)
     private.eventCounter = 0
     return processMouseWheel(component, x, y, wheelClicks)
 end
 
-local function processMouseCursor(layer, component, x, y)
+local function avProcessMouseCursor(layer, component, x, y)
     private.eventCounter = 0
     private.setOnInterceptingWindow(false)
     private.setCursorLayer(layer)
@@ -91,6 +105,12 @@ local function processMouseCursor(layer, component, x, y)
     processMouseMove(component, x, y)
     if private.isOSCursorHidden() then
         resultCursor = 2
+    end
+    local mouseHold = component._mEv.hold
+    for i = 1, #mouseHold do
+        if mouseHold[i] then
+            processMouseHold(component, x, y, i)
+        end
     end
     return resultCursor
 end
@@ -172,6 +192,7 @@ local avionicsDeviceLayer = 1000
 --- @field getPopupPosition fun(self:AvionicsDevice):number, number, number, number
 --- @field setPopoutPosition fun(self:AvionicsDevice, x:number, y:number, w:number, h:number)
 --- @field getPopoutPosition fun(self:AvionicsDevice):number, number, number, number
+--- @field destroy fun(self:AvionicsDevice)
 
 --- Creates new avionics device with attached components hierarchy
 --- @param params AvionicsDeviceParams
@@ -185,7 +206,7 @@ function avionicsDevice(params)
     local screenC
     local bezelC
 
-    local hasBezel = params.bezelComponents ~= nil and (bezelSize[1] > size[1] or bezelSize[2] > size[2])
+    local hasBezel = params.bezelComponents ~= nil
     local drawOnDemand = params.drawOnDemand
     if drawOnDemand == nil then drawOnDemand = false end
     screenC = setupAvionicsComponent(params.name, size, params.components)
@@ -210,20 +231,20 @@ function avionicsDevice(params)
             ambiantColor.v[1] = r
             ambiantColor.v[2] = g
             ambiantColor.v[3] = b
-            processDraw(bezelC)
+            avProcessDraw(bezelC)
             return bezelLayer
         end
 
         bezelMouseClick = function(x, y, button, event)
-            return processMouseClick(bezelC, x, y, button, event)
+            return avProcessMouseClick(bezelC, x, y, button, event)
         end
 
         bezelMouseWheel = function(x, y, wheelClicks)
-            return processMouseWheel(bezelC, x, y, wheelClicks)
+            return avProcessMouseWheel(bezelC, x, y, wheelClicks)
         end
 
         bezelMouseCursor = function(x, y)
-            return processMouseCursor(bezelLayer, bezelC, x, y)
+            return avProcessMouseCursor(bezelLayer, bezelC, x, y)
         end
     end
 
@@ -231,20 +252,22 @@ function avionicsDevice(params)
     avionicsDeviceLayer = avionicsDeviceLayer + 1
 
     local function screenDraw()
-        processDraw(screenC)
+        local cs = screenC.size
+        sasl.gl.clearRenderTarget(0, 0, cs[1], cs[2])
+        avProcessDraw(screenC)
         return screenLayer
     end
 
     local function screenMouseClick(x, y, button, event)
-        return processMouseClick(screenC, x, y, button, event)
+        return avProcessMouseClick(screenC, x, y, button, event)
     end
 
     local function screenMouseWheel(x, y, wheelClicks)
-        return processMouseWheel(screenC, x, y, wheelClicks)
+        return avProcessMouseWheel(screenC, x, y, wheelClicks)
     end
 
     local function screenMouseCursor(x, y)
-        return processMouseCursor(screenLayer, screenC, x, y)
+        return avProcessMouseCursor(screenLayer, screenC, x, y)
     end
 
     device.id = av.createAvionicsDevice(params.name, params.id,
@@ -262,6 +285,19 @@ function avionicsDevice(params)
         avionicsDevices.component(bezelC)
     end
     avionicsDevices.component(screenC)
+
+    device.destroy = function(self)
+        av.destroyAvionicsDevice(self.id)
+        if avionicsDevices ~= nil then
+            local avComp = avionicsDevices.components
+            for i = #avComp, 1, -1 do
+                if avComp[i] == bezelC or avComp[i] == screenC then
+                    table.remove(avComp, i)
+                end
+            end
+        end
+    end
+
     return device
 end
 
@@ -282,6 +318,9 @@ function avionicsDeviceBuiltin(deviceId)
         return nil
     end
     addDeviceInterface(device)
+
+    device.destroy = function(self) end
+
     return device
 end
 
@@ -301,7 +340,7 @@ function avionicsDeviceOverride(params)
     local screenC
     local bezelC
 
-    local hasBezel = params.bezelComponents ~= nil and (bezelSize[1] > size[1] or bezelSize[2] > size[2])
+    local hasBezel = params.bezelComponents ~= nil
     screenC = setupAvionicsComponent(params.name, size, params.components)
     if hasBezel then
         bezelC = setupAvionicsComponent(params.name .. "Bezel", bezelSize, params.bezelComponents)
@@ -318,15 +357,15 @@ function avionicsDeviceOverride(params)
         avionicsDeviceLayer = avionicsDeviceLayer + 1
 
         bezelMouseClick = function(x, y, button, event)
-            return processMouseClick(bezelC, x, y, button, event)
+            return avProcessMouseClick(bezelC, x, y, button, event)
         end
 
         bezelMouseWheel = function(x, y, wheelClicks)
-            return processMouseWheel(bezelC, x, y, wheelClicks)
+            return avProcessMouseWheel(bezelC, x, y, wheelClicks)
         end
 
         bezelMouseCursor = function(x, y)
-            return processMouseCursor(bezelLayer, bezelC, x, y)
+            return avProcessMouseCursor(bezelLayer, bezelC, x, y)
         end
     end
 
@@ -334,20 +373,20 @@ function avionicsDeviceOverride(params)
     avionicsDeviceLayer = avionicsDeviceLayer + 1
 
     local function screenDraw()
-        processDraw(screenC)
+        avProcessDraw(screenC)
         return screenLayer
     end
 
     local function screenMouseClick(x, y, button, event)
-        return processMouseClick(screenC, x, y, button, event)
+        return avProcessMouseClick(screenC, x, y, button, event)
     end
 
     local function screenMouseWheel(x, y, wheelClicks)
-        return processMouseWheel(screenC, x, y, wheelClicks)
+        return avProcessMouseWheel(screenC, x, y, wheelClicks)
     end
 
     local function screenMouseCursor(x, y)
-        return processMouseCursor(screenLayer, screenC, x, y)
+        return avProcessMouseCursor(screenLayer, screenC, x, y)
     end
 
     local drawBefore = params.replace and screenDraw or nil
@@ -365,6 +404,19 @@ function avionicsDeviceOverride(params)
         avionicsDevices.component(bezelC)
     end
     avionicsDevices.component(screenC)
+
+    device.destroy = function(self)
+        av.unregisterAvionicsCallbacks(self.id)
+        if avionicsDevices ~= nil then
+           local avComp = avionicsDevices.components
+           for i = #avComp, 1, -1 do
+               if avComp[i] == bezelC or avComp[i] == screenC then
+                   table.remove(avComp, i)
+               end
+           end
+        end
+    end
+
     return device
 end
 

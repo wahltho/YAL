@@ -1,7 +1,7 @@
 local P = {}
 definitions = P -- package name
 
-P.VERSION = "3.5"
+P.VERSION = "3.6"
 
 --------------------------------------------------------------------------------------------------------------
 -- Constants
@@ -66,6 +66,8 @@ CLOSED = 0
 COMMAND = 1
 TEXT = 2
 ADVICE = 3
+
+DEFAULTVIEW = 99
 
 NOPROCEDURE = 0
 COCKPITINITPROCEDURE = 1
@@ -192,7 +194,6 @@ AUTOBRAKE1 = 2
 AUTOBRAKE2 = 3
 AUTOBRAKE3 = 4
 AUTOBRAKEMAX = 5
-
 
 SRCTYPECODE = 1
 SRCLATPOS = 2
