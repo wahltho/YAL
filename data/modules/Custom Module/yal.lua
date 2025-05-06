@@ -1158,6 +1158,37 @@ function adjustrwy(runway, increment)
 end
 
 --------------------------------------------------------------------------------------------------------------
+function formatRunwayDesignator(runwayDesignator)
+
+    if type(runwayDesignator) ~= "string" or runwayDesignator == "" then
+        return ""
+    end
+
+    local parts = {}
+    
+    local mapping = {
+        L = "Left",
+        R = "Right",
+        C = "Center"
+    }
+
+    local len = string.len(runwayDesignator)
+
+
+    for i = 1, len do
+        local char = runwayDesignator:sub(i, i)
+
+        if i == 3 and mapping[char] then
+            table.insert(parts, mapping[char])
+        else
+            table.insert(parts, char)
+        end
+    end
+
+    return table.concat(parts, " ")
+end
+
+--------------------------------------------------------------------------------------------------------------
 function getnavdataindex(icao, rwy, navtype)
 
     if not (isvalidicao(icao) and isvalidrwy(rwy)) then
@@ -2531,15 +2562,15 @@ function setilssteps()
                         dmestring = ""
                     end
                     if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
-                        commandtableentry(ADVICE, addspaces(navdatatable[navdatatableindex][DESTNAVTYPE]) .. " Approach " .. dmestring)
+                        commandtableentry(ADVICE, formatRunwayDesignator(navdatatable[navdatatableindex][DESTRWY]) .. addspaces(navdatatable[navdatatableindex][DESTNAVTYPE]) .. " Approach " .. dmestring)
                     else
-                        commandtableentry(TEXT, addspaces(navdatatable[navdatatableindex][DESTNAVTYPE]) .. " Approach " .. dmestring)
+                        commandtableentry(TEXT, formatRunwayDesignator(navdatatable[navdatatableindex][DESTRWY]) .. addspaces(navdatatable[navdatatableindex][DESTNAVTYPE]) .. " Approach " .. dmestring)
                     end
                 else               
                     if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
-                        commandtableentry(ADVICE, "No Approach Frequency and Course found")
+                        commandtableentry(ADVICE, "No Approach found for" .. formatRunwayDesignator(get(desrwy)))
                     else
-                        commandtableentry(TEXT, "No Approach Frequency and Course Found")
+                        commandtableentry(TEXT, "No Approach found for" .. formatRunwayDesignator(get(desrwy)))
                     end
                     setils.stepindex = 6
                     return false
