@@ -121,9 +121,7 @@ function P.initDataref()
 
     chockstatus = globalProperty("laminar/B738/fms/chock_status")
 
-    if helpers.isXp12 then
-        wakeoverride = globalProperty("sim/operation/override/override_wake_turbulence")
-    end
+    wakeoverride = globalProperty("sim/operation/override/override_wake_turbulence")
 
     aponstat = globalProperty("laminar/autopilot/ap_on")
     apdiscpos = globalProperty("laminar/B738/autopilot/disconnect_pos")
@@ -273,13 +271,7 @@ function P.initDataref()
     baropilot = globalProperty("laminar/B738/EFIS/baro_sel_in_hg_pilot")
     barostd = globalProperty("laminar/B738/EFIS/baro_set_std_pilot")
     baroinhpa = globalProperty("laminar/B738/EFIS_control/capt/baro_in_hpa")
-
-    if helpers.isXp11 then
-        baroregioninhg = globalProperty("sim/weather/barometer_sealevel_inhg")
-    end
-    if helpers.isXp12 then
-        baroregionpas = globalProperty("sim/weather/region/qnh_pas")
-    end
+    baroregionpas = globalProperty("sim/weather/region/qnh_pas")
 
     frameice = globalProperty("sim/flightmodel/failures/frm_ice")
     tatdegc = globalProperty("laminar/B738/systems/temperature/tat_degc")
@@ -325,7 +317,6 @@ function P.initDataref()
     n1setsource = globalProperty("laminar/B738/toggle_switch/n1_set_source")
 
     dhpilot = globalProperty("laminar/B738/pfd/dh_pilot")
-
 
     depicao = globalProperty("laminar/B738/fms/ref_icao")
     deprwyheading = globalProperty("laminar/B738/fms/ref_runway_crs_mod")
@@ -390,12 +381,7 @@ function P.initDataref()
     vref30 = globalProperty("laminar/B738/FMS/vref_30")
     vref40 = globalProperty("laminar/B738/FMS/vref_40")
 
-    if helpers.isXp12 then
-        rain = globalProperty("sim/weather/view/rain_ratio")
-    end
-    if helpers.isXp11 then
-        rain = globalProperty("sim/weather/rain_percent")
-    end
+    rain = globalProperty("sim/weather/view/rain_ratio")
 
     lwiperpos = globalProperty("laminar/B738/switches/left_wiper_pos")
     rwiperpos = globalProperty("laminar/B738/switches/right_wiper_pos")
@@ -856,9 +842,7 @@ function yalreset()
     remainingtimetoquit = configvalues[CONFIGTODPAUSEQUITTIME]
     remainingtimetosave = configvalues[CONFIGSAVETIME]
     if (configvalues[CONFIGWAKEOVERRIDE] == ON) then
-        if helpers.isXp12 then
-            set(wakeoverride, ON)
-        end
+        set(wakeoverride, ON)
     end
 
     lowerairspacealt = configvalues[CONFIGLOWEAIRSPACEALT]
@@ -1363,15 +1347,8 @@ end
 function getlocalqnh(deparr)
 
 
-    if helpers.isXp11 then
-        localqnhinch = get(baroregioninhg)
-        localqhnhpas = convertpressure(localqnhinch / 100)
-    end
-
-    if helpers.isXp12 then
-        localqnhpas = roundnumber(get(baroregionpas) / 100)
-        localqnhinch = convertpressure(localqnhpas)
-    end
+    localqnhpas = roundnumber(get(baroregionpas) / 100)
+    localqnhinch = convertpressure(localqnhpas)
 
     if ((deparr == DEPARTURE) and depmetar.metarfound and tonumber(depmetar.metar.altim_in_hg)) then
         localqnhinch = depmetar.metar.altim_in_hg

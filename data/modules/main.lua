@@ -4,6 +4,10 @@ require("yal")
 sasl.logInfo(string.format("Starting %s v%s on Xp %d", definitions.APPNAMEPREFIX, definitions.VERSION, helpers.xpVersion))
 sasl.setLogLevel(LOG_INFO)
 
+if not helpers.isXp12 then
+    sasl.logWarning("X-Plane 12 required, exiting plugin")
+    return
+ end
 
 sasl.options.setAircraftPanelRendering(false)
 sasl.options.set3DRendering(false)
