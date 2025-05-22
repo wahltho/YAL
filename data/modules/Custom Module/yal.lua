@@ -1063,6 +1063,22 @@ function splitstring(input)
 end
 
 --------------------------------------------------------------------------------------------------------------
+function TransponderPostotring(transponderposition)
+
+    if (transponderposition == STANDBY) then
+        return "Standby"
+    elseif (transponderposition == ALTOFF) then
+        return "Altitude Off"
+    elseif (transponderposition == ALTON) then
+        return "Altitude ON"
+    elseif (transponderposition == TA) then
+        return "T A"
+    elseif (transponderposition == TARA) then
+        return "T A R A"
+    end
+end
+
+--------------------------------------------------------------------------------------------------------------
 function formatILSFrequency(freq)
     local freqStr = tostring(freq)
     
@@ -2556,21 +2572,25 @@ function setilssteps()
                 end
 
                 if (navdatatable[navdatatableindex] ~= nil) then
+                    if (get(desrwy) ~= navdatatable[navdatatableindex][DESTRWY]) then
+                        sasl.logInfo("Destination Runway Diff FMC: " .. tostring(get(desrwy)) .. " Navdata: " .. totring(navdatatable[navdatatableindex][DESTRWY]))
+                    end
+
                     if ((navdatatable[navdatatableindex][DESTNAVTYPE] == NAVTYPEILS) and navdatatable[navdatatableindex][DESTNAVDME]) then
                         dmestring = "with DME"
                     else
                         dmestring = ""
                     end
                     if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
-                        commandtableentry(ADVICE, formatRunwayDesignator(navdatatable[navdatatableindex][DESTRWY]) .. addspaces(navdatatable[navdatatableindex][DESTNAVTYPE]) .. " Approach " .. dmestring)
+                        commandtableentry(ADVICE, "Runway " .. formatRunwayDesignator(navdatatable[navdatatableindex][DESTRWY]) .. " has " .. addspaces(navdatatable[navdatatableindex][DESTNAVTYPE]) .. " Approach " .. dmestring)
                     else
-                        commandtableentry(TEXT, formatRunwayDesignator(navdatatable[navdatatableindex][DESTRWY]) .. addspaces(navdatatable[navdatatableindex][DESTNAVTYPE]) .. " Approach " .. dmestring)
+                        commandtableentry(TEXT, "Runway " .. formatRunwayDesignator(navdatatable[navdatatableindex][DESTRWY]) .. " has " .. addspaces(navdatatable[navdatatableindex][DESTNAVTYPE]) .. " Approach " .. dmestring)
                     end
                 else               
                     if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
-                        commandtableentry(ADVICE, "No Approach found for" .. formatRunwayDesignator(get(desrwy)))
+                        commandtableentry(ADVICE, "Runway " .. formatRunwayDesignator(get(desrwy)) .. " has no Approach")
                     else
-                        commandtableentry(TEXT, "No Approach found for" .. formatRunwayDesignator(get(desrwy)))
+                        commandtableentry(TEXT, "Runway " .. formatRunwayDesignator(get(desrwy)) .. " has no Approach")
                     end
                     setils.stepindex = 6
                     return false
@@ -5799,7 +5819,14 @@ function cockpitinitsteps()
     if (procedureloop1.stepindex == 7) then
         if (configvalues[CONFIGTRANSPONDER] ~= 0) then
             if (get(transpondercode) ~= configvalues[CONFIGTRANSPONDER]) then
-                set(transpondercode, configvalues[CONFIGTRANSPONDER])
+                if (configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
+                    set(transpondercode, configvalues[CONFIGTRANSPONDER])
+                elseif (configvalues[CONFIGVOICEADVICEONLY] == ON) then
+                    commandtableentry(ADVICE, "Set Transponder Code " .. addspaces(configvalues[CONFIGTRANSPONDER]))
+                    procedureloop1.stepindex = procedureloop1.stepindex - 1
+                end
+            elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
+                commandtableentry(ADVICE, "Transponder Code Checked and " .. addspaces(configvalues[CONFIGTRANSPONDER]))
             end
         end
     end
@@ -6333,12 +6360,10 @@ function duringclimbsteps()
 
     if (procedureloop2.stepindex == 7) then
         if (get(altitude) > get(fmctransalt)) then
-            if (get(barostd) == OFF) then
-                if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
-                    commandtableentry(ADVICE, "Passing Transition Altitude")
-                else
-                    commandtableentry(TEXT, "Passing Transition Altitude")
-                end
+            if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
+                commandtableentry(ADVICE, "Passing Transition Altitude")
+            else
+                commandtableentry(TEXT, "Passing Transition Altitude")
             end
         else
             procedureloop2.stepindex = procedureloop2.stepindex - 1
@@ -6740,8 +6765,8 @@ function radioaltitudeb1000steps()
     end
 
     if (procedureloop2.stepindex == 4) then
-        local missedappalttmp = roundnumber((get(missedappalt) / 100) * 100)
-        if ((missedappalttmp > 1000) and (missedappalttmp % 100 == 0)) then
+        local missedappalttmp = roundnumber((get(missedappalt) / 100)) * 100
+        if (missedappalttmp > 1000) then
             if (missedappalttmp ~= get(mcpaltitude)) then
                 if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
                     commandtableentry(ADVICE, "Set M C P Altitude " .. addspaces(missedappalttmp))
@@ -7058,7 +7083,7 @@ function afterlandingsteps()
                 end
             end
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
-            commandtableentry(ADVICE, "Transponder Checked and Off")
+            commandtableentry(ADVICE, "Transponder Checked and " .. TransponderPostotring(get(transponderpos)))
         end
     end
 
@@ -7246,11 +7271,25 @@ function beforetaxisteps()
     end
 
     if (procedureloop1.stepindex == 2) then
+        if (get(chockstatus) ~= OFF) then
+            if (configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
+                helpers.command_once("laminar/B738/toggle_switch/chock")
+            elseif (configvalues[CONFIGVOICEADVICEONLY] == ON) then
+                commandtableentry(ADVICE, "Remove Chocks")
+                procedureloop1.stepindex = procedureloop1.stepindex - 1
+            end
+        elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and (get(groundspeed) < 1) and not procedureloop1.steprepeat) then
+            commandtableentry(ADVICE, "Chocks Checked and Removed")
+        end
+    end
+
+
+    if (procedureloop1.stepindex == 3) then
         setview(DEFAULTVIEW)
         setview(configvalues[CONFIGVIEWUPPEROVERHEADPANEL])
     end
 
-    if (procedureloop1.stepindex == 3) then
+    if (procedureloop1.stepindex == 4) then
         if (get(domelightpos) ~= DOMELIGHTOFF) then
             if (configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                 setdomelight(DOMELIGHTOFF)
@@ -7263,28 +7302,11 @@ function beforetaxisteps()
         end
     end
 
-    if (procedureloop1.stepindex == 4) then
-        setview(configvalues[CONFIGVIEWOVERHEADPANEL])
-    end
-
     if (procedureloop1.stepindex == 5) then
-        if (get(chockstatus) ~= OFF) then
-            if (configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
-                helpers.command_once("laminar/B738/toggle_switch/chock")
-            elseif (configvalues[CONFIGVOICEADVICEONLY] == ON) then
-                commandtableentry(ADVICE, "Remove Chocks")
-                procedureloop1.stepindex = procedureloop1.stepindex - 1
-            end
-        elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
-            commandtableentry(ADVICE, "Chocks Checked and Removed")
-        end
+        setview(configvalues[CONFIGVIEWOVERHEADPANEL])
     end
 
     if (procedureloop1.stepindex == 6) then
-        setview(configvalues[CONFIGVIEWOVERHEADPANEL])
-    end
-
-    if (procedureloop1.stepindex == 7) then
         if(get(positionlights) ~= POSLIGHTSSTEADY) then 
             if (configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                 togglepositionlights(POSLIGHTSSTEADY)
@@ -7297,7 +7319,7 @@ function beforetaxisteps()
         end
     end
 
-    if (procedureloop1.stepindex == 8) then
+    if (procedureloop1.stepindex == 7) then
         if (get(beaconlights) == OFF) then
             if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 commandtableentry(ADVICE, "Set Collision Lights On")
@@ -7310,7 +7332,7 @@ function beforetaxisteps()
         end  
     end
 
-    if (procedureloop1.stepindex == 9) then
+    if (procedureloop1.stepindex == 8) then
         if (get(seatbeltsignpos) ~= SEATBELTSIGNON) then
             if (configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                 setseatbeltsign(SEATBELTSIGNON)
@@ -7323,7 +7345,7 @@ function beforetaxisteps()
         end
     end
 
-   if (procedureloop1.stepindex == 10) then
+   if (procedureloop1.stepindex == 9) then
         if (get(logolighton) ~= ON) then
             if (configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                 togglelogolight(ON)
@@ -7336,7 +7358,7 @@ function beforetaxisteps()
         end
     end
 
-    if (procedureloop1.stepindex == 11) then
+    if (procedureloop1.stepindex == 10) then
         if (get(yawdamperswitch) ~= ON) then
             if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 commandtableentry(ADVICE, "Set Yaw Damper On")
@@ -7349,7 +7371,7 @@ function beforetaxisteps()
         end
     end
 
-    if (procedureloop1.stepindex == 12) then
+    if (procedureloop1.stepindex == 11) then
         if ((get(hydro1pos) ~= ON) or (get(hydro2pos) ~= ON) or (get(elechydro1pos) ~= ON) or (get(elechydro2pos) ~= ON)) then
             if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 commandtableentry(ADVICE, "Switch Hydraulic Pumps On")
@@ -7365,7 +7387,7 @@ function beforetaxisteps()
         end
     end
 
-    if (procedureloop1.stepindex == 13) then
+    if (procedureloop1.stepindex == 12) then
         if ((get(wheatlfwdpos) == OFF) or (get(wheatrfwdpos) == OFF) or (get(wheatlsidepos) == OFF) or (get(wheatrsidepos) == OFF)) then
             if (configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                 togglewindowheat(ON)
@@ -7378,7 +7400,7 @@ function beforetaxisteps()
         end
     end
 
-    if (procedureloop1.stepindex == 14) then
+    if (procedureloop1.stepindex == 13) then
         if ((get(captainprobepos) == OFF) or (get(foprobepos) == OFF)) then
             if (configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                 toggleprobeheat(ON)
@@ -7391,7 +7413,7 @@ function beforetaxisteps()
         end
     end
 
-    if (procedureloop1.stepindex == 15) then
+    if (procedureloop1.stepindex == 14) then
         if ((get(starter1pos) ~= FLIGHT) or (get(starter2pos) ~= FLIGHT)) then
             if (configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                 setstarter(BOTH, FLIGHT)
@@ -7404,11 +7426,11 @@ function beforetaxisteps()
         end
     end
 
-    if (procedureloop1.stepindex == 16) then
+    if (procedureloop1.stepindex == 15) then
         setview(configvalues[CONFIGVIEWFMS])
     end
 
-    if (procedureloop1.stepindex == 17) then
+    if (procedureloop1.stepindex == 16) then
         if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
             if (get(fmccg) == 0) then
                 commandtableentry(ADVICE, "Set C G")
@@ -7419,7 +7441,7 @@ function beforetaxisteps()
         end
     end
 
-    if (procedureloop1.stepindex == 18) then
+    if (procedureloop1.stepindex == 17) then
         if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
             if ((get(v1setspeed) == 0) or (get(v2setspeed) == 0) or (get(vrsetspeed) == 0)) then
                 commandtableentry(ADVICE, "Set V Speeds")
@@ -7430,11 +7452,11 @@ function beforetaxisteps()
         end
     end
 
-    if (procedureloop1.stepindex == 19) then
+    if (procedureloop1.stepindex == 18) then
         setview(configvalues[CONFIGVIEWMAINPANEL])
     end
 
-    if (procedureloop1.stepindex == 20) then
+    if (procedureloop1.stepindex == 19) then
         if ((get(fdpilotpos) == OFF) or (get(fdfopos) == OFF)) then
             if (configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                 togglefds(ON)
@@ -7447,11 +7469,33 @@ function beforetaxisteps()
         end
     end
 
+    if (procedureloop1.stepindex == 20) then
+        if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
+            if (get(aplnavstat) ~= ON) then
+                commandtableentry(ADVICE, "Arm L NAV")
+                procedureloop1.stepindex = procedureloop1.stepindex - 1
+            elseif not procedureloop1.steprepeat then
+                commandtableentry(ADVICE, "L NAV Checked and ARMED")
+            end
+        end
+    end
+
     if (procedureloop1.stepindex == 21) then
-        setview(configvalues[CONFIGVIEWTHROTTLE])
+        if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
+            if (get(apvnavstat) ~= ON) then
+                commandtableentry(ADVICE, "Arm V NAV")
+                procedureloop1.stepindex = procedureloop1.stepindex - 1
+            elseif not procedureloop1.steprepeat then
+                commandtableentry(ADVICE, "V NAV checked and ARMED")
+            end
+        end
     end
 
     if (procedureloop1.stepindex == 22) then
+        setview(configvalues[CONFIGVIEWTHROTTLE])
+    end
+
+    if (procedureloop1.stepindex == 23) then
         if ((get(toflaps) > 0) and (get(toflapsset) == OFF)) then  
             if (configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                 toflapscmd = "laminar/B738/push_button/flaps_" .. tostring(get(toflaps))
@@ -7468,32 +7512,18 @@ function beforetaxisteps()
         end
     end
 
-    if (procedureloop1.stepindex == 23) then
-        setview(configvalues[CONFIGVIEWMAINPANEL])
-    end
-
-    if (procedureloop1.stepindex == 24) then
-        if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
-            if (get(aplnavstat) ~= ON) then
-                commandtableentry(ADVICE, "Arm L NAV")
-                procedureloop1.stepindex = procedureloop1.stepindex - 1
-            elseif not procedureloop1.steprepeat then
-                commandtableentry(ADVICE, "L NAV Checked and ARMED")
-            end
+    if ((procedureloop1.stepindex == 24) and (configvalues[CONFIGVOICEADVICEONLY] == ON))then
+        if (get(parkingbrakepos) ~= OFF) then
+            commandtableentry(ADVICE, "Release Parking Brake")
+            procedureloop1.stepindex = procedureloop1.stepindex - 1
+        elseif ((get(groundspeed) < 1) and not procedureloop1.steprepeat) then
+            commandtableentry(ADVICE, "Parking Brake Checked and Released")
         end
     end
 
     if (procedureloop1.stepindex == 25) then
-        if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
-            if (get(apvnavstat) ~= ON) then
-                commandtableentry(ADVICE, "Arm V NAV")
-                procedureloop1.stepindex = procedureloop1.stepindex - 1
-            elseif not procedureloop1.steprepeat then
-                commandtableentry(ADVICE, "V NAV checked and ARMED")
-            end
-        end
+        setview(configvalues[CONFIGVIEWMAINPANEL])
     end
-
 
     if (procedureloop1.stepindex == 26) then
         if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
@@ -8597,17 +8627,7 @@ function voicereadback()
     end
 
     if (get(transponderpos) ~= transponderpostemp) then
-        if (get(transponderpos) == STANDBY) then
-            commandtableentry(TEXT, "Transponder Standby")
-        elseif (get(transponderpos) == ALTOFF) then
-            commandtableentry(TEXT, "Transponder Altitude Off")
-        elseif (get(transponderpos) == ALTON) then
-            commandtableentry(TEXT, "Transponder Altitude ON")
-        elseif (get(transponderpos) == TA) then
-            commandtableentry(TEXT, "Transponder Altitude T A")
-        elseif (get(transponderpos) == TARA) then
-            commandtableentry(TEXT, "Transponder T A R A")
-        end
+        commandtableentry(TEXT, "Transponder " .. TransponderPostotring(get(transponderpos)))
         transponderpostemp = get(transponderpos)
     end
 
@@ -9823,7 +9843,7 @@ function voicereadback()
         if (get(transpondercode) ~= transpondercodetemp2) then
             transpondercodetemp2 = get(transpondercode)
         else
-            commandtableentry(TEXT, "Transpondercode " .. get(transpondercode))
+            commandtableentry(TEXT, "Transponder Code " .. addspaces(get(transpondercode)))
             transpondercodetemp = get(transpondercode)
             transpondercodetemp2 = get(transpondercode)
         end
