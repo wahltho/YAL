@@ -6888,14 +6888,14 @@ function duringdescentsteps()
         if (configvalues[CONFIGSPDRESTR250] == ON) then
             if (get(speedrestr) ~= 250) then
                 if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
-                    commandtableentry(ADVICE, "Set Speed below " ..lowerairspacealt .. " Feet to 250")
+                    commandtableentry(ADVICE, "Set Speed below 10000 Feet to 250")
                     procedureloop2.stepindex = procedureloop2.stepindex - 1
                 else
                     set(speedrestr, 250)
-                    commandtableentry(TEXT, "Speed 250 below 10000 set")
+                    commandtableentry(TEXT, "Speed 250 below 10000 Feet set")
                 end
             elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop2.steprepeat) then
-                commandtableentry(ADVICE, "Speed 250 below " ..lowerairspacealt .. " Feet checked and set")
+                commandtableentry(ADVICE, "Speed 250 below 10000 Feet checked and set")
             end
         end
     end
@@ -7579,7 +7579,7 @@ sasl.registerCommandHandler(my_command_beforetaxi, 0, beforetaxi_)
 
 function beforetakeoffsteps()
 
-    if ((procedureloop1.stepindex > 15) or procedureabort) then
+    if ((procedureloop1.stepindex > 15) or procedureabort or (get(groundspeed) > 45)) then
         beforetakeoffset = true
         procedureloop1.lock = NOPROCEDURE
         procedureabort = false
