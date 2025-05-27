@@ -92,9 +92,9 @@ function P.YalinitGlobal()
     procedureabort = false
     procedureskipstep = false
 
-    procedureloop1 = {lock = NOPROCEDURE, stepindex = 1, previousstepindex = 1, steprepeat = false}
+    procedureloop1 = {lock = NOPROCEDURE, stepindex = 1, previousstepindex = 1, steprepeat = false, procedurename = "", proceduresteps = 0}
 
-    procedureloop2 = {lock = NOPROCEDURE, stepindex = 1, previousstepindex = 1, steprepeat = false}
+    procedureloop2 = {lock = NOPROCEDURE, stepindex = 1, previousstepindex = 1, steprepeat = false, procedurename = "", proceduresteps = 0}
 
     setils = {stepindex = 1, previousstepindex = 1, steprepeat = false}
 
@@ -1510,8 +1510,7 @@ sasl.registerCommandHandler(my_command_togglesimfreeze, 0, togglesimfreeze_)
 
 function mastercaution()
 
-    if ((procedureloop1.lock ~= NOPROCEDURE) and (configvalues[CONFIGVOICEADVICEONLY] == ON)) then
-        commandtableentry(ADVICE, "Procedure Step Skipped")
+    if ((procedureloop1.lock ~= NOPROCEDURE) or (procedureloop2.lock ~= NOPROCEDURE)) then
         procedureskipstep = true
     end
 
@@ -2285,15 +2284,10 @@ sasl.registerCommandHandler(my_command_toggleadviceonly, 0, toggleadviceonly_)
 
 function abortprocedure()
 
-    if not procedureabort then
+    if ((procedureloop1.lock ~= NOPROCEDURE) or (procedureloop2.lock ~= NOPROCEDURE)) then
 
         procedureabort = true
 
-        if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
-            commandtableentry(ADVICE, "Procedure Aborted")
-        else
-            commandtableentry(Text, "Procedure Aborted")
-        end
     end
 
     return true
@@ -2314,9 +2308,10 @@ sasl.registerCommandHandler(my_command_abortprocedure, 0, abortprocedure_)
 
 function skipprocedurestep()
 
-    if ((procedureloop1.lock ~= NOPROCEDURE) and (configvalues[CONFIGVOICEADVICEONLY] == ON)) then
-        commandtableentry(ADVICE, "Procedure Step Skipped")
+    if ((procedureloop1.lock ~= NOPROCEDURE) or (procedureloop2.lock ~= NOPROCEDURE)) then
+
         procedureskipstep = true
+
     end
 
     return true
@@ -3947,12 +3942,6 @@ end
 
 function coldanddarksteps()
 
-    if ((procedureloop1.stepindex > 30) or procedureabort) then
-        procedureloop1.lock = NOPROCEDURE
-        procedureabort = false
-        return true
-    end
-
     if (procedureloop1.stepindex == 1) then
         setview(DEFAULTVIEW)
         setview(configvalues[CONFIGVIEWOVERHEADPANEL])
@@ -4234,12 +4223,22 @@ function coldanddarksteps()
         setview(configvalues[CONFIGVIEWMAINPANEL])
     end
 
-    if (procedureloop1.stepindex == 30) then
-        if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
-            commandtableentry(ADVICE, "Cold and Dark Startup Procedure Complete")
+    if ((procedureloop1.stepindex == 30) or procedureabort) then   
+        if (procedureloop1.stepindex == 30) then
+            if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
+                commandtableentry(ADVICE, "Cold and Dark Startup Procedure Complete")
+            else
+                commandtableentry(TEXT, "Cold and Dark Startup Procedure Complete")
+            end
         else
-            commandtableentry(TEXT, "Cold and Dark Startup Procedure Complete")
+            if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
+                commandtableentry(ADVICE, "Cold and Dark Startup Procedure Aborted")
+            else
+                commandtableentry(TEXT, "Cold and Dark Startup Procedure Aborted")
+            end
         end
+        procedureloop1.lock = NOPROCEDURE
+        procedureabort = false
     end
 
     return true
@@ -4320,12 +4319,6 @@ sasl.registerCommandHandler(my_command_coldanddarkstartup, 0, coldanddarkstartup
 
 function apustartupsteps()
 
-    if ((procedureloop1.stepindex > 8) or procedureabort) then
-        procedureloop1.lock = NOPROCEDURE
-        procedureabort = false
-        return true
-    end
-
     if (procedureloop1.stepindex == 1) then
         setview(DEFAULTVIEW)
         setview(configvalues[CONFIGVIEWOVERHEADPANEL])
@@ -4401,12 +4394,22 @@ function apustartupsteps()
         setview(configvalues[CONFIGVIEWMAINPANEL])
     end
 
-    if (procedureloop1.stepindex == 8) then
-        if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
-            commandtableentry(ADVICE, "A P U Startup Procedure Complete")
+    if ((procedureloop1.stepindex == 8) or procedureabort) then
+        if (procedureloop1.stepindex == 8) then
+            if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
+                commandtableentry(ADVICE, "A P U Startup Procedure Complete")
+            else
+                commandtableentry(TEXT, "A P U Startup Procedure Complete")
+            end
         else
-            commandtableentry(TEXT, "A P U Startup Procedure Complete")
+            if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
+                commandtableentry(ADVICE, "A P U Startup Procedure Aborted")
+            else
+                commandtableentry(TEXT, "A P U Startup Procedure Aborted")
+            end
         end
+        procedureloop1.lock = NOPROCEDURE
+        procedureabort = false
     end
 
     return true
@@ -4466,12 +4469,6 @@ sasl.registerCommandHandler(my_command_apustartup, 0, apustartup_)
 -- Engine Start
 
 function enginestartsteps()
-
-    if ((procedureloop1.stepindex > 34) or procedureabort) then
-        procedureloop1.lock = NOPROCEDURE
-        procedureabort = false
-        return true
-    end
 
     if (procedureloop1.stepindex == 1) then
         setview(DEFAULTVIEW)
@@ -4826,16 +4823,25 @@ function enginestartsteps()
         setview(configvalues[CONFIGVIEWMAINPANEL])
     end
 
-    if (procedureloop1.stepindex == 34) then
-        if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
-            commandtableentry(ADVICE, "Engine Start Procedure Complete")
+    if ((procedureloop1.stepindex == 34) or procedureabort) then
+        if (procedureloop1.stepindex == 34) then
+            if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
+                commandtableentry(ADVICE, "Engine Start Procedure Complete")
+            else
+                commandtableentry(TEXT, "Engine Start Procedure Complete")
+            end
         else
-            commandtableentry(TEXT, "Engine Start Procedure Complete")
+            if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
+                commandtableentry(ADVICE, "Engine Start Procedure Aborted")
+            else
+                commandtableentry(TEXT, "Engine Start Procedure Aborted")
+            end
         end
+        procedureloop1.lock = NOPROCEDURE
+        procedureabort = false
     end
 
     return true
-
 
 end
 
@@ -4902,13 +4908,6 @@ sasl.registerCommandHandler(my_command_enginestart, 0, enginestart_)
 -- Engine Shutdown
 
 function engineshutdownsteps()
-
-    if ((procedureloop1.stepindex > 18) or procedureabort) then
-        procedureloop1.lock = NOPROCEDURE
-        procedureabort = false
-        return true
-    end
-
 
     if (procedureloop1.stepindex == 1) then
         setview(DEFAULTVIEW)
@@ -5117,13 +5116,24 @@ function engineshutdownsteps()
         setview(configvalues[CONFIGVIEWMAINPANEL])
     end
 
-    if (procedureloop1.stepindex == 18) then
-        if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
-            commandtableentry(ADVICE, "Engine Shutdown Procedure Complete")
+    if ((procedureloop1.stepindex == 18) or procedureabort) then
+        if (procedureloop1.stepindex == 18) then
+            if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
+                commandtableentry(ADVICE, "Engine Shutdown Procedure Complete")
+            else
+                helpers.command_once("laminar/B738/push_button/master_caution1")
+                commandtableentry(TEXT, "Engine Shutdown Procedure Complete")
+            end
         else
-            helpers.command_once("laminar/B738/push_button/master_caution1")
-            commandtableentry(TEXT, "Engine Shutdown Procedure Complete")
+            if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
+                commandtableentry(ADVICE, "Engine Shutdown Procedure Aborted")
+            else
+                helpers.command_once("laminar/B738/push_button/master_caution1")
+                commandtableentry(TEXT, "Engine Shutdown Procedure Aborted")
+            end
         end
+        procedureloop1.lock = NOPROCEDURE
+        procedureabort = false
     end
 
     return true
@@ -5222,12 +5232,6 @@ sasl.registerCommandHandler(my_command_finalengineshutdown, 0, finalengineshutdo
 -- Shutdown
 
 function shutdownsteps()
-
-    if ((procedureloop1.stepindex > 25) or procedureabort) then
-        procedureloop1.lock = NOPROCEDURE
-        procedureabort = false
-        return true
-    end
 
     if (procedureloop1.stepindex == 1) then
         setview(DEFAULTVIEW)
@@ -5503,12 +5507,22 @@ function shutdownsteps()
         setview(configvalues[CONFIGVIEWMAINPANEL])
     end
 
-    if (procedureloop1.stepindex == 25) then
-        if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
-            commandtableentry(ADVICE, "Shutdown Procedure Complete")
+    if ((procedureloop1.stepindex == 25) or procedureabort) then
+        if (procedureloop1.stepindex == 25) then
+            if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
+                commandtableentry(ADVICE, "Shutdown Procedure Complete")
+            else
+                commandtableentry(TEXT, "Shutdown Procedure Complete")
+            end
         else
-            commandtableentry(TEXT, "Shutdown Procedure Complete")
-        end      
+            if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
+                commandtableentry(ADVICE, "Shutdown Procedure Aborted")
+            else
+                commandtableentry(TEXT, "Shutdown Procedure Aborted")
+            end      
+        end
+        procedureloop1.lock = NOPROCEDURE
+        procedureabort = false
     end
 
     return true
@@ -5568,12 +5582,6 @@ sasl.registerCommandHandler(my_command_shutdown, 0, shutdown_)
 -- teststeps
 
 function teststeps()
-
-    if ((procedureloop1.stepindex > 48) or procedureabort) then
-        procedureloop1.lock = NOPROCEDURE
-        procedureabort = false
-        return true
-    end
 
     if (procedureloop1.stepindex == 1) then
         setview(DEFAULTVIEW)
@@ -5761,8 +5769,22 @@ function teststeps()
         setview(configvalues[CONFIGVIEWMAINPANEL])
     end
 
-    if (procedureloop1.stepindex == 48) then
-        commandtableentry(TEXT, "Test Complete")
+    if ((procedureloop1.stepindex == 48) or procedureabort) then
+        if (procedureloop1.stepindex == 48) then
+            if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
+                commandtableentry(ADVICE, "Test Complete")
+            else
+                commandtableentry(TEXT, "Test Complete")
+            end
+        else
+            if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
+                commandtableentry(ADVICE, "Test Aborted")
+            else
+                commandtableentry(TEXT, "Test Aborted")
+            end
+        end
+        procedureloop1.lock = NOPROCEDURE
+        procedureabort = false
     end
 
     return true
@@ -5804,12 +5826,6 @@ sasl.registerCommandHandler(my_command_test, 0, test_)
 -- cockpitinitsteps function
 
 function cockpitinitsteps()
-
-    if ((procedureloop1.stepindex > 26) or procedureabort) then
-        procedureloop1.lock = NOPROCEDURE
-        procedureabort = false
-        return true
-    end
 
     if (procedureloop1.stepindex == 1) then
         if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
@@ -6123,12 +6139,22 @@ function cockpitinitsteps()
         helpers.command_once("laminar/B738/button/fmc1_clr")
     end
 
-    if (procedureloop1.stepindex == 26) then
-        if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
-            commandtableentry(ADVICE, "Cockpit Initialization Complete")
+    if ((procedureloop1.stepindex == 26) or procedureabort) then
+        if (procedureloop1.stepindex == 26) then
+            if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
+                commandtableentry(ADVICE, "Cockpit Initialization Complete")
+            else
+                commandtableentry(TEXT, "Cockpit Initialization Complete")
+            end
         else
-            commandtableentry(TEXT, "Cockpit Initialization Complete")
+            if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
+                commandtableentry(ADVICE, "Cockpit Initialization Aborted")
+            else
+                commandtableentry(TEXT, "Cockpit Initialization Aborted")
+            end
         end
+        procedureloop1.lock = NOPROCEDURE
+        procedureabort = false
     end
 
     return true
@@ -6193,13 +6219,6 @@ sasl.registerCommandHandler(my_command_cockpitinit, 0, cockpitinit_)
 
 function aftertakeoffsteps()
 
-    if ((procedureloop2.stepindex > 3) or procedureabort) then
-        aftertakeoffset = true
-        procedureloop2.lock = NOPROCEDURE
-        procedureabort = false
-        return true
-    end
- 
     if (procedureloop2.stepindex == 1) then
         if (get(radioaltitude) > 200) then
             if (get(gearhandlepos) == GEARDOWN) then
@@ -6245,20 +6264,26 @@ function aftertakeoffsteps()
         end  
     end
 
-    return false
+    if ((procedureloop2.stepindex == 3) or procedureabort) then
+        if procedureabort then
+            if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
+                commandtableentry(ADVICE, "Cockpit Initialization Aborted")
+            else
+                commandtableentry(TEXT, "Cockpit Initialization Aborted")
+            end
+        end
+        aftertakeoffset = true
+        procedureloop2.lock = NOPROCEDURE
+        procedureabort = false
+    end
+
+    return true
 end
 
 --------------------------------------------------------------------------------------------------------------
 -- altituedea10000steps function
 
 function altitudea10000steps()
-
-    if ((procedureloop1.stepindex > 7) or procedureabort) then
-        altitudea10000set = true
-        procedureloop1.lock = NOPROCEDURE
-        procedureabort = false
-        return true
-    end
 
     if (procedureloop1.stepindex == 1) then
         if (get(altitude) < (lowerairspacealt + 1000)) then
@@ -6344,6 +6369,19 @@ function altitudea10000steps()
         setview(configvalues[CONFIGVIEWMAINPANEL])
     end
 
+    if ((procedureloop1.stepindex == 7) or procedureabort) then
+        if procedureabort then
+            if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
+                commandtableentry(ADVICE, "Above 1000 Feet Procedure Aborted")
+            else
+                commandtableentry(TEXT, "Above 10000 Feet Procedure Aborted")
+            end
+        end
+        altitudea10000set = true
+        procedureloop1.lock = NOPROCEDURE
+        procedureabort = false
+    end
+
     return false
 
 end
@@ -6399,13 +6437,6 @@ sasl.registerCommandHandler(my_command_altitudea10000, 0, altitudea10000_)
 -- duringclimbsteps function
 
 function duringclimbsteps()
-
-    if ((procedureloop2.stepindex > 13) or procedureabort) then
-        duringclimbset = true
-        procedureloop2.lock = NOPROCEDURE
-        procedureabort = false
-        return true
-    end
 
     if (procedureloop2.stepindex == 1) then
         if (configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
@@ -6550,6 +6581,20 @@ function duringclimbsteps()
         end  
     end
 
+    if ((procedureloop2.stepindex == 13) or procedureabort) then
+        if procedureabort then
+            if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
+                commandtableentry(ADVICE, "During Climb Procedure Aborted")
+            else
+                commandtableentry(TEXT, "During Climb Procedure Aborted")
+            end
+        end
+        duringclimbset = true
+        procedureloop2.lock = NOPROCEDURE
+        procedureabort = false
+    end
+
+
     return true
 
 end
@@ -6577,13 +6622,6 @@ end
 -- altitudeb10000steps function
 
 function altitudeb10000steps()
-
-    if ((procedureloop1.stepindex > 12) or procedureabort) then
-        altitudeb10000set = true
-        procedureloop1.lock = NOPROCEDURE
-        procedureabort = false
-        return true
-    end
 
     if (procedureloop1.stepindex == 1) then
         if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
@@ -6713,6 +6751,19 @@ function altitudeb10000steps()
         end
     end
 
+    if ((procedureloop1.stepindex == 12) or procedureabort) then
+        if procedureabort then
+            if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
+                commandtableentry(ADVICE, "Below 10000 Feet Procedure Aborted")
+            else
+                commandtableentry(TEXT, "Below 10000 Feet Procedure Aborted")
+            end
+        end
+        altitudeb10000set = true
+        procedureloop1.lock = NOPROCEDURE
+        procedureabort = false
+    end
+
     return true
 
 end
@@ -6769,13 +6820,6 @@ sasl.registerCommandHandler(my_command_altitudeb10000, 0, altitudeb10000_)
 
 function radioaltitudeb2500steps()
 
-    if ((procedureloop2.stepindex > 2) or procedureabort) then
-        radioaltitude2500set = true
-        procedureloop2.lock = NOPROCEDURE
-        procedureabort = false
-        return true
-    end
-
     if (procedureloop2.stepindex == 1) then
         if ((convflaplevertoflappos(get(flapleverpos)) >= configvalues[CONFIGGEARDOWNFLAPS]) and (get(gearhandlepos) < GEARDOWN)) then
             if (configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
@@ -6791,7 +6835,20 @@ function radioaltitudeb2500steps()
         end
     end
 
-    return false
+    if ((procedureloop2.stepindex == 2) or procedureabort) then
+        if procedureabort then
+            if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
+                commandtableentry(ADVICE, "Below 2500 Feet Procedure Aborted")
+            else
+                commandtableentry(TEXT, "Below 2500 Feet Procedure Aborted")
+            end
+        end
+        radioaltitude2500set = true
+        procedureloop2.lock = NOPROCEDURE
+        procedureabort = false
+    end
+
+    return true
 
 end
 
@@ -6799,13 +6856,6 @@ end
 -- radioaltitudeb1000steps function
 
 function radioaltitudeb1000steps()
-
-    if ((procedureloop2.stepindex > 7) or prodedureabort) then
-        radioaltitude1000set = true
-        procedureloop2.lock = NOPROCEDURE
-        procedureabort = false
-        return true
-    end
 
     if (procedureloop2.stepindex == 1) then
         local speedbrakeleverrounded = roundnumber(get(speedbrakelever), 1)
@@ -6939,7 +6989,20 @@ function radioaltitudeb1000steps()
         end
     end
 
-    return false
+    if ((procedureloop2.stepindex == 7) or prodedureabort) then
+        if procedureabort then
+            if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
+                commandtableentry(ADVICE, "Below 1000 Feet Procedure Aborted")
+            else
+                commandtableentry(TEXT, "Below 1000 Feet Procedure Aborted")
+            end
+        end
+        radioaltitude1000set = true
+        procedureloop2.lock = NOPROCEDURE
+        procedureabort = false
+    end
+
+    return true
 
 end
 
@@ -6948,14 +7011,6 @@ end
 
 function duringdescentsteps()
 
-    if ((procedureloop2.stepindex > 7) or procedureabort) then
-        duringdescentset = true
-        procedureloop2.lock = NOPROCEDURE
-        procedureabort = false
-        return true
-    end
-
-    
     if (procedureloop2.stepindex == 1) then
         if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
             commandtableentry(ADVICE, "Descent Started")
@@ -7037,7 +7092,20 @@ function duringdescentsteps()
         end
     end
 
-    return false
+    if ((procedureloop2.stepindex == 7) or procedureabort) then
+            if procedureabort then
+            if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
+                commandtableentry(ADVICE, "Descent Procedure Aborted")
+            else
+                commandtableentry(TEXT, "Descent Procedure Aborted")
+            end
+        end
+        duringdescentset = true
+        procedureloop2.lock = NOPROCEDURE
+        procedureabort = false
+    end
+    
+    return true
 
 end
 
@@ -7071,13 +7139,6 @@ end
 -- afterlandingsteps function
 
 function afterlandingsteps()
-
-    if ((procedureloop1.stepindex > 21) or procedureabort) then
-        afterlandingset = true
-        procedureloop1.lock = NOPROCEDURE
-        procedureabort = false
-        return true
-    end
 
     if (procedureloop1.stepindex == 1) then
        if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
@@ -7280,12 +7341,23 @@ function afterlandingsteps()
         helpers.command_once("laminar/B738/push_button/master_caution1")
     end
 
-    if (procedureloop1.stepindex == 21) then
-        if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
-            commandtableentry(ADVICE, "After Landing Procedure Complete")
+    if ((procedureloop1.stepindex == 21) or procedureabort) then
+        if (procedureloop1.stepindex == 21) then
+            if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
+                commandtableentry(ADVICE, "After Landing Procedure Complete")
+            else
+                commandtableentry(TEXT, "After Landing Procedure Complete")
+            end
         else
-            commandtableentry(TEXT, "After Landing Procedure Complete")
+            if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
+                commandtableentry(ADVICE, "After Landing Procedure Aborted")
+            else
+                commandtableentry(TEXT, "After Landing Procedure Aborted")
+            end
         end
+        afterlandingset = true
+        procedureloop1.lock = NOPROCEDURE
+        procedureabort = false
     end
 
     return true
@@ -7343,13 +7415,6 @@ sasl.registerCommandHandler(my_command_afterlanding, 0, afterlanding_)
 -- beforetaxisteps function
 
 function beforetaxisteps()
-
-    if ((procedureloop1.stepindex > 26) or procedureabort) then
-        beforetaxiset = true
-        procedureloop1.lock = NOPROCEDURE
-        procedureabort = false
-        return true
-    end
 
     if (procedureloop1.stepindex == 1) then
         if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
@@ -7614,12 +7679,23 @@ function beforetaxisteps()
         setview(configvalues[CONFIGVIEWMAINPANEL])
     end
 
-    if (procedureloop1.stepindex == 26) then
-        if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
-            commandtableentry(ADVICE, "Before Taxi Procedure Complete")
+    if ((procedureloop1.stepindex == 26) or procedureabort) then
+        if (procedureloop1.stepindex == 26) then
+            if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
+                commandtableentry(ADVICE, "Before Taxi Procedure Complete")
+            else
+                commandtableentry(TEXT, "Before Taxi Procedure Complete")
+            end
         else
-            commandtableentry(TEXT, "Before Taxi Procedure Complete")
+            if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
+                commandtableentry(ADVICE, "Before Taxi Procedure Aborted")
+            else
+                commandtableentry(TEXT, "Before Taxi Procedure Aborted")
+            end
         end
+        beforetaxiset = true
+        procedureloop1.lock = NOPROCEDURE
+        procedureabort = false
     end
 
     return true
@@ -7667,13 +7743,6 @@ sasl.registerCommandHandler(my_command_beforetaxi, 0, beforetaxi_)
 -- beforetakeoffsteps function
 
 function beforetakeoffsteps()
-
-    if ((procedureloop1.stepindex > 15) or procedureabort or (get(groundspeed) > 45)) then
-        beforetakeoffset = true
-        procedureloop1.lock = NOPROCEDURE
-        procedureabort = false
-        return true
-    end
 
     if (procedureloop1.stepindex == 1) then
         if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
@@ -7830,12 +7899,23 @@ function beforetakeoffsteps()
         end
     end
 
-    if (procedureloop1.stepindex == 15) then
-         if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
-            commandtableentry(ADVICE, "Before Takeoff Procedure Complete")
+    if ((procedureloop1.stepindex == 15) or procedureabort or (get(groundspeed) > 45)) then
+        if (procedureloop1.stepindex == 15) then
+            if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
+                commandtableentry(ADVICE, "Before Takeoff Procedure Complete")
+            else
+                commandtableentry(TEXT, "Before Takeoff Procedure Complete")
+            end
         else
-            commandtableentry(TEXT, "Before Takeoff Procedure Complete")
+            if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
+                commandtableentry(ADVICE, "Before Takeoff Procedure Aborted")
+            else
+                commandtableentry(TEXT, "Before Takeoff Procedure Aborted")
+            end
         end
+        beforetakeoffset = true
+        procedureloop1.lock = NOPROCEDURE
+        procedureabort = false
     end
 
     return true
@@ -7885,13 +7965,6 @@ sasl.registerCommandHandler(my_command_beforetakeoff, 0, beforetakeoff_)
 -- atparkingpositionsteps function
 
 function atparkingpositionsteps()
-
-    if ((procedureloop1.stepindex > 14) or procedureabort) then
-        atparkingpositionset = true
-        procedureloop1.lock = NOPROCEDURE
-        procedureabort = false
-        return true
-    end
 
     if (procedureloop1.stepindex == 1) then
         if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
@@ -8023,15 +8096,26 @@ function atparkingpositionsteps()
         setview(configvalues[CONFIGVIEWMAINPANEL])
     end
 
-    if (procedureloop1.stepindex == 14) then
-        if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
-            commandtableentry(ADVICE, "Flight Complete, Ready for Engine Shutdown")
+    if ((procedureloop1.stepindex == 14) or procedureabort or (get(battery) ~= ON)) then
+        if (procedureloop1.stepindex == 14) then
+            if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
+                commandtableentry(ADVICE, "Flight Complete, Ready for Engine Shutdown")
+            else
+                commandtableentry(TEXT, "Flight Complete, Ready for Engine Shutdown")
+            end
         else
-            commandtableentry(TEXT, "Flight Complete, Ready for Engine Shutdown")
+            if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
+                commandtableentry(ADVICE, "At Parking Position Procedure Aborted")
+            else
+                commandtableentry(TEXT, "At Parking Position Procedure Aborted")
+            end
         end
+        atparkingpositionset = true
+        procedureloop1.lock = NOPROCEDURE
+        procedureabort = false
     end
 
-    return false
+    return true
 
 end
 
@@ -10384,7 +10468,12 @@ function procedureloop_1()
             procedureloop1.stepindexprevious = procedureloop1.stepindex
         end
 
-        if ((configvalues[CONFIGVOICEADVICEONLY] == ON) and procedureskipstep) then
+        if procedureskipstep then
+            if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
+                commandtableentry(ADVICE, "Procedure Step Skipped")
+            else
+                commandtableentry(TEXT, "Procedure Step Skipped")
+            end
             procedureskipstep = false
             procedureloop1.stepindex = procedureloop1.stepindex + 1
         end
@@ -10431,7 +10520,12 @@ function procedureloop_2()
             procedureloop2.previousstepindex = procedureloop2.stepindex
         end
 
-        if ((configvalues[CONFIGVOICEADVICEONLY] == ON) and procedureskipstep2) then
+        if procedureskipstep then
+            if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
+                commandtableentry(ADVICE, "Procedure Step Skipped")
+            else
+                commandtableentry(TEXT, "Procedure Step Skipped")
+            end
             procedureskipstep2 = false
             procedureloop2.stepindex = procedureloop2.stepindex + 1
         end
