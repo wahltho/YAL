@@ -2735,8 +2735,8 @@ function decodemetar(metar)
     end
 
     sasl.logDebug("METAR parts:")
-    for idx, part in ipairs(parts) do
-        sasl.logDebug(string.format("  [%d] = %s", idx, part))
+    for idx, part_val in ipairs(parts) do
+        sasl.logDebug(string.format("  [%d] = %s", idx, part_val))
     end
 
     -- Station
@@ -2750,17 +2750,19 @@ function decodemetar(metar)
         local dt = parts[2]
         if ((#dt == 7) and (dt:sub(7) == "Z")) then
             local day = tonumber(dt:sub(1,2))
-            local time = dt:sub(3,6)
-            if (day and time) then
-                result.date_time = { day = day, time = time, timezone = "Z" }
+            local time_str = dt:sub(3,6)
+            if (day and time_str) then -- time_str is already a string, no need to check tonumber here
+                result.date_time = { day = day, time = time_str, timezone = "Z" }
                 sasl.logDebug(string.format("Parsed datetime: day=%d, time=%s", result.date_time.day, result.date_time.time))
             else
-                sasl.logDebug("Warning: Could not parse day or time")
+                sasl.logDebug("Warning: Could not parse day or time from: " .. dt)
             end
+        else
+            sasl.logDebug("Warning: Date/Time part not in expected format: " .. dt)
         end
     end
 
-    local i = 3
+    local i = 3 -- Start index for main METAR parts
     local parsing_main_data = true
 
     -- AUTO
@@ -2779,8 +2781,21 @@ function decodemetar(metar)
     }
 
     local function is_weather_code(s)
+        local code_to_check = s
+        if s:sub(1,1) == "-" or s:sub(1,1) == "+" then
+            code_to_check = s:sub(2)
+        end
+        if #code_to_check < 2 then return false end
+
         for _, code in ipairs(weather_codes) do
-            if (s:find(code, 1, true)) then
+            if code_to_check:find(code, 1, true) then
+                 -- More precise: check if phenomenon_part *is* a code or starts with one and has valid descriptors
+                if code_to_check == code then return true end
+            end
+        end
+        -- Fallback to original broader logic if the above more precise check is too restrictive for some cases
+        for _, code in ipairs(weather_codes) do
+            if s:find(code, 1, true) then
                 return true
             end
         end
@@ -2792,214 +2807,288 @@ function decodemetar(metar)
         sasl.logDebug(string.format("Processing part %d: %s", i, part))
         local parsed = false
 
-        if (part == "TEMPO" or part == "BECMG" or part:sub(1,4) == "PROB" or part == "TREND") then
+        if (part == "TEMPO" or part == "BECMG" or (string.len(part) >= 4 and part:sub(1,4) == "PROB") or part == "TREND") then
             parsing_main_data = false
-            sasl.logDebug("Skipping trend/change group: "..part)
-        else
-            -- CAVOK
-            if (part == "CAVOK") then
-                result.cavok = true
-                result.visibility = { value = 10000 }
-                sasl.logDebug("Parsed CAVOK: visibility >= 10km")
-                parsed = true
-            elseif ((not result.wind) and (#part >= 5)) then
-                local dir_str = part:sub(1,3)
-                local direction = (dir_str == "VRB") and "VRB" or tonumber(dir_str)
+            sasl.logDebug("Trend/change group found, METAR main data parsing stopped: " .. part)
+            break 
 
-                local var_dir_match = nil
-                if ((#part >= 9) and (part:sub(6,6) == "V")) then
-                    local dir1_str = part:sub(4,5)
-                    local dir2_str = part:sub(7,9)
-                    local dir1 = tonumber(dir1_str)
-                    local dir2 = tonumber(dir2_str)
-                    if (dir1 and dir2) then
-                        var_dir_match = { dir1 = dir1, dir2 = dir2 }
-                        sasl.logDebug(string.format("Parsed variable wind direction: %d-%d", dir1, dir2))
-                    end
+        elseif (part == "CAVOK") then
+            result.cavok = true
+            result.visibility = { value = 10000 }
+            result.clouds = result.clouds or {}
+            table.insert(result.clouds, {coverage="NSC", altitude=nil, type=""})
+            sasl.logDebug("Parsed CAVOK: visibility >= 10km, no significant clouds/weather")
+            parsed = true
+
+        elseif (not result.wind and
+                ( (part:sub(1,3) == "VRB") or (tonumber(part:sub(1,3)) ~= nil) ) and
+                (#part >= 5) and
+                (part:sub(-2) == "KT" or part:sub(-3) == "MPS" or part:sub(-3) == "KMH")
+               ) then
+            local dir_str = part:sub(1,3)
+            local direction = (dir_str == "VRB") and "VRB" or tonumber(dir_str)
+            local var_dir_match = nil
+            if ((#part >= 9) and (part:sub(6,6) == "V")) then
+                local d1_str = part:sub(4,5)
+                local d2_str = part:sub(7,9)
+                local d1 = tonumber(d1_str)
+                local d2 = tonumber(d2_str)
+                if (d1 and d2) then
+                    var_dir_match = { dir1 = d1, dir2 = d2 }
+                    sasl.logDebug(string.format("Parsed variable wind direction (within main wind group): %d-%d", d1, d2))
                 end
+            end
 
-                local unit = ((part:sub(-2) == "KT") and "KT") or
-                             ((part:sub(-3) == "MPS") and "MPS") or
-                             ((part:sub(-3) == "KMH") and "KMH") or nil
+            local unit_str = (part:sub(-2) == "KT" and "KT") or
+                           (part:sub(-3) == "MPS" and "MPS") or
+                           (part:sub(-3) == "KMH" and "KMH") or nil
 
-                if (direction and unit) then
-                    local speed_str = ""
-                    local gust_str = nil
-                    local g_pos = nil
+            if (direction and unit_str) then
+                local speed_part_end = #part - #unit_str
+                local speed_str_val = "" -- Renamed to avoid conflict
+                local gust_str_val = nil -- Renamed
+                local g_pos = part:find("G", 4)
 
-                    for char_index = 4, #part - #unit do
-                        if (part:sub(char_index, char_index) == "G") then
-                            g_pos = char_index
-                            break
-                        end
-                    end
-
-                    if (g_pos) then
-                        speed_str = part:sub(4, g_pos - 1)
-                        gust_str = part:sub(g_pos + 1, #part - #unit)
-                    else
-                        speed_str = part:sub(4, #part - #unit)
-                    end
-
-                    local speed = tonumber(speed_str)
-                    local gust = (gust_str and tonumber(gust_str)) or 0
-
-                    if (speed) then
-                        if (unit == "MPS") then
-                            speed = math.floor(speed * 1.94384 + 0.5)
-                            if (gust ~= nil) then gust = math.floor(gust * 1.94384 + 0.5) end
-                            sasl.logDebug(string.format("Converted %s m/s to %d kt", speed_str, speed))
-                        elseif ((unit == "KMH") or (unit == "KMT")) then
-                            speed = math.floor(speed * 0.539957 + 0.5)
-                            if (gust ~= nil) then gust = math.floor(gust * 0.539957 + 0.5) end
-                            sasl.logDebug(string.format("Converted %s km/h to %d kt", speed_str, speed))
-                        end
-
-                        result.wind = {
-                            direction = direction,
-                            speed = speed,
-                            gust = gust,
-                            variable_direction = var_dir_match
-                        }
-                        sasl.logDebug(string.format("Parsed wind: dir=%s, speed=%d kt, gust=%d kt%s",
-                            direction, speed, gust, (var_dir_match and string.format(", var=%d-%d", var_dir_match.dir1, var_dir_match.dir2)) or ""))
-                        parsed = true
-                    else
-                        sasl.logDebug("Warning: Could not parse wind speed")
-                    end
+                if (g_pos and g_pos < speed_part_end) then
+                    speed_str_val = part:sub(4, g_pos - 1)
+                    gust_str_val = part:sub(g_pos + 1, speed_part_end)
                 else
-                    sasl.logDebug("Warning: Could not parse wind direction or unit")
+                    speed_str_val = part:sub(4, speed_part_end)
                 end
-            elseif (not result.visibility) then
-                if ((#part == 4)) then
-                    local vis_value = tonumber(part)
-                    if (vis_value) then
-                        result.visibility = { value = vis_value }
-                        sasl.logDebug(string.format("Parsed visibility: %d meters", result.visibility.value))
-                        parsed = true
-                    elseif (part == "9999") then
-                        result.visibility = { value = 10000 }
-                        sasl.logDebug("Parsed visibility: 10000+ meters (9999)")
-                        parsed = true
+
+                local speed = tonumber(speed_str_val)
+                local gust = (gust_str_val and tonumber(gust_str_val)) or 0
+
+                if (speed ~= nil) then
+                    local original_speed_for_log = speed
+                    local original_gust_for_log = gust
+                    local original_unit_for_log = unit_str
+
+                    if (unit_str == "MPS") then
+                        speed = math.floor(speed * 1.94384 + 0.5)
+                        if (gust_str_val) then gust = math.floor(gust * 1.94384 + 0.5) end
+                    elseif (unit_str == "KMH") then
+                        speed = math.floor(speed * 0.539957 + 0.5)
+                        if (gust_str_val) then gust = math.floor(gust * 0.539957 + 0.5) end
                     end
-                elseif ((string.sub(part, -2) == "SM")) then
-                    local sm_value_str = string.sub(part, 1, #part - 2)
-                    local sm_value = tonumber(sm_value_str)
-                    if (sm_value) then
-                        local meters = math.floor(sm_value * 1609.34 + 0.5)
-                        result.visibility = { value = math.min(meters, 10000) }
-                        sasl.logDebug(string.format("Parsed visibility: %d SM, converted to %d meters (limited to 10000)", sm_value, result.visibility.value))
-                        parsed = true
+
+                    result.wind = {
+                        direction = direction,
+                        speed = speed,
+                        gust = gust,
+                        variable_direction = var_dir_match
+                    }
+                    if unit_str ~= "KT" then
+                         sasl.logDebug(string.format("Converted %s %s (gust %s) to %d kt (gust %d kt)", speed_str_val, original_unit_for_log, gust_str_val or "N/A", speed, gust))
                     end
+                    sasl.logDebug(string.format("Parsed wind: dir=%s, speed=%d kt, gust=%d kt%s",
+                        tostring(direction), speed, gust, (var_dir_match and string.format(", var=%d-%d", var_dir_match.dir1, var_dir_match.dir2)) or ""))
+                    parsed = true
+                else
+                    sasl.logDebug("Warning: Could not parse wind speed from: " .. part)
                 end
-            elseif (#part >= 6) then
-                local coverage = part:sub(1,3)
-                if (((coverage == "FEW") or (coverage == "SCT") or (coverage == "BKN") or (coverage == "OVC"))) then
-                    local altitude_str = part:sub(4,6)
-                    local altitude = tonumber(altitude_str)
-                    if ((#altitude_str == 3) and altitude) then
-                        result.clouds = result.clouds or {}
-                        local cloud_type = part:sub(7) or ""
-                        table.insert(result.clouds, {
-                            coverage = coverage,
-                            altitude = altitude * 100,
-                            type = cloud_type
-                        })
-                        sasl.logDebug(string.format("Parsed cloud: %s at %d ft%s",
-                            coverage, altitude * 100,
-                            (cloud_type ~= "" and (" ("..cloud_type..")")) or ""))
-                        parsed = true
-                    else
-                        sasl.logDebug("Warning: Could not parse cloud altitude")
-                    end
+            else
+                sasl.logDebug("Warning: Could not parse wind direction or unit from: " .. part)
+            end
+
+        elseif (not result.visibility and #part > 1 and #part <= 5 and string.sub(part, -2) == "SM") then
+            local sm_val_str = string.sub(part, 1, #part - 2)
+            local sm_value = tonumber(sm_val_str)
+            if (sm_value) then
+                local meters = math.floor(sm_value * 1609.34 + 0.5)
+                result.visibility = { value = math.min(meters, 10000) }
+                sasl.logDebug(string.format("Parsed visibility: %sSM, converted to %d meters (limited to 10000)", sm_val_str, result.visibility.value))
+                parsed = true
+            else
+                if sm_val_str == "P6" then
+                    result.visibility = { value = math.min(math.floor(7 * 1609.34 + 0.5), 10000) }
+                    sasl.logDebug(string.format("Parsed visibility: P6SM, interpreted as >6SM (~%d meters)", result.visibility.value))
+                    parsed = true
+                else
+                    sasl.logDebug("Warning: Could not parse SM visibility value from: " .. part)
                 end
-            elseif ((#part == 5) or (#part == 6)) then
-                local slash_pos = nil
-                for char_index = 1, #part do
-                    if (part:sub(char_index, char_index) == "/") then
-                        slash_pos = char_index
+            end
+
+        elseif (not result.visibility and #part == 4 and (tonumber(part) or part == "9999")) then
+            if (part == "9999") then
+                result.visibility = { value = 10000 }
+                sasl.logDebug("Parsed visibility: 10000+ meters (from 9999)")
+                parsed = true
+            else
+                local vis_value = tonumber(part)
+                if vis_value then
+                    result.visibility = { value = vis_value }
+                    sasl.logDebug(string.format("Parsed visibility: %d meters", result.visibility.value))
+                    parsed = true
+                else
+                    sasl.logDebug("Warning: Numeric visibility part #4 failed tonumber unexpectedly: " .. part)
+                end
+            end
+        
+        elseif (part:sub(1,1) == "R" and part:find("/", 1, true) and #part >= 5) then
+            result.runway_reports = result.runway_reports or {}
+            table.insert(result.runway_reports, part)
+            sasl.logDebug("Parsed runway report: "..part)
+            parsed = true
+
+        elseif (is_weather_code(part)) then
+            result.weather = result.weather or {}
+            local intensity = "moderate"
+            local phenomenon = part
+            if part:sub(1,1) == "-" then
+                intensity = "light"
+                phenomenon = part:sub(2)
+            elseif part:sub(1,1) == "+" then
+                intensity = "heavy"
+                phenomenon = part:sub(2)
+            end
+            
+            local valid_phenomenon = false
+            if #phenomenon >= 2 then -- Ensure phenomenon is not empty or single char after stripping intensity
+                for _, wc_entry in ipairs(weather_codes) do
+                    if phenomenon == wc_entry or phenomenon:find(wc_entry, 1, true) then
+                        valid_phenomenon = true
                         break
                     end
                 end
-                if (slash_pos and ((slash_pos == 3) or (slash_pos == 4))) then
-                    local temp_str = part:sub(1, slash_pos-1)
-                    local dew_str = part:sub(slash_pos+1)
+            end
 
-                    local temp_str_modified = temp_str:gsub("M", "-")
-                    local temp = tonumber(temp_str_modified)
-
-                    local dew_str_modified = dew_str:gsub("M", "-")
-                    local dew = tonumber(dew_str_modified)
-
-                    if ((temp ~= nil) and (dew ~= nil)) then
-                        result.temperature = { value = temp }
-                        result.dew_point = { value = dew }
-                        sasl.logDebug(string.format("Parsed temp/dew: %d°C/%d°C", temp, dew))
-                        parsed = true
-                    else
-                        sasl.logDebug("Warning: Could not parse temperature or dew point")
-                    end
-                end
-            elseif ((#part == 5) and ((part:sub(1,1) == "Q") or (part:sub(1,1) == "A"))) then
-                local value_str = part:sub(2)
-                local value = tonumber(value_str)
-                local pressure_hpa = nil
-
-                if (value) then
-                    if (part:sub(1,1) == "Q") then
-                        pressure_hpa = math.floor(value + 0.5)
-                        sasl.logDebug(string.format("Parsed pressure: %d hPa (raw: %s)", pressure_hpa, part))
-                        parsed = true
-                    elseif (part:sub(1,1) == "A") then
-                        local inHg = tonumber(string.format("%d.%02d", math.floor(value / 100), value % 100))
-                        if (inHg) then
-                            pressure_hpa = math.floor(inHg * 33.8639 + 0.5)
-                            sasl.logDebug(string.format("Parsed pressure: %d hPa (raw: %s)", pressure_hpa, part))
-                            parsed = true
-                        end
-                    else
-                        sasl.logDebug("Warning: Could not convert pressure to hPa")
-                    end
-                else
-                    sasl.logDebug("Warning: Could not parse pressure value")
-                end
-            elseif (is_weather_code(part)) then
-                result.weather = result.weather or {}
-                local intensity = (part:sub(1,1) == "-") and "light" or (part:sub(1,1) == "+") and "heavy" or "moderate"
-                local phenomenon = (intensity ~= "moderate") and part:sub(2) or part
-
+            if valid_phenomenon then
                 table.insert(result.weather, {
                     intensity = intensity,
                     phenomenon = phenomenon
                 })
                 sasl.logDebug(string.format("Parsed weather: %s (%s)", phenomenon, intensity))
                 parsed = true
-            elseif ((#part >= 6) and (part:sub(1,1) == "R") and (part:sub(4,4) == "/")) then
-                result.runway_reports = result.runway_reports or {}
-                table.insert(result.runway_reports, part)
-                sasl.logDebug("Parsed runway report: "..part)
-                parsed = true
-            elseif (part == "NOSIG") then
-                result.nosig = true
-                sasl.logDebug("Parsed NOSIG: no significant change expected")
-                parsed = true
-            elseif (part == "RMK") then
-                result.remarks = {}
-                i = i + 1
-                while (i <= #parts) do
-                    table.insert(result.remarks, parts[i])
-                    sasl.logDebug("Parsed remark: "..parts[i])
-                    i = i + 1
-                end
-                break
+            else
+                sasl.logDebug("Warning: Part looked like weather but phenomenon not matched or invalid: " .. part .. " (phenomenon checked: " .. phenomenon .. ")")
             end
 
-            if (not parsed) then
-                sasl.logDebug("Unknown element: "..part)
+        elseif ( (string.sub(part,1,3) == "FEW" or string.sub(part,1,3) == "SCT" or string.sub(part,1,3) == "BKN" or string.sub(part,1,3) == "OVC") and
+                   #part >= 6 and tonumber(part:sub(4,6)) ~= nil ) or
+                 ( string.sub(part,1,2) == "VV" and #part >= 5 and tonumber(part:sub(3,5)) ~= nil ) or
+                 ( part == "SKC" or part == "CLR" or part == "NSC" )
+        then
+            result.clouds = result.clouds or {}
+            if (part == "SKC" or part == "CLR" or part == "NSC") then
+                table.insert(result.clouds, { coverage = part, altitude = nil, type = "" })
+                sasl.logDebug("Parsed cloud: " .. part)
+                parsed = true
+            else
+                local coverage_code
+                local altitude_str_val -- Renamed
+                local altitude_idx_start
+
+                if part:sub(1,2) == "VV" then
+                    coverage_code = "VV"
+                    altitude_idx_start = 3
+                else 
+                    coverage_code = part:sub(1,3)
+                    altitude_idx_start = 4
+                end
+                altitude_str_val = part:sub(altitude_idx_start, altitude_idx_start + 2)
+                local altitude_val = tonumber(altitude_str_val)
+
+                if altitude_val then
+                    local cloud_significant_type = ""
+                    if #part > (altitude_idx_start + 2) then
+                        cloud_significant_type = part:sub(altitude_idx_start + 3)
+                    end
+                    table.insert(result.clouds, {
+                        coverage = coverage_code,
+                        altitude = altitude_val * 100,
+                        type = cloud_significant_type
+                    })
+                    sasl.logDebug(string.format("Parsed cloud: %s at %d ft%s",
+                        coverage_code, altitude_val * 100,
+                        (cloud_significant_type ~= "" and (" ("..cloud_significant_type..")")) or ""))
+                    parsed = true
+                else
+                    sasl.logDebug("Warning: Could not parse cloud altitude for: " .. part .. " (altitude_str: '" .. altitude_str_val .. "')")
+                end
             end
+
+        elseif ( part:find("/",1,true) and (#part >= 5 and #part <= 7) and
+                 (part:sub(1,1) == "M" or tonumber(part:sub(1,1)) ~= nil) ) then
+            local slash_pos = part:find("/",2,true) 
+            if slash_pos and slash_pos > 1 and slash_pos < #part then
+                local temp_str_val = part:sub(1, slash_pos-1) -- Renamed
+                local dew_str_val = part:sub(slash_pos+1)   -- Renamed
+
+                -- KORREKTUR HIER:
+                local temp_val = tonumber((temp_str_val:gsub("M","-")))
+                local dew_val = tonumber((dew_str_val:gsub("M","-")))
+
+                if ((temp_val ~= nil) and (dew_val ~= nil)) then
+                    result.temperature = { value = temp_val }
+                    result.dew_point = { value = dew_val }
+                    sasl.logDebug(string.format("Parsed temp/dew: %d°C/%d°C", temp_val, dew_val))
+                    parsed = true
+                else
+                    sasl.logDebug("Warning: Could not parse temperature or dew point values from: " .. part .. " (temp_str="..temp_str_val..", dew_str="..dew_str_val..")")
+                end
+            else
+                 sasl.logDebug("Warning: Temp/Dew part malformed (slash position or content): " .. part)
+            end
+
+        elseif ((#part == 5) and (part:sub(1,1) == "Q" or part:sub(1,1) == "A") and tonumber(part:sub(2))) then
+            local val_str = part:sub(2)
+            local value_num = tonumber(val_str) -- Renamed
+            local pressure_hpa = nil
+
+            if (part:sub(1,1) == "Q") then
+                pressure_hpa = math.floor(value_num + 0.5)
+            elseif (part:sub(1,1) == "A") then
+                local inHg = value_num / 100
+                pressure_hpa = math.floor(inHg * 33.8639 + 0.5)
+            end
+
+            if pressure_hpa then
+                result.pressure = pressure_hpa
+                sasl.logDebug(string.format("Parsed pressure: %d hPa (raw: %s)", result.pressure, part))
+                parsed = true
+            else
+                sasl.logDebug("Warning: Could not calculate hPa pressure from: " .. part)
+            end
+
+        elseif (part == "NOSIG") then
+            result.nosig = true
+            sasl.logDebug("Parsed NOSIG: no significant change expected")
+            parsed = true
+            
+        elseif (part == "RMK") then
+            result.remarks = {}
+            sasl.logDebug("Entered RMK block.")
+            local remark_idx = i + 1
+            while(remark_idx <= #parts) do
+                local current_remark = parts[remark_idx]
+                if (current_remark == "TEMPO" or current_remark == "BECMG" or (string.len(current_remark) >=4 and current_remark:sub(1,4) == "PROB") or current_remark == "TREND") then
+                    sasl.logDebug("Remark parsing stopped; trend/change group encountered: " .. current_remark)
+                    break 
+                end
+
+                table.insert(result.remarks, current_remark)
+                sasl.logDebug("Parsed remark: " .. current_remark)
+
+                if current_remark == "$" then
+                    result.maintenance_indicator = true
+                    sasl.logDebug("Maintenance indicator '$' found and included in remarks.")
+                    remark_idx = remark_idx + 1 
+                    break 
+                end
+                remark_idx = remark_idx + 1
+            end
+            i = remark_idx -1 
+            parsed = true
+            parsing_main_data = false 
+            sasl.logDebug("Finished RMK section. Main data parsing will stop.")
+        end
+
+        if (not parsed and parsing_main_data) then
+             sasl.logDebug("Unknown element: "..part)
         end
         i = i + 1
-    end
+    end 
 
     sasl.logDebug("METAR parsing complete")
     return result
