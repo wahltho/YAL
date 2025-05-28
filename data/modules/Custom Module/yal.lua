@@ -100,7 +100,6 @@ function P.YalinitGlobal()
     [AFTERLANDINGPROCEDURE] = { name = "After Landing", steps = 19, set = false },
     [SETILSPROCEDURE] = { name = "Set I L S", steps = 99, set = false },
     [SETVREF30PROCEDURE] = { name = "Set V Ref", steps = 99, set = false },
-    [SETSPDRESTR250PROCEDURE] = { name = "", steps = 99, set = false },
     [ALTITUDEA10000PROCEDURE] = { name = "", steps = 7, set = false },
     [ALTITUDEB10000PROCEDURE] = { name = "", steps = 12, set = false },
     [AFTERTAKEOFFPROCEDURE] = { name = "", steps = 3, set = false },
@@ -2266,7 +2265,6 @@ end
 
 my_command_togglevoicereadback = sasl.createCommand(definitions.APPNAMEPREFIX .. "/togglevoicereadback", "Toggle Voice Readback")
 sasl.registerCommandHandler(my_command_togglevoicereadback, 0, togglevoicereadback_)
--- sasl.appendMenuItem(P.menu_main, "Toggle Voice Readback", togglevoicereadback)
 
 --------------------------------------------------------------------------------------------------------------
 
@@ -3959,9 +3957,7 @@ function coldanddarksteps()
     if (procedureloop1.stepindex == 1) then
         setview(DEFAULTVIEW)
         setview(configvalues[CONFIGVIEWOVERHEADPANEL])
-    end
-
-    if (procedureloop1.stepindex == 2) then
+    elseif (procedureloop1.stepindex == 2) then
         if (get(battery) == OFF) then
             if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 commandtableentry(ADVICE, "Switch Battery On")
@@ -3972,19 +3968,13 @@ function coldanddarksteps()
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
             commandtableentry(ADVICE, "Battery Checked and On")
         end
-    end
-
-    if (procedureloop1.stepindex == 3) then
+    elseif (procedureloop1.stepindex == 3) then
         if (get(batteryswitchcover) == OPEN) then
             helpers.command_once("laminar/B738/button_switch_cover02")
         end
-    end
-
-    if ((procedureloop1.stepindex == 4)  and (get(sunpitchdegrees) < 0)) then
+    elseif ((procedureloop1.stepindex == 4)  and (get(sunpitchdegrees) < 0)) then
         setview(configvalues[CONFIGVIEWUPPEROVERHEADPANEL])
-    end
-
-    if ((procedureloop1.stepindex == 5) and (get(sunpitchdegrees) < 0)) then
+    elseif ((procedureloop1.stepindex == 5) and (get(sunpitchdegrees) < 0)) then
         if (get(domelightpos) == DOMELIGHTOFF) then
             if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 commandtableentry(ADVICE, "Set Domelight On")
@@ -3995,13 +3985,9 @@ function coldanddarksteps()
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
             commandtableentry(ADVICE, "Domelight Checked and On")
         end
-    end
-
-    if ((procedureloop1.stepindex == 6) and (get(sunpitchdegrees) < 0)) then
+    elseif ((procedureloop1.stepindex == 6) and (get(sunpitchdegrees) < 0)) then
         setview(configvalues[CONFIGVIEWOVERHEADPANEL])
-    end
-
-    if (procedureloop1.stepindex == 7) then
+    elseif (procedureloop1.stepindex == 7) then
         if (get(emergencylights) ~= EMERGLIGHTSARMED) then
             if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 commandtableentry(ADVICE, "Arm Emergency Lights")
@@ -4012,15 +3998,11 @@ function coldanddarksteps()
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
             commandtableentry(ADVICE, "Emergency Lights Checked and Armed")
         end
-    end
-
-    if (procedureloop1.stepindex == 8) then
+    elseif (procedureloop1.stepindex == 8) then
         if (get(emergencylightcover) == OPEN) then
             helpers.command_once("laminar/B738/button_switch_cover09")
         end
-    end
-
-    if (procedureloop1.stepindex == 9) then
+    elseif (procedureloop1.stepindex == 9) then
         if (get(positionlights) ~= POSLIGHTSSTEADY) then
             if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 commandtableentry(ADVICE, "Set Position Lights Steady")
@@ -4031,9 +4013,7 @@ function coldanddarksteps()
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
             commandtableentry(ADVICE, "Position Lights Checked and Steady")
         end
-    end
-
-     if (procedureloop1.stepindex == 10) then
+    elseif (procedureloop1.stepindex == 10) then
         if (get(nosmokingsignpos) ~= NOSMOKINGSIGNON) then
             if (configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                 setnosmokingsign(NOSMOKINGSIGNON)
@@ -4044,9 +4024,7 @@ function coldanddarksteps()
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
             commandtableentry(ADVICE, "No Smoking Signs Checked and On")
         end
-    end
-
-    if (procedureloop1.stepindex == 11) then
+    elseif (procedureloop1.stepindex == 11) then
         if ((configvalues[CONFIGUSEGROUNDPOWER] == ON) and (get(gpuavailable) == ON)) then
             if (get(gpuon) == OFF) then
                 if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
@@ -4065,9 +4043,7 @@ function coldanddarksteps()
                 return true
             end
         end
-    end
-
-    if (procedureloop1.stepindex == 12) then
+    elseif (procedureloop1.stepindex == 12) then
         if (get(apustarterpos) ~= ON) then
             if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 commandtableentry(ADVICE, "Start A P U")
@@ -4078,16 +4054,12 @@ function coldanddarksteps()
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
             commandtableentry(ADVICE, "A P U Checked and Started")
         end
-    end  
-
-    if (procedureloop1.stepindex == 13) then
+    elseif (procedureloop1.stepindex == 13) then
         if (configvalues[CONFIGVOICEADVICEONLY]  ~= ON) then
             helpers.command_once("laminar/B738/spring_toggle_switch/APU_start_pos_dn")
             commandtableentry(TEXT, "A P U Started")
         end
-    end
-
-    if (procedureloop1.stepindex == 14) then
+    elseif (procedureloop1.stepindex == 14) then
         if (get(apugenoffbus) == OFF) then
             procedureloop1.stepindex = procedureloop1.stepindex - 1
         else
@@ -4097,9 +4069,7 @@ function coldanddarksteps()
                 commandtableentry(TEXT, "A P U Running")
             end
         end
-    end
-
-    if (procedureloop1.stepindex == 15) then
+    elseif (procedureloop1.stepindex == 15) then
         if (not((get(apupowerbus1) == ON) and (get(announcsourceoff1) == OFF)) or not((get(apupowerbus2) == ON) and (get(announcsourceoff2) == OFF))) then
             if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 commandtableentry(ADVICE, "Switch A P U Generator On")
@@ -4115,9 +4085,7 @@ function coldanddarksteps()
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
             commandtableentry(ADVICE, "A P U Generator Checked and On")
         end
-    end
-
-    if (procedureloop1.stepindex == 16) then
+    elseif (procedureloop1.stepindex == 16) then
         if (get(bleedairapupos) == OFF) then
             if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 commandtableentry(ADVICE, "Switch A P U Bleed Air On")
@@ -4128,9 +4096,7 @@ function coldanddarksteps()
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
             commandtableentry(ADVICE, "A P U Bleed Air Checked and On")    
         end
-    end
-
-    if (procedureloop1.stepindex == 17) then
+    elseif (procedureloop1.stepindex == 17) then
         if (get(isolvalvepos)  ~= ISOLVALVEOPEN) then
             if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 commandtableentry(ADVICE, "Set Isolation Valve Open")
@@ -4141,9 +4107,7 @@ function coldanddarksteps()
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
             commandtableentry(ADVICE, "Isolation Valve Checked and Open")    
         end
-    end
-
-    if (procedureloop1.stepindex == 18) then
+    elseif (procedureloop1.stepindex == 18) then
         if ((get(packlpos) ~= PACKAUTO) or (get(packrpos) ~= PACKAUTO)) then
             if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 commandtableentry(ADVICE, "Set Both Packs Auto")
@@ -4155,9 +4119,7 @@ function coldanddarksteps()
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
             commandtableentry(ADVICE, "Both Packs Checked and Auto")    
         end
-    end
-
-    if (procedureloop1.stepindex == 19) then
+    elseif (procedureloop1.stepindex == 19) then
         if (get(trimairpos) ~= ON) then
             if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 commandtableentry(ADVICE, "Set Trim Air On")
@@ -4168,21 +4130,15 @@ function coldanddarksteps()
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
             commandtableentry(ADVICE, "Trim Air Checked and On")    
         end
-    end
-
-    if (procedureloop1.stepindex == 20) then
+    elseif (procedureloop1.stepindex == 20) then
         setview(configvalues[CONFIGVIEWUPPEROVERHEADPANEL])
-    end
-
-    if (procedureloop1.stepindex == 21) then
+    elseif (procedureloop1.stepindex == 21) then
         if (configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
             if not setirs(BOTHIRS, IRSNAV) then 
                 procedureloop1.stepindex = procedureloop1.stepindex - 1
             end
         end
-    end
-
-    if (procedureloop1.stepindex == 22) then
+    elseif (procedureloop1.stepindex == 22) then
         if ((get(irsalignleft) == OFF) or (get(irsalignright) == OFF)) then
             if ((get(irsleftpos) ~= IRSNAV) or (get(irsrightpos) ~= IRSNAV)) then
                 if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
@@ -4195,45 +4151,31 @@ function coldanddarksteps()
         else
             commandtableentry(TEXT, "I R S Alignment Started")
         end
-    end
-
-    if (procedureloop1.stepindex == 23) then
+    elseif (procedureloop1.stepindex == 23) then
         setview(configvalues[CONFIGVIEWFMS])
-    end
-
-    if (procedureloop1.stepindex == 24) then
+    elseif (procedureloop1.stepindex == 24) then
         if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
             commandtableentry(ADVICE, "Initialize I R S Position")
         end
         helpers.command_once("laminar/B738/button/fmc1_init_ref")
-    end
-
-    if (procedureloop1.stepindex == 25) then
+    elseif (procedureloop1.stepindex == 25) then
         if (configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
             helpers.command_once("laminar/B738/button/fmc1_next_page")
         end
-    end
-
-    if (procedureloop1.stepindex == 26) then
+    elseif (procedureloop1.stepindex == 26) then
         if (configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
             helpers.command_once("laminar/B738/button/fmc1_4L")
         end
-    end
-
-    if (procedureloop1.stepindex == 27) then
+    elseif (procedureloop1.stepindex == 27) then
         if (configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
             helpers.command_once("laminar/B738/button/fmc1_prev_page")
         end
-    end
-
-    if (procedureloop1.stepindex == 28) then
+    elseif (procedureloop1.stepindex == 28) then
         if (configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
             helpers.command_once("laminar/B738/button/fmc1_4R")
             commandtableentry(TEXT, "I R S Position Initialization Complete")
         end
-    end
-
-    if (procedureloop1.stepindex == 29) then
+    elseif (procedureloop1.stepindex == 29) then
         setview(configvalues[CONFIGVIEWMAINPANEL])
     end
 
@@ -4312,9 +4254,7 @@ function apustartupsteps()
     if (procedureloop1.stepindex == 1) then
         setview(DEFAULTVIEW)
         setview(configvalues[CONFIGVIEWOVERHEADPANEL])
-    end
-
-    if (procedureloop1.stepindex == 2) then
+    elseif (procedureloop1.stepindex == 2) then
         if (get(apustarterpos) ~= ON) then
             if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 commandtableentry(ADVICE, "Start A P U")
@@ -4325,19 +4265,14 @@ function apustartupsteps()
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
             commandtableentry(ADVICE, "A P U Checked and Started")
         end
-    end
-
-
-    if (procedureloop1.stepindex == 3) then
+    elseif (procedureloop1.stepindex == 3) then
         if (configvalues[CONFIGVOICEADVICEONLY]  ~= ON) then
             helpers.command_once("laminar/B738/spring_toggle_switch/APU_start_pos_dn")
             commandtableentry(TEXT, "A P U Running Up")
         else
             commandtableentry(ADVICE, "A P U Running Up")
         end
-    end
-
-    if (procedureloop1.stepindex == 4) then
+    elseif (procedureloop1.stepindex == 4) then
         if (get(apugenoffbus) == OFF) then 
             procedureloop1.stepindex = procedureloop1.stepindex - 1
         else
@@ -4347,9 +4282,7 @@ function apustartupsteps()
                 commandtableentry(TEXT, "A P U Running")
             end
         end
-    end
-
-    if (procedureloop1.stepindex == 5) then
+    elseif (procedureloop1.stepindex == 5) then
         if (not((get(apupowerbus1) == ON) and (get(announcsourceoff1) == OFF)) or not((get(apupowerbus2) == ON) and (get(announcsourceoff2) == OFF))) then
             if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 commandtableentry(ADVICE, "Switch A P U Generator On")
@@ -4365,9 +4298,7 @@ function apustartupsteps()
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
             commandtableentry(ADVICE, "A P U Generator Checked and On")
         end
-    end
-
-    if (procedureloop1.stepindex == 6) then
+    elseif (procedureloop1.stepindex == 6) then
         if (get(gpuon) == ON) then
             if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 commandtableentry(ADVICE, "Switch Ground Power Off")
@@ -4378,9 +4309,7 @@ function apustartupsteps()
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
             commandtableentry(ADVICE, "Ground Power Checked and Off")    
         end
-    end
-   
-    if (procedureloop1.stepindex == 7) then
+    elseif (procedureloop1.stepindex == 7) then
         setview(configvalues[CONFIGVIEWMAINPANEL])
     end
 
@@ -4429,7 +4358,6 @@ end
 
 my_command_apustartup = sasl.createCommand(definitions.APPNAMEPREFIX .. "/apustartup", "APU Startup")
 sasl.registerCommandHandler(my_command_apustartup, 0, apustartup_)
--- sasl.appendMenuItem(P.menu_main, "APU Startup", apustartup)
 
 --------------------------------------------------------------------------------------------------------------
 -- Engine Start
@@ -4439,9 +4367,7 @@ function enginestartsteps()
     if (procedureloop1.stepindex == 1) then
         setview(DEFAULTVIEW)
         setview(configvalues[CONFIGVIEWOVERHEADPANEL])
-    end
-
-    if (procedureloop1.stepindex == 2) then
+    elseif (procedureloop1.stepindex == 2) then
         if (get(beaconlights) == OFF) then
             if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 commandtableentry(ADVICE, "Set Collision Lights On")
@@ -4452,9 +4378,7 @@ function enginestartsteps()
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
             commandtableentry(ADVICE, "Collision lightset Checked and On")
         end     
-    end
-
-    if (procedureloop1.stepindex == 3) then
+    elseif (procedureloop1.stepindex == 3) then
         if ((get(lefttanklswitch) == OFF) or (get(lefttankrswitch) == OFF) or (get(righttanklswitch) == OFF) or (get(righttankrswitch) == OFF)) then
             if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 commandtableentry(ADVICE, "Set Wing Tank Fuel Pumps On")
@@ -4468,9 +4392,7 @@ function enginestartsteps()
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
             commandtableentry(ADVICE, "Wing Fuel Tanks Checked and On")
         end
-    end
-
-    if (procedureloop1.stepindex == 4) then
+    elseif (procedureloop1.stepindex == 4) then
         if ((get(packlpos) ~= PACKOFF) or (get(packrpos) ~= PACKOFF)) then
             if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 commandtableentry(ADVICE, "Set Both Packs Off")
@@ -4482,9 +4404,7 @@ function enginestartsteps()
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
             commandtableentry(ADVICE, "Both Packs Checked and Off")
         end 
-    end
-
-    if (procedureloop1.stepindex == 5) then
+    elseif (procedureloop1.stepindex == 5) then
         if (get(bleedairapupos) == OFF) then
             if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 commandtableentry(ADVICE, "Set A P U Bleed Air On")
@@ -4495,9 +4415,7 @@ function enginestartsteps()
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
             commandtableentry(ADVICE, "A P U Bleed Air Checked and On")
         end 
-    end
-
-    if (procedureloop1.stepindex == 6) then
+    elseif (procedureloop1.stepindex == 6) then
         if (get(isolvalvepos)  ~= ISOLVALVEOPEN) then
             if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 commandtableentry(ADVICE, "Set Isolation Valve Open")
@@ -4508,9 +4426,7 @@ function enginestartsteps()
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
             commandtableentry(ADVICE, "Isolation Valve Checked and Open")
         end 
-    end
-
-    if (procedureloop1.stepindex == 7) then
+    elseif (procedureloop1.stepindex == 7) then
         if (get(starter2pos) ~= GROUND) then
             if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 commandtableentry(ADVICE, "Set Starter 2 Ground")
@@ -4521,13 +4437,9 @@ function enginestartsteps()
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
             commandtableentry(ADVICE, "Engine 2 Starter Checked and On")
         end
-    end
-
-    if (procedureloop1.stepindex == 8) then
+    elseif (procedureloop1.stepindex == 8) then
         setview(configvalues[CONFIGVIEWMAINPANEL])
-    end
-
-    if (procedureloop1.stepindex == 9) then
+    elseif (procedureloop1.stepindex == 9) then
         if (get(eng2n2percent) < 25) then
             procedureloop1.stepindex = procedureloop1.stepindex - 1
         else
@@ -4537,13 +4449,9 @@ function enginestartsteps()
                 commandtableentry(TEXT, "Engine 2 N 2 at 25 Percent")
             end
         end
-    end 
-
-    if (procedureloop1.stepindex == 10) then
+    elseif (procedureloop1.stepindex == 10) then
         setview(configvalues[CONFIGVIEWTHROTTLE])
-    end
-
-    if (procedureloop1.stepindex == 11) then
+    elseif (procedureloop1.stepindex == 11) then
         if (get(mixture2pos) ~= ON) then
             if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 commandtableentry(ADVICE, "Set Engine 2 Fuel Lever Idle")
@@ -4554,13 +4462,9 @@ function enginestartsteps()
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
             commandtableentry(ADVICE, "Engine 2 Fuel Lever Checked and Idle")
         end
-    end
-
-    if (procedureloop1.stepindex == 12) then
+    elseif (procedureloop1.stepindex == 12) then
         setview(configvalues[CONFIGVIEWMAINPANEL])
-    end
-
-    if (procedureloop1.stepindex == 13) then
+    elseif (procedureloop1.stepindex == 13) then
         if not enginesrunning(ENGINE2) then
             procedureloop1.stepindex = procedureloop1.stepindex - 1
         else
@@ -4570,13 +4474,9 @@ function enginestartsteps()
                 commandtableentry(TEXT, "Engine 2 Running")
             end
         end
-    end
-
-    if (procedureloop1.stepindex == 14) then
+    elseif (procedureloop1.stepindex == 14) then
         setview(configvalues[CONFIGVIEWOVERHEADPANEL])
-    end
-
-    if (procedureloop1.stepindex == 15) then
+    elseif (procedureloop1.stepindex == 15) then
         if (get(starter1pos) ~= GROUND) then
             if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 commandtableentry(ADVICE, "Set Starter 1 Ground")
@@ -4587,13 +4487,9 @@ function enginestartsteps()
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
             commandtableentry(ADVICE, "Engine 1 Starter Checked and Ground")
         end
-    end
-
-    if (procedureloop1.stepindex == 16) then
+    elseif (procedureloop1.stepindex == 16) then
         setview(configvalues[CONFIGVIEWMAINPANEL])
-    end
-
-    if (procedureloop1.stepindex == 17) then
+    elseif (procedureloop1.stepindex == 17) then
         if (get(eng1n2percent) < 25) then
             procedureloop1.stepindex = procedureloop1.stepindex - 1
         else
@@ -4603,13 +4499,9 @@ function enginestartsteps()
                 commandtableentry(TEXT, "Engine 1 N 2 at 25 Percent")
             end
         end
-    end
-
-    if (procedureloop1.stepindex == 18) then
+    elseif (procedureloop1.stepindex == 18) then
         setview(configvalues[CONFIGVIEWTHROTTLE])
-    end
-
-    if (procedureloop1.stepindex == 19) then
+    elseif (procedureloop1.stepindex == 19) then
         if (get(mixture1pos) ~= ON) then
             if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 commandtableentry(ADVICE, "Set Engine 1 Fuel Lever Idle")
@@ -4620,13 +4512,9 @@ function enginestartsteps()
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
             commandtableentry(ADVICE, "Engine 1 Fuel Lever Checked and Idle")
         end
-    end
-
-    if (procedureloop1.stepindex == 20) then
+    elseif (procedureloop1.stepindex == 20) then
         setview(configvalues[CONFIGVIEWMAINPANEL])
-    end
-
-    if (procedureloop1.stepindex == 21) then
+    elseif (procedureloop1.stepindex == 21) then
         if not enginesrunning(ENGINE1) then
             procedureloop1.stepindex = procedureloop1.stepindex - 1
         else
@@ -4636,13 +4524,9 @@ function enginestartsteps()
                 commandtableentry(TEXT, "Engine 1 Running")
             end
         end
-    end
-
-    if (procedureloop1.stepindex == 22) then
+    elseif (procedureloop1.stepindex == 22) then
         setview(configvalues[CONFIGVIEWOVERHEADPANEL])
-    end
-
-    if (procedureloop1.stepindex == 23) then
+    elseif (procedureloop1.stepindex == 23) then
         if ((get(gen1pos) ~= ON) or (get(gen2pos) ~= ON)) then
             if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 commandtableentry(ADVICE, "Switch Both Generators On")
@@ -4658,9 +4542,7 @@ function enginestartsteps()
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
             commandtableentry(ADVICE, "Both Generators Checked and Ground")
         end
-    end
-
-    if (procedureloop1.stepindex == 24) then
+    elseif (procedureloop1.stepindex == 24) then
         if ((get(hydro1pos) ~= ON) or (get(hydro2pos) ~= ON)) then
             if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 commandtableentry(ADVICE, "Switch Both Hydraulic Pumps On")
@@ -4672,9 +4554,7 @@ function enginestartsteps()
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
             commandtableentry(ADVICE, "Both Hydraulic Pumps Checked and On")
         end
-    end
-
-    if (procedureloop1.stepindex == 25) then
+    elseif (procedureloop1.stepindex == 25) then
         if ((get(elechydro1pos) ~= ON) or (get(elechydro2pos) ~= ON)) then
             if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 commandtableentry(ADVICE, "Switch Both Electrical Hydraulic Pumps On")
@@ -4686,9 +4566,7 @@ function enginestartsteps()
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
             commandtableentry(ADVICE, "Both Electrical Hydraulic Pumps Checked and On")
         end
-    end
-
-    if (procedureloop1.stepindex == 26) then
+    elseif (procedureloop1.stepindex == 26) then
         if ((get(bleedair1pos) == OFF) or (get(bleedair2pos) == OFF)) then
             if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 commandtableentry(ADVICE, "Set Both Engine Bleed Air On")
@@ -4704,9 +4582,7 @@ function enginestartsteps()
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
             commandtableentry(ADVICE, "Both Engine Bleed Air Checked and On")
         end
-    end
-
-    if (procedureloop1.stepindex == 27) then
+    elseif (procedureloop1.stepindex == 27) then
         if ((get(packlpos) ~= PACKAUTO) or (get(packrpos) ~= PACKAUTO)) then
             if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 commandtableentry(ADVICE, "Set Both Packs Auto")
@@ -4718,9 +4594,7 @@ function enginestartsteps()
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
             commandtableentry(ADVICE, "Both Packs Checked and Auto")
         end
-    end
- 
-    if (procedureloop1.stepindex == 28) then
+    elseif (procedureloop1.stepindex == 28) then
          if (get(isolvalvepos)  ~= ISOLVALVEAUTO) then
             if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 commandtableentry(ADVICE, "Set Isolation Valve Auto")
@@ -4731,9 +4605,7 @@ function enginestartsteps()
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
             commandtableentry(ADVICE, "Isolation ValveChecked and Auto")
         end 
-    end
-
-    if (procedureloop1.stepindex == 29) then
+    elseif (procedureloop1.stepindex == 29) then
          if (get(trimairpos) ~= ON) then
             if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 commandtableentry(ADVICE, "Set Trim Air On")
@@ -4744,9 +4616,7 @@ function enginestartsteps()
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
             commandtableentry(ADVICE, "Trim Air Checked and On")
         end 
-    end 
-
-    if (procedureloop1.stepindex == 30) then
+    elseif (procedureloop1.stepindex == 30) then
         if (get(bleedairapupos) ~= OFF) then
             if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 commandtableentry(ADVICE, "Switch A P U Bleed Air Off")
@@ -4757,9 +4627,7 @@ function enginestartsteps()
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
             commandtableentry(ADVICE, "A P U Bleed Air Checked and Off")
         end 
-    end
-
-    if (procedureloop1.stepindex == 31) then
+    elseif (procedureloop1.stepindex == 31) then
         if (get(apustarterpos) == ON) then
             if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 commandtableentry(ADVICE, "Switch APU Off")
@@ -4770,9 +4638,7 @@ function enginestartsteps()
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
             commandtableentry(ADVICE, "A P U Checked and Off")
         end 
-    end
-
-    if (procedureloop1.stepindex == 32) then
+    elseif (procedureloop1.stepindex == 32) then
         if (get(yawdamperswitch) ~= ON) then
             if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 commandtableentry(ADVICE, "Set Yaw Damper On")
@@ -4783,9 +4649,7 @@ function enginestartsteps()
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
             commandtableentry(ADVICE, "Yaw Damper Checked and On")
         end 
-    end
-
-    if (procedureloop1.stepindex == 33) then
+    elseif (procedureloop1.stepindex == 33) then
         setview(configvalues[CONFIGVIEWMAINPANEL])
     end
 
@@ -4844,19 +4708,16 @@ end
 
 my_command_enginestart = sasl.createCommand(definitions.APPNAMEPREFIX .. "/enginestart", "Engine Startup")
 sasl.registerCommandHandler(my_command_enginestart, 0, enginestart_)
--- sasl.appendMenuItem(P.menu_main, "Engine Startup", enginestart)
 
 --------------------------------------------------------------------------------------------------------------
 -- Engine Shutdown
 
 function engineshutdownsteps()
 
-   if (procedureloop1.stepindex == 1) then
+    if (procedureloop1.stepindex == 1) then
         setview(DEFAULTVIEW)
         setview(configvalues[CONFIGVIEWOVERHEADPANEL])
-    end
-
-    if (procedureloop1.stepindex == 2) then
+    elseif (procedureloop1.stepindex == 2) then
         if (procedureloop1.lock == TURNAROUNDENGINESHUTDOWNPROCEDURE) then
             if ((configvalues[CONFIGUSEGROUNDPOWER] == ON) and (get(gpuavailable) == ON)) then
                 if (get(gpuon) == OFF) then
@@ -4880,9 +4741,7 @@ function engineshutdownsteps()
             procedureloop1.stepindex = 9
             return true
         end
-    end
-
-    if (procedureloop1.stepindex == 3) then
+    elseif (procedureloop1.stepindex == 3) then
         if (get(apustarterpos)~= ON) then
             if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 commandtableentry(ADVICE, "Start A P U")
@@ -4893,19 +4752,14 @@ function engineshutdownsteps()
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
             commandtableentry(ADVICE, "A P U Checked and Started")
         end
-    end
-
-
-    if (procedureloop1.stepindex == 4) then
+    elseif (procedureloop1.stepindex == 4) then
         if (configvalues[CONFIGVOICEADVICEONLY]  ~= ON) then
             helpers.command_once("laminar/B738/spring_toggle_switch/APU_start_pos_dn")
             commandtableentry(TEXT, "A P U Running Up")
         else
             commandtableentry(ADVICE, "A P U Running Up")
         end
-    end
-
-    if (procedureloop1.stepindex == 5) then
+    elseif (procedureloop1.stepindex == 5) then
         if (get(apugenoffbus) == OFF) then 
             procedureloop1.stepindex = procedureloop1.stepindex - 1
         else
@@ -4915,9 +4769,7 @@ function engineshutdownsteps()
                 commandtableentry(TEXT, "A P U Running")
             end
         end
-    end
-
-    if (procedureloop1.stepindex == 6) then
+    elseif (procedureloop1.stepindex == 6) then
         if (not((get(apupowerbus1) == ON) and (get(announcsourceoff1) == OFF)) or not((get(apupowerbus2) == ON) and (get(announcsourceoff2) == OFF))) then
             if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 commandtableentry(ADVICE, "Switch A P U Generator On")
@@ -4933,9 +4785,7 @@ function engineshutdownsteps()
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
             commandtableentry(ADVICE, "A P U Generator Checked and On")
         end
-    end
-
-    if (procedureloop1.stepindex == 7) then
+    elseif (procedureloop1.stepindex == 7) then
         if (get(bleedairapupos) == OFF) then
             if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 commandtableentry(ADVICE, "Switch A P U Bleed Air On")
@@ -4946,9 +4796,7 @@ function engineshutdownsteps()
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
             commandtableentry(ADVICE, "A P U Bleed Air Checked and On")    
         end
-    end
-
-    if (procedureloop1.stepindex == 8) then
+    elseif (procedureloop1.stepindex == 8) then
         if (get(isolvalvepos)  ~= ISOLVALVEOPEN) then
             if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 commandtableentry(ADVICE, "Set Isolation Valve Open")
@@ -4959,13 +4807,9 @@ function engineshutdownsteps()
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
             commandtableentry(ADVICE, "Isolation Valve Checked and Open")    
         end
-    end
-
-    if (procedureloop1.stepindex == 9) then
+    elseif (procedureloop1.stepindex == 9) then
         setview(configvalues[CONFIGVIEWTHROTTLE])
-    end
-
-    if (procedureloop1.stepindex == 10) then
+    elseif (procedureloop1.stepindex == 10) then
         if ((get(mixture1pos) ~= OFF) or (get(mixture2pos) ~= OFF)) then
             if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 commandtableentry(ADVICE, "Set Both Engine Fuel Levers Cutoff")
@@ -4981,13 +4825,9 @@ function engineshutdownsteps()
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
             commandtableentry(ADVICE, "Both Fuel Levers Checked and Cutoff")
         end
-    end
-
-    if (procedureloop1.stepindex == 11) then
+    elseif (procedureloop1.stepindex == 11) then
         setview(configvalues[CONFIGVIEWOVERHEADPANEL])
-    end
-
-    if (procedureloop1.stepindex == 12) then
+    elseif (procedureloop1.stepindex == 12) then
         if ((get(centertanklswitch) == ON) or (get(centertankrswitch) == ON)) then
             if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 commandtableentry(ADVICE, "Set Center Tank Fuel Pumps Off")
@@ -4997,9 +4837,7 @@ function engineshutdownsteps()
                 set(centertankrswitch, OFF)
             end      
         end
-    end
-
-    if (procedureloop1.stepindex == 13) then
+    elseif (procedureloop1.stepindex == 13) then
         if ((get(lefttanklswitch) == ON) or (get(lefttankrswitch) == ON)  or (get(righttanklswitch) == ON) or (get(righttankrswitch) == ON)) then
             if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 commandtableentry(ADVICE, "Set Wing Tank Fuel Pumps Off")
@@ -5011,9 +4849,7 @@ function engineshutdownsteps()
                 set(righttankrswitch, OFF)
             end
         end
-    end
-
-    if (procedureloop1.stepindex == 14) then
+    elseif (procedureloop1.stepindex == 14) then
         if ((get(hydro1pos) ~= OFF) or (get(hydro2pos) ~= OFF)) then
             if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 commandtableentry(ADVICE, "Switch Both Hydraulic Pumps Off")
@@ -5025,9 +4861,7 @@ function engineshutdownsteps()
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
             commandtableentry(ADVICE, "Both Hydraulic Pumps Checked and Off")
         end
-    end
-
-    if (procedureloop1.stepindex == 15) then
+    elseif (procedureloop1.stepindex == 15) then
         if ((get(elechydro1pos) ~= OFF) or (get(elechydro2pos) ~= OFF)) then
             if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 commandtableentry(ADVICE, "Switch Both Electrical Hydraulic Pumps Off")
@@ -5039,9 +4873,7 @@ function engineshutdownsteps()
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
             commandtableentry(ADVICE, "Both Electrical Hydraulic Pumps Checked and Off")
         end
-    end
-
-    if (procedureloop1.stepindex == 16) then
+    elseif (procedureloop1.stepindex == 16) then
       if (get(beaconlights) == ON) then
             if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 commandtableentry(ADVICE, "Set Collision Lights Off")
@@ -5052,9 +4884,7 @@ function engineshutdownsteps()
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
             commandtableentry(ADVICE, "Collision lightset Checked and Off")
         end    
-    end
-
-    if (procedureloop1.stepindex == 17) then
+    elseif (procedureloop1.stepindex == 17) then
         setview(configvalues[CONFIGVIEWMAINPANEL])
     end
 
@@ -5146,9 +4976,7 @@ function shutdownsteps()
     if (procedureloop1.stepindex == 1) then
         setview(DEFAULTVIEW)
         setview(configvalues[CONFIGVIEWUPPEROVERHEADPANEL])
-    end
-
-    if (procedureloop1.stepindex == 2) then
+    elseif (procedureloop1.stepindex == 2) then
         if ((get(irsleftpos) ~= IRSOFF) or (get(irsrightpos) ~= IRSOFF)) then
             if (configvalues[CONFIGVOICEADVICEONLY] == ON)  then
                 commandtableentry(ADVICE, "Set Both I R S Off")
@@ -5161,14 +4989,9 @@ function shutdownsteps()
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
             commandtableentry(ADVICE, "Both I R S Checked and Off")
         end 
-    end
-
-
-    if (procedureloop1.stepindex == 3) then
+    elseif (procedureloop1.stepindex == 3) then
         setview(configvalues[CONFIGVIEWOVERHEADPANEL])
-    end
-
-    if (procedureloop1.stepindex == 4) then
+    elseif (procedureloop1.stepindex == 4) then
         if (get(yawdamperswitch) == ON) then
             if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 commandtableentry(ADVICE, "Set Yaw Damper Off")
@@ -5179,9 +5002,7 @@ function shutdownsteps()
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
             commandtableentry(ADVICE, "Yaw Damper Checked and Off")
         end 
-    end
-
-    if (procedureloop1.stepindex == 5) then
+    elseif (procedureloop1.stepindex == 5) then
         if (get(bleedairapupos) == ON) then
             if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 commandtableentry(ADVICE, "Switch A P U Bleed Air Off")
@@ -5192,9 +5013,7 @@ function shutdownsteps()
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
             commandtableentry(ADVICE, "A P U Bleed Air Checked and Off")
         end 
-    end
-
-    if (procedureloop1.stepindex == 6) then
+    elseif (procedureloop1.stepindex == 6) then
         if (get(isolvalvepos)  ~= ISOLVALVEAUTO) then
             if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 commandtableentry(ADVICE, "Set Isolation Valve Auto")
@@ -5205,9 +5024,7 @@ function shutdownsteps()
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
             commandtableentry(ADVICE, "Isolation Valve Checked and Auto")
         end 
-    end
-
-    if (procedureloop1.stepindex == 7) then
+    elseif (procedureloop1.stepindex == 7) then
         if ((get(packlpos) ~= PACKOFF) or (get(packrpos) ~= PACKOFF)) then
             if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 commandtableentry(ADVICE, "Set Both Packs Off")
@@ -5219,9 +5036,7 @@ function shutdownsteps()
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
             commandtableentry(ADVICE, "Both Packs Checked and Off")
         end 
-    end
-
-    if (procedureloop1.stepindex == 8) then
+    elseif (procedureloop1.stepindex == 8) then
         if ((get(bleedair1pos) == ON) or (get(bleedair2pos) == ON)) then
             if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 commandtableentry(ADVICE, "Set Both Engine Bleed Air Off")
@@ -5237,9 +5052,7 @@ function shutdownsteps()
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
             commandtableentry(ADVICE, "Both Engine Bleed Air Checked and Off")
         end 
-    end
-
-    if (procedureloop1.stepindex == 9) then
+    elseif (procedureloop1.stepindex == 9) then
         if (get(trimairpos) ~= OFF) then
             if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 commandtableentry(ADVICE, "Set Trim Air Off")
@@ -5250,9 +5063,7 @@ function shutdownsteps()
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
             commandtableentry(ADVICE, "Trim Air Checked and Off")
         end 
-    end
-
-    if (procedureloop1.stepindex == 10) then
+    elseif (procedureloop1.stepindex == 10) then
         if ((get(wheatlfwdpos) ~= OFF) or (get(wheatrfwdpos) ~= OFF) or (get(wheatlsidepos) ~= OFF) or (get(wheatrsidepos) ~= OFF)) then
             if (configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                 togglewindowheat(OFF)
@@ -5263,9 +5074,7 @@ function shutdownsteps()
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
             commandtableentry(ADVICE, "Window Heat Checked and Off")
         end
-    end
-
-    if (procedureloop1.stepindex == 11) then
+    elseif (procedureloop1.stepindex == 11) then
         if (configvalues[CONFIGUSEGROUNDPOWER] == ON) then
             if (get(gpuon) == ON) then
                 if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
@@ -5282,9 +5091,7 @@ function shutdownsteps()
                 return true
             end
         end
-    end
-
-    if (procedureloop1.stepindex == 12) then
+    elseif (procedureloop1.stepindex == 12) then
         if (((get(apupowerbus1) == ON) and (get(announcsourceoff1) == OFF)) or ((get(apupowerbus2) == ON) and (get(announcsourceoff2) == OFF))) then
             if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 commandtableentry(ADVICE, "Switch A P U Generator Off")
@@ -5300,9 +5107,7 @@ function shutdownsteps()
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
             commandtableentry(ADVICE, "A P U Generator Checked and Off")
         end 
-    end
-
-    if (procedureloop1.stepindex == 13) then
+    elseif (procedureloop1.stepindex == 13) then
         if (get(apustarterpos) == ON) then
             if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 commandtableentry(ADVICE, "Switch A P U Off")
@@ -5313,9 +5118,7 @@ function shutdownsteps()
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
             commandtableentry(ADVICE, "A P U Checked and Off")
         end
-    end
-
-    if (procedureloop1.stepindex == 14) then
+    elseif (procedureloop1.stepindex == 14) then
         if (get(positionlights) ~= POSLIGHTSOFF) then
             if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 commandtableentry(ADVICE, "Set Position Lights Off")
@@ -5326,9 +5129,7 @@ function shutdownsteps()
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
             commandtableentry(ADVICE, "Position LIghts Checked and Off")
         end 
-    end
-
-    if (procedureloop1.stepindex == 15) then
+    elseif (procedureloop1.stepindex == 15) then
         if (get(seatbeltsignpos) ~= SEATBELTSIGNOFF) then
             if (configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                 setseatbeltsign(SEATBELTSIGNOFF)
@@ -5339,9 +5140,7 @@ function shutdownsteps()
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
             commandtableentry(ADVICE, "Seatbeltsigns Checked and Off")
         end
-    end
-
-    if (procedureloop1.stepindex == 16) then
+    elseif (procedureloop1.stepindex == 16) then
         if (get(nosmokingsignpos) ~= NOSMOKINGSIGNOFF) then
             if (configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                 setnosmokingsign(NOSMOKINGSIGNOFF)
@@ -5352,15 +5151,11 @@ function shutdownsteps()
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
             commandtableentry(ADVICE, "NO Smoking Signs Checked and Off")
         end
-    end
-
-    if (procedureloop1.stepindex == 17) then
+    elseif (procedureloop1.stepindex == 17) then
         if (get(emergencylightcover) == CLOSED) then
             helpers.command_once("laminar/B738/button_switch_cover09")
         end
-    end
-
-    if (procedureloop1.stepindex == 18) then
+    elseif (procedureloop1.stepindex == 18) then
         if (get(emergencylights) ~= EMERGLIGHTSOFF) then
             if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 commandtableentry(ADVICE, "Set Emergency Lights Off")
@@ -5371,13 +5166,9 @@ function shutdownsteps()
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
             commandtableentry(ADVICE, "Emergency Lights Checked and Off")
         end 
-    end
-
-    if (procedureloop1.stepindex == 19) then
+    elseif (procedureloop1.stepindex == 19) then
         setview(configvalues[CONFIGVIEWUPPEROVERHEADPANEL])
-    end
-
-    if (procedureloop1.stepindex == 20) then
+    elseif (procedureloop1.stepindex == 20) then
         if (get(domelightpos) ~= DOMELIGHTOFF) then
             if (configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                 setdomelight(DOMELIGHTOFF)
@@ -5388,19 +5179,13 @@ function shutdownsteps()
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
             commandtableentry(ADVICE, "Domelight Checked and Off")
         end 
-    end
-
-    if (procedureloop1.stepindex == 21) then
+    elseif (procedureloop1.stepindex == 21) then
        setview(configvalues[CONFIGVIEWOVERHEADPANEL])
-    end
-
-    if (procedureloop1.stepindex == 22) then
+    elseif (procedureloop1.stepindex == 22) then
         if (get(batteryswitchcover) == CLOSED) then
             helpers.command_once("laminar/B738/button_switch_cover02")
         end
-    end
-
-    if (procedureloop1.stepindex == 23) then
+    elseif (procedureloop1.stepindex == 23) then
         if (get(battery) == ON) then
             if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 commandtableentry(ADVICE, "Switch Battery OFF")
@@ -5411,9 +5196,7 @@ function shutdownsteps()
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
             commandtableentry(ADVICE, "Battery Checked and Off")
         end 
-    end
-
-    if (procedureloop1.stepindex == 24) then
+    elseif (procedureloop1.stepindex == 24) then
         setview(configvalues[CONFIGVIEWMAINPANEL])
     end
 
@@ -5462,196 +5245,104 @@ end
 
 my_command_shutdown = sasl.createCommand(definitions.APPNAMEPREFIX .. "/shutdown", "Shutdown")
 sasl.registerCommandHandler(my_command_shutdown, 0, shutdown_)
--- sasl.appendMenuItem(P.menu_main, "Shutdown", shutdown)
 
 --------------------------------------------------------------------------------------------------------------
 -- teststeps
 
 function teststeps()
 
-   if (procedureloop1.stepindex == 1) then
+    if (procedureloop1.stepindex == 1) then
         setview(DEFAULTVIEW)
         setview(configvalues[CONFIGVIEWTHROTTLE])
-    end
-
-    if (procedureloop1.stepindex == 2) then
+    elseif (procedureloop1.stepindex == 2) then
         helpers.command_begin("laminar/B738/toggle_switch/fire_test_lft")
-    end
-
-    if (procedureloop1.stepindex == 4) then
+    elseif (procedureloop1.stepindex == 4) then
         helpers.command_end("laminar/B738/toggle_switch/fire_test_lft")
-    end
-
-    if (procedureloop1.stepindex == 5) then
+    elseif (procedureloop1.stepindex == 5) then
         helpers.command_begin("laminar/B738/toggle_switch/fire_test_rgt")
-    end
-
-    if (procedureloop1.stepindex == 6) then
+    elseif (procedureloop1.stepindex == 6) then
         helpers.command_end("laminar/B738/toggle_switch/fire_test_rgt")
-    end
-
-    if (procedureloop1.stepindex == 7) then
+    elseif (procedureloop1.stepindex == 7) then
         helpers.command_begin("laminar/B738/toggle_switch/exting_test_lft")
-    end
-
-    if (procedureloop1.stepindex == 8) then
+    elseif (procedureloop1.stepindex == 8) then
         helpers.command_end("laminar/B738/toggle_switch/exting_test_lft")
-    end
-
-    if (procedureloop1.stepindex == 9) then
+    elseif (procedureloop1.stepindex == 9) then
         helpers.command_begin("laminar/B738/toggle_switch/exting_test_rgt")
-
-    end
-
-    if (procedureloop1.stepindex == 10) then
+    elseif (procedureloop1.stepindex == 10) then
         helpers.command_end("laminar/B738/toggle_switch/exting_test_rgt")
-    end
-
-    if (procedureloop1.stepindex == 11) then
+    elseif (procedureloop1.stepindex == 11) then
         helpers.command_begin("laminar/B738/push_button/cargo_fire_test_push")
-    end
-
-    if (procedureloop1.stepindex == 12) then
+    elseif (procedureloop1.stepindex == 12) then
         helpers.command_end("laminar/B738/push_button/cargo_fire_test_push")
-    end
-
-    if (procedureloop1.stepindex == 13) then
+    elseif (procedureloop1.stepindex == 13) then
         setview(configvalues[CONFIGVIEWUPPEROVERHEADPANEL])
-    end
-
-    if (procedureloop1.stepindex == 14) then
+    elseif (procedureloop1.stepindex == 14) then
         helpers.command_begin("laminar/B738/push_button/flaps_test")
-    end
-
-    if (procedureloop1.stepindex == 15) then
+    elseif (procedureloop1.stepindex == 15) then
         helpers.command_end("laminar/B738/push_button/flaps_test")
-    end
-
-    if (procedureloop1.stepindex == 16) then
+    elseif (procedureloop1.stepindex == 16) then
         helpers.command_begin("laminar/B738/push_button/mach_warn1_test")
-    end
-
-    if (procedureloop1.stepindex == 17) then
+    elseif (procedureloop1.stepindex == 17) then
         helpers.command_end("laminar/B738/push_button/mach_warn1_test")
-    end
-
-    if (procedureloop1.stepindex == 18) then
+    elseif (procedureloop1.stepindex == 18) then
         helpers.command_begin("laminar/B738/push_button/mach_warn2_test")
-    end
-
-    if (procedureloop1.stepindex == 19) then
+    elseif (procedureloop1.stepindex == 19) then
         helpers.command_end("laminar/B738/push_button/mach_warn2_test")
-    end
-
-    if (procedureloop1.stepindex == 20) then
+    elseif (procedureloop1.stepindex == 20) then
         helpers.command_begin("laminar/B738/push_button/stall_test1_press")
-    end
-
-    if (procedureloop1.stepindex == 21) then
+    elseif (procedureloop1.stepindex == 21) then
         helpers.command_end("laminar/B738/push_button/stall_test1_press")
-    end
-
-    if (procedureloop1.stepindex == 22) then
+    elseif (procedureloop1.stepindex == 22) then
         helpers.command_begin("laminar/B738/push_button/stall_test2_press")
-    end
-
-    if (procedureloop1.stepindex == 23) then
+    elseif (procedureloop1.stepindex == 23) then
         helpers.command_end("laminar/B738/push_button/stall_test1_press")
-    end
-
-    if (procedureloop1.stepindex == 24) then
+    elseif (procedureloop1.stepindex == 24) then
        setview(configvalues[CONFIGVIEWOVERHEADPANEL])
-    end
-
-    if (procedureloop1.stepindex == 25) then
+    elseif (procedureloop1.stepindex == 25) then
         helpers.command_begin("laminar/B738/toggle_switch/window_ovht_test_up")
-    end
-
-    if (procedureloop1.stepindex == 26) then
+    elseif (procedureloop1.stepindex == 26) then
         helpers.command_end("laminar/B738/toggle_switch/window_ovht_test_up")
-    end
-
-    if (procedureloop1.stepindex == 27) then
+    elseif (procedureloop1.stepindex == 27) then
         helpers.command_end("laminar/B738/toggle_switch/window_ovht_test_up")
-    end
-
-    if (procedureloop1.stepindex == 28) then
+    elseif (procedureloop1.stepindex == 28) then
         helpers.command_begin("laminar/B738/toggle_switch/window_ovht_test_dn")
-    end
-
-    if (procedureloop1.stepindex == 29) then
+    elseif (procedureloop1.stepindex == 29) then
         helpers.command_end("laminar/B738/toggle_switch/window_ovht_test_dn")
-    end
-
-    if (procedureloop1.stepindex == 30) then
+    elseif (procedureloop1.stepindex == 30) then
         helpers.command_begin("laminar/B738/push_button/tat_test")
-    end
-
-    if (procedureloop1.stepindex == 31) then
+    elseif (procedureloop1.stepindex == 31) then
         helpers.command_end("laminar/B738/push_button/tat_test")
-    end
-
-    if (procedureloop1.stepindex == 32) then
+    elseif (procedureloop1.stepindex == 32) then
         helpers.command_begin("laminar/B738/push_button/duct_ovht_test")
-    end
-
-    if (procedureloop1.stepindex == 33) then
+    elseif (procedureloop1.stepindex == 33) then
         helpers.command_end("laminar/B738/push_button/duct_ovht_test")
-    end
-
-    if (procedureloop1.stepindex == 34) then
+    elseif (procedureloop1.stepindex == 34) then
         setview(configvalues[CONFIGVIEWMAINPANEL])
-    end
-
-    if (procedureloop1.stepindex == 35) then
+    elseif (procedureloop1.stepindex == 35) then
         helpers.command_once("laminar/B738/toggle_switch/bright_test_up")
-    end
-
-    if (procedureloop1.stepindex == 36) then
+    elseif (procedureloop1.stepindex == 36) then
         helpers.command_once("laminar/B738/toggle_switch/bright_test_dn")
-    end
-
-    if (procedureloop1.stepindex == 37) then
+    elseif (procedureloop1.stepindex == 37) then
         helpers.command_begin("laminar/B738/toggle_switch/ap_disconnect_test1_up")
-    end
-
-    if (procedureloop1.stepindex == 38) then
+    elseif (procedureloop1.stepindex == 38) then
         helpers.command_end("laminar/B738/toggle_switch/ap_disconnect_test1_up")
-    end
-
-    if (procedureloop1.stepindex == 39) then
+    elseif (procedureloop1.stepindex == 39) then
         helpers.command_begin("laminar/B738/toggle_switch/ap_disconnect_test1_dn")
-    end
-
-    if (procedureloop1.stepindex == 40) then
+    elseif (procedureloop1.stepindex == 40) then
         helpers.command_end("laminar/B738/toggle_switch/ap_disconnect_test1_dn")
-    end
-
-    if (procedureloop1.stepindex == 41) then
+    elseif (procedureloop1.stepindex == 41) then
         helpers.command_begin("laminar/B738/toggle_switch/ap_disconnect_test2_up")
-    end
-
-    if (procedureloop1.stepindex == 42) then
+    elseif (procedureloop1.stepindex == 42) then
         helpers.command_end("laminar/B738/toggle_switch/ap_disconnect_test2_up")
-    end
-
-    if (procedureloop1.stepindex == 43) then
+    elseif (procedureloop1.stepindex == 43) then
         helpers.command_begin("laminar/B738/toggle_switch/ap_disconnect_test2_dn")
-    end
-
-    if (procedureloop1.stepindex == 44) then
+    elseif (procedureloop1.stepindex == 44) then
         helpers.command_end("laminar/B738/toggle_switch/ap_disconnect_test2_dn")
-    end
-
-    if (procedureloop1.stepindex == 45) then
+    elseif (procedureloop1.stepindex == 45) then
         setview(configvalues[CONFIGVIEWPEDESTAL])
-    end
-
-    if (procedureloop1.stepindex == 46) then
+    elseif (procedureloop1.stepindex == 46) then
         helpers.command_once("laminar/B738/knob/transponder_tcas_test")
-    end
-
-    if (procedureloop1.stepindex == 47) then
+    elseif (procedureloop1.stepindex == 47) then
         setview(configvalues[CONFIGVIEWMAINPANEL])
     end
 
@@ -5688,7 +5379,6 @@ end
 
 my_command_test = sasl.createCommand(definitions.APPNAMEPREFIX .. "/test", "Tests")
 sasl.registerCommandHandler(my_command_test, 0, test_)
--- sasl.appendMenuItem(P.menu_main, "Tests", test)
 
 --------------------------------------------------------------------------------------------------------------
 -- cockpitinitsteps function
@@ -5708,9 +5398,7 @@ function cockpitinitsteps()
                 commandtableentry(ADVICE, "Dome light Checked and On")
             end
         end
-    end
-
-    if (procedureloop1.stepindex == 2) then
+    elseif (procedureloop1.stepindex == 2) then
         if (configvalues[CONFIGHIDEEFBS] == ON) then
             hideefb = false
             if (get(hidecptefb) == OFF) then
@@ -5729,10 +5417,7 @@ function cockpitinitsteps()
                 end
             end
         end
-    end
-
-    if ((procedureloop1.stepindex == 3) and ((configvalues[CONFIGIGNOREALLBRIGHTHNESSSETTINGS] == OFF))) then
-        
+    elseif ((procedureloop1.stepindex == 3) and ((configvalues[CONFIGIGNOREALLBRIGHTHNESSSETTINGS] == OFF))) then      
         if setcockpitlights() then
             if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 commandtableentry(ADVICE, "Instrument Lights set")
@@ -5740,9 +5425,7 @@ function cockpitinitsteps()
                 commandtableentry(TEXT, "Instrument Lights set")
             end
         end
-    end
-
-    if (procedureloop1.stepindex == 4) then
+    elseif (procedureloop1.stepindex == 4) then
         if (configvalues[CONFIGLOWERDU] == ON) then
             local lowerduset = OFF
             if (get(lowerdupage) == 0) then
@@ -5770,18 +5453,14 @@ function cockpitinitsteps()
                 lowerduset = OFF
             end
         end
-    end
-
-    if (procedureloop1.stepindex == 5) then
+    elseif (procedureloop1.stepindex == 5) then
         if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
             commandtableentry(ADVICE, "Reset F M C")
         else
             helpers.command_once("laminar/B738/button/reset_fmc")
             commandtableentry(TEXT, "F M C Reset Done")
         end
-    end
-
-    if (procedureloop1.stepindex == 6) then
+    elseif (procedureloop1.stepindex == 6) then
         if (configvalues[CONFIGTRANSPONDER] ~= 0) then
             if (get(transpondercode) ~= configvalues[CONFIGTRANSPONDER]) then
                 if (configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
@@ -5794,9 +5473,7 @@ function cockpitinitsteps()
                 commandtableentry(ADVICE, "Transponder Code Checked and " .. addspaces(configvalues[CONFIGTRANSPONDER]))
             end
         end
-    end
-
-    if (procedureloop1.stepindex == 7) then
+    elseif (procedureloop1.stepindex == 7) then
         if (get(transponderpos) ~= STANDBY) then
             if (configvalues[CONFIGTRANSPONDER] ~= 0) then
                 if (configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
@@ -5809,9 +5486,7 @@ function cockpitinitsteps()
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
             commandtableentry(ADVICE, "Transponder Checked and Standby")
         end
-    end
-
-    if (procedureloop1.stepindex == 8) then
+    elseif (procedureloop1.stepindex == 8) then
         if ((get(captainprobepos) ~= OFF) or (get(foprobepos) ~= OFF)) then
             if (configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                 toggleprobeheat(OFF)
@@ -5822,13 +5497,9 @@ function cockpitinitsteps()
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
             commandtableentry(ADVICE, "Probe Heat Checked and Off")
         end
-    end
-
-    if (procedureloop1.stepindex == 9) then
+    elseif (procedureloop1.stepindex == 9) then
         setnosmokingsign(NOSMOKINGSIGNON)
-    end
-
-    if (procedureloop1.stepindex == 10) then
+    elseif (procedureloop1.stepindex == 10) then
         if (get(seatbeltsignpos) ~= SEATBELTSIGNOFF) then
             if (configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                 setseatbeltsign(SEATBELTSIGNOFF)
@@ -5839,9 +5510,7 @@ function cockpitinitsteps()
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
             commandtableentry(ADVICE, "Seatbelt Signs Checked and Off")
         end
-    end
-
-    if (procedureloop1.stepindex == 11) then
+    elseif (procedureloop1.stepindex == 11) then
         if (get(nosmokingsignpos) ~= NOSMOKINGSIGNON) then
             if (configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                 setnosmokingsign(NOSMOKINGSIGNON)
@@ -5852,9 +5521,7 @@ function cockpitinitsteps()
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
             commandtableentry(ADVICE, "No Smoking Signs Checked and On")
         end
-    end
-
-    if (procedureloop1.stepindex == 12) then
+    elseif (procedureloop1.stepindex == 12) then
         if(get(positionlights) ~= POSLIGHTSSTEADY) then 
             if (configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                 togglepositionlights(POSLIGHTSSTEADY)
@@ -5865,9 +5532,7 @@ function cockpitinitsteps()
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
             commandtableentry(ADVICE, "Position Lights Checked and Steady")
         end
-    end
-
-    if (procedureloop1.stepindex == 13) then
+    elseif (procedureloop1.stepindex == 13) then
         if ((get(llights1) ~= OFF) or (get(llights2) ~= OFF) or (get(llights3) ~= OFF) or (get(llights4) ~= OFF)) then
             if (configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                 togglelandinglights(OFF)
@@ -5878,9 +5543,7 @@ function cockpitinitsteps()
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
             commandtableentry(ADVICE, "Landing Lights Checked and Off")
         end
-    end
-
-    if (procedureloop1.stepindex == 14) then
+    elseif (procedureloop1.stepindex == 14) then
         if ((get(rwylightl) == ON) or (get(rwylightl) == ON)) then
             if (configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                 togglerwylights(OFF)
@@ -5891,9 +5554,7 @@ function cockpitinitsteps()
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
             commandtableentry(ADVICE, "Runway Turnoff Lights Checked and Off")
         end
-    end
-
-    if (procedureloop1.stepindex == 15) then
+    elseif (procedureloop1.stepindex == 15) then
         if (get(taxilight)  ~= OFF) then
             if (configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                 toggletaxilights(OFF)
@@ -5904,15 +5565,11 @@ function cockpitinitsteps()
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
             commandtableentry(ADVICE, "Taxi Lights Checked and Off")
         end
-    end
-
-    if (procedureloop1.stepindex == 16) then
+    elseif (procedureloop1.stepindex == 16) then
         if (get(apdiscpos) == ON) then
             helpers.command_once("laminar/B738/autopilot/disconnect_toggle")
         end
-    end
-
-    if (procedureloop1.stepindex == 17) then
+    elseif (procedureloop1.stepindex == 17) then
         if ((get(fdpilotpos) == ON) or (get(fdfopos) == ON)) then
             if (configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                 togglefds(OFF)
@@ -5923,9 +5580,7 @@ function cockpitinitsteps()
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
             commandtableentry(ADVICE, "Both Flight Directors Checked and Off")
         end
-    end
-
-    if (procedureloop1.stepindex == 18) then
+    elseif (procedureloop1.stepindex == 18) then
         if (get(mcpaltitude) ~= lowerairspacealt) then
             if (configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                 set(mcpaltitude, lowerairspacealt)
@@ -5936,9 +5591,7 @@ function cockpitinitsteps()
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
             commandtableentry(ADVICE, "M C P ALtitude Checked and " .. tostring(lowerairspacealt))
         end
-    end
-
-    if (procedureloop1.stepindex == 19) then
+    elseif (procedureloop1.stepindex == 19) then
         if (get(bankanglepos) ~= configvalues[CONFIGBANKANGLEMAX]) then
             if (configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                 setbankanglepos(configvalues[CONFIGBANKANGLEMAX])
@@ -5949,24 +5602,18 @@ function cockpitinitsteps()
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
             commandtableentry(ADVICE, "Bank Angle Checked and " .. getbankanglestring(configvalues[CONFIGBANKANGLEMAX]))
         end
-    end
-
-    if (procedureloop1.stepindex == 20) then
+    elseif (procedureloop1.stepindex == 20) then
         if (get(efisdatapilotpos) == OFF) then
             helpers.command_once("laminar/B738/EFIS_control/capt/push_button/data_press")
         end
         if (get(efisdatafopos) == OFF) then
             helpers.command_once("laminar/B738/EFIS_control/fo/push_button/data_press")
         end
-    end
-
-    if (procedureloop1.stepindex == 21) then
+    elseif (procedureloop1.stepindex == 21) then
         if (get(aponstat) == ON) then
             set(aponstat, OFF)
         end
-    end
-
-     if (procedureloop1.stepindex == 22) then
+    elseif (procedureloop1.stepindex == 22) then
         if ((not enginesrunning(BOTH)) and ((get(mixture1pos) ~= OFF) or (get(mixture2pos) ~= OFF))) then
             if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 commandtableentry(ADVICE, "Set Both Engine Fuel Levers Cutoff")
@@ -5980,9 +5627,7 @@ function cockpitinitsteps()
                 end
             end
         end
-    end
-
-    if (procedureloop1.stepindex == 23) then
+    elseif (procedureloop1.stepindex == 23) then
         speedbrakeleverrounded = roundnumber(get(speedbrakelever), 1)
         if (speedbrakeleverrounded ~= OFF) then
             if (configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
@@ -5992,14 +5637,12 @@ function cockpitinitsteps()
                 procedureloop1.stepindex = procedureloop1.stepindex - 1
             end 
         end
-    end
-
-    if (procedureloop1.stepindex == 24) then
+    elseif (procedureloop1.stepindex == 24) then
         helpers.command_once("laminar/B738/push_button/master_caution1")
         helpers.command_once("laminar/B738/button/fmc1_clr")
     end
 
-     return true
+    return true
 
 end
 
@@ -6054,7 +5697,6 @@ end
 
 my_command_cockpitinit = sasl.createCommand(definitions.APPNAMEPREFIX .. "/cockpitinit", "Cockpit Initialization")
 sasl.registerCommandHandler(my_command_cockpitinit, 0, cockpitinit_)
--- sasl.appendMenuItem(P.menu_main, "Cockpit Initialization", cockpitinitsteps)
 
 --------------------------------------------------------------------------------------------------------------
 -- aftertakeoffsteps function
@@ -6076,9 +5718,7 @@ function aftertakeoffsteps()
         else
             procedureloop2.stepindex = procedureloop2.stepindex - 1
         end
-    end
-
-    if (procedureloop2.stepindex == 2) then
+    elseif (procedureloop2.stepindex == 2) then
         if ((get(gearhandlepos) == GEARUP) and (get(lgeardeployed) == 0) and (get(ngeardeployed) == 0) and (get(rgeardeployed) == 0)) then
             if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 commandtableentry(ADVICE, "Set Gear Lever Off")
@@ -6091,9 +5731,7 @@ function aftertakeoffsteps()
         elseif (get(gearhandlepos) ~= GEAROFF) then
             procedureloop2.stepindex = procedureloop2.stepindex - 1
         end
-    end
-
-    if (procedureloop2.stepindex == 3) then
+    elseif (procedureloop2.stepindex == 3) then
         if (get(autobrakepos) ~= AUTOBRAKEOFF) then
             if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 commandtableentry(ADVICE, "Set Auto Brake Off")
@@ -6122,14 +5760,10 @@ function altitudea10000steps()
                 commandtableentry(TEXT, "Passing " .. lowerairspacealt .. " Feet")
             end
         end
-    end
-
-    if (procedureloop1.stepindex == 2) then
+    elseif (procedureloop1.stepindex == 2) then
         setview(DEFAULTVIEW)
         setview(configvalues[CONFIGVIEWOVERHEADPANEL])
-    end
-
-    if (procedureloop1.stepindex == 3) then
+    elseif (procedureloop1.stepindex == 3) then
         if ((get(llights1) ~= OFF) or (get(llights2) ~= OFF) or (get(llights3) ~= OFF) or (get(llights4) ~= OFF)) then
             if (configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                 togglelandinglights(OFF)
@@ -6140,9 +5774,7 @@ function altitudea10000steps()
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
             commandtableentry(ADVICE, "Landing Lights Checked and Off")
         end  
-    end
-
-    if (procedureloop1.stepindex == 4) then
+    elseif (procedureloop1.stepindex == 4) then
         if (get(logolighton) ~= OFF) then
             if (configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                 togglelogolight(OFF)
@@ -6153,9 +5785,7 @@ function altitudea10000steps()
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
             commandtableentry(ADVICE, "Logo Lights Checked and Off")
         end 
-    end
-
-    if (procedureloop1.stepindex == 5) then     
+    elseif (procedureloop1.stepindex == 5) then     
         if (get(seatbeltsignpos) ~= SEATBELTSIGNOFF) then
             if (configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                 setseatbeltsign(SEATBELTSIGNOFF)
@@ -6166,9 +5796,7 @@ function altitudea10000steps()
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
             commandtableentry(ADVICE, "Seatbelt Signs Checked and Off")
         end
-    end
-
-    if (procedureloop1.stepindex == 6) then
+    elseif (procedureloop1.stepindex == 6) then
         if (get(starterauto) == ON) then
             if ((get(starter1pos) ~= AUTO) or (get(starter2pos) ~= AUTO)) then
                 if (configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
@@ -6192,9 +5820,7 @@ function altitudea10000steps()
                 commandtableentry(ADVICE, "Both Starters Checked and Continuous")
             end
         end
-    end
-
-    if (procedureloop1.stepindex == 7) then
+    elseif (procedureloop1.stepindex == 7) then
         setview(configvalues[CONFIGVIEWMAINPANEL])
     end
 
@@ -6247,7 +5873,6 @@ end
 
 my_command_altitudea10000 = sasl.createCommand(definitions.APPNAMEPREFIX .. "/altitudea10000", "Above 10000")
 sasl.registerCommandHandler(my_command_altitudea10000, 0, altitudea10000_)
--- sasl.appendMenuItem(P.menu_main, "Above 10000", altitudea10000)
 
 --------------------------------------------------------------------------------------------------------------
 -- duringclimbsteps function
@@ -6258,43 +5883,31 @@ function duringclimbsteps()
         if (configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
             setdomelight(DOMELIGHTOFF)
         end
-    end
-
-    if (procedureloop2.stepindex == 2) then
+    elseif (procedureloop2.stepindex == 2) then
         if (configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
             if (get(altitude) < lowerairspacealt) then
                 togglelandinglights(ON)
             end
         end
-    end
-
-    if (procedureloop2.stepindex == 3) then
+    elseif (procedureloop2.stepindex == 3) then
         if (configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
             togglepositionlights(POSLIGHTSSTROBE)
         end
-    end
-
-    if (procedureloop2.stepindex == 4) then
+    elseif (procedureloop2.stepindex == 4) then
         if (configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
             togglerwylights(OFF)
         end
-    end
-
-    if (procedureloop2.stepindex == 5) then
+    elseif (procedureloop2.stepindex == 5) then
         if (configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
             toggletaxilights(OFF)
         end
-    end
-
-    if (procedureloop2.stepindex == 6) then
+    elseif (procedureloop2.stepindex == 6) then
         if (configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
             if (configvalues[CONFIGTRANSPONDER] ~= 0) then
                 toggletransponder(TARA)
             end
         end
-    end
-
-    if (procedureloop2.stepindex == 7) then
+    elseif (procedureloop2.stepindex == 7) then
         if (get(altitude) > get(fmctransalt)) then
             if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 commandtableentry(ADVICE, "Passing Transition Altitude")
@@ -6304,9 +5917,7 @@ function duringclimbsteps()
         else
             procedureloop2.stepindex = procedureloop2.stepindex - 1
         end
-    end
-
-    if (procedureloop2.stepindex == 8) then
+    elseif (procedureloop2.stepindex == 8) then
         if (configvalues[CONFIGAUTOBARO] == ON) then
             if (get(altitude) > get(fmctransalt)) then 
                 if (get(barostd) == OFF) then
@@ -6323,9 +5934,7 @@ function duringclimbsteps()
                 procedureloop2.stepindex = procedureloop2.stepindex - 1
             end
         end
-    end
-
-    if (procedureloop2.stepindex == 9) then
+    elseif (procedureloop2.stepindex == 9) then
         if ((get(bleedair1pos) == OFF) or (get(bleedair2pos) == OFF)) then
             if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 commandtableentry(ADVICE, "Set Both Engine Bleed Air On")
@@ -6341,9 +5950,7 @@ function duringclimbsteps()
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop2.steprepeat) then
             commandtableentry(ADVICE, "Both Engine Bleed Air Checked and On")
         end 
-    end
-
-    if (procedureloop2.stepindex == 10) then
+    elseif (procedureloop2.stepindex == 10) then
         if ((get(packlpos) == PACKOFF) or (get(packrpos) == PACKOFF)) then
             if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 commandtableentry(ADVICE, "Set Both Packs Auto")
@@ -6355,9 +5962,7 @@ function duringclimbsteps()
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop2.steprepeat) then
             commandtableentry(ADVICE, "Both Packs Checked and On")
         end  
-    end
-
-    if (procedureloop2.stepindex == 11) then
+    elseif (procedureloop2.stepindex == 11) then
         if (get(isolvalvepos)  == ISOLVALVEOPEN) then
             if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 commandtableentry(ADVICE, "Set Isolation Valve Auto")
@@ -6368,10 +5973,7 @@ function duringclimbsteps()
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop2.steprepeat) then
             commandtableentry(ADVICE, "Isolation Valve Checked and Auto")
         end  
-    end
-
-
-    if (procedureloop2.stepindex == 12) then
+    elseif (procedureloop2.stepindex == 12) then
         if (get(bleedairapupos) == ON) then
             if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 commandtableentry(ADVICE, "Switch A P U Bleed Air Off")
@@ -6382,9 +5984,7 @@ function duringclimbsteps()
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop2.steprepeat) then
             commandtableentry(ADVICE, "A P U Bleed Air Checked and Off")
         end  
-    end
-
-    if (procedureloop2.stepindex == 13) then
+    elseif (procedureloop2.stepindex == 13) then
         if (get(apustarterpos) == ON) then
             if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 commandtableentry(ADVICE, "Switch A P U Off")
@@ -6431,14 +6031,10 @@ function altitudeb10000steps()
         else
             commandtableentry(TEXT, "Below " .. lowerairspacealt .. " Feet")
         end
-    end
-
-    if (procedureloop1.stepindex == 2) then
+    elseif (procedureloop1.stepindex == 2) then
         setview(DEFAULTVIEW)
         setview(configvalues[CONFIGVIEWOVERHEADPANEL])
-    end
-
-    if (procedureloop1.stepindex == 3) then
+    elseif (procedureloop1.stepindex == 3) then
         if (get(seatbeltsignpos) ~= SEATBELTSIGNON) then
             if (configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                 setseatbeltsign(SEATBELTSIGNON)
@@ -6449,9 +6045,7 @@ function altitudeb10000steps()
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
             commandtableentry(ADVICE, "Seatbeltsigns Checked and On")
         end  
-    end
-
-    if (procedureloop1.stepindex == 4) then
+    elseif (procedureloop1.stepindex == 4) then
         if ((get(llights1) == OFF) or (get(llights2) == OFF) or (get(llights3) == OFF) or (get(llights4) == OFF)) then
             if (configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                 togglelandinglights(ON)
@@ -6462,9 +6056,7 @@ function altitudeb10000steps()
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
             commandtableentry(ADVICE, "Landing Lights Checked and On")
         end  
-    end
-
-    if (procedureloop1.stepindex == 5) then
+    elseif (procedureloop1.stepindex == 5) then
         if ((get(starter1pos) ~= FLIGHT) or (get(starter2pos) ~= FLIGHT)) then
             if (configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                 setstarter(BOTH, FLIGHT)
@@ -6477,9 +6069,7 @@ function altitudeb10000steps()
                 commandtableentry(ADVICE, "Both Starters Checked and Flight")
             end
         end
-    end
-
-    if (procedureloop1.stepindex == 6) then
+    elseif (procedureloop1.stepindex == 6) then
         if (get(logolighton) ~= ON) then
             if (configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                 togglelogolight(ON)
@@ -6490,23 +6080,15 @@ function altitudeb10000steps()
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
             commandtableentry(ADVICE, "Logo Lights Checked and On")
         end  
-    end
-
-    if (procedureloop1.stepindex == 7) then
+    elseif (procedureloop1.stepindex == 7) then
         setview(configvalues[CONFIGVIEWMAINPANEL])
-    end
-
-    if (procedureloop1.stepindex == 8) then
+    elseif (procedureloop1.stepindex == 8) then
         if not setilssteps() then
             procedureloop1.stepindex = procedureloop1.stepindex - 1
         end
-    end
-
-    if (procedureloop1.stepindex == 9) then
+    elseif (procedureloop1.stepindex == 9) then
         setview(configvalues[CONFIGVIEWFMS])
-    end
-
-    if (procedureloop1.stepindex == 10) then
+    elseif (procedureloop1.stepindex == 10) then
         if (configvalues[CONFIGVREF30SET] == ON) then
            local appflapscalc, appvrefcalc = calcappflapsvref(desmetar.decodedmetar)
             if (configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
@@ -6522,13 +6104,9 @@ function altitudeb10000steps()
                 end
             end
         end
-    end
-
-    if (procedureloop1.stepindex == 11) then
+    elseif (procedureloop1.stepindex == 11) then
         setview(configvalues[CONFIGVIEWMAINPANEL])
-    end
-
-    if (procedureloop1.stepindex == 12) then
+    elseif (procedureloop1.stepindex == 12) then
         if (configvalues[CONFIGVREF30SET] == ON) then
             local autobrake = calcautobrake(get(vref), desmetar.decodedmetar)
             sasl.logDebug("AUTOBRAKE AUTOBRAKEPOS: " .. tostring(get(autobrakepos)) .. " AUTOBRAKE " .. tostring(autobrake))
@@ -6647,9 +6225,7 @@ function radioaltitudeb1000steps()
                 commandtableentry(ADVICE, "Speedbrakes Checked and Armed")
             end
         end
-    end
-
-    if (procedureloop2.stepindex == 2) then
+    elseif (procedureloop2.stepindex == 2) then
         if (get(taxilight) == OFF) then
             if (configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                 toggletaxilights(ON)
@@ -6662,9 +6238,7 @@ function radioaltitudeb1000steps()
                 commandtableentry(ADVICE, "Taxi Lights Checked and On")
             end
         end
-    end
-
-    if (procedureloop2.stepindex == 3) then
+    elseif (procedureloop2.stepindex == 3) then
         if ((get(rwylightl) == OFF) or (get(rwylightl) == OFF)) then
             if (configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                 togglerwylights(ON)
@@ -6677,9 +6251,7 @@ function radioaltitudeb1000steps()
                 commandtableentry(ADVICE, "Runway Turnoff Lights Checked and On")
             end
         end
-    end
-
-    if (procedureloop2.stepindex == 4) then
+    elseif (procedureloop2.stepindex == 4) then
         local missedappalttmp = roundnumber((get(missedappalt) / 100)) * 100
         if (missedappalttmp > 1000) then
             if (missedappalttmp ~= get(mcpaltitude)) then
@@ -6701,9 +6273,7 @@ function radioaltitudeb1000steps()
                 commandtableentry(TEXT, "Set Missed Approach Altitude")
             end
         end
-    end
-
-    if (procedureloop2.stepindex == 5) then
+    elseif (procedureloop2.stepindex == 5) then
         local headingrounded = nil
         if (isvalidicao(get(desicao)) and isvalidrwy(get(desrwy)) and tonumber(get(desrwyheading))) then
             headingrounded = roundnumber(get(desrwyheading))
@@ -6733,9 +6303,7 @@ function radioaltitudeb1000steps()
                 commandtableentry(TEXT, "Set Missed Approach Heading")
             end
         end
-    end
-
-    if (procedureloop2.stepindex == 6) then
+    elseif (procedureloop2.stepindex == 6) then
         if (get(gearhandlepos) < GEARDOWN) then
             if (configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                 set(gearhandlepos, GEARDOWN)
@@ -6748,9 +6316,7 @@ function radioaltitudeb1000steps()
                 commandtableentry(ADVICE, "Gear Checked and Down")
             end
         end
-    end
-
-    if (procedureloop2.stepindex == 7) then
+    elseif (procedureloop2.stepindex == 7) then
         if (((get(appflapsset) == OFF) and get(appflaps) ~= 0)) then
             if (configvalues[CONFIGVOICEADVICEONLY] ~= ON) then            
                 helpers.command_once("laminar/B738/push_button/flaps_" .. tostring(get(appflaps)))
@@ -6780,18 +6346,12 @@ function duringdescentsteps()
         else
             commandtableentry(TEXT, "Descent Started")  
         end
-    end
-
-    if ((procedureloop2.stepindex == 2) and (configvalues[CONFIGSPDRESTR250] == ON)) then
+    elseif ((procedureloop2.stepindex == 2) and (configvalues[CONFIGSPDRESTR250] == ON)) then
         setview(DEFAULTVIEW)
         setview(configvalues[CONFIGVIEWFMS])
-    end
-
-    if ((procedureloop2.stepindex == 3) and (configvalues[CONFIGSPDRESTR250] == ON)) then
+    elseif ((procedureloop2.stepindex == 3) and (configvalues[CONFIGSPDRESTR250] == ON)) then
         helpers.command_once("laminar/B738/button/fmc1_des")
-    end
-
-    if (procedureloop2.stepindex == 4) then
+    elseif (procedureloop2.stepindex == 4) then
         if (configvalues[CONFIGSPDRESTR250] == ON) then
             if (get(speedrestr) ~= 250) then
                 if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
@@ -6805,13 +6365,9 @@ function duringdescentsteps()
                 commandtableentry(ADVICE, "Speed 250 below 10000 Feet checked and set")
             end
         end
-    end
-
-    if (procedureloop2.stepindex == 5) then
+    elseif (procedureloop2.stepindex == 5) then
         setview(configvalues[CONFIGVIEWMAINPANEL])
-    end
-
-    if (procedureloop2.stepindex == 6) then
+    elseif (procedureloop2.stepindex == 6) then
         if (get(altitude) < get(fmctranslvl)) then
             if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 commandtableentry(ADVICE, "Passing Transition Level")
@@ -6821,9 +6377,7 @@ function duringdescentsteps()
         else
             procedureloop2.stepindex = procedureloop2.stepindex - 1
         end
-    end
-
-    if (procedureloop2.stepindex == 7) then
+    elseif (procedureloop2.stepindex == 7) then
         if (configvalues[CONFIGAUTOBARO] == ON) then
             if (get(altitude) < get(fmctranslvl)) then
                 local baroinchtmp, baropastmp = getlocalqnh(ARRIVAL)
@@ -6893,9 +6447,7 @@ function afterlandingsteps()
     if (procedureloop1.stepindex == 1) then
         setview(DEFAULTVIEW)
         setview(configvalues[CONFIGVIEWOVERHEADPANEL])
-    end
-
-    if (procedureloop1.stepindex == 2) then
+    elseif (procedureloop1.stepindex == 2) then
        if ((get(llights1) ~= OFF) or (get(llights2) ~= OFF) or (get(llights3) ~= OFF) or (get(llights4) ~= OFF)) then
             if (configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                 togglelandinglights(OFF)
@@ -6906,9 +6458,7 @@ function afterlandingsteps()
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
             commandtableentry(ADVICE, "Landing Lights Checked and Off")
         end
-    end
-
-    if (procedureloop1.stepindex == 3) then
+    elseif (procedureloop1.stepindex == 3) then
         if (get(taxilight) == OFF) then
             if (configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                 toggletaxilights(ON)
@@ -6919,9 +6469,7 @@ function afterlandingsteps()
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
             commandtableentry(ADVICE, "Taxi Lights Checked and On")
         end
-    end
-
-    if (procedureloop1.stepindex == 4) then
+    elseif (procedureloop1.stepindex == 4) then
         if ((get(rwylightl) == ON) or (get(rwylightl) == ON)) then
             if (configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                 togglerwylights(OFF)
@@ -6932,9 +6480,7 @@ function afterlandingsteps()
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
             commandtableentry(ADVICE, "Runway Turnoff Lights Checked and Off")
         end
-    end
-
-    if (procedureloop1.stepindex == 5) then
+    elseif (procedureloop1.stepindex == 5) then
         if(get(positionlights) ~= POSLIGHTSSTEADY) then 
             if (configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                 togglepositionlights(POSLIGHTSSTEADY)
@@ -6945,9 +6491,7 @@ function afterlandingsteps()
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
             commandtableentry(ADVICE, "Position Lights Checked and Steady")
         end
-    end
-
-    if (procedureloop1.stepindex == 6) then
+    elseif (procedureloop1.stepindex == 6) then
         if ((get(captainprobepos) ~= OFF) or (get(foprobepos) ~= OFF)) then
             if (configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                 toggleprobeheat(OFF)
@@ -6958,13 +6502,9 @@ function afterlandingsteps()
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
             commandtableentry(ADVICE, "Probe Heat Checked and Off")
         end
-    end
-
-    if (procedureloop1.stepindex == 7) then
+    elseif (procedureloop1.stepindex == 7) then
         setview(configvalues[CONFIGVIEWPEDESTAL])
-    end
-
-    if (procedureloop1.stepindex == 8) then
+    elseif (procedureloop1.stepindex == 8) then
         if (get(transponderpos) == TARA) then
             if (configvalues[CONFIGTRANSPONDER] ~= 0) then
                 if (configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
@@ -6977,13 +6517,9 @@ function afterlandingsteps()
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
             commandtableentry(ADVICE, "Transponder Checked and " .. TransponderPostotring(get(transponderpos)))
         end
-    end
-
-    if (procedureloop1.stepindex == 9) then
+    elseif (procedureloop1.stepindex == 9) then
         setview(configvalues[CONFIGVIEWTHROTTLE])
-    end
-
-    if (procedureloop1.stepindex == 10) then
+    elseif (procedureloop1.stepindex == 10) then
         if (get(flapleverpos) > FLAPSUP) then
             if (configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                 helpers.command_once("laminar/B738/push_button/flaps_0")
@@ -6994,9 +6530,7 @@ function afterlandingsteps()
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
             commandtableentry(ADVICE, "Flaps Checked and Up")
         end
-    end
-
-    if (procedureloop1.stepindex == 11) then
+    elseif (procedureloop1.stepindex == 11) then
         speedbrakeleverrounded = roundnumber(get(speedbrakelever), 1)
         if (speedbrakeleverrounded ~= OFF) then
             if (configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
@@ -7010,13 +6544,9 @@ function afterlandingsteps()
                 commandtableentry(ADVICE, "Speedbrakes Up and Retracted")
             end
         end
-    end
-
-    if (procedureloop1.stepindex == 12) then
+    elseif (procedureloop1.stepindex == 12) then
         setview(configvalues[CONFIGVIEWMAINPANEL])
-    end
-
-    if (procedureloop1.stepindex == 13) then
+    elseif (procedureloop1.stepindex == 13) then
         if ((get(fdpilotpos) == ON) or (get(fdfopos) == ON)) then
             if (configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                 togglefds(OFF)
@@ -7027,9 +6557,7 @@ function afterlandingsteps()
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
             commandtableentry(ADVICE, "Both Flight Directors Checked and Off")
         end
-    end
-
-    if (procedureloop1.stepindex == 14) then
+    elseif (procedureloop1.stepindex == 14) then
          if ((get(efiswxpilotpos) == ON) or (get(efiswxfopos) == ON)) then
             if (configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                 togglewx(OFF)
@@ -7040,9 +6568,7 @@ function afterlandingsteps()
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
             commandtableentry(ADVICE, "Both Weather Radars Checked and Off")
         end
-    end
-
-    if (procedureloop1.stepindex == 15) then
+    elseif (procedureloop1.stepindex == 15) then
          if ((get(efisterrpilotpos) == ON) or (get(efisterrfopos) == ON)) then
             if (configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                 toggleterr(OFF)
@@ -7053,10 +6579,7 @@ function afterlandingsteps()
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
             commandtableentry(ADVICE, "Both Terrain Radars Checked and Off")
         end
-    end
-
- 
-    if (procedureloop1.stepindex == 16) then
+    elseif (procedureloop1.stepindex == 16) then
         if (get(autobrakepos) ~= AUTOBRAKEOFF) then
             if (configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                 setautobrake(AUTOBRAKEOFF)
@@ -7067,19 +6590,13 @@ function afterlandingsteps()
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
             commandtableentry(ADVICE, "Auto Brake Checked and Off")
         end
-    end
-
-    if (procedureloop1.stepindex == 17) then
+    elseif (procedureloop1.stepindex == 17) then
         if (get(aponstat) == ON) then
             set(aponstat, OFF)
         end
-    end
-
-    if (procedureloop1.stepindex == 18) then
+    elseif (procedureloop1.stepindex == 18) then
         iceprotection(OFF)
-    end
-
-    if (procedureloop1.stepindex == 19) then
+    elseif (procedureloop1.stepindex == 19) then
         helpers.command_once("laminar/B738/push_button/master_caution1")
     end
 
@@ -7150,15 +6667,10 @@ function beforetaxisteps()
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and (get(groundspeed) < 1) and not procedureloop1.steprepeat) then
             commandtableentry(ADVICE, "Chocks Checked and Removed")
         end
-    end
-
-
-    if (procedureloop1.stepindex == 2) then
+    elseif (procedureloop1.stepindex == 2) then
         setview(DEFAULTVIEW)
         setview(configvalues[CONFIGVIEWUPPEROVERHEADPANEL])
-    end
-
-    if (procedureloop1.stepindex == 3) then
+    elseif (procedureloop1.stepindex == 3) then
         if (get(domelightpos) ~= DOMELIGHTOFF) then
             if (configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                 setdomelight(DOMELIGHTOFF)
@@ -7169,13 +6681,9 @@ function beforetaxisteps()
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
             commandtableentry(ADVICE, "Domelight Checked and Off")
         end
-    end
-
-    if (procedureloop1.stepindex == 4) then
+    elseif (procedureloop1.stepindex == 4) then
         setview(configvalues[CONFIGVIEWOVERHEADPANEL])
-    end
-
-    if (procedureloop1.stepindex == 5) then
+    elseif (procedureloop1.stepindex == 5) then
         if(get(positionlights) ~= POSLIGHTSSTEADY) then 
             if (configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                 togglepositionlights(POSLIGHTSSTEADY)
@@ -7186,9 +6694,7 @@ function beforetaxisteps()
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
             commandtableentry(ADVICE, "Position Lights Checked and Steady")
         end
-    end
-
-    if (procedureloop1.stepindex == 6) then
+    elseif (procedureloop1.stepindex == 6) then
         if (get(beaconlights) == OFF) then
             if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 commandtableentry(ADVICE, "Set Collision Lights On")
@@ -7199,9 +6705,7 @@ function beforetaxisteps()
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
             commandtableentry(ADVICE, "Collision Lights Checked and On")
         end  
-    end
-
-    if (procedureloop1.stepindex == 7) then
+    elseif (procedureloop1.stepindex == 7) then
         if (get(seatbeltsignpos) ~= SEATBELTSIGNON) then
             if (configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                 setseatbeltsign(SEATBELTSIGNON)
@@ -7212,9 +6716,7 @@ function beforetaxisteps()
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
             commandtableentry(ADVICE, "Seatbeltsigns Checked and On")
         end
-    end
-
-   if (procedureloop1.stepindex == 8) then
+    elseif (procedureloop1.stepindex == 8) then
         if (get(logolighton) ~= ON) then
             if (configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                 togglelogolight(ON)
@@ -7225,9 +6727,7 @@ function beforetaxisteps()
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
             commandtableentry(ADVICE, "Logo Lights Checked and On")
         end
-    end
-
-    if (procedureloop1.stepindex == 9) then
+    elseif (procedureloop1.stepindex == 9) then
         if (get(yawdamperswitch) ~= ON) then
             if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 commandtableentry(ADVICE, "Set Yaw Damper On")
@@ -7238,9 +6738,7 @@ function beforetaxisteps()
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
                 commandtableentry(ADVICE, "Yaw Damper Checked and On") 
         end
-    end
-
-    if (procedureloop1.stepindex == 10) then
+    elseif (procedureloop1.stepindex == 10) then
         if ((get(hydro1pos) ~= ON) or (get(hydro2pos) ~= ON) or (get(elechydro1pos) ~= ON) or (get(elechydro2pos) ~= ON)) then
             if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 commandtableentry(ADVICE, "Switch Hydraulic Pumps On")
@@ -7254,9 +6752,7 @@ function beforetaxisteps()
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
             commandtableentry(ADVICE, "Hydraulic Pumps Checked and On") 
         end
-    end
-
-    if (procedureloop1.stepindex == 11) then
+    elseif (procedureloop1.stepindex == 11) then
         if ((get(wheatlfwdpos) == OFF) or (get(wheatrfwdpos) == OFF) or (get(wheatlsidepos) == OFF) or (get(wheatrsidepos) == OFF)) then
             if (configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                 togglewindowheat(ON)
@@ -7267,9 +6763,7 @@ function beforetaxisteps()
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON)  and not procedureloop1.steprepeat) then
             commandtableentry(ADVICE, "Window Heat Checked and On")
         end
-    end
-
-    if (procedureloop1.stepindex == 12) then
+    elseif (procedureloop1.stepindex == 12) then
         if ((get(captainprobepos) == OFF) or (get(foprobepos) == OFF)) then
             if (configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                 toggleprobeheat(ON)
@@ -7280,9 +6774,7 @@ function beforetaxisteps()
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
             commandtableentry(ADVICE, "Probe Heat Checked and On")
         end
-    end
-
-    if (procedureloop1.stepindex == 13) then
+    elseif (procedureloop1.stepindex == 13) then
         if ((get(starter1pos) ~= FLIGHT) or (get(starter2pos) ~= FLIGHT)) then
             if (configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                 setstarter(BOTH, FLIGHT)
@@ -7293,13 +6785,9 @@ function beforetaxisteps()
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
             commandtableentry(ADVICE, "Both Starters Checked and FLight")
         end
-    end
-
-    if (procedureloop1.stepindex == 14) then
+    elseif (procedureloop1.stepindex == 14) then
         setview(configvalues[CONFIGVIEWFMS])
-    end
-
-    if (procedureloop1.stepindex == 15) then
+    elseif (procedureloop1.stepindex == 15) then
         if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
             if (get(fmccg) == 0) then
                 commandtableentry(ADVICE, "Set C G")
@@ -7308,9 +6796,7 @@ function beforetaxisteps()
                 commandtableentry(ADVICE, "C G Checked and Set")
             end
         end
-    end
-
-    if (procedureloop1.stepindex == 16) then
+    elseif (procedureloop1.stepindex == 16) then
         if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
             if ((get(v1setspeed) == 0) or (get(v2setspeed) == 0) or (get(vrsetspeed) == 0)) then
                 commandtableentry(ADVICE, "Set V Speeds")
@@ -7319,13 +6805,9 @@ function beforetaxisteps()
                 commandtableentry(ADVICE, "V Speeds Checked and Set")
             end
         end
-    end
-
-    if (procedureloop1.stepindex == 17) then
+    elseif (procedureloop1.stepindex == 17) then
         setview(configvalues[CONFIGVIEWMAINPANEL])
-    end
-
-    if (procedureloop1.stepindex == 18) then
+    elseif (procedureloop1.stepindex == 18) then
         if ((get(fdpilotpos) == OFF) or (get(fdfopos) == OFF)) then
             if (configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                 togglefds(ON)
@@ -7336,9 +6818,7 @@ function beforetaxisteps()
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
             commandtableentry(ADVICE, "Flight Directors Checked and On")
         end
-    end
-
-    if (procedureloop1.stepindex == 19) then
+    elseif (procedureloop1.stepindex == 19) then
         if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
             if (get(aplnavstat) ~= ON) then
                 commandtableentry(ADVICE, "Arm L NAV")
@@ -7347,9 +6827,7 @@ function beforetaxisteps()
                 commandtableentry(ADVICE, "L NAV Checked and ARMED")
             end
         end
-    end
-
-    if (procedureloop1.stepindex == 20) then
+    elseif (procedureloop1.stepindex == 20) then
         if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
             if (get(apvnavstat) ~= ON) then
                 commandtableentry(ADVICE, "Arm V NAV")
@@ -7358,13 +6836,9 @@ function beforetaxisteps()
                 commandtableentry(ADVICE, "V NAV checked and ARMED")
             end
         end
-    end
-
-    if (procedureloop1.stepindex == 21) then
+    elseif (procedureloop1.stepindex == 21) then
         setview(configvalues[CONFIGVIEWTHROTTLE])
-    end
-
-    if (procedureloop1.stepindex == 22) then
+    elseif (procedureloop1.stepindex == 22) then
         if ((get(toflaps) > 0) and (get(toflapsset) == OFF)) then  
             if (configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                 toflapscmd = "laminar/B738/push_button/flaps_" .. tostring(get(toflaps))
@@ -7379,18 +6853,14 @@ function beforetaxisteps()
                 commandtableentry(ADVICE, "Takeoff Flaps Checked and Set")
             end
         end
-    end
-
-    if ((procedureloop1.stepindex == 23) and (configvalues[CONFIGVOICEADVICEONLY] == ON))then
+    elseif ((procedureloop1.stepindex == 23) and (configvalues[CONFIGVOICEADVICEONLY] == ON))then
         if (get(parkingbrakepos) ~= OFF) then
             commandtableentry(ADVICE, "Release Parking Brake")
             procedureloop1.stepindex = procedureloop1.stepindex - 1
         elseif ((get(groundspeed) < 1) and not procedureloop1.steprepeat) then
             commandtableentry(ADVICE, "Parking Brake Checked and Released")
         end
-    end
-
-    if (procedureloop1.stepindex == 24) then
+    elseif (procedureloop1.stepindex == 24) then
         setview(configvalues[CONFIGVIEWMAINPANEL])
     end
 
@@ -7442,15 +6912,11 @@ function beforetakeoffsteps()
 
     if (get(groundspeed) > 45) then
         procedureabort = true
-        procedureloop1.stepindex = 14
-    end
-
-    if (procedureloop1.stepindex == 1) then
+        return true
+    elseif (procedureloop1.stepindex == 1) then
         setview(DEFAULTVIEW)
         setview(configvalues[CONFIGVIEWPEDESTAL])
-    end
-
-    if (procedureloop1.stepindex == 2) then
+    elseif (procedureloop1.stepindex == 2) then
         if (get(transponderpos) ~= TARA) then
             if (configvalues[CONFIGTRANSPONDER] ~= 0) then
                 if (configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
@@ -7463,13 +6929,9 @@ function beforetakeoffsteps()
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
             commandtableentry(ADVICE, "Transponder Checked and T A R A")
         end
-    end
-
-    if (procedureloop1.stepindex == 3) then
+    elseif (procedureloop1.stepindex == 3) then
         setview(configvalues[CONFIGVIEWOVERHEADPANEL])
-    end
-
-    if (procedureloop1.stepindex == 4) then
+    elseif (procedureloop1.stepindex == 4) then
         if(get(positionlights) ~= POSLIGHTSSTROBE) then 
             if (configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                 togglepositionlights(POSLIGHTSSTROBE)
@@ -7480,9 +6942,7 @@ function beforetakeoffsteps()
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
             commandtableentry(ADVICE, "Position Lights Checked and Strobe")
         end
-    end
-
-    if (procedureloop1.stepindex == 5) then
+    elseif (procedureloop1.stepindex == 5) then
         if ((get(llights1) == OFF) or (get(llights2) == OFF) or (get(llights3) == OFF) or (get(llights4) == OFF)) then
             if (configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                 togglelandinglights(ON)
@@ -7493,9 +6953,7 @@ function beforetakeoffsteps()
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
             commandtableentry(ADVICE, "Landing Lights Checked and On")
         end
-    end
-
-    if (procedureloop1.stepindex == 6) then
+    elseif (procedureloop1.stepindex == 6) then
         if (get(taxilight)  ~= OFF) then
             if (configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                 toggletaxilights(OFF)
@@ -7506,9 +6964,7 @@ function beforetakeoffsteps()
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
             commandtableentry(ADVICE, "Taxi Lights Checked and Off")
         end
-    end
-
-    if (procedureloop1.stepindex == 7) then
+    elseif (procedureloop1.stepindex == 7) then
         if ((get(rwylightl) == ON) or (get(rwylightl) == ON)) then
             if (configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                 togglerwylights(OFF)
@@ -7519,9 +6975,7 @@ function beforetakeoffsteps()
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
             commandtableentry(ADVICE, "Runway Turnoff Lights Checked and Off")
         end
-    end
-
-    if (procedureloop1.stepindex == 8) then
+    elseif (procedureloop1.stepindex == 8) then
         setview(configvalues[CONFIGVIEWMAINPANEL])
     end
 
@@ -7536,9 +6990,7 @@ function beforetakeoffsteps()
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
             commandtableentry(ADVICE, "Auto Brake Checked and R T O")
         end
-    end
-
-    if (procedureloop1.stepindex == 10) then
+    elseif (procedureloop1.stepindex == 10) then
         local headingrounded = nil
         if (isvalidicao(get(depicao)) and isvalidrwy(get(deprwy)) and tonumber(get(deprwyheading))) then
             headingrounded = roundnumber(get(deprwyheading))
@@ -7557,9 +7009,7 @@ function beforetakeoffsteps()
                 end
             end
         end
-    end
-
-    if (procedureloop1.stepindex == 11) then
+    elseif (procedureloop1.stepindex == 11) then
         if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
             if (get(aplnavstat) ~= ON) then
                 commandtableentry(ADVICE, "Arm L NAV")
@@ -7568,9 +7018,7 @@ function beforetakeoffsteps()
                 commandtableentry(ADVICE, "L NAV Checked and ARMED")
             end
         end
-    end
-
-    if (procedureloop1.stepindex == 12) then
+    elseif (procedureloop1.stepindex == 12) then
         if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
             if (get(apvnavstat) ~= ON) then
                 commandtableentry(ADVICE, "Arm VNAV")
@@ -7579,9 +7027,7 @@ function beforetakeoffsteps()
                 commandtableentry(ADVICE, "V NAV Checked and ARMED")
             end
         end
-    end
-
-    if (procedureloop1.stepindex == 13) then
+    elseif (procedureloop1.stepindex == 13) then
         if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
             if (get(atarmpos) ~= ON) then
                 commandtableentry(ADVICE, "Arm Autothrottle")
@@ -7632,20 +7078,19 @@ end
 
 my_command_beforetakeoff = sasl.createCommand(definitions.APPNAMEPREFIX .. "/beforetakeoff", "Before Takeoff Procedure")
 sasl.registerCommandHandler(my_command_beforetakeoff, 0, beforetakeoff_)
--- sasl.appendMenuItem(P.menu_main, "Before Takeoff Procedure", beforetakeoff)
-
 
 --------------------------------------------------------------------------------------------------------------
 -- atparkingpositionsteps function
 
 function atparkingpositionsteps()
 
-    if (procedureloop1.stepindex == 1) then
+    if (get(battery) ~= ON) then
+        procedureabort = true
+        return true
+    elseif (procedureloop1.stepindex == 1) then
         setview(DEFAULTVIEW)
         setview(configvalues[CONFIGVIEWMAINPANEL])
-    end
-
-    if (procedureloop1.stepindex == 2) then
+    elseif (procedureloop1.stepindex == 2) then
         if (get(chockstatus) ~= ON) then
             if (configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                 helpers.command_once("laminar/B738/toggle_switch/chock")
@@ -7656,13 +7101,9 @@ function atparkingpositionsteps()
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
             commandtableentry(ADVICE, "Chocks Checked and Set")
         end
-    end
-
-    if ((procedureloop1.stepindex == 3) and (get(sunpitchdegrees) < 0)) then
+    elseif ((procedureloop1.stepindex == 3) and (get(sunpitchdegrees) < 0)) then
         setview(configvalues[CONFIGVIEWUPPEROVERHEADPANEL])
-    end
-
-    if ((procedureloop1.stepindex == 4) and (get(sunpitchdegrees) < 0)) then
+    elseif ((procedureloop1.stepindex == 4) and (get(sunpitchdegrees) < 0)) then
         if (get(domelightpos) == DOMELIGHTOFF) then
             if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 commandtableentry(ADVICE, "Set Dome Light On")
@@ -7673,13 +7114,9 @@ function atparkingpositionsteps()
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
             commandtableentry(ADVICE, "Dome light Checked and On")
         end
-    end
-
-    if (procedureloop1.stepindex == 5) then
+    elseif (procedureloop1.stepindex == 5) then
         setview(configvalues[CONFIGVIEWPEDESTAL])
-    end
-
-    if (procedureloop1.stepindex == 6) then
+    elseif (procedureloop1.stepindex == 6) then
         if (get(transponderpos) ~= STANDBY) then
             if (configvalues[CONFIGTRANSPONDER] ~= 0) then
                 if (configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
@@ -7692,13 +7129,9 @@ function atparkingpositionsteps()
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
             commandtableentry(ADVICE, "Transponder Checked and Standby")
         end
-    end
-
-    if (procedureloop1.stepindex == 7) then
+    elseif (procedureloop1.stepindex == 7) then
         setview(configvalues[CONFIGVIEWOVERHEADPANEL])
-    end
-
-    if (procedureloop1.stepindex == 8) then
+    elseif (procedureloop1.stepindex == 8) then
         if (get(taxilight)  ~= OFF) then
             if (configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                 toggletaxilights(OFF)
@@ -7709,9 +7142,7 @@ function atparkingpositionsteps()
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
             commandtableentry(ADVICE, "Taxi Lights Checked and Off")
         end
-    end
-
-    if (procedureloop1.stepindex == 9) then
+    elseif (procedureloop1.stepindex == 9) then
         if (get(logolighton) ~= OFF) then
             if (configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                 togglelogolight(OFF)
@@ -7722,9 +7153,7 @@ function atparkingpositionsteps()
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
             commandtableentry(ADVICE, "Logo Lights Checked and Off")
         end
-    end
-
-    if (procedureloop1.stepindex == 10) then
+    elseif (procedureloop1.stepindex == 10) then
         if (get(seatbeltsignpos) ~= SEATBELTSIGNOFF) then
             if (configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                 setseatbeltsign(SEATBELTSIGNOFF)
@@ -7735,9 +7164,7 @@ function atparkingpositionsteps()
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
             commandtableentry(ADVICE, "Seatbeltsigns checked and Off")
         end
-    end
-
-    if (procedureloop1.stepindex == 11) then
+    elseif (procedureloop1.stepindex == 11) then
         if ((get(starter1pos) ~= AUTO) or (get(starter2pos) ~= AUTO)) then
             if (configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                 setstarter(BOTH, AUTO)
@@ -7756,9 +7183,7 @@ function atparkingpositionsteps()
                 commandtableentry(ADVICE, "Both Starters Checked and Off")
             end
         end
-    end
-
-    if (procedureloop1.stepindex == 12) then
+    elseif (procedureloop1.stepindex == 12) then
         setview(configvalues[CONFIGVIEWMAINPANEL])
     end
 
@@ -9859,9 +9284,7 @@ function ongoingtasks()
                     end
                 end
             end
-        end
-
-        if (ongoingtaskstepindex == 2) then
+        elseif (ongoingtaskstepindex == 2) then
             if ( (flightstate < 3) and (get(fmccruisealt) ~= 0) and (get(fmccruisealt) ~= 20000)) then
                 local fmccruisealttmp = roundnumber(get(fmccruisealt) / 500) * 500
                 if (get(cabincruisealt)  ~= fmccruisealttmp) then
@@ -9873,9 +9296,7 @@ function ongoingtasks()
                     end
                 end
             end
-        end
-
-        if (ongoingtaskstepindex == 3) then
+        elseif (ongoingtaskstepindex == 3) then
              if ((flightstate < 4) and desmetar.metarfound) then
                 local deslandingalttmp = 0
                 if tonumber(desmetar.metar.elevation_m) then
@@ -9926,9 +9347,7 @@ function ongoingtasks()
                 end
             end
         end
-    end
-
-    if (ongoingtaskstepindex == 5) then
+    elseif (ongoingtaskstepindex == 5) then
         if (configvalues[CONFIGAUTOWIPER] == ON) then
             if ((configvalues[CONFIGAUTOFUNCTIONS] == ON) and (configvalues[CONFIGVOICEADVICEONLY] ~= ON)) then               
                 if (get(groundspeed) > 250) then
@@ -9959,10 +9378,7 @@ function ongoingtasks()
                     end
                 end
             end
-        end
-    
-
-        if (ongoingtaskstepindex == 7) then
+        elseif (ongoingtaskstepindex == 7) then
             if (get(trimcalc) > 0) and (get(trimcalc) ~= gettrim() and (get(groundspeed) < 45)) then
                 if (((configvalues[CONFIGAUTOFUNCTIONS] == ON) and (configvalues[CONFIGVOICEADVICEONLY] ~= ON))) then
                     settotrim()
@@ -9972,10 +9388,7 @@ function ongoingtasks()
                     ongoingtaskstepindex = ongoingtaskstepindex - 1
                 end
             end
-        end
-    
-
-        if (ongoingtaskstepindex == 8) then
+        elseif (ongoingtaskstepindex == 8) then
             if ((get(v2speed) > 0) and (get(v2speed) ~= get(mcpspeed)) and (get(groundspeed) < 45)) then
                 if ((configvalues[CONFIGAUTOFUNCTIONS] == ON) and (configvalues[CONFIGVOICEADVICEONLY] ~= ON)) then
                     set(mcpspeed, get(v2speed))
@@ -9984,9 +9397,7 @@ function ongoingtasks()
                     ongoingtaskstepindex = ongoingtaskstepindex - 1         
                 end
             end
-        end
-
-        if (ongoingtaskstepindex == 9) then
+        elseif (ongoingtaskstepindex == 9) then
             local headingrounded = nil
             if (isvalidicao(get(depicao)) and isvalidrwy(get(deprwy)) and tonumber(get(deprwyheading))) then
                 headingrounded = roundnumber(get(deprwyheading))
