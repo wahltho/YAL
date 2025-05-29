@@ -87,27 +87,27 @@ function P.YalinitGlobal()
     setils = { stepindex = 1, previousstepindex = 1, steprepeat = false }
 
     proceduretable = {
-    [COCKPITINITPROCEDURE] = { name = "Cockpit Initialization", steps = 24, set = false },
-    [COLDANDDARKPROCEDURE] = { name = "Cold and Dark Startup", steps = 29, set = false },
-    [ENGINESTARTPROCEDURE] = { name = "Engine Start", steps = 33, set = false },
-    [TURNAROUNDENGINESHUTDOWNPROCEDURE] = { name = "Turnaround Engine Shutdown", steps = 18, set = false },
-    [FINALENGINESHUTDOWNPROCEDURE] = { name = "Final Engine Shutdown", steps = 17, set = false },
-    [SHUTDOWNPROCEDURE] = { name = "Shutdown", steps = 24, set = false },
-    [TESTPROCEDURE] = { name = "Test", steps = 47, set = false },
-    [APUSTARTUPPROCEDURE] = { name = "A P U Startup", steps = 7, set = false },
-    [BEFORETAXIPROCEDURE] = { name = "Before Taxi", steps = 24, set = false },
-    [BEFORETAKEOFFPROCEDURE] = { name = "Before Takeoff", steps = 13, set = false },
-    [AFTERLANDINGPROCEDURE] = { name = "After Landing", steps = 19, set = false },
-    [SETILSPROCEDURE] = { name = "Set I L S", steps = 99, set = false },
-    [SETVREF30PROCEDURE] = { name = "Set V Ref", steps = 99, set = false },
-    [ALTITUDEA10000PROCEDURE] = { name = "", steps = 7, set = false },
-    [ALTITUDEB10000PROCEDURE] = { name = "", steps = 12, set = false },
-    [AFTERTAKEOFFPROCEDURE] = { name = "", steps = 3, set = false },
-    [DURINGCLIMBPROCEDURE] = { name = "", steps = 13, set = false },
-    [DURINGDESCENTPROCEDURE] = { name = "", steps = 7, set = false },
-    [RADIOALTITUDEB2500PROCEDURE] = { name = "", steps = 1, set = false },
-    [RADIOALTITUDEB1000PROCEDURE] = { name = "", steps = 7, set = false },
-    [ATPARKINGPOSITIONPROCEDURE] = { name = "At Parking Position", steps = 12, set = false }
+    [COCKPITINITPROCEDURE] = { name = "Cockpit Initialization", steps = 24, set = false, procedurefunction = cockpitinitsteps },
+    [COLDANDDARKPROCEDURE] = { name = "Cold and Dark Startup", steps = 29, set = false, procedurefunction = coldanddarksteps },
+    [ENGINESTARTPROCEDURE] = { name = "Engine Start", steps = 33, set = false , procedurefunction = enginestartsteps},
+    [TURNAROUNDENGINESHUTDOWNPROCEDURE] = { name = "Turnaround Engine Shutdown", steps = 17, set = false, procedurefunction = engineshutdownsteps },
+    [FINALENGINESHUTDOWNPROCEDURE] = { name = "Final Engine Shutdown", steps = 17, set = false, procedurefunction = engineshutdownsteps },
+    [SHUTDOWNPROCEDURE] = { name = "Shutdown", steps = 24, set = false, procedurefunction = shutdownsteps },
+    [TESTPROCEDURE] = { name = "Test", steps = 47, set = false, procedurefunction = teststeps },
+    [APUSTARTUPPROCEDURE] = { name = "A P U Startup", steps = 7, set = false, procedurefunction = apustartupsteps },
+    [BEFORETAXIPROCEDURE] = { name = "Before Taxi", steps = 24, set = false, procedurefunction = beforetaxisteps },
+    [BEFORETAKEOFFPROCEDURE] = { name = "Before Takeoff", steps = 13, set = false, procedurefunction = beforetakeoffsteps },
+    [AFTERLANDINGPROCEDURE] = { name = "After Landing", steps = 19, set = false, procedurefunction = afterlandingsteps },
+    [SETILSPROCEDURE] = { name = "Set I L S", steps = 99, set = false, procedurefunction = setilssteps },
+    [SETVREF30PROCEDURE] = { name = "Set V Ref", steps = 99, set = false, procedurefunction = setvref },
+    [ALTITUDEA10000PROCEDURE] = { name = "", steps = 7, set = false, procedurefunction = altitudea10000steps },
+    [ALTITUDEB10000PROCEDURE] = { name = "", steps = 12, set = false, procedurefunction = altitudeb10000steps },
+    [AFTERTAKEOFFPROCEDURE] = { name = "", steps = 3, set = false, procedurefunction = aftertakeoffsteps },
+    [DURINGCLIMBPROCEDURE] = { name = "", steps = 13, set = false, procedurefunction = duringclimbsteps },
+    [DURINGDESCENTPROCEDURE] = { name = "", steps = 7, set = false, procedurefunction = duringdescentsteps },
+    [RADIOALTITUDEB2500PROCEDURE] = { name = "", steps = 1, set = false, procedurefunction = radioaltitudeb2500steps },
+    [RADIOALTITUDEB1000PROCEDURE] = { name = "", steps = 7, set = false, procedurefunction = radioaltitudeb1000steps },
+    [ATPARKINGPOSITIONPROCEDURE] = { name = "At Parking Position", steps = 12, set = false, procedurefunction = atparkingpositionsteps }
     }
 
     previousview = -1
@@ -122,6 +122,8 @@ function P.initDataref()
     batteryswitchcover = globalPropertyfae("laminar/B738/cover", 3)
     emergencylights = globalProperty("laminar/B738/toggle_switch/emer_exit_lights")
     emergencylightcover = globalPropertyfae("laminar/B738/cover", 10)
+
+    mastercautionannunc = globalProperty("sim/cockpit/warnings/annunciators/master_caution")
 
     mainbus = globalProperty("laminar/B738/electric/main_bus")
     parkingbrakepos = globalProperty("laminar/B738/parking_brake_pos")
@@ -1523,7 +1525,7 @@ sasl.registerCommandHandler(my_command_togglesimfreeze, 0, togglesimfreeze_)
 
 function mastercaution()
 
-    if ((procedureloop1.lock ~= NOPROCEDURE) or (procedureloop2.lock ~= NOPROCEDURE)) then
+    if (((procedureloop1.lock ~= NOPROCEDURE) or (procedureloop2.lock ~= NOPROCEDURE)) and (get(mastercautionannunc) ~= ON)) then
         procedureskipstep = true
     end
 
@@ -7162,7 +7164,7 @@ function atparkingpositionsteps()
                 procedureloop1.stepindex = procedureloop1.stepindex - 1
             end
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
-            commandtableentry(ADVICE, "Seatbeltsigns checked and Off")
+            commandtableentry(ADVICE, "Seatbeltsigns Checked and Off")
         end
     elseif (procedureloop1.stepindex == 11) then
         if ((get(starter1pos) ~= AUTO) or (get(starter2pos) ~= AUTO)) then
@@ -9481,35 +9483,7 @@ function procedureloop_1()
                 end
             end
         elseif ((procedureloop1.stepindex <= proceduretable[procedureloop1.lock].steps) and not procedureabort and not proceduskipstep) then
-            if (procedureloop1.lock == COCKPITINITPROCEDURE) then
-                cockpitinitsteps()
-            elseif (procedureloop1.lock == COLDANDDARKPROCEDURE) then
-                coldanddarksteps()
-            elseif (procedureloop1.lock == APUSTARTUPPROCEDURE) then
-                apustartupsteps()
-            elseif (procedureloop1.lock == ENGINESTARTPROCEDURE) then
-                enginestartsteps()
-            elseif (procedureloop1.lock == BEFORETAXIPROCEDURE) then
-                beforetaxisteps()
-            elseif (procedureloop1.lock == BEFORETAKEOFFPROCEDURE) then
-                beforetakeoffsteps() 
-            elseif (procedureloop1.lock == AFTERLANDINGPROCEDURE) then
-                afterlandingsteps() 
-            elseif (procedureloop1.lock == TURNAROUNDENGINESHUTDOWNPROCEDURE) then
-                engineshutdownsteps()
-            elseif (procedureloop1.lock == FINALENGINESHUTDOWNPROCEDURE) then
-                engineshutdownsteps()
-            elseif (procedureloop1.lock == SHUTDOWNPROCEDURE) then
-                shutdownsteps()
-            elseif (procedureloop1.lock == TESTPROCEDURE) then
-                teststeps()
-            elseif (procedureloop1.lock == ALTITUDEA10000PROCEDURE) then
-                altitudea10000steps()
-            elseif (procedureloop1.lock == ALTITUDEB10000PROCEDURE) then
-                altitudeb10000steps()
-            elseif (procedureloop1.lock == ATPARKINGPOSITIONPROCEDURE) then
-                atparkingpositionsteps()
-            elseif (procedureloop1.lock == SETILSPROCEDURE) then
+            if (procedureloop1.lock == SETILSPROCEDURE) then
                 if setilssteps() then
                     procedureloop1.lock = NOPROCEDURE
                 end
@@ -9519,7 +9493,7 @@ function procedureloop_1()
                     procedureloop1.lock = NOPROCEDURE
                 end
             else
-                procedureloop1.lock = NOPROCEDURE
+                proceduretable[procedureloop1.lock].procedurefunction()
             end
         elseif ((((procedureloop1.stepindex > proceduretable[procedureloop1.lock].steps) or procedureabort)) and not procedureskipstep) then
             if (procedureloop1.stepindex > proceduretable[procedureloop1.lock].steps) then
@@ -9589,19 +9563,7 @@ function procedureloop_2()
                 end
             end
         elseif ((procedureloop2.stepindex <= proceduretable[procedureloop2.lock].steps) and not procedureabort and not proceduskipstep) then
-            if (procedureloop2.lock == AFTERTAKEOFFPROCEDURE) then
-                aftertakeoffsteps()
-            elseif (procedureloop2.lock == DURINGCLIMBPROCEDURE) then
-                duringclimbsteps()
-            elseif (procedureloop2.lock == DURINGDESCENTPROCEDURE) then
-                duringdescentsteps()
-            elseif (procedureloop2.lock == RADIOALTITUDEB2500PROCEDURE) then
-                radioaltitudeb2500steps()
-            elseif (procedureloop2.lock == RADIOALTITUDEB1000PROCEDURE) then
-                radioaltitudeb1000steps()
-            else
-               procedureloop2.lock = NOPROCEDURE
-            end
+                proceduretable[procedureloop2.lock].procedurefunction()
         elseif ((((procedureloop2.stepindex > proceduretable[procedureloop2.lock].steps) or procedureabort)) and not procedureskipstep) then
             if (procedureloop2.stepindex > proceduretable[procedureloop2.lock].steps) then
                 if (proceduretable[procedureloop2.lock].name  ~= "") then
