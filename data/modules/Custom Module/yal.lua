@@ -59,7 +59,9 @@ function P.YalinitGlobal()
     --------------------------------------------------------------------------------------------------------------
     -- Variables for FMS commands
 
-    vrefcmdtable = {"del", "clr", "3", "0", "slash", "X", "X", "X", "4R", "exec", "end"}
+    vrefcmdtable = {"del", "clr", "X", "X", "slash", "X", "X", "X", "4R", "exec", "end"}
+
+    toflapscmdtable = {"del", "clr", "X", "X", "1L", "exec", "end"}
 
     --------------------------------------------------------------------------------------------------------------
     -- Command Table Table
@@ -81,33 +83,32 @@ function P.YalinitGlobal()
     procedureskipstep = false
 
     procedureloop1 = { lock = NOPROCEDURE, stepindex = 0, previousstepindex = 0, steprepeat = false }
-
     procedureloop2 = { lock = NOPROCEDURE, stepindex = 0, previousstepindex = 0, steprepeat = false }
-
-    setils = { stepindex = 1, previousstepindex = 1, steprepeat = false }
+    procedureloop3 = { lock = NOPROCEDURE, stepindex = 0, previousstepindex = 0, steprepeat = false }
 
     proceduretable = {
-    [COCKPITINITPROCEDURE] = { name = "Cockpit Initialization", steps = 24, set = false, procedurefunction = cockpitinitsteps },
-    [COLDANDDARKPROCEDURE] = { name = "Cold and Dark Startup", steps = 29, set = false, procedurefunction = coldanddarksteps },
-    [ENGINESTARTPROCEDURE] = { name = "Engine Start", steps = 33, set = false , procedurefunction = enginestartsteps},
-    [TURNAROUNDENGINESHUTDOWNPROCEDURE] = { name = "Turnaround Engine Shutdown", steps = 17, set = false, procedurefunction = engineshutdownsteps },
-    [FINALENGINESHUTDOWNPROCEDURE] = { name = "Final Engine Shutdown", steps = 17, set = false, procedurefunction = engineshutdownsteps },
-    [SHUTDOWNPROCEDURE] = { name = "Shutdown", steps = 24, set = false, procedurefunction = shutdownsteps },
-    [TESTPROCEDURE] = { name = "Test", steps = 47, set = false, procedurefunction = teststeps },
-    [APUSTARTUPPROCEDURE] = { name = "A P U Startup", steps = 7, set = false, procedurefunction = apustartupsteps },
-    [BEFORETAXIPROCEDURE] = { name = "Before Taxi", steps = 24, set = false, procedurefunction = beforetaxisteps },
-    [BEFORETAKEOFFPROCEDURE] = { name = "Before Takeoff", steps = 13, set = false, procedurefunction = beforetakeoffsteps },
-    [AFTERLANDINGPROCEDURE] = { name = "After Landing", steps = 19, set = false, procedurefunction = afterlandingsteps },
-    [SETILSPROCEDURE] = { name = "Set I L S", steps = 99, set = false, procedurefunction = setilssteps },
-    [SETVREF30PROCEDURE] = { name = "Set V Ref", steps = 99, set = false, procedurefunction = setvref },
-    [ALTITUDEA10000PROCEDURE] = { name = "", steps = 7, set = false, procedurefunction = altitudea10000steps },
-    [ALTITUDEB10000PROCEDURE] = { name = "", steps = 12, set = false, procedurefunction = altitudeb10000steps },
-    [AFTERTAKEOFFPROCEDURE] = { name = "", steps = 3, set = false, procedurefunction = aftertakeoffsteps },
-    [DURINGCLIMBPROCEDURE] = { name = "", steps = 13, set = false, procedurefunction = duringclimbsteps },
-    [DURINGDESCENTPROCEDURE] = { name = "", steps = 7, set = false, procedurefunction = duringdescentsteps },
-    [RADIOALTITUDEB2500PROCEDURE] = { name = "", steps = 1, set = false, procedurefunction = radioaltitudeb2500steps },
-    [RADIOALTITUDEB1000PROCEDURE] = { name = "", steps = 7, set = false, procedurefunction = radioaltitudeb1000steps },
-    [ATPARKINGPOSITIONPROCEDURE] = { name = "At Parking Position", steps = 12, set = false, procedurefunction = atparkingpositionsteps }
+    [COCKPITINITPROCEDURE] = { name = "Cockpit Initialization", steps = 24, set = false, procedurefunction = cockpitinitsteps, loop = 1 },
+    [COLDANDDARKPROCEDURE] = { name = "Cold and Dark Startup", steps = 29, set = false, procedurefunction = coldanddarksteps, loop = 1 },
+    [ENGINESTARTPROCEDURE] = { name = "Engine Start", steps = 33, set = false , procedurefunction = enginestartsteps, loop = 1 },
+    [TURNAROUNDENGINESHUTDOWNPROCEDURE] = { name = "Turnaround Engine Shutdown", steps = 17, set = false, procedurefunction = engineshutdownsteps, loop = 1 },
+    [FINALENGINESHUTDOWNPROCEDURE] = { name = "Final Engine Shutdown", steps = 17, set = false, procedurefunction = engineshutdownsteps, loop = 1 },
+    [SHUTDOWNPROCEDURE] = { name = "Shutdown", steps = 24, set = false, procedurefunction = shutdownsteps, loop = 1 },
+    [TESTPROCEDURE] = { name = "Test", steps = 47, set = false, procedurefunction = teststeps, loop = 1 },
+    [APUSTARTUPPROCEDURE] = { name = "A P U Startup", steps = 7, set = false, procedurefunction = apustartupsteps, loop = 1 },
+    [BEFORETAXIPROCEDURE] = { name = "Before Taxi", steps = 24, set = false, procedurefunction = beforetaxisteps, loop = 1 },
+    [BEFORETAKEOFFPROCEDURE] = { name = "Before Takeoff", steps = 13, set = false, procedurefunction = beforetakeoffsteps, loop = 1 },
+    [AFTERLANDINGPROCEDURE] = { name = "After Landing", steps = 19, set = false, procedurefunction = afterlandingsteps, loop = 1 },
+    [SETILSPROCEDURE] = { name = "", steps = 8, set = false, procedurefunction = setilssteps, loop = 3 },
+    [SETVREFPROCEDURE] = { name = "", steps = 4, set = false, procedurefunction = setvrefsteps, loop = 3 },
+    [SETTOFLAPSPROCEDURE] = { name = "", steps = 4, set = false, procedurefunction = settoflapssteps, loop = 3 },
+    [ALTITUDEA10000PROCEDURE] = { name = "", steps = 7, set = false, procedurefunction = altitudea10000steps, loop = 1 },
+    [ALTITUDEB10000PROCEDURE] = { name = "", steps = 12, set = false, procedurefunction = altitudeb10000steps, loop = 1 },
+    [AFTERTAKEOFFPROCEDURE] = { name = "", steps = 3, set = false, procedurefunction = aftertakeoffsteps, loop = 2 },
+    [DURINGCLIMBPROCEDURE] = { name = "", steps = 13, set = false, procedurefunction = duringclimbsteps, loop = 2 },
+    [DURINGDESCENTPROCEDURE] = { name = "", steps = 8, set = false, procedurefunction = duringdescentsteps, loop = 2 },
+    [RADIOALTITUDEB2500PROCEDURE] = { name = "", steps = 1, set = false, procedurefunction = radioaltitudeb2500steps, loop = 2 },
+    [RADIOALTITUDEB1000PROCEDURE] = { name = "", steps = 7, set = false, procedurefunction = radioaltitudeb1000steps, loop = 2 },
+    [ATPARKINGPOSITIONPROCEDURE] = { name = "At Parking Position", steps = 12, set = false, procedurefunction = atparkingpositionsteps, loop = 1 }
     }
 
     previousview = -1
@@ -332,8 +333,11 @@ function P.initDataref()
 
     dhpilot = globalProperty("laminar/B738/pfd/dh_pilot")
 
+    elevation = globalProperty("sim/flightmodel/position/elevation")
+
     depicao = globalProperty("laminar/B738/fms/ref_icao")
     deprwyheading = globalProperty("laminar/B738/fms/ref_runway_crs_mod")
+    deprwylen = globalProperty("laminar/B738/fms/ref_runway_len")
     deprwylatstartpos = globalProperty("laminar/B738/fms/ref_runway_start_lat_mod")
     deprwylonstartpos = globalProperty("laminar/B738/fms/ref_runway_start_lon_mod")
     deprwylatendpos = globalProperty("laminar/B738/fms/ref_runway_end_lat_mod")
@@ -386,6 +390,7 @@ function P.initDataref()
     vrsetspeed = globalProperty("laminar/B738/FMS/vr_set")
 
     fmccg = globalProperty("laminar/B738/FMS/fmc_cg")
+    tabcg = globalProperty("laminar/B738/tab/cg_pos")
 
     speedrestr = globalProperty("laminar/B738/autopilot/fmc_descent_r_speed1")
 
@@ -2557,17 +2562,13 @@ function setilssteps()
     local FMC1Line04X = helpers.get("laminar/B738/fmc1/Line04_X")
     local FMC1Line04L = helpers.get("laminar/B738/fmc1/Line04_L")
 
-    if (setils.stepindex > 5) then
-        setils.stepindex = 1
-        setils.previousstepindex = 1
-        setils.steprepeat = false
-        return true
-    end
 
-    if (setils.stepindex == 1) then
+    if (procedureloop3.stepindex == 1) then
+        setview(CONFIGVIEWFMS)
+    elseif (procedureloop3.stepindex == 2) then
         if ((string.len(FMC1Line00L) < 9) or (string.sub(FMC1Line00L, 7, 9) ~= "APP")) then
             helpers.command_once("laminar/B738/button/fmc1_init_ref")
-            setils.stepindex = setils.stepindex - 1
+            procedureloop3.stepindex = procedureloop3.stepindex - 1
         else
             if ((string.len(FMC1Line04X) == 24) and (string.len(FMC1Line04L) == 24)) then
                 apptype = string.sub(FMC1Line04X, 2, 4)
@@ -2601,19 +2602,19 @@ function setilssteps()
                     else
                         commandtableentry(TEXT, "Runway " .. formatRunwayDesignator(get(desrwy)) .. " has no Approach")
                     end
-                    setils.stepindex = 6
-                    return false
+                    setview(CONFIGVIEWMAINPANEL)
+                    procedureloop3.stepindex = 8
                 end
             end
         end
-    end
-
-    if (setils.stepindex == 2) then
+    elseif (procedureloop3.stepindex == 3) then
+        setview(CONFIGVIEWPEDESTAL)
+    elseif (procedureloop3.stepindex == 4) then
         if (navdatatable[navdatatableindex][DESTNAVTYPE] == NAVTYPEILS) then
             if ((navdatatable[navdatatableindex][DESTFREQ] ~= get(nav1freq)) or ((get(mmrinstalled) == ON) and ((get(mmrcptactvalue) ~= navdatatable[navdatatableindex][DESTFREQ]) or (get(mmrcptactmode) ~= MMRILS)))) then
                 if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
                     commandtableentry(ADVICE, "Set Frequency " .. addspaces(formatILSFrequency(navdatatable[navdatatableindex][DESTFREQ])))
-                    setils.stepindex = setils.stepindex - 1
+                    procedureloop3.stepindex = procedureloop3.stepindex - 1
                 else
                     if (get(mmrinstalled) == ON) then
                         setmmrils(MMRCAPTAIN, navdatatable[navdatatableindex][DESTFREQ])
@@ -2622,40 +2623,23 @@ function setilssteps()
                         set(nav1freq, navdatatable[navdatatableindex][DESTFREQ])
                     end
                 end
-            elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not setils.steprepeat) then
+            elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop3.steprepeat) then
                 commandtableentry(ADVICE, "Frequency checked and " .. addspaces(formatILSFrequency(navdatatable[navdatatableindex][DESTFREQ])))
             end
         elseif (((navdatatable[navdatatableindex][DESTNAVTYPE] == NAVTYPEGLS) or (navdatatable[navdatatableindex][DESTNAVTYPE] == NAVTYPELPV)) and (get(mmrinstalled) == ON)) then
             if ((get(mmrcptactvalue) ~= navdatatable[navdatatableindex][DESTFREQ]) or not ((get(mmrcptactmode) ~= MMRGLS) or (get(mmrcptactmode) ~= MMRLPV))) then
                 if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
                     commandtableentry(ADVICE, "Set Channel " .. addspaces(navdatatable[navdatatableindex][DESTFREQ]))
-                    setils.stepindex = setils.stepindex - 1
+                    procedureloop3.stepindex = procedureloop3.stepindex - 1
                 else
                     setmmrgls(MMRCAPTAIN, navdatatable[navdatatableindex][DESTFREQ])
                 end
-            elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not setils.steprepeat) then
+            elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop3.steprepeat) then
                 commandtableentry(ADVICE, "Channel checked and " .. addspaces(navdatatable[navdatatableindex][DESTFREQ]))
             end
         end
-    end
-
-    if (setils.stepindex == 3) then
-        pilotcoursenew = navdatatable[navdatatableindex][DESTCOURSE]
-
-        if (get(mcppilotcourse) ~= pilotcoursenew) then
-            if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
-                commandtableentry(ADVICE, "Set Course " .. addspaces(padNumberWithZerosStrict(pilotcoursenew, 3)))
-                setils.stepindex = setils.stepindex - 1
-            else   
-                set(mcppilotcourse, pilotcoursenew)
-            end
-        elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not setils.steprepeat) then
-            commandtableentry(ADVICE, "Course checked and " ..  addspaces(padNumberWithZerosStrict(pilotcoursenew, 3)))
-        end   
-    end
-
-    if (setils.stepindex == 4) then
-        if ((configvalues[CONFIGAUTOFUNCTIONS] == ON) or (procedureloop1.lock == SETILSPROCEDURE)) then
+    elseif (procedureloop3.stepindex == 5) then
+        if (configvalues[CONFIGAUTOFUNCTIONS] == ON) then
             if ((navdatatable[navdatatableindex][DESTNAVTYPE] == NAVTYPEILS) and navdatatable[navdatatableindex][DESTNAVDME]) then
                 if ((get(nav2freq) ~= get(nav1freq)) or ((get(mmrinstalled) == ON) and ((get(mmrfoactvalue) ~= get(nav1freq)) or (get(mmrfoactmode) ~= MMRILS)))) then
                     if (get(mmrinstalled) == ON) then
@@ -2671,10 +2655,23 @@ function setilssteps()
                 end
             end
         end
-    end
+    elseif (procedureloop3.stepindex == 6) then
+        setview(CONFIGVIEWMAINPANEL)
+    elseif (procedureloop3.stepindex == 7) then
+        pilotcoursenew = navdatatable[navdatatableindex][DESTCOURSE]
 
-    if (setils.stepindex == 5) then
-        if ((configvalues[CONFIGAUTOFUNCTIONS] == ON) or (procedureloop1.lock == SETILSPROCEDURE)) then
+        if (get(mcppilotcourse) ~= pilotcoursenew) then
+            if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
+                commandtableentry(ADVICE, "Set Course " .. addspaces(padNumberWithZerosStrict(pilotcoursenew, 3)))
+                procedureloop3.stepindex = procedureloop3.stepindex - 1
+            else   
+                set(mcppilotcourse, pilotcoursenew)
+            end
+        elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop3.steprepeat) then
+            commandtableentry(ADVICE, "Course checked and " ..  addspaces(padNumberWithZerosStrict(pilotcoursenew, 3)))
+        end   
+    elseif (procedureloop3.stepindex == 8) then
+        if (configvalues[CONFIGAUTOFUNCTIONS] == ON) then
             if ((navdatatable[navdatatableindex][DESTNAVTYPE] == NAVTYPEILS) and navdatatable[navdatatableindex][DESTNAVDME]) then
                 if (get(mcpcopilotcourse) ~= get(mcppilotcourse)) then
                     set(mcpcopilotcourse, get(mcppilotcourse))
@@ -2687,23 +2684,14 @@ function setilssteps()
         end      
     end
 
-    setils.stepindex = setils.stepindex + 1
-
-    if (setils.stepindex == setils.previousstepindex) then
-        setils.steprepeat = true
-    else
-        setils.steprepeat = false
-        setils.previousstepindex = setils.stepindex
-    end
-
-   return false
+   return true
 
 end
 
 function setilsproc()
 
-    if (procedureloop1.lock == NOPROCEDURE) then
-        procedureloop1.lock = SETILSPROCEDURE
+    if (procedureloop3.lock == NOPROCEDURE) then
+        procedureloop3.lock = SETILSPROCEDURE
     end
 
     return true
@@ -2760,7 +2748,7 @@ function decodemetar(metar)
         if ((#dt == 7) and (dt:sub(7) == "Z")) then
             local day = tonumber(dt:sub(1,2))
             local time_str = dt:sub(3,6)
-            if (day and time_str) then -- time_str is already a string, no need to check tonumber here
+            if (day and time_str) then
                 result.date_time = { day = day, time = time_str, timezone = "Z" }
                 sasl.logDebug(string.format("Parsed datetime: day=%d, time=%s", result.date_time.day, result.date_time.time))
             else
@@ -2798,11 +2786,9 @@ function decodemetar(metar)
 
         for _, code in ipairs(weather_codes) do
             if code_to_check:find(code, 1, true) then
-                 -- More precise: check if phenomenon_part *is* a code or starts with one and has valid descriptors
                 if code_to_check == code then return true end
             end
         end
-        -- Fallback to original broader logic if the above more precise check is too restrictive for some cases
         for _, code in ipairs(weather_codes) do
             if s:find(code, 1, true) then
                 return true
@@ -2819,7 +2805,7 @@ function decodemetar(metar)
         if (part == "TEMPO" or part == "BECMG" or (string.len(part) >= 4 and part:sub(1,4) == "PROB") or part == "TREND") then
             parsing_main_data = false
             sasl.logDebug("Trend/change group found, METAR main data parsing stopped: " .. part)
-            break 
+            break
 
         elseif (part == "CAVOK") then
             result.cavok = true
@@ -2849,13 +2835,13 @@ function decodemetar(metar)
             end
 
             local unit_str = (part:sub(-2) == "KT" and "KT") or
-                           (part:sub(-3) == "MPS" and "MPS") or
-                           (part:sub(-3) == "KMH" and "KMH") or nil
+                             (part:sub(-3) == "MPS" and "MPS") or
+                             (part:sub(-3) == "KMH" and "KMH") or nil
 
             if (direction and unit_str) then
                 local speed_part_end = #part - #unit_str
-                local speed_str_val = "" -- Renamed to avoid conflict
-                local gust_str_val = nil -- Renamed
+                local speed_str_val = ""
+                local gust_str_val = nil
                 local g_pos = part:find("G", 4)
 
                 if (g_pos and g_pos < speed_part_end) then
@@ -2888,7 +2874,7 @@ function decodemetar(metar)
                         variable_direction = var_dir_match
                     }
                     if unit_str ~= "KT" then
-                         sasl.logDebug(string.format("Converted %s %s (gust %s) to %d kt (gust %d kt)", speed_str_val, original_unit_for_log, gust_str_val or "N/A", speed, gust))
+                        sasl.logDebug(string.format("Converted %s %s (gust %s) to %d kt (gust %d kt)", speed_str_val, original_unit_for_log, gust_str_val or "N/A", speed, gust))
                     end
                     sasl.logDebug(string.format("Parsed wind: dir=%s, speed=%d kt, gust=%d kt%s",
                         tostring(direction), speed, gust, (var_dir_match and string.format(", var=%d-%d", var_dir_match.dir1, var_dir_match.dir2)) or ""))
@@ -2933,7 +2919,7 @@ function decodemetar(metar)
                     sasl.logDebug("Warning: Numeric visibility part #4 failed tonumber unexpectedly: " .. part)
                 end
             end
-        
+            
         elseif (part:sub(1,1) == "R" and part:find("/", 1, true) and #part >= 5) then
             result.runway_reports = result.runway_reports or {}
             table.insert(result.runway_reports, part)
@@ -2953,7 +2939,7 @@ function decodemetar(metar)
             end
             
             local valid_phenomenon = false
-            if #phenomenon >= 2 then -- Ensure phenomenon is not empty or single char after stripping intensity
+            if #phenomenon >= 2 then
                 for _, wc_entry in ipairs(weather_codes) do
                     if phenomenon == wc_entry or phenomenon:find(wc_entry, 1, true) then
                         valid_phenomenon = true
@@ -2974,9 +2960,9 @@ function decodemetar(metar)
             end
 
         elseif ( (string.sub(part,1,3) == "FEW" or string.sub(part,1,3) == "SCT" or string.sub(part,1,3) == "BKN" or string.sub(part,1,3) == "OVC") and
-                   #part >= 6 and tonumber(part:sub(4,6)) ~= nil ) or
-                 ( string.sub(part,1,2) == "VV" and #part >= 5 and tonumber(part:sub(3,5)) ~= nil ) or
-                 ( part == "SKC" or part == "CLR" or part == "NSC" )
+                     #part >= 6 and tonumber(part:sub(4,6)) ~= nil ) or
+                     ( string.sub(part,1,2) == "VV" and #part >= 5 and tonumber(part:sub(3,5)) ~= nil ) or
+                     ( part == "SKC" or part == "CLR" or part == "NSC" )
         then
             result.clouds = result.clouds or {}
             if (part == "SKC" or part == "CLR" or part == "NSC") then
@@ -2985,13 +2971,13 @@ function decodemetar(metar)
                 parsed = true
             else
                 local coverage_code
-                local altitude_str_val -- Renamed
+                local altitude_str_val
                 local altitude_idx_start
 
                 if part:sub(1,2) == "VV" then
                     coverage_code = "VV"
                     altitude_idx_start = 3
-                else 
+                else
                     coverage_code = part:sub(1,3)
                     altitude_idx_start = 4
                 end
@@ -3018,13 +3004,12 @@ function decodemetar(metar)
             end
 
         elseif ( part:find("/",1,true) and (#part >= 5 and #part <= 7) and
-                 (part:sub(1,1) == "M" or tonumber(part:sub(1,1)) ~= nil) ) then
-            local slash_pos = part:find("/",2,true) 
+                     (part:sub(1,1) == "M" or tonumber(part:sub(1,1)) ~= nil) ) then
+            local slash_pos = part:find("/",2,true)
             if slash_pos and slash_pos > 1 and slash_pos < #part then
-                local temp_str_val = part:sub(1, slash_pos-1) -- Renamed
-                local dew_str_val = part:sub(slash_pos+1)   -- Renamed
+                local temp_str_val = part:sub(1, slash_pos-1)
+                local dew_str_val = part:sub(slash_pos+1)
 
-                -- KORREKTUR HIER:
                 local temp_val = tonumber((temp_str_val:gsub("M","-")))
                 local dew_val = tonumber((dew_str_val:gsub("M","-")))
 
@@ -3037,12 +3022,12 @@ function decodemetar(metar)
                     sasl.logDebug("Warning: Could not parse temperature or dew point values from: " .. part .. " (temp_str="..temp_str_val..", dew_str="..dew_str_val..")")
                 end
             else
-                 sasl.logDebug("Warning: Temp/Dew part malformed (slash position or content): " .. part)
+                sasl.logDebug("Warning: Temp/Dew part malformed (slash position or content): " .. part)
             end
 
         elseif ((#part == 5) and (part:sub(1,1) == "Q" or part:sub(1,1) == "A") and tonumber(part:sub(2))) then
             local val_str = part:sub(2)
-            local value_num = tonumber(val_str) -- Renamed
+            local value_num = tonumber(val_str)
             local pressure_hpa = nil
 
             if (part:sub(1,1) == "Q") then
@@ -3053,8 +3038,8 @@ function decodemetar(metar)
             end
 
             if pressure_hpa then
-                result.pressure = pressure_hpa
-                sasl.logDebug(string.format("Parsed pressure: %d hPa (raw: %s)", result.pressure, part))
+                result.pressure = { qnh_hpa = pressure_hpa } -- KORRIGIERTE ZUWEISUNG HIER
+                sasl.logDebug(string.format("Parsed pressure: %d hPa (raw: %s)", pressure_hpa, part))
                 parsed = true
             else
                 sasl.logDebug("Warning: Could not calculate hPa pressure from: " .. part)
@@ -3073,7 +3058,7 @@ function decodemetar(metar)
                 local current_remark = parts[remark_idx]
                 if (current_remark == "TEMPO" or current_remark == "BECMG" or (string.len(current_remark) >=4 and current_remark:sub(1,4) == "PROB") or current_remark == "TREND") then
                     sasl.logDebug("Remark parsing stopped; trend/change group encountered: " .. current_remark)
-                    break 
+                    break
                 end
 
                 table.insert(result.remarks, current_remark)
@@ -3082,22 +3067,22 @@ function decodemetar(metar)
                 if current_remark == "$" then
                     result.maintenance_indicator = true
                     sasl.logDebug("Maintenance indicator '$' found and included in remarks.")
-                    remark_idx = remark_idx + 1 
-                    break 
+                    remark_idx = remark_idx + 1
+                    break
                 end
                 remark_idx = remark_idx + 1
             end
-            i = remark_idx -1 
+            i = remark_idx -1
             parsed = true
-            parsing_main_data = false 
+            parsing_main_data = false
             sasl.logDebug("Finished RMK section. Main data parsing will stop.")
         end
 
         if (not parsed and parsing_main_data) then
-             sasl.logDebug("Unknown element: "..part)
+            sasl.logDebug("Unknown element: "..part)
         end
         i = i + 1
-    end 
+    end
 
     sasl.logDebug("METAR parsing complete")
     return result
@@ -3214,74 +3199,307 @@ function getMetar(icaocode)
 end
 
 --------------------------------------------------------------------------------------------------------------
+function getRunwayHeadingFromDesignator(runwayDesignator)
+    if not runwayDesignator or #runwayDesignator < 2 then
+        sasl.logDebug("Error: Invalid runway designator provided: " .. tostring(runwayDesignator))
+        return nil
+    end
+
+    local rwyNumberStr = runwayDesignator:sub(1,2)
+    local rwyNumber = tonumber(rwyNumberStr)
+
+    if not rwyNumber then
+        sasl.logDebug("Error: Could not parse runway number from designator: " .. runwayDesignator)
+        return nil
+    end
+
+    -- Runway Heading ist die Nummer * 10
+    local heading = rwyNumber * 10
+    return heading
+end
+
+--------------------------------------------------------------------------------------------------------------
+function shouldCheckRunwaySuitability(weatherData, runwayDesignator)
+    -- --- Schwellenwerte anpassbar ---
+    local MAX_TAILWIND_KN = 10     -- Maximal erlaubter Rückenwind für normale Landung
+    local MAX_CROSSWIND_KN = 20    -- Maximal erlaubter Seitenwind (oft Flugzeug-spezifisch)
+    local MIN_WIND_SPEED_FOR_CHECK = 5 -- Mindestwindstärke, ab der Windkomponenten relevant werden
+
+    sasl.logDebug("Checking suitability for runway: " .. tostring(runwayDesignator))
+
+    -- 1. Grundlegende Wetterdaten prüfen
+    if not (weatherData and weatherData.wind and weatherData.wind.direction ~= nil and weatherData.wind.speed ~= nil) then
+        sasl.logDebug("Warning: Insufficient wind data to check runway suitability. Returning true (default safe).")
+        return true -- Wenn keine Winddaten vorhanden sind, können wir nicht prüfen. Annahme: Landebahn ist standardmäßig ok.
+    end
+
+    local windDirection = weatherData.wind.direction
+    local windSpeed = weatherData.wind.speed
+
+    -- Wenn Wind "calm" ist, ist die Landebahn in Bezug auf Wind immer geeignet
+    if windSpeed == 0 then
+        sasl.logDebug("Wind is calm. Runway is suitable based on wind.")
+        return true
+    end
+
+    -- Wenn der Wind sehr schwach ist, sind die Komponenteneffekte minimal
+    if windSpeed < MIN_WIND_SPEED_FOR_CHECK then
+         sasl.logDebug(string.format("Wind speed (%d kt) is below check threshold (%d kt). Runway is suitable based on wind.", windSpeed, MIN_WIND_SPEED_FOR_CHECK))
+         return true
+    end
+
+    -- 2. Landebahn-Richtung ableiten
+    local runwayHeading = getRunwayHeadingFromDesignator(runwayDesignator)
+    if not runwayHeading then
+        sasl.logDebug("Error: Could not determine runway heading from designator. Returning true (default safe).")
+        return true -- Kann Landebahn nicht ableiten, kann nicht prüfen.
+    end
+
+    -- 3. Windkomponenten berechnen
+    local headwindComponent, crosswindKnots = calculateWindComponents(windDirection, runwayHeading, windSpeed)
+
+    sasl.logDebug(string.format("Calculated for RWY %s (Heading %d): Headwind %.1f kt, Crosswind %.1f kt (from Wind %d@%dkt)",
+                                runwayDesignator, runwayHeading, headwindComponent, crosswindKnots, windDirection, windSpeed))
+
+
+    -- 4. Überprüfung der Schwellenwerte
+    -- Rückenwind (HeadwindComponent ist negativ bei Rückenwind)
+    if headwindComponent < -MAX_TAILWIND_KN then
+        sasl.logDebug(string.format("Runway %s: Tailwnd (%.1f kt) exceeds max allowed (%.1f kt). Check recommended.", runwayDesignator, math.abs(headwindComponent), MAX_TAILWIND_KN))
+        return false -- Rückenwind zu stark
+    end
+
+    -- Seitenwind
+    if crosswindKnots > MAX_CROSSWIND_KN then
+        sasl.logDebug(string.format("Runway %s: Crosswind (%.1f kt) exceeds max allowed (%.1f kt). Check recommended.", runwayDesignator, crosswindKnots, MAX_CROSSWIND_KN))
+        return false -- Seitenwind zu stark
+    end
+
+    sasl.logDebug(string.format("Runway %s is suitable based on current wind conditions.", runwayDesignator))
+    return true -- Landebahn ist innerhalb der Schwellenwerte geeignet
+end
+
+--------------------------------------------------------------------------------------------------------------
+function formatMetarSpeechSummary(metar)
+    local parts = {}
+
+    -- Extract necessary data from the metar table
+    local icaocode = metar.icaocode
+    local metar_data = metar.decodedmetar
+
+    -- Add airport ICAO code to the beginning of the summary
+    if icaocode and #icaocode > 0 then
+        table.insert(parts, addspaces(icaocode))
+    end
+
+    -- Wind
+    if metar_data.wind then
+        local dir = metar_data.wind.direction
+        local speed = metar_data.wind.speed
+        local gust = metar_data.wind.gust
+
+        local wind_part = ""
+        if speed == 0 then -- Handle calm condition
+            wind_part = "Wind calm"
+        elseif dir == "VRB" then
+            wind_part = "Wind variable at "
+            wind_part = wind_part .. string.format("%d knots", speed)
+            if gust and gust > 0 then
+                wind_part = wind_part .. string.format(" gusting %d", gust)
+            end
+        else
+            wind_part = string.format("Wind %d at ", dir)
+            wind_part = wind_part .. string.format("%d knots", speed)
+            if gust and gust > 0 then
+                wind_part = wind_part .. string.format(" gusting %d", gust)
+            end
+        end
+        table.insert(parts, wind_part)
+    end
+
+    -- Visibility
+    if metar_data.visibility then
+        local vis_val = metar_data.visibility.value
+        local vis_part = "Visibility "
+        if metar_data.cavok then -- Prioritize CAVOK if present
+            vis_part = "Visibility 10 kilometers or more"
+        elseif vis_val >= 10000 then
+            vis_part = vis_part .. "10 kilometers or more"
+        elseif vis_val >= 1609 then -- Convert to miles if close to a mile (1609m = 1 mile)
+            vis_part = vis_part .. string.format("%d statute miles", math.floor(vis_val / 1609.34 + 0.5))
+        elseif vis_val >= 1000 then -- Convert to kilometers if 1km or more
+            vis_part = vis_part .. string.format("%d kilometers", math.floor(vis_val / 1000 + 0.5))
+        else
+            vis_part = vis_part .. string.format("%d meters", vis_val)
+        end
+        table.insert(parts, vis_part)
+    end
+
+    -- General Weather (simplified)
+    if metar_data.weather and #metar_data.weather > 0 then
+        local weather_desc = {}
+        for _, wx_entry in ipairs(metar_data.weather) do
+            local intensity = ""
+            if wx_entry.intensity == "light" then intensity = "light "
+            elseif wx_entry.intensity == "heavy" then intensity = "heavy " end
+            -- Map common phenomena to more speech-friendly terms
+            local phenomenon = wx_entry.phenomenon
+            if phenomenon == "RA" then phenomenon = "rain"
+            elseif phenomenon == "SN" then phenomenon = "snow"
+            elseif phenomenon == "DZ" then phenomenon = "drizzle"
+            elseif phenomenon == "FG" then phenomenon = "fog"
+            elseif phenomenon == "BR" then phenomenon = "mist"
+            elseif phenomenon == "HZ" then phenomenon = "haze"
+            elseif phenomenon == "TS" then phenomenon = "thunderstorm"
+            -- Add more mappings for other weather codes if necessary
+            end
+            table.insert(weather_desc, intensity .. phenomenon)
+        end
+        if #weather_desc > 0 then
+            table.insert(parts, "Currently " .. table.concat(weather_desc, " and "))
+        end
+    end
+
+    -- Clouds (simplified, only highest significant cloud layer or broken/overcast)
+    if metar_data.clouds and #metar_data.clouds > 0 then
+        local cloud_part = ""
+        local significant_cloud = nil
+
+        -- Find the lowest broken/overcast layer or highest significant cloud
+        for _, cloud in ipairs(metar_data.clouds) do
+            if cloud.coverage == "OVC" or cloud.coverage == "BKN" or cloud.coverage == "VV" then
+                significant_cloud = cloud
+                break -- Found a ceiling, which is usually the most important
+            elseif (not significant_cloud and cloud.altitude) then
+                -- If no ceiling found yet, keep track of the highest cloud for "scattered/few" case
+                if not significant_cloud or cloud.altitude > significant_cloud.altitude then
+                    significant_cloud = cloud
+                end
+            end
+        end
+
+        if metar_data.cavok then
+            -- CAVOK implies "no significant clouds" and visibility >= 10km, handled by visibility
+        elseif significant_cloud then
+            local coverage_str = significant_cloud.coverage
+            local altitude_ft = significant_cloud.altitude
+
+            -- Expanded cloud coverage abbreviations for speech
+            local readable_coverage = coverage_str
+            if coverage_str == "FEW" then readable_coverage = "few"
+            elseif coverage_str == "SCT" then readable_coverage = "scattered"
+            elseif coverage_str == "BKN" then readable_coverage = "broken"
+            elseif coverage_str == "OVC" then readable_coverage = "overcast"
+            elseif coverage_str == "SKC" or coverage_str == "CLR" then readable_coverage = "sky clear"
+            elseif coverage_str == "NSC" then readable_coverage = "no significant clouds"
+            elseif coverage_str == "VV" then readable_coverage = "vertical visibility"
+            end
+
+            if readable_coverage == "sky clear" or readable_coverage == "no significant clouds" then
+                cloud_part = readable_coverage
+            elseif readable_coverage == "vertical visibility" then
+                cloud_part = string.format("%s %d feet", readable_coverage, altitude_ft)
+            else
+                cloud_part = string.format("%s clouds at %d feet", readable_coverage, altitude_ft)
+            end
+            table.insert(parts, cloud_part)
+        end
+    end
+
+    return table.concat(parts, ", ")
+end
+
+--------------------------------------------------------------------------------------------------------------
 function calculateAirDensity(weatherData)
-    local pressureIn, pressureHPa = getlocalqnh(ARRIVAL)
-    local temperatureKelvin = weatherData.temperature.value + 273.15  -- Umrechnung von Celsius in Kelvin
+    local SPECIFIC_GAS_CONSTANT_DRY_AIR = 287.05
+    
+    if not (weatherData and weatherData.pressure and weatherData.pressure.qnh_hpa and
+            weatherData.temperature and weatherData.temperature.value ~= nil) then
+        return 1.225
+    end
 
-    -- Spezifische Gaskonstante für trockene Luft (J/(kg·K))
-    local specificGasConstant = 287.05
+    local pressureHPa = weatherData.pressure.qnh_hpa
+    local temperatureKelvin = weatherData.temperature.value + 273.15
 
-    -- Luftdichte berechnen (kg/m³)
-    local airDensity = (pressureHPa * 100) / (specificGasConstant * temperatureKelvin)
-
-    sasl.logDebug("AIRDENSITY: PRESSUREINCH "  .. tostring(pressureIn) .. " PRESSUREPA "  .. tostring(pressurePa) .. " TEMPERATURE" .. tostring(weatherData.temperature.value) .. " AIRDENSITY " .. tostring(airDensity))
+    local airDensity = (pressureHPa * 100) / (SPECIFIC_GAS_CONSTANT_DRY_AIR * temperatureKelvin)
 
     return airDensity
 end
 
 --------------------------------------------------------------------------------------------------------------
-function calculateStallSpeed(weightKg, weatherData,flapsSetting)
-    local gravity = 9.80665
-    local wingArea = 124.6
+function calculateDensityAltitude(fieldElevationMeters, temperatureCelsius, pressureHPa)
+    local STANDARD_PRESSURE_HPA = 1013.25
+    local STANDARD_TEMPERATURE_CELSIUS = 15
+    local METERS_TO_FEET = 3.28084
 
-    local maxLiftCoefficientValues = {
-        [0] = 1.6,  -- Flaps 0
-        [5] = 1.8,  -- Flaps 5
-        [10] = 2.0, -- Flaps 10
-        [15] = 2.2, -- Flaps 15
-        [20] = 2.4, -- Flaps 20
-        [25] = 2.6, -- Flaps 25
-        [30] = 2.8, -- Flaps 30
-        [40] = 3.0  -- Flaps 40
+    local fieldElevationFt = fieldElevationMeters * METERS_TO_FEET
+
+    if type(fieldElevationFt) ~= "number" or type(temperatureCelsius) ~= "number" or type(pressureHPa) ~= "number" then
+        return 0
+    end
+
+    local temperatureDeviation = temperatureCelsius - STANDARD_TEMPERATURE_CELSIUS
+    local pressureAltitude = fieldElevationFt + (STANDARD_PRESSURE_HPA - pressureHPa) * 30
+
+    local densityAltitude = pressureAltitude + (temperatureDeviation * 120)
+    return densityAltitude
+end
+
+--------------------------------------------------------------------------------------------------------------
+function calculateWindComponents(windDirectionDegrees, runwayHeadingDegrees, windSpeedKnots)
+    if type(windDirectionDegrees) ~= "number" or type(runwayHeadingDegrees) ~= "number" or type(windSpeedKnots) ~= "number" then
+        return 0, 0
+    end
+
+    local angleDifference = math.abs(windDirectionDegrees - runwayHeadingDegrees)
+    if angleDifference > 180 then
+        angleDifference = 360 - angleDifference
+    end
+    local angleRad = math.rad(angleDifference)
+
+    local headwindComponent = math.cos(angleRad) * windSpeedKnots
+    local crosswindComponent = math.abs(math.sin(angleRad) * windSpeedKnots)
+
+    return headwindComponent, crosswindComponent
+end
+
+--------------------------------------------------------------------------------------------------------------
+function calculateStallSpeed(weightKg, weatherData, flapsSetting)
+    local GRAVITY = 9.80665
+    local WING_AREA_737 = 124.6
+    local METER_PER_SECOND_TO_KNOTS = 1.94384
+    
+    local MAX_LIFT_COEFFICIENT_VALUES = {
+        [0] = 1.6, [1] = 1.7, [5] = 1.8, [10] = 2.0,
+        [15] = 2.2, [20] = 2.4, [25] = 2.6, [30] = 2.8, [40] = 3.0
     }
+    local DEFAULT_MAX_LIFT_COEFFICIENT = 2.5
 
-    local maxLiftCoefficient = maxLiftCoefficientValues[flapsSetting] or 2.5
-
+    local maxLiftCoefficient = MAX_LIFT_COEFFICIENT_VALUES[flapsSetting] or DEFAULT_MAX_LIFT_COEFFICIENT
     local airDensity = calculateAirDensity(weatherData)
 
-    local stallSpeedMps = math.sqrt((2 * weightKg * gravity) / (airDensity * wingArea * maxLiftCoefficient))
+    if airDensity <= 0 or maxLiftCoefficient <= 0 or WING_AREA_737 <= 0 or weightKg <= 0 then
+        return 0
+    end
 
-    local stallSpeedKnots = stallSpeedMps * 1.94384
-
-    sasl.logDebug("STALLDSPEED: AIRDENSITY " .. tostring(airDensity) .. " WEIGHTKG " .. tostring(weightKg) .. " WEIGHTKG " .. tostring(flapsSetting) .. " STALLSPEEDKNOTS " .. tostring(stallSpeedKnots))
-
+    local stallSpeedMps = math.sqrt((2 * weightKg * GRAVITY) / (airDensity * WING_AREA_737 * maxLiftCoefficient))
+    local stallSpeedKnots = stallSpeedMps * METER_PER_SECOND_TO_KNOTS
 
     return stallSpeedKnots
 end
 
 --------------------------------------------------------------------------------------------------------------
-function calculateCrosswind(windDirection, runwayHeading, windSpeed)
-    if tonumber(windDirection) then
-        local angleDifference = math.rad(math.abs(windDirection - runwayHeading))
-        local crosswind = math.abs(math.sin(angleDifference) * windSpeed)
-        return crosswind
-    else
-        return 0
-    end
-end
+function determineLandingFlapsSetting(runwayLengthMeters, windSpeedKnots, crosswindKnots, isBadWeather, weightKg)
+    local LANDING_SHORT_RUNWAY_THRESHOLD = 2000
+    local LANDING_HIGH_WIND_THRESHOLD = 20
+    local LANDING_HIGH_CROSSWIND_THRESHOLD = 15
+    local LANDING_HIGH_WEIGHT_THRESHOLD = 55000
 
---------------------------------------------------------------------------------------------------------------
-function determineFlapsSetting(runwayLengthMeters, windSpeedKnots, crosswindKnots, isBadWeather, weightKg)
-    local shortRunwayThreshold = 2000
-    local highWindThreshold = 20
-    local highCrosswindThreshold = 15
-    local highWeightThreshold = 55000
-
-    if runwayLengthMeters < shortRunwayThreshold or
-       windSpeedKnots > highWindThreshold or
-       crosswindKnots > highCrosswindThreshold or
+    if runwayLengthMeters < LANDING_SHORT_RUNWAY_THRESHOLD or
+       windSpeedKnots > LANDING_HIGH_WIND_THRESHOLD or
+       crosswindKnots > LANDING_HIGH_CROSSWIND_THRESHOLD or
        isBadWeather or
-       weightKg > highWeightThreshold then
+       weightKg > LANDING_HIGH_WEIGHT_THRESHOLD then
         return 40
     else
         return 30
@@ -3290,17 +3508,38 @@ end
 
 --------------------------------------------------------------------------------------------------------------
 function calculateVref(weightKg, flapsSetting, weatherData, crosswindKnots)
-    local stallSpeedKnots = calculateStallSpeed(weightKg, weatherData,flapsSetting)
-    local vrefKnots = stallSpeedKnots * 1.37
+    local VREF_STALL_SPEED_FACTOR = 1.37
+    local VREF_WIND_ADDITION = 5
+    local VREF_PRECIPITATION_ADDITION = 5
+    local VREF_CROSSWIND_ADDITION = 5
+    local LANDING_HIGH_WIND_THRESHOLD_FOR_VREF = 20
 
-    if weatherData.wind.speed and weatherData.wind.speed > 20 then
-        vrefKnots = vrefKnots + 5  -- Erhöhung der Vref bei starkem Wind
+    local stallSpeedKnots = calculateStallSpeed(weightKg, weatherData, flapsSetting)
+    local vrefKnots = stallSpeedKnots * VREF_STALL_SPEED_FACTOR
+
+    if weatherData.wind and weatherData.wind.speed and weatherData.wind.speed > LANDING_HIGH_WIND_THRESHOLD_FOR_VREF then
+        vrefKnots = vrefKnots + VREF_WIND_ADDITION
     end
-    if containsvalue(weatherData, "RA") or containsvalue(weatherData, "SN") then
-        vrefKnots = vrefKnots + 5  -- Erhöhung der Vref bei Niederschlag
+
+    -- --- CORRECTION START ---
+    -- Check if precipitation is present by iterating through the weather table
+    local hasPrecipitation = false
+    if weatherData.weather then
+        for _, wx_entry in ipairs(weatherData.weather) do
+            if wx_entry.phenomenon == "RA" or wx_entry.phenomenon == "SN" then
+                hasPrecipitation = true
+                break -- Found precipitation, no need to check further
+            end
+        end
     end
-    if crosswindKnots > 15 then
-        vrefKnots = vrefKnots + 5  -- Erhöhung der Vref bei starkem Seitenwind
+
+    if hasPrecipitation then
+        vrefKnots = vrefKnots + VREF_PRECIPITATION_ADDITION
+    end
+    -- --- CORRECTION END ---
+
+    if crosswindKnots > VREF_CROSSWIND_ADDITION then
+        vrefKnots = vrefKnots + VREF_CROSSWIND_ADDITION
     end
 
     return vrefKnots
@@ -3308,78 +3547,235 @@ end
 
 --------------------------------------------------------------------------------------------------------------
 function calcappflapsvref(weatherData)
-
-    if not (fieldexists(weatherData, "wind.direction") and fieldexists(weatherData, "wind.speed") and fieldexists(weatherData, "temperature.value")) then
-        sasl.logDebug("CALCAPPFLAPSVREF: WEATHER DATA MISSING, USING STANDARD VREF30")
+    if not (weatherData and weatherData.wind and weatherData.wind.direction ~= nil and weatherData.wind.speed ~= nil and
+            weatherData.temperature and weatherData.temperature.value ~= nil and
+            weatherData.pressure and weatherData.pressure.qnh_hpa ~= nil) then
         return 30, get(vref30)
     end
 
-    local runwayHeading = get(desrwyheading)
+    if not (get(totalweightkgs) and type(get(totalweightkgs)) == "number" and get(totalweightkgs) > 0 and
+            get(desrwylen) and type(get(desrwylen)) == "number" and get(desrwylen) > 0 and
+            get(desrwyheading) and type(get(desrwyheading)) == "number" and
+            get(desrwyalt) and type(get(desrwyalt)) == "number") then
+        return 30, get(vref30)
+    end
 
-    local crosswindKnots = calculateCrosswind(weatherData.wind.direction, runwayHeading, weatherData.wind.speed)
+    local headwindComponent, crosswindKnots = calculateWindComponents(
+        weatherData.wind.direction,
+        get(desrwyheading),
+        weatherData.wind.speed
+    )
 
-    sasl.logDebug("CALCAPPFLAPSVREF: CROSSWINDKNOTS "  .. tostring(crosswindKnots) .. " WINDDIRECTION" .. tostring(weatherData.wind.direction) .. " WINDSPEED " .. tostring(weatherData.wind.speed) ..  " RWY HEADING " ..  tostring(runwayHeading))
+    local isBadWeather = false
 
-    local runwayLength = get(desrwylen)
-    local weightKg = get(totalweightkgs)
+    -- KORRIGIERTER BEREICH: Durch die weatherData.weather Tabelle iterieren
+    if weatherData.weather then
+        for _, wx_entry in ipairs(weatherData.weather) do
+            if wx_entry.phenomenon == "RA" or wx_entry.phenomenon == "SN" then
+                isBadWeather = true
+                break -- Einmal schlechtes Wetter gefunden, reicht
+            end
+        end
+    end
+    -- ENDE DES KORRIGIERTEN BEREICHS
 
-    local isBadWeather = (fieldexists(weatherData, "weather") and (containsvalue(weatherData.weather, "RA") or containsvalue(weatherData.weather, "SN")) or (fieldexists(weatherData, "visibility.value") and (weatherData.visibility.value < 5000)) or (fieldexists(weatherData, "clouds[1].altitude") and weatherData.clouds[1].altitude and (weatherData.clouds[1].altitude < 1000)))
+    if weatherData.visibility and weatherData.visibility.value and (weatherData.visibility.value < 5000) then
+        isBadWeather = true
+    end
+    if weatherData.clouds and weatherData.clouds[1] and weatherData.clouds[1].altitude and (weatherData.clouds[1].altitude < 1000) then
+        isBadWeather = true
+    end
 
-    sasl.logDebug("CALCAPPFLAPSVREF: ISBADWEATHER " .. tostring(isBadWeather) .. "WEATHER" .. tostring((fieldexists(weatherData, "weather") and (containsvalue(weatherData.weather, "RA") or containsvalue(weatherData.weather, "SN"))))
-                    .. " VISIBILITY " .. tostring(fieldexists(weatherData, "visibility.value") and (weatherData.visibility.value < 5000)) ..  " CLOUDS " ..  tostring(fieldexists(weatherData, "clouds[1].altitude") and (weatherData.clouds[1].altitude < 1000)))
+    local flapsSetting = determineLandingFlapsSetting(get(desrwylen), weatherData.wind.speed, crosswindKnots, isBadWeather, get(totalweightkgs))
+    local vrefKnots = calculateVref(get(totalweightkgs), flapsSetting, weatherData, crosswindKnots)
 
-    local flapsSetting = determineFlapsSetting(runwayLength, weatherData.wind.speed, crosswindKnots, isBadWeather, weightKg)
-
-    local airportHeightMeters = roundnumber(get(desrwyalt) / FEETTOMETER)  -- Höhe des Flughafens über Meereshöhe
- 
-    local vrefKnots = roundnumber(calculateVref(weightKg, flapsSetting, weatherData, crosswindKnots))
-  
-    sasl.logDebug("CALCAPPFLAPSVREF: FLAPS " .. flapsSetting .. " SPEED " .. vrefKnots .. "  WEIGHTKG "  .. tostring(weightKg))
+    flapsSetting = math.floor(flapsSetting + 0.5)
+    vrefKnots = math.floor(vrefKnots + 0.5)
 
     return flapsSetting, vrefKnots
-
 end
 
 --------------------------------------------------------------------------------------------------------------
-function setvref(appflapscalc, appvrefcalc)
+function calcautobrake(landingSpeed, weatherData)
+    local autobrakeSettings = {
+        {maxDeceleration = 1.5, setting = AUTOBRAKE1},
+        {maxDeceleration = 2.0, setting = AUTOBRAKE2},
+        {maxDeceleration = 3.0, setting = AUTOBRAKE3},
+        {maxDeceleration = 4.0, setting = AUTOBRAKEMAX}
+    }
+
+    local requiredDeceleration = (landingSpeed^2) / (2 * get(desrwylen))
+
+    if ((fieldexists(weatherData, "weather") and ((containsvalue(weatherData.weather, "FZRA")) or (containsvalue(weatherData.weather, "FZDZ")) or (containsvalue(weatherData.weather, "FZFG"))))
+        or (fieldexists(weatherData, "temperature.value") and (weatherData.temperature.value < 1))) then
+        requiredDeceleration = requiredDeceleration * 1.5
+    elseif (fieldexists(weatherData, "weather") and (containsvalue(weatherData.weather, "SN")))  then
+        requiredDeceleration = requiredDeceleration * 1.3
+    elseif (fieldexists(weatherData, "weather") and (containsvalue(weatherData.weather, "RA"))) then
+        requiredDeceleration = requiredDeceleration * 1.2
+    end
+
+    local weightFactor = get(totalweightkgs) / 70000
+    requiredDeceleration = requiredDeceleration * weightFactor
+
+    for _, setting in ipairs(autobrakeSettings) do
+        if requiredDeceleration <= setting.maxDeceleration then
+            return setting.setting
+        end
+    end
+
+    return AUTOBRAKE1
+end
+
+--------------------------------------------------------------------------------------------------------------
+function determineTakeoffFlapsSetting(weatherData)
+    local STANDARD_TAKEOFF_FLAPS = 5
+    local TAKEOFF_WEIGHT_THRESHOLD_HIGH = 65000
+    local TAKEOFF_WEIGHT_THRESHOLD_VERY_HIGH = 70000
+
+    local TAKEOFF_RUNWAY_LENGTH_SHORT_THRESHOLD = 2000
+    local TAKEOFF_RUNWAY_LENGTH_VERY_SHORT_THRESHOLD = 1600
+
+    local TAKEOFF_DENSITY_ALTITUDE_THRESHOLD_HIGH = 3000
+
+    local TAKEOFF_TAILWIND_CONSIDERATION_THRESHOLD = 5
+    local TAKEOFF_WET_RUNWAY_PENALTY_FLAPS = 1
+
+    if not (weatherData and weatherData.wind and weatherData.wind.direction ~= nil and weatherData.wind.speed ~= nil and
+            weatherData.temperature and weatherData.temperature.value ~= nil and
+            weatherData.pressure and weatherData.pressure.qnh_hpa ~= nil) then
+        return STANDARD_TAKEOFF_FLAPS
+    end
+
+    local isRunwayWet = false
+    if ((fieldexists(weatherData, "weather") and ((containsvalue(weatherData.weather, "FZRA")) or (containsvalue(weatherData.weather, "FZDZ")) or (containsvalue(weatherData.weather, "FZFG"))))
+        or (fieldexists(weatherData, "temperature.value") and (weatherData.temperature.value < 1))) then
+        isRunwayWet = true
+    elseif (fieldexists(weatherData, "weather") and (containsvalue(weatherData.weather, "SN")))  then
+        isRunwayWet = true
+    elseif (fieldexists(weatherData, "weather") and (containsvalue(weatherData.weather, "RA"))) then
+        isRunwayWet = true
+    end
+
+    if not (get(totalweightkgs) and type(get(totalweightkgs)) == "number" and get(totalweightkgs) > 0 and
+            get(deprwylen) and type(get(deprwylen)) == "number" and get(deprwylen) > 0 and
+            get(elevation) and type(get(elevation)) == "number" and
+            get(deprwyheading) and type(get(deprwyheading)) == "number") then
+        return STANDARD_TAKEOFF_FLAPS
+    end
+
+    local recommendedFlaps = STANDARD_TAKEOFF_FLAPS
+
+    local headwindComponent, crosswindComponent = calculateWindComponents(
+        weatherData.wind.direction,
+        get(deprwyheading),
+        weatherData.wind.speed
+    )
+
+    if get(totalweightkgs) > TAKEOFF_WEIGHT_THRESHOLD_VERY_HIGH then
+        recommendedFlaps = 15
+    elseif get(totalweightkgs) > TAKEOFF_WEIGHT_THRESHOLD_HIGH then
+        recommendedFlaps = 10
+    end
+
+    if get(deprwylen) < TAKEOFF_RUNWAY_LENGTH_VERY_SHORT_THRESHOLD then
+        recommendedFlaps = math.max(recommendedFlaps, 15)
+    elseif get(deprwylen) < TAKEOFF_RUNWAY_LENGTH_SHORT_THRESHOLD then
+        recommendedFlaps = math.max(recommendedFlaps, 10)
+    end
+
+    local deprwyalt = 0
+
+    if tonumber(desmetar.metar.elevation_m) then
+        deprwyalt = depmetar.metar.elevation_m
+    else
+        deprwyalt = get(elevation)
+    end
+
+    local densityAltitude = calculateDensityAltitude(
+        deprwyalt,
+        weatherData.temperature.value,
+        weatherData.pressure.qnh_hpa
+    )
+    if densityAltitude > TAKEOFF_DENSITY_ALTITUDE_THRESHOLD_HIGH then
+        recommendedFlaps = math.max(recommendedFlaps, 10)
+    end
+
+    if headwindComponent < -TAKEOFF_TAILWIND_CONSIDERATION_THRESHOLD then
+        recommendedFlaps = math.max(recommendedFlaps, 10)
+    end
+
+    if isRunwayWet then
+        recommendedFlaps = recommendedFlaps + TAKEOFF_WET_RUNWAY_PENALTY_FLAPS
+    end
+
+    if recommendedFlaps > 15 then
+        recommendedFlaps = 15
+    elseif recommendedFlaps < 5 then
+        recommendedFlaps = 5
+    end
+
+    return recommendedFlaps
+end
+
+--------------------------------------------------------------------------------------------------------------
+function setvrefsteps()
 
     local FMC1Line00L = helpers.get("laminar/B738/fmc1/Line00_L")
-    local FMC1Line02S = helpers.get("laminar/B738/fmc1/Line02_S")
-    local FMC1Line04L = helpers.get("laminar/B738/fmc1/Line04_L")
 
-    helpers.command_once("laminar/B738/button/fmc1_init_ref")
+    local appflapscalc, appvrefcalc = calcappflapsvref(desmetar.decodedmetar)
+    local appflapscalcstring = tostring(appflapscalc)
+    local appvrefcalcstring = tostring(appvrefcalc)
 
-    if ((string.len(FMC1Line00L) < 9) or (string.sub(FMC1Line00L, 7, 9) ~= "APP")) then
-        return false
-    else
-        if ((string.sub(FMC1Line04L, 19, 19) == "-") and (string.sub(FMC1Line02S, 20, 20) ~= "-")) then
-            vrefcmdtable[6] = string.sub(FMC1Line02S, 20, 20)
-            vrefcmdtable[7] = string.sub(FMC1Line02S, 21, 21)
-            vrefcmdtable[8] = string.sub(FMC1Line02S, 22, 22)
-
-            tableindex = 1
-            while (vrefcmdtable[tableindex] ~= "end") do
-                sasl.logDebug("while loop setvref")
-                commandtableentry(COMMAND, "laminar/B738/button/fmc1_" .. vrefcmdtable[tableindex])
-                tableindex = tableindex + 1
-            end
-
-            commandtableentry(TEXT, "V REF 30 " .. string.sub(FMC1Line02S, 20, 20) .. string.sub(FMC1Line02S, 21, 21) .. string.sub(FMC1Line02S, 22, 22) .. " Knots")
+    if (procedureloop3.stepindex == 1) then
+        setview(configvalues[CONFIGVIEWFMS])
+    elseif (procedureloop3.stepindex == 2) then
+        if ((string.len(FMC1Line00L) < 9) or (string.sub(FMC1Line00L, 7, 9) ~= "APP")) then
+            helpers.command_once("laminar/B738/button/fmc1_init_ref")
+            procedureloop3.stepindex = procedureloop3.stepindex - 1
         end
+    elseif (procedureloop3.stepindex == 3) then
+        if (configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
+            if (get(vref) ~= appvrefcalc) then
+                vrefcmdtable[3] = string.sub(appflapscalcstring, 1, 1)
+                vrefcmdtable[4] = string.sub(appflapscalcstring, 2, 2)
+                vrefcmdtable[6] = string.sub(appvrefcalcstring, 1, 1)
+                vrefcmdtable[7] = string.sub(appvrefcalcstring, 2, 2)
+                vrefcmdtable[8] = string.sub(appvrefcalcstring, 3, 3)
 
-        return true
+                local tableindex = 1
+                while (vrefcmdtable[tableindex] ~= "end") do
+                    sasl.logDebug("while loop setvref")
+                    commandtableentry(COMMAND, "laminar/B738/button/fmc1_" .. vrefcmdtable[tableindex])
+                    tableindex = tableindex + 1
+                end
+
+                commandtableentry(TEXT, "V REF " .. appflapscalc .. " " .. appvrefcalc .. " Knots set")
+            end
+        elseif (configvalues[CONFIGVOICEADVICEONLY] == ON) then
+            if (get(vref) ~= appvrefcalc) then
+                commandtableentry(ADVICE, "Set V REF " .. appflapscalc .. " " .. appvrefcalc)
+                procedureloop3.stepindex = procedureloop3.stepindex - 1
+            elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop3.steprepeat) then
+                commandtableentry(ADVICE, "V REF " .. appflapscalc .. " checked and " .. appvrefcalc)
+            end
+        end
+    elseif (procedureloop3.stepindex == 4) then
+        setview(configvalues[CONFIGVIEWMAINPANEL])
     end
+
+    return true
 end
 
 function setvrefproc()
 
-    if (procedureloop1.lock == NOPROCEDURE) then
-        procedureloop1.lock = SETVREF30PROCEDURE
+    if (procedureloop3.lock == NOPROCEDURE) then
+        procedureloop3.lock = SETVREFPROCEDURE
     end
 
     if (flightstate <= 2) then
-        procedureloop1.lock = NOPROCEDURE
-        commandtableentry(TEXT, "Set V R E F 30 aborted")
+        procedureloop3.lock = NOPROCEDURE
+        commandtableentry(TEXT, "Set V R E F Procedure aborted")
         return true
     end
 
@@ -3394,8 +3790,79 @@ function setvrefproc_(phase)
     return 0
 end
 
-my_command_setvref = sasl.createCommand(definitions.APPNAMEPREFIX .. "/setvref", "Set VREF 30")
+my_command_setvref = sasl.createCommand(definitions.APPNAMEPREFIX .. "/setvref", "Set Landing Flaps/VREF")
 sasl.registerCommandHandler(my_command_setvref, 0, setvrefproc_)
+
+--------------------------------------------------------------------------------------------------------------
+function settoflapssteps()
+
+    local FMC1Line00L = helpers.get("laminar/B738/fmc1/Line00_L")
+
+    local toflapscalc = determineTakeoffFlapsSetting(depmetar.decodedmetar)
+    local toflapscalcstring = tostring(toflapscalc)
+
+    if (procedureloop3.stepindex == 1) then
+        setview(configvalues[CONFIGVIEWFMS])
+    elseif (procedureloop3.stepindex == 2) then
+        if ((string.len(FMC1Line00L) < 9) or (string.sub(FMC1Line00L, 7, 13) ~= "TAKEOFF")) then
+            helpers.command_once("laminar/B738/button/fmc1_init_ref")
+            procedureloop3.stepindex = procedureloop3.stepindex - 1
+        end
+    elseif (procedureloop3.stepindex == 3) then
+        if (configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
+            if (get(toflapsset) == OFF) then
+                toflapscmdtable[3] = string.sub(toflapscalcstring, 1, 1)
+                toflapscmdtable[4] = string.sub(toflapscalcstring, 2, 2)
+ 
+                local tableindex = 1
+                while (toflapscmdtable[tableindex] ~= "end") do
+                    sasl.logDebug("while loop toflaps")
+                    commandtableentry(COMMAND, "laminar/B738/button/fmc1_" .. toflapscmdtable[tableindex])
+                    tableindex = tableindex + 1
+                end
+
+                commandtableentry(TEXT, "Takeoff Flaps " .. toflapscalcstring .. "set")
+            end
+        elseif (configvalues[CONFIGVOICEADVICEONLY] == ON) then
+            if (get(toflapsset) == OFF) then
+                commandtableentry(ADVICE, "Enter Takeoff Flaps " .. toflapscalcstring)
+                procedureloop3.stepindex = procedureloop3.stepindex - 1
+            elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop3.steprepeat) then
+                commandtableentry(ADVICE, "Takeoff Flaps Entered and " .. toflapscalcstring)
+            end
+        end
+    elseif (procedureloop3.stepindex == 4) then
+        setview(configvalues[CONFIGVIEWMAINPANEL])
+    end
+
+    return true
+end
+
+function settoflapsproc()
+
+    if (procedureloop3.lock == NOPROCEDURE) then
+        procedureloop3.lock = SETTOFLAPSPROCEDURE
+    end
+
+    if (flightstate > 0) then
+        procedureloop3.lock = NOPROCEDURE
+        commandtableentry(TEXT, "Set Takeoff Flaps Procedure aborted")
+        return true
+    end
+
+    return true
+
+end
+
+function settoflapsproc_(phase)
+    if phase == SASL_COMMAND_BEGIN then
+        settoflapsproc()
+    end
+    return 0
+end
+
+my_command_settoflapsproc = sasl.createCommand(definitions.APPNAMEPREFIX .. "/settoflapsproc", "Set Takeoff Flaps")
+sasl.registerCommandHandler(my_command_settoflapsproc, 0, settoflapsproc_)
 
 --------------------------------------------------------------------------------------------------------------
 function calcautobrake(landingSpeed, weatherData)
@@ -3407,10 +3874,7 @@ function calcautobrake(landingSpeed, weatherData)
         {maxDeceleration = 4.0, setting = AUTOBRAKEMAX}
     }
 
-    local runwayLength = get(desrwylen)
-    local aircraftWeight = get(totalweightkgs)
-
-    local requiredDeceleration = (landingSpeed^2) / (2 * runwayLength)
+    local requiredDeceleration = (landingSpeed^2) / (2 * get(desrwylen))
 
     if ((fieldexists(weatherData, "weather") and ((containsvalue(weatherData.weather, "FZRA")) or (containsvalue(weatherData.weather, "FZDZ")) or (containsvalue(weatherData.weather, "FZFG"))))
         or (fieldexists(weatherData, "temperature.value") and (weatherData.temperature.value < 1))) then
@@ -3421,7 +3885,7 @@ function calcautobrake(landingSpeed, weatherData)
         requiredDeceleration = requiredDeceleration * 1.2
     end
 
-    local weightFactor = aircraftWeight / 70000
+    local weightFactor = get(totalweightkgs) / 70000
     requiredDeceleration = requiredDeceleration * weightFactor
 
     for _, setting in ipairs(autobrakeSettings) do
@@ -3968,7 +4432,7 @@ function coldanddarksteps()
                 helpers.command_once("laminar/B738/switch/battery_dn")
             end
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
-            commandtableentry(ADVICE, "Battery Checked and On")
+            commandtableentry(ADVICE, "Battery checked and On")
         end
     elseif (procedureloop1.stepindex == 3) then
         if (get(batteryswitchcover) == OPEN) then
@@ -3985,7 +4449,7 @@ function coldanddarksteps()
                 setdomelight(DOMELIGHTDIM)
             end
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
-            commandtableentry(ADVICE, "Domelight Checked and On")
+            commandtableentry(ADVICE, "Domelight checked and On")
         end
     elseif ((procedureloop1.stepindex == 6) and (get(sunpitchdegrees) < 0)) then
         setview(configvalues[CONFIGVIEWOVERHEADPANEL])
@@ -3998,7 +4462,7 @@ function coldanddarksteps()
                 setemergencylights(EMERGLIGHTSARMED)
             end
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
-            commandtableentry(ADVICE, "Emergency Lights Checked and Armed")
+            commandtableentry(ADVICE, "Emergency Lights checked and Armed")
         end
     elseif (procedureloop1.stepindex == 8) then
         if (get(emergencylightcover) == OPEN) then
@@ -4013,7 +4477,7 @@ function coldanddarksteps()
                 helpers.command_once("laminar/B738/toggle_switch/position_light_steady")
             end
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
-            commandtableentry(ADVICE, "Position Lights Checked and Steady")
+            commandtableentry(ADVICE, "Position Lights checked and Steady")
         end
     elseif (procedureloop1.stepindex == 10) then
         if (get(nosmokingsignpos) ~= NOSMOKINGSIGNON) then
@@ -4024,7 +4488,7 @@ function coldanddarksteps()
                 procedureloop1.stepindex = procedureloop1.stepindex - 1
             end
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
-            commandtableentry(ADVICE, "No Smoking Signs Checked and On")
+            commandtableentry(ADVICE, "No Smoking Signs checked and On")
         end
     elseif (procedureloop1.stepindex == 11) then
         if ((configvalues[CONFIGUSEGROUNDPOWER] == ON) and (get(gpuavailable) == ON)) then
@@ -4039,7 +4503,7 @@ function coldanddarksteps()
                 end
             else
                 if ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
-                    commandtableentry(ADVICE, "G P U Checked and On")
+                    commandtableentry(ADVICE, "G P U checked and On")
                 end
                 procedureloop1.stepindex = 19
                 return true
@@ -4054,7 +4518,7 @@ function coldanddarksteps()
                 helpers.command_once("laminar/B738/spring_toggle_switch/APU_start_pos_dn")
             end
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
-            commandtableentry(ADVICE, "A P U Checked and Started")
+            commandtableentry(ADVICE, "A P U checked and Started")
         end
     elseif (procedureloop1.stepindex == 13) then
         if (configvalues[CONFIGVOICEADVICEONLY]  ~= ON) then
@@ -4085,7 +4549,7 @@ function coldanddarksteps()
                 end
             end
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
-            commandtableentry(ADVICE, "A P U Generator Checked and On")
+            commandtableentry(ADVICE, "A P U Generator checked and On")
         end
     elseif (procedureloop1.stepindex == 16) then
         if (get(bleedairapupos) == OFF) then
@@ -4096,7 +4560,7 @@ function coldanddarksteps()
                  helpers.command_once("laminar/B738/toggle_switch/bleed_air_apu")
             end
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
-            commandtableentry(ADVICE, "A P U Bleed Air Checked and On")    
+            commandtableentry(ADVICE, "A P U Bleed Air checked and On")    
         end
     elseif (procedureloop1.stepindex == 17) then
         if (get(isolvalvepos)  ~= ISOLVALVEOPEN) then
@@ -4107,7 +4571,7 @@ function coldanddarksteps()
                 set(isolvalvepos, ISOLVALVEOPEN)
             end
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
-            commandtableentry(ADVICE, "Isolation Valve Checked and Open")    
+            commandtableentry(ADVICE, "Isolation Valve checked and Open")    
         end
     elseif (procedureloop1.stepindex == 18) then
         if ((get(packlpos) ~= PACKAUTO) or (get(packrpos) ~= PACKAUTO)) then
@@ -4119,7 +4583,7 @@ function coldanddarksteps()
                 set(packrpos, PACKAUTO)
             end
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
-            commandtableentry(ADVICE, "Both Packs Checked and Auto")    
+            commandtableentry(ADVICE, "Both Packs checked and Auto")    
         end
     elseif (procedureloop1.stepindex == 19) then
         if (get(trimairpos) ~= ON) then
@@ -4130,7 +4594,7 @@ function coldanddarksteps()
                 set(trimairpos, ON)
             end
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
-            commandtableentry(ADVICE, "Trim Air Checked and On")    
+            commandtableentry(ADVICE, "Trim Air checked and On")    
         end
     elseif (procedureloop1.stepindex == 20) then
         setview(configvalues[CONFIGVIEWUPPEROVERHEADPANEL])
@@ -4148,7 +4612,7 @@ function coldanddarksteps()
                     procedureloop1.stepindex = procedureloop1.stepindex - 1
                 end
             elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
-                commandtableentry(ADVICE, "Both I R S Checked and Nav")
+                commandtableentry(ADVICE, "Both I R S checked and Nav")
             end
         else
             commandtableentry(TEXT, "I R S Alignment Started")
@@ -4265,7 +4729,7 @@ function apustartupsteps()
                 helpers.command_once("laminar/B738/spring_toggle_switch/APU_start_pos_dn")
             end
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
-            commandtableentry(ADVICE, "A P U Checked and Started")
+            commandtableentry(ADVICE, "A P U checked and Started")
         end
     elseif (procedureloop1.stepindex == 3) then
         if (configvalues[CONFIGVOICEADVICEONLY]  ~= ON) then
@@ -4298,7 +4762,7 @@ function apustartupsteps()
                 end
             end
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
-            commandtableentry(ADVICE, "A P U Generator Checked and On")
+            commandtableentry(ADVICE, "A P U Generator checked and On")
         end
     elseif (procedureloop1.stepindex == 6) then
         if (get(gpuon) == ON) then
@@ -4309,7 +4773,7 @@ function apustartupsteps()
                 helpers.command_once("laminar/B738/toggle_switch/gpu_up")
             end
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
-            commandtableentry(ADVICE, "Ground Power Checked and Off")    
+            commandtableentry(ADVICE, "Ground Power checked and Off")    
         end
     elseif (procedureloop1.stepindex == 7) then
         setview(configvalues[CONFIGVIEWMAINPANEL])
@@ -4378,7 +4842,7 @@ function enginestartsteps()
                 togglecollisionlights(ON)
             end
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
-            commandtableentry(ADVICE, "Collision lightset Checked and On")
+            commandtableentry(ADVICE, "Collision lightset checked and On")
         end     
     elseif (procedureloop1.stepindex == 3) then
         if ((get(lefttanklswitch) == OFF) or (get(lefttankrswitch) == OFF) or (get(righttanklswitch) == OFF) or (get(righttankrswitch) == OFF)) then
@@ -4392,7 +4856,7 @@ function enginestartsteps()
                 set(righttankrswitch, ON)
             end      
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
-            commandtableentry(ADVICE, "Wing Fuel Tanks Checked and On")
+            commandtableentry(ADVICE, "Wing Fuel Tanks checked and On")
         end
     elseif (procedureloop1.stepindex == 4) then
         if ((get(packlpos) ~= PACKOFF) or (get(packrpos) ~= PACKOFF)) then
@@ -4404,7 +4868,7 @@ function enginestartsteps()
                 set(packrpos, PACKOFF)
             end      
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
-            commandtableentry(ADVICE, "Both Packs Checked and Off")
+            commandtableentry(ADVICE, "Both Packs checked and Off")
         end 
     elseif (procedureloop1.stepindex == 5) then
         if (get(bleedairapupos) == OFF) then
@@ -4415,7 +4879,7 @@ function enginestartsteps()
                 helpers.command_once("laminar/B738/toggle_switch/bleed_air_apu")
             end      
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
-            commandtableentry(ADVICE, "A P U Bleed Air Checked and On")
+            commandtableentry(ADVICE, "A P U Bleed Air checked and On")
         end 
     elseif (procedureloop1.stepindex == 6) then
         if (get(isolvalvepos)  ~= ISOLVALVEOPEN) then
@@ -4426,7 +4890,7 @@ function enginestartsteps()
                 set(isolvalvepos, ISOLVALVEOPEN)
             end      
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
-            commandtableentry(ADVICE, "Isolation Valve Checked and Open")
+            commandtableentry(ADVICE, "Isolation Valve checked and Open")
         end 
     elseif (procedureloop1.stepindex == 7) then
         if (get(starter2pos) ~= GROUND) then
@@ -4437,7 +4901,7 @@ function enginestartsteps()
                 setstarter(ENGINE2, GROUND)
             end      
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
-            commandtableentry(ADVICE, "Engine 2 Starter Checked and On")
+            commandtableentry(ADVICE, "Engine 2 Starter checked and On")
         end
     elseif (procedureloop1.stepindex == 8) then
         setview(configvalues[CONFIGVIEWMAINPANEL])
@@ -4462,7 +4926,7 @@ function enginestartsteps()
                helpers.command_once("laminar/B738/engine/mixture2_idle")
             end      
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
-            commandtableentry(ADVICE, "Engine 2 Fuel Lever Checked and Idle")
+            commandtableentry(ADVICE, "Engine 2 Fuel Lever checked and Idle")
         end
     elseif (procedureloop1.stepindex == 12) then
         setview(configvalues[CONFIGVIEWMAINPANEL])
@@ -4487,7 +4951,7 @@ function enginestartsteps()
                 setstarter(ENGINE1, GROUND)
             end      
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
-            commandtableentry(ADVICE, "Engine 1 Starter Checked and Ground")
+            commandtableentry(ADVICE, "Engine 1 Starter checked and Ground")
         end
     elseif (procedureloop1.stepindex == 16) then
         setview(configvalues[CONFIGVIEWMAINPANEL])
@@ -4512,7 +4976,7 @@ function enginestartsteps()
                helpers.command_once("laminar/B738/engine/mixture1_idle")
             end      
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
-            commandtableentry(ADVICE, "Engine 1 Fuel Lever Checked and Idle")
+            commandtableentry(ADVICE, "Engine 1 Fuel Lever checked and Idle")
         end
     elseif (procedureloop1.stepindex == 20) then
         setview(configvalues[CONFIGVIEWMAINPANEL])
@@ -4542,7 +5006,7 @@ function enginestartsteps()
                 end
             end      
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
-            commandtableentry(ADVICE, "Both Generators Checked and Ground")
+            commandtableentry(ADVICE, "Both Generators checked and Ground")
         end
     elseif (procedureloop1.stepindex == 24) then
         if ((get(hydro1pos) ~= ON) or (get(hydro2pos) ~= ON)) then
@@ -4554,7 +5018,7 @@ function enginestartsteps()
                 set(hydro2pos, ON)
             end      
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
-            commandtableentry(ADVICE, "Both Hydraulic Pumps Checked and On")
+            commandtableentry(ADVICE, "Both Hydraulic Pumps checked and On")
         end
     elseif (procedureloop1.stepindex == 25) then
         if ((get(elechydro1pos) ~= ON) or (get(elechydro2pos) ~= ON)) then
@@ -4566,7 +5030,7 @@ function enginestartsteps()
                 set(elechydro2pos, ON)
             end      
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
-            commandtableentry(ADVICE, "Both Electrical Hydraulic Pumps Checked and On")
+            commandtableentry(ADVICE, "Both Electrical Hydraulic Pumps checked and On")
         end
     elseif (procedureloop1.stepindex == 26) then
         if ((get(bleedair1pos) == OFF) or (get(bleedair2pos) == OFF)) then
@@ -4582,7 +5046,7 @@ function enginestartsteps()
                 end
             end      
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
-            commandtableentry(ADVICE, "Both Engine Bleed Air Checked and On")
+            commandtableentry(ADVICE, "Both Engine Bleed Air checked and On")
         end
     elseif (procedureloop1.stepindex == 27) then
         if ((get(packlpos) ~= PACKAUTO) or (get(packrpos) ~= PACKAUTO)) then
@@ -4594,7 +5058,7 @@ function enginestartsteps()
                 set(packrpos, PACKAUTO)
             end      
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
-            commandtableentry(ADVICE, "Both Packs Checked and Auto")
+            commandtableentry(ADVICE, "Both Packs checked and Auto")
         end
     elseif (procedureloop1.stepindex == 28) then
          if (get(isolvalvepos)  ~= ISOLVALVEAUTO) then
@@ -4605,7 +5069,7 @@ function enginestartsteps()
                 set(isolvalvepos, ISOLVALVEAUTO)
             end      
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
-            commandtableentry(ADVICE, "Isolation ValveChecked and Auto")
+            commandtableentry(ADVICE, "Isolation Valvechecked and Auto")
         end 
     elseif (procedureloop1.stepindex == 29) then
          if (get(trimairpos) ~= ON) then
@@ -4616,7 +5080,7 @@ function enginestartsteps()
                 set(trimairpos, ON)
             end      
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
-            commandtableentry(ADVICE, "Trim Air Checked and On")
+            commandtableentry(ADVICE, "Trim Air checked and On")
         end 
     elseif (procedureloop1.stepindex == 30) then
         if (get(bleedairapupos) ~= OFF) then
@@ -4627,7 +5091,7 @@ function enginestartsteps()
                  helpers.command_once("laminar/B738/toggle_switch/bleed_air_apu")
             end      
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
-            commandtableentry(ADVICE, "A P U Bleed Air Checked and Off")
+            commandtableentry(ADVICE, "A P U Bleed Air checked and Off")
         end 
     elseif (procedureloop1.stepindex == 31) then
         if (get(apustarterpos) == ON) then
@@ -4638,7 +5102,7 @@ function enginestartsteps()
                 helpers.command_once("laminar/B738/spring_toggle_switch/APU_start_pos_up")
             end
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
-            commandtableentry(ADVICE, "A P U Checked and Off")
+            commandtableentry(ADVICE, "A P U checked and Off")
         end 
     elseif (procedureloop1.stepindex == 32) then
         if (get(yawdamperswitch) ~= ON) then
@@ -4649,7 +5113,7 @@ function enginestartsteps()
                 set(yawdamperswitch, ON)
             end      
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
-            commandtableentry(ADVICE, "Yaw Damper Checked and On")
+            commandtableentry(ADVICE, "Yaw Damper checked and On")
         end 
     elseif (procedureloop1.stepindex == 33) then
         setview(configvalues[CONFIGVIEWMAINPANEL])
@@ -4733,7 +5197,7 @@ function engineshutdownsteps()
                     end
                 else
                     if ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
-                        commandtableentry(ADVICE, "Ground Power Checked and On")
+                        commandtableentry(ADVICE, "Ground Power checked and On")
                     end 
                     procedureloop1.stepindex = 9
                     return true
@@ -4752,7 +5216,7 @@ function engineshutdownsteps()
                 helpers.command_once("laminar/B738/spring_toggle_switch/APU_start_pos_dn")
             end
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
-            commandtableentry(ADVICE, "A P U Checked and Started")
+            commandtableentry(ADVICE, "A P U checked and Started")
         end
     elseif (procedureloop1.stepindex == 4) then
         if (configvalues[CONFIGVOICEADVICEONLY]  ~= ON) then
@@ -4785,7 +5249,7 @@ function engineshutdownsteps()
                 end
             end
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
-            commandtableentry(ADVICE, "A P U Generator Checked and On")
+            commandtableentry(ADVICE, "A P U Generator checked and On")
         end
     elseif (procedureloop1.stepindex == 7) then
         if (get(bleedairapupos) == OFF) then
@@ -4796,7 +5260,7 @@ function engineshutdownsteps()
                  helpers.command_once("laminar/B738/toggle_switch/bleed_air_apu")
             end
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
-            commandtableentry(ADVICE, "A P U Bleed Air Checked and On")    
+            commandtableentry(ADVICE, "A P U Bleed Air checked and On")    
         end
     elseif (procedureloop1.stepindex == 8) then
         if (get(isolvalvepos)  ~= ISOLVALVEOPEN) then
@@ -4807,7 +5271,7 @@ function engineshutdownsteps()
                 set(isolvalvepos, ISOLVALVEOPEN)
             end
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
-            commandtableentry(ADVICE, "Isolation Valve Checked and Open")    
+            commandtableentry(ADVICE, "Isolation Valve checked and Open")    
         end
     elseif (procedureloop1.stepindex == 9) then
         setview(configvalues[CONFIGVIEWTHROTTLE])
@@ -4825,7 +5289,7 @@ function engineshutdownsteps()
                 end
             end      
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
-            commandtableentry(ADVICE, "Both Fuel Levers Checked and Cutoff")
+            commandtableentry(ADVICE, "Both Fuel Levers checked and Cutoff")
         end
     elseif (procedureloop1.stepindex == 11) then
         setview(configvalues[CONFIGVIEWOVERHEADPANEL])
@@ -4861,7 +5325,7 @@ function engineshutdownsteps()
                 set(hydro2pos, OFF)
             end      
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
-            commandtableentry(ADVICE, "Both Hydraulic Pumps Checked and Off")
+            commandtableentry(ADVICE, "Both Hydraulic Pumps checked and Off")
         end
     elseif (procedureloop1.stepindex == 15) then
         if ((get(elechydro1pos) ~= OFF) or (get(elechydro2pos) ~= OFF)) then
@@ -4873,7 +5337,7 @@ function engineshutdownsteps()
                 set(elechydro2pos, OFF)
             end      
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
-            commandtableentry(ADVICE, "Both Electrical Hydraulic Pumps Checked and Off")
+            commandtableentry(ADVICE, "Both Electrical Hydraulic Pumps checked and Off")
         end
     elseif (procedureloop1.stepindex == 16) then
       if (get(beaconlights) == ON) then
@@ -4884,7 +5348,7 @@ function engineshutdownsteps()
                 togglecollisionlights(OFF)
             end
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
-            commandtableentry(ADVICE, "Collision lightset Checked and Off")
+            commandtableentry(ADVICE, "Collision lightset checked and Off")
         end    
     elseif (procedureloop1.stepindex == 17) then
         setview(configvalues[CONFIGVIEWMAINPANEL])
@@ -4989,7 +5453,7 @@ function shutdownsteps()
                 end
             end
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
-            commandtableentry(ADVICE, "Both I R S Checked and Off")
+            commandtableentry(ADVICE, "Both I R S checked and Off")
         end 
     elseif (procedureloop1.stepindex == 3) then
         setview(configvalues[CONFIGVIEWOVERHEADPANEL])
@@ -5002,7 +5466,7 @@ function shutdownsteps()
                 set(yawdamperswitch, OFF)
             end      
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
-            commandtableentry(ADVICE, "Yaw Damper Checked and Off")
+            commandtableentry(ADVICE, "Yaw Damper checked and Off")
         end 
     elseif (procedureloop1.stepindex == 5) then
         if (get(bleedairapupos) == ON) then
@@ -5013,7 +5477,7 @@ function shutdownsteps()
                  helpers.command_once("laminar/B738/toggle_switch/bleed_air_apu")
             end      
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
-            commandtableentry(ADVICE, "A P U Bleed Air Checked and Off")
+            commandtableentry(ADVICE, "A P U Bleed Air checked and Off")
         end 
     elseif (procedureloop1.stepindex == 6) then
         if (get(isolvalvepos)  ~= ISOLVALVEAUTO) then
@@ -5024,7 +5488,7 @@ function shutdownsteps()
                 set(isolvalvepos, ISOLVALVEAUTO)
             end      
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
-            commandtableentry(ADVICE, "Isolation Valve Checked and Auto")
+            commandtableentry(ADVICE, "Isolation Valve checked and Auto")
         end 
     elseif (procedureloop1.stepindex == 7) then
         if ((get(packlpos) ~= PACKOFF) or (get(packrpos) ~= PACKOFF)) then
@@ -5036,7 +5500,7 @@ function shutdownsteps()
                 set(packrpos, PACKOFF)
             end      
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
-            commandtableentry(ADVICE, "Both Packs Checked and Off")
+            commandtableentry(ADVICE, "Both Packs checked and Off")
         end 
     elseif (procedureloop1.stepindex == 8) then
         if ((get(bleedair1pos) == ON) or (get(bleedair2pos) == ON)) then
@@ -5052,7 +5516,7 @@ function shutdownsteps()
                 end
             end      
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
-            commandtableentry(ADVICE, "Both Engine Bleed Air Checked and Off")
+            commandtableentry(ADVICE, "Both Engine Bleed Air checked and Off")
         end 
     elseif (procedureloop1.stepindex == 9) then
         if (get(trimairpos) ~= OFF) then
@@ -5063,7 +5527,7 @@ function shutdownsteps()
                 set(trimairpos, OFF) 
             end
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
-            commandtableentry(ADVICE, "Trim Air Checked and Off")
+            commandtableentry(ADVICE, "Trim Air checked and Off")
         end 
     elseif (procedureloop1.stepindex == 10) then
         if ((get(wheatlfwdpos) ~= OFF) or (get(wheatrfwdpos) ~= OFF) or (get(wheatlsidepos) ~= OFF) or (get(wheatrsidepos) ~= OFF)) then
@@ -5074,7 +5538,7 @@ function shutdownsteps()
                 procedureloop1.stepindex = procedureloop1.stepindex - 1
             end
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
-            commandtableentry(ADVICE, "Window Heat Checked and Off")
+            commandtableentry(ADVICE, "Window Heat checked and Off")
         end
     elseif (procedureloop1.stepindex == 11) then
         if (configvalues[CONFIGUSEGROUNDPOWER] == ON) then
@@ -5088,7 +5552,7 @@ function shutdownsteps()
                     return true
                 end
             elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
-                commandtableentry(ADVICE, "Ground Power Checked and Off")
+                commandtableentry(ADVICE, "Ground Power checked and Off")
                 procedureloop1.stepindex = 13
                 return true
             end
@@ -5107,7 +5571,7 @@ function shutdownsteps()
                 end
             end
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
-            commandtableentry(ADVICE, "A P U Generator Checked and Off")
+            commandtableentry(ADVICE, "A P U Generator checked and Off")
         end 
     elseif (procedureloop1.stepindex == 13) then
         if (get(apustarterpos) == ON) then
@@ -5118,7 +5582,7 @@ function shutdownsteps()
                 helpers.command_once("laminar/B738/spring_toggle_switch/APU_start_pos_up")
             end
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
-            commandtableentry(ADVICE, "A P U Checked and Off")
+            commandtableentry(ADVICE, "A P U checked and Off")
         end
     elseif (procedureloop1.stepindex == 14) then
         if (get(positionlights) ~= POSLIGHTSOFF) then
@@ -5129,7 +5593,7 @@ function shutdownsteps()
                 togglepositionlights(POSLIGHTSOFF)
             end
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
-            commandtableentry(ADVICE, "Position LIghts Checked and Off")
+            commandtableentry(ADVICE, "Position LIghts checked and Off")
         end 
     elseif (procedureloop1.stepindex == 15) then
         if (get(seatbeltsignpos) ~= SEATBELTSIGNOFF) then
@@ -5140,7 +5604,7 @@ function shutdownsteps()
                 procedureloop1.stepindex = procedureloop1.stepindex - 1
             end
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
-            commandtableentry(ADVICE, "Seatbeltsigns Checked and Off")
+            commandtableentry(ADVICE, "Seatbeltsigns checked and Off")
         end
     elseif (procedureloop1.stepindex == 16) then
         if (get(nosmokingsignpos) ~= NOSMOKINGSIGNOFF) then
@@ -5151,7 +5615,7 @@ function shutdownsteps()
                 procedureloop1.stepindex = procedureloop1.stepindex - 1
             end
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
-            commandtableentry(ADVICE, "NO Smoking Signs Checked and Off")
+            commandtableentry(ADVICE, "NO Smoking Signs checked and Off")
         end
     elseif (procedureloop1.stepindex == 17) then
         if (get(emergencylightcover) == CLOSED) then
@@ -5166,7 +5630,7 @@ function shutdownsteps()
                 setemergencylights(EMERGLIGHTSOFF)
             end
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
-            commandtableentry(ADVICE, "Emergency Lights Checked and Off")
+            commandtableentry(ADVICE, "Emergency Lights checked and Off")
         end 
     elseif (procedureloop1.stepindex == 19) then
         setview(configvalues[CONFIGVIEWUPPEROVERHEADPANEL])
@@ -5179,7 +5643,7 @@ function shutdownsteps()
                 procedureloop1.stepindex = procedureloop1.stepindex - 1
             end
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
-            commandtableentry(ADVICE, "Domelight Checked and Off")
+            commandtableentry(ADVICE, "Domelight checked and Off")
         end 
     elseif (procedureloop1.stepindex == 21) then
        setview(configvalues[CONFIGVIEWOVERHEADPANEL])
@@ -5196,7 +5660,7 @@ function shutdownsteps()
                 helpers.command_once("laminar/B738/switch/battery_up")
             end
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
-            commandtableentry(ADVICE, "Battery Checked and Off")
+            commandtableentry(ADVICE, "Battery checked and Off")
         end 
     elseif (procedureloop1.stepindex == 24) then
         setview(configvalues[CONFIGVIEWMAINPANEL])
@@ -5397,7 +5861,7 @@ function cockpitinitsteps()
                     setdomelight(DOMELIGHTDIM)
                 end
             elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
-                commandtableentry(ADVICE, "Dome light Checked and On")
+                commandtableentry(ADVICE, "Dome light checked and On")
             end
         end
     elseif (procedureloop1.stepindex == 2) then
@@ -5472,7 +5936,7 @@ function cockpitinitsteps()
                     procedureloop1.stepindex = procedureloop1.stepindex - 1
                 end
             elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
-                commandtableentry(ADVICE, "Transponder Code Checked and " .. addspaces(configvalues[CONFIGTRANSPONDER]))
+                commandtableentry(ADVICE, "Transponder Code checked and " .. addspaces(configvalues[CONFIGTRANSPONDER]))
             end
         end
     elseif (procedureloop1.stepindex == 7) then
@@ -5486,7 +5950,7 @@ function cockpitinitsteps()
                 end
             end
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
-            commandtableentry(ADVICE, "Transponder Checked and Standby")
+            commandtableentry(ADVICE, "Transponder checked and Standby")
         end
     elseif (procedureloop1.stepindex == 8) then
         if ((get(captainprobepos) ~= OFF) or (get(foprobepos) ~= OFF)) then
@@ -5497,7 +5961,7 @@ function cockpitinitsteps()
                 procedureloop1.stepindex = procedureloop1.stepindex - 1
             end
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
-            commandtableentry(ADVICE, "Probe Heat Checked and Off")
+            commandtableentry(ADVICE, "Probe Heat checked and Off")
         end
     elseif (procedureloop1.stepindex == 9) then
         setnosmokingsign(NOSMOKINGSIGNON)
@@ -5510,7 +5974,7 @@ function cockpitinitsteps()
                 procedureloop1.stepindex = procedureloop1.stepindex - 1
             end
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
-            commandtableentry(ADVICE, "Seatbelt Signs Checked and Off")
+            commandtableentry(ADVICE, "Seatbelt Signs checked and Off")
         end
     elseif (procedureloop1.stepindex == 11) then
         if (get(nosmokingsignpos) ~= NOSMOKINGSIGNON) then
@@ -5521,7 +5985,7 @@ function cockpitinitsteps()
                 procedureloop1.stepindex = procedureloop1.stepindex - 1
             end
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
-            commandtableentry(ADVICE, "No Smoking Signs Checked and On")
+            commandtableentry(ADVICE, "No Smoking Signs checked and On")
         end
     elseif (procedureloop1.stepindex == 12) then
         if(get(positionlights) ~= POSLIGHTSSTEADY) then 
@@ -5532,7 +5996,7 @@ function cockpitinitsteps()
                 procedureloop1.stepindex = procedureloop1.stepindex - 1
             end
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
-            commandtableentry(ADVICE, "Position Lights Checked and Steady")
+            commandtableentry(ADVICE, "Position Lights checked and Steady")
         end
     elseif (procedureloop1.stepindex == 13) then
         if ((get(llights1) ~= OFF) or (get(llights2) ~= OFF) or (get(llights3) ~= OFF) or (get(llights4) ~= OFF)) then
@@ -5543,7 +6007,7 @@ function cockpitinitsteps()
                 procedureloop1.stepindex = procedureloop1.stepindex - 1
             end
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
-            commandtableentry(ADVICE, "Landing Lights Checked and Off")
+            commandtableentry(ADVICE, "Landing Lights checked and Off")
         end
     elseif (procedureloop1.stepindex == 14) then
         if ((get(rwylightl) == ON) or (get(rwylightl) == ON)) then
@@ -5554,7 +6018,7 @@ function cockpitinitsteps()
                 procedureloop1.stepindex = procedureloop1.stepindex - 1
             end
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
-            commandtableentry(ADVICE, "Runway Turnoff Lights Checked and Off")
+            commandtableentry(ADVICE, "Runway Turnoff Lights checked and Off")
         end
     elseif (procedureloop1.stepindex == 15) then
         if (get(taxilight)  ~= OFF) then
@@ -5565,7 +6029,7 @@ function cockpitinitsteps()
                 procedureloop1.stepindex = procedureloop1.stepindex - 1
             end
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
-            commandtableentry(ADVICE, "Taxi Lights Checked and Off")
+            commandtableentry(ADVICE, "Taxi Lights checked and Off")
         end
     elseif (procedureloop1.stepindex == 16) then
         if (get(apdiscpos) == ON) then
@@ -5580,7 +6044,7 @@ function cockpitinitsteps()
                 procedureloop1.stepindex = procedureloop1.stepindex - 1
             end
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
-            commandtableentry(ADVICE, "Both Flight Directors Checked and Off")
+            commandtableentry(ADVICE, "Both Flight Directors checked and Off")
         end
     elseif (procedureloop1.stepindex == 18) then
         if (get(mcpaltitude) ~= lowerairspacealt) then
@@ -5591,7 +6055,7 @@ function cockpitinitsteps()
                 procedureloop1.stepindex = procedureloop1.stepindex - 1
             end
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
-            commandtableentry(ADVICE, "M C P ALtitude Checked and " .. tostring(lowerairspacealt))
+            commandtableentry(ADVICE, "M C P ALtitude checked and " .. tostring(lowerairspacealt))
         end
     elseif (procedureloop1.stepindex == 19) then
         if (get(bankanglepos) ~= configvalues[CONFIGBANKANGLEMAX]) then
@@ -5602,7 +6066,7 @@ function cockpitinitsteps()
                 procedureloop1.stepindex = procedureloop1.stepindex - 1
             end
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
-            commandtableentry(ADVICE, "Bank Angle Checked and " .. getbankanglestring(configvalues[CONFIGBANKANGLEMAX]))
+            commandtableentry(ADVICE, "Bank Angle checked and " .. getbankanglestring(configvalues[CONFIGBANKANGLEMAX]))
         end
     elseif (procedureloop1.stepindex == 20) then
         if (get(efisdatapilotpos) == OFF) then
@@ -5715,7 +6179,7 @@ function aftertakeoffsteps()
                     set(gearhandlepos, GEARUP)
                 end
             elseif ((get(gearhandlepos) == GEARDOWN) and (configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop2.steprepeat) then
-                commandtableentry(ADVICE, "Gear Checked and Up")
+                commandtableentry(ADVICE, "Gear checked and Up")
             end  
         else
             procedureloop2.stepindex = procedureloop2.stepindex - 1
@@ -5729,7 +6193,7 @@ function aftertakeoffsteps()
                 set(gearhandlepos, GEAROFF)
             end
         elseif ((get(gearhandlepos) == GEAROFF) and (configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop2.steprepeat) then
-                commandtableentry(ADVICE, "Gear Lever Checked and Off")
+                commandtableentry(ADVICE, "Gear Lever checked and Off")
         elseif (get(gearhandlepos) ~= GEAROFF) then
             procedureloop2.stepindex = procedureloop2.stepindex - 1
         end
@@ -5742,7 +6206,7 @@ function aftertakeoffsteps()
                 setautobrake(AUTOBRAKEOFF)
             end
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop2.steprepeat) then
-            commandtableentry(ADVICE, "Auto Brake Checked and Off")
+            commandtableentry(ADVICE, "Auto Brake checked and Off")
         end  
     end
 
@@ -5774,7 +6238,7 @@ function altitudea10000steps()
                 procedureloop1.stepindex = procedureloop1.stepindex - 1
             end
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
-            commandtableentry(ADVICE, "Landing Lights Checked and Off")
+            commandtableentry(ADVICE, "Landing Lights checked and Off")
         end  
     elseif (procedureloop1.stepindex == 4) then
         if (get(logolighton) ~= OFF) then
@@ -5785,7 +6249,7 @@ function altitudea10000steps()
                 procedureloop1.stepindex = procedureloop1.stepindex - 1
             end
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
-            commandtableentry(ADVICE, "Logo Lights Checked and Off")
+            commandtableentry(ADVICE, "Logo Lights checked and Off")
         end 
     elseif (procedureloop1.stepindex == 5) then     
         if (get(seatbeltsignpos) ~= SEATBELTSIGNOFF) then
@@ -5796,7 +6260,7 @@ function altitudea10000steps()
                 procedureloop1.stepindex = procedureloop1.stepindex - 1
             end
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
-            commandtableentry(ADVICE, "Seatbelt Signs Checked and Off")
+            commandtableentry(ADVICE, "Seatbelt Signs checked and Off")
         end
     elseif (procedureloop1.stepindex == 6) then
         if (get(starterauto) == ON) then
@@ -5808,7 +6272,7 @@ function altitudea10000steps()
                     procedureloop1.stepindex = procedureloop1.stepindex - 1
                 end 
             elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
-                commandtableentry(ADVICE, "Both Starters Checked and Auto")
+                commandtableentry(ADVICE, "Both Starters checked and Auto")
             end
         else
             if ((get(starter1pos) ~= CONT) or (get(starter2pos) ~= CONT)) then
@@ -5819,7 +6283,7 @@ function altitudea10000steps()
                     procedureloop1.stepindex = procedureloop1.stepindex - 1
                 end 
             elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
-                commandtableentry(ADVICE, "Both Starters Checked and Continuous")
+                commandtableentry(ADVICE, "Both Starters checked and Continuous")
             end
         end
     elseif (procedureloop1.stepindex == 7) then
@@ -5930,7 +6394,7 @@ function duringclimbsteps()
                         procedureloop2.stepindex = procedureloop2.stepindex - 1
                     end
                 elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop2.steprepeat) then
-                    commandtableentry(ADVICE, "Q N H Checked and Standard")
+                    commandtableentry(ADVICE, "Q N H checked and Standard")
                 end
             else
                 procedureloop2.stepindex = procedureloop2.stepindex - 1
@@ -5950,7 +6414,7 @@ function duringclimbsteps()
                 end
             end
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop2.steprepeat) then
-            commandtableentry(ADVICE, "Both Engine Bleed Air Checked and On")
+            commandtableentry(ADVICE, "Both Engine Bleed Air checked and On")
         end 
     elseif (procedureloop2.stepindex == 10) then
         if ((get(packlpos) == PACKOFF) or (get(packrpos) == PACKOFF)) then
@@ -5962,7 +6426,7 @@ function duringclimbsteps()
                 set(packrpos, PACKAUTO)
             end      
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop2.steprepeat) then
-            commandtableentry(ADVICE, "Both Packs Checked and On")
+            commandtableentry(ADVICE, "Both Packs checked and On")
         end  
     elseif (procedureloop2.stepindex == 11) then
         if (get(isolvalvepos)  == ISOLVALVEOPEN) then
@@ -5973,7 +6437,7 @@ function duringclimbsteps()
                 set(isolvalvepos, ISOLVALVEAUTO)
             end
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop2.steprepeat) then
-            commandtableentry(ADVICE, "Isolation Valve Checked and Auto")
+            commandtableentry(ADVICE, "Isolation Valve checked and Auto")
         end  
     elseif (procedureloop2.stepindex == 12) then
         if (get(bleedairapupos) == ON) then
@@ -5984,7 +6448,7 @@ function duringclimbsteps()
              helpers.command_once("laminar/B738/toggle_switch/bleed_air_apu")
             end
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop2.steprepeat) then
-            commandtableentry(ADVICE, "A P U Bleed Air Checked and Off")
+            commandtableentry(ADVICE, "A P U Bleed Air checked and Off")
         end  
     elseif (procedureloop2.stepindex == 13) then
         if (get(apustarterpos) == ON) then
@@ -5995,7 +6459,7 @@ function duringclimbsteps()
                 helpers.command_once("laminar/B738/spring_toggle_switch/APU_start_pos_up")
             end
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop2.steprepeat) then
-            commandtableentry(ADVICE, "A P U Checked and Off")
+            commandtableentry(ADVICE, "A P U checked and Off")
         end  
     end
 
@@ -6045,7 +6509,7 @@ function altitudeb10000steps()
                 procedureloop1.stepindex = procedureloop1.stepindex - 1
             end
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
-            commandtableentry(ADVICE, "Seatbeltsigns Checked and On")
+            commandtableentry(ADVICE, "Seatbeltsigns checked and On")
         end  
     elseif (procedureloop1.stepindex == 4) then
         if ((get(llights1) == OFF) or (get(llights2) == OFF) or (get(llights3) == OFF) or (get(llights4) == OFF)) then
@@ -6056,7 +6520,7 @@ function altitudeb10000steps()
                 procedureloop1.stepindex = procedureloop1.stepindex - 1
             end
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
-            commandtableentry(ADVICE, "Landing Lights Checked and On")
+            commandtableentry(ADVICE, "Landing Lights checked and On")
         end  
     elseif (procedureloop1.stepindex == 5) then
         if ((get(starter1pos) ~= FLIGHT) or (get(starter2pos) ~= FLIGHT)) then
@@ -6068,7 +6532,7 @@ function altitudeb10000steps()
             end
         else
             if ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
-                commandtableentry(ADVICE, "Both Starters Checked and Flight")
+                commandtableentry(ADVICE, "Both Starters checked and Flight")
             end
         end
     elseif (procedureloop1.stepindex == 6) then
@@ -6080,35 +6544,25 @@ function altitudeb10000steps()
                 procedureloop1.stepindex = procedureloop1.stepindex - 1
             end
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
-            commandtableentry(ADVICE, "Logo Lights Checked and On")
+            commandtableentry(ADVICE, "Logo Lights checked and On")
         end  
     elseif (procedureloop1.stepindex == 7) then
         setview(configvalues[CONFIGVIEWMAINPANEL])
     elseif (procedureloop1.stepindex == 8) then
-        if not setilssteps() then
+        if ((not proceduretable[SETILSPROCEDURE].set) and ((procedureloop3.lock == NOPROCEDURE) or (procedureloop3.lock == SETILSPROCEDURE))) then
+            procedureloop3.lock = SETILSPROCEDURE
             procedureloop1.stepindex = procedureloop1.stepindex - 1
         end
     elseif (procedureloop1.stepindex == 9) then
-        setview(configvalues[CONFIGVIEWFMS])
-    elseif (procedureloop1.stepindex == 10) then
         if (configvalues[CONFIGVREF30SET] == ON) then
-           local appflapscalc, appvrefcalc = calcappflapsvref(desmetar.decodedmetar)
-            if (configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
-                if not setvref(appflapscalc, appvrefcalc) then
-                    procedureloop1.stepindex = procedureloop1.stepindex - 1
-                end
-            elseif (configvalues[CONFIGVOICEADVICEONLY] == ON) then
-                if (get(vref) ~= appvrefcalc) then
-                    commandtableentry(ADVICE, "Set V REF " .. appflapscalc .. " " .. appvrefcalc)
-                    procedureloop1.stepindex = procedureloop1.stepindex - 1
-                elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
-                    commandtableentry(ADVICE, "V REF " .. appflapscalc .. " Checked and " .. appvrefcalc)
-                end
+            if ((not proceduretable[SETVREFPROCEDURE].set) and ((procedureloop3.lock == NOPROCEDURE) or (procedureloop3.lock == SETVREFPROCEDURE))) then
+                procedureloop3.lock = SETVREFPROCEDURE
+                procedureloop1.stepindex = procedureloop1.stepindex - 1
             end
         end
-    elseif (procedureloop1.stepindex == 11) then
+    elseif (procedureloop1.stepindex == 10) then
         setview(configvalues[CONFIGVIEWMAINPANEL])
-    elseif (procedureloop1.stepindex == 12) then
+    elseif (procedureloop1.stepindex == 11) then
         if (configvalues[CONFIGVREF30SET] == ON) then
             local autobrake = calcautobrake(get(vref), desmetar.decodedmetar)
             sasl.logDebug("AUTOBRAKE AUTOBRAKEPOS: " .. tostring(get(autobrakepos)) .. " AUTOBRAKE " .. tostring(autobrake))
@@ -6125,10 +6579,24 @@ function altitudeb10000steps()
                 end
             elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
                 if (autobrake < AUTOBRAKEMAX) then
-                    commandtableentry(ADVICE, "Auto Brake Checked and " .. tostring(autobrake - 1))
+                    commandtableentry(ADVICE, "Auto Brake checked and " .. tostring(autobrake - 1))
                 else
-                    commandtableentry(ADVICE, "Auto Brake Checked and Maximum")
+                    commandtableentry(ADVICE, "Auto Brake checked and Maximum")
                 end
+            end
+        end
+    elseif (procedureloop1.stepindex == 12) then
+        if desmetar.metarfound then
+            if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
+                commandtableentry(ADVICE, formatMetarSpeechSummary(desmetar))
+            else
+                commandtableentry(TEXT, formatMetarSpeechSummary(desmetar))
+            end
+        else
+            if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
+                commandtableentry(ADVICE, "No Metar found for " .. addspaces(desicao))
+            else
+                commandtableentry(TEXT, "No Metar found for " .. addspaces(desicao))
             end
         end
     end
@@ -6199,7 +6667,7 @@ function radioaltitudeb2500steps()
             end
         elseif (get(gearhandlepos) == GEARDOWN) then
             if ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop2.steprepeat) then
-                commandtableentry(ADVICE, "Gear Checked and Down")
+                commandtableentry(ADVICE, "Gear checked and Down")
             end
         end
     end
@@ -6224,7 +6692,7 @@ function radioaltitudeb1000steps()
             end
         else
             if ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop2.steprepeat) then
-                commandtableentry(ADVICE, "Speedbrakes Checked and Armed")
+                commandtableentry(ADVICE, "Speedbrakes checked and Armed")
             end
         end
     elseif (procedureloop2.stepindex == 2) then
@@ -6237,7 +6705,7 @@ function radioaltitudeb1000steps()
             end
         else
             if ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop2.steprepeat) then
-                commandtableentry(ADVICE, "Taxi Lights Checked and On")
+                commandtableentry(ADVICE, "Taxi Lights checked and On")
             end
         end
     elseif (procedureloop2.stepindex == 3) then
@@ -6250,7 +6718,7 @@ function radioaltitudeb1000steps()
             end
         else
             if ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop2.steprepeat) then
-                commandtableentry(ADVICE, "Runway Turnoff Lights Checked and On")
+                commandtableentry(ADVICE, "Runway Turnoff Lights checked and On")
             end
         end
     elseif (procedureloop2.stepindex == 4) then
@@ -6265,7 +6733,7 @@ function radioaltitudeb1000steps()
                 end
             else
                 if ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop2.steprepeat) then
-                    commandtableentry(ADVICE, "MCP Altitude Checked and " .. addspaces(missedappalttmp))
+                    commandtableentry(ADVICE, "MCP Altitude checked and " .. addspaces(missedappalttmp))
                 end
             end
         else
@@ -6295,7 +6763,7 @@ function radioaltitudeb1000steps()
                 end
             else
                 if ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop2.steprepeat) then
-                    commandtableentry(ADVICE, "MCP Heading Checked and " .. addspaces(padNumberWithZerosStrict(headingrounded, 3)))
+                    commandtableentry(ADVICE, "MCP Heading checked and " .. addspaces(padNumberWithZerosStrict(headingrounded, 3)))
                 end
             end
         elseif not headingrounded then
@@ -6315,7 +6783,7 @@ function radioaltitudeb1000steps()
             end
         else
             if ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop2.steprepeat) then
-                commandtableentry(ADVICE, "Gear Checked and Down")
+                commandtableentry(ADVICE, "Gear checked and Down")
             end
         end
     elseif (procedureloop2.stepindex == 7) then
@@ -6328,7 +6796,7 @@ function radioaltitudeb1000steps()
             end
         else
             if ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop2.steprepeat) then
-                commandtableentry(ADVICE, "Flaps Checked and " .. tostring(get(appflaps)))
+                commandtableentry(ADVICE, "Flaps checked and " .. tostring(get(appflaps)))
             end
         end
     end
@@ -6369,7 +6837,21 @@ function duringdescentsteps()
         end
     elseif (procedureloop2.stepindex == 5) then
         setview(configvalues[CONFIGVIEWMAINPANEL])
-    elseif (procedureloop2.stepindex == 6) then
+        elseif (procedureloop2.stepindex == 6) then
+        if desmetar.metarfound then
+            if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
+                commandtableentry(ADVICE, formatMetarSpeechSummary(desmetar))
+            else
+                commandtableentry(TEXT, formatMetarSpeechSummary(desmetar))
+            end
+        else
+            if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
+                commandtableentry(ADVICE, "No Metar found for " .. addspaces(desicao))
+            else
+                commandtableentry(TEXT, "No Metar found for " .. addspaces(desicao))
+            end
+        end
+    elseif (procedureloop2.stepindex == 7) then
         if (get(altitude) < get(fmctranslvl)) then
             if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 commandtableentry(ADVICE, "Passing Transition Level")
@@ -6379,7 +6861,7 @@ function duringdescentsteps()
         else
             procedureloop2.stepindex = procedureloop2.stepindex - 1
         end
-    elseif (procedureloop2.stepindex == 7) then
+    elseif (procedureloop2.stepindex == 8) then
         if (configvalues[CONFIGAUTOBARO] == ON) then
             if (get(altitude) < get(fmctranslvl)) then
                 local baroinchtmp, baropastmp = getlocalqnh(ARRIVAL)
@@ -6399,9 +6881,9 @@ function duringdescentsteps()
                 elseif ((get(barostd) == OFF) and (roundnumber(math.abs(roundnumber(get(baropilot), 2) - baroinchtmp), 2) <= 0.01)) then
                     if ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop2.steprepeat) then
                         if (get(baroinhpa) == ON) then
-                            commandtableentry(ADVICE, "Q N H Checked and " .. addspaces(baropastmp))
+                            commandtableentry(ADVICE, "Q N H checked and " .. addspaces(baropastmp))
                         else
-                            commandtableentry(ADVICE, "Q N H Checked and " .. addspaces(baroinchtmp))
+                            commandtableentry(ADVICE, "Q N H checked and " .. addspaces(baroinchtmp))
                         end
                     end
                 end
@@ -6458,7 +6940,7 @@ function afterlandingsteps()
                 procedureloop1.stepindex = procedureloop1.stepindex - 1
             end
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
-            commandtableentry(ADVICE, "Landing Lights Checked and Off")
+            commandtableentry(ADVICE, "Landing Lights checked and Off")
         end
     elseif (procedureloop1.stepindex == 3) then
         if (get(taxilight) == OFF) then
@@ -6469,7 +6951,7 @@ function afterlandingsteps()
                 procedureloop1.stepindex = procedureloop1.stepindex - 1
             end
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
-            commandtableentry(ADVICE, "Taxi Lights Checked and On")
+            commandtableentry(ADVICE, "Taxi Lights checked and On")
         end
     elseif (procedureloop1.stepindex == 4) then
         if ((get(rwylightl) == ON) or (get(rwylightl) == ON)) then
@@ -6480,7 +6962,7 @@ function afterlandingsteps()
                 procedureloop1.stepindex = procedureloop1.stepindex - 1
             end
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
-            commandtableentry(ADVICE, "Runway Turnoff Lights Checked and Off")
+            commandtableentry(ADVICE, "Runway Turnoff Lights checked and Off")
         end
     elseif (procedureloop1.stepindex == 5) then
         if(get(positionlights) ~= POSLIGHTSSTEADY) then 
@@ -6491,7 +6973,7 @@ function afterlandingsteps()
                 procedureloop1.stepindex = procedureloop1.stepindex - 1
             end
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
-            commandtableentry(ADVICE, "Position Lights Checked and Steady")
+            commandtableentry(ADVICE, "Position Lights checked and Steady")
         end
     elseif (procedureloop1.stepindex == 6) then
         if ((get(captainprobepos) ~= OFF) or (get(foprobepos) ~= OFF)) then
@@ -6502,7 +6984,7 @@ function afterlandingsteps()
                 procedureloop1.stepindex = procedureloop1.stepindex - 1
             end
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
-            commandtableentry(ADVICE, "Probe Heat Checked and Off")
+            commandtableentry(ADVICE, "Probe Heat checked and Off")
         end
     elseif (procedureloop1.stepindex == 7) then
         setview(configvalues[CONFIGVIEWPEDESTAL])
@@ -6517,7 +6999,7 @@ function afterlandingsteps()
                 end
             end
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
-            commandtableentry(ADVICE, "Transponder Checked and " .. TransponderPostotring(get(transponderpos)))
+            commandtableentry(ADVICE, "Transponder checked and " .. TransponderPostotring(get(transponderpos)))
         end
     elseif (procedureloop1.stepindex == 9) then
         setview(configvalues[CONFIGVIEWTHROTTLE])
@@ -6530,7 +7012,7 @@ function afterlandingsteps()
                 procedureloop1.stepindex = procedureloop1.stepindex - 1
             end        
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
-            commandtableentry(ADVICE, "Flaps Checked and Up")
+            commandtableentry(ADVICE, "Flaps checked and Up")
         end
     elseif (procedureloop1.stepindex == 11) then
         speedbrakeleverrounded = roundnumber(get(speedbrakelever), 1)
@@ -6557,7 +7039,7 @@ function afterlandingsteps()
                 procedureloop1.stepindex = procedureloop1.stepindex - 1
             end
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
-            commandtableentry(ADVICE, "Both Flight Directors Checked and Off")
+            commandtableentry(ADVICE, "Both Flight Directors checked and Off")
         end
     elseif (procedureloop1.stepindex == 14) then
          if ((get(efiswxpilotpos) == ON) or (get(efiswxfopos) == ON)) then
@@ -6568,7 +7050,7 @@ function afterlandingsteps()
                 procedureloop1.stepindex = procedureloop1.stepindex - 1
             end
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
-            commandtableentry(ADVICE, "Both Weather Radars Checked and Off")
+            commandtableentry(ADVICE, "Both Weather Radars checked and Off")
         end
     elseif (procedureloop1.stepindex == 15) then
          if ((get(efisterrpilotpos) == ON) or (get(efisterrfopos) == ON)) then
@@ -6579,7 +7061,7 @@ function afterlandingsteps()
                 procedureloop1.stepindex = procedureloop1.stepindex - 1
             end
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
-            commandtableentry(ADVICE, "Both Terrain Radars Checked and Off")
+            commandtableentry(ADVICE, "Both Terrain Radars checked and Off")
         end
     elseif (procedureloop1.stepindex == 16) then
         if (get(autobrakepos) ~= AUTOBRAKEOFF) then
@@ -6590,7 +7072,7 @@ function afterlandingsteps()
                 procedureloop1.stepindex = procedureloop1.stepindex - 1
             end
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
-            commandtableentry(ADVICE, "Auto Brake Checked and Off")
+            commandtableentry(ADVICE, "Auto Brake checked and Off")
         end
     elseif (procedureloop1.stepindex == 17) then
         if (get(aponstat) == ON) then
@@ -6667,7 +7149,7 @@ function beforetaxisteps()
                 procedureloop1.stepindex = procedureloop1.stepindex - 1
             end
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and (get(groundspeed) < 1) and not procedureloop1.steprepeat) then
-            commandtableentry(ADVICE, "Chocks Checked and Removed")
+            commandtableentry(ADVICE, "Chocks checked and Removed")
         end
     elseif (procedureloop1.stepindex == 2) then
         setview(DEFAULTVIEW)
@@ -6681,7 +7163,7 @@ function beforetaxisteps()
                 procedureloop1.stepindex = procedureloop1.stepindex - 1
             end
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
-            commandtableentry(ADVICE, "Domelight Checked and Off")
+            commandtableentry(ADVICE, "Domelight checked and Off")
         end
     elseif (procedureloop1.stepindex == 4) then
         setview(configvalues[CONFIGVIEWOVERHEADPANEL])
@@ -6694,7 +7176,7 @@ function beforetaxisteps()
                 procedureloop1.stepindex = procedureloop1.stepindex - 1
             end
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
-            commandtableentry(ADVICE, "Position Lights Checked and Steady")
+            commandtableentry(ADVICE, "Position Lights checked and Steady")
         end
     elseif (procedureloop1.stepindex == 6) then
         if (get(beaconlights) == OFF) then
@@ -6705,7 +7187,7 @@ function beforetaxisteps()
                 togglecollisionlights(ON)
             end
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
-            commandtableentry(ADVICE, "Collision Lights Checked and On")
+            commandtableentry(ADVICE, "Collision Lights checked and On")
         end  
     elseif (procedureloop1.stepindex == 7) then
         if (get(seatbeltsignpos) ~= SEATBELTSIGNON) then
@@ -6716,7 +7198,7 @@ function beforetaxisteps()
                 procedureloop1.stepindex = procedureloop1.stepindex - 1
             end
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
-            commandtableentry(ADVICE, "Seatbeltsigns Checked and On")
+            commandtableentry(ADVICE, "Seatbeltsigns checked and On")
         end
     elseif (procedureloop1.stepindex == 8) then
         if (get(logolighton) ~= ON) then
@@ -6727,7 +7209,7 @@ function beforetaxisteps()
                 procedureloop1.stepindex = procedureloop1.stepindex - 1
             end
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
-            commandtableentry(ADVICE, "Logo Lights Checked and On")
+            commandtableentry(ADVICE, "Logo Lights checked and On")
         end
     elseif (procedureloop1.stepindex == 9) then
         if (get(yawdamperswitch) ~= ON) then
@@ -6738,7 +7220,7 @@ function beforetaxisteps()
                 set(yawdamperswitch, ON)
             end
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
-                commandtableentry(ADVICE, "Yaw Damper Checked and On") 
+                commandtableentry(ADVICE, "Yaw Damper checked and On") 
         end
     elseif (procedureloop1.stepindex == 10) then
         if ((get(hydro1pos) ~= ON) or (get(hydro2pos) ~= ON) or (get(elechydro1pos) ~= ON) or (get(elechydro2pos) ~= ON)) then
@@ -6752,7 +7234,7 @@ function beforetaxisteps()
                 set(elechydro2pos, ON)
             end
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
-            commandtableentry(ADVICE, "Hydraulic Pumps Checked and On") 
+            commandtableentry(ADVICE, "Hydraulic Pumps checked and On") 
         end
     elseif (procedureloop1.stepindex == 11) then
         if ((get(wheatlfwdpos) == OFF) or (get(wheatrfwdpos) == OFF) or (get(wheatlsidepos) == OFF) or (get(wheatrsidepos) == OFF)) then
@@ -6763,7 +7245,7 @@ function beforetaxisteps()
                 procedureloop1.stepindex = procedureloop1.stepindex - 1
             end
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON)  and not procedureloop1.steprepeat) then
-            commandtableentry(ADVICE, "Window Heat Checked and On")
+            commandtableentry(ADVICE, "Window Heat checked and On")
         end
     elseif (procedureloop1.stepindex == 12) then
         if ((get(captainprobepos) == OFF) or (get(foprobepos) == OFF)) then
@@ -6774,7 +7256,7 @@ function beforetaxisteps()
                 procedureloop1.stepindex = procedureloop1.stepindex - 1
             end
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
-            commandtableentry(ADVICE, "Probe Heat Checked and On")
+            commandtableentry(ADVICE, "Probe Heat checked and On")
         end
     elseif (procedureloop1.stepindex == 13) then
         if ((get(starter1pos) ~= FLIGHT) or (get(starter2pos) ~= FLIGHT)) then
@@ -6785,31 +7267,41 @@ function beforetaxisteps()
                 procedureloop1.stepindex = procedureloop1.stepindex - 1
             end 
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
-            commandtableentry(ADVICE, "Both Starters Checked and FLight")
+            commandtableentry(ADVICE, "Both Starters checked and FLight")
         end
     elseif (procedureloop1.stepindex == 14) then
         setview(configvalues[CONFIGVIEWFMS])
     elseif (procedureloop1.stepindex == 15) then
         if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
-            if (get(fmccg) == 0) then
-                commandtableentry(ADVICE, "Set C G")
+            if (get(toflaps) == 0) then
+                local toflapscalc = determineTakeoffFlapsSetting(depmetar.decodedmetar)
+                commandtableentry(ADVICE, "Set Takeoff Flaps " .. tostring(toflapscalc))
                 procedureloop1.stepindex = procedureloop1.stepindex - 1
             elseif not procedureloop1.steprepeat then
-                commandtableentry(ADVICE, "C G Checked and Set")
+                commandtableentry(ADVICE, "Takeoff Flaps set and " .. tostring(get(toflaps)))
             end
         end
     elseif (procedureloop1.stepindex == 16) then
         if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
-            if ((get(v1setspeed) == 0) or (get(v2setspeed) == 0) or (get(vrsetspeed) == 0)) then
-                commandtableentry(ADVICE, "Set V Speeds")
+            if (get(fmccg) == 0) then
+                commandtableentry(ADVICE, "Set C G " .. tostring(roundnumber(get(tabcg),1)))
                 procedureloop1.stepindex = procedureloop1.stepindex - 1
             elseif not procedureloop1.steprepeat then
-                commandtableentry(ADVICE, "V Speeds Checked and Set")
+                commandtableentry(ADVICE, "C G checked and " .. tostring(get(fmccg)))
             end
         end
     elseif (procedureloop1.stepindex == 17) then
-        setview(configvalues[CONFIGVIEWMAINPANEL])
+        if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
+            if ((get(v1setspeed) == 0) or (get(v2setspeed) == 0) or (get(vrsetspeed) == 0)) then
+                commandtableentry(ADVICE, "Enter V Speeds")
+                procedureloop1.stepindex = procedureloop1.stepindex - 1
+            elseif not procedureloop1.steprepeat then
+                commandtableentry(ADVICE, "V Speeds checked and Set")
+            end
+        end
     elseif (procedureloop1.stepindex == 18) then
+        setview(configvalues[CONFIGVIEWMAINPANEL])
+    elseif (procedureloop1.stepindex == 19) then
         if ((get(fdpilotpos) == OFF) or (get(fdfopos) == OFF)) then
             if (configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                 togglefds(ON)
@@ -6818,18 +7310,18 @@ function beforetaxisteps()
                 procedureloop1.stepindex = procedureloop1.stepindex - 1
             end
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
-            commandtableentry(ADVICE, "Flight Directors Checked and On")
+            commandtableentry(ADVICE, "Flight Directors checked and On")
         end
-    elseif (procedureloop1.stepindex == 19) then
+    elseif (procedureloop1.stepindex == 20) then
         if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
             if (get(aplnavstat) ~= ON) then
                 commandtableentry(ADVICE, "Arm L NAV")
                 procedureloop1.stepindex = procedureloop1.stepindex - 1
             elseif not procedureloop1.steprepeat then
-                commandtableentry(ADVICE, "L NAV Checked and ARMED")
+                commandtableentry(ADVICE, "L NAV checked and ARMED")
             end
         end
-    elseif (procedureloop1.stepindex == 20) then
+    elseif (procedureloop1.stepindex == 21) then
         if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
             if (get(apvnavstat) ~= ON) then
                 commandtableentry(ADVICE, "Arm V NAV")
@@ -6838,29 +7330,28 @@ function beforetaxisteps()
                 commandtableentry(ADVICE, "V NAV checked and ARMED")
             end
         end
-    elseif (procedureloop1.stepindex == 21) then
-        setview(configvalues[CONFIGVIEWTHROTTLE])
     elseif (procedureloop1.stepindex == 22) then
-        if ((get(toflaps) > 0) and (get(toflapsset) == OFF)) then  
+        setview(configvalues[CONFIGVIEWTHROTTLE])
+    elseif (procedureloop1.stepindex == 23) then
+        local toflapscalc = determineTakeoffFlapsSetting(depmetar.decodedmetar)
+        if ((convflaplevertoflappos(get(flapleverpos)) ~= get(toflaps)))  then  
             if (configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
-                toflapscmd = "laminar/B738/push_button/flaps_" .. tostring(get(toflaps))
+                local toflapscmd = "laminar/B738/push_button/flaps_" .. get(toflaps)
                 helpers.command_once(toflapscmd)
             elseif (configvalues[CONFIGVOICEADVICEONLY] == ON) then
-                toflapscmd = "Set Flaps " .. tostring(get(toflaps))
+                toflapscmd = "Set Flap Lever " .. tostring(get(toflaps))
                 commandtableentry(ADVICE, toflapscmd)
                 procedureloop1.stepindex = procedureloop1.stepindex - 1
             end
-        elseif (get(toflaps) > 0) then
-            if ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
-                commandtableentry(ADVICE, "Takeoff Flaps Checked and Set")
-            end
+        elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
+                commandtableentry(ADVICE, "Takeoff Flaps checked and " .. get(toflaps))
         end
-    elseif ((procedureloop1.stepindex == 23) and (configvalues[CONFIGVOICEADVICEONLY] == ON))then
+    elseif ((procedureloop1.stepindex == 24) and (configvalues[CONFIGVOICEADVICEONLY] == ON))then
         if (get(parkingbrakepos) ~= OFF) then
             commandtableentry(ADVICE, "Release Parking Brake")
             procedureloop1.stepindex = procedureloop1.stepindex - 1
         elseif ((get(groundspeed) < 1) and not procedureloop1.steprepeat) then
-            commandtableentry(ADVICE, "Parking Brake Checked and Released")
+            commandtableentry(ADVICE, "Parking Brake checked and Released")
         end
     elseif (procedureloop1.stepindex == 24) then
         setview(configvalues[CONFIGVIEWMAINPANEL])
@@ -6929,7 +7420,7 @@ function beforetakeoffsteps()
                 end
             end
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
-            commandtableentry(ADVICE, "Transponder Checked and T A R A")
+            commandtableentry(ADVICE, "Transponder checked and T A R A")
         end
     elseif (procedureloop1.stepindex == 3) then
         setview(configvalues[CONFIGVIEWOVERHEADPANEL])
@@ -6942,7 +7433,7 @@ function beforetakeoffsteps()
                 procedureloop1.stepindex = procedureloop1.stepindex - 1
             end
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
-            commandtableentry(ADVICE, "Position Lights Checked and Strobe")
+            commandtableentry(ADVICE, "Position Lights checked and Strobe")
         end
     elseif (procedureloop1.stepindex == 5) then
         if ((get(llights1) == OFF) or (get(llights2) == OFF) or (get(llights3) == OFF) or (get(llights4) == OFF)) then
@@ -6953,7 +7444,7 @@ function beforetakeoffsteps()
                 procedureloop1.stepindex = procedureloop1.stepindex - 1
             end
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
-            commandtableentry(ADVICE, "Landing Lights Checked and On")
+            commandtableentry(ADVICE, "Landing Lights checked and On")
         end
     elseif (procedureloop1.stepindex == 6) then
         if (get(taxilight)  ~= OFF) then
@@ -6964,7 +7455,7 @@ function beforetakeoffsteps()
                 procedureloop1.stepindex = procedureloop1.stepindex - 1
             end
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
-            commandtableentry(ADVICE, "Taxi Lights Checked and Off")
+            commandtableentry(ADVICE, "Taxi Lights checked and Off")
         end
     elseif (procedureloop1.stepindex == 7) then
         if ((get(rwylightl) == ON) or (get(rwylightl) == ON)) then
@@ -6975,7 +7466,7 @@ function beforetakeoffsteps()
                 procedureloop1.stepindex = procedureloop1.stepindex - 1
             end
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
-            commandtableentry(ADVICE, "Runway Turnoff Lights Checked and Off")
+            commandtableentry(ADVICE, "Runway Turnoff Lights checked and Off")
         end
     elseif (procedureloop1.stepindex == 8) then
         setview(configvalues[CONFIGVIEWMAINPANEL])
@@ -6990,7 +7481,7 @@ function beforetakeoffsteps()
                 procedureloop1.stepindex = procedureloop1.stepindex - 1
             end
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
-            commandtableentry(ADVICE, "Auto Brake Checked and R T O")
+            commandtableentry(ADVICE, "Auto Brake checked and R T O")
         end
     elseif (procedureloop1.stepindex == 10) then
         local headingrounded = nil
@@ -7007,7 +7498,7 @@ function beforetakeoffsteps()
                     commandtableentry(ADVICE, "Set M C P Heading" .. addspaces(padNumberWithZerosStrict(headingrounded, 3)))
                     procedureloop1.stepindex = procedureloop1.stepindex - 1
                 elseif not procedureloop1.steprepeat then
-                    commandtableentry(ADVICE, "M C P Heading Checked" .. addspaces(padNumberWithZerosStrict(headingrounded, 3)))
+                    commandtableentry(ADVICE, "M C P Heading checked" .. addspaces(padNumberWithZerosStrict(headingrounded, 3)))
                 end
             end
         end
@@ -7017,7 +7508,7 @@ function beforetakeoffsteps()
                 commandtableentry(ADVICE, "Arm L NAV")
                 procedureloop1.stepindex = procedureloop1.stepindex - 1
             elseif not procedureloop1.steprepeat then
-                commandtableentry(ADVICE, "L NAV Checked and ARMED")
+                commandtableentry(ADVICE, "L NAV checked and ARMED")
             end
         end
     elseif (procedureloop1.stepindex == 12) then
@@ -7026,7 +7517,7 @@ function beforetakeoffsteps()
                 commandtableentry(ADVICE, "Arm VNAV")
                 procedureloop1.stepindex = procedureloop1.stepindex - 1
             elseif not procedureloop1.steprepeat then
-                commandtableentry(ADVICE, "V NAV Checked and ARMED")
+                commandtableentry(ADVICE, "V NAV checked and ARMED")
             end
         end
     elseif (procedureloop1.stepindex == 13) then
@@ -7035,7 +7526,7 @@ function beforetakeoffsteps()
                 commandtableentry(ADVICE, "Arm Autothrottle")
                 procedureloop1.stepindex = procedureloop1.stepindex - 1
             elseif not procedureloop1.steprepeat then
-                commandtableentry(ADVICE, "Autothrottle Checked and Armed")
+                commandtableentry(ADVICE, "Autothrottle checked and Armed")
             end
         end
     end
@@ -7101,7 +7592,7 @@ function atparkingpositionsteps()
                 procedureloop1.stepindex = procedureloop1.stepindex - 1
             end
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
-            commandtableentry(ADVICE, "Chocks Checked and Set")
+            commandtableentry(ADVICE, "Chocks checked and Set")
         end
     elseif ((procedureloop1.stepindex == 3) and (get(sunpitchdegrees) < 0)) then
         setview(configvalues[CONFIGVIEWUPPEROVERHEADPANEL])
@@ -7114,7 +7605,7 @@ function atparkingpositionsteps()
                 setdomelight(DOMELIGHTDIM)
             end
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
-            commandtableentry(ADVICE, "Dome light Checked and On")
+            commandtableentry(ADVICE, "Dome light checked and On")
         end
     elseif (procedureloop1.stepindex == 5) then
         setview(configvalues[CONFIGVIEWPEDESTAL])
@@ -7129,7 +7620,7 @@ function atparkingpositionsteps()
                 end
             end
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
-            commandtableentry(ADVICE, "Transponder Checked and Standby")
+            commandtableentry(ADVICE, "Transponder checked and Standby")
         end
     elseif (procedureloop1.stepindex == 7) then
         setview(configvalues[CONFIGVIEWOVERHEADPANEL])
@@ -7142,7 +7633,7 @@ function atparkingpositionsteps()
                 procedureloop1.stepindex = procedureloop1.stepindex - 1
             end
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
-            commandtableentry(ADVICE, "Taxi Lights Checked and Off")
+            commandtableentry(ADVICE, "Taxi Lights checked and Off")
         end
     elseif (procedureloop1.stepindex == 9) then
         if (get(logolighton) ~= OFF) then
@@ -7153,7 +7644,7 @@ function atparkingpositionsteps()
                 procedureloop1.stepindex = procedureloop1.stepindex - 1
             end
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
-            commandtableentry(ADVICE, "Logo Lights Checked and Off")
+            commandtableentry(ADVICE, "Logo Lights checked and Off")
         end
     elseif (procedureloop1.stepindex == 10) then
         if (get(seatbeltsignpos) ~= SEATBELTSIGNOFF) then
@@ -7164,7 +7655,7 @@ function atparkingpositionsteps()
                 procedureloop1.stepindex = procedureloop1.stepindex - 1
             end
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
-            commandtableentry(ADVICE, "Seatbeltsigns Checked and Off")
+            commandtableentry(ADVICE, "Seatbeltsigns checked and Off")
         end
     elseif (procedureloop1.stepindex == 11) then
         if ((get(starter1pos) ~= AUTO) or (get(starter2pos) ~= AUTO)) then
@@ -7180,9 +7671,9 @@ function atparkingpositionsteps()
             end   
         elseif ((configvalues[CONFIGVOICEADVICEONLY] == ON) and not procedureloop1.steprepeat) then
             if (get(starterauto) == ON) then
-                commandtableentry(ADVICE, "Both Starters Checked and Auto")
+                commandtableentry(ADVICE, "Both Starters checked and Auto")
             else
-                commandtableentry(ADVICE, "Both Starters Checked and Off")
+                commandtableentry(ADVICE, "Both Starters checked and Off")
             end
         end
     elseif (procedureloop1.stepindex == 12) then
@@ -9483,18 +9974,7 @@ function procedureloop_1()
                 end
             end
         elseif ((procedureloop1.stepindex <= proceduretable[procedureloop1.lock].steps) and not procedureabort and not proceduskipstep) then
-            if (procedureloop1.lock == SETILSPROCEDURE) then
-                if setilssteps() then
-                    procedureloop1.lock = NOPROCEDURE
-                end
-            elseif (procedureloop1.lock == SETVREF30PROCEDURE) then
-                appflapscalc, appvrefcalc = calcappflapsvref()
-                if setvref(appflapscalc, appvrefcalc) then
-                    procedureloop1.lock = NOPROCEDURE
-                end
-            else
                 proceduretable[procedureloop1.lock].procedurefunction()
-            end
         elseif ((((procedureloop1.stepindex > proceduretable[procedureloop1.lock].steps) or procedureabort)) and not procedureskipstep) then
             if (procedureloop1.stepindex > proceduretable[procedureloop1.lock].steps) then
                 if (proceduretable[procedureloop1.lock].name  ~= "") then
@@ -9618,6 +10098,75 @@ function procedureloop_2()
 end
 
 --------------------------------------------------------------------------------------------------------------
+-- procedureloop_3() function
+
+function procedureloop_3()
+
+    if (procedureloop3.lock ~= NOPROCEDURE) then
+        if ((procedureloop3.stepindex == 0) and not procedureabort and not procedureskipstep) then
+            if (proceduretable[procedureloop3.lock].name  ~= "") then
+                if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
+                    commandtableentry(ADVICE, proceduretable[procedureloop3.lock].name .. " Procedure")
+                else
+                    commandtableentry(TEXT, proceduretable[procedureloop3.lock].name .. " Procedure")
+                end
+            end
+        elseif ((procedureloop3.stepindex <= proceduretable[procedureloop3.lock].steps) and not procedureabort and not proceduskipstep) then
+                proceduretable[procedureloop3.lock].procedurefunction()
+        elseif ((((procedureloop3.stepindex > proceduretable[procedureloop3.lock].steps) or procedureabort)) and not procedureskipstep) then
+            if (procedureloop3.stepindex > proceduretable[procedureloop3.lock].steps) then
+                if (proceduretable[procedureloop3.lock].name  ~= "") then
+                    if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
+                        commandtableentry(ADVICE, proceduretable[procedureloop3.lock].name .. " Procedure Complete")
+                    else
+                        commandtableentry(TEXT, proceduretable[procedureloop3.lock].name .. " Procedure Complete")
+                    end
+                end
+            elseif procedureabort then
+                if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
+                    commandtableentry(ADVICE, proceduretable[procedureloop3.lock].name .. " Procedure Aborted")
+                else
+                    commandtableentry(TEXT, proceduretable[procedureloop3.lock].name .. " Procedure Aborted")
+                end
+                procedureabort = false
+            end
+            proceduretable[procedureloop3.lock].set = true
+            procedureloop3.lock = NOPROCEDURE
+        end
+        
+        if (procedureloop3.lock == NOPROCEDURE) then
+            procedureloop3.stepindex = 0
+        else
+            procedureloop3.stepindex = procedureloop3.stepindex + 1
+        end
+
+        if (procedureloop3.stepindex == procedureloop3.stepindexprevious) then
+            procedureloop3.steprepeat = true
+        else
+            procedureloop3.steprepeat = false
+            procedureloop3.stepindexprevious = procedureloop3.stepindex
+        end
+
+        if procedureskipstep then
+            if (configvalues[CONFIGVOICEADVICEONLY] == ON) then
+                commandtableentry(ADVICE, "Procedure Step Skipped")
+            else
+                commandtableentry(TEXT, "Procedure Step Skipped")
+            end
+            procedureskipstep = false
+            procedureloop3.stepindex = procedureloop3.stepindex + 1
+        end
+    else
+        procedureloop3.stepindex = 0
+        procedureloop3.stepindexprevious = 0
+        procedureloop3.steprepeat = false
+    end
+
+    return true
+
+end
+
+--------------------------------------------------------------------------------------------------------------
 -- do_yal()
 
 function P.do_yal()
@@ -9647,9 +10196,11 @@ function P.do_yal()
 
     sasl.logDebug("PROCEDURELOOP1: LOCK ".. procedureloop1.lock .. " STEPINDEX " .. procedureloop1.stepindex)
     sasl.logDebug("PROCEDURELOOP2: LOCK ".. procedureloop2.lock .. " STEPINDEX " .. procedureloop2.stepindex)
+    sasl.logDebug("PROCEDURELOOP3: LOCK ".. procedureloop3.lock .. " STEPINDEX " .. procedureloop3.stepindex)
 
     procedureloop_1()
     procedureloop_2()
+    procedureloop_3()
 
     commandtableloop()
 
@@ -9699,7 +10250,8 @@ menu_above1000 = sasl.appendMenuItem(P.menu_main, "Above 10000", altitudea10000)
 menu_below1000 = sasl.appendMenuItem(P.menu_main, "Below 10000", altitudeb10000)
 menu_ils_freq = sasl.appendMenuItem(P.menu_main, "Set ILS/GLS Freq/Course", setilsproc)
 menu_copy_nav = sasl.appendMenuItem(P.menu_main, "Copy NAV1/MMR1 to NAV2/MMR2", copynav)
-menu_set_vref = sasl.appendMenuItem(P.menu_main, "Set VREF 30", setvrefproc)
+menu_set_vref = sasl.appendMenuItem(P.menu_main, "Set Landing Flaps/VREF", setvrefproc)
+menu_set_toflaps = sasl.appendMenuItem(P.menu_main, "Set Takeoff Flaps", settoflapsproc)
 sasl.appendMenuSeparator ( P.menu_main )
 menu_test = sasl.appendMenuItem(P.menu_main, "Tests", test)
 sasl.appendMenuSeparator ( P.menu_main )
@@ -9741,6 +10293,7 @@ function P.enableMenus()
     sasl.enableMenuItem(P.menu_main , menu_ils_freq , enable)
     sasl.enableMenuItem(P.menu_main , menu_copy_nav , enable)
     sasl.enableMenuItem(P.menu_main , menu_set_vref , enable)
+    sasl.enableMenuItem(P.menu_main , menu_set_toflaps , enable)
 
     sasl.enableMenuItem(P.menu_main , menu_test , enable)
     sasl.enableMenuItem(P.menu_main , menu_toggle_setcockpitlights , enable)
