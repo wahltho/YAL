@@ -40,8 +40,6 @@ function P.YalinitGlobal()
 
     P.apphasils = false
 
-    P.lowerduset = OFF
-
     P.centertankoffset = false
 
     P.lowerairspacealt = 10000
@@ -134,346 +132,346 @@ end
 -- Datarefs
 
 function P.initDataref()
-    simpaused = globalProperty("sim/time/paused")
-    simfreezed = globalPropertyfae("sim/operation/override/override_planepath", 1)
-    battery = globalProperty("laminar/B738/electric/battery_pos")
-    batteryswitchcover = globalPropertyfae("laminar/B738/cover", 3)
-    emergencylights = globalProperty("laminar/B738/toggle_switch/emer_exit_lights")
-    emergencylightcover = globalPropertyfae("laminar/B738/cover", 10)
-
-    mastercautionannunc = globalProperty("sim/cockpit/warnings/annunciators/master_caution")
-
-    mainbus = globalProperty("laminar/B738/electric/main_bus")
-    parkingbrakepos = globalProperty("laminar/B738/parking_brake_pos")
-
-    pausetod = globalProperty("laminar/B738/fms/pause_td")
-
-    hidecptefb = globalProperty("laminar/B738/tab/static")
-    hidefoefb = globalProperty("laminar/B738/tab/fo_static")
-
-    chockstatus = globalProperty("laminar/B738/fms/chock_status")
-
-    wakeoverride = globalProperty("sim/operation/override/override_wake_turbulence")
-
-    aponstat = globalProperty("laminar/autopilot/ap_on")
-    apdiscpos = globalProperty("laminar/B738/autopilot/disconnect_pos")
-
-    apcmdastat = globalProperty("laminar/B738/autopilot/cmd_a_status")
-    apcmdbstat = globalProperty("laminar/B738/autopilot/cmd_b_status")
-
-    apvnavstat = globalProperty("laminar/B738/autopilot/vnav_status1")
-    aplnavstat = globalProperty("laminar/B738/autopilot/lnav_status")
-    apappstat = globalProperty("laminar/B738/autopilot/app_status")
-    apvorlocstat = globalProperty("laminar/B738/autopilot/vorloc_status")
-    apalthldstat = globalProperty("laminar/B738/autopilot/alt_hld_status")
-    aphdgselstat = globalProperty("laminar/B738/autopilot/hdg_sel_status")
-    apvsstat = globalProperty("laminar/B738/autopilot/vs_status")
-    aplvlchgstat = globalProperty("laminar/B738/autopilot/lvl_chg_status")
-
-    mmrinstalled = globalProperty("laminar/B738/fms/mmr")
-    lpvinstalled = globalProperty("laminar/B738/lpv_install")
-    mmrcptactmode = globalProperty("laminar/B738/mmr/cpt/act_mode")
-    mmrcptactvalue = globalProperty("laminar/B738/mmr/cpt/act_value")
-    mmrcptstdbymode = globalProperty("laminar/B738/mmr/cpt/stby_mode")
-    mmrfoactmode = globalProperty("laminar/B738/mmr/fo/act_mode")
-    mmrfoactvalue = globalProperty("laminar/B738/mmr/fo/act_value")
-    mmrfostdbymode = globalProperty("laminar/B738/mmr/fo/stby_mode")
-
-    apgscapturedstat = globalPropertyfae("laminar/B738/ap/glideslope_status", 1)
-    aploccapturedstat = globalPropertyfae("laminar/B738/ap/approach_status", 1)
-    aprolloutstat = globalPropertyfae("laminar/B738/ap/rollout_status", 1)
-    apflarestat = globalPropertyfae("laminar/B738/ap/flare_status", 1)
-
-    aplpvgscapturedstat = globalPropertyfae("laminar/B738/ap/lpv_gs_status", 1)
-    aplpvloccapturedstat = globalPropertyfae("laminar/B738/ap/lpv_app_status", 1)
-
-    apglsgscapturedstat = globalPropertyfae("laminar/B738/ap/gls_gs_status", 1)
-    apglsloccapturedstat = globalPropertyfae("laminar/B738/ap/gls_app_status", 1)
-
-    apfacgscapturedstat = globalPropertyfae("laminar/B738/ap/gp_status", 1)
-    apfacloccapturedstat = globalPropertyfae("laminar/B738/ap/fac_status", 1)
-
-    aphdgmode = globalProperty("laminar/B738/autopilot/heading_mode")
-    apaltmode = globalProperty("laminar/B738/autopilot/altitude_mode")
-
-    atarmpos = globalProperty("laminar/B738/autopilot/autothrottle_arm_pos")
-    atn1stat = globalProperty("laminar/B738/autopilot/n1_status")
-    atspeedstat = globalProperty("laminar/B738/autopilot/speed_status1")
-    atspeedintvstat = globalProperty("laminar/B738/autopilot/spd_interv_status")
-    atn1mode = globalProperty("laminar/B738/FMS/N1_mode")
-
-    atspeedmode = globalProperty("laminar/B738/autopilot/speed_mode")
-
-    gearhandlepos = globalProperty("laminar/B738/controls/gear_handle_down")
-    lgeardeployed = globalPropertyfae("sim/aircraft/parts/acf_gear_deploy", 1)
-    ngeardeployed = globalPropertyfae("sim/aircraft/parts/acf_gear_deploy", 2)
-    rgeardeployed = globalPropertyfae("sim/aircraft/parts/acf_gear_deploy", 3)
-
-    altitude = globalProperty("laminar/B738/autopilot/altitude")
-    fmccruisealt = globalProperty("laminar/B738/autopilot/fmc_cruise_alt")
-    radioaltitude = globalProperty("sim/cockpit2/gauges/indicators/radio_altimeter_height_ft_pilot")
-
-    groundtrackmag = globalProperty("sim/cockpit2/gauges/indicators/ground_track_mag_pilot")
-
-    trimwheel = globalProperty("laminar/B738/flt_ctrls/trim_wheel")
-    trimcalc = globalProperty("laminar/B738/FMS/trim_calc")
-
-    gpuavailable = globalProperty("laminar/B738/gpu_available")
-    jetwaypoweravailable = globalProperty("laminar/B738/jetway_power")
-    autogategpu = globalProperty("laminar/B738/autogate_gpu")
-    gpuon = globalProperty("sim/cockpit/electrical/gpu_on")
-
-    apustarterpos = globalProperty("laminar/B738/spring_toggle_switch/APU_start_pos")
-    apurunning = globalProperty("sim/cockpit/engine/APU_running")
-    apupsi = globalProperty("laminar/B738/air/apu_psi")
-    apugenoffbus = globalProperty("laminar/B738/annunciator/apu_gen_off_bus")
-    apupowerbus1 = globalProperty("laminar/B738/electrical/apu_power_bus1")
-    apupowerbus2 = globalProperty("laminar/B738/electrical/apu_power_bus2")
-
-    announcsourceoff1 = globalProperty("laminar/B738/annunciator/source_off1")
-    announcsourceoff2 = globalProperty("laminar/B738/annunciator/source_off2")
-
-    gen1pos = globalPropertyiae("sim/cockpit/electrical/generator_on", 1)
-    gen2pos = globalPropertyiae("sim/cockpit/electrical/generator_on", 2)
-
-    bleedair1pos = globalProperty("laminar/B738/toggle_switch/bleed_air_1_pos")
-    bleedair2pos = globalProperty("laminar/B738/toggle_switch/bleed_air_2_pos")
-    bleedairapupos = globalProperty("laminar/B738/toggle_switch/bleed_air_apu_pos")
-    isolvalvepos = globalProperty("laminar/B738/air/isolation_valve_pos")
-    packlpos = globalProperty("laminar/B738/air/l_pack_pos")
-    packrpos = globalProperty("laminar/B738/air/r_pack_pos")
-    trimairpos = globalProperty("laminar/B738/air/trim_air_pos")
-    lrecircfanpos = globalProperty("laminar/B738/air/l_recirc_fan_pos")
-    rrecircfanpos = globalProperty("laminar/B738/air/r_recirc_fan_pos")
-
-    starterauto = globalProperty("laminar/B738/engine_start_auto")
-    starter1pos = globalProperty("laminar/B738/engine/starter1_pos")
-    starter2pos = globalProperty("laminar/B738/engine/starter2_pos")
-
-    mixture1pos = globalProperty("laminar/B738/engine/mixture_ratio1")
-    mixture2pos = globalProperty("laminar/B738/engine/mixture_ratio2")
-
-    reverser1pos = globalProperty("laminar/B738/flt_ctrls/reverse_lever1")
-    reverser2pos = globalProperty("laminar/B738/flt_ctrls/reverse_lever2")
-
-    totalfuellbs = globalProperty("laminar/B738/fuel/total_tank_lbs")
-    totalfuelkgs = globalProperty("laminar/B738/fuel/total_tank_kgs")
-    fuelunit = globalProperty("laminar/B738/FMS/fmc_units")
-
-    totalweightkgs = globalProperty("sim/flightmodel/weight/m_total")
-
-    centertanklbs = globalProperty("laminar/B738/fuel/center_tank_lbs")
-    centertanklpress = globalProperty("laminar/B738/system/fuel_press_c1")
-    centertankrpress = globalProperty("laminar/B738/system/fuel_press_c2")
-    centertanklswitch = globalProperty("laminar/B738/fuel/fuel_tank_pos_ctr1")
-    centertankrswitch = globalProperty("laminar/B738/fuel/fuel_tank_pos_ctr2")
-    centertankstat = globalProperty("laminar/B738/fuel/center_status")
-    lefttanklswitch = globalProperty("laminar/B738/fuel/fuel_tank_pos_lft1")
-    lefttankrswitch = globalProperty("laminar/B738/fuel/fuel_tank_pos_lft2")
-    righttanklswitch = globalProperty("laminar/B738/fuel/fuel_tank_pos_rgt2")
-    righttankrswitch = globalProperty("laminar/B738/fuel/fuel_tank_pos_rgt1")
-
-    eng1n1ratio = globalProperty("laminar/B738/FMS/eng1_N1_ratio")
-    eng2n1ratio = globalProperty("laminar/B738/FMS/eng2_N1_ratio")
-    eng1n1percent = globalPropertyfae("sim/flightmodel2/engines/N1_percent", 1)
-    eng2n1percent = globalPropertyfae("sim/flightmodel2/engines/N1_percent", 2)
-    eng1n2percent = globalPropertyfae("sim/flightmodel2/engines/N2_percent", 1)
-    eng2n2percent = globalPropertyfae("sim/flightmodel2/engines/N2_percent", 2)
-
-    eng1heatpos = globalProperty("laminar/B738/ice/eng1_heat_pos")
-    eng2heatpos = globalProperty("laminar/B738/ice/eng2_heat_pos")
-    wingheatpos = globalProperty("laminar/B738/ice/wing_heat_pos")
-
-    hydro1pos = globalProperty("laminar/B738/toggle_switch/hydro_pumps1_pos")
-    hydro2pos = globalProperty("laminar/B738/toggle_switch/hydro_pumps2_pos")
-    elechydro1pos = globalProperty("laminar/B738/toggle_switch/electric_hydro_pumps1_pos")
-    elechydro2pos = globalProperty("laminar/B738/toggle_switch/electric_hydro_pumps2_pos")
-
-    airgroundsensor = globalProperty("laminar/B738/air_ground_sensor")
-    autobrakepos = globalProperty("laminar/B738/autobrake/autobrake_pos")
-    autobrakedisarm = globalProperty("laminar/B738/autobrake/autobrake_disarm")
-
-    fmsflightphase = globalProperty("laminar/B738/FMS/flight_phase")
-
-    fmctransalt = globalProperty("laminar/B738/FMS/fmc_trans_alt")
-    fmctranslvl = globalProperty("laminar/B738/FMS/fmc_trans_lvl")
-
-    bankanglepos = globalProperty("laminar/B738/autopilot/bank_angle_pos")
-
-    baropilot = globalProperty("laminar/B738/EFIS/baro_sel_in_hg_pilot")
-    barostd = globalProperty("laminar/B738/EFIS/baro_set_std_pilot")
-    baroinhpa = globalProperty("laminar/B738/EFIS_control/capt/baro_in_hpa")
-    baroregionpas = globalProperty("sim/weather/region/qnh_pas")
-
-    frameice = globalProperty("sim/flightmodel/failures/frm_ice")
-    tatdegc = globalProperty("laminar/B738/systems/temperature/tat_degc")
-
-    cabincruisealt = globalProperty("sim/cockpit/pressure/max_allowable_altitude")
-    cabinlandingalt = globalProperty("laminar/B738/pressurization/knobs/landing_alt")
-    missedappalt = globalProperty("laminar/B738/fms/missed_app_alt")
-
-    llightson = globalProperty("sim/cockpit/electrical/landing_lights_on")
-    llights1 = globalPropertyfae("sim/cockpit2/switches/landing_lights_switch", 1)
-    llights2 = globalPropertyfae("sim/cockpit2/switches/landing_lights_switch", 2)
-    llights3 = globalPropertyfae("sim/cockpit2/switches/landing_lights_switch", 3)
-    llights4 = globalPropertyfae("sim/cockpit2/switches/landing_lights_switch", 4)
-
-    taxilight = globalProperty("laminar/B738/toggle_switch/taxi_light_brightness_pos")
-    positionlights = globalProperty("laminar/B738/toggle_switch/position_light_pos")
-    beaconlights = globalProperty("sim/cockpit/electrical/beacon_lights_on")
-    rwylightl = globalProperty("laminar/B738/toggle_switch/rwy_light_left")
-    rwylightr = globalProperty("laminar/B738/toggle_switch/rwy_light_right")
-    logolighton = globalProperty("laminar/B738/toggle_switch/logo_light")
-
-    transponderpos = globalProperty("laminar/B738/knob/transponder_pos")
-    transpondercode = globalProperty("sim/cockpit/radios/transponder_code")
-
-    fdpilotpos = globalProperty("laminar/B738/autopilot/flight_director_pos")
-    fdfopos = globalProperty("laminar/B738/autopilot/flight_director_fo_pos")
-
-    efiswxpilotpos = globalProperty("laminar/B738/EFIS/EFIS_wx_on")
-    efiswxfopos = globalProperty("laminar/B738/EFIS/fo/EFIS_wx_on")
-    efisterrpilotpos = globalProperty("laminar/B738/EFIS_control/capt/terr_on")
-    efisterrfopos = globalProperty("laminar/B738/EFIS_control/fo/terr_on")
-    efisfixpilotpos = globalProperty("laminar/B738/EFIS/EFIS_fix_on")
-    efisfixfopos = globalProperty("laminar/B738/EFIS/fo/EFIS_fix_on")
-    efisdatapilotpos = globalProperty("laminar/B738/EFIS/capt/data_status")
-    efisdatafopos = globalProperty("laminar/B738/EFIS/fo/data_status")
-    efisairportpilotpos = globalProperty("laminar/B738/EFIS/EFIS_airport_on")
-    efisairportfopos = globalProperty("laminar/B738/EFIS/fo/EFIS_airport_on")
-    efispospilotpos = globalProperty("laminar/B738/pfd/gps1_pos_show")
-    efisposfopos = globalProperty("laminar/B738/pfd/gps1_pos_fo_show")
-    efisvorpilotpos = globalProperty("laminar/B738/EFIS/EFIS_vor_on")
-    efisvorfopos = globalProperty("laminar/B738/EFIS/fo/EFIS_vor_on")
-
-    n1setsource = globalProperty("laminar/B738/toggle_switch/n1_set_source")
-
-    dhpilot = globalProperty("laminar/B738/pfd/dh_pilot")
-
-    elevation = globalProperty("sim/flightmodel/position/elevation")
-
-    depicao = globalProperty("laminar/B738/fms/ref_icao")
-    deprwyheading = globalProperty("laminar/B738/fms/ref_runway_crs_mod")
-    deprwylen = globalProperty("laminar/B738/fms/ref_runway_len")
-    deprwylatstartpos = globalProperty("laminar/B738/fms/ref_runway_start_lat_mod")
-    deprwylonstartpos = globalProperty("laminar/B738/fms/ref_runway_start_lon_mod")
-    deprwylatendpos = globalProperty("laminar/B738/fms/ref_runway_end_lat_mod")
-    deprwylonendpos = globalProperty("laminar/B738/fms/ref_runway_end_lon_mod")
-    deprwy = globalProperty("laminar/B738/fms/ref_runway")
-
-    desicao = globalProperty("laminar/B738/fms/dest_icao")
-    desrwyheading = globalProperty("laminar/B738/fms/dest_runway_crs")
-    desrwylatstartpos = globalProperty("laminar/B738/fms/dest_runway_start_lat_mod")
-    desrwylonstartpos = globalProperty("laminar/B738/fms/dest_runway_start_lon_mod")
-    desrwylatendpos = globalProperty("laminar/B738/fms/dest_runway_end_lat_mod")
-    desrwylonendpos = globalProperty("laminar/B738/fms/dest_runway_end_lon_mod")
-    desrwyalt = globalProperty("laminar/B738/pfd/des_rwy_altitude")
-    desrwylen = globalProperty("laminar/B738/fms/dest_runway_len")
-    desrwy = globalProperty("laminar/B738/fms/dest_runway")
-
-    nearesticao = globalProperty("laminar/B738/near_apt_icao")
-
-    aircraftlatpos = globalPropertyfae("laminar/B738/latlon", 23)
-    aircraftlonpos = globalPropertyfae("laminar/B738/latlon", 24)
-
-    sunpitchdegrees = globalProperty("sim/graphics/scenery/sun_pitch_degrees")
-
-    flapleverpos = globalProperty("laminar/B738/flt_ctrls/flap_lever")
-    speedbrakelever = globalProperty("laminar/B738/flt_ctrls/speedbrake_lever")
-
-    flapsupspeed = globalProperty("laminar/B738/pfd/flaps_up")
-    flaps1speed = globalProperty("laminar/B738/pfd/flaps_1")
-    flaps2speed = globalProperty("laminar/B738/pfd/flaps_2")
-    flaps5speed = globalProperty("laminar/B738/pfd/flaps_5")
-    flaps10speed = globalProperty("laminar/B738/pfd/flaps_10")
-    flaps15speed = globalProperty("laminar/B738/pfd/flaps_15")
-    flaps25speed = globalProperty("laminar/B738/pfd/flaps_25")
-
-    toflaps = globalProperty("laminar/B738/FMS/takeoff_flaps")
-    toflapsset = globalProperty("laminar/B738/FMS/takeoff_flaps_set")
-    appflaps = globalProperty("laminar/B738/FMS/approach_flaps")
-    appflapsset = globalProperty("laminar/B738/FMS/approach_flaps_set")
-
-    airspeed = globalProperty("laminar/B738/autopilot/airspeed")
-    groundspeed = globalProperty("laminar/b738/fmodpack/real_groundspeed")
-    verticalspeed = globalPropertyfae("sim/cockpit2/tcas/targets/position/vertical_speed", 1)
-
-    v1speed = globalProperty("laminar/B738/FMS/v1")
-    v2speed = globalProperty("laminar/B738/FMS/v2")
-    vrspeed = globalProperty("laminar/B738/FMS/vr")
-
-    v1setspeed = globalProperty("laminar/B738/FMS/v1_set")
-    v2setspeed = globalProperty("laminar/B738/FMS/v2_set")
-    vrsetspeed = globalProperty("laminar/B738/FMS/vr_set")
-
-    fmccg = globalProperty("laminar/B738/FMS/fmc_cg")
-    tabcg = globalProperty("laminar/B738/tab/cg_pos")
-
-    speedrestr = globalProperty("laminar/B738/autopilot/fmc_descent_r_speed1")
-
-    vref = globalProperty("laminar/B738/FMS/vref")
-    vref15 = globalProperty("laminar/B738/FMS/vref_15")
-    vref25 = globalProperty("laminar/B738/FMS/vref_25")
-    vref30 = globalProperty("laminar/B738/FMS/vref_30")
-    vref40 = globalProperty("laminar/B738/FMS/vref_40")
-
-    rain = globalProperty("sim/weather/view/rain_ratio")
-
-    lwiperpos = globalProperty("laminar/B738/switches/left_wiper_pos")
-    rwiperpos = globalProperty("laminar/B738/switches/right_wiper_pos")
-
-    mfdsyspos = globalProperty("laminar/B738/buttons/mfd_sys_pos")
-    lowerdupage = globalProperty("laminar/B738/systems/lowerDU_page")
-    lowerdupage2 = globalProperty("laminar/B738/systems/lowerDU_page2")
-
-    nav1freq = globalProperty("sim/cockpit/radios/nav1_freq_hz")
-    nav1stdbyfreq = globalProperty("sim/cockpit/radios/nav1_stdby_freq_hz")
-    nav2freq = globalProperty("sim/cockpit/radios/nav2_freq_hz")
-    nav2stdbyfreq = globalProperty("sim/cockpit/radios/nav2_stdby_freq_hz")
-    mcppilotcourse = globalProperty("laminar/B738/autopilot/course_pilot")
-    mcpcopilotcourse = globalProperty("laminar/B738/autopilot/course_copilot")
-    mcpheading = globalProperty("laminar/B738/autopilot/mcp_hdg_dial")
-    mcpspeed = globalProperty("laminar/B738/autopilot/mcp_speed_dial_kts_mach")
-    mcpaltitude = globalProperty("laminar/B738/autopilot/mcp_alt_dial")
-    mcpvsspeed = globalProperty("sim/cockpit/autopilot/vertical_velocity")
-
-    domelightpos = globalProperty("laminar/B738/toggle_switch/cockpit_dome_pos")
-
-    seatbeltsignpos = globalProperty("laminar/B738/toggle_switch/seatbelt_sign_pos")
-    nosmokingsignpos = globalProperty("laminar/B738/toggle_switch/no_smoking_pos")
-
-    brightmainpanel = globalPropertyfae("laminar/B738/electric/panel_brightness", 1)
-    brightcopilotmainpanel = globalPropertyfae("laminar/B738/electric/panel_brightness", 2)
-    brightoverhead = globalPropertyfae("laminar/B738/electric/panel_brightness", 3)
-    brightpedestral = globalPropertyfae("laminar/B738/electric/panel_brightness", 4)
-
-    genbrightbackground = globalPropertyfae("laminar/B738/electric/generic_brightness", 7)
-    genbrightafdsflood = globalPropertyfae("laminar/B738/electric/generic_brightness", 8)
-    genbrightpedestralflood = globalPropertyfae("laminar/B738/electric/generic_brightness", 9)
-
-    instrbrightoutbddu = globalPropertyfae("laminar/B738/electric/instrument_brightness", 1)
-    instrbrightcopilotoutbddu = globalPropertyfae("laminar/B738/electric/instrument_brightness", 2)
-    instrbrightinbddu = globalPropertyfae("laminar/B738/electric/instrument_brightness", 3)
-    instrbrightcopilotinbddu = globalPropertyfae("laminar/B738/electric/instrument_brightness", 4)
-    instrbrightupperdu = globalPropertyfae("laminar/B738/electric/instrument_brightness", 5)
-    instrbrightlowdu = globalPropertyfae("laminar/B738/electric/instrument_brightness", 6)
-    instrbrightinbdduS = globalPropertyfae("laminar/B738/electric/instrument_brightness", 25)
-    instrbrightlowduS = globalPropertyfae("laminar/B738/electric/instrument_brightness", 26)
-    instrbrightcopilotinbdduS = globalPropertyfae("laminar/B738/electric/instrument_brightness", 27)
-
-    captainprobepos = globalProperty("laminar/B738/toggle_switch/capt_probes_pos")
-    foprobepos = globalProperty("laminar/B738/toggle_switch/fo_probes_pos")
-    wheatlfwdpos = globalProperty("laminar/B738/ice/window_heat_l_fwd_pos")
-    wheatrfwdpos = globalProperty("laminar/B738/ice/window_heat_r_fwd_pos")
-    wheatlsidepos = globalProperty("laminar/B738/ice/window_heat_l_side_pos")
-    wheatrsidepos = globalProperty("laminar/B738/ice/window_heat_r_side_pos")
-
-    irsleftpos = globalProperty("laminar/B738/toggle_switch/irs_left")
-    irsrightpos = globalProperty("laminar/B738/toggle_switch/irs_right")
-    irsalignleft = globalProperty("laminar/B738/annunciator/irs_align_left2")
-    irsalignright = globalProperty("laminar/B738/annunciator/irs_align_right2")
-
-    yawdamperswitch = globalProperty("laminar/B738/toggle_switch/yaw_dumper_pos")
+    P.simpaused = globalProperty("sim/time/paused")
+    P.simfreezed = globalPropertyfae("sim/operation/override/override_planepath", 1)
+    P.battery = globalProperty("laminar/B738/electric/battery_pos")
+    P.batteryswitchcover = globalPropertyfae("laminar/B738/cover", 3)
+    P.emergencylights = globalProperty("laminar/B738/toggle_switch/emer_exit_lights")
+    P.emergencylightcover = globalPropertyfae("laminar/B738/cover", 10)
+
+    P.mastercautionannunc = globalProperty("sim/cockpit/warnings/annunciators/master_caution")
+
+    P.mainbus = globalProperty("laminar/B738/electric/main_bus")
+    P.parkingbrakepos = globalProperty("laminar/B738/parking_brake_pos")
+
+    P.pausetod = globalProperty("laminar/B738/fms/pause_td")
+
+    P.hidecptefb = globalProperty("laminar/B738/tab/static")
+    P.hidefoefb = globalProperty("laminar/B738/tab/fo_static")
+
+    P.chockstatus = globalProperty("laminar/B738/fms/chock_status")
+
+    P.wakeoverride = globalProperty("sim/operation/override/override_wake_turbulence")
+
+    P.aponstat = globalProperty("laminar/autopilot/ap_on")
+    P.apdiscpos = globalProperty("laminar/B738/autopilot/disconnect_pos")
+
+    P.apcmdastat = globalProperty("laminar/B738/autopilot/cmd_a_status")
+    P.apcmdbstat = globalProperty("laminar/B738/autopilot/cmd_b_status")
+
+    P.apvnavstat = globalProperty("laminar/B738/autopilot/vnav_status1")
+    P.aplnavstat = globalProperty("laminar/B738/autopilot/lnav_status")
+    P.apappstat = globalProperty("laminar/B738/autopilot/app_status")
+    P.apvorlocstat = globalProperty("laminar/B738/autopilot/vorloc_status")
+    P.apalthldstat = globalProperty("laminar/B738/autopilot/alt_hld_status")
+    P.aphdgselstat = globalProperty("laminar/B738/autopilot/hdg_sel_status")
+    P.apvsstat = globalProperty("laminar/B738/autopilot/vs_status")
+    P.aplvlchgstat = globalProperty("laminar/B738/autopilot/lvl_chg_status")
+
+    P.mmrinstalled = globalProperty("laminar/B738/fms/mmr")
+    P.lpvinstalled = globalProperty("laminar/B738/lpv_install")
+    P.mmrcptactmode = globalProperty("laminar/B738/mmr/cpt/act_mode")
+    P.mmrcptactvalue = globalProperty("laminar/B738/mmr/cpt/act_value")
+    P.mmrcptstdbymode = globalProperty("laminar/B738/mmr/cpt/stby_mode")
+    P.mmrfoactmode = globalProperty("laminar/B738/mmr/fo/act_mode")
+    P.mmrfoactvalue = globalProperty("laminar/B738/mmr/fo/act_value")
+    P.mmrfostdbymode = globalProperty("laminar/B738/mmr/fo/stby_mode")
+
+    P.apgscapturedstat = globalPropertyfae("laminar/B738/ap/glideslope_status", 1)
+    P.aploccapturedstat = globalPropertyfae("laminar/B738/ap/approach_status", 1)
+    P.aprolloutstat = globalPropertyfae("laminar/B738/ap/rollout_status", 1)
+    P.apflarestat = globalPropertyfae("laminar/B738/ap/flare_status", 1)
+
+    P.aplpvgscapturedstat = globalPropertyfae("laminar/B738/ap/lpv_gs_status", 1)
+    P.aplpvloccapturedstat = globalPropertyfae("laminar/B738/ap/lpv_app_status", 1)
+
+    P.apglsgscapturedstat = globalPropertyfae("laminar/B738/ap/gls_gs_status", 1)
+    P.apglsloccapturedstat = globalPropertyfae("laminar/B738/ap/gls_app_status", 1)
+
+    P.apfacgscapturedstat = globalPropertyfae("laminar/B738/ap/gp_status", 1)
+    P.apfacloccapturedstat = globalPropertyfae("laminar/B738/ap/fac_status", 1)
+
+    P.aphdgmode = globalProperty("laminar/B738/autopilot/heading_mode")
+    P.apaltmode = globalProperty("laminar/B738/autopilot/altitude_mode")
+
+    P.atarmpos = globalProperty("laminar/B738/autopilot/autothrottle_arm_pos")
+    P.atn1stat = globalProperty("laminar/B738/autopilot/n1_status")
+    P.atspeedstat = globalProperty("laminar/B738/autopilot/speed_status1")
+    P.atspeedintvstat = globalProperty("laminar/B738/autopilot/spd_interv_status")
+    P.atn1mode = globalProperty("laminar/B738/FMS/N1_mode")
+
+    P.atspeedmode = globalProperty("laminar/B738/autopilot/speed_mode")
+
+    P.gearhandlepos = globalProperty("laminar/B738/controls/gear_handle_down")
+    P.lgeardeployed = globalPropertyfae("sim/aircraft/parts/acf_gear_deploy", 1)
+    P.ngeardeployed = globalPropertyfae("sim/aircraft/parts/acf_gear_deploy", 2)
+    P.rgeardeployed = globalPropertyfae("sim/aircraft/parts/acf_gear_deploy", 3)
+
+    P.altitude = globalProperty("laminar/B738/autopilot/altitude")
+    P.fmccruisealt = globalProperty("laminar/B738/autopilot/fmc_cruise_alt")
+    P.radioaltitude = globalProperty("sim/cockpit2/gauges/indicators/radio_altimeter_height_ft_pilot")
+
+    P.groundtrackmag = globalProperty("sim/cockpit2/gauges/indicators/ground_track_mag_pilot")
+
+    P.trimwheel = globalProperty("laminar/B738/flt_ctrls/trim_wheel")
+    P.trimcalc = globalProperty("laminar/B738/FMS/trim_calc")
+
+    P.gpuavailable = globalProperty("laminar/B738/gpu_available")
+    P.jetwaypoweravailable = globalProperty("laminar/B738/jetway_power")
+    P.autogategpu = globalProperty("laminar/B738/autogate_gpu")
+    P.gpuon = globalProperty("sim/cockpit/electrical/gpu_on")
+
+    P.apustarterpos = globalProperty("laminar/B738/spring_toggle_switch/APU_start_pos")
+    P.apurunning = globalProperty("sim/cockpit/engine/APU_running")
+    P.apupsi = globalProperty("laminar/B738/air/apu_psi")
+    P.apugenoffbus = globalProperty("laminar/B738/annunciator/apu_gen_off_bus")
+    P.apupowerbus1 = globalProperty("laminar/B738/electrical/apu_power_bus1")
+    P.apupowerbus2 = globalProperty("laminar/B738/electrical/apu_power_bus2")
+
+    P.announcsourceoff1 = globalProperty("laminar/B738/annunciator/source_off1")
+    P.announcsourceoff2 = globalProperty("laminar/B738/annunciator/source_off2")
+
+    P.gen1pos = globalPropertyiae("sim/cockpit/electrical/generator_on", 1)
+    P.gen2pos = globalPropertyiae("sim/cockpit/electrical/generator_on", 2)
+
+    P.bleedair1pos = globalProperty("laminar/B738/toggle_switch/bleed_air_1_pos")
+    P.bleedair2pos = globalProperty("laminar/B738/toggle_switch/bleed_air_2_pos")
+    P.bleedairapupos = globalProperty("laminar/B738/toggle_switch/bleed_air_apu_pos")
+    P.isolvalvepos = globalProperty("laminar/B738/air/isolation_valve_pos")
+    P.packlpos = globalProperty("laminar/B738/air/l_pack_pos")
+    P.packrpos = globalProperty("laminar/B738/air/r_pack_pos")
+    P.trimairpos = globalProperty("laminar/B738/air/trim_air_pos")
+    P.lrecircfanpos = globalProperty("laminar/B738/air/l_recirc_fan_pos")
+    P.rrecircfanpos = globalProperty("laminar/B738/air/r_recirc_fan_pos")
+
+    P.starterauto = globalProperty("laminar/B738/engine_start_auto")
+    P.starter1pos = globalProperty("laminar/B738/engine/starter1_pos")
+    P.starter2pos = globalProperty("laminar/B738/engine/starter2_pos")
+
+    P.mixture1pos = globalProperty("laminar/B738/engine/mixture_ratio1")
+    P.mixture2pos = globalProperty("laminar/B738/engine/mixture_ratio2")
+
+    P.reverser1pos = globalProperty("laminar/B738/flt_ctrls/reverse_lever1")
+    P.reverser2pos = globalProperty("laminar/B738/flt_ctrls/reverse_lever2")
+
+    P.totalfuellbs = globalProperty("laminar/B738/fuel/total_tank_lbs")
+    P.totalfuelkgs = globalProperty("laminar/B738/fuel/total_tank_kgs")
+    P.fuelunit = globalProperty("laminar/B738/FMS/fmc_units")
+
+    P.totalweightkgs = globalProperty("sim/flightmodel/weight/m_total")
+
+    P.centertanklbs = globalProperty("laminar/B738/fuel/center_tank_lbs")
+    P.centertanklpress = globalProperty("laminar/B738/system/fuel_press_c1")
+    P.centertankrpress = globalProperty("laminar/B738/system/fuel_press_c2")
+    P.centertanklswitch = globalProperty("laminar/B738/fuel/fuel_tank_pos_ctr1")
+    P.centertankrswitch = globalProperty("laminar/B738/fuel/fuel_tank_pos_ctr2")
+    P.centertankstat = globalProperty("laminar/B738/fuel/center_status")
+    P.lefttanklswitch = globalProperty("laminar/B738/fuel/fuel_tank_pos_lft1")
+    P.lefttankrswitch = globalProperty("laminar/B738/fuel/fuel_tank_pos_lft2")
+    P.righttanklswitch = globalProperty("laminar/B738/fuel/fuel_tank_pos_rgt2")
+    P.righttankrswitch = globalProperty("laminar/B738/fuel/fuel_tank_pos_rgt1")
+
+    P.eng1n1ratio = globalProperty("laminar/B738/FMS/eng1_N1_ratio")
+    P.eng2n1ratio = globalProperty("laminar/B738/FMS/eng2_N1_ratio")
+    P.eng1n1percent = globalPropertyfae("sim/flightmodel2/engines/N1_percent", 1)
+    P.eng2n1percent = globalPropertyfae("sim/flightmodel2/engines/N1_percent", 2)
+    P.eng1n2percent = globalPropertyfae("sim/flightmodel2/engines/N2_percent", 1)
+    P.eng2n2percent = globalPropertyfae("sim/flightmodel2/engines/N2_percent", 2)
+
+    P.eng1heatpos = globalProperty("laminar/B738/ice/eng1_heat_pos")
+    P.eng2heatpos = globalProperty("laminar/B738/ice/eng2_heat_pos")
+    P.wingheatpos = globalProperty("laminar/B738/ice/wing_heat_pos")
+
+    P.hydro1pos = globalProperty("laminar/B738/toggle_switch/hydro_pumps1_pos")
+    P.hydro2pos = globalProperty("laminar/B738/toggle_switch/hydro_pumps2_pos")
+    P.elechydro1pos = globalProperty("laminar/B738/toggle_switch/electric_hydro_pumps1_pos")
+    P.elechydro2pos = globalProperty("laminar/B738/toggle_switch/electric_hydro_pumps2_pos")
+
+    P.airgroundsensor = globalProperty("laminar/B738/air_ground_sensor")
+    P.autobrakepos = globalProperty("laminar/B738/autobrake/autobrake_pos")
+    P.autobrakedisarm = globalProperty("laminar/B738/autobrake/autobrake_disarm")
+
+    P.fmsflightphase = globalProperty("laminar/B738/FMS/flight_phase")
+
+    P.fmctransalt = globalProperty("laminar/B738/FMS/fmc_trans_alt")
+    P.fmctranslvl = globalProperty("laminar/B738/FMS/fmc_trans_lvl")
+
+    P.bankanglepos = globalProperty("laminar/B738/autopilot/bank_angle_pos")
+
+    P.baropilot = globalProperty("laminar/B738/EFIS/baro_sel_in_hg_pilot")
+    P.barostd = globalProperty("laminar/B738/EFIS/baro_set_std_pilot")
+    P.baroinhpa = globalProperty("laminar/B738/EFIS_control/capt/baro_in_hpa")
+    P.baroregionpas = globalProperty("sim/weather/region/qnh_pas")
+
+    P.frameice = globalProperty("sim/flightmodel/failures/frm_ice")
+    P.tatdegc = globalProperty("laminar/B738/systems/temperature/tat_degc")
+
+    P.cabincruisealt = globalProperty("sim/cockpit/pressure/max_allowable_altitude")
+    P.cabinlandingalt = globalProperty("laminar/B738/pressurization/knobs/landing_alt")
+    P.missedappalt = globalProperty("laminar/B738/fms/missed_app_alt")
+
+    P.llightson = globalProperty("sim/cockpit/electrical/landing_lights_on")
+    P.llights1 = globalPropertyfae("sim/cockpit2/switches/landing_lights_switch", 1)
+    P.llights2 = globalPropertyfae("sim/cockpit2/switches/landing_lights_switch", 2)
+    P.llights3 = globalPropertyfae("sim/cockpit2/switches/landing_lights_switch", 3)
+    P.llights4 = globalPropertyfae("sim/cockpit2/switches/landing_lights_switch", 4)
+
+    P.taxilight = globalProperty("laminar/B738/toggle_switch/taxi_light_brightness_pos")
+    P.positionlights = globalProperty("laminar/B738/toggle_switch/position_light_pos")
+    P.beaconlights = globalProperty("sim/cockpit/electrical/beacon_lights_on")
+    P.rwylightl = globalProperty("laminar/B738/toggle_switch/rwy_light_left")
+    P.rwylightr = globalProperty("laminar/B738/toggle_switch/rwy_light_right")
+    P.logolighton = globalProperty("laminar/B738/toggle_switch/logo_light")
+
+    P.transponderpos = globalProperty("laminar/B738/knob/transponder_pos")
+    P.transpondercode = globalProperty("sim/cockpit/radios/transponder_code")
+
+    P.fdpilotpos = globalProperty("laminar/B738/autopilot/flight_director_pos")
+    P.fdfopos = globalProperty("laminar/B738/autopilot/flight_director_fo_pos")
+
+    P.efiswxpilotpos = globalProperty("laminar/B738/EFIS/EFIS_wx_on")
+    P.efiswxfopos = globalProperty("laminar/B738/EFIS/fo/EFIS_wx_on")
+    P.efisterrpilotpos = globalProperty("laminar/B738/EFIS_control/capt/terr_on")
+    P.efisterrfopos = globalProperty("laminar/B738/EFIS_control/fo/terr_on")
+    P.efisfixpilotpos = globalProperty("laminar/B738/EFIS/EFIS_fix_on")
+    P.efisfixfopos = globalProperty("laminar/B738/EFIS/fo/EFIS_fix_on")
+    P.efisdatapilotpos = globalProperty("laminar/B738/EFIS/capt/data_status")
+    P.efisdatafopos = globalProperty("laminar/B738/EFIS/fo/data_status")
+    P.efisairportpilotpos = globalProperty("laminar/B738/EFIS/EFIS_airport_on")
+    P.efisairportfopos = globalProperty("laminar/B738/EFIS/fo/EFIS_airport_on")
+    P.efispospilotpos = globalProperty("laminar/B738/pfd/gps1_pos_show")
+    P.efisposfopos = globalProperty("laminar/B738/pfd/gps1_pos_fo_show")
+    P.efisvorpilotpos = globalProperty("laminar/B738/EFIS/EFIS_vor_on")
+    P.efisvorfopos = globalProperty("laminar/B738/EFIS/fo/EFIS_vor_on")
+
+    P.n1setsource = globalProperty("laminar/B738/toggle_switch/n1_set_source")
+
+    P.dhpilot = globalProperty("laminar/B738/pfd/dh_pilot")
+
+    P.elevation = globalProperty("sim/flightmodel/position/elevation")
+
+    P.depicao = globalProperty("laminar/B738/fms/ref_icao")
+    P.deprwyheading = globalProperty("laminar/B738/fms/ref_runway_crs_mod")
+    P.deprwylen = globalProperty("laminar/B738/fms/ref_runway_len")
+    P.deprwylatstartpos = globalProperty("laminar/B738/fms/ref_runway_start_lat_mod")
+    P.deprwylonstartpos = globalProperty("laminar/B738/fms/ref_runway_start_lon_mod")
+    P.deprwylatendpos = globalProperty("laminar/B738/fms/ref_runway_end_lat_mod")
+    P.deprwylonendpos = globalProperty("laminar/B738/fms/ref_runway_end_lon_mod")
+    P.deprwy = globalProperty("laminar/B738/fms/ref_runway")
+
+    P.desicao = globalProperty("laminar/B738/fms/dest_icao")
+    P.desrwyheading = globalProperty("laminar/B738/fms/dest_runway_crs")
+    P.desrwylatstartpos = globalProperty("laminar/B738/fms/dest_runway_start_lat_mod")
+    P.desrwylonstartpos = globalProperty("laminar/B738/fms/dest_runway_start_lon_mod")
+    P.desrwylatendpos = globalProperty("laminar/B738/fms/dest_runway_end_lat_mod")
+    P.desrwylonendpos = globalProperty("laminar/B738/fms/dest_runway_end_lon_mod")
+    P.desrwyalt = globalProperty("laminar/B738/pfd/des_rwy_altitude")
+    P.desrwylen = globalProperty("laminar/B738/fms/dest_runway_len")
+    P.desrwy = globalProperty("laminar/B738/fms/dest_runway")
+
+    P.nearesticao = globalProperty("laminar/B738/near_apt_icao")
+
+    P.aircraftlatpos = globalPropertyfae("laminar/B738/latlon", 23)
+    P.aircraftlonpos = globalPropertyfae("laminar/B738/latlon", 24)
+
+    P.sunpitchdegrees = globalProperty("sim/graphics/scenery/sun_pitch_degrees")
+
+    P.flapleverpos = globalProperty("laminar/B738/flt_ctrls/flap_lever")
+    P.speedbrakelever = globalProperty("laminar/B738/flt_ctrls/speedbrake_lever")
+
+    P.flapsupspeed = globalProperty("laminar/B738/pfd/flaps_up")
+    P.flaps1speed = globalProperty("laminar/B738/pfd/flaps_1")
+    P.flaps2speed = globalProperty("laminar/B738/pfd/flaps_2")
+    P.flaps5speed = globalProperty("laminar/B738/pfd/flaps_5")
+    P.flaps10speed = globalProperty("laminar/B738/pfd/flaps_10")
+    P.flaps15speed = globalProperty("laminar/B738/pfd/flaps_15")
+    P.flaps25speed = globalProperty("laminar/B738/pfd/flaps_25")
+
+    P.toflaps = globalProperty("laminar/B738/FMS/takeoff_flaps")
+    P.toflapsset = globalProperty("laminar/B738/FMS/takeoff_flaps_set")
+    P.appflaps = globalProperty("laminar/B738/FMS/approach_flaps")
+    P.appflapsset = globalProperty("laminar/B738/FMS/approach_flaps_set")
+
+    P.airspeed = globalProperty("laminar/B738/autopilot/airspeed")
+    P.groundspeed = globalProperty("laminar/b738/fmodpack/real_groundspeed")
+    P.verticalspeed = globalPropertyfae("sim/cockpit2/tcas/targets/position/vertical_speed", 1)
+
+    P.v1speed = globalProperty("laminar/B738/FMS/v1")
+    P.v2speed = globalProperty("laminar/B738/FMS/v2")
+    P.vrspeed = globalProperty("laminar/B738/FMS/vr")
+
+    P.v1setspeed = globalProperty("laminar/B738/FMS/v1_set")
+    P.v2setspeed = globalProperty("laminar/B738/FMS/v2_set")
+    P.vrsetspeed = globalProperty("laminar/B738/FMS/vr_set")
+
+    P.fmccg = globalProperty("laminar/B738/FMS/fmc_cg")
+    P.tabcg = globalProperty("laminar/B738/tab/cg_pos")
+
+    P.speedrestr = globalProperty("laminar/B738/autopilot/fmc_descent_r_speed1")
+
+    P.vref = globalProperty("laminar/B738/FMS/vref")
+    P.vref15 = globalProperty("laminar/B738/FMS/vref_15")
+    P.vref25 = globalProperty("laminar/B738/FMS/vref_25")
+    P.vref30 = globalProperty("laminar/B738/FMS/vref_30")
+    P.vref40 = globalProperty("laminar/B738/FMS/vref_40")
+
+    P.rain = globalProperty("sim/weather/view/rain_ratio")
+
+    P.lwiperpos = globalProperty("laminar/B738/switches/left_wiper_pos")
+    P.rwiperpos = globalProperty("laminar/B738/switches/right_wiper_pos")
+
+    P.mfdsyspos = globalProperty("laminar/B738/buttons/mfd_sys_pos")
+    P.lowerdupage = globalProperty("laminar/B738/systems/lowerDU_page")
+    P.lowerdupage2 = globalProperty("laminar/B738/systems/lowerDU_page2")
+
+    P.nav1freq = globalProperty("sim/cockpit/radios/nav1_freq_hz")
+    P.nav1stdbyfreq = globalProperty("sim/cockpit/radios/nav1_stdby_freq_hz")
+    P.nav2freq = globalProperty("sim/cockpit/radios/nav2_freq_hz")
+    P.nav2stdbyfreq = globalProperty("sim/cockpit/radios/nav2_stdby_freq_hz")
+    P.mcppilotcourse = globalProperty("laminar/B738/autopilot/course_pilot")
+    P.mcpcopilotcourse = globalProperty("laminar/B738/autopilot/course_copilot")
+    P.mcpheading = globalProperty("laminar/B738/autopilot/mcp_hdg_dial")
+    P.mcpspeed = globalProperty("laminar/B738/autopilot/mcp_speed_dial_kts_mach")
+    P.mcpaltitude = globalProperty("laminar/B738/autopilot/mcp_alt_dial")
+    P.mcpvsspeed = globalProperty("sim/cockpit/autopilot/vertical_velocity")
+
+    P.domelightpos = globalProperty("laminar/B738/toggle_switch/cockpit_dome_pos")
+
+    P.seatbeltsignpos = globalProperty("laminar/B738/toggle_switch/seatbelt_sign_pos")
+    P.nosmokingsignpos = globalProperty("laminar/B738/toggle_switch/no_smoking_pos")
+
+    P.brightmainpanel = globalPropertyfae("laminar/B738/electric/panel_brightness", 1)
+    P.brightcopilotmainpanel = globalPropertyfae("laminar/B738/electric/panel_brightness", 2)
+    P.brightoverhead = globalPropertyfae("laminar/B738/electric/panel_brightness", 3)
+    P.brightpedestral = globalPropertyfae("laminar/B738/electric/panel_brightness", 4)
+
+    P.genbrightbackground = globalPropertyfae("laminar/B738/electric/generic_brightness", 7)
+    P.genbrightafdsflood = globalPropertyfae("laminar/B738/electric/generic_brightness", 8)
+    P.genbrightpedestralflood = globalPropertyfae("laminar/B738/electric/generic_brightness", 9)
+
+    P.instrbrightoutbddu = globalPropertyfae("laminar/B738/electric/instrument_brightness", 1)
+    P.instrbrightcopilotoutbddu = globalPropertyfae("laminar/B738/electric/instrument_brightness", 2)
+    P.instrbrightinbddu = globalPropertyfae("laminar/B738/electric/instrument_brightness", 3)
+    P.instrbrightcopilotinbddu = globalPropertyfae("laminar/B738/electric/instrument_brightness", 4)
+    P.instrbrightupperdu = globalPropertyfae("laminar/B738/electric/instrument_brightness", 5)
+    P.instrbrightlowdu = globalPropertyfae("laminar/B738/electric/instrument_brightness", 6)
+    P.instrbrightinbdduS = globalPropertyfae("laminar/B738/electric/instrument_brightness", 25)
+    P.instrbrightlowduS = globalPropertyfae("laminar/B738/electric/instrument_brightness", 26)
+    P.instrbrightcopilotinbdduS = globalPropertyfae("laminar/B738/electric/instrument_brightness", 27)
+
+    P.captainprobepos = globalProperty("laminar/B738/toggle_switch/capt_probes_pos")
+    P.foprobepos = globalProperty("laminar/B738/toggle_switch/fo_probes_pos")
+    P.wheatlfwdpos = globalProperty("laminar/B738/ice/window_heat_l_fwd_pos")
+    P.wheatrfwdpos = globalProperty("laminar/B738/ice/window_heat_r_fwd_pos")
+    P.wheatlsidepos = globalProperty("laminar/B738/ice/window_heat_l_side_pos")
+    P.wheatrsidepos = globalProperty("laminar/B738/ice/window_heat_r_side_pos")
+
+    P.irsleftpos = globalProperty("laminar/B738/toggle_switch/irs_left")
+    P.irsrightpos = globalProperty("laminar/B738/toggle_switch/irs_right")
+    P.irsalignleft = globalProperty("laminar/B738/annunciator/irs_align_left2")
+    P.irsalignright = globalProperty("laminar/B738/annunciator/irs_align_right2")
+
+    P.yawdamperswitch = globalProperty("laminar/B738/toggle_switch/yaw_dumper_pos")
 
     if sasl.findPluginBySignature("SRS.X-Camera") == NO_PLUGIN_ID then
         P.xcamerastatus = nil
@@ -486,211 +484,211 @@ function P.initDataref()
     --------------------------------------------------------------------------------------------------------------
     -- Variables for Monitor Switches Function, etc.
 
-    set(n1setsource, 0)
+    set(P.n1setsource, 0)
 
-    P.cabincruisealttemp = get(cabincruisealt)
-    P.cabincruisealttemp2 = get(cabincruisealt)
-    P.cabinlandingalttemp = get(cabinlandingalt)
-    P.cabinlandingalttemp2 = get(cabinlandingalt)
+    P.cabincruisealttemp = get(P.cabincruisealt)
+    P.cabincruisealttemp2 = get(P.cabincruisealt)
+    P.cabinlandingalttemp = get(P.cabinlandingalt)
+    P.cabinlandingalttemp2 = get(P.cabinlandingalt)
 
-    P.mcpspeedtemp = get(mcpspeed)
-    P.mcpspeedtemp2 = get(mcpspeed)
+    P.mcpspeedtemp = get(P.mcpspeed)
+    P.mcpspeedtemp2 = get(P.mcpspeed)
 
-    P.mcpheadingtemp = get(mcpheading)
-    P.mcpheadingtemp2 = get(mcpheading)
+    P.mcpheadingtemp = get(P.mcpheading)
+    P.mcpheadingtemp2 = get(P.mcpheading)
 
-    P.mcpaltitudetemp = get(mcpaltitude)
-    P.mcpaltitudetemp2 = get(mcpaltitude)
+    P.mcpaltitudetemp = get(P.mcpaltitude)
+    P.mcpaltitudetemp2 = get(P.mcpaltitude)
 
-    P.mcpvsspeedtemp = get(mcpvsspeed)
-    P.mcpvsspeedtemp2 = get(mcpvsspeed)
+    P.mcpvsspeedtemp = get(P.mcpvsspeed)
+    P.mcpvsspeedtemp2 = get(P.mcpvsspeed)
 
-    P.desrwyheadingtemp = get(desrwyheading)
-    P.desrwylatstartpostemp = get(desrwylatstartpos)
-    P.desrwylonstartpostemp = get(desrwylonstartpos)
-    P.desrwylatendpostemp = get(desrwylatendpos)
-    P.desrwylonendpostemp = get(desrwylonendpos)
+    P.desrwyheadingtemp = get(P.desrwyheading)
+    P.desrwylatstartpostemp = get(P.desrwylatstartpos)
+    P.desrwylonstartpostemp = get(P.desrwylonstartpos)
+    P.desrwylatendpostemp = get(P.desrwylatendpos)
+    P.desrwylonendpostemp = get(P.desrwylonendpos)
 
-    P.flapleverpostemp = get(flapleverpos)
-    P.flapleverpostemp2 = get(flapleverpos)
-    P.gearhandlepostemp = get(gearhandlepos)
-    P.speedbrakelevertemp = get(speedbrakelever)
-    P.speedbrakelevertemp2 = get(speedbrakelever)
-    P.parkingbrakepostemp = get(parkingbrakepos)
-    P.autobrakepostemp = get(autobrakepos)
-    P.autobrakedisarmtemp = get(autobrakedisarm)
-    P.autobrakedisarmtemp2 = get(autobrakedisarm)
+    P.flapleverpostemp = get(P.flapleverpos)
+    P.flapleverpostemp2 = get(P.flapleverpos)
+    P.gearhandlepostemp = get(P.gearhandlepos)
+    P.speedbrakelevertemp = get(P.speedbrakelever)
+    P.speedbrakelevertemp2 = get(P.speedbrakelever)
+    P.parkingbrakepostemp = get(P.parkingbrakepos)
+    P.autobrakepostemp = get(P.autobrakepos)
+    P.autobrakedisarmtemp = get(P.autobrakedisarm)
+    P.autobrakedisarmtemp2 = get(P.autobrakedisarm)
 
-    P.aponstattemp = get(aponstat)
+    P.aponstattemp = get(P.aponstat)
 
-    P.apcmdastattemp = get(apcmdastat)
-    P.apcmdbstattemp = get(apcmdbstat)
+    P.apcmdastattemp = get(P.apcmdastat)
+    P.apcmdbstattemp = get(P.apcmdbstat)
 
-    P.apvnavstattemp = get(apvnavstat)
-    P.aplnavstattemp = get(aplnavstat)
-    P.apappstattemp = get(apappstat)
-    P.apvorlocstattemp = get(apvorlocstat)
-    P.apalthldstattemp = get(apalthldstat)
-    P.aphdgselstattemp = get(aphdgselstat)
-    P.apvsstattemp = get(apvsstat)
-    P.aplvlchgstattemp = get(aplvlchgstat)
+    P.apvnavstattemp = get(P.apvnavstat)
+    P.aplnavstattemp = get(P.aplnavstat)
+    P.apappstattemp = get(P.apappstat)
+    P.apvorlocstattemp = get(P.apvorlocstat)
+    P.apalthldstattemp = get(P.apalthldstat)
+    P.aphdgselstattemp = get(P.aphdgselstat)
+    P.apvsstattemp = get(P.apvsstat)
+    P.aplvlchgstattemp = get(P.aplvlchgstat)
 
-    P.apgscapturedstattemp = get(apgscapturedstat)
-    P.aploccapturedstattemp = get(aploccapturedstat)
-    P.apflarestattemp = get(apflarestat)
-    P.aprolloutstattemp = get(aprolloutstat)
+    P.apgscapturedstattemp = get(P.apgscapturedstat)
+    P.aploccapturedstattemp = get(P.aploccapturedstat)
+    P.apflarestattemp = get(P.apflarestat)
+    P.aprolloutstattemp = get(P.aprolloutstat)
 
-    P.aplpvgscapturedstattemp = get(aplpvgscapturedstat)
-    P.aplpvloccapturedstattemp = get(aplpvloccapturedstat)
+    P.aplpvgscapturedstattemp = get(P.aplpvgscapturedstat)
+    P.aplpvloccapturedstattemp = get(P.aplpvloccapturedstat)
 
-    P.apglsgscapturedstattemp = get(apglsgscapturedstat)
-    P.apglsloccapturedstattemp = get(apglsloccapturedstat)
+    P.apglsgscapturedstattemp = get(P.apglsgscapturedstat)
+    P.apglsloccapturedstattemp = get(P.apglsloccapturedstat)
 
-    P.apfacgscapturedstattemp = get(apfacgscapturedstat)
-    P.apfacloccapturedstattemp = get(apfacloccapturedstat)
+    P.apfacgscapturedstattemp = get(P.apfacgscapturedstat)
+    P.apfacloccapturedstattemp = get(P.apfacloccapturedstat)
 
-    P.atarmpostemp = get(atarmpos)
-    P.atn1stattemp = get(atn1stat)
-    P.atspeedstattemp = get(atspeedstat)
-    P.atspeedintvstattemp = get(atspeedintvstat)
+    P.atarmpostemp = get(P.atarmpos)
+    P.atn1stattemp = get(P.atn1stat)
+    P.atspeedstattemp = get(P.atspeedstat)
+    P.atspeedintvstattemp = get(P.atspeedintvstat)
 
-    P.nav1freqtemp = get(nav1freq)
-    P.nav2freqtemp = get(nav2freq)
+    P.nav1freqtemp = get(P.nav1freq)
+    P.nav2freqtemp = get(P.nav2freq)
 
-    P.mcppilotcoursetemp = get(mcppilotcourse)
-    P.mcppilotcoursetemp2 = get(mcppilotcourse)
-    P.mcpcopilotcoursetemp = get(mcpcopilotcourse)
-    P.mcpcopilotcoursetemp2 = get(mcpcopilotcourse)
+    P.mcppilotcoursetemp = get(P.mcppilotcourse)
+    P.mcppilotcoursetemp2 = get(P.mcppilotcourse)
+    P.mcpcopilotcoursetemp = get(P.mcpcopilotcourse)
+    P.mcpcopilotcoursetemp2 = get(P.mcpcopilotcourse)
 
-    P.mmrcptactmodetemp = get(mmrcptactmode)
-    P.mmrcptactvaluetemp = get(mmrcptactvalue)
-    P.mmrcptstdbymodetemp = get(mmrcptstdbymode)
-    P.mmrcptstdbymodetemp2 = get(mmrcptstdbymode)
-    P.mmrfoactmodetemp = get(mmrfoactmode)
-    P.mmrfoactvaluetemp = get(mmrfoactvalue)
-    P.mmrfostdbymodetemp = get(mmrfostdbymode)
-    P.mmrfostdbymodetemp2 = get(mmrfostdbymode)
+    P.mmrcptactmodetemp = get(P.mmrcptactmode)
+    P.mmrcptactvaluetemp = get(P.mmrcptactvalue)
+    P.mmrcptstdbymodetemp = get(P.mmrcptstdbymode)
+    P.mmrcptstdbymodetemp2 = get(P.mmrcptstdbymode)
+    P.mmrfoactmodetemp = get(P.mmrfoactmode)
+    P.mmrfoactvaluetemp = get(P.mmrfoactvalue)
+    P.mmrfostdbymodetemp = get(P.mmrfostdbymode)
+    P.mmrfostdbymodetemp2 = get(P.mmrfostdbymode)
 
-    P.bankanglepostemp = get(bankanglepos)
-    P.bankanglepostemp2 = get(bankanglepos)
+    P.bankanglepostemp = get(P.bankanglepos)
+    P.bankanglepostemp2 = get(P.bankanglepos)
 
-    P.barostdtemp = get(barostd)
-    P.baropilottemp = get(baropilot)
-    P.baropilottemp2 = get(baropilot)
+    P.barostdtemp = get(P.barostd)
+    P.baropilottemp = get(P.baropilot)
+    P.baropilottemp2 = get(P.baropilot)
 
-    P.fdpilotpostemp = get(fdpilotpos)
-    P.fdfopostemp = get(fdfopos)
+    P.fdpilotpostemp = get(P.fdpilotpos)
+    P.fdfopostemp = get(P.fdfopos)
 
-    P.efiswxpilotpostemp = get(efiswxpilotpos)
-    P.efiswxfopostemp = get(efiswxfopos)
-    P.efisterrpilotpostemp = get(efisterrpilotpos)
-    P.efisterrfopostemp = get(efisterrfopos)
-    P.efisdatapilotpostemp = get(efisdatapilotpos)
-    P.efisdatafopostemp = get(efisdatafopos)
-    P.efisfixpilotpostemp = get(efisfixpilotpos)
-    P.efisfixfopostemp = get(efisfixfopos)
-    P.efisairportpilotpostemp = get(efisairportpilotpos)
-    P.efisairportfopostemp = get(efisairportfopos)
-    P.efispospilotpostemp = get(efispospilotpos)
-    P.efisposfopostemp = get(efisposfopos)
-    P.efisvorpilotpostemp = get(efisvorpilotpos)
-    P.efisvorfopostemp = get(efisvorfopos)
+    P.efiswxpilotpostemp = get(P.efiswxpilotpos)
+    P.efiswxfopostemp = get(P.efiswxfopos)
+    P.efisterrpilotpostemp = get(P.efisterrpilotpos)
+    P.efisterrfopostemp = get(P.efisterrfopos)
+    P.efisdatapilotpostemp = get(P.efisdatapilotpos)
+    P.efisdatafopostemp = get(P.efisdatafopos)
+    P.efisfixpilotpostemp = get(P.efisfixpilotpos)
+    P.efisfixfopostemp = get(P.efisfixfopos)
+    P.efisairportpilotpostemp = get(P.efisairportpilotpos)
+    P.efisairportfopostemp = get(P.efisairportfopos)
+    P.efispospilotpostemp = get(P.efispospilotpos)
+    P.efisposfopostemp = get(P.efisposfopos)
+    P.efisvorpilotpostemp = get(P.efisvorpilotpos)
+    P.efisvorfopostemp = get(P.efisvorfopos)
 
-    P.dhpilottemp = get(dhpilot)
-    P.dhpilottemp2 = get(dhpilot)
+    P.dhpilottemp = get(P.dhpilot)
+    P.dhpilottemp2 = get(P.dhpilot)
 
-    P.batterytemp = get(battery)
-    P.emergencylightstemp = get(emergencylights)
+    P.batterytemp = get(P.battery)
+    P.emergencylightstemp = get(P.emergencylights)
 
-    P.starter1postemp = get(starter1pos)
-    P.starter2postemp = get(starter2pos)
+    P.starter1postemp = get(P.starter1pos)
+    P.starter2postemp = get(P.starter2pos)
 
-    P.mixture1postemp = get(mixture1pos)
-    P.mixture2postemp = get(mixture2pos)
+    P.mixture1postemp = get(P.mixture1pos)
+    P.mixture2postemp = get(P.mixture2pos)
 
-    P.reverser1postemp = get(reverser1pos)
-    P.reverser2postemp = get(reverser2pos)
+    P.reverser1postemp = get(P.reverser1pos)
+    P.reverser2postemp = get(P.reverser2pos)
 
-    P.packlpostemp = get(packlpos)
-    P.packrpostemp = get(packrpos)
-    P.bleedair1postemp = get(bleedair1pos)
-    P.bleedair2postemp = get(bleedair2pos)
-    P.bleedairapupostemp = get(bleedairapupos)
-    P.trimairpostemp = get(trimairpos)
-    P.isolvalvepostemp = get(isolvalvepos)
-    P.lrecircfanpostemp = get(lrecircfanpos)
-    P.rrecircfanpostemp = get(rrecircfanpos)
+    P.packlpostemp = get(P.packlpos)
+    P.packrpostemp = get(P.packrpos)
+    P.bleedair1postemp = get(P.bleedair1pos)
+    P.bleedair2postemp = get(P.bleedair2pos)
+    P.bleedairapupostemp = get(P.bleedairapupos)
+    P.trimairpostemp = get(P.trimairpos)
+    P.isolvalvepostemp = get(P.isolvalvepos)
+    P.lrecircfanpostemp = get(P.lrecircfanpos)
+    P.rrecircfanpostemp = get(P.rrecircfanpos)
 
-    P.gpuontemp = get(gpuon)
+    P.gpuontemp = get(P.gpuon)
 
-    P.apustarterpostemp = get(apustarterpos)
-    P.apurunningtemp = get(apurunning)
-    P.announcsourceoff1temp = get(announcsourceoff1)
-    P.announcsourceoff2temp = get(announcsourceoff2)
+    P.apustarterpostemp = get(P.apustarterpos)
+    P.apurunningtemp = get(P.apurunning)
+    P.announcsourceoff1temp = get(P.announcsourceoff1)
+    P.announcsourceoff2temp = get(P.announcsourceoff2)
 
-    P.gen1postemp = get(gen1pos)
-    P.gen2postemp = get(gen2pos)
+    P.gen1postemp = get(P.gen1pos)
+    P.gen2postemp = get(P.gen2pos)
 
-    P.hydro1postemp = get(hydro1pos)
-    P.hydro2postemp = get(hydro2pos)
-    P.elechydro1postemp = get(elechydro1pos)
-    P.elechydro2postemp = get(elechydro2pos)
+    P.hydro1postemp = get(P.hydro1pos)
+    P.hydro2postemp = get(P.hydro2pos)
+    P.elechydro1postemp = get(P.elechydro1pos)
+    P.elechydro2postemp = get(P.elechydro2pos)
 
-    P.totalfuellbstemp = get(totalfuellbs)
-    P.totalfuellbstemp2 = get(totalfuellbs)
+    P.totalfuellbstemp = get(P.totalfuellbs)
+    P.totalfuellbstemp2 = get(P.totalfuellbs)
 
-    P.centertanklswitchtemp = get(centertanklswitch)
-    P.centertankrswitchtemp = get(centertankrswitch)
-    P.lefttanklswitchtemp = get(lefttanklswitch)
-    P.lefttankrswitchtemp = get(lefttankrswitch)
-    P.righttanklswitchtemp = get(righttanklswitch)
-    P.righttankrswitchtemp = get(righttankrswitch)
+    P.centertanklswitchtemp = get(P.centertanklswitch)
+    P.centertankrswitchtemp = get(P.centertankrswitch)
+    P.lefttanklswitchtemp = get(P.lefttanklswitch)
+    P.lefttankrswitchtemp = get(P.lefttankrswitch)
+    P.righttanklswitchtemp = get(P.righttanklswitch)
+    P.righttankrswitchtemp = get(P.righttankrswitch)
 
-    P.taxilighttemp = get(taxilight)
-    P.beaconlightstemp = get(beaconlights)
-    P.llightsontemp = get(llightson)
-    P.llights1temp = get(llights1)
-    P.llights2temp = get(llights2)
-    P.llights3temp = get(llights3)
-    P.llights4temp = get(llights4)
-    P.rwylightltemp = get(rwylightl)
-    P.rwylightrtemp = get(rwylightr)
-    P.positionlightstemp = get(positionlights)
-    P.logolightontemp = get(logolighton)
+    P.taxilighttemp = get(P.taxilight)
+    P.beaconlightstemp = get(P.beaconlights)
+    P.llightsontemp = get(P.llightson)
+    P.llights1temp = get(P.llights1)
+    P.llights2temp = get(P.llights2)
+    P.llights3temp = get(P.llights3)
+    P.llights4temp = get(P.llights4)
+    P.rwylightltemp = get(P.rwylightl)
+    P.rwylightrtemp = get(P.rwylightr)
+    P.positionlightstemp = get(P.positionlights)
+    P.logolightontemp = get(P.logolighton)
 
-    P.transponderpostemp = get(transponderpos)
+    P.transponderpostemp = get(P.transponderpos)
 
-    P.captainprobepostemp = get(captainprobepos)
-    P.foprobepostemp = get(foprobepos)
+    P.captainprobepostemp = get(P.captainprobepos)
+    P.foprobepostemp = get(P.foprobepos)
 
-    P.wheatlfwdpostemp = get(wheatlfwdpos)
-    P.wheatrfwdpostemp = get(wheatrfwdpos)
-    P.wheatlsidepostemp = get(wheatlsidepos)
-    P.wheatrsidepostemp = get(wheatrsidepos)
+    P.wheatlfwdpostemp = get(P.wheatlfwdpos)
+    P.wheatrfwdpostemp = get(P.wheatrfwdpos)
+    P.wheatlsidepostemp = get(P.wheatlsidepos)
+    P.wheatrsidepostemp = get(P.wheatrsidepos)
 
-    P.yawdamperswitchtemp = get(yawdamperswitch)
+    P.yawdamperswitchtemp = get(P.yawdamperswitch)
 
-    P.domelightpostemp = get(domelightpos)
-    P.seatbeltsignpostemp = get(seatbeltsignpos)
-    P.nosmokingsignpostemp = get(nosmokingsignpos)
+    P.domelightpostemp = get(P.domelightpos)
+    P.seatbeltsignpostemp = get(P.seatbeltsignpos)
+    P.nosmokingsignpostemp = get(P.nosmokingsignpos)
 
-    P.irsleftpostemp = get(irsleftpos)
-    P.irsleftpostemp2 = get(irsleftpos)
-    P.irsrightpostemp = get(irsrightpos)
-    P.irsrightpostemp2 = get(irsrightpos)
+    P.irsleftpostemp = get(P.irsleftpos)
+    P.irsleftpostemp2 = get(P.irsleftpos)
+    P.irsrightpostemp = get(P.irsrightpos)
+    P.irsrightpostemp2 = get(P.irsrightpos)
 
-    P.lwiperpostemp = get(lwiperpos)
-    P.lwiperpostemp2 = get(lwiperpos)
-    P.rwiperpostemp = get(rwiperpos)
-    P.rwiperpostemp2 = get(rwiperpos)
+    P.lwiperpostemp = get(P.lwiperpos)
+    P.lwiperpostemp2 = get(P.lwiperpos)
+    P.rwiperpostemp = get(P.rwiperpos)
+    P.rwiperpostemp2 = get(P.rwiperpos)
 
-    P.transpondercodetemp = get(transpondercode)
-    P.transpondercodetemp2 = get(transpondercode)
+    P.transpondercodetemp = get(P.transpondercode)
+    P.transpondercodetemp2 = get(P.transpondercode)
 
-    P.pausetodtemp = get(pausetod)
-    P.simfreezedtemp = get(simfreezed)
+    P.pausetodtemp = get(P.pausetod)
+    P.simfreezedtemp = get(P.simfreezed)
 
-    P.chockstatustmp = get(chockstatus)
+    P.chockstatustmp = get(P.chockstatus)
 
 end
 
@@ -954,7 +952,7 @@ function yalreset()
     P.remainingtimetoquit = P.configvalues[CONFIGTODPAUSEQUITTIME]
     P.remainingtimetosave = P.configvalues[CONFIGSAVETIME]
     if (P.configvalues[CONFIGWAKEOVERRIDE] == ON) then
-        set(wakeoverride, ON)
+        set(P.wakeoverride, ON)
     end
 
     P.lowerairspacealt = P.configvalues[CONFIGLOWEAIRSPACEALT]
@@ -1511,7 +1509,7 @@ end
 --------------------------------------------------------------------------------------------------------------
 function getlocalqnh(deparr)
 
-    local localqnhpas = roundnumber(get(baroregionpas) / 100) -- Default from X-Plane dataref
+    local localqnhpas = roundnumber(get(P.baroregionpas) / 100) -- Default from X-Plane dataref
     local localqnhinch = convertpressure(localqnhpas) -- Convert default hPa to inches (using existing convertpressure)
 
     -- Variable für den Altimeter-Wert aus dem METAR
@@ -1615,10 +1613,10 @@ end
 
 function togglesimfreeze()
 
-    if (get(simfreezed) == OFF) then
-        set(simfreezed, ON)
+    if (get(P.simfreezed) == OFF) then
+        set(P.simfreezed, ON)
     else
-        set(simfreezed, OFF)
+        set(P.simfreezed, OFF)
     end
 
 end
@@ -1637,7 +1635,7 @@ sasl.registerCommandHandler(my_command_togglesimfreeze, 0, togglesimfreeze_)
 
 function mastercaution()
 
-    if (((P.procedureloop1.lock ~= NOPROCEDURE) or (P.procedureloop2.lock ~= NOPROCEDURE)) and (get(mastercautionannunc) ~= ON)) then
+    if (((P.procedureloop1.lock ~= NOPROCEDURE) or (P.procedureloop2.lock ~= NOPROCEDURE)) and (get(P.mastercautionannunc) ~= ON)) then
         P.procedureskipstep = true
     end
 
@@ -1665,7 +1663,7 @@ sasl.registerCommandHandler(my_command_mastercaution, 0, mastercaution_)
 
 function headingsync()
 
-    set(mcpheading, roundnumber(get(groundtrackmag)))
+    set(P.mcpheading, roundnumber(get(P.groundtrackmag)))
 
 end
 
@@ -1722,14 +1720,14 @@ sasl.registerCommandHandler(my_command_wipersdown, 0, wipersdown_)
 function toggletaxilights(state)
 
     if (state == nil) then
-        if (get(taxilight) == OFF) then
+        if (get(P.taxilight) == OFF) then
             helpers.command_once("laminar/B738/toggle_switch/taxi_light_brigh_toggle")
-        elseif (get(taxilight) == 2) then
+        elseif (get(P.taxilight) == 2) then
             helpers.command_once("laminar/B738/toggle_switch/taxi_light_brigh_toggle")
         end
-    elseif ((state == OFF) and (get(taxilight) ~= OFF)) then
+    elseif ((state == OFF) and (get(P.taxilight) ~= OFF)) then
         helpers.command_once("laminar/B738/toggle_switch/taxi_light_brigh_toggle")
-    elseif ((state == ON) and (get(taxilight) == OFF)) then
+    elseif ((state == ON) and (get(P.taxilight) == OFF)) then
         helpers.command_once("laminar/B738/toggle_switch/taxi_light_brigh_toggle")
     end
 
@@ -1750,15 +1748,15 @@ sasl.registerCommandHandler(my_command_toggletaxilights, 0, toggletaxilights_)
 function togglecollisionlights(state)
 
     if (state == nil) then
-        if (get(beaconlights) == OFF) then
-            set(beaconlights, ON)
-        elseif (get(beaconlights) == ON) then
-            set(beaconlights, OFF)
+        if (get(P.beaconlights) == OFF) then
+            set(P.beaconlights, ON)
+        elseif (get(P.beaconlights) == ON) then
+            set(P.beaconlights, OFF)
         end
-    elseif ((state == OFF) and (get(beaconlights) ~= OFF)) then
-        set(beaconlights, OFF)
-    elseif ((state == ON) and (get(beaconlights) ~= ON)) then
-        set(beaconlights, ON)
+    elseif ((state == OFF) and (get(P.beaconlights) ~= OFF)) then
+        set(P.beaconlights, OFF)
+    elseif ((state == ON) and (get(P.beaconlights) ~= ON)) then
+        set(P.beaconlights, ON)
     end
 
 end
@@ -1777,8 +1775,8 @@ sasl.registerCommandHandler(my_command_togglecollisionlights, 0, togglecollision
 
 function togglelandinglights(state)
     if (state == nil) then
-        if (get(llightson) == OFF) then
-            if ((get(llights1) ~= OFF) or (get(llights2) ~= OFF) or (get(llights3) ~= OFF) or (get(llights4) ~= OFF)) then
+        if (get(P.llightson) == OFF) then
+            if ((get(P.llights1) ~= OFF) or (get(P.llights2) ~= OFF) or (get(P.llights3) ~= OFF) or (get(P.llights4) ~= OFF)) then
                 helpers.command_once("sim/lights/landing_lights_off")
             else
                 helpers.command_once("sim/lights/landing_lights_on")
@@ -1808,14 +1806,14 @@ sasl.registerCommandHandler(my_command_togglelandinglights, 0, togglelandingligh
 function togglelogolight(state)
 
     if (state == nil) then
-        if (get(logolighton) == OFF) then
+        if (get(P.logolighton) == OFF) then
             helpers.command_once("laminar/B738/switch/logo_light_on")
         else
             helpers.command_once("laminar/B738/switch/logo_light_off")
         end
-    elseif ((state == OFF) and (get(logolighton) ~= OFF)) then
+    elseif ((state == OFF) and (get(P.logolighton) ~= OFF)) then
         helpers.command_once("laminar/B738/switch/logo_light_off")
-    elseif ((state == ON) and (get(logolighton) ~= ON)) then
+    elseif ((state == ON) and (get(P.logolighton) ~= ON)) then
         helpers.command_once("laminar/B738/switch/logo_light_on")
     end
 
@@ -1836,29 +1834,29 @@ sasl.registerCommandHandler(my_command_togglelogolight, 0, togglelogolight_)
 function togglerwylights(state)
 
     if (state == nil) then
-        if (get(rwylightl) == ON) then
-            set(rwylightl, OFF)
+        if (get(P.rwylightl) == ON) then
+            set(P.rwylightl, OFF)
         else
-            set(rwylightl, ON)
+            set(P.rwylightl, ON)
         end
-        if (get(rwylightr) == ON) then
-            set(rwylightr, OFF)
+        if (get(P.rwylightr) == ON) then
+            set(P.rwylightr, OFF)
         else
-            set(rwylightr, ON)
+            set(P.rwylightr, ON)
         end
     elseif (state == OFF) then
-        if (get(rwylightl) == ON) then
-            set(rwylightl, OFF)
+        if (get(P.rwylightl) == ON) then
+            set(P.rwylightl, OFF)
         end
-        if (get(rwylightr) == ON) then
-            set(rwylightr, OFF)
+        if (get(P.rwylightr) == ON) then
+            set(P.rwylightr, OFF)
         end
     elseif (state == ON) then
-        if (get(rwylightl) == OFF) then
-            set(rwylightl, ON)
+        if (get(P.rwylightl) == OFF) then
+            set(P.rwylightl, ON)
         end
-        if (get(rwylightr) == OFF) then
-            set(rwylightr, ON)
+        if (get(P.rwylightr) == OFF) then
+            set(P.rwylightr, ON)
         end
     end
 end
@@ -1878,16 +1876,16 @@ sasl.registerCommandHandler(my_command_togglerwylights, 0, togglerwylights_)
 function togglepositionlights(state)
 
     if (state == nil) then
-        if (get(positionlights) == POSLIGHTSSTEADY) then
+        if (get(P.positionlights) == POSLIGHTSSTEADY) then
             helpers.command_once("laminar/B738/toggle_switch/position_light_strobe")
         else
             helpers.command_once("laminar/B738/toggle_switch/position_light_steady")
         end
-    elseif ((state == POSLIGHTSSTEADY) and (get(positionlights) ~= POSLIGHTSSTEADY)) then
+    elseif ((state == POSLIGHTSSTEADY) and (get(P.positionlights) ~= POSLIGHTSSTEADY)) then
         helpers.command_once("laminar/B738/toggle_switch/position_light_steady")
-    elseif ((state == POSLIGHTSSTROBE) and (get(positionlights) ~= POSLIGHTSSTROBE)) then
+    elseif ((state == POSLIGHTSSTROBE) and (get(P.positionlights) ~= POSLIGHTSSTROBE)) then
         helpers.command_once("laminar/B738/toggle_switch/position_light_strobe")
-    elseif ((state == POSLIGHTSOFF) and (get(positionlights) ~= POSLIGHTSOFF)) then
+    elseif ((state == POSLIGHTSOFF) and (get(P.positionlights) ~= POSLIGHTSOFF)) then
         helpers.command_once("laminar/B738/toggle_switch/position_light_off")
     end
 
@@ -1900,23 +1898,23 @@ function togglepositionlights_(phase)
     return 0
 end
 
-my_command_togglerwylights = sasl.createCommand(definitions.APPNAMEPREFIX .. "/togglepositionlights", "Toggle Position Lights")
-sasl.registerCommandHandler(my_command_togglerwylights, 0, togglepositionlights_)
+my_command_togglepositionlights = sasl.createCommand(definitions.APPNAMEPREFIX .. "/togglepositionlights", "Toggle Position Lights")
+sasl.registerCommandHandler(my_command_togglepositionlights, 0, togglepositionlights_)
 
 --------------------------------------------------------------------------------------------------------------
 
 function toggletransponder(state)
 
     if (state == nil) then
-        if (get(transponderpos) == STANDBY) then
+        if (get(P.transponderpos) == STANDBY) then
             helpers.command_once("laminar/B738/knob/transponder_tara")
         else
             helpers.command_once("laminar/B738/knob/transponder_stby")
         end
     else
-        if ((state == STANDBY) and (get(transponderpos) ~= STANDBY)) then
+        if ((state == STANDBY) and (get(P.transponderpos) ~= STANDBY)) then
             helpers.command_once("laminar/B738/knob/transponder_stby")
-        elseif ((state == TARA) and (get(transponderpos) ~= TARA)) then
+        elseif ((state == TARA) and (get(P.transponderpos) ~= TARA)) then
             helpers.command_once("laminar/B738/knob/transponder_tara")
         else
         end
@@ -1939,30 +1937,30 @@ sasl.registerCommandHandler(my_command_toggletransponder, 0, toggletransponder_)
 function togglefds(state)
 
     if (state == nil) then
-        if (get(fdpilotpos) == OFF) then
+        if (get(P.fdpilotpos) == OFF) then
             helpers.command_once("laminar/B738/autopilot/flight_director_toggle")
-            if (get(fdfopos) == OFF) then
+            if (get(P.fdfopos) == OFF) then
                 helpers.command_once("laminar/B738/autopilot/flight_director_fo_toggle")
             end
         else
             helpers.command_once("laminar/B738/autopilot/flight_director_toggle")
-            if (get(fdfopos) == ON) then
+            if (get(P.fdfopos) == ON) then
                 helpers.command_once("laminar/B738/autopilot/flight_director_fo_toggle")
             end
         end
 
     elseif (state == OFF) then
-        if (get(fdpilotpos) == ON) then
+        if (get(P.fdpilotpos) == ON) then
             helpers.command_once("laminar/B738/autopilot/flight_director_toggle")
         end
-        if (get(fdfopos) == ON) then
+        if (get(P.fdfopos) == ON) then
             helpers.command_once("laminar/B738/autopilot/flight_director_fo_toggle")
         end
     elseif (state == ON) then
-        if (get(fdpilotpos) == OFF) then
+        if (get(P.fdpilotpos) == OFF) then
             helpers.command_once("laminar/B738/autopilot/flight_director_toggle")
         end
-        if (get(fdfopos) == OFF) then
+        if (get(P.fdfopos) == OFF) then
             helpers.command_once("laminar/B738/autopilot/flight_director_fo_toggle")
         end
     end
@@ -1983,30 +1981,30 @@ sasl.registerCommandHandler(my_command_togglefds, 0, togglefds_)
 function togglewx(state)
 
     if (state == nil) then
-        if (get(efiswxpilotpos) == OFF) then
+        if (get(P.efiswxpilotpos) == OFF) then
             helpers.command_once("laminar/B738/EFIS_control/capt/push_button/wxr_press")
-            if (get(efiswxfopos) == OFF) then
+            if (get(P.efiswxfopos) == OFF) then
                 helpers.command_once("laminar/B738/EFIS_control/fo/push_button/wxr_press")
             end
         else
             helpers.command_once("laminar/B738/EFIS_control/capt/push_button/wxr_press")
-            if (get(efiswxfopos) == ON) then
+            if (get(P.efiswxfopos) == ON) then
                 helpers.command_once("laminar/B738/EFIS_control/fo/push_button/wxr_press")
             end
         end
 
     elseif (state == OFF) then
-        if (get(efiswxpilotpos) == ON) then
+        if (get(P.efiswxpilotpos) == ON) then
             helpers.command_once("laminar/B738/EFIS_control/capt/push_button/wxr_press")
         end
-        if (get(efiswxfopos) == ON) then
+        if (get(P.efiswxfopos) == ON) then
             helpers.command_once("laminar/B738/EFIS_control/fo/push_button/wxr_press")
         end
     elseif (state == ON) then
-        if (get(efiswxpilotpos) == OFF) then
+        if (get(P.efiswxpilotpos) == OFF) then
             helpers.command_once("laminar/B738/EFIS_control/capt/push_button/wxr_press")
         end
-        if (get(efiswxfopos) == OFF) then
+        if (get(P.efiswxfopos) == OFF) then
             helpers.command_once("laminar/B738/EFIS_control/fo/push_button/wxr_press")
         end
     end
@@ -2027,30 +2025,30 @@ sasl.registerCommandHandler(my_command_togglewx, 0, togglewx_)
 function toggleterr(state)
 
     if (state == nil) then
-        if (get(efisterrpilotpos) == OFF) then
+        if (get(P.efisterrpilotpos) == OFF) then
             helpers.command_once("laminar/B738/EFIS_control/capt/push_button/terr_press")
-            if (get(efisterrfopos) == OFF) then
+            if (get(P.efisterrfopos) == OFF) then
                 helpers.command_once("laminar/B738/EFIS_control/fo/push_button/terr_press")
             end
         else
             helpers.command_once("laminar/B738/EFIS_control/capt/push_button/terr_press")
-            if (get(efisterrfopos) == ON) then
+            if (get(P.efisterrfopos) == ON) then
                 helpers.command_once("laminar/B738/EFIS_control/fo/push_button/terr_press")
             end
         end
 
     elseif (state == OFF) then
-        if (get(efisterrpilotpos) == ON) then
+        if (get(P.efisterrpilotpos) == ON) then
             helpers.command_once("laminar/B738/EFIS_control/capt/push_button/terr_press")
         end
-        if (get(efisterrfopos) == ON) then
+        if (get(P.efisterrfopos) == ON) then
             helpers.command_once("laminar/B738/EFIS_control/fo/push_button/terr_press")
         end
     elseif (state == ON) then
-        if (get(efisterrpilotpos) == OFF) then
+        if (get(P.efisterrpilotpos) == OFF) then
             helpers.command_once("laminar/B738/EFIS_control/capt/push_button/terr_press")
         end
-        if (get(efisterrfopos) == OFF) then
+        if (get(P.efisterrfopos) == OFF) then
             helpers.command_once("laminar/B738/EFIS_control/fo/push_button/terr_press")
         end
     end
@@ -2071,27 +2069,27 @@ sasl.registerCommandHandler(my_command_toggleterr, 0, toggleterr_)
 function togglewindowheat(state)
 
     if (state == nil) then
-        if (get(wheatlfwdpos) == ON) then
-            set(wheatlfwdpos, OFF)
-            set(wheatrfwdpos, OFF)
-            set(wheatlsidepos, OFF)
-            set(wheatrsidepos, OFF)
+        if (get(P.wheatlfwdpos) == ON) then
+            set(P.wheatlfwdpos, OFF)
+            set(P.wheatrfwdpos, OFF)
+            set(P.wheatlsidepos, OFF)
+            set(P.wheatrsidepos, OFF)
         else
-            set(wheatlfwdpos, ON)
-            set(wheatrfwdpos, ON)
-            set(wheatlsidepos, ON)
-            set(wheatrsidepos, ON)
+            set(P.wheatlfwdpos, ON)
+            set(P.wheatrfwdpos, ON)
+            set(P.wheatlsidepos, ON)
+            set(P.wheatrsidepos, ON)
         end
-    elseif ((state == ON) and (get(wheatlfwdpos) == OFF)) then
-        set(wheatlfwdpos, ON)
-        set(wheatrfwdpos, ON)
-        set(wheatlsidepos, ON)
-        set(wheatrsidepos, ON)
-    elseif ((state == OFF) and (get(wheatlfwdpos) == ON)) then
-        set(wheatlfwdpos, OFF)
-        set(wheatrfwdpos, OFF)
-        set(wheatlsidepos, OFF)
-        set(wheatrsidepos, OFF)
+    elseif ((state == ON) and (get(P.wheatlfwdpos) == OFF)) then
+        set(P.wheatlfwdpos, ON)
+        set(P.wheatrfwdpos, ON)
+        set(P.wheatlsidepos, ON)
+        set(P.wheatrsidepos, ON)
+    elseif ((state == OFF) and (get(P.wheatlfwdpos) == ON)) then
+        set(P.wheatlfwdpos, OFF)
+        set(P.wheatrfwdpos, OFF)
+        set(P.wheatlsidepos, OFF)
+        set(P.wheatrsidepos, OFF)
     end
 
     return true
@@ -2112,19 +2110,19 @@ sasl.registerCommandHandler(my_command_togglewindowheat, 0, togglewindowheat_)
 function toggleprobeheat(state)
 
     if (state == nil) then
-        if (get(captainprobepos) == ON) then
-            set(captainprobepos, OFF)
-            set(foprobepos, OFF)
+        if (get(P.captainprobepos) == ON) then
+            set(P.captainprobepos, OFF)
+            set(P.foprobepos, OFF)
         else
-            set(captainprobepos, ON)
-            set(foprobepos, ON)
+            set(P.captainprobepos, ON)
+            set(P.foprobepos, ON)
         end
-    elseif ((state == ON) and (get(captainprobepos) == OFF)) then
-        set(captainprobepos, ON)
-        set(foprobepos, ON)
-    elseif ((state == OFF) and (get(captainprobepos) == ON)) then
-        set(captainprobepos, OFF)
-        set(foprobepos, OFF)
+    elseif ((state == ON) and (get(P.captainprobepos) == OFF)) then
+        set(P.captainprobepos, ON)
+        set(P.foprobepos, ON)
+    elseif ((state == OFF) and (get(P.captainprobepos) == ON)) then
+        set(P.captainprobepos, OFF)
+        set(P.foprobepos, OFF)
     end
 
     return true
@@ -2147,52 +2145,52 @@ function iceprotection(state)
     local set = 0
 
     if (state == nil) then
-        if (get(eng1heatpos) == OFF) then
+        if (get(P.eng1heatpos) == OFF) then
             set = 1
             helpers.command_once("laminar/B738/toggle_switch/eng1_heat")
-            if (get(eng2heatpos) == OFF) then
+            if (get(P.eng2heatpos) == OFF) then
                 helpers.command_once("laminar/B738/toggle_switch/eng2_heat")
             end
-            if (get(wingheatpos) == OFF) then
+            if (get(P.wingheatpos) == OFF) then
                 helpers.command_once("laminar/B738/toggle_switch/wing_heat")
             end
         else
             set = 2
             helpers.command_once("laminar/B738/toggle_switch/eng1_heat")
-            if (get(eng2heatpos) == ON) then
+            if (get(P.eng2heatpos) == ON) then
                 helpers.command_once("laminar/B738/toggle_switch/eng2_heat")
             end
-            if (get(wingheatpos) == ON) then
+            if (get(P.wingheatpos) == ON) then
                 helpers.command_once("laminar/B738/toggle_switch/wing_heat")
             end
         end
     elseif (state == ON) then
-        if (get(eng1heatpos) == OFF) then
+        if (get(P.eng1heatpos) == OFF) then
             set = 1
             helpers.command_once("laminar/B738/toggle_switch/eng1_heat")
         end
 
-        if (get(eng2heatpos) == OFF) then
+        if (get(P.eng2heatpos) == OFF) then
             set = 1
             helpers.command_once("laminar/B738/toggle_switch/eng2_heat")
         end
 
-        if (get(wingheatpos) == OFF) then
+        if (get(P.wingheatpos) == OFF) then
             set = 1
             helpers.command_once("laminar/B738/toggle_switch/wing_heat")
         end
     elseif (state == OFF) then
-        if (get(eng1heatpos) == ON) then
+        if (get(P.eng1heatpos) == ON) then
             set = 2
             helpers.command_once("laminar/B738/toggle_switch/eng1_heat")
         end
 
-        if (get(eng2heatpos) == ON) then
+        if (get(P.eng2heatpos) == ON) then
             set = 2
             helpers.command_once("laminar/B738/toggle_switch/eng2_heat")
         end
 
-        if (get(wingheatpos) == ON) then
+        if (get(P.wingheatpos) == ON) then
             set = 2
             helpers.command_once("laminar/B738/toggle_switch/wing_heat")
         end
@@ -2276,67 +2274,67 @@ function setcockpitlights()
 
     local lightset = false
 
-    if (get(brightmainpanel) ~= P.configvalues[CONFIGBRIGHTMAINPANEL]) then
-        set(brightmainpanel, P.configvalues[CONFIGBRIGHTMAINPANEL])
+    if (get(P.brightmainpanel) ~= P.configvalues[CONFIGBRIGHTMAINPANEL]) then
+        set(P.brightmainpanel, P.configvalues[CONFIGBRIGHTMAINPANEL])
         lightset = true
     end
-    if (get(brightcopilotmainpanel) ~= P.configvalues[CONFIGBRIGHTMAINPANEL]) then
-        set(brightcopilotmainpanel, P.configvalues[CONFIGBRIGHTMAINPANEL])
+    if (get(P.brightcopilotmainpanel) ~= P.configvalues[CONFIGBRIGHTMAINPANEL]) then
+        set(P.brightcopilotmainpanel, P.configvalues[CONFIGBRIGHTMAINPANEL])
         lightset = true
     end
-    if (get(brightoverhead) ~= P.configvalues[CONFIGBRIGHTOVERHEAD]) then
-        set(brightoverhead, P.configvalues[CONFIGBRIGHTOVERHEAD])
+    if (get(P.brightoverhead) ~= P.configvalues[CONFIGBRIGHTOVERHEAD]) then
+        set(P.brightoverhead, P.configvalues[CONFIGBRIGHTOVERHEAD])
         lightset = true
     end
-    if (get(brightpedestral) ~= P.configvalues[CONFIGBRIGHTPEDESTRAL]) then
-        set(brightpedestral, P.configvalues[CONFIGBRIGHTPEDESTRAL])
+    if (get(P.brightpedestral) ~= P.configvalues[CONFIGBRIGHTPEDESTRAL]) then
+        set(P.brightpedestral, P.configvalues[CONFIGBRIGHTPEDESTRAL])
     end
-    if (get(genbrightbackground) ~= P.configvalues[CONFIGGENBRIGHTBACKGROUND]) then
-        set(genbrightbackground, P.configvalues[CONFIGGENBRIGHTBACKGROUND])
+    if (get(P.genbrightbackground) ~= P.configvalues[CONFIGGENBRIGHTBACKGROUND]) then
+        set(P.genbrightbackground, P.configvalues[CONFIGGENBRIGHTBACKGROUND])
         lightset = true
     end
-    if (get(genbrightafdsflood) ~= P.configvalues[CONFIGGENBRIGHTAFDSFLOOD]) then
-        set(genbrightafdsflood, P.configvalues[CONFIGGENBRIGHTAFDSFLOOD])
+    if (get(P.genbrightafdsflood) ~= P.configvalues[CONFIGGENBRIGHTAFDSFLOOD]) then
+        set(P.genbrightafdsflood, P.configvalues[CONFIGGENBRIGHTAFDSFLOOD])
         lightset = true
     end
-    if (get(genbrightpedestralflood) ~= P.configvalues[CONFDIGGENBRIGHTPEDESTRALFLOOD]) then
-        set(genbrightpedestralflood, P.configvalues[CONFDIGGENBRIGHTPEDESTRALFLOOD])
+    if (get(P.genbrightpedestralflood) ~= P.configvalues[CONFDIGGENBRIGHTPEDESTRALFLOOD]) then
+        set(P.genbrightpedestralflood, P.configvalues[CONFDIGGENBRIGHTPEDESTRALFLOOD])
         lightset = true
     end
-    if (get(instrbrightoutbddu) ~= P.configvalues[CONFIGINSTRBRIGHTOUTBDDU]) then
-        set(instrbrightoutbddu, P.configvalues[CONFIGINSTRBRIGHTOUTBDDU])
+    if (get(P.instrbrightoutbddu) ~= P.configvalues[CONFIGINSTRBRIGHTOUTBDDU]) then
+        set(P.instrbrightoutbddu, P.configvalues[CONFIGINSTRBRIGHTOUTBDDU])
         lightset = true
     end
-    if (get(instrbrightcopilotoutbddu) ~= P.configvalues[CONFIGINSTRBRIGHTOUTBDDU]) then
-        set(instrbrightcopilotoutbddu, P.configvalues[CONFIGINSTRBRIGHTOUTBDDU])
+    if (get(P.instrbrightcopilotoutbddu) ~= P.configvalues[CONFIGINSTRBRIGHTOUTBDDU]) then
+        set(P.instrbrightcopilotoutbddu, P.configvalues[CONFIGINSTRBRIGHTOUTBDDU])
         lightset = true
     end
-    if (get(instrbrightinbddu) ~= P.configvalues[CONFIGINSTRBRIGHTINBDDU]) then
-        set(instrbrightinbddu, P.configvalues[CONFIGINSTRBRIGHTINBDDU])
+    if (get(P.instrbrightinbddu) ~= P.configvalues[CONFIGINSTRBRIGHTINBDDU]) then
+        set(P.instrbrightinbddu, P.configvalues[CONFIGINSTRBRIGHTINBDDU])
         lightset = true
     end
-    if (get(instrbrightcopilotinbddu) ~= P.configvalues[CONFIGINSTRBRIGHTINBDDU]) then
-        set(instrbrightcopilotinbddu, P.configvalues[CONFIGINSTRBRIGHTINBDDU])
+    if (get(P.instrbrightcopilotinbddu) ~= P.configvalues[CONFIGINSTRBRIGHTINBDDU]) then
+        set(P.instrbrightcopilotinbddu, P.configvalues[CONFIGINSTRBRIGHTINBDDU])
         lightset = true
     end
-    if (get(instrbrightupperdu) ~= P.configvalues[CONFIGINSTRBRIGHTUPPERDU]) then
-        set(instrbrightupperdu, P.configvalues[CONFIGINSTRBRIGHTUPPERDU])
+    if (get(P.instrbrightupperdu) ~= P.configvalues[CONFIGINSTRBRIGHTUPPERDU]) then
+        set(P.instrbrightupperdu, P.configvalues[CONFIGINSTRBRIGHTUPPERDU])
         lightset = true
     end
-    if (get(instrbrightlowdu) ~= P.configvalues[CONFIGINSTRBRIGHTLOWDU]) then
-        set(instrbrightlowdu, P.configvalues[CONFIGINSTRBRIGHTLOWDU])
+    if (get(P.instrbrightlowdu) ~= P.configvalues[CONFIGINSTRBRIGHTLOWDU]) then
+        set(P.instrbrightlowdu, P.configvalues[CONFIGINSTRBRIGHTLOWDU])
         lightset = true
     end
-    if (get(instrbrightinbdduS) ~= P.configvalues[CONFIGINSTRBRIGHTINBDDUS]) then
-        set(instrbrightinbdduS, P.configvalues[CONFIGINSTRBRIGHTINBDDUS])
+    if (get(P.instrbrightinbdduS) ~= P.configvalues[CONFIGINSTRBRIGHTINBDDUS]) then
+        set(P.instrbrightinbdduS, P.configvalues[CONFIGINSTRBRIGHTINBDDUS])
         lightset = true
     end
-    if (get(instrbrightcopilotinbdduS) ~= P.configvalues[CONFIGINSTRBRIGHTINBDDUS]) then
-        set(instrbrightcopilotinbdduS, P.configvalues[CONFIGINSTRBRIGHTINBDDUS])
+    if (get(P.instrbrightcopilotinbdduS) ~= P.configvalues[CONFIGINSTRBRIGHTINBDDUS]) then
+        set(P.instrbrightcopilotinbdduS, P.configvalues[CONFIGINSTRBRIGHTINBDDUS])
         lightset = true
     end
-    if (get(instrbrightlowduS) ~= P.configvalues[CONFIGINSTRBRIGHTLOWDUS]) then
-        set(instrbrightlowduS, P.configvalues[CONFIGINSTRBRIGHTLOWDUS])
+    if (get(P.instrbrightlowduS) ~= P.configvalues[CONFIGINSTRBRIGHTLOWDUS]) then
+        set(P.instrbrightlowduS, P.configvalues[CONFIGINSTRBRIGHTLOWDUS])
         lightset = true
     end
 
@@ -2459,31 +2457,31 @@ sasl.registerCommandHandler(my_command_skipprocedurestep, 0, skipprocedurestep_)
 
 function flapsuphandling()
 
-    if ((get(airspeed) > get(flaps15speed)) and (get(airspeed) <= get(flaps10speed)) and (get(flapleverpos) > FLAPS15)) then
+    if ((get(P.airspeed) > get(P.flaps15speed)) and (get(P.airspeed) <= get(P.flaps10speed)) and (get(P.flapleverpos) > FLAPS15)) then
         if (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
             P.commandtableentry(ADVICE, "Set Flaps 15")
         else
             helpers.command_once("laminar/B738/push_button/flaps_15")
         end
-    elseif ((get(airspeed) > get(flaps10speed)) and (get(airspeed) <= get(flaps5speed)) and (get(flapleverpos) > FLAPS10)) then
+    elseif ((get(P.airspeed) > get(P.flaps10speed)) and (get(P.airspeed) <= get(P.flaps5speed)) and (get(P.flapleverpos) > FLAPS10)) then
         if (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
             P.commandtableentry(ADVICE, "Set Flaps 10")
         else
             helpers.command_once("laminar/B738/push_button/flaps_10")
         end
-    elseif ((get(airspeed) > get(flaps5speed)) and (get(airspeed) <= get(flaps1speed)) and (get(flapleverpos) > FLAPS5)) then
+    elseif ((get(P.airspeed) > get(P.flaps5speed)) and (get(P.airspeed) <= get(P.flaps1speed)) and (get(P.flapleverpos) > FLAPS5)) then
         if (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
             P.commandtableentry(ADVICE, "Set Flaps 5")
         else
             helpers.command_once("laminar/B738/push_button/flaps_5")
       end
-    elseif ((get(airspeed) > get(flaps1speed)) and (get(airspeed) <= get(flapsupspeed)) and (get(flapleverpos) > FLAPS1)) then
+    elseif ((get(P.airspeed) > get(P.flaps1speed)) and (get(P.airspeed) <= get(P.flapsupspeed)) and (get(P.flapleverpos) > FLAPS1)) then
         if (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
             P.commandtableentry(ADVICE, "Set Flaps 1")
         else
             helpers.command_once("laminar/B738/push_button/flaps_1")
         end
-    elseif ((get(airspeed) > get(flapsupspeed)) and (get(flapleverpos) > FLAPSUP)) then
+    elseif ((get(P.airspeed) > get(P.flapsupspeed)) and (get(P.flapleverpos) > FLAPSUP)) then
         if (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
             P.commandtableentry(ADVICE, "Set Flaps Up")
         else
@@ -2499,37 +2497,37 @@ end
 
 function flapsdownhandling()
 
-    if ((get(airspeed) < get(flapsupspeed)) and (get(airspeed) >= get(flaps1speed)) and (get(flapleverpos) < FLAPS1)) then
+    if ((get(P.airspeed) < get(P.flapsupspeed)) and (get(P.airspeed) >= get(P.flaps1speed)) and (get(P.flapleverpos) < FLAPS1)) then
         if (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
             P.commandtableentry(ADVICE, "Set Flaps 1")
         else
             helpers.command_once("laminar/B738/push_button/flaps_1")
         end
-    elseif ((get(airspeed) < get(flaps1speed)) and (get(airspeed) >= get(flaps5speed)) and (get(flapleverpos) < FLAPS5)) then
+    elseif ((get(P.airspeed) < get(P.flaps1speed)) and (get(P.airspeed) >= get(P.flaps5speed)) and (get(P.flapleverpos) < FLAPS5)) then
         if (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
             P.commandtableentry(ADVICE, "Set Flaps 5")
         else
             helpers.command_once("laminar/B738/push_button/flaps_5")
         end
-    elseif ((get(airspeed) < get(flaps5speed)) and (get(airspeed) >= get(flaps10speed)) and (get(flapleverpos) < FLAPS10)) then
+    elseif ((get(P.airspeed) < get(P.flaps5speed)) and (get(P.airspeed) >= get(P.flaps10speed)) and (get(P.flapleverpos) < FLAPS10)) then
         if (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
             P.commandtableentry(ADVICE, "Set Flaps 10")
         else
             helpers.command_once("laminar/B738/push_button/flaps_10")
         end
-    elseif ((get(airspeed) < get(flaps10speed)) and (get(airspeed) >= get(flaps15speed)) and (get(flapleverpos) < FLAPS15)) then
+    elseif ((get(P.airspeed) < get(P.flaps10speed)) and (get(P.airspeed) >= get(P.flaps15speed)) and (get(P.flapleverpos) < FLAPS15)) then
         if (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
             P.commandtableentry(ADVICE, "Set Flaps 15")
         else
             helpers.command_once("laminar/B738/push_button/flaps_15")
         end
-    elseif ((get(airspeed) < get(flaps15speed)) and (get(airspeed) >= get(flaps25speed)) and (get(flapleverpos) < FLAPS25)) then
+    elseif ((get(P.airspeed) < get(P.flaps15speed)) and (get(P.airspeed) >= get(P.flaps25speed)) and (get(P.flapleverpos) < FLAPS25)) then
         if (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
             P.commandtableentry(ADVICE, "Set Flaps 25")
         else
             helpers.command_once("laminar/B738/push_button/flaps_25")
         end
-    elseif ((get(airspeed) < get(flaps25speed)) and (get(flapleverpos) < FLAPS30)) then
+    elseif ((get(P.airspeed) < get(P.flaps25speed)) and (get(P.flapleverpos) < FLAPS30)) then
         if (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
             P.commandtableentry(ADVICE, "Set Flaps 30")
         else
@@ -2547,7 +2545,7 @@ function setmmrils(mmr, freq)
 
     local ilsfreq = tostring(freq)
 
-    if (get(mmrinstalled) == OFF) then
+    if (get(P.mmrinstalled) == OFF) then
         return false
     end
 
@@ -2581,7 +2579,7 @@ function setmmrgls(mmr, freq)
 
     local glsfreq = tostring(freq)
 
-    if (get(mmrinstalled) == OFF) then
+    if (get(P.mmrinstalled) == OFF) then
         return false
     end
 
@@ -2615,22 +2613,22 @@ function copynav()
 
     local setnav = false
 
-    if (get(mcppilotcourse) ~= get(mcpcopilotcourse)) then
-        set(mcpcopilotcourse, get(mcppilotcourse))
+    if (get(P.mcppilotcourse) ~= get(P.mcpcopilotcourse)) then
+        set(P.mcpcopilotcourse, get(P.mcppilotcourse))
         setnav = true
     end
 
-    if (get(mmrinstalled) == OFF) then
-        if (get(nav1freq) ~= get(nav2freq)) then
-            set(nav2freq, get(nav1freq))
+    if (get(P.mmrinstalled) == OFF) then
+        if (get(P.nav1freq) ~= get(P.nav2freq)) then
+            set(P.nav2freq, get(P.nav1freq))
             setnav = true
         end
-    elseif (get(mmrcptactvalue) ~= get(mmrfoactvalue)) then
-        if (get(mmrcptactmode) ~= get(mmrfostdbymode)) then
-            setmmrmode(MMRFO, get(mmrcptactmode))
+    elseif (get(P.mmrcptactvalue) ~= get(P.mmrfoactvalue)) then
+        if (get(P.mmrcptactmode) ~= get(P.mmrfostdbymode)) then
+            setmmrmode(MMRFO, get(P.mmrcptactmode))
         end
 
-        local mmrvalue = tostring(get(mmrcptactvalue))
+        local mmrvalue = tostring(get(P.mmrcptactvalue))
         P.commandtableentry(COMMAND, "laminar/B738/push_button/mmr2_" .. string.sub(mmrvalue, 1, 1))
         P.commandtableentry(COMMAND, "laminar/B738/push_button/mmr2_" .. string.sub(mmrvalue, 2, 2))
         P.commandtableentry(COMMAND, "laminar/B738/push_button/mmr2_" .. string.sub(mmrvalue, 3, 3))
@@ -2683,14 +2681,14 @@ function setilssteps()
                 P.navdatatableindex = 0
 
                 if ((apptype == NAVTYPEILS) or (apptype == NAVTYPEGLS)) then
-                    P.navdatatableindex = getnavdataindex(get(desicao), get(desrwy), apptype)
+                    P.navdatatableindex = getnavdataindex(get(P.desicao), get(P.desrwy), apptype)
                 else
-                    P.navdatatableindex = getnavdataindex(get(desicao), get(desrwy), NAVTYPELPV)
+                    P.navdatatableindex = getnavdataindex(get(P.desicao), get(P.desrwy), NAVTYPELPV)
                 end
 
                 if (P.navdatatable[P.navdatatableindex] ~= nil) then
-                    if (get(desrwy) ~= P.navdatatable[P.navdatatableindex][DESTRWY]) then
-                        sasl.logInfo("Destination Runway Diff FMC: " .. tostring(get(desrwy)) .. " Navdata: " .. totring(P.navdatatable[P.navdatatableindex][DESTRWY]))
+                    if (get(P.desrwy) ~= P.navdatatable[P.navdatatableindex][DESTRWY]) then
+                        sasl.logInfo("Destination Runway Diff FMC: " .. tostring(get(P.desrwy)) .. " Navdata: " .. totring(P.navdatatable[P.navdatatableindex][DESTRWY]))
                     end
 
                     if ((P.navdatatable[P.navdatatableindex][DESTNAVTYPE] == NAVTYPEILS) and P.navdatatable[P.navdatatableindex][DESTNAVDME]) then
@@ -2705,9 +2703,9 @@ function setilssteps()
                     end
                 else               
                     if (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
-                        P.commandtableentry(ADVICE, "Runway " .. formatRunwayDesignator(get(desrwy)) .. " has no Approach")
+                        P.commandtableentry(ADVICE, "Runway " .. formatRunwayDesignator(get(P.desrwy)) .. " has no Approach")
                     else
-                        P.commandtableentry(TEXT, "Runway " .. formatRunwayDesignator(get(desrwy)) .. " has no Approach")
+                        P.commandtableentry(TEXT, "Runway " .. formatRunwayDesignator(get(P.desrwy)) .. " has no Approach")
                     end
                     setview(CONFIGVIEWMAINPANEL)
                     P.procedureloop3.stepindex = 8
@@ -2718,23 +2716,23 @@ function setilssteps()
         setview(CONFIGVIEWPEDESTAL)
     elseif (P.procedureloop3.stepindex == 4) then
         if (P.navdatatable[P.navdatatableindex][DESTNAVTYPE] == NAVTYPEILS) then
-            if ((P.navdatatable[P.navdatatableindex][DESTFREQ] ~= get(nav1freq)) or ((get(mmrinstalled) == ON) and ((get(mmrcptactvalue) ~= P.navdatatable[P.navdatatableindex][DESTFREQ]) or (get(mmrcptactmode) ~= MMRILS)))) then
+            if ((P.navdatatable[P.navdatatableindex][DESTFREQ] ~= get(P.nav1freq)) or ((get(P.mmrinstalled) == ON) and ((get(P.mmrcptactvalue) ~= P.navdatatable[P.navdatatableindex][DESTFREQ]) or (get(P.mmrcptactmode) ~= MMRILS)))) then
                 if (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
                     P.commandtableentry(ADVICE, "Set Frequency " .. addspaces(formatILSFrequency(P.navdatatable[P.navdatatableindex][DESTFREQ])))
                     P.procedureloop3.stepindex = P.procedureloop3.stepindex - 1
                 else
-                    if (get(mmrinstalled) == ON) then
+                    if (get(P.mmrinstalled) == ON) then
                         setmmrils(MMRCAPTAIN, P.navdatatable[P.navdatatableindex][DESTFREQ])
                     else
-                        set(nav1stdbyfreq, get(nav1freq))
-                        set(nav1freq, P.navdatatable[P.navdatatableindex][DESTFREQ])
+                        set(P.nav1stdbyfreq, get(P.nav1freq))
+                        set(P.nav1freq, P.navdatatable[P.navdatatableindex][DESTFREQ])
                     end
                 end
             elseif ((P.configvalues[CONFIGVOICEADVICEONLY] == ON) and not P.procedureloop3.steprepeat) then
                 P.commandtableentry(ADVICE, "Frequency checked and " .. addspaces(formatILSFrequency(P.navdatatable[P.navdatatableindex][DESTFREQ])))
             end
-        elseif (((P.navdatatable[P.navdatatableindex][DESTNAVTYPE] == NAVTYPEGLS) or (P.navdatatable[P.navdatatableindex][DESTNAVTYPE] == NAVTYPELPV)) and (get(mmrinstalled) == ON)) then
-            if ((get(mmrcptactvalue) ~= P.navdatatable[P.navdatatableindex][DESTFREQ]) or not ((get(mmrcptactmode) ~= MMRGLS) or (get(mmrcptactmode) ~= MMRLPV))) then
+        elseif (((P.navdatatable[P.navdatatableindex][DESTNAVTYPE] == NAVTYPEGLS) or (P.navdatatable[P.navdatatableindex][DESTNAVTYPE] == NAVTYPELPV)) and (get(P.mmrinstalled) == ON)) then
+            if ((get(P.mmrcptactvalue) ~= P.navdatatable[P.navdatatableindex][DESTFREQ]) or not ((get(P.mmrcptactmode) ~= MMRGLS) or (get(P.mmrcptactmode) ~= MMRLPV))) then
                 if (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
                     P.commandtableentry(ADVICE, "Set Channel " .. addspaces(P.navdatatable[P.navdatatableindex][DESTFREQ]))
                     P.procedureloop3.stepindex = P.procedureloop3.stepindex - 1
@@ -2748,17 +2746,17 @@ function setilssteps()
     elseif (P.procedureloop3.stepindex == 5) then
         if (P.configvalues[CONFIGAUTOFUNCTIONS] == ON) then
             if ((P.navdatatable[P.navdatatableindex][DESTNAVTYPE] == NAVTYPEILS) and P.navdatatable[P.navdatatableindex][DESTNAVDME]) then
-                if ((get(nav2freq) ~= get(nav1freq)) or ((get(mmrinstalled) == ON) and ((get(mmrfoactvalue) ~= get(nav1freq)) or (get(mmrfoactmode) ~= MMRILS)))) then
-                    if (get(mmrinstalled) == ON) then
-                        setmmrils(MMRFO, get(nav1freq))
+                if ((get(P.nav2freq) ~= get(P.nav1freq)) or ((get(P.mmrinstalled) == ON) and ((get(P.mmrfoactvalue) ~= get(P.nav1freq)) or (get(P.mmrfoactmode) ~= MMRILS)))) then
+                    if (get(P.mmrinstalled) == ON) then
+                        setmmrils(MMRFO, get(P.nav1freq))
                     else
-                        set(nav2stdbyfreq, get(nav2freq))
-                        set(nav2freq, get(nav1freq))
+                        set(P.nav2stdbyfreq, get(P.nav2freq))
+                        set(P.nav2freq, get(P.nav1freq))
                     end
                 end
-            elseif ((P.navdatatable[P.navdatatableindex][DESTNAVTYPE] == NAVTYPEGLS) and (get(mmrinstalled) == ON)) then
-                if ((get(mmrfoactvalue) ~= (get(mmrcptactvalue)) or (get(mmrfoactmode) ~= MMRGLS))) then
-                    setmmrgls(MMRFO, get(mmrcptactvalue))
+            elseif ((P.navdatatable[P.navdatatableindex][DESTNAVTYPE] == NAVTYPEGLS) and (get(P.mmrinstalled) == ON)) then
+                if ((get(P.mmrfoactvalue) ~= (get(P.mmrcptactvalue)) or (get(P.mmrfoactmode) ~= MMRGLS))) then
+                    setmmrgls(MMRFO, get(P.mmrcptactvalue))
                 end
             end
         end
@@ -2767,12 +2765,12 @@ function setilssteps()
     elseif (P.procedureloop3.stepindex == 7) then
         pilotcoursenew = P.navdatatable[P.navdatatableindex][DESTCOURSE]
 
-        if (get(mcppilotcourse) ~= pilotcoursenew) then
+        if (get(P.mcppilotcourse) ~= pilotcoursenew) then
             if (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 P.commandtableentry(ADVICE, "Set Course " .. addspaces(padNumberWithZerosStrict(pilotcoursenew, 3)))
                 P.procedureloop3.stepindex = P.procedureloop3.stepindex - 1
             else   
-                set(mcppilotcourse, pilotcoursenew)
+                set(P.mcppilotcourse, pilotcoursenew)
             end
         elseif ((P.configvalues[CONFIGVOICEADVICEONLY] == ON) and not P.procedureloop3.steprepeat) then
             P.commandtableentry(ADVICE, "Course checked and " ..  addspaces(padNumberWithZerosStrict(pilotcoursenew, 3)))
@@ -2780,12 +2778,12 @@ function setilssteps()
     elseif (P.procedureloop3.stepindex == 8) then
         if (P.configvalues[CONFIGAUTOFUNCTIONS] == ON) then
             if ((P.navdatatable[P.navdatatableindex][DESTNAVTYPE] == NAVTYPEILS) and P.navdatatable[P.navdatatableindex][DESTNAVDME]) then
-                if (get(mcpcopilotcourse) ~= get(mcppilotcourse)) then
-                    set(mcpcopilotcourse, get(mcppilotcourse))
+                if (get(P.mcpcopilotcourse) ~= get(P.mcppilotcourse)) then
+                    set(P.mcpcopilotcourse, get(P.mcppilotcourse))
                 end
-            elseif ((P.navdatatable[P.navdatatableindex][DESTNAVTYPE]  == NAVTYPEGLS) and (get(mmrinstalled) == ON)) then
-                if (get(mcpcopilotcourse) ~= get(mcppilotcourse)) then
-                    set(mcpcopilotcourse, get(mcppilotcourse))
+            elseif ((P.navdatatable[P.navdatatableindex][DESTNAVTYPE]  == NAVTYPEGLS) and (get(P.mmrinstalled) == ON)) then
+                if (get(P.mcpcopilotcourse) ~= get(P.mcppilotcourse)) then
+                    set(P.mcpcopilotcourse, get(P.mcppilotcourse))
                 end
             end
         end      
@@ -3657,19 +3655,19 @@ function calcappflapsvref(weatherData)
     if not (weatherData and weatherData.wind and weatherData.wind.direction ~= nil and weatherData.wind.speed ~= nil and
             weatherData.temperature and weatherData.temperature.value ~= nil and
             weatherData.pressure and weatherData.pressure.qnh_hpa ~= nil) then
-        return 30, get(vref30)
+        return 30, get(P.vref30)
     end
 
-    if not (get(totalweightkgs) and type(get(totalweightkgs)) == "number" and get(totalweightkgs) > 0 and
-            get(desrwylen) and type(get(desrwylen)) == "number" and get(desrwylen) > 0 and
-            get(desrwyheading) and type(get(desrwyheading)) == "number" and
-            get(desrwyalt) and type(get(desrwyalt)) == "number") then
-        return 30, get(vref30)
+    if not (get(P.totalweightkgs) and type(get(P.totalweightkgs)) == "number" and get(P.totalweightkgs) > 0 and
+            get(P.desrwylen) and type(get(P.desrwylen)) == "number" and get(P.desrwylen) > 0 and
+            get(P.desrwyheading) and type(get(P.desrwyheading)) == "number" and
+            get(P.desrwyalt) and type(get(P.desrwyalt)) == "number") then
+        return 30, get(P.vref30)
     end
 
     local headwindComponent, crosswindKnots = calculateWindComponents(
         weatherData.wind.direction,
-        get(desrwyheading),
+        get(P.desrwyheading),
         weatherData.wind.speed
     )
 
@@ -3693,8 +3691,8 @@ function calcappflapsvref(weatherData)
         isBadWeather = true
     end
 
-    local flapsSetting = determineLandingFlapsSetting(get(desrwylen), weatherData.wind.speed, crosswindKnots, isBadWeather, get(totalweightkgs))
-    local vrefKnots = calculateVref(get(totalweightkgs), flapsSetting, weatherData, crosswindKnots)
+    local flapsSetting = determineLandingFlapsSetting(get(P.desrwylen), weatherData.wind.speed, crosswindKnots, isBadWeather, get(P.totalweightkgs))
+    local vrefKnots = calculateVref(get(P.totalweightkgs), flapsSetting, weatherData, crosswindKnots)
 
     flapsSetting = math.floor(flapsSetting + 0.5)
     vrefKnots = math.floor(vrefKnots + 0.5)
@@ -3711,7 +3709,7 @@ function calcautobrake(landingSpeed, weatherData)
         {maxDeceleration = 4.0, setting = AUTOBRAKEMAX}
     }
 
-    local requiredDeceleration = (landingSpeed^2) / (2 * get(desrwylen))
+    local requiredDeceleration = (landingSpeed^2) / (2 * get(P.desrwylen))
 
     if ((fieldexists(weatherData, "weather") and ((containsvalue(weatherData.weather, "FZRA")) or (containsvalue(weatherData.weather, "FZDZ")) or (containsvalue(weatherData.weather, "FZFG"))))
         or (fieldexists(weatherData, "temperature.value") and (weatherData.temperature.value < 1))) then
@@ -3722,7 +3720,7 @@ function calcautobrake(landingSpeed, weatherData)
         requiredDeceleration = requiredDeceleration * 1.2
     end
 
-    local weightFactor = get(totalweightkgs) / 70000
+    local weightFactor = get(P.totalweightkgs) / 70000
     requiredDeceleration = requiredDeceleration * weightFactor
 
     for _, setting in ipairs(autobrakeSettings) do
@@ -3764,10 +3762,10 @@ function determineTakeoffFlapsSetting(weatherData)
         isRunwayWet = true
     end
 
-    if not (get(totalweightkgs) and type(get(totalweightkgs)) == "number" and get(totalweightkgs) > 0 and
-            get(deprwylen) and type(get(deprwylen)) == "number" and get(deprwylen) > 0 and
-            get(elevation) and type(get(elevation)) == "number" and
-            get(deprwyheading) and type(get(deprwyheading)) == "number") then
+    if not (get(P.totalweightkgs) and type(get(P.totalweightkgs)) == "number" and get(P.totalweightkgs) > 0 and
+            get(P.deprwylen) and type(get(P.deprwylen)) == "number" and get(P.deprwylen) > 0 and
+            get(P.elevation) and type(get(P.elevation)) == "number" and
+            get(P.deprwyheading) and type(get(P.deprwyheading)) == "number") then
         return STANDARD_TAKEOFF_FLAPS
     end
 
@@ -3775,19 +3773,19 @@ function determineTakeoffFlapsSetting(weatherData)
 
     local headwindComponent, crosswindComponent = calculateWindComponents(
         weatherData.wind.direction,
-        get(deprwyheading),
+        get(P.deprwyheading),
         weatherData.wind.speed
     )
 
-    if get(totalweightkgs) > TAKEOFF_WEIGHT_THRESHOLD_VERY_HIGH then
+    if get(P.totalweightkgs) > TAKEOFF_WEIGHT_THRESHOLD_VERY_HIGH then
         recommendedFlaps = 15
-    elseif get(totalweightkgs) > TAKEOFF_WEIGHT_THRESHOLD_HIGH then
+    elseif get(P.totalweightkgs) > TAKEOFF_WEIGHT_THRESHOLD_HIGH then
         recommendedFlaps = 10
     end
 
-    if get(deprwylen) < TAKEOFF_RUNWAY_LENGTH_VERY_SHORT_THRESHOLD then
+    if get(P.deprwylen) < TAKEOFF_RUNWAY_LENGTH_VERY_SHORT_THRESHOLD then
         recommendedFlaps = math.max(recommendedFlaps, 15)
-    elseif get(deprwylen) < TAKEOFF_RUNWAY_LENGTH_SHORT_THRESHOLD then
+    elseif get(P.deprwylen) < TAKEOFF_RUNWAY_LENGTH_SHORT_THRESHOLD then
         recommendedFlaps = math.max(recommendedFlaps, 10)
     end
 
@@ -3796,7 +3794,7 @@ function determineTakeoffFlapsSetting(weatherData)
     if (P.depmetar.metar and tonumber(P.depmetar.metar.elevation_m)) then
         deprwyalt = P.depmetar.metar.elevation_m
     else
-        deprwyalt = get(elevation)
+        deprwyalt = get(P.elevation)
     end
 
     local densityAltitude = calculateDensityAltitude(
@@ -3843,7 +3841,7 @@ function setvrefsteps()
         end
     elseif (P.procedureloop3.stepindex == 3) then
         if (P.configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
-            if (get(vref) ~= appvrefcalc) then
+            if (get(P.vref) ~= appvrefcalc) then
                 P.vrefcmdtable[3] = string.sub(appflapscalcstring, 1, 1)
                 P.vrefcmdtable[4] = string.sub(appflapscalcstring, 2, 2)
                 P.vrefcmdtable[6] = string.sub(appvrefcalcstring, 1, 1)
@@ -3860,7 +3858,7 @@ function setvrefsteps()
                 P.commandtableentry(TEXT, "V REF " .. appflapscalc .. " " .. appvrefcalc .. " Knots set")
             end
         elseif (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
-            if (get(vref) ~= appvrefcalc) then
+            if (get(P.vref) ~= appvrefcalc) then
                 P.commandtableentry(ADVICE, "Set V REF " .. appflapscalc .. " " .. appvrefcalc)
                 P.procedureloop3.stepindex = P.procedureloop3.stepindex - 1
             elseif ((P.configvalues[CONFIGVOICEADVICEONLY] == ON) and not P.procedureloop3.steprepeat) then
@@ -3917,7 +3915,7 @@ function settoflapssteps()
         end
     elseif (P.procedureloop3.stepindex == 3) then
         if (P.configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
-            if (get(toflapsset) == OFF) then
+            if (get(P.toflapsset) == OFF) then
                 P.toflapscmdtable[3] = string.sub(toflapscalcstring, 1, 1)
                 P.toflapscmdtable[4] = string.sub(toflapscalcstring, 2, 2)
  
@@ -3931,7 +3929,7 @@ function settoflapssteps()
                 P.commandtableentry(TEXT, "Takeoff Flaps " .. toflapscalcstring .. "set")
             end
         elseif (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
-            if (get(toflapsset) == OFF) then
+            if (get(P.toflapsset) == OFF) then
                 P.commandtableentry(ADVICE, "Enter Takeoff Flaps " .. toflapscalcstring)
                 P.procedureloop3.stepindex = P.procedureloop3.stepindex - 1
             elseif ((P.configvalues[CONFIGVOICEADVICEONLY] == ON) and not P.procedureloop3.steprepeat) then
@@ -3981,7 +3979,7 @@ function calcautobrake(landingSpeed, weatherData)
         {maxDeceleration = 4.0, setting = AUTOBRAKEMAX}
     }
 
-    local requiredDeceleration = (landingSpeed^2) / (2 * get(desrwylen))
+    local requiredDeceleration = (landingSpeed^2) / (2 * get(P.desrwylen))
 
     if ((fieldexists(weatherData, "weather") and ((containsvalue(weatherData.weather, "FZRA")) or (containsvalue(weatherData.weather, "FZDZ")) or (containsvalue(weatherData.weather, "FZFG"))))
         or (fieldexists(weatherData, "temperature.value") and (weatherData.temperature.value < 1))) then
@@ -3992,7 +3990,7 @@ function calcautobrake(landingSpeed, weatherData)
         requiredDeceleration = requiredDeceleration * 1.2
     end
 
-    local weightFactor = get(totalweightkgs) / 70000
+    local weightFactor = get(P.totalweightkgs) / 70000
     requiredDeceleration = requiredDeceleration * weightFactor
 
     for _, setting in ipairs(autobrakeSettings) do
@@ -4009,8 +4007,8 @@ function gettrim()
 
     local trim = 0
 
-    local trimwwheeltemp = get(trimwheel)
-    local trimwheelrounded = roundnumber(trimwwheeltemp * -100)
+    local trimwheeltemp = get(P.trimwheel)
+    local trimwheelrounded = roundnumber(trimwheeltemp * -100)
 
     if (trimwheelrounded <= 21) then
         trim = 6.50
@@ -4059,12 +4057,12 @@ function settotrim(trimvalue)
     local trimwheelrounded = 0
     local trimwheelcalcrounded = 0
 
-    local trimwwheeltemp = 0
+    local trimwheeltemp = 0
     local trimwheelold = 0
 
     if (trimvalue == nil)
     then
-        targettrim = get(trimcalc)
+        targettrim = get(P.trimcalc)
     else
         targettrim = trimvalue
     end
@@ -4103,10 +4101,10 @@ function settotrim(trimvalue)
         trimwheelcalcrounded = 40
     end
 
-    trimwwheeltemp = get(trimwheel)
-    trimwheelrounded = roundnumber(trimwwheeltemp * -100)
+    trimwheeltemp = get(P.trimwheel)
+    trimwheelrounded = roundnumber(trimwheeltemp * -100)
 
-    while ((trimwheelrounded ~= trimwheelcalcrounded) and (trimwwheeltemp ~= trimwheelold)) do
+    while ((trimwheelrounded ~= trimwheelcalcrounded) and (trimwheeltemp ~= trimwheelold)) do
         sasl.logDebug("while loop settotrim")
         if (trimwheelrounded > trimwheelcalcrounded) then
             helpers.command_once("laminar/B738/flight_controls/pitch_trim_up")
@@ -4117,8 +4115,8 @@ function settotrim(trimvalue)
         end
 
         trimwheelold = trimwheeltemp
-        trimwwheeltemp = get(trimwheel)
-        trimwheelrounded = roundnumber(trimwwheeltemp * -100)
+        trimwheeltemp = get(P.trimwheel)
+        trimwheelrounded = roundnumber(trimwheeltemp * -100)
 
     end
 
@@ -4133,11 +4131,11 @@ function autowiper(state)
     local destwiperpos = 0
 
     if ((state == nil) or (state == ON)) then
-        if (get(rain) <= 0.03) then
+        if (get(P.rain) <= 0.03) then
             destwiperpos = WIPEROFF
-        elseif (get(rain) <= 0.25) then
+        elseif (get(P.rain) <= 0.25) then
             destwiperpos = WIPERINT
-        elseif (get(rain) <= 0.6) then
+        elseif (get(P.rain) <= 0.6) then
             destwiperpos = WIPERLOW
         else
             destwiperpos = WIPERHIGH
@@ -4146,16 +4144,16 @@ function autowiper(state)
         destwiperpos = state
     end
 
-    local lwiperposdiff = math.abs(get(lwiperpos) - destwiperpos)
-    local rwiperposdiff = math.abs(get(rwiperpos) - destwiperpos)
+    local lwiperposdiff = math.abs(get(P.lwiperpos) - destwiperpos)
+    local rwiperposdiff = math.abs(get(P.rwiperpos) - destwiperpos)
 
-    if (get(lwiperpos) < destwiperpos) then
+    if (get(P.lwiperpos) < destwiperpos) then
         while (lwiperposdiff > 0) do
             sasl.logDebug("while loop autowiper l up")
             helpers.command_once("laminar/B738/knob/left_wiper_up")
             lwiperposdiff = lwiperposdiff - 1
         end
-    elseif (get(lwiperpos) > destwiperpos) then
+    elseif (get(P.lwiperpos) > destwiperpos) then
         while (lwiperposdiff > 0) do
             sasl.logDebug("while loop autowiper l dn")
             helpers.command_once("laminar/B738/knob/left_wiper_dn")
@@ -4163,13 +4161,13 @@ function autowiper(state)
         end
     end
 
-    if (get(rwiperpos) < destwiperpos) then
+    if (get(P.rwiperpos) < destwiperpos) then
         while (rwiperposdiff > 0) do
             sasl.logDebug("while loop autowiper r up")
             helpers.command_once("laminar/B738/knob/right_wiper_up")
             rwiperposdiff = rwiperposdiff - 1
         end
-    elseif (get(rwiperpos) > destwiperpos) then
+    elseif (get(P.rwiperpos) > destwiperpos) then
         while (rwiperposdiff > 0) do
             sasl.logDebug("while loop autowiper r dn")
             helpers.command_once("laminar/B738/knob/right_wiper_dn")
@@ -4184,20 +4182,20 @@ end
 
 function autocentertanks()
 
-    if ((get(centertanklbs) > 1000) and (get(centertanklpress) > 0) and (get(centertankrpress) > 0) and (get(centertankstat) > 0)) then
-        if (get(centertanklswitch) == OFF) then
-            set(centertanklswitch, ON)
+    if ((get(P.centertanklbs) > 1000) and (get(P.centertanklpress) > 0) and (get(P.centertankrpress) > 0) and (get(P.centertankstat) > 0)) then
+        if (get(P.centertanklswitch) == OFF) then
+            set(P.centertanklswitch, ON)
         end
-        if (get(centertankrswitch) == OFF) then
-            set(centertankrswitch, ON)
+        if (get(P.centertankrswitch) == OFF) then
+            set(P.centertankrswitch, ON)
         end
         P.centertankoffset = false
-    elseif (((not P.centertankoffset) and (get(centertanklbs) <= 1000)) or ((get(centertanklpress) == 0) and (get(centertankrpress) == 0))) then
-        if (get(centertanklswitch) == ON) then
-            set(centertanklswitch, OFF)
+    elseif (((not P.centertankoffset) and (get(P.centertanklbs) <= 1000)) or ((get(P.centertanklpress) == 0) and (get(P.centertankrpress) == 0))) then
+        if (get(P.centertanklswitch) == ON) then
+            set(P.centertanklswitch, OFF)
         end
-        if (get(centertankrswitch) == ON) then
-            set(centertankrswitch, OFF)
+        if (get(P.centertankrswitch) == ON) then
+            set(P.centertankrswitch, OFF)
         end
         P.centertankoffset = true
     end
@@ -4210,18 +4208,18 @@ end
 
 function setstarter(starter, state)
 
-    local starter1posdiff = math.abs(get(starter1pos) - state)
-    local starter2posdiff = math.abs(get(starter2pos) - state)
+    local starter1posdiff = math.abs(get(P.starter1pos) - state)
+    local starter2posdiff = math.abs(get(P.starter2pos) - state)
 
     if ((state ~= nil) and (starter ~= nil)) then
         if ((starter == ENGINE1) or (starter == BOTH)) then
-            if (state > get(starter1pos)) then
+            if (state > get(P.starter1pos)) then
                 while (starter1posdiff > 0) do
                     sasl.logDebug("while loop eng1 start right")
                     helpers.command_once("laminar/B738/knob/eng1_start_right")
                     starter1posdiff = starter1posdiff - 1
                 end
-            elseif (state < get(starter1pos)) then
+            elseif (state < get(P.starter1pos)) then
                 while (starter1posdiff > 0) do
                     sasl.logDebug("while loop eng1 start left")
                     helpers.command_once("laminar/B738/knob/eng1_start_left")
@@ -4231,13 +4229,13 @@ function setstarter(starter, state)
         end
 
         if ((starter == ENGINE2) or (starter == BOTH)) then
-            if (state > get(starter2pos)) then
+            if (state > get(P.starter2pos)) then
                 while (starter2posdiff > 0) do
                     sasl.logDebug("while loop eng2 start right")
                     helpers.command_once("laminar/B738/knob/eng2_start_right")
                     starter2posdiff = starter2posdiff - 1
                 end
-            elseif (state < get(starter2pos)) then
+            elseif (state < get(P.starter2pos)) then
                 while (starter2posdiff > 0) do
                     sasl.logDebug("while loop eng2 start left")
                     helpers.command_once("laminar/B738/knob/eng2_start_left")
@@ -4258,24 +4256,24 @@ function setmmrmode(mmr, state)
         return false
     end
 
-    if ((get(mmrinstalled) == OFF) or ((get(lpvinstalled) == OFF) and ((state == MMRLPV) or (state == MMRGLS)))) then
+    if ((get(P.mmrinstalled) == OFF) or ((get(P.lpvinstalled) == OFF) and ((state == MMRLPV) or (state == MMRGLS)))) then
         return false
     end
 
     if ((mmr == MMRCAPTAIN) or (mmr == MMRBOTH)) then
-        local mmrcptstdbymodediff = math.abs(get(mmrcptstdbymode) - state)
+        local mmrcptstdbymodediff = math.abs(get(P.mmrcptstdbymode) - state)
 
-        if ((state == MMRLPV) or (get(mmrcptstdbymode) == MMRLPV)) then
+        if ((state == MMRLPV) or (get(P.mmrcptstdbymode) == MMRLPV)) then
             mmrcptstdbymodediff = mmrcptstdbymodediff - 1
         end
 
-        if (state >= get(mmrcptstdbymode)) then
+        if (state >= get(P.mmrcptstdbymode)) then
             while (mmrcptstdbymodediff > 0) do
                 sasl.logDebug("while loop mmr1 up")
                 helpers.command_once("laminar/B738/push_button/mmr1_mode_up")
                 mmrcptstdbymodediff = mmrcptstdbymodediff - 1
             end
-        elseif (state < get(mmrcptstdbymode)) then
+        elseif (state < get(P.mmrcptstdbymode)) then
             while (mmrcptstdbymodediff > 0) do
                 sasl.logDebug("while loop mmr1 dn")
                 helpers.command_once("laminar/B738/push_button/mmr1_mode_dn")
@@ -4285,19 +4283,19 @@ function setmmrmode(mmr, state)
     end
 
     if ((mmr == MMRFO) or (mmr == MMRBOTH)) then
-        local mmrfostdbymodediff = math.abs(get(mmrfostdbymode) - state)
+        local mmrfostdbymodediff = math.abs(get(P.mmrfostdbymode) - state)
 
-        if ((state == MMRLPV) or (get(mmrfostdbymode) == MMRLPV)) then
+        if ((state == MMRLPV) or (get(P.mmrfostdbymode) == MMRLPV)) then
             mmrfostdbymodediff = mmrfostdbymodediff - 1
         end
 
-        if (state >= get(mmrfostdbymode)) then
+        if (state >= get(P.mmrfostdbymode)) then
             while (mmrfostdbymodediff > 0) do
                 sasl.logDebug("while loop mmr2 up")
                 helpers.command_once("laminar/B738/push_button/mmr2_mode_up")
                 mmrfostdbymodediff = mmrfostdbymodediff - 1
             end
-        elseif (state < get(mmrfostdbymode)) then
+        elseif (state < get(P.mmrfostdbymode)) then
             while (mmrfostdbymodediff > 0) do
                 sasl.logDebug("while loop mmr2 dn")
                 helpers.command_once("laminar/B738/push_button/mmr2_mode_dn")
@@ -4315,24 +4313,24 @@ function setirs(irs, state)
 
     result = true
 
-    sasl.logDebug("SETIRS IRS LEFT POS: " .. tostring(get(irsleftpos)) .. " IRS RIGHT POS: " .. tostring(get(irsrightpos)))
+    sasl.logDebug("SETIRS IRS LEFT POS: " .. tostring(get(P.irsleftpos)) .. " IRS RIGHT POS: " .. tostring(get(P.irsrightpos)))
 
     if ((state ~= nil) and (irs ~= nil)) then
         if ((irs == LEFTIRS) or (irs == BOTHIRS)) then
-            if (state > get(irsleftpos)) then
+            if (state > get(P.irsleftpos)) then
                 helpers.command_once("laminar/B738/toggle_switch/irs_L_right")
                 result = false
-            elseif (state < get(irsleftpos)) then
+            elseif (state < get(P.irsleftpos)) then
                 helpers.command_once("laminar/B738/toggle_switch/irs_L_left")
                 result = false
             end
         end
 
         if ((irs == RIGHTIRS) or (irs == BOTHIRS)) then
-            if (state > get(irsrightpos)) then
+            if (state > get(P.irsrightpos)) then
                 helpers.command_once("laminar/B738/toggle_switch/irs_R_right")
                 result = false
-            elseif (state < get(irsrightpos)) then
+            elseif (state < get(P.irsrightpos)) then
                 helpers.command_once("laminar/B738/toggle_switch/irs_R_left")
                 result = false
             end
@@ -4349,20 +4347,20 @@ function enginesrunning(state)
     local running = false
 
     if ((state == nil) or (state == BOTH)) then
-        if ((get(eng1n1percent) ~= nil) and (get(eng2n1percent) ~= nil)) then
-            if ((get(eng1n1percent) >= 19) and (get(eng2n1percent) >= 19)) then
+        if ((get(P.eng1n1percent) ~= nil) and (get(P.eng2n1percent) ~= nil)) then
+            if ((get(P.eng1n1percent) >= 19) and (get(P.eng2n1percent) >= 19)) then
                 running = true
             end
         end
     elseif (state == ENGINE1) then
-        if (get(eng1n1percent) ~= nil) then
-            if (get(eng1n1percent) >= 19) then
+        if (get(P.eng1n1percent) ~= nil) then
+            if (get(P.eng1n1percent) >= 19) then
                 running = true
             end
         end
     elseif (state == ENGINE2) then
-        if (get(eng2n1percent) ~= nil) then
-            if (get(eng2n1percent) >= 19) then
+        if (get(P.eng2n1percent) ~= nil) then
+            if (get(P.eng2n1percent) >= 19) then
                running = true
             end
         end
@@ -4376,15 +4374,15 @@ end
 
 function setdomelight(state)
 
-    local domelightposdiff = math.abs(get(domelightpos) - state)
+    local domelightposdiff = math.abs(get(P.domelightpos) - state)
 
-    if (state > get(domelightpos)) then
+    if (state > get(P.domelightpos)) then
         while (domelightposdiff > 0) do
             sasl.logDebug("while loop dome up")
             helpers.command_once("laminar/B738/toggle_switch/cockpit_dome_up")
             domelightposdiff = domelightposdiff - 1
         end
-    elseif (state < get(domelightpos)) then
+    elseif (state < get(P.domelightpos)) then
         while (domelightposdiff > 0) do
             sasl.logDebug("while loop dome dn")
             helpers.command_once("laminar/B738/toggle_switch/cockpit_dome_dn")
@@ -4400,19 +4398,19 @@ end
 
 function setbankanglepos(state)
 
-    local bankangleposdiff = math.abs(get(bankanglepos) - state)
+    local bankangleposdiff = math.abs(get(P.bankanglepos) - state)
 
     if ((state == nil) or (state > BANKANGLEMAX)) then
         return false
     end
 
-    if (state > get(bankanglepos)) then
+    if (state > get(P.bankanglepos)) then
         while (bankangleposdiff > 0) do
             sasl.logDebug("while loop bank ang up")
             helpers.command_once("laminar/B738/autopilot/bank_angle_up")
             bankangleposdiff = bankangleposdiff - 1
         end
-    elseif (state < get(bankanglepos)) then
+    elseif (state < get(P.bankanglepos)) then
         while (bankangleposdiff > 0) do
             sasl.logDebug("while loop bank ang dn")
             helpers.command_once("laminar/B738/autopilot/bank_angle_dn")
@@ -4432,17 +4430,17 @@ function setautobrake(state)
         return false
     end
 
-    if ((state == AUTOBRAKERTO) and (get(autobrakepos) ~= AUTOBRAKERTO)) then
+    if ((state == AUTOBRAKERTO) and (get(P.autobrakepos) ~= AUTOBRAKERTO)) then
         helpers.command_once("laminar/B738/knob/autobrake_rto")
-    elseif ((state == AUTOBRAKEOFF) and (get(autobrakepos) ~= AUTOBRAKEOFF)) then
+    elseif ((state == AUTOBRAKEOFF) and (get(P.autobrakepos) ~= AUTOBRAKEOFF)) then
         helpers.command_once("laminar/B738/knob/autobrake_off")
-    elseif ((state == AUTOBRAKE1) and (get(autobrakepos) ~= AUTOBRAKE1)) then
+    elseif ((state == AUTOBRAKE1) and (get(P.autobrakepos) ~= AUTOBRAKE1)) then
         helpers.command_once("laminar/B738/knob/autobrake_1")
-    elseif ((state == AUTOBRAKE2) and (get(autobrakepos) ~= AUTOBRAKE2)) then
+    elseif ((state == AUTOBRAKE2) and (get(P.autobrakepos) ~= AUTOBRAKE2)) then
         helpers.command_once("laminar/B738/knob/autobrake_2")
-    elseif ((state == AUTOBRAKE3) and (get(autobrakepos) ~= AUTOBRAKE3)) then
+    elseif ((state == AUTOBRAKE3) and (get(P.autobrakepos) ~= AUTOBRAKE3)) then
         helpers.command_once("laminar/B738/knob/autobrake_3")
-    elseif ((state == AUTOBRAKEMAX) and (get(autobrakepos) ~= AUTOBRAKEMAX)) then
+    elseif ((state == AUTOBRAKEMAX) and (get(P.autobrakepos) ~= AUTOBRAKEMAX)) then
         helpers.command_once("laminar/B738/knob/autobrake_max")
     end
 
@@ -4455,15 +4453,15 @@ end
 
 function setseatbeltsign(state)
 
-    local seatbeltsignposdiff = math.abs(get(seatbeltsignpos) - state)
+    local seatbeltsignposdiff = math.abs(get(P.seatbeltsignpos) - state)
 
-    if (state > get(seatbeltsignpos)) then
+    if (state > get(P.seatbeltsignpos)) then
         while (seatbeltsignposdiff > 0) do
             sasl.logDebug("while loop seat belt dn")
             helpers.command_once("laminar/B738/toggle_switch/seatbelt_sign_dn")
             seatbeltsignposdiff = seatbeltsignposdiff - 1
         end
-    elseif (state < get(seatbeltsignpos)) then
+    elseif (state < get(P.seatbeltsignpos)) then
         while (seatbeltsignposdiff > 0) do
             sasl.logDebug("while loop seat belt up")
             helpers.command_once("laminar/B738/toggle_switch/seatbelt_sign_up")
@@ -4479,15 +4477,15 @@ end
 
 function setnosmokingsign(state)
 
-    local nosmokingsignposdiff = math.abs(get(nosmokingsignpos) - state)
+    local nosmokingsignposdiff = math.abs(get(P.nosmokingsignpos) - state)
 
-    if (state > get(nosmokingsignpos)) then
+    if (state > get(P.nosmokingsignpos)) then
         while (nosmokingsignposdiff > 0) do
             sasl.logDebug("while loop no smoking dn")
             helpers.command_once("laminar/B738/toggle_switch/no_smoking_dn")
             nosmokingsignposdiff = nosmokingsignposdiff - 1
         end
-    elseif (state < get(nosmokingsignpos)) then
+    elseif (state < get(P.nosmokingsignpos)) then
         while (nosmokingsignposdiff > 0) do
             sasl.logDebug("while loop no smoke up")
             helpers.command_once("laminar/B738/toggle_switch/no_smoking_up")
@@ -4503,15 +4501,15 @@ end
 
 function setemergencylights(state)
 
-    local emergencylightsdiff = math.abs(get(emergencylights) - state)
+    local emergencylightsdiff = math.abs(get(P.emergencylights) - state)
 
-    if (state > get(emergencylights)) then
+    if (state > get(P.emergencylights)) then
         while (emergencylightsdiff > 0) do
             sasl.logDebug("while loop exit light dn")
             helpers.command_once("laminar/B738/toggle_switch/emer_exit_lights_dn")
             emergencylightsdiff = emergencylightsdiff - 1
         end
-    elseif (state < get(emergencylights)) then
+    elseif (state < get(P.emergencylights)) then
         while (emergencylightsdiff > 0) do
             sasl.logDebug("while loop exit light  up")
             helpers.command_once("laminar/B738/toggle_switch/emer_exit_lights_up")
@@ -4531,7 +4529,7 @@ function coldanddarksteps()
         setview(DEFAULTVIEW)
         setview(P.configvalues[CONFIGVIEWOVERHEADPANEL])
     elseif (P.procedureloop1.stepindex == 2) then
-        if (get(battery) == OFF) then
+        if (get(P.battery) == OFF) then
             if (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 P.commandtableentry(ADVICE, "Switch Battery On")
                 P.procedureloop1.stepindex = P.procedureloop1.stepindex - 1
@@ -4542,13 +4540,13 @@ function coldanddarksteps()
             P.commandtableentry(ADVICE, "Battery checked and On")
         end
     elseif (P.procedureloop1.stepindex == 3) then
-        if (get(batteryswitchcover) == OPEN) then
+        if (get(P.batteryswitchcover) == OPEN) then
             helpers.command_once("laminar/B738/button_switch_cover02")
         end
-    elseif ((P.procedureloop1.stepindex == 4)  and (get(sunpitchdegrees) < 0)) then
+    elseif ((P.procedureloop1.stepindex == 4)  and (get(P.sunpitchdegrees) < 0)) then
         setview(P.configvalues[CONFIGVIEWUPPEROVERHEADPANEL])
-    elseif ((P.procedureloop1.stepindex == 5) and (get(sunpitchdegrees) < 0)) then
-        if (get(domelightpos) == DOMELIGHTOFF) then
+    elseif ((P.procedureloop1.stepindex == 5) and (get(P.sunpitchdegrees) < 0)) then
+        if (get(P.domelightpos) == DOMELIGHTOFF) then
             if (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 P.commandtableentry(ADVICE, "Set Domelight On")
                 P.procedureloop1.stepindex = P.procedureloop1.stepindex - 1
@@ -4558,10 +4556,10 @@ function coldanddarksteps()
         elseif ((P.configvalues[CONFIGVOICEADVICEONLY] == ON) and not P.procedureloop1.steprepeat) then
             P.commandtableentry(ADVICE, "Domelight checked and On")
         end
-    elseif ((P.procedureloop1.stepindex == 6) and (get(sunpitchdegrees) < 0)) then
+    elseif ((P.procedureloop1.stepindex == 6) and (get(P.sunpitchdegrees) < 0)) then
         setview(P.configvalues[CONFIGVIEWOVERHEADPANEL])
     elseif (P.procedureloop1.stepindex == 7) then
-        if (get(emergencylights) ~= EMERGLIGHTSARMED) then
+        if (get(P.emergencylights) ~= EMERGLIGHTSARMED) then
             if (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 P.commandtableentry(ADVICE, "Arm Emergency Lights")
                 P.procedureloop1.stepindex = P.procedureloop1.stepindex - 1
@@ -4572,11 +4570,11 @@ function coldanddarksteps()
             P.commandtableentry(ADVICE, "Emergency Lights checked and Armed")
         end
     elseif (P.procedureloop1.stepindex == 8) then
-        if (get(emergencylightcover) == OPEN) then
+        if (get(P.emergencylightcover) == OPEN) then
             helpers.command_once("laminar/B738/button_switch_cover09")
         end
     elseif (P.procedureloop1.stepindex == 9) then
-        if (get(positionlights) ~= POSLIGHTSSTEADY) then
+        if (get(P.positionlights) ~= POSLIGHTSSTEADY) then
             if (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 P.commandtableentry(ADVICE, "Set Position Lights Steady")
                 P.procedureloop1.stepindex = P.procedureloop1.stepindex - 1
@@ -4587,7 +4585,7 @@ function coldanddarksteps()
             P.commandtableentry(ADVICE, "Position Lights checked and Steady")
         end
     elseif (P.procedureloop1.stepindex == 10) then
-        if (get(nosmokingsignpos) ~= NOSMOKINGSIGNON) then
+        if (get(P.nosmokingsignpos) ~= NOSMOKINGSIGNON) then
             if (P.configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                 setnosmokingsign(NOSMOKINGSIGNON)
             elseif (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
@@ -4598,8 +4596,8 @@ function coldanddarksteps()
             P.commandtableentry(ADVICE, "No Smoking Signs checked and On")
         end
     elseif (P.procedureloop1.stepindex == 11) then
-        if ((P.configvalues[CONFIGUSEGROUNDPOWER] == ON) and (get(gpuavailable) == ON)) then
-            if (get(gpuon) == OFF) then
+        if ((P.configvalues[CONFIGUSEGROUNDPOWER] == ON) and (get(P.gpuavailable) == ON)) then
+            if (get(P.gpuon) == OFF) then
                 if (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
                     P.commandtableentry(ADVICE, "Switch Ground Power On")
                     P.procedureloop1.stepindex = P.procedureloop1.stepindex - 1
@@ -4617,7 +4615,7 @@ function coldanddarksteps()
             end
         end
     elseif (P.procedureloop1.stepindex == 12) then
-        if (get(apustarterpos) ~= ON) then
+        if (get(P.apustarterpos) ~= ON) then
             if (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 P.commandtableentry(ADVICE, "Start A P U")
                 P.procedureloop1.stepindex = P.procedureloop1.stepindex - 1
@@ -4633,7 +4631,7 @@ function coldanddarksteps()
             P.commandtableentry(TEXT, "A P U Started")
         end
     elseif (P.procedureloop1.stepindex == 14) then
-        if (get(apugenoffbus) == OFF) then
+        if (get(P.apugenoffbus) == OFF) then
             P.procedureloop1.stepindex = P.procedureloop1.stepindex - 1
         else
             if (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
@@ -4643,15 +4641,15 @@ function coldanddarksteps()
             end
         end
     elseif (P.procedureloop1.stepindex == 15) then
-        if (not((get(apupowerbus1) == ON) and (get(announcsourceoff1) == OFF)) or not((get(apupowerbus2) == ON) and (get(announcsourceoff2) == OFF))) then
+        if (not((get(P.apupowerbus1) == ON) and (get(P.announcsourceoff1) == OFF)) or not((get(P.apupowerbus2) == ON) and (get(P.announcsourceoff2) == OFF))) then
             if (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 P.commandtableentry(ADVICE, "Switch A P U Generator On")
                 P.procedureloop1.stepindex = P.procedureloop1.stepindex - 1
             else
-                if not((get(apupowerbus1) == ON) and (get(announcsourceoff1) == OFF)) then
+                if not((get(P.apupowerbus1) == ON) and (get(P.announcsourceoff1) == OFF)) then
                     helpers.command_once("laminar/B738/toggle_switch/apu_gen1_dn")
                 end
-                if not((get(apupowerbus2) == ON) and (get(announcsourceoff2) == OFF)) then
+                if not((get(P.apupowerbus2) == ON) and (get(P.announcsourceoff2) == OFF)) then
                     helpers.command_once("laminar/B738/toggle_switch/apu_gen2_dn")
                 end
             end
@@ -4659,7 +4657,7 @@ function coldanddarksteps()
             P.commandtableentry(ADVICE, "A P U Generator checked and On")
         end
     elseif (P.procedureloop1.stepindex == 16) then
-        if (get(bleedairapupos) == OFF) then
+        if (get(P.bleedairapupos) == OFF) then
             if (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 P.commandtableentry(ADVICE, "Switch A P U Bleed Air On")
                 P.procedureloop1.stepindex = P.procedureloop1.stepindex - 1
@@ -4670,35 +4668,35 @@ function coldanddarksteps()
             P.commandtableentry(ADVICE, "A P U Bleed Air checked and On")    
         end
     elseif (P.procedureloop1.stepindex == 17) then
-        if (get(isolvalvepos)  ~= ISOLVALVEOPEN) then
+        if (get(P.isolvalvepos)  ~= ISOLVALVEOPEN) then
             if (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 P.commandtableentry(ADVICE, "Set Isolation Valve Open")
                 P.procedureloop1.stepindex = P.procedureloop1.stepindex - 1
             else
-                set(isolvalvepos, ISOLVALVEOPEN)
+                set(P.isolvalvepos, ISOLVALVEOPEN)
             end
         elseif ((P.configvalues[CONFIGVOICEADVICEONLY] == ON) and not P.procedureloop1.steprepeat) then
             P.commandtableentry(ADVICE, "Isolation Valve checked and Open")    
         end
     elseif (P.procedureloop1.stepindex == 18) then
-        if ((get(packlpos) ~= PACKAUTO) or (get(packrpos) ~= PACKAUTO)) then
+        if ((get(P.packlpos) ~= PACKAUTO) or (get(P.packrpos) ~= PACKAUTO)) then
             if (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 P.commandtableentry(ADVICE, "Set Both Packs Auto")
                 P.procedureloop1.stepindex = P.procedureloop1.stepindex - 1
             else
-                set(packlpos, PACKAUTO)
-                set(packrpos, PACKAUTO)
+                set(P.packlpos, PACKAUTO)
+                set(P.packrpos, PACKAUTO)
             end
         elseif ((P.configvalues[CONFIGVOICEADVICEONLY] == ON) and not P.procedureloop1.steprepeat) then
             P.commandtableentry(ADVICE, "Both Packs checked and Auto")    
         end
     elseif (P.procedureloop1.stepindex == 19) then
-        if (get(trimairpos) ~= ON) then
+        if (get(P.trimairpos) ~= ON) then
             if (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 P.commandtableentry(ADVICE, "Set Trim Air On")
                 P.procedureloop1.stepindex = P.procedureloop1.stepindex - 1
             else
-                set(trimairpos, ON)
+                set(P.trimairpos, ON)
             end
         elseif ((P.configvalues[CONFIGVOICEADVICEONLY] == ON) and not P.procedureloop1.steprepeat) then
             P.commandtableentry(ADVICE, "Trim Air checked and On")    
@@ -4712,8 +4710,8 @@ function coldanddarksteps()
             end
         end
     elseif (P.procedureloop1.stepindex == 22) then
-        if ((get(irsalignleft) == OFF) or (get(irsalignright) == OFF)) then
-            if ((get(irsleftpos) ~= IRSNAV) or (get(irsrightpos) ~= IRSNAV)) then
+        if ((get(P.irsalignleft) == OFF) or (get(P.irsalignright) == OFF)) then
+            if ((get(P.irsleftpos) ~= IRSNAV) or (get(P.irsrightpos) ~= IRSNAV)) then
                 if (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
                     P.commandtableentry(ADVICE, "Set Both I R S to Nav")
                     P.procedureloop1.stepindex = P.procedureloop1.stepindex - 1
@@ -4764,7 +4762,7 @@ function coldanddarkstartup()
         P.procedureloop1.lock = COLDANDDARKPROCEDURE
     end
 
-    if (get(airgroundsensor) == OFF) then
+    if (get(P.airgroundsensor) == OFF) then
         P.procedureloop1.lock = NOPROCEDURE
         if (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
             P.commandtableentry(ADVICE, "Cold and Dark Startup Not Possible Inflight")
@@ -4774,7 +4772,7 @@ function coldanddarkstartup()
         return true
     end
 
-    if ((get(battery) == ON) and (get(mainbus) == ON)) then
+    if ((get(P.battery) == ON) and (get(P.mainbus) == ON)) then
         P.procedureloop1.lock = NOPROCEDURE
         if (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
             P.commandtableentry(ADVICE, "Cold and Dark Startup Aborted")
@@ -4784,7 +4782,7 @@ function coldanddarkstartup()
         return true
     end
 
-    if (get(apurunning) == ON) then
+    if (get(P.apurunning) == ON) then
         P.procedureloop1.lock = NOPROCEDURE
         if (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
             P.commandtableentry(ADVICE, "Cold and Dark Startup Aborted, A P U already running")
@@ -4828,7 +4826,7 @@ function apustartupsteps()
         setview(DEFAULTVIEW)
         setview(P.configvalues[CONFIGVIEWOVERHEADPANEL])
     elseif (P.procedureloop1.stepindex == 2) then
-        if (get(apustarterpos) ~= ON) then
+        if (get(P.apustarterpos) ~= ON) then
             if (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 P.commandtableentry(ADVICE, "Start A P U")
                 P.procedureloop1.stepindex = P.procedureloop1.stepindex - 1
@@ -4846,7 +4844,7 @@ function apustartupsteps()
             P.commandtableentry(ADVICE, "A P U Running Up")
         end
     elseif (P.procedureloop1.stepindex == 4) then
-        if (get(apugenoffbus) == OFF) then 
+        if (get(P.apugenoffbus) == OFF) then 
             P.procedureloop1.stepindex = P.procedureloop1.stepindex - 1
         else
             if (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
@@ -4856,15 +4854,15 @@ function apustartupsteps()
             end
         end
     elseif (P.procedureloop1.stepindex == 5) then
-        if (not((get(apupowerbus1) == ON) and (get(announcsourceoff1) == OFF)) or not((get(apupowerbus2) == ON) and (get(announcsourceoff2) == OFF))) then
+        if (not((get(P.apupowerbus1) == ON) and (get(P.announcsourceoff1) == OFF)) or not((get(P.apupowerbus2) == ON) and (get(P.announcsourceoff2) == OFF))) then
             if (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 P.commandtableentry(ADVICE, "Switch A P U Generator On")
                 P.procedureloop1.stepindex = P.procedureloop1.stepindex - 1
             else
-                if not((get(apupowerbus1) == ON) and (get(announcsourceoff1) == OFF)) then
+                if not((get(P.apupowerbus1) == ON) and (get(P.announcsourceoff1) == OFF)) then
                     helpers.command_once("laminar/B738/toggle_switch/apu_gen1_dn")
                 end
-                if not((get(apupowerbus2) == ON) and (get(announcsourceoff2) == OFF)) then
+                if not((get(P.apupowerbus2) == ON) and (get(P.announcsourceoff2) == OFF)) then
                     helpers.command_once("laminar/B738/toggle_switch/apu_gen2_dn")
                 end
             end
@@ -4872,7 +4870,7 @@ function apustartupsteps()
             P.commandtableentry(ADVICE, "A P U Generator checked and On")
         end
     elseif (P.procedureloop1.stepindex == 6) then
-        if (get(gpuon) == ON) then
+        if (get(P.gpuon) == ON) then
             if (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 P.commandtableentry(ADVICE, "Switch Ground Power Off")
                 P.procedureloop1.stepindex = P.procedureloop1.stepindex - 1
@@ -4898,7 +4896,7 @@ function apustartup()
         P.procedureloop1.lock = APUSTARTUPPROCEDURE
     end
 
-    if ((get(battery) == OFF) and (get(mainbus) == OFF)) then
+    if ((get(P.battery) == OFF) and (get(P.mainbus) == OFF)) then
         P.procedureloop1.lock = NOPROCEDURE
         if (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
             P.commandtableentry(ADVICE, "A P U Startup Aborted")
@@ -4908,7 +4906,7 @@ function apustartup()
         return true
     end
 
-    if (get(apurunning) == ON) then
+    if (get(P.apurunning) == ON) then
         P.procedureloop1.lock = NOPROCEDURE
         if (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
             P.commandtableentry(ADVICE, "A P U already running")
@@ -4941,7 +4939,7 @@ function enginestartsteps()
         setview(DEFAULTVIEW)
         setview(P.configvalues[CONFIGVIEWOVERHEADPANEL])
     elseif (P.procedureloop1.stepindex == 2) then
-        if (get(beaconlights) == OFF) then
+        if (get(P.beaconlights) == OFF) then
             if (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 P.commandtableentry(ADVICE, "Set Collision Lights On")
                 P.procedureloop1.stepindex = P.procedureloop1.stepindex - 1
@@ -4952,33 +4950,33 @@ function enginestartsteps()
             P.commandtableentry(ADVICE, "Collision lightset checked and On")
         end     
     elseif (P.procedureloop1.stepindex == 3) then
-        if ((get(lefttanklswitch) == OFF) or (get(lefttankrswitch) == OFF) or (get(righttanklswitch) == OFF) or (get(righttankrswitch) == OFF)) then
+        if ((get(P.lefttanklswitch) == OFF) or (get(P.lefttankrswitch) == OFF) or (get(P.righttanklswitch) == OFF) or (get(P.righttankrswitch) == OFF)) then
             if (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 P.commandtableentry(ADVICE, "Set Wing Tank Fuel Pumps On")
                 P.procedureloop1.stepindex = P.procedureloop1.stepindex - 1
             else
-                set(lefttanklswitch, ON)
-                set(lefttankrswitch, ON)
-                set(righttanklswitch, ON)
-                set(righttankrswitch, ON)
+                set(P.lefttanklswitch, ON)
+                set(P.lefttankrswitch, ON)
+                set(P.righttanklswitch, ON)
+                set(P.righttankrswitch, ON)
             end      
         elseif ((P.configvalues[CONFIGVOICEADVICEONLY] == ON) and not P.procedureloop1.steprepeat) then
             P.commandtableentry(ADVICE, "Wing Fuel Tanks checked and On")
         end
     elseif (P.procedureloop1.stepindex == 4) then
-        if ((get(packlpos) ~= PACKOFF) or (get(packrpos) ~= PACKOFF)) then
+        if ((get(P.packlpos) ~= PACKOFF) or (get(P.packrpos) ~= PACKOFF)) then
             if (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 P.commandtableentry(ADVICE, "Set Both Packs Off")
                 P.procedureloop1.stepindex = P.procedureloop1.stepindex - 1
             else
-                set(packlpos, PACKOFF)
-                set(packrpos, PACKOFF)
+                set(P.packlpos, PACKOFF)
+                set(P.packrpos, PACKOFF)
             end      
         elseif ((P.configvalues[CONFIGVOICEADVICEONLY] == ON) and not P.procedureloop1.steprepeat) then
             P.commandtableentry(ADVICE, "Both Packs checked and Off")
         end 
     elseif (P.procedureloop1.stepindex == 5) then
-        if (get(bleedairapupos) == OFF) then
+        if (get(P.bleedairapupos) == OFF) then
             if (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 P.commandtableentry(ADVICE, "Set A P U Bleed Air On")
                 P.procedureloop1.stepindex = P.procedureloop1.stepindex - 1
@@ -4989,18 +4987,18 @@ function enginestartsteps()
             P.commandtableentry(ADVICE, "A P U Bleed Air checked and On")
         end 
     elseif (P.procedureloop1.stepindex == 6) then
-        if (get(isolvalvepos)  ~= ISOLVALVEOPEN) then
+        if (get(P.isolvalvepos)  ~= ISOLVALVEOPEN) then
             if (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 P.commandtableentry(ADVICE, "Set Isolation Valve Open")
                 P.procedureloop1.stepindex = P.procedureloop1.stepindex - 1
             else
-                set(isolvalvepos, ISOLVALVEOPEN)
+                set(P.isolvalvepos, ISOLVALVEOPEN)
             end      
         elseif ((P.configvalues[CONFIGVOICEADVICEONLY] == ON) and not P.procedureloop1.steprepeat) then
             P.commandtableentry(ADVICE, "Isolation Valve checked and Open")
         end 
     elseif (P.procedureloop1.stepindex == 7) then
-        if (get(starter2pos) ~= GROUND) then
+        if (get(P.starter2pos) ~= GROUND) then
             if (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 P.commandtableentry(ADVICE, "Set Starter 2 Ground")
                 P.procedureloop1.stepindex = P.procedureloop1.stepindex - 1
@@ -5013,7 +5011,7 @@ function enginestartsteps()
     elseif (P.procedureloop1.stepindex == 8) then
         setview(P.configvalues[CONFIGVIEWMAINPANEL])
     elseif (P.procedureloop1.stepindex == 9) then
-        if (get(eng2n2percent) < 25) then
+        if (get(P.eng2n2percent) < 25) then
             P.procedureloop1.stepindex = P.procedureloop1.stepindex - 1
         else
             if (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
@@ -5025,7 +5023,7 @@ function enginestartsteps()
     elseif (P.procedureloop1.stepindex == 10) then
         setview(P.configvalues[CONFIGVIEWTHROTTLE])
     elseif (P.procedureloop1.stepindex == 11) then
-        if (get(mixture2pos) ~= ON) then
+        if (get(P.mixture2pos) ~= ON) then
             if (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 P.commandtableentry(ADVICE, "Set Engine 2 Fuel Lever Idle")
                 P.procedureloop1.stepindex = P.procedureloop1.stepindex - 1
@@ -5050,7 +5048,7 @@ function enginestartsteps()
     elseif (P.procedureloop1.stepindex == 14) then
         setview(P.configvalues[CONFIGVIEWOVERHEADPANEL])
     elseif (P.procedureloop1.stepindex == 15) then
-        if (get(starter1pos) ~= GROUND) then
+        if (get(P.starter1pos) ~= GROUND) then
             if (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 P.commandtableentry(ADVICE, "Set Starter 1 Ground")
                 P.procedureloop1.stepindex = P.procedureloop1.stepindex - 1
@@ -5063,7 +5061,7 @@ function enginestartsteps()
     elseif (P.procedureloop1.stepindex == 16) then
         setview(P.configvalues[CONFIGVIEWMAINPANEL])
     elseif (P.procedureloop1.stepindex == 17) then
-        if (get(eng1n2percent) < 25) then
+        if (get(P.eng1n2percent) < 25) then
             P.procedureloop1.stepindex = P.procedureloop1.stepindex - 1
         else
             if (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
@@ -5075,7 +5073,7 @@ function enginestartsteps()
     elseif (P.procedureloop1.stepindex == 18) then
         setview(P.configvalues[CONFIGVIEWTHROTTLE])
     elseif (P.procedureloop1.stepindex == 19) then
-        if (get(mixture1pos) ~= ON) then
+        if (get(P.mixture1pos) ~= ON) then
             if (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 P.commandtableentry(ADVICE, "Set Engine 1 Fuel Lever Idle")
                 P.procedureloop1.stepindex = P.procedureloop1.stepindex - 1
@@ -5100,15 +5098,15 @@ function enginestartsteps()
     elseif (P.procedureloop1.stepindex == 22) then
         setview(P.configvalues[CONFIGVIEWOVERHEADPANEL])
     elseif (P.procedureloop1.stepindex == 23) then
-        if ((get(gen1pos) ~= ON) or (get(gen2pos) ~= ON)) then
+        if ((get(P.gen1pos) ~= ON) or (get(P.gen2pos) ~= ON)) then
             if (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 P.commandtableentry(ADVICE, "Switch Both Generators On")
                 P.procedureloop1.stepindex = P.procedureloop1.stepindex - 1
             else
-                if (get(gen1pos) ~= ON) then
+                if (get(P.gen1pos) ~= ON) then
                     helpers.command_once("laminar/B738/toggle_switch/gen1_dn")
                 end
-                if (get(gen2pos) ~= ON) then
+                if (get(P.gen2pos) ~= ON) then
                     helpers.command_once("laminar/B738/toggle_switch/gen2_dn")
                 end
             end      
@@ -5116,39 +5114,39 @@ function enginestartsteps()
             P.commandtableentry(ADVICE, "Both Generators checked and Ground")
         end
     elseif (P.procedureloop1.stepindex == 24) then
-        if ((get(hydro1pos) ~= ON) or (get(hydro2pos) ~= ON)) then
+        if ((get(P.hydro1pos) ~= ON) or (get(P.hydro2pos) ~= ON)) then
             if (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 P.commandtableentry(ADVICE, "Switch Both Hydraulic Pumps On")
                 P.procedureloop1.stepindex = P.procedureloop1.stepindex - 1
             else
-                set(hydro1pos, ON)
-                set(hydro2pos, ON)
+                set(P.hydro1pos, ON)
+                set(P.hydro2pos, ON)
             end      
         elseif ((P.configvalues[CONFIGVOICEADVICEONLY] == ON) and not P.procedureloop1.steprepeat) then
             P.commandtableentry(ADVICE, "Both Hydraulic Pumps checked and On")
         end
     elseif (P.procedureloop1.stepindex == 25) then
-        if ((get(elechydro1pos) ~= ON) or (get(elechydro2pos) ~= ON)) then
+        if ((get(P.elechydro1pos) ~= ON) or (get(P.elechydro2pos) ~= ON)) then
             if (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 P.commandtableentry(ADVICE, "Switch Both Electrical Hydraulic Pumps On")
                 P.procedureloop1.stepindex = P.procedureloop1.stepindex - 1
             else
-                set(elechydro1pos, ON)
-                set(elechydro2pos, ON)
+                set(P.elechydro1pos, ON)
+                set(P.elechydro2pos, ON)
             end      
         elseif ((P.configvalues[CONFIGVOICEADVICEONLY] == ON) and not P.procedureloop1.steprepeat) then
             P.commandtableentry(ADVICE, "Both Electrical Hydraulic Pumps checked and On")
         end
     elseif (P.procedureloop1.stepindex == 26) then
-        if ((get(bleedair1pos) == OFF) or (get(bleedair2pos) == OFF)) then
+        if ((get(P.bleedair1pos) == OFF) or (get(P.bleedair2pos) == OFF)) then
             if (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 P.commandtableentry(ADVICE, "Set Both Engine Bleed Air On")
                 P.procedureloop1.stepindex = P.procedureloop1.stepindex - 1
             else
-                if (get(bleedair1pos) == OFF) then
+                if (get(P.bleedair1pos) == OFF) then
                     helpers.command_once("laminar/B738/toggle_switch/bleed_air_1")
                 end
-                if (get(bleedair2pos) == OFF) then
+                if (get(P.bleedair2pos) == OFF) then
                     helpers.command_once("laminar/B738/toggle_switch/bleed_air_2")
                 end
             end      
@@ -5156,41 +5154,41 @@ function enginestartsteps()
             P.commandtableentry(ADVICE, "Both Engine Bleed Air checked and On")
         end
     elseif (P.procedureloop1.stepindex == 27) then
-        if ((get(packlpos) ~= PACKAUTO) or (get(packrpos) ~= PACKAUTO)) then
+        if ((get(P.packlpos) ~= PACKAUTO) or (get(P.packrpos) ~= PACKAUTO)) then
             if (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 P.commandtableentry(ADVICE, "Set Both Packs Auto")
                 P.procedureloop1.stepindex = P.procedureloop1.stepindex - 1
             else
-                set(packlpos, PACKAUTO)
-                set(packrpos, PACKAUTO)
+                set(P.packlpos, PACKAUTO)
+                set(P.packrpos, PACKAUTO)
             end      
         elseif ((P.configvalues[CONFIGVOICEADVICEONLY] == ON) and not P.procedureloop1.steprepeat) then
             P.commandtableentry(ADVICE, "Both Packs checked and Auto")
         end
     elseif (P.procedureloop1.stepindex == 28) then
-         if (get(isolvalvepos)  ~= ISOLVALVEAUTO) then
+         if (get(P.isolvalvepos)  ~= ISOLVALVEAUTO) then
             if (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 P.commandtableentry(ADVICE, "Set Isolation Valve Auto")
                 P.procedureloop1.stepindex = P.procedureloop1.stepindex - 1
             else
-                set(isolvalvepos, ISOLVALVEAUTO)
+                set(P.isolvalvepos, ISOLVALVEAUTO)
             end      
         elseif ((P.configvalues[CONFIGVOICEADVICEONLY] == ON) and not P.procedureloop1.steprepeat) then
             P.commandtableentry(ADVICE, "Isolation Valvechecked and Auto")
         end 
     elseif (P.procedureloop1.stepindex == 29) then
-         if (get(trimairpos) ~= ON) then
+         if (get(P.trimairpos) ~= ON) then
             if (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 P.commandtableentry(ADVICE, "Set Trim Air On")
                 P.procedureloop1.stepindex = P.procedureloop1.stepindex - 1
             else
-                set(trimairpos, ON)
+                set(P.trimairpos, ON)
             end      
         elseif ((P.configvalues[CONFIGVOICEADVICEONLY] == ON) and not P.procedureloop1.steprepeat) then
             P.commandtableentry(ADVICE, "Trim Air checked and On")
         end 
     elseif (P.procedureloop1.stepindex == 30) then
-        if (get(bleedairapupos) ~= OFF) then
+        if (get(P.bleedairapupos) ~= OFF) then
             if (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 P.commandtableentry(ADVICE, "Switch A P U Bleed Air Off")
                 P.procedureloop1.stepindex = P.procedureloop1.stepindex - 1
@@ -5201,7 +5199,7 @@ function enginestartsteps()
             P.commandtableentry(ADVICE, "A P U Bleed Air checked and Off")
         end 
     elseif (P.procedureloop1.stepindex == 31) then
-        if (get(apustarterpos) == ON) then
+        if (get(P.apustarterpos) == ON) then
             if (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 P.commandtableentry(ADVICE, "Switch APU Off")
                 P.procedureloop1.stepindex = P.procedureloop1.stepindex - 1
@@ -5212,12 +5210,12 @@ function enginestartsteps()
             P.commandtableentry(ADVICE, "A P U checked and Off")
         end 
     elseif (P.procedureloop1.stepindex == 32) then
-        if (get(yawdamperswitch) ~= ON) then
+        if (get(P.yawdamperswitch) ~= ON) then
             if (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 P.commandtableentry(ADVICE, "Set Yaw Damper On")
                 P.procedureloop1.stepindex = P.procedureloop1.stepindex - 1
             else
-                set(yawdamperswitch, ON)
+                set(P.yawdamperswitch, ON)
             end      
         elseif ((P.configvalues[CONFIGVOICEADVICEONLY] == ON) and not P.procedureloop1.steprepeat) then
             P.commandtableentry(ADVICE, "Yaw Damper checked and On")
@@ -5238,7 +5236,7 @@ function enginestart()
         P.procedureloop1.lock = ENGINESTARTPROCEDURE
     end
 
-    if (get(airgroundsensor) == OFF) then
+    if (get(P.airgroundsensor) == OFF) then
         P.procedureloop1.lock = NOPROCEDURE
         if (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
             P.commandtableentry(ADVICE, "Engine Start Not Possible Inflight")
@@ -5248,7 +5246,7 @@ function enginestart()
         return true
     end
 
-    if (get(apurunning) == OFF) then
+    if (get(P.apurunning) == OFF) then
         P.procedureloop1.lock = NOPROCEDURE
         if (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
             P.commandtableentry(ADVICE, "Engine Start Not Possible, A P U not running")
@@ -5292,8 +5290,8 @@ function engineshutdownsteps()
         setview(P.configvalues[CONFIGVIEWOVERHEADPANEL])
     elseif (P.procedureloop1.stepindex == 2) then
         if (P.procedureloop1.lock == TURNAROUNDENGINESHUTDOWNPROCEDURE) then
-            if ((P.configvalues[CONFIGUSEGROUNDPOWER] == ON) and (get(gpuavailable) == ON)) then
-                if (get(gpuon) == OFF) then
+            if ((P.configvalues[CONFIGUSEGROUNDPOWER] == ON) and (get(P.gpuavailable) == ON)) then
+                if (get(P.gpuon) == OFF) then
                     if (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
                         P.commandtableentry(ADVICE, "Switch Ground Power On")
                         P.procedureloop1.stepindex = P.procedureloop1.stepindex - 1
@@ -5315,7 +5313,7 @@ function engineshutdownsteps()
             return true
         end
     elseif (P.procedureloop1.stepindex == 3) then
-        if (get(apustarterpos)~= ON) then
+        if (get(P.apustarterpos)~= ON) then
             if (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 P.commandtableentry(ADVICE, "Start A P U")
                 P.procedureloop1.stepindex = P.procedureloop1.stepindex - 1
@@ -5333,7 +5331,7 @@ function engineshutdownsteps()
             P.commandtableentry(ADVICE, "A P U Running Up")
         end
     elseif (P.procedureloop1.stepindex == 5) then
-        if (get(apugenoffbus) == OFF) then 
+        if (get(P.apugenoffbus) == OFF) then 
             P.procedureloop1.stepindex = P.procedureloop1.stepindex - 1
         else
             if (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
@@ -5343,15 +5341,15 @@ function engineshutdownsteps()
             end
         end
     elseif (P.procedureloop1.stepindex == 6) then
-        if (not((get(apupowerbus1) == ON) and (get(announcsourceoff1) == OFF)) or not((get(apupowerbus2) == ON) and (get(announcsourceoff2) == OFF))) then
+        if (not((get(P.apupowerbus1) == ON) and (get(P.announcsourceoff1) == OFF)) or not((get(P.apupowerbus2) == ON) and (get(P.announcsourceoff2) == OFF))) then
             if (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 P.commandtableentry(ADVICE, "Switch A P U Generator On")
                 P.procedureloop1.stepindex = P.procedureloop1.stepindex - 1
             else
-                if not((get(apupowerbus1) == ON) and (get(announcsourceoff1) == OFF)) then
+                if not((get(P.apupowerbus1) == ON) and (get(P.announcsourceoff1) == OFF)) then
                     helpers.command_once("laminar/B738/toggle_switch/apu_gen1_dn")
                 end
-                if not((get(apupowerbus2) == ON) and (get(announcsourceoff2) == OFF)) then
+                if not((get(P.apupowerbus2) == ON) and (get(P.announcsourceoff2) == OFF)) then
                     helpers.command_once("laminar/B738/toggle_switch/apu_gen2_dn")
                 end
             end
@@ -5359,7 +5357,7 @@ function engineshutdownsteps()
             P.commandtableentry(ADVICE, "A P U Generator checked and On")
         end
     elseif (P.procedureloop1.stepindex == 7) then
-        if (get(bleedairapupos) == OFF) then
+        if (get(P.bleedairapupos) == OFF) then
             if (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 P.commandtableentry(ADVICE, "Switch A P U Bleed Air On")
                 P.procedureloop1.stepindex = P.procedureloop1.stepindex - 1
@@ -5370,12 +5368,12 @@ function engineshutdownsteps()
             P.commandtableentry(ADVICE, "A P U Bleed Air checked and On")    
         end
     elseif (P.procedureloop1.stepindex == 8) then
-        if (get(isolvalvepos)  ~= ISOLVALVEOPEN) then
+        if (get(P.isolvalvepos)  ~= ISOLVALVEOPEN) then
             if (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 P.commandtableentry(ADVICE, "Set Isolation Valve Open")
                 P.procedureloop1.stepindex = P.procedureloop1.stepindex - 1
             else
-                set(isolvalvepos, ISOLVALVEOPEN)
+                set(P.isolvalvepos, ISOLVALVEOPEN)
             end
         elseif ((P.configvalues[CONFIGVOICEADVICEONLY] == ON) and not P.procedureloop1.steprepeat) then
             P.commandtableentry(ADVICE, "Isolation Valve checked and Open")    
@@ -5383,15 +5381,15 @@ function engineshutdownsteps()
     elseif (P.procedureloop1.stepindex == 9) then
         setview(P.configvalues[CONFIGVIEWTHROTTLE])
     elseif (P.procedureloop1.stepindex == 10) then
-        if ((get(mixture1pos) ~= OFF) or (get(mixture2pos) ~= OFF)) then
+        if ((get(P.mixture1pos) ~= OFF) or (get(P.mixture2pos) ~= OFF)) then
             if (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 P.commandtableentry(ADVICE, "Set Both Engine Fuel Levers Cutoff")
                 P.procedureloop1.stepindex = P.procedureloop1.stepindex - 1
             else
-                if (get(mixture2pos) ~= OFF) then
+                if (get(P.mixture2pos) ~= OFF) then
                     helpers.command_once("laminar/B738/engine/mixture2_cutoff")
                 end
-                if (get(mixture1pos) ~= OFF) then
+                if (get(P.mixture1pos) ~= OFF) then
                     helpers.command_once("laminar/B738/engine/mixture1_cutoff")
                 end
             end      
@@ -5401,53 +5399,53 @@ function engineshutdownsteps()
     elseif (P.procedureloop1.stepindex == 11) then
         setview(P.configvalues[CONFIGVIEWOVERHEADPANEL])
     elseif (P.procedureloop1.stepindex == 12) then
-        if ((get(centertanklswitch) == ON) or (get(centertankrswitch) == ON)) then
+        if ((get(P.centertanklswitch) == ON) or (get(P.centertankrswitch) == ON)) then
             if (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 P.commandtableentry(ADVICE, "Set Center Tank Fuel Pumps Off")
                 P.procedureloop1.stepindex = P.procedureloop1.stepindex - 1
             else
-                set(centertanklswitch, OFF)
-                set(centertankrswitch, OFF)
+                set(P.centertanklswitch, OFF)
+                set(P.centertankrswitch, OFF)
             end      
         end
     elseif (P.procedureloop1.stepindex == 13) then
-        if ((get(lefttanklswitch) == ON) or (get(lefttankrswitch) == ON)  or (get(righttanklswitch) == ON) or (get(righttankrswitch) == ON)) then
+        if ((get(P.lefttanklswitch) == ON) or (get(P.lefttankrswitch) == ON)  or (get(P.righttanklswitch) == ON) or (get(P.righttankrswitch) == ON)) then
             if (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 P.commandtableentry(ADVICE, "Set Wing Tank Fuel Pumps Off")
                 P.procedureloop1.stepindex = P.procedureloop1.stepindex - 1
             else
-                set(lefttanklswitch, OFF)
-                set(leftttankrswitch, OFF)
-                set(righttanklswitch, OFF)
-                set(righttankrswitch, OFF)
+                set(P.lefttanklswitch, OFF)
+                set(P.leftttankrswitch, OFF)
+                set(P.righttanklswitch, OFF)
+                set(P.righttankrswitch, OFF)
             end
         end
     elseif (P.procedureloop1.stepindex == 14) then
-        if ((get(hydro1pos) ~= OFF) or (get(hydro2pos) ~= OFF)) then
+        if ((get(P.hydro1pos) ~= OFF) or (get(P.hydro2pos) ~= OFF)) then
             if (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 P.commandtableentry(ADVICE, "Switch Both Hydraulic Pumps Off")
                 P.procedureloop1.stepindex = P.procedureloop1.stepindex - 1
             else
-                set(hydro1pos, OFF)
-                set(hydro2pos, OFF)
+                set(P.hydro1pos, OFF)
+                set(P.hydro2pos, OFF)
             end      
         elseif ((P.configvalues[CONFIGVOICEADVICEONLY] == ON) and not P.procedureloop1.steprepeat) then
             P.commandtableentry(ADVICE, "Both Hydraulic Pumps checked and Off")
         end
     elseif (P.procedureloop1.stepindex == 15) then
-        if ((get(elechydro1pos) ~= OFF) or (get(elechydro2pos) ~= OFF)) then
+        if ((get(P.elechydro1pos) ~= OFF) or (get(P.elechydro2pos) ~= OFF)) then
             if (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 P.commandtableentry(ADVICE, "Switch Both Electrical Hydraulic Pumps Off")
                 P.procedureloop1.stepindex = P.procedureloop1.stepindex - 1
             else
-                set(elechydro1pos, OFF)
-                set(elechydro2pos, OFF)
+                set(P.elechydro1pos, OFF)
+                set(P.elechydro2pos, OFF)
             end      
         elseif ((P.configvalues[CONFIGVOICEADVICEONLY] == ON) and not P.procedureloop1.steprepeat) then
             P.commandtableentry(ADVICE, "Both Electrical Hydraulic Pumps checked and Off")
         end
     elseif (P.procedureloop1.stepindex == 16) then
-      if (get(beaconlights) == ON) then
+      if (get(P.beaconlights) == ON) then
             if (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 P.commandtableentry(ADVICE, "Set Collision Lights Off")
                 P.procedureloop1.stepindex = P.procedureloop1.stepindex - 1
@@ -5473,7 +5471,7 @@ function turnaroundengineshutdown()
         P.procedureloop1.lock = TURNAROUNDENGINESHUTDOWNPROCEDURE
     end
 
-    if (get(airgroundsensor) == OFF) then
+    if (get(P.airgroundsensor) == OFF) then
         P.procedureloop1.lock = NOPROCEDURE
         if (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
             P.commandtableentry(ADVICE, "Engine Shutdown Not Possible Inflight")
@@ -5515,7 +5513,7 @@ function finalengineshutdown()
         P.procedureloop1.lock = FINALENGINESHUTDOWNPROCEDURE
     end
 
-    if (get(airgroundsensor) == OFF) then
+    if (get(P.airgroundsensor) == OFF) then
         P.procedureloop1.lock = NOPROCEDURE
         P.commandtableentry(TEXT, "Engine Shutdown Not Possible Inflight")
         return true
@@ -5550,7 +5548,7 @@ function shutdownsteps()
         setview(DEFAULTVIEW)
         setview(P.configvalues[CONFIGVIEWUPPEROVERHEADPANEL])
     elseif (P.procedureloop1.stepindex == 2) then
-        if ((get(irsleftpos) ~= IRSOFF) or (get(irsrightpos) ~= IRSOFF)) then
+        if ((get(P.irsleftpos) ~= IRSOFF) or (get(P.irsrightpos) ~= IRSOFF)) then
             if (P.configvalues[CONFIGVOICEADVICEONLY] == ON)  then
                 P.commandtableentry(ADVICE, "Set Both I R S Off")
                 P.procedureloop1.stepindex = P.procedureloop1.stepindex - 1
@@ -5565,18 +5563,18 @@ function shutdownsteps()
     elseif (P.procedureloop1.stepindex == 3) then
         setview(P.configvalues[CONFIGVIEWOVERHEADPANEL])
     elseif (P.procedureloop1.stepindex == 4) then
-        if (get(yawdamperswitch) == ON) then
+        if (get(P.yawdamperswitch) == ON) then
             if (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 P.commandtableentry(ADVICE, "Set Yaw Damper Off")
                 P.procedureloop1.stepindex = P.procedureloop1.stepindex - 1
             else
-                set(yawdamperswitch, OFF)
+                set(P.yawdamperswitch, OFF)
             end      
         elseif ((P.configvalues[CONFIGVOICEADVICEONLY] == ON) and not P.procedureloop1.steprepeat) then
             P.commandtableentry(ADVICE, "Yaw Damper checked and Off")
         end 
     elseif (P.procedureloop1.stepindex == 5) then
-        if (get(bleedairapupos) == ON) then
+        if (get(P.bleedairapupos) == ON) then
             if (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 P.commandtableentry(ADVICE, "Switch A P U Bleed Air Off")
                 P.procedureloop1.stepindex = P.procedureloop1.stepindex - 1
@@ -5587,38 +5585,38 @@ function shutdownsteps()
             P.commandtableentry(ADVICE, "A P U Bleed Air checked and Off")
         end 
     elseif (P.procedureloop1.stepindex == 6) then
-        if (get(isolvalvepos)  ~= ISOLVALVEAUTO) then
+        if (get(P.isolvalvepos)  ~= ISOLVALVEAUTO) then
             if (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 P.commandtableentry(ADVICE, "Set Isolation Valve Auto")
                 P.procedureloop1.stepindex = P.procedureloop1.stepindex - 1
             else
-                set(isolvalvepos, ISOLVALVEAUTO)
+                set(P.isolvalvepos, ISOLVALVEAUTO)
             end      
         elseif ((P.configvalues[CONFIGVOICEADVICEONLY] == ON) and not P.procedureloop1.steprepeat) then
             P.commandtableentry(ADVICE, "Isolation Valve checked and Auto")
         end 
     elseif (P.procedureloop1.stepindex == 7) then
-        if ((get(packlpos) ~= PACKOFF) or (get(packrpos) ~= PACKOFF)) then
+        if ((get(P.packlpos) ~= PACKOFF) or (get(P.packrpos) ~= PACKOFF)) then
             if (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 P.commandtableentry(ADVICE, "Set Both Packs Off")
                 P.procedureloop1.stepindex = P.procedureloop1.stepindex - 1
             else
-                set(packlpos, PACKOFF)
-                set(packrpos, PACKOFF)
+                set(P.packlpos, PACKOFF)
+                set(P.packrpos, PACKOFF)
             end      
         elseif ((P.configvalues[CONFIGVOICEADVICEONLY] == ON) and not P.procedureloop1.steprepeat) then
             P.commandtableentry(ADVICE, "Both Packs checked and Off")
         end 
     elseif (P.procedureloop1.stepindex == 8) then
-        if ((get(bleedair1pos) == ON) or (get(bleedair2pos) == ON)) then
+        if ((get(P.bleedair1pos) == ON) or (get(P.bleedair2pos) == ON)) then
             if (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 P.commandtableentry(ADVICE, "Set Both Engine Bleed Air Off")
                 P.procedureloop1.stepindex = P.procedureloop1.stepindex - 1
             else
-                if (get(bleedair1pos) == ON) then
+                if (get(P.bleedair1pos) == ON) then
                     helpers.command_once("laminar/B738/toggle_switch/bleed_air_1")
                 end
-                if (get(bleedair2pos) == ON) then
+                if (get(P.bleedair2pos) == ON) then
                     helpers.command_once("laminar/B738/toggle_switch/bleed_air_2")
                 end
             end      
@@ -5626,18 +5624,18 @@ function shutdownsteps()
             P.commandtableentry(ADVICE, "Both Engine Bleed Air checked and Off")
         end 
     elseif (P.procedureloop1.stepindex == 9) then
-        if (get(trimairpos) ~= OFF) then
+        if (get(P.trimairpos) ~= OFF) then
             if (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 P.commandtableentry(ADVICE, "Set Trim Air Off")
                 P.procedureloop1.stepindex = P.procedureloop1.stepindex - 1
             else
-                set(trimairpos, OFF) 
+                set(P.trimairpos, OFF) 
             end
         elseif ((P.configvalues[CONFIGVOICEADVICEONLY] == ON) and not P.procedureloop1.steprepeat) then
             P.commandtableentry(ADVICE, "Trim Air checked and Off")
         end 
     elseif (P.procedureloop1.stepindex == 10) then
-        if ((get(wheatlfwdpos) ~= OFF) or (get(wheatrfwdpos) ~= OFF) or (get(wheatlsidepos) ~= OFF) or (get(wheatrsidepos) ~= OFF)) then
+        if ((get(P.wheatlfwdpos) ~= OFF) or (get(P.wheatrfwdpos) ~= OFF) or (get(P.wheatlsidepos) ~= OFF) or (get(P.wheatrsidepos) ~= OFF)) then
             if (P.configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                 togglewindowheat(OFF)
             elseif (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
@@ -5649,7 +5647,7 @@ function shutdownsteps()
         end
     elseif (P.procedureloop1.stepindex == 11) then
         if (P.configvalues[CONFIGUSEGROUNDPOWER] == ON) then
-            if (get(gpuon) == ON) then
+            if (get(P.gpuon) == ON) then
                 if (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
                     P.commandtableentry(ADVICE, "Switch Ground Power Off")
                     P.procedureloop1.stepindex = P.procedureloop1.stepindex - 1
@@ -5665,15 +5663,15 @@ function shutdownsteps()
             end
         end
     elseif (P.procedureloop1.stepindex == 12) then
-        if (((get(apupowerbus1) == ON) and (get(announcsourceoff1) == OFF)) or ((get(apupowerbus2) == ON) and (get(announcsourceoff2) == OFF))) then
+        if (((get(P.apupowerbus1) == ON) and (get(P.announcsourceoff1) == OFF)) or ((get(P.apupowerbus2) == ON) and (get(P.announcsourceoff2) == OFF))) then
             if (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 P.commandtableentry(ADVICE, "Switch A P U Generator Off")
                 P.procedureloop1.stepindex = P.procedureloop1.stepindex - 1
             else
-                if ((get(apupowerbus1) == ON) and (get(announcsourceoff1) == OFF)) then
+                if ((get(P.apupowerbus1) == ON) and (get(P.announcsourceoff1) == OFF)) then
                     helpers.command_once("laminar/B738/toggle_switch/apu_gen1_up")
                 end
-                if ((get(apupowerbus2) == ON) and (get(announcsourceoff2) == OFF)) then
+                if ((get(P.apupowerbus2) == ON) and (get(P.announcsourceoff2) == OFF)) then
                     helpers.command_once("laminar/B738/toggle_switch/apu_gen2_up")
                 end
             end
@@ -5681,7 +5679,7 @@ function shutdownsteps()
             P.commandtableentry(ADVICE, "A P U Generator checked and Off")
         end 
     elseif (P.procedureloop1.stepindex == 13) then
-        if (get(apustarterpos) == ON) then
+        if (get(P.apustarterpos) == ON) then
             if (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 P.commandtableentry(ADVICE, "Switch A P U Off")
                 P.procedureloop1.stepindex = P.procedureloop1.stepindex - 1
@@ -5692,7 +5690,7 @@ function shutdownsteps()
             P.commandtableentry(ADVICE, "A P U checked and Off")
         end
     elseif (P.procedureloop1.stepindex == 14) then
-        if (get(positionlights) ~= POSLIGHTSOFF) then
+        if (get(P.positionlights) ~= POSLIGHTSOFF) then
             if (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 P.commandtableentry(ADVICE, "Set Position Lights Off")
                 P.procedureloop1.stepindex = P.procedureloop1.stepindex - 1
@@ -5703,7 +5701,7 @@ function shutdownsteps()
             P.commandtableentry(ADVICE, "Position LIghts checked and Off")
         end 
     elseif (P.procedureloop1.stepindex == 15) then
-        if (get(seatbeltsignpos) ~= SEATBELTSIGNOFF) then
+        if (get(P.seatbeltsignpos) ~= SEATBELTSIGNOFF) then
             if (P.configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                 setseatbeltsign(SEATBELTSIGNOFF)
             elseif (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
@@ -5714,7 +5712,7 @@ function shutdownsteps()
             P.commandtableentry(ADVICE, "Seatbeltsigns checked and Off")
         end
     elseif (P.procedureloop1.stepindex == 16) then
-        if (get(nosmokingsignpos) ~= NOSMOKINGSIGNOFF) then
+        if (get(P.nosmokingsignpos) ~= NOSMOKINGSIGNOFF) then
             if (P.configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                 setnosmokingsign(NOSMOKINGSIGNOFF)
             elseif (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
@@ -5725,11 +5723,11 @@ function shutdownsteps()
             P.commandtableentry(ADVICE, "NO Smoking Signs checked and Off")
         end
     elseif (P.procedureloop1.stepindex == 17) then
-        if (get(emergencylightcover) == CLOSED) then
+        if (get(P.emergencylightcover) == CLOSED) then
             helpers.command_once("laminar/B738/button_switch_cover09")
         end
     elseif (P.procedureloop1.stepindex == 18) then
-        if (get(emergencylights) ~= EMERGLIGHTSOFF) then
+        if (get(P.emergencylights) ~= EMERGLIGHTSOFF) then
             if (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 P.commandtableentry(ADVICE, "Set Emergency Lights Off")
                 P.procedureloop1.stepindex = P.procedureloop1.stepindex - 1
@@ -5742,7 +5740,7 @@ function shutdownsteps()
     elseif (P.procedureloop1.stepindex == 19) then
         setview(P.configvalues[CONFIGVIEWUPPEROVERHEADPANEL])
     elseif (P.procedureloop1.stepindex == 20) then
-        if (get(domelightpos) ~= DOMELIGHTOFF) then
+        if (get(P.domelightpos) ~= DOMELIGHTOFF) then
             if (P.configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                 setdomelight(DOMELIGHTOFF)
             elseif (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
@@ -5755,11 +5753,11 @@ function shutdownsteps()
     elseif (P.procedureloop1.stepindex == 21) then
        setview(P.configvalues[CONFIGVIEWOVERHEADPANEL])
     elseif (P.procedureloop1.stepindex == 22) then
-        if (get(batteryswitchcover) == CLOSED) then
+        if (get(P.batteryswitchcover) == CLOSED) then
             helpers.command_once("laminar/B738/button_switch_cover02")
         end
     elseif (P.procedureloop1.stepindex == 23) then
-        if (get(battery) == ON) then
+        if (get(P.battery) == ON) then
             if (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 P.commandtableentry(ADVICE, "Switch Battery OFF")
                 P.procedureloop1.stepindex = P.procedureloop1.stepindex - 1
@@ -5785,7 +5783,7 @@ function shutdown()
         P.procedureloop1.lock = SHUTDOWNPROCEDURE
     end
 
-    if (get(airgroundsensor) == OFF) then
+    if (get(P.airgroundsensor) == OFF) then
         P.procedureloop1.lock = SHUTDOWNPROCEDURE
         if (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
             P.commandtableentry(ADVICE, "Shutdown Not Possible Inflight")
@@ -5795,7 +5793,7 @@ function shutdown()
         return true
     end
 
-    if ((get(battery) == OFF) and (get(mainbus) == OFF)) then
+    if ((get(P.battery) == OFF) and (get(P.mainbus) == OFF)) then
         P.procedureloop1.lock = SHUTDOWNPROCEDURE
         if (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
             P.commandtableentry(ADVICE, "Shutdown Aborted")
@@ -5931,7 +5929,7 @@ function test()
         P.procedureloop1.lock = TESTPROCEDURE
     end
 
-    if ((get(battery) == OFF) and (get(mainbus) == OFF)) then
+    if ((get(P.battery) == OFF) and (get(P.mainbus) == OFF)) then
         P.procedureloop1.lock = NOPROCEDURE
         P.commandtableentry(TEXT, "Test Aborted Battery is Off")
         return true
@@ -5959,8 +5957,8 @@ sasl.registerCommandHandler(my_command_test, 0, test_)
 function cockpitinitsteps()
 
     if (P.procedureloop1.stepindex == 1) then
-        if (get(sunpitchdegrees) < 0) then
-            if (get(domelightpos) == DOMELIGHTOFF) then
+        if (get(P.sunpitchdegrees) < 0) then
+            if (get(P.domelightpos) == DOMELIGHTOFF) then
                 if (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
                     P.commandtableentry(ADVICE, "Set Dome Light On")
                     P.procedureloop1.stepindex = P.procedureloop1.stepindex - 1
@@ -5974,11 +5972,11 @@ function cockpitinitsteps()
     elseif (P.procedureloop1.stepindex == 2) then
         if (P.configvalues[CONFIGHIDEEFBS] == ON) then
             hideefb = false
-            if (get(hidecptefb) == OFF) then
+            if (get(P.hidecptefb) == OFF) then
                 helpers.command_once("laminar/B738/tab/toggle")
                 hideefb = true
             end
-            if (get(hidefoefb) == OFF) then
+            if (get(P.hidefoefb) == OFF) then
                 helpers.command_once("laminar/B738/tab/fo_toggle")
                 hideefb = true
             end
@@ -6001,18 +5999,18 @@ function cockpitinitsteps()
     elseif (P.procedureloop1.stepindex == 4) then
         if (P.configvalues[CONFIGLOWERDU] == ON) then
             local lowerduset = OFF
-            if (get(lowerdupage) == 0) then
+            if (get(P.lowerdupage) == 0) then
                 lowerduset = ON
                 helpers.command_once("laminar/B738/LDU_control/push_button/MFD_ENG")
                 helpers.command_once("laminar/B738/LDU_control/push_button/MFD_ENG")
             else
-                if (get(lowerdupage) == 1) then
-                    P.lowerduset = ON
+                if (get(P.lowerdupage) == 1) then
+                    lowerduset = ON
                     helpers.command_once("laminar/B738/LDU_control/push_button/MFD_ENG")
                 end
             end
 
-            if (get(lowerdupage2) ~= 1) then
+            if (get(P.lowerdupage2) ~= 1) then
                 lowerduset = ON
                 helpers.command_once("laminar/B738/LDU_control/push_button/MFD_SYS")
             end
@@ -6035,9 +6033,9 @@ function cockpitinitsteps()
         end
     elseif (P.procedureloop1.stepindex == 6) then
         if (P.configvalues[CONFIGTRANSPONDER] ~= 0) then
-            if (get(transpondercode) ~= P.configvalues[CONFIGTRANSPONDER]) then
+            if (get(P.transpondercode) ~= P.configvalues[CONFIGTRANSPONDER]) then
                 if (P.configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
-                    set(transpondercode, P.configvalues[CONFIGTRANSPONDER])
+                    set(P.transpondercode, P.configvalues[CONFIGTRANSPONDER])
                 elseif (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
                     P.commandtableentry(ADVICE, "Set Transponder Code " .. addspaces(P.configvalues[CONFIGTRANSPONDER]))
                     P.procedureloop1.stepindex = P.procedureloop1.stepindex - 1
@@ -6047,7 +6045,7 @@ function cockpitinitsteps()
             end
         end
     elseif (P.procedureloop1.stepindex == 7) then
-        if (get(transponderpos) ~= STANDBY) then
+        if (get(P.transponderpos) ~= STANDBY) then
             if (P.configvalues[CONFIGTRANSPONDER] ~= 0) then
                 if (P.configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                     toggletransponder(STANDBY)
@@ -6060,7 +6058,7 @@ function cockpitinitsteps()
             P.commandtableentry(ADVICE, "Transponder checked and Standby")
         end
     elseif (P.procedureloop1.stepindex == 8) then
-        if ((get(captainprobepos) ~= OFF) or (get(foprobepos) ~= OFF)) then
+        if ((get(P.captainprobepos) ~= OFF) or (get(P.foprobepos) ~= OFF)) then
             if (P.configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                 toggleprobeheat(OFF)
             elseif (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
@@ -6073,7 +6071,7 @@ function cockpitinitsteps()
     elseif (P.procedureloop1.stepindex == 9) then
         setnosmokingsign(NOSMOKINGSIGNON)
     elseif (P.procedureloop1.stepindex == 10) then
-        if (get(seatbeltsignpos) ~= SEATBELTSIGNOFF) then
+        if (get(P.seatbeltsignpos) ~= SEATBELTSIGNOFF) then
             if (P.configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                 setseatbeltsign(SEATBELTSIGNOFF)
             elseif (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
@@ -6084,7 +6082,7 @@ function cockpitinitsteps()
             P.commandtableentry(ADVICE, "Seatbelt Signs checked and Off")
         end
     elseif (P.procedureloop1.stepindex == 11) then
-        if (get(nosmokingsignpos) ~= NOSMOKINGSIGNON) then
+        if (get(P.nosmokingsignpos) ~= NOSMOKINGSIGNON) then
             if (P.configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                 setnosmokingsign(NOSMOKINGSIGNON)
             elseif (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
@@ -6095,7 +6093,7 @@ function cockpitinitsteps()
             P.commandtableentry(ADVICE, "No Smoking Signs checked and On")
         end
     elseif (P.procedureloop1.stepindex == 12) then
-        if(get(positionlights) ~= POSLIGHTSSTEADY) then 
+        if(get(P.positionlights) ~= POSLIGHTSSTEADY) then 
             if (P.configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                 togglepositionlights(POSLIGHTSSTEADY)
             elseif (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
@@ -6106,7 +6104,7 @@ function cockpitinitsteps()
             P.commandtableentry(ADVICE, "Position Lights checked and Steady")
         end
     elseif (P.procedureloop1.stepindex == 13) then
-        if ((get(llights1) ~= OFF) or (get(llights2) ~= OFF) or (get(llights3) ~= OFF) or (get(llights4) ~= OFF)) then
+        if ((get(P.llights1) ~= OFF) or (get(P.llights2) ~= OFF) or (get(P.llights3) ~= OFF) or (get(P.llights4) ~= OFF)) then
             if (P.configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                 togglelandinglights(OFF)
             elseif (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
@@ -6117,7 +6115,7 @@ function cockpitinitsteps()
             P.commandtableentry(ADVICE, "Landing Lights checked and Off")
         end
     elseif (P.procedureloop1.stepindex == 14) then
-        if ((get(rwylightl) == ON) or (get(rwylightl) == ON)) then
+        if ((get(P.rwylightl) == ON) or (get(P.rwylightl) == ON)) then
             if (P.configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                 togglerwylights(OFF)
             elseif (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
@@ -6128,7 +6126,7 @@ function cockpitinitsteps()
             P.commandtableentry(ADVICE, "Runway Turnoff Lights checked and Off")
         end
     elseif (P.procedureloop1.stepindex == 15) then
-        if (get(taxilight)  ~= OFF) then
+        if (get(P.taxilight)  ~= OFF) then
             if (P.configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                 toggletaxilights(OFF)
             elseif (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
@@ -6139,11 +6137,11 @@ function cockpitinitsteps()
             P.commandtableentry(ADVICE, "Taxi Lights checked and Off")
         end
     elseif (P.procedureloop1.stepindex == 16) then
-        if (get(apdiscpos) == ON) then
+        if (get(P.apdiscpos) == ON) then
             helpers.command_once("laminar/B738/autopilot/disconnect_toggle")
         end
     elseif (P.procedureloop1.stepindex == 17) then
-        if ((get(fdpilotpos) == ON) or (get(fdfopos) == ON)) then
+        if ((get(P.fdpilotpos) == ON) or (get(P.fdfopos) == ON)) then
             if (P.configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                 togglefds(OFF)
             elseif (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
@@ -6154,9 +6152,9 @@ function cockpitinitsteps()
             P.commandtableentry(ADVICE, "Both Flight Directors checked and Off")
         end
     elseif (P.procedureloop1.stepindex == 18) then
-        if (get(mcpaltitude) ~= P.lowerairspacealt) then
+        if (get(P.mcpaltitude) ~= P.lowerairspacealt) then
             if (P.configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
-                set(mcpaltitude, P.lowerairspacealt)
+                set(P.mcpaltitude, P.lowerairspacealt)
             elseif (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 P.commandtableentry(ADVICE, "Set M C P ALtitude " .. tostring(P.lowerairspacealt))
                 P.procedureloop1.stepindex = P.procedureloop1.stepindex - 1
@@ -6165,7 +6163,7 @@ function cockpitinitsteps()
             P.commandtableentry(ADVICE, "M C P ALtitude checked and " .. tostring(P.lowerairspacealt))
         end
     elseif (P.procedureloop1.stepindex == 19) then
-        if (get(bankanglepos) ~= P.configvalues[CONFIGBANKANGLEMAX]) then
+        if (get(P.bankanglepos) ~= P.configvalues[CONFIGBANKANGLEMAX]) then
             if (P.configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                 setbankanglepos(P.configvalues[CONFIGBANKANGLEMAX])
             elseif (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
@@ -6176,35 +6174,35 @@ function cockpitinitsteps()
             P.commandtableentry(ADVICE, "Bank Angle checked and " .. getbankanglestring(P.configvalues[CONFIGBANKANGLEMAX]))
         end
     elseif (P.procedureloop1.stepindex == 20) then
-        if (get(efisdatapilotpos) == OFF) then
+        if (get(P.efisdatapilotpos) == OFF) then
             helpers.command_once("laminar/B738/EFIS_control/capt/push_button/data_press")
         end
-        if (get(efisdatafopos) == OFF) then
+        if (get(P.efisdatafopos) == OFF) then
             helpers.command_once("laminar/B738/EFIS_control/fo/push_button/data_press")
         end
     elseif (P.procedureloop1.stepindex == 21) then
-        if (get(aponstat) == ON) then
-            set(aponstat, OFF)
+        if (get(P.aponstat) == ON) then
+            set(P.aponstat, OFF)
         end
     elseif (P.procedureloop1.stepindex == 22) then
-        if ((not enginesrunning(BOTH)) and ((get(mixture1pos) ~= OFF) or (get(mixture2pos) ~= OFF))) then
+        if ((not enginesrunning(BOTH)) and ((get(P.mixture1pos) ~= OFF) or (get(P.mixture2pos) ~= OFF))) then
             if (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 P.commandtableentry(ADVICE, "Set Both Engine Fuel Levers Cutoff")
                 P.procedureloop1.stepindex = P.procedureloop1.stepindex - 1
             else
-                if (get(mixture2pos) ~= OFF) then
+                if (get(P.mixture2pos) ~= OFF) then
                     helpers.command_once("laminar/B738/engine/mixture2_cutoff")
                 end
-                if (get(mixture1pos) ~= OFF) then
+                if (get(P.mixture1pos) ~= OFF) then
                     helpers.command_once("laminar/B738/engine/mixture1_cutoff")
                 end
             end
         end
     elseif (P.procedureloop1.stepindex == 23) then
-        speedbrakeleverrounded = roundnumber(get(speedbrakelever), 1)
+        speedbrakeleverrounded = roundnumber(get(P.speedbrakelever), 1)
         if (speedbrakeleverrounded ~= OFF) then
             if (P.configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
-                set(speedbrakelever, OFF)
+                set(P.speedbrakelever, OFF)
             elseif ((P.configvalues[CONFIGVOICEADVICEONLY] == ON) and not P.procedureloop1.steprepeat) then
                 P.commandtableentry(ADVICE, "Retract Speed Brakes")
                 P.procedureloop1.stepindex = P.procedureloop1.stepindex - 1
@@ -6227,7 +6225,7 @@ function cockpitinit()
         P.procedureloop1.lock = COCKPITINITPROCEDURE
     end
 
-    if ((get(battery) == OFF) and (get(mainbus) == OFF)) then
+    if ((get(P.battery) == OFF) and (get(P.mainbus) == OFF)) then
         P.procedureloop1.lock = NOPROCEDURE
         if (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
             P.commandtableentry(ADVICE, "Cockpit Initialization Aborted, Cockpit is Cold and Dark")
@@ -6237,7 +6235,7 @@ function cockpitinit()
         return true
     end
 
-    if (get(airgroundsensor) == OFF) then
+    if (get(P.airgroundsensor) == OFF) then
         P.procedureloop1.lock = NOPROCEDURE
         if (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
             P.commandtableentry(ADVICE, "Cockpit Initialization Not Possible Inflight")
@@ -6247,7 +6245,7 @@ function cockpitinit()
         return true
     end
 
-    if (get(parkingbrakepos) == OFF) then
+    if (get(P.parkingbrakepos) == OFF) then
         P.procedureloop1.lock = NOPROCEDURE
         if (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
             P.commandtableentry(ADVICE, "Cockpit Initialization Not Possible, Parking brake must be set")
@@ -6277,35 +6275,35 @@ sasl.registerCommandHandler(my_command_cockpitinit, 0, cockpitinit_)
 function aftertakeoffsteps()
 
     if (P.procedureloop2.stepindex == 1) then
-        if (get(radioaltitude) > 200) then
-            if (get(gearhandlepos) == GEARDOWN) then
+        if (get(P.radioaltitude) > 200) then
+            if (get(P.gearhandlepos) == GEARDOWN) then
                 if (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
                     P.commandtableentry(ADVICE, "Set Gear Up")
                     P.procedureloop2.stepindex = P.procedureloop2.stepindex - 1
                 else
-                    set(gearhandlepos, GEARUP)
+                    set(P.gearhandlepos, GEARUP)
                 end
-            elseif ((get(gearhandlepos) == GEARDOWN) and (P.configvalues[CONFIGVOICEADVICEONLY] == ON) and not P.procedureloop2.steprepeat) then
+            elseif ((get(P.gearhandlepos) == GEARDOWN) and (P.configvalues[CONFIGVOICEADVICEONLY] == ON) and not P.procedureloop2.steprepeat) then
                 P.commandtableentry(ADVICE, "Gear checked and Up")
             end  
         else
             P.procedureloop2.stepindex = P.procedureloop2.stepindex - 1
         end
     elseif (P.procedureloop2.stepindex == 2) then
-        if ((get(gearhandlepos) == GEARUP) and (get(lgeardeployed) == 0) and (get(ngeardeployed) == 0) and (get(rgeardeployed) == 0)) then
+        if ((get(P.gearhandlepos) == GEARUP) and (get(P.lgeardeployed) == 0) and (get(P.ngeardeployed) == 0) and (get(P.rgeardeployed) == 0)) then
             if (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 P.commandtableentry(ADVICE, "Set Gear Lever Off")
                 P.procedureloop2.stepindex = P.procedureloop2.stepindex - 1
             else
-                set(gearhandlepos, GEAROFF)
+                set(P.gearhandlepos, GEAROFF)
             end
-        elseif ((get(gearhandlepos) == GEAROFF) and (P.configvalues[CONFIGVOICEADVICEONLY] == ON) and not P.procedureloop2.steprepeat) then
+        elseif ((get(P.gearhandlepos) == GEAROFF) and (P.configvalues[CONFIGVOICEADVICEONLY] == ON) and not P.procedureloop2.steprepeat) then
                 P.commandtableentry(ADVICE, "Gear Lever checked and Off")
-        elseif (get(gearhandlepos) ~= GEAROFF) then
+        elseif (get(P.gearhandlepos) ~= GEAROFF) then
             P.procedureloop2.stepindex = P.procedureloop2.stepindex - 1
         end
     elseif (P.procedureloop2.stepindex == 3) then
-        if (get(autobrakepos) ~= AUTOBRAKEOFF) then
+        if (get(P.autobrakepos) ~= AUTOBRAKEOFF) then
             if (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 P.commandtableentry(ADVICE, "Set Auto Brake Off")
                 P.procedureloop2.stepindex = P.procedureloop2.stepindex - 1
@@ -6326,7 +6324,7 @@ end
 function altitudea10000steps()
 
    if (P.procedureloop1.stepindex == 1) then
-        if (get(altitude) < (P.lowerairspacealt + 1000)) then
+        if (get(P.altitude) < (P.lowerairspacealt + 1000)) then
             if (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 P.commandtableentry(ADVICE, "Passing " .. P.lowerairspacealt .. " Feet")
             else
@@ -6337,7 +6335,7 @@ function altitudea10000steps()
         setview(DEFAULTVIEW)
         setview(P.configvalues[CONFIGVIEWOVERHEADPANEL])
     elseif (P.procedureloop1.stepindex == 3) then
-        if ((get(llights1) ~= OFF) or (get(llights2) ~= OFF) or (get(llights3) ~= OFF) or (get(llights4) ~= OFF)) then
+        if ((get(P.llights1) ~= OFF) or (get(P.llights2) ~= OFF) or (get(P.llights3) ~= OFF) or (get(P.llights4) ~= OFF)) then
             if (P.configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                 togglelandinglights(OFF)
             elseif (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
@@ -6348,7 +6346,7 @@ function altitudea10000steps()
             P.commandtableentry(ADVICE, "Landing Lights checked and Off")
         end  
     elseif (P.procedureloop1.stepindex == 4) then
-        if (get(logolighton) ~= OFF) then
+        if (get(P.logolighton) ~= OFF) then
             if (P.configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                 togglelogolight(OFF)
             elseif (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
@@ -6359,7 +6357,7 @@ function altitudea10000steps()
             P.commandtableentry(ADVICE, "Logo Lights checked and Off")
         end 
     elseif (P.procedureloop1.stepindex == 5) then     
-        if (get(seatbeltsignpos) ~= SEATBELTSIGNOFF) then
+        if (get(P.seatbeltsignpos) ~= SEATBELTSIGNOFF) then
             if (P.configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                 setseatbeltsign(SEATBELTSIGNOFF)
             elseif (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
@@ -6370,8 +6368,8 @@ function altitudea10000steps()
             P.commandtableentry(ADVICE, "Seatbelt Signs checked and Off")
         end
     elseif (P.procedureloop1.stepindex == 6) then
-        if (get(starterauto) == ON) then
-            if ((get(starter1pos) ~= AUTO) or (get(starter2pos) ~= AUTO)) then
+        if (get(P.starterauto) == ON) then
+            if ((get(P.starter1pos) ~= AUTO) or (get(P.starter2pos) ~= AUTO)) then
                 if (P.configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                     setstarter(BOTH, AUTO)
                 elseif (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
@@ -6382,7 +6380,7 @@ function altitudea10000steps()
                 P.commandtableentry(ADVICE, "Both Starters checked and Auto")
             end
         else
-            if ((get(starter1pos) ~= CONT) or (get(starter2pos) ~= CONT)) then
+            if ((get(P.starter1pos) ~= CONT) or (get(P.starter2pos) ~= CONT)) then
                 if (P.configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                     setstarter(BOTH, CONT)
                 elseif (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
@@ -6409,7 +6407,7 @@ function altitudea10000()
         P.procedureloop1.lock = ALTITUDEA10000PROCEDURE
     end
 
-    if (get(airgroundsensor) == ON) then
+    if (get(P.airgroundsensor) == ON) then
         P.procedureloop1.lock = NOPROCEDURE
         P.commandtableentry(TEXT, "Above 10000 Procedure not possible on Ground")
         return true
@@ -6421,7 +6419,7 @@ function altitudea10000()
         return true
     end
 
-    if (get(altitude) < P.lowerairspacealt) then
+    if (get(P.altitude) < P.lowerairspacealt) then
         P.procedureloop1.lock = NOPROCEDURE
         P.commandtableentry(TEXT, "Above 10000 Procedure only possible above lower Airspace Altitude")
         return true
@@ -6458,7 +6456,7 @@ function duringclimbsteps()
         end
     elseif (P.procedureloop2.stepindex == 2) then
         if (P.configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
-            if (get(altitude) < P.lowerairspacealt) then
+            if (get(P.altitude) < P.lowerairspacealt) then
                 togglelandinglights(ON)
             end
         end
@@ -6481,7 +6479,7 @@ function duringclimbsteps()
             end
         end
     elseif (P.procedureloop2.stepindex == 7) then
-        if (get(altitude) > get(fmctransalt)) then
+        if (get(P.altitude) > get(P.fmctransalt)) then
             if (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 P.commandtableentry(ADVICE, "Passing Transition Altitude")
             else
@@ -6492,8 +6490,8 @@ function duringclimbsteps()
         end
     elseif (P.procedureloop2.stepindex == 8) then
         if (P.configvalues[CONFIGAUTOBARO] == ON) then
-            if (get(altitude) > get(fmctransalt)) then 
-                if (get(barostd) == OFF) then
+            if (get(P.altitude) > get(P.fmctransalt)) then 
+                if (get(P.barostd) == OFF) then
                     if (P.configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                         helpers.command_once("laminar/B738/EFIS_control/capt/push_button/std_press")
                     elseif (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
@@ -6508,15 +6506,15 @@ function duringclimbsteps()
             end
         end
     elseif (P.procedureloop2.stepindex == 9) then
-        if ((get(bleedair1pos) == OFF) or (get(bleedair2pos) == OFF)) then
+        if ((get(P.bleedair1pos) == OFF) or (get(P.bleedair2pos) == OFF)) then
             if (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 P.commandtableentry(ADVICE, "Set Both Engine Bleed Air On")
                 P.procedureloop2.stepindex = P.procedureloop2.stepindex - 1
             else
-                if (get(bleedair1pos) == OFF) then
+                if (get(P.bleedair1pos) == OFF) then
                     helpers.command_once("laminar/B738/toggle_switch/bleed_air_1")
                 end
-                if (get(bleedair2pos) == OFF) then
+                if (get(P.bleedair2pos) == OFF) then
                     helpers.command_once("laminar/B738/toggle_switch/bleed_air_2")
                 end
             end
@@ -6524,30 +6522,30 @@ function duringclimbsteps()
             P.commandtableentry(ADVICE, "Both Engine Bleed Air checked and On")
         end 
     elseif (P.procedureloop2.stepindex == 10) then
-        if ((get(packlpos) == PACKOFF) or (get(packrpos) == PACKOFF)) then
+        if ((get(P.packlpos) == PACKOFF) or (get(P.packrpos) == PACKOFF)) then
             if (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 P.commandtableentry(ADVICE, "Set Both Packs Auto")
                 P.procedureloop2.stepindex = P.procedureloop2.stepindex - 1
             else
-                set(packlpos, PACKAUTO)
-                set(packrpos, PACKAUTO)
+                set(P.packlpos, PACKAUTO)
+                set(P.packrpos, PACKAUTO)
             end      
         elseif ((P.configvalues[CONFIGVOICEADVICEONLY] == ON) and not P.procedureloop2.steprepeat) then
             P.commandtableentry(ADVICE, "Both Packs checked and On")
         end  
     elseif (P.procedureloop2.stepindex == 11) then
-        if (get(isolvalvepos)  == ISOLVALVEOPEN) then
+        if (get(P.isolvalvepos)  == ISOLVALVEOPEN) then
             if (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 P.commandtableentry(ADVICE, "Set Isolation Valve Auto")
                 P.procedureloop2.stepindex = P.procedureloop2.stepindex - 1
             else
-                set(isolvalvepos, ISOLVALVEAUTO)
+                set(P.isolvalvepos, ISOLVALVEAUTO)
             end
         elseif ((P.configvalues[CONFIGVOICEADVICEONLY] == ON) and not P.procedureloop2.steprepeat) then
             P.commandtableentry(ADVICE, "Isolation Valve checked and Auto")
         end  
     elseif (P.procedureloop2.stepindex == 12) then
-        if (get(bleedairapupos) == ON) then
+        if (get(P.bleedairapupos) == ON) then
             if (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 P.commandtableentry(ADVICE, "Switch A P U Bleed Air Off")
                 P.procedureloop2.stepindex = P.procedureloop2.stepindex - 1
@@ -6558,7 +6556,7 @@ function duringclimbsteps()
             P.commandtableentry(ADVICE, "A P U Bleed Air checked and Off")
         end  
     elseif (P.procedureloop2.stepindex == 13) then
-        if (get(apustarterpos) == ON) then
+        if (get(P.apustarterpos) == ON) then
             if (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 P.commandtableentry(ADVICE, "Switch A P U Off")
                 P.procedureloop2.stepindex = P.procedureloop2.stepindex - 1
@@ -6583,11 +6581,11 @@ function duringclimb()
        P.procedureloop2.lock = DURINGCLIMBPROCEDURE
     end
 
-    if ((get(altitude) >= P.lowerairspacealt) and (not P.proceduretable[ALTITUDEA10000PROCEDURE].set) and (P.procedureloop1.lock == NOPROCEDURE)) then
+    if ((get(P.altitude) >= P.lowerairspacealt) and (not P.proceduretable[ALTITUDEA10000PROCEDURE].set) and (P.procedureloop1.lock == NOPROCEDURE)) then
         P.procedureloop1.lock = ALTITUDEA10000PROCEDURE
     end
 
-    if ((P.configvalues[CONFIGAUTOFLAPS] == ON) and (get(flapleverpos) > FLAPSUP)) then
+    if ((P.configvalues[CONFIGAUTOFLAPS] == ON) and (get(P.flapleverpos) > FLAPSUP)) then
         flapsuphandling()
     end
 
@@ -6608,7 +6606,7 @@ function altitudeb10000steps()
         setview(DEFAULTVIEW)
         setview(P.configvalues[CONFIGVIEWOVERHEADPANEL])
     elseif (P.procedureloop1.stepindex == 3) then
-        if (get(seatbeltsignpos) ~= SEATBELTSIGNON) then
+        if (get(P.seatbeltsignpos) ~= SEATBELTSIGNON) then
             if (P.configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                 setseatbeltsign(SEATBELTSIGNON)
             elseif (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
@@ -6619,7 +6617,7 @@ function altitudeb10000steps()
             P.commandtableentry(ADVICE, "Seatbeltsigns checked and On")
         end  
     elseif (P.procedureloop1.stepindex == 4) then
-        if ((get(llights1) == OFF) or (get(llights2) == OFF) or (get(llights3) == OFF) or (get(llights4) == OFF)) then
+        if ((get(P.llights1) == OFF) or (get(P.llights2) == OFF) or (get(P.llights3) == OFF) or (get(P.llights4) == OFF)) then
             if (P.configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                 togglelandinglights(ON)
             elseif (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
@@ -6630,7 +6628,7 @@ function altitudeb10000steps()
             P.commandtableentry(ADVICE, "Landing Lights checked and On")
         end  
     elseif (P.procedureloop1.stepindex == 5) then
-        if ((get(starter1pos) ~= FLIGHT) or (get(starter2pos) ~= FLIGHT)) then
+        if ((get(P.starter1pos) ~= FLIGHT) or (get(P.starter2pos) ~= FLIGHT)) then
             if (P.configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                 setstarter(BOTH, FLIGHT)
             elseif (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
@@ -6643,7 +6641,7 @@ function altitudeb10000steps()
             end
         end
     elseif (P.procedureloop1.stepindex == 6) then
-        if (get(logolighton) ~= ON) then
+        if (get(P.logolighton) ~= ON) then
             if (P.configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                 togglelogolight(ON)
             elseif (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
@@ -6671,9 +6669,9 @@ function altitudeb10000steps()
         setview(P.configvalues[CONFIGVIEWMAINPANEL])
     elseif (P.procedureloop1.stepindex == 11) then
         if (P.configvalues[CONFIGVREF30SET] == ON) then
-            local autobrake = calcautobrake(get(vref), P.desmetar.decodedmetar)
-            sasl.logDebug("AUTOBRAKE AUTOBRAKEPOS: " .. tostring(get(autobrakepos)) .. " AUTOBRAKE " .. tostring(autobrake))
-            if (get(autobrakepos) ~= autobrake) then
+            local autobrake = calcautobrake(get(P.vref), P.desmetar.decodedmetar)
+            sasl.logDebug("AUTOBRAKE AUTOBRAKEPOS: " .. tostring(get(P.autobrakepos)) .. " AUTOBRAKE " .. tostring(autobrake))
+            if (get(P.autobrakepos) ~= autobrake) then
                 if (P.configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                     setautobrake(autobrake)
                 elseif (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
@@ -6720,7 +6718,7 @@ function altitudeb10000()
         P.procedureloop1.lock = ALTITUDEB10000PROCEDURE
     end
 
-    if (get(airgroundsensor) == ON) then
+    if (get(P.airgroundsensor) == ON) then
         P.procedureloop1.lock = NOPROCEDURE
         P.commandtableentry(TEXT, "Below 10000 Procedure not possible on Ground")
         return true
@@ -6732,7 +6730,7 @@ function altitudeb10000()
         return true
     end
 
-    if (get(altitude) > P.lowerairspacealt) then
+    if (get(P.altitude) > P.lowerairspacealt) then
         P.procedureloop1.lock = NOPROCEDURE
         P.commandtableentry(TEXT, "Below 10000 Procedure only possible below lower Airspace Altitude")
         return true
@@ -6765,14 +6763,14 @@ sasl.registerCommandHandler(my_command_altitudeb10000, 0, altitudeb10000_)
 function radioaltitudeb2500steps()
 
     if (P.procedureloop2.stepindex == 1) then
-        if ((convflaplevertoflappos(get(flapleverpos)) >= P.configvalues[CONFIGGEARDOWNFLAPS]) and (get(gearhandlepos) < GEARDOWN)) then
+        if ((convflaplevertoflappos(get(P.flapleverpos)) >= P.configvalues[CONFIGGEARDOWNFLAPS]) and (get(P.gearhandlepos) < GEARDOWN)) then
             if (P.configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
-                set(gearhandlepos, GEARDOWN)
+                set(P.gearhandlepos, GEARDOWN)
             elseif (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 P.commandtableentry(ADVICE, "Set Gear Down")
                 P.procedureloop2.stepindex = P.procedureloop2.stepindex - 1
             end
-        elseif (get(gearhandlepos) == GEARDOWN) then
+        elseif (get(P.gearhandlepos) == GEARDOWN) then
             if ((P.configvalues[CONFIGVOICEADVICEONLY] == ON) and not P.procedureloop2.steprepeat) then
                 P.commandtableentry(ADVICE, "Gear checked and Down")
             end
@@ -6789,10 +6787,10 @@ end
 function radioaltitudeb1000steps()
 
     if (P.procedureloop2.stepindex == 1) then
-        local speedbrakeleverrounded = roundnumber(get(speedbrakelever), 1)
+        local speedbrakeleverrounded = roundnumber(get(P.speedbrakelever), 1)
         if (speedbrakeleverrounded == OFF) then
             if (P.configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
-                set(speedbrakelever, 0.1)
+                set(P.speedbrakelever, 0.1)
             elseif (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 P.commandtableentry(ADVICE, "Arm Speed Brakes")
                 P.procedureloop2.stepindex = P.procedureloop2.stepindex - 1
@@ -6803,7 +6801,7 @@ function radioaltitudeb1000steps()
             end
         end
     elseif (P.procedureloop2.stepindex == 2) then
-        if (get(taxilight) == OFF) then
+        if (get(P.taxilight) == OFF) then
             if (P.configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                 toggletaxilights(ON)
             elseif (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
@@ -6816,7 +6814,7 @@ function radioaltitudeb1000steps()
             end
         end
     elseif (P.procedureloop2.stepindex == 3) then
-        if ((get(rwylightl) == OFF) or (get(rwylightl) == OFF)) then
+        if ((get(P.rwylightl) == OFF) or (get(P.rwylightl) == OFF)) then
             if (P.configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                 togglerwylights(ON)
             elseif (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
@@ -6829,14 +6827,14 @@ function radioaltitudeb1000steps()
             end
         end
     elseif (P.procedureloop2.stepindex == 4) then
-        local missedappalttmp = roundnumber((get(missedappalt) / 100)) * 100
+        local missedappalttmp = roundnumber((get(P.missedappalt) / 100)) * 100
         if (missedappalttmp > 1000) then
-            if (missedappalttmp ~= get(mcpaltitude)) then
+            if (missedappalttmp ~= get(P.mcpaltitude)) then
                 if (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
                     P.commandtableentry(ADVICE, "Set M C P Altitude " .. addspaces(missedappalttmp))
                     P.procedureloop2.stepindex = P.procedureloop2.stepindex - 1
                 else
-                    set(mcpaltitude,  missedappalttmp)
+                    set(P.mcpaltitude,  missedappalttmp)
                 end
             else
                 if ((P.configvalues[CONFIGVOICEADVICEONLY] == ON) and not P.procedureloop2.steprepeat) then
@@ -6852,21 +6850,21 @@ function radioaltitudeb1000steps()
         end
     elseif (P.procedureloop2.stepindex == 5) then
         local headingrounded = nil
-        if (isvalidicao(get(desicao)) and isvalidrwy(get(desrwy)) and tonumber(get(desrwyheading))) then
-            headingrounded = roundnumber(get(desrwyheading))
+        if (isvalidicao(get(P.desicao)) and isvalidrwy(get(P.desrwy)) and tonumber(get(P.desrwyheading))) then
+            headingrounded = roundnumber(get(P.desrwyheading))
         end
-        local navrwyheading = getrwyheadingfromnavdata(get(desicao), get(desrwy))
+        local navrwyheading = getrwyheadingfromnavdata(get(P.desicao), get(P.desrwy))
         if (navrwyheading and ((not headingrounded) or (headingrounded and (math.abs(headingrounded - navrwyheading) <= 3)))) then
             headingrounded = navrwyheading
         end
 
-        if (headingrounded and (get(aphdgselstat) == OFF)) then
-            if (headingrounded ~= get(mcpheading)) then
+        if (headingrounded and (get(P.aphdgselstat) == OFF)) then
+            if (headingrounded ~= get(P.mcpheading)) then
                 if (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
                     P.commandtableentry(ADVICE, "Set M C P Heading " .. addspaces(padNumberWithZerosStrict(headingrounded, 3)))
                     P.procedureloop2.stepindex = P.procedureloop2.stepindex - 1
                 else
-                    set(mcpheading, headingrounded)
+                    set(P.mcpheading, headingrounded)
                 end
             else
                 if ((P.configvalues[CONFIGVOICEADVICEONLY] == ON) and not P.procedureloop2.steprepeat) then
@@ -6881,9 +6879,9 @@ function radioaltitudeb1000steps()
             end
         end
     elseif (P.procedureloop2.stepindex == 6) then
-        if (get(gearhandlepos) < GEARDOWN) then
+        if (get(P.gearhandlepos) < GEARDOWN) then
             if (P.configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
-                set(gearhandlepos, GEARDOWN)
+                set(P.gearhandlepos, GEARDOWN)
             elseif (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 P.commandtableentry(ADVICE, "Set Gear Down")
                 P.procedureloop2.stepindex = P.procedureloop2.stepindex - 1
@@ -6894,16 +6892,16 @@ function radioaltitudeb1000steps()
             end
         end
     elseif (P.procedureloop2.stepindex == 7) then
-        if (((get(appflapsset) == OFF) and get(appflaps) ~= 0)) then
+        if (((get(P.appflapsset) == OFF) and get(P.appflaps) ~= 0)) then
             if (P.configvalues[CONFIGVOICEADVICEONLY] ~= ON) then            
-                helpers.command_once("laminar/B738/push_button/flaps_" .. tostring(get(appflaps)))
+                helpers.command_once("laminar/B738/push_button/flaps_" .. tostring(get(P.appflaps)))
             elseif (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
-                P.commandtableentry(ADVICE, "Set Flaps " .. tostring(get(appflaps)))
+                P.commandtableentry(ADVICE, "Set Flaps " .. tostring(get(P.appflaps)))
                 P.procedureloop2.stepindex = P.procedureloop2.stepindex - 1 
             end
         else
             if ((P.configvalues[CONFIGVOICEADVICEONLY] == ON) and not P.procedureloop2.steprepeat) then
-                P.commandtableentry(ADVICE, "Flaps checked and " .. tostring(get(appflaps)))
+                P.commandtableentry(ADVICE, "Flaps checked and " .. tostring(get(P.appflaps)))
             end
         end
     end
@@ -6930,12 +6928,12 @@ function duringdescentsteps()
         helpers.command_once("laminar/B738/button/fmc1_des")
     elseif (P.procedureloop2.stepindex == 4) then
         if (P.configvalues[CONFIGSPDRESTR250] == ON) then
-            if (get(speedrestr) ~= 250) then
+            if (get(P.speedrestr) ~= 250) then
                 if (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
                     P.commandtableentry(ADVICE, "Set Speed below 10000 Feet to 250")
                     P.procedureloop2.stepindex = P.procedureloop2.stepindex - 1
                 else
-                    set(speedrestr, 250)
+                    set(P.speedrestr, 250)
                     P.commandtableentry(TEXT, "Speed 250 below 10000 Feet set")
                 end
             elseif ((P.configvalues[CONFIGVOICEADVICEONLY] == ON) and not P.procedureloop2.steprepeat) then
@@ -6959,7 +6957,7 @@ function duringdescentsteps()
             end
         end
     elseif (P.procedureloop2.stepindex == 7) then
-        if (get(altitude) < get(fmctranslvl)) then
+        if (get(P.altitude) < get(P.fmctranslvl)) then
             if (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 P.commandtableentry(ADVICE, "Passing Transition Level")
             else
@@ -6970,24 +6968,24 @@ function duringdescentsteps()
         end
     elseif (P.procedureloop2.stepindex == 8) then
         if (P.configvalues[CONFIGAUTOBARO] == ON) then
-            if (get(altitude) < get(fmctranslvl)) then
+            if (get(P.altitude) < get(P.fmctranslvl)) then
                 local baroinchtmp, baropastmp = getlocalqnh(ARRIVAL)
-                sasl.logDebug("QNHARRIVAL: BAROPILOT "..tostring(roundnumber(get(baropilot), 2)) .. " BAROINCHTMP " .. baroinchtmp .. " " .. tostring(roundnumber(math.abs(roundnumber(get(baropilot), 2) - baroinchtmp), 2)))
-                if ((get(barostd) == ON) or (roundnumber(math.abs(roundnumber(get(baropilot), 2) - baroinchtmp), 2) > 0.01)) then
+                sasl.logDebug("QNHARRIVAL: BAROPILOT "..tostring(roundnumber(get(P.baropilot), 2)) .. " BAROINCHTMP " .. baroinchtmp .. " " .. tostring(roundnumber(math.abs(roundnumber(get(P.baropilot), 2) - baroinchtmp), 2)))
+                if ((get(P.barostd) == ON) or (roundnumber(math.abs(roundnumber(get(P.baropilot), 2) - baroinchtmp), 2) > 0.01)) then
                     if (P.configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                         helpers.command_once("laminar/B738/EFIS_control/capt/push_button/std_press")
-                        set(baropilot, baroinchtmp)
+                        set(P.baropilot, baroinchtmp)
                     elseif (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
-                        if (get(baroinhpa) == ON) then
+                        if (get(P.baroinhpa) == ON) then
                             P.commandtableentry(ADVICE, "Set Q N H " .. addspaces(baropastmp))
                         else
                             P.commandtableentry(ADVICE, "Set Q N H " .. addspaces(baroinchtmp))
                         end
                         P.procedureloop2.stepindex = P.procedureloop2.stepindex - 1
                     end
-                elseif ((get(barostd) == OFF) and (roundnumber(math.abs(roundnumber(get(baropilot), 2) - baroinchtmp), 2) <= 0.01)) then
+                elseif ((get(P.barostd) == OFF) and (roundnumber(math.abs(roundnumber(get(P.baropilot), 2) - baroinchtmp), 2) <= 0.01)) then
                     if ((P.configvalues[CONFIGVOICEADVICEONLY] == ON) and not P.procedureloop2.steprepeat) then
-                        if (get(baroinhpa) == ON) then
+                        if (get(P.baroinhpa) == ON) then
                             P.commandtableentry(ADVICE, "Q N H checked and " .. addspaces(baropastmp))
                         else
                             P.commandtableentry(ADVICE, "Q N H checked and " .. addspaces(baroinchtmp))
@@ -7013,15 +7011,15 @@ function duringdescent()
        P.procedureloop2.lock = DURINGDESCENTPROCEDURE
     end
 
-    if ((get(altitude) < P.lowerairspacealt) and (not P.proceduretable[ALTITUDEB10000PROCEDURE].set) and (P.procedureloop1.lock == NOPROCEDURE)) then
+    if ((get(P.altitude) < P.lowerairspacealt) and (not P.proceduretable[ALTITUDEB10000PROCEDURE].set) and (P.procedureloop1.lock == NOPROCEDURE)) then
         P.procedureloop1.lock = ALTITUDEB10000PROCEDURE
     end
 
-    if ((get(radioaltitude) < 2500) and (not P.proceduretable[RADIOALTITUDEB2500PROCEDURE].set) and (P.procedureloop2.lock == NOPROCEDURE)) then
+    if ((get(P.radioaltitude) < 2500) and (not P.proceduretable[RADIOALTITUDEB2500PROCEDURE].set) and (P.procedureloop2.lock == NOPROCEDURE)) then
        P.procedureloop2.lock = RADIOALTITUDEB2500PROCEDURE
     end
 
-    if ((get(radioaltitude) < 1000) and (not P.proceduretable[RADIOALTITUDEB1000PROCEDURE].set)  and (P.procedureloop2.lock == NOPROCEDURE)) then
+    if ((get(P.radioaltitude) < 1000) and (not P.proceduretable[RADIOALTITUDEB1000PROCEDURE].set)  and (P.procedureloop2.lock == NOPROCEDURE)) then
        P.procedureloop2.lock = RADIOALTITUDEB1000PROCEDURE
     end
 
@@ -7039,7 +7037,7 @@ function afterlandingsteps()
         setview(DEFAULTVIEW)
         setview(P.configvalues[CONFIGVIEWOVERHEADPANEL])
     elseif (P.procedureloop1.stepindex == 2) then
-       if ((get(llights1) ~= OFF) or (get(llights2) ~= OFF) or (get(llights3) ~= OFF) or (get(llights4) ~= OFF)) then
+       if ((get(P.llights1) ~= OFF) or (get(P.llights2) ~= OFF) or (get(P.llights3) ~= OFF) or (get(P.llights4) ~= OFF)) then
             if (P.configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                 togglelandinglights(OFF)
             elseif (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
@@ -7050,7 +7048,7 @@ function afterlandingsteps()
             P.commandtableentry(ADVICE, "Landing Lights checked and Off")
         end
     elseif (P.procedureloop1.stepindex == 3) then
-        if (get(taxilight) == OFF) then
+        if (get(P.taxilight) == OFF) then
             if (P.configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                 toggletaxilights(ON)
             elseif (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
@@ -7061,7 +7059,7 @@ function afterlandingsteps()
             P.commandtableentry(ADVICE, "Taxi Lights checked and On")
         end
     elseif (P.procedureloop1.stepindex == 4) then
-        if ((get(rwylightl) == ON) or (get(rwylightl) == ON)) then
+        if ((get(P.rwylightl) == ON) or (get(P.rwylightl) == ON)) then
             if (P.configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                 togglerwylights(OFF)
             elseif (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
@@ -7072,7 +7070,7 @@ function afterlandingsteps()
             P.commandtableentry(ADVICE, "Runway Turnoff Lights checked and Off")
         end
     elseif (P.procedureloop1.stepindex == 5) then
-        if(get(positionlights) ~= POSLIGHTSSTEADY) then 
+        if(get(P.positionlights) ~= POSLIGHTSSTEADY) then 
             if (P.configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                 togglepositionlights(POSLIGHTSSTEADY)
             elseif (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
@@ -7083,7 +7081,7 @@ function afterlandingsteps()
             P.commandtableentry(ADVICE, "Position Lights checked and Steady")
         end
     elseif (P.procedureloop1.stepindex == 6) then
-        if ((get(captainprobepos) ~= OFF) or (get(foprobepos) ~= OFF)) then
+        if ((get(P.captainprobepos) ~= OFF) or (get(P.foprobepos) ~= OFF)) then
             if (P.configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                 toggleprobeheat(OFF)
             elseif (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
@@ -7096,7 +7094,7 @@ function afterlandingsteps()
     elseif (P.procedureloop1.stepindex == 7) then
         setview(P.configvalues[CONFIGVIEWPEDESTAL])
     elseif (P.procedureloop1.stepindex == 8) then
-        if (get(transponderpos) == TARA) then
+        if (get(P.transponderpos) == TARA) then
             if (P.configvalues[CONFIGTRANSPONDER] ~= 0) then
                 if (P.configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                     toggletransponder(STANDBY)
@@ -7106,12 +7104,12 @@ function afterlandingsteps()
                 end
             end
         elseif ((P.configvalues[CONFIGVOICEADVICEONLY] == ON) and not P.procedureloop1.steprepeat) then
-            P.commandtableentry(ADVICE, "Transponder checked and " .. TransponderPostotring(get(transponderpos)))
+            P.commandtableentry(ADVICE, "Transponder checked and " .. TransponderPostotring(get(P.transponderpos)))
         end
     elseif (P.procedureloop1.stepindex == 9) then
         setview(P.configvalues[CONFIGVIEWTHROTTLE])
     elseif (P.procedureloop1.stepindex == 10) then
-        if (get(flapleverpos) > FLAPSUP) then
+        if (get(P.flapleverpos) > FLAPSUP) then
             if (P.configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                 helpers.command_once("laminar/B738/push_button/flaps_0")
             elseif (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
@@ -7122,10 +7120,10 @@ function afterlandingsteps()
             P.commandtableentry(ADVICE, "Flaps checked and Up")
         end
     elseif (P.procedureloop1.stepindex == 11) then
-        speedbrakeleverrounded = roundnumber(get(speedbrakelever), 1)
+        speedbrakeleverrounded = roundnumber(get(P.speedbrakelever), 1)
         if (speedbrakeleverrounded ~= OFF) then
             if (P.configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
-                set(speedbrakelever, OFF)
+                set(P.speedbrakelever, OFF)
             elseif (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 P.commandtableentry(ADVICE, "Retract Speed Brakes")
                 P.procedureloop1.stepindex = P.procedureloop1.stepindex - 1
@@ -7138,7 +7136,7 @@ function afterlandingsteps()
     elseif (P.procedureloop1.stepindex == 12) then
         setview(P.configvalues[CONFIGVIEWMAINPANEL])
     elseif (P.procedureloop1.stepindex == 13) then
-        if ((get(fdpilotpos) == ON) or (get(fdfopos) == ON)) then
+        if ((get(P.fdpilotpos) == ON) or (get(P.fdfopos) == ON)) then
             if (P.configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                 togglefds(OFF)
             elseif (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
@@ -7149,7 +7147,7 @@ function afterlandingsteps()
             P.commandtableentry(ADVICE, "Both Flight Directors checked and Off")
         end
     elseif (P.procedureloop1.stepindex == 14) then
-         if ((get(efiswxpilotpos) == ON) or (get(efiswxfopos) == ON)) then
+         if ((get(P.efiswxpilotpos) == ON) or (get(P.efiswxfopos) == ON)) then
             if (P.configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                 togglewx(OFF)
             elseif (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
@@ -7160,7 +7158,7 @@ function afterlandingsteps()
             P.commandtableentry(ADVICE, "Both Weather Radars checked and Off")
         end
     elseif (P.procedureloop1.stepindex == 15) then
-         if ((get(efisterrpilotpos) == ON) or (get(efisterrfopos) == ON)) then
+         if ((get(P.efisterrpilotpos) == ON) or (get(P.efisterrfopos) == ON)) then
             if (P.configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                 toggleterr(OFF)
             elseif (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
@@ -7171,7 +7169,7 @@ function afterlandingsteps()
             P.commandtableentry(ADVICE, "Both Terrain Radars checked and Off")
         end
     elseif (P.procedureloop1.stepindex == 16) then
-        if (get(autobrakepos) ~= AUTOBRAKEOFF) then
+        if (get(P.autobrakepos) ~= AUTOBRAKEOFF) then
             if (P.configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                 setautobrake(AUTOBRAKEOFF)
             elseif (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
@@ -7182,8 +7180,8 @@ function afterlandingsteps()
             P.commandtableentry(ADVICE, "Auto Brake checked and Off")
         end
     elseif (P.procedureloop1.stepindex == 17) then
-        if (get(aponstat) == ON) then
-            set(aponstat, OFF)
+        if (get(P.aponstat) == ON) then
+            set(P.aponstat, OFF)
         end
     elseif (P.procedureloop1.stepindex == 18) then
         iceprotection(OFF)
@@ -7206,7 +7204,7 @@ function afterlanding()
         P.procedureloop1.lock = AFTERLANDINGPROCEDURE
     end
 
-    if (get(airgroundsensor) == OFF) then
+    if (get(P.airgroundsensor) == OFF) then
         P.procedureloop1.lock = NOPROCEDURE
         P.commandtableentry(TEXT, "After Landing Procedure Not Possible Inflight")
         return true
@@ -7248,21 +7246,21 @@ sasl.registerCommandHandler(my_command_afterlanding, 0, afterlanding_)
 function beforetaxisteps()
 
     if (P.procedureloop1.stepindex == 1) then
-        if (get(chockstatus) ~= OFF) then
+        if (get(P.chockstatus) ~= OFF) then
             if (P.configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                 helpers.command_once("laminar/B738/toggle_switch/chock")
             elseif (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 P.commandtableentry(ADVICE, "Remove Chocks")
                 P.procedureloop1.stepindex = P.procedureloop1.stepindex - 1
             end
-        elseif ((P.configvalues[CONFIGVOICEADVICEONLY] == ON) and (get(groundspeed) < 1) and not P.procedureloop1.steprepeat) then
+        elseif ((P.configvalues[CONFIGVOICEADVICEONLY] == ON) and (get(P.groundspeed) < 1) and not P.procedureloop1.steprepeat) then
             P.commandtableentry(ADVICE, "Chocks checked and Removed")
         end
     elseif (P.procedureloop1.stepindex == 2) then
         setview(DEFAULTVIEW)
         setview(P.configvalues[CONFIGVIEWUPPEROVERHEADPANEL])
     elseif (P.procedureloop1.stepindex == 3) then
-        if (get(domelightpos) ~= DOMELIGHTOFF) then
+        if (get(P.domelightpos) ~= DOMELIGHTOFF) then
             if (P.configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                 setdomelight(DOMELIGHTOFF)
             elseif (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
@@ -7275,7 +7273,7 @@ function beforetaxisteps()
     elseif (P.procedureloop1.stepindex == 4) then
         setview(P.configvalues[CONFIGVIEWOVERHEADPANEL])
     elseif (P.procedureloop1.stepindex == 5) then
-        if(get(positionlights) ~= POSLIGHTSSTEADY) then 
+        if(get(P.positionlights) ~= POSLIGHTSSTEADY) then 
             if (P.configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                 togglepositionlights(POSLIGHTSSTEADY)
             elseif (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
@@ -7286,7 +7284,7 @@ function beforetaxisteps()
             P.commandtableentry(ADVICE, "Position Lights checked and Steady")
         end
     elseif (P.procedureloop1.stepindex == 6) then
-        if (get(beaconlights) == OFF) then
+        if (get(P.beaconlights) == OFF) then
             if (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 P.commandtableentry(ADVICE, "Set Collision Lights On")
                 P.procedureloop1.stepindex = P.procedureloop1.stepindex - 1
@@ -7297,7 +7295,7 @@ function beforetaxisteps()
             P.commandtableentry(ADVICE, "Collision Lights checked and On")
         end  
     elseif (P.procedureloop1.stepindex == 7) then
-        if (get(seatbeltsignpos) ~= SEATBELTSIGNON) then
+        if (get(P.seatbeltsignpos) ~= SEATBELTSIGNON) then
             if (P.configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                 setseatbeltsign(SEATBELTSIGNON)
             elseif (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
@@ -7308,7 +7306,7 @@ function beforetaxisteps()
             P.commandtableentry(ADVICE, "Seatbeltsigns checked and On")
         end
     elseif (P.procedureloop1.stepindex == 8) then
-        if (get(logolighton) ~= ON) then
+        if (get(P.logolighton) ~= ON) then
             if (P.configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                 togglelogolight(ON)
             elseif (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
@@ -7319,32 +7317,32 @@ function beforetaxisteps()
             P.commandtableentry(ADVICE, "Logo Lights checked and On")
         end
     elseif (P.procedureloop1.stepindex == 9) then
-        if (get(yawdamperswitch) ~= ON) then
+        if (get(P.yawdamperswitch) ~= ON) then
             if (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 P.commandtableentry(ADVICE, "Set Yaw Damper On")
                 P.procedureloop1.stepindex = P.procedureloop1.stepindex - 1
             else
-                set(yawdamperswitch, ON)
+                set(P.yawdamperswitch, ON)
             end
         elseif ((P.configvalues[CONFIGVOICEADVICEONLY] == ON) and not P.procedureloop1.steprepeat) then
                 P.commandtableentry(ADVICE, "Yaw Damper checked and On") 
         end
     elseif (P.procedureloop1.stepindex == 10) then
-        if ((get(hydro1pos) ~= ON) or (get(hydro2pos) ~= ON) or (get(elechydro1pos) ~= ON) or (get(elechydro2pos) ~= ON)) then
+        if ((get(P.hydro1pos) ~= ON) or (get(P.hydro2pos) ~= ON) or (get(P.elechydro1pos) ~= ON) or (get(P.elechydro2pos) ~= ON)) then
             if (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 P.commandtableentry(ADVICE, "Switch Hydraulic Pumps On")
                 P.procedureloop1.stepindex = P.procedureloop1.stepindex - 1
             else
-                set(hydro1pos, ON)
-                set(hydro2pos, ON)
-                set(elechydro1pos, ON)
-                set(elechydro2pos, ON)
+                set(P.hydro1pos, ON)
+                set(P.hydro2pos, ON)
+                set(P.elechydro1pos, ON)
+                set(P.elechydro2pos, ON)
             end
         elseif ((P.configvalues[CONFIGVOICEADVICEONLY] == ON) and not P.procedureloop1.steprepeat) then
             P.commandtableentry(ADVICE, "Hydraulic Pumps checked and On") 
         end
     elseif (P.procedureloop1.stepindex == 11) then
-        if ((get(wheatlfwdpos) == OFF) or (get(wheatrfwdpos) == OFF) or (get(wheatlsidepos) == OFF) or (get(wheatrsidepos) == OFF)) then
+        if ((get(P.wheatlfwdpos) == OFF) or (get(P.wheatrfwdpos) == OFF) or (get(P.wheatlsidepos) == OFF) or (get(P.wheatrsidepos) == OFF)) then
             if (P.configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                 togglewindowheat(ON)
             elseif (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
@@ -7355,7 +7353,7 @@ function beforetaxisteps()
             P.commandtableentry(ADVICE, "Window Heat checked and On")
         end
     elseif (P.procedureloop1.stepindex == 12) then
-        if ((get(captainprobepos) == OFF) or (get(foprobepos) == OFF)) then
+        if ((get(P.captainprobepos) == OFF) or (get(P.foprobepos) == OFF)) then
             if (P.configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                 toggleprobeheat(ON)
             elseif (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
@@ -7366,7 +7364,7 @@ function beforetaxisteps()
             P.commandtableentry(ADVICE, "Probe Heat checked and On")
         end
     elseif (P.procedureloop1.stepindex == 13) then
-        if ((get(starter1pos) ~= FLIGHT) or (get(starter2pos) ~= FLIGHT)) then
+        if ((get(P.starter1pos) ~= FLIGHT) or (get(P.starter2pos) ~= FLIGHT)) then
             if (P.configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                 setstarter(BOTH, FLIGHT)
             elseif (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
@@ -7380,26 +7378,26 @@ function beforetaxisteps()
         setview(P.configvalues[CONFIGVIEWFMS])
     elseif (P.procedureloop1.stepindex == 15) then
         if (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
-            if (get(toflaps) == 0) then
+            if (get(P.toflaps) == 0) then
                 local toflapscalc = determineTakeoffFlapsSetting(P.depmetar.decodedmetar)
                 P.commandtableentry(ADVICE, "Set Takeoff Flaps " .. tostring(toflapscalc))
                 P.procedureloop1.stepindex = P.procedureloop1.stepindex - 1
             elseif not P.procedureloop1.steprepeat then
-                P.commandtableentry(ADVICE, "Takeoff Flaps set and " .. tostring(get(toflaps)))
+                P.commandtableentry(ADVICE, "Takeoff Flaps set and " .. tostring(get(P.toflaps)))
             end
         end
     elseif (P.procedureloop1.stepindex == 16) then
         if (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
-            if (get(fmccg) == 0) then
-                P.commandtableentry(ADVICE, "Set C G " .. tostring(roundnumber(get(tabcg),1)))
+            if (get(P.fmccg) == 0) then
+                P.commandtableentry(ADVICE, "Set C G " .. tostring(roundnumber(get(P.tabcg),1)))
                 P.procedureloop1.stepindex = P.procedureloop1.stepindex - 1
             elseif not P.procedureloop1.steprepeat then
-                P.commandtableentry(ADVICE, "C G checked and " .. tostring(get(fmccg)))
+                P.commandtableentry(ADVICE, "C G checked and " .. tostring(get(P.fmccg)))
             end
         end
     elseif (P.procedureloop1.stepindex == 17) then
         if (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
-            if ((get(v1setspeed) == 0) or (get(v2setspeed) == 0) or (get(vrsetspeed) == 0)) then
+            if ((get(P.v1setspeed) == 0) or (get(P.v2setspeed) == 0) or (get(P.vrsetspeed) == 0)) then
                 P.commandtableentry(ADVICE, "Enter V Speeds")
                 P.procedureloop1.stepindex = P.procedureloop1.stepindex - 1
             elseif not P.procedureloop1.steprepeat then
@@ -7409,7 +7407,7 @@ function beforetaxisteps()
     elseif (P.procedureloop1.stepindex == 18) then
         setview(P.configvalues[CONFIGVIEWMAINPANEL])
     elseif (P.procedureloop1.stepindex == 19) then
-        if ((get(fdpilotpos) == OFF) or (get(fdfopos) == OFF)) then
+        if ((get(P.fdpilotpos) == OFF) or (get(P.fdfopos) == OFF)) then
             if (P.configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                 togglefds(ON)
             elseif (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
@@ -7421,7 +7419,7 @@ function beforetaxisteps()
         end
     elseif (P.procedureloop1.stepindex == 20) then
         if (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
-            if (get(aplnavstat) ~= ON) then
+            if (get(P.aplnavstat) ~= ON) then
                 P.commandtableentry(ADVICE, "Arm L NAV")
                 P.procedureloop1.stepindex = P.procedureloop1.stepindex - 1
             elseif not P.procedureloop1.steprepeat then
@@ -7430,7 +7428,7 @@ function beforetaxisteps()
         end
     elseif (P.procedureloop1.stepindex == 21) then
         if (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
-            if (get(apvnavstat) ~= ON) then
+            if (get(P.apvnavstat) ~= ON) then
                 P.commandtableentry(ADVICE, "Arm V NAV")
                 P.procedureloop1.stepindex = P.procedureloop1.stepindex - 1
             elseif not P.procedureloop1.steprepeat then
@@ -7441,23 +7439,23 @@ function beforetaxisteps()
         setview(P.configvalues[CONFIGVIEWTHROTTLE])
     elseif (P.procedureloop1.stepindex == 23) then
         local toflapscalc = determineTakeoffFlapsSetting(P.depmetar.decodedmetar)
-        if ((convflaplevertoflappos(get(flapleverpos)) ~= get(toflaps)))  then  
+        if ((convflaplevertoflappos(get(P.flapleverpos)) ~= get(P.toflaps)))  then  
             if (P.configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
-                local toflapscmd = "laminar/B738/push_button/flaps_" .. get(toflaps)
+                local toflapscmd = "laminar/B738/push_button/flaps_" .. get(P.toflaps)
                 helpers.command_once(toflapscmd)
             elseif (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
-                toflapscmd = "Set Flap Lever " .. tostring(get(toflaps))
+                toflapscmd = "Set Flap Lever " .. tostring(get(P.toflaps))
                 P.commandtableentry(ADVICE, toflapscmd)
                 P.procedureloop1.stepindex = P.procedureloop1.stepindex - 1
             end
         elseif ((P.configvalues[CONFIGVOICEADVICEONLY] == ON) and not P.procedureloop1.steprepeat) then
-                P.commandtableentry(ADVICE, "Takeoff Flaps checked and " .. get(toflaps))
+                P.commandtableentry(ADVICE, "Takeoff Flaps checked and " .. get(P.toflaps))
         end
     elseif ((P.procedureloop1.stepindex == 24) and (P.configvalues[CONFIGVOICEADVICEONLY] == ON))then
-        if (get(parkingbrakepos) ~= OFF) then
+        if (get(P.parkingbrakepos) ~= OFF) then
             P.commandtableentry(ADVICE, "Release Parking Brake")
             P.procedureloop1.stepindex = P.procedureloop1.stepindex - 1
-        elseif ((get(groundspeed) < 1) and not P.procedureloop1.steprepeat) then
+        elseif ((get(P.groundspeed) < 1) and not P.procedureloop1.steprepeat) then
             P.commandtableentry(ADVICE, "Parking Brake checked and Released")
         end
     elseif (P.procedureloop1.stepindex == 24) then
@@ -7479,7 +7477,7 @@ function beforetaxi()
         P.procedureloop1.lock = BEFORETAXIPROCEDURE
     end
 
-    if (get(airgroundsensor) == OFF) then
+    if (get(P.airgroundsensor) == OFF) then
         P.procedureloop1.lock = NOPROCEDURE
         P.commandtableentry(TEXT, "Before Taxi Procedure Not Possible Inflight")
         return true
@@ -7510,14 +7508,14 @@ sasl.registerCommandHandler(my_command_beforetaxi, 0, beforetaxi_)
 
 function beforetakeoffsteps()
 
-    if (get(groundspeed) > 45) then
+    if (get(P.groundspeed) > 45) then
         P.procedureabort = true
         return true
     elseif (P.procedureloop1.stepindex == 1) then
         setview(DEFAULTVIEW)
         setview(P.configvalues[CONFIGVIEWPEDESTAL])
     elseif (P.procedureloop1.stepindex == 2) then
-        if (get(transponderpos) ~= TARA) then
+        if (get(P.transponderpos) ~= TARA) then
             if (P.configvalues[CONFIGTRANSPONDER] ~= 0) then
                 if (P.configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                     toggletransponder(TARA)
@@ -7532,7 +7530,7 @@ function beforetakeoffsteps()
     elseif (P.procedureloop1.stepindex == 3) then
         setview(P.configvalues[CONFIGVIEWOVERHEADPANEL])
     elseif (P.procedureloop1.stepindex == 4) then
-        if(get(positionlights) ~= POSLIGHTSSTROBE) then 
+        if(get(P.positionlights) ~= POSLIGHTSSTROBE) then 
             if (P.configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                 togglepositionlights(POSLIGHTSSTROBE)
             elseif (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
@@ -7543,7 +7541,7 @@ function beforetakeoffsteps()
             P.commandtableentry(ADVICE, "Position Lights checked and Strobe")
         end
     elseif (P.procedureloop1.stepindex == 5) then
-        if ((get(llights1) == OFF) or (get(llights2) == OFF) or (get(llights3) == OFF) or (get(llights4) == OFF)) then
+        if ((get(P.llights1) == OFF) or (get(P.llights2) == OFF) or (get(P.llights3) == OFF) or (get(P.llights4) == OFF)) then
             if (P.configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                 togglelandinglights(ON)
             elseif (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
@@ -7554,7 +7552,7 @@ function beforetakeoffsteps()
             P.commandtableentry(ADVICE, "Landing Lights checked and On")
         end
     elseif (P.procedureloop1.stepindex == 6) then
-        if (get(taxilight)  ~= OFF) then
+        if (get(P.taxilight)  ~= OFF) then
             if (P.configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                 toggletaxilights(OFF)
             elseif (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
@@ -7565,7 +7563,7 @@ function beforetakeoffsteps()
             P.commandtableentry(ADVICE, "Taxi Lights checked and Off")
         end
     elseif (P.procedureloop1.stepindex == 7) then
-        if ((get(rwylightl) == ON) or (get(rwylightl) == ON)) then
+        if ((get(P.rwylightl) == ON) or (get(P.rwylightl) == ON)) then
             if (P.configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                 togglerwylights(OFF)
             elseif (P.configvalues[CONFIGVOICEADVICEONLY] == OFF) then
@@ -7580,7 +7578,7 @@ function beforetakeoffsteps()
     end
 
     if (P.procedureloop1.stepindex == 9) then
-        if (get(autobrakepos)  ~= AUTOBRAKERTO) then
+        if (get(P.autobrakepos)  ~= AUTOBRAKERTO) then
             if (P.configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                 setautobrake(AUTOBRAKERTO)
             elseif (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
@@ -7592,16 +7590,16 @@ function beforetakeoffsteps()
         end
     elseif (P.procedureloop1.stepindex == 10) then
         local headingrounded = nil
-        if (isvalidicao(get(depicao)) and isvalidrwy(get(deprwy)) and tonumber(get(deprwyheading))) then
-            headingrounded = roundnumber(get(deprwyheading))
+        if (isvalidicao(get(P.depicao)) and isvalidrwy(get(P.deprwy)) and tonumber(get(P.deprwyheading))) then
+            headingrounded = roundnumber(get(P.deprwyheading))
         end
-        local navrwyheading = getrwyheadingfromnavdata(get(depicao), get(deprwy))
+        local navrwyheading = getrwyheadingfromnavdata(get(P.depicao), get(P.deprwy))
         if (navrwyheading and ((not headingrounded) or (headingrounded and (math.abs(headingrounded - navrwyheading) <= 3)))) then
             headingrounded = navrwyheading
         end
         if headingrounded then
             if (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
-                if (get(mcpheading) ~= headingrounded) then
+                if (get(P.mcpheading) ~= headingrounded) then
                     P.commandtableentry(ADVICE, "Set M C P Heading" .. addspaces(padNumberWithZerosStrict(headingrounded, 3)))
                     P.procedureloop1.stepindex = P.procedureloop1.stepindex - 1
                 elseif not P.procedureloop1.steprepeat then
@@ -7611,7 +7609,7 @@ function beforetakeoffsteps()
         end
     elseif (P.procedureloop1.stepindex == 11) then
         if (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
-            if (get(aplnavstat) ~= ON) then
+            if (get(P.aplnavstat) ~= ON) then
                 P.commandtableentry(ADVICE, "Arm L NAV")
                 P.procedureloop1.stepindex = P.procedureloop1.stepindex - 1
             elseif not P.procedureloop1.steprepeat then
@@ -7620,7 +7618,7 @@ function beforetakeoffsteps()
         end
     elseif (P.procedureloop1.stepindex == 12) then
         if (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
-            if (get(apvnavstat) ~= ON) then
+            if (get(P.apvnavstat) ~= ON) then
                 P.commandtableentry(ADVICE, "Arm VNAV")
                 P.procedureloop1.stepindex = P.procedureloop1.stepindex - 1
             elseif not P.procedureloop1.steprepeat then
@@ -7629,7 +7627,7 @@ function beforetakeoffsteps()
         end
     elseif (P.procedureloop1.stepindex == 13) then
         if (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
-            if (get(atarmpos) ~= ON) then
+            if (get(P.atarmpos) ~= ON) then
                 P.commandtableentry(ADVICE, "Arm Autothrottle")
                 P.procedureloop1.stepindex = P.procedureloop1.stepindex - 1
             elseif not P.procedureloop1.steprepeat then
@@ -7653,7 +7651,7 @@ function beforetakeoff()
         P.procedureloop1.lock = BEFORETAKEOFFPROCEDURE
     end
 
-    if (get(airgroundsensor) == OFF) then
+    if (get(P.airgroundsensor) == OFF) then
         P.procedureloop1.lock = NOPROCEDURE
         P.commandtableentry(TEXT, "Before Takeoff Procedure Not Possible Inflight")
         return true
@@ -7684,14 +7682,14 @@ sasl.registerCommandHandler(my_command_beforetakeoff, 0, beforetakeoff_)
 
 function atparkingpositionsteps()
 
-    if (get(battery) ~= ON) then
+    if (get(P.battery) ~= ON) then
         P.procedureabort = true
         return true
     elseif (P.procedureloop1.stepindex == 1) then
         setview(DEFAULTVIEW)
         setview(P.configvalues[CONFIGVIEWMAINPANEL])
     elseif (P.procedureloop1.stepindex == 2) then
-        if (get(chockstatus) ~= ON) then
+        if (get(P.chockstatus) ~= ON) then
             if (P.configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                 helpers.command_once("laminar/B738/toggle_switch/chock")
             elseif (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
@@ -7701,10 +7699,10 @@ function atparkingpositionsteps()
         elseif ((P.configvalues[CONFIGVOICEADVICEONLY] == ON) and not P.procedureloop1.steprepeat) then
             P.commandtableentry(ADVICE, "Chocks checked and Set")
         end
-    elseif ((P.procedureloop1.stepindex == 3) and (get(sunpitchdegrees) < 0)) then
+    elseif ((P.procedureloop1.stepindex == 3) and (get(P.sunpitchdegrees) < 0)) then
         setview(P.configvalues[CONFIGVIEWUPPEROVERHEADPANEL])
-    elseif ((P.procedureloop1.stepindex == 4) and (get(sunpitchdegrees) < 0)) then
-        if (get(domelightpos) == DOMELIGHTOFF) then
+    elseif ((P.procedureloop1.stepindex == 4) and (get(P.sunpitchdegrees) < 0)) then
+        if (get(P.domelightpos) == DOMELIGHTOFF) then
             if (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
                 P.commandtableentry(ADVICE, "Set Dome Light On")
                 P.procedureloop1.stepindex = P.procedureloop1.stepindex - 1
@@ -7717,7 +7715,7 @@ function atparkingpositionsteps()
     elseif (P.procedureloop1.stepindex == 5) then
         setview(P.configvalues[CONFIGVIEWPEDESTAL])
     elseif (P.procedureloop1.stepindex == 6) then
-        if (get(transponderpos) ~= STANDBY) then
+        if (get(P.transponderpos) ~= STANDBY) then
             if (P.configvalues[CONFIGTRANSPONDER] ~= 0) then
                 if (P.configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                     toggletransponder(STANDBY)
@@ -7732,7 +7730,7 @@ function atparkingpositionsteps()
     elseif (P.procedureloop1.stepindex == 7) then
         setview(P.configvalues[CONFIGVIEWOVERHEADPANEL])
     elseif (P.procedureloop1.stepindex == 8) then
-        if (get(taxilight)  ~= OFF) then
+        if (get(P.taxilight)  ~= OFF) then
             if (P.configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                 toggletaxilights(OFF)
             elseif (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
@@ -7743,7 +7741,7 @@ function atparkingpositionsteps()
             P.commandtableentry(ADVICE, "Taxi Lights checked and Off")
         end
     elseif (P.procedureloop1.stepindex == 9) then
-        if (get(logolighton) ~= OFF) then
+        if (get(P.logolighton) ~= OFF) then
             if (P.configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                 togglelogolight(OFF)
             elseif (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
@@ -7754,7 +7752,7 @@ function atparkingpositionsteps()
             P.commandtableentry(ADVICE, "Logo Lights checked and Off")
         end
     elseif (P.procedureloop1.stepindex == 10) then
-        if (get(seatbeltsignpos) ~= SEATBELTSIGNOFF) then
+        if (get(P.seatbeltsignpos) ~= SEATBELTSIGNOFF) then
             if (P.configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                 setseatbeltsign(SEATBELTSIGNOFF)
             elseif (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
@@ -7765,11 +7763,11 @@ function atparkingpositionsteps()
             P.commandtableentry(ADVICE, "Seatbeltsigns checked and Off")
         end
     elseif (P.procedureloop1.stepindex == 11) then
-        if ((get(starter1pos) ~= AUTO) or (get(starter2pos) ~= AUTO)) then
+        if ((get(P.starter1pos) ~= AUTO) or (get(P.starter2pos) ~= AUTO)) then
             if (P.configvalues[CONFIGVOICEADVICEONLY] ~= ON) then
                 setstarter(BOTH, AUTO)
             elseif (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
-                if (get(starterauto) == ON) then
+                if (get(P.starterauto) == ON) then
                     P.commandtableentry(ADVICE, "Set Both Starters Auto")
                 else
                     P.commandtableentry(ADVICE, "Set Both Starters Off")
@@ -7777,7 +7775,7 @@ function atparkingpositionsteps()
                 P.procedureloop1.stepindex = P.procedureloop1.stepindex - 1
             end   
         elseif ((P.configvalues[CONFIGVOICEADVICEONLY] == ON) and not P.procedureloop1.steprepeat) then
-            if (get(starterauto) == ON) then
+            if (get(P.starterauto) == ON) then
                 P.commandtableentry(ADVICE, "Both Starters checked and Auto")
             else
                 P.commandtableentry(ADVICE, "Both Starters checked and Off")
@@ -7799,14 +7797,14 @@ function inflightrestoreactions()
     readconfig()
 
     if ((P.configvalues[CONFIGAUTOBARO] == ON) and (P.configvalues[CONFIGAUTOFUNCTIONS] == ON)) then
-        if ((get(altitude) > get(fmctransalt)) and (get(barostd) == OFF)) then
+        if ((get(P.altitude) > get(P.fmctransalt)) and (get(P.barostd) == OFF)) then
             helpers.command_once("laminar/B738/EFIS_control/capt/push_button/std_press")
         end
 
-        if ((get(altitude) < get(fmctranslvl)) and (get(barostd) == ON)) then
+        if ((get(P.altitude) < get(P.fmctranslvl)) and (get(P.barostd) == ON)) then
             helpers.command_once("laminar/B738/EFIS_control/capt/push_button/std_press")
             local baroinchtmp, baropastemp = getlocalqnh(ARRIVAL)
-            set(baropilot, baroinchtmp)
+            set(P.baropilot, baroinchtmp)
         end
     end
 
@@ -7818,30 +7816,30 @@ end
 function autofunctions()
 
 
-    if (get(airgroundsensor) == ON)  then -- aircraft on the ground
+    if (get(P.airgroundsensor) == ON)  then -- aircraft on the ground
         P.aircraftwasonground = true
 
         if (P.flightstate == 0) then
-            if ((not P.proceduretable[BEFORETAXIPROCEDURE].set) and (get(taxilight) ~= OFF) and enginesrunning(BOTH) and (get(groundspeed) < 45) and (P.procedureloop1.lock == NOPROCEDURE)) then
+            if ((not P.proceduretable[BEFORETAXIPROCEDURE].set) and (get(P.taxilight) ~= OFF) and enginesrunning(BOTH) and (get(P.groundspeed) < 45) and (P.procedureloop1.lock == NOPROCEDURE)) then
                 P.procedureloop1.lock = BEFORETAXIPROCEDURE
             end
 
             if (P.proceduretable[BEFORETAXIPROCEDURE].set and (not P.proceduretable[BEFORETAKEOFFPROCEDURE].set) and (P.procedureloop1.lock == NOPROCEDURE)) then
-                if ((aircraftonrwy(get(aircraftlatpos), get(aircraftlonpos), get(deprwylatstartpos), get(deprwylonstartpos), get(deprwylatendpos), get(deprwylonendpos), 0.0003) and
-                     (headingdiff(get(groundtrackmag), get(deprwyheading)) < 20) and (roundnumber(get(groundspeed)) == 0))) then
+                if ((aircraftonrwy(get(P.aircraftlatpos), get(P.aircraftlonpos), get(P.deprwylatstartpos), get(P.deprwylonstartpos), get(P.deprwylatendpos), get(P.deprwylonendpos), 0.0003) and
+                     (headingdiff(get(P.groundtrackmag), get(P.deprwyheading)) < 20) and (roundnumber(get(P.groundspeed)) == 0))) then
                     P.procedureloop1.lock = BEFORETAKEOFFPROCEDURE
                 end            
             end
         else
-            if ((not P.proceduretable[AFTERLANDINGPROCEDURE].set) and (get(groundspeed) < 45) and (P.procedureloop1.lock == NOPROCEDURE)) then
-                if (((not aircraftonrwy(get(aircraftlatpos), get(aircraftlonpos), P.desrwylatstartpostemp, P.desrwylonstartpostemp, P.desrwylatendpostemp, P.desrwylonendpostemp, 0.0001)) and
-                    (headingdiff(get(groundtrackmag), P.desrwyheadingtemp) > 20)) or (roundnumber(get(groundspeed)) == 0)) then
+            if ((not P.proceduretable[AFTERLANDINGPROCEDURE].set) and (get(P.groundspeed) < 45) and (P.procedureloop1.lock == NOPROCEDURE)) then
+                if (((not aircraftonrwy(get(P.aircraftlatpos), get(P.aircraftlonpos), P.desrwylatstartpostemp, P.desrwylonstartpostemp, P.desrwylatendpostemp, P.desrwylonendpostemp, 0.0001)) and
+                    (headingdiff(get(P.groundtrackmag), P.desrwyheadingtemp) > 20)) or (roundnumber(get(P.groundspeed)) == 0)) then
                     P.flightstate = 5
                     P.procedureloop1.lock = AFTERLANDINGPROCEDURE
                 end
             end
 
-            if ((get(parkingbrakepos) == ON) and (P.flightstate >= 5) and P.proceduretable[AFTERLANDINGPROCEDURE].set and (not P.proceduretable[ATPARKINGPOSITIONPROCEDURE].set) and (P.procedureloop1.lock == NOPROCEDURE)) then
+            if ((get(P.parkingbrakepos) == ON) and (P.flightstate >= 5) and P.proceduretable[AFTERLANDINGPROCEDURE].set and (not P.proceduretable[ATPARKINGPOSITIONPROCEDURE].set) and (P.procedureloop1.lock == NOPROCEDURE)) then
                 P.flightstate = 6
                 P.procedureloop1.lock = ATPARKINGPOSITIONPROCEDURE
             end
@@ -7853,11 +7851,11 @@ function autofunctions()
             P.aircraftwasonground = true
         end
 
-        if ((P.flightstate <= 4) and (get(fmsflightphase) > 6)) then
+        if ((P.flightstate <= 4) and (get(P.fmsflightphase) > 6)) then
             P.flightstate = 4
-        elseif ((P.flightstate <= 3) and (get(fmsflightphase) > 2)) then
+        elseif ((P.flightstate <= 3) and (get(P.fmsflightphase) > 2)) then
             P.flightstate = 3
-        elseif ((P.flightstate <= 2) and (get(fmsflightphase) <= 2) and P.proceduretable[AFTERTAKEOFFPROCEDURE].set) then
+        elseif ((P.flightstate <= 2) and (get(P.fmsflightphase) <= 2) and P.proceduretable[AFTERTAKEOFFPROCEDURE].set) then
             P.flightstate = 2
         elseif (P.flightstate == 0) then
             P.flightstate = 1
@@ -7881,87 +7879,87 @@ end
 function voicereadback()
 
 
-    if (get(pausetod) ~= P.pausetodtemp) then
-        if (get(pausetod) == ON) then
+    if (get(P.pausetod) ~= P.pausetodtemp) then
+        if (get(P.pausetod) == ON) then
             P.commandtableentry(TEXT, "Pause at Top of Descent On")
         else
             P.commandtableentry(TEXT, "Pause at Top of Descent Off")
         end
 
-        P.pausetodtemp = get(pausetod)
+        P.pausetodtemp = get(P.pausetod)
     end
 
-    if (get(simfreezed) ~= P.simfreezedtemp) then
-        if (get(simfreezed) == ON) then
+    if (get(P.simfreezed) ~= P.simfreezedtemp) then
+        if (get(P.simfreezed) == ON) then
             P.commandtableentry(TEXT, "Sim Freeze On")
         else
             P.commandtableentry(TEXT, "Sim Freeze Off")
         end
 
-        P.simfreezedtemp = get(simfreezed)
+        P.simfreezedtemp = get(P.simfreezed)
     end
 
-    if (get(chockstatus) ~= P.chockstatustmp) then
-        if (get(chockstatus) == ON) then
+    if (get(P.chockstatus) ~= P.chockstatustmp) then
+        if (get(P.chockstatus) == ON) then
             P.commandtableentry(TEXT, "Chocks Set")
         else
             P.commandtableentry(TEXT, "Chocks Removed")
         end
 
-        P.chockstatustmp = get(chockstatus)
+        P.chockstatustmp = get(P.chockstatus)
     end
 
 
-    if (math.abs(get(totalfuellbs) - P.totalfuellbstemp) > 200) then
-        if (get(totalfuellbs) ~= P.totalfuellbstemp2) then
-            P.totalfuellbstemp2 = get(totalfuellbs)
+    if (math.abs(get(P.totalfuellbs) - P.totalfuellbstemp) > 200) then
+        if (get(P.totalfuellbs) ~= P.totalfuellbstemp2) then
+            P.totalfuellbstemp2 = get(P.totalfuellbs)
         else
-            if (get(fuelunit) == LBS) then
-                P.commandtableentry(TEXT, "Fuel quantity " .. tostring(get(totalfuellbs)) .. "L B S")
+            if (get(P.fuelunit) == LBS) then
+                P.commandtableentry(TEXT, "Fuel quantity " .. tostring(get(P.totalfuellbs)) .. "L B S")
             else
-                P.commandtableentry(TEXT, "Fuel quantity " .. tostring(get(totalfuellbs)) .. "K G")
+                P.commandtableentry(TEXT, "Fuel quantity " .. tostring(get(P.totalfuellbs)) .. "K G")
             end
-            P.totalfuellbstemp = get(totalfuellbs)
+            P.totalfuellbstemp = get(P.totalfuellbs)
         end
     else
-        P.totalfuellbstemp = get(totalfuellbs)
+        P.totalfuellbstemp = get(P.totalfuellbs)
     end
 
-    if (get(cabincruisealt) ~= P.cabincruisealttemp) then
-        if (get(cabincruisealt) ~= P.cabincruisealttemp2) then
-            P.cabincruisealttemp2 = get(cabincruisealt)
+    if (get(P.cabincruisealt) ~= P.cabincruisealttemp) then
+        if (get(P.cabincruisealt) ~= P.cabincruisealttemp2) then
+            P.cabincruisealttemp2 = get(P.cabincruisealt)
         else
-            P.commandtableentry(TEXT, "Cabin Cruise Altitude " .. tostring(get(cabincruisealt)))
-            P.cabincruisealttemp = get(cabincruisealt)
-            P.cabincruisealttemp2 = get(cabincruisealt)
+            P.commandtableentry(TEXT, "Cabin Cruise Altitude " .. tostring(get(P.cabincruisealt)))
+            P.cabincruisealttemp = get(P.cabincruisealt)
+            P.cabincruisealttemp2 = get(P.cabincruisealt)
         end
     end
 
-    if (get(cabinlandingalt) ~= P.cabinlandingalttemp) then
-        if (get(cabinlandingalt) ~= P.cabinlandingalttemp2) then
-            P.cabinlandingalttemp2 = get(cabinlandingalt)
+    if (get(P.cabinlandingalt) ~= P.cabinlandingalttemp) then
+        if (get(P.cabinlandingalt) ~= P.cabinlandingalttemp2) then
+            P.cabinlandingalttemp2 = get(P.cabinlandingalt)
         else
-            P.commandtableentry(TEXT, "Cabin Landing Altitude " .. tostring(get(cabinlandingalt)))
-            P.cabinlandingalttemp = get(cabinlandingalt)
-            P.cabinlandingalttemp2 = get(cabinlandingalt)
+            P.commandtableentry(TEXT, "Cabin Landing Altitude " .. tostring(get(P.cabinlandingalt)))
+            P.cabinlandingalttemp = get(P.cabinlandingalt)
+            P.cabinlandingalttemp2 = get(P.cabinlandingalt)
         end
     end
 
-    if (get(mcpspeed) ~= P.mcpspeedtemp) then
-        if ((get(atarmpos) == OFF) or (get(atspeedstat) == ON) or (get(atspeedintvstat) == ON)) then
-            if (get(mcpspeed) ~= P.mcpspeedtemp2) then
-                P.mcpspeedtemp2 = get(mcpspeed)
+    if (get(P.mcpspeed) ~= P.mcpspeedtemp) then
+        if ((get(P.atarmpos) == OFF) or (get(P.atspeedstat) == ON) or (get(P.atspeedintvstat) == ON)) then
+            if (get(P.mcpspeed) ~= P.mcpspeedtemp2) then
+                P.mcpspeedtemp2 = get(P.mcpspeed)
             else
-                P.mcpspeedtemp = get(mcpspeed)
-                P.mcpspeedtemp2 = get(mcpspeed)
+                P.mcpspeedtemp = get(P.mcpspeed)
+                P.mcpspeedtemp2 = get(P.mcpspeed)
 
-                if (get(mcpspeed) < 1) then
-                    speed = roundnumber(get(mcpspeed), 2)
+                if (get(P.mcpspeed) < 1) then
+                    speed = roundnumber(get(P.mcpspeed), 2)
                 else
-                    speed = roundnumber(get(mcpspeed))
+                    speed = roundnumber(get(P.mcpspeed))
                 end
 
-                if ((P.flightstate > 2) and (get(mcpspeed) == get(vref))) then
+                if ((P.flightstate > 2) and (get(P.mcpspeed) == get(P.vref))) then
                     P.commandtableentry(TEXT, "M C P Speed set to V REF " .. tostring(speed))
                 else
                     P.commandtableentry(TEXT, "M C P Speed " .. tostring(speed))
@@ -7970,1349 +7968,1349 @@ function voicereadback()
         end
     end
 
-    if (get(mcpheading) ~= P.mcpheadingtemp) then
-        if (get(mcpheading) ~= P.mcpheadingtemp2) then
-            P.mcpheadingtemp2 = get(mcpheading)
+    if (get(P.mcpheading) ~= P.mcpheadingtemp) then
+        if (get(P.mcpheading) ~= P.mcpheadingtemp2) then
+            P.mcpheadingtemp2 = get(P.mcpheading)
         else
-            P.mcpheadingtemp = get(mcpheading)
-            P.mcpheadingtemp2 = get(mcpheading)
+            P.mcpheadingtemp = get(P.mcpheading)
+            P.mcpheadingtemp2 = get(P.mcpheading)
 
-            P.commandtableentry(TEXT, "M C P Heading " .. addspaces(padNumberWithZerosStrict(get(mcpheading), 3)))
+            P.commandtableentry(TEXT, "M C P Heading " .. addspaces(padNumberWithZerosStrict(get(P.mcpheading), 3)))
         end
     end
 
-    if (get(mcpaltitude) ~= P.mcpaltitudetemp) then
-        if (get(mcpaltitude) ~= P.mcpaltitudetemp2) then
-            P.mcpaltitudetemp2 = get(mcpaltitude)
+    if (get(P.mcpaltitude) ~= P.mcpaltitudetemp) then
+        if (get(P.mcpaltitude) ~= P.mcpaltitudetemp2) then
+            P.mcpaltitudetemp2 = get(P.mcpaltitude)
         else
-            P.mcpaltitudetemp = get(mcpaltitude)
-            P.mcpaltitudetemp2 = get(mcpaltitude)
+            P.mcpaltitudetemp = get(P.mcpaltitude)
+            P.mcpaltitudetemp2 = get(P.mcpaltitude)
 
-            if (get(mcpaltitude) == get(fmccruisealt)) then
-                P.commandtableentry(TEXT, "M C P set to Cruise Altitude " .. addspaces(get(mcpaltitude)))
+            if (get(P.mcpaltitude) == get(P.fmccruisealt)) then
+                P.commandtableentry(TEXT, "M C P set to Cruise Altitude " .. addspaces(get(P.mcpaltitude)))
             else
-                P.commandtableentry(TEXT, "M C P Altitude " .. addspaces(get(mcpaltitude)))
+                P.commandtableentry(TEXT, "M C P Altitude " .. addspaces(get(P.mcpaltitude)))
             end
         end
     end
 
-    if (get(mcpvsspeed) ~= P.mcpvsspeedtemp) then
-        if (get(mcpvsspeed) ~= P.mcpvsspeedtemp2) then
-            P.mcpvsspeedtemp2 = get(mcpvsspeed)
+    if (get(P.mcpvsspeed) ~= P.mcpvsspeedtemp) then
+        if (get(P.mcpvsspeed) ~= P.mcpvsspeedtemp2) then
+            P.mcpvsspeedtemp2 = get(P.mcpvsspeed)
         else
-            P.mcpvsspeedtemp = get(mcpvsspeed)
-            P.mcpaltitudetemp2 = get(mcpvsspeed)
+            P.mcpvsspeedtemp = get(P.mcpvsspeed)
+            P.mcpaltitudetemp2 = get(P.mcpvsspeed)
 
-            if ((get(mcpvsspeed) ~= 0) and (get(apalthldstat) ~= ON) and (get(apvnavstat) ~= ON)) then
-                P.commandtableentry(TEXT, "M C P Vertical Speed " .. tostring(get(mcpvsspeed)))
+            if ((get(P.mcpvsspeed) ~= 0) and (get(P.apalthldstat) ~= ON) and (get(P.apvnavstat) ~= ON)) then
+                P.commandtableentry(TEXT, "M C P Vertical Speed " .. tostring(get(P.mcpvsspeed)))
             end
         end
     end
 
-    if (get(mcppilotcourse) ~= P.mcppilotcoursetemp) then
-        if (get(mcppilotcourse) ~= P.mcppilotcoursetemp2) then
-            P.mcppilotcoursetemp2 = get(mcppilotcourse)
+    if (get(P.mcppilotcourse) ~= P.mcppilotcoursetemp) then
+        if (get(P.mcppilotcourse) ~= P.mcppilotcoursetemp2) then
+            P.mcppilotcoursetemp2 = get(P.mcppilotcourse)
         else
-            P.mcppilotcoursetemp = get(mcppilotcourse)
-            P.mcppilotcoursetemp2 = get(mcppilotcourse)
+            P.mcppilotcoursetemp = get(P.mcppilotcourse)
+            P.mcppilotcoursetemp2 = get(P.mcppilotcourse)
 
-            P.commandtableentry(TEXT, "M C P Pilot Course " .. addspaces(padNumberWithZerosStrict(get(mcppilotcourse), 3)))
+            P.commandtableentry(TEXT, "M C P Pilot Course " .. addspaces(padNumberWithZerosStrict(get(P.mcppilotcourse), 3)))
         end
     end
 
-    if (get(mcpcopilotcourse) ~= P.mcpcopilotcoursetemp) then
-        if (get(mcpcopilotcourse) ~= P.mcpcopilotcoursetemp2) then
-            P.mcpcopilotcoursetemp2 = get(mcpcopilotcourse)
+    if (get(P.mcpcopilotcourse) ~= P.mcpcopilotcoursetemp) then
+        if (get(P.mcpcopilotcourse) ~= P.mcpcopilotcoursetemp2) then
+            P.mcpcopilotcoursetemp2 = get(P.mcpcopilotcourse)
         else
-            P.mcpcopilotcoursetemp = get(mcpcopilotcourse)
-            P.mcpcopilotcoursetemp2 = get(mcpcopilotcourse)
+            P.mcpcopilotcoursetemp = get(P.mcpcopilotcourse)
+            P.mcpcopilotcoursetemp2 = get(P.mcpcopilotcourse)
 
-            P.commandtableentry(TEXT, "M C P Copilot Course " .. addspaces(padNumberWithZerosStrict(get(mcpcopilotcourse), 3)))
+            P.commandtableentry(TEXT, "M C P Copilot Course " .. addspaces(padNumberWithZerosStrict(get(P.mcpcopilotcourse), 3)))
         end
     end
 
-    if (get(dhpilot) ~= P.dhpilottemp) then
-        if (get(dhpilot) ~= P.dhpilottemp2) then
-            P.dhpilottemp2 = get(dhpilot)
+    if (get(P.dhpilot) ~= P.dhpilottemp) then
+        if (get(P.dhpilot) ~= P.dhpilottemp2) then
+            P.dhpilottemp2 = get(P.dhpilot)
         else
-            P.dhpilottemp = get(dhpilot)
-            P.dhpilottemp2 = get(dhpilot)
+            P.dhpilottemp = get(P.dhpilot)
+            P.dhpilottemp2 = get(P.dhpilot)
 
-            if ((get(dhpilot) == -1) or (get(dhpilot) == -1001)) then
+            if ((get(P.dhpilot) == -1) or (get(P.dhpilot) == -1001)) then
                 P.commandtableentry(TEXT, "Pilot Decision Altitude Reset")
             else
-                P.commandtableentry(TEXT, "Pilot Decision Altitude " .. tostring(roundnumber(get(dhpilot))))
+                P.commandtableentry(TEXT, "Pilot Decision Altitude " .. tostring(roundnumber(get(P.dhpilot))))
             end
         end
     end
 
-    if ((get(desrwyheading) ~= P.desrwyheadingtemp) and (get(desrwyheading) ~= 0)) then
-        P.desrwyheadingtemp = get(desrwyheading)
+    if ((get(P.desrwyheading) ~= P.desrwyheadingtemp) and (get(P.desrwyheading) ~= 0)) then
+        P.desrwyheadingtemp = get(P.desrwyheading)
     end
 
-    if ((get(desrwylatstartpos) ~= P.desrwylatstartpostemp) and (get(desrwylatstartpos) ~= 0)) then
-        P.desrwylatstartpostemp = get(desrwylatstartpos)
+    if ((get(P.desrwylatstartpos) ~= P.desrwylatstartpostemp) and (get(P.desrwylatstartpos) ~= 0)) then
+        P.desrwylatstartpostemp = get(P.desrwylatstartpos)
     end
 
-    if ((get(desrwylonstartpos) ~= P.desrwylonstartpostemp) and (get(desrwylonstartpos) ~= 0)) then
-        P.desrwylonstartpostemp = get(desrwylonstartpos)
+    if ((get(P.desrwylonstartpos) ~= P.desrwylonstartpostemp) and (get(P.desrwylonstartpos) ~= 0)) then
+        P.desrwylonstartpostemp = get(P.desrwylonstartpos)
     end
 
-    if ((get(desrwylatendpos) ~= P.desrwylatendpostemp) and (get(desrwylatendpos) ~= 0)) then
-        P.desrwylatendpostemp = get(desrwylatendpos)
+    if ((get(P.desrwylatendpos) ~= P.desrwylatendpostemp) and (get(P.desrwylatendpos) ~= 0)) then
+        P.desrwylatendpostemp = get(P.desrwylatendpos)
     end
 
-    if ((get(desrwylonendpos) ~= P.desrwylonendpostemp) and (get(desrwylonendpos) ~= 0)) then
-        P.desrwylonendpostemp = get(desrwylonendpos)
+    if ((get(P.desrwylonendpos) ~= P.desrwylonendpostemp) and (get(P.desrwylonendpos) ~= 0)) then
+        P.desrwylonendpostemp = get(P.desrwylonendpos)
     end
 
-    if (get(aponstat) ~= P.aponstattemp) then
-        if (get(aponstat) == OFF) then
+    if (get(P.aponstat) ~= P.aponstattemp) then
+        if (get(P.aponstat) == OFF) then
             P.commandtableentry(TEXT, "Autopilot OFF")
         end
-        P.aponstattemp = get(aponstat)
+        P.aponstattemp = get(P.aponstat)
 
     end
 
-    if (get(apcmdastat) ~= P.apcmdastattemp) then
-        if (get(apcmdastat) == ON) then
+    if (get(P.apcmdastat) ~= P.apcmdastattemp) then
+        if (get(P.apcmdastat) == ON) then
             P.commandtableentry(TEXT, "Command A On")
         else
-            if (get(aponstat) == ON) then
+            if (get(P.aponstat) == ON) then
                 P.commandtableentry(TEXT, "Command A OFF")
             end
         end
-        P.apcmdastattemp = get(apcmdastat)
+        P.apcmdastattemp = get(P.apcmdastat)
     end
 
-    if (get(apcmdbstat) ~= P.apcmdbstattemp) then
-        if (get(apcmdbstat) == ON) then
+    if (get(P.apcmdbstat) ~= P.apcmdbstattemp) then
+        if (get(P.apcmdbstat) == ON) then
             P.commandtableentry(TEXT, "Command B On")
 
-            if ((get(apcmdastat) == ON) and ((get(apgscapturedstat) ~= OFF) or (get(aploccapturedstat) ~= OFF))) then
-                if (get(mmrinstalled) == ON) then
-                    if ((get(mmrcptactvalue) ~= get(mmrfoactvalue)) or (get(mmrcptactmode) ~= get(mmrfoactmode)) or (get(mcppilotcourse) ~= get(mcpcopilotcourse))) then
+            if ((get(P.apcmdastat) == ON) and ((get(P.apgscapturedstat) ~= OFF) or (get(P.aploccapturedstat) ~= OFF))) then
+                if (get(P.mmrinstalled) == ON) then
+                    if ((get(P.mmrcptactvalue) ~= get(P.mmrfoactvalue)) or (get(P.mmrcptactmode) ~= get(P.mmrfoactmode)) or (get(P.mcppilotcourse) ~= get(P.mcpcopilotcourse))) then
                         P.commandtableentry(TEXT, "Warning Pilot and Copilot M M R Disagree")
                     end
                 else
-                    if ((get(nav1freq) ~= get(nav2freq)) or (get(mcppilotcourse) ~= get(mcpcopilotcourse))) then
+                    if ((get(P.nav1freq) ~= get(P.nav2freq)) or (get(P.mcppilotcourse) ~= get(P.mcpcopilotcourse))) then
                         P.commandtableentry(TEXT, "Warning Pilot and Copilot NAV Disagree")
                     end
                 end
             end
         else
-            if (get(aponstat) == ON) then
+            if (get(P.aponstat) == ON) then
                 P.commandtableentry(TEXT, "Command B OFF")
             end
         end
-        P.apcmdbstattemp = get(apcmdbstat)
+        P.apcmdbstattemp = get(P.apcmdbstat)
     end
 
-    if (get(apvnavstat) ~= P.apvnavstattemp) then
-        if (get(apvnavstat) == ON) then
-            if (get(aponstat) == ON) then
+    if (get(P.apvnavstat) ~= P.apvnavstattemp) then
+        if (get(P.apvnavstat) == ON) then
+            if (get(P.aponstat) == ON) then
                 P.commandtableentry(TEXT, "V NAV On")
             else
                 P.commandtableentry(TEXT, "V NAV Armed")
             end
         else
-            if ((get(aponstat) == ON) and (get(apgscapturedstat) ~= CAPTURED) and (get(aploccapturedstat) ~= CAPTURED) and (get(aplpvgscapturedstat) ~= CAPTURED) and
-                (get(aplpvloccapturedstat) ~= CAPTURED) and (get(apglsgscapturedstat) ~= CAPTURED) and (get(apglsloccapturedstat) ~= CAPTURED) and
-                (get(apfacgscapturedstat) ~= CAPTURED) and (get(apfacloccapturedstat) ~= CAPTURED) and (get(apalthldstat) ~= ON) and (get(apvsstat) ~= ON) and (get(aplvlchgstat) ~= ON)) then
+            if ((get(P.aponstat) == ON) and (get(P.apgscapturedstat) ~= CAPTURED) and (get(P.aploccapturedstat) ~= CAPTURED) and (get(P.aplpvgscapturedstat) ~= CAPTURED) and
+                (get(P.aplpvloccapturedstat) ~= CAPTURED) and (get(P.apglsgscapturedstat) ~= CAPTURED) and (get(P.apglsloccapturedstat) ~= CAPTURED) and
+                (get(P.apfacgscapturedstat) ~= CAPTURED) and (get(P.apfacloccapturedstat) ~= CAPTURED) and (get(P.apalthldstat) ~= ON) and (get(P.apvsstat) ~= ON) and (get(P.aplvlchgstat) ~= ON)) then
                 P.commandtableentry(TEXT, "V NAV OFF")
             end
         end
-        P.apvnavstattemp = get(apvnavstat)
+        P.apvnavstattemp = get(P.apvnavstat)
     end
 
-    if (get(aplnavstat) ~= P.aplnavstattemp) then
-        if (get(aplnavstat) == ON) then
-            if (get(aponstat) == ON) then
+    if (get(P.aplnavstat) ~= P.aplnavstattemp) then
+        if (get(P.aplnavstat) == ON) then
+            if (get(P.aponstat) == ON) then
                 P.commandtableentry(TEXT, "L NAV On")
             else
                 P.commandtableentry(TEXT, "L NAV Armed")
             end
         else
-            if ((get(aponstat) == ON) and (get(aploccapturedstat) ~= CAPTURED) and (get(apgscapturedstat) ~= CAPTURED) and (get(aplpvloccapturedstat) ~= CAPTURED) and
-                (get(aplpvgscapturedstat) ~= CAPTURED) and (get(apglsgscapturedstat) ~= CAPTURED) and (get(apglsloccapturedstat) ~= CAPTURED) and
-                (get(apfacgscapturedstat) ~= CAPTURED) and (get(apfacloccapturedstat) ~= CAPTURED) and (get(aphdgselstat) ~= ON) and (get(apappstat) ~= ON) and
-                (get(apvorlocstat) ~= ON)) then
+            if ((get(P.aponstat) == ON) and (get(P.aploccapturedstat) ~= CAPTURED) and (get(P.apgscapturedstat) ~= CAPTURED) and (get(P.aplpvloccapturedstat) ~= CAPTURED) and
+                (get(P.aplpvgscapturedstat) ~= CAPTURED) and (get(P.apglsgscapturedstat) ~= CAPTURED) and (get(P.apglsloccapturedstat) ~= CAPTURED) and
+                (get(P.apfacgscapturedstat) ~= CAPTURED) and (get(P.apfacloccapturedstat) ~= CAPTURED) and (get(P.aphdgselstat) ~= ON) and (get(P.apappstat) ~= ON) and
+                (get(P.apvorlocstat) ~= ON)) then
                 P.commandtableentry(TEXT, "L NAV OFF")
             end
         end
-        P.aplnavstattemp = get(aplnavstat)
+        P.aplnavstattemp = get(P.aplnavstat)
     end
 
-    if (get(apappstat) ~= P.apappstattemp) then
-        if (get(apappstat) == ON) then
-            if (get(aponstat) == ON) then
-                if ((get(apgscapturedstat) == ARMED) and (get(aploccapturedstat) == ARMED)) then
+    if (get(P.apappstat) ~= P.apappstattemp) then
+        if (get(P.apappstat) == ON) then
+            if (get(P.aponstat) == ON) then
+                if ((get(P.apgscapturedstat) == ARMED) and (get(P.aploccapturedstat) == ARMED)) then
                     P.commandtableentry(TEXT, "Approach Armed")
-                elseif ((get(aplpvgscapturedstat) == ARMED) and (get(aplpvloccapturedstat) == ARMED)) then
+                elseif ((get(P.aplpvgscapturedstat) == ARMED) and (get(P.aplpvloccapturedstat) == ARMED)) then
                     P.commandtableentry(TEXT, "L P V Approach Armed")
-                elseif ((get(apglsgscapturedstat) == ARMED) and (get(apglsloccapturedstat) == ARMED)) then
+                elseif ((get(P.apglsgscapturedstat) == ARMED) and (get(P.apglsloccapturedstat) == ARMED)) then
                     P.commandtableentry(TEXT, "G L S Approach Armed")
-                elseif ((get(apfacgscapturedstat) == ARMED) and (get(apfacloccapturedstat) == ARMED)) then
+                elseif ((get(P.apfacgscapturedstat) == ARMED) and (get(P.apfacloccapturedstat) == ARMED)) then
                     P.commandtableentry(TEXT, "F A C Approach Armed")
                 end
             else
                 P.commandtableentry(TEXT, "Approach Armed")
             end
         else
-            if ((get(aponstat) == ON) and (get(apgscapturedstat) ~= CAPTURED) and (get(aploccapturedstat) ~= CAPTURED) and (get(aplpvgscapturedstat) ~= CAPTURED) and
-                (get(aplpvloccapturedstat) ~= CAPTURED) and (get(apglsgscapturedstat) ~= CAPTURED) and (get(apglsloccapturedstat) ~= CAPTURED) and
-                (get(apfacgscapturedstat) ~= CAPTURED) and (get(apfacloccapturedstat) ~= CAPTURED) and (get(aphdgselstat) ~= ON) and (get(aplnavstat) ~= ON)) then
+            if ((get(P.aponstat) == ON) and (get(P.apgscapturedstat) ~= CAPTURED) and (get(P.aploccapturedstat) ~= CAPTURED) and (get(P.aplpvgscapturedstat) ~= CAPTURED) and
+                (get(P.aplpvloccapturedstat) ~= CAPTURED) and (get(P.apglsgscapturedstat) ~= CAPTURED) and (get(P.apglsloccapturedstat) ~= CAPTURED) and
+                (get(P.apfacgscapturedstat) ~= CAPTURED) and (get(P.apfacloccapturedstat) ~= CAPTURED) and (get(P.aphdgselstat) ~= ON) and (get(P.aplnavstat) ~= ON)) then
                 P.commandtableentry(TEXT, "Approach OFF")
             end
         end
-        P.apappstattemp = get(apappstat)
+        P.apappstattemp = get(P.apappstat)
     end
 
-    if (get(apgscapturedstat) ~= P.apgscapturedstattemp) then
-        if (get(apgscapturedstat) == CAPTURED) then
+    if (get(P.apgscapturedstat) ~= P.apgscapturedstattemp) then
+        if (get(P.apgscapturedstat) == CAPTURED) then
             P.commandtableentry(TEXT, "Glide Slope Captured")
         end
-        P.apgscapturedstattemp = get(apgscapturedstat)
+        P.apgscapturedstattemp = get(P.apgscapturedstat)
     end
 
-    if (get(aploccapturedstat) ~= P.aploccapturedstattemp) then
-        if (get(aploccapturedstat) == CAPTURED) then
+    if (get(P.aploccapturedstat) ~= P.aploccapturedstattemp) then
+        if (get(P.aploccapturedstat) == CAPTURED) then
             P.commandtableentry(TEXT, "Localizer Captured")
         end
-        P.aploccapturedstattemp = get(aploccapturedstat)
+        P.aploccapturedstattemp = get(P.aploccapturedstat)
     end
 
-    if ((get(apflarestat) ~= P.apflarestattemp) or (get(aprolloutstat) ~= P.aprolloutstattemp)) then
-        if ((get(apflarestat) == ON) and (get(aprolloutstat) == ON)) then
+    if ((get(P.apflarestat) ~= P.apflarestattemp) or (get(P.aprolloutstat) ~= P.aprolloutstattemp)) then
+        if ((get(P.apflarestat) == ON) and (get(P.aprolloutstat) == ON)) then
             P.commandtableentry(TEXT, "Autoland Armed")
-            P.apflarestattemp = get(apflarestat)
-            P.aprolloutstattemp = get(aprolloutstat)
+            P.apflarestattemp = get(P.apflarestat)
+            P.aprolloutstattemp = get(P.aprolloutstat)
         end
     end
 
-    if (get(apvorlocstat) ~= P.apvorlocstattemp) then
-        if (get(apvorlocstat) == ON) then
-            if (get(aponstat) == ON) then
+    if (get(P.apvorlocstat) ~= P.apvorlocstattemp) then
+        if (get(P.apvorlocstat) == ON) then
+            if (get(P.aponstat) == ON) then
                 P.commandtableentry(TEXT, "V O R Localizer On")
             else
                 P.commandtableentry(TEXT, "V O R Localizer Armed")
             end
         else
-            if (get(aponstat) == ON) then
+            if (get(P.aponstat) == ON) then
                 P.commandtableentry(TEXT, "V O R Localizer OFF")
             end
         end
-        P.apvorlocstattemp = get(apvorlocstat)
+        P.apvorlocstattemp = get(P.apvorlocstat)
     end
 
-    if (get(apfacgscapturedstat) ~= P.apfacgscapturedstattemp) then
-        if (get(apfacgscapturedstat) == CAPTURED) then
+    if (get(P.apfacgscapturedstat) ~= P.apfacgscapturedstattemp) then
+        if (get(P.apfacgscapturedstat) == CAPTURED) then
             P.commandtableentry(TEXT, "Glide Path Captured")
         end
-        P.apfacgscapturedstattemp = get(apfacgscapturedstat)
+        P.apfacgscapturedstattemp = get(P.apfacgscapturedstat)
     end
 
-    if (get(apfacloccapturedstat) ~= P.apfacloccapturedstattemp) then
-        if (get(apfacloccapturedstat) == CAPTURED) then
+    if (get(P.apfacloccapturedstat) ~= P.apfacloccapturedstattemp) then
+        if (get(P.apfacloccapturedstat) == CAPTURED) then
             P.commandtableentry(TEXT, "F A C Localizer Captured")
         end
-        P.apfacloccapturedstattemp = get(apfacloccapturedstat)
+        P.apfacloccapturedstattemp = get(P.apfacloccapturedstat)
     end
 
-    if (get(lpvinstalled) == ON) then
-        if (get(aplpvgscapturedstat) ~= P.aplpvgscapturedstattemp) then
-            if (get(aplpvgscapturedstat) == CAPTURED) then
+    if (get(P.lpvinstalled) == ON) then
+        if (get(P.aplpvgscapturedstat) ~= P.aplpvgscapturedstattemp) then
+            if (get(P.aplpvgscapturedstat) == CAPTURED) then
                 P.commandtableentry(TEXT, "L P V Glide Slope Captured")
             end
-            P.aplpvgscapturedstattemp = get(aplpvgscapturedstat)
+            P.aplpvgscapturedstattemp = get(P.aplpvgscapturedstat)
         end
 
-        if (get(aplpvloccapturedstat) ~= P.aplpvloccapturedstattemp) then
-            if (get(aplpvloccapturedstat) == CAPTURED) then
+        if (get(P.aplpvloccapturedstat) ~= P.aplpvloccapturedstattemp) then
+            if (get(P.aplpvloccapturedstat) == CAPTURED) then
                 P.commandtableentry(TEXT, "L P V Localizer Captured")
             end
-            P.aplpvloccapturedstattemp = get(aplpvloccapturedstat)
+            P.aplpvloccapturedstattemp = get(P.aplpvloccapturedstat)
         end
 
-        if (get(apglsgscapturedstat) ~= P.apglsgscapturedstattemp) then
-            if (get(apglsgscapturedstat) == CAPTURED) then
+        if (get(P.apglsgscapturedstat) ~= P.apglsgscapturedstattemp) then
+            if (get(P.apglsgscapturedstat) == CAPTURED) then
                 P.commandtableentry(TEXT, "G L S Glide Slope Captured")
             end
-            P.apglsgscapturedstattemp = get(apglsgscapturedstat)
+            P.apglsgscapturedstattemp = get(P.apglsgscapturedstat)
         end
 
-        if (get(apglsloccapturedstat) ~= P.apglsloccapturedstattemp) then
-            if (get(apglsloccapturedstat) == CAPTURED) then
+        if (get(P.apglsloccapturedstat) ~= P.apglsloccapturedstattemp) then
+            if (get(P.apglsloccapturedstat) == CAPTURED) then
                 P.commandtableentry(TEXT, "G L S Localizer Captured")
             end
-            P.apglsloccapturedstattemp = get(apglsloccapturedstat)
+            P.apglsloccapturedstattemp = get(P.apglsloccapturedstat)
         end
     end
 
-    if (get(apalthldstat) ~= P.apalthldstattemp) then
-        if (get(apalthldstat) == ON) then
-            if (get(aponstat) == ON) then
-                P.commandtableentry(TEXT, "Altitude Hold On, Altitude " .. tostring(get(mcpaltitude)))
+    if (get(P.apalthldstat) ~= P.apalthldstattemp) then
+        if (get(P.apalthldstat) == ON) then
+            if (get(P.aponstat) == ON) then
+                P.commandtableentry(TEXT, "Altitude Hold On, Altitude " .. tostring(get(P.mcpaltitude)))
             else
                 P.commandtableentry(TEXT, "Altitude Hold Armed")
             end
         else
-            if ((get(aponstat) == ON) and (get(apvsstat) ~= ON) and (get(aplvlchgstat) ~= ON) and (get(apgscapturedstat) ~= CAPTURED) and (get(aplpvgscapturedstat) ~= CAPTURED) and
-                (get(apglsgscapturedstat) ~= CAPTURED) and (get(apfacgscapturedstat) ~= CAPTURED) and (get(apvnavstat) ~= ON)) then
+            if ((get(P.aponstat) == ON) and (get(P.apvsstat) ~= ON) and (get(P.aplvlchgstat) ~= ON) and (get(P.apgscapturedstat) ~= CAPTURED) and (get(P.aplpvgscapturedstat) ~= CAPTURED) and
+                (get(P.apglsgscapturedstat) ~= CAPTURED) and (get(P.apfacgscapturedstat) ~= CAPTURED) and (get(P.apvnavstat) ~= ON)) then
                 P.commandtableentry(TEXT, "Altitude Hold OFF")
             end
         end
-        P.apalthldstattemp = get(apalthldstat)
+        P.apalthldstattemp = get(P.apalthldstat)
     end
 
-    if (get(aphdgselstat) ~= P.aphdgselstattemp) then
-        if (get(aphdgselstat) == ON) then
-            if (get(aponstat) == ON) then
-                P.commandtableentry(TEXT, "Heading Select On, Heading " .. tostring(get(mcpheading)))
+    if (get(P.aphdgselstat) ~= P.aphdgselstattemp) then
+        if (get(P.aphdgselstat) == ON) then
+            if (get(P.aponstat) == ON) then
+                P.commandtableentry(TEXT, "Heading Select On, Heading " .. tostring(get(P.mcpheading)))
             else
                 P.commandtableentry(TEXT, "Heading Select Armed")
             end
         else
-            if ((get(aponstat) == ON) and (get(aplnavstat) ~= ON) and (get(apvorlocstat) ~= ON) and (get(aploccapturedstat) ~= CAPTURED)) then
+            if ((get(P.aponstat) == ON) and (get(P.aplnavstat) ~= ON) and (get(P.apvorlocstat) ~= ON) and (get(P.aploccapturedstat) ~= CAPTURED)) then
                 P.commandtableentry(TEXT, "Heading Select OFF")
             end
         end
-        P.aphdgselstattemp = get(aphdgselstat)
+        P.aphdgselstattemp = get(P.aphdgselstat)
     end
 
-    if (get(apvsstat) ~= P.apvsstattemp) then
-        if (get(apvsstat) == ON) then
-            if (get(aponstat) == ON) then
+    if (get(P.apvsstat) ~= P.apvsstattemp) then
+        if (get(P.apvsstat) == ON) then
+            if (get(P.aponstat) == ON) then
                 P.commandtableentry(TEXT, "Vertical Speed On")
             else
                 P.commandtableentry(TEXT, "Vertical Speed Armed")
             end
         else
-            if ((get(aponstat) == ON) and (get(mcpvsspeed) ~= 0) and (get(apalthldstat) ~= ON) and (get(apvnavstat) ~= ON) and (get(aplvlchgstat) ~= ON)) then
+            if ((get(P.aponstat) == ON) and (get(P.mcpvsspeed) ~= 0) and (get(P.apalthldstat) ~= ON) and (get(P.apvnavstat) ~= ON) and (get(P.aplvlchgstat) ~= ON)) then
                 P.commandtableentry(TEXT, "Vertical Speed OFF")
             end
         end
-        P.apvsstattemp = get(apvsstat)
+        P.apvsstattemp = get(P.apvsstat)
     end
 
-    if (get(aplvlchgstat) ~= P.aplvlchgstattemp) then
-        if (get(aplvlchgstat) == ON) then
-            if (get(aponstat) == ON) then
+    if (get(P.aplvlchgstat) ~= P.aplvlchgstattemp) then
+        if (get(P.aplvlchgstat) == ON) then
+            if (get(P.aponstat) == ON) then
                 P.commandtableentry(TEXT, "Level Change On")
             else
                 P.commandtableentry(TEXT, "Level Change Armed")
             end
         else
-            if ((get(aponstat) == ON) and (get(mcpvsspeed) ~= 0) and (get(apalthldstat) ~= ON) and (get(apvnavstat) ~= ON) and (get(apvsstat) ~= ON)) then
+            if ((get(P.aponstat) == ON) and (get(P.mcpvsspeed) ~= 0) and (get(P.apalthldstat) ~= ON) and (get(P.apvnavstat) ~= ON) and (get(P.apvsstat) ~= ON)) then
                 P.commandtableentry(TEXT, "Level Change OFF")
             end
         end
-        P.aplvlchgstattemp = get(aplvlchgstat)
+        P.aplvlchgstattemp = get(P.aplvlchgstat)
     end
 
-    if (get(atarmpos) ~= P.atarmpostemp) then
-        if (get(atarmpos) == ON) then
+    if (get(P.atarmpos) ~= P.atarmpostemp) then
+        if (get(P.atarmpos) == ON) then
             P.commandtableentry(TEXT, "Autothrottle Armed")
 
         else
             P.commandtableentry(TEXT, "Autothrottle OFF")
         end
-        P.atarmpostemp = get(atarmpos)
+        P.atarmpostemp = get(P.atarmpos)
     end
 
-    if (get(atn1stat) ~= P.atn1stattemp) then
-        if ((get(atn1stat) == ON) and (get(airgroundsensor) == ON)) then
-            if (get(atarmpos) == ON) then
+    if (get(P.atn1stat) ~= P.atn1stattemp) then
+        if ((get(P.atn1stat) == ON) and (get(P.airgroundsensor) == ON)) then
+            if (get(P.atarmpos) == ON) then
                 P.commandtableentry(TEXT, "N 1 On")
             else
                 P.commandtableentry(TEXT, "N 1 Armed")
             end
         else
-            if ((get(atn1stat) == OFF) and (get(airgroundsensor) == ON)) then
+            if ((get(P.atn1stat) == OFF) and (get(P.airgroundsensor) == ON)) then
                 P.commandtableentry(TEXT, "N 1 OFF")
             end
         end
-        P.atn1stattemp = get(atn1stat)
+        P.atn1stattemp = get(P.atn1stat)
     end
 
-    if (get(atspeedstat) ~= P.atspeedstattemp) then
-        if ((get(atspeedstat) == ON) and (get(apgscapturedstat) ~= CAPTURED) and (get(aplpvgscapturedstat) ~= CAPTURED) and (get(apglsgscapturedstat) ~= CAPTURED) and
-            (get(apfacgscapturedstat) ~= CAPTURED) and (get(apvsstat) ~= ON)  and (get(aplvlchgstat) ~= ON)) then
-            if (get(atarmpos) == ON) then
+    if (get(P.atspeedstat) ~= P.atspeedstattemp) then
+        if ((get(P.atspeedstat) == ON) and (get(P.apgscapturedstat) ~= CAPTURED) and (get(P.aplpvgscapturedstat) ~= CAPTURED) and (get(P.apglsgscapturedstat) ~= CAPTURED) and
+            (get(P.apfacgscapturedstat) ~= CAPTURED) and (get(P.apvsstat) ~= ON)  and (get(P.aplvlchgstat) ~= ON)) then
+            if (get(P.atarmpos) == ON) then
                 P.commandtableentry(TEXT, "Speed On")
             else
                 P.commandtableentry(TEXT, "Speed Armed")
             end
         else
-            if ((get(atspeedstat) == OFF) and (get(atarmpos) == ON) and (get(atn1stat) ~= ON) and (get(apvnavstat) ~= ON)) then
+            if ((get(P.atspeedstat) == OFF) and (get(P.atarmpos) == ON) and (get(P.atn1stat) ~= ON) and (get(P.apvnavstat) ~= ON)) then
                 P.commandtableentry(TEXT, "Speed OFF")
             end
         end
-        P.atspeedstattemp = get(atspeedstat)
+        P.atspeedstattemp = get(P.atspeedstat)
     end
 
-    if (get(atspeedintvstat) ~= P.atspeedintvstattemp) then
-        if (get(atspeedintvstat) == ON) then
-            if (get(atarmpos) == ON) then
+    if (get(P.atspeedintvstat) ~= P.atspeedintvstattemp) then
+        if (get(P.atspeedintvstat) == ON) then
+            if (get(P.atarmpos) == ON) then
                 P.commandtableentry(TEXT, "Speed Intervention On")
             else
                 P.commandtableentry(TEXT, "Speed Intervention Armed")
             end
         else
-            if ((get(atarmpos) == ON) and (get(atn1stat) ~= ON) and (get(atspeedstat) ~= ON)) then
+            if ((get(P.atarmpos) == ON) and (get(P.atn1stat) ~= ON) and (get(P.atspeedstat) ~= ON)) then
                 P.commandtableentry(TEXT, "Speed Intervention OFF")
             end
         end
-        P.atspeedintvstattemp = get(atspeedintvstat)
+        P.atspeedintvstattemp = get(P.atspeedintvstat)
     end
 
-    if ((get(baropilot) ~= P.baropilottemp) or (get(barostd) ~= P.barostdtemp)) then
-        if (get(baropilot) ~= P.baropilottemp2) then
-            P.baropilottemp2 = get(baropilot)
+    if ((get(P.baropilot) ~= P.baropilottemp) or (get(P.barostd) ~= P.barostdtemp)) then
+        if (get(P.baropilot) ~= P.baropilottemp2) then
+            P.baropilottemp2 = get(P.baropilot)
         else
-            if ((get(barostd) == ON) and (get(barostd) ~= P.barostdtemp)) then
+            if ((get(P.barostd) == ON) and (get(P.barostd) ~= P.barostdtemp)) then
                 P.commandtableentry(TEXT, "Q N H Standard")
             else
-                if (get(baroinhpa) == ON) then
-                    P.commandtableentry(TEXT, "Q N H " .. tostring(convertpressure(get(baropilot))))
+                if (get(P.baroinhpa) == ON) then
+                    P.commandtableentry(TEXT, "Q N H " .. tostring(convertpressure(get(P.baropilot))))
                 else
-                    P.commandtableentry(TEXT, "Q N H " .. tostring(get(baropilot)))
+                    P.commandtableentry(TEXT, "Q N H " .. tostring(get(P.baropilot)))
                 end
             end
 
-            P.baropilottemp = get(baropilot)
-            P.baropilottemp2 = get(baropilot)
-            P.barostdtemp = get(barostd)
+            P.baropilottemp = get(P.baropilot)
+            P.baropilottemp2 = get(P.baropilot)
+            P.barostdtemp = get(P.barostd)
         end
     end
 
-    if (get(taxilight) ~= P.taxilighttemp) then
-        if (get(taxilight) ~= OFF) then
+    if (get(P.taxilight) ~= P.taxilighttemp) then
+        if (get(P.taxilight) ~= OFF) then
             P.commandtableentry(TEXT, "Taxi Lights On")
         else
             P.commandtableentry(TEXT, "Taxi Lights Off")
         end
-        P.taxilighttemp = get(taxilight)
+        P.taxilighttemp = get(P.taxilight)
     end
 
-    if (get(beaconlights) ~= P.beaconlightstemp) then
-        if (get(beaconlights) == ON) then
+    if (get(P.beaconlights) ~= P.beaconlightstemp) then
+        if (get(P.beaconlights) == ON) then
             P.commandtableentry(TEXT, "Collision Lights On")
         else
             P.commandtableentry(TEXT, "Collision Lights Off")
         end
-        P.beaconlightstemp = get(beaconlights)
+        P.beaconlightstemp = get(P.beaconlights)
     end
 
-    if ((get(llightson) ~= P.llightsontemp) or (get(llights1) ~= P.llights1temp) or (get(llights2) ~= P.llights2temp) or (get(llights3) ~= P.llights3temp) or
-        (get(llights4) ~= P.llights4temp)) then
-        if ((get(llightson) == OFF) and (get(llights1) == OFF) and (get(llights2) == OFF) and (get(llights3) == OFF) and (get(llights4) == OFF)) then
+    if ((get(P.llightson) ~= P.llightsontemp) or (get(P.llights1) ~= P.llights1temp) or (get(P.llights2) ~= P.llights2temp) or (get(P.llights3) ~= P.llights3temp) or
+        (get(P.llights4) ~= P.llights4temp)) then
+        if ((get(P.llightson) == OFF) and (get(P.llights1) == OFF) and (get(P.llights2) == OFF) and (get(P.llights3) == OFF) and (get(P.llights4) == OFF)) then
             P.commandtableentry(TEXT, "Landing Lights Off")
         else
             if ((P.llightsontemp == OFF) and (P.llights1temp == OFF) and (P.llights2temp == OFF) and (P.llights3temp == OFF) and (P.llights4temp == OFF)) then
                 P.commandtableentry(TEXT, "Landing Lights ON")
             end
         end
-        P.llightsontemp = get(llightson)
-        P.llights1temp = get(llights1)
-        P.llights2temp = get(llights2)
-        P.llights3temp = get(llights3)
-        P.llights4temp = get(llights4)
+        P.llightsontemp = get(P.llightson)
+        P.llights1temp = get(P.llights1)
+        P.llights2temp = get(P.llights2)
+        P.llights3temp = get(P.llights3)
+        P.llights4temp = get(P.llights4)
     end
 
-    if ((get(rwylightl) ~= P.rwylightltemp) or (get(rwylightr) ~= P.rwylightrtemp)) then
-        if (((get(rwylightl) ~= P.rwylightltemp) and (get(rwylightr) ~= P.rwylightrtemp)) and (get(rwylightl) == get(rwylightr))) then
-            if ((get(rwylightl) == ON) and (get(rwylightr) == ON)) then
+    if ((get(P.rwylightl) ~= P.rwylightltemp) or (get(P.rwylightr) ~= P.rwylightrtemp)) then
+        if (((get(P.rwylightl) ~= P.rwylightltemp) and (get(P.rwylightr) ~= P.rwylightrtemp)) and (get(P.rwylightl) == get(P.rwylightr))) then
+            if ((get(P.rwylightl) == ON) and (get(P.rwylightr) == ON)) then
                 P.commandtableentry(TEXT, "Both Runway Turnoff Lights ON")
             else
                 P.commandtableentry(TEXT, "Both Runway Turnoff Lights OFF")
             end
-            P.rwylightltemp = get(rwylightl)
-            P.rwylightrtemp = get(rwylightr)
+            P.rwylightltemp = get(P.rwylightl)
+            P.rwylightrtemp = get(P.rwylightr)
         else
-            if (get(rwylightl) ~= P.rwylightltemp) then
-                if (get(rwylightl) == ON) then
+            if (get(P.rwylightl) ~= P.rwylightltemp) then
+                if (get(P.rwylightl) == ON) then
                     P.commandtableentry(TEXT, "Left Runway Turnoff Light On")
                 else
                     P.commandtableentry(TEXT, "Left Runway Turnoff Light Off")
                 end
-                P.rwylightltemp = get(rwylightl)
+                P.rwylightltemp = get(P.rwylightl)
             end
 
-            if (get(rwylightr) ~= P.rwylightrtemp) then
-                if (get(rwylightr) == ON) then
+            if (get(P.rwylightr) ~= P.rwylightrtemp) then
+                if (get(P.rwylightr) == ON) then
                     P.commandtableentry(TEXT, "Right Runway Turnoff Light On")
                 else
                     P.commandtableentry(TEXT, "Right Runway Turnoff Light Off")
                 end
-                P.rwylightrtemp = get(rwylightr)
+                P.rwylightrtemp = get(P.rwylightr)
             end
         end
     end
 
-    if (get(positionlights) ~= P.positionlightstemp) then
-        if (get(positionlights) == POSLIGHTSOFF) then
+    if (get(P.positionlights) ~= P.positionlightstemp) then
+        if (get(P.positionlights) == POSLIGHTSOFF) then
             P.commandtableentry(TEXT, "Position Lights OFF")
-        elseif (get(positionlights) == POSLIGHTSSTEADY) then
+        elseif (get(P.positionlights) == POSLIGHTSSTEADY) then
             P.commandtableentry(TEXT, "Position Lights Steady")
-        elseif (get(positionlights) == POSLIGHTSSTROBE) then
+        elseif (get(P.positionlights) == POSLIGHTSSTROBE) then
             P.commandtableentry(TEXT, "Position Lights Strobe")
         end
-        P.positionlightstemp = get(positionlights)
+        P.positionlightstemp = get(P.positionlights)
     end
 
-    if (get(logolighton) ~= P.logolightontemp) then
+    if (get(P.logolighton) ~= P.logolightontemp) then
 
-        if (get(logolighton) == ON) then
+        if (get(P.logolighton) == ON) then
             P.commandtableentry(TEXT, "Logo Light ON")
         else
             P.commandtableentry(TEXT, "Logo Light Off")
         end
-        P.logolightontemp = get(logolighton)
+        P.logolightontemp = get(P.logolighton)
     end
 
-    if (get(transponderpos) ~= P.transponderpostemp) then
-        P.commandtableentry(TEXT, "Transponder " .. TransponderPostotring(get(transponderpos)))
-        P.transponderpostemp = get(transponderpos)
+    if (get(P.transponderpos) ~= P.transponderpostemp) then
+        P.commandtableentry(TEXT, "Transponder " .. TransponderPostotring(get(P.transponderpos)))
+        P.transponderpostemp = get(P.transponderpos)
     end
 
-    if (P.yawdamperswitchtemp ~= get(yawdamperswitch)) then
-        if (get(yawdamperswitch) == ON) then
+    if (P.yawdamperswitchtemp ~= get(P.yawdamperswitch)) then
+        if (get(P.yawdamperswitch) == ON) then
             P.commandtableentry(TEXT, "Yaw Damper ON")
         else
             P.commandtableentry(TEXT, "Yaw Damper Off")
         end
-        P.yawdamperswitchtemp = get(yawdamperswitch)
+        P.yawdamperswitchtemp = get(P.yawdamperswitch)
     end
 
-    if ((get(fdpilotpos) ~= P.fdpilotpostemp) or (get(fdfopos) ~= P.fdfopostemp)) then
-        if ((get(fdpilotpos) ~= P.fdpilotpostemp) and (get(fdfopos) ~= P.fdfopostemp) and (get(fdpilotpos) == get(fdfopos))) then
-            if (get(fdpilotpos) == ON) then
+    if ((get(P.fdpilotpos) ~= P.fdpilotpostemp) or (get(P.fdfopos) ~= P.fdfopostemp)) then
+        if ((get(P.fdpilotpos) ~= P.fdpilotpostemp) and (get(P.fdfopos) ~= P.fdfopostemp) and (get(P.fdpilotpos) == get(P.fdfopos))) then
+            if (get(P.fdpilotpos) == ON) then
                 P.commandtableentry(TEXT, "Both Flightdirectors On")
             else
                 P.commandtableentry(TEXT, "Both Flightdirectors Off")
             end
-            P.fdpilotpostemp = get(fdpilotpos)
-            P.fdfopostemp = get(fdfopos)
+            P.fdpilotpostemp = get(P.fdpilotpos)
+            P.fdfopostemp = get(P.fdfopos)
         else
-            if (get(fdpilotpos) ~= P.fdpilotpostemp) then
-                if (get(fdpilotpos) == ON) then
+            if (get(P.fdpilotpos) ~= P.fdpilotpostemp) then
+                if (get(P.fdpilotpos) == ON) then
                     P.commandtableentry(TEXT, "Pilot Flightdirector On")
                 else
                     P.commandtableentry(TEXT, "Pilot Flightdirector Off")
                 end
-                P.fdpilotpostemp = get(fdpilotpos)
+                P.fdpilotpostemp = get(P.fdpilotpos)
             end
 
-            if (get(fdfopos) ~= P.fdfopostemp) then
-                if (get(fdfopos) == ON) then
+            if (get(P.fdfopos) ~= P.fdfopostemp) then
+                if (get(P.fdfopos) == ON) then
                     P.commandtableentry(TEXT, "Copilot Flightdirector On")
                 else
                     P.commandtableentry(TEXT, "Copilot Flightdirector Off")
                 end
-                P.fdfopostemp = get(fdfopos)
+                P.fdfopostemp = get(P.fdfopos)
             end
         end
     end
 
-    if ((get(efiswxpilotpos) ~= P.efiswxpilotpostemp) or (get(efiswxfopos) ~= P.efiswxfopostemp)) then
-        if ((get(efiswxpilotpos) ~= P.efiswxpilotpostemp) and (get(efiswxfopos) ~= P.efiswxfopostemp) and (get(efiswxpilotpos) == get(efiswxfopos))) then
-            if (get(efiswxpilotpos) == ON) then
+    if ((get(P.efiswxpilotpos) ~= P.efiswxpilotpostemp) or (get(P.efiswxfopos) ~= P.efiswxfopostemp)) then
+        if ((get(P.efiswxpilotpos) ~= P.efiswxpilotpostemp) and (get(P.efiswxfopos) ~= P.efiswxfopostemp) and (get(P.efiswxpilotpos) == get(P.efiswxfopos))) then
+            if (get(P.efiswxpilotpos) == ON) then
                 P.commandtableentry(TEXT, "Both Weather Radars On")
-            elseif (get(efisterrpilotpos) == OFF) then
+            elseif (get(P.efisterrpilotpos) == OFF) then
                 P.commandtableentry(TEXT, "Both Weather Radars Off")
             end
-            P.efiswxpilotpostemp = get(efiswxpilotpos)
-            P.efiswxfopostemp = get(efiswxfopos)
+            P.efiswxpilotpostemp = get(P.efiswxpilotpos)
+            P.efiswxfopostemp = get(P.efiswxfopos)
         else
-            if (get(efiswxpilotpos) ~= P.efiswxpilotpostemp) then
-                if (get(efiswxpilotpos) == ON) then
+            if (get(P.efiswxpilotpos) ~= P.efiswxpilotpostemp) then
+                if (get(P.efiswxpilotpos) == ON) then
                     P.commandtableentry(TEXT, "Pilot Weather Radar On")
-                elseif (get(efisterrpilotpos) == OFF) then
+                elseif (get(P.efisterrpilotpos) == OFF) then
                     P.commandtableentry(TEXT, "Pilot Weather Radar Off")
                 end
-                P.efiswxpilotpostemp = get(efiswxpilotpos)
+                P.efiswxpilotpostemp = get(P.efiswxpilotpos)
             end
 
-            if (get(efiswxfopos) ~= P.efiswxfopostemp) then
-                if (get(efiswxfopos) == ON) then
+            if (get(P.efiswxfopos) ~= P.efiswxfopostemp) then
+                if (get(P.efiswxfopos) == ON) then
                     P.commandtableentry(TEXT, "Copilot Weather Radar On")
 
-                elseif (get(efisterrfopos) == OFF) then
+                elseif (get(P.efisterrfopos) == OFF) then
                     P.commandtableentry(TEXT, "Copilot Weather Radar Off")
                 end
-                P.efiswxfopostemp = get(efiswxfopos)
+                P.efiswxfopostemp = get(P.efiswxfopos)
             end
         end
     end
 
-    if ((get(efisterrpilotpos) ~= P.efisterrpilotpostemp) or (get(efisterrfopos) ~= P.efisterrfopostemp)) then
-        if ((get(efisterrpilotpos) ~= P.efisterrpilotpostemp) and (get(efisterrfopos) ~= P.efisterrfopostemp) and (get(efisterrpilotpos) == get(efisterrfopos))) then
-            if (get(efisterrpilotpos) == ON) then
+    if ((get(P.efisterrpilotpos) ~= P.efisterrpilotpostemp) or (get(P.efisterrfopos) ~= P.efisterrfopostemp)) then
+        if ((get(P.efisterrpilotpos) ~= P.efisterrpilotpostemp) and (get(P.efisterrfopos) ~= P.efisterrfopostemp) and (get(P.efisterrpilotpos) == get(P.efisterrfopos))) then
+            if (get(P.efisterrpilotpos) == ON) then
                 P.commandtableentry(TEXT, "Both Terrain Radars On")
-            elseif (get(efiswxpilotpos) == OFF) then
+            elseif (get(P.efiswxpilotpos) == OFF) then
                 P.commandtableentry(TEXT, "Both Terrain Radars Off")
             end
-            P.efisterrpilotpostemp = get(efisterrpilotpos)
-            P.efisterrfopostemp = get(efisterrfopos)
+            P.efisterrpilotpostemp = get(P.efisterrpilotpos)
+            P.efisterrfopostemp = get(P.efisterrfopos)
         else
-            if (get(efisterrpilotpos) ~= P.efisterrpilotpostemp) then
-                if (get(efisterrpilotpos) == ON) then
+            if (get(P.efisterrpilotpos) ~= P.efisterrpilotpostemp) then
+                if (get(P.efisterrpilotpos) == ON) then
                     P.commandtableentry(TEXT, "Pilot Terrain Radar On")
-                elseif (get(efiswxpilotpos) == OFF) then
+                elseif (get(P.efiswxpilotpos) == OFF) then
                     P.commandtableentry(TEXT, "Pilot Terrain Radar Off")
                 end
-                P.efisterrpilotpostemp = get(efisterrpilotpos)
+                P.efisterrpilotpostemp = get(P.efisterrpilotpos)
             end
 
-            if (get(efisterrfopos) ~= P.efisterrfopostemp) then
-                if (get(efisterrfopos) == ON) then
+            if (get(P.efisterrfopos) ~= P.efisterrfopostemp) then
+                if (get(P.efisterrfopos) == ON) then
                     P.commandtableentry(TEXT, "Copilot Terrain Radar On")
-                elseif (get(efiswxfopos) == OFF) then
+                elseif (get(P.efiswxfopos) == OFF) then
                     P.commandtableentry(TEXT, "Copilot Terrain Radar Off")
                 end
-                P.efisterrfopostemp = get(efisterrfopos)
+                P.efisterrfopostemp = get(P.efisterrfopos)
             end
         end
     end
 
-    if ((get(efisdatapilotpos) ~= P.efisdatapilotpostemp) or (get(efisdatafopos) ~= P.efisdatafopostemp)) then
-        if ((get(efisdatapilotpos) ~= P.efisdatapilotpostemp) and (get(efisdatafopos) ~= P.efisdatafopostemp) and (get(efisdatafopos) == get(efisdatafopos))) then
-            if (get(efisdatapilotpos) == ON) then
+    if ((get(P.efisdatapilotpos) ~= P.efisdatapilotpostemp) or (get(P.efisdatafopos) ~= P.efisdatafopostemp)) then
+        if ((get(P.efisdatapilotpos) ~= P.efisdatapilotpostemp) and (get(P.efisdatafopos) ~= P.efisdatafopostemp) and (get(P.efisdatafopos) == get(P.efisdatafopos))) then
+            if (get(P.efisdatapilotpos) == ON) then
                 P.commandtableentry(TEXT, "Both E F I S Data On")
             else
                 P.commandtableentry(TEXT, "Both E F I S DATA Off")
             end
-            P.efisdatapilotpostemp = get(efisdatapilotpos)
-            P.efisdatafopostemp = get(efisdatafopos)
+            P.efisdatapilotpostemp = get(P.efisdatapilotpos)
+            P.efisdatafopostemp = get(P.efisdatafopos)
         else
-            if (get(efisdatapilotpos) ~= P.efisdatapilotpostemp) then
-                if (get(efisdatapilotpos) == ON) then
+            if (get(P.efisdatapilotpos) ~= P.efisdatapilotpostemp) then
+                if (get(P.efisdatapilotpos) == ON) then
                     P.commandtableentry(TEXT, "Pilot E F I S Data On")
                 else
                     P.commandtableentry(TEXT, "Pilot E F I S Data Off")
                 end
-                P.efisdatapilotpostemp = get(efisdatapilotpos)
+                P.efisdatapilotpostemp = get(P.efisdatapilotpos)
             end
 
-            if (get(efisdatafopos) ~= P.efisdatafopostemp) then
-                if (get(efisdatafopos) == ON) then
+            if (get(P.efisdatafopos) ~= P.efisdatafopostemp) then
+                if (get(P.efisdatafopos) == ON) then
                     P.commandtableentry(TEXT, "Copilot E F I S Data On")
                 else
                     P.commandtableentry(TEXT, "Copilot E F I S Data Off")
                 end
-                P.efisdatafopostemp = get(efisdatafopos)
+                P.efisdatafopostemp = get(P.efisdatafopos)
             end
         end
     end
 
-       if ((get(efisfixpilotpos) ~= P.efisfixpilotpostemp) or (get(efisfixfopos) ~= P.efisfixfopostemp)) then
-        if ((get(efisfixpilotpos) ~= P.efisfixpilotpostemp) and (get(efisfixfopos) ~= P.efisfixfopostemp) and (get(efisfixfopos) == get(efisfixfopos))) then
-            if (get(efisfixpilotpos) == ON) then
+       if ((get(P.efisfixpilotpos) ~= P.efisfixpilotpostemp) or (get(P.efisfixfopos) ~= P.efisfixfopostemp)) then
+        if ((get(P.efisfixpilotpos) ~= P.efisfixpilotpostemp) and (get(P.efisfixfopos) ~= P.efisfixfopostemp) and (get(P.efisfixfopos) == get(P.efisfixfopos))) then
+            if (get(P.efisfixpilotpos) == ON) then
                 P.commandtableentry(TEXT, "Both E F I S Waypoint On")
             else
                 P.commandtableentry(TEXT, "Both E F I S Waypoint Off")
             end
-            P.efisfixpilotpostemp = get(efisfixpilotpos)
-            P.efisfixfopostemp = get(efisfixfopos)
+            P.efisfixpilotpostemp = get(P.efisfixpilotpos)
+            P.efisfixfopostemp = get(P.efisfixfopos)
         else
-            if (get(efisfixpilotpos) ~= P.efisfixpilotpostemp) then
-                if (get(efisfixpilotpos) == ON) then
+            if (get(P.efisfixpilotpos) ~= P.efisfixpilotpostemp) then
+                if (get(P.efisfixpilotpos) == ON) then
                     P.commandtableentry(TEXT, "Pilot E F I S Waypoint On")
                 else
                     P.commandtableentry(TEXT, "Pilot E F I S Waypoint Off")
                 end
-                P.efisfixpilotpostemp = get(efisfixpilotpos)
+                P.efisfixpilotpostemp = get(P.efisfixpilotpos)
             end
 
-            if (get(efisfixfopos) ~= P.efisfixfopostemp) then
-                if (get(efisfixfopos) == ON) then
+            if (get(P.efisfixfopos) ~= P.efisfixfopostemp) then
+                if (get(P.efisfixfopos) == ON) then
                     P.commandtableentry(TEXT, "Copilot E F I S Waypoint On")
                 else
                     P.commandtableentry(TEXT, "Copilot E F I S Waypoint Off")
                 end
-                P.efisfixfopostemp = get(efisfixfopos)
+                P.efisfixfopostemp = get(P.efisfixfopos)
             end
         end
     end
 
-    if ((get(efisairportpilotpos) ~= P.efisairportpilotpostemp) or (get(efisairportfopos) ~= P.efisairportfopostemp)) then
-        if ((get(efisairportpilotpos) ~= P.efisairportpilotpostemp) and (get(efisairportfopos) ~= P.efisairportfopostemp) and (get(efisairportpilotpos) == get(efisairportfopos))) then
-            if (get(efisairportpilotpos) == ON) then
+    if ((get(P.efisairportpilotpos) ~= P.efisairportpilotpostemp) or (get(P.efisairportfopos) ~= P.efisairportfopostemp)) then
+        if ((get(P.efisairportpilotpos) ~= P.efisairportpilotpostemp) and (get(P.efisairportfopos) ~= P.efisairportfopostemp) and (get(P.efisairportpilotpos) == get(P.efisairportfopos))) then
+            if (get(P.efisairportpilotpos) == ON) then
                 P.commandtableentry(TEXT, "Both E F I S Airport On")
             else
                 P.commandtableentry(TEXT, "Both E F I S Airport Off")
             end
-            P.efisairportpilotpostemp = get(efisairportpilotpos)
-            P.efisairportfopostemp = get(efisairportfopos)
+            P.efisairportpilotpostemp = get(P.efisairportpilotpos)
+            P.efisairportfopostemp = get(P.efisairportfopos)
         else
-            if (get(efisairportpilotpos) ~= P.efisairportpilotpostemp) then
-                if (get(efisairportpilotpos) == ON) then
+            if (get(P.efisairportpilotpos) ~= P.efisairportpilotpostemp) then
+                if (get(P.efisairportpilotpos) == ON) then
                     P.commandtableentry(TEXT, "Pilot E F I S Airport On")
                 else
                     P.commandtableentry(TEXT, "Pilot E F I S Airport Off")
                 end
-                P.efisairportpilotpostemp = get(efisairportpilotpos)
+                P.efisairportpilotpostemp = get(P.efisairportpilotpos)
             end
 
-            if (get(efisairportfopos) ~= P.efisairportfopostemp) then
-                if (get(efisairportfopos) == ON) then
+            if (get(P.efisairportfopos) ~= P.efisairportfopostemp) then
+                if (get(P.efisairportfopos) == ON) then
                     P.commandtableentry(TEXT, "Copilot E F I S Airport On")
                 else
                     P.commandtableentry(TEXT, "Copilot E F I S Airport Off")
                 end
-                P.efisairportfopostemp = get(efisairportfopos)
+                P.efisairportfopostemp = get(P.efisairportfopos)
             end
         end
     end
 
-    if ((get(efispospilotpos) ~= P.efispospilotpostemp) or (get(efisposfopos) ~= P.efisposfopostemp)) then
-        if ((get(efispospilotpos) ~= P.efispospilotpostemp) and (get(efisposfopos) ~= P.efisposfopostemp) and (get(efispospilotpos) == get(efisposfopos))) then
-            if (get(efispospilotpos) == ON) then
+    if ((get(P.efispospilotpos) ~= P.efispospilotpostemp) or (get(P.efisposfopos) ~= P.efisposfopostemp)) then
+        if ((get(P.efispospilotpos) ~= P.efispospilotpostemp) and (get(P.efisposfopos) ~= P.efisposfopostemp) and (get(P.efispospilotpos) == get(P.efisposfopos))) then
+            if (get(P.efispospilotpos) == ON) then
                 P.commandtableentry(TEXT, "Both E F I S Position On")
             else
                 P.commandtableentry(TEXT, "Both E F I S Position Off")
             end
-            P.efispospilotpostemp = get(efispospilotpos)
-            P.efisposfopostemp = get(efisposfopos)
+            P.efispospilotpostemp = get(P.efispospilotpos)
+            P.efisposfopostemp = get(P.efisposfopos)
         else
-            if (get(efispospilotpos) ~= P.efispospilotpostemp) then
-                if (get(efispospilotpos) == ON) then
+            if (get(P.efispospilotpos) ~= P.efispospilotpostemp) then
+                if (get(P.efispospilotpos) == ON) then
                     P.commandtableentry(TEXT, "Pilot E F I S Position On")
                 else
                     P.commandtableentry(TEXT, "Pilot E F I S Position Off")
                 end
-                P.efispospilotpostemp = get(efispospilotpos)
+                P.efispospilotpostemp = get(P.efispospilotpos)
             end
 
-            if (get(efisposfopos) ~= P.efisposfopostemp) then
-                if (get(efisposfopos) == ON) then
+            if (get(P.efisposfopos) ~= P.efisposfopostemp) then
+                if (get(P.efisposfopos) == ON) then
                     P.commandtableentry(TEXT, "Copilot E F I S Position On")
                 else
                     P.commandtableentry(TEXT, "Copilot E F I S Position Off")
                 end
-                P.efisposfopostemp = get(efisposfopos)
+                P.efisposfopostemp = get(P.efisposfopos)
             end
         end
     end
 
-    if ((get(efisvorpilotpos) ~= P.efisvorpilotpostemp) or (get(efisvorfopos) ~= P.efisvorfopostemp)) then
-        if ((get(efisvorpilotpos) ~= P.efisvorpilotpostemp) and (get(efisvorfopos) ~= P.efisvorfopostemp) and (get(efisvorpilotpos) == get(efisvorfopos))) then
-            if (get(efisvorpilotpos) == ON) then
+    if ((get(P.efisvorpilotpos) ~= P.efisvorpilotpostemp) or (get(P.efisvorfopos) ~= P.efisvorfopostemp)) then
+        if ((get(P.efisvorpilotpos) ~= P.efisvorpilotpostemp) and (get(P.efisvorfopos) ~= P.efisvorfopostemp) and (get(P.efisvorpilotpos) == get(P.efisvorfopos))) then
+            if (get(P.efisvorpilotpos) == ON) then
                 P.commandtableentry(TEXT, "Both E F I S Station On")
             else
                 P.commandtableentry(TEXT, "Both E F I S Station Off")
             end
-            P.efisvorpilotpostemp = get(efisvorpilotpos)
-            P.efisvorfopostemp = get(efisvorfopos)
+            P.efisvorpilotpostemp = get(P.efisvorpilotpos)
+            P.efisvorfopostemp = get(P.efisvorfopos)
         else
-            if (get(efisvorpilotpos) ~= P.efisvorpilotpostemp) then
-                if (get(efisvorpilotpos) == ON) then
+            if (get(P.efisvorpilotpos) ~= P.efisvorpilotpostemp) then
+                if (get(P.efisvorpilotpos) == ON) then
                     P.commandtableentry(TEXT, "Pilot E F I S Station On")
                 else
                     P.commandtableentry(TEXT, "Pilot E F I S Station Off")
                 end
-                P.efisvorpilotpostemp = get(efisvorpilotpos)
+                P.efisvorpilotpostemp = get(P.efisvorpilotpos)
             end
 
-            if (get(efisvorfopos) ~= P.efisvorfopostemp) then
-                if (get(efisvorfopos) == ON) then
+            if (get(P.efisvorfopos) ~= P.efisvorfopostemp) then
+                if (get(P.efisvorfopos) == ON) then
                     P.commandtableentry(TEXT, "Copilot E F I S Station On")
                 else
                     P.commandtableentry(TEXT, "Copilot E F I S Station Off")
                 end
-                P.efisvorfopostemp = get(efisvorfopos)
+                P.efisvorfopostemp = get(P.efisvorfopos)
             end
         end
     end
 
-    if (get(mmrinstalled) == ON) then
-        if ((get(mmrcptactmode) ~= P.mmrcptactmodetemp) or (get(mmrcptactvalue) ~= P.mmrcptactvaluetemp) or (get(mmrfoactmode) ~= P.mmrfoactmodetemp) or
-            (get(mmrfoactvalue) ~= P.mmrfoactvaluetemp)) then
+    if (get(P.mmrinstalled) == ON) then
+        if ((get(P.mmrcptactmode) ~= P.mmrcptactmodetemp) or (get(P.mmrcptactvalue) ~= P.mmrcptactvaluetemp) or (get(P.mmrfoactmode) ~= P.mmrfoactmodetemp) or
+            (get(P.mmrfoactvalue) ~= P.mmrfoactvaluetemp)) then
             local mmrstring = ""
             local mmrchannel = 0
-            if (((get(mmrcptactmode) ~= P.mmrcptactmodetemp) or (get(mmrcptactvalue) ~= P.mmrcptactvaluetemp)) and
-                ((get(mmrfoactmode) ~= P.mmrfoactmodetemp) or (get(mmrfoactvalue) ~= P.mmrfoactvaluetemp)) and (get(mmrcptactmode) == get(mmrfoactmode)) and
-                (get(mmrcptactvalue) == get(mmrfoactvalue))) then
-                if (get(mmrcptactmode) == MMRLOC) then
+            if (((get(P.mmrcptactmode) ~= P.mmrcptactmodetemp) or (get(P.mmrcptactvalue) ~= P.mmrcptactvaluetemp)) and
+                ((get(P.mmrfoactmode) ~= P.mmrfoactmodetemp) or (get(P.mmrfoactvalue) ~= P.mmrfoactvaluetemp)) and (get(P.mmrcptactmode) == get(P.mmrfoactmode)) and
+                (get(P.mmrcptactvalue) == get(P.mmrfoactvalue))) then
+                if (get(P.mmrcptactmode) == MMRLOC) then
                     mmrstring = "Both M M R V O R "
-                    mmrchannel = get(mmrcptactvalue) / 100
-                elseif (get(mmrcptactmode) == MMRILS) then
+                    mmrchannel = get(P.mmrcptactvalue) / 100
+                elseif (get(P.mmrcptactmode) == MMRILS) then
                     mmrstring = "Both M M R I L S "
-                    mmrchannel = get(mmrcptactvalue) / 100
-                elseif (get(mmrcptactmode) == MMRGLS) then
+                    mmrchannel = get(P.mmrcptactvalue) / 100
+                elseif (get(P.mmrcptactmode) == MMRGLS) then
                     mmrstring = "Both M M R G L S "
-                    mmrchannel = get(mmrcptactvalue)
-                elseif (get(mmrcptactmode) == MMRLPV) then
+                    mmrchannel = get(P.mmrcptactvalue)
+                elseif (get(P.mmrcptactmode) == MMRLPV) then
                     mmrstring = "Both M M R L P V "
-                    mmrchannel = get(mmrcptactvalue)
+                    mmrchannel = get(P.mmrcptactvalue)
                 end
             else
-                if ((get(mmrcptactmode) ~= get(mmrcptactmode)) or (get(mmrcptactvalue) ~= P.mmrcptactvaluetemp)) then
-                    if (get(mmrcptactmode) == MMRLOC) then
+                if ((get(P.mmrcptactmode) ~= get(P.mmrcptactmode)) or (get(P.mmrcptactvalue) ~= P.mmrcptactvaluetemp)) then
+                    if (get(P.mmrcptactmode) == MMRLOC) then
                         mmrstring = "Pilot M M R V O R "
-                        mmrchannel = get(mmrcptactvalue) / 100
-                    elseif (get(mmrcptactmode) == MMRILS) then
+                        mmrchannel = get(P.mmrcptactvalue) / 100
+                    elseif (get(P.mmrcptactmode) == MMRILS) then
                         mmrstring = "Pilot M M R I L S "
-                        mmrchannel = get(mmrcptactvalue) / 100
-                    elseif (get(mmrcptactmode) == MMRGLS) then
+                        mmrchannel = get(P.mmrcptactvalue) / 100
+                    elseif (get(P.mmrcptactmode) == MMRGLS) then
                         mmrstring = "Pilot M M R G L S "
-                        mmrchannel = get(mmrcptactvalue)
-                    elseif (get(mmrcptactmode) == MMRLPV) then
+                        mmrchannel = get(P.mmrcptactvalue)
+                    elseif (get(P.mmrcptactmode) == MMRLPV) then
                         mmrstring = "Pilot M M R L P V "
-                        mmrchannel = get(mmrcptactvalue)
+                        mmrchannel = get(P.mmrcptactvalue)
                     end
                 end
 
-                if ((get(mmrfoactmode) ~= P.mmrfoactmodetemp) or (get(mmrfoactvalue) ~= P.mmrfoactvaluetemp)) then
-                    if (get(mmrfoactmode) == MMRLOC) then
+                if ((get(P.mmrfoactmode) ~= P.mmrfoactmodetemp) or (get(P.mmrfoactvalue) ~= P.mmrfoactvaluetemp)) then
+                    if (get(P.mmrfoactmode) == MMRLOC) then
                         mmrstring = "Copilot M M R V O R "
-                        mmrchannel = get(mmrfoactvalue) / 100
-                    elseif (get(mmrfoactmode) == MMRILS) then
+                        mmrchannel = get(P.mmrfoactvalue) / 100
+                    elseif (get(P.mmrfoactmode) == MMRILS) then
                         mmrstring = "Copilot M M R I L S "
-                        mmrchannel = get(mmrfoactvalue) / 100
-                    elseif (get(mmrfoactmode) == MMRGLS) then
+                        mmrchannel = get(P.mmrfoactvalue) / 100
+                    elseif (get(P.mmrfoactmode) == MMRGLS) then
                         mmrstring = "Copilot M M R G L S "
-                        mmrchannel = get(mmrfoactvalue)
-                    elseif (get(mmrfoactmode) == MMRLPV) then
+                        mmrchannel = get(P.mmrfoactvalue)
+                    elseif (get(P.mmrfoactmode) == MMRLPV) then
                         mmrstring = "Copilot M M R L P V "
-                        mmrchannel = get(mmrfoactvalue)
+                        mmrchannel = get(P.mmrfoactvalue)
                     end
                 end
             end
 
             P.commandtableentry(TEXT, mmrstring .. tostring(mmrchannel))
 
-            P.mmrcptactmodetemp = get(mmrcptactmode)
-            P.mmrcptactvaluetemp = get(mmrcptactvalue)
-            P.mmrfoactmodetemp = get(mmrfoactmode)
-            P.mmrfoactvaluetemp = get(mmrfoactvalue)
-            P.mmrcptstdbymodetemp = get(mmrcptstdbymode)
-            P.mmrfostdbymodetemp = get(mmrfostdbymode)
+            P.mmrcptactmodetemp = get(P.mmrcptactmode)
+            P.mmrcptactvaluetemp = get(P.mmrcptactvalue)
+            P.mmrfoactmodetemp = get(P.mmrfoactmode)
+            P.mmrfoactvaluetemp = get(P.mmrfoactvalue)
+            P.mmrcptstdbymodetemp = get(P.mmrcptstdbymode)
+            P.mmrfostdbymodetemp = get(P.mmrfostdbymode)
         else
-            if ((get(mmrcptstdbymode) ~= P.mmrcptstdbymodetemp) or (get(mmrfostdbymode) ~= P.mmrfostdbymodetemp)) then
-                if ((get(mmrcptstdbymode) ~= P.mmrcptstdbymodetemp2) or (get(mmrfostdbymode) ~= P.mmrfostdbymodetemp2)) then
-                    P.mmrcptstdbymodetemp2 = get(mmrcptstdbymode)
-                    P.mmrfostdbymodetemp2 = get(mmrfostdbymode)
+            if ((get(P.mmrcptstdbymode) ~= P.mmrcptstdbymodetemp) or (get(P.mmrfostdbymode) ~= P.mmrfostdbymodetemp)) then
+                if ((get(P.mmrcptstdbymode) ~= P.mmrcptstdbymodetemp2) or (get(P.mmrfostdbymode) ~= P.mmrfostdbymodetemp2)) then
+                    P.mmrcptstdbymodetemp2 = get(P.mmrcptstdbymode)
+                    P.mmrfostdbymodetemp2 = get(P.mmrfostdbymode)
                 else
-                    if (get(mmrcptstdbymode) == get(mmrfostdbymode)) then
-                        if (get(mmrcptstdbymode) == MMRLOC) then
+                    if (get(P.mmrcptstdbymode) == get(P.mmrfostdbymode)) then
+                        if (get(P.mmrcptstdbymode) == MMRLOC) then
                             P.commandtableentry(TEXT, "Both M M R Standby V O R")
-                        elseif (get(mmrcptstdbymode) == MMRILS) then
+                        elseif (get(P.mmrcptstdbymode) == MMRILS) then
                             P.commandtableentry(TEXT, "Both M M R Standby I L S")
-                        elseif (get(mmrcptstdbymode) == MMRGLS) then
+                        elseif (get(P.mmrcptstdbymode) == MMRGLS) then
                             P.commandtableentry(TEXT, "Both M M R Standby G L S")
-                        elseif (get(mmrcptstdbymode) == MMRLPV) then
+                        elseif (get(P.mmrcptstdbymode) == MMRLPV) then
                             P.commandtableentry(TEXT, "Both M M R Standby L P V")
                         end
                     else
-                        if (get(mmrcptstdbymode) ~= P.mmrcptstdbymodetemp) then
-                            if (get(mmrcptstdbymode) == MMRLOC) then
+                        if (get(P.mmrcptstdbymode) ~= P.mmrcptstdbymodetemp) then
+                            if (get(P.mmrcptstdbymode) == MMRLOC) then
                                 P.commandtableentry(TEXT, "Pilot M M R Standby V O R")
-                            elseif (get(mmrcptstdbymode) == MMRILS) then
+                            elseif (get(P.mmrcptstdbymode) == MMRILS) then
                                 P.commandtableentry(TEXT, "Pilot M M R Standby I L S")
-                            elseif (get(mmrcptstdbymode) == MMRGLS) then
+                            elseif (get(P.mmrcptstdbymode) == MMRGLS) then
                                 P.commandtableentry(TEXT, "Pilot M M R Standby G L S")
-                            elseif (get(mmrcptstdbymode) == MMRLPV) then
+                            elseif (get(P.mmrcptstdbymode) == MMRLPV) then
                                 P.commandtableentry(TEXT, "Pilot M M R Standby L P V")
                             end
                         end
 
-                        if (get(mmrfostdbymode) ~= P.mmrfostdbymodetemp) then
-                            if (get(mmrfostdbymode) == MMRLOC) then
+                        if (get(P.mmrfostdbymode) ~= P.mmrfostdbymodetemp) then
+                            if (get(P.mmrfostdbymode) == MMRLOC) then
                                 P.commandtableentry(TEXT, "Copilot M M R Standby V O R")
-                            elseif (get(mmrfostdbymode) == MMRILS) then
+                            elseif (get(P.mmrfostdbymode) == MMRILS) then
                                 P.commandtableentry(TEXT, "Copilot M M R Standby I L S")
-                            elseif (get(mmrfostdbymode) == MMRGLS) then
+                            elseif (get(P.mmrfostdbymode) == MMRGLS) then
                                 P.commandtableentry(TEXT, "Copilot M M R Standby G L S")
-                            elseif (get(mmrfostdbymode) == MMRLPV) then
+                            elseif (get(P.mmrfostdbymode) == MMRLPV) then
                                 P.commandtableentry(TEXT, "Copilot M M R Standby L P V")
                             end
 
-                            P.mmrfostdbymodetemp = get(mmrfostdbymode)
+                            P.mmrfostdbymodetemp = get(P.mmrfostdbymode)
                         end
                     end
 
-                    P.mmrcptactmodetemp = get(mmrcptactmode)
-                    P.mmrcptactvaluetemp = get(mmrcptactvalue)
-                    P.mmrfoactmodetemp = get(mmrfoactmode)
-                    P.mmrfoactvaluetemp = get(mmrfoactvalue)
-                    P.mmrcptstdbymodetemp = get(mmrcptstdbymode)
-                    P.mmrcptstdbymodetemp2 = get(mmrcptstdbymode)
-                    P.mmrfostdbymodetemp = get(mmrfostdbymode)
-                    P.mmrfostdbymodetemp2 = get(mmrfostdbymode)
+                    P.mmrcptactmodetemp = get(P.mmrcptactmode)
+                    P.mmrcptactvaluetemp = get(P.mmrcptactvalue)
+                    P.mmrfoactmodetemp = get(P.mmrfoactmode)
+                    P.mmrfoactvaluetemp = get(P.mmrfoactvalue)
+                    P.mmrcptstdbymodetemp = get(P.mmrcptstdbymode)
+                    P.mmrcptstdbymodetemp2 = get(P.mmrcptstdbymode)
+                    P.mmrfostdbymodetemp = get(P.mmrfostdbymode)
+                    P.mmrfostdbymodetemp2 = get(P.mmrfostdbymode)
                 end
             end
         end
     else
-        if ((get(nav1freq) ~= P.nav1freqtemp) or (get(nav2freq) ~= P.nav2freqtemp)) then
-            if (get(nav1freq) == get(nav2freq)) then
-                P.commandtableentry(TEXT, "Both N A V " .. addspaces(formatILSFrequency(get(nav1freq))))
+        if ((get(P.nav1freq) ~= P.nav1freqtemp) or (get(P.nav2freq) ~= P.nav2freqtemp)) then
+            if (get(P.nav1freq) == get(P.nav2freq)) then
+                P.commandtableentry(TEXT, "Both N A V " .. addspaces(formatILSFrequency(get(P.nav1freq))))
 
-                P.nav1freqtemp = get(nav1freq)
-                P.nav2freqtemp = get(nav2freq)
+                P.nav1freqtemp = get(P.nav1freq)
+                P.nav2freqtemp = get(P.nav2freq)
             else
-                if (get(nav1freq) ~= P.nav1freqtemp) then
-                    P.commandtableentry(TEXT, "N A V 1 " .. addspaces(formatILSFrequency(get(nav1freq))))
+                if (get(P.nav1freq) ~= P.nav1freqtemp) then
+                    P.commandtableentry(TEXT, "N A V 1 " .. addspaces(formatILSFrequency(get(P.nav1freq))))
 
-                    P.nav1freqtemp = get(nav1freq)
+                    P.nav1freqtemp = get(P.nav1freq)
                 end
 
-                if (get(nav2freq) ~= P.nav2freqtemp) then
-                    P.commandtableentry(TEXT, "N A V 2 " .. addspaces(formatILSFrequency(get(nav1freq))))
+                if (get(P.nav2freq) ~= P.nav2freqtemp) then
+                    P.commandtableentry(TEXT, "N A V 2 " .. addspaces(formatILSFrequency(get(P.nav1freq))))
 
-                    P.nav2freqtemp = get(nav2freq)
+                    P.nav2freqtemp = get(P.nav2freq)
                 end
             end
         end
     end
 
-    if ((get(centertanklswitch) ~= P.centertanklswitchtemp) or (get(centertankrswitch) ~= P.centertankrswitchtemp)) then
-        if ((get(centertanklswitch) ~= P.centertanklswitchtemp) and (get(centertankrswitch) ~= P.centertankrswitchtemp) and (get(centertanklswitch) == get(centertankrswitch))) then
-            if (get(centertanklswitch) == ON) then
+    if ((get(P.centertanklswitch) ~= P.centertanklswitchtemp) or (get(P.centertankrswitch) ~= P.centertankrswitchtemp)) then
+        if ((get(P.centertanklswitch) ~= P.centertanklswitchtemp) and (get(P.centertankrswitch) ~= P.centertankrswitchtemp) and (get(P.centertanklswitch) == get(P.centertankrswitch))) then
+            if (get(P.centertanklswitch) == ON) then
                 P.commandtableentry(TEXT, "Both Center Tank Fuel Pumps On")
             else
                 P.commandtableentry(TEXT, "Both Center Tank Fuel Pumps Off")
             end
-            P.centertanklswitchtemp = get(centertanklswitch)
-            P.centertankrswitchtemp = get(centertankrswitch)
+            P.centertanklswitchtemp = get(P.centertanklswitch)
+            P.centertankrswitchtemp = get(P.centertankrswitch)
         else
-            if (get(centertanklswitch) ~= P.centertanklswitchtemp) then
-                if (get(centertanklswitch) == ON) then
+            if (get(P.centertanklswitch) ~= P.centertanklswitchtemp) then
+                if (get(P.centertanklswitch) == ON) then
                     P.commandtableentry(TEXT, "Left Center Tank Fuel Pump On")
                 else
                     P.commandtableentry(TEXT, "Left Center Tank Fuel Pump Off")
                 end
-                P.centertanklswitchtemp = get(centertanklswitch)
+                P.centertanklswitchtemp = get(P.centertanklswitch)
             end
 
-            if (get(centertankrswitch) ~= P.centertankrswitchtemp) then
-                if (get(centertankrswitch) == ON) then
+            if (get(P.centertankrswitch) ~= P.centertankrswitchtemp) then
+                if (get(P.centertankrswitch) == ON) then
                     P.commandtableentry(TEXT, "Right Center Tank Fuel Pump On")
                 else
                     P.commandtableentry(TEXT, "Right Center Tank Fuel Pump Off")
                 end
-                P.centertankrswitchtemp = get(centertankrswitch)
+                P.centertankrswitchtemp = get(P.centertankrswitch)
             end
         end
     end
 
-    if ((get(lefttanklswitch) ~= P.lefttanklswitchtemp) or (get(lefttankrswitch) ~= P.lefttankrswitchtemp)) then
-        if ((get(lefttanklswitch) ~= P.lefttanklswitchtemp) and (get(lefttankrswitch) ~= P.lefttankrswitchtemp) and (get(lefttanklswitch) == get(lefttankrswitch))) then
-            if (get(lefttanklswitch) == ON) then
+    if ((get(P.lefttanklswitch) ~= P.lefttanklswitchtemp) or (get(P.lefttankrswitch) ~= P.lefttankrswitchtemp)) then
+        if ((get(P.lefttanklswitch) ~= P.lefttanklswitchtemp) and (get(P.lefttankrswitch) ~= P.lefttankrswitchtemp) and (get(P.lefttanklswitch) == get(P.lefttankrswitch))) then
+            if (get(P.lefttanklswitch) == ON) then
                 P.commandtableentry(TEXT, "Both Left Wing Tank Fuel Pumps On")
             else
                 P.commandtableentry(TEXT, "Both Left Wing Tank Fuel Pumps Off")
             end
-            P.lefttanklswitchtemp = get(lefttanklswitch)
-            P.lefttankrswitchtemp = get(lefttankrswitch)
+            P.lefttanklswitchtemp = get(P.lefttanklswitch)
+            P.lefttankrswitchtemp = get(P.lefttankrswitch)
         else
-            if (get(lefttanklswitch) ~= P.lefttanklswitchtemp) then
-                if (get(lefttanklswitch) == ON) then
+            if (get(P.lefttanklswitch) ~= P.lefttanklswitchtemp) then
+                if (get(P.lefttanklswitch) == ON) then
                     P.commandtableentry(TEXT, "Left Wing Tank After Fuel Pump On")
                 else
                     P.commandtableentry(TEXT, "Left Wing Tank After Fuel Pump Off")
                 end
-                P.lefttanklswitchtemp = get(lefttanklswitch)
+                P.lefttanklswitchtemp = get(P.lefttanklswitch)
             end
 
-            if (get(lefttankrswitch) ~= P.lefttankrswitchtemp) then
-                if (get(lefttankrswitch) == ON) then
+            if (get(P.lefttankrswitch) ~= P.lefttankrswitchtemp) then
+                if (get(P.lefttankrswitch) == ON) then
                     P.commandtableentry(TEXT, "Right Wing Tank Forward Fuel Pump On")
                 else
                     P.commandtableentry(TEXT, "Right Wing Tank Forward Fuel Pump Off")
                 end
-                P.lefttankrswitchtemp = get(lefttankrswitch)
+                P.lefttankrswitchtemp = get(P.lefttankrswitch)
             end
         end
     end
 
-    if ((get(righttanklswitch) ~= P.righttanklswitchtemp) or (get(righttankrswitch) ~= P.righttankrswitchtemp)) then
-        if ((get(righttanklswitch) ~= P.righttanklswitchtemp) and (get(righttankrswitch) ~= P.righttankrswitchtemp) and (get(righttanklswitch) == get(righttankrswitch))) then
-            if (get(righttanklswitch) == ON) then
+    if ((get(P.righttanklswitch) ~= P.righttanklswitchtemp) or (get(P.righttankrswitch) ~= P.righttankrswitchtemp)) then
+        if ((get(P.righttanklswitch) ~= P.righttanklswitchtemp) and (get(P.righttankrswitch) ~= P.righttankrswitchtemp) and (get(P.righttanklswitch) == get(P.righttankrswitch))) then
+            if (get(P.righttanklswitch) == ON) then
                 P.commandtableentry(TEXT, "Both Right Wing Tank Fuel Pumps On")
             else
                 P.commandtableentry(TEXT, "Both Right Wing Tank Fuel Pumps Off")
             end
-            P.righttanklswitchtemp = get(righttanklswitch)
-            P.righttankrswitchtemp = get(righttankrswitch)
+            P.righttanklswitchtemp = get(P.righttanklswitch)
+            P.righttankrswitchtemp = get(P.righttankrswitch)
         else
-            if (get(righttanklswitch) ~= P.righttanklswitchtemp) then
-                if (get(righttanklswitch) == ON) then
+            if (get(P.righttanklswitch) ~= P.righttanklswitchtemp) then
+                if (get(P.righttanklswitch) == ON) then
                     P.commandtableentry(TEXT, "Right Wing Tank Forward Fuel Pump On")
                 else
                     P.commandtableentry(TEXT, "Right Wing Tank Forward Fuel Pump Off")
                 end
-                P.righttanklswitchtemp = get(righttanklswitch)
+                P.righttanklswitchtemp = get(P.righttanklswitch)
             end
 
-            if (get(righttankrswitch) ~= P.righttankrswitchtemp) then
-                if (get(righttankrswitch) == ON) then
+            if (get(P.righttankrswitch) ~= P.righttankrswitchtemp) then
+                if (get(P.righttankrswitch) == ON) then
                     P.commandtableentry(TEXT, "Right Wing Tank After Fuel Pump On")
                 else
                     P.commandtableentry(TEXT, "Right Wing Tank After Fuel Pump Off")
                 end
-                P.righttankrswitchtemp = get(righttankrswitch)
+                P.righttankrswitchtemp = get(P.righttankrswitch)
             end
         end
     end
 
-    if ((get(starter1pos) ~= P.starter1postemp) or (get(starter2pos) ~= P.starter2postemp)) then
+    if ((get(P.starter1pos) ~= P.starter1postemp) or (get(P.starter2pos) ~= P.starter2postemp)) then
         local starterstring = ""
         local statestring = ""
-        if (((get(starter1pos) ~= P.starter1postemp) and (get(starter2pos) ~= P.starter2postemp)) and (get(starter1pos) == get(starter2pos))) then
+        if (((get(P.starter1pos) ~= P.starter1postemp) and (get(P.starter2pos) ~= P.starter2postemp)) and (get(P.starter1pos) == get(P.starter2pos))) then
             starterstring = "Both Starters "
-            if (get(starter1pos) == GROUND) then
+            if (get(P.starter1pos) == GROUND) then
                 statestring = "Ground"
-            elseif (get(starter1pos) == AUTO) then
-                if (get(starterauto) == ON) then
+            elseif (get(P.starter1pos) == AUTO) then
+                if (get(P.starterauto) == ON) then
                     statestring = "Auto"
                 else
                     statestring = "Off"
                 end
-            elseif (get(starter1pos) == CONT) then
+            elseif (get(P.starter1pos) == CONT) then
                 statestring = "Continuous"
-            elseif (get(starter1pos) == FLIGHT) then
+            elseif (get(P.starter1pos) == FLIGHT) then
                 statestring = "Flight"
             end
 
-            P.starter1postemp = get(starter1pos)
-            P.starter2postemp = get(starter2pos)
+            P.starter1postemp = get(P.starter1pos)
+            P.starter2postemp = get(P.starter2pos)
         else
-            if (get(starter1pos) ~= P.starter1postemp) then
+            if (get(P.starter1pos) ~= P.starter1postemp) then
                 starterstring = "Engine 1 Starter "
-                if (get(starter1pos) == GROUND) then
+                if (get(P.starter1pos) == GROUND) then
                     statestring = "Ground"
-                elseif (get(starter1pos) == AUTO) then
-                    if (get(starterauto) == ON) then
+                elseif (get(P.starter1pos) == AUTO) then
+                    if (get(P.starterauto) == ON) then
                         statestring = "Auto"
                     else
                         statestring = "Off"
                     end
-                elseif (get(starter1pos) == CONT) then
+                elseif (get(P.starter1pos) == CONT) then
                     statestring = "Continuous"
-                elseif (get(starter1pos) == FLIGHT) then
+                elseif (get(P.starter1pos) == FLIGHT) then
                     statestring = "Flight"
                 end
 
-                P.starter1postemp = get(starter1pos)
+                P.starter1postemp = get(P.starter1pos)
             end
 
-            if (get(starter2pos) ~= P.starter2postemp) then
+            if (get(P.starter2pos) ~= P.starter2postemp) then
                 starterstring = "Engine 2 Starter "
-                if (get(starter2pos) == GROUND) then
+                if (get(P.starter2pos) == GROUND) then
                     statestring = "Ground"
-                elseif (get(starter2pos) == AUTO) then
-                    if (get(starterauto) == ON) then
+                elseif (get(P.starter2pos) == AUTO) then
+                    if (get(P.starterauto) == ON) then
                         statestring = "Auto"
                     else
                         statestring = "Off"
                     end
-                elseif (get(starter2pos) == CONT) then
+                elseif (get(P.starter2pos) == CONT) then
                     statestring = "Continuous"
-                elseif (get(starter2pos) == FLIGHT) then
+                elseif (get(P.starter2pos) == FLIGHT) then
                     statestring = "Flight"
                 end
 
-                P.starter2postemp = get(starter2pos)
+                P.starter2postemp = get(P.starter2pos)
             end
         end
 
         P.commandtableentry(TEXT, starterstring .. statestring)
     end
 
-    if ((get(mixture1pos) ~= P.mixture1postemp) or (get(mixture2pos) ~= P.mixture2postemp)) then
-        if ((get(mixture1pos) ~= P.mixture1postemp) and (get(mixture2pos) ~= P.mixture2postemp) and (get(mixture1pos) == get(mixture2pos))) then
+    if ((get(P.mixture1pos) ~= P.mixture1postemp) or (get(P.mixture2pos) ~= P.mixture2postemp)) then
+        if ((get(P.mixture1pos) ~= P.mixture1postemp) and (get(P.mixture2pos) ~= P.mixture2postemp) and (get(P.mixture1pos) == get(P.mixture2pos))) then
             mixturestring = "Both Engine Fuel Levers "
-            if (get(mixture1pos) == ON) then
+            if (get(P.mixture1pos) == ON) then
                 statestring = "Idle"
-            elseif (get(mixture1pos) == OFF) then
+            elseif (get(P.mixture1pos) == OFF) then
                 statestring = "Cutoff"
             end
 
-            P.mixture1postemp = get(mixture1pos)
-            P.mixture2postemp = get(mixture2pos)
+            P.mixture1postemp = get(P.mixture1pos)
+            P.mixture2postemp = get(P.mixture2pos)
         else
-            if (get(mixture1pos) ~= P.mixture1postemp) then
+            if (get(P.mixture1pos) ~= P.mixture1postemp) then
                 mixturestring = "Engine 1 Fuel Lever "
-                if (get(mixture1pos) == ON) then
+                if (get(P.mixture1pos) == ON) then
                     statestring = "Idle"
-                elseif (get(mixture1pos) == OFF) then
+                elseif (get(P.mixture1pos) == OFF) then
                     statestring = "Cutoff"
                 end
 
-                P.mixture1postemp = get(mixture1pos)
+                P.mixture1postemp = get(P.mixture1pos)
             end
 
-            if (get(mixture2pos) ~= P.mixture2postemp) then
+            if (get(P.mixture2pos) ~= P.mixture2postemp) then
                 mixturestring = "Engine 2 Fuel Lever "
-                if (get(mixture2pos) == ON) then
+                if (get(P.mixture2pos) == ON) then
                     statestring = "Idle"
-                elseif (get(mixture2pos) == OFF) then
+                elseif (get(P.mixture2pos) == OFF) then
                     statestring = "Cutoff"
                 end
 
-                P.mixture2postemp = get(mixture2pos)
+                P.mixture2postemp = get(P.mixture2pos)
             end
         end
 
         P.commandtableentry(TEXT, mixturestring .. statestring)
     end
 
-    if ((get(reverser1pos) ~= P.reverser1postemp) or (get(reverser2pos) ~= P.reverser2postemp)) then
-        if ((get(reverser1pos) ~= P.reverser1postemp) and (get(reverser2pos) ~= P.reverser2postemp) and (get(reverser1pos) == get(reverser2pos))) then
-            if (((get(reverser1pos) == OFF) and (P.reverser1postemp ~= OFF)) or ((get(reverser2pos) == OFF) and (P.reverser2postemp ~= OFF))) then
+    if ((get(P.reverser1pos) ~= P.reverser1postemp) or (get(P.reverser2pos) ~= P.reverser2postemp)) then
+        if ((get(P.reverser1pos) ~= P.reverser1postemp) and (get(P.reverser2pos) ~= P.reverser2postemp) and (get(P.reverser1pos) == get(P.reverser2pos))) then
+            if (((get(P.reverser1pos) == OFF) and (P.reverser1postemp ~= OFF)) or ((get(P.reverser2pos) == OFF) and (P.reverser2postemp ~= OFF))) then
                 P.commandtableentry(TEXT, "Both Reversers Off")
-            elseif (((get(reverser1pos) ~= OFF) and (P.reverser1postemp == OFF)) or ((get(reverser2pos) ~= OFF) and (P.reverser2postemp == OFF))) then
+            elseif (((get(P.reverser1pos) ~= OFF) and (P.reverser1postemp == OFF)) or ((get(P.reverser2pos) ~= OFF) and (P.reverser2postemp == OFF))) then
                 P.commandtableentry(TEXT, "Both Reversers On")
             end
 
-            P.reverser1postemp = get(reverser1pos)
-            P.reverser2postemp = get(reverser2pos)
+            P.reverser1postemp = get(P.reverser1pos)
+            P.reverser2postemp = get(P.reverser2pos)
         else
-            if (get(reverser1pos) ~= P.reverser1postemp) then
-                if ((get(reverser1pos) == OFF) and (P.reverser1postemp ~= OFF)) then
+            if (get(P.reverser1pos) ~= P.reverser1postemp) then
+                if ((get(P.reverser1pos) == OFF) and (P.reverser1postemp ~= OFF)) then
                     P.commandtableentry(TEXT, "Reverser 1 Off")
-                elseif ((get(reverser1pos) ~= OFF) and (P.reverser1postemp == OFF)) then
+                elseif ((get(P.reverser1pos) ~= OFF) and (P.reverser1postemp == OFF)) then
                     P.commandtableentry(TEXT, "Reverser 1 On")
                 end
 
-                P.reverser1postemp = get(reverser1pos)
+                P.reverser1postemp = get(P.reverser1pos)
             end
 
-            if (get(reverser2pos) ~= P.reverser2postemp) then
-                if ((get(reverser2pos) == OFF) and (P.reverser2postemp ~= OFF)) then
+            if (get(P.reverser2pos) ~= P.reverser2postemp) then
+                if ((get(P.reverser2pos) == OFF) and (P.reverser2postemp ~= OFF)) then
                     P.commandtableentry(TEXT, "Reverser 2 Off")
-                elseif ((get(reverser2pos) ~= OFF) and (P.reverser2postemp == OFF)) then
+                elseif ((get(P.reverser2pos) ~= OFF) and (P.reverser2postemp == OFF)) then
                     P.commandtableentry(TEXT, "Reverser 2 On")
                 end
 
-                P.reverser2postemp = get(reverser2pos)
+                P.reverser2postemp = get(P.reverser2pos)
             end
         end
     end
 
-    if (get(gpuon) ~= P.gpuontemp) then
-        if (get(gpuon) == ON) then
+    if (get(P.gpuon) ~= P.gpuontemp) then
+        if (get(P.gpuon) == ON) then
             P.commandtableentry(TEXT, "Ground Power ON")
         else
             P.commandtableentry(TEXT, "Ground Power Off")
         end
-        P.gpuontemp = get(gpuon)
+        P.gpuontemp = get(P.gpuon)
     end
 
-    if ((roundnumber(get(announcsourceoff1),1) ~= P.announcsourceoff1temp) or (roundnumber(get(announcsourceoff2),1) ~= P.announcsourceoff2temp)) then
-        if (get(apurunning) == ON) then
-            if ((get(apupowerbus1) == get(apupowerbus2)) and (get(announcsourceoff1) == get(announcsourceoff2)) and (get(announcsourceoff1) ~= P.announcsourceoff1temp) and (get(announcsourceoff2) ~= P.announcsourceoff2temp)) then
-                if ((get(apupowerbus1) == ON) and (get(announcsourceoff1) == OFF)) then
+    if ((roundnumber(get(P.announcsourceoff1),1) ~= P.announcsourceoff1temp) or (roundnumber(get(P.announcsourceoff2),1) ~= P.announcsourceoff2temp)) then
+        if (get(P.apurunning) == ON) then
+            if ((get(P.apupowerbus1) == get(P.apupowerbus2)) and (get(P.announcsourceoff1) == get(P.announcsourceoff2)) and (get(P.announcsourceoff1) ~= P.announcsourceoff1temp) and (get(P.announcsourceoff2) ~= P.announcsourceoff2temp)) then
+                if ((get(P.apupowerbus1) == ON) and (get(P.announcsourceoff1) == OFF)) then
                     P.commandtableentry(TEXT, "A P U Generator ON")
-                elseif not ((get(apupowerbus1) == ON) and (get(announcsourceoff1) == OFF)) then
+                elseif not ((get(P.apupowerbus1) == ON) and (get(P.announcsourceoff1) == OFF)) then
                     P.commandtableentry(TEXT, "A P U Generators OFF")
                 end
             else
-                if (get(announcsourceoff1) ~= P.announcsourceoff1temp) then
-                    if ((get(apupowerbus1) == ON) and (get(announcsourceoff1) == OFF)) then
+                if (get(P.announcsourceoff1) ~= P.announcsourceoff1temp) then
+                    if ((get(P.apupowerbus1) == ON) and (get(P.announcsourceoff1) == OFF)) then
                         P.commandtableentry(TEXT, "A P U Generator 1 On")
-                    elseif not ((get(apupowerbus1) == ON) and (get(announcsourceoff1) == OFF)) then
+                    elseif not ((get(P.apupowerbus1) == ON) and (get(P.announcsourceoff1) == OFF)) then
                         P.commandtableentry(TEXT, "A P U Generator 1 Off")
                     end
                 end
 
-                if (get(announcsourceoff2) ~= P.announcsourceoff2temp) then
-                    if ((get(apupowerbus2) == ON) and (get(announcsourceoff2) == OFF)) then
+                if (get(P.announcsourceoff2) ~= P.announcsourceoff2temp) then
+                    if ((get(P.apupowerbus2) == ON) and (get(P.announcsourceoff2) == OFF)) then
                         P.commandtableentry(TEXT, "A P U Generator 2 On")
-                    elseif not ((get(apupowerbus2) == ON) and (get(announcsourceoff2) == OFF)) then
+                    elseif not ((get(P.apupowerbus2) == ON) and (get(P.announcsourceoff2) == OFF)) then
                         P.commandtableentry(TEXT, "A P U Generator 2 Off")
                     end
                 end
             end
         end
-        P.announcsourceoff1temp = roundnumber(get(announcsourceoff1),1)
-        P.announcsourceoff2temp = roundnumber(get(announcsourceoff2),1)
+        P.announcsourceoff1temp = roundnumber(get(P.announcsourceoff1),1)
+        P.announcsourceoff2temp = roundnumber(get(P.announcsourceoff2),1)
     end
 
-    if ((get(gen1pos) ~= P.gen1postemp) or (get(gen2pos) ~= P.gen2postemp)) then
-        if ((get(gen1pos) ~= P.gen1postemp) and (get(gen2pos) ~= P.gen2postemp) and (get(gen1pos) == get(gen2pos))) then
-            if (get(gen1pos) == ON) then
+    if ((get(P.gen1pos) ~= P.gen1postemp) or (get(P.gen2pos) ~= P.gen2postemp)) then
+        if ((get(P.gen1pos) ~= P.gen1postemp) and (get(P.gen2pos) ~= P.gen2postemp) and (get(P.gen1pos) == get(P.gen2pos))) then
+            if (get(P.gen1pos) == ON) then
                 P.commandtableentry(TEXT, "Both Generators ON")
             else
                 P.commandtableentry(TEXT, "Both Generators OFF")
             end
-            P.gen1postemp = get(gen1pos)
-            P.gen2postemp = get(gen2pos)
+            P.gen1postemp = get(P.gen1pos)
+            P.gen2postemp = get(P.gen2pos)
         else
-            if (get(gen1pos) ~= P.gen1postemp) then
-                if (get(gen1pos) == ON) then
+            if (get(P.gen1pos) ~= P.gen1postemp) then
+                if (get(P.gen1pos) == ON) then
                     P.commandtableentry(TEXT, "Generator 1 On")
                 else
                     P.commandtableentry(TEXT, "Generator 1 Off")
                 end
-                P.gen1postemp = get(gen1pos)
+                P.gen1postemp = get(P.gen1pos)
             end
 
-            if (get(gen2pos) ~= P.gen2postemp) then
-                if (get(gen2pos) == ON) then
+            if (get(P.gen2pos) ~= P.gen2postemp) then
+                if (get(P.gen2pos) == ON) then
                     P.commandtableentry(TEXT, "Generator 2 On")
                 else
                     P.commandtableentry(TEXT, "Generator 2 Off")
                 end
-                P.gen2postemp = get(gen2pos)
+                P.gen2postemp = get(P.gen2pos)
             end
         end
     end
 
-    if ((get(captainprobepos) ~= P.captainprobepostemp) or (get(foprobepos) ~= P.foprobepostemp)) then
-        if ((get(captainprobepos) ~= P.captainprobepostemp) and (get(foprobepos) ~= P.foprobepostemp) and (get(captainprobepos) == get(foprobepos))) then
-            if (get(captainprobepos) == ON) then
+    if ((get(P.captainprobepos) ~= P.captainprobepostemp) or (get(P.foprobepos) ~= P.foprobepostemp)) then
+        if ((get(P.captainprobepos) ~= P.captainprobepostemp) and (get(P.foprobepos) ~= P.foprobepostemp) and (get(P.captainprobepos) == get(P.foprobepos))) then
+            if (get(P.captainprobepos) == ON) then
                 P.commandtableentry(TEXT, "Both Probe Heat ON")
             else
                 P.commandtableentry(TEXT, "Both Probe Heat OFF")
             end
-            P.captainprobepostemp = get(captainprobepos)
-            P.foprobepostemp = get(foprobepos)
+            P.captainprobepostemp = get(P.captainprobepos)
+            P.foprobepostemp = get(P.foprobepos)
         else
-            if (get(captainprobepos) ~= P.captainprobepostemp) then
-                if (get(captainprobepos) == ON) then
+            if (get(P.captainprobepos) ~= P.captainprobepostemp) then
+                if (get(P.captainprobepos) == ON) then
                     P.commandtableentry(TEXT, "Left Probe Heat On")
                 else
                     P.commandtableentry(TEXT, "Left Probe Heat Off")
                 end
-                P.captainprobepostemp = get(captainprobepos)
+                P.captainprobepostemp = get(P.captainprobepos)
             end
 
-            if (get(foprobepos) ~= P.foprobepostemp) then
-                if (get(foprobepos) == ON) then
+            if (get(P.foprobepos) ~= P.foprobepostemp) then
+                if (get(P.foprobepos) == ON) then
                     P.commandtableentry(TEXT, "Right Probe Heat On")
                 else
                     P.commandtableentry(TEXT, "Right Probe Heat Off")
                 end
-                P.foprobepostemp = get(foprobepos)
+                P.foprobepostemp = get(P.foprobepos)
             end
         end
     end
 
-    if ((get(wheatlfwdpos) ~= P.wheatlfwdpostemp) or (get(wheatlsidepos) ~= P.wheatlsidepostemp)) then
-        if ((get(wheatlfwdpos) ~= P.wheatlfwdpostemp) and (get(wheatlsidepos) ~= P.wheatlsidepostemp) and (get(wheatlfwdpos) == get(wheatlsidepos))) then
-            if (get(wheatlfwdpos) == ON) then
+    if ((get(P.wheatlfwdpos) ~= P.wheatlfwdpostemp) or (get(P.wheatlsidepos) ~= P.wheatlsidepostemp)) then
+        if ((get(P.wheatlfwdpos) ~= P.wheatlfwdpostemp) and (get(P.wheatlsidepos) ~= P.wheatlsidepostemp) and (get(P.wheatlfwdpos) == get(P.wheatlsidepos))) then
+            if (get(P.wheatlfwdpos) == ON) then
                 P.commandtableentry(TEXT, "Pilot Window Heat ON")
             else
                 P.commandtableentry(TEXT, "Pilot Window Heat OFF")
             end
-            P.wheatlfwdpostemp = get(wheatlfwdpos)
-            P.wheatlsidepostemp = get(wheatlsidepos)
+            P.wheatlfwdpostemp = get(P.wheatlfwdpos)
+            P.wheatlsidepostemp = get(P.wheatlsidepos)
         else
-            if (get(wheatlfwdpos) ~= P.wheatlfwdpostemp) then
-                if (get(wheatlfwdpos) == ON) then
+            if (get(P.wheatlfwdpos) ~= P.wheatlfwdpostemp) then
+                if (get(P.wheatlfwdpos) == ON) then
                     P.commandtableentry(TEXT, "Pilot Forward Window Heat On")
                 else
                     P.commandtableentry(TEXT, "Pilot Forward Window Heat Off")
                 end
-                P.wheatlfwdpostemp = get(wheatlfwdpos)
+                P.wheatlfwdpostemp = get(P.wheatlfwdpos)
             end
 
-            if (get(wheatlsidepos) ~= P.wheatlsidepostemp) then
-                if (get(wheatlsidepos) == ON) then
+            if (get(P.wheatlsidepos) ~= P.wheatlsidepostemp) then
+                if (get(P.wheatlsidepos) == ON) then
                     P.commandtableentry(TEXT, "Pilot Side Window Heat On")
                 else
                     P.commandtableentry(TEXT, "Pilot Side Window Heat Off")
                 end
-                P.wheatlsidepostemp = get(wheatlsidepos)
+                P.wheatlsidepostemp = get(P.wheatlsidepos)
             end
         end
     end
 
-    if ((get(wheatrfwdpos) ~= P.wheatrfwdpostemp) or (get(wheatrsidepos) ~= P.wheatrsidepostemp)) then
-        if ((get(wheatrfwdpos) ~= P.wheatrfwdpostemp) and (get(wheatrsidepos) ~= P.wheatrsidepostemp) and (get(wheatrfwdpos) == get(wheatrsidepos))) then
-            if (get(wheatrfwdpos) == ON) then
+    if ((get(P.wheatrfwdpos) ~= P.wheatrfwdpostemp) or (get(P.wheatrsidepos) ~= P.wheatrsidepostemp)) then
+        if ((get(P.wheatrfwdpos) ~= P.wheatrfwdpostemp) and (get(P.wheatrsidepos) ~= P.wheatrsidepostemp) and (get(P.wheatrfwdpos) == get(P.wheatrsidepos))) then
+            if (get(P.wheatrfwdpos) == ON) then
                 P.commandtableentry(TEXT, "Copilot Window Heat ON")
             else
                 P.commandtableentry(TEXT, "Copilot Window Heat OFF")
             end
-            P.wheatrfwdpostemp = get(wheatrfwdpos)
-            P.wheatrsidepostemp = get(wheatrsidepos)
+            P.wheatrfwdpostemp = get(P.wheatrfwdpos)
+            P.wheatrsidepostemp = get(P.wheatrsidepos)
         else
-            if (get(wheatrfwdpos) ~= P.wheatrfwdpostemp) then
-                if (get(wheatrfwdpos) == ON) then
+            if (get(P.wheatrfwdpos) ~= P.wheatrfwdpostemp) then
+                if (get(P.wheatrfwdpos) == ON) then
                     P.commandtableentry(TEXT, "Copilot Forward Window Heat On")
                 else
                     P.commandtableentry(TEXT, "Copilot Forward Window Heat Off")
                 end
-                P.wheatrfwdpostemp = get(wheatrfwdpos)
+                P.wheatrfwdpostemp = get(P.wheatrfwdpos)
             end
 
-            if (get(wheatrsidepos) ~= P.wheatrsidepostemp) then
-                if (get(wheatrsidepos) == ON) then
+            if (get(P.wheatrsidepos) ~= P.wheatrsidepostemp) then
+                if (get(P.wheatrsidepos) == ON) then
                     P.commandtableentry(TEXT, "Copilot Side Window Heat On")
                 else
                     P.commandtableentry(TEXT, "Copilot Side Window Heat Off")
                 end
-                P.wheatrsidepostemp = get(wheatrsidepos)
+                P.wheatrsidepostemp = get(P.wheatrsidepos)
             end
         end
     end
 
-    if (get(flapleverpos) ~= P.flapleverpostemp) then
-        if (get(flapleverpos) ~= P.flapleverpostemp2) then
-            P.flapleverpostemp2 = get(flapleverpos)
+    if (get(P.flapleverpos) ~= P.flapleverpostemp) then
+        if (get(P.flapleverpos) ~= P.flapleverpostemp2) then
+            P.flapleverpostemp2 = get(P.flapleverpos)
         else
-            if (get(flapleverpos) == FLAPSUP) then
+            if (get(P.flapleverpos) == FLAPSUP) then
                 P.commandtableentry(TEXT, "Flaps Up")
-            elseif (get(flapleverpos) == FLAPS1) then
+            elseif (get(P.flapleverpos) == FLAPS1) then
                 P.commandtableentry(TEXT, "Flaps 1")
-            elseif (get(flapleverpos) == FLAPS2) then
+            elseif (get(P.flapleverpos) == FLAPS2) then
                 P.commandtableentry(TEXT, "Flaps 2")
-            elseif (get(flapleverpos) == FLAPS5) then
+            elseif (get(P.flapleverpos) == FLAPS5) then
                 P.commandtableentry(TEXT, "Flaps 5")
-            elseif (get(flapleverpos) == FLAPS10) then
+            elseif (get(P.flapleverpos) == FLAPS10) then
                 P.commandtableentry(TEXT, "Flaps 10")
-            elseif (get(flapleverpos) == FLAPS15) then
+            elseif (get(P.flapleverpos) == FLAPS15) then
                 P.commandtableentry(TEXT, "Flaps 15")
-            elseif (get(flapleverpos) == FLAPS25) then
+            elseif (get(P.flapleverpos) == FLAPS25) then
                 P.commandtableentry(TEXT, "Flaps 25")
-            elseif (get(flapleverpos) == FLAPS30) then
+            elseif (get(P.flapleverpos) == FLAPS30) then
                 P.commandtableentry(TEXT, "Flaps 30")
-            elseif (get(flapleverpos) == FLAPS40) then
+            elseif (get(P.flapleverpos) == FLAPS40) then
                 P.commandtableentry(TEXT, "Flaps 40")
             end
 
-            P.flapleverpostemp = get(flapleverpos)
-            P.flapleverpostemp2 = get(flapleverpos)
+            P.flapleverpostemp = get(P.flapleverpos)
+            P.flapleverpostemp2 = get(P.flapleverpos)
         end
     end
 
-    if (get(bankanglepos) ~= P.bankanglepostemp) then
-        if (get(bankanglepos) ~= P.bankanglepostemp2) then
-            P.bankanglepostemp2 = get(bankanglepos)
+    if (get(P.bankanglepos) ~= P.bankanglepostemp) then
+        if (get(P.bankanglepos) ~= P.bankanglepostemp2) then
+            P.bankanglepostemp2 = get(P.bankanglepos)
         else
-            P.commandtableentry(TEXT, "Bank Angle " .. getbankanglestring(get(bankanglepos)))
-            P.bankanglepostemp = get(bankanglepos)
-            P.bankanglepostemp2 = get(bankanglepos)
+            P.commandtableentry(TEXT, "Bank Angle " .. getbankanglestring(get(P.bankanglepos)))
+            P.bankanglepostemp = get(P.bankanglepos)
+            P.bankanglepostemp2 = get(P.bankanglepos)
         end
     end
 
-    if (get(gearhandlepos) ~= P.gearhandlepostemp) then
-        if (get(gearhandlepos) == GEARUP) then
+    if (get(P.gearhandlepos) ~= P.gearhandlepostemp) then
+        if (get(P.gearhandlepos) == GEARUP) then
             P.commandtableentry(TEXT, "Landing Gear Up")
-        elseif (get(gearhandlepos) == GEAROFF) then
+        elseif (get(P.gearhandlepos) == GEAROFF) then
             P.commandtableentry(TEXT, "Landing Gear Lever Off")
-        elseif (get(gearhandlepos) == GEARDOWN) then
+        elseif (get(P.gearhandlepos) == GEARDOWN) then
             P.commandtableentry(TEXT, "Landing Gear Down")
         end
 
-        P.gearhandlepostemp = get(gearhandlepos)
+        P.gearhandlepostemp = get(P.gearhandlepos)
     end
 
-    if (get(parkingbrakepos) ~= P.parkingbrakepostemp) then
-        if (get(parkingbrakepos) == ON) then
+    if (get(P.parkingbrakepos) ~= P.parkingbrakepostemp) then
+        if (get(P.parkingbrakepos) == ON) then
             P.commandtableentry(TEXT, "Parking Brake Set")
         else
             P.commandtableentry(TEXT, "Parking Brake Off")
         end
 
-        P.parkingbrakepostemp = get(parkingbrakepos)
+        P.parkingbrakepostemp = get(P.parkingbrakepos)
     end
 
-    speedbrakeleverrounded = roundnumber(get(speedbrakelever), 1)
+    speedbrakeleverrounded = roundnumber(get(P.speedbrakelever), 1)
 
     if (speedbrakeleverrounded ~= P.speedbrakelevertemp) then
         if (speedbrakeleverrounded ~= P.speedbrakelevertemp2) then
@@ -9331,352 +9329,352 @@ function voicereadback()
         end
     end
 
-    if (get(autobrakepos) ~= P.autobrakepostemp) then
-        if (get(autobrakepos) == AUTOBRAKERTO) then
+    if (get(P.autobrakepos) ~= P.autobrakepostemp) then
+        if (get(P.autobrakepos) == AUTOBRAKERTO) then
             P.commandtableentry(TEXT, "Auto Brake R T O")
-        elseif (get(autobrakepos) == AUTOBRAKEOFF) then
+        elseif (get(P.autobrakepos) == AUTOBRAKEOFF) then
             P.commandtableentry(TEXT, "Auto Brake Off")
-        elseif (get(autobrakepos) == AUTOBRAKE1) then
+        elseif (get(P.autobrakepos) == AUTOBRAKE1) then
             P.commandtableentry(TEXT, "Auto Brake 1")
-        elseif (get(autobrakepos) == AUTOBRAKE2) then
+        elseif (get(P.autobrakepos) == AUTOBRAKE2) then
             P.commandtableentry(TEXT, "Auto Brake 2")
-        elseif (get(autobrakepos) == AUTOBRAKE3) then
+        elseif (get(P.autobrakepos) == AUTOBRAKE3) then
             P.commandtableentry(TEXT, "Auto Brake 3")
-        elseif (get(autobrakepos) == AUTOBRAKEMAX) then
+        elseif (get(P.autobrakepos) == AUTOBRAKEMAX) then
             P.commandtableentry(TEXT, "Auto Brake Maximum")
         end
 
-        P.autobrakepostemp = get(autobrakepos)
+        P.autobrakepostemp = get(P.autobrakepos)
     end
 
-    if (get(autobrakedisarm) ~= P.autobrakedisarmtemp) then
-        if (get(autobrakedisarm) ~= P.autobrakedisarmtemp2) then
-            P.autobrakedisarmtemp2 = get(autobrakedisarm)
+    if (get(P.autobrakedisarm) ~= P.autobrakedisarmtemp) then
+        if (get(P.autobrakedisarm) ~= P.autobrakedisarmtemp2) then
+            P.autobrakedisarmtemp2 = get(P.autobrakedisarm)
         else
-            if (get(autobrakedisarm) == ON) then
+            if (get(P.autobrakedisarm) == ON) then
                 P.commandtableentry(TEXT, "Auto Brake Disarmed")
             end
 
-            P.autobrakedisarmtemp = get(autobrakedisarm)
-            P.autobrakedisarmtemp2 = get(autobrakedisarm)
+            P.autobrakedisarmtemp = get(P.autobrakedisarm)
+            P.autobrakedisarmtemp2 = get(P.autobrakedisarm)
         end
     end
 
-    if ((get(packlpos) ~= P.packlpostemp) or (get(packrpos) ~= P.packrpostemp)) then
+    if ((get(P.packlpos) ~= P.packlpostemp) or (get(P.packrpos) ~= P.packrpostemp)) then
         local packstring = ""
         local statestring = ""
-        if (((get(packlpos) ~= P.packlpostemp) and (get(packrpos) ~= P.packrpostemp)) and (get(packlpos) == get(packrpos))) then
+        if (((get(P.packlpos) ~= P.packlpostemp) and (get(P.packrpos) ~= P.packrpostemp)) and (get(P.packlpos) == get(P.packrpos))) then
             packstring = "Both Packs "
-            if (get(packlpos) == PACKOFF) then
+            if (get(P.packlpos) == PACKOFF) then
                 statestring = "Off"
-            elseif (get(packlpos) == PACKAUTO) then
+            elseif (get(P.packlpos) == PACKAUTO) then
                     statestring = "Auto"
-            elseif (get(packlpos) == PACKHIGH) then
+            elseif (get(P.packlpos) == PACKHIGH) then
                 statestring = "High"
             end
 
-            P.packlpostemp = get(packlpos)
-            P.packrpostemp = get(packrpos)
+            P.packlpostemp = get(P.packlpos)
+            P.packrpostemp = get(P.packrpos)
         else
-            if (get(packlpos) ~= P.packlpostemp) then
+            if (get(P.packlpos) ~= P.packlpostemp) then
                 packstring = "Left Pack "
-                if (get(packlpos) == PACKOFF) then
+                if (get(P.packlpos) == PACKOFF) then
                     statestring = "Off"
-                elseif (get(packlpos) == PACKAUTO) then
+                elseif (get(P.packlpos) == PACKAUTO) then
                     statestring = "Auto"
-                elseif (get(packlpos) == PACKHIGH) then
+                elseif (get(P.packlpos) == PACKHIGH) then
                     statestring = "High"
                 end
 
-                P.packlpostemp = get(packlpos)
+                P.packlpostemp = get(P.packlpos)
             end
 
-            if (get(packrpos) ~= P.packrpostemp) then
+            if (get(P.packrpos) ~= P.packrpostemp) then
                 packstring = "Right Pack "
-                if (get(packrpos) == PACKOFF) then
+                if (get(P.packrpos) == PACKOFF) then
                     statestring = "Off"
-                elseif (get(packrpos) == PACKAUTO) then
+                elseif (get(P.packrpos) == PACKAUTO) then
                     statestring = "Auto"
-                elseif (get(packrpos) == PACKHIGH) then
+                elseif (get(P.packrpos) == PACKHIGH) then
                     statestring = "High"
                 end
 
-                P.packrpostemp = get(packrpos)
+                P.packrpostemp = get(P.packrpos)
             end
         end
 
         P.commandtableentry(TEXT, packstring .. statestring)
     end
 
-    if (get(isolvalvepos) ~= P.isolvalvepostemp) then
-        if (get(isolvalvepos) == ISOLVALVECLOSE) then
+    if (get(P.isolvalvepos) ~= P.isolvalvepostemp) then
+        if (get(P.isolvalvepos) == ISOLVALVECLOSE) then
             P.commandtableentry(TEXT, "Isolation Valve Closed")
-        elseif (get(isolvalvepos) == ISOLVALVEAUTO) then
+        elseif (get(P.isolvalvepos) == ISOLVALVEAUTO) then
             P.commandtableentry(TEXT, "Isolation Valve Auto")
-        elseif (get(isolvalvepos) == ISOLVALVEOPEN) then
+        elseif (get(P.isolvalvepos) == ISOLVALVEOPEN) then
             P.commandtableentry(TEXT, "Isolation Valve Open")
         end
 
-        P.isolvalvepostemp = get(isolvalvepos)
+        P.isolvalvepostemp = get(P.isolvalvepos)
     end
 
-   if ((get(bleedair1pos) ~= P.bleedair1postemp) or (get(bleedair2pos) ~= P.bleedair2postemp)) then
-        if (((get(bleedair1pos) ~= P.bleedair1postemp) and (get(bleedair2pos) ~= P.bleedair2postemp)) and (get(hydropos1) == get(hydropos2))) then
-            if (get(bleedair1pos) == ON) then
+   if ((get(P.bleedair1pos) ~= P.bleedair1postemp) or (get(P.bleedair2pos) ~= P.bleedair2postemp)) then
+        if (((get(P.bleedair1pos) ~= P.bleedair1postemp) and (get(P.bleedair2pos) ~= P.bleedair2postemp)) and (get(P.hydropos1) == get(P.hydropos2))) then
+            if (get(P.bleedair1pos) == ON) then
                 P.commandtableentry(TEXT, "Both Engine Bleed Air On")
             else
                 P.commandtableentry(TEXT, "Both Engine Bleed Air Off")
             end
 
-            P.bleedair1postemp = get(bleedair1pos)
-            P.bleedair2postemp = get(bleedair2pos)
+            P.bleedair1postemp = get(P.bleedair1pos)
+            P.bleedair2postemp = get(P.bleedair2pos)
         else
-            if (get(bleedair1pos) ~= P.bleedair1postemp) then
-                if (get(bleedair1pos) == ON) then
+            if (get(P.bleedair1pos) ~= P.bleedair1postemp) then
+                if (get(P.bleedair1pos) == ON) then
                     P.commandtableentry(TEXT, "Engine 1 Bleed Air On")
                 else
                     P.commandtableentry(TEXT, "Engine 1 Bleed Air Off")
                 end
-                P.bleedair1postemp = get(bleedair1pos)
+                P.bleedair1postemp = get(P.bleedair1pos)
             end
 
-            if (get(bleedair2pos) ~= P.bleedair2postemp) then
-                if (get(bleedair2pos) == ON) then
+            if (get(P.bleedair2pos) ~= P.bleedair2postemp) then
+                if (get(P.bleedair2pos) == ON) then
                     P.commandtableentry(TEXT, "Engine 2 Bleed Air On")
                 else
                     P.commandtableentry(TEXT, "Engine 2 Bleed Air Off")
                 end
-                P.bleedair2postemp = get(bleedair2pos)
+                P.bleedair2postemp = get(P.bleedair2pos)
             end
         end
     end
 
-    if (get(trimairpos) ~= P.trimairpostemp) then
-        if (get(trimairpos) == ON) then
+    if (get(P.trimairpos) ~= P.trimairpostemp) then
+        if (get(P.trimairpos) == ON) then
             P.commandtableentry(TEXT, "Trim Air On")
         else
             P.commandtableentry(TEXT, "Trim Air Off")
         end
 
-        P.trimairpostemp = get(trimairpos)
+        P.trimairpostemp = get(P.trimairpos)
     end
 
-    if (get(lrecircfanpos) ~= P.lrecircfanpostemp) then
-        if (get(lrecircfanpos) == ON) then
+    if (get(P.lrecircfanpos) ~= P.lrecircfanpostemp) then
+        if (get(P.lrecircfanpos) == ON) then
             P.commandtableentry(TEXT, "Left Recircling Fan On")
         else
             P.commandtableentry(TEXT, "Left Recircling Fan Off")
         end
 
-        P.lrecircfanpostemp = get(lrecircfanpos)
+        P.lrecircfanpostemp = get(P.lrecircfanpos)
     end
 
-    if (get(rrecircfanpos) ~= P.rrecircfanpostemp) then
-        if (get(rrecircfanpos) == ON) then
+    if (get(P.rrecircfanpos) ~= P.rrecircfanpostemp) then
+        if (get(P.rrecircfanpos) == ON) then
             P.commandtableentry(TEXT, "Right Recircling Fan On")
         else
             P.commandtableentry(TEXT, "Right Recircling Fan Off")
         end
 
-        P.rrecircfanpostemp = get(rrecircfanpos)
+        P.rrecircfanpostemp = get(P.rrecircfanpos)
     end
 
-    if (get(bleedairapupos) ~= P.bleedairapupostemp) then
-        if (get(bleedairapupos) == ON) then
+    if (get(P.bleedairapupos) ~= P.bleedairapupostemp) then
+        if (get(P.bleedairapupos) == ON) then
             P.commandtableentry(TEXT, "A P U Bleed Air On")
         else
             P.commandtableentry(TEXT, "A P U Bleed Air Off")
         end
 
-        P.bleedairapupostemp = get(bleedairapupos)
+        P.bleedairapupostemp = get(P.bleedairapupos)
     end
 
-    if (get(battery) ~= P.batterytemp) then
-        if (get(battery) == ON) then
+    if (get(P.battery) ~= P.batterytemp) then
+        if (get(P.battery) == ON) then
             P.commandtableentry(TEXT, "Battery On")
         else
             P.commandtableentry(TEXT, "Battery Off")
         end
 
-        P.batterytemp = get(battery)
+        P.batterytemp = get(P.battery)
     end
 
-    if ((get(apustarterpos) ~= P.apustarterpostemp) or (get(apurunning) ~= P.apurunningtemp)) then
-        if ((get(apustarterpos) == ON) and (get(apurunning) == ON)) then
+    if ((get(P.apustarterpos) ~= P.apustarterpostemp) or (get(P.apurunning) ~= P.apurunningtemp)) then
+        if ((get(P.apustarterpos) == ON) and (get(P.apurunning) == ON)) then
             P.commandtableentry(TEXT, "A P U Started")
         else
-            if ((get(apustarterpos) ~= P.apustarterpostemp) and (get(apustarterpos) == OFF)) then
+            if ((get(P.apustarterpos) ~= P.apustarterpostemp) and (get(P.apustarterpos) == OFF)) then
                 P.commandtableentry(TEXT, "A P U Shutting Down")
             end
         end
 
-        P.apustarterpostemp = get(apustarterpos)
-        P.apurunningtemp = get(apurunning)
+        P.apustarterpostemp = get(P.apustarterpos)
+        P.apurunningtemp = get(P.apurunning)
     end
 
-    if (get(emergencylights) ~= P.emergencylightstemp) then
-        if (get(emergencylights) == EMERGLIGHTSOFF) then
+    if (get(P.emergencylights) ~= P.emergencylightstemp) then
+        if (get(P.emergencylights) == EMERGLIGHTSOFF) then
             P.commandtableentry(TEXT, "Emergengy Lights OFF")
-        elseif (get(emergencylights) == EMERGLIGHTSARMED) then
+        elseif (get(P.emergencylights) == EMERGLIGHTSARMED) then
             P.commandtableentry(TEXT, "Emergency Lights Armed")
-        elseif (get(emergencylights) == EMERGLIGHTSON) then
+        elseif (get(P.emergencylights) == EMERGLIGHTSON) then
             P.commandtableentry(TEXT, "Emergency Lights ON")
         end
-        P.emergencylightstemp = get(emergencylights)
+        P.emergencylightstemp = get(P.emergencylights)
     end
 
-    if ((get(hydro1pos) ~= P.hydro1postemp) or (get(hydro2pos) ~= P.hydro2postemp)) then
-        if (((get(hydro1pos) ~= P.hydro1postemp) and (get(hydro2pos) ~= P.hydro2postemp)) and (get(hydropos1) == get(hydropos2))) then
-            if (get(hydro1pos) == ON) then
+    if ((get(P.hydro1pos) ~= P.hydro1postemp) or (get(P.hydro2pos) ~= P.hydro2postemp)) then
+        if (((get(P.hydro1pos) ~= P.hydro1postemp) and (get(P.hydro2pos) ~= P.hydro2postemp)) and (get(P.hydropos1) == get(P.hydropos2))) then
+            if (get(P.hydro1pos) == ON) then
                 P.commandtableentry(TEXT, "Both Hydraulic Pumps On")
             else
                 P.commandtableentry(TEXT, "Both Hydraulic Pumps Off")
             end
 
-            P.hydro1postemp = get(hydro1pos)
-            P.hydro2postemp = get(hydro2pos)
+            P.hydro1postemp = get(P.hydro1pos)
+            P.hydro2postemp = get(P.hydro2pos)
         else
-            if (get(hydro1pos) ~= P.hydro1postemp) then
-                if (get(hydro1pos) == ON) then
+            if (get(P.hydro1pos) ~= P.hydro1postemp) then
+                if (get(P.hydro1pos) == ON) then
                     P.commandtableentry(TEXT, "Hydraulic Pump 1 On")
                 else
                     P.commandtableentry(TEXT, "Hydraulic Pump 1 Off")
                 end
-                P.hydro1postemp = get(hydro1pos)
+                P.hydro1postemp = get(P.hydro1pos)
             end
 
-            if (get(hydro2pos) ~= P.hydro2postemp) then
-                if (get(hydro2pos) == ON) then
+            if (get(P.hydro2pos) ~= P.hydro2postemp) then
+                if (get(P.hydro2pos) == ON) then
                     P.commandtableentry(TEXT, "Hydraulic Pump 2 On")
                 else
                     P.commandtableentry(TEXT, "Hydraulic Pump 2 Off")
                 end
-                P.hydro2postemp = get(hydro2pos)
+                P.hydro2postemp = get(P.hydro2pos)
             end
         end
     end
 
-    if ((get(elechydro1pos) ~= P.elechydro1postemp) or (get(elechydro2pos) ~= P.elechydro2postemp)) then
-        if ((get(elechydro1pos) ~= P.elechydro1postemp) and (get(elechydro2pos) ~= P.elechydro2postemp) and (get(elechydro1pos) == get(elechydro2pos))) then
-            if (get(elechydro1pos) == ON) then
+    if ((get(P.elechydro1pos) ~= P.elechydro1postemp) or (get(P.elechydro2pos) ~= P.elechydro2postemp)) then
+        if ((get(P.elechydro1pos) ~= P.elechydro1postemp) and (get(P.elechydro2pos) ~= P.elechydro2postemp) and (get(P.elechydro1pos) == get(P.elechydro2pos))) then
+            if (get(P.elechydro1pos) == ON) then
                 P.commandtableentry(TEXT, "Both Electrical Hydraulic Pumps On")
             else
                 P.commandtableentry(TEXT, "Both Electrical Hydraulic Pumps Off")
             end
 
-            P.elechydro1postemp = get(elechydro1pos)
-            P.elechydro2postemp = get(elechydro2pos)
+            P.elechydro1postemp = get(P.elechydro1pos)
+            P.elechydro2postemp = get(P.elechydro2pos)
         else
-            if (get(elechydro1pos) ~= P.elechydro1postemp) then
-                if (get(elechydro1pos) == ON) then
+            if (get(P.elechydro1pos) ~= P.elechydro1postemp) then
+                if (get(P.elechydro1pos) == ON) then
                     P.commandtableentry(TEXT, "Electrical Hydraulic Pump 2 On")
                 else
                     P.commandtableentry(TEXT, "Electrical Hydraulic Pump 2 Off")
                 end
-                P.elechydro1postemp = get(elechydro1pos)
+                P.elechydro1postemp = get(P.elechydro1pos)
             end
 
-            if (get(elechydro2pos) ~= P.elechydro2postemp) then
-                if (get(elechydro2pos) == ON) then
+            if (get(P.elechydro2pos) ~= P.elechydro2postemp) then
+                if (get(P.elechydro2pos) == ON) then
                     P.commandtableentry(TEXT, "Electrical Hydraulic Pump 1 On")
                 else
                     P.commandtableentry(TEXT, "Electrical Hydraulic Pump 1 Off")
                 end
-                P.elechydro2postemp = get(elechydro2pos)
+                P.elechydro2postemp = get(P.elechydro2pos)
             end
         end
     end
 
-    if (get(seatbeltsignpos) ~= P.seatbeltsignpostemp) then
-        if (get(seatbeltsignpos) == SEATBELTSIGNOFF) then
+    if (get(P.seatbeltsignpos) ~= P.seatbeltsignpostemp) then
+        if (get(P.seatbeltsignpos) == SEATBELTSIGNOFF) then
             P.commandtableentry(TEXT, "Seatbelt Sign Off")
-        elseif (get(seatbeltsignpos) == SEATBELTSIGNAUTO) then
+        elseif (get(P.seatbeltsignpos) == SEATBELTSIGNAUTO) then
             P.commandtableentry(TEXT, "Seatbelt Sign Auto")
-        elseif (get(seatbeltsignpos) == SEATBELTSIGNON) then
+        elseif (get(P.seatbeltsignpos) == SEATBELTSIGNON) then
             P.commandtableentry(TEXT, "Seatbelt Sign On")
         end
 
-        P.seatbeltsignpostemp = get(seatbeltsignpos)
+        P.seatbeltsignpostemp = get(P.seatbeltsignpos)
     end
 
-    if (get(nosmokingsignpos) ~= P.nosmokingsignpostemp) then
-        if (get(nosmokingsignpos) == NOSMOKINGSIGNOFF) then
+    if (get(P.nosmokingsignpos) ~= P.nosmokingsignpostemp) then
+        if (get(P.nosmokingsignpos) == NOSMOKINGSIGNOFF) then
             P.commandtableentry(TEXT, "No Smoking Sign Off")
-        elseif (get(nosmokingsignpos) == NOSMOKINGSIGNAUTO) then
+        elseif (get(P.nosmokingsignpos) == NOSMOKINGSIGNAUTO) then
             P.commandtableentry(TEXT, "No Smoking Sign Auto")
-        elseif (get(nosmokingsignpos) == NOSMOKINGSIGNON) then
+        elseif (get(P.nosmokingsignpos) == NOSMOKINGSIGNON) then
             P.commandtableentry(TEXT, "No Smoking Sign On")
         end
 
-        P.nosmokingsignpostemp = get(nosmokingsignpos)
+        P.nosmokingsignpostemp = get(P.nosmokingsignpos)
     end
 
-    if (get(domelightpos) ~= P.domelightpostemp) then
-        if (get(domelightpos) == DOMELIGHTOFF) then
+    if (get(P.domelightpos) ~= P.domelightpostemp) then
+        if (get(P.domelightpos) == DOMELIGHTOFF) then
             P.commandtableentry(TEXT, "Dome Light Off")
-        elseif (get(domelightpos) == DOMELIGHTDIM) then
+        elseif (get(P.domelightpos) == DOMELIGHTDIM) then
             P.commandtableentry(TEXT, "Dome Light Dim")
-        elseif (get(domelightpos) == DOMELIGHTBRIGHT) then
+        elseif (get(P.domelightpos) == DOMELIGHTBRIGHT) then
             P.commandtableentry(TEXT, "Dome Light Bright")
         end
 
-        P.domelightpostemp = get(domelightpos)
+        P.domelightpostemp = get(P.domelightpos)
     end
 
-    if ((get(irsleftpos) ~= P.irsleftpostemp) or (get(irsrightpos) ~= P.irsrightpostemp)) then
-        if ((get(irsleftpos) ~= P.irsleftpostemp2) or (get(irsrightpos) ~= P.irsrightpostemp2)) then
-                P.irsleftpostemp2 = get(irsleftpos)
-                P.irsrightpostemp2 = get(irsrightpos)
+    if ((get(P.irsleftpos) ~= P.irsleftpostemp) or (get(P.irsrightpos) ~= P.irsrightpostemp)) then
+        if ((get(P.irsleftpos) ~= P.irsleftpostemp2) or (get(P.irsrightpos) ~= P.irsrightpostemp2)) then
+                P.irsleftpostemp2 = get(P.irsleftpos)
+                P.irsrightpostemp2 = get(P.irsrightpos)
         else
             local irsstring = ""
             local statestring = ""
-            if ((get(irsleftpos) ~= P.irsleftpostemp) and (get(irsrightpos) ~= P.irsrightpostemp) and (get(irsleftpos) == get(irsrightpos))) then
+            if ((get(P.irsleftpos) ~= P.irsleftpostemp) and (get(P.irsrightpos) ~= P.irsrightpostemp) and (get(P.irsleftpos) == get(P.irsrightpos))) then
                 irsstring = "Both I R S "
-                if (get(irsleftpos) == IRSOFF) then
+                if (get(P.irsleftpos) == IRSOFF) then
                     statestring = "Off"
-                elseif (get(irsleftpos) == IRSALIGN) then
+                elseif (get(P.irsleftpos) == IRSALIGN) then
                     statestring = "Align"
-                elseif (get(irsleftpos) == IRSNAV) then
+                elseif (get(P.irsleftpos) == IRSNAV) then
                     statestring = "Nav"
-                elseif (get(irsleftpos) == IRSATT) then
+                elseif (get(P.irsleftpos) == IRSATT) then
                     statestring = "Attention"
                 end
 
-                P.irsleftpostemp = get(irsleftpos)
-                P.irsleftpostemp2 = get(irsleftpos)
-                P.irsrightpostemp = get(irsrightpos)
-                P.irsrightpostemp2 = get(irsrightpos)
+                P.irsleftpostemp = get(P.irsleftpos)
+                P.irsleftpostemp2 = get(P.irsleftpos)
+                P.irsrightpostemp = get(P.irsrightpos)
+                P.irsrightpostemp2 = get(P.irsrightpos)
             else
-                if (get(irsleftpos) ~= P.irsleftpostemp) then
+                if (get(P.irsleftpos) ~= P.irsleftpostemp) then
                     irsstring = "Left I R S "
-                    if (get(irsleftpos) == IRSOFF) then
+                    if (get(P.irsleftpos) == IRSOFF) then
                         statestring = "Off"
-                    elseif (get(irsleftpos) == IRSALIGN) then
+                    elseif (get(P.irsleftpos) == IRSALIGN) then
                         statestring = "Align"
-                    elseif (get(irsleftpos) == IRSNAV) then
+                    elseif (get(P.irsleftpos) == IRSNAV) then
                         statestring = "Nav"
-                    elseif (get(irsleftpos) == IRSATT) then
+                    elseif (get(P.irsleftpos) == IRSATT) then
                         statestring = "Attention"
                     end
 
-                    P.irsleftpostemp = get(irsleftpos)
-                    P.irsleftpostemp2 = get(irsleftpos)
+                    P.irsleftpostemp = get(P.irsleftpos)
+                    P.irsleftpostemp2 = get(P.irsleftpos)
                 end
 
-                if (get(irsrightpos) ~= P.irsrightpostemp) then
+                if (get(P.irsrightpos) ~= P.irsrightpostemp) then
                     irsstring = "Right I R S "
-                    if (get(irsrightpos) == IRSOFF) then
+                    if (get(P.irsrightpos) == IRSOFF) then
                         statestring = "Off"
-                    elseif (get(irsrightpos) == IRSALIGN) then
+                    elseif (get(P.irsrightpos) == IRSALIGN) then
                         statestring = "Align"
-                    elseif (get(irsrightpos) == IRSNAV) then
+                    elseif (get(P.irsrightpos) == IRSNAV) then
                         statestring = "Nav"
-                    elseif (get(irsrightpos) == IRSATT) then
+                    elseif (get(P.irsrightpos) == IRSATT) then
                         statestring = "Attention"
                     end
 
-                    P.irsrightpostemp = get(irsrightpos)
-                    P.irsrightpostemp2 = get(irsrightpos)
+                    P.irsrightpostemp = get(P.irsrightpos)
+                    P.irsrightpostemp2 = get(P.irsrightpos)
                 end
             end
 
@@ -9684,72 +9682,72 @@ function voicereadback()
         end
     end
 
-    if (get(transpondercode) ~= P.transpondercodetemp) then
-        if (get(transpondercode) ~= P.transpondercodetemp2) then
-            P.transpondercodetemp2 = get(transpondercode)
+    if (get(P.transpondercode) ~= P.transpondercodetemp) then
+        if (get(P.transpondercode) ~= P.transpondercodetemp2) then
+            P.transpondercodetemp2 = get(P.transpondercode)
         else
-            P.commandtableentry(TEXT, "Transponder Code " .. addspaces(get(transpondercode)))
-            P.transpondercodetemp = get(transpondercode)
-            P.transpondercodetemp2 = get(transpondercode)
+            P.commandtableentry(TEXT, "Transponder Code " .. addspaces(get(P.transpondercode)))
+            P.transpondercodetemp = get(P.transpondercode)
+            P.transpondercodetemp2 = get(P.transpondercode)
         end
 
     end
 
     if (P.configvalues[CONFIGAUTOWIPER] ~= ON) then
-        if ((get(lwiperpos) ~= P.lwiperpostemp) or (get(rwiperpos) ~= P.rwiperpostemp)) then
-            if ((get(lwiperpos) ~= P.lwiperpostemp2) or (get(rwiperpos) ~= P.rwiperpostemp2)) then
-                P.lwiperpostemp2 = get(lwiperpos)
-                P.rwiperpostemp2 = get(rwiperpos)
+        if ((get(P.lwiperpos) ~= P.lwiperpostemp) or (get(P.rwiperpos) ~= P.rwiperpostemp)) then
+            if ((get(P.lwiperpos) ~= P.lwiperpostemp2) or (get(P.rwiperpos) ~= P.rwiperpostemp2)) then
+                P.lwiperpostemp2 = get(P.lwiperpos)
+                P.rwiperpostemp2 = get(P.rwiperpos)
             else
                 local wiperstring = ""
                 local statestring = ""
-                if (((get(lwiperpos) ~= P.lwiperpostemp) and (get(rwiperpos) ~= P.rwiperpostemp)) and (get(lwiperpos) == get(rwiperpos))) then
+                if (((get(P.lwiperpos) ~= P.lwiperpostemp) and (get(P.rwiperpos) ~= P.rwiperpostemp)) and (get(P.lwiperpos) == get(P.rwiperpos))) then
                     wiperstring = "Both Wipers "
-                    if (get(lwiperpos) == WIPEROFF) then
+                    if (get(P.lwiperpos) == WIPEROFF) then
                         statestring = "Off"
-                    elseif (get(lwiperpos) == WIPERINT) then
+                    elseif (get(P.lwiperpos) == WIPERINT) then
                         statestring = "Interval"
-                    elseif (get(lwiperpos) == WIPERLOW) then
+                    elseif (get(P.lwiperpos) == WIPERLOW) then
                         statestring = "Low"
-                    elseif (get(lwiperpos) == WIPERHIGH) then
+                    elseif (get(P.lwiperpos) == WIPERHIGH) then
                         statestring = "High"
                     end
 
-                    P.lwiperpostemp = get(lwiperpos)
-                    P.lwiperpostemp2 = get(lwiperpos)
-                    P.rwiperpostemp = get(rwiperpos)
-                    P.rwiperpostemp2 = get(rwiperpos)
+                    P.lwiperpostemp = get(P.lwiperpos)
+                    P.lwiperpostemp2 = get(P.lwiperpos)
+                    P.rwiperpostemp = get(P.rwiperpos)
+                    P.rwiperpostemp2 = get(P.rwiperpos)
                 else
-                    if (get(lwiperpos) ~= P.lwiperpostemp) then
+                    if (get(P.lwiperpos) ~= P.lwiperpostemp) then
                         wiperstring = "Left Wiper "
-                        if (get(lwiperpos) == WIPEROFF) then
+                        if (get(P.lwiperpos) == WIPEROFF) then
                             statestring = "Off"
-                        elseif (get(lwiperpos) == WIPERINT) then
+                        elseif (get(P.lwiperpos) == WIPERINT) then
                             statestring = "Interval"
-                        elseif (get(lwiperpos) == WIPERLOW) then
+                        elseif (get(P.lwiperpos) == WIPERLOW) then
                             statestring = "Low"
-                        elseif (get(lwiperpos) == WIPERHIGH) then
+                        elseif (get(P.lwiperpos) == WIPERHIGH) then
                             statestring = "High"
                         end
 
-                        P.lwiperpostemp = get(lwiperpos)
-                        P.lwiperpostemp2 = get(lwiperpos)
+                        P.lwiperpostemp = get(P.lwiperpos)
+                        P.lwiperpostemp2 = get(P.lwiperpos)
                     end
 
-                    if (get(rwiperpos) ~= P.rwiperpostemp) then
+                    if (get(P.rwiperpos) ~= P.rwiperpostemp) then
                         wiperstring = "Right Wiper "
-                        if (get(rwiperpos) == WIPEROFF) then
+                        if (get(P.rwiperpos) == WIPEROFF) then
                             statestring = "Off"
-                        elseif (get(rwiperpos) == WIPERINT) then
+                        elseif (get(P.rwiperpos) == WIPERINT) then
                             statestring = "Interval"
-                        elseif (get(rwiperpos) == WIPERLOW) then
+                        elseif (get(P.rwiperpos) == WIPERLOW) then
                             statestring = "Low"
-                        elseif (get(rwiperpos) == WIPERHIGH) then
+                        elseif (get(P.rwiperpos) == WIPERHIGH) then
                             statestring = "High"
                         end
 
-                        P.rwiperpostemp = get(rwiperpos)
-                        P.rwiperpostemp2 = get(rwiperpos)
+                        P.rwiperpostemp = get(P.rwiperpos)
+                        P.rwiperpostemp2 = get(P.rwiperpos)
                     end
                 end
 
@@ -9767,9 +9765,9 @@ end
 
 function ongoingtasks()
 
-    local nearesticaotmp = cleanstring(get(nearesticao))
-    local depicaotmp = cleanstring(get(depicao))
-    local desicaotmp = cleanstring(get(desicao))
+    local nearesticaotmp = cleanstring(get(P.nearesticao))
+    local depicaotmp = cleanstring(get(P.depicao))
+    local desicaotmp = cleanstring(get(P.desicao))
     local deslandingalttmp = 0
 
 if (P.getmetarcounter == 0) then
@@ -9827,8 +9825,8 @@ if (P.getmetarcounter == 0) then
         P.getmetarcounter = P.getmetarcounter - 1
     end
 
-    if ((get(pausetod) == ON) and (P.remainingtimetoquit ~= 9999)) then
-        if (get(simpaused) == ON) then
+    if ((get(P.pausetod) == ON) and (P.remainingtimetoquit ~= 9999)) then
+        if (get(P.simpaused) == ON) then
             if (P.remainingtimetoquit == 0) then
                 P.remainingtimetoquit = P.configvalues[CONFIGTODPAUSEQUITTIME]
                 helpers.command_once("laminar/B738/tab/save_flight" .. tonumber(P.configvalues[CONFIGSAVENUMBER]))
@@ -9850,24 +9848,24 @@ if (P.getmetarcounter == 0) then
         end
     end
 
-    if ((P.procedureloop1.lock == NOPROCEDURE) and (P.configvalues[CONFIGVOICEADVICEONLY] == ON)  and (get(airgroundsensor) == ON)) then
-        if (((get(starter1pos) == GROUND) or (get(starter2pos) == GROUND)) and (get(beaconlights) == OFF)) then
+    if ((P.procedureloop1.lock == NOPROCEDURE) and (P.configvalues[CONFIGVOICEADVICEONLY] == ON)  and (get(P.airgroundsensor) == ON)) then
+        if (((get(P.starter1pos) == GROUND) or (get(P.starter2pos) == GROUND)) and (get(P.beaconlights) == OFF)) then
             P.commandtableentry(ADVICE, "Set Collision Lights On")      
-        elseif (((get(starter1pos) == GROUND) or (get(starter2pos) == GROUND)) and ((get(lefttanklswitch) == OFF) or (get(lefttankrswitch) == OFF) or (get(righttanklswitch) == OFF) or (get(righttankrswitch) == OFF))) then
+        elseif (((get(P.starter1pos) == GROUND) or (get(P.starter2pos) == GROUND)) and ((get(P.lefttanklswitch) == OFF) or (get(P.lefttankrswitch) == OFF) or (get(P.righttanklswitch) == OFF) or (get(P.righttankrswitch) == OFF))) then
             P.commandtableentry(ADVICE, "Set Wing Tank Fuel Pumps On")
-        elseif (((get(starter1pos) == GROUND) or (get(starter2pos) == GROUND)) and ((get(packlpos) ~= PACKOFF) or (get(packrpos) ~= PACKOFF))) then
+        elseif (((get(P.starter1pos) == GROUND) or (get(P.starter2pos) == GROUND)) and ((get(P.packlpos) ~= PACKOFF) or (get(P.packrpos) ~= PACKOFF))) then
             P.commandtableentry(ADVICE, "Set Both Packs Off")
-        elseif (((get(starter1pos) == GROUND) or (get(starter2pos) == GROUND)) and (get(bleedairapupos) ~= ON)) then
+        elseif (((get(P.starter1pos) == GROUND) or (get(P.starter2pos) == GROUND)) and (get(P.bleedairapupos) ~= ON)) then
             P.commandtableentry(ADVICE, "Set A P U Bleed Air On")
-        elseif ((get(starter2pos) == GROUND) and (get(isolvalvepos) ~= ISOLVALVEOPEN)) then
+        elseif ((get(P.starter2pos) == GROUND) and (get(P.isolvalvepos) ~= ISOLVALVEOPEN)) then
             P.commandtableentry(ADVICE, "Set Isolation Valve Open")
-        elseif ((get(starter1pos) == GROUND) and (get(eng1n2percent) > 25) and (get(mixture1pos) == OFF)) then 
+        elseif ((get(P.starter1pos) == GROUND) and (get(P.eng1n2percent) > 25) and (get(P.mixture1pos) == OFF)) then 
             P.commandtableentry(ADVICE, "Engine 1 N 2 at 25 Percent")        
-        elseif ((get(starter2pos) == GROUND) and (get(eng2n2percent) > 25) and (get(mixture2pos) == OFF)) then 
+        elseif ((get(P.starter2pos) == GROUND) and (get(P.eng2n2percent) > 25) and (get(P.mixture2pos) == OFF)) then 
             P.commandtableentry(ADVICE, "Engine 2 N 2 at 25 Percent")
-        elseif ((get(atarmpos) == ARMED) and (get(atn1stat) == OFF) and (get(groundspeed) < 45) and (get(eng1n1percent) > 40) and (get(eng1n1percent) > 40)) then 
+        elseif ((get(P.atarmpos) == ARMED) and (get(P.atn1stat) == OFF) and (get(P.groundspeed) < 45) and (get(P.eng1n1percent) > 40) and (get(P.eng1n1percent) > 40)) then 
             P.commandtableentry(ADVICE, "Both Engine N 1 at 40 Percent")
-        elseif ((get(apustarterpos) == ON) and (get(apugenoffbus) ~= OFF) and (get(gen1pos) == OFF) and (get(gen2pos) == OFF) and (not((get(apupowerbus1) == ON) and (get(announcsourceoff1) == OFF)) or not((get(apupowerbus2) == ON) and (get(announcsourceoff2) == OFF)))) then
+        elseif ((get(P.apustarterpos) == ON) and (get(P.apugenoffbus) ~= OFF) and (get(P.gen1pos) == OFF) and (get(P.gen2pos) == OFF) and (not((get(P.apupowerbus1) == ON) and (get(P.announcsourceoff1) == OFF)) or not((get(P.apupowerbus2) == ON) and (get(P.announcsourceoff2) == OFF)))) then
             P.commandtableentry(ADVICE, "A P U Running")
         end
     end
@@ -9878,13 +9876,13 @@ if (P.getmetarcounter == 0) then
                 if ((P.configvalues[CONFIGAUTOFUNCTIONS] == ON) and (P.configvalues[CONFIGVOICEADVICEONLY] ~= ON)) then
                     autocentertanks()
                 elseif (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
-                    if ((get(centertanklbs) > 1000) and (get(centertanklpress) > 0) and (get(centertankrpress) > 0) and (get(centertankstat) > 0)) then
-                        if ((get(centertanklswitch) == OFF) or (get(centertankrswitch) == OFF)) then
+                    if ((get(P.centertanklbs) > 1000) and (get(P.centertanklpress) > 0) and (get(P.centertankrpress) > 0) and (get(P.centertankstat) > 0)) then
+                        if ((get(P.centertanklswitch) == OFF) or (get(P.centertankrswitch) == OFF)) then
                             P.commandtableentry(ADVICE, "Set Center Tank Fuel Pumps On")
                             P.ongoingtaskstepindex = P.ongoingtaskstepindex - 1
                         end
-                    elseif ((get(centertanklbs) <= 1000)) or ((get(centertanklpress) == 0) and (get(centertankrpress) == 0)) then
-                        if ((get(centertanklswitch) == ON) or (get(centertankrswitch) == ON)) then
+                    elseif ((get(P.centertanklbs) <= 1000)) or ((get(P.centertanklpress) == 0) and (get(P.centertankrpress) == 0)) then
+                        if ((get(P.centertanklswitch) == ON) or (get(P.centertankrswitch) == ON)) then
                             P.commandtableentry(ADVICE, "Set Center Tank Fuel Pumps Off")
                             P.ongoingtaskstepindex = P.ongoingtaskstepindex - 1
                         end
@@ -9892,11 +9890,11 @@ if (P.getmetarcounter == 0) then
                 end
             end
         elseif (P.ongoingtaskstepindex == 2) then
-            if ( (P.flightstate < 3) and (get(fmccruisealt) ~= 0) and (get(fmccruisealt) ~= 20000)) then
-                local fmccruisealttmp = roundnumber(get(fmccruisealt) / 500) * 500
-                if (get(cabincruisealt)  ~= fmccruisealttmp) then
+            if ( (P.flightstate < 3) and (get(P.fmccruisealt) ~= 0) and (get(P.fmccruisealt) ~= 20000)) then
+                local fmccruisealttmp = roundnumber(get(P.fmccruisealt) / 500) * 500
+                if (get(P.cabincruisealt)  ~= fmccruisealttmp) then
                     if ((P.configvalues[CONFIGAUTOFUNCTIONS] == ON) and (P.configvalues[CONFIGVOICEADVICEONLY] ~= ON)) then 
-                        set(cabincruisealt, get(fmccruisealttmp))
+                        set(P.cabincruisealt, fmccruisealttmp)
                     elseif (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then 
                         P.commandtableentry(ADVICE, "Set Cabin Cruise Alitude " .. addspaces(fmccruisealttmp))
                         P.ongoingtaskstepindex = P.ongoingtaskstepindex - 1
@@ -9909,11 +9907,11 @@ if (P.getmetarcounter == 0) then
                 if tonumber(P.desmetar.metar.elevation_m) then
                     deslandingalttmp = roundnumber((P.desmetar.metar.elevation_m * FEETTOMETER) / 50) * 50
                 else
-                    deslandingalttmp = roundnumber(get(desrwyalt) / 50) * 50
+                    deslandingalttmp = roundnumber(get(P.desrwyalt) / 50) * 50
                 end
-                if (get(cabinlandingalt) ~= deslandingalttmp) then
+                if (get(P.cabinlandingalt) ~= deslandingalttmp) then
                     if ((P.configvalues[CONFIGAUTOFUNCTIONS] == ON) and (P.configvalues[CONFIGVOICEADVICEONLY] ~= ON)) then
-                        set(cabinlandingalt, deslandingalttmp)
+                        set(P.cabinlandingalt, deslandingalttmp)
                     elseif (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then 
                         P.commandtableentry(ADVICE, "Set Cabin Landing Alitude " .. addspaces(deslandingalttmp))
                         P.ongoingtaskstepindex = P.ongoingtaskstepindex - 1
@@ -9929,25 +9927,25 @@ if (P.getmetarcounter == 0) then
         if (P.configvalues[CONFIGAUTOANTIICE] == ON) then
             if ((P.configvalues[CONFIGAUTOFUNCTIONS] == ON) and (P.configvalues[CONFIGVOICEADVICEONLY] ~= ON)) then
                 if ((P.flightstate < 5) and P.proceduretable[BEFORETAXIPROCEDURE].set) then
-                    if ((get(frameice) > 0.01) and (get(altitude) < 30000)) then
+                    if ((get(P.frameice) > 0.01) and (get(P.altitude) < 30000)) then
                         iceprotection(ON)
-                    elseif ((get(altitude) > 30000) or (get(tatdegc) > 10)) then
+                    elseif ((get(P.altitude) > 30000) or (get(P.tatdegc) > 10)) then
                         iceprotection(OFF)
                     end
                 end
-            elseif ((P.configvalues[CONFIGVOICEADVICEONLY] == ON) and (get(airgroundsensor) == OFF)) then
-                if ((get(frameice) > 0.01) and (get(altitude) < 30000)) then                   
-                    if ((get(eng1heatpos) == OFF) or (get(eng2heatpos) == OFF) or (get(wingheatpos) == OFF)) then
+            elseif ((P.configvalues[CONFIGVOICEADVICEONLY] == ON) and (get(P.airgroundsensor) == OFF)) then
+                if ((get(P.frameice) > 0.01) and (get(P.altitude) < 30000)) then                   
+                    if ((get(P.eng1heatpos) == OFF) or (get(P.eng2heatpos) == OFF) or (get(P.wingheatpos) == OFF)) then
                         P.commandtableentry(ADVICE, "Caution Icing Detected, Switch Anti Icing On")
                         P.ongoingtaskstepindex = P.ongoingtaskstepindex - 1
                     end
-                elseif (get(altitude) > 30000) then
-                    if ((get(eng1heatpos) == ON) or (get(eng2heatpos) == ON) or (get(wingheatpos) == ON)) then                      
+                elseif (get(P.altitude) > 30000) then
+                    if ((get(P.eng1heatpos) == ON) or (get(P.eng2heatpos) == ON) or (get(P.wingheatpos) == ON)) then                      
                         P.commandtableentry(ADVICE, "Above 30.000 feet, Switch Anti Icing Off")
                         P.ongoingtaskstepindex = P.ongoingtaskstepindex - 1
                     end
-                elseif (get(tatdegc) > 10) then
-                    if ((get(eng1heatpos) == ON) or (get(eng2heatpos) == ON) or (get(wingheatpos) == ON)) then
+                elseif (get(P.tatdegc) > 10) then
+                    if ((get(P.eng1heatpos) == ON) or (get(P.eng2heatpos) == ON) or (get(P.wingheatpos) == ON)) then
                         P.commandtableentry(ADVICE, "T A T above 10 degree, Switch Anti Icing Off")
                         P.ongoingtaskstepindex = P.ongoingtaskstepindex - 1
                     end 
@@ -9957,26 +9955,26 @@ if (P.getmetarcounter == 0) then
     elseif (P.ongoingtaskstepindex == 5) then
         if (P.configvalues[CONFIGAUTOWIPER] == ON) then
             if ((P.configvalues[CONFIGAUTOFUNCTIONS] == ON) and (P.configvalues[CONFIGVOICEADVICEONLY] ~= ON)) then               
-                if (get(groundspeed) > 250) then
+                if (get(P.groundspeed) > 250) then
                     autowiper(OFF)
-                elseif ((get(apuon) == ON) or (get(apurunning) == ON) or enginesrunning(ENGINE1) or enginesrunning(ENGINE2)) then
+                elseif ((get(P.apuon) == ON) or (get(P.apurunning) == ON) or enginesrunning(ENGINE1) or enginesrunning(ENGINE2)) then
                     autowiper(ON)
-                elseif ((get(apuon) == OFF) and (get(apurunning) == OFF) and not enginesrunning(ENGINE1) and not enginesrunning(ENGINE2)) then
+                elseif ((get(P.apuon) == OFF) and (get(P.apurunning) == OFF) and not enginesrunning(ENGINE1) and not enginesrunning(ENGINE2)) then
                     autowiper(OFF)
                 end
             end
         end
     end
 
-    if (((get(airgroundsensor) == ON) and (P.procedureloop1.lock == NOPROCEDURE) and (get(battery) == ON) and (get(mainbus) ~= OFF) and (P.flightstate == 0) and (get(taxilight) == OFF))) then
+    if (((get(P.airgroundsensor) == ON) and (P.procedureloop1.lock == NOPROCEDURE) and (get(P.battery) == ON) and (get(P.mainbus) ~= OFF) and (P.flightstate == 0) and (get(P.taxilight) == OFF))) then
         if (P.ongoingtaskstepindex == 6) then
             if (P.configvalues[CONFIGAUTOBARO] == ON) then
                 local baroinchtmp, baropastmp = getlocalqnh(DEPARTURE)
-                if (roundnumber(math.abs(roundnumber(get(baropilot),2) - baroinchtmp),2) > 0.01) then
+                if (roundnumber(math.abs(roundnumber(get(P.baropilot),2) - baroinchtmp),2) > 0.01) then
                     if ((P.configvalues[CONFIGAUTOFUNCTIONS] == ON) and (P.configvalues[CONFIGVOICEADVICEONLY] ~= ON)) then
-                        set(baropilot, baroinchtmp)
+                        set(P.baropilot, baroinchtmp)
                     elseif (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
-                        if (get(baroinhpa) == ON) then
+                        if (get(P.baroinhpa) == ON) then
                             P.commandtableentry(ADVICE, "Set Q N H " .. addspaces(baropastmp))
                         else
                             P.commandtableentry(ADVICE, "Set Q N H " .. addspaces(baroinchtmp))
@@ -9986,36 +9984,36 @@ if (P.getmetarcounter == 0) then
                 end
             end
         elseif (P.ongoingtaskstepindex == 7) then
-            if (get(trimcalc) > 0) and (get(trimcalc) ~= gettrim() and (get(groundspeed) < 45)) then
+            if (get(P.trimcalc) > 0) and (get(P.trimcalc) ~= gettrim() and (get(P.groundspeed) < 45)) then
                 if (((P.configvalues[CONFIGAUTOFUNCTIONS] == ON) and (P.configvalues[CONFIGVOICEADVICEONLY] ~= ON))) then
                     settotrim()
-                    P.commandtableentry(TEXT, "Trim " .. tostring(get(trimcalc)))
+                    P.commandtableentry(TEXT, "Trim " .. tostring(get(P.trimcalc)))
                 elseif (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
-                    P.commandtableentry(ADVICE, "Set Trim " .. tostring(get(trimcalc)))
+                    P.commandtableentry(ADVICE, "Set Trim " .. tostring(get(P.trimcalc)))
                     P.ongoingtaskstepindex = P.ongoingtaskstepindex - 1
                 end
             end
         elseif (P.ongoingtaskstepindex == 8) then
-            if ((get(v2speed) > 0) and (get(v2speed) ~= get(mcpspeed)) and (get(groundspeed) < 45)) then
+            if ((get(P.v2speed) > 0) and (get(P.v2speed) ~= get(P.mcpspeed)) and (get(P.groundspeed) < 45)) then
                 if ((P.configvalues[CONFIGAUTOFUNCTIONS] == ON) and (P.configvalues[CONFIGVOICEADVICEONLY] ~= ON)) then
-                    set(mcpspeed, get(v2speed))
+                    set(P.mcpspeed, get(P.v2speed))
                 elseif (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
-                    P.commandtableentry(ADVICE, "Set M C P Speed " .. addspaces(get(v2speed)))
+                    P.commandtableentry(ADVICE, "Set M C P Speed " .. addspaces(get(P.v2speed)))
                     P.ongoingtaskstepindex = P.ongoingtaskstepindex - 1         
                 end
             end
         elseif (P.ongoingtaskstepindex == 9) then
             local headingrounded = nil
-            if (isvalidicao(get(depicao)) and isvalidrwy(get(deprwy)) and tonumber(get(deprwyheading))) then
-                headingrounded = roundnumber(get(deprwyheading))
+            if (isvalidicao(get(P.depicao)) and isvalidrwy(get(P.deprwy)) and tonumber(get(P.deprwyheading))) then
+                headingrounded = roundnumber(get(P.deprwyheading))
             end
-            local navrwyheading = getrwyheadingfromnavdata(get(depicao), get(deprwy))
+            local navrwyheading = getrwyheadingfromnavdata(get(P.depicao), get(P.deprwy))
             if (navrwyheading and ((not headingrounded) or (headingrounded and (math.abs(headingrounded - navrwyheading) <= 2)))) then
                 headingrounded = navrwyheading
             end
-            if (headingrounded and (headingrounded ~= get(mcpheading)) and (get(groundspeed) < 45)) then
+            if (headingrounded and (headingrounded ~= get(P.mcpheading)) and (get(P.groundspeed) < 45)) then
                 if ((P.configvalues[CONFIGAUTOFUNCTIONS] == ON) and (P.configvalues[CONFIGVOICEADVICEONLY] ~= ON)) then
-                    set(mcpheading, headingrounded)
+                    set(P.mcpheading, headingrounded)
                 elseif (P.configvalues[CONFIGVOICEADVICEONLY] == ON) then
                     P.commandtableentry(ADVICE, "Set M C P Heading " .. addspaces(headingrounded))
                     P.ongoingtaskstepindex = P.ongoingtaskstepindex - 1
@@ -10330,7 +10328,12 @@ function P.do_yal()
     local start_check_index = P.lastExecutedLoopIndex
     if start_check_index == 0 then start_check_index = 1 end -- Falls noch nie gelaufen, starte bei Loop 1
 
-    -- Durchlaufe alle Schleifen kandidaten, bis eine aktive gefunden und ausgeführt wird
+    -- Variable, um den Index der zuletzt in diesem Zyklus ÜBERPRÜFTEN Schleife zu verfolgen.
+    -- Diese Variable ist entscheidend, damit der Pointer auch bei übersprungenen Schleifen vorrückt,
+    -- wenn KEINE Schleife in einem Zyklus ausgeführt wurde.
+    local last_checked_loop_in_this_cycle = start_check_index -- Initialisiere korrekt
+
+    -- Durchlaufe alle Schleifen-Kandidaten, bis eine aktive gefunden und ausgeführt wird
     for i = 1, loops_count do
         -- Berechne den aktuellen Index in der zirkulären Liste (1-basiert: 1, 2, 3, 1, 2, 3...)
         local current_loop_idx = ((start_check_index + i - 2) % loops_count) + 1
@@ -10338,23 +10341,30 @@ function P.do_yal()
         local current_loop_state_table = P.loopStateTables[current_loop_idx]
         local current_loop_function = P.loopfunctions[current_loop_idx]
 
+        -- last_checked_loop_in_this_cycle muss JEDES Mal aktualisiert werden,
+        -- um den Fortschritt des Scans zu reflektieren.
+        last_checked_loop_in_this_cycle = current_loop_idx
+
         if current_loop_state_table.lock ~= NOPROCEDURE then
             -- Gefunden: Eine gelockte Schleife, die ausgeführt werden soll
             current_loop_function()
-            P.lastExecutedLoopIndex = current_loop_idx -- Merke dir, welche Schleife in diesem Zyklus ausgeführt wurde
+            -- ENTSCHEIDENDE ÄNDERUNG: Der Zeiger springt zur NÄCHSTEN Schleife im Kreis,
+            -- damit im nächsten Zyklus fair weitergesucht wird.
+            P.lastExecutedLoopIndex = (current_loop_idx % loops_count) + 1
             loop_executed_this_cycle = true
-            sasl.logDebug("SCHEDULER: Executing loop " .. tostring(current_loop_idx) .. " (locked: " .. current_loop_state_table.lock .. ").")
+            sasl.logDebug("SCHEDULER: Executing loop " .. tostring(current_loop_idx) .. " (locked: " .. current_loop_state_table.lock .. "). Next scan starts at " .. tostring(P.lastExecutedLoopIndex) .. ".")
             break -- Eine aktive Schleife wurde ausgeführt, breche die Suche für diesen do_yal-Aufruf ab
         else
             sasl.logDebug("SCHEDULER: Skipping loop " .. tostring(current_loop_idx) .. " (not locked).")
         end
     end
 
+    -- Wenn keine Schleife ausgeführt wurde, muss P.lastExecutedLoopIndex trotzdem vorrücken.
+    -- Aber basierend auf der zuletzt in diesem Zyklus ÜBERPRÜFTEN Schleife,
+    -- um sicherzustellen, dass die Suche im nächsten do_yal-Aufruf an der nächsten Position beginnt.
     if not loop_executed_this_cycle then
         sasl.logDebug("SCHEDULER: No locked loops found to execute this cycle. Advancing scan pointer for next cycle.")
-        -- Wenn keine Schleife ausgeführt wurde, muss P.lastExecutedLoopIndex trotzdem vorrücken,
-        -- um sicherzustellen, dass die Suche im nächsten do_yal-Aufruf an der nächsten Position beginnt.
-        P.lastExecutedLoopIndex = (P.lastExecutedLoopIndex % loops_count) + 1 
+        P.lastExecutedLoopIndex = (last_checked_loop_in_this_cycle % loops_count) + 1
     end
     -- --- ENDE NEU: Scheduler für Prozedur-Loops ---
 
@@ -10374,7 +10384,7 @@ function P.do_yal()
     sasl.logDebug("ATPARKINGPOSITIONSET: " .. tostring(P.proceduretable[ATPARKINGPOSITIONPROCEDURE].set))
     sasl.logDebug("--------------------------------------------")
     sasl.logDebug("FLIGHTSTATE: " .. tostring(P.flightstate))
-    sasl.logDebug("FMSFLIGHTPHASE:" .. tostring(get(fmsflightphase)))
+    sasl.logDebug("FMSFLIGHTPHASE:" .. tostring(get(P.fmsflightphase)))
     sasl.logDebug("AIRCRAFTWASONGROUND: " .. tostring(P.aircraftwasonground))
     sasl.logDebug("Raw Departure METAR: " .. tostring(P.depmetar.metar.raw_text))
     sasl.logDebug("Altitude METAR: " .. tostring(P.depmetar.metar.elevation_m))
