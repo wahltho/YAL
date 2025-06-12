@@ -2297,8 +2297,8 @@ function setcockpitlights()
         set(P.genbrightafdsflood, P.configvalues[def.CONFIGGENBRIGHTAFDSFLOOD])
         lightset = true
     end
-    if (get(P.genbrightpedestralflood) ~= P.configvalues[CONFDIGGENBRIGHTPEDESTRALFLOOD]) then
-        set(P.genbrightpedestralflood, P.configvalues[CONFDIGGENBRIGHTPEDESTRALFLOOD])
+    if (get(P.genbrightpedestralflood) ~= P.configvalues[def.CONFDIGGENBRIGHTPEDESTRALFLOOD]) then
+        set(P.genbrightpedestralflood, P.configvalues[def.CONFDIGGENBRIGHTPEDESTRALFLOOD])
         lightset = true
     end
     if (get(P.instrbrightoutbddu) ~= P.configvalues[def.CONFIGINSTRBRIGHTOUTBDDU]) then
