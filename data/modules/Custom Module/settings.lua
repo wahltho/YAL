@@ -1,61 +1,61 @@
 local P = {}
 settings = P -- package name
 
-require("definitions")
+local def = require("definitions")
 
-local settingPath = definitions.XPOUTPUTPATH .. "preferences" .. definitions.OSSEPARATOR .. definitions.APPNAMEPREFIX .. ".prf"
+local settingPath = def.XPOUTPUTPATH .. "preferences" .. def.OSSEPARATOR .. def.APPNAMEPREFIX .. ".prf"
 local settingFormat = 'info'
 
 
 local settingsDefinition = {
-    VOICEREADBACK = { dvalue = 1 , type = "number", min = 0, max = 1 },
-    AUTOFUNCTIONS = { dvalue = 1 , type = "number", min = 0, max = 1 },
-    VOICEADVICEONLY = { dvalue = 1 , type = "number", min = 0, max = 1 },
+    [def.CONFIGVOICEREADBACK] = { dvalue = 1 , type = "number", min = 0, max = 1 },
+    [def.CONFIGAUTOFUNCTIONS] = { dvalue = 1 , type = "number", min = 0, max = 1 },
+    [def.CONFIGVOICEADVICEONLY] = { dvalue = 1 , type = "number", min = 0, max = 1 },
 
-    AUTOANTIICE = { dvalue = 1 , type = "number", min = 0, max = 1 },
-    AUTOWIPER = { dvalue = 1 , type = "number", min = 0, max = 1 },
-    AUTOBARO = { dvalue = 1 , type = "number", min = 0, max = 1 },
-    AUTOCENTERTANKHANDLING = { dvalue = 1 , type = "number", min = 0, max = 1 },
-    AUTOFLAPS = { dvalue = 1 , type = "number", min = 0, max = 1 },
-    USEGROUNDPOWER = { dvalue = 1 , type = "number", min = 0, max = 1 },
+    [def.CONFIGAUTOANTIICE] = { dvalue = 1 , type = "number", min = 0, max = 1 },
+    [def.CONFIGAUTOWIPER] = { dvalue = 1 , type = "number", min = 0, max = 1 },
+    [def.CONFIGAUTOBARO] = { dvalue = 1 , type = "number", min = 0, max = 1 },
+    [def.CONFIGAUTOCENTERTANKHANDLING] = { dvalue = 1 , type = "number", min = 0, max = 1 },
+    [def.CONFIGAUTOFLAPS] = { dvalue = 1 , type = "number", min = 0, max = 1 },
+    [def.CONFIGUSEGROUNDPOWER] = { dvalue = 1 , type = "number", min = 0, max = 1 },
 
-    SPEEDRESTR250 = { dvalue = 1 , type = "number", min = 0, max = 1 },
-    VREF30 = { dvalue = 1 , type = "number", min = 0, max = 1 },
-    LOWERAIRSPACEALT = { dvalue = 10000 , type = "number", min = 1000, max = 20000 },
-    BANKANGLEMAX = { dvalue = 4 , type = "number", min = 1, max = 4 },
-    LOWERDU = { dvalue = 1 , type = "number", min = 0, max = 1 },
-    TRANSPONDERCODE = { dvalue = 2000 , type = "number", min = 0, max = 7777 },
-    GEARDOWNFLAPS = { dvalue = 5 , type = "number", min = 5, max = 15 },
+    [def.CONFIGSPDRESTR250] = { dvalue = 1 , type = "number", min = 0, max = 1 },
+    [def.CONFIGVREF30SET] = { dvalue = 1 , type = "number", min = 0, max = 1 },
+    [def.CONFIGLOWEAIRSPACEALT] = { dvalue = 10000 , type = "number", min = 1000, max = 20000 },
+    [def.CONFIGBANKANGLEMAX] = { dvalue = 4 , type = "number", min = 1, max = 4 },
+    [def.CONFIGLOWERDU] = { dvalue = 1 , type = "number", min = 0, max = 1 },
+    [def.CONFIGTRANSPONDER] = { dvalue = 2000 , type = "number", min = 0, max = 7777 },
+    [def.CONFIGGEARDOWNFLAPS] = { dvalue = 5 , type = "number", min = 5, max = 15 },
     
-    VIEWCHANGES = { dvalue = 1 , type = "number", min = 0, max = 1 },
-    VIEWMAINPANEL = { dvalue = 1 , type = "number", min = 0, max = 20 },
-    VIEWPEDESTAL = { dvalue = 3 , type = "number", min = 0, max = 20 },
-    VIEWOVERHEADPANEL = { dvalue = 4 , type = "number", min = 0, max = 20 },
-    VIEWFMS = { dvalue = 5 , type = "number", min = 0, max = 20 },
-    VIEWTHROTTLE = { dvalue = 7 , type = "number", min = 0, max = 20 },
-    VIEWUPPEROVERHEADPANEL = { dvalue = 10 , type = "number", min = 0, max = 20 },
+    [def.CONFIGVIEWCHANGES] = { dvalue = 1 , type = "number", min = 0, max = 1 },
+    [def.CONFIGVIEWMAINPANEL] = { dvalue = 1 , type = "number", min = 0, max = 20 },
+    [def.CONFIGVIEWPEDESTAL] = { dvalue = 3 , type = "number", min = 0, max = 20 },
+    [def.CONFIGVIEWOVERHEADPANEL] = { dvalue = 4 , type = "number", min = 0, max = 20 },
+    [def.CONFIGVIEWFMS] = { dvalue = 5 , type = "number", min = 0, max = 20 },
+    [def.CONFIGVIEWTHROTTLE] = { dvalue = 7 , type = "number", min = 0, max = 20 },
+    [def.CONFIGVIEWUPPEROVERHEADPANEL] = { dvalue = 10 , type = "number", min = 0, max = 20 },
 
-    BRIGHTMAINPANEL = { dvalue = 0.5 , type = "number", min = 0, max = 1 },
-    BRIGHTOVERHEAD = { dvalue = 0.5 , type = "number", min = 0, max = 1 },
-    BRIGHTPEDESTRAL = { dvalue = 0.5 , type = "number", min = 0, max = 1 },
-    GENBRIGHTBACKGROUND = { dvalue = 0.5 , type = "number", min = 0, max = 1 },
-    GENBRIGHTAFDSFLOOD = { dvalue = 0.5 , type = "number", min = 0, max = 1 },
-    GENBRIGHTPEDESTRALFLOOD = { dvalue = 0.5 , type = "number", min = 0, max = 1 },
-    INSTRBRIGHTOUTBDDU = { dvalue = 0.5 , type = "number", min = 0, max = 1 },
-    INSTRBRIGHTINBDDU = { dvalue = 0.5 , type = "number", min = 0, max = 1 },
-    INSTRBRIGHTUPPERDU = { dvalue = 0.5 , type = "number", min = 0, max = 1 },
-    INSTRBRIGHTLOWDU = { dvalue = 0.5 , type = "number", min = 0, max = 1 },
-    INSTRBRIGHTINBDDUS = { dvalue = 0.5 , type = "number", min = 0, max = 1 },
-    INSTRBRIGHTLOWDUS = { dvalue = 0.5 , type = "number", min = 0, max = 1 },
+    [def.CONFIGBRIGHTMAINPANEL] = { dvalue = 0.5 , type = "number", min = 0, max = 1 },
+    [def.CONFIGBRIGHTOVERHEAD] = { dvalue = 0.5 , type = "number", min = 0, max = 1 },
+    [def.CONFIGBRIGHTPEDESTRAL] = { dvalue = 0.5 , type = "number", min = 0, max = 1 },
+    [def.CONFIGGENBRIGHTBACKGROUND] = { dvalue = 0.5 , type = "number", min = 0, max = 1 },
+    [def.CONFIGGENBRIGHTAFDSFLOOD] = { dvalue = 0.5 , type = "number", min = 0, max = 1 },
+    [def.CONFDIGGENBRIGHTPEDESTRALFLOOD] = { dvalue = 0.5 , type = "number", min = 0, max = 1 },
+    [def.CONFIGINSTRBRIGHTOUTBDDU] = { dvalue = 0.5 , type = "number", min = 0, max = 1 },
+    [def.CONFIGINSTRBRIGHTINBDDU] = { dvalue = 0.5 , type = "number", min = 0, max = 1 },
+    [def.CONFIGINSTRBRIGHTUPPERDU] = { dvalue = 0.5 , type = "number", min = 0, max = 1 },
+    [def.CONFIGINSTRBRIGHTLOWDU] = { dvalue = 0.5 , type = "number", min = 0, max = 1 },
+    [def.CONFIGINSTRBRIGHTINBDDUS] = { dvalue = 0.5 , type = "number", min = 0, max = 1 },
+    [def.CONFIGINSTRBRIGHTLOWDUS] = { dvalue = 0.5 , type = "number", min = 0, max = 1 },
 
-    WAKEOVERRIDE = { dvalue = 1 , type = "number", min = 0, max = 1 },
-    TODPAUSEQUITTIME = { dvalue = 1800 , type = "number", min = 0, max = 9999 },
-    SAVETIME = { dvalue = 300 , type = "number", min = 0, max = 9999 },
-    SAVENUMBER = { dvalue = 1 , type = "number", min = 1, max = 8 },
-    IGNOREALLBRIGHTHNESSSETTINGS = { dvalue = 0 , type = "number", min = 0, max = 1 },
-    HIDEFBS = { dvalue = 1 , type = "number", min = 0, max = 1 },
+    [def.CONFIGWAKEOVERRIDE] = { dvalue = 1 , type = "number", min = 0, max = 1 },
+    [def.CONFIGTODPAUSEQUITTIME] = { dvalue = 1800 , type = "number", min = 0, max = 9999 },
+    [def.CONFIGSAVETIME] = { dvalue = 300 , type = "number", min = 0, max = 9999 },
+    [def.CONFIGSAVENUMBER] = { dvalue = 1 , type = "number", min = 1, max = 8 },
+    [def.CONFIGIGNOREALLBRIGHTHNESSSETTINGS] = { dvalue = 0 , type = "number", min = 0, max = 1 },
+    [def.CONFIGHIDEEFBS] = { dvalue = 1 , type = "number", min = 0, max = 1 },
 
-} 
+}   
 
 local defaultSettings = {}
 for k, v in pairs(settingsDefinition) do
@@ -64,10 +64,6 @@ end
 
  
 
-
--- return tableTocheck, flag
--- if flag is true  tableTocheck is evently corrected if key are missing or invalid or eqaul to defaultSettings 
--- 
 local function checkSettings(tableTocheck)
 
     if tableTocheck == nil then
@@ -78,9 +74,9 @@ local function checkSettings(tableTocheck)
     for k, v in pairs(settingsDefinition) do
         if tableTocheck[k] == nil or tableTocheck[k] < settingsDefinition[k].min 
             or tableTocheck[k] > settingsDefinition[k].max or type(tableTocheck[k]) ~= settingsDefinition[k].type then
-                sasl.logDebug("key: " .. k .. " missing or incorrect, setting value to default: " .. settingsDefinition[k].dvalue)
-                tableTocheck[k] = settingsDefinition[k].dvalue
-                result = true
+                 sasl.logDebug("key: " .. k .. " missing or incorrect, setting value to default: " .. settingsDefinition[k].dvalue)
+                 tableTocheck[k] = settingsDefinition[k].dvalue
+                 result = true
         end
     end
     return tableTocheck, result

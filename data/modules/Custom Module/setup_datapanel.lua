@@ -1,8 +1,8 @@
-require("definitions")
 require("windows")
 require("settings")
 require("messages")
 
+local def = require("definitions")
 
 defineProperty(size, { 200, 200 })
 
@@ -11,23 +11,23 @@ size = get(size)
 wSize = size[1]
 hSize = size[2]
 
-local wTitle = string.format("%s - " .. messages.translation['SETUP'], definitions.APPNAMEPREFIXLONG.. " v"..definitions.VERSION)
+local wTitle = string.format("%s - " .. messages.translation['SETUP'], def.APPNAMEPREFIXLONG.. " v"..def.VERSION)
 local x_col1 = 10
 local x_col2 = x_col1 + wSize / 2 + 90
-local cb_w = 10 -- definitions.checkBoxWidth
-local cb_h = 10 -- definitions.checkBoxHeight
+local cb_w = 10
+local cb_h = 10
 
 local current_input_field = nil
 
 local function process_key(char, vkey, shift, ctrl, alt, event)
-    if event == KB_DOWN_EVENT and current_input_field ~= nil then
-        if char == SASL_KEY_ESCAPE then
+    if event == def.KB_DOWN_EVENT and current_input_field ~= nil then
+        if char == def.SASL_KEY_ESCAPE then
             wdef[current_input_field].isFocused = false
             wdef[current_input_field].value = settings.appSettings[current_input_field]
             current_input_field = nil
             return true
         end
-        if char == SASL_KEY_RETURN and #wdef[current_input_field].value >= wdef[current_input_field].value_min_len then
+        if char == def.SASL_KEY_RETURN and #wdef[current_input_field].value >= wdef[current_input_field].value_min_len then
             settings.appSettings[current_input_field] = wdef[current_input_field].value
             settings.writeSettings(settings.appSettings)
             wdef[current_input_field].isFocused = false
@@ -58,8 +58,8 @@ function setFocusOnInput(element)
         current_input_field = element
         wdef[element].value = ""
         wdef[element].isFocused = true
-    else 
-        current_input_field = element   
+    else    
+        current_input_field = element      
         register_handler(nil)
     end
 end
@@ -105,10 +105,10 @@ wdef = {
     },
     closeButton = {
         t = "x",
-        x = wSize - definitions.closeXWidth,
-        y = hSize - definitions.closeXHeight,
-        w = definitions.closeXWidth,
-        h = definitions.closeXHeight,
+        x = wSize - def.closeXWidth,
+        y = hSize - def.closeXHeight,
+        w = def.closeXWidth,
+        h = def.closeXHeight,
         withBorder = false,
         draw_ = function()
             windows.drawButton(wdef.closeButton, true)
@@ -156,11 +156,10 @@ wdef = {
             settings.appSettings.VOICEREADBACK = not_(settings.appSettings.VOICEREADBACK)
             settings.writeSettings(settings.appSettings)
             wdef.VOICEREADBACK.value = toboolean(settings.appSettings.VOICEREADBACK)
-        end,
-        draw_ = function()
+        end,      
+            draw_ = function()
             windows.drawCheckBox(wdef.VOICEREADBACK)
         end
-
     },
     AUTOFUNCTIONS = {
         t = messages.translation['AUTOFUNCTIONS'],
@@ -191,7 +190,7 @@ wdef = {
             settings.appSettings.VOICEADVICEONLY = not_(settings.appSettings.VOICEADVICEONLY)
             settings.writeSettings(settings.appSettings)
             wdef.VOICEADVICEONLY.value = toboolean(settings.appSettings.VOICEADVICEONLY)
-        end,       
+        end,      
             draw_ = function()
             windows.drawCheckBox(wdef.VOICEADVICEONLY)
         end
@@ -202,10 +201,10 @@ wdef = {
         x = x_col1 +20,
         y = hSize - 170,
         w = 50,
-        h = definitions.lineHeight * 1.5,
+        h = def.lineHeight * 1.5,
         isFocused = false,
-        ascii_min = 48, -- '0'
-        ascii_max = 57, -- '9'
+        ascii_min = 48,
+        ascii_max = 57,
         value_min_len = 1,
         value_max_len = 5,
         draw_ = function()
@@ -224,10 +223,10 @@ wdef = {
         x = x_col1 +20,
         y = hSize - 200,
         w = 50,
-        h = definitions.lineHeight * 1.5,
+        h = def.lineHeight * 1.5,
         isFocused = false,
-        ascii_min = 48, -- '0'
-        ascii_max = 57, -- '9'
+        ascii_min = 48,
+        ascii_max = 57,
         value_min_len = 1,
         value_max_len = 5,
         draw_ = function()
@@ -240,16 +239,16 @@ wdef = {
         end
 
     },
-     SAVENUMBER = {
+    SAVENUMBER = {
         t = messages.translation['SAVENUMBER'],
         value = tostring(settings.appSettings.SAVENUMBER),
         x = x_col1 +20,
         y = hSize - 230,
         w = 50,
-        h = definitions.lineHeight * 1.5,
+        h = def.lineHeight * 1.5,
         isFocused = false,
-        ascii_min = 48, -- '0'
-        ascii_max = 57, -- '9'
+        ascii_min = 48,
+        ascii_max = 57,
         value_min_len = 1,
         value_max_len = 5,
         draw_ = function()
@@ -330,7 +329,7 @@ wdef = {
             windows.drawCheckBox(wdef.AUTOCENTERTANKHANDLING)
         end
     },
-     AUTOFLAPS = {
+    AUTOFLAPS = {
         t = messages.translation['AUTOFLAPS'],
         value = toboolean(settings.appSettings.AUTOFLAPS),
         x = x_col1 + 60,
@@ -342,7 +341,7 @@ wdef = {
             settings.appSettings.AUTOFLAPS = not_(settings.appSettings.AUTOFLAPS)
             settings.writeSettings(settings.appSettings)
             wdef.AUTOFLAPS.value = toboolean(settings.appSettings.AUTOFLAPS)
-        end,       
+        end,      
             draw_ = function()
             windows.drawCheckBox(wdef.AUTOFLAPS)
         end
@@ -429,10 +428,10 @@ wdef = {
         x = x_col1 + 20,
         y = hSize - 490,
         w = 50,
-        h = definitions.lineHeight * 1.5,
+        h = def.lineHeight * 1.5,
         isFocused = false,
-        ascii_min = 48, -- '0'
-        ascii_max = 57, -- '9'
+        ascii_min = 48,
+        ascii_max = 57,
         value_min_len = 1,
         value_max_len = 5,
         draw_ = function()
@@ -493,10 +492,10 @@ wdef = {
         x = x_col1 + 20,
         y = hSize - 590,
         w = 50,
-        h = definitions.lineHeight * 1.5,
+        h = def.lineHeight * 1.5,
         isFocused = false,
-        ascii_min = 48, -- '0'
-        ascii_max = 55, -- '7'
+        ascii_min = 48,
+        ascii_max = 55,
         value_min_len = 4,
         value_max_len = 4,
         draw_ = function()
@@ -514,10 +513,10 @@ wdef = {
         x = x_col1 + 20,
         y = hSize - 620,
         w = 50,
-        h = definitions.lineHeight * 1.5,
+        h = def.lineHeight * 1.5,
         isFocused = false,
-        ascii_min = 48, -- '0'
-        ascii_max = 55, -- '7'
+        ascii_min = 48,
+        ascii_max = 55,
         value_min_len = 1,
         value_max_len = 2,
         draw_ = function()
@@ -529,7 +528,7 @@ wdef = {
             return true
         end
     },
-     HIDEEFBS = {
+    HIDEEFBS = {
         t = messages.translation['HIDEEFBS'],
         value = toboolean(settings.appSettings.HIDEEFBS),
         x = x_col1 + 60,
@@ -541,7 +540,7 @@ wdef = {
             settings.appSettings.HIDEEFBS = not_(settings.appSettings.HIDEEFBS)
             settings.writeSettings(settings.appSettings)
             wdef.HIDEEFBS.value = toboolean(settings.appSettings.HIDEEFBS)
-        end,       
+        end,      
             draw_ = function()
             windows.drawCheckBox(wdef.HIDEEFBS)
         end
@@ -562,10 +561,10 @@ wdef = {
         x = x_col2 + 20,
         y = hSize - 90,
         w = 50,
-        h = definitions.lineHeight * 1.5,
+        h = def.lineHeight * 1.5,
         isFocused = false,
-        ascii_min = 48, -- '0'
-        ascii_max = 57, -- '9'
+        ascii_min = 48,
+        ascii_max = 57,
         value_min_len = 1,
         value_max_len = 2,
         draw_ = function()
@@ -583,10 +582,10 @@ wdef = {
         x = x_col2 + 20,
         y = hSize - 120,
         w = 50,
-        h = definitions.lineHeight * 1.5,
+        h = def.lineHeight * 1.5,
         isFocused = false,
-        ascii_min = 48, -- '0'
-        ascii_max = 57, -- '9'
+        ascii_min = 48,
+        ascii_max = 57,
         value_min_len = 1,
         value_max_len = 2,
         draw_ = function()
@@ -604,10 +603,10 @@ wdef = {
         x = x_col2 + 20,
         y = hSize - 150,
         w = 50,
-        h = definitions.lineHeight * 1.5,
+        h = def.lineHeight * 1.5,
         isFocused = false,
-        ascii_min = 48, -- '0'
-        ascii_max = 57, -- '9'
+        ascii_min = 48,
+        ascii_max = 57,
         value_min_len = 1,
         value_max_len = 2,
         draw_ = function()
@@ -625,10 +624,10 @@ wdef = {
         x = x_col2 + 20,
         y = hSize - 180,
         w = 50,
-        h = definitions.lineHeight * 1.5,
+        h = def.lineHeight * 1.5,
         isFocused = false,
-        ascii_min = 48, -- '0'
-        ascii_max = 57, -- '9'
+        ascii_min = 48,
+        ascii_max = 57,
         value_min_len = 1,
         value_max_len = 2,
         draw_ = function()
@@ -646,10 +645,10 @@ wdef = {
         x = x_col2 + 20,
         y = hSize - 210,
         w = 50,
-        h = definitions.lineHeight * 1.5,
+        h = def.lineHeight * 1.5,
         isFocused = false,
-        ascii_min = 48, -- '0'
-        ascii_max = 57, -- '9'
+        ascii_min = 48,
+        ascii_max = 57,
         value_min_len = 1,
         value_max_len = 2,
         draw_ = function()
@@ -667,10 +666,10 @@ wdef = {
         x = x_col2 + 20,
         y = hSize - 240,
         w = 50,
-        h = definitions.lineHeight * 1.5,
+        h = def.lineHeight * 1.5,
         isFocused = false,
-        ascii_min = 48, -- '0'
-        ascii_max = 57, -- '9'
+        ascii_min = 48,
+        ascii_max = 57,
         value_min_len = 1,
         value_max_len = 2,
         draw_ = function()
@@ -983,7 +982,7 @@ wdef = {
             settings.appSettings.IGNOREALLBRIGHTHNESSSETTINGS = not_(settings.appSettings.IGNOREALLBRIGHTHNESSSETTINGS)
             settings.writeSettings(settings.appSettings)
             wdef.IGNOREALLBRIGHTHNESSSETTINGS.value = toboolean(settings.appSettings.IGNOREALLBRIGHTHNESSSETTINGS)
-        end,       
+        end,      
             draw_ = function()
             windows.drawCheckBox(wdef.IGNOREALLBRIGHTHNESSSETTINGS)
         end
@@ -1027,219 +1026,217 @@ components = {
     }, interactive {
     position = getElementInteractive(wdef.closeButton)[1],
     onMouseDown = getElementInteractive(wdef.closeButton)[2]
-    -- cursor = definitions.cursor,
+    -- cursor = def.cursor,
 }, interactive {
     position = getElementInteractive(wdef.VOICEREADBACK)[1],
     onMouseDown = getElementInteractive(wdef.VOICEREADBACK)[2]
-    -- cursor = definitions.cursor,
+    -- cursor = def.cursor,
 }, interactive {
     position = getElementInteractive(wdef.USEGROUNDPOWER)[1],
     onMouseDown = getElementInteractive(wdef.USEGROUNDPOWER)[2]
-    -- cursor = definitions.cursor,
+    -- cursor = def.cursor,
 }, interactive {
     position = getElementInteractive(wdef.AUTOCENTERTANKHANDLING)[1],
     onMouseDown = getElementInteractive(wdef.AUTOCENTERTANKHANDLING)[2]
-    -- cursor = definitions.cursor,
+    -- cursor = def.cursor,
 }, interactive {
     position = getElementInteractive(wdef.IGNOREALLBRIGHTHNESSSETTINGS)[1],
     onMouseDown = getElementInteractive(wdef.IGNOREALLBRIGHTHNESSSETTINGS)[2]
-    -- cursor = definitions.cursor,
+    -- cursor = def.cursor,
 }, interactive {
-    --cursor = definitions.cursor,
+    --cursor = def.cursor,
     position = getElementInteractive(wdef.AUTOFUNCTIONS)[1],
     onMouseDown = getElementInteractive(wdef.AUTOFUNCTIONS)[2]
 }, interactive {
-    --cursor = definitions.cursor,
+    --cursor = def.cursor,
     position = getElementInteractive(wdef.VOICEADVICEONLY)[1],
     onMouseDown = getElementInteractive(wdef.VOICEADVICEONLY)[2]
 }, interactive {
-    --cursor = definitions.cursor,
+    --cursor = def.cursor,
     position = getElementInteractive(wdef.AUTOFLAPS)[1],
     onMouseDown = getElementInteractive(wdef.AUTOFLAPS)[2]
 }, interactive {
-    --cursor = definitions.cursor,
+    --cursor = def.cursor,
     position = getElementInteractive(wdef.HIDEEFBS)[1],
     onMouseDown = getElementInteractive(wdef.HIDEEFBS)[2]
 }, interactive {
-    --cursor = definitions.cursor,
+    --cursor = def.cursor,
     position = getElementInteractive(wdef.WAKEOVERRIDE)[1],
     onMouseDown = getElementInteractive(wdef.WAKEOVERRIDE)[2]
 }, interactive {
-    --cursor = definitions.cursor,
+    --cursor = def.cursor,
     position = getElementInteractive(wdef.AUTOANTIICE)[1],
     onMouseDown = getElementInteractive(wdef.AUTOANTIICE)[2]
 }, interactive {
-    --cursor = definitions.cursor,
+    --cursor = def.cursor,
     position = getElementInteractive(wdef.AUTOWIPER)[1],
     onMouseDown = getElementInteractive(wdef.AUTOWIPER)[2]
 }, interactive {
-    --cursor = definitions.cursor,
+    --cursor = def.cursor,
     position = getElementInteractive(wdef.AUTOBARO)[1],
     onMouseDown = getElementInteractive(wdef.AUTOBARO)[2]
 }, interactive {
-    --cursor = definitions.cursor,
+    --cursor = def.cursor,
     position = getElementInteractive(wdef.VIEWCHANGES)[1],
     onMouseDown = getElementInteractive(wdef.VIEWCHANGES)[2]
 }, interactive {
-    --cursor = definitions.cursor,
+    --cursor = def.cursor,
     position = getElementInteractive(wdef.SPEEDRESTR250)[1],
     onMouseDown = getElementInteractive(wdef.SPEEDRESTR250)[2]
 }, interactive {
-    --cursor = definitions.cursor,
+    --cursor = def.cursor,
     position = getElementInteractive(wdef.VREF30)[1],
     onMouseDown = getElementInteractive(wdef.VREF30)[2]
 }, interactive {
-    --cursor = definitions.cursor,
+    --cursor = def.cursor,
     position = getElementInteractive(wdef.LOWERDU)[1],
     onMouseDown = getElementInteractive(wdef.LOWERDU)[2]
 }, interactive {
-    --cursor = definitions.cursor,
+    --cursor = def.cursor,
     position = getElementInteractive(wdef.BANKANGLEMAX)[1],
     onMouseDown = getElementInteractive(wdef.BANKANGLEMAX)[2]
 }, interactive {
-    --cursor = definitions.cursor,
+    --cursor = def.cursor,
     position = getElementInteractive(wdef.BANKANGLEMAX)[3],
     onMouseDown = getElementInteractive(wdef.BANKANGLEMAX)[4]
 }, interactive {
-    --cursor = definitions.cursor,
+    --cursor = def.cursor,
     position = getElementInteractive(wdef.TODPAUSEQUITTIME)[1],
     onMouseDown = getElementInteractive(wdef.TODPAUSEQUITTIME)[2]
 }, interactive {
-    --cursor = definitions.cursor,
+    --cursor = def.cursor,
     position = getElementInteractive(wdef.SAVETIME)[1],
     onMouseDown = getElementInteractive(wdef.SAVETIME)[2]
 }, interactive {
-    --cursor = definitions.cursor,
+    --cursor = def.cursor,
     position = getElementInteractive(wdef.SAVENUMBER)[1],
     onMouseDown = getElementInteractive(wdef.SAVENUMBER)[2]
 }, interactive {
-    --cursor = definitions.cursor,
+    --cursor = def.cursor,
     position = getElementInteractive(wdef.LOWERAIRSPACEALT)[1],
     onMouseDown = getElementInteractive(wdef.LOWERAIRSPACEALT)[2]
 }, interactive {
-    --cursor = definitions.cursor,
+    --cursor = def.cursor,
     position = getElementInteractive(wdef.TRANSPONDERCODE)[1],
     onMouseDown = getElementInteractive(wdef.TRANSPONDERCODE)[2]
 }, interactive {
-    --cursor = definitions.cursor,
+    --cursor = def.cursor,
     position = getElementInteractive(wdef.GEARDOWNFLAPS)[1],
     onMouseDown = getElementInteractive(wdef.GEARDOWNFLAPS)[2]
 }, interactive {
-    --cursor = definitions.cursor,
+    --cursor = def.cursor,
     position = getElementInteractive(wdef.VIEWMAINPANEL)[1],
     onMouseDown = getElementInteractive(wdef.VIEWMAINPANEL)[2]
 }, interactive {
-    --cursor = definitions.cursor,
+    --cursor = def.cursor,
     position = getElementInteractive(wdef.VIEWPEDESTAL)[1],
     onMouseDown = getElementInteractive(wdef.VIEWPEDESTAL)[2]
 }, interactive {
-    --cursor = definitions.cursor,
+    --cursor = def.cursor,
     position = getElementInteractive(wdef.VIEWOVERHEADPANEL)[1],
     onMouseDown = getElementInteractive(wdef.VIEWOVERHEADPANEL)[2]
 }, interactive {
-    --cursor = definitions.cursor,
+    --cursor = def.cursor,
     position = getElementInteractive(wdef.VIEWFMS)[1],
     onMouseDown = getElementInteractive(wdef.VIEWFMS)[2]
 }, interactive {
-    --cursor = definitions.cursor,
+    --cursor = def.cursor,
     position = getElementInteractive(wdef.VIEWTHROTTLE)[1],
     onMouseDown = getElementInteractive(wdef.VIEWTHROTTLE)[2]
 }, interactive {
-    --cursor = definitions.cursor,
+    --cursor = def.cursor,
     position = getElementInteractive(wdef.VIEWUPPEROVERHEADPANEL)[1],
     onMouseDown = getElementInteractive(wdef.VIEWUPPEROVERHEADPANEL)[2]
 }, interactive {
-    --cursor = definitions.cursor,
+    --cursor = def.cursor,
     position = getElementInteractive(wdef.BRIGHTMAINPANEL)[1],
     onMouseDown = getElementInteractive(wdef.BRIGHTMAINPANEL)[2]
 }, interactive {
-    --cursor = definitions.cursor,
+    --cursor = def.cursor,
     position = getElementInteractive(wdef.BRIGHTMAINPANEL)[3],
     onMouseDown = getElementInteractive(wdef.BRIGHTMAINPANEL)[4]
 }, interactive {
-    --cursor = definitions.cursor,
+    --cursor = def.cursor,
     position = getElementInteractive(wdef.BRIGHTOVERHEAD)[1],
     onMouseDown = getElementInteractive(wdef.BRIGHTOVERHEAD)[2]
 }, interactive {
-    --cursor = definitions.cursor,
+    --cursor = def.cursor,
     position = getElementInteractive(wdef.BRIGHTOVERHEAD)[3],
     onMouseDown = getElementInteractive(wdef.BRIGHTOVERHEAD)[4]
 }, interactive {
-    --cursor = definitions.cursor,
+    --cursor = def.cursor,
     position = getElementInteractive(wdef.BRIGHTPEDESTRAL)[1],
     onMouseDown = getElementInteractive(wdef.BRIGHTPEDESTRAL)[2]
 }, interactive {
-    --cursor = definitions.cursor,
+    --cursor = def.cursor,
     position = getElementInteractive(wdef.BRIGHTPEDESTRAL)[3],
     onMouseDown = getElementInteractive(wdef.BRIGHTPEDESTRAL)[4]
 }, interactive {
-    --cursor = definitions.cursor,
+    --cursor = def.cursor,
     position = getElementInteractive(wdef.GENBRIGHTBACKGROUND)[1],
     onMouseDown = getElementInteractive(wdef.GENBRIGHTBACKGROUND)[2]
 }, interactive {
-    --cursor = definitions.cursor,
+    --cursor = def.cursor,
     position = getElementInteractive(wdef.GENBRIGHTBACKGROUND)[3],
     onMouseDown = getElementInteractive(wdef.GENBRIGHTBACKGROUND)[4]
 }, interactive {
-    --cursor = definitions.cursor,
+    --cursor = def.cursor,
     position = getElementInteractive(wdef.GENBRIGHTAFDSFLOOD)[1],
     onMouseDown = getElementInteractive(wdef.GENBRIGHTAFDSFLOOD)[2]
 }, interactive {
-    --cursor = definitions.cursor,
+    --cursor = def.cursor,
     position = getElementInteractive(wdef.GENBRIGHTAFDSFLOOD)[3],
     onMouseDown = getElementInteractive(wdef.GENBRIGHTAFDSFLOOD)[4]
 }, interactive {
-    --cursor = definitions.cursor,
+    --cursor = def.cursor,
     position = getElementInteractive(wdef.GENBRIGHTPEDESTRALFLOOD)[1],
     onMouseDown = getElementInteractive(wdef.GENBRIGHTPEDESTRALFLOOD)[2]
 }, interactive {
-    --cursor = definitions.cursor,
+    --cursor = def.cursor,
     position = getElementInteractive(wdef.GENBRIGHTPEDESTRALFLOOD)[3],
     onMouseDown = getElementInteractive(wdef.GENBRIGHTPEDESTRALFLOOD)[4]
 }, interactive {
-    --cursor = definitions.cursor,
+    --cursor = def.cursor,
     position = getElementInteractive(wdef.INSTRBRIGHTOUTBDDU)[1],
     onMouseDown = getElementInteractive(wdef.INSTRBRIGHTOUTBDDU)[2]
 }, interactive {
-    --cursor = definitions.cursor,
+    --cursor = def.cursor,
     position = getElementInteractive(wdef.INSTRBRIGHTOUTBDDU)[3],
     onMouseDown = getElementInteractive(wdef.INSTRBRIGHTOUTBDDU)[4]
 }, interactive {
-    --cursor = definitions.cursor,
+    --cursor = def.cursor,
     position = getElementInteractive(wdef.INSTRBRIGHTINBDDU)[1],
     onMouseDown = getElementInteractive(wdef.INSTRBRIGHTINBDDU)[2]
 }, interactive {
-    --cursor = definitions.cursor,
+    --cursor = def.cursor,
     position = getElementInteractive(wdef.INSTRBRIGHTINBDDU)[3],
     onMouseDown = getElementInteractive(wdef.INSTRBRIGHTINBDDU)[4]
 }, interactive {
-    --cursor = definitions.cursor,
+    --cursor = def.cursor,
     position = getElementInteractive(wdef.INSTRBRIGHTUPPERDU)[1],
     onMouseDown = getElementInteractive(wdef.INSTRBRIGHTUPPERDU)[2]
 }, interactive {
-    --cursor = definitions.cursor,
+    --cursor = def.cursor,
     position = getElementInteractive(wdef.INSTRBRIGHTUPPERDU)[3],
     onMouseDown = getElementInteractive(wdef.INSTRBRIGHTUPPERDU)[4]
 }, interactive {
-    --cursor = definitions.cursor,
+    --cursor = def.cursor,
     position = getElementInteractive(wdef.INSTRBRIGHTLOWDU)[1],
     onMouseDown = getElementInteractive(wdef.INSTRBRIGHTLOWDU)[2]
 }, interactive {
-    --cursor = definitions.cursor,
+    --cursor = def.cursor,
     position = getElementInteractive(wdef.INSTRBRIGHTLOWDU)[3],
     onMouseDown = getElementInteractive(wdef.INSTRBRIGHTLOWDU)[4]
 }, interactive {
-    --cursor = definitions.cursor,
+    --cursor = def.cursor,
     position = getElementInteractive(wdef.INSTRBRIGHTINBDDUS)[1],
     onMouseDown = getElementInteractive(wdef.INSTRBRIGHTINBDDUS)[2]
 }, interactive {
-    --cursor = definitions.cursor,
+    --cursor = def.cursor,
     position = getElementInteractive(wdef.INSTRBRIGHTINBDDUS)[3],
     onMouseDown = getElementInteractive(wdef.INSTRBRIGHTINBDDUS)[4]
 }
 }
-
-
 
 
 function not_(value)
@@ -1251,10 +1248,6 @@ function not_(value)
 end
 
 function update()
-    -- If any value changes that affects either drawing or perhaps one of the interactive functions, you must
-    -- get and evaluate it each flight loop in order to remain current with the state of the simulation.
-    -- There are lots of ways to write this sort of thing.  The important thing is to write it in a way that
-    -- you can easily understand later.  (Don't forget comments)
 end
 
 function draw()
@@ -1266,8 +1259,5 @@ function draw()
         end
     end
 
-
-
-    drawAll(components) -- This line is not always necessary for drawing, but if you want to see your click zones, in X-Plane
-    -- include it at the end of your draw function	
+    drawAll(components)
 end

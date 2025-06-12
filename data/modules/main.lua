@@ -1,8 +1,10 @@
-require("definitions")
+
+local def = require("definitions")
 require("helpers")
 require("yal")
 
-sasl.logInfo(string.format("Starting %s v%s on Xp %d", definitions.APPNAMEPREFIXLONG, definitions.VERSION, helpers.xpVersion))
+
+sasl.logInfo(string.format("Starting %s v%s on Xp %d", def.APPNAMEPREFIXLONG, def.VERSION, helpers.xpVersion))
 sasl.setLogLevel(LOG_INFO)
 
 if not helpers.isXp12 then
@@ -14,14 +16,14 @@ sasl.options.setAircraftPanelRendering(false)
 sasl.options.set3DRendering(false)
 sasl.options.setInteractivity(true)
 
-if helpers.check_create_path(definitions.XPCACHESPATH) then
-    if not helpers.check_create_path(definitions.YALCACHEPATH) then
+if helpers.check_create_path(def.XPCACHESPATH) then
+    if not helpers.check_create_path(def.YALCACHEPATH) then
         sasl.logWarning("Fail to create cache folder, reverting to legacy folder")
-        definitions.YALCACHESPATH = definitions.XPOUTPUTPATH
+        def.YALCACHESPATH = def.XPOUTPUTPATH
     end
 else
     sasl.logWarning("Fail to create cache folder, reverting to legacy folder")
-    definitions.YALCACHESPATH = definitions.XPOUTPUTPATH
+    def.YALCACHESPATH = def.XPOUTPUTPATH
 end
 
 include "keyboard_handler"
@@ -29,7 +31,7 @@ include "keyboard_handler"
 helpers.initTailNum() 
 
 local oneSecTimer = sasl.createTimer()
-local waitstep = LONGWAIT
+local waitstep = def.LONGWAIT
 
 yal.enableMenus()
 
@@ -85,7 +87,7 @@ function onAirportLoaded(flightNumber)
     sasl.logInfo(string.format("Airport loaded: Flight #%s, Aircraft: %s", flightNumber, sasl.getAircraft()))
     
     helpers.initTailNum()
-    yal.enableMenus() 
+    yal.enableMenus()    
 
     local enable_settings_menu_on_load = 0
     if helpers.isZibo then
@@ -98,10 +100,10 @@ function onAirportLoaded(flightNumber)
         yal.YalinitGlobal()
         yal.initDataref()
         sasl.startTimer(oneSecTimer)
-        waitstep = LONGWAIT
+        waitstep = def.LONGWAIT
     else
         sasl.logInfo("No Zibo Mod detected after airport load. Plugin functionality will remain inactive.")
-        sasl.enableMenuItem(yal.menu_main, menu_settings, OFF)
+        sasl.enableMenuItem(yal.menu_main, menu_settings, def.OFF)
         sasl.stopTimer(oneSecTimer)
         setup_datapanel:setIsVisible(false)
     end
@@ -117,12 +119,12 @@ function update()
             local next_recommended_wait_step = yal.do_yal()
 
             if type(next_recommended_wait_step) ~= "number" or
-               (next_recommended_wait_step ~= STANDARDWAIT and
-                next_recommended_wait_step ~= SHORTWAIT and
-                next_recommended_wait_step ~= LONGWAIT) then
+               (next_recommended_wait_step ~= def.STANDARDWAIT and
+                next_recommended_wait_step ~= def.SHORTWAIT and
+                next_recommended_wait_step ~= def.LONGWAIT) then
                 
                 sasl.logInfo(string.format("yal.do_yal() returned an invalid wait step (%.2f). Falling back to STANDARDWAIT.", next_recommended_wait_step or -1))
-                next_recommended_wait_step = STANDARDWAIT
+                next_recommended_wait_step = def.STANDARDWAIT
             end
 
             waitstep = next_recommended_wait_step
