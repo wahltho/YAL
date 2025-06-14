@@ -8499,7 +8499,7 @@ function beforetakeoffsteps()
     if (P.procedureloop1.stepindex == 12) then
         if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
             if (get(P.apvnavstat) ~= def.ON) then
-                P.commandtableentry(def.ADVICE, "Arm VNAV")
+                P.commandtableentry(def.ADVICE, "Arm V NAV")
                 P.procedureloop1.stepindex = P.procedureloop1.stepindex - 1
             elseif not P.procedureloop1.steprepeat then
                 P.commandtableentry(def.ADVICE, "V NAV checked and Armed")
