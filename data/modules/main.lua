@@ -121,6 +121,7 @@ function update()
             if type(next_recommended_wait_step) ~= "number" or
                (next_recommended_wait_step ~= def.STANDARDWAIT and
                 next_recommended_wait_step ~= def.SHORTWAIT and
+                next_recommended_wait_step ~= def.LONGSPEAKWAIT and
                 next_recommended_wait_step ~= def.LONGWAIT) then
                 
                 sasl.logInfo(string.format("yal.do_yal() returned an invalid wait step (%.2f). Falling back to STANDARDWAIT.", next_recommended_wait_step or -1))

@@ -10972,6 +10972,8 @@ end
 
 function P.commandtableloop()
 
+    local next_recommended_wait_step = def.STANDARDWAIT  
+
     if (#P.commandtable > 0) then
 
         if (P.commandtable[1][1] == def.COMMAND) then
@@ -10981,11 +10983,17 @@ function P.commandtableloop()
             sasl.logInfo("YAL XPLMSpeakString TEXT: " .. P.commandtable[1][2])
             if (P.configvalues[def.CONFIGVOICEREADBACK] == def.ON) then
                 speak(P.commandtable[1][2])
+                if (string.len(P.commandtable[1][2]) > def.LONGSPEAK) then
+                    next_recommended_wait_step = def.LONGSPEAKWAIT 
+                end
             end
         elseif (P.commandtable[1][1] == def.ADVICE) then
             sasl.logInfo("YAL XPLMSpeakString ADVICE: " .. P.commandtable[1][2])
             if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
                 speak(P.commandtable[1][2])
+                if (string.len(P.commandtable[1][2]) > def.LONGSPEAK) then
+                    next_recommended_wait_step = def.LONGSPEAKWAIT
+                end
             end
         end
 
@@ -10993,7 +11001,7 @@ function P.commandtableloop()
 
     end
 
-    return true
+    return next_recommended_wait_step
 
 end
 
@@ -11252,56 +11260,42 @@ function P.do_yal()
     sasl.logDebug("PROCEDURELOOP2: LOCK ".. P.procedureloop2.lock .. " STEPINDEX " .. P.procedureloop2.stepindex)
     sasl.logDebug("PROCEDURELOOP3: LOCK ".. P.procedureloop3.lock .. " STEPINDEX " .. P.procedureloop3.stepindex)
 
-    -- --- NEU: Scheduler für Prozedur-Loops (findet und führt EINE aktive Schleife aus, wenn vorhanden) ---
     local loops_count = #P.loopfunctions
-    local loop_executed_this_cycle = false -- Flag, um zu verfolgen, ob in diesem Zyklus eine Schleife ausgeführt wurde
+    local loop_executed_this_cycle = false
 
-    -- Bestimme den Startpunkt für die Suche in der zirkulären Liste der Schleifen.
-    -- Beginne immer nach dem Index der zuletzt *versuchten* oder ausgeführten Schleife.
     local start_check_index = P.lastExecutedLoopIndex
-    if start_check_index == 0 then start_check_index = 1 end -- Falls noch nie gelaufen, starte bei Loop 1
+    if start_check_index == 0 then start_check_index = 1 end
 
-    -- Variable, um den Index der zuletzt in diesem Zyklus ÜBERPRÜFTEN Schleife zu verfolgen.
-    -- Diese Variable ist entscheidend, damit der Pointer auch bei übersprungenen Schleifen vorrückt,
-    -- wenn KEINE Schleife in einem Zyklus ausgeführt wurde.
-    local last_checked_loop_in_this_cycle = start_check_index -- Initialisiere korrekt
+    local last_checked_loop_in_this_cycle = start_check_index
 
-    -- Durchlaufe alle Schleifen-Kandidaten, bis eine aktive gefunden und ausgeführt wird
     for i = 1, loops_count do
-        -- Berechne den aktuellen Index in der zirkulären Liste (1-basiert: 1, 2, 3, 1, 2, 3...)
+
         local current_loop_idx = ((start_check_index + i - 2) % loops_count) + 1
 
         local current_loop_state_table = P.loopStateTables[current_loop_idx]
         local current_loop_function = P.loopfunctions[current_loop_idx]
 
-        -- last_checked_loop_in_this_cycle muss JEDES Mal aktualisiert werden,
-        -- um den Fortschritt des Scans zu reflektieren.
         last_checked_loop_in_this_cycle = current_loop_idx
 
         if current_loop_state_table.lock ~= def.NOPROCEDURE then
-            -- Gefunden: Eine gelockte Schleife, die ausgeführt werden soll
+
             current_loop_function()
-            -- ENTSCHEIDENDE ÄNDERUNG: Der Zeiger springt zur NÄCHSTEN Schleife im Kreis,
-            -- damit im nächsten Zyklus fair weitergesucht wird.
+ 
             P.lastExecutedLoopIndex = (current_loop_idx % loops_count) + 1
             loop_executed_this_cycle = true
             sasl.logDebug("SCHEDULER: Executing loop " .. tostring(current_loop_idx) .. " (locked: " .. current_loop_state_table.lock .. "). Next scan starts at " .. tostring(P.lastExecutedLoopIndex) .. ".")
-            break -- Eine aktive Schleife wurde ausgeführt, breche die Suche für diesen do_yal-Aufruf ab
+            break
         else
             sasl.logDebug("SCHEDULER: Skipping loop " .. tostring(current_loop_idx) .. " (not locked).")
         end
     end
 
-    -- Wenn keine Schleife ausgeführt wurde, muss P.lastExecutedLoopIndex trotzdem vorrücken.
-    -- Aber basierend auf der zuletzt in diesem Zyklus ÜBERPRÜFTEN Schleife,
-    -- um sicherzustellen, dass die Suche im nächsten do_yal-Aufruf an der nächsten Position beginnt.
     if not loop_executed_this_cycle then
         sasl.logDebug("SCHEDULER: No locked loops found to execute this cycle. Advancing scan pointer for next cycle.")
         P.lastExecutedLoopIndex = (last_checked_loop_in_this_cycle % loops_count) + 1
     end
-    -- --- ENDE NEU: Scheduler für Prozedur-Loops ---
 
-    P.commandtableloop() 
+    next_recommended_wait_step = P.commandtableloop() 
 
     sasl.logDebug("--------------------------------------------")
     sasl.logDebug("BEFORETAXISET: " .. tostring(P.proceduretable[def.BEFORETAXIPROCEDURE].set))
