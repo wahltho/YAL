@@ -105,7 +105,7 @@ function P.YalinitGlobal()
     [def.ALTITUDEB10000PROCEDURE] = { name = "", steps = 12, set = false, procedurefunction = altitudeb10000steps, loop = 1 },
     [def.AFTERTAKEOFFPROCEDURE] = { name = "", steps = 3, set = false, procedurefunction = aftertakeoffsteps, loop = 2 },
     [def.DURINGCLIMBPROCEDURE] = { name = "", steps = 13, set = false, procedurefunction = duringclimbsteps, loop = 2 },
-    [def.DURINGDESCENTPROCEDURE] = { name = "", steps = 8, set = false, procedurefunction = duringdescentsteps, loop = 2 },
+    [def.DURINGDESCENTPROCEDURE] = { name = "", steps = 10, set = false, procedurefunction = duringdescentsteps, loop = 2 },
     [def.RADIOALTITUDEB2500PROCEDURE] = { name = "", steps = 1, set = false, procedurefunction = radioaltitudeb2500steps, loop = 2 },
     [def.RADIOALTITUDEB1000PROCEDURE] = { name = "", steps = 7, set = false, procedurefunction = radioaltitudeb1000steps, loop = 2 },
     [def.ATPARKINGPOSITIONPROCEDURE] = { name = "At Parking Position", steps = 12, set = false, procedurefunction = atparkingpositionsteps, loop = 1 }
@@ -2408,7 +2408,7 @@ sasl.registerCommandHandler(my_command_toggleadviceonly, 0, toggleadviceonly_)
 
 function abortprocedure()
 
-    if ((P.procedureloop1.lock ~= def.NOPROCEDURE) or (P.procedureloop2.lock ~= def.NOPROCEDURE)) then
+    if ((P.procedureloop1.lock ~= def.NOPROCEDURE) or (P.procedureloop2.lock ~= def.NOPROCEDURE) or (P.procedureloop3.lock ~= def.NOPROCEDURE)) then
 
         P.procedureabort = true
 
@@ -2432,7 +2432,7 @@ sasl.registerCommandHandler(my_command_abortprocedure, 0, abortprocedure_)
 
 function skipprocedurestep()
 
-    if ((P.procedureloop1.lock ~= def.NOPROCEDURE) or (P.procedureloop2.lock ~= def.NOPROCEDURE)) then
+    if ((P.procedureloop1.lock ~= def.NOPROCEDURE) or (P.procedureloop2.lock ~= def.NOPROCEDURE) or (P.procedureloop3.lock ~= def.NOPROCEDURE)) then
 
         P.procedureskipstep = true
 
@@ -4004,7 +4004,7 @@ function settoflapssteps()
         end
 
         if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-            if (get(P.toflapsset) == def.OFF) then
+            if (get(P.toflaps) ~= toflapscalc) then
                 P.commandtableentry(def.ADVICE, "Enter Takeoff Flaps " .. toflapscalcstring)
                 P.procedureloop3.stepindex = P.procedureloop3.stepindex - 1
             end
@@ -7705,6 +7705,28 @@ function duringdescentsteps()
         end
     end
 
+    if (P.procedureloop2.stepindex == 9) then
+        if (get(P.desrwy) == "") then
+            if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
+                P.commandtableentry(def.ADVICE, "Set Destination Runway for " .. addspaces(get(P.desicao)))
+            else
+                P.commandtableentry(def.TEXT, "Set Destination Runway for " .. addspaces(get(P.desicao)))
+            end
+        end
+    end
+
+    if (P.procedureloop2.stepindex == 10) then
+        if P.desmetar.metarfound then
+            if not shouldCheckRunwaySuitability(P.desmetar.metar, get(P.desrwy)) then
+                if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
+                    P.commandtableentry(def.ADVICE, "Check Destination Runway " .. addspaces(get(P.desrwy)))
+                else
+                    P.commandtableentry(def.TEXT, "Check Destination Runway " .. addspaces(get(P.desrwy)))
+                end
+            end
+        end
+    end
+
     return true
 
 end
@@ -8184,8 +8206,8 @@ function beforetaxisteps()
 
     if (P.procedureloop1.stepindex == 15) then
         if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-            if (get(P.toflaps) == 0) then
-                local toflapscalc = determineTakeoffFlapsSetting(P.depmetar.decodedmetar)
+            local toflapscalc = determineTakeoffFlapsSetting(P.depmetar.decodedmetar)
+            if (get(P.toflaps) ~= toflapscalc) then                
                 P.commandtableentry(def.ADVICE, "Set Takeoff Flaps " .. tostring(toflapscalc))
                 P.procedureloop1.stepindex = P.procedureloop1.stepindex - 1
             elseif not P.procedureloop1.steprepeat then
