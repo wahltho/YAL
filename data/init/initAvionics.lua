@@ -207,6 +207,7 @@ function avionicsDevice(params)
     local bezelC
 
     local hasBezel = params.bezelComponents ~= nil
+    local screenClear = params.screenClear
     local drawOnDemand = params.drawOnDemand
     if drawOnDemand == nil then drawOnDemand = false end
     screenC = setupAvionicsComponent(params.name, size, params.components)
@@ -252,8 +253,10 @@ function avionicsDevice(params)
     avionicsDeviceLayer = avionicsDeviceLayer + 1
 
     local function screenDraw()
-        local cs = screenC.size
-        sasl.gl.clearRenderTarget(0, 0, cs[1], cs[2])
+        if screenClear then
+            local cs = screenC.size
+            sasl.gl.clearRenderTarget(0, 0, cs[1], cs[2])
+        end
         avProcessDraw(screenC)
         return screenLayer
     end

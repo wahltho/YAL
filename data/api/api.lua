@@ -636,7 +636,7 @@ SASL_TIMEOUT_SPEEDLIMIT = nil
 
 SASL_TIMEOUT_VALUE_DEFAULT = nil
 
---- Synchronously downloads contents from file, specified by url.
+--- Sets timeout values/modes for all functions downloading files/contents
 --- @param type TimeoutType
 --- @param time number
 --- @param speed number
@@ -645,6 +645,13 @@ SASL_TIMEOUT_VALUE_DEFAULT = nil
 --- : https://1-sim.com/files/SASL3Manual.pdf#setDownloadTimeout
 function setDownloadTimeout(type, time, speed) end;
 net.setDownloadTimeout = setDownloadTimeout;
+
+--- Enables/disables automatic request failure in case of returned HTTP error codes
+--- @param enabled boolean
+--- @see reference
+--- : https://1-sim.com/files/SASL3Manual.pdf#setDownloadFailOnHttpError
+function setDownloadFailOnHttpError(type, time, speed) end;
+net.setDownloadFailOnHttpError = setDownloadFailOnHttpError;
 
 -------------------------------------------------------------------------------
 -------------------------------------------------------------------------------
