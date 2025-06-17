@@ -81,48 +81,74 @@ function P.YalinitGlobal()
     P.procedureabort = false
     P.procedureskipstep = false
 
-    P.procedureloop1 = { lock = def.NOPROCEDURE, stepindex = 0, stepindexprevious = 0, steprepeat = false }
-    P.procedureloop2 = { lock = def.NOPROCEDURE, stepindex = 0, stepindexprevious = 0, steprepeat = false }
-    P.procedureloop3 = { lock = def.NOPROCEDURE, stepindex = 0, stepindexprevious = 0, steprepeat = false }
-
-    P.proceduretable = {
-    [def.COCKPITINITPROCEDURE] = { name = "Cockpit Initialization", steps = 24, set = false, procedurefunction = cockpitinitsteps, loop = 1 },
-    [def.COLDANDDARKPROCEDURE] = { name = "Cold and Dark Startup", steps = 29, set = false, procedurefunction = coldanddarksteps, loop = 1 },
-    [def.ENGINESTARTPROCEDURE] = { name = "Engine Start", steps = 33, set = false , procedurefunction = enginestartsteps, loop = 1 },
-    [def.TURNAROUNDENGINESHUTDOWNPROCEDURE] = { name = "Turnaround Engine Shutdown", steps = 17, set = false, procedurefunction = engineshutdownsteps, loop = 1 },
-    [def.FINALENGINESHUTDOWNPROCEDURE] = { name = "Final Engine Shutdown", steps = 17, set = false, procedurefunction = engineshutdownsteps, loop = 1 },
-    [def.SHUTDOWNPROCEDURE] = { name = "Shutdown", steps = 24, set = false, procedurefunction = shutdownsteps, loop = 1 },
-    [def.TESTPROCEDURE] = { name = "Test", steps = 47, set = false, procedurefunction = teststeps, loop = 1 },
-    [def.APUSTARTUPPROCEDURE] = { name = "A P U Startup", steps = 7, set = false, procedurefunction = apustartupsteps, loop = 1 },
-    [def.BEFORETAXIPROCEDURE] = { name = "Before Taxi", steps = 24, set = false, procedurefunction = beforetaxisteps, loop = 1 },
-    [def.BEFORETAKEOFFPROCEDURE] = { name = "Before Takeoff", steps = 13, set = false, procedurefunction = beforetakeoffsteps, loop = 1 },
-    [def.AFTERLANDINGPROCEDURE] = { name = "After Landing", steps = 19, set = false, procedurefunction = afterlandingsteps, loop = 1 },
-    [def.SETILSPROCEDURE] = { name = "", steps = 8, set = false, procedurefunction = setilssteps, loop = 3 },
-    [def.SETVREFPROCEDURE] = { name = "", steps = 4, set = false, procedurefunction = setvrefsteps, loop = 3 },
-    [def.SETTOFLAPSPROCEDURE] = { name = "", steps = 4, set = false, procedurefunction = settoflapssteps, loop = 3 },
-    [def.ALTITUDEA10000PROCEDURE] = { name = "", steps = 7, set = false, procedurefunction = altitudea10000steps, loop = 1 },
-    [def.ALTITUDEB10000PROCEDURE] = { name = "", steps = 12, set = false, procedurefunction = altitudeb10000steps, loop = 1 },
-    [def.AFTERTAKEOFFPROCEDURE] = { name = "", steps = 3, set = false, procedurefunction = aftertakeoffsteps, loop = 2 },
-    [def.DURINGCLIMBPROCEDURE] = { name = "", steps = 13, set = false, procedurefunction = duringclimbsteps, loop = 2 },
-    [def.DURINGDESCENTPROCEDURE] = { name = "", steps = 11, set = false, procedurefunction = duringdescentsteps, loop = 2 },
-    [def.RADIOALTITUDEB2500PROCEDURE] = { name = "", steps = 1, set = false, procedurefunction = radioaltitudeb2500steps, loop = 2 },
-    [def.RADIOALTITUDEB1000PROCEDURE] = { name = "", steps = 7, set = false, procedurefunction = radioaltitudeb1000steps, loop = 2 },
-    [def.ATPARKINGPOSITIONPROCEDURE] = { name = "At Parking Position", steps = 12, set = false, procedurefunction = atparkingpositionsteps, loop = 1 }
+    P.procedureloop1 = {
+    lock = def.NOPROCEDURE,
+    stepindex = 0,
+    stepindexprevious = 0,
+    steprepeat = false,
+    lastActiveTime = 0,
+    procedureabort = false,
+    procedureskipstep = false
     }
 
-    P.previousview = -1
+    P.procedureloop2 = {
+        lock = def.NOPROCEDURE,
+        stepindex = 0,
+        stepindexprevious = 0,
+        steprepeat = false,
+        lastActiveTime = 0,
+        procedureabort = false,
+        procedureskipstep = false
+    }
 
-    P.lastExecutedLoopIndex = 0 
-    P.loopfunctions = {          
+    P.procedureloop3 = {
+        lock = def.NOPROCEDURE,
+        stepindex = 0,
+        stepindexprevious = 0,
+        steprepeat = false,
+        lastActiveTime = 0,
+        procedureabort = false,
+        procedureskipstep = false
+    }
+
+    P.proceduretable = {
+        [def.COCKPITINITPROCEDURE] = { name = "Cockpit Initialization", steps = 24, set = false, procedurefunction = cockpitinitsteps, loop = 1 },
+        [def.COLDANDDARKPROCEDURE] = { name = "Cold and Dark Startup", steps = 29, set = false, procedurefunction = coldanddarksteps, loop = 1 },
+        [def.ENGINESTARTPROCEDURE] = { name = "Engine Start", steps = 33, set = false , procedurefunction = enginestartsteps, loop = 1 },
+        [def.TURNAROUNDENGINESHUTDOWNPROCEDURE] = { name = "Turnaround Engine Shutdown", steps = 17, set = false, procedurefunction = engineshutdownsteps, loop = 1 },
+        [def.FINALENGINESHUTDOWNPROCEDURE] = { name = "Final Engine Shutdown", steps = 17, set = false, procedurefunction = engineshutdownsteps, loop = 1 },
+        [def.SHUTDOWNPROCEDURE] = { name = "Shutdown", steps = 24, set = false, procedurefunction = shutdownsteps, loop = 1 },
+        [def.TESTPROCEDURE] = { name = "Test", steps = 47, set = false, procedurefunction = teststeps, loop = 1 },
+        [def.APUSTARTUPPROCEDURE] = { name = "A P U Startup", steps = 7, set = false, procedurefunction = apustartupsteps, loop = 1 },
+        [def.BEFORETAXIPROCEDURE] = { name = "Before Taxi", steps = 24, set = false, procedurefunction = beforetaxisteps, loop = 1 },
+        [def.BEFORETAKEOFFPROCEDURE] = { name = "Before Takeoff", steps = 13, set = false, procedurefunction = beforetakeoffsteps, loop = 1 },
+        [def.AFTERLANDINGPROCEDURE] = { name = "After Landing", steps = 19, set = false, procedurefunction = afterlandingsteps, loop = 1 },
+        [def.SETILSPROCEDURE] = { name = "", steps = 8, set = false, procedurefunction = setilssteps, loop = 3 },
+        [def.SETVREFPROCEDURE] = { name = "", steps = 4, set = false, procedurefunction = setvrefsteps, loop = 3 },
+        [def.SETTOFLAPSPROCEDURE] = { name = "", steps = 4, set = false, procedurefunction = settoflapssteps, loop = 3 },
+        [def.ALTITUDEA10000PROCEDURE] = { name = "", steps = 7, set = false, procedurefunction = altitudea10000steps, loop = 1 },
+        [def.ALTITUDEB10000PROCEDURE] = { name = "", steps = 12, set = false, procedurefunction = altitudeb10000steps, loop = 1 },
+        [def.AFTERTAKEOFFPROCEDURE] = { name = "", steps = 3, set = false, procedurefunction = aftertakeoffsteps, loop = 2 },
+        [def.DURINGCLIMBPROCEDURE] = { name = "", steps = 13, set = false, procedurefunction = duringclimbsteps, loop = 2 },
+        [def.DURINGDESCENTPROCEDURE] = { name = "", steps = 11, set = false, procedurefunction = duringdescentsteps, loop = 2 },
+        [def.RADIOALTITUDEB2500PROCEDURE] = { name = "", steps = 1, set = false, procedurefunction = radioaltitudeb2500steps, loop = 2 },
+        [def.RADIOALTITUDEB1000PROCEDURE] = { name = "", steps = 7, set = false, procedurefunction = radioaltitudeb1000steps, loop = 2 },
+        [def.ATPARKINGPOSITIONPROCEDURE] = { name = "At Parking Position", steps = 12, set = false, procedurefunction = atparkingpositionsteps, loop = 1 }
+    }
+
+    P.lastExecutedLoopIndex = 0
+    P.loopfunctions = {
         P.procedureloop_1,
         P.procedureloop_2,
         P.procedureloop_3
     }
-    P.loopStateTables = {        
+    P.loopStateTables = {
         P.procedureloop1,
-        P.procedureloop2,          
-        P.procedureloop3           
+        P.procedureloop2,
+        P.procedureloop3
     }
+
+    P.previousview = -1
 
 end
 
@@ -721,10 +747,9 @@ function P.buildnavdatatable()
         return false
     end
 
-    -- NEU: Header-Zeilen überspringen (die ersten 3 Zeilen)
     for i = 1, 3 do
         local header_line = srcnavdatafile:read()
-        if not header_line then -- Falls die Datei kürzer als erwartet ist
+        if not header_line then
             sasl.logError("Error reading navdata file header. File might be too short.")
             srcnavdatafile:close()
             return false
@@ -733,19 +758,18 @@ function P.buildnavdatatable()
     end
 
     local navdatarecord = srcnavdatafile:read()
-    local record_count = 0 -- Für bessere Debug-Meldungen
+    local record_count = 0
 
     while navdatarecord do
-        -- NEU: Datenverarbeitung stoppen, wenn die Endemarkierung (Zeile beginnt mit '99') erreicht ist
         if navdatarecord:sub(1, 2) == "99" then
             sasl.logDebug("End-of-data marker '99' found. Stopping navdata parsing.")
             break
         end
 
         record_count = record_count + 1
-        local process_current_record = true 
+        local process_current_record = true
         local navdataitems = {}
-        
+
         for navdataitem in navdatarecord:gmatch("%S+") do
             table.insert(navdataitems, navdataitem)
         end
@@ -757,9 +781,7 @@ function P.buildnavdatatable()
             sasl.logDebug(string.format("Item [%d]: '%s'", idx, val))
         end
 
-        -- Überprüfen, ob die Zeile lang genug ist, um auf die kritischen Längen- und Breitengrad-Indizes zuzugreifen.
-        -- def.SRCLONPOS sollte der höchste Index sein, der für diese Prüfung relevant ist.
-        if #navdataitems <= def.SRCLONPOS or #navdataitems <= def.SRCLATPOS then 
+        if #navdataitems <= def.SRCLONPOS or #navdataitems <= def.SRCLATPOS then
             sasl.logWarning("Record #" .. tostring(record_count) .. ": '" .. navdatarecord .. "' is too short (" .. #navdataitems .. " items). Expected at least " .. (def.SRCLONPOS + 1) .. " items for LAT/LON data. Skipping record.")
             process_current_record = false
         end
@@ -768,7 +790,7 @@ function P.buildnavdatatable()
         if process_current_record then
             local lat_str = navdataitems[def.SRCLATPOS]
             local lon_str = navdataitems[def.SRCLONPOS]
-            
+
             sasl.logDebug("Value at def.SRCLATPOS (" .. tostring(def.SRCLATPOS) .. "): '" .. tostring(lat_str) .. "'")
             sasl.logDebug("Value at def.SRCLONPOS (" .. tostring(def.SRCLONPOS) .. "): '" .. tostring(lon_str) .. "'")
 
@@ -788,29 +810,38 @@ function P.buildnavdatatable()
         end
 
         if process_current_record then
-            -- Dein bestehender IF-ELSEIF-Blöcke für def.SRCTYPECODE
             if (navdataitems[def.SRCTYPECODE] == def.NAVDATARECTYPEILS) then
                 local destnavtypetmp = string.sub(navdataitems[def.SRCNAVTYPE], 1, 3)
                 local navdatatableindex = navdataitems[def.SRCICAO] .. navdataitems[def.SRCRWY] .. destnavtypetmp
-                P.navdatatable[navdatatableindex] = {true, true, true, true, true, true, true} 
+                P.navdatatable[navdatatableindex] = {true, true, true, true, true, true, true}
                 P.navdatatable[navdatatableindex][def.DESTICAO] = navdataitems[def.SRCICAO]
                 P.navdatatable[navdatatableindex][def.DESTRWY] = navdataitems[def.SRCRWY]
                 P.navdatatable[navdatatableindex][def.DESTNAVTYPE] = destnavtypetmp
                 P.navdatatable[navdatatableindex][def.DESTNAVID] = navdataitems[def.SRCNAVID]
-                P.navdatatable[navdatatableindex][def.DESTFREQ] = tonumber(navdataitems[def.SRCFREQ]) 
-                
-                local course_str = navdataitems[def.SRCCOURSE] 
+                P.navdatatable[navdatatableindex][def.DESTFREQ] = tonumber(navdataitems[def.SRCFREQ])
+
+                local course_str = navdataitems[def.SRCCOURSE]
                 local course_val = tonumber(course_str)
 
+                local magnetic_variation = xplm.XPLMGetMagneticVariation(lat_val, lon_val)
+                sasl.logDebug("ILS/VOR DEBUG - Input Course (raw string): " .. tostring(course_str))
+                sasl.logDebug("ILS/VOR DEBUG - Course_val (tonumber): " .. tostring(course_val))
+                sasl.logDebug("ILS/VOR DEBUG - Lat/Lon: " .. tostring(lat_val) .. ", " .. tostring(lon_val))
+                sasl.logDebug("ILS/VOR DEBUG - Magnetic Variation from XPLM: " .. tostring(magnetic_variation))
+
                 if (course_val == nil) then
-                    sasl.logWarning("Record #" .. tostring(record_count) .. ": NIL course value for ILS record: '" .. navdatarecord .. "'. Setting course to 0.") 
-                    P.navdatatable[navdatatableindex][def.DESTCOURSE] = 0 
+                    sasl.logWarning("Record #" .. tostring(record_count) .. ": NIL course value for ILS record: '" .. navdatarecord .. "'. Setting course to 0.")
+                    P.navdatatable[navdatatableindex][def.DESTCOURSE] = 0
                 elseif (course_val > 360) then
+                    sasl.logDebug("ILS/VOR DEBUG - Course_val > 360, applying floor/calccourse.")
                     P.navdatatable[navdatatableindex][def.DESTCOURSE] = calccourse(math.floor(course_val / 360))
                 else
-                    P.navdatatable[navdatatableindex][def.DESTCOURSE] = calccourse((course_val + xplm.XPLMGetMagneticVariation(lat_val, lon_val) + 360) % 360)
+                    local calculated_course_ils_vor = (course_val + magnetic_variation + 360) % 360
+                    sasl.logDebug("ILS/VOR DEBUG - Calc (True + Var) before calccourse: " .. tostring(calculated_course_ils_vor))
+                    P.navdatatable[navdatatableindex][def.DESTCOURSE] = calccourse(calculated_course_ils_vor)
+                    sasl.logDebug("ILS/VOR DEBUG - Final Course after calccourse: " .. tostring(P.navdatatable[navdatatableindex][def.DESTCOURSE]))
                 end
-                P.navdatatable[navdatatableindex][def.DESTNAVDME] = false 
+                P.navdatatable[navdatatableindex][def.DESTNAVDME] = false
             elseif (navdataitems[def.SRCTYPECODE] == def.NAVDATARECTYPEVOR) then
                 local destnavtypetmp = string.sub(navdataitems[def.SRCNAVTYPE], 1, 3)
                 local navdatatableindex = navdataitems[def.SRCICAO] .. navdataitems[def.SRCRWY] .. destnavtypetmp
@@ -819,18 +850,28 @@ function P.buildnavdatatable()
                 P.navdatatable[navdatatableindex][def.DESTRWY] = navdataitems[def.SRCRWY]
                 P.navdatatable[navdatatableindex][def.DESTNAVTYPE] = destnavtypetmp
                 P.navdatatable[navdatatableindex][def.DESTNAVID] = navdataitems[def.SRCNAVID]
-                P.navdatatable[navdatatableindex][def.DESTFREQ] = tonumber(navdataitems[def.SRCFREQ]) 
-                
+                P.navdatatable[navdatatableindex][def.DESTFREQ] = tonumber(navdataitems[def.SRCFREQ])
+
                 local course_str = navdataitems[def.SRCCOURSE]
                 local course_val = tonumber(course_str)
 
+                local magnetic_variation = xplm.XPLMGetMagneticVariation(lat_val, lon_val)
+                sasl.logDebug("VOR DEBUG - Input Course (raw string): " .. tostring(course_str))
+                sasl.logDebug("VOR DEBUG - Course_val (tonumber): " .. tostring(course_val))
+                sasl.logDebug("VOR DEBUG - Lat/Lon: " .. tostring(lat_val) .. ", " .. tostring(lon_val))
+                sasl.logDebug("VOR DEBUG - Magnetic Variation from XPLM: " .. tostring(magnetic_variation))
+
                 if (course_val == nil) then
-                    sasl.logWarning("Record #" .. tostring(record_count) .. ": NIL course value for VOR record: '" .. navdatarecord .. "'. Setting course to 0.") 
-                    P.navdatatable[navdatatableindex][def.DESTCOURSE] = 0 
+                    sasl.logWarning("Record #" .. tostring(record_count) .. ": NIL course value for VOR record: '" .. navdatarecord .. "'. Setting course to 0.")
+                    P.navdatatable[navdatatableindex][def.DESTCOURSE] = 0
                 elseif (course_val > 360) then
+                    sasl.logDebug("VOR DEBUG - Course_val > 360, applying floor/calccourse.")
                     P.navdatatable[navdatatableindex][def.DESTCOURSE] = calccourse(math.floor(course_val / 360))
                 else
-                    P.navdatatable[navdatatableindex][def.DESTCOURSE] = calccourse((course_val + xplm.XPLMGetMagneticVariation(lat_val, lon_val) + 360) % 360)
+                    local calculated_course_vor = (course_val + magnetic_variation + 360) % 360
+                    sasl.logDebug("VOR DEBUG - Calc (True + Var) before calccourse: " .. tostring(calculated_course_vor))
+                    P.navdatatable[navdatatableindex][def.DESTCOURSE] = calccourse(calculated_course_vor)
+                    sasl.logDebug("VOR DEBUG - Final Course after calccourse: " .. tostring(P.navdatatable[navdatatableindex][def.DESTCOURSE]))
                 end
                 P.navdatatable[navdatatableindex][def.DESTNAVDME] = false
             elseif (navdataitems[def.SRCTYPECODE] == def.NAVDATARECTYPEDME) then
@@ -864,19 +905,41 @@ function P.buildnavdatatable()
                 P.navdatatable[navdatatableindex][def.DESTRWY] = navdataitems[def.SRCRWY]
                 P.navdatatable[navdatatableindex][def.DESTNAVTYPE] = destnavtypetmp
                 P.navdatatable[navdatatableindex][def.DESTNAVID] = destnavidtmp
-                P.navdatatable[navdatatableindex][def.DESTFREQ] = tonumber(navdataitems[def.SRCFREQ]) 
-                
-                local course_str = navdataitems[def.SRCCOURSE] 
-                if #course_str >= 4 and course_str:sub(1,3) == "CRS" then
-                   course_str = string.sub(course_str, 4, -1)
-                end
-                local course_val = tonumber(course_str)
+                P.navdatatable[navdatatableindex][def.DESTFREQ] = tonumber(navdataitems[def.SRCFREQ])
 
-                if (course_val == nil) then
-                    sasl.logWarning("Record #" .. tostring(record_count) .. ": NIL course value for LPV/GLS record: '" .. navdatarecord .. "'. Setting course to 0.") 
-                    P.navdatatable[navdatatableindex][def.DESTCOURSE] = 0 
+                local raw_course_data_string = navdataitems[def.SRCCOURSE]
+                local extracted_course_string = raw_course_data_string
+
+                if #raw_course_data_string > 3 and tonumber(raw_course_data_string:sub(1,3)) ~= nil then
+                    extracted_course_string = raw_course_data_string:sub(4)
+                end
+
+                if #extracted_course_string >= 4 and extracted_course_string:sub(1,3) == "CRS" then
+                    extracted_course_string = string.sub(extracted_course_string, 4, -1)
+                end
+                local course_val_lpv_gls = tonumber(extracted_course_string)
+
+                local magnetic_variation_lpv_gls = xplm.XPLMGetMagneticVariation(lat_val, lon_val)
+                sasl.logDebug("LPV/GLS DEBUG - Input Course (raw string): " .. tostring(navdataitems[def.SRCCOURSE]))
+                sasl.logDebug("LPV/GLS DEBUG - Processed Course_str: " .. tostring(extracted_course_string))
+                sasl.logDebug("LPV/GLS DEBUG - Course_val (tonumber): " .. tostring(course_val_lpv_gls))
+                sasl.logDebug("LPV/GLS DEBUG - Lat/Lon: " .. tostring(lat_val) .. ", " .. tostring(lon_val))
+                sasl.logDebug("LPV/GLS DEBUG - Magnetic Variation from XPLM: " .. tostring(magnetic_variation_lpv_gls))
+
+                if (course_val_lpv_gls == nil) then
+                    sasl.logWarning("Record #" .. tostring(record_count) .. ": NIL course value for LPV/GLS record: '" .. navdatarecord .. "'. Setting course to 0.")
+                    P.navdatatable[navdatatableindex][def.DESTCOURSE] = 0
                 else
-                    P.navdatatable[navdatatableindex][def.DESTCOURSE] = calccourse((course_val + xplm.XPLMGetMagneticVariation(lat_val, lon_val) + 360) % 360)
+                    local test_add_var = (course_val_lpv_gls + magnetic_variation_lpv_gls + 360) % 360
+                    local test_sub_var = (course_val_lpv_gls - magnetic_variation_lpv_gls + 360) % 360
+
+                    sasl.logDebug("LPV/GLS DEBUG - Test (+Var) before calccourse: " .. tostring(test_add_var))
+                    sasl.logDebug("LPV/GLS DEBUG - Result (+Var) after calccourse: " .. tostring(calccourse(test_add_var)))
+                    sasl.logDebug("LPV/GLS DEBUG - Test (-Var) before calccourse: " .. tostring(test_sub_var))
+                    sasl.logDebug("LPV/GLS DEBUG - Result (-Var) after calccourse: " .. tostring(calccourse(test_sub_var)))
+
+                    P.navdatatable[navdatatableindex][def.DESTCOURSE] = calccourse(test_add_var)
+                    sasl.logDebug("LPV/GLS DEBUG - FINAL P.navdatatable[...][def.DESTCOURSE] set to (using +Var): " .. tostring(P.navdatatable[navdatatableindex][def.DESTCOURSE]))
                 end
                 P.navdatatable[navdatatableindex][def.DESTNAVDME] = true
             end
@@ -890,24 +953,31 @@ function P.buildnavdatatable()
         local icaocode = key:sub(1, 4)
         local rwy = key:sub(5, -4)
         local navtype = key:sub(-3)
-        
+
         if ((navtype == def.NAVTYPEGLS) or (navtype == def.NAVTYPELPV)) then
             if (P.navdatatable[icaocode .. rwy .. def.NAVTYPEILS] ~= nil) then
-                if (getheadingdiff(P.navdatatable[key][def.DESTCOURSE], P.navdatatable[icaocode .. rwy .. def.NAVTYPEILS][def.DESTCOURSE]) == 1) then
-                    P.navdatatable[key][def.DESTCOURSE] = P.navdatatable[icaocode .. rwy .. def.NAVTYPEILS][def.DESTCOURSE]
+                local ilscourse = P.navdatatable[icaocode .. rwy .. def.NAVTYPEILS][def.DESTCOURSE]
+                local lpvglscourse = P.navdatatable[key][def.DESTCOURSE]
+                local deviation = getheadingdiff(lpvglscourse, ilscourse)
+
+                if (deviation ~= 0) and (math.abs(deviation) <= 1) then
+                    P.navdatatable[key][def.DESTCOURSE] = ilscourse
                 end
             else
                 local opprwy = getoppositerwy(rwy)
                 if (P.navdatatable[icaocode .. opprwy .. def.NAVTYPEILS] ~= nil) then
                     local oppcourse = getoppositeheading(P.navdatatable[icaocode .. opprwy .. def.NAVTYPEILS][def.DESTCOURSE])
-                        if (getheadingdiff(P.navdatatable[key][def.DESTCOURSE], oppcourse) == 1) then
-                            P.navdatatable[key][def.DESTCOURSE] = oppcourse
-                        end
+                    local lpvglscourse = P.navdatatable[key][def.DESTCOURSE]
+                    local deviation = getheadingdiff(lpvglscourse, oppcourse)
+
+                    if (deviation ~= 0) and (math.abs(deviation) <= 1) then
+                        P.navdatatable[key][def.DESTCOURSE] = oppcourse
+                    end
                 end
             end
         end
     end
-    
+
     return true
 end
 
@@ -1633,8 +1703,8 @@ sasl.registerCommandHandler(my_command_togglesimfreeze, 0, togglesimfreeze_)
 
 function mastercaution()
 
-    if (((P.procedureloop1.lock ~= def.NOPROCEDURE) or (P.procedureloop2.lock ~= def.NOPROCEDURE)) and (get(P.mastercautionannunc) ~= def.ON)) then
-        P.procedureskipstep = true
+    if (((P.procedureloop1.lock ~= def.NOPROCEDURE) or (P.procedureloop2.lock ~= def.NOPROCEDURE)or (P.procedureloop3.lock ~= def.NOPROCEDURE)) and (get(P.mastercautionannunc) ~= def.ON)) then
+        skipprocedurestep()
     end
 
     helpers.command_once("laminar/B738/push_button/master_caution1")
@@ -2470,15 +2540,22 @@ sasl.registerCommandHandler(my_command_toggleadviceonly, 0, toggleadviceonly_)
 --------------------------------------------------------------------------------------------------------------
 
 function abortprocedure()
+    local mostRecentLoop = nil
+    local latestTime = 0
 
-    if ((P.procedureloop1.lock ~= def.NOPROCEDURE) or (P.procedureloop2.lock ~= def.NOPROCEDURE) or (P.procedureloop3.lock ~= def.NOPROCEDURE)) then
+    for i, loopObj in ipairs(P.loopStateTables) do
+        if loopObj.lock ~= def.NOPROCEDURE and loopObj.lastActiveTime > latestTime then
+            latestTime = loopObj.lastActiveTime
+            mostRecentLoop = loopObj
+        end
+    end
 
-        P.procedureabort = true
-
+    if mostRecentLoop then
+        mostRecentLoop.procedureabort = true
+        mostRecentLoop.procedureskipstep = false
     end
 
     return true
-
 end
 
 function abortprocedure_(phase)
@@ -2494,15 +2571,22 @@ sasl.registerCommandHandler(my_command_abortprocedure, 0, abortprocedure_)
 --------------------------------------------------------------------------------------------------------------
 
 function skipprocedurestep()
+    local mostRecentLoop = nil
+    local latestTime = 0
 
-    if ((P.procedureloop1.lock ~= def.NOPROCEDURE) or (P.procedureloop2.lock ~= def.NOPROCEDURE) or (P.procedureloop3.lock ~= def.NOPROCEDURE)) then
+    for i, loopObj in ipairs(P.loopStateTables) do
+        if loopObj.lock ~= def.NOPROCEDURE and loopObj.lastActiveTime > latestTime then
+            latestTime = loopObj.lastActiveTime
+            mostRecentLoop = loopObj
+        end
+    end
 
-        P.procedureskipstep = true
-
+    if mostRecentLoop then
+        mostRecentLoop.procedureskipstep = true
+        mostRecentLoop.procedureabort = false
     end
 
     return true
-
 end
 
 function skipprocedurestep_(phase)
@@ -11056,7 +11140,6 @@ if (P.getmetarcounter == 0) then
 end
 
 --------------------------------------------------------------------------------------------------------------
--- P.commandtableloop() function
 
 function P.commandtableloop()
 
@@ -11104,211 +11187,229 @@ end
 -- P.procedureloop_1() function
 
 function P.procedureloop_1()
+    local loop = P.loopStateTables[1]
 
-    if (P.procedureloop1.lock ~= def.NOPROCEDURE) then
-        if ((P.procedureloop1.stepindex == 0) and not P.procedureabort and not P.procedureskipstep) then
-            if (P.proceduretable[P.procedureloop1.lock].name  ~= "") then
+    if (loop.lock ~= def.NOPROCEDURE) then
+        loop.lastActiveTime = os.time() -- KORREKTUR: os.time() anstelle von sasl.getTime()
+
+        if ((loop.stepindex == 0) and not loop.procedureabort and not loop.procedureskipstep) then
+            if (P.proceduretable[loop.lock].name ~= "") then
                 if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                    P.commandtableentry(def.ADVICE, P.proceduretable[P.procedureloop1.lock].name .. " Procedure")
+                    P.commandtableentry(def.ADVICE, P.proceduretable[loop.lock].name .. " Procedure")
                 else
-                    P.commandtableentry(def.TEXT, P.proceduretable[P.procedureloop1.lock].name .. " Procedure")
+                    P.commandtableentry(def.TEXT, P.proceduretable[loop.lock].name .. " Procedure")
                 end
             end
-        elseif ((P.procedureloop1.stepindex <= P.proceduretable[P.procedureloop1.lock].steps) and not P.procedureabort and not proceduskipstep) then
-                P.proceduretable[P.procedureloop1.lock].procedurefunction()
-        elseif ((((P.procedureloop1.stepindex > P.proceduretable[P.procedureloop1.lock].steps) or P.procedureabort)) and not P.procedureskipstep) then
-            if (P.procedureloop1.stepindex > P.proceduretable[P.procedureloop1.lock].steps) then
-                if (P.proceduretable[P.procedureloop1.lock].name  ~= "") then
+        elseif ((loop.stepindex <= P.proceduretable[loop.lock].steps) and not loop.procedureabort and not loop.procedureskipstep) then
+            P.proceduretable[loop.lock].procedurefunction()
+        elseif ((((loop.stepindex > P.proceduretable[loop.lock].steps) or loop.procedureabort)) and not loop.procedureskipstep) then
+            if (loop.stepindex > P.proceduretable[loop.lock].steps) then
+                if (P.proceduretable[loop.lock].name ~= "") then
                     if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                        P.commandtableentry(def.ADVICE, P.proceduretable[P.procedureloop1.lock].name .. " Procedure Complete")
+                        P.commandtableentry(def.ADVICE, P.proceduretable[loop.lock].name .. " Procedure Complete")
                     else
-                        P.commandtableentry(def.TEXT, P.proceduretable[P.procedureloop1.lock].name .. " Procedure Complete")
+                        P.commandtableentry(def.TEXT, P.proceduretable[loop.lock].name .. " Procedure Complete")
                     end
                 end
-            elseif P.procedureabort then
+            elseif loop.procedureabort then
                 if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                    P.commandtableentry(def.ADVICE, P.proceduretable[P.procedureloop1.lock].name .. " Procedure Aborted")
+                    P.commandtableentry(def.ADVICE, P.proceduretable[loop.lock].name .. " Procedure Aborted")
                 else
-                    P.commandtableentry(def.TEXT, P.proceduretable[P.procedureloop1.lock].name .. " Procedure Aborted")
+                    P.commandtableentry(def.TEXT, P.proceduretable[loop.lock].name .. " Procedure Aborted")
                 end
-                P.procedureabort = false
+                loop.procedureabort = false
             end
-            P.proceduretable[P.procedureloop1.lock].set = true
-            P.procedureloop1.lock = def.NOPROCEDURE
-        end
-        
-        if (P.procedureloop1.lock == def.NOPROCEDURE) then
-            P.procedureloop1.stepindex = 0
-        else
-            P.procedureloop1.stepindex = P.procedureloop1.stepindex + 1
+            P.proceduretable[loop.lock].set = true
+            loop.lock = def.NOPROCEDURE
         end
 
-        if (P.procedureloop1.stepindex == P.procedureloop1.stepindexprevious) then
-            P.procedureloop1.steprepeat = true
+        if (loop.lock == def.NOPROCEDURE) then
+            loop.stepindex = 0
+            loop.lastActiveTime = 0
         else
-            P.procedureloop1.steprepeat = false
-            P.procedureloop1.stepindexprevious = P.procedureloop1.stepindex
+            loop.stepindex = loop.stepindex + 1
         end
 
-        if P.procedureskipstep then
+        if (loop.stepindex == loop.stepindexprevious) then
+            loop.steprepeat = true
+        else
+            loop.steprepeat = false
+            loop.stepindexprevious = loop.stepindex
+        end
+
+        if loop.procedureskipstep then
             if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
                 P.commandtableentry(def.ADVICE, "Procedure Step Skipped")
             else
                 P.commandtableentry(def.TEXT, "Procedure Step Skipped")
             end
-            P.procedureskipstep = false
-            P.procedureloop1.stepindex = P.procedureloop1.stepindex + 1
+            loop.procedureskipstep = false
+            loop.stepindex = loop.stepindex + 1
         end
     else
-        P.procedureloop1.stepindex = 0
-        P.procedureloop1.stepindexprevious = 0
-        P.procedureloop1.steprepeat = false
+        loop.stepindex = 0
+        loop.stepindexprevious = 0
+        loop.steprepeat = false
+        loop.lastActiveTime = 0
+        loop.procedureabort = false
+        loop.procedureskipstep = false
     end
-
     return true
-
 end
+
+---
 
 --------------------------------------------------------------------------------------------------------------
 -- P.procedureloop_2() function
 
 function P.procedureloop_2()
+    local loop = P.loopStateTables[2]
 
-    if (P.procedureloop2.lock ~= def.NOPROCEDURE) then
-        if ((P.procedureloop2.stepindex == 0) and not P.procedureabort and not P.procedureskipstep) then
-            if (P.proceduretable[P.procedureloop2.lock].name  ~= "") then
+    if (loop.lock ~= def.NOPROCEDURE) then
+        loop.lastActiveTime = os.time() -- KORREKTUR: os.time() anstelle von sasl.getTime()
+
+        if ((loop.stepindex == 0) and not loop.procedureabort and not loop.procedureskipstep) then
+            if (P.proceduretable[loop.lock].name ~= "") then
                 if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                    P.commandtableentry(def.ADVICE, P.proceduretable[P.procedureloop2.lock].name .. " Procedure")
+                    P.commandtableentry(def.ADVICE, P.proceduretable[loop.lock].name .. " Procedure")
                 else
-                    P.commandtableentry(def.TEXT, P.proceduretable[P.procedureloop2.lock].name .. " Procedure")
+                    P.commandtableentry(def.TEXT, P.proceduretable[loop.lock].name .. " Procedure")
                 end
             end
-        elseif ((P.procedureloop2.stepindex <= P.proceduretable[P.procedureloop2.lock].steps) and not P.procedureabort and not proceduskipstep) then
-                P.proceduretable[P.procedureloop2.lock].procedurefunction()
-        elseif ((((P.procedureloop2.stepindex > P.proceduretable[P.procedureloop2.lock].steps) or P.procedureabort)) and not P.procedureskipstep) then
-            if (P.procedureloop2.stepindex > P.proceduretable[P.procedureloop2.lock].steps) then
-                if (P.proceduretable[P.procedureloop2.lock].name  ~= "") then
+        elseif ((loop.stepindex <= P.proceduretable[loop.lock].steps) and not loop.procedureabort and not loop.procedureskipstep) then
+            P.proceduretable[loop.lock].procedurefunction()
+        elseif ((((loop.stepindex > P.proceduretable[loop.lock].steps) or loop.procedureabort)) and not loop.procedureskipstep) then
+            if (loop.stepindex > P.proceduretable[loop.lock].steps) then
+                if (P.proceduretable[loop.lock].name ~= "") then
                     if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                        P.commandtableentry(def.ADVICE, P.proceduretable[P.procedureloop2.lock].name .. " Procedure Complete")
+                        P.commandtableentry(def.ADVICE, P.proceduretable[loop.lock].name .. " Procedure Complete")
                     else
-                        P.commandtableentry(def.TEXT, P.proceduretable[P.procedureloop2.lock].name .. " Procedure Complete")
+                        P.commandtableentry(def.TEXT, P.proceduretable[loop.lock].name .. " Procedure Complete")
                     end
                 end
-            elseif P.procedureabort then
+            elseif loop.procedureabort then
                 if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                    P.commandtableentry(def.ADVICE, P.proceduretable[P.procedureloop2.lock].name .. " Procedure Aborted")
+                    P.commandtableentry(def.ADVICE, P.proceduretable[loop.lock].name .. " Procedure Aborted")
                 else
-                    P.commandtableentry(def.TEXT, P.proceduretable[P.procedureloop2.lock].name .. " Procedure Aborted")
+                    P.commandtableentry(def.TEXT, P.proceduretable[loop.lock].name .. " Procedure Aborted")
                 end
-                P.procedureabort = false
+                loop.procedureabort = false
             end
-            P.proceduretable[P.procedureloop2.lock].set = true
-            P.procedureloop2.lock = def.NOPROCEDURE
-        end
-        
-        if (P.procedureloop2.lock == def.NOPROCEDURE) then
-            P.procedureloop2.stepindex = 0
-        else
-            P.procedureloop2.stepindex = P.procedureloop2.stepindex + 1
+            P.proceduretable[loop.lock].set = true
+            loop.lock = def.NOPROCEDURE
         end
 
-        if (P.procedureloop2.stepindex == P.procedureloop2.stepindexprevious) then
-            P.procedureloop2.steprepeat = true
+        if (loop.lock == def.NOPROCEDURE) then
+            loop.stepindex = 0
+            loop.lastActiveTime = 0
         else
-            P.procedureloop2.steprepeat = false
-            P.procedureloop2.stepindexprevious = P.procedureloop2.stepindex
+            loop.stepindex = loop.stepindex + 1
         end
 
-        if P.procedureskipstep then
+        if (loop.stepindex == loop.stepindexprevious) then
+            loop.steprepeat = true
+        else
+            loop.steprepeat = false
+            loop.stepindexprevious = loop.stepindex
+        end
+
+        if loop.procedureskipstep then
             if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
                 P.commandtableentry(def.ADVICE, "Procedure Step Skipped")
             else
                 P.commandtableentry(def.TEXT, "Procedure Step Skipped")
             end
-            P.procedureskipstep = false
-            P.procedureloop2.stepindex = P.procedureloop2.stepindex + 1
+            loop.procedureskipstep = false
+            loop.stepindex = loop.stepindex + 1
         end
     else
-        P.procedureloop2.stepindex = 0
-        P.procedureloop2.stepindexprevious = 0
-        P.procedureloop2.steprepeat = false
+        loop.stepindex = 0
+        loop.stepindexprevious = 0
+        loop.steprepeat = false
+        loop.lastActiveTime = 0
+        loop.procedureabort = false
+        loop.procedureskipstep = false
     end
-
     return true
-
 end
+
+---
 
 --------------------------------------------------------------------------------------------------------------
 -- P.procedureloop_3() function
 
 function P.procedureloop_3()
+    local loop = P.loopStateTables[3]
 
-    if (P.procedureloop3.lock ~= def.NOPROCEDURE) then
-        if ((P.procedureloop3.stepindex == 0) and not P.procedureabort and not P.procedureskipstep) then
-            if (P.proceduretable[P.procedureloop3.lock].name  ~= "") then
+    if (loop.lock ~= def.NOPROCEDURE) then
+        loop.lastActiveTime = os.time() -- KORREKTUR: os.time() anstelle von sasl.getTime()
+
+        if ((loop.stepindex == 0) and not loop.procedureabort and not loop.procedureskipstep) then
+            if (P.proceduretable[loop.lock].name ~= "") then
                 if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                    P.commandtableentry(def.ADVICE, P.proceduretable[P.procedureloop3.lock].name .. " Procedure")
+                    P.commandtableentry(def.ADVICE, P.proceduretable[loop.lock].name .. " Procedure")
                 else
-                    P.commandtableentry(def.TEXT, P.proceduretable[P.procedureloop3.lock].name .. " Procedure")
+                    P.commandtableentry(def.TEXT, P.proceduretable[loop.lock].name .. " Procedure")
                 end
             end
-        elseif ((P.procedureloop3.stepindex <= P.proceduretable[P.procedureloop3.lock].steps) and not P.procedureabort and not proceduskipstep) then
-                P.proceduretable[P.procedureloop3.lock].procedurefunction()
-        elseif ((((P.procedureloop3.stepindex > P.proceduretable[P.procedureloop3.lock].steps) or P.procedureabort)) and not P.procedureskipstep) then
-            if (P.procedureloop3.stepindex > P.proceduretable[P.procedureloop3.lock].steps) then
-                if (P.proceduretable[P.procedureloop3.lock].name  ~= "") then
+        elseif ((loop.stepindex <= P.proceduretable[loop.lock].steps) and not loop.procedureabort and not loop.procedureskipstep) then
+            P.proceduretable[loop.lock].procedurefunction()
+        elseif ((((loop.stepindex > P.proceduretable[loop.lock].steps) or loop.procedureabort)) and not loop.procedureskipstep) then
+            if (loop.stepindex > P.proceduretable[loop.lock].steps) then
+                if (P.proceduretable[loop.lock].name ~= "") then
                     if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                        P.commandtableentry(def.ADVICE, P.proceduretable[P.procedureloop3.lock].name .. " Procedure Complete")
+                        P.commandtableentry(def.ADVICE, P.proceduretable[loop.lock].name .. " Procedure Complete")
                     else
-                        P.commandtableentry(def.TEXT, P.proceduretable[P.procedureloop3.lock].name .. " Procedure Complete")
+                        P.commandtableentry(def.TEXT, P.proceduretable[loop.lock].name .. " Procedure Complete")
                     end
                 end
-            elseif P.procedureabort then
+            elseif loop.procedureabort then
                 if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                    P.commandtableentry(def.ADVICE, P.proceduretable[P.procedureloop3.lock].name .. " Procedure Aborted")
+                    P.commandtableentry(def.ADVICE, P.proceduretable[loop.lock].name .. " Procedure Aborted")
                 else
-                    P.commandtableentry(def.TEXT, P.proceduretable[P.procedureloop3.lock].name .. " Procedure Aborted")
+                    P.commandtableentry(def.TEXT, P.proceduretable[loop.lock].name .. " Procedure Aborted")
                 end
-                P.procedureabort = false
+                loop.procedureabort = false
             end
-            P.proceduretable[P.procedureloop3.lock].set = true
-            P.procedureloop3.lock = def.NOPROCEDURE
-        end
-        
-        if (P.procedureloop3.lock == def.NOPROCEDURE) then
-            P.procedureloop3.stepindex = 0
-        else
-            P.procedureloop3.stepindex = P.procedureloop3.stepindex + 1
+            P.proceduretable[loop.lock].set = true
+            loop.lock = def.NOPROCEDURE
         end
 
-        if (P.procedureloop3.stepindex == P.procedureloop3.stepindexprevious) then
-            P.procedureloop3.steprepeat = true
+        if (loop.lock == def.NOPROCEDURE) then
+            loop.stepindex = 0
+            loop.lastActiveTime = 0
         else
-            P.procedureloop3.steprepeat = false
-            P.procedureloop3.stepindexprevious = P.procedureloop3.stepindex
+            loop.stepindex = loop.stepindex + 1
         end
 
-        if P.procedureskipstep then
+        if (loop.stepindex == loop.stepindexprevious) then
+            loop.steprepeat = true
+        else
+            loop.steprepeat = false
+            loop.stepindexprevious = loop.stepindex
+        end
+
+        if loop.procedureskipstep then
             if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
                 P.commandtableentry(def.ADVICE, "Procedure Step Skipped")
             else
                 P.commandtableentry(def.TEXT, "Procedure Step Skipped")
             end
-            P.procedureskipstep = false
-            P.procedureloop3.stepindex = P.procedureloop3.stepindex + 1
+            loop.procedureskipstep = false
+            loop.stepindex = loop.stepindex + 1
         end
     else
-        P.procedureloop3.stepindex = 0
-        P.procedureloop3.stepindexprevious = 0
-        P.procedureloop3.steprepeat = false
+        loop.stepindex = 0
+        loop.stepindexprevious = 0
+        loop.steprepeat = false
+        loop.lastActiveTime = 0
+        loop.procedureabort = false
+        loop.procedureskipstep = false
     end
-
     return true
-
 end
 
 --------------------------------------------------------------------------------------------------------------
--- do_yal()
 
 function P.do_yal()
 
