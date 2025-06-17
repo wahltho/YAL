@@ -81,7 +81,6 @@ function P.YalinitGlobal()
     P.procedureabort = false
     P.procedureskipstep = false
 
-    -- HIER IST DIE WICHTIGE ÄNDERUNG: P.procedureloop1, 2, 3 werden nun Teil von P
     P.procedureloop1 = { lock = def.NOPROCEDURE, stepindex = 0, stepindexprevious = 0, steprepeat = false }
     P.procedureloop2 = { lock = def.NOPROCEDURE, stepindex = 0, stepindexprevious = 0, steprepeat = false }
     P.procedureloop3 = { lock = def.NOPROCEDURE, stepindex = 0, stepindexprevious = 0, steprepeat = false }
@@ -105,7 +104,7 @@ function P.YalinitGlobal()
     [def.ALTITUDEB10000PROCEDURE] = { name = "", steps = 12, set = false, procedurefunction = altitudeb10000steps, loop = 1 },
     [def.AFTERTAKEOFFPROCEDURE] = { name = "", steps = 3, set = false, procedurefunction = aftertakeoffsteps, loop = 2 },
     [def.DURINGCLIMBPROCEDURE] = { name = "", steps = 13, set = false, procedurefunction = duringclimbsteps, loop = 2 },
-    [def.DURINGDESCENTPROCEDURE] = { name = "", steps = 10, set = false, procedurefunction = duringdescentsteps, loop = 2 },
+    [def.DURINGDESCENTPROCEDURE] = { name = "", steps = 11, set = false, procedurefunction = duringdescentsteps, loop = 2 },
     [def.RADIOALTITUDEB2500PROCEDURE] = { name = "", steps = 1, set = false, procedurefunction = radioaltitudeb2500steps, loop = 2 },
     [def.RADIOALTITUDEB1000PROCEDURE] = { name = "", steps = 7, set = false, procedurefunction = radioaltitudeb1000steps, loop = 2 },
     [def.ATPARKINGPOSITIONPROCEDURE] = { name = "At Parking Position", steps = 12, set = false, procedurefunction = atparkingpositionsteps, loop = 1 }
@@ -113,7 +112,6 @@ function P.YalinitGlobal()
 
     P.previousview = -1
 
-    -- NEU: Variablen für den Prozedur-Scheduler (wie in den letzten Versionen)
     P.lastExecutedLoopIndex = 0 
     P.loopfunctions = {          
         P.procedureloop_1,
@@ -121,7 +119,7 @@ function P.YalinitGlobal()
         P.procedureloop_3
     }
     P.loopStateTables = {        
-        P.procedureloop1,          -- HIER WICHTIG: Referenz auf P.procedureloop1 etc.
+        P.procedureloop1,
         P.procedureloop2,          
         P.procedureloop3           
     }
@@ -1658,6 +1656,71 @@ end
 
 my_command_mastercaution = sasl.createCommand(def.APPNAMEPREFIX .. "/mastercaution", "Master Caution + FMS CLR")
 sasl.registerCommandHandler(my_command_mastercaution, 0, mastercaution_)
+
+
+--------------------------------------------------------------------------------------------------------------
+
+function speakdesmetar()
+
+    if P.desmetar.metarfound then
+            if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
+                P.commandtableentry(def.ADVICE, formatMetarSpeechSummary(P.desmetar))
+            else
+                P.commandtableentry(def.TEXT, formatMetarSpeechSummary(P.desmetar))
+            end
+        else
+            if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
+                P.commandtableentry(def.ADVICE, "No Metar found for " .. addspaces(desicao))
+            else
+                P.commandtableentry(def.TEXT, "No Metar found for " .. addspaces(desicao))
+            end
+    end
+
+    return true
+end
+
+function speakdesmetar_(phase)
+    if phase == SASL_COMMAND_BEGIN then
+        speakdesmetar()
+    end
+    return 0
+end
+
+my_command_speakdesmetar = sasl.createCommand(def.APPNAMEPREFIX .. "/speakdesmetar", "Speak Destination Metar")
+sasl.registerCommandHandler(my_command_speakdesmetar, 0, speakdesmetar_)
+ 
+--------------------------------------------------------------------------------------------------------------
+
+function speakdepmetar()
+
+    if P.depmetar.metarfound then
+            if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
+                P.commandtableentry(def.ADVICE, formatMetarSpeechSummary(P.depmetar))
+            else
+                P.commandtableentry(def.TEXT, formatMetarSpeechSummary(P.depmetar))
+            end
+        else
+            if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
+                P.commandtableentry(def.ADVICE, "No Metar found for " .. addspaces(depicao))
+            else
+                P.commandtableentry(def.TEXT, "No Metar found for " .. addspaces(depicao))
+            end
+    end
+
+    return true
+end
+
+function speakdepmetar_(phase)
+    if phase == SASL_COMMAND_BEGIN then
+        speakdepmetar()
+    end
+    return 0
+end
+
+my_command_speakdepmetar = sasl.createCommand(def.APPNAMEPREFIX .. "/speakdepmetar", "Speak Departure Metar")
+sasl.registerCommandHandler(my_command_speakdepmetar, 0, speakdepmetar_)
+ 
+
 
 --------------------------------------------------------------------------------------------------------------
 
@@ -3788,7 +3851,7 @@ function determineTakeoffFlapsSetting(weatherData)
     local TAKEOFF_DENSITY_ALTITUDE_THRESHOLD_HIGH = 3000
 
     local TAKEOFF_TAILWIND_CONSIDERATION_THRESHOLD = 5
-    local TAKEOFF_WET_RUNWAY_PENALTY_FLAPS = 1
+    local TAKEOFF_WET_RUNWAY_PENALTY_FLAPS = 1 -- Dieser Wert wird nun dazu führen, dass 5 zu 10 wird, wenn er angewendet wird.
 
     if not (weatherData and weatherData.wind and weatherData.wind.direction ~= nil and weatherData.wind.speed ~= nil and
             weatherData.temperature and weatherData.temperature.value ~= nil and
@@ -3804,7 +3867,8 @@ function determineTakeoffFlapsSetting(weatherData)
         isRunwayWet = true
     elseif (fieldexists(weatherData, "weather") and (containsvalue(weatherData.weather, "RA"))) then
         isRunwayWet = true
-    end
+    end -- Hier fehlt das 'end' für den isRunwayWet Block aus meiner vorherigen Antwort, falls die If-ElseIf-Else Struktur beendet wird.
+      -- ABER: Die obige If-ElseIf-Else-Struktur hat bereits ihr 'end' am Ende der Kette, das ist korrekt.
 
     if not (get(P.totalweightkgs) and type(get(P.totalweightkgs)) == "number" and get(P.totalweightkgs) > 0 and
             get(P.deprwylen) and type(get(P.deprwylen)) == "number" and get(P.deprwylen) > 0 and
@@ -3824,7 +3888,7 @@ function determineTakeoffFlapsSetting(weatherData)
     if get(P.totalweightkgs) > TAKEOFF_WEIGHT_THRESHOLD_VERY_HIGH then
         recommendedFlaps = 15
     elseif get(P.totalweightkgs) > TAKEOFF_WEIGHT_THRESHOLD_HIGH then
-        recommendedFlaps = 10
+        recommendedFlaps = math.max(recommendedFlaps, 10) -- Sicherstellen, dass es mindestens 10 ist
     end
 
     if get(P.deprwylen) < TAKEOFF_RUNWAY_LENGTH_VERY_SHORT_THRESHOLD then
@@ -3855,13 +3919,23 @@ function determineTakeoffFlapsSetting(weatherData)
     end
 
     if isRunwayWet then
-        recommendedFlaps = recommendedFlaps + TAKEOFF_WET_RUNWAY_PENALTY_FLAPS
+        if recommendedFlaps == 5 then
+            recommendedFlaps = 10
+        elseif recommendedFlaps == 10 then
+            recommendedFlaps = 15
+        end
     end
 
     if recommendedFlaps > 15 then
         recommendedFlaps = 15
     elseif recommendedFlaps < 5 then
         recommendedFlaps = 5
+    end
+
+    if recommendedFlaps > 5 and recommendedFlaps < 10 then
+        recommendedFlaps = 10
+    elseif recommendedFlaps > 10 and recommendedFlaps < 15 then
+        recommendedFlaps = 15
     end
 
     return recommendedFlaps
@@ -6927,11 +7001,13 @@ end
 function altitudea10000steps()
 
     if (P.procedureloop1.stepindex == 1) then
-        if (get(P.altitude) < (P.lowerairspacealt + 1000)) then
-            if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                P.commandtableentry(def.ADVICE, "Passing " .. P.lowerairspacealt .. " Feet")
-            else
-                P.commandtableentry(def.TEXT, "Passing " .. P.lowerairspacealt .. " Feet")
+        if (get(P.fmccruisealt) > P.lowerairspacealt) then
+            if (get(P.altitude) < (P.lowerairspacealt + 1000)) then
+                if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
+                    P.commandtableentry(def.ADVICE, "Passing " .. P.lowerairspacealt .. " Feet")
+                else
+                    P.commandtableentry(def.TEXT, "Passing " .. P.lowerairspacealt .. " Feet")
+                end
             end
         end
     end
@@ -7136,7 +7212,9 @@ function duringclimbsteps()
                     P.commandtableentry(def.ADVICE, "Q N H checked and Standard")
                 end
             else
-                P.procedureloop2.stepindex = P.procedureloop2.stepindex - 1
+                if (get(P.fmccruisealt) > get(P.fmctransalt)) then
+                    P.procedureloop2.stepindex = P.procedureloop2.stepindex - 1
+                end
             end
         end
     end
@@ -7225,7 +7303,7 @@ function duringclimb()
        P.procedureloop2.lock = def.DURINGCLIMBPROCEDURE
     end
 
-    if ((get(P.altitude) >= P.lowerairspacealt) and (not P.proceduretable[def.ALTITUDEA10000PROCEDURE].set) and (P.procedureloop1.lock == def.NOPROCEDURE)) then
+    if (((get(P.altitude) >= P.lowerairspacealt) or (get(P.fmccruisealt) < P.lowerairspacealt)) and (not P.proceduretable[def.ALTITUDEA10000PROCEDURE].set) and (P.procedureloop1.lock == def.NOPROCEDURE)) then
         P.procedureloop1.lock = def.ALTITUDEA10000PROCEDURE
     end
 
@@ -7372,19 +7450,7 @@ function altitudeb10000steps()
     end
 
     if (P.procedureloop1.stepindex == 12) then
-        if P.desmetar.metarfound then
-            if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                P.commandtableentry(def.ADVICE, formatMetarSpeechSummary(P.desmetar))
-            else
-                P.commandtableentry(def.TEXT, formatMetarSpeechSummary(P.desmetar))
-            end
-        else
-            if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                P.commandtableentry(def.ADVICE, "No Metar found for " .. addspaces(desicao))
-            else
-                P.commandtableentry(def.TEXT, "No Metar found for " .. addspaces(desicao))
-            end
-        end
+        speakdesmetar()
     end
 
     return true
@@ -7605,6 +7671,17 @@ function duringdescentsteps()
     end
 
     if (P.procedureloop2.stepindex == 2) then
+        if (get(P.mcpaltitude) >= get(P.fmccruisealt)) then
+            if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
+                P.commandtableentry(def.ADVICE, "Reset M C P Altitude")
+            else
+                P.commandtableentry(def.TEXT, "Reset M C P ALtitude")
+            end
+            P.procedureloop2.stepindex = P.procedureloop2.stepindex - 1
+        end
+    end
+
+    if (P.procedureloop2.stepindex == 3) then
         if (P.configvalues[def.CONFIGVIEWCHANGES] == def.ON and P.configvalues[def.CONFIGSPDRESTR250] == def.ON) then
             setview(def.DEFAULTVIEW)
             setview(P.configvalues[def.CONFIGVIEWFMS])
@@ -7614,13 +7691,13 @@ function duringdescentsteps()
         end
     end
 
-    if (P.procedureloop2.stepindex == 3) then
+    if (P.procedureloop2.stepindex == 4) then
         if (P.configvalues[def.CONFIGSPDRESTR250] == def.ON) then
             helpers.command_once("laminar/B738/button/fmc1_des")
         end
     end
 
-    if (P.procedureloop2.stepindex == 4) then
+    if (P.procedureloop2.stepindex == 5) then
         if (P.configvalues[def.CONFIGSPDRESTR250] == def.ON) then
             if (get(P.speedrestr) ~= 250) then
                 if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
@@ -7636,7 +7713,7 @@ function duringdescentsteps()
         end
     end
 
-    if (P.procedureloop2.stepindex == 5) then
+    if (P.procedureloop2.stepindex == 6) then
         if (P.configvalues[def.CONFIGVIEWCHANGES] == def.ON) then
             setview(P.configvalues[def.CONFIGVIEWMAINPANEL])
         else
@@ -7645,35 +7722,25 @@ function duringdescentsteps()
         end
     end
 
-    if (P.procedureloop2.stepindex == 6) then
-        if P.desmetar.metarfound then
-            if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                P.commandtableentry(def.ADVICE, formatMetarSpeechSummary(P.desmetar))
-            else
-                P.commandtableentry(def.TEXT, formatMetarSpeechSummary(P.desmetar))
-            end
-        else
-            if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                P.commandtableentry(def.ADVICE, "No Metar found for " .. addspaces(desicao))
-            else
-                P.commandtableentry(def.TEXT, "No Metar found for " .. addspaces(desicao))
-            end
-        end
-    end
-
     if (P.procedureloop2.stepindex == 7) then
-        if (get(P.altitude) < get(P.fmctranslvl)) then
-            if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                P.commandtableentry(def.ADVICE, "Passing Transition Level")
-            else
-                P.commandtableentry(def.TEXT, "Passing Transition Level")
-            end
-        else
-            P.procedureloop2.stepindex = P.procedureloop2.stepindex - 1
-        end
+        speakdesmetar()
     end
 
     if (P.procedureloop2.stepindex == 8) then
+        if (get(P.fmccruisealt) > get(P.fmctranslvl)) then
+            if (get(P.altitude) < get(P.fmctranslvl)) then
+                if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
+                    P.commandtableentry(def.ADVICE, "Passing Transition Level")
+                else
+                    P.commandtableentry(def.TEXT, "Passing Transition Level")
+                end
+            else
+                P.procedureloop2.stepindex = P.procedureloop2.stepindex - 1
+            end
+        end
+    end
+
+    if (P.procedureloop2.stepindex == 9) then
         if (P.configvalues[def.CONFIGAUTOBARO] == def.ON) then
             if (get(P.altitude) < get(P.fmctranslvl)) then
                 local baroinchtmp, baropastmp = getlocalqnh(ARRIVAL)
@@ -7705,7 +7772,7 @@ function duringdescentsteps()
         end
     end
 
-    if (P.procedureloop2.stepindex == 9) then
+    if (P.procedureloop2.stepindex == 10) then
         if (get(P.desrwy) == "") then
             if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
                 P.commandtableentry(def.ADVICE, "Set Destination Runway for " .. addspaces(get(P.desicao)))
@@ -7715,7 +7782,7 @@ function duringdescentsteps()
         end
     end
 
-    if (P.procedureloop2.stepindex == 10) then
+    if (P.procedureloop2.stepindex == 11) then
         if P.desmetar.metarfound then
             if not shouldCheckRunwaySuitability(P.desmetar.metar, get(P.desrwy)) then
                 if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
@@ -8292,7 +8359,6 @@ function beforetaxisteps()
     end
 
     if (P.procedureloop1.stepindex == 23) then
-        local toflapscalc = determineTakeoffFlapsSetting(P.depmetar.decodedmetar)
         if ((convflaplevertoflappos(get(P.flapleverpos)) ~= get(P.toflaps))) then
             if (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
                 local toflapscmd = "laminar/B738/push_button/flaps_" .. get(P.toflaps)
@@ -11348,6 +11414,8 @@ end
 
 menu_procedure_step = sasl.appendMenuItem(P.menu_main, "Skip Procedure Step", skipprocedurestep)
 menu_abort_procedure = sasl.appendMenuItem(P.menu_main, "Abort Procedure", abortprocedure)
+menu_speak_depmetar = sasl.appendMenuItem(P.menu_main, "Speak Departure Metar", speakdepmetar)
+menu_speak_desmetar = sasl.appendMenuItem(P.menu_main, "Speak Destination Metar", speakdesmetar)
 sasl.appendMenuSeparator ( P.menu_main )
 menu_cd = sasl.appendMenuItem(P.menu_main, "Cold and Dark Startup", coldanddarkstartup)
 menu_cockpit_init = sasl.appendMenuItem(P.menu_main, "Cockpit Initialization", cockpitinit)
@@ -11390,6 +11458,8 @@ function P.enableMenus()
 
     sasl.enableMenuItem(P.menu_main , menu_procedure_step , enable)
     sasl.enableMenuItem(P.menu_main , menu_abort_procedure , enable)
+    sasl.enableMenuItem(P.menu_main , menu_speak_depmetar , enable)
+    sasl.enableMenuItem(P.menu_main , menu_speak_desmetar , enable)
 
     sasl.enableMenuItem(P.menu_main , menu_cd , enable)
     sasl.enableMenuItem(P.menu_main , menu_cockpit_init , enable)
