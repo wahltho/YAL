@@ -78,9 +78,6 @@ function P.YalinitGlobal()
 
     P.ongoingtaskstepindex = 1
 
-    P.procedureabort = false
-    P.procedureskipstep = false
-
     P.procedureloop1 = {
     lock = def.NOPROCEDURE,
     stepindex = 0,
@@ -1015,7 +1012,9 @@ function yalreset()
     readconfig()
 
     P.buildnavdatatable()
-    P.writenavdatatable()
+    if (sasl.getLogLevel() == LOG_DEBUG) then
+        P.writenavdatatable()
+    end
 
     P.remainingtimetoquit = P.configvalues[def.CONFIGTODPAUSEQUITTIME]
     P.remainingtimetosave = P.configvalues[def.CONFIGSAVETIME]
@@ -6955,7 +6954,7 @@ function cockpitinitsteps()
 
     if (P.procedureloop1.stepindex == 23) then
         speedbrakeleverrounded = roundnumber(get(P.speedbrakelever), 1)
-        if (speedbrakeleverrounded ~= def.OFF) then
+        if (speedbrakeleverrounded ~= def.SPEEDBRAKEDOWN) then
             if (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
                 set(P.speedbrakelever, def.OFF)
             elseif ((P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) and not P.procedureloop1.steprepeat) then
@@ -7618,10 +7617,10 @@ end
 function radioaltitudeb1000steps()
 
     if (P.procedureloop2.stepindex == 1) then
-        local speedbrakeleverrounded = roundnumber(get(P.speedbrakelever), 1)
-        if (speedbrakeleverrounded == def.OFF) then
+        speedbrakeleverrounded = roundnumber(get(P.speedbrakelever), 1)
+        if (speedbrakeleverrounded ~= def.SPEEDBRAKEARMED) then
             if (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
-                set(P.speedbrakelever, 0.1)
+                set(P.speedbrakelever, def.SPEEDBRAKEARMED)
             elseif (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
                 P.commandtableentry(def.ADVICE, "Arm Speed Brakes")
                 P.procedureloop2.stepindex = P.procedureloop2.stepindex - 1
@@ -8036,7 +8035,7 @@ function afterlandingsteps()
 
     if (P.procedureloop1.stepindex == 11) then
         speedbrakeleverrounded = roundnumber(get(P.speedbrakelever), 1)
-        if (speedbrakeleverrounded ~= def.OFF) then
+        if (speedbrakeleverrounded ~= def.SPEEDBRAKEDOWN) then
             if (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
                 set(P.speedbrakelever, def.OFF)
             elseif (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
@@ -8524,7 +8523,7 @@ sasl.registerCommandHandler(my_command_beforetaxi, 0, beforetaxi_)
 function beforetakeoffsteps()
 
     if (get(P.groundspeed) > 45) then
-        P.procedureabort = true
+        P.procedureloop1.procedureabort = true
         return true
     end
 
@@ -8737,7 +8736,7 @@ sasl.registerCommandHandler(my_command_beforetakeoff, 0, beforetakeoff_)
 function atparkingpositionsteps()
 
     if (get(P.battery) ~= def.ON) then
-        P.procedureabort = true
+        P.procedureloop1.procedureabort = true
         return true
     end
 
@@ -10421,11 +10420,11 @@ function voicereadback()
         if (speedbrakeleverrounded ~= P.speedbrakelevertemp2) then
             P.speedbrakelevertemp2 = speedbrakeleverrounded
         else
-            if (speedbrakeleverrounded == def.OFF) then
+            if (speedbrakeleverrounded == def.SPEEDBRAKEDOWN) then
                 P.commandtableentry(def.TEXT, "Speedbrake Down")
-            elseif (speedbrakeleverrounded == 0.1) then
+            elseif (speedbrakeleverrounded == def.SPEEDBRAKEARMED) then
                 P.commandtableentry(def.TEXT, "Speedbrake Armed")
-            elseif (speedbrakeleverrounded >= 0.5) then
+            elseif (speedbrakeleverrounded >= def.SPEEDBRAKEUP) then
                 P.commandtableentry(def.TEXT, "Speedbrake Up")
             end
 

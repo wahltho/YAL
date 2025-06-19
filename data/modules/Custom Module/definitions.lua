@@ -184,6 +184,11 @@ P.GEARUP = 0
 P.GEAROFF = 0.5
 P.GEARDOWN = 1
 
+-- Speedbrake-Positionen
+P.SPEEDBRAKEDOWN = 0
+P.SPEEDBRAKEARMED = 0.1
+P.SPEEDBRAKEUP = 0.5
+
 -- Autopilot Zustände (Armed/Captured)
 P.ARMED = 1
 P.CAPTURED = 2
