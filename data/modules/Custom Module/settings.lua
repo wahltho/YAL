@@ -40,7 +40,7 @@ local settingsDefinition = {
     [def.CONFIGBRIGHTPEDESTRAL] = { dvalue = 0.5 , type = "number", min = 0, max = 1 },
     [def.CONFIGGENBRIGHTBACKGROUND] = { dvalue = 0.5 , type = "number", min = 0, max = 1 },
     [def.CONFIGGENBRIGHTAFDSFLOOD] = { dvalue = 0.5 , type = "number", min = 0, max = 1 },
-    [def.CONFDIGGENBRIGHTPEDESTRALFLOOD] = { dvalue = 0.5 , type = "number", min = 0, max = 1 },
+    [def.CONFIGGENBRIGHTPEDESTRALFLOOD] = { dvalue = 0.5 , type = "number", min = 0, max = 1 },
     [def.CONFIGINSTRBRIGHTOUTBDDU] = { dvalue = 0.5 , type = "number", min = 0, max = 1 },
     [def.CONFIGINSTRBRIGHTINBDDU] = { dvalue = 0.5 , type = "number", min = 0, max = 1 },
     [def.CONFIGINSTRBRIGHTUPPERDU] = { dvalue = 0.5 , type = "number", min = 0, max = 1 },

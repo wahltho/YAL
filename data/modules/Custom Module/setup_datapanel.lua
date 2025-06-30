@@ -20,14 +20,14 @@ local cb_h = 10
 local current_input_field = nil
 
 local function process_key(char, vkey, shift, ctrl, alt, event)
-    if event == def.KB_DOWN_EVENT and current_input_field ~= nil then
-        if char == def.SASL_KEY_ESCAPE then
+    if event == KB_DOWN_EVENT and current_input_field ~= nil then
+        if char == SASL_KEY_ESCAPE then
             wdef[current_input_field].isFocused = false
             wdef[current_input_field].value = settings.appSettings[current_input_field]
             current_input_field = nil
             return true
         end
-        if char == def.SASL_KEY_RETURN and #wdef[current_input_field].value >= wdef[current_input_field].value_min_len then
+        if char == SASL_KEY_RETURN and #wdef[current_input_field].value >= wdef[current_input_field].value_min_len then
             settings.appSettings[current_input_field] = wdef[current_input_field].value
             settings.writeSettings(settings.appSettings)
             wdef[current_input_field].isFocused = false

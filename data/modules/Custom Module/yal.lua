@@ -4,20 +4,6 @@ yal = P -- package name
 local def = require("definitions")
 require("settings")
 
-local ffi = require("ffi")
-local xplm_lib = {
-    Linux = "Resources/plugins/XPLM_64.so",
-    Windows = "XPLM_64",
-    OSX = "Resources/plugins/XPLM.framework/XPLM"
-}
-local xplm = ffi.load(xplm_lib[ffi.os])
-
-ffi.cdef [[
-    void XPLMSpeakString(char *);
-    float XPLMGetMagneticVariation(double, double);
-    void XPLMGetMETARForAirport(char *, char *);
-    ]]
-
 --------------------------------------------------------------------------------------------------------------
 
 menu_master = sasl.appendMenuItem(PLUGINS_MENU_ID, def.APPNAMEPREFIXLONG)
@@ -120,14 +106,14 @@ function P.YalinitGlobal()
         [def.BEFORETAXIPROCEDURE] = { name = "Before Taxi", steps = 24, set = false, procedurefunction = beforetaxisteps, loop = 1 },
         [def.BEFORETAKEOFFPROCEDURE] = { name = "Before Takeoff", steps = 13, set = false, procedurefunction = beforetakeoffsteps, loop = 1 },
         [def.AFTERLANDINGPROCEDURE] = { name = "After Landing", steps = 19, set = false, procedurefunction = afterlandingsteps, loop = 1 },
-        [def.SETILSPROCEDURE] = { name = "", steps = 8, set = false, procedurefunction = setilssteps, loop = 3 },
+        [def.SETILSPROCEDURE] = { name = "", steps = 9, set = false, procedurefunction = setilssteps, loop = 3 },
         [def.SETVREFPROCEDURE] = { name = "", steps = 4, set = false, procedurefunction = setvrefsteps, loop = 3 },
         [def.SETTOFLAPSPROCEDURE] = { name = "", steps = 4, set = false, procedurefunction = settoflapssteps, loop = 3 },
         [def.ALTITUDEA10000PROCEDURE] = { name = "", steps = 7, set = false, procedurefunction = altitudea10000steps, loop = 1 },
         [def.ALTITUDEB10000PROCEDURE] = { name = "", steps = 12, set = false, procedurefunction = altitudeb10000steps, loop = 1 },
         [def.AFTERTAKEOFFPROCEDURE] = { name = "", steps = 3, set = false, procedurefunction = aftertakeoffsteps, loop = 2 },
         [def.DURINGCLIMBPROCEDURE] = { name = "", steps = 13, set = false, procedurefunction = duringclimbsteps, loop = 2 },
-        [def.DURINGDESCENTPROCEDURE] = { name = "", steps = 11, set = false, procedurefunction = duringdescentsteps, loop = 2 },
+        [def.DURINGDESCENTPROCEDURE] = { name = "", steps = 10, set = false, procedurefunction = duringdescentsteps, loop = 2 },
         [def.RADIOALTITUDEB2500PROCEDURE] = { name = "", steps = 1, set = false, procedurefunction = radioaltitudeb2500steps, loop = 2 },
         [def.RADIOALTITUDEB1000PROCEDURE] = { name = "", steps = 7, set = false, procedurefunction = radioaltitudeb1000steps, loop = 2 },
         [def.ATPARKINGPOSITIONPROCEDURE] = { name = "At Parking Position", steps = 12, set = false, procedurefunction = atparkingpositionsteps, loop = 1 }
@@ -166,6 +152,8 @@ function P.initDataref()
     P.parkingbrakepos = globalProperty("laminar/B738/parking_brake_pos")
 
     P.pausetod = globalProperty("laminar/B738/fms/pause_td")
+
+    P.vnavtoddist = globalProperty("laminar/B738/fms/vnav_td_dist")
 
     P.hidecptefb = globalProperty("laminar/B738/tab/static")
     P.hidefoefb = globalProperty("laminar/B738/tab/fo_static")
@@ -714,294 +702,6 @@ function P.initDataref()
 end
 
 --------------------------------------------------------------------------------------------------------------
-function P.searchnavdatatable(col1_value, col2_value, col3_value, col1_index, col2_index, col3_index)
-    for row_key, row in pairs(P.navdatatable) do
-        if ((row[col1_index] == col1_value) and (row[col2_index] == col2_value) and (row[col3_index] == col3_value)) then
-
-            return row_key
-        end
-    end
-    return nil
-end
-
---------------------------------------------------------------------------------------------------------------
-function calccourse(in_crs)
-    local result = (in_crs + 360) % 360
-    result = math.floor(result + 0.5)
-    if (result >= 359.5) then
-        result = 0
-    end
-    
-    return result
-end
-
---------------------------------------------------------------------------------------------------------------
-function P.buildnavdatatable()
-    local srcnavdatafile = io.open("Custom Data/earth_nav.dat", "r")
-
-    if not srcnavdatafile then
-        sasl.logError("Could not open Custom Data/earth_nav.dat! Please ensure the file exists in 'Custom Data/'.")
-        return false
-    end
-
-    for i = 1, 3 do
-        local header_line = srcnavdatafile:read()
-        if not header_line then
-            sasl.logError("Error reading navdata file header. File might be too short.")
-            srcnavdatafile:close()
-            return false
-        end
-        sasl.logDebug("Skipping header line: '" .. header_line .. "'")
-    end
-
-    local navdatarecord = srcnavdatafile:read()
-    local record_count = 0
-
-    while navdatarecord do
-        if navdatarecord:sub(1, 2) == "99" then
-            sasl.logDebug("End-of-data marker '99' found. Stopping navdata parsing.")
-            break
-        end
-
-        record_count = record_count + 1
-        local process_current_record = true
-        local navdataitems = {}
-
-        for navdataitem in navdatarecord:gmatch("%S+") do
-            table.insert(navdataitems, navdataitem)
-        end
-
-        sasl.logDebug("--- DEBUG: Processing Navdata Record #" .. tostring(record_count) .. " ---")
-        sasl.logDebug("Full Record: '" .. navdatarecord .. "'")
-        sasl.logDebug("Parsed items count: " .. #navdataitems)
-        for idx, val in ipairs(navdataitems) do
-            sasl.logDebug(string.format("Item [%d]: '%s'", idx, val))
-        end
-
-        if #navdataitems <= def.SRCLONPOS or #navdataitems <= def.SRCLATPOS then
-            sasl.logWarning("Record #" .. tostring(record_count) .. ": '" .. navdatarecord .. "' is too short (" .. #navdataitems .. " items). Expected at least " .. (def.SRCLONPOS + 1) .. " items for LAT/LON data. Skipping record.")
-            process_current_record = false
-        end
-
-        local lat_val, lon_val = nil, nil
-        if process_current_record then
-            local lat_str = navdataitems[def.SRCLATPOS]
-            local lon_str = navdataitems[def.SRCLONPOS]
-
-            sasl.logDebug("Value at def.SRCLATPOS (" .. tostring(def.SRCLATPOS) .. "): '" .. tostring(lat_str) .. "'")
-            sasl.logDebug("Value at def.SRCLONPOS (" .. tostring(def.SRCLONPOS) .. "): '" .. tostring(lon_str) .. "'")
-
-            lat_val = tonumber(lat_str)
-            lon_val = tonumber(lon_str)
-
-            sasl.logDebug("tonumber(lat_str) result: " .. tostring(lat_val))
-            sasl.logDebug("tonumber(lon_str) result: " .. tostring(lon_val))
-
-            if lat_val == nil or lon_val == nil then
-                sasl.logInfo("Record #" .. tostring(record_count) .. ": Magnetic Variation received NIL for LAT/LON during tonumber conversion!")
-                sasl.logInfo("Problematic Line: '" .. navdatarecord .. "'")
-                sasl.logInfo("String for Latitude: '" .. tostring(lat_str) .. "' (tonumber result: " .. tostring(lat_val) .. ")")
-                sasl.logInfo("String for Longitude: '" .. tostring(lon_str) .. "' (tonumber result: " .. tostring(lon_val) .. ")")
-                process_current_record = false
-            end
-        end
-
-        if process_current_record then
-            if (navdataitems[def.SRCTYPECODE] == def.NAVDATARECTYPEILS) then
-                local destnavtypetmp = string.sub(navdataitems[def.SRCNAVTYPE], 1, 3)
-                local navdatatableindex = navdataitems[def.SRCICAO] .. navdataitems[def.SRCRWY] .. destnavtypetmp
-                P.navdatatable[navdatatableindex] = {true, true, true, true, true, true, true}
-                P.navdatatable[navdatatableindex][def.DESTICAO] = navdataitems[def.SRCICAO]
-                P.navdatatable[navdatatableindex][def.DESTRWY] = navdataitems[def.SRCRWY]
-                P.navdatatable[navdatatableindex][def.DESTNAVTYPE] = destnavtypetmp
-                P.navdatatable[navdatatableindex][def.DESTNAVID] = navdataitems[def.SRCNAVID]
-                P.navdatatable[navdatatableindex][def.DESTFREQ] = tonumber(navdataitems[def.SRCFREQ])
-
-                local course_str = navdataitems[def.SRCCOURSE]
-                local course_val = tonumber(course_str)
-
-                local magnetic_variation = xplm.XPLMGetMagneticVariation(lat_val, lon_val)
-                sasl.logDebug("ILS/VOR DEBUG - Input Course (raw string): " .. tostring(course_str))
-                sasl.logDebug("ILS/VOR DEBUG - Course_val (tonumber): " .. tostring(course_val))
-                sasl.logDebug("ILS/VOR DEBUG - Lat/Lon: " .. tostring(lat_val) .. ", " .. tostring(lon_val))
-                sasl.logDebug("ILS/VOR DEBUG - Magnetic Variation from XPLM: " .. tostring(magnetic_variation))
-
-                if (course_val == nil) then
-                    sasl.logWarning("Record #" .. tostring(record_count) .. ": NIL course value for ILS record: '" .. navdatarecord .. "'. Setting course to 0.")
-                    P.navdatatable[navdatatableindex][def.DESTCOURSE] = 0
-                elseif (course_val > 360) then
-                    sasl.logDebug("ILS/VOR DEBUG - Course_val > 360, applying floor/calccourse.")
-                    P.navdatatable[navdatatableindex][def.DESTCOURSE] = calccourse(math.floor(course_val / 360))
-                else
-                    local calculated_course_ils_vor = (course_val + magnetic_variation + 360) % 360
-                    sasl.logDebug("ILS/VOR DEBUG - Calc (True + Var) before calccourse: " .. tostring(calculated_course_ils_vor))
-                    P.navdatatable[navdatatableindex][def.DESTCOURSE] = calccourse(calculated_course_ils_vor)
-                    sasl.logDebug("ILS/VOR DEBUG - Final Course after calccourse: " .. tostring(P.navdatatable[navdatatableindex][def.DESTCOURSE]))
-                end
-                P.navdatatable[navdatatableindex][def.DESTNAVDME] = false
-            elseif (navdataitems[def.SRCTYPECODE] == def.NAVDATARECTYPEVOR) then
-                local destnavtypetmp = string.sub(navdataitems[def.SRCNAVTYPE], 1, 3)
-                local navdatatableindex = navdataitems[def.SRCICAO] .. navdataitems[def.SRCRWY] .. destnavtypetmp
-                P.navdatatable[navdatatableindex] = {true, true, true, true, true, true, true}
-                P.navdatatable[navdatatableindex][def.DESTICAO] = navdataitems[def.SRCICAO]
-                P.navdatatable[navdatatableindex][def.DESTRWY] = navdataitems[def.SRCRWY]
-                P.navdatatable[navdatatableindex][def.DESTNAVTYPE] = destnavtypetmp
-                P.navdatatable[navdatatableindex][def.DESTNAVID] = navdataitems[def.SRCNAVID]
-                P.navdatatable[navdatatableindex][def.DESTFREQ] = tonumber(navdataitems[def.SRCFREQ])
-
-                local course_str = navdataitems[def.SRCCOURSE]
-                local course_val = tonumber(course_str)
-
-                local magnetic_variation = xplm.XPLMGetMagneticVariation(lat_val, lon_val)
-                sasl.logDebug("VOR DEBUG - Input Course (raw string): " .. tostring(course_str))
-                sasl.logDebug("VOR DEBUG - Course_val (tonumber): " .. tostring(course_val))
-                sasl.logDebug("VOR DEBUG - Lat/Lon: " .. tostring(lat_val) .. ", " .. tostring(lon_val))
-                sasl.logDebug("VOR DEBUG - Magnetic Variation from XPLM: " .. tostring(magnetic_variation))
-
-                if (course_val == nil) then
-                    sasl.logWarning("Record #" .. tostring(record_count) .. ": NIL course value for VOR record: '" .. navdatarecord .. "'. Setting course to 0.")
-                    P.navdatatable[navdatatableindex][def.DESTCOURSE] = 0
-                elseif (course_val > 360) then
-                    sasl.logDebug("VOR DEBUG - Course_val > 360, applying floor/calccourse.")
-                    P.navdatatable[navdatatableindex][def.DESTCOURSE] = calccourse(math.floor(course_val / 360))
-                else
-                    local calculated_course_vor = (course_val + magnetic_variation + 360) % 360
-                    sasl.logDebug("VOR DEBUG - Calc (True + Var) before calccourse: " .. tostring(calculated_course_vor))
-                    P.navdatatable[navdatatableindex][def.DESTCOURSE] = calccourse(calculated_course_vor)
-                    sasl.logDebug("VOR DEBUG - Final Course after calccourse: " .. tostring(P.navdatatable[navdatatableindex][def.DESTCOURSE]))
-                end
-                P.navdatatable[navdatatableindex][def.DESTNAVDME] = false
-            elseif (navdataitems[def.SRCTYPECODE] == def.NAVDATARECTYPEDME) then
-                local navdatatableindextmp = P.searchnavdatatable(navdataitems[def.SRCICAO], navdataitems[def.SRCNAVID], def.NAVTYPEILS, def.DESTICAO, def.DESTNAVID, def.DESTNAVTYPE)
-                if (navdatatableindextmp ~= nil) then
-                    P.navdatatable[navdatatableindextmp][def.DESTNAVDME] = true
-                else
-                    navdatatableindextmp = P.searchnavdatatable(P.navdatatable, navdataitems[def.SRCICAO], navdataitems[def.SRCNAVID], def.NAVTYPEIGS, def.DESTICAO, def.DESTNAVID, def.DESTNAVTYPE)
-                    if (navdatatableindextmp ~= nil) then
-                        P.navdatatable[navdatatableindextmp][def.DESTNAVDME] = true
-                    else
-                        navdatatableindextmp = P.searchnavdatatable(P.navdatatable, navdataitems[def.SRCICAO], navdataitems[def.SRCNAVID], def.NAVTYPELOC, def.DESTICAO, def.DESTNAVID, def.DESTNAVTYPE)
-                        if (navdatatableindextmp ~= nil) then
-                            P.navdatatable[navdatatableindextmp][def.DESTNAVDME] = true
-                        end
-                    end
-                end
-            elseif ((navdataitems[def.SRCTYPECODE] == def.NAVDATARECTYPELPV) or (navdataitems[def.SRCTYPECODE] == def.NAVDATARECTYPEGLS)) then
-                local destnavidtmp
-                local destnavtypetmp
-                if (navdataitems[def.SRCTYPECODE] == def.NAVDATARECTYPELPV) then
-                    destnavidtmp = navdataitems[def.SRCNAVTYPE]
-                    destnavtypetmp = def.NAVTYPELPV
-                else
-                    destnavidtmp = navdataitems[def.SRCNAVID]
-                    destnavtypetmp = def.NAVTYPEGLS
-                end
-                local navdatatableindex = navdataitems[def.SRCICAO] .. navdataitems[def.SRCRWY] .. destnavtypetmp
-                P.navdatatable[navdatatableindex] = {true, true, true, true, true, true, true}
-                P.navdatatable[navdatatableindex][def.DESTICAO] = navdataitems[def.SRCICAO]
-                P.navdatatable[navdatatableindex][def.DESTRWY] = navdataitems[def.SRCRWY]
-                P.navdatatable[navdatatableindex][def.DESTNAVTYPE] = destnavtypetmp
-                P.navdatatable[navdatatableindex][def.DESTNAVID] = destnavidtmp
-                P.navdatatable[navdatatableindex][def.DESTFREQ] = tonumber(navdataitems[def.SRCFREQ])
-
-                local raw_course_data_string = navdataitems[def.SRCCOURSE]
-                local extracted_course_string = raw_course_data_string
-
-                if #raw_course_data_string > 3 and tonumber(raw_course_data_string:sub(1,3)) ~= nil then
-                    extracted_course_string = raw_course_data_string:sub(4)
-                end
-
-                if #extracted_course_string >= 4 and extracted_course_string:sub(1,3) == "CRS" then
-                    extracted_course_string = string.sub(extracted_course_string, 4, -1)
-                end
-                local course_val_lpv_gls = tonumber(extracted_course_string)
-
-                local magnetic_variation_lpv_gls = xplm.XPLMGetMagneticVariation(lat_val, lon_val)
-                sasl.logDebug("LPV/GLS DEBUG - Input Course (raw string): " .. tostring(navdataitems[def.SRCCOURSE]))
-                sasl.logDebug("LPV/GLS DEBUG - Processed Course_str: " .. tostring(extracted_course_string))
-                sasl.logDebug("LPV/GLS DEBUG - Course_val (tonumber): " .. tostring(course_val_lpv_gls))
-                sasl.logDebug("LPV/GLS DEBUG - Lat/Lon: " .. tostring(lat_val) .. ", " .. tostring(lon_val))
-                sasl.logDebug("LPV/GLS DEBUG - Magnetic Variation from XPLM: " .. tostring(magnetic_variation_lpv_gls))
-
-                if (course_val_lpv_gls == nil) then
-                    sasl.logWarning("Record #" .. tostring(record_count) .. ": NIL course value for LPV/GLS record: '" .. navdatarecord .. "'. Setting course to 0.")
-                    P.navdatatable[navdatatableindex][def.DESTCOURSE] = 0
-                else
-                    local test_add_var = (course_val_lpv_gls + magnetic_variation_lpv_gls + 360) % 360
-                    local test_sub_var = (course_val_lpv_gls - magnetic_variation_lpv_gls + 360) % 360
-
-                    sasl.logDebug("LPV/GLS DEBUG - Test (+Var) before calccourse: " .. tostring(test_add_var))
-                    sasl.logDebug("LPV/GLS DEBUG - Result (+Var) after calccourse: " .. tostring(calccourse(test_add_var)))
-                    sasl.logDebug("LPV/GLS DEBUG - Test (-Var) before calccourse: " .. tostring(test_sub_var))
-                    sasl.logDebug("LPV/GLS DEBUG - Result (-Var) after calccourse: " .. tostring(calccourse(test_sub_var)))
-
-                    P.navdatatable[navdatatableindex][def.DESTCOURSE] = calccourse(test_add_var)
-                    sasl.logDebug("LPV/GLS DEBUG - FINAL P.navdatatable[...][def.DESTCOURSE] set to (using +Var): " .. tostring(P.navdatatable[navdatatableindex][def.DESTCOURSE]))
-                end
-                P.navdatatable[navdatatableindex][def.DESTNAVDME] = true
-            end
-        end
-
-        navdatarecord = srcnavdatafile:read()
-    end
-    srcnavdatafile:close()
-
-    for key, value in pairs(P.navdatatable) do
-        local icaocode = key:sub(1, 4)
-        local rwy = key:sub(5, -4)
-        local navtype = key:sub(-3)
-
-        if ((navtype == def.NAVTYPEGLS) or (navtype == def.NAVTYPELPV)) then
-            if (P.navdatatable[icaocode .. rwy .. def.NAVTYPEILS] ~= nil) then
-                local ilscourse = P.navdatatable[icaocode .. rwy .. def.NAVTYPEILS][def.DESTCOURSE]
-                local lpvglscourse = P.navdatatable[key][def.DESTCOURSE]
-                local deviation = getheadingdiff(lpvglscourse, ilscourse)
-
-                if (deviation ~= 0) and (math.abs(deviation) <= 1) then
-                    P.navdatatable[key][def.DESTCOURSE] = ilscourse
-                end
-            else
-                local opprwy = getoppositerwy(rwy)
-                if (P.navdatatable[icaocode .. opprwy .. def.NAVTYPEILS] ~= nil) then
-                    local oppcourse = getoppositeheading(P.navdatatable[icaocode .. opprwy .. def.NAVTYPEILS][def.DESTCOURSE])
-                    local lpvglscourse = P.navdatatable[key][def.DESTCOURSE]
-                    local deviation = getheadingdiff(lpvglscourse, oppcourse)
-
-                    if (deviation ~= 0) and (math.abs(deviation) <= 1) then
-                        P.navdatatable[key][def.DESTCOURSE] = oppcourse
-                    end
-                end
-            end
-        end
-    end
-
-    return true
-end
-
---------------------------------------------------------------------------------------------------------------
-function P.writenavdatatable()
-
-    destnavdatafile = io.open("Custom Data/yal_nav.dat", "w")
-
-    if not destnavdatafile then
-        sasl.logDebug("Could not open Custom Data/yal_nav.dat")
-        return false
-    end
-
-    for row_key, row in pairs(P.navdatatable) do
-        destnavdatafile:write(row_key .. ": ")
-        for col_index, value in ipairs(row) do
-            destnavdatafile:write(tostring(value) .. " ")
-        end
-        destnavdatafile:write("\n")
-    end
-
-    destnavdatafile:close()
-
-    return true
-end
-
---------------------------------------------------------------------------------------------------------------
 -- Custom Commands
 
 function yalreset()
@@ -1011,9 +711,9 @@ function yalreset()
 
     readconfig()
 
-    P.buildnavdatatable()
+    helpers.buildnavdatatable(P.navdatatable)
     if (sasl.getLogLevel() == LOG_DEBUG) then
-        P.writenavdatatable()
+        helpers.writenavdatatable(P.navdatatable)
     end
 
     P.remainingtimetoquit = P.configvalues[def.CONFIGTODPAUSEQUITTIME]
@@ -1095,564 +795,6 @@ function setview(view)
 end
 
 --------------------------------------------------------------------------------------------------------------
-function logtable(table, prefix)
-    prefix = prefix or ""  -- Standardpräfix (leer, falls nicht angegeben)
-    for key, value in pairs(table) do
-        if type(value) == "table" then
-            -- Wenn der Wert eine Tabelle ist, rufe die Funktion rekursiv auf
-            sasl.logDebug(prefix .. tostring(key) .. " {")
-            logtable(value, prefix .. "  ")  -- Erhöhe den Präfix für die Einrückung
-            sasl.logDebug(prefix .. "}")
-        else
-            -- Wenn der Wert kein Table ist, logge den Schlüssel und den Wert
-            sasl.logDebug(prefix .. tostring(key) .. " = " .. tostring(value))
-        end
-    end
-end
-
---------------------------------------------------------------------------------------------------------------
-function fieldexists(tbl, path)
-    local keys = {}
-    local buffer = ""
-    local inBrackets = false
-
-    -- Manuelle Zerlegung des Pfads
-    for i = 1, #path do
-        local char = path:sub(i, i)
-
-        if char == "[" then
-            inBrackets = true
-            if buffer ~= "" then
-                table.insert(keys, buffer)
-                buffer = ""
-            end
-        elseif char == "]" then
-            inBrackets = false
-            if buffer ~= "" then
-                table.insert(keys, buffer)
-                buffer = ""
-            end
-        elseif char == "." and not inBrackets then
-            if buffer ~= "" then
-                table.insert(keys, buffer)
-                buffer = ""
-            end
-        else
-            buffer = buffer .. char
-        end
-    end
-
-    -- Füge den letzten Puffer hinzu
-    if buffer ~= "" then
-        table.insert(keys, buffer)
-    end
-
-    -- Rekursive Überprüfung des Pfads
-    local function recurse(tbl, keys, index)
-        index = index or 1
-        if index > #keys then
-            return true
-        end
-        local key = keys[index]
-        if type(tbl) == "table" and tbl[key] ~= nil then
-            return recurse(tbl[key], keys, index + 1)
-        else
-            return false
-        end
-    end
-
-    return recurse(tbl, keys)
-end
-
---------------------------------------------------------------------------------------------------------------
-function containsvalue(tbl, target_value)
-    -- Überprüfe, ob die Tabelle den Zielwert direkt enthält
-    for key, value in pairs(tbl) do
-        if value == target_value then
-            return true
-        elseif type(value) == "table" then
-            -- Wenn der Wert eine Tabelle ist, rufe die Funktion rekursiv auf
-            if containsvalue(value, target_value) then
-                return true
-            end
-        end
-    end
-    return false
-end
-
---------------------------------------------------------------------------------------------------------------
-function addspaces(input)
-    local result = ""
-    
-    local inputstr = tostring(input)
-
-    for i = 1, #inputstr do
-        result = result .. inputstr:sub(i, i) .. " "
-    end
-
-    return result:sub(1, -2)
-end
-
---------------------------------------------------------------------------------------------------------------
-
-function padNumberWithZerosStrict(number, length)
-    local str = tostring(number)
-    if #str > length then
-        error("Eingabe ist länger als die gewünschte Länge!")
-    end
-    return string.rep("0", length - #str) .. str
-end
-
---------------------------------------------------------------------------------------------------------------
-function cleanstring(str)
-    local result = ""
-    for i = 1, #str do
-        local char = str:sub(i, i)
-        if char:match("%a") or char:match("%d") then
-            result = result .. char
-        end
-    end
-    return result
-end
-
---------------------------------------------------------------------------------------------------------------
-function splitstring(input)
-    local parts = {}
-    local current_pos = 1
-
-    while true do
-        -- Finde den Start des nächsten Nicht-Leerzeichen-Blocks (des "Wortes")
-        local start_word = string.find(input, "%S", current_pos)
-
-        if not start_word then
-            -- Keine weiteren Nicht-Leerzeichen gefunden, Ende der Zeile
-            break
-        end
-
-        -- Finde das Ende des aktuellen Wortes (entweder ein Leerzeichen oder das Ende des Strings)
-        local end_word = string.find(input, "%s", start_word)
-
-        if end_word then
-            -- Füge das Wort hinzu (von start_word bis end_word-1)
-            table.insert(parts, string.sub(input, start_word, end_word - 1))
-            current_pos = end_word + 1 -- Setze die Position nach dem Leerzeichen
-        else
-            -- Das ist das letzte Wort in der Zeile
-            table.insert(parts, string.sub(input, start_word))
-            break -- Fertig
-        end
-    end
-    return parts
-end
-
---------------------------------------------------------------------------------------------------------------
-function TransponderPostotring(transponderposition)
-
-    if (transponderposition == def.STANDBY) then
-        return "Standby"
-    elseif (transponderposition == def.ALTOFF) then
-        return "Altitude Off"
-    elseif (transponderposition == def.ALTON) then
-        return "Altitude On"
-    elseif (transponderposition == def.TA) then
-        return "T A"
-    elseif (transponderposition == def.TARA) then
-        return "T A R A"
-    end
-end
-
---------------------------------------------------------------------------------------------------------------
-function formatILSFrequency(freq)
-    local freqStr = tostring(freq)
-    
-    -- Mindestens 1 Ziffer vor dem Komma, maximal 3
-    local beforeComma = freqStr:sub(1, 3)
-    local afterComma = freqStr:sub(4)
-    
-    -- Fülle nach dem Komma auf 2 Stellen
-    if #afterComma < 2 then
-        afterComma = afterComma .. string.rep("0", 2 - #afterComma)
-    elseif #afterComma > 2 then
-        afterComma = afterComma:sub(1, 2)
-    end
-    
-    return beforeComma .. "," .. afterComma
-end
-
---------------------------------------------------------------------------------------------------------------
-function isvalidicao(icao)
-    -- Überprüfe, ob die Eingabe ein String ist und genau 4 Zeichen lang ist
-    if type(icao) ~= "string" or #icao ~= 4 then
-        return false
-    end
-
-    -- Überprüfe jedes Zeichen, ob es ein Großbuchstabe ist
-    for i = 1, 4 do
-        local char = icao:sub(i, i)  -- Extrahiere das i-te Zeichen
-        if char < "A" or char > "Z" then  -- Überprüfe, ob es ein Großbuchstabe ist
-            return false
-        end
-    end
-
-    return true
-end
-
---------------------------------------------------------------------------------------------------------------
-function isvalidrwy(runway)
-    -- Überprüfen, ob der Wert ein String ist
-    if type(runway) ~= "string" then
-        return false
-    end
-
-    -- Muster für eine gültige Runway-Bezeichnung
-    local pattern = "^(%d?%d)([LRC]?)$"
-
-    -- Überprüfen, ob der String dem Muster entspricht
-    local number, suffix = runway:match(pattern)
-
-    -- Wenn keine Zahl gefunden wurde, ist die Runway ungültig
-    if not number then
-        return false
-    end
-
-    -- Überprüfen, ob die Zahl zwischen 01 und 36 liegt
-    local num = tonumber(number)
-    if num < 1 or num > 36 then
-        return false
-    end
-
-    -- Wenn alles in Ordnung ist, ist die Runway gültig
-    return true
-end
-
---------------------------------------------------------------------------------------------------------------
-function adjustrwy(runway, increment)
-    -- Extract the numeric part and the optional letter suffix
- 
-    if not isvalidrwy(runway) then
-        return nil
-    end
-
-    local number, suffix = runway:match("^(%d+)(%a*)$")
-
-    -- Convert the numeric part to a number
-    number = tonumber(number)
-
-    -- Adjust the number by the increment (default is +1)
-    increment = increment or 1
-    number = number + increment
-
-    -- Handle runway number wrapping (e.g., 36 -> 1, 1 -> 36)
-    if (number > 36) then
-        number = number - 36
-    elseif (number < 1) then
-        number = number + 36
-    end
-
-    -- Format the number to two digits (e.g., 1 -> "01")
-    local formatted_number = string.format("%02d", number)
-
-    -- Combine the formatted number and suffix
-    return formatted_number .. suffix
-end
-
---------------------------------------------------------------------------------------------------------------
-function formatRunwayDesignator(runwayDesignator)
-
-    if type(runwayDesignator) ~= "string" or runwayDesignator == "" then
-        return ""
-    end
-
-    local parts = {}
-    
-    local mapping = {
-        L = "Left",
-        R = "Right",
-        C = "Center"
-    }
-
-    local len = string.len(runwayDesignator)
-
-
-    for i = 1, len do
-        local char = runwayDesignator:sub(i, i)
-
-        if i == 3 and mapping[char] then
-            table.insert(parts, mapping[char])
-        else
-            table.insert(parts, char)
-        end
-    end
-
-    return table.concat(parts, " ")
-end
-
---------------------------------------------------------------------------------------------------------------
-function getnavdataindex(icao, rwy, navtype)
-
-    if not (isvalidicao(icao) and isvalidrwy(rwy)) then
-        return nil
-    end
-
-    local result = nil
-    local navdatatableindex = icao .. rwy .. navtype
-    
-    if (P.navdatatable[navdatatableindex] ~= nil) then
-        result = navdatatableindex
-    else
-        navdatatableindex = icao .. adjustrwy(rwy, 1) .. navtype
-        if (P.navdatatable[navdatatableindex]  ~= nil) then
-           result = navdatatableindex
-        else
-            navdatatableindex = icao .. adjustrwy(rwy, -1) .. navtype
-            if (P.navdatatable[navdatatableindex]  ~= nil) then
-               result = navdatatableindex
-            else
-                navdatatableindex = icao .. adjustrwy(rwy, 2) .. navtype
-                if (P.navdatatable[navdatatableindex]  ~= nil) then
-                   result = navdatatableindex
-                else
-                    navdatatableindex = icao .. adjustrwy(rwy, -2) .. navtype
-                    if (P.navdatatable[navdatatableindex]  ~= nil) then
-                       result = navdatatableindex
-                    else
-                        navdatatableindex = icao .. adjustrwy(rwy, 3) .. navtype
-                        if (P.navdatatable[navdatatableindex]  ~= nil) then
-                           result = navdatatableindex
-                        else
-                            navdatatableindex = icao .. adjustrwy(rwy, -3) .. navtype
-                            if (P.navdatatable[navdatatableindex]  ~= nil) then
-                               result = navdatatableindex
-                            end
-                        end
-                    end
-                end
-            end
-        end
-    end
-
-    return result
-
-end
-
---------------------------------------------------------------------------------------------------------------
-function getrwyheadingfromnavdata(icao, rwy)
-
-    if not (isvalidicao(icao) and isvalidrwy(rwy)) then
-        return nil
-    end
-
-    local result = nil
-    local navdatatableindex = getnavdataindex(icao, rwy, def.NAVTYPEILS)
-
-    if (navdatatableindex ~= nil) then
-        result = P.navdatatable[navdatatableindex][def.DESTCOURSE]
-    else
-        navdatatableindex = getnavdataindex(icao, rwy, def.NAVTYPEGLS)
-        if (navdatatableindex ~= nil) then
-            result = P.navdatatable[navdatatableindex][def.DESTCOURSE]
-        else
-            navdatatableindex = getnavdataindex(icao, rwy, def.NAVTYPELPV)
-            if (navdatatableindex ~= nil) then
-                result = P.navdatatable[navdatatableindex][def.DESTCOURSE]
-            end
-        end
-    end
-
-    return result
-
-end 
-
---------------------------------------------------------------------------------------------------------------
-function getoppositerwy(runway)
-    -- Extrahiere die Zahl und den optionalen Buchstaben
-    local number = tonumber(runway:match("%d+"))
-    local letter = runway:match("%a") or ""
-
-    -- Berechne die entgegengesetzte Runway-Zahl
-    local oppositeNumber = (number + 18) % 36
-    if (oppositeNumber == 0) then
-        oppositeNumber = 36
-    end
-
-    -- Füge den Buchstaben hinzu, falls vorhanden
-    local oppositeRunway = string.format("%02d", oppositeNumber) .. letter
-
-    return oppositeRunway
-end
-
---------------------------------------------------------------------------------------------------------------
-function getoppositeheading(heading)
-    local oppositeHeading = (heading + 180) % 360
-    return oppositeHeading
-end
-
---------------------------------------------------------------------------------------------------------------
-function getheadingdiff(heading1, heading2)
-    -- Berechne die absolute Differenz
-    local diff = math.abs(heading1 - heading2)
-    
-    -- Berücksichtige die Zirkularität der Kurse (360-Grad-Wrap)
-    if (diff > 180) then
-        diff = 360 - diff
-    end
-    
-    return diff
-end
-
-
---------------------------------------------------------------------------------------------------------------
-function aircraftonrwy(aircraftlat, aircraftlon, rwystartlat, rwystartlon, rwyendlat, rwyendlon, dist)
-
-    if (rwystartlat == 0) then
-        return true
-    end
-
-    local rwystartlatrad = math.rad(rwystartlat)
-    local rwystartlonrad = math.rad(rwystartlon)
-    local rwyendlatrad = math.rad(rwyendlat)
-    local rwyendlonrad = math.rad(rwyendlon)
-    local aircraftlatrad = math.rad(aircraftlat)
-    local aircraftlonrad = math.rad(aircraftlon)
-
-    local v1 = (rwyendlonrad - rwystartlonrad) * math.cos(rwystartlatrad)
-    local v2 = (rwyendlatrad - rwystartlatrad)
-    local d1 = (aircraftlatrad - rwystartlatrad)
-    local d2 = (aircraftlonrad - rwystartlonrad) * math.cos(rwystartlatrad)
-    local s = d1 * v1 + d2 * v2
-
-    local disttorwy = math.sqrt(math.abs(d1 ^ 2 + d2 ^ 2 - 2 * s))
-
-    if (disttorwy < dist) then
-        return true
-    else
-        return false
-    end
-end
-
---------------------------------------------------------------------------------------------------------------
-
-function roundnumber(num, decimalPlaces)
-
-    decimalPlaces = decimalPlaces or 0
-
-    local power = 10^decimalPlaces
-
-    if num >= 0 then
-        return (math.floor(num * power + 0.5) / power)
-    else
-        return (math.ceil(num * power - 0.5) / power)
-    end
-end
-
---------------------------------------------------------------------------------------------------------------
-function headingdiff(heading1, heading2)
-
-    local headingdifftemp = math.abs(heading1 - heading2)
-
-    if (headingdifftemp > 180) then
-        return (360 - headingdifftemp)
-    else
-        return (headingdifftemp)
-    end
-end
-
---------------------------------------------------------------------------------------------------------------
-
-function convertpressure(value)
-
-    value = tonumber(value)
-    if value then
-        if (value > 100) then
-            local inches = value / def.INCHTOPAS
-            return roundnumber(inches, 2)
-        else
-            local hpa = value * def.INCHTOPAS
-            return roundnumber(hpa, 0)
-        end
-    end
-end
-
---------------------------------------------------------------------------------------------------------------
-function getlocalqnh(deparr)
-
-    local localqnhpas = roundnumber(get(P.baroregionpas) / 100) -- Default from X-Plane dataref
-    local localqnhinch = convertpressure(localqnhpas) -- Convert default hPa to inches (using existing convertpressure)
-
-    -- Variable für den Altimeter-Wert aus dem METAR
-    local metar_altim_in_hg_val = nil
-
-    if (deparr == def.DEPARTURE) then
-        if P.depmetar.metarfound and P.depmetar.metar and P.depmetar.metar.altim_in_hg then -- Check if metar and altim_in_hg exist
-            metar_altim_in_hg_val = tonumber(P.depmetar.metar.altim_in_hg)
-        end
-    elseif (deparr == def.ARRIVAL) then
-        if P.desmetar.metarfound and P.desmetar.metar and P.desmetar.metar.altim_in_hg then -- Check if metar and altim_in_hg exist
-            metar_altim_in_hg_val = tonumber(P.desmetar.metar.altim_in_hg)
-        end
-    end
-
-    -- Wenn ein gültiger Wert aus dem METAR gefunden wurde, diesen verwenden
-    if metar_altim_in_hg_val ~= nil then
-        localqnhinch = metar_altim_in_hg_val -- Der Wert ist bereits in inHg
-        localqnhpas = convertpressure(localqnhinch) -- Diesmal von inHg zu hPa konvertieren
-    end
-
-    sasl.logDebug("GETLOCALQNH: INCH " .. tostring(localqnhinch) .. " PAS " .. tostring(localqnhpas))
-
-    return localqnhinch, localqnhpas
-end
-
---------------------------------------------------------------------------------------------------------------
-function convflaplevertoflappos(flaplever)
-
-    local returnvalue = 0
-
-    if (flaplever == def.FLAPSUP) then
-        returnvalue = 0
-    elseif (flaplever == def.FLAPS1) then
-        returnvalue = 1
-    elseif (flaplever == def.FLAPS2) then
-        returnvalue = 2
-    elseif (flaplever == def.FLAPS5) then
-        returnvalue = 5
-    elseif (flaplever == def.FLAPS10) then
-        returnvalue = 10
-    elseif (flaplever == def.FLAPS15) then
-        returnvalue = 15
-    elseif (flaplever == def.FLAPS25) then
-        returnvalue = 25
-    elseif (flaplever == def.FLAPS30) then
-        returnvalue = 30
-    elseif (flaplever == def.FLAPS40) then
-        returnvalue = 40
-    end
-
-    return (returnvalue)
-
-end
-
---------------------------------------------------------------------------------------------------------------
-function getbankanglestring(bankangle)
-
-    local bankanglestring = ""
-
-    if (bankangle == def.BANKANGLEMIN) then
-        bankanglestring = "Minimum"
-    elseif (bankangle == def.BANKANGLE15) then
-        bankanglestring = "15"
-    elseif (bankangle == def.BANKANGLE20) then
-        bankanglestring = "20"
-    elseif (bankangle == def.BANKANGLE25) then
-        bankanglestring = "25"
-    elseif (bankangle == def.BANKANGLEMAX) then
-        bankanglestring = "Maximum"
-    end
-
-    return bankanglestring
-end
-
---------------------------------------------------------------------------------------------------------------
 function P.commandtableentry(state, text)
 
     local index = 1
@@ -1699,6 +841,171 @@ my_command_togglesimfreeze = sasl.createCommand(def.APPNAMEPREFIX .. "/togglesim
 sasl.registerCommandHandler(my_command_togglesimfreeze, 0, togglesimfreeze_)
 
 --------------------------------------------------------------------------------------------------------------
+function toggleautofunctions()
+
+    if (P.configvalues[def.CONFIGAUTOFUNCTIONS] == def.ON) then
+        P.configvalues[def.CONFIGAUTOFUNCTIONS] = def.OFF
+        P.commandtableentry(def.TEXT, "Auto Functions Off")
+    else
+        P.configvalues[def.CONFIGAUTOFUNCTIONS] = def.ON
+        P.commandtableentry(def.TEXT, "Auto Functions On")
+    end
+
+    return true
+
+end
+
+function toggleautofunctions_(phase)
+    if phase == SASL_COMMAND_BEGIN then
+        toggleautofunctions()
+    end
+    return 0
+end
+
+my_command_toggleautofunctions = sasl.createCommand(def.APPNAMEPREFIX .. "/toggleautofunctions", "Toggle Auto Functions")
+sasl.registerCommandHandler(my_command_toggleautofunctions, 0, toggleautofunctions_)
+
+--------------------------------------------------------------------------------------------------------------
+function toggleviewchanges()
+
+    if (P.configvalues[def.CONFIGVIEWCHANGES] == def.ON) then
+        P.configvalues[def.CONFIGVIEWCHANGES] = def.OFF
+        P.commandtableentry(def.TEXT, "View Changes Off")
+    else
+        P.configvalues[def.CONFIGVIEWCHANGES] = def.ON
+        P.commandtableentry(def.TEXT, "View Changes On")
+    end
+
+    return true
+
+end
+
+function toggleviewchanges_(phase)
+    if phase == SASL_COMMAND_BEGIN then
+        toggleviewchanges()
+    end
+    return 0
+end
+
+my_command_toggleviewchanges = sasl.createCommand(def.APPNAMEPREFIX .. "/toggleviewchanges", "Toggle View Changes")
+sasl.registerCommandHandler(my_command_toggleviewchanges, 0, toggleviewchanges_)
+
+--------------------------------------------------------------------------------------------------------------
+function toggleadviceonly()
+
+    if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
+        P.configvalues[def.CONFIGVOICEADVICEONLY] = def.OFF
+        P.commandtableentry(def.ADVICE, "def.ADVICE Only Off")
+    else
+        P.configvalues[def.CONFIGVOICEADVICEONLY] = def.ON
+        P.commandtableentry(def.ADVICE, "def.ADVICE Only On")
+    end
+
+    return true
+
+end
+
+function toggleadviceonly_(phase)
+    if phase == SASL_COMMAND_BEGIN then
+        toggleadviceonly()
+    end
+    return 0
+end
+
+my_command_toggleadviceonly = sasl.createCommand(def.APPNAMEPREFIX .. "/toggleadviceonly", "Toggle def.ADVICE Only")
+sasl.registerCommandHandler(my_command_toggleadviceonly, 0, toggleadviceonly_)
+
+--------------------------------------------------------------------------------------------------------------
+function abortprocedure()
+    local mostRecentLoop = nil
+    local latestTime = 0
+
+    for i, loopObj in ipairs(P.loopStateTables) do
+        if loopObj.lock ~= def.NOPROCEDURE and loopObj.lastActiveTime > latestTime then
+            latestTime = loopObj.lastActiveTime
+            mostRecentLoop = loopObj
+        end
+    end
+
+    if mostRecentLoop then
+        mostRecentLoop.procedureabort = true
+        mostRecentLoop.procedureskipstep = false
+    end
+
+    return true
+end
+
+function abortprocedure_(phase)
+    if phase == SASL_COMMAND_BEGIN then
+        abortprocedure()
+    end
+    return 0
+end
+
+my_command_abortprocedure = sasl.createCommand(def.APPNAMEPREFIX .. "/abortprocedure", "Abort Procedure")
+sasl.registerCommandHandler(my_command_abortprocedure, 0, abortprocedure_)
+
+--------------------------------------------------------------------------------------------------------------
+function skipprocedurestep()
+    local mostRecentLoop = nil
+    local latestTime = 0
+
+    for i, loopObj in ipairs(P.loopStateTables) do
+        if loopObj.lock ~= def.NOPROCEDURE and loopObj.lastActiveTime > latestTime then
+            latestTime = loopObj.lastActiveTime
+            mostRecentLoop = loopObj
+        end
+    end
+
+    if mostRecentLoop then
+        mostRecentLoop.procedureskipstep = true
+        mostRecentLoop.procedureabort = false
+    end
+
+    return true
+end
+
+function skipprocedurestep_(phase)
+    if phase == SASL_COMMAND_BEGIN then
+        skipprocedurestep()
+    end
+    return 0
+end
+
+my_command_skipprocedurestep = sasl.createCommand(def.APPNAMEPREFIX .. "/skipprocedurestep", "Skip Procedure Step")
+sasl.registerCommandHandler(my_command_skipprocedurestep, 0, skipprocedurestep_)
+
+--------------------------------------------------------------------------------------------------------------
+function getlocalqnh(deparr)
+
+    local localqnhpas = helpers.roundnumber(get(P.baroregionpas) / 100) -- Default from X-Plane dataref
+    local localqnhinch = helpers.convertpressure(localqnhpas) -- Convert default hPa to inches (using existing helpers.convertpressure)
+
+    -- Variable für den Altimeter-Wert aus dem METAR
+    local metar_altim_in_hg_val = nil
+
+    if (deparr == def.DEPARTURE) then
+        if P.depmetar.metarfound and P.depmetar.metar and P.depmetar.metar.altim_in_hg then -- Check if metar and altim_in_hg exist
+            metar_altim_in_hg_val = tonumber(P.depmetar.metar.altim_in_hg)
+        end
+    elseif (deparr == def.ARRIVAL) then
+        if P.desmetar.metarfound and P.desmetar.metar and P.desmetar.metar.altim_in_hg then -- Check if metar and altim_in_hg exist
+            metar_altim_in_hg_val = tonumber(P.desmetar.metar.altim_in_hg)
+        end
+    end
+
+    -- Wenn ein gültiger Wert aus dem METAR gefunden wurde, diesen verwenden
+    if metar_altim_in_hg_val ~= nil then
+        localqnhinch = metar_altim_in_hg_val -- Der Wert ist bereits in inHg
+        localqnhpas = helpers.convertpressure(localqnhinch) -- Diesmal von inHg zu hPa konvertieren
+    end
+
+    sasl.logDebug("GETLOCALQNH: INCH " .. tostring(localqnhinch) .. " PAS " .. tostring(localqnhpas))
+
+    return localqnhinch, localqnhpas
+end
+
+--------------------------------------------------------------------------------------------------------------
 
 function mastercaution()
 
@@ -1733,15 +1040,15 @@ function speakdesmetar()
 
     if P.desmetar.metarfound then
             if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                P.commandtableentry(def.ADVICE, formatMetarSpeechSummary(P.desmetar))
+                P.commandtableentry(def.ADVICE, helpers.formatMetarSpeechSummary(P.desmetar))
             else
-                P.commandtableentry(def.TEXT, formatMetarSpeechSummary(P.desmetar))
+                P.commandtableentry(def.TEXT, helpers.formatMetarSpeechSummary(P.desmetar))
             end
         else
             if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                P.commandtableentry(def.ADVICE, "No Metar found for " .. addspaces(desicao))
+                P.commandtableentry(def.ADVICE, "No Metar found for " .. helpers.addspaces(desicao))
             else
-                P.commandtableentry(def.TEXT, "No Metar found for " .. addspaces(desicao))
+                P.commandtableentry(def.TEXT, "No Metar found for " .. helpers.addspaces(desicao))
             end
     end
 
@@ -1764,15 +1071,15 @@ function speakdepmetar()
 
     if P.depmetar.metarfound then
             if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                P.commandtableentry(def.ADVICE, formatMetarSpeechSummary(P.depmetar))
+                P.commandtableentry(def.ADVICE, helpers.formatMetarSpeechSummary(P.depmetar))
             else
-                P.commandtableentry(def.TEXT, formatMetarSpeechSummary(P.depmetar))
+                P.commandtableentry(def.TEXT, helpers.formatMetarSpeechSummary(P.depmetar))
             end
         else
             if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                P.commandtableentry(def.ADVICE, "No Metar found for " .. addspaces(depicao))
+                P.commandtableentry(def.ADVICE, "No Metar found for " .. helpers.addspaces(depicao))
             else
-                P.commandtableentry(def.TEXT, "No Metar found for " .. addspaces(depicao))
+                P.commandtableentry(def.TEXT, "No Metar found for " .. helpers.addspaces(depicao))
             end
     end
 
@@ -1788,14 +1095,12 @@ end
 
 my_command_speakdepmetar = sasl.createCommand(def.APPNAMEPREFIX .. "/speakdepmetar", "Speak Departure Metar")
 sasl.registerCommandHandler(my_command_speakdepmetar, 0, speakdepmetar_)
- 
-
 
 --------------------------------------------------------------------------------------------------------------
 
 function headingsync()
 
-    set(P.mcpheading, roundnumber(get(P.groundtrackmag)))
+    set(P.mcpheading, helpers.roundnumber(get(P.groundtrackmag)))
 
 end
 
@@ -1904,7 +1209,6 @@ my_command_togglecollisionlights = sasl.createCommand(def.APPNAMEPREFIX .. "/tog
 sasl.registerCommandHandler(my_command_togglecollisionlights, 0, togglecollisionlights_)
 
 --------------------------------------------------------------------------------------------------------------
-
 function togglelandinglights(state)
     if (state == nil) then
         if (get(P.llightson) == def.OFF) then
@@ -1933,6 +1237,7 @@ end
 
 my_command_togglelandinglights = sasl.createCommand(def.APPNAMEPREFIX .. "/togglelandinglights", "Toggle Landing Lights")
 sasl.registerCommandHandler(my_command_togglelandinglights, 0, togglelandinglights_)
+
 --------------------------------------------------------------------------------------------------------------
 
 function togglelogolight(state)
@@ -1962,7 +1267,6 @@ my_command_togglelogolight = sasl.createCommand(def.APPNAMEPREFIX .. "/togglelog
 sasl.registerCommandHandler(my_command_togglelogolight, 0, togglelogolight_)
 
 --------------------------------------------------------------------------------------------------------------
-
 function togglerwylights(state)
 
     if (state == nil) then
@@ -2004,7 +1308,6 @@ my_command_togglerwylights = sasl.createCommand(def.APPNAMEPREFIX .. "/togglerwy
 sasl.registerCommandHandler(my_command_togglerwylights, 0, togglerwylights_)
 
 --------------------------------------------------------------------------------------------------------------
-
 function togglepositionlights(state)
 
     if (state == nil) then
@@ -2034,7 +1337,6 @@ my_command_togglepositionlights = sasl.createCommand(def.APPNAMEPREFIX .. "/togg
 sasl.registerCommandHandler(my_command_togglepositionlights, 0, togglepositionlights_)
 
 --------------------------------------------------------------------------------------------------------------
-
 function toggletransponder(state)
 
     if (state == nil) then
@@ -2065,7 +1367,6 @@ my_command_toggletransponder = sasl.createCommand(def.APPNAMEPREFIX .. "/togglet
 sasl.registerCommandHandler(my_command_toggletransponder, 0, toggletransponder_)
 
 --------------------------------------------------------------------------------------------------------------
-
 function togglefds(state)
 
     if (state == nil) then
@@ -2109,7 +1410,6 @@ my_command_togglefds = sasl.createCommand(def.APPNAMEPREFIX .. "/togglefds", "To
 sasl.registerCommandHandler(my_command_togglefds, 0, togglefds_)
 
 --------------------------------------------------------------------------------------------------------------
-
 function togglewx(state)
 
     if (state == nil) then
@@ -2153,7 +1453,6 @@ my_command_togglewx = sasl.createCommand(def.APPNAMEPREFIX .. "/togglewx", "Togg
 sasl.registerCommandHandler(my_command_togglewx, 0, togglewx_)
 
 --------------------------------------------------------------------------------------------------------------
-
 function toggleterr(state)
 
     if (state == nil) then
@@ -2197,7 +1496,6 @@ my_command_toggleterr = sasl.createCommand(def.APPNAMEPREFIX .. "/toggleterr", "
 sasl.registerCommandHandler(my_command_toggleterr, 0, toggleterr_)
 
 --------------------------------------------------------------------------------------------------------------
-
 function togglewindowheat(state)
 
     if (state == nil) then
@@ -2238,7 +1536,6 @@ my_command_togglewindowheat = sasl.createCommand(def.APPNAMEPREFIX .. "/togglewi
 sasl.registerCommandHandler(my_command_togglewindowheat, 0, togglewindowheat_)
 
 --------------------------------------------------------------------------------------------------------------
-
 function toggleprobeheat(state)
 
     if (state == nil) then
@@ -2271,7 +1568,6 @@ my_command_toggleprobeheat = sasl.createCommand(def.APPNAMEPREFIX .. "/togglepro
 sasl.registerCommandHandler(my_command_toggleprobeheat, 0, toggleprobeheat_)
 
 --------------------------------------------------------------------------------------------------------------
-
 function iceprotection(state)
 
     local set = 0
@@ -2348,60 +1644,7 @@ end
 my_command_iceprotection = sasl.createCommand(def.APPNAMEPREFIX .. "/iceprotection", "Toggle Ice Protection")
 sasl.registerCommandHandler(my_command_iceprotection, 0, iceprotection_)
 
---------------------------------------------------------------------------------------------------------------
-
-function toggleautofunctions()
-
-    if (P.configvalues[def.CONFIGAUTOFUNCTIONS] == def.ON) then
-        P.configvalues[def.CONFIGAUTOFUNCTIONS] = def.OFF
-        P.commandtableentry(def.TEXT, "Auto Functions Off")
-    else
-        P.configvalues[def.CONFIGAUTOFUNCTIONS] = def.ON
-        P.commandtableentry(def.TEXT, "Auto Functions On")
-    end
-
-    return true
-
-end
-
-function toggleautofunctions_(phase)
-    if phase == SASL_COMMAND_BEGIN then
-        toggleautofunctions()
-    end
-    return 0
-end
-
-my_command_toggleautofunctions = sasl.createCommand(def.APPNAMEPREFIX .. "/toggleautofunctions", "Toggle Auto Functions")
-sasl.registerCommandHandler(my_command_toggleautofunctions, 0, toggleautofunctions_)
-
---------------------------------------------------------------------------------------------------------------
-
-function toggleviewchanges()
-
-    if (P.configvalues[def.CONFIGVIEWCHANGES] == def.ON) then
-        P.configvalues[def.CONFIGVIEWCHANGES] = def.OFF
-        P.commandtableentry(def.TEXT, "View Changes Off")
-    else
-        P.configvalues[def.CONFIGVIEWCHANGES] = def.ON
-        P.commandtableentry(def.TEXT, "View Changes On")
-    end
-
-    return true
-
-end
-
-function toggleviewchanges_(phase)
-    if phase == SASL_COMMAND_BEGIN then
-        toggleviewchanges()
-    end
-    return 0
-end
-
-my_command_toggleviewchanges = sasl.createCommand(def.APPNAMEPREFIX .. "/toggleviewchanges", "Toggle View Changes")
-sasl.registerCommandHandler(my_command_toggleviewchanges, 0, toggleviewchanges_)
-
  --------------------------------------------------------------------------------------------------------------
-
 function setcockpitlights()
 
     local lightset = false
@@ -2429,8 +1672,8 @@ function setcockpitlights()
         set(P.genbrightafdsflood, P.configvalues[def.CONFIGGENBRIGHTAFDSFLOOD])
         lightset = true
     end
-    if (get(P.genbrightpedestralflood) ~= P.configvalues[def.CONFDIGGENBRIGHTPEDESTRALFLOOD]) then
-        set(P.genbrightpedestralflood, P.configvalues[def.CONFDIGGENBRIGHTPEDESTRALFLOOD])
+    if (get(P.genbrightpedestralflood) ~= P.configvalues[def.CONFIGGENBRIGHTPEDESTRALFLOOD]) then
+        set(P.genbrightpedestralflood, P.configvalues[def.CONFIGGENBRIGHTPEDESTRALFLOOD])
         lightset = true
     end
     if (get(P.instrbrightoutbddu) ~= P.configvalues[def.CONFIGINSTRBRIGHTOUTBDDU]) then
@@ -2486,7 +1729,6 @@ sasl.registerCommandHandler(my_command_setcockpitlights, 0, setcockpitlights_)
 
 
 --------------------------------------------------------------------------------------------------------------
-
 function togglevoicereadback()
 
     if (P.configvalues[def.CONFIGVOICEREADBACK] == def.ON) then
@@ -2511,96 +1753,6 @@ my_command_togglevoicereadback = sasl.createCommand(def.APPNAMEPREFIX .. "/toggl
 sasl.registerCommandHandler(my_command_togglevoicereadback, 0, togglevoicereadback_)
 
 --------------------------------------------------------------------------------------------------------------
-
-function toggleadviceonly()
-
-    if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-        P.configvalues[def.CONFIGVOICEADVICEONLY] = def.OFF
-        P.commandtableentry(def.ADVICE, "def.ADVICE Only Off")
-    else
-        P.configvalues[def.CONFIGVOICEADVICEONLY] = def.ON
-        P.commandtableentry(def.ADVICE, "def.ADVICE Only On")
-    end
-
-    return true
-
-end
-
-function toggleadviceonly_(phase)
-    if phase == SASL_COMMAND_BEGIN then
-        toggleadviceonly()
-    end
-    return 0
-end
-
-my_command_toggleadviceonly = sasl.createCommand(def.APPNAMEPREFIX .. "/toggleadviceonly", "Toggle def.ADVICE Only")
-sasl.registerCommandHandler(my_command_toggleadviceonly, 0, toggleadviceonly_)
-
---------------------------------------------------------------------------------------------------------------
-
-function abortprocedure()
-    local mostRecentLoop = nil
-    local latestTime = 0
-
-    for i, loopObj in ipairs(P.loopStateTables) do
-        if loopObj.lock ~= def.NOPROCEDURE and loopObj.lastActiveTime > latestTime then
-            latestTime = loopObj.lastActiveTime
-            mostRecentLoop = loopObj
-        end
-    end
-
-    if mostRecentLoop then
-        mostRecentLoop.procedureabort = true
-        mostRecentLoop.procedureskipstep = false
-    end
-
-    return true
-end
-
-function abortprocedure_(phase)
-    if phase == SASL_COMMAND_BEGIN then
-        abortprocedure()
-    end
-    return 0
-end
-
-my_command_abortprocedure = sasl.createCommand(def.APPNAMEPREFIX .. "/abortprocedure", "Abort Procedure")
-sasl.registerCommandHandler(my_command_abortprocedure, 0, abortprocedure_)
-
---------------------------------------------------------------------------------------------------------------
-
-function skipprocedurestep()
-    local mostRecentLoop = nil
-    local latestTime = 0
-
-    for i, loopObj in ipairs(P.loopStateTables) do
-        if loopObj.lock ~= def.NOPROCEDURE and loopObj.lastActiveTime > latestTime then
-            latestTime = loopObj.lastActiveTime
-            mostRecentLoop = loopObj
-        end
-    end
-
-    if mostRecentLoop then
-        mostRecentLoop.procedureskipstep = true
-        mostRecentLoop.procedureabort = false
-    end
-
-    return true
-end
-
-function skipprocedurestep_(phase)
-    if phase == SASL_COMMAND_BEGIN then
-        skipprocedurestep()
-    end
-    return 0
-end
-
-my_command_skipprocedurestep = sasl.createCommand(def.APPNAMEPREFIX .. "/skipprocedurestep", "Skip Procedure Step")
-sasl.registerCommandHandler(my_command_skipprocedurestep, 0, skipprocedurestep_)
-
-
---------------------------------------------------------------------------------------------------------------
-
 function flapsuphandling()
 
     if ((get(P.airspeed) > get(P.flaps15speed)) and (get(P.airspeed) <= get(P.flaps10speed)) and (get(P.flapleverpos) > def.FLAPS15)) then
@@ -2640,7 +1792,6 @@ function flapsuphandling()
 end
 
 --------------------------------------------------------------------------------------------------------------
-
 function flapsdownhandling()
 
     if ((get(P.airspeed) < get(P.flapsupspeed)) and (get(P.airspeed) >= get(P.flaps1speed)) and (get(P.flapleverpos) < def.FLAPS1)) then
@@ -2686,7 +1837,6 @@ function flapsdownhandling()
 end
 
 --------------------------------------------------------------------------------------------------------------
-
 function setmmrils(mmr, freq)
 
     local ilsfreq = tostring(freq)
@@ -2720,7 +1870,6 @@ function setmmrils(mmr, freq)
 end
 
 --------------------------------------------------------------------------------------------------------------
-
 function setmmrgls(mmr, freq)
 
     local glsfreq = tostring(freq)
@@ -2754,7 +1903,6 @@ function setmmrgls(mmr, freq)
 end
 
 --------------------------------------------------------------------------------------------------------------
-
 function copynav()
 
     local setnav = false
@@ -2806,7 +1954,6 @@ my_command_copynav = sasl.createCommand(def.APPNAMEPREFIX .. "/copynav", "Copy N
 sasl.registerCommandHandler(my_command_copynav, 0, copynav_)
 
 --------------------------------------------------------------------------------------------------------------
-
 function setilssteps()
 
     local FMC1Line00L = helpers.get("laminar/B738/fmc1/Line00_L")
@@ -2818,7 +1965,7 @@ function setilssteps()
 
     if (P.procedureloop3.stepindex == 1) then
         if (P.configvalues[def.CONFIGVIEWCHANGES] == def.ON) then
-            setview(def.CONFIGVIEWFMS)
+            setview(P.configvalues[def.CONFIGVIEWFMS])
         else
             P.procedureloop3.stepindex = P.procedureloop3.stepindex + 1
             P.procedureloop3.stepindexprevious = P.procedureloop3.stepindexprevious + 1
@@ -2832,16 +1979,16 @@ function setilssteps()
         end
     end
 
-    if (P.procedureloop3.stepindex == 2) then -- This condition overlaps with the previous if; assuming it's part of the original elseif block
+    if (P.procedureloop3.stepindex == 3) then -- This condition overlaps with the previous if; assuming it's part of the original elseif block
         if ((string.len(FMC1Line04X) == 24) and (string.len(FMC1Line04L) == 24)) then
             apptype = string.sub(FMC1Line04X, 2, 4)
 
             P.navdatatableindex = 0
 
             if ((apptype == def.NAVTYPEILS) or (apptype == def.NAVTYPEGLS)) then
-                P.navdatatableindex = getnavdataindex(get(P.desicao), get(P.desrwy), apptype)
+                P.navdatatableindex = helpers.getnavdataindex(P.navdatatable, get(P.desicao), get(P.desrwy), apptype)
             else
-                P.navdatatableindex = getnavdataindex(get(P.desicao), get(P.desrwy), def.NAVTYPELPV)
+                P.navdatatableindex = helpers.getnavdataindex(P.navdatatable, get(P.desicao), get(P.desrwy), def.NAVTYPELPV)
             end
 
             if (P.navdatatable[P.navdatatableindex] ~= nil) then
@@ -2855,18 +2002,18 @@ function setilssteps()
                     dmestring = ""
                 end
                 if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                    P.commandtableentry(def.ADVICE, "Runway " .. formatRunwayDesignator(P.navdatatable[P.navdatatableindex][def.DESTRWY]) .. " has " .. addspaces(P.navdatatable[P.navdatatableindex][def.DESTNAVTYPE]) .. " Approach " .. dmestring)
+                    P.commandtableentry(def.ADVICE, "Runway " .. helpers.formatRunwayDesignator(P.navdatatable[P.navdatatableindex][def.DESTRWY]) .. " has " .. helpers.addspaces(P.navdatatable[P.navdatatableindex][def.DESTNAVTYPE]) .. " Approach " .. dmestring)
                 else
-                    P.commandtableentry(def.TEXT, "Runway " .. formatRunwayDesignator(P.navdatatable[P.navdatatableindex][def.DESTRWY]) .. " has " .. addspaces(P.navdatatable[P.navdatatableindex][def.DESTNAVTYPE]) .. " Approach " .. dmestring)
+                    P.commandtableentry(def.TEXT, "Runway " .. helpers.formatRunwayDesignator(P.navdatatable[P.navdatatableindex][def.DESTRWY]) .. " has " .. helpers.addspaces(P.navdatatable[P.navdatatableindex][def.DESTNAVTYPE]) .. " Approach " .. dmestring)
                 end
             else
                 if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                    P.commandtableentry(def.ADVICE, "Runway " .. formatRunwayDesignator(get(P.desrwy)) .. " has no Approach")
+                    P.commandtableentry(def.ADVICE, "Runway " .. helpers.formatRunwayDesignator(get(P.desrwy)) .. " has no Approach")
                 else
-                    P.commandtableentry(def.TEXT, "Runway " .. formatRunwayDesignator(get(P.desrwy)) .. " has no Approach")
+                    P.commandtableentry(def.TEXT, "Runway " .. helpers.formatRunwayDesignator(get(P.desrwy)) .. " has no Approach")
                 end
                 if (P.configvalues[def.CONFIGVIEWCHANGES] == def.ON) then -- Apply view change logic here
-                    setview(def.CONFIGVIEWMAINPANEL)
+                    setview(P.configvalues[def.CONFIGVIEWMAINPANEL])
                 else
                     -- If view changes are off, but we need to jump steps, we increment manually
                     -- This specific else branch in the original jumps to step 8 if no approach.
@@ -2876,20 +2023,20 @@ function setilssteps()
         end
     end
 
-    if (P.procedureloop3.stepindex == 3) then
+    if (P.procedureloop3.stepindex == 4) then
         if (P.configvalues[def.CONFIGVIEWCHANGES] == def.ON) then
-            setview(def.CONFIGVIEWPEDESTAL)
+            setview(P.configvalues[def.CONFIGVIEWPEDESTAL])
         else
             P.procedureloop3.stepindex = P.procedureloop3.stepindex + 1
             P.procedureloop3.stepindexprevious = P.procedureloop3.stepindexprevious + 1
         end
     end
 
-    if (P.procedureloop3.stepindex == 4) then
+    if (P.procedureloop3.stepindex == 5) then
         if (P.navdatatable[P.navdatatableindex][def.DESTNAVTYPE] == def.NAVTYPEILS) then
             if ((P.navdatatable[P.navdatatableindex][def.DESTFREQ] ~= get(P.nav1freq)) or ((get(P.mmrinstalled) == def.ON) and ((get(P.mmrcptactvalue) ~= P.navdatatable[P.navdatatableindex][def.DESTFREQ]) or (get(P.mmrcptactmode) ~= def.MMRILS)))) then
                 if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                    P.commandtableentry(def.ADVICE, "Set Frequency " .. addspaces(formatILSFrequency(P.navdatatable[P.navdatatableindex][def.DESTFREQ])))
+                    P.commandtableentry(def.ADVICE, "Set Frequency " .. helpers.addspaces(helpers.formatILSFrequency(P.navdatatable[P.navdatatableindex][def.DESTFREQ])))
                     P.procedureloop3.stepindex = P.procedureloop3.stepindex - 1
                 else
                     if (get(P.mmrinstalled) == def.ON) then
@@ -2900,25 +2047,25 @@ function setilssteps()
                     end
                 end
             elseif ((P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) and not P.procedureloop3.steprepeat) then
-                P.commandtableentry(def.ADVICE, "Frequency checked and " .. addspaces(formatILSFrequency(P.navdatatable[P.navdatatableindex][def.DESTFREQ])))
+                P.commandtableentry(def.ADVICE, "Frequency checked and " .. helpers.addspaces(helpers.formatILSFrequency(P.navdatatable[P.navdatatableindex][def.DESTFREQ])))
             end
         end
 
         if (((P.navdatatable[P.navdatatableindex][def.DESTNAVTYPE] == def.NAVTYPEGLS) or (P.navdatatable[P.navdatatableindex][def.DESTNAVTYPE] == def.NAVTYPELPV)) and (get(P.mmrinstalled) == def.ON)) then
             if ((get(P.mmrcptactvalue) ~= P.navdatatable[P.navdatatableindex][def.DESTFREQ]) or not ((get(P.mmrcptactmode) ~= def.MMRGLS) or (get(P.mmrcptactmode) ~= def.MMRLPV))) then
                 if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                    P.commandtableentry(def.ADVICE, "Set Channel " .. addspaces(P.navdatatable[P.navdatatableindex][def.DESTFREQ]))
+                    P.commandtableentry(def.ADVICE, "Set Channel " .. helpers.addspaces(P.navdatatable[P.navdatatableindex][def.DESTFREQ]))
                     P.procedureloop3.stepindex = P.procedureloop3.stepindex - 1
                 else
                     setmmrgls(def.MMRCAPTAIN, P.navdatatable[P.navdatatableindex][def.DESTFREQ])
                 end
             elseif ((P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) and not P.procedureloop3.steprepeat) then
-                P.commandtableentry(def.ADVICE, "Channel checked and " .. addspaces(P.navdatatable[P.navdatatableindex][def.DESTFREQ]))
+                P.commandtableentry(def.ADVICE, "Channel checked and " .. helpers.addspaces(P.navdatatable[P.navdatatableindex][def.DESTFREQ]))
             end
         end
     end
 
-    if (P.procedureloop3.stepindex == 5) then
+    if (P.procedureloop3.stepindex == 6) then
         if (P.configvalues[def.CONFIGAUTOFUNCTIONS] == def.ON) then
             if ((P.navdatatable[P.navdatatableindex][def.DESTNAVTYPE] == def.NAVTYPEILS) and P.navdatatable[P.navdatatableindex][def.DESTNAVDME]) then
                 if ((get(P.nav2freq) ~= get(P.nav1freq)) or ((get(P.mmrinstalled) == def.ON) and ((get(P.mmrfoactvalue) ~= get(P.nav1freq)) or (get(P.mmrfoactmode) ~= def.MMRILS)))) then
@@ -2939,31 +2086,31 @@ function setilssteps()
         end
     end
 
-    if (P.procedureloop3.stepindex == 6) then
+    if (P.procedureloop3.stepindex == 7) then
         if (P.configvalues[def.CONFIGVIEWCHANGES] == def.ON) then
-            setview(def.CONFIGVIEWMAINPANEL)
+            setview(P.configvalues[def.CONFIGVIEWMAINPANEL])
         else
             P.procedureloop3.stepindex = P.procedureloop3.stepindex + 1
             P.procedureloop3.stepindexprevious = P.procedureloop3.stepindexprevious + 1
         end
     end
 
-    if (P.procedureloop3.stepindex == 7) then
+    if (P.procedureloop3.stepindex == 8) then
         pilotcoursenew = P.navdatatable[P.navdatatableindex][def.DESTCOURSE]
 
         if (get(P.mcppilotcourse) ~= pilotcoursenew) then
             if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                P.commandtableentry(def.ADVICE, "Set Course " .. addspaces(padNumberWithZerosStrict(pilotcoursenew, 3)))
+                P.commandtableentry(def.ADVICE, "Set Course " .. helpers.addspaces(helpers.padNumberWithZerosStrict(pilotcoursenew, 3)))
                 P.procedureloop3.stepindex = P.procedureloop3.stepindex - 1
             else
                 set(P.mcppilotcourse, pilotcoursenew)
             end
         elseif ((P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) and not P.procedureloop3.steprepeat) then
-            P.commandtableentry(def.ADVICE, "Course checked and " .. addspaces(padNumberWithZerosStrict(pilotcoursenew, 3)))
+            P.commandtableentry(def.ADVICE, "Course checked and " .. helpers.addspaces(helpers.padNumberWithZerosStrict(pilotcoursenew, 3)))
         end
     end
 
-    if (P.procedureloop3.stepindex == 8) then
+    if (P.procedureloop3.stepindex == 9) then
         if (P.configvalues[def.CONFIGAUTOFUNCTIONS] == def.ON) then
             if ((P.navdatatable[P.navdatatableindex][def.DESTNAVTYPE] == def.NAVTYPEILS) and P.navdatatable[P.navdatatableindex][def.DESTNAVDME]) then
                 if (get(P.mcpcopilotcourse) ~= get(P.mcppilotcourse)) then
@@ -3003,1033 +2150,13 @@ end
 my_command_setils = sasl.createCommand(def.APPNAMEPREFIX .. "/setils", "Set ILS/GLS Frequency and Course")
 sasl.registerCommandHandler(my_command_setils, 0, setilsproc_)
 
---------------------------------------------------------------------------------------------------------------
-function decodemetar(metar)
-    local result = {}
-    local parts = {}
-
-    -- String-Split
-    sasl.logDebug("Starting METAR parsing")
-    local current_part = ""
-    for i = 1, #metar do
-        local c = metar:sub(i,i)
-        if (c == " ") then
-            if (#current_part > 0) then
-                table.insert(parts, current_part)
-                current_part = ""
-            end
-        else
-            current_part = current_part .. c
-        end
-    end
-    if (#current_part > 0) then
-        table.insert(parts, current_part)
-    end
-
-    sasl.logDebug("METAR parts:")
-    for idx, part_val in ipairs(parts) do
-        sasl.logDebug(string.format("  [%d] = %s", idx, part_val))
-    end
-
-    -- Station
-    if (#parts >= 1) then
-        result.station = parts[1]
-        sasl.logDebug("Parsed station: "..result.station)
-    end
-
-    -- Date/Time
-    if (#parts >= 2) then
-        local dt = parts[2]
-        if ((#dt == 7) and (dt:sub(7) == "Z")) then
-            local day = tonumber(dt:sub(1,2))
-            local time_str = dt:sub(3,6)
-            if (day and time_str) then
-                result.date_time = { day = day, time = time_str, timezone = "Z" }
-                sasl.logDebug(string.format("Parsed datetime: day=%d, time=%s", result.date_time.day, result.date_time.time))
-            else
-                sasl.logDebug("Warning: Could not parse day or time from: " .. dt)
-            end
-        else
-            sasl.logDebug("Warning: Date/Time part not in expected format: " .. dt)
-        end
-    end
-
-    local i = 3 -- Start index for main METAR parts
-    local parsing_main_data = true
-
-    -- def.AUTO
-    if (i <= #parts and parts[i] == "AUTO") then
-        result.auto = true
-        sasl.logDebug("Parsed AUTO: true")
-        i = i + 1
-    else
-        result.auto = false
-    end
-
-    local weather_codes = {
-        "RA","SN","DZ","SG","PL","GR","GS","IC","UP","FG","BR","SA",
-        "DU","HZ","FU","VA","PY","PO","SQ","FC","SS","DS","SH","TS",
-        "FZ","MI","PR","BC","DR","BL","VC","NSW"
-    }
-
-    local function is_weather_code(s)
-        local code_to_check = s
-        if s:sub(1,1) == "-" or s:sub(1,1) == "+" then
-            code_to_check = s:sub(2)
-        end
-        if #code_to_check < 2 then return false end
-
-        for _, code in ipairs(weather_codes) do
-            if code_to_check:find(code, 1, true) then
-                if code_to_check == code then return true end
-            end
-        end
-        for _, code in ipairs(weather_codes) do
-            if s:find(code, 1, true) then
-                return true
-            end
-        end
-        return false
-    end
-
-    while (i <= #parts and parsing_main_data) do
-        local part = parts[i]
-        sasl.logDebug(string.format("Processing part %d: %s", i, part))
-        local parsed = false
-
-        if (part == "TEMPO" or part == "BECMG" or (string.len(part) >= 4 and part:sub(1,4) == "PROB") or part == "TREND") then
-            parsing_main_data = false
-            sasl.logDebug("Trend/change group found, METAR main data parsing stopped: " .. part)
-            break
-
-        elseif (part == "CAVOK") then
-            result.cavok = true
-            result.visibility = { value = 10000 }
-            result.clouds = result.clouds or {}
-            table.insert(result.clouds, {coverage="NSC", altitude=nil, type=""})
-            sasl.logDebug("Parsed CAVOK: visibility >= 10km, no significant clouds/weather")
-            parsed = true
-
-        elseif (not result.wind and
-                ( (part:sub(1,3) == "VRB") or (tonumber(part:sub(1,3)) ~= nil) ) and
-                (#part >= 5) and
-                (part:sub(-2) == "KT" or part:sub(-3) == "MPS" or part:sub(-3) == "KMH")
-               ) then
-            local dir_str = part:sub(1,3)
-            local direction = (dir_str == "VRB") and "VRB" or tonumber(dir_str)
-            local var_dir_match = nil
-            if ((#part >= 9) and (part:sub(6,6) == "V")) then
-                local d1_str = part:sub(4,5)
-                local d2_str = part:sub(7,9)
-                local d1 = tonumber(d1_str)
-                local d2 = tonumber(d2_str)
-                if (d1 and d2) then
-                    var_dir_match = { dir1 = d1, dir2 = d2 }
-                    sasl.logDebug(string.format("Parsed variable wind direction (within main wind group): %d-%d", d1, d2))
-                end
-            end
-
-            local unit_str = (part:sub(-2) == "KT" and "KT") or
-                             (part:sub(-3) == "MPS" and "MPS") or
-                             (part:sub(-3) == "KMH" and "KMH") or nil
-
-            if (direction and unit_str) then
-                local speed_part_end = #part - #unit_str
-                local speed_str_val = ""
-                local gust_str_val = nil
-                local g_pos = part:find("G", 4)
-
-                if (g_pos and g_pos < speed_part_end) then
-                    speed_str_val = part:sub(4, g_pos - 1)
-                    gust_str_val = part:sub(g_pos + 1, speed_part_end)
-                else
-                    speed_str_val = part:sub(4, speed_part_end)
-                end
-
-                local speed = tonumber(speed_str_val)
-                local gust = (gust_str_val and tonumber(gust_str_val)) or 0
-
-                if (speed ~= nil) then
-                    local original_speed_for_log = speed
-                    local original_gust_for_log = gust
-                    local original_unit_for_log = unit_str
-
-                    if (unit_str == "MPS") then
-                        speed = math.floor(speed * 1.94384 + 0.5)
-                        if (gust_str_val) then gust = math.floor(gust * 1.94384 + 0.5) end
-                    elseif (unit_str == "KMH") then
-                        speed = math.floor(speed * 0.539957 + 0.5)
-                        if (gust_str_val) then gust = math.floor(gust * 0.539957 + 0.5) end
-                    end
-
-                    result.wind = {
-                        direction = direction,
-                        speed = speed,
-                        gust = gust,
-                        variable_direction = var_dir_match
-                    }
-                    if unit_str ~= "KT" then
-                        sasl.logDebug(string.format("Converted %s %s (gust %s) to %d kt (gust %d kt)", speed_str_val, original_unit_for_log, gust_str_val or "N/A", speed, gust))
-                    end
-                    sasl.logDebug(string.format("Parsed wind: dir=%s, speed=%d kt, gust=%d kt%s",
-                        tostring(direction), speed, gust, (var_dir_match and string.format(", var=%d-%d", var_dir_match.dir1, var_dir_match.dir2)) or ""))
-                    parsed = true
-                else
-                    sasl.logDebug("Warning: Could not parse wind speed from: " .. part)
-                end
-            else
-                sasl.logDebug("Warning: Could not parse wind direction or unit from: " .. part)
-            end
-
-        elseif (not result.visibility and #part > 1 and #part <= 5 and string.sub(part, -2) == "SM") then
-            local sm_val_str = string.sub(part, 1, #part - 2)
-            local sm_value = tonumber(sm_val_str)
-            if (sm_value) then
-                local meters = math.floor(sm_value * 1609.34 + 0.5)
-                result.visibility = { value = math.min(meters, 10000) }
-                sasl.logDebug(string.format("Parsed visibility: %sSM, converted to %d meters (limited to 10000)", sm_val_str, result.visibility.value))
-                parsed = true
-            else
-                if sm_val_str == "P6" then
-                    result.visibility = { value = math.min(math.floor(7 * 1609.34 + 0.5), 10000) }
-                    sasl.logDebug(string.format("Parsed visibility: P6SM, interpreted as >6SM (~%d meters)", result.visibility.value))
-                    parsed = true
-                else
-                    sasl.logDebug("Warning: Could not parse SM visibility value from: " .. part)
-                end
-            end
-
-        elseif (not result.visibility and #part == 4 and (tonumber(part) or part == "9999")) then
-            if (part == "9999") then
-                result.visibility = { value = 10000 }
-                sasl.logDebug("Parsed visibility: 10000+ meters (from 9999)")
-                parsed = true
-            else
-                local vis_value = tonumber(part)
-                if vis_value then
-                    result.visibility = { value = vis_value }
-                    sasl.logDebug(string.format("Parsed visibility: %d meters", result.visibility.value))
-                    parsed = true
-                else
-                    sasl.logDebug("Warning: Numeric visibility part #4 failed tonumber unexpectedly: " .. part)
-                end
-            end
-            
-        elseif (part:sub(1,1) == "R" and part:find("/", 1, true) and #part >= 5) then
-            result.runway_reports = result.runway_reports or {}
-            table.insert(result.runway_reports, part)
-            sasl.logDebug("Parsed runway report: "..part)
-            parsed = true
-
-        elseif (is_weather_code(part)) then
-            result.weather = result.weather or {}
-            local intensity = "moderate"
-            local phenomenon = part
-            if part:sub(1,1) == "-" then
-                intensity = "light"
-                phenomenon = part:sub(2)
-            elseif part:sub(1,1) == "+" then
-                intensity = "heavy"
-                phenomenon = part:sub(2)
-            end
-            
-            local valid_phenomenon = false
-            if #phenomenon >= 2 then
-                for _, wc_entry in ipairs(weather_codes) do
-                    if phenomenon == wc_entry or phenomenon:find(wc_entry, 1, true) then
-                        valid_phenomenon = true
-                        break
-                    end
-                end
-            end
-
-            if valid_phenomenon then
-                table.insert(result.weather, {
-                    intensity = intensity,
-                    phenomenon = phenomenon
-                })
-                sasl.logDebug(string.format("Parsed weather: %s (%s)", phenomenon, intensity))
-                parsed = true
-            else
-                sasl.logDebug("Warning: Part looked like weather but phenomenon not matched or invalid: " .. part .. " (phenomenon checked: " .. phenomenon .. ")")
-            end
-
-        elseif ( (string.sub(part,1,3) == "FEW" or string.sub(part,1,3) == "SCT" or string.sub(part,1,3) == "BKN" or string.sub(part,1,3) == "OVC") and
-                     #part >= 6 and tonumber(part:sub(4,6)) ~= nil ) or
-                     ( string.sub(part,1,2) == "VV" and #part >= 5 and tonumber(part:sub(3,5)) ~= nil ) or
-                     ( part == "SKC" or part == "CLR" or part == "NSC" )
-        then
-            result.clouds = result.clouds or {}
-            if (part == "SKC" or part == "CLR" or part == "NSC") then
-                table.insert(result.clouds, { coverage = part, altitude = nil, type = "" })
-                sasl.logDebug("Parsed cloud: " .. part)
-                parsed = true
-            else
-                local coverage_code
-                local altitude_str_val
-                local altitude_idx_start
-
-                if part:sub(1,2) == "VV" then
-                    coverage_code = "VV"
-                    altitude_idx_start = 3
-                else
-                    coverage_code = part:sub(1,3)
-                    altitude_idx_start = 4
-                end
-                altitude_str_val = part:sub(altitude_idx_start, altitude_idx_start + 2)
-                local altitude_val = tonumber(altitude_str_val)
-
-                if altitude_val then
-                    local cloud_significant_type = ""
-                    if #part > (altitude_idx_start + 2) then
-                        cloud_significant_type = part:sub(altitude_idx_start + 3)
-                    end
-                    table.insert(result.clouds, {
-                        coverage = coverage_code,
-                        altitude = altitude_val * 100,
-                        type = cloud_significant_type
-                    })
-                    sasl.logDebug(string.format("Parsed cloud: %s at %d ft%s",
-                        coverage_code, altitude_val * 100,
-                        (cloud_significant_type ~= "" and (" ("..cloud_significant_type..")")) or ""))
-                    parsed = true
-                else
-                    sasl.logDebug("Warning: Could not parse cloud altitude for: " .. part .. " (altitude_str: '" .. altitude_str_val .. "')")
-                end
-            end
-
-        elseif ( part:find("/",1,true) and (#part >= 5 and #part <= 7) and
-                     (part:sub(1,1) == "M" or tonumber(part:sub(1,1)) ~= nil) ) then
-            local slash_pos = part:find("/",2,true)
-            if slash_pos and slash_pos > 1 and slash_pos < #part then
-                local temp_str_val = part:sub(1, slash_pos-1)
-                local dew_str_val = part:sub(slash_pos+1)
-
-                local temp_val = tonumber((temp_str_val:gsub("M","-")))
-                local dew_val = tonumber((dew_str_val:gsub("M","-")))
-
-                if ((temp_val ~= nil) and (dew_val ~= nil)) then
-                    result.temperature = { value = temp_val }
-                    result.dew_point = { value = dew_val }
-                    sasl.logDebug(string.format("Parsed temp/dew: %d°C/%d°C", temp_val, dew_val))
-                    parsed = true
-                else
-                    sasl.logDebug("Warning: Could not parse temperature or dew point values from: " .. part .. " (temp_str="..temp_str_val..", dew_str="..dew_str_val..")")
-                end
-            else
-                sasl.logDebug("Warning: Temp/Dew part malformed (slash position or content): " .. part)
-            end
-
-        elseif ((#part == 5) and (part:sub(1,1) == "Q" or part:sub(1,1) == "A") and tonumber(part:sub(2))) then
-            local val_str = part:sub(2)
-            local value_num = tonumber(val_str)
-            local pressure_hpa = nil
-
-            if (part:sub(1,1) == "Q") then
-                pressure_hpa = math.floor(value_num + 0.5)
-            elseif (part:sub(1,1) == "A") then
-                local inHg = value_num / 100
-                pressure_hpa = math.floor(inHg * 33.8639 + 0.5)
-            end
-
-            if pressure_hpa then
-                result.pressure = { qnh_hpa = pressure_hpa } -- KORRIGIERTE ZUWEISUNG HIER
-                sasl.logDebug(string.format("Parsed pressure: %d hPa (raw: %s)", pressure_hpa, part))
-                parsed = true
-            else
-                sasl.logDebug("Warning: Could not calculate hPa pressure from: " .. part)
-            end
-
-        elseif (part == "NOSIG") then
-            result.nosig = true
-            sasl.logDebug("Parsed NOSIG: no significant change expected")
-            parsed = true
-            
-        elseif (part == "RMK") then
-            result.remarks = {}
-            sasl.logDebug("Entered RMK block.")
-            local remark_idx = i + 1
-            while(remark_idx <= #parts) do
-                local current_remark = parts[remark_idx]
-                if (current_remark == "TEMPO" or current_remark == "BECMG" or (string.len(current_remark) >=4 and current_remark:sub(1,4) == "PROB") or current_remark == "TREND") then
-                    sasl.logDebug("Remark parsing stopped; trend/change group encountered: " .. current_remark)
-                    break
-                end
-
-                table.insert(result.remarks, current_remark)
-                sasl.logDebug("Parsed remark: " .. current_remark)
-
-                if current_remark == "$" then
-                    result.maintenance_indicator = true
-                    sasl.logDebug("Maintenance indicator '$' found and included in remarks.")
-                    remark_idx = remark_idx + 1
-                    break
-                end
-                remark_idx = remark_idx + 1
-            end
-            i = remark_idx -1
-            parsed = true
-            parsing_main_data = false
-            sasl.logDebug("Finished RMK section. Main data parsing will stop.")
-        end
-
-        if (not parsed and parsing_main_data) then
-            sasl.logDebug("Unknown element: "..part)
-        end
-        i = i + 1
-    end
-
-    sasl.logDebug("METAR parsing complete")
-    return result
-end
-
---------------------------------------------------------------------------------------------------------------
-function parseCSVToTable(csvData)
-    -- Teile die CSV-Daten in Zeilen auf
-    local lines = {}
-    local startPos = 1
-    while true do
-        local endPos = csvData:find("\n", startPos)
-        if not endPos then
-            table.insert(lines, csvData:sub(startPos))
-            break
-        end
-        table.insert(lines, csvData:sub(startPos, endPos - 1))
-        startPos = endPos + 1
-    end
-
-    -- Finde die Header-Zeile und die Datenzeile
-    local headerLine, dataLine
-    for i = #lines, 1, -1 do
-        if lines[i]:find("raw_text") then
-            headerLine = lines[i]
-            dataLine = lines[i + 1]
-            break
-        end
-    end
-
-    -- Überprüfen, ob Header und Daten gefunden wurden
-    if not headerLine or not dataLine then
-        return nil
-    end
-
-    -- Header extrahieren
-    local headers = {}
-    local startPosHeader = 1
-    while true do
-        local endPosHeader = headerLine:find(",", startPosHeader)
-        if not endPosHeader then
-            table.insert(headers, headerLine:sub(startPosHeader))
-            break
-        end
-        table.insert(headers, headerLine:sub(startPosHeader, endPosHeader - 1))
-        startPosHeader = endPosHeader + 1
-    end
-
-    -- Daten extrahieren
-    local values = {}
-    local startPosData = 1
-    while true do
-        local endPosData = dataLine:find(",", startPosData)
-        if not endPosData then
-            table.insert(values, dataLine:sub(startPosData))
-            break
-        end
-        table.insert(values, dataLine:sub(startPosData, endPosData - 1))
-        startPosData = endPosData + 1
-    end
-
-    -- Kombiniere Header und Werte in einer Tabelle
-    local resultTable = {}
-    for i = 1, #headers do
-        resultTable[headers[i]] = values[i] or ""  -- Leere Werte durch "" ersetzen
-    end
-
-    return resultTable
-end
-
---------------------------------------------------------------------------------------------------------------
-function getMetar(icaocode)
-
-    local metarTable = {}
-    local metarUrl = def.AVWEATHERFURLCSV .. icaocode
-    local tempFilePath = def.YALCACHEPATH .. icaocode .. "_metar.csv"  -- CSV-Datei
-
-    sasl.logDebug("URL " .. metarUrl)
-        sasl.logDebug("Path " .. tempFilePath)
-
-    if sasl.net.downloadFileSync(metarUrl, tempFilePath) then
-        sasl.logInfo("METAR for " .. icaocode .. " successfully loaded")
-
-        -- Datei öffnen und lesen
-        local file = io.open(tempFilePath, "r")
-        if file then
-            local csvData = file:read("*a")  -- Lese den gesamten Inhalt der Datei als String
-            file:close()
-
-            -- Temporäre Datei löschen
-            os.remove(tempFilePath)
-
-            -- CSV-Daten in eine Lua-Tabelle umwandeln
-             
-            metarTable = parseCSVToTable(csvData)
-            if metarTable then
-                -- Tabelle ausgeben
-                sasl.logDebug("METAR-Data for " .. icaocode .. ":")
-                for key, value in pairs(metarTable) do
-                    sasl.logDebug(key .. ": " .. value)
-                end
-            else
-                sasl.logDebug("Error Parsing CSV-Data.")
-            end
-        else
-            sasl.logDebug("Error Opening Temp File.")
-        end
-    else
-        -- Fehler beim Herunterladen
-        sasl.logInfo("Error Downloading METAR for " .. icaocode .. ".")
-    end
-
-    return metarTable
-end
-
---------------------------------------------------------------------------------------------------------------
-function getRunwayHeadingFromDesignator(runwayDesignator)
-    if not runwayDesignator or #runwayDesignator < 2 then
-        sasl.logDebug("Error: Invalid runway designator provided: " .. tostring(runwayDesignator))
-        return nil
-    end
-
-    local rwyNumberStr = runwayDesignator:sub(1,2)
-    local rwyNumber = tonumber(rwyNumberStr)
-
-    if not rwyNumber then
-        sasl.logDebug("Error: Could not parse runway number from designator: " .. runwayDesignator)
-        return nil
-    end
-
-    -- Runway Heading ist die Nummer * 10
-    local heading = rwyNumber * 10
-    return heading
-end
-
---------------------------------------------------------------------------------------------------------------
-function shouldCheckRunwaySuitability(weatherData, runwayDesignator)
-    -- --- Schwellenwerte anpassbar ---
-    local MAX_TAILWIND_KN = 10     -- Maximal erlaubter Rückenwind für normale Landung
-    local MAX_CROSSWIND_KN = 20    -- Maximal erlaubter Seitenwind (oft Flugzeug-spezifisch)
-    local MIN_WIND_SPEED_FOR_CHECK = 5 -- Mindestwindstärke, ab der Windkomponenten relevant werden
-
-    sasl.logDebug("Checking suitability for runway: " .. tostring(runwayDesignator))
-
-    -- 1. Grundlegende Wetterdaten prüfen
-    if not (weatherData and weatherData.wind and weatherData.wind.direction ~= nil and weatherData.wind.speed ~= nil) then
-        sasl.logDebug("Warning: Insufficient wind data to check runway suitability. Returning true (default safe).")
-        return true -- Wenn keine Winddaten vorhanden sind, können wir nicht prüfen. Annahme: Landebahn ist standardmäßig ok.
-    end
-
-    local windDirection = weatherData.wind.direction
-    local windSpeed = weatherData.wind.speed
-
-    -- Wenn Wind "calm" ist, ist die Landebahn in Bezug auf Wind immer geeignet
-    if windSpeed == 0 then
-        sasl.logDebug("Wind is calm. Runway is suitable based def.ON wind.")
-        return true
-    end
-
-    -- Wenn der Wind sehr schwach ist, sind die Komponenteneffekte minimal
-    if windSpeed < MIN_WIND_SPEED_FOR_CHECK then
-         sasl.logDebug(string.format("Wind speed (%d kt) is below check threshold (%d kt). Runway is suitable based def.ON wind.", windSpeed, MIN_WIND_SPEED_FOR_CHECK))
-         return true
-    end
-
-    -- 2. Landebahn-Richtung ableiten
-    local runwayHeading = getRunwayHeadingFromDesignator(runwayDesignator)
-    if not runwayHeading then
-        sasl.logDebug("Error: Could not determine runway heading from designator. Returning true (default safe).")
-        return true -- Kann Landebahn nicht ableiten, kann nicht prüfen.
-    end
-
-    -- 3. Windkomponenten berechnen
-    local headwindComponent, crosswindKnots = calculateWindComponents(windDirection, runwayHeading, windSpeed)
-
-    sasl.logDebug(string.format("Calculated for RWY %s (Heading %d): Headwind %.1f kt, Crosswind %.1f kt (from Wind %d@%dkt)",
-                                runwayDesignator, runwayHeading, headwindComponent, crosswindKnots, windDirection, windSpeed))
-
-
-    -- 4. Überprüfung der Schwellenwerte
-    -- Rückenwind (HeadwindComponent ist negativ bei Rückenwind)
-    if headwindComponent < -MAX_TAILWIND_KN then
-        sasl.logDebug(string.format("Runway %s: Tailwnd (%.1f kt) exceeds max allowed (%.1f kt). Check recommended.", runwayDesignator, math.abs(headwindComponent), MAX_TAILWIND_KN))
-        return false -- Rückenwind zu stark
-    end
-
-    -- Seitenwind
-    if crosswindKnots > MAX_CROSSWIND_KN then
-        sasl.logDebug(string.format("Runway %s: Crosswind (%.1f kt) exceeds max allowed (%.1f kt). Check recommended.", runwayDesignator, crosswindKnots, MAX_CROSSWIND_KN))
-        return false -- Seitenwind zu stark
-    end
-
-    sasl.logDebug(string.format("Runway %s is suitable based def.ON current wind conditions.", runwayDesignator))
-    return true -- Landebahn ist innerhalb der Schwellenwerte geeignet
-end
-
---------------------------------------------------------------------------------------------------------------
-function formatMetarSpeechSummary(metar)
-    local parts = {}
-
-    -- Extract necessary data from the metar table
-    local icaocode = metar.icaocode
-    local metar_data = metar.decodedmetar
-
-    -- Add airport ICAO code to the beginning of the summary
-    if icaocode and #icaocode > 0 then
-        table.insert(parts, addspaces(icaocode))
-    end
-
-    -- Wind
-    if metar_data.wind then
-        local dir = metar_data.wind.direction
-        local speed = metar_data.wind.speed
-        local gust = metar_data.wind.gust
-
-        local wind_part = ""
-        if speed == 0 then -- Handle calm condition
-            wind_part = "Wind calm"
-        elseif dir == "VRB" then
-            wind_part = "Wind variable at "
-            wind_part = wind_part .. string.format("%d knots", speed)
-            if gust and gust > 0 then
-                wind_part = wind_part .. string.format(" gusting %d", gust)
-            end
-        else
-            wind_part = string.format("Wind %d at ", dir)
-            wind_part = wind_part .. string.format("%d knots", speed)
-            if gust and gust > 0 then
-                wind_part = wind_part .. string.format(" gusting %d", gust)
-            end
-        end
-        table.insert(parts, wind_part)
-    end
-
-    -- Visibility
-    if metar_data.visibility then
-        local vis_val = metar_data.visibility.value
-        local vis_part = "Visibility "
-        if metar_data.cavok then -- Prioritize CAVOK if present
-            vis_part = "Visibility 10 kilometers or more"
-        elseif vis_val >= 10000 then
-            vis_part = vis_part .. "10 kilometers or more"
-        elseif vis_val >= 1609 then -- Convert to miles if close to a mile (1609m = 1 mile)
-            vis_part = vis_part .. string.format("%d statute miles", math.floor(vis_val / 1609.34 + 0.5))
-        elseif vis_val >= 1000 then -- Convert to kilometers if 1km or more
-            vis_part = vis_part .. string.format("%d kilometers", math.floor(vis_val / 1000 + 0.5))
-        else
-            vis_part = vis_part .. string.format("%d meters", vis_val)
-        end
-        table.insert(parts, vis_part)
-    end
-
-    -- General Weather (simplified)
-    if metar_data.weather and #metar_data.weather > 0 then
-        local weather_desc = {}
-        for _, wx_entry in ipairs(metar_data.weather) do
-            local intensity = ""
-            if wx_entry.intensity == "light" then intensity = "light "
-            elseif wx_entry.intensity == "heavy" then intensity = "heavy " end
-            -- Map common phenomena to more speech-friendly terms
-            local phenomenon = wx_entry.phenomenon
-            if phenomenon == "RA" then phenomenon = "rain"
-            elseif phenomenon == "SN" then phenomenon = "snow"
-            elseif phenomenon == "DZ" then phenomenon = "drizzle"
-            elseif phenomenon == "FG" then phenomenon = "fog"
-            elseif phenomenon == "BR" then phenomenon = "mist"
-            elseif phenomenon == "HZ" then phenomenon = "haze"
-            elseif phenomenon == "TS" then phenomenon = "thunderstorm"
-            -- Add more mappings for other weather codes if necessary
-            end
-            table.insert(weather_desc, intensity .. phenomenon)
-        end
-        if #weather_desc > 0 then
-            table.insert(parts, "Currently " .. table.concat(weather_desc, " and "))
-        end
-    end
-
-    -- Clouds (simplified, only highest significant cloud layer or broken/overcast)
-    if metar_data.clouds and #metar_data.clouds > 0 then
-        local cloud_part = ""
-        local significant_cloud = nil
-
-        -- Find the lowest broken/overcast layer or highest significant cloud
-        for _, cloud in ipairs(metar_data.clouds) do
-            if cloud.coverage == "OVC" or cloud.coverage == "BKN" or cloud.coverage == "VV" then
-                significant_cloud = cloud
-                break -- Found a ceiling, which is usually the most important
-            elseif (not significant_cloud and cloud.altitude) then
-                -- If no ceiling found yet, keep track of the highest cloud for "scattered/few" case
-                if not significant_cloud or cloud.altitude > significant_cloud.altitude then
-                    significant_cloud = cloud
-                end
-            end
-        end
-
-        if metar_data.cavok then
-            -- CAVOK implies "no significant clouds" and visibility >= 10km, handled by visibility
-        elseif significant_cloud then
-            local coverage_str = significant_cloud.coverage
-            local altitude_ft = significant_cloud.altitude
-
-            -- Expanded cloud coverage abbreviations for speech
-            local readable_coverage = coverage_str
-            if coverage_str == "FEW" then readable_coverage = "few"
-            elseif coverage_str == "SCT" then readable_coverage = "scattered"
-            elseif coverage_str == "BKN" then readable_coverage = "broken"
-            elseif coverage_str == "OVC" then readable_coverage = "overcast"
-            elseif coverage_str == "SKC" or coverage_str == "CLR" then readable_coverage = "sky clear"
-            elseif coverage_str == "NSC" then readable_coverage = "no significant clouds"
-            elseif coverage_str == "VV" then readable_coverage = "vertical visibility"
-            end
-
-            if readable_coverage == "sky clear" or readable_coverage == "no significant clouds" then
-                cloud_part = readable_coverage
-            elseif readable_coverage == "vertical visibility" then
-                cloud_part = string.format("%s %d feet", readable_coverage, altitude_ft)
-            else
-                cloud_part = string.format("%s clouds at %d feet", readable_coverage, altitude_ft)
-            end
-            table.insert(parts, cloud_part)
-        end
-    end
-
-    return table.concat(parts, ", ")
-end
-
---------------------------------------------------------------------------------------------------------------
-function calculateAirDensity(weatherData)
-    local SPECIFIC_GAS_CONSTANT_DRY_AIR = 287.05
-    
-    if not (weatherData and weatherData.pressure and weatherData.pressure.qnh_hpa and
-            weatherData.temperature and weatherData.temperature.value ~= nil) then
-        return 1.225
-    end
-
-    local pressureHPa = weatherData.pressure.qnh_hpa
-    local temperatureKelvin = weatherData.temperature.value + 273.15
-
-    local airDensity = (pressureHPa * 100) / (SPECIFIC_GAS_CONSTANT_DRY_AIR * temperatureKelvin)
-
-    return airDensity
-end
-
---------------------------------------------------------------------------------------------------------------
-function calculateDensityAltitude(fieldElevationMeters, temperatureCelsius, pressureHPa)
-    local STANDARD_PRESSURE_HPA = 1013.25
-    local STANDARD_TEMPERATURE_CELSIUS = 15
-    local METERS_TO_FEET = 3.28084
-
-    local fieldElevationFt = fieldElevationMeters * METERS_TO_FEET
-
-    if type(fieldElevationFt) ~= "number" or type(temperatureCelsius) ~= "number" or type(pressureHPa) ~= "number" then
-        return 0
-    end
-
-    local temperatureDeviation = temperatureCelsius - STANDARD_TEMPERATURE_CELSIUS
-    local pressureAltitude = fieldElevationFt + (STANDARD_PRESSURE_HPA - pressureHPa) * 30
-
-    local densityAltitude = pressureAltitude + (temperatureDeviation * 120)
-    return densityAltitude
-end
-
---------------------------------------------------------------------------------------------------------------
-function calculateWindComponents(windDirectionDegrees, runwayHeadingDegrees, windSpeedKnots)
-    if type(windDirectionDegrees) ~= "number" or type(runwayHeadingDegrees) ~= "number" or type(windSpeedKnots) ~= "number" then
-        return 0, 0
-    end
-
-    local angleDifference = math.abs(windDirectionDegrees - runwayHeadingDegrees)
-    if angleDifference > 180 then
-        angleDifference = 360 - angleDifference
-    end
-    local angleRad = math.rad(angleDifference)
-
-    local headwindComponent = math.cos(angleRad) * windSpeedKnots
-    local crosswindComponent = math.abs(math.sin(angleRad) * windSpeedKnots)
-
-    return headwindComponent, crosswindComponent
-end
-
---------------------------------------------------------------------------------------------------------------
-function calculateStallSpeed(weightKg, weatherData, flapsSetting)
-    local GRAVITY = 9.80665
-    local WING_AREA_737 = 124.6
-    local METER_PER_SECOND_TO_KNOTS = 1.94384
-    
-    local MAX_LIFT_COEFFICIENT_VALUES = {
-        [0] = 1.6, [1] = 1.7, [5] = 1.8, [10] = 2.0,
-        [15] = 2.2, [20] = 2.4, [25] = 2.6, [30] = 2.8, [40] = 3.0
-    }
-    local DEFAULT_MAX_LIFT_COEFFICIENT = 2.5
-
-    local maxLiftCoefficient = MAX_LIFT_COEFFICIENT_VALUES[flapsSetting] or DEFAULT_MAX_LIFT_COEFFICIENT
-    local airDensity = calculateAirDensity(weatherData)
-
-    if airDensity <= 0 or maxLiftCoefficient <= 0 or WING_AREA_737 <= 0 or weightKg <= 0 then
-        return 0
-    end
-
-    local stallSpeedMps = math.sqrt((2 * weightKg * GRAVITY) / (airDensity * WING_AREA_737 * maxLiftCoefficient))
-    local stallSpeedKnots = stallSpeedMps * METER_PER_SECOND_TO_KNOTS
-
-    return stallSpeedKnots
-end
-
---------------------------------------------------------------------------------------------------------------
-function determineLandingFlapsSetting(runwayLengthMeters, windSpeedKnots, crosswindKnots, isBadWeather, weightKg)
-    local LANDING_SHORT_RUNWAY_THRESHOLD = 2000
-    local LANDING_HIGH_WIND_THRESHOLD = 20
-    local LANDING_HIGH_CROSSWIND_THRESHOLD = 15
-    local LANDING_HIGH_WEIGHT_THRESHOLD = 55000
-
-    if runwayLengthMeters < LANDING_SHORT_RUNWAY_THRESHOLD or
-       windSpeedKnots > LANDING_HIGH_WIND_THRESHOLD or
-       crosswindKnots > LANDING_HIGH_CROSSWIND_THRESHOLD or
-       isBadWeather or
-       weightKg > LANDING_HIGH_WEIGHT_THRESHOLD then
-        return 40
-    else
-        return 30
-    end
-end
-
---------------------------------------------------------------------------------------------------------------
-function calculateVref(weightKg, flapsSetting, weatherData, crosswindKnots)
-    local VREF_STALL_SPEED_FACTOR = 1.37
-    local VREF_WIND_ADDITION = 5
-    local VREF_PRECIPITATION_ADDITION = 5
-    local VREF_CROSSWIND_ADDITION = 5
-    local LANDING_HIGH_WIND_THRESHOLD_FOR_VREF = 20
-
-    local stallSpeedKnots = calculateStallSpeed(weightKg, weatherData, flapsSetting)
-    local vrefKnots = stallSpeedKnots * VREF_STALL_SPEED_FACTOR
-
-    if weatherData.wind and weatherData.wind.speed and weatherData.wind.speed > LANDING_HIGH_WIND_THRESHOLD_FOR_VREF then
-        vrefKnots = vrefKnots + VREF_WIND_ADDITION
-    end
-
-    -- --- CORRECTION START ---
-    -- Check if precipitation is present by iterating through the weather table
-    local hasPrecipitation = false
-    if weatherData.weather then
-        for _, wx_entry in ipairs(weatherData.weather) do
-            if wx_entry.phenomenon == "RA" or wx_entry.phenomenon == "SN" then
-                hasPrecipitation = true
-                break -- Found precipitation, no need to check further
-            end
-        end
-    end
-
-    if hasPrecipitation then
-        vrefKnots = vrefKnots + VREF_PRECIPITATION_ADDITION
-    end
-    -- --- CORRECTION END ---
-
-    if crosswindKnots > VREF_CROSSWIND_ADDITION then
-        vrefKnots = vrefKnots + VREF_CROSSWIND_ADDITION
-    end
-
-    return vrefKnots
-end
-
---------------------------------------------------------------------------------------------------------------
-function calcappflapsvref(weatherData)
-    if not (weatherData and weatherData.wind and weatherData.wind.direction ~= nil and weatherData.wind.speed ~= nil and
-            weatherData.temperature and weatherData.temperature.value ~= nil and
-            weatherData.pressure and weatherData.pressure.qnh_hpa ~= nil) then
-        return 30, get(P.vref30)
-    end
-
-    if not (get(P.totalweightkgs) and type(get(P.totalweightkgs)) == "number" and get(P.totalweightkgs) > 0 and
-            get(P.desrwylen) and type(get(P.desrwylen)) == "number" and get(P.desrwylen) > 0 and
-            get(P.desrwyheading) and type(get(P.desrwyheading)) == "number" and
-            get(P.desrwyalt) and type(get(P.desrwyalt)) == "number") then
-        return 30, get(P.vref30)
-    end
-
-    local headwindComponent, crosswindKnots = calculateWindComponents(
-        weatherData.wind.direction,
-        get(P.desrwyheading),
-        weatherData.wind.speed
-    )
-
-    local isBadWeather = false
-
-    -- KORRIGIERTER BEREICH: Durch die weatherData.weather Tabelle iterieren
-    if weatherData.weather then
-        for _, wx_entry in ipairs(weatherData.weather) do
-            if wx_entry.phenomenon == "RA" or wx_entry.phenomenon == "SN" then
-                isBadWeather = true
-                break -- Einmal schlechtes Wetter gefunden, reicht
-            end
-        end
-    end
-    -- ENDE DES KORRIGIERTEN BEREICHS
-
-    if weatherData.visibility and weatherData.visibility.value and (weatherData.visibility.value < 5000) then
-        isBadWeather = true
-    end
-    if weatherData.clouds and weatherData.clouds[1] and weatherData.clouds[1].altitude and (weatherData.clouds[1].altitude < 1000) then
-        isBadWeather = true
-    end
-
-    local flapsSetting = determineLandingFlapsSetting(get(P.desrwylen), weatherData.wind.speed, crosswindKnots, isBadWeather, get(P.totalweightkgs))
-    local vrefKnots = calculateVref(get(P.totalweightkgs), flapsSetting, weatherData, crosswindKnots)
-
-    flapsSetting = math.floor(flapsSetting + 0.5)
-    vrefKnots = math.floor(vrefKnots + 0.5)
-
-    return flapsSetting, vrefKnots
-end
-
---------------------------------------------------------------------------------------------------------------
-function calcautobrake(landingSpeed, weatherData)
-    local autobrakeSettings = {
-        {maxDeceleration = 1.5, setting = def.AUTOBRAKE1},
-        {maxDeceleration = 2.0, setting = def.AUTOBRAKE2},
-        {maxDeceleration = 3.0, setting = def.AUTOBRAKE3},
-        {maxDeceleration = 4.0, setting = def.AUTOBRAKEMAX}
-    }
-
-    local requiredDeceleration = (landingSpeed^2) / (2 * get(P.desrwylen))
-
-    if ((fieldexists(weatherData, "weather") and ((containsvalue(weatherData.weather, "FZRA")) or (containsvalue(weatherData.weather, "FZDZ")) or (containsvalue(weatherData.weather, "FZFG"))))
-        or (fieldexists(weatherData, "temperature.value") and (weatherData.temperature.value < 1))) then
-        requiredDeceleration = requiredDeceleration * 1.5
-    elseif (fieldexists(weatherData, "weather") and (containsvalue(weatherData.weather, "SN")))  then
-        requiredDeceleration = requiredDeceleration * 1.3
-    elseif (fieldexists(weatherData, "weather") and (containsvalue(weatherData.weather, "RA"))) then
-        requiredDeceleration = requiredDeceleration * 1.2
-    end
-
-    local weightFactor = get(P.totalweightkgs) / 70000
-    requiredDeceleration = requiredDeceleration * weightFactor
-
-    for _, setting in ipairs(autobrakeSettings) do
-        if requiredDeceleration <= setting.maxDeceleration then
-            return setting.setting
-        end
-    end
-
-    return def.AUTOBRAKE1
-end
-
---------------------------------------------------------------------------------------------------------------
-function determineTakeoffFlapsSetting(weatherData)
-    local STANDARD_TAKEOFF_FLAPS = 5
-    local TAKEOFF_WEIGHT_THRESHOLD_HIGH = 65000
-    local TAKEOFF_WEIGHT_THRESHOLD_VERY_HIGH = 70000
-
-    local TAKEOFF_RUNWAY_LENGTH_SHORT_THRESHOLD = 2000
-    local TAKEOFF_RUNWAY_LENGTH_VERY_SHORT_THRESHOLD = 1600
-
-    local TAKEOFF_DENSITY_ALTITUDE_THRESHOLD_HIGH = 3000
-
-    local TAKEOFF_TAILWIND_CONSIDERATION_THRESHOLD = 5
-    local TAKEOFF_WET_RUNWAY_PENALTY_FLAPS = 1 -- Dieser Wert wird nun dazu führen, dass 5 zu 10 wird, wenn er angewendet wird.
-
-    if not (weatherData and weatherData.wind and weatherData.wind.direction ~= nil and weatherData.wind.speed ~= nil and
-            weatherData.temperature and weatherData.temperature.value ~= nil and
-            weatherData.pressure and weatherData.pressure.qnh_hpa ~= nil) then
-        return STANDARD_TAKEOFF_FLAPS
-    end
-
-    local isRunwayWet = false
-    if ((fieldexists(weatherData, "weather") and ((containsvalue(weatherData.weather, "FZRA")) or (containsvalue(weatherData.weather, "FZDZ")) or (containsvalue(weatherData.weather, "FZFG"))))
-        or (fieldexists(weatherData, "temperature.value") and (weatherData.temperature.value < 1))) then
-        isRunwayWet = true
-    elseif (fieldexists(weatherData, "weather") and (containsvalue(weatherData.weather, "SN")))  then
-        isRunwayWet = true
-    elseif (fieldexists(weatherData, "weather") and (containsvalue(weatherData.weather, "RA"))) then
-        isRunwayWet = true
-    end -- Hier fehlt das 'end' für den isRunwayWet Block aus meiner vorherigen Antwort, falls die If-ElseIf-Else Struktur beendet wird.
-      -- ABER: Die obige If-ElseIf-Else-Struktur hat bereits ihr 'end' am Ende der Kette, das ist korrekt.
-
-    if not (get(P.totalweightkgs) and type(get(P.totalweightkgs)) == "number" and get(P.totalweightkgs) > 0 and
-            get(P.deprwylen) and type(get(P.deprwylen)) == "number" and get(P.deprwylen) > 0 and
-            get(P.elevation) and type(get(P.elevation)) == "number" and
-            get(P.deprwyheading) and type(get(P.deprwyheading)) == "number") then
-        return STANDARD_TAKEOFF_FLAPS
-    end
-
-    local recommendedFlaps = STANDARD_TAKEOFF_FLAPS
-
-    local headwindComponent, crosswindComponent = calculateWindComponents(
-        weatherData.wind.direction,
-        get(P.deprwyheading),
-        weatherData.wind.speed
-    )
-
-    if get(P.totalweightkgs) > TAKEOFF_WEIGHT_THRESHOLD_VERY_HIGH then
-        recommendedFlaps = 15
-    elseif get(P.totalweightkgs) > TAKEOFF_WEIGHT_THRESHOLD_HIGH then
-        recommendedFlaps = math.max(recommendedFlaps, 10) -- Sicherstellen, dass es mindestens 10 ist
-    end
-
-    if get(P.deprwylen) < TAKEOFF_RUNWAY_LENGTH_VERY_SHORT_THRESHOLD then
-        recommendedFlaps = math.max(recommendedFlaps, 15)
-    elseif get(P.deprwylen) < TAKEOFF_RUNWAY_LENGTH_SHORT_THRESHOLD then
-        recommendedFlaps = math.max(recommendedFlaps, 10)
-    end
-
-    local deprwyalt = 0
-
-    if (P.depmetar.metar and tonumber(P.depmetar.metar.elevation_m)) then
-        deprwyalt = P.depmetar.metar.elevation_m
-    else
-        deprwyalt = get(P.elevation)
-    end
-
-    local densityAltitude = calculateDensityAltitude(
-        deprwyalt,
-        weatherData.temperature.value,
-        weatherData.pressure.qnh_hpa
-    )
-    if densityAltitude > TAKEOFF_DENSITY_ALTITUDE_THRESHOLD_HIGH then
-        recommendedFlaps = math.max(recommendedFlaps, 10)
-    end
-
-    if headwindComponent < -TAKEOFF_TAILWIND_CONSIDERATION_THRESHOLD then
-        recommendedFlaps = math.max(recommendedFlaps, 10)
-    end
-
-    if isRunwayWet then
-        if recommendedFlaps == 5 then
-            recommendedFlaps = 10
-        elseif recommendedFlaps == 10 then
-            recommendedFlaps = 15
-        end
-    end
-
-    if recommendedFlaps > 15 then
-        recommendedFlaps = 15
-    elseif recommendedFlaps < 5 then
-        recommendedFlaps = 5
-    end
-
-    if recommendedFlaps > 5 and recommendedFlaps < 10 then
-        recommendedFlaps = 10
-    elseif recommendedFlaps > 10 and recommendedFlaps < 15 then
-        recommendedFlaps = 15
-    end
-
-    return recommendedFlaps
-end
 
 --------------------------------------------------------------------------------------------------------------
 function setvrefsteps()
 
     local FMC1Line00L = helpers.get("laminar/B738/fmc1/Line00_L")
 
-    local appflapscalc, appvrefcalc = calcappflapsvref(P.desmetar.decodedmetar)
+    local appflapscalc, appvrefcalc = helpers.calcappflapsvref(get(P.totalweightkgs), get(P.desrwylen), get(P.desrwyheading), get(P.vref30), P.desmetar.decodedmetar)
     local appflapscalcstring = tostring(appflapscalc)
     local appvrefcalcstring = tostring(appvrefcalc)
 
@@ -4124,7 +2251,7 @@ function settoflapssteps()
 
     local FMC1Line00L = helpers.get("laminar/B738/fmc1/Line00_L")
 
-    local toflapscalc = determineTakeoffFlapsSetting(P.depmetar.decodedmetar)
+    local toflapscalc = helpers.determineTakeoffFlapsSetting(get(P.totalweightkgs), get(P.deprwylen), get(P.deprwyheading), get(P.elevation), P.depmetar)
     local toflapscalcstring = tostring(toflapscalc)
 
     if (P.procedureloop3.stepindex == 1) then
@@ -4211,86 +2338,6 @@ my_command_settoflapsproc = sasl.createCommand(def.APPNAMEPREFIX .. "/settoflaps
 sasl.registerCommandHandler(my_command_settoflapsproc, 0, settoflapsproc_)
 
 --------------------------------------------------------------------------------------------------------------
-function calcautobrake(landingSpeed, weatherData)
-
-    local autobrakeSettings = {
-        {maxDeceleration = 1.5, setting = def.AUTOBRAKE1},
-        {maxDeceleration = 2.0, setting = def.AUTOBRAKE2},
-        {maxDeceleration = 3.0, setting = def.AUTOBRAKE3},
-        {maxDeceleration = 4.0, setting = def.AUTOBRAKEMAX}
-    }
-
-    local requiredDeceleration = (landingSpeed^2) / (2 * get(P.desrwylen))
-
-    if ((fieldexists(weatherData, "weather") and ((containsvalue(weatherData.weather, "FZRA")) or (containsvalue(weatherData.weather, "FZDZ")) or (containsvalue(weatherData.weather, "FZFG"))))
-        or (fieldexists(weatherData, "temperature.value") and (weatherData.temperature.value < 1))) then
-        requiredDeceleration = requiredDeceleration * 1.5
-    elseif (fieldexists(weatherData, "weather") and (containsvalue(weatherData.weather, "SN")))  then
-        requiredDeceleration = requiredDeceleration * 1.3
-    elseif (fieldexists(weatherData, "weather") and (containsvalue(weatherData.weather, "RA"))) then
-        requiredDeceleration = requiredDeceleration * 1.2
-    end
-
-    local weightFactor = get(P.totalweightkgs) / 70000
-    requiredDeceleration = requiredDeceleration * weightFactor
-
-    for _, setting in ipairs(autobrakeSettings) do
-        if requiredDeceleration <= setting.maxDeceleration then
-            return setting.setting
-        end
-    end
-
-    return def.AUTOBRAKE1
-end
-
---------------------------------------------------------------------------------------------------------------
-function gettrim()
-
-    local trim = 0
-
-    local trimwheeltemp = get(P.trimwheel)
-    local trimwheelrounded = roundnumber(trimwheeltemp * -100)
-
-    if (trimwheelrounded <= 21) then
-        trim = 6.50
-    elseif (trimwheelrounded <= 24) then
-        trim = 6.25
-    elseif (trimwheelrounded <= 27) then
-        trim = 6.0
-    elseif (trimwheelrounded <= 30) then
-        trim = 5.75
-    elseif (trimwheelrounded <= 32) then
-        trim = 5.5
-    elseif (trimwheelrounded <= 34) then
-        trim = 5.25
-    elseif (trimwheelrounded <= 40) then
-        trim = 5.0
-    elseif (trimwheelrounded <= 42) then
-        trim = 4.75
-    elseif (trimwheelrounded <= 45) then
-        trim = 4.5
-    elseif (trimwheelrounded <= 48) then
-        trim = 4.25
-    elseif (trimwheelrounded <= 52) then
-        trim = 4.0
-    elseif (trimwheelrounded <= 55) then
-        trim = 3.75
-    elseif (trimwheelrounded <= 58) then
-        trim = 3.5
-    elseif (trimwheelrounded <= 61) then
-        trim = 3.25
-    elseif (trimwheelrounded <= 65) then
-        trim = 3.0
-    else
-        trim = 5.0
-    end
-
-    return (trim)
-
-end
-
---------------------------------------------------------------------------------------------------------------
-
 function settotrim(trimvalue)
 
     local targettrim = 0
@@ -4343,7 +2390,7 @@ function settotrim(trimvalue)
     end
 
     trimwheeltemp = get(P.trimwheel)
-    trimwheelrounded = roundnumber(trimwheeltemp * -100)
+    trimwheelrounded = helpers.roundnumber(trimwheeltemp * -100)
 
     while ((trimwheelrounded ~= trimwheelcalcrounded) and (trimwheeltemp ~= trimwheelold)) do
         sasl.logDebug("while loop settotrim")
@@ -4357,7 +2404,7 @@ function settotrim(trimvalue)
 
         trimwheelold = trimwheeltemp
         trimwheeltemp = get(P.trimwheel)
-        trimwheelrounded = roundnumber(trimwheeltemp * -100)
+        trimwheelrounded = helpers.roundnumber(trimwheeltemp * -100)
 
     end
 
@@ -5144,7 +3191,6 @@ end
 
 my_command_coldanddarkstartup = sasl.createCommand(def.APPNAMEPREFIX .. "/coldanddarkstartup", "Cold and Dark Startup")
 sasl.registerCommandHandler(my_command_coldanddarkstartup, 0, coldanddarkstartup_)
---sasl.appendMenuItem(P.menu_main, "Cold and Dark Startup", coldanddarkstartup)
 
 --------------------------------------------------------------------------------------------------------------
 -- APU Startup
@@ -6757,11 +4803,11 @@ function cockpitinitsteps()
                 if (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
                     set(P.transpondercode, P.configvalues[def.CONFIGTRANSPONDER])
                 elseif (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                    P.commandtableentry(def.ADVICE, "Set Transponder Code " .. addspaces(P.configvalues[def.CONFIGTRANSPONDER]))
+                    P.commandtableentry(def.ADVICE, "Set Transponder Code " .. helpers.addspaces(P.configvalues[def.CONFIGTRANSPONDER]))
                     P.procedureloop1.stepindex = P.procedureloop1.stepindex - 1
                 end
             elseif ((P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) and not P.procedureloop1.steprepeat) then
-                P.commandtableentry(def.ADVICE, "Transponder Code checked and " .. addspaces(P.configvalues[def.CONFIGTRANSPONDER]))
+                P.commandtableentry(def.ADVICE, "Transponder Code checked and " .. helpers.addspaces(P.configvalues[def.CONFIGTRANSPONDER]))
             end
         end
     end
@@ -6913,11 +4959,11 @@ function cockpitinitsteps()
             if (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
                 setbankanglepos(P.configvalues[def.CONFIGBANKANGLEMAX])
             elseif (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                P.commandtableentry(def.ADVICE, "Set Bank Angle " .. getbankanglestring(P.configvalues[def.CONFIGBANKANGLEMAX]))
+                P.commandtableentry(def.ADVICE, "Set Bank Angle " .. helpers.getbankanglestring(P.configvalues[def.CONFIGBANKANGLEMAX]))
                 P.procedureloop1.stepindex = P.procedureloop1.stepindex - 1
             end
         elseif ((P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) and not P.procedureloop1.steprepeat) then
-            P.commandtableentry(def.ADVICE, "Bank Angle checked and " .. getbankanglestring(P.configvalues[def.CONFIGBANKANGLEMAX]))
+            P.commandtableentry(def.ADVICE, "Bank Angle checked and " .. helpers.getbankanglestring(P.configvalues[def.CONFIGBANKANGLEMAX]))
         end
     end
 
@@ -6953,7 +4999,7 @@ function cockpitinitsteps()
     end
 
     if (P.procedureloop1.stepindex == 23) then
-        speedbrakeleverrounded = roundnumber(get(P.speedbrakelever), 1)
+        speedbrakeleverrounded = helpers.roundnumber(get(P.speedbrakelever), 1)
         if (speedbrakeleverrounded ~= def.SPEEDBRAKEDOWN) then
             if (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
                 set(P.speedbrakelever, def.OFF)
@@ -7509,7 +5555,7 @@ function altitudeb10000steps()
 
     if (P.procedureloop1.stepindex == 11) then
         if (P.configvalues[def.CONFIGVREF30SET] == def.ON) then
-            local autobrake = calcautobrake(get(P.vref), P.desmetar.decodedmetar)
+            local autobrake = helpers.calcautobrake(get(P.vref), get(P.totalweightkgs), get(P.desrwylen), P.desmetar.decodedmetar)
             sasl.logDebug("AUTOBRAKE AUTOBRAKEPOS: " .. tostring(get(P.autobrakepos)) .. " AUTOBRAKE " .. tostring(autobrake))
             if (get(P.autobrakepos) ~= autobrake) then
                 if (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
@@ -7593,7 +5639,7 @@ sasl.registerCommandHandler(my_command_altitudeb10000, 0, altitudeb10000_)
 function radioaltitudeb2500steps()
 
     if (P.procedureloop2.stepindex == 1) then
-        if ((convflaplevertoflappos(get(P.flapleverpos)) >= P.configvalues[def.CONFIGGEARDOWNFLAPS]) and (get(P.gearhandlepos) < def.GEARDOWN)) then
+        if ((helpers.convflaplevertoflappos(get(P.flapleverpos)) >= P.configvalues[def.CONFIGGEARDOWNFLAPS]) and (get(P.gearhandlepos) < def.GEARDOWN)) then
             if (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
                 set(P.gearhandlepos, GEARDOWN)
             elseif (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
@@ -7617,7 +5663,7 @@ end
 function radioaltitudeb1000steps()
 
     if (P.procedureloop2.stepindex == 1) then
-        speedbrakeleverrounded = roundnumber(get(P.speedbrakelever), 1)
+        speedbrakeleverrounded = helpers.roundnumber(get(P.speedbrakelever), 1)
         if (speedbrakeleverrounded ~= def.SPEEDBRAKEARMED) then
             if (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
                 set(P.speedbrakelever, def.SPEEDBRAKEARMED)
@@ -7657,18 +5703,18 @@ function radioaltitudeb1000steps()
             end
         end
     elseif (P.procedureloop2.stepindex == 4) then
-        local missedappalttmp = roundnumber((get(P.missedappalt) / 100)) * 100
+        local missedappalttmp = helpers.roundnumber((get(P.missedappalt) / 100)) * 100
         if (missedappalttmp > 1000) then
             if (missedappalttmp ~= get(P.mcpaltitude)) then
                 if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                    P.commandtableentry(def.ADVICE, "Set M C P Altitude " .. addspaces(missedappalttmp))
+                    P.commandtableentry(def.ADVICE, "Set M C P Altitude " .. helpers.addspaces(missedappalttmp))
                     P.procedureloop2.stepindex = P.procedureloop2.stepindex - 1
                 else
                     set(P.mcpaltitude,  missedappalttmp)
                 end
             else
                 if ((P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) and not P.procedureloop2.steprepeat) then
-                    P.commandtableentry(def.ADVICE, "MCP Altitude checked and " .. addspaces(missedappalttmp))
+                    P.commandtableentry(def.ADVICE, "MCP Altitude checked and " .. helpers.addspaces(missedappalttmp))
                 end
             end
         else
@@ -7680,10 +5726,10 @@ function radioaltitudeb1000steps()
         end
     elseif (P.procedureloop2.stepindex == 5) then
         local headingrounded = nil
-        if (isvalidicao(get(P.desicao)) and isvalidrwy(get(P.desrwy)) and tonumber(get(P.desrwyheading))) then
-            headingrounded = roundnumber(get(P.desrwyheading))
+        if (helpers.isvalidicao(get(P.desicao)) and helpers.isvalidrwy(get(P.desrwy)) and tonumber(get(P.desrwyheading))) then
+            headingrounded = helpers.roundnumber(get(P.desrwyheading))
         end
-        local navrwyheading = getrwyheadingfromnavdata(get(P.desicao), get(P.desrwy))
+        local navrwyheading = helpers.getrwyheadingfromnavdata(P.navdatatable, get(P.desicao), get(P.desrwy))
         if (navrwyheading and ((not headingrounded) or (headingrounded and (math.abs(headingrounded - navrwyheading) <= 3)))) then
             headingrounded = navrwyheading
         end
@@ -7691,14 +5737,14 @@ function radioaltitudeb1000steps()
         if (headingrounded and (get(P.aphdgselstat) == def.OFF)) then
             if (headingrounded ~= get(P.mcpheading)) then
                 if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                    P.commandtableentry(def.ADVICE, "Set M C P Heading " .. addspaces(padNumberWithZerosStrict(headingrounded, 3)))
+                    P.commandtableentry(def.ADVICE, "Set M C P Heading " .. helpers.addspaces(helpers.padNumberWithZerosStrict(headingrounded, 3)))
                     P.procedureloop2.stepindex = P.procedureloop2.stepindex - 1
                 else
                     set(P.mcpheading, headingrounded)
                 end
             else
                 if ((P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) and not P.procedureloop2.steprepeat) then
-                    P.commandtableentry(def.ADVICE, "MCP Heading checked and " .. addspaces(padNumberWithZerosStrict(headingrounded, 3)))
+                    P.commandtableentry(def.ADVICE, "MCP Heading checked and " .. helpers.addspaces(helpers.padNumberWithZerosStrict(headingrounded, 3)))
                 end
             end
         elseif not headingrounded then
@@ -7754,17 +5800,6 @@ function duringdescentsteps()
     end
 
     if (P.procedureloop2.stepindex == 2) then
-        if (get(P.mcpaltitude) >= get(P.fmccruisealt)) then
-            if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                P.commandtableentry(def.ADVICE, "Reset M C P Altitude")
-            else
-                P.commandtableentry(def.TEXT, "Reset M C P ALtitude")
-            end
-            P.procedureloop2.stepindex = P.procedureloop2.stepindex - 1
-        end
-    end
-
-    if (P.procedureloop2.stepindex == 3) then
         if (P.configvalues[def.CONFIGVIEWCHANGES] == def.ON and P.configvalues[def.CONFIGSPDRESTR250] == def.ON) then
             setview(def.DEFAULTVIEW)
             setview(P.configvalues[def.CONFIGVIEWFMS])
@@ -7774,13 +5809,13 @@ function duringdescentsteps()
         end
     end
 
-    if (P.procedureloop2.stepindex == 4) then
+    if (P.procedureloop2.stepindex == 3) then
         if (P.configvalues[def.CONFIGSPDRESTR250] == def.ON) then
             helpers.command_once("laminar/B738/button/fmc1_des")
         end
     end
 
-    if (P.procedureloop2.stepindex == 5) then
+    if (P.procedureloop2.stepindex == 4) then
         if (P.configvalues[def.CONFIGSPDRESTR250] == def.ON) then
             if (get(P.speedrestr) ~= 250) then
                 if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
@@ -7796,7 +5831,7 @@ function duringdescentsteps()
         end
     end
 
-    if (P.procedureloop2.stepindex == 6) then
+    if (P.procedureloop2.stepindex == 5) then
         if (P.configvalues[def.CONFIGVIEWCHANGES] == def.ON) then
             setview(P.configvalues[def.CONFIGVIEWMAINPANEL])
         else
@@ -7805,11 +5840,11 @@ function duringdescentsteps()
         end
     end
 
-    if (P.procedureloop2.stepindex == 7) then
+    if (P.procedureloop2.stepindex == 6) then
         speakdesmetar()
     end
 
-    if (P.procedureloop2.stepindex == 8) then
+    if (P.procedureloop2.stepindex == 7) then
         if (get(P.fmccruisealt) > get(P.fmctranslvl)) then
             if (get(P.altitude) < get(P.fmctranslvl)) then
                 if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
@@ -7823,29 +5858,29 @@ function duringdescentsteps()
         end
     end
 
-    if (P.procedureloop2.stepindex == 9) then
+    if (P.procedureloop2.stepindex == 8) then
         if (P.configvalues[def.CONFIGAUTOBARO] == def.ON) then
             if (get(P.altitude) < get(P.fmctranslvl)) then
                 local baroinchtmp, baropastmp = getlocalqnh(ARRIVAL)
-                sasl.logDebug("QNHARRIVAL: BAROPILOT "..tostring(roundnumber(get(P.baropilot), 2)) .. " BAROINCHTMP " .. baroinchtmp .. " " .. tostring(roundnumber(math.abs(roundnumber(get(P.baropilot), 2) - baroinchtmp), 2)))
-                if ((get(P.barostd) == def.ON) or (roundnumber(math.abs(roundnumber(get(P.baropilot), 2) - baroinchtmp), 2) > 0.01)) then
+                sasl.logDebug("QNHARRIVAL: BAROPILOT "..tostring(helpers.roundnumber(get(P.baropilot), 2)) .. " BAROINCHTMP " .. baroinchtmp .. " " .. tostring(helpers.roundnumber(math.abs(helpers.roundnumber(get(P.baropilot), 2) - baroinchtmp), 2)))
+                if ((get(P.barostd) == def.ON) or (helpers.roundnumber(math.abs(helpers.roundnumber(get(P.baropilot), 2) - baroinchtmp), 2) > 0.01)) then
                     if (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
                         helpers.command_once("laminar/B738/EFIS_control/capt/push_button/std_press")
                         set(P.baropilot, baroinchtmp)
                     elseif (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
                         if (get(P.baroinhpa) == def.ON) then
-                            P.commandtableentry(def.ADVICE, "Set Q N H " .. addspaces(baropastmp))
+                            P.commandtableentry(def.ADVICE, "Set Q N H " .. helpers.addspaces(baropastmp))
                         else
-                            P.commandtableentry(def.ADVICE, "Set Q N H " .. addspaces(baroinchtmp))
+                            P.commandtableentry(def.ADVICE, "Set Q N H " .. helpers.addspaces(baroinchtmp))
                         end
                         P.procedureloop2.stepindex = P.procedureloop2.stepindex - 1
                     end
-                elseif ((get(P.barostd) == def.OFF) and (roundnumber(math.abs(roundnumber(get(P.baropilot), 2) - baroinchtmp), 2) <= 0.01)) then
+                elseif ((get(P.barostd) == def.OFF) and (helpers.roundnumber(math.abs(helpers.roundnumber(get(P.baropilot), 2) - baroinchtmp), 2) <= 0.01)) then
                     if ((P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) and not P.procedureloop2.steprepeat) then
                         if (get(P.baroinhpa) == def.ON) then
-                            P.commandtableentry(def.ADVICE, "Q N H checked and " .. addspaces(baropastmp))
+                            P.commandtableentry(def.ADVICE, "Q N H checked and " .. helpers.addspaces(baropastmp))
                         else
-                            P.commandtableentry(def.ADVICE, "Q N H checked and " .. addspaces(baroinchtmp))
+                            P.commandtableentry(def.ADVICE, "Q N H checked and " .. helpers.addspaces(baroinchtmp))
                         end
                     end
                 end
@@ -7855,23 +5890,23 @@ function duringdescentsteps()
         end
     end
 
-    if (P.procedureloop2.stepindex == 10) then
+    if (P.procedureloop2.stepindex == 9) then
         if (get(P.desrwy) == "") then
             if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                P.commandtableentry(def.ADVICE, "Set Destination Runway for " .. addspaces(get(P.desicao)))
+                P.commandtableentry(def.ADVICE, "Set Destination Runway for " .. helpers.addspaces(get(P.desicao)))
             else
-                P.commandtableentry(def.TEXT, "Set Destination Runway for " .. addspaces(get(P.desicao)))
+                P.commandtableentry(def.TEXT, "Set Destination Runway for " .. helpers.addspaces(get(P.desicao)))
             end
         end
     end
 
-    if (P.procedureloop2.stepindex == 11) then
+    if (P.procedureloop2.stepindex == 10) then
         if P.desmetar.metarfound then
-            if not shouldCheckRunwaySuitability(P.desmetar.metar, get(P.desrwy)) then
+            if not helpers.shouldCheckRunwaySuitability(P.desmetar.metar, get(P.desrwy)) then
                 if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                    P.commandtableentry(def.ADVICE, "Check Destination Runway " .. addspaces(get(P.desrwy)))
+                    P.commandtableentry(def.ADVICE, "Check Destination Runway " .. helpers.addspaces(get(P.desrwy)))
                 else
-                    P.commandtableentry(def.TEXT, "Check Destination Runway " .. addspaces(get(P.desrwy)))
+                    P.commandtableentry(def.TEXT, "Check Destination Runway " .. helpers.addspaces(get(P.desrwy)))
                 end
             end
         end
@@ -8007,7 +6042,7 @@ function afterlandingsteps()
                 end
             end
         elseif ((P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) and not P.procedureloop1.steprepeat) then
-            P.commandtableentry(def.ADVICE, "Transponder checked and " .. TransponderPostotring(get(P.transponderpos)))
+            P.commandtableentry(def.ADVICE, "Transponder checked and " .. helpers.TransponderPostotring(get(P.transponderpos)))
         end
     end
 
@@ -8034,7 +6069,7 @@ function afterlandingsteps()
     end
 
     if (P.procedureloop1.stepindex == 11) then
-        speedbrakeleverrounded = roundnumber(get(P.speedbrakelever), 1)
+        speedbrakeleverrounded = helpers.roundnumber(get(P.speedbrakelever), 1)
         if (speedbrakeleverrounded ~= def.SPEEDBRAKEDOWN) then
             if (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
                 set(P.speedbrakelever, def.OFF)
@@ -8356,7 +6391,7 @@ function beforetaxisteps()
 
     if (P.procedureloop1.stepindex == 15) then
         if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-            local toflapscalc = determineTakeoffFlapsSetting(P.depmetar.decodedmetar)
+            local toflapscalc = helpers.determineTakeoffFlapsSetting(get(P.totalweightkgs), get(P.deprwylen), get(P.deprwyheading), get(P.elevation), P.depmetar)
             if (get(P.toflaps) ~= toflapscalc) then                
                 P.commandtableentry(def.ADVICE, "Set Takeoff Flaps " .. tostring(toflapscalc))
                 P.procedureloop1.stepindex = P.procedureloop1.stepindex - 1
@@ -8369,7 +6404,7 @@ function beforetaxisteps()
     if (P.procedureloop1.stepindex == 16) then
         if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
             if (get(P.fmccg) == 0) then
-                P.commandtableentry(def.ADVICE, "Set C G " .. tostring(roundnumber(get(P.tabcg),1)))
+                P.commandtableentry(def.ADVICE, "Set C G " .. tostring(helpers.roundnumber(get(P.tabcg),1)))
                 P.procedureloop1.stepindex = P.procedureloop1.stepindex - 1
             elseif not P.procedureloop1.steprepeat then
                 P.commandtableentry(def.ADVICE, "C G checked and " .. tostring(get(P.fmccg)))
@@ -8442,7 +6477,7 @@ function beforetaxisteps()
     end
 
     if (P.procedureloop1.stepindex == 23) then
-        if ((convflaplevertoflappos(get(P.flapleverpos)) ~= get(P.toflaps))) then
+        if ((helpers.convflaplevertoflappos(get(P.flapleverpos)) ~= get(P.toflaps))) then
             if (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
                 local toflapscmd = "laminar/B738/push_button/flaps_" .. get(P.toflaps)
                 helpers.command_once(toflapscmd)
@@ -8637,20 +6672,20 @@ function beforetakeoffsteps()
 
     if (P.procedureloop1.stepindex == 10) then
         local headingrounded = nil
-        if (isvalidicao(get(P.depicao)) and isvalidrwy(get(P.deprwy)) and tonumber(get(P.deprwyheading))) then
-            headingrounded = roundnumber(get(P.deprwyheading))
+        if (helpers.isvalidicao(get(P.depicao)) and helpers.isvalidrwy(get(P.deprwy)) and tonumber(get(P.deprwyheading))) then
+            headingrounded = helpers.roundnumber(get(P.deprwyheading))
         end
-        local navrwyheading = getrwyheadingfromnavdata(get(P.depicao), get(P.deprwy))
+        local navrwyheading = helpers.getrwyheadingfromnavdata(P.navdatatable, get(P.depicao), get(P.deprwy))
         if (navrwyheading and ((not headingrounded) or (headingrounded and (math.abs(headingrounded - navrwyheading) <= 3)))) then
             headingrounded = navrwyheading
         end
         if headingrounded then
             if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
                 if (get(P.mcpheading) ~= headingrounded) then
-                    P.commandtableentry(def.ADVICE, "Set M C P Heading" .. addspaces(padNumberWithZerosStrict(headingrounded, 3)))
+                    P.commandtableentry(def.ADVICE, "Set M C P Heading" .. helpers.addspaces(helpers.padNumberWithZerosStrict(headingrounded, 3)))
                     P.procedureloop1.stepindex = P.procedureloop1.stepindex - 1
                 elseif not P.procedureloop1.steprepeat then
-                    P.commandtableentry(def.ADVICE, "M C P Heading checked" .. addspaces(padNumberWithZerosStrict(headingrounded, 3)))
+                    P.commandtableentry(def.ADVICE, "M C P Heading checked" .. helpers.addspaces(helpers.padNumberWithZerosStrict(headingrounded, 3)))
                 end
             end
         end
@@ -8929,15 +6964,15 @@ function autofunctions()
             end
 
             if (P.proceduretable[def.BEFORETAXIPROCEDURE].set and (not P.proceduretable[def.BEFORETAKEOFFPROCEDURE].set) and (P.procedureloop1.lock == def.NOPROCEDURE)) then
-                if ((aircraftonrwy(get(P.aircraftlatpos), get(P.aircraftlonpos), get(P.deprwylatstartpos), get(P.deprwylonstartpos), get(P.deprwylatendpos), get(P.deprwylonendpos), 0.0003) and
-                     (headingdiff(get(P.groundtrackmag), get(P.deprwyheading)) < 20) and (roundnumber(get(P.groundspeed)) == 0))) then
+                if ((helpers.aircraftonrwy(get(P.aircraftlatpos), get(P.aircraftlonpos), get(P.deprwylatstartpos), get(P.deprwylonstartpos), get(P.deprwylatendpos), get(P.deprwylonendpos), 0.0003) and
+                     (helpers.headingdiff(get(P.groundtrackmag), get(P.deprwyheading)) < 20) and (helpers.roundnumber(get(P.groundspeed)) == 0))) then
                     P.procedureloop1.lock = def.BEFORETAKEOFFPROCEDURE
                 end            
             end
         else
             if ((not P.proceduretable[def.AFTERLANDINGPROCEDURE].set) and (get(P.groundspeed) < 45) and (P.procedureloop1.lock == def.NOPROCEDURE)) then
-                if (((not aircraftonrwy(get(P.aircraftlatpos), get(P.aircraftlonpos), P.desrwylatstartpostemp, P.desrwylonstartpostemp, P.desrwylatendpostemp, P.desrwylonendpostemp, 0.0001)) and
-                    (headingdiff(get(P.groundtrackmag), P.desrwyheadingtemp) > 20)) or (roundnumber(get(P.groundspeed)) == 0)) then
+                if (((not helpers.aircraftonrwy(get(P.aircraftlatpos), get(P.aircraftlonpos), P.desrwylatstartpostemp, P.desrwylonstartpostemp, P.desrwylatendpostemp, P.desrwylonendpostemp, 0.0001)) and
+                    (helpers.headingdiff(get(P.groundtrackmag), P.desrwyheadingtemp) > 20)) or (helpers.roundnumber(get(P.groundspeed)) == 0)) then
                     P.flightstate = 5
                     P.procedureloop1.lock = def.AFTERLANDINGPROCEDURE
                 end
@@ -9058,9 +7093,9 @@ function voicereadback()
                 P.mcpspeedtemp2 = get(P.mcpspeed)
 
                 if (get(P.mcpspeed) < 1) then
-                    speed = roundnumber(get(P.mcpspeed), 2)
+                    speed = helpers.roundnumber(get(P.mcpspeed), 2)
                 else
-                    speed = roundnumber(get(P.mcpspeed))
+                    speed = helpers.roundnumber(get(P.mcpspeed))
                 end
 
                 if ((P.flightstate > 2) and (get(P.mcpspeed) == get(P.vref))) then
@@ -9079,7 +7114,7 @@ function voicereadback()
             P.mcpheadingtemp = get(P.mcpheading)
             P.mcpheadingtemp2 = get(P.mcpheading)
 
-            P.commandtableentry(def.TEXT, "M C P Heading " .. addspaces(padNumberWithZerosStrict(get(P.mcpheading), 3)))
+            P.commandtableentry(def.TEXT, "M C P Heading " .. helpers.addspaces(helpers.padNumberWithZerosStrict(get(P.mcpheading), 3)))
         end
     end
 
@@ -9091,9 +7126,9 @@ function voicereadback()
             P.mcpaltitudetemp2 = get(P.mcpaltitude)
 
             if (get(P.mcpaltitude) == get(P.fmccruisealt)) then
-                P.commandtableentry(def.TEXT, "M C P set to Cruise Altitude " .. addspaces(get(P.mcpaltitude)))
+                P.commandtableentry(def.TEXT, "M C P set to Cruise Altitude " .. helpers.addspaces(get(P.mcpaltitude)))
             else
-                P.commandtableentry(def.TEXT, "M C P Altitude " .. addspaces(get(P.mcpaltitude)))
+                P.commandtableentry(def.TEXT, "M C P Altitude " .. helpers.addspaces(get(P.mcpaltitude)))
             end
         end
     end
@@ -9118,7 +7153,7 @@ function voicereadback()
             P.mcppilotcoursetemp = get(P.mcppilotcourse)
             P.mcppilotcoursetemp2 = get(P.mcppilotcourse)
 
-            P.commandtableentry(def.TEXT, "M C P Pilot Course " .. addspaces(padNumberWithZerosStrict(get(P.mcppilotcourse), 3)))
+            P.commandtableentry(def.TEXT, "M C P Pilot Course " .. helpers.addspaces(helpers.padNumberWithZerosStrict(get(P.mcppilotcourse), 3)))
         end
     end
 
@@ -9129,7 +7164,7 @@ function voicereadback()
             P.mcpcopilotcoursetemp = get(P.mcpcopilotcourse)
             P.mcpcopilotcoursetemp2 = get(P.mcpcopilotcourse)
 
-            P.commandtableentry(def.TEXT, "M C P Copilot Course " .. addspaces(padNumberWithZerosStrict(get(P.mcpcopilotcourse), 3)))
+            P.commandtableentry(def.TEXT, "M C P Copilot Course " .. helpers.addspaces(helpers.padNumberWithZerosStrict(get(P.mcpcopilotcourse), 3)))
         end
     end
 
@@ -9143,7 +7178,7 @@ function voicereadback()
             if ((get(P.dhpilot) == -1) or (get(P.dhpilot) == -1001)) then
                 P.commandtableentry(def.TEXT, "Pilot Decision Altitude Reset")
             else
-                P.commandtableentry(def.TEXT, "Pilot Decision Altitude " .. tostring(roundnumber(get(P.dhpilot))))
+                P.commandtableentry(def.TEXT, "Pilot Decision Altitude " .. tostring(helpers.roundnumber(get(P.dhpilot))))
             end
         end
     end
@@ -9476,7 +7511,7 @@ function voicereadback()
                 P.commandtableentry(def.TEXT, "Q N H Standard")
             else
                 if (get(P.baroinhpa) == def.ON) then
-                    P.commandtableentry(def.TEXT, "Q N H " .. tostring(convertpressure(get(P.baropilot))))
+                    P.commandtableentry(def.TEXT, "Q N H " .. tostring(helpers.convertpressure(get(P.baropilot))))
                 else
                     P.commandtableentry(def.TEXT, "Q N H " .. tostring(get(P.baropilot)))
                 end
@@ -9574,7 +7609,7 @@ function voicereadback()
     end
 
     if (get(P.transponderpos) ~= P.transponderpostemp) then
-        P.commandtableentry(def.TEXT, "Transponder " .. TransponderPostotring(get(P.transponderpos)))
+        P.commandtableentry(def.TEXT, "Transponder " .. helpers.TransponderPostotring(get(P.transponderpos)))
         P.transponderpostemp = get(P.transponderpos)
     end
 
@@ -9949,19 +7984,19 @@ function voicereadback()
     else
         if ((get(P.nav1freq) ~= P.nav1freqtemp) or (get(P.nav2freq) ~= P.nav2freqtemp)) then
             if (get(P.nav1freq) == get(P.nav2freq)) then
-                P.commandtableentry(def.TEXT, "Both N A V " .. addspaces(formatILSFrequency(get(P.nav1freq))))
+                P.commandtableentry(def.TEXT, "Both N A V " .. helpers.addspaces(helpers.formatILSFrequency(get(P.nav1freq))))
 
                 P.nav1freqtemp = get(P.nav1freq)
                 P.nav2freqtemp = get(P.nav2freq)
             else
                 if (get(P.nav1freq) ~= P.nav1freqtemp) then
-                    P.commandtableentry(def.TEXT, "N A V 1 " .. addspaces(formatILSFrequency(get(P.nav1freq))))
+                    P.commandtableentry(def.TEXT, "N A V 1 " .. helpers.addspaces(helpers.formatILSFrequency(get(P.nav1freq))))
 
                     P.nav1freqtemp = get(P.nav1freq)
                 end
 
                 if (get(P.nav2freq) ~= P.nav2freqtemp) then
-                    P.commandtableentry(def.TEXT, "N A V 2 " .. addspaces(formatILSFrequency(get(P.nav1freq))))
+                    P.commandtableentry(def.TEXT, "N A V 2 " .. helpers.addspaces(helpers.formatILSFrequency(get(P.nav1freq))))
 
                     P.nav2freqtemp = get(P.nav2freq)
                 end
@@ -10203,7 +8238,7 @@ function voicereadback()
         P.gpuontemp = get(P.gpuon)
     end
 
-    if ((roundnumber(get(P.announcsourceoff1),1) ~= P.announcsourceoff1temp) or (roundnumber(get(P.announcsourceoff2),1) ~= P.announcsourceoff2temp)) then
+    if ((helpers.roundnumber(get(P.announcsourceoff1),1) ~= P.announcsourceoff1temp) or (helpers.roundnumber(get(P.announcsourceoff2),1) ~= P.announcsourceoff2temp)) then
         if (get(P.apurunning) == def.ON) then
             if ((get(P.apupowerbus1) == get(P.apupowerbus2)) and (get(P.announcsourceoff1) == get(P.announcsourceoff2)) and (get(P.announcsourceoff1) ~= P.announcsourceoff1temp) and (get(P.announcsourceoff2) ~= P.announcsourceoff2temp)) then
                 if ((get(P.apupowerbus1) == def.ON) and (get(P.announcsourceoff1) == def.OFF)) then
@@ -10229,8 +8264,8 @@ function voicereadback()
                 end
             end
         end
-        P.announcsourceoff1temp = roundnumber(get(P.announcsourceoff1),1)
-        P.announcsourceoff2temp = roundnumber(get(P.announcsourceoff2),1)
+        P.announcsourceoff1temp = helpers.roundnumber(get(P.announcsourceoff1),1)
+        P.announcsourceoff2temp = helpers.roundnumber(get(P.announcsourceoff2),1)
     end
 
     if ((get(P.gen1pos) ~= P.gen1postemp) or (get(P.gen2pos) ~= P.gen2postemp)) then
@@ -10386,7 +8421,7 @@ function voicereadback()
         if (get(P.bankanglepos) ~= P.bankanglepostemp2) then
             P.bankanglepostemp2 = get(P.bankanglepos)
         else
-            P.commandtableentry(def.TEXT, "Bank Angle " .. getbankanglestring(get(P.bankanglepos)))
+            P.commandtableentry(def.TEXT, "Bank Angle " .. helpers.getbankanglestring(get(P.bankanglepos)))
             P.bankanglepostemp = get(P.bankanglepos)
             P.bankanglepostemp2 = get(P.bankanglepos)
         end
@@ -10414,7 +8449,7 @@ function voicereadback()
         P.parkingbrakepostemp = get(P.parkingbrakepos)
     end
 
-    speedbrakeleverrounded = roundnumber(get(P.speedbrakelever), 1)
+    speedbrakeleverrounded = helpers.roundnumber(get(P.speedbrakelever), 1)
 
     if (speedbrakeleverrounded ~= P.speedbrakelevertemp) then
         if (speedbrakeleverrounded ~= P.speedbrakelevertemp2) then
@@ -10790,7 +8825,7 @@ function voicereadback()
         if (get(P.transpondercode) ~= P.transpondercodetemp2) then
             P.transpondercodetemp2 = get(P.transpondercode)
         else
-            P.commandtableentry(def.TEXT, "Transponder Code " .. addspaces(get(P.transpondercode)))
+            P.commandtableentry(def.TEXT, "Transponder Code " .. helpers.addspaces(get(P.transpondercode)))
             P.transpondercodetemp = get(P.transpondercode)
             P.transpondercodetemp2 = get(P.transpondercode)
         end
@@ -10869,29 +8904,29 @@ end
 
 function ongoingtasks()
 
-    local nearesticaotmp = cleanstring(get(P.nearesticao))
-    local depicaotmp = cleanstring(get(P.depicao))
-    local desicaotmp = cleanstring(get(P.desicao))
+    local nearesticaotmp = helpers.cleanstring(get(P.nearesticao))
+    local depicaotmp = helpers.cleanstring(get(P.depicao))
+    local desicaotmp = helpers.cleanstring(get(P.desicao))
     local deslandingalttmp = 0
 
 if (P.getmetarcounter == 0) then
-        if ((depicaotmp ~= P.depmetar.icaocode) and isvalidicao(depicaotmp)) then
-            P.depmetar.metar = getMetar(depicaotmp)
+        if ((depicaotmp ~= P.depmetar.icaocode) and helpers.isvalidicao(depicaotmp)) then
+            P.depmetar.metar = helpers.getMetar(depicaotmp)
             if P.depmetar.metar and P.depmetar.metar.raw_text and #P.depmetar.metar.raw_text > 0 then
                 P.depmetar.icaocode = depicaotmp
                 P.depmetar.metarfound = true
-                P.depmetar.decodedmetar = decodemetar(P.depmetar.metar.raw_text)
+                P.depmetar.decodedmetar = helpers.decodemetar(P.depmetar.metar.raw_text)
             else
                 P.depmetar.icaocode = "XXXX"
                 P.depmetar.metarfound = false
                 P.depmetar.decodedmetar = {}
             end
-        elseif (not isvalidicao(depicaotmp) and (nearesticaotmp ~= P.depmetar.icaocode) and isvalidicao(nearesticaotmp)) then
-            P.depmetar.metar = getMetar(nearesticaotmp)
+        elseif (not helpers.isvalidicao(depicaotmp) and (nearesticaotmp ~= P.depmetar.icaocode) and helpers.isvalidicao(nearesticaotmp)) then
+            P.depmetar.metar = helpers.getMetar(nearesticaotmp)
             if P.depmetar.metar and P.depmetar.metar.raw_text and #P.depmetar.metar.raw_text > 0 then
                 P.depmetar.icaocode = nearesticaotmp
                 P.depmetar.metarfound = true
-                P.depmetar.decodedmetar = decodemetar(P.depmetar.metar.raw_text)
+                P.depmetar.decodedmetar = helpers.decodemetar(P.depmetar.metar.raw_text)
             else
                 P.depmetar.icaocode = "XXXX"
                 P.depmetar.metarfound = false
@@ -10899,12 +8934,12 @@ if (P.getmetarcounter == 0) then
             end
         end
 
-        if (desicaotmp ~= P.desmetar.icaocode) and isvalidicao(desicaotmp) then
-            P.desmetar.metar = getMetar(desicaotmp)
+        if (desicaotmp ~= P.desmetar.icaocode) and helpers.isvalidicao(desicaotmp) then
+            P.desmetar.metar = helpers.getMetar(desicaotmp)
             if P.desmetar.metar and P.desmetar.metar.raw_text and #P.desmetar.metar.raw_text > 0 then
                 P.desmetar.icaocode = desicaotmp
                 P.desmetar.metarfound = true
-                P.desmetar.decodedmetar = decodemetar(P.desmetar.metar.raw_text)
+                P.desmetar.decodedmetar = helpers.decodemetar(P.desmetar.metar.raw_text)
             else
                 P.desmetar.icaocode = "XXXX"
                 P.desmetar.metarfound = false
@@ -10913,13 +8948,13 @@ if (P.getmetarcounter == 0) then
         end
 
         if P.desmetar.metarfound and P.desmetar.decodedmetar then
-            logtable(P.desmetar.decodedmetar, "DESMETAR")
+            helpers.logtable(P.desmetar.decodedmetar, "DESMETAR")
         else
             sasl.logDebug("DESMETAR not found or not decoded for logging.")
         end
 
         if P.depmetar.metarfound and P.depmetar.decodedmetar then
-            logtable(P.depmetar.decodedmetar, "DEPMETAR")
+            helpers.logtable(P.depmetar.decodedmetar, "DEPMETAR")
         else
             sasl.logDebug("DEPMETAR not found or not decoded for logging.")
         end
@@ -10995,12 +9030,12 @@ if (P.getmetarcounter == 0) then
             end
         elseif (P.ongoingtaskstepindex == 2) then
             if ( (P.flightstate < 3) and (get(P.fmccruisealt) ~= 0) and (get(P.fmccruisealt) ~= 20000)) then
-                local fmccruisealttmp = roundnumber(get(P.fmccruisealt) / 500) * 500
+                local fmccruisealttmp = helpers.roundnumber(get(P.fmccruisealt) / 500) * 500
                 if (get(P.cabincruisealt)  ~= fmccruisealttmp) then
                     if ((P.configvalues[def.CONFIGAUTOFUNCTIONS] == def.ON) and (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON)) then 
                         set(P.cabincruisealt, fmccruisealttmp)
                     elseif (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then 
-                        P.commandtableentry(def.ADVICE, "Set Cabin Cruise Alitude " .. addspaces(fmccruisealttmp))
+                        P.commandtableentry(def.ADVICE, "Set Cabin Cruise Alitude " .. helpers.addspaces(fmccruisealttmp))
                         P.ongoingtaskstepindex = P.ongoingtaskstepindex - 1
                     end
                 end
@@ -11009,15 +9044,15 @@ if (P.getmetarcounter == 0) then
              if ((P.flightstate < 4) and P.desmetar.metarfound) then
                 local deslandingalttmp = 0
                 if tonumber(P.desmetar.metar.elevation_m) then
-                    deslandingalttmp = roundnumber((P.desmetar.metar.elevation_m * def.FEETTOMETER) / 50) * 50
+                    deslandingalttmp = helpers.roundnumber((P.desmetar.metar.elevation_m * def.FEETTOMETER) / 50) * 50
                 else
-                    deslandingalttmp = roundnumber(get(P.desrwyalt) / 50) * 50
+                    deslandingalttmp = helpers.roundnumber(get(P.desrwyalt) / 50) * 50
                 end
                 if (get(P.cabinlandingalt) ~= deslandingalttmp) then
                     if ((P.configvalues[def.CONFIGAUTOFUNCTIONS] == def.ON) and (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON)) then
                         set(P.cabinlandingalt, deslandingalttmp)
                     elseif (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then 
-                        P.commandtableentry(def.ADVICE, "Set Cabin Landing Alitude " .. addspaces(deslandingalttmp))
+                        P.commandtableentry(def.ADVICE, "Set Cabin Landing Alitude " .. helpers.addspaces(deslandingalttmp))
                         P.ongoingtaskstepindex = P.ongoingtaskstepindex - 1
                     end
                 end
@@ -11072,23 +9107,23 @@ if (P.getmetarcounter == 0) then
 
     if (((get(P.airgroundsensor) == def.ON) and (P.procedureloop1.lock == def.NOPROCEDURE) and (get(P.battery) == def.ON) and (get(P.mainbus) ~= def.OFF) and (P.flightstate == 0) and (get(P.taxilight) == def.OFF))) then
         if (P.ongoingtaskstepindex == 6) then
-            if (P.configvalues[def.CONFIGAUTOBARO] == def.ON) then
+            if ((P.configvalues[def.CONFIGAUTOBARO] == def.ON) and (get(P.groundspeed) < 45)) then
                 local baroinchtmp, baropastmp = getlocalqnh(DEPARTURE)
-                if (roundnumber(math.abs(roundnumber(get(P.baropilot),2) - baroinchtmp),2) > 0.01) then
+                if (helpers.roundnumber(math.abs(helpers.roundnumber(get(P.baropilot),2) - baroinchtmp),2) > 0.01) then
                     if ((P.configvalues[def.CONFIGAUTOFUNCTIONS] == def.ON) and (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON)) then
                         set(P.baropilot, baroinchtmp)
                     elseif (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
                         if (get(P.baroinhpa) == def.ON) then
-                            P.commandtableentry(def.ADVICE, "Set Q N H " .. addspaces(baropastmp))
+                            P.commandtableentry(def.ADVICE, "Set Q N H " .. helpers.addspaces(baropastmp))
                         else
-                            P.commandtableentry(def.ADVICE, "Set Q N H " .. addspaces(baroinchtmp))
+                            P.commandtableentry(def.ADVICE, "Set Q N H " .. helpers.addspaces(baroinchtmp))
                         end
                         P.ongoingtaskstepindex = P.ongoingtaskstepindex - 1
                     end
                 end
             end
         elseif (P.ongoingtaskstepindex == 7) then
-            if (get(P.trimcalc) > 0) and (get(P.trimcalc) ~= gettrim() and (get(P.groundspeed) < 45)) then
+            if (get(P.trimcalc) > 0) and (get(P.trimcalc) ~= helpers.gettrim(get(P.trimwheel)) and (get(P.groundspeed) < 45)) then
                 if (((P.configvalues[def.CONFIGAUTOFUNCTIONS] == def.ON) and (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON))) then
                     settotrim()
                     P.commandtableentry(def.TEXT, "Trim " .. tostring(get(P.trimcalc)))
@@ -11102,16 +9137,16 @@ if (P.getmetarcounter == 0) then
                 if ((P.configvalues[def.CONFIGAUTOFUNCTIONS] == def.ON) and (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON)) then
                     set(P.mcpspeed, get(P.v2speed))
                 elseif (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                    P.commandtableentry(def.ADVICE, "Set M C P Speed " .. addspaces(get(P.v2speed)))
+                    P.commandtableentry(def.ADVICE, "Set M C P Speed " .. helpers.addspaces(get(P.v2speed)))
                     P.ongoingtaskstepindex = P.ongoingtaskstepindex - 1         
                 end
             end
         elseif (P.ongoingtaskstepindex == 9) then
             local headingrounded = nil
-            if (isvalidicao(get(P.depicao)) and isvalidrwy(get(P.deprwy)) and tonumber(get(P.deprwyheading))) then
-                headingrounded = roundnumber(get(P.deprwyheading))
+            if (helpers.isvalidicao(get(P.depicao)) and helpers.isvalidrwy(get(P.deprwy)) and tonumber(get(P.deprwyheading))) then
+                headingrounded = helpers.roundnumber(get(P.deprwyheading))
             end
-            local navrwyheading = getrwyheadingfromnavdata(get(P.depicao), get(P.deprwy))
+            local navrwyheading = helpers.getrwyheadingfromnavdata(P.navdatatable, get(P.depicao), get(P.deprwy))
             if (navrwyheading and ((not headingrounded) or (headingrounded and (math.abs(headingrounded - navrwyheading) <= 2)))) then
                 headingrounded = navrwyheading
             end
@@ -11119,19 +9154,30 @@ if (P.getmetarcounter == 0) then
                 if ((P.configvalues[def.CONFIGAUTOFUNCTIONS] == def.ON) and (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON)) then
                     set(P.mcpheading, headingrounded)
                 elseif (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                    P.commandtableentry(def.ADVICE, "Set M C P Heading " .. addspaces(headingrounded))
+                    P.commandtableentry(def.ADVICE, "Set M C P Heading " .. helpers.addspaces(headingrounded))
                     P.ongoingtaskstepindex = P.ongoingtaskstepindex - 1
                 end
             end
         end
     elseif (P.ongoingtaskstepindex >= 5) then
-        P.ongoingtaskstepindex = 9
+        P.ongoingtaskstepindex = 10
     end
 
-    if (P.ongoingtaskstepindex >= 9) then
+    if (P.ongoingtaskstepindex == 10) then
+        if ((get(P.airgroundsensor) == def.OFF) and (get(P.fmsflightphase) < 3) and (get(P.mcpaltitude) >= get(P.fmccruisealt)) and (get(P.vnavtoddist) < 20)) then
+            if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
+                P.commandtableentry(def.ADVICE, "Approaching Top of Descent, Reset M C P Altitude")
+            else
+                P.commandtableentry(def.TEXT, "Approaching Top of Descent, Reset M C P Altitude")
+            end
+            P.procedureloop2.stepindex = P.procedureloop2.stepindex - 1
+        end
+    end
+
+    P.ongoingtaskstepindex = P.ongoingtaskstepindex + 1
+
+    if (P.ongoingtaskstepindex > 10) then
         P.ongoingtaskstepindex = 1
-    else
-        P.ongoingtaskstepindex = P.ongoingtaskstepindex + 1
     end
 
     return true
@@ -11150,17 +9196,17 @@ function P.commandtableloop()
             sasl.logInfo("YAL COMMAND: " .. P.commandtable[1][2])
             helpers.command_once(P.commandtable[1][2])
         elseif (P.commandtable[1][1] == def.TEXT) then
-            sasl.logInfo("YAL XPLMSpeakString TEXT: " .. P.commandtable[1][2])
+            sasl.logInfo("YAL SpeakString TEXT: " .. P.commandtable[1][2])
             if (P.configvalues[def.CONFIGVOICEREADBACK] == def.ON) then
-                speak(P.commandtable[1][2])
+                helpers.speak(P.commandtable[1][2])
                 if (string.len(P.commandtable[1][2]) > def.LONGSPEAK) then
                     next_recommended_wait_step = def.LONGSPEAKWAIT 
                 end
             end
         elseif (P.commandtable[1][1] == def.ADVICE) then
-            sasl.logInfo("YAL XPLMSpeakString ADVICE: " .. P.commandtable[1][2])
+            sasl.logInfo("YAL SpeakString ADVICE: " .. P.commandtable[1][2])
             if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                speak(P.commandtable[1][2])
+                helpers.speak(P.commandtable[1][2])
                 if (string.len(P.commandtable[1][2]) > def.LONGSPEAK) then
                     next_recommended_wait_step = def.LONGSPEAKWAIT
                 end
@@ -11173,13 +9219,6 @@ function P.commandtableloop()
 
     return next_recommended_wait_step
 
-end
-
-function speak(text)
-
-    local c_str = ffi.new("char[?]", #text + 1)
-    ffi.copy(c_str, text)
-    xplm.XPLMSpeakString(c_str)
 end
 
 --------------------------------------------------------------------------------------------------------------
@@ -11256,7 +9295,6 @@ function P.procedureloop_1()
     return true
 end
 
----
 
 --------------------------------------------------------------------------------------------------------------
 -- P.procedureloop_2() function
