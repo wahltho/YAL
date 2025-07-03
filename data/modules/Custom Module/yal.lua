@@ -770,7 +770,8 @@ sasl.registerCommandHandler(my_command_readconfig, 0, readconfig_)
 function setview(view)
 
     if (P.configvalues[def.CONFIGVIEWCHANGES] == def.ON) then
-        if (view == nil) then
+        if ((view == nil) or (type(view) ~= "number") or (view ~= math.floor(view))) then
+            sasl.logError("Invalid input to setview")
             return false
         end
 
@@ -1046,9 +1047,9 @@ function speakdesmetar()
             end
         else
             if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                P.commandtableentry(def.ADVICE, "No Metar found for " .. helpers.addspaces(desicao))
+                P.commandtableentry(def.ADVICE, "No Metar found for " .. helpers.addspaces(P.desicao))
             else
-                P.commandtableentry(def.TEXT, "No Metar found for " .. helpers.addspaces(desicao))
+                P.commandtableentry(def.TEXT, "No Metar found for " .. helpers.addspaces(P.desicao))
             end
     end
 
@@ -1077,9 +1078,9 @@ function speakdepmetar()
             end
         else
             if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                P.commandtableentry(def.ADVICE, "No Metar found for " .. helpers.addspaces(depicao))
+                P.commandtableentry(def.ADVICE, "No Metar found for " .. helpers.addspaces(P.depicao))
             else
-                P.commandtableentry(def.TEXT, "No Metar found for " .. helpers.addspaces(depicao))
+                P.commandtableentry(def.TEXT, "No Metar found for " .. helpers.addspaces(P.depicao))
             end
     end
 
@@ -1979,7 +1980,7 @@ function setilssteps()
         end
     end
 
-    if (P.procedureloop3.stepindex == 3) then -- This condition overlaps with the previous if; assuming it's part of the original elseif block
+    if (P.procedureloop3.stepindex == 3) then
         if ((string.len(FMC1Line04X) == 24) and (string.len(FMC1Line04L) == 24)) then
             apptype = string.sub(FMC1Line04X, 2, 4)
 
@@ -2012,13 +2013,10 @@ function setilssteps()
                 else
                     P.commandtableentry(def.TEXT, "Runway " .. helpers.formatRunwayDesignator(get(P.desrwy)) .. " has no Approach")
                 end
-                if (P.configvalues[def.CONFIGVIEWCHANGES] == def.ON) then -- Apply view change logic here
+                if (P.configvalues[def.CONFIGVIEWCHANGES] == def.ON) then
                     setview(P.configvalues[def.CONFIGVIEWMAINPANEL])
-                else
-                    -- If view changes are off, but we need to jump steps, we increment manually
-                    -- This specific else branch in the original jumps to step 8 if no approach.
-                    P.procedureloop3.stepindex = 8
                 end
+                P.procedureloop3.stepindex = 9
             end
         end
     end
@@ -2285,17 +2283,13 @@ function settoflapssteps()
 
                 P.commandtableentry(def.TEXT, "Takeoff Flaps " .. toflapscalcstring .. "set")
             end
-        end
-
-        if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
+        else
             if (get(P.toflaps) ~= toflapscalc) then
                 P.commandtableentry(def.ADVICE, "Enter Takeoff Flaps " .. toflapscalcstring)
                 P.procedureloop3.stepindex = P.procedureloop3.stepindex - 1
+            elseif (not P.procedureloop3.steprepeat) then
+                P.commandtableentry(def.ADVICE, "Takeoff Flaps Entered and " .. toflapscalcstring)
             end
-        end
-
-        if ((P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) and not P.procedureloop3.steprepeat and (get(P.toflapsset) ~= def.OFF)) then
-            P.commandtableentry(def.ADVICE, "Takeoff Flaps Entered and " .. toflapscalcstring)
         end
     end
 
@@ -6487,7 +6481,7 @@ function beforetaxisteps()
                 P.procedureloop1.stepindex = P.procedureloop1.stepindex - 1
             end
         elseif ((P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) and not P.procedureloop1.steprepeat) then
-            P.commandtableentry(def.ADVICE, "Takeoff Flaps checked and " .. get(P.toflaps))
+            P.commandtableentry(def.ADVICE, "Flaps checked and " .. get(P.toflaps))
         end
     end
 
@@ -8950,13 +8944,13 @@ if (P.getmetarcounter == 0) then
         if P.desmetar.metarfound and P.desmetar.decodedmetar then
             helpers.logtable(P.desmetar.decodedmetar, "DESMETAR")
         else
-            sasl.logDebug("DESMETAR not found or not decoded for logging.")
+            sasl.logInfo("DESMETAR not found or not decoded for logging.")
         end
 
         if P.depmetar.metarfound and P.depmetar.decodedmetar then
             helpers.logtable(P.depmetar.decodedmetar, "DEPMETAR")
         else
-            sasl.logDebug("DEPMETAR not found or not decoded for logging.")
+            sasl.logInfo("DEPMETAR not found or not decoded for logging.")
         end
 
         P.getmetarcounter = 5

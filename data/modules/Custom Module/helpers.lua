@@ -824,10 +824,10 @@ function P.decodemetar(metar)
                 result.date_time = { day = day, time = time_str, timezone = "Z" }
                 sasl.logDebug(string.format("Parsed datetime: day=%d, time=%s", result.date_time.day, result.date_time.time))
             else
-                sasl.logDebug("Warning: Could not parse day or time from: " .. dt)
+                sasl.logError("Warning: Could not parse day or time from: " .. dt)
             end
         else
-            sasl.logDebug("Warning: Date/Time part not in expected format: " .. dt)
+            sasl.logError("Warning: Date/Time part not in expected format: " .. dt)
         end
     end
 
@@ -952,10 +952,10 @@ function P.decodemetar(metar)
                         tostring(direction), speed, gust, (var_dir_match and string.format(", var=%d-%d", var_dir_match.dir1, var_dir_match.dir2)) or ""))
                     parsed = true
                 else
-                    sasl.logDebug("Warning: Could not parse wind speed from: " .. part)
+                    sasl.logError("Warning: Could not parse wind speed from: " .. part)
                 end
             else
-                sasl.logDebug("Warning: Could not parse wind direction or unit from: " .. part)
+                sasl.logError("Warning: Could not parse wind direction or unit from: " .. part)
             end
 
         elseif (not result.visibility and #part > 1 and #part <= 5 and string.sub(part, -2) == "SM") then
@@ -972,7 +972,7 @@ function P.decodemetar(metar)
                     sasl.logDebug(string.format("Parsed visibility: P6SM, interpreted as >6SM (~%d meters)", result.visibility.value))
                     parsed = true
                 else
-                    sasl.logDebug("Warning: Could not parse SM visibility value from: " .. part)
+                    sasl.logError("Warning: Could not parse SM visibility value from: " .. part)
                 end
             end
             
@@ -988,7 +988,7 @@ function P.decodemetar(metar)
                     sasl.logDebug(string.format("Parsed visibility: %d meters", result.visibility.value))
                     parsed = true
                 else
-                    sasl.logDebug("Warning: Numeric visibility part #4 failed tonumber unexpectedly: " .. part)
+                    sasl.logError("Warning: Numeric visibility part #4 failed tonumber unexpectedly: " .. part)
                 end
             end
             
@@ -1028,7 +1028,7 @@ function P.decodemetar(metar)
                 sasl.logDebug(string.format("Parsed weather: %s (%s)", phenomenon, intensity))
                 parsed = true
             else
-                sasl.logDebug("Warning: Part looked like weather but phenomenon not matched or invalid: " .. part .. " (phenomenon checked: " .. phenomenon .. ")")
+                sasl.logError("Warning: Part looked like weather but phenomenon not matched or invalid: " .. part .. " (phenomenon checked: " .. phenomenon .. ")")
             end
 
         elseif ( (string.sub(part, 1, 3) == "FEW" or string.sub(part, 1, 3) == "SCT" or string.sub(part, 1, 3) == "BKN" or string.sub(part, 1, 3) == "OVC") and
@@ -1071,7 +1071,7 @@ function P.decodemetar(metar)
                         (cloud_significant_type ~= "" and (" ("..cloud_significant_type..")")) or ""))
                     parsed = true
                 else
-                    sasl.logDebug("Warning: Could not parse cloud altitude for: " .. part .. " (altitude_str: '" .. altitude_str_val .. "')")
+                    sasl.logError("Warning: Could not parse cloud altitude for: " .. part .. " (altitude_str: '" .. altitude_str_val .. "')")
                 end
             end
 
@@ -1091,10 +1091,10 @@ function P.decodemetar(metar)
                     sasl.logDebug(string.format("Parsed temp/dew: %d°C/%d°C", temp_val, dew_val))
                     parsed = true
                 else
-                    sasl.logDebug("Warning: Could not parse temperature or dew point values from: " .. part .. " (temp_str="..temp_str_val..", dew_str="..dew_str_val..")")
+                    sasl.logError("Warning: Could not parse temperature or dew point values from: " .. part .. " (temp_str="..temp_str_val..", dew_str="..dew_str_val..")")
                 end
             else
-                sasl.logDebug("Warning: Temp/Dew part malformed (slash position or content): " .. part)
+                sasl.logError("Warning: Temp/Dew part malformed (slash position or content): " .. part)
             end
 
         elseif ((#part == 5) and (string.sub(part, 1, 1) == "Q" or string.sub(part, 1, 1) == "A") and tonumber(string.sub(part, 2))) then
@@ -1114,7 +1114,7 @@ function P.decodemetar(metar)
                 sasl.logDebug(string.format("Parsed pressure: %d hPa (raw: %s)", pressure_hpa, part))
                 parsed = true
             else
-                sasl.logDebug("Warning: Could not calculate hPa pressure from: " .. part)
+                sasl.logError("Warning: Could not calculate hPa pressure from: " .. part)
             end
 
         elseif (part == "NOSIG") then
@@ -1151,7 +1151,7 @@ function P.decodemetar(metar)
         end
 
         if (not parsed and parsing_main_data) then
-            sasl.logDebug("Unknown element: "..part)
+            sasl.logError("Unknown element: "..part)
         end
         i = i + 1
     end
@@ -1257,10 +1257,10 @@ function P.getMetar(icaocode)
                     sasl.logDebug(key .. ": " .. value)
                 end
             else
-                sasl.logDebug("Error Parsing CSV-Data.")
+                sasl.logError("Error Parsing CSV-Data.")
             end
         else
-            sasl.logDebug("Error Opening Temp File.")
+            sasl.logError("Error Opening Temp File.")
         end
     else
         -- Fehler beim Herunterladen
@@ -1273,7 +1273,7 @@ end
 --------------------------------------------------------------------------------------------------------------
 function P.getRunwayHeadingFromDesignator(runwayDesignator)
     if not runwayDesignator or #runwayDesignator < 2 then
-        sasl.logDebug("Error: Invalid runway designator provided: " .. tostring(runwayDesignator)) -- sasl.logDebug ist global (angenommen)
+        sasl.logError("Error: Invalid runway designator provided: " .. tostring(runwayDesignator))
         return nil
     end
 
@@ -1281,7 +1281,7 @@ function P.getRunwayHeadingFromDesignator(runwayDesignator)
     local rwyNumber = tonumber(rwyNumberStr)
 
     if not rwyNumber then
-        sasl.logDebug("Error: Could not parse runway number from designator: " .. runwayDesignator)
+        sasl.logError("Error: Could not parse runway number from designator: " .. runwayDesignator)
         return nil
     end
 
@@ -1323,7 +1323,7 @@ function P.shouldCheckRunwaySuitability(weatherData, runwayDesignator)
     -- 2. Landebahn-Richtung ableiten
     local runwayHeading = P.getRunwayHeadingFromDesignator(runwayDesignator)
     if not runwayHeading then
-        sasl.logDebug("Error: Could not determine runway heading from designator. Returning true (default safe).")
+        sasl.logError("Error: Could not determine runway heading from designator. Returning true (default safe).")
         return true -- Kann Landebahn nicht ableiten, kann nicht pruefen.
     end
 
@@ -1801,8 +1801,20 @@ function P.buildnavdatatable(navdatatable)
     local srcnavdatafile = io.open("Custom Data/earth_nav.dat", "r")
 
     if not srcnavdatafile then
-        sasl.logError("Could not open Custom Data/earth_nav.dat! Please ensure the file exists in 'Custom Data/'.")
-        return false
+        srcnavdatafile = io.open("Custom Scenery/Global Airports/Earth nav data/earth_nav.dat", "r")
+        if not srcnavdatafile then
+            srcnavdatafile = io.open("Resources/default data/earth_nav.dat", "r")
+            if not srcnavdatafile then
+                sasl.logError("No Navdatabase Source: Could not find earth_nav.dat!")
+                return false
+            else
+                sasl.logInfo("Navdatabase Sourse: Resources/default data/earth_nav.dat")
+            end
+        else
+            sasl.logInfo("Navdatabase Sourse: Custom Scenery/Global Airports/Earth nav data/earth_nav.dat")
+        end
+    else
+        sasl.logInfo("Navdatabase Sourse: Custom Data/earth_nav.dat")
     end
 
     for i = 1, 3 do
@@ -2047,7 +2059,7 @@ function P.writenavdatatable(navdatatable)
     destnavdatafile = io.open("Custom Data/yal_nav.dat", "w")
 
     if not destnavdatafile then
-        sasl.logDebug("Could not open Custom Data/yal_nav.dat")
+        sasl.logError("Could not open Custom Data/yal_nav.dat")
         return false
     end
 
