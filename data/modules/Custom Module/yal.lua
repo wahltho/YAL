@@ -1010,7 +1010,7 @@ end
 
 function mastercaution()
 
-    if (((P.procedureloop1.lock ~= def.NOPROCEDURE) or (P.procedureloop2.lock ~= def.NOPROCEDURE)or (P.procedureloop3.lock ~= def.NOPROCEDURE)) and (get(P.mastercautionannunc) ~= def.ON)) then
+    if (((P.procedureloop1.lock ~= def.NOPROCEDURE) or (P.procedureloop2.lock ~= def.NOPROCEDURE) or (P.procedureloop3.lock ~= def.NOPROCEDURE)) and (get(P.mastercautionannunc) ~= def.ON)) then
         skipprocedurestep()
     end
 
@@ -1047,9 +1047,9 @@ function speakdesmetar()
             end
         else
             if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                P.commandtableentry(def.ADVICE, "No Metar found for " .. helpers.addspaces(P.desicao))
+                P.commandtableentry(def.ADVICE, "No Metar found for " .. helpers.addspaces(get(P.desicao)))
             else
-                P.commandtableentry(def.TEXT, "No Metar found for " .. helpers.addspaces(P.desicao))
+                P.commandtableentry(def.TEXT, "No Metar found for " .. helpers.addspaces(get(P.desicao)))
             end
     end
 
@@ -1078,9 +1078,9 @@ function speakdepmetar()
             end
         else
             if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                P.commandtableentry(def.ADVICE, "No Metar found for " .. helpers.addspaces(P.depicao))
+                P.commandtableentry(def.ADVICE, "No Metar found for " .. helpers.addspaces(get(P.depicao)))
             else
-                P.commandtableentry(def.TEXT, "No Metar found for " .. helpers.addspaces(P.depicao))
+                P.commandtableentry(def.TEXT, "No Metar found for " .. helpers.addspaces(get(P.depicao)))
             end
     end
 
