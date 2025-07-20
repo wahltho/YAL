@@ -73,7 +73,6 @@ P.CLOSED = 0
 -- Nachrichtentypen
 P.COMMAND = 1
 P.TEXT = 2
-P.ADVICE = 3
 
 P.DEFAULTVIEW = 99
 
