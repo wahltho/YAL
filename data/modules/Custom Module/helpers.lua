@@ -1151,7 +1151,7 @@ function P.decodemetar(metar)
         end
 
         if (not parsed and parsing_main_data) then
-            sasl.logError("Unknown element: "..part)
+            sasl.logInfo("METAR Parsing unknown element: " .. part)
         end
         i = i + 1
     end

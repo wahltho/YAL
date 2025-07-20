@@ -1169,6 +1169,8 @@ function toggletaxilights(state)
         helpers.command_once("laminar/B738/toggle_switch/taxi_light_brigh_toggle")
     end
 
+    return true
+
 end
 
 function toggletaxilights_(phase)
@@ -5188,7 +5190,7 @@ function altitudea10000steps()
         if (get(P.starterauto) == def.ON) then
             if ((get(P.starter1pos) ~= def.AUTO) or (get(P.starter2pos) ~= def.AUTO)) then
                 if (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
-                    setstarter(BOTH, def.AUTO)
+                    setstarter(def.BOTH, def.AUTO)
                 elseif (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
                     P.commandtableentry(def.ADVICE, "Set Both Starters Auto")
                     P.procedureloop1.stepindex = P.procedureloop1.stepindex - 1
@@ -5199,7 +5201,7 @@ function altitudea10000steps()
         else
             if ((get(P.starter1pos) ~= def.CONT) or (get(P.starter2pos) ~= def.CONT)) then
                 if (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
-                    setstarter(BOTH, def.CONT)
+                    setstarter(def.BOTH, def.CONT)
                 elseif (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
                     P.commandtableentry(def.ADVICE, "Set Both Starters Continuous")
                     P.procedureloop1.stepindex = P.procedureloop1.stepindex - 1
@@ -5488,7 +5490,7 @@ function altitudeb10000steps()
     if (P.procedureloop1.stepindex == 5) then
         if ((get(P.starter1pos) ~= def.FLIGHT) or (get(P.starter2pos) ~= def.FLIGHT)) then
             if (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
-                setstarter(BOTH, def.FLIGHT)
+                setstarter(def.BOTH, def.FLIGHT)
             elseif (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
                 P.commandtableentry(def.ADVICE, "Set Both Starters Flight")
                 P.procedureloop1.stepindex = P.procedureloop1.stepindex - 1
@@ -5670,7 +5672,9 @@ function radioaltitudeb1000steps()
                 P.commandtableentry(def.ADVICE, "Speedbrakes checked and Armed")
             end
         end
-    elseif (P.procedureloop2.stepindex == 2) then
+    end
+
+    if (P.procedureloop2.stepindex == 2) then
         if (get(P.taxilight) == def.OFF) then
             if (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
                 toggletaxilights(def.ON)
@@ -5683,7 +5687,9 @@ function radioaltitudeb1000steps()
                 P.commandtableentry(def.ADVICE, "Taxi Lights checked and On")
             end
         end
-    elseif (P.procedureloop2.stepindex == 3) then
+    end
+
+    if (P.procedureloop2.stepindex == 3) then
         if ((get(P.rwylightl) == def.OFF) or (get(P.rwylightl) == def.OFF)) then
             if (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
                 togglerwylights(def.ON)
@@ -5696,7 +5702,9 @@ function radioaltitudeb1000steps()
                 P.commandtableentry(def.ADVICE, "Runway Turnoff Lights checked and On")
             end
         end
-    elseif (P.procedureloop2.stepindex == 4) then
+    end
+
+    if (P.procedureloop2.stepindex == 4) then
         local missedappalttmp = helpers.roundnumber((get(P.missedappalt) / 100)) * 100
         if (missedappalttmp > 1000) then
             if (missedappalttmp ~= get(P.mcpaltitude)) then
@@ -5704,7 +5712,7 @@ function radioaltitudeb1000steps()
                     P.commandtableentry(def.ADVICE, "Set M C P Altitude " .. helpers.addspaces(missedappalttmp))
                     P.procedureloop2.stepindex = P.procedureloop2.stepindex - 1
                 else
-                    set(P.mcpaltitude,  missedappalttmp)
+                    set(P.mcpaltitude, missedappalttmp)
                 end
             else
                 if ((P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) and not P.procedureloop2.steprepeat) then
@@ -5718,7 +5726,9 @@ function radioaltitudeb1000steps()
                 P.commandtableentry(def.TEXT, "Set Missed Approach Altitude")
             end
         end
-    elseif (P.procedureloop2.stepindex == 5) then
+    end
+    
+    if (P.procedureloop2.stepindex == 5) then
         local headingrounded = nil
         if (helpers.isvalidicao(get(P.desicao)) and helpers.isvalidrwy(get(P.desrwy)) and tonumber(get(P.desrwyheading))) then
             headingrounded = helpers.roundnumber(get(P.desrwyheading))
@@ -5748,7 +5758,9 @@ function radioaltitudeb1000steps()
                 P.commandtableentry(def.TEXT, "Set Missed Approach Heading")
             end
         end
-    elseif (P.procedureloop2.stepindex == 6) then
+    end
+
+    if (P.procedureloop2.stepindex == 6) then
         if (get(P.gearhandlepos) < def.GEARDOWN) then
             if (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
                 set(P.gearhandlepos, def.GEARDOWN)
@@ -5761,7 +5773,9 @@ function radioaltitudeb1000steps()
                 P.commandtableentry(def.ADVICE, "Gear checked and Down")
             end
         end
-    elseif (P.procedureloop2.stepindex == 7) then
+    end
+    
+    if (P.procedureloop2.stepindex == 7) then
         if (((get(P.appflapsset) == def.OFF) and get(P.appflaps) ~= 0)) then
             if (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then            
                 helpers.command_once("laminar/B738/push_button/flaps_" .. tostring(get(P.appflaps)))
@@ -5940,6 +5954,11 @@ end
 -- afterlandingsteps function
 
 function afterlandingsteps()
+
+    if (get(P.battery) ~= def.ON) then
+        P.procedureloop1.procedureabort = true
+        return true
+    end
 
     if (P.procedureloop1.stepindex == 1) then
         if (P.configvalues[def.CONFIGVIEWCHANGES] == def.ON) then
@@ -6364,7 +6383,7 @@ function beforetaxisteps()
     if (P.procedureloop1.stepindex == 13) then
         if ((get(P.starter1pos) ~= def.FLIGHT) or (get(P.starter2pos) ~= def.FLIGHT)) then
             if (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
-                setstarter(BOTH, def.FLIGHT)
+                setstarter(def.BOTH, def.FLIGHT)
             elseif (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
                 P.commandtableentry(def.ADVICE, "Set Both Starters Flight")
                 P.procedureloop1.stepindex = P.procedureloop1.stepindex - 1
@@ -6891,7 +6910,7 @@ function atparkingpositionsteps()
     if (P.procedureloop1.stepindex == 11) then
         if ((get(P.starter1pos) ~= def.AUTO) or (get(P.starter2pos) ~= def.AUTO)) then
             if (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
-                setstarter(BOTH, def.AUTO)
+                setstarter(def.BOTH, def.AUTO)
             elseif (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
                 if (get(P.starterauto) == def.ON) then
                     P.commandtableentry(def.ADVICE, "Set Both Starters Auto")
