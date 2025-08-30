@@ -1229,25 +1229,21 @@ end
 function P.getMetar(icaocode)
 
     local metarTable = {}
-    local metarUrl = def.AVWEATHERFURLCSV .. icaocode -- def ist global (angenommen)
-    local tempFilePath = def.YALCACHEPATH .. icaocode .. "_metar.csv" -- def ist global (angenommen)
+    local metarUrl = def.AVWEATHERFURLCSV .. icaocode
+    local tempFilePath = def.YALCACHEPATH .. icaocode .. "_metar.csv"
 
-    sasl.logDebug("URL " .. metarUrl) -- sasl.logDebug ist global (angenommen)
+    sasl.logDebug("URL " .. metarUrl)
         sasl.logDebug("Path " .. tempFilePath)
 
-    if sasl.net.downloadFileSync(metarUrl, tempFilePath) then -- sasl.net ist global (angenommen)
-        sasl.logInfo("METAR for " .. icaocode .. " successfully loaded") -- sasl.logInfo ist global (angenommen)
+    if sasl.net.downloadFileSync(metarUrl, tempFilePath) then
+        sasl.logInfo("METAR for " .. icaocode .. " successfully loaded")
 
-        -- Datei oeffnen und lesen
-        local file = io.open(tempFilePath, "r") -- io ist global (angenommen)
+        local file = io.open(tempFilePath, "r")
         if file then
             local csvData = file:read("*a")
             file:close()
 
-            -- Temporaere Datei loeschen
-            os.remove(tempFilePath) -- os ist global (angenommen)
-
-            -- CSV-Daten in eine Lua-Tabelle umwandeln
+            os.remove(tempFilePath)
             
             metarTable = P.parseCSVToTable(csvData)
             if metarTable then
@@ -1263,8 +1259,14 @@ function P.getMetar(icaocode)
             sasl.logError("Error Opening Temp File.")
         end
     else
-        -- Fehler beim Herunterladen
-        sasl.logInfo("Error Downloading METAR for " .. icaocode .. ".")
+        local metarbuffer = string.buffer(150)
+        XPLMGetMETARForAirport(icaocode, metarbuffer)
+        local metarstring = metarbuffer.value
+        if ((metarstring == "") or (metarstring:sub(1, 4) ~= icaocode)) then
+             sasl.logInfo("Error Downloading METAR for " .. icaocode .. ".")
+        else
+            metarTable.raw_text = metarstring
+        end       
     end
 
     return metarTable
@@ -1796,6 +1798,66 @@ function P.calcautobrake(landingSpeed, totalweightkgs, desrwylen, weatherData)
     return def.AUTOBRAKE1
 end
 
+
+--------------------------------------------------------------------------------------------------------------
+function P.getdistance(lat1, lon1, lat2, lon2)
+    local R = 6371000
+    local lat1_rad = math.rad(lat1)
+    local lat2_rad = math.rad(lat2)
+    local delta_lat = math.rad(lat2 - lat1)
+    local delta_lon = math.rad(lon2 - lon1)
+
+    local a = math.sin(delta_lat / 2) * math.sin(delta_lat / 2) +
+              math.cos(lat1_rad) * math.cos(lat2_rad) *
+              math.sin(delta_lon / 2) * math.sin(delta_lon / 2)
+    local c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+
+    local distance = R * c
+    return distance
+end
+
+--------------------------------------------------------------------------------------------------------------
+function P.findnearestvor(navdatatable, airport_lat, airport_lon)
+    local nearest_vor = nil
+    local min_distance_sq = math.huge
+    local max_distance_nm = 100
+    for key, navdata in pairs(navdatatable) do
+        if navdata[def.DESTNAVTYPE] == def.NAVTYPEVOR then
+            local vor_lat = tonumber(navdata[def.DESTLATPOS])
+            local vor_lon = tonumber(navdata[def.DESTLONPOS])
+
+            if vor_lat and vor_lon then
+                local distance_m = P.getdistance(airport_lat, airport_lon, vor_lat, vor_lon)
+                local distance_nm = distance_m / 1852
+
+                if (navdata[def.DESTNAVID] == "SH") then
+                    sasl.logInfo(" VOR SH LAT: " .. vor_lat .. " LON: " .. vor_lon .. " gefunden.")
+                end
+
+
+                if distance_nm <= max_distance_nm then
+                    local distance_sq = distance_nm * distance_nm
+                    if distance_sq < min_distance_sq then
+                        min_distance_sq = distance_sq
+                        nearest_vor = {
+                            navid = navdata[def.DESTNAVID],
+                            frequency = navdata[def.DESTFREQ]
+                        }
+                    end
+                end
+            end
+        end
+    end
+
+    if nearest_vor then
+        sasl.logDebug(string.format("Nearest VOR found: %s (Frequenz: %.2f) within radious of 100 NM.", nearest_vor.name, nearest_vor.frequency))
+    else
+        sasl.logDebug("No VOR within radious of 100 NM, of LAT: " .. airport_lat .. " LON: " .. airport_lon .. " found.")
+    end
+
+    return nearest_vor
+end
+
 --------------------------------------------------------------------------------------------------------------
 function P.buildnavdatatable(navdatatable)
     local srcnavdatafile = io.open("Custom Data/earth_nav.dat", "r")
@@ -1883,12 +1945,14 @@ function P.buildnavdatatable(navdatatable)
             if (navdataitems[def.SRCTYPECODE] == def.NAVDATARECTYPEILS) then
                 local destnavtypetmp = string.sub(navdataitems[def.SRCNAVTYPE], 1, 3)
                 local navdatatableindex = navdataitems[def.SRCICAO] .. navdataitems[def.SRCRWY] .. destnavtypetmp
-                navdatatable[navdatatableindex] = {true, true, true, true, true, true, true}
+                navdatatable[navdatatableindex] = {true, true, true, true, true, true, true, true, true}
                 navdatatable[navdatatableindex][def.DESTICAO] = navdataitems[def.SRCICAO]
                 navdatatable[navdatatableindex][def.DESTRWY] = navdataitems[def.SRCRWY]
                 navdatatable[navdatatableindex][def.DESTNAVTYPE] = destnavtypetmp
                 navdatatable[navdatatableindex][def.DESTNAVID] = navdataitems[def.SRCNAVID]
                 navdatatable[navdatatableindex][def.DESTFREQ] = tonumber(navdataitems[def.SRCFREQ])
+                navdatatable[navdatatableindex][def.DESTLATPOS] = navdataitems[def.SRCLATPOS]
+                navdatatable[navdatatableindex][def.DESTLONPOS] = navdataitems[def.SRCLONPOS]
 
                 local course_str = navdataitems[def.SRCCOURSE]
                 local course_val = tonumber(course_str)
@@ -1913,14 +1977,20 @@ function P.buildnavdatatable(navdatatable)
                 end
                 navdatatable[navdatatableindex][def.DESTNAVDME] = false
             elseif (navdataitems[def.SRCTYPECODE] == def.NAVDATARECTYPEVOR) then
-                local destnavtypetmp = string.sub(navdataitems[def.SRCNAVTYPE], 1, 3)
-                local navdatatableindex = navdataitems[def.SRCICAO] .. navdataitems[def.SRCRWY] .. destnavtypetmp
-                navdatatable[navdatatableindex] = {true, true, true, true, true, true, true}
+                local vornum = 1
+                local navdatatableindex = navdataitems[def.SRCICAO] .. navdataitems[def.SRCNAVID] .. vornum .. def.NAVTYPEVOR
+                while (navdatatable[navdatatableindex] ~= nil) do
+                    vornum = vornum + 1
+                    navdatatableindex = navdataitems[def.SRCICAO] .. navdataitems[def.SRCNAVID] .. vornum .. def.NAVTYPEVOR
+                end
+                navdatatable[navdatatableindex] = {true, true, true, true, true, true, true, true, true}
                 navdatatable[navdatatableindex][def.DESTICAO] = navdataitems[def.SRCICAO]
                 navdatatable[navdatatableindex][def.DESTRWY] = navdataitems[def.SRCRWY]
-                navdatatable[navdatatableindex][def.DESTNAVTYPE] = destnavtypetmp
+                navdatatable[navdatatableindex][def.DESTNAVTYPE] = def.NAVTYPEVOR
                 navdatatable[navdatatableindex][def.DESTNAVID] = navdataitems[def.SRCNAVID]
                 navdatatable[navdatatableindex][def.DESTFREQ] = tonumber(navdataitems[def.SRCFREQ])
+                navdatatable[navdatatableindex][def.DESTLATPOS] = navdataitems[def.SRCLATPOS]
+                navdatatable[navdatatableindex][def.DESTLONPOS] = navdataitems[def.SRCLONPOS]
 
                 local course_str = navdataitems[def.SRCCOURSE]
                 local course_val = tonumber(course_str)
@@ -1970,12 +2040,14 @@ function P.buildnavdatatable(navdatatable)
                     destnavtypetmp = def.NAVTYPEGLS
                 end
                 local navdatatableindex = navdataitems[def.SRCICAO] .. navdataitems[def.SRCRWY] .. destnavtypetmp
-                navdatatable[navdatatableindex] = {true, true, true, true, true, true, true}
+                navdatatable[navdatatableindex] = {true, true, true, true, true, true, true, true, true}
                 navdatatable[navdatatableindex][def.DESTICAO] = navdataitems[def.SRCICAO]
                 navdatatable[navdatatableindex][def.DESTRWY] = navdataitems[def.SRCRWY]
                 navdatatable[navdatatableindex][def.DESTNAVTYPE] = destnavtypetmp
                 navdatatable[navdatatableindex][def.DESTNAVID] = destnavidtmp
                 navdatatable[navdatatableindex][def.DESTFREQ] = tonumber(navdataitems[def.SRCFREQ])
+                navdatatable[navdatatableindex][def.DESTLATPOS] = navdataitems[def.SRCLATPOS]
+                navdatatable[navdatatableindex][def.DESTLONPOS] = navdataitems[def.SRCLONPOS]
 
                 local raw_course_data_string = navdataitems[def.SRCCOURSE]
                 local extracted_course_string = raw_course_data_string

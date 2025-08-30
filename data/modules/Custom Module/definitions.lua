@@ -2,7 +2,7 @@
 
 local P = {}
 
-P.VERSION = "3.8"
+P.VERSION = "3.9"
 
 --------------------------------------------------------------------------------------------------------------
 -- Constants
@@ -250,6 +250,8 @@ P.DESTNAVID = 4
 P.DESTFREQ = 5
 P.DESTCOURSE = 6
 P.DESTNAVDME = 7
+P.DESTLATPOS = 8
+P.DESTLONPOS = 9
 
 -- Navigationstypen (Strings)
 P.NAVTYPEILS = "ILS"
@@ -258,10 +260,11 @@ P.NAVTYPEGLS = "GLS"
 P.NAVTYPELOC = "LOC"
 P.NAVTYPELDA = "LDA"
 P.NAVTYPEIGS = "IGS"
+P.NAVTYPEVOR = "VOR"
 
 -- NavData Record Typen
+P.NAVDATARECTYPEVOR = "3"
 P.NAVDATARECTYPEILS = "4"
-P.NAVDATARECTYPEVOR = "5"
 P.NAVDATARECTYPEDME = "12"
 P.NAVDATARECTYPEGLS = "15"
 P.NAVDATARECTYPELPV = "16"

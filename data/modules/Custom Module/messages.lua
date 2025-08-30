@@ -19,7 +19,7 @@ local english = {
     AUTOWIPER = 'Automatic Wipers',
     AUTOBARO = 'Automatic Baro Settings',
     AUTOCENTERTANKHANDLING = 'Automatic Center Tank Handling',
-    AUTOFLAPS = 'Automatic Flap Handlng',
+    AUTOFLAPS = 'Automatic Flap Handling',
     VIEWCHANGES = 'View Changes during Procedures',
     USEGROUNDPOWER = 'Use Ground Power when available instead APU',
 
