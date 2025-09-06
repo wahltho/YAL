@@ -14,7 +14,7 @@ local xplm = ffi.load(xplm_lib[ffi.os])
 ffi.cdef [[
     void XPLMSpeakString(char *);
     float XPLMGetMagneticVariation(double, double);
-    void XPLMGetMETARForAirport(char *, char *);
+    void XPLMGetMETARForAirport(char *, char *, int);
     ]]
 
 --------------------------------------------------------------------------------------------------------------
@@ -29,9 +29,9 @@ P.isXp12 = (P.xpVersion >= 12000 and P.xpVersion < 13000)
 function P.initTailNum()
     P.isZibo = ((string.sub(get(acf_tailnum), 1, 5) == "ZB738") or (string.sub(get(acf_tailnum), 1, 4) == "B736") or (string.sub(get(acf_tailnum), 1, 4) == "B737")  or (string.sub(get(acf_tailnum), 1, 4) == "738") or (string.sub(get(acf_tailnum), 1, 4) == "B739"))
     if P.isZibo then
-        sasl.logDebug("is zibo YES ->" .. string.sub(get(acf_tailnum), 1, 5) .. "<-") 
+        sasl.logInfo("is zibo YES ->" .. string.sub(get(acf_tailnum), 1, 5) .. "<-") 
     else 
-        sasl.logDebug("is zibo -> NO" )
+        sasl.logInfo("is zibo NO ->" .. string.sub(get(acf_tailnum), 1, 5) .. "<-")
     end
     return P.isZibo
 end
@@ -1259,14 +1259,21 @@ function P.getMetar(icaocode)
             sasl.logError("Error Opening Temp File.")
         end
     else
-        local metarbuffer = string.buffer(150)
-        XPLMGetMETARForAirport(icaocode, metarbuffer)
-        local metarstring = metarbuffer.value
-        if ((metarstring == "") or (metarstring:sub(1, 4) ~= icaocode)) then
-             sasl.logInfo("Error Downloading METAR for " .. icaocode .. ".")
+               local metarbuffer = ffi.new("char[150]")
+        local buffer_size = 150
+
+        -- Direkte Konvertierung des Strings in einen C-Pointer
+        local c_icaocode = ffi.cast("char*", icaocode)
+
+        xplm.XPLMGetMETARForAirport(c_icaocode, metarbuffer, buffer_size)
+
+        local metarstring = ffi.string(metarbuffer)
+
+        if metarstring == "" or metarstring:sub(1, 4) ~= icaocode then
+            sasl.logInfo("Error Downloading METAR for " .. icaocode .. ".")
         else
             metarTable.raw_text = metarstring
-        end       
+        end
     end
 
     return metarTable
