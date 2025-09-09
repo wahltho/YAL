@@ -4619,11 +4619,8 @@ function cockpitinitsteps()
 
         if (P.configvalues[def.CONFIGVIEWCHANGES] == def.ON) then
             setview(def.DEFAULTVIEW)
-            setview(P.configvalues[def.CONFIGVIEWUPPEROVERHEADPANEL])
-        else
-            P.procedureloop1.stepindex = P.procedureloop1.stepindex + 1
-            P.procedureloop1.stepindexprevious = P.procedureloop1.stepindexprevious + 1
         end
+        P.procedureloop1.stepindex = 2
     end
 
     if (get(P.sunpitchdegrees) < 0) then
@@ -4650,18 +4647,17 @@ function cockpitinitsteps()
                 end
             end
         end
-
-        if (P.procedureloop1.stepindex == 4) then
-            if ((P.configvalues[def.CONFIGVIEWCHANGES] == def.ON) and (get(P.sunpitchdegrees) < 0)) then
-                setview(P.configvalues[def.CONFIGVIEWMAINPANEL])
-            else
-                P.procedureloop1.stepindex = P.procedureloop1.stepindex + 1
-                P.procedureloop1.stepindexprevious = P.procedureloop1.stepindexprevious + 1
-            end
-        end
     elseif (P.procedureloop1.stepindex == 2) then
         P.procedureloop1.stepindex = 4
-        return true
+    end
+
+    if (P.procedureloop1.stepindex == 4) then
+        if ((P.configvalues[def.CONFIGVIEWCHANGES] == def.ON) and (get(P.sunpitchdegrees) < 0)) then
+            setview(P.configvalues[def.CONFIGVIEWMAINPANEL])
+        else
+            P.procedureloop1.stepindex = P.procedureloop1.stepindex + 1
+            P.procedureloop1.stepindexprevious = P.procedureloop1.stepindexprevious + 1
+        end
     end
 
     if (P.procedureloop1.stepindex == 5) then
@@ -5650,7 +5646,7 @@ function radioaltitudeb1000steps()
                 end
             else
                 if (not P.procedureloop2.steprepeat) then
-                    P.commandtableentry(def.TEXT, "MCP Altitude checked and " .. helpers.addspaces(missedappalttmp))
+                    P.commandtableentry(def.TEXT, "M C P Altitude checked and " .. helpers.addspaces(missedappalttmp))
                 end
             end
         else
@@ -5678,7 +5674,7 @@ function radioaltitudeb1000steps()
                 end
             else
                 if (not P.procedureloop2.steprepeat) then
-                    P.commandtableentry(def.TEXT, "MCP Heading checked and " .. helpers.addspaces(helpers.padNumberWithZerosStrict(headingrounded, 3)))
+                    P.commandtableentry(def.TEXT, "M C P Heading checked and " .. helpers.addspaces(helpers.padNumberWithZerosStrict(headingrounded, 3)))
                 end
             end
         elseif not headingrounded then
@@ -8900,25 +8896,28 @@ if (P.getmetarcounter == 0) then
         end
     end
 
-    if ((P.procedureloop1.lock == def.NOPROCEDURE) and (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON)  and (get(P.airgroundsensor) == def.ON)) then
-        if (((get(P.starter1pos) == def.GROUND) or (get(P.starter2pos) == def.GROUND)) and (get(P.beaconlights) == def.OFF)) then
-            P.commandtableentry(def.TEXT, "Set Collision Lights On")      
-        elseif (((get(P.starter1pos) == def.GROUND) or (get(P.starter2pos) == def.GROUND)) and ((get(P.lefttanklswitch) == def.OFF) or (get(P.lefttankrswitch) == def.OFF) or (get(P.righttanklswitch) == def.OFF) or (get(P.righttankrswitch) == def.OFF))) then
-            P.commandtableentry(def.TEXT, "Set Wing Tank Fuel Pumps On")
-        elseif (((get(P.starter1pos) == def.GROUND) or (get(P.starter2pos) == def.GROUND)) and ((get(P.packlpos) ~= def.PACKOFF) or (get(P.packrpos) ~= def.PACKOFF))) then
-            P.commandtableentry(def.TEXT, "Set Both Packs Off")
-        elseif (((get(P.starter1pos) == def.GROUND) or (get(P.starter2pos) == def.GROUND)) and (get(P.bleedairapupos) ~= def.ON)) then
-            P.commandtableentry(def.TEXT, "Set A P U Bleed Air On")
-        elseif ((get(P.starter2pos) == def.GROUND) and (get(P.isolvalvepos) ~= def.ISOLVALVEOPEN)) then
-            P.commandtableentry(def.TEXT, "Set Isolation Valve Open")
-        elseif ((get(P.starter1pos) == def.GROUND) and (get(P.eng1n2percent) > 25) and (get(P.mixture1pos) == def.OFF)) then 
-            P.commandtableentry(def.TEXT, "Engine 1 N 2 at 25 Percent")        
-        elseif ((get(P.starter2pos) == def.GROUND) and (get(P.eng2n2percent) > 25) and (get(P.mixture2pos) == def.OFF)) then 
-            P.commandtableentry(def.TEXT, "Engine 2 N 2 at 25 Percent")
-        elseif ((get(P.atarmpos) == def.ARMED) and (get(P.atn1stat) == def.OFF) and (get(P.groundspeed) < 45) and (get(P.eng1n1percent) > 40) and (get(P.eng1n1percent) > 40)) then 
+    if ((P.procedureloop1.lock == def.NOPROCEDURE) and (get(P.airgroundsensor) == def.ON)) then
+        if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
+            if (((get(P.starter1pos) == def.GROUND) or (get(P.starter2pos) == def.GROUND)) and (get(P.beaconlights) == def.OFF)) then
+                P.commandtableentry(def.TEXT, "Set Collision Lights On")      
+            elseif (((get(P.starter1pos) == def.GROUND) or (get(P.starter2pos) == def.GROUND)) and ((get(P.lefttanklswitch) == def.OFF) or (get(P.lefttankrswitch) == def.OFF) or (get(P.righttanklswitch) == def.OFF) or (get(P.righttankrswitch) == def.OFF))) then
+                P.commandtableentry(def.TEXT, "Set Wing Tank Fuel Pumps On")
+            elseif (((get(P.starter1pos) == def.GROUND) or (get(P.starter2pos) == def.GROUND)) and ((get(P.packlpos) ~= def.PACKOFF) or (get(P.packrpos) ~= def.PACKOFF))) then
+                P.commandtableentry(def.TEXT, "Set Both Packs Off")
+            elseif (((get(P.starter1pos) == def.GROUND) or (get(P.starter2pos) == def.GROUND)) and (get(P.bleedairapupos) ~= def.ON)) then
+                P.commandtableentry(def.TEXT, "Set A P U Bleed Air On")
+            elseif ((get(P.starter2pos) == def.GROUND) and (get(P.isolvalvepos) ~= def.ISOLVALVEOPEN)) then
+                P.commandtableentry(def.TEXT, "Set Isolation Valve Open")
+            elseif ((get(P.starter1pos) == def.GROUND) and (get(P.eng1n2percent) > 25) and (get(P.mixture1pos) == def.OFF)) then 
+                P.commandtableentry(def.TEXT, "Engine 1 N 2 at 25 Percent")        
+            elseif ((get(P.starter2pos) == def.GROUND) and (get(P.eng2n2percent) > 25) and (get(P.mixture2pos) == def.OFF)) then 
+                P.commandtableentry(def.TEXT, "Engine 2 N 2 at 25 Percent")
+            elseif ((get(P.apustarterpos) == def.ON) and (get(P.apugenoffbus) ~= def.OFF) and (get(P.gen1pos) == def.OFF) and (get(P.gen2pos) == def.OFF) and (not((get(P.apupowerbus1) == def.ON) and (get(P.announcsourceoff1) == def.OFF)) or not((get(P.apupowerbus2) == def.ON) and (get(P.announcsourceoff2) == def.OFF)))) then
+                P.commandtableentry(def.TEXT, "A P U Running")
+            end
+        end
+        if ((get(P.atarmpos) == def.ARMED) and (get(P.atn1stat) == def.OFF) and (get(P.groundspeed) < 45) and (get(P.eng1n1percent) > 40) and (get(P.eng1n1percent) > 40)) then 
             P.commandtableentry(def.TEXT, "Both Engine N 1 at 40 Percent")
-        elseif ((get(P.apustarterpos) == def.ON) and (get(P.apugenoffbus) ~= def.OFF) and (get(P.gen1pos) == def.OFF) and (get(P.gen2pos) == def.OFF) and (not((get(P.apupowerbus1) == def.ON) and (get(P.announcsourceoff1) == def.OFF)) or not((get(P.apupowerbus2) == def.ON) and (get(P.announcsourceoff2) == def.OFF)))) then
-            P.commandtableentry(def.TEXT, "A P U Running")
         end
     end
 
@@ -8993,7 +8992,7 @@ if (P.getmetarcounter == 0) then
                     end
                 elseif (get(P.altitude) > 30000) then
                     if ((get(P.eng1heatpos) == def.ON) or (get(P.eng2heatpos) == def.ON) or (get(P.wingheatpos) == def.ON)) then                      
-                        P.commandtableentry(def.TEXT, "Above 30.000 feet, Switch Anti Icing Off")
+                        P.commandtableentry(def.TEXT, "Above 30.000 Feet, Switch Anti Icing Off")
                         P.ongoingtaskstepindex = P.ongoingtaskstepindex - 1
                     end
                 elseif (get(P.tatdegc) > 10) then
@@ -9060,7 +9059,7 @@ if (P.getmetarcounter == 0) then
                 headingrounded = helpers.roundnumber(get(P.deprwyheading))
             end
             local navrwyheading = helpers.getrwyheadingfromnavdata(P.navdatatable, get(P.depicao), get(P.deprwy))
-            if (navrwyheading and ((not headingrounded) or (headingrounded and (math.abs(headingrounded - navrwyheading) <= 2)))) then
+            if (navrwyheading and ((not headingrounded) or (headingrounded and (math.abs(headingrounded - navrwyheading) <= 3)))) then
                 headingrounded = navrwyheading
             end
             if (headingrounded and (headingrounded ~= get(P.mcpheading)) and (get(P.groundspeed) < 45)) then

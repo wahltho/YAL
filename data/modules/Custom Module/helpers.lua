@@ -29,9 +29,9 @@ P.isXp12 = (P.xpVersion >= 12000 and P.xpVersion < 13000)
 function P.initTailNum()
     P.isZibo = ((string.sub(get(acf_tailnum), 1, 5) == "ZB738") or (string.sub(get(acf_tailnum), 1, 4) == "B736") or (string.sub(get(acf_tailnum), 1, 4) == "B737")  or (string.sub(get(acf_tailnum), 1, 4) == "738") or (string.sub(get(acf_tailnum), 1, 4) == "B739"))
     if P.isZibo then
-        sasl.logInfo("is zibo YES ->" .. string.sub(get(acf_tailnum), 1, 5) .. "<-") 
+        sasl.logDebug("is zibo YES ->" .. string.sub(get(acf_tailnum), 1, 5) .. "<-") 
     else 
-        sasl.logInfo("is zibo NO ->" .. string.sub(get(acf_tailnum), 1, 5) .. "<-")
+        sasl.logDebug("is zibo NO ->" .. string.sub(get(acf_tailnum), 1, 5) .. "<-")
     end
     return P.isZibo
 end
