@@ -105,7 +105,7 @@ function P.YalinitGlobal()
         [def.COCKPITINITPROCEDURE] = { number = 2, name = "Cockpit Initialization", steps = 32, set = false, procedurefunction = cockpitinitsteps, loop = 1 },
         [def.APUSTARTUPPROCEDURE] = { number = 3, name = "A P U Startup", steps = 7, set = false, procedurefunction = apustartupsteps, loop = 1 },
         [def.ENGINESTARTPROCEDURE] = { number = 4, name = "Engine Start", steps = 33, set = false , procedurefunction = enginestartsteps, loop = 1 },
-        [def.BEFORETAXIPROCEDURE] = { number = 5, name = "Before Taxi", steps = 24, set = false, procedurefunction = beforetaxisteps, loop = 1 },
+        [def.BEFORETAXIPROCEDURE] = { number = 5, name = "Before Taxi", steps = 26, set = false, procedurefunction = beforetaxisteps, loop = 1 },
         [def.BEFORETAKEOFFPROCEDURE] = { number = 6, name = "Before Takeoff", steps = 13, set = false, procedurefunction = beforetakeoffsteps, loop = 1 },
         [def.AFTERTAKEOFFPROCEDURE] = { number = 7, name = "", steps = 3, set = false, procedurefunction = aftertakeoffsteps, loop = 2 },
         [def.DURINGCLIMBPROCEDURE] = { number = 8, name = "", steps = 13, set = false, procedurefunction = duringclimbsteps, loop = 2 },
@@ -2014,7 +2014,7 @@ function setilssteps()
     end
 
     if ((P.procedureloop3.stepindex == 5) and (P.navdatatableindex == nil)) then            
-        P.commandtableentry(def.TEXT, "Runway " .. helpers.formatRunwayDesignator(get(P.desrwy)) .. " has heading " .. helpers.addspaces(helpers.padNumberWithZerosStrict(get(desrwyheading, 3))))
+        P.commandtableentry(def.TEXT, "Runway " .. helpers.formatRunwayDesignator(get(P.desrwy)) .. " has heading " .. helpers.addspaces(helpers.padNumberWithZerosStrict(helpers.roundnumber(get(P.desrwyheading)), 3)))
         P.procedureloop3.stepindex = 11
         return true
     end
@@ -2032,7 +2032,7 @@ function setilssteps()
         if (P.navdatatable[P.navdatatableindex][def.DESTNAVTYPE] == def.NAVTYPEILS) then
             if ((P.navdatatable[P.navdatatableindex][def.DESTFREQ] ~= get(P.nav1freq)) or ((get(P.mmrinstalled) == def.ON) and ((get(P.mmrcptactvalue) ~= P.navdatatable[P.navdatatableindex][def.DESTFREQ]) or (get(P.mmrcptactmode) ~= def.MMRILS)))) then
                 if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                    P.commandtableentry(def.TEXT, "Set Frequency " .. helpers.addspaces(helpers.formatILSFrequency(P.navdatatable[P.navdatatableindex][def.DESTFREQ])))
+                    P.commandtableentry(def.TEXT, "Set Captain Frequency " .. helpers.addspaces(helpers.formatILSFrequency(P.navdatatable[P.navdatatableindex][def.DESTFREQ])))
                     P.procedureloop3.stepindex = P.procedureloop3.stepindex - 1
                 else
                     if (get(P.mmrinstalled) == def.ON) then
@@ -2042,29 +2042,32 @@ function setilssteps()
                         set(P.nav1freq, P.navdatatable[P.navdatatableindex][def.DESTFREQ])
                     end
                 end
-            elseif (not P.procedureloop3.steprepeat) then
-                P.commandtableentry(def.TEXT, "Frequency checked and " .. helpers.addspaces(helpers.formatILSFrequency(P.navdatatable[P.navdatatableindex][def.DESTFREQ])))
+            elseif ((P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON)  and (not P.procedureloop3.steprepeat)) then
+                P.commandtableentry(def.TEXT, "Captain Frequency checked and " .. helpers.addspaces(helpers.formatILSFrequency(P.navdatatable[P.navdatatableindex][def.DESTFREQ])))
             end
         end
 
         if (((P.navdatatable[P.navdatatableindex][def.DESTNAVTYPE] == def.NAVTYPEGLS) or (P.navdatatable[P.navdatatableindex][def.DESTNAVTYPE] == def.NAVTYPELPV)) and (get(P.mmrinstalled) == def.ON)) then
             if ((get(P.mmrcptactvalue) ~= P.navdatatable[P.navdatatableindex][def.DESTFREQ]) or not ((get(P.mmrcptactmode) ~= def.MMRGLS) or (get(P.mmrcptactmode) ~= def.MMRLPV))) then
                 if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                    P.commandtableentry(def.TEXT, "Set Channel " .. helpers.addspaces(P.navdatatable[P.navdatatableindex][def.DESTFREQ]))
+                    P.commandtableentry(def.TEXT, "Set Captain Channel " .. helpers.addspaces(P.navdatatable[P.navdatatableindex][def.DESTFREQ]))
                     P.procedureloop3.stepindex = P.procedureloop3.stepindex - 1
                 else
                     setmmrgls(def.MMRCAPTAIN, P.navdatatable[P.navdatatableindex][def.DESTFREQ])
                 end
-            elseif (not P.procedureloop3.steprepeat) then
-                P.commandtableentry(def.TEXT, "Channel checked and " .. helpers.addspaces(P.navdatatable[P.navdatatableindex][def.DESTFREQ]))
+            elseif ((P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON)  and (not P.procedureloop3.steprepeat)) then
+                P.commandtableentry(def.TEXT, "Captain Channel checked and " .. helpers.addspaces(P.navdatatable[P.navdatatableindex][def.DESTFREQ]))
             end
         end
     end
 
     if ((P.procedureloop3.stepindex == 8)  and (P.navdatatableindex ~= nil)) then
-        if (P.configvalues[def.CONFIGAUTOFUNCTIONS] == def.ON) then
-            if ((P.navdatatable[P.navdatatableindex][def.DESTNAVTYPE] == def.NAVTYPEILS) and P.navdatatable[P.navdatatableindex][def.DESTNAVDME]) then
-                if ((get(P.nav2freq) ~= get(P.nav1freq)) or ((get(P.mmrinstalled) == def.ON) and ((get(P.mmrfoactvalue) ~= get(P.nav1freq)) or (get(P.mmrfoactmode) ~= def.MMRILS)))) then
+        if ((P.navdatatable[P.navdatatableindex][def.DESTNAVTYPE] == def.NAVTYPEILS) and P.navdatatable[P.navdatatableindex][def.DESTNAVDME]) then
+            if ((get(P.nav2freq) ~= get(P.nav1freq)) or ((get(P.mmrinstalled) == def.ON) and ((get(P.mmrfoactvalue) ~= get(P.nav1freq)) or (get(P.mmrfoactmode) ~= def.MMRILS)))) then
+                if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
+                    P.commandtableentry(def.TEXT, "Set Copilot Frequency " .. helpers.addspaces(helpers.formatILSFrequency(P.navdatatable[P.navdatatableindex][def.DESTFREQ])))
+                    P.procedureloop3.stepindex = P.procedureloop3.stepindex - 1
+                else
                     if (get(P.mmrinstalled) == def.ON) then
                         setmmrils(def.MMRFO, get(P.nav1freq))
                     else
@@ -2072,12 +2075,21 @@ function setilssteps()
                         set(P.nav2freq, get(P.nav1freq))
                     end
                 end
+            elseif ((P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON)  and (not P.procedureloop3.steprepeat)) then
+                P.commandtableentry(def.TEXT, "Copilot Frequency checked and " .. helpers.addspaces(helpers.formatILSFrequency(P.navdatatable[P.navdatatableindex][def.DESTFREQ])))
             end
+        end
 
-            if ((P.navdatatable[P.navdatatableindex][def.DESTNAVTYPE] == def.NAVTYPEGLS) and (get(P.mmrinstalled) == def.ON)) then
-                if ((get(P.mmrfoactvalue) ~= (get(P.mmrcptactvalue)) or (get(P.mmrfoactmode) ~= def.MMRGLS))) then
+        if ((P.navdatatable[P.navdatatableindex][def.DESTNAVTYPE] == def.NAVTYPEGLS) and (get(P.mmrinstalled) == def.ON)) then
+            if ((get(P.mmrfoactvalue) ~= (get(P.mmrcptactvalue)) or (get(P.mmrfoactmode) ~= def.MMRGLS))) then
+                if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
+                    P.commandtableentry(def.TEXT, "Set Copilot Channel " .. helpers.addspaces(P.navdatatable[P.navdatatableindex][def.DESTFREQ]))
+                    P.procedureloop3.stepindex = P.procedureloop3.stepindex - 1
+                else
                     setmmrgls(def.MMRFO, get(P.mmrcptactvalue))
                 end
+            elseif ((P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON)  and (not P.procedureloop3.steprepeat)) then
+                P.commandtableentry(def.TEXT, "Copilot Channel checked and " .. helpers.addspaces(helpers.formatILSFrequency(P.navdatatable[P.navdatatableindex][def.DESTFREQ])))
             end
         end
     end
@@ -2096,28 +2108,40 @@ function setilssteps()
 
         if (get(P.mcppilotcourse) ~= pilotcoursenew) then
             if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                P.commandtableentry(def.TEXT, "Set Course " .. helpers.addspaces(helpers.padNumberWithZerosStrict(pilotcoursenew, 3)))
+                P.commandtableentry(def.TEXT, "Set Captain Course " .. helpers.addspaces(helpers.padNumberWithZerosStrict(pilotcoursenew, 3)))
                 P.procedureloop3.stepindex = P.procedureloop3.stepindex - 1
             else
                 set(P.mcppilotcourse, pilotcoursenew)
             end
-        elseif (not P.procedureloop3.steprepeat) then
-            P.commandtableentry(def.TEXT, "Course checked and " .. helpers.addspaces(helpers.padNumberWithZerosStrict(pilotcoursenew, 3)))
+        elseif ((P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON)  and (not P.procedureloop3.steprepeat)) then
+            P.commandtableentry(def.TEXT, "Captain Course checked and " .. helpers.addspaces(helpers.padNumberWithZerosStrict(pilotcoursenew, 3)))
         end
     end
 
     if ((P.procedureloop3.stepindex == 11)  and (P.navdatatableindex ~= nil)) then
-        if (P.configvalues[def.CONFIGAUTOFUNCTIONS] == def.ON) then
-            if ((P.navdatatable[P.navdatatableindex][def.DESTNAVTYPE] == def.NAVTYPEILS) and P.navdatatable[P.navdatatableindex][def.DESTNAVDME]) then
-                if (get(P.mcpcopilotcourse) ~= get(P.mcppilotcourse)) then
+        if ((P.navdatatable[P.navdatatableindex][def.DESTNAVTYPE] == def.NAVTYPEILS) and P.navdatatable[P.navdatatableindex][def.DESTNAVDME]) then
+            if (get(P.mcpcopilotcourse) ~= get(P.mcppilotcourse)) then
+                if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
+                    P.commandtableentry(def.TEXT, "Set Copilot Course " .. helpers.addspaces(helpers.padNumberWithZerosStrict(get(P.mcppilotcourse), 3)))
+                    P.procedureloop3.stepindex = P.procedureloop3.stepindex - 1
+                else
                     set(P.mcpcopilotcourse, get(P.mcppilotcourse))
                 end
+            elseif ((P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON)  and (not P.procedureloop3.steprepeat)) then
+                P.commandtableentry(def.TEXT, "Copilot Course checked and " .. helpers.addspaces(helpers.padNumberWithZerosStrict(get(P.mcppilotcourse), 3)))
             end
+        end
 
-            if ((P.navdatatable[P.navdatatableindex][def.DESTNAVTYPE] == def.NAVTYPEGLS) and (get(P.mmrinstalled) == def.ON)) then
-                if (get(P.mcpcopilotcourse) ~= get(P.mcppilotcourse)) then
+        if ((P.navdatatable[P.navdatatableindex][def.DESTNAVTYPE] == def.NAVTYPEGLS) and (get(P.mmrinstalled) == def.ON)) then
+            if (get(P.mcpcopilotcourse) ~= get(P.mcppilotcourse)) then
+                if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
+                    P.commandtableentry(def.TEXT, "Set Copilot Course " .. helpers.addspaces(helpers.padNumberWithZerosStrict(get(P.mcppilotcourse), 3)))
+                    P.procedureloop3.stepindex = P.procedureloop3.stepindex - 1
+                else
                     set(P.mcpcopilotcourse, get(P.mcppilotcourse))
                 end
+            elseif ((P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON)  and (not P.procedureloop3.steprepeat)) then
+                P.commandtableentry(def.TEXT, "Copilot Course checked and " .. helpers.addspaces(helpers.padNumberWithZerosStrict(get(P.mcppilotcourse), 3)))
             end
         end
     end
@@ -4620,39 +4644,37 @@ function cockpitinitsteps()
         if (P.configvalues[def.CONFIGVIEWCHANGES] == def.ON) then
             setview(def.DEFAULTVIEW)
         end
-        P.procedureloop1.stepindex = 2
+        if (get(P.sunpitchdegrees) < 0) then
+            P.procedureloop1.stepindex = 2
+        else
+            P.procedureloop1.stepindex = 4
+        end
     end
 
-    if (get(P.sunpitchdegrees) < 0) then
-        if (P.procedureloop1.stepindex == 2) then
-            if (P.configvalues[def.CONFIGVIEWCHANGES] == def.ON) then
-                setview(P.configvalues[def.CONFIGVIEWUPPEROVERHEADPANEL])
-            else
-                P.procedureloop1.stepindex = P.procedureloop1.stepindex + 1
-                P.procedureloop1.stepindexprevious = P.procedureloop1.stepindexprevious + 1
-            end
+    if (P.procedureloop1.stepindex == 2) then
+        if (P.configvalues[def.CONFIGVIEWCHANGES] == def.ON) then
+            setview(P.configvalues[def.CONFIGVIEWUPPEROVERHEADPANEL])
+        else
+            P.procedureloop1.stepindex = P.procedureloop1.stepindex + 1
+            P.procedureloop1.stepindexprevious = P.procedureloop1.stepindexprevious + 1
         end
+    end
 
-        if (P.procedureloop1.stepindex == 3) then
-            if (get(P.sunpitchdegrees) < 0) then
-                if (get(P.domelightpos) == def.DOMELIGHTOFF) then
-                    if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                        P.commandtableentry(def.TEXT, "Set Dome Light On")
-                        P.procedureloop1.stepindex = P.procedureloop1.stepindex - 1
-                    else
-                        setdomelight(def.DOMELIGHTDIM)
-                    end
-                elseif (not P.procedureloop1.steprepeat) then
-                    P.commandtableentry(def.TEXT, "Dome light checked and On")
-                end
+    if (P.procedureloop1.stepindex == 3) then
+        if (get(P.domelightpos) == def.DOMELIGHTOFF) then
+            if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
+                P.commandtableentry(def.TEXT, "Set Dome Light On")
+                P.procedureloop1.stepindex = P.procedureloop1.stepindex - 1
+            else
+                setdomelight(def.DOMELIGHTDIM)
             end
+        elseif (not P.procedureloop1.steprepeat) then
+            P.commandtableentry(def.TEXT, "Dome light checked and On")
         end
-    elseif (P.procedureloop1.stepindex == 2) then
-        P.procedureloop1.stepindex = 4
     end
 
     if (P.procedureloop1.stepindex == 4) then
-        if ((P.configvalues[def.CONFIGVIEWCHANGES] == def.ON) and (get(P.sunpitchdegrees) < 0)) then
+        if (P.configvalues[def.CONFIGVIEWCHANGES] == def.ON) then
             setview(P.configvalues[def.CONFIGVIEWMAINPANEL])
         else
             P.procedureloop1.stepindex = P.procedureloop1.stepindex + 1
@@ -5487,11 +5509,15 @@ function altitudeb10000steps()
     end
 
     if (P.procedureloop1.stepindex == 9) then
-        if (P.configvalues[def.CONFIGVREF30SET] == def.ON) then
-            if ((not P.proceduretable[def.SETVREFPROCEDURE].set) and ((P.procedureloop3.lock == def.NOPROCEDURE) or (P.procedureloop3.lock == def.SETVREFPROCEDURE))) then
-                P.procedureloop3.lock = def.SETVREFPROCEDURE
-                P.procedureloop1.stepindex = P.procedureloop1.stepindex - 1
+        if (get(P.vref) == 0) then
+            if (P.configvalues[def.CONFIGVREF30SET] == def.ON) then
+                if ((not P.proceduretable[def.SETVREFPROCEDURE].set) and ((P.procedureloop3.lock == def.NOPROCEDURE) or (P.procedureloop3.lock == def.SETVREFPROCEDURE))) then
+                    P.procedureloop3.lock = def.SETVREFPROCEDURE
+                    P.procedureloop1.stepindex = P.procedureloop1.stepindex - 1
+                end
             end
+        elseif (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
+            P.commandtableentry(def.TEXT, "V REF " .. get(P.appflaps) .. " checked and " .. get(P.vref))
         end
     end
 
@@ -5505,29 +5531,37 @@ function altitudeb10000steps()
     end
 
     if (P.procedureloop1.stepindex == 11) then
-        if (P.configvalues[def.CONFIGVREF30SET] == def.ON) then
-            local autobrake = helpers.calcautobrake(get(P.vref), get(P.totalweightkgs), get(P.desrwylen), P.desmetar.decodedmetar)
-            sasl.logDebug("AUTOBRAKE AUTOBRAKEPOS: " .. tostring(get(P.autobrakepos)) .. " AUTOBRAKE " .. tostring(autobrake))
-            if (get(P.autobrakepos) ~= autobrake) then
-                if (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
-                    setautobrake(autobrake)
-                elseif (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                    if (autobrake < def.AUTOBRAKEMAX) then
-                        P.commandtableentry(def.TEXT, "Set Auto Brake " .. tostring(autobrake - 1))
-                    else
-                        P.commandtableentry(def.TEXT, "Set Auto Brake Maximum")
+        if (get(P.autobrakepos) <= def.AUTOBRAKEOFF) then
+            if (P.configvalues[def.CONFIGVREF30SET] == def.ON) then
+                local autobrake = helpers.calcautobrake(get(P.vref), get(P.totalweightkgs), get(P.desrwylen), P.desmetar.decodedmetar)
+                sasl.logDebug("AUTOBRAKE AUTOBRAKEPOS: " .. tostring(get(P.autobrakepos)) .. " AUTOBRAKE " .. tostring(autobrake))
+                if (get(P.autobrakepos) ~= autobrake) then
+                    if (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
+                        setautobrake(autobrake)
+                    elseif (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
+                        if (autobrake < def.AUTOBRAKEMAX) then
+                            P.commandtableentry(def.TEXT, "Set Auto Brake " .. tostring(autobrake - 1))
+                        else
+                            P.commandtableentry(def.TEXT, "Set Auto Brake Maximum")
+                        end
+                        P.procedureloop1.stepindex = P.procedureloop1.stepindex - 1
                     end
-                    P.procedureloop1.stepindex = P.procedureloop1.stepindex - 1
-                end
-            elseif (not P.procedureloop1.steprepeat) then
-                if (autobrake < def.AUTOBRAKEMAX) then
-                    P.commandtableentry(def.TEXT, "Auto Brake checked and " .. tostring(autobrake - 1))
-                else
-                    P.commandtableentry(def.TEXT, "Auto Brake checked and Maximum")
+                elseif (not P.procedureloop1.steprepeat) then
+                    if (autobrake < def.AUTOBRAKEMAX) then
+                        P.commandtableentry(def.TEXT, "Auto Brake checked and " .. tostring(autobrake - 1))
+                    else
+                        P.commandtableentry(def.TEXT, "Auto Brake checked and Maximum")
+                    end
                 end
             end
+        elseif (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
+            if (get(P.autobrakepos) < def.AUTOBRAKEMAX) then
+                P.commandtableentry(def.TEXT, "Auto Brake checked and " .. tostring(get(P.autobrakepos) - 1))
+            else
+                P.commandtableentry(def.TEXT, "Auto Brake checked and Maximum")
+            end
         end
-    end
+   end
 
     if (P.procedureloop1.stepindex == 12) then
         speakdesmetar()
@@ -6141,7 +6175,7 @@ function beforetaxisteps()
 
         if (P.configvalues[def.CONFIGVIEWCHANGES] == def.ON) then
             setview(def.DEFAULTVIEW)
-            setview(P.configvalues[def.CONFIGVIEWUPPEROVERHEADPANEL])
+            setview(P.configvalues[def.CONFIGVIEWMAINPANEL])
         else
             P.procedureloop1.stepindex = P.procedureloop1.stepindex + 1
             P.procedureloop1.stepindexprevious = P.procedureloop1.stepindexprevious + 1
@@ -6161,7 +6195,21 @@ function beforetaxisteps()
         end
     end
 
+    if ((P.procedureloop1.stepindex == 3) and (get(P.domelightpos) == def.DOMELIGHTOFF)) then
+        P.procedureloop1.stepindex = 5
+    end
+
     if (P.procedureloop1.stepindex == 3) then
+        if (P.configvalues[def.CONFIGVIEWCHANGES] == def.ON) then
+            setview(def.DEFAULTVIEW)
+            setview(P.configvalues[def.CONFIGVIEWUPPEROVERHEADPANEL])
+        else
+            P.procedureloop1.stepindex = P.procedureloop1.stepindex + 1
+            P.procedureloop1.stepindexprevious = P.procedureloop1.stepindexprevious + 1
+        end
+    end
+
+    if (P.procedureloop1.stepindex == 4) then
         if (get(P.domelightpos) ~= def.DOMELIGHTOFF) then
             if (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
                 setdomelight(def.DOMELIGHTOFF)
@@ -6174,7 +6222,7 @@ function beforetaxisteps()
         end
     end
 
-    if (P.procedureloop1.stepindex == 4) then
+    if (P.procedureloop1.stepindex == 5) then
         if (P.configvalues[def.CONFIGVIEWCHANGES] == def.ON) then
             setview(P.configvalues[def.CONFIGVIEWOVERHEADPANEL])
         else
@@ -6183,7 +6231,20 @@ function beforetaxisteps()
         end
     end
 
-    if (P.procedureloop1.stepindex == 5) then
+    if (P.procedureloop1.stepindex == 6) then
+        if (get(P.taxilight) == def.OFF) then
+            if (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
+                toggletaxilights(def.ongoingtaskstepindex)
+            elseif (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
+                P.commandtableentry(def.TEXT, "Set Taxi Lights On")
+                P.procedureloop1.stepindex = P.procedureloop1.stepindex - 1
+            end
+        elseif (not P.procedureloop1.steprepeat) then
+            P.commandtableentry(def.TEXT, "Taxi Lights checked and On")
+        end
+    end
+
+    if (P.procedureloop1.stepindex == 7) then
         if(get(P.positionlights) ~= def.POSLIGHTSSTEADY) then
             if (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
                 togglepositionlights(def.POSLIGHTSSTEADY)
@@ -6196,7 +6257,7 @@ function beforetaxisteps()
         end
     end
 
-    if (P.procedureloop1.stepindex == 6) then
+    if (P.procedureloop1.stepindex == 8) then
         if (get(P.beaconlights) == def.OFF) then
             if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
                 P.commandtableentry(def.TEXT, "Set Collision Lights On")
@@ -6209,7 +6270,7 @@ function beforetaxisteps()
         end
     end
 
-    if (P.procedureloop1.stepindex == 7) then
+    if (P.procedureloop1.stepindex == 9) then
         if (get(P.seatbeltsignpos) ~= def.SEATBELTSIGNON) then
             if (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
                 setseatbeltsign(def.SEATBELTSIGNON)
@@ -6222,7 +6283,7 @@ function beforetaxisteps()
         end
     end
 
-    if (P.procedureloop1.stepindex == 8) then
+    if (P.procedureloop1.stepindex == 10) then
         if (get(P.logolighton) ~= def.ON) then
             if (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
                 togglelogolight(def.ON)
@@ -6235,7 +6296,7 @@ function beforetaxisteps()
         end
     end
 
-    if (P.procedureloop1.stepindex == 9) then
+    if (P.procedureloop1.stepindex == 11) then
         if (get(P.yawdamperswitch) ~= def.ON) then
             if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
                 P.commandtableentry(def.TEXT, "Set Yaw Damper On")
@@ -6248,7 +6309,7 @@ function beforetaxisteps()
         end
     end
 
-    if (P.procedureloop1.stepindex == 10) then
+    if (P.procedureloop1.stepindex == 12) then
         if ((get(P.hydro1pos) ~= def.ON) or (get(P.hydro2pos) ~= def.ON) or (get(P.elechydro1pos) ~= def.ON) or (get(P.elechydro2pos) ~= def.ON)) then
             if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
                 P.commandtableentry(def.TEXT, "Switch Hydraulic Pumps On")
@@ -6264,7 +6325,7 @@ function beforetaxisteps()
         end
     end
 
-    if (P.procedureloop1.stepindex == 11) then
+    if (P.procedureloop1.stepindex == 13) then
         if ((get(P.wheatlfwdpos) == def.OFF) or (get(P.wheatrfwdpos) == def.OFF) or (get(P.wheatlsidepos) == def.OFF) or (get(P.wheatrsidepos) == def.OFF)) then
             if (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
                 togglewindowheat(def.ON)
@@ -6277,7 +6338,7 @@ function beforetaxisteps()
         end
     end
 
-    if (P.procedureloop1.stepindex == 12) then
+    if (P.procedureloop1.stepindex == 14) then
         if ((get(P.captainprobepos) == def.OFF) or (get(P.foprobepos) == def.OFF)) then
             if (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
                 toggleprobeheat(def.ON)
@@ -6290,7 +6351,7 @@ function beforetaxisteps()
         end
     end
 
-    if (P.procedureloop1.stepindex == 13) then
+    if (P.procedureloop1.stepindex == 15) then
         if ((get(P.starter1pos) ~= def.FLIGHT) or (get(P.starter2pos) ~= def.FLIGHT)) then
             if (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
                 setstarter(def.BOTH, def.FLIGHT)
@@ -6303,7 +6364,7 @@ function beforetaxisteps()
         end
     end
 
-    if (P.procedureloop1.stepindex == 14) then
+    if (P.procedureloop1.stepindex == 16) then
         if (P.configvalues[def.CONFIGVIEWCHANGES] == def.ON) then
             setview(P.configvalues[def.CONFIGVIEWFMS])
         else
@@ -6312,19 +6373,23 @@ function beforetaxisteps()
         end
     end
 
-    if (P.procedureloop1.stepindex == 15) then
+    if (P.procedureloop1.stepindex == 17) then
         if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-            local toflapscalc = helpers.determineTakeoffFlapsSetting(get(P.totalweightkgs), get(P.deprwylen), get(P.deprwyheading), get(P.elevation), P.depmetar)
-            if (get(P.toflaps) ~= toflapscalc) then                
-                P.commandtableentry(def.TEXT, "Set Takeoff Flaps " .. tostring(toflapscalc))
-                P.procedureloop1.stepindex = P.procedureloop1.stepindex - 1
-            elseif not P.procedureloop1.steprepeat then
+            if (get(P.toflaps) == 0) then
+                local toflapscalc = helpers.determineTakeoffFlapsSetting(get(P.totalweightkgs), get(P.deprwylen), get(P.deprwyheading), get(P.elevation), P.depmetar)
+                if (get(P.toflaps) ~= toflapscalc) then                
+                    P.commandtableentry(def.TEXT, "Set Takeoff Flaps " .. tostring(toflapscalc))
+                    P.procedureloop1.stepindex = P.procedureloop1.stepindex - 1
+                elseif not P.procedureloop1.steprepeat then
+                    P.commandtableentry(def.TEXT, "Takeoff Flaps set and " .. tostring(get(P.toflaps)))
+                end
+            else
                 P.commandtableentry(def.TEXT, "Takeoff Flaps set and " .. tostring(get(P.toflaps)))
             end
         end
     end
 
-    if (P.procedureloop1.stepindex == 16) then
+    if (P.procedureloop1.stepindex == 18) then
         if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
             if (get(P.fmccg) == 0) then
                 P.commandtableentry(def.TEXT, "Set C G " .. tostring(helpers.roundnumber(get(P.tabcg),1)))
@@ -6335,7 +6400,7 @@ function beforetaxisteps()
         end
     end
 
-    if (P.procedureloop1.stepindex == 17) then
+    if (P.procedureloop1.stepindex == 19) then
         if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
             if ((get(P.v1setspeed) == 0) or (get(P.v2setspeed) == 0) or (get(P.vrsetspeed) == 0)) then
                 P.commandtableentry(def.TEXT, "Enter V Speeds")
@@ -6346,7 +6411,7 @@ function beforetaxisteps()
         end
     end
 
-    if (P.procedureloop1.stepindex == 18) then
+    if (P.procedureloop1.stepindex == 20) then
         if (P.configvalues[def.CONFIGVIEWCHANGES] == def.ON) then
             setview(P.configvalues[def.CONFIGVIEWMAINPANEL])
         else
@@ -6355,7 +6420,7 @@ function beforetaxisteps()
         end
     end
 
-    if (P.procedureloop1.stepindex == 19) then
+    if (P.procedureloop1.stepindex == 21) then
         if ((get(P.fdpilotpos) == def.OFF) or (get(P.fdfopos) == def.OFF)) then
             if (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
                 togglefds(def.ON)
@@ -6368,7 +6433,7 @@ function beforetaxisteps()
         end
     end
 
-    if (P.procedureloop1.stepindex == 20) then
+    if (P.procedureloop1.stepindex == 22) then
         if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
             if (get(P.aplnavstat) ~= def.ON) then
                 P.commandtableentry(def.TEXT, "Arm L NAV")
@@ -6379,7 +6444,7 @@ function beforetaxisteps()
         end
     end
 
-    if (P.procedureloop1.stepindex == 21) then
+    if (P.procedureloop1.stepindex == 23) then
         if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
             if (get(P.apvnavstat) ~= def.ON) then
                 P.commandtableentry(def.TEXT, "Arm V NAV")
@@ -6390,7 +6455,7 @@ function beforetaxisteps()
         end
     end
 
-    if (P.procedureloop1.stepindex == 22) then
+    if (P.procedureloop1.stepindex == 24) then
         if (P.configvalues[def.CONFIGVIEWCHANGES] == def.ON) then
             setview(P.configvalues[def.CONFIGVIEWTHROTTLE])
         else
@@ -6399,7 +6464,7 @@ function beforetaxisteps()
         end
     end
 
-    if (P.procedureloop1.stepindex == 23) then
+    if (P.procedureloop1.stepindex == 25) then
         if ((helpers.convflaplevertoflappos(get(P.flapleverpos)) ~= get(P.toflaps))) then
             if (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
                 local toflapscmd = "laminar/B738/push_button/flaps_" .. get(P.toflaps)
@@ -6414,7 +6479,7 @@ function beforetaxisteps()
         end
     end
 
-    if (P.procedureloop1.stepindex == 24) then
+    if (P.procedureloop1.stepindex == 26) then
         if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
             if (get(P.parkingbrakepos) ~= def.OFF) then
                 P.commandtableentry(def.TEXT, "Release Parking Brake")
@@ -6422,11 +6487,10 @@ function beforetaxisteps()
             elseif ((get(P.groundspeed) < 1) and not P.procedureloop1.steprepeat) then
                 P.commandtableentry(def.TEXT, "Parking Brake checked and Released")
             end
-        else -- This 'else' corresponds to 'if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON)'
+        else
             if (P.configvalues[def.CONFIGVIEWCHANGES] == def.ON) then
                 setview(P.configvalues[def.CONFIGVIEWMAINPANEL])
             else
-                -- If CONFIGVOICEADVICEONLY is OFF and CONFIGVIEWCHANGES is OFF, we still need to advance the step
                 P.procedureloop1.stepindex = P.procedureloop1.stepindex + 1
                 P.procedureloop1.stepindexprevious = P.procedureloop1.stepindexprevious + 1
             end
@@ -6705,6 +6769,10 @@ function atparkingpositionsteps()
         elseif (not P.procedureloop1.steprepeat) then
             P.commandtableentry(def.TEXT, "Chocks checked and Set")
         end
+    end
+
+    if ((P.procedureloop1.stepindex == 3) and (get(P.sunpitchdegrees) > 0)) then
+        P.procedureloop1.stepindex = 5
     end
 
     if (P.procedureloop1.stepindex == 3) then
@@ -9137,6 +9205,7 @@ function P.procedureloop_1()
         if ((loop.stepindex == 0) and not loop.procedureabort and not loop.procedureskipstep) then
             if (P.proceduretable[loop.lock].name ~= "") then
                 P.commandtableentry(def.TEXT, P.proceduretable[loop.lock].name .. " Procedure")
+                sasl.logInfo("Procedure " .. P.proceduretable[loop.lock].name .. " started at " .. roundnumber(get(P.altitude)) .. " feet")
             end
         elseif ((loop.stepindex <= P.proceduretable[loop.lock].steps) and not loop.procedureabort and not loop.procedureskipstep and not loop.procedurenotpossible) then
             P.proceduretable[loop.lock].procedurefunction()
@@ -9144,10 +9213,12 @@ function P.procedureloop_1()
             if (loop.stepindex > P.proceduretable[loop.lock].steps) then
                 if (P.proceduretable[loop.lock].name ~= "") then
                     P.commandtableentry(def.TEXT, P.proceduretable[loop.lock].name .. " Procedure Complete")
+                    sasl.logInfo("Procedure " .. P.proceduretable[loop.lock].name .. " completed at " .. roundnumber(get(P.altitude)) .. " feet")
                 end
                 P.proceduretable[loop.lock].set = true
             elseif loop.procedureabort then
                 P.commandtableentry(def.TEXT, P.proceduretable[loop.lock].name .. " Procedure Aborted")
+                sasl.logInfo("Procedure " .. P.proceduretable[loop.lock].name .. " aborted at " .. roundnumber(get(P.altitude)) .. " feet")
                 loop.procedureabort = false
                 P.proceduretable[loop.lock].set = true
             elseif loop.procedurenotpossible then
@@ -9198,6 +9269,7 @@ function P.procedureloop_2()
         if ((loop.stepindex == 0) and not loop.procedureabort and not loop.procedureskipstep) then
             if (P.proceduretable[loop.lock].name ~= "") then
                 P.commandtableentry(def.TEXT, P.proceduretable[loop.lock].name .. " Procedure")
+                sasl.logInfo("Procedure " .. P.proceduretable[loop.lock].name .. " started at " .. roundnumber(get(P.altitude)) .. " feet")
             end
         elseif ((loop.stepindex <= P.proceduretable[loop.lock].steps) and not loop.procedureabort and not loop.procedureskipstep and not loop.procedurenotpossible) then
             P.proceduretable[loop.lock].procedurefunction()
@@ -9205,10 +9277,12 @@ function P.procedureloop_2()
             if (loop.stepindex > P.proceduretable[loop.lock].steps) then
                 if (P.proceduretable[loop.lock].name ~= "") then
                     P.commandtableentry(def.TEXT, P.proceduretable[loop.lock].name .. " Procedure Complete")
+                    sasl.logInfo("Procedure " .. P.proceduretable[loop.lock].name .. " completed at " .. roundnumber(get(P.altitude)) .. " feet")
                 end
                 P.proceduretable[loop.lock].set = true
             elseif loop.procedureabort then
                 P.commandtableentry(def.TEXT, P.proceduretable[loop.lock].name .. " Procedure Aborted")
+                sasl.logInfo("Procedure " .. P.proceduretable[loop.lock].name .. " aborted at " .. roundnumber(get(P.altitude)) .. " feet")
                 loop.procedureabort = false
                 P.proceduretable[loop.lock].set = true
             elseif loop.procedurenotpossible then
@@ -9259,6 +9333,7 @@ function P.procedureloop_3()
         if ((loop.stepindex == 0) and not loop.procedureabort and not loop.procedureskipstep and not loop.procedurenotpossible) then
             if (P.proceduretable[loop.lock].name ~= "") then
                 P.commandtableentry(def.TEXT, P.proceduretable[loop.lock].name .. " Procedure")
+                sasl.logInfo("Procedure " .. P.proceduretable[loop.lock].name .. " started at " .. roundnumber(get(P.altitude)) .. " feet")
             end
         elseif ((loop.stepindex <= P.proceduretable[loop.lock].steps) and not loop.procedureabort and not loop.procedureskipstep and not loop.procedurenotpossible) then
             P.proceduretable[loop.lock].procedurefunction()
@@ -9266,10 +9341,12 @@ function P.procedureloop_3()
             if (loop.stepindex > P.proceduretable[loop.lock].steps) then
                 if (P.proceduretable[loop.lock].name ~= "") then
                     P.commandtableentry(def.TEXT, P.proceduretable[loop.lock].name .. " Procedure Complete")
+                    sasl.logInfo("Procedure" .. P.proceduretable[loop.lock].name .. " completed at " .. roundnumber(get(P.altitude)) .. " feet")
                 end
                 P.proceduretable[loop.lock].set = true
             elseif loop.procedureabort then
                 P.commandtableentry(def.TEXT, P.proceduretable[loop.lock].name .. " Procedure Aborted")
+                sasl.logInfo("Procedure " .. P.proceduretable[loop.lock].name .. " aborted at " .. roundnumber(get(P.altitude)) .. " feet")
                 loop.procedureabort = false
                 P.proceduretable[loop.lock].set = true
             elseif loop.procedurenotpossible then
@@ -9440,7 +9517,7 @@ sasl.appendMenuSeparator ( P.menu_main )
 menu_toggle_setcockpitlights = sasl.appendMenuItem(P.menu_main, "Set Cockpit Lights", setcockpitlights)
 menu_toggle_auto = sasl.appendMenuItem(P.menu_main, "Toggle Auto Functions", toggleautofunctions)
 menu_toogle_voice = sasl.appendMenuItem(P.menu_main, "Toggle Voice Readback", togglevoicereadback)
-menu_toogle_adviceonly = sasl.appendMenuItem(P.menu_main, "Toggle def.TEXT Only", toggleadviceonly)
+menu_toogle_adviceonly = sasl.appendMenuItem(P.menu_main, "Toggle Voice Advice Only", toggleadviceonly)
 menu_toogle_freeze = sasl.appendMenuItem(P.menu_main, "Toggle Sim Freeze", togglesimfreeze)
 menu_toggle_view = sasl.appendMenuItem(P.menu_main, "Toggle View Changes", toggleviewchanges)
 menu_yal_reset = sasl.appendMenuItem(P.menu_main, "Reset YAL", yalreset)
