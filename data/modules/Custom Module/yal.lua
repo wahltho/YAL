@@ -9201,11 +9201,12 @@ function P.procedureloop_1()
 
     if (loop.lock ~= def.NOPROCEDURE) then
         loop.lastActiveTime = os.time()
+        local timestring = os.date("%H:%M:%S", loop.lastActiveTime)
 
         if ((loop.stepindex == 0) and not loop.procedureabort and not loop.procedureskipstep) then
             if (P.proceduretable[loop.lock].name ~= "") then
                 P.commandtableentry(def.TEXT, P.proceduretable[loop.lock].name .. " Procedure")
-                sasl.logInfo("Procedure " .. P.proceduretable[loop.lock].name .. " started at " .. roundnumber(get(P.altitude)) .. " feet")
+                sasl.logInfo("Procedure " .. P.proceduretable[loop.lock].name .. " started at ".. timestring .. " at " .. helpers.roundnumber(get(P.altitude)) .. " feet")
             end
         elseif ((loop.stepindex <= P.proceduretable[loop.lock].steps) and not loop.procedureabort and not loop.procedureskipstep and not loop.procedurenotpossible) then
             P.proceduretable[loop.lock].procedurefunction()
@@ -9213,12 +9214,12 @@ function P.procedureloop_1()
             if (loop.stepindex > P.proceduretable[loop.lock].steps) then
                 if (P.proceduretable[loop.lock].name ~= "") then
                     P.commandtableentry(def.TEXT, P.proceduretable[loop.lock].name .. " Procedure Complete")
-                    sasl.logInfo("Procedure " .. P.proceduretable[loop.lock].name .. " completed at " .. roundnumber(get(P.altitude)) .. " feet")
+                    sasl.logInfo("Procedure" .. P.proceduretable[loop.lock].name .. " completed at " .. timestring .. " at " .. helpers.roundnumber(get(P.altitude)) .. " feet")
                 end
                 P.proceduretable[loop.lock].set = true
             elseif loop.procedureabort then
                 P.commandtableentry(def.TEXT, P.proceduretable[loop.lock].name .. " Procedure Aborted")
-                sasl.logInfo("Procedure " .. P.proceduretable[loop.lock].name .. " aborted at " .. roundnumber(get(P.altitude)) .. " feet")
+                sasl.logInfo("Procedure " .. P.proceduretable[loop.lock].name .. " aborted at " .. timestring .. " at " .. helpers.roundnumber(get(P.altitude)) .. " feet")
                 loop.procedureabort = false
                 P.proceduretable[loop.lock].set = true
             elseif loop.procedurenotpossible then
@@ -9265,11 +9266,12 @@ function P.procedureloop_2()
 
     if (loop.lock ~= def.NOPROCEDURE) then
         loop.lastActiveTime = os.time()
+        local timestring = os.date("%H:%M:%S", loop.lastActiveTime)
 
         if ((loop.stepindex == 0) and not loop.procedureabort and not loop.procedureskipstep) then
             if (P.proceduretable[loop.lock].name ~= "") then
                 P.commandtableentry(def.TEXT, P.proceduretable[loop.lock].name .. " Procedure")
-                sasl.logInfo("Procedure " .. P.proceduretable[loop.lock].name .. " started at " .. roundnumber(get(P.altitude)) .. " feet")
+                sasl.logInfo("Procedure " .. P.proceduretable[loop.lock].name .. " started at ".. timestring .. " at " .. helpers.roundnumber(get(P.altitude)) .. " feet")
             end
         elseif ((loop.stepindex <= P.proceduretable[loop.lock].steps) and not loop.procedureabort and not loop.procedureskipstep and not loop.procedurenotpossible) then
             P.proceduretable[loop.lock].procedurefunction()
@@ -9277,12 +9279,13 @@ function P.procedureloop_2()
             if (loop.stepindex > P.proceduretable[loop.lock].steps) then
                 if (P.proceduretable[loop.lock].name ~= "") then
                     P.commandtableentry(def.TEXT, P.proceduretable[loop.lock].name .. " Procedure Complete")
-                    sasl.logInfo("Procedure " .. P.proceduretable[loop.lock].name .. " completed at " .. roundnumber(get(P.altitude)) .. " feet")
+                    sasl.logInfo("Procedure " .. P.proceduretable[loop.lock].name .. " completed at " .. helpers.roundnumber(get(P.altitude)) .. " feet")
+                    sasl.logInfo("Procedure" .. P.proceduretable[loop.lock].name .. " completed at " .. timestring .. " at " .. helpers.roundnumber(get(P.altitude)) .. " feet")
                 end
                 P.proceduretable[loop.lock].set = true
             elseif loop.procedureabort then
                 P.commandtableentry(def.TEXT, P.proceduretable[loop.lock].name .. " Procedure Aborted")
-                sasl.logInfo("Procedure " .. P.proceduretable[loop.lock].name .. " aborted at " .. roundnumber(get(P.altitude)) .. " feet")
+                sasl.logInfo("Procedure " .. P.proceduretable[loop.lock].name .. " aborted at " .. timestring .. " at " .. helpers.roundnumber(get(P.altitude)) .. " feet")
                 loop.procedureabort = false
                 P.proceduretable[loop.lock].set = true
             elseif loop.procedurenotpossible then
@@ -9329,11 +9332,12 @@ function P.procedureloop_3()
 
     if (loop.lock ~= def.NOPROCEDURE) then
         loop.lastActiveTime = os.time()
+        local timestring = os.date("%H:%M:%S", loop.lastActiveTime)
 
         if ((loop.stepindex == 0) and not loop.procedureabort and not loop.procedureskipstep and not loop.procedurenotpossible) then
             if (P.proceduretable[loop.lock].name ~= "") then
                 P.commandtableentry(def.TEXT, P.proceduretable[loop.lock].name .. " Procedure")
-                sasl.logInfo("Procedure " .. P.proceduretable[loop.lock].name .. " started at " .. roundnumber(get(P.altitude)) .. " feet")
+                sasl.logInfo("Procedure " .. P.proceduretable[loop.lock].name .. " started at ".. timestring .. " at " .. helpers.roundnumber(get(P.altitude)) .. " feet")
             end
         elseif ((loop.stepindex <= P.proceduretable[loop.lock].steps) and not loop.procedureabort and not loop.procedureskipstep and not loop.procedurenotpossible) then
             P.proceduretable[loop.lock].procedurefunction()
@@ -9341,12 +9345,12 @@ function P.procedureloop_3()
             if (loop.stepindex > P.proceduretable[loop.lock].steps) then
                 if (P.proceduretable[loop.lock].name ~= "") then
                     P.commandtableentry(def.TEXT, P.proceduretable[loop.lock].name .. " Procedure Complete")
-                    sasl.logInfo("Procedure" .. P.proceduretable[loop.lock].name .. " completed at " .. roundnumber(get(P.altitude)) .. " feet")
+                    sasl.logInfo("Procedure" .. P.proceduretable[loop.lock].name .. " completed at " .. timestring .. " at " .. helpers.roundnumber(get(P.altitude)) .. " feet")
                 end
                 P.proceduretable[loop.lock].set = true
             elseif loop.procedureabort then
                 P.commandtableentry(def.TEXT, P.proceduretable[loop.lock].name .. " Procedure Aborted")
-                sasl.logInfo("Procedure " .. P.proceduretable[loop.lock].name .. " aborted at " .. roundnumber(get(P.altitude)) .. " feet")
+                sasl.logInfo("Procedure " .. P.proceduretable[loop.lock].name .. " aborted at " .. timestring .. " at " .. helpers.roundnumber(get(P.altitude)) .. " feet")
                 loop.procedureabort = false
                 P.proceduretable[loop.lock].set = true
             elseif loop.procedurenotpossible then
