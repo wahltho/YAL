@@ -101,28 +101,28 @@ function P.YalinitGlobal()
     }
 
     P.proceduretable = {
-        [def.COLDANDDARKPROCEDURE] = { number = 1, name = "Cold and Dark Startup", steps = 29, set = false, procedurefunction = coldanddarkstartupsteps, loop = 1 },
-        [def.COCKPITINITPROCEDURE] = { number = 2, name = "Cockpit Initialization", steps = 32, set = false, procedurefunction = cockpitinitsteps, loop = 1 },
-        [def.APUSTARTUPPROCEDURE] = { number = 3, name = "A P U Startup", steps = 7, set = false, procedurefunction = apustartupsteps, loop = 1 },
-        [def.ENGINESTARTPROCEDURE] = { number = 4, name = "Engine Start", steps = 33, set = false , procedurefunction = enginestartsteps, loop = 1 },
-        [def.BEFORETAXIPROCEDURE] = { number = 5, name = "Before Taxi", steps = 26, set = false, procedurefunction = beforetaxisteps, loop = 1 },
-        [def.BEFORETAKEOFFPROCEDURE] = { number = 6, name = "Before Takeoff", steps = 13, set = false, procedurefunction = beforetakeoffsteps, loop = 1 },
-        [def.AFTERTAKEOFFPROCEDURE] = { number = 7, name = "", steps = 3, set = false, procedurefunction = aftertakeoffsteps, loop = 2 },
-        [def.DURINGCLIMBPROCEDURE] = { number = 8, name = "", steps = 13, set = false, procedurefunction = duringclimbsteps, loop = 2 },
-        [def.ALTITUDEA10000PROCEDURE] = { number = 9, name = "", steps = 7, set = false, procedurefunction = altitudea10000steps, loop = 1 },
-        [def.DURINGDESCENTPROCEDURE] = { number = 10, name = "", steps = 10, set = false, procedurefunction = duringdescentsteps, loop = 2 },
-        [def.ALTITUDEB10000PROCEDURE] = { number = 11, name = "", steps = 12, set = false, procedurefunction = altitudeb10000steps, loop = 1 },
-        [def.RADIOALTITUDEB2500PROCEDURE] = { number = 12, name = "", steps = 1, set = false, procedurefunction = radioaltitudeb2500steps, loop = 2 },
-        [def.RADIOALTITUDEB1000PROCEDURE] = { number = 13, name = "", steps = 7, set = false, procedurefunction = radioaltitudeb1000steps, loop = 2 },
-        [def.AFTERLANDINGPROCEDURE] = { number = 14, name = "After Landing", steps = 19, set = false, procedurefunction = afterlandingsteps, loop = 1 },
-        [def.ATPARKINGPOSITIONPROCEDURE] = { number = 15, name = "At Parking Position", steps = 12, set = false, procedurefunction = atparkingpositionsteps, loop = 1 },
-        [def.TURNAROUNDENGINESHUTDOWNPROCEDURE] = { number = 16, name = "Turnaround Engine Shutdown", steps = 17, set = false, procedurefunction = engineshutdownsteps, loop = 1 },
-        [def.FINALENGINESHUTDOWNPROCEDURE] = { number = 17, name = "Final Engine Shutdown", steps = 17, set = false, procedurefunction = engineshutdownsteps, loop = 1 },
+        [def.COLDANDDARKPROCEDURE] = { number = 1, name = "Cold and Dark Startup", speakname = true, steps = 29, set = false, procedurefunction = coldanddarkstartupsteps, loop = 1 },
+        [def.COCKPITINITPROCEDURE] = { number = 2, name = "Cockpit Initialization", speakname = true, steps = 32, set = false, procedurefunction = cockpitinitsteps, loop = 1 },
+        [def.APUSTARTUPPROCEDURE] = { number = 3, name = "A P U Startup", speakname = true, steps = 7, set = false, procedurefunction = apustartupsteps, loop = 1 },
+        [def.ENGINESTARTPROCEDURE] = { number = 4, name = "Engine Start", speakname = true, steps = 33, set = false , procedurefunction = enginestartsteps, loop = 1 },
+        [def.BEFORETAXIPROCEDURE] = { number = 5, name = "Before Taxi", speakname = true, steps = 26, set = false, procedurefunction = beforetaxisteps, loop = 1 },
+        [def.BEFORETAKEOFFPROCEDURE] = { number = 6, name = "Before Takeoff", speakname = true, steps = 13, set = false, procedurefunction = beforetakeoffsteps, loop = 1 },
+        [def.AFTERTAKEOFFPROCEDURE] = { number = 7, name = "After Takeoff", speakname = false, steps = 3, set = false, procedurefunction = aftertakeoffsteps, loop = 2 },
+        [def.DURINGCLIMBPROCEDURE] = { number = 8, name = "During Climb", speakname = false, steps = 13, set = false, procedurefunction = duringclimbsteps, loop = 2 },
+        [def.ALTITUDEA10000PROCEDURE] = { number = 9, name = "Altitude Above 10000", speakname = false, steps = 7, set = false, procedurefunction = altitudea10000steps, loop = 1 },
+        [def.DURINGDESCENTPROCEDURE] = { number = 10, name = "During Descent", speakname = false, steps = 10, set = false, procedurefunction = duringdescentsteps, loop = 2 },
+        [def.ALTITUDEB10000PROCEDURE] = { number = 11, name = "Altitude Below 10000", speakname = false, steps = 12, set = false, procedurefunction = altitudeb10000steps, loop = 1 },
+        [def.RADIOALTITUDEB2500PROCEDURE] = { number = 12, name = "Altitude Below 2500", speakname = false, speakname = false, steps = 1, set = false, procedurefunction = radioaltitudeb2500steps, loop = 2 },
+        [def.RADIOALTITUDEB1000PROCEDURE] = { number = 13, name = "Altitude Belowe 1000 ", speakname = false, steps = 7, set = false, procedurefunction = radioaltitudeb1000steps, loop = 2 },
+        [def.AFTERLANDINGPROCEDURE] = { number = 14, name = "After Landing", speakname = true, steps = 19, set = false, procedurefunction = afterlandingsteps, loop = 1 },
+        [def.ATPARKINGPOSITIONPROCEDURE] = { number = 15, name = "At Parking Position", speakname = true, steps = 12, set = false, procedurefunction = atparkingpositionsteps, loop = 1 },
+        [def.TURNAROUNDENGINESHUTDOWNPROCEDURE] = { number = 16, name = "Turnaround Engine Shutdown", speakname = true, steps = 17, set = false, procedurefunction = engineshutdownsteps, loop = 1 },
+        [def.FINALENGINESHUTDOWNPROCEDURE] = { number = 17, name = "Final Engine Shutdown", speakname = true, steps = 17, set = false, procedurefunction = engineshutdownsteps, loop = 1 },
         [def.SHUTDOWNPROCEDURE] = { number = 18, name = "Shutdown", steps = 24, set = false, procedurefunction = shutdownsteps, loop = 1 },
-        [def.SETILSPROCEDURE] = { number = 19, name = "", steps = 11, set = false, procedurefunction = setilssteps, loop = 3 },
-        [def.SETVREFPROCEDURE] = { number = 20, name = "", steps = 4, set = false, procedurefunction = setvrefsteps, loop = 3 },
-        [def.SETTOFLAPSPROCEDURE] = { number = 21, name = "", steps = 4, set = false, procedurefunction = settoflapssteps, loop = 3 },
-        [def.TESTPROCEDURE] = { number = 22, name = "Test", steps = 47, set = false, procedurefunction = teststeps, loop = 1 },
+        [def.SETILSPROCEDURE] = { number = 19, name = "Set ILS", speakname = false, steps = 11, set = false, procedurefunction = setilssteps, loop = 3 },
+        [def.SETVREFPROCEDURE] = { number = 20, name = "Set V Ref", speakname = false, steps = 4, set = false, procedurefunction = setvrefsteps, loop = 3 },
+        [def.SETTOFLAPSPROCEDURE] = { number = 21, name = "Set Takeoff Flaps", speakname = false, steps = 4, set = false, procedurefunction = settoflapssteps, loop = 3 },
+        [def.TESTPROCEDURE] = { number = 22, name = "Test", speakname = false, steps = 47, set = false, procedurefunction = teststeps, loop = 1 },
     }
 
     P.lastExecutedLoopIndex = 0
@@ -9204,22 +9204,22 @@ function P.procedureloop_1()
         local timestring = os.date("%H:%M:%S", loop.lastActiveTime)
 
         if ((loop.stepindex == 0) and not loop.procedureabort and not loop.procedureskipstep) then
-            if (P.proceduretable[loop.lock].name ~= "") then
+            if (P.proceduretable[loop.lock].speakname == true) then
                 P.commandtableentry(def.TEXT, P.proceduretable[loop.lock].name .. " Procedure")
-                sasl.logInfo("Procedure " .. P.proceduretable[loop.lock].name .. " started at ".. timestring .. " at " .. helpers.roundnumber(get(P.altitude)) .. " feet")
             end
+            sasl.logInfo(P.proceduretable[loop.lock].name .. " Procedure started at ".. timestring .. " at " .. helpers.roundnumber(get(P.altitude)) .. " feet")
         elseif ((loop.stepindex <= P.proceduretable[loop.lock].steps) and not loop.procedureabort and not loop.procedureskipstep and not loop.procedurenotpossible) then
             P.proceduretable[loop.lock].procedurefunction()
         elseif (((loop.stepindex > P.proceduretable[loop.lock].steps) or loop.procedureabort or loop.procedurenotpossible) and not loop.procedureskipstep) then
             if (loop.stepindex > P.proceduretable[loop.lock].steps) then
-                if (P.proceduretable[loop.lock].name ~= "") then
+                if (P.proceduretable[loop.lock].speakname == true) then
                     P.commandtableentry(def.TEXT, P.proceduretable[loop.lock].name .. " Procedure Complete")
-                    sasl.logInfo("Procedure" .. P.proceduretable[loop.lock].name .. " completed at " .. timestring .. " at " .. helpers.roundnumber(get(P.altitude)) .. " feet")
                 end
+                sasl.logInfo(P.proceduretable[loop.lock].name .. " Procedure completed at " .. timestring .. " at " .. helpers.roundnumber(get(P.altitude)) .. " feet")
                 P.proceduretable[loop.lock].set = true
             elseif loop.procedureabort then
                 P.commandtableentry(def.TEXT, P.proceduretable[loop.lock].name .. " Procedure Aborted")
-                sasl.logInfo("Procedure " .. P.proceduretable[loop.lock].name .. " aborted at " .. timestring .. " at " .. helpers.roundnumber(get(P.altitude)) .. " feet")
+                sasl.logInfo(P.proceduretable[loop.lock].name .. " Procedure aborted at " .. timestring .. " at " .. helpers.roundnumber(get(P.altitude)) .. " feet")
                 loop.procedureabort = false
                 P.proceduretable[loop.lock].set = true
             elseif loop.procedurenotpossible then
@@ -9269,23 +9269,22 @@ function P.procedureloop_2()
         local timestring = os.date("%H:%M:%S", loop.lastActiveTime)
 
         if ((loop.stepindex == 0) and not loop.procedureabort and not loop.procedureskipstep) then
-            if (P.proceduretable[loop.lock].name ~= "") then
+            if (P.proceduretable[loop.lock].speakname == true) then
                 P.commandtableentry(def.TEXT, P.proceduretable[loop.lock].name .. " Procedure")
-                sasl.logInfo("Procedure " .. P.proceduretable[loop.lock].name .. " started at ".. timestring .. " at " .. helpers.roundnumber(get(P.altitude)) .. " feet")
             end
+            sasl.logInfo(P.proceduretable[loop.lock].name .. " Procedure started at ".. timestring .. " at " .. helpers.roundnumber(get(P.altitude)) .. " feet")
         elseif ((loop.stepindex <= P.proceduretable[loop.lock].steps) and not loop.procedureabort and not loop.procedureskipstep and not loop.procedurenotpossible) then
             P.proceduretable[loop.lock].procedurefunction()
         elseif (((loop.stepindex > P.proceduretable[loop.lock].steps) or loop.procedureabort or loop.procedurenotpossible) and not loop.procedureskipstep) then
             if (loop.stepindex > P.proceduretable[loop.lock].steps) then
-                if (P.proceduretable[loop.lock].name ~= "") then
+                if (P.proceduretable[loop.lock].speakname == true) then
                     P.commandtableentry(def.TEXT, P.proceduretable[loop.lock].name .. " Procedure Complete")
-                    sasl.logInfo("Procedure " .. P.proceduretable[loop.lock].name .. " completed at " .. helpers.roundnumber(get(P.altitude)) .. " feet")
-                    sasl.logInfo("Procedure" .. P.proceduretable[loop.lock].name .. " completed at " .. timestring .. " at " .. helpers.roundnumber(get(P.altitude)) .. " feet")
                 end
+                sasl.logInfo(P.proceduretable[loop.lock].name .. " Procedure completed at " .. timestring .. " at " .. helpers.roundnumber(get(P.altitude)) .. " feet")
                 P.proceduretable[loop.lock].set = true
             elseif loop.procedureabort then
                 P.commandtableentry(def.TEXT, P.proceduretable[loop.lock].name .. " Procedure Aborted")
-                sasl.logInfo("Procedure " .. P.proceduretable[loop.lock].name .. " aborted at " .. timestring .. " at " .. helpers.roundnumber(get(P.altitude)) .. " feet")
+                sasl.logInfo(P.proceduretable[loop.lock].name .. " Procedure aborted at " .. timestring .. " at " .. helpers.roundnumber(get(P.altitude)) .. " feet")
                 loop.procedureabort = false
                 P.proceduretable[loop.lock].set = true
             elseif loop.procedurenotpossible then
@@ -9335,22 +9334,22 @@ function P.procedureloop_3()
         local timestring = os.date("%H:%M:%S", loop.lastActiveTime)
 
         if ((loop.stepindex == 0) and not loop.procedureabort and not loop.procedureskipstep and not loop.procedurenotpossible) then
-            if (P.proceduretable[loop.lock].name ~= "") then
+            if (P.proceduretable[loop.lock].speakname == true) then
                 P.commandtableentry(def.TEXT, P.proceduretable[loop.lock].name .. " Procedure")
-                sasl.logInfo("Procedure " .. P.proceduretable[loop.lock].name .. " started at ".. timestring .. " at " .. helpers.roundnumber(get(P.altitude)) .. " feet")
             end
+            sasl.logInfo(P.proceduretable[loop.lock].name .. " Procedure started at ".. timestring .. " at " .. helpers.roundnumber(get(P.altitude)) .. " feet")
         elseif ((loop.stepindex <= P.proceduretable[loop.lock].steps) and not loop.procedureabort and not loop.procedureskipstep and not loop.procedurenotpossible) then
             P.proceduretable[loop.lock].procedurefunction()
         elseif (((loop.stepindex > P.proceduretable[loop.lock].steps) or loop.procedureabort or loop.procedurenotpossible) and not loop.procedureskipstep) then
             if (loop.stepindex > P.proceduretable[loop.lock].steps) then
-                if (P.proceduretable[loop.lock].name ~= "") then
+                if (P.proceduretable[loop.lock].speakname == true) then
                     P.commandtableentry(def.TEXT, P.proceduretable[loop.lock].name .. " Procedure Complete")
-                    sasl.logInfo("Procedure" .. P.proceduretable[loop.lock].name .. " completed at " .. timestring .. " at " .. helpers.roundnumber(get(P.altitude)) .. " feet")
                 end
+                sasl.logInfo(P.proceduretable[loop.lock].name .. " Procedure completed at " .. timestring .. " at " .. helpers.roundnumber(get(P.altitude)) .. " feet")
                 P.proceduretable[loop.lock].set = true
             elseif loop.procedureabort then
                 P.commandtableentry(def.TEXT, P.proceduretable[loop.lock].name .. " Procedure Aborted")
-                sasl.logInfo("Procedure " .. P.proceduretable[loop.lock].name .. " aborted at " .. timestring .. " at " .. helpers.roundnumber(get(P.altitude)) .. " feet")
+                sasl.logInfo(P.proceduretable[loop.lock].name .. " Procedure aborted at " .. timestring .. " at " .. helpers.roundnumber(get(P.altitude)) .. " feet")
                 loop.procedureabort = false
                 P.proceduretable[loop.lock].set = true
             elseif loop.procedurenotpossible then
