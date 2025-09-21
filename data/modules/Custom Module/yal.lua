@@ -152,6 +152,15 @@ function P.initDataref()
     P.emergencylights = globalProperty("laminar/B738/toggle_switch/emer_exit_lights")
     P.emergencylightcover = globalPropertyfae("laminar/B738/cover", 10)
 
+    P.localpositionx = globalProperty("sim/flightmodel/position/local_x")
+    P.localpositiony = globalProperty("sim/flightmodel/position/local_y")
+    P.localpositionz = globalProperty("sim/flightmodel/position/local_z")
+    P.localpositionpsi = globalProperty("sim/flightmodel/position/psi")
+
+    P.fueltank1 = globalProperty("sim/flightmodel/weight/m_fuel1")
+    P.fueltank2 = globalProperty("sim/flightmodel/weight/m_fuel2")
+    P.fueltank3 = globalProperty("sim/flightmodel/weight/m_fuel3")
+
     P.mastercautionannunc = globalProperty("sim/cockpit/warnings/annunciators/master_caution")
 
     P.mainbus = globalProperty("laminar/B738/electric/main_bus")
@@ -160,6 +169,8 @@ function P.initDataref()
     P.pausetod = globalProperty("laminar/B738/fms/pause_td")
 
     P.vnavtoddist = globalProperty("laminar/B738/fms/vnav_td_dist")
+    P.vnavtocdist = globalProperty("laminar/B738/fms/vnav_tc_dist")
+
 
     P.hidecptefb = globalProperty("laminar/B738/tab/static")
     P.hidefoefb = globalProperty("laminar/B738/tab/fo_static")
@@ -214,6 +225,7 @@ function P.initDataref()
     P.atspeedstat = globalProperty("laminar/B738/autopilot/speed_status1")
     P.atspeedintvstat = globalProperty("laminar/B738/autopilot/spd_interv_status")
     P.atn1mode = globalProperty("laminar/B738/FMS/N1_mode")
+    P.atthrottlelock = globalProperty("laminar/B738/autopilot/lock_throttle")
 
     P.atspeedmode = globalProperty("laminar/B738/autopilot/speed_mode")
 
@@ -281,8 +293,10 @@ function P.initDataref()
     P.centertanklswitch = globalProperty("laminar/B738/fuel/fuel_tank_pos_ctr1")
     P.centertankrswitch = globalProperty("laminar/B738/fuel/fuel_tank_pos_ctr2")
     P.centertankstat = globalProperty("laminar/B738/fuel/center_status")
+    P.lefttanklbs = globalProperty("laminar/B738/fuel/left_tank_lbs")
     P.lefttanklswitch = globalProperty("laminar/B738/fuel/fuel_tank_pos_lft1")
     P.lefttankrswitch = globalProperty("laminar/B738/fuel/fuel_tank_pos_lft2")
+    P.righttanklbs = globalProperty("laminar/B738/fuel/right_tank_lbs")
     P.righttanklswitch = globalProperty("laminar/B738/fuel/fuel_tank_pos_rgt2")
     P.righttankrswitch = globalProperty("laminar/B738/fuel/fuel_tank_pos_rgt1")
 
@@ -385,6 +399,10 @@ function P.initDataref()
     P.desrwy = globalProperty("laminar/B738/fms/dest_runway")
 
     P.nearesticao = globalProperty("laminar/B738/near_apt_icao")
+
+    P.fmslegs = globalProperty("laminar/B738/fms/legs")
+    P.fmslegslat = globalProperty("laminar/B738/fms/legs_lat")
+    P.fmslegslon = globalProperty("laminar/B738/fms/legs_lon")
 
     P.aircraftlatpos = globalPropertyfae("laminar/B738/latlon", 23)
     P.aircraftlonpos = globalPropertyfae("laminar/B738/latlon", 24)
@@ -843,6 +861,70 @@ end
 
 my_command_togglesimfreeze = sasl.createCommand(def.APPNAMEPREFIX .. "/togglesimfreeze", "Toggle Freeze Sim")
 sasl.registerCommandHandler(my_command_togglesimfreeze, 0, togglesimfreeze_)
+
+
+--------------------------------------------------------------------------------------------------------------
+function timewarptotod()
+
+       if (get(P.fmsflightphase) ~= 2) then
+         P.commandtableentry(def.TEXT, "Time Warp only possible during Cruise")
+         return true
+    end
+
+    if (get(P.vnavtoddist) < 10) then
+         P.commandtableentry(def.TEXT, "Time Warp only possible prior to Top of Descent ")
+         return true
+    end
+
+    local legstable = helpers.buildlegstable(get(P.fmslegs), get(P.fmslegslat), get(P.fmslegslon))
+
+    if legstable and #legstable > 0 then
+        sasl.logInfo("WARP: Content of Legs Table:")      
+        for i, waypoint in ipairs(legstable) do
+            sasl.logInfo(string.format("WARP: Waypoint %d: %s (Lat: %.4f, Lon: %.4f), Distance to: %.2f NM, T.Heading: %.2f, M.Heading: %.2f", i, waypoint.name, waypoint.latitude, waypoint.longitude, waypoint.distance_to_next, waypoint.true_course, waypoint.magnetic_course))
+        end
+    else
+        sasl.logInfo("WARP: Legs table empty")
+        return false
+    end
+
+    sasl.logInfo("WARP: Aircraft Lat Pos " .. get(P.aircraftlatpos))
+    sasl.logInfo("WARP: Aircraft Lon Pos " .. get(P.aircraftlonpos))
+    sasl.logInfo("WARP: Distance to TOD " .. get(P.vnavtoddist))
+
+    local warppoint = helpers.getpointonroute(legstable, get(P.aircraftlatpos), get(P.aircraftlonpos), get(P.vnavtoddist))
+
+    sasl.logInfo("WARP: Latitude " .. warppoint.latitude)
+    sasl.logInfo("WARP: Longitude " .. warppoint.longitude)
+    sasl.logInfo("WARP: True Course " .. warppoint.truecourse)
+    sasl.logInfo("WARP: Magnetic Course " .. warppoint.magneticcourse)
+    sasl.logInfo("WARP: Next Waypoint " .. warppoint.nextwaypointname)
+    sasl.logInfo("WARP: Remaining Distance " .. warppoint.remainingdistance)
+
+    local localpositionx, localpositiony, localpositionz = helpers.worldtolocal(warppoint.latitude, warppoint.longitude, get(P.cabincruisealt) / def.FEETTOMETER)
+
+    sasl.logInfo("WARP: Local Position X " .. localpositionx)
+    sasl.logInfo("WARP: Local Position Y " .. localpositiony)
+    sasl.logInfo("WARP: Local Position Z " .. localpositionz)
+
+    local remainingfuel =  helpers.estimatefuelattod(get(P.lefttanklbs), get(P.righttanklbs), get(P.centertanklbs), get( P.vnavtoddist) - 10)
+
+    sasl.logInfo("WARP: Remaining Fuel Left " .. remainingfuel.left)
+    sasl.logInfo("WARP: Remaining Fuel Right " .. remainingfuel.right)
+    sasl.logInfo("WARP: Remaining Fuel Center " .. remainingfuel.center)
+    sasl.logInfo("WARP: Remaining Fuel Total" .. remainingfuel.total)
+
+end
+
+function timewarptotod_(phase)
+    if phase == SASL_COMMAND_BEGIN then
+        timewarptotod()
+    end
+    return 0
+end
+
+my_command_timewarptotod = sasl.createCommand(def.APPNAMEPREFIX .. "/timewarptotod", "Time Warp to TOD")
+sasl.registerCommandHandler(my_command_timewarptotod, 0, timewarptotod_)
 
 --------------------------------------------------------------------------------------------------------------
 function toggleautofunctions()
@@ -1835,6 +1917,8 @@ function setmmrils(mmr, freq)
         return false
     end
 
+    sasl.logInfo("SETMMRILS: " .. mmr .. freq)
+
     setmmrmode(mmr, def.MMRILS)
 
     if ((mmr == def.MMRBOTH) or (mmr == def.MMRCAPTAIN)) then
@@ -2030,7 +2114,7 @@ function setilssteps()
 
     if ((P.procedureloop3.stepindex == 7) and (P.navdatatableindex ~= nil)) then
         if (P.navdatatable[P.navdatatableindex][def.DESTNAVTYPE] == def.NAVTYPEILS) then
-            if ((P.navdatatable[P.navdatatableindex][def.DESTFREQ] ~= get(P.nav1freq)) or ((get(P.mmrinstalled) == def.ON) and ((get(P.mmrcptactvalue) ~= P.navdatatable[P.navdatatableindex][def.DESTFREQ]) or (get(P.mmrcptactmode) ~= def.MMRILS)))) then
+            if ((get(P.nav1freq) ~= P.navdatatable[P.navdatatableindex][def.DESTFREQ]) or ((get(P.mmrinstalled) == def.ON) and ((get(P.mmrcptactvalue) ~= P.navdatatable[P.navdatatableindex][def.DESTFREQ]) or (get(P.mmrcptactmode) ~= def.MMRILS)))) then
                 if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
                     P.commandtableentry(def.TEXT, "Set Captain Frequency " .. helpers.addspaces(helpers.formatILSFrequency(P.navdatatable[P.navdatatableindex][def.DESTFREQ])))
                     P.procedureloop3.stepindex = P.procedureloop3.stepindex - 1
@@ -2063,16 +2147,16 @@ function setilssteps()
 
     if ((P.procedureloop3.stepindex == 8)  and (P.navdatatableindex ~= nil)) then
         if ((P.navdatatable[P.navdatatableindex][def.DESTNAVTYPE] == def.NAVTYPEILS) and P.navdatatable[P.navdatatableindex][def.DESTNAVDME]) then
-            if ((get(P.nav2freq) ~= get(P.nav1freq)) or ((get(P.mmrinstalled) == def.ON) and ((get(P.mmrfoactvalue) ~= get(P.nav1freq)) or (get(P.mmrfoactmode) ~= def.MMRILS)))) then
+            if ((get(P.nav2freq) ~= P.navdatatable[P.navdatatableindex][def.DESTFREQ]) or ((get(P.mmrinstalled) == def.ON) and ((get(P.mmrfoactvalue) ~= (P.navdatatable[P.navdatatableindex][def.DESTFREQ])) or (get(P.mmrfoactmode) ~= def.MMRILS)))) then
                 if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
                     P.commandtableentry(def.TEXT, "Set Copilot Frequency " .. helpers.addspaces(helpers.formatILSFrequency(P.navdatatable[P.navdatatableindex][def.DESTFREQ])))
                     P.procedureloop3.stepindex = P.procedureloop3.stepindex - 1
                 else
                     if (get(P.mmrinstalled) == def.ON) then
-                        setmmrils(def.MMRFO, get(P.nav1freq))
+                        setmmrils(def.MMRFO, P.navdatatable[P.navdatatableindex][def.DESTFREQ])
                     else
                         set(P.nav2stdbyfreq, get(P.nav2freq))
-                        set(P.nav2freq, get(P.nav1freq))
+                        set(P.nav2freq, P.navdatatable[P.navdatatableindex][def.DESTFREQ])
                     end
                 end
             elseif ((P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON)  and (not P.procedureloop3.steprepeat)) then
@@ -2081,15 +2165,15 @@ function setilssteps()
         end
 
         if ((P.navdatatable[P.navdatatableindex][def.DESTNAVTYPE] == def.NAVTYPEGLS) and (get(P.mmrinstalled) == def.ON)) then
-            if ((get(P.mmrfoactvalue) ~= (get(P.mmrcptactvalue)) or (get(P.mmrfoactmode) ~= def.MMRGLS))) then
+            if ((get(P.mmrfoactvalue) ~= P.navdatatable[P.navdatatableindex][def.DESTFREQ]) or (get(P.mmrfoactmode) ~= def.MMRGLS)) then
                 if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
                     P.commandtableentry(def.TEXT, "Set Copilot Channel " .. helpers.addspaces(P.navdatatable[P.navdatatableindex][def.DESTFREQ]))
                     P.procedureloop3.stepindex = P.procedureloop3.stepindex - 1
                 else
-                    setmmrgls(def.MMRFO, get(P.mmrcptactvalue))
+                    setmmrgls(def.MMRFO, P.navdatatable[P.navdatatableindex][def.DESTFREQ])
                 end
             elseif ((P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON)  and (not P.procedureloop3.steprepeat)) then
-                P.commandtableentry(def.TEXT, "Copilot Channel checked and " .. helpers.addspaces(helpers.formatILSFrequency(P.navdatatable[P.navdatatableindex][def.DESTFREQ])))
+                P.commandtableentry(def.TEXT, "Copilot Channel checked and " .. helpers.addspaces(P.navdatatable[P.navdatatableindex][def.DESTFREQ]))
             end
         end
     end
@@ -2886,9 +2970,9 @@ function coldanddarkstartupsteps()
     end
 
     if (P.procedureloop1.stepindex == 4) then
-        if (P.configvalues[def.CONFIGVIEWCHANGES] == def.ON and (get(P.sunpitchdegrees) < 0)) then
+        if ((P.configvalues[def.CONFIGVIEWCHANGES] == def.ON)and (get(P.sunpitchdegrees) < 0)) then
             setview(P.configvalues[def.CONFIGVIEWUPPEROVERHEADPANEL])
-        elseif (P.configvalues[def.CONFIGVIEWCHANGES] ~= def.ON and (get(P.sunpitchdegrees) < 0)) then
+        elseif ((P.configvalues[def.CONFIGVIEWCHANGES] ~= def.ON) and (get(P.sunpitchdegrees) < 0)) then
             P.procedureloop1.stepindex = P.procedureloop1.stepindex + 1
             P.procedureloop1.stepindexprevious = P.procedureloop1.stepindexprevious + 1
         end
@@ -2910,9 +2994,9 @@ function coldanddarkstartupsteps()
     end
 
     if (P.procedureloop1.stepindex == 6) then
-        if (P.configvalues[def.CONFIGVIEWCHANGES] == def.ON and (get(P.sunpitchdegrees) < 0)) then
+        if ((P.configvalues[def.CONFIGVIEWCHANGES] == def.ON) and (get(P.sunpitchdegrees) < 0)) then
             setview(P.configvalues[def.CONFIGVIEWOVERHEADPANEL])
-        elseif (P.configvalues[def.CONFIGVIEWCHANGES] ~= def.ON and (get(P.sunpitchdegrees) < 0)) then
+        elseif ((P.configvalues[def.CONFIGVIEWCHANGES] ~= def.ON) and (get(P.sunpitchdegrees) < 0)) then
             P.procedureloop1.stepindex = P.procedureloop1.stepindex + 1
             P.procedureloop1.stepindexprevious = P.procedureloop1.stepindexprevious + 1
         end
@@ -5760,7 +5844,7 @@ function duringdescentsteps()
     end
 
     if (P.procedureloop2.stepindex == 2) then
-        if (P.configvalues[def.CONFIGVIEWCHANGES] == def.ON and P.configvalues[def.CONFIGSPDRESTR250] == def.ON) then
+        if ((P.configvalues[def.CONFIGVIEWCHANGES] == def.ON) and (P.configvalues[def.CONFIGSPDRESTR250] == def.ON)) then
             setview(def.DEFAULTVIEW)
             setview(P.configvalues[def.CONFIGVIEWFMS])
         elseif (P.configvalues[def.CONFIGVIEWCHANGES] ~= def.ON) then
@@ -6776,9 +6860,9 @@ function atparkingpositionsteps()
     end
 
     if (P.procedureloop1.stepindex == 3) then
-        if (P.configvalues[def.CONFIGVIEWCHANGES] == def.ON and (get(P.sunpitchdegrees) < 0)) then
+        if ((P.configvalues[def.CONFIGVIEWCHANGES] == def.ON) and (get(P.sunpitchdegrees) < 0)) then
             setview(P.configvalues[def.CONFIGVIEWUPPEROVERHEADPANEL])
-        elseif (P.configvalues[def.CONFIGVIEWCHANGES] ~= def.ON and (get(P.sunpitchdegrees) < 0)) then
+        elseif ((P.configvalues[def.CONFIGVIEWCHANGES] ~= def.ON) and (get(P.sunpitchdegrees) < 0)) then
             P.procedureloop1.stepindex = P.procedureloop1.stepindex + 1
             P.procedureloop1.stepindexprevious = P.procedureloop1.stepindexprevious + 1
         end
@@ -6932,7 +7016,7 @@ end
 function autofunctions()
 
 
-    if (get(P.airgroundsensor) == def.ON)  then -- aircraft def.ON the ground
+    if (get(P.airgroundsensor) == def.ON)  then -- aircraft on the ground
         P.aircraftwasonground = true
 
         if (P.flightstate == 0) then
@@ -7366,7 +7450,7 @@ function voicereadback()
     if (get(P.apalthldstat) ~= P.apalthldstattemp) then
         if (get(P.apalthldstat) == def.ON) then
             if (get(P.aponstat) == def.ON) then
-                P.commandtableentry(def.TEXT, "Altitude Hold def.ON, Altitude " .. tostring(get(P.mcpaltitude)))
+                P.commandtableentry(def.TEXT, "Altitude Hold On, Altitude " .. tostring(get(P.mcpaltitude)))
             else
                 P.commandtableentry(def.TEXT, "Altitude Hold Armed")
             end
@@ -7382,7 +7466,7 @@ function voicereadback()
     if (get(P.aphdgselstat) ~= P.aphdgselstattemp) then
         if (get(P.aphdgselstat) == def.ON) then
             if (get(P.aponstat) == def.ON) then
-                P.commandtableentry(def.TEXT, "Heading Select def.ON, Heading " .. tostring(get(P.mcpheading)))
+                P.commandtableentry(def.TEXT, "Heading Select On, Heading " .. tostring(helpers.padNumberWithZerosStrict(get(P.mcpheading),3)))
             else
                 P.commandtableentry(def.TEXT, "Heading Select Armed")
             end
@@ -8984,7 +9068,7 @@ if (P.getmetarcounter == 0) then
                 P.commandtableentry(def.TEXT, "A P U Running")
             end
         end
-        if ((get(P.atarmpos) == def.ARMED) and (get(P.atn1stat) == def.OFF) and (get(P.groundspeed) < 45) and (get(P.eng1n1percent) > 40) and (get(P.eng1n1percent) > 40)) then 
+        if ((get(P.atarmpos) == def.ARMED) and (get(P.atn1stat) == def.OFF) and (get(P.atthrottlelock) == def.OFF) and (get(P.eng1n1percent) > 40) and (get(P.eng1n1percent) > 40)) then 
             P.commandtableentry(def.TEXT, "Both Engine N 1 at 40 Percent")
         end
     end
@@ -9134,7 +9218,7 @@ if (P.getmetarcounter == 0) then
                 if ((P.configvalues[def.CONFIGAUTOFUNCTIONS] == def.ON) and (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON)) then
                     set(P.mcpheading, headingrounded)
                 elseif (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                    P.commandtableentry(def.TEXT, "Set M C P Heading " .. helpers.addspaces(headingrounded))
+                    P.commandtableentry(def.TEXT, "Set M C P Heading " .. helpers.addspaces(helpers.padNumberWithZerosStrict(headingrounded,3)))
                     P.ongoingtaskstepindex = P.ongoingtaskstepindex - 1
                 end
             end
@@ -9523,6 +9607,7 @@ menu_toogle_voice = sasl.appendMenuItem(P.menu_main, "Toggle Voice Readback", to
 menu_toogle_adviceonly = sasl.appendMenuItem(P.menu_main, "Toggle Voice Advice Only", toggleadviceonly)
 menu_toogle_freeze = sasl.appendMenuItem(P.menu_main, "Toggle Sim Freeze", togglesimfreeze)
 menu_toggle_view = sasl.appendMenuItem(P.menu_main, "Toggle View Changes", toggleviewchanges)
+menu_timewarptotod = sasl.appendMenuItem(P.menu_main, "Time Warp to TOD", timewarptotod)
 menu_yal_reset = sasl.appendMenuItem(P.menu_main, "Reset YAL", yalreset)
 sasl.appendMenuSeparator ( P.menu_main )
 
@@ -9566,6 +9651,7 @@ function P.enableMenus()
     sasl.enableMenuItem(P.menu_main , menu_toogle_adviceonly , enable)
     sasl.enableMenuItem(P.menu_main , menu_toogle_freeze , enable)
     sasl.enableMenuItem(P.menu_main , menu_toggle_view , enable)
+    sasl.enableMenuItem(P.menu_main , menu_timewarptotod , enable)
     sasl.enableMenuItem(P.menu_main , menu_yal_reset , enable)
 
 end

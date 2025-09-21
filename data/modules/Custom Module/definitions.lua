@@ -2,7 +2,7 @@
 
 local P = {}
 
-P.VERSION = "4.1"
+P.VERSION = "4.2"
 
 --------------------------------------------------------------------------------------------------------------
 -- Constants
@@ -286,6 +286,7 @@ P.XPRESSOURCESPATH = sasl.getXPlanePath() .. P.OSSEPARATOR .. "Resources" .. P.O
 P.XPOUTPUTPATH = sasl.getXPlanePath() .. P.OSSEPARATOR .. "Output" .. P.OSSEPARATOR
 P.XPCACHESPATH = P.XPOUTPUTPATH .. "caches" .. P.OSSEPARATOR
 P.YALCACHEPATH = P.XPOUTPUTPATH .. "caches" .. P.OSSEPARATOR .. P.APPNAMEPREFIX .. ".cache".. P.OSSEPARATOR
+P.YALGITHUBURL = "https://raw.githubusercontent.com/wahltho/YAL/main/data/modules/configuration/version.ini"
 
 P.AVWEATHERFURLCSV = "https://aviationweather.gov/api/data/metar?taf=false&format=csv&ids="
 

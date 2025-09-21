@@ -11,7 +11,11 @@ size = get(size)
 wSize = size[1]
 hSize = size[2]
 
-local wTitle = string.format("%s - " .. messages.translation['SETUP'], def.APPNAMEPREFIXLONG.. " v"..def.VERSION)
+local wTitle = string.format("%s - " .. messages.translation['SETUP'], def.APPNAMEPREFIXLONG.. " v".. def.VERSION)
+if YALupdateAvailable then
+    wTitle = wTitle .. " " .. messages.translation['UPDATEAVAILABLE'] .. " v" .. YALnewVersion
+end
+
 local x_col1 = 10
 local x_col2 = x_col1 + wSize / 2 + 90
 local cb_w = 10

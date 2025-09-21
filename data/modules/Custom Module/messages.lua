@@ -5,7 +5,9 @@ messages = P -- package name
 local lang = get(globalProperty("sim/operation/prefs/misc/language")) + 1
 
 local english = {
+    UPDATEAVAILABLE = 'Update Available',
     SETUP = 'Settings',
+    
     GENERAL = 'General',
     VOICEREADBACK = 'Command Voice Readback',
     AUTOFUNCTIONS = 'Automatic Functions',

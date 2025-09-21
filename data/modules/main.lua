@@ -16,6 +16,8 @@ sasl.options.setAircraftPanelRendering(false)
 sasl.options.set3DRendering(false)
 sasl.options.setInteractivity(true)
 
+YALupdateAvailable, YALnewVersion = helpers.checkForUpdate()
+
 if helpers.check_create_path(def.XPCACHESPATH) then
     if not helpers.check_create_path(def.YALCACHEPATH) then
         sasl.logWarning("Fail to create cache folder, reverting to legacy folder")

@@ -15,6 +15,7 @@ ffi.cdef [[
     void XPLMSpeakString(char *);
     float XPLMGetMagneticVariation(double, double);
     void XPLMGetMETARForAirport(char *, char *, int);
+    void XPLMWorldToLocal(double inLatitude, double inLongitude, double inAltitude, double *outX, double *outY, double *outZ);
     ]]
 
 --------------------------------------------------------------------------------------------------------------
@@ -34,6 +35,25 @@ function P.initTailNum()
         sasl.logDebug("is zibo NO ->" .. string.sub(get(acf_tailnum), 1, 5) .. "<-")
     end
     return P.isZibo
+end
+
+--------------------------------------------------------------------------------------------------------------
+function P.checkForUpdate()
+    local url = def.YALGITHUBURL
+    local updateAvailable = false
+    local newVersion = ""
+    downloadResult, contents = sasl.net.downloadFileContentsSync(url)
+    if downloadResult then -- ... process data
+        newVersion = helpers.cleanString(contents, true)
+        sasl.logDebug(string.format("checkForUpdate: current version: %s, available version %s", def.VERSION, newVersion))
+        if (tonumber(newVersion) > (tonumber(def.VERSION))) then
+            updateAvailable = true
+            sasl.logInfo(string.format("checkForUpdate: New version available: %s", newVersion))
+        end
+    else
+        sasl.logDebug("Check for Update FAILED")
+    end
+    return updateAvailable, newVersion
 end
 
 -------------------------------------------------------------------------------------------------------------- 
@@ -83,9 +103,6 @@ function P.timeConvert(seconds, sep)
     if seconds <= 0 then
         return "no data";
     else
-        -- hours = string.format("%2.f", math.floor(seconds / 3600));
-        -- mins = string.format("%02.f", math.floor(seconds / 60 - (hours * 60)));
-        -- return hours .. sep .. mins
         return string.format("%2d%s%02d", math.floor(seconds / 3600), sep, math.floor(seconds / 60) % 60)
     end
 end
@@ -298,6 +315,23 @@ function P.getmagneticvariation(lat_val, lon_val)
 
     return magenticvariation
 end
+
+--------------------------------------------------------------------------------------------------------------
+function P.worldtolocal(lat_val, lon_val, alt_val)
+
+    local out_x = ffi.new("double[1]")
+    local out_y = ffi.new("double[1]")
+    local out_z = ffi.new("double[1]")
+
+    xplm.XPLMWorldToLocal(lat_val, lon_val, alt_val, out_x, out_y, out_z)
+
+    local local_x = out_x[0]
+    local local_y = out_y[0]
+    local local_z = out_z[0]
+
+    return local_x, local_y, local_z
+end
+
 
 --------------------------------------------------------------------------------------------------------------
 function P.calccourse(in_crs)
@@ -958,22 +992,39 @@ function P.decodemetar(metar)
                 sasl.logError("Warning: Could not parse wind direction or unit from: " .. part)
             end
 
-        elseif (not result.visibility and #part > 1 and #part <= 5 and string.sub(part, -2) == "SM") then
+        elseif (not result.visibility and string.find(part, "SM$")) then
             local sm_val_str = string.sub(part, 1, #part - 2)
-            local sm_value = tonumber(sm_val_str)
+            local sm_value
+
+            -- Überprüfe auf gemischte Zahlen (z.B. "1 3/4")
+            local int_part, frac_part = string.match(sm_val_str, "^(%d+)%s+(%d+/%d+)$")
+            if int_part and frac_part then
+                local num, den = string.match(frac_part, "(%d+)/(%d+)")
+                if num and den then
+                    sm_value = tonumber(int_part) + (tonumber(num) / tonumber(den))
+                end
+            else
+                -- Überprüfe auf reine Brüche (z.B. "1/2")
+                local num, den = string.match(sm_val_str, "^(%d+)/(%d+)$")
+                if num and den then
+                    sm_value = tonumber(num) / tonumber(den)
+                else
+                    -- Überprüfe auf ganze Zahlen (z.B. "5")
+                    sm_value = tonumber(sm_val_str)
+                end
+            end
+
             if (sm_value) then
                 local meters = math.floor(sm_value * 1609.34 + 0.5)
                 result.visibility = { value = math.min(meters, 10000) }
                 sasl.logDebug(string.format("Parsed visibility: %sSM, converted to %d meters (limited to 10000)", sm_val_str, result.visibility.value))
                 parsed = true
+            elseif sm_val_str == "P6" then
+                result.visibility = { value = math.min(math.floor(7 * 1609.34 + 0.5), 10000) }
+                sasl.logDebug(string.format("Parsed visibility: P6SM, interpreted as >6SM (~%d meters)", result.visibility.value))
+                parsed = true
             else
-                if sm_val_str == "P6" then
-                    result.visibility = { value = math.min(math.floor(7 * 1609.34 + 0.5), 10000) }
-                    sasl.logDebug(string.format("Parsed visibility: P6SM, interpreted as >6SM (~%d meters)", result.visibility.value))
-                    parsed = true
-                else
-                    sasl.logError("Warning: Could not parse SM visibility value from: " .. part)
-                end
+                sasl.logError("Warning: Could not parse SM visibility value from: " .. part)
             end
             
         elseif (not result.visibility and #part == 4 and (tonumber(part) or part == "9999")) then
@@ -1808,7 +1859,7 @@ end
 
 --------------------------------------------------------------------------------------------------------------
 function P.getdistance(lat1, lon1, lat2, lon2)
-    local R = 6371000
+    local R = 3440.065
     local lat1_rad = math.rad(lat1)
     local lat2_rad = math.rad(lat2)
     local delta_lat = math.rad(lat2 - lat1)
@@ -1824,6 +1875,200 @@ function P.getdistance(lat1, lon1, lat2, lon2)
 end
 
 --------------------------------------------------------------------------------------------------------------
+function P.getbearing(lat1, lon1, lat2, lon2)
+    local lat1_rad = math.rad(lat1)
+    local lon1_rad = math.rad(lon1)
+    local lat2_rad = math.rad(lat2)
+    local lon2_rad = math.rad(lon2)
+
+    local dLon = lon2_rad - lon1_rad
+
+    local y = math.sin(dLon) * math.cos(lat2_rad)
+    local x = math.cos(lat1_rad) * math.sin(lat2_rad) -
+              math.sin(lat1_rad) * math.cos(lat2_rad) * math.cos(dLon)
+
+    local bearing_rad = math.atan2(y, x)
+    local bearing_deg = math.deg(bearing_rad)
+
+    return (bearing_deg + 360) % 360
+end
+
+
+--------------------------------------------------------------------------------------------------------------
+function P.buildlegstable(legs_string, lat_array, lon_array)
+    local waypoints = {}
+    local leg_names = {}
+    local seenWaypoints = {}
+
+    for word in string.gmatch(legs_string, "([^%s]+)") do
+        table.insert(leg_names, word)
+    end
+
+    local max_count = math.min(#lat_array, #leg_names)
+
+    for i = 1, max_count do
+        local lat = lat_array[i]
+        local lon = lon_array[i]
+        local leg_name = leg_names[i]
+
+        if lat ~= 0 or lon ~= 0 then
+            if leg_name ~= "(INTC)" and leg_name ~= "DISCONTINUITY" and not leg_name:match("^%b()") then
+                local identifier = string.format("%.4f_%.4f", lat, lon)
+                if not seenWaypoints[identifier] then
+                    local waypoint = {
+                        name = leg_name,
+                        latitude = lat,
+                        longitude = lon,
+                        distance_to_next = 0,
+                        true_course = 0,
+                        magnetic_course = 0
+                    }
+                    table.insert(waypoints, waypoint)
+                    seenWaypoints[identifier] = true
+                end
+            end
+        else
+            break
+        end
+    end
+    
+    if #waypoints > 1 then
+        for i = 1, #waypoints - 1 do
+            local wp1 = waypoints[i]
+            local wp2 = waypoints[i + 1]
+
+            local distance_to_next = P.getdistance(wp1.latitude, wp1.longitude, wp2.latitude, wp2.longitude)
+            local true_course = P.getbearing(wp1.latitude, wp1.longitude, wp2.latitude, wp2.longitude)
+
+            local mag_var = P.getmagneticvariation(wp1.latitude, wp1.longitude)
+            local magnetic_course = (true_course - mag_var + 360) % 360
+
+            wp1.distance_to_next = distance_to_next
+            wp1.true_course = true_course
+            wp1.magnetic_course = magnetic_course
+        end
+    end
+
+    return waypoints
+end
+
+--------------------------------------------------------------------------------------------------------------
+function P.getdistancealongroute(detailed_route, currentLat, currentLon)
+    local cumulativeDistance = 0
+    local totalWaypoints = #detailed_route
+
+    for i = 1, totalWaypoints - 1 do
+        local wp1 = detailed_route[i]
+        local wp2 = detailed_route[i + 1]
+        local segmentDistance = wp1.distance_to_next
+
+        local distFromAircraftToStart = P.getdistance(currentLat, currentLon, wp1.latitude, wp1.longitude)
+        local distFromAircraftToEnd = P.getdistance(currentLat, currentLon, wp2.latitude, wp2.longitude)
+
+        if math.abs(distFromAircraftToStart + distFromAircraftToEnd - segmentDistance) < 0.1 then
+            cumulativeDistance = cumulativeDistance + distFromAircraftToStart
+            return cumulativeDistance
+        end
+
+        cumulativeDistance = cumulativeDistance + segmentDistance
+    end
+
+    return cumulativeDistance
+end
+
+--------------------------------------------------------------------------------------------------------------
+function P.getpointonroute(detailed_route, currentLat, currentLon, distanceInNM)
+    local currentDistance = P.getdistancealongroute(detailed_route, currentLat, currentLon)
+    local targetDistance = currentDistance + distanceInNM
+    
+    local cumulativeDistance = 0
+    local totalWaypoints = #detailed_route
+    
+    if totalWaypoints < 2 then
+        sasl.logInfo("Route has not enough waypoints")
+        return nil
+    end
+
+    for i = 1, totalWaypoints - 1 do
+        local wp1 = detailed_route[i]
+        local wp2 = detailed_route[i + 1]
+        local segmentDistance = wp1.distance_to_next
+
+        if cumulativeDistance + segmentDistance >= targetDistance then
+            local distanceIntoSegment = targetDistance - cumulativeDistance
+            local fraction = distanceIntoSegment / segmentDistance
+
+            local pointLat = wp1.latitude + (wp2.latitude - wp1.latitude) * fraction
+            local pointLon = wp1.longitude + (wp2.longitude - wp1.longitude) * fraction
+            
+            local trueCourse = wp1.true_course
+            local magneticCourse = wp1.magnetic_course
+
+            local remainingDistance = segmentDistance - distanceIntoSegment
+
+            return {
+                latitude = pointLat,
+                longitude = pointLon,
+                truecourse = trueCourse,
+                magneticcourse = magneticCourse,
+                nextwaypointname = wp2.name,
+                remainingdistance = remainingDistance
+            }
+        end
+        cumulativeDistance = cumulativeDistance + segmentDistance
+    end
+
+    return nil
+end
+
+--------------------------------------------------------------------------------------------------------------
+function P.estimatefuelattod(currentLeftLbs, currentRightLbs, currentCenterLbs, distanceToTODNM)
+    -- ANGENOMMENE WERTE
+    local assumed_cruise_speed_knots = 450      -- Durchschnittliche Geschwindigkeit im Reiseflug (NM/h)
+    local assumed_cruise_fuel_flow_lbs_hr = 5000 -- Treibstofffluss im Reiseflug (lbs/h)
+
+    -- Geschätzter Treibstoffverbrauch von der aktuellen Position bis zum T/D
+    local estimated_flight_time_hours = distanceToTODNM / assumed_cruise_speed_knots
+    local estimated_fuel_burn_lbs = estimated_flight_time_hours * assumed_cruise_fuel_flow_lbs_hr
+    
+    -- Kopien der aktuellen Tankstände, um mit der Berechnung zu beginnen
+    local remainingBurn = estimated_fuel_burn_lbs
+    local finalLeftLbs = currentLeftLbs
+    local finalRightLbs = currentRightLbs
+    local finalCenterLbs = currentCenterLbs
+    
+    -- Verbrauchslogik simulieren (Center-Tank zuerst)
+    if finalCenterLbs > 1000 and remainingBurn > 0 then
+        local centerToBurn = finalCenterLbs - 1000
+        
+        if remainingBurn >= centerToBurn then
+            -- Den gesamten verfügbaren Treibstoff aus dem Center-Tank verbrauchen
+            finalCenterLbs = 1000
+            remainingBurn = remainingBurn - centerToBurn
+        else
+            -- Nur den benötigten Treibstoff aus dem Center-Tank verbrauchen
+            finalCenterLbs = finalCenterLbs - remainingBurn
+            remainingBurn = 0
+        end
+    end
+    
+    -- Restlichen Verbrauch auf die Wing-Tanks aufteilen
+    if remainingBurn > 0 then
+        local wingBurn = remainingBurn / 2
+        finalLeftLbs = finalLeftLbs - wingBurn
+        finalRightLbs = finalRightLbs - wingBurn
+    end
+    
+    -- Ergebnis-Tabelle mit den geschätzten finalen Tankinhalten
+    return {
+        left = finalLeftLbs,
+        right = finalRightLbs,
+        center = finalCenterLbs,
+        total = finalLeftLbs + finalRightLbs + finalCenterLbs
+    }
+end
+
+--------------------------------------------------------------------------------------------------------------
 function P.findnearestvor(navdatatable, airport_lat, airport_lon)
     local nearest_vor = nil
     local min_distance_sq = math.huge
@@ -1834,8 +2079,7 @@ function P.findnearestvor(navdatatable, airport_lat, airport_lon)
             local vor_lon = tonumber(navdata[def.DESTLONPOS])
 
             if vor_lat and vor_lon then
-                local distance_m = P.getdistance(airport_lat, airport_lon, vor_lat, vor_lon)
-                local distance_nm = distance_m / 1852
+                local distance_nm = P.getdistance(airport_lat, airport_lon, vor_lat, vor_lon)
 
                 if (navdata[def.DESTNAVID] == "SH") then
                     sasl.logInfo(" VOR SH LAT: " .. vor_lat .. " LON: " .. vor_lon .. " gefunden.")
