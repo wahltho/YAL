@@ -2,7 +2,7 @@
 
 local P = {}
 
-P.VERSION = "4.2"
+P.VERSION = "4.3"
 
 --------------------------------------------------------------------------------------------------------------
 -- Constants
@@ -142,6 +142,12 @@ P.ALTOFF = 2
 P.ALTON = 3
 P.TA = 4
 P.TARA = 5
+
+-- APU
+P.APUOFF = 0
+P.APUSTARTED = 1
+P.APUOFFBUS = 2
+P.APUONBUS = 3
 
 -- Motor-Auswahl
 P.BOTH = 0

@@ -544,7 +544,7 @@ function P.isvalidrwy(runway)
         return false
     end
 
-    local pattern = "^(%d?%d)([LRC]?)$"
+    local pattern = "^(%d?%d)([LRCT]?)$"
 
     local number, suffix = string.match(runway, pattern)
 
