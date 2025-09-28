@@ -265,8 +265,8 @@ end
 -------------------------------------------------------------------------------
 
 --- Called on module shutdown.
-function shutdownModules()
-    private.callCallbackForAllLayers("onModuleShutdown", false)
+function shutdownModules(isError)
+    private.callCallbackForAllLayers("onModuleShutdown", false, isError)
 end
 
 -------------------------------------------------------------------------------
