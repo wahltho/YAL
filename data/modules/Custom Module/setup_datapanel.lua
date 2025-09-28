@@ -1,6 +1,7 @@
 require("windows")
 require("settings")
 require("messages")
+require("helpers")
 
 local def = require("definitions")
 
@@ -11,9 +12,11 @@ size = get(size)
 wSize = size[1]
 hSize = size[2]
 
+local YALupdateavailable, YALnewversion = helpers.checkForUpdate()
+
 local wTitle = string.format("%s - " .. messages.translation['SETUP'], def.APPNAMEPREFIXLONG.. " v".. def.VERSION)
-if YALupdateAvailable then
-    wTitle = wTitle .. " " .. messages.translation['UPDATEAVAILABLE'] .. " v" .. YALnewVersion
+if YALupdateavailable then
+    wTitle = wTitle .. " " .. messages.translation['UPDATEAVAILABLE'] .. " v" .. YALnewversion
 end
 
 local x_col1 = 10
