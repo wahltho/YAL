@@ -9183,10 +9183,14 @@ if (P.getmetarcounter == 0) then
                 P.commandtableentry(def.TEXT, "Engine 2 N 2 at 25 Percent")
             elseif ((P.apurunning() == def.APUOFFBUS) and (get(P.gen1pos) == def.OFF) and (get(P.gen1pos) == def.OFF)) then
                 P.commandtableentry(def.TEXT, "Switch A P U Generator On")
-            elseif ((get(P.bleedairapupos) == def.OFF) and (P.apurunning() > def.APUSTARTED)) then
+            elseif (((get(P.bleedairapupos) == def.OFF) and (P.apurunning() > def.APUSTARTED) and not(P.enginesrunning(P.BOTH) and (get(P.bleedair1pos) == def.ON) or get(P.bleedair2pos) == def.ON))) then
                 P.commandtableentry(def.TEXT, "Set A P U Bleedair On")
-            elseif ((get(P.isolvalvepos) ~= def.ISOLVALVEOPEN) and (P.apurunning() > def.APUSTARTED)) then
+            elseif ((get(P.isolvalvepos) ~= def.ISOLVALVEOPEN) and (P.apurunning() > def.APUSTARTED) and not(P.enginesrunning(P.BOTH) and get(P.bleedair2pos) == def.ON)) then
                 P.commandtableentry(def.TEXT, "Set Isolation Valve Open")
+                       elseif (((get(P.bleedairapupos) == def.ON) and (P.apurunning() > def.APUSTARTED) and (P.enginesrunning(P.BOTH) and (get(P.bleedair1pos) == def.ON) or get(P.bleedair2pos) == def.ON))) then
+                P.commandtableentry(def.TEXT, "Set A P U Bleedair Off")
+            elseif ((get(P.isolvalvepos) ~= def.ISOLVALVEAUTO) and (P.apurunning() > def.APUSTARTED) and (P.enginesrunning(P.BOTH) and get(P.bleedair2pos) == def.ON)) then
+                P.commandtableentry(def.TEXT, "Set Isolation Valve Auto")
             end
         end
         if ((get(P.atarmpos) == def.ARMED) and (get(P.atn1stat) == def.OFF) and (get(P.atthrottlelock) == def.OFF) and (get(P.eng1n1percent) > 40) and (get(P.eng1n1percent) > 40)) then 

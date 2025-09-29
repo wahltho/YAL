@@ -16,7 +16,7 @@ local YALupdateavailable, YALnewversion = helpers.checkForUpdate()
 
 local wTitle = string.format("%s - " .. messages.translation['SETUP'], def.APPNAMEPREFIXLONG.. " v".. def.VERSION)
 if YALupdateavailable then
-    wTitle = wTitle .. " " .. messages.translation['UPDATEAVAILABLE'] .. " v" .. YALnewversion
+    wTitle = wTitle .. "   " .. messages.translation['UPDATEAVAILABLE'] .. " v" .. YALnewversion
 end
 
 local x_col1 = 10

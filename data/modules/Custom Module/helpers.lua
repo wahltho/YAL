@@ -45,12 +45,12 @@ function P.checkForUpdate()
     downloadResult, contents = sasl.net.downloadFileContentsSync(url)
     if downloadResult then -- ... process data
         newVersion = helpers.cleanString(contents, true)
-        sasl.logDebug(string.format("checkForUpdate: current version: %s, available version %s", def.VERSION, newVersion))
+        sasl.logDebug(string.format("Current version: %s, available version %s", def.VERSION, newVersion))
         if (tonumber(newVersion) > (tonumber(def.VERSION))) then
             updateAvailable = true
-            sasl.logInfo(string.format("checkForUpdate: New version available: %s", newVersion))
+            sasl.logInfo(string.format("New YAL version available v%s", newVersion))
         else
-            sasl.logInfo("checkForUpdate: YAL is up to date, no new version available")
+            sasl.logInfo("YAL is up to date, no new version available")
         end
     else
         sasl.logInfo("Check for Update FAILED")
