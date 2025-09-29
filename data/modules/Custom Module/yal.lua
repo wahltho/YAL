@@ -9187,7 +9187,7 @@ if (P.getmetarcounter == 0) then
                 P.commandtableentry(def.TEXT, "Set A P U Bleedair On")
             elseif ((get(P.isolvalvepos) ~= def.ISOLVALVEOPEN) and (P.apurunning() > def.APUSTARTED) and not(P.enginesrunning(P.BOTH) and get(P.bleedair2pos) == def.ON)) then
                 P.commandtableentry(def.TEXT, "Set Isolation Valve Open")
-                       elseif (((get(P.bleedairapupos) == def.ON) and (P.apurunning() > def.APUSTARTED) and (P.enginesrunning(P.BOTH) and (get(P.bleedair1pos) == def.ON) or get(P.bleedair2pos) == def.ON))) then
+                       elseif (((get(P.bleedairapupos) == def.ON) and (P.apurunning() > def.APUSTARTED) and (P.enginesrunning(P.BOTH) and ((get(P.bleedair1pos) == def.ON) or get(P.bleedair2pos) == def.ON)))) then
                 P.commandtableentry(def.TEXT, "Set A P U Bleedair Off")
             elseif ((get(P.isolvalvepos) ~= def.ISOLVALVEAUTO) and (P.apurunning() > def.APUSTARTED) and (P.enginesrunning(P.BOTH) and get(P.bleedair2pos) == def.ON)) then
                 P.commandtableentry(def.TEXT, "Set Isolation Valve Auto")
