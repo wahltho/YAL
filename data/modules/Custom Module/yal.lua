@@ -18,17 +18,19 @@ function P.YalinitGlobal()
 
     P.aircraftwasonground = false
 
-    P.remainingtimetoquit = 9999
+    P.updatemetartimer = nil
 
-    P.remainingtimetosave = 9999
+    P.altitudetimer = nil
+
+    P.pausetodtimer = nil
+
+    P.savetimer = nil
 
     P.flightstate = 0
 
     P.apphasils = false
 
     P.centertankoffset = false
-
-    P.getmetarcounter = 0
 
     P.depmetar = {icaocode = "XXXX", metarfound = false, metar = {}, decodedmetar = {}}
     P.desmetar = {icaocode = "XXXX", metarfound = false, metar = {}, decodedmetar = {}}
@@ -191,6 +193,7 @@ function P.initDataref()
     P.aphdgselstat = globalProperty("laminar/B738/autopilot/hdg_sel_status")
     P.apvsstat = globalProperty("laminar/B738/autopilot/vs_status")
     P.aplvlchgstat = globalProperty("laminar/B738/autopilot/lvl_chg_status")
+    P.apvnavaltmode = globalProperty("laminar/B738/autopilot/vnav_alt_mode")
 
     P.mmrinstalled = globalProperty("laminar/B738/fms/mmr")
     P.lpvinstalled = globalProperty("laminar/B738/lpv_install")
@@ -737,8 +740,6 @@ function P.yalreset()
         helpers.writenavdatatable(P.navdatatable)
     end
 
-    P.remainingtimetoquit = P.configvalues[def.CONFIGTODPAUSEQUITTIME]
-    P.remainingtimetosave = P.configvalues[def.CONFIGSAVETIME]
     if (P.configvalues[def.CONFIGWAKEOVERRIDE] == def.ON) then
         set(P.wakeoverride, def.ON)
     end
@@ -2571,6 +2572,69 @@ function P.settotrim(trimvalue)
 
     return true
 
+end
+
+--------------------------------------------------------------------------------------------------------------
+function P.updatemetar()
+
+    local nearesticaotmp = helpers.cleanstring(get(P.nearesticao))
+    local depicaotmp = helpers.cleanstring(get(P.depicao))
+    local desicaotmp = helpers.cleanstring(get(P.desicao))
+
+    if (helpers.isvalidicao(depicaotmp)) then
+        P.depmetar.metar = helpers.getMetar(depicaotmp)
+        if P.depmetar.metar and P.depmetar.metar.raw_text and #P.depmetar.metar.raw_text > 0 then
+            P.depmetar.icaocode = depicaotmp
+            P.depmetar.metarfound = true
+            P.depmetar.decodedmetar = helpers.decodemetar(P.depmetar.metar.raw_text)
+        else
+            P.depmetar.icaocode = "XXXX"
+            P.depmetar.metarfound = false
+            P.depmetar.decodedmetar = {}
+        end
+    elseif (helpers.isvalidicao(nearesticaotmp)) then
+        P.depmetar.metar = helpers.getMetar(nearesticaotmp)
+        if P.depmetar.metar and P.depmetar.metar.raw_text and #P.depmetar.metar.raw_text > 0 then
+            P.depmetar.icaocode = nearesticaotmp
+            P.depmetar.metarfound = true
+            P.depmetar.decodedmetar = helpers.decodemetar(P.depmetar.metar.raw_text)
+        else
+            P.depmetar.icaocode = "XXXX"
+            P.depmetar.metarfound = false
+            P.depmetar.decodedmetar = {}
+        end
+    end
+
+    if (helpers.isvalidicao(desicaotmp)) then
+        P.desmetar.metar = helpers.getMetar(desicaotmp)
+        if P.desmetar.metar and P.desmetar.metar.raw_text and #P.desmetar.metar.raw_text > 0 then
+            P.desmetar.icaocode = desicaotmp
+            P.desmetar.metarfound = true
+            P.desmetar.decodedmetar = helpers.decodemetar(P.desmetar.metar.raw_text)
+        else
+            P.desmetar.icaocode = "XXXX"
+            P.desmetar.metarfound = false
+            P.desmetar.decodedmetar = {}
+        end
+    end
+
+    if P.depmetar.metarfound and P.depmetar.decodedmetar then
+        if (sasl.getLogLevel() == LOG_DEBUG) then
+            helpers.logtable(P.depmetar.decodedmetar, "DEPMETAR")
+        end
+    else
+        sasl.logInfo("Departure METAR not found or not decoded for logging.")
+    end
+
+    if P.desmetar.metarfound and P.desmetar.decodedmetar then
+        if (sasl.getLogLevel() == LOG_DEBUG) then
+            helpers.logtable(P.desmetar.decodedmetar, "DESMETAR")
+        end
+    elseif (helpers.isvalidicao(desicaotmp)) then
+        sasl.logInfo("Destinaton METAR not found or not decoded for logging.")
+    end
+
+    return true
 end
 
 --------------------------------------------------------------------------------------------------------------
@@ -9080,87 +9144,62 @@ end
 
 function P.ongoingtasks()
 
-    local nearesticaotmp = helpers.cleanstring(get(P.nearesticao))
-    local depicaotmp = helpers.cleanstring(get(P.depicao))
-    local desicaotmp = helpers.cleanstring(get(P.desicao))
-    local deslandingalttmp = 0
-
-if (P.getmetarcounter == 0) then
-        if ((depicaotmp ~= P.depmetar.icaocode) and helpers.isvalidicao(depicaotmp)) then
-            P.depmetar.metar = helpers.getMetar(depicaotmp)
-            if P.depmetar.metar and P.depmetar.metar.raw_text and #P.depmetar.metar.raw_text > 0 then
-                P.depmetar.icaocode = depicaotmp
-                P.depmetar.metarfound = true
-                P.depmetar.decodedmetar = helpers.decodemetar(P.depmetar.metar.raw_text)
-            else
-                P.depmetar.icaocode = "XXXX"
-                P.depmetar.metarfound = false
-                P.depmetar.decodedmetar = {}
-            end
-        elseif (not helpers.isvalidicao(depicaotmp) and (nearesticaotmp ~= P.depmetar.icaocode) and helpers.isvalidicao(nearesticaotmp)) then
-            P.depmetar.metar = helpers.getMetar(nearesticaotmp)
-            if P.depmetar.metar and P.depmetar.metar.raw_text and #P.depmetar.metar.raw_text > 0 then
-                P.depmetar.icaocode = nearesticaotmp
-                P.depmetar.metarfound = true
-                P.depmetar.decodedmetar = helpers.decodemetar(P.depmetar.metar.raw_text)
-            else
-                P.depmetar.icaocode = "XXXX"
-                P.depmetar.metarfound = false
-                P.depmetar.decodedmetar = {}
-            end
-        end
-
-        if (desicaotmp ~= P.desmetar.icaocode) and helpers.isvalidicao(desicaotmp) then
-            P.desmetar.metar = helpers.getMetar(desicaotmp)
-            if P.desmetar.metar and P.desmetar.metar.raw_text and #P.desmetar.metar.raw_text > 0 then
-                P.desmetar.icaocode = desicaotmp
-                P.desmetar.metarfound = true
-                P.desmetar.decodedmetar = helpers.decodemetar(P.desmetar.metar.raw_text)
-            else
-                P.desmetar.icaocode = "XXXX"
-                P.desmetar.metarfound = false
-                P.desmetar.decodedmetar = {}
-            end
-        end
-
-        if P.desmetar.metarfound and P.desmetar.decodedmetar then
-            helpers.logtable(P.desmetar.decodedmetar, "DESMETAR")
-        else
-            sasl.logInfo("DESMETAR not found or not decoded for logging.")
-        end
-
-        if P.depmetar.metarfound and P.depmetar.decodedmetar then
-            helpers.logtable(P.depmetar.decodedmetar, "DEPMETAR")
-        else
-            sasl.logInfo("DEPMETAR not found or not decoded for logging.")
-        end
-
-        P.getmetarcounter = 5
-    else
-        P.getmetarcounter = P.getmetarcounter - 1
+    if (P.updatemetartimer == nil) then
+        P.updatemetartimer = sasl.createTimer()
+        sasl.startTimer(P.updatemetartimer)
+        P.updatemetar()
+    elseif (sasl.getElapsedSeconds(P.updatemetartimer) > 300) then
+        P.updatemetar()
+        sasl.startTimer(P.updatemetartimer)
     end
 
-    if ((get(P.pausetod) == def.ON) and (P.remainingtimetoquit ~= 9999)) then
+
+    if ((get(P.pausetod) == def.ON) and (P.configvalues[def.CONFIGTODPAUSEQUITTIME] ~= 9999)) then
         if (get(P.simpaused) == def.ON) then
-            if (P.remainingtimetoquit == 0) then
-                P.remainingtimetoquit = P.configvalues[def.CONFIGTODPAUSEQUITTIME]
+            if (P.pausetodtimer == nil) then
+                P.pausetodtimer = sasl.createTimer()
+                sasl.startTimer(P.pausetodtimer)
+            elseif (sasl.getElapsedSeconds(P.pausetodtimer) > P.configvalues[def.CONFIGTODPAUSEQUITTIME]) then
                 helpers.command_once("laminar/B738/tab/save_flight" .. tonumber(P.configvalues[def.CONFIGSAVENUMBER]))
                 helpers.command_once("sim/operation/quit")
-            else
-                P.remainingtimetoquit = P.remainingtimetoquit - 1
             end
-        else
-            P.remainingtimetoquit = P.configvalues[def.CONFIGTODPAUSEQUITTIME]
+        elseif (P.pausetodtimer ~= nil) then
+            sasl.stopTimer(P.pausetodtimer)
+            P.pausetodtimer = nil
         end
+    elseif (P.pausetodtimer ~= nil) then
+        sasl.stopTimer(P.pausetodtimer)
+        P.pausetodtimer = nil
     end
 
-    if (P.remainingtimetosave ~= 9999) then
-        if (P.remainingtimetosave == 0) then
-            P.remainingtimetosave = P.configvalues[def.CONFIGSAVETIME]
+    if (P.configvalues[def.CONFIGSAVETIME] ~= 9999) then
+        if (P.savetimer == nil) then
+            P.savetimer = sasl.createTimer()
+            sasl.startTimer(P.savetimer)
+        elseif (sasl.getElapsedSeconds(P.savetimer) > P.configvalues[def.CONFIGSAVETIME]) then
             helpers.command_once("laminar/B738/tab/save_flight" .. tonumber(P.configvalues[def.CONFIGSAVENUMBER]))
-        else
-            P.remainingtimetosave = P.remainingtimetosave - 1
+            sasl.startTimer(P.savetimer)
         end
+    elseif (P.savetimer ~= nil) then
+        sasl.stopTimer(P.savetimer)
+        P.savetimer = nil
+    end
+
+    if ((P.procedureloop1.lock == def.NOPROCEDURE) and (get(P.airgroundsensor) == def.OFF) and (P.flightstate == 2)) then
+        if ((math.abs(get(P.altitude) - P.configvalues[def.CONFIGLOWEAIRSPACEALT]) < 100) and (get(P.fmccruisealt) > P.configvalues[def.CONFIGLOWEAIRSPACEALT]) and (get(P.apvnavaltmode) == def.ON)) then
+            if (P.altitudetimer == nil) then
+                P.altitudetimer = sasl.createTimer()
+                sasl.startTimer(P.altitudetimer)
+            elseif (sasl.getElapsedSeconds(P.altitudetimer) > 600) then
+                P.commandtableentry(def.TEXT, "Check M C P Alitude and V N A V Mode")
+            end
+        elseif (P.altitudetimer ~= nil) then
+            sasl.stopTimer(P.altitudetimer)
+            P.altitudetimer = nil
+        end
+    elseif (P.altitudetimer ~= nil) then
+        sasl.stopTimer(P.altitudetimer)
+        P.altitudetimer = nil
     end
 
     if ((P.procedureloop1.lock == def.NOPROCEDURE) and (get(P.airgroundsensor) == def.ON) and (P.flightstate == 0)) then
@@ -9183,13 +9222,13 @@ if (P.getmetarcounter == 0) then
                 P.commandtableentry(def.TEXT, "Engine 2 N 2 at 25 Percent")
             elseif ((P.apurunning() == def.APUOFFBUS) and (get(P.gen1pos) == def.OFF) and (get(P.gen1pos) == def.OFF)) then
                 P.commandtableentry(def.TEXT, "Switch A P U Generator On")
-            elseif (((get(P.bleedairapupos) == def.OFF) and (P.apurunning() > def.APUSTARTED) and not(P.enginesrunning(P.BOTH) and (get(P.bleedair1pos) == def.ON) or get(P.bleedair2pos) == def.ON))) then
+            elseif ((get(P.bleedairapupos) == def.OFF) and (P.apurunning() > def.APUSTARTED) and ((not P.enginesrunning(P.BOTH)) or (P.enginesrunning(P.BOTH) and get(P.bleedair1pos) == def.OFF and get(P.bleedair2pos) == def.OFF))) then
                 P.commandtableentry(def.TEXT, "Set A P U Bleedair On")
             elseif ((get(P.isolvalvepos) ~= def.ISOLVALVEOPEN) and (P.apurunning() > def.APUSTARTED) and not(P.enginesrunning(P.BOTH) and get(P.bleedair2pos) == def.ON)) then
                 P.commandtableentry(def.TEXT, "Set Isolation Valve Open")
-                       elseif (((get(P.bleedairapupos) == def.ON) and (P.apurunning() > def.APUSTARTED) and (P.enginesrunning(P.BOTH) and ((get(P.bleedair1pos) == def.ON) or get(P.bleedair2pos) == def.ON)))) then
+            elseif ((get(P.bleedairapupos) == def.ON) and P.enginesrunning(P.BOTH) and (get(P.bleedair1pos) == def.ON or get(P.bleedair2pos) == def.ON)) then
                 P.commandtableentry(def.TEXT, "Set A P U Bleedair Off")
-            elseif ((get(P.isolvalvepos) ~= def.ISOLVALVEAUTO) and (P.apurunning() > def.APUSTARTED) and (P.enginesrunning(P.BOTH) and get(P.bleedair2pos) == def.ON)) then
+            elseif ((get(P.isolvalvepos) ~= def.ISOLVALVEAUTO) and P.enginesrunning(P.BOTH) and (get(P.bleedair1pos) == def.ON or get(P.bleedair2pos) == def.ON)) then
                 P.commandtableentry(def.TEXT, "Set Isolation Valve Auto")
             end
         end
@@ -9609,7 +9648,7 @@ function P.do_yal()
     if settings.newSettingsAvailable then
         P.readconfig()
         P.initDataref()
-        sasl.logInfo("new settings detected... loading")
+        sasl.logInfo("Loading new settings")
     end
 
     local next_recommended_wait_step = def.STANDARDWAIT 
@@ -9687,19 +9726,14 @@ function P.do_yal()
     sasl.logDebug("AFTERLANDINGSET: " .. tostring(P.proceduretable[def.AFTERLANDINGPROCEDURE].set))
     sasl.logDebug("ATPARKINGPOSITIONSET: " .. tostring(P.proceduretable[def.ATPARKINGPOSITIONPROCEDURE].set))
     sasl.logDebug("--------------------------------------------")
-    sasl.logDebug("FLIGHTSTATE: " .. tostring(P.flightstate))
-    sasl.logDebug("FMSFLIGHTPHASE:" .. tostring(get(P.fmsflightphase)))
-    sasl.logDebug("AIRCRAFTWASONGROUND: " .. tostring(P.aircraftwasonground))
-    sasl.logDebug("Raw Departure METAR: " .. tostring(P.depmetar.metar.raw_text))
-    sasl.logDebug("Altitude METAR: " .. tostring(P.depmetar.metar.elevation_m))
-    sasl.logDebug("Raw METAR: " .. tostring(P.desmetar.metar.raw_text))
-    sasl.logDebug("Altitude METAR: " .. tostring(P.desmetar.metar.elevation_m))
+    sasl.logDebug("FLIGHTSTATE: " .. tostring(P.flightstate) .. " FMSFLIGHTPHASE: " .. tostring(get(P.fmsflightphase)) .. " AIRCRAFTWASONGROUND: " .. tostring(P.aircraftwasonground))
+    sasl.logDebug("Raw METAR Departure: " .. tostring(P.depmetar.metar.raw_text) .. " Altitude METAR: " .. tostring(P.depmetar.metar.elevation_m))
+    sasl.logDebug("Raw METAR Destination: " .. tostring(P.desmetar.metar.raw_text) .. " Altitude METAR: " .. tostring(P.desmetar.metar.elevation_m))
 
     return next_recommended_wait_step
 end
 
 --------------------------------------------------------------------------------------------------------------
--- Order is important
 
 menu_procedure_step = sasl.appendMenuItem(P.menu_main, "Skip Procedure Step", P.skipprocedurestep)
 menu_abort_procedure = sasl.appendMenuItem(P.menu_main, "Abort Procedure", P.abortprocedure)
@@ -9739,7 +9773,6 @@ menu_yal_reset = sasl.appendMenuItem(P.menu_main, "Reset YAL", P.yalreset)
 sasl.appendMenuSeparator ( P.menu_main )
 
 --------------------------------------------------------------------------------------------------------------
--- enableMenus()
 
 function P.enableMenus()
     local enable = 0
