@@ -76,7 +76,20 @@ P.TEXT = 2
 
 P.DEFAULTVIEW = 99
 
+P.FLIGHTSTATEPREFLIGHT = 0
+P.FLIGHTSTATEINITIALCLIMB = 1
+P.FLIGHTSTATECLIMB = 2
+P.FLIGHTSTATECRUISE = 3
+P.FLIGHTSTATEAPPROACH = 4
+P.FLIGHTSTATETAXITOGATE = 5
+P.FLIGHTSTATESHUTDOWN = 6
+
 -- Prozedur-Konstanten
+P.PROCEDURELOOP = "procedureloop"
+P.TRIGGEREDMANUALLY = true
+P.GROUNDONLY = 1
+P.AIRONLY = 2
+
 P.NOPROCEDURE = 0
 P.COCKPITINITPROCEDURE = 1
 P.COLDANDDARKPROCEDURE = 2
@@ -294,7 +307,7 @@ P.XPCACHESPATH = P.XPOUTPUTPATH .. "caches" .. P.OSSEPARATOR
 P.YALCACHEPATH = P.XPOUTPUTPATH .. "caches" .. P.OSSEPARATOR .. P.APPNAMEPREFIX .. ".cache".. P.OSSEPARATOR
 P.YALGITHUBURL = "https://raw.githubusercontent.com/wahltho/YAL/main/data/modules/configuration/version.ini"
 
-P.AVWEATHERFURLCSV = "https://aviationweather.gov/api/data/metar?taf=false&format=csv&ids="
+P.AVWEATHERFURLCSV = "https://aviationweather.gov/api/data/metar?taf=false&ids="
 
 P.APPNAMEPREFIXLONG = "Yet Another Linda"
 

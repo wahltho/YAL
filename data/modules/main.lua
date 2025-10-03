@@ -4,7 +4,7 @@ require("helpers")
 require("yal")
 
 
-sasl.logInfo(string.format("Starting %s v%s on Xp %d", def.APPNAMEPREFIXLONG, def.VERSION, helpers.xpVersion))
+sasl.logInfo(string.format("Starting %s v%s on X-Plane v%d", def.APPNAMEPREFIXLONG, def.VERSION, helpers.xpVersion))
 sasl.setLogLevel(LOG_INFO)
 
 if not helpers.isXp12 then

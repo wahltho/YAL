@@ -347,17 +347,26 @@ function P.calccourse(in_crs)
 end
 
 --------------------------------------------------------------------------------------------------------------
-function P.logtable(table, prefix)
-    prefix = prefix or ""  -- Standardpraefix (leer, falls nicht angegeben)
-    for key, value in pairs(table) do
-        if type(value) == "table" then
-            -- Wenn der Wert eine Tabelle ist, rufe die Funktion rekursiv auf
-            sasl.logDebug(prefix .. tostring(key) .. " {") -- sasl.logDebug ist global (angenommen)
-            P.logtable(value, prefix .. "  ")  -- Erhoehe den Praefix fuer die Einrueckung
-            sasl.logDebug(prefix .. "}")
+function P.logtable(tbl, path)
+    -- Der Startpfad ist der Name der Tabelle oder leer, falls nicht angegeben.
+    path = path or ""
+
+    for key, value in pairs(tbl) do
+        -- Erstelle den vollständigen Pfad für den aktuellen Eintrag.
+        local current_path
+        if path == "" then
+            current_path = tostring(key)
         else
-            -- Wenn der Wert kein Table ist, logge den Schluessel und den Wert
-            sasl.logDebug(prefix .. tostring(key) .. " = " .. tostring(value)) -- sasl.logDebug ist global (angenommen)
+            current_path = path .. "." .. tostring(key)
+        end
+
+        if type(value) == "table" then
+            -- Wenn der Wert eine weitere Tabelle ist, rufe die Funktion
+            -- rekursiv mit dem neuen, erweiterten Pfad auf.
+            P.logtable(value, current_path)
+        else
+            -- Gib den vollständigen Pfad und den dazugehörigen Wert aus.
+            sasl.logDebug(current_path .. " = " .. tostring(value))
         end
     end
 end
@@ -821,8 +830,7 @@ function P.decodemetar(metar)
     local result = {}
     local parts = {}
 
-    -- String-Split
-    sasl.logDebug("Starting METAR parsing") -- sasl.logDebug ist global (angenommen)
+    sasl.logDebug("Starting METAR parsing")
     local current_part = ""
     for i = 1, #metar do
         local c = string.sub(metar, i, i)
@@ -844,13 +852,11 @@ function P.decodemetar(metar)
         sasl.logDebug(string.format("   [%d] = %s", idx, part_val))
     end
 
-    -- Station
     if (#parts >= 1) then
         result.station = parts[1]
         sasl.logDebug("Parsed station: "..result.station)
     end
 
-    -- Date/Time
     if (#parts >= 2) then
         local dt = parts[2]
         if ((#dt == 7) and (string.sub(dt, 7) == "Z")) then
@@ -867,11 +873,10 @@ function P.decodemetar(metar)
         end
     end
 
-    local i = 3 -- Start index for main METAR parts
+    local i = 3
     local parsing_main_data = true
 
-    -- def.AUTO
-    if (i <= #parts and parts[i] == "AUTO") then -- def ist global (angenommen)
+    if (i <= #parts and parts[i] == "AUTO") then
         result.auto = true
         sasl.logDebug("Parsed AUTO: true")
         i = i + 1
@@ -994,11 +999,24 @@ function P.decodemetar(metar)
                 sasl.logError("Warning: Could not parse wind direction or unit from: " .. part)
             end
 
+        elseif (result.wind and not result.wind.variable_direction and
+                #part == 7 and
+                string.sub(part, 4, 4) == "V" and
+                tonumber(string.sub(part, 1, 3)) and
+                tonumber(string.sub(part, 5, 7))
+               ) then
+            local d1 = tonumber(string.sub(part, 1, 3))
+            local d2 = tonumber(string.sub(part, 5, 7))
+            if d1 and d2 then
+                result.wind.variable_direction = { dir1 = d1, dir2 = d2 }
+                sasl.logDebug(string.format("Parsed separate variable wind direction group: %d V %d", d1, d2))
+                parsed = true
+            end
+
         elseif (not result.visibility and string.find(part, "SM$")) then
             local sm_val_str = string.sub(part, 1, #part - 2)
             local sm_value
 
-            -- Überprüfe auf gemischte Zahlen (z.B. "1 3/4")
             local int_part, frac_part = string.match(sm_val_str, "^(%d+)%s+(%d+/%d+)$")
             if int_part and frac_part then
                 local num, den = string.match(frac_part, "(%d+)/(%d+)")
@@ -1006,12 +1024,10 @@ function P.decodemetar(metar)
                     sm_value = tonumber(int_part) + (tonumber(num) / tonumber(den))
                 end
             else
-                -- Überprüfe auf reine Brüche (z.B. "1/2")
                 local num, den = string.match(sm_val_str, "^(%d+)/(%d+)$")
                 if num and den then
                     sm_value = tonumber(num) / tonumber(den)
                 else
-                    -- Überprüfe auf ganze Zahlen (z.B. "5")
                     sm_value = tonumber(sm_val_str)
                 end
             end
@@ -1214,122 +1230,50 @@ function P.decodemetar(metar)
 end
 
 --------------------------------------------------------------------------------------------------------------
-function P.parseCSVToTable(csvData)
-    -- Teile die CSV-Daten in Zeilen auf
-    local lines = {}
-    local startPos = 1
-    while true do
-        local endPos = string.find(csvData, "\n", startPos)
-        if not endPos then
-            table.insert(lines, string.sub(csvData, startPos))
-            break
-        end
-        table.insert(lines, string.sub(csvData, startPos, endPos - 1))
-        startPos = endPos + 1
-    end
-
-    -- Finde die Header-Zeile und die Datenzeile
-    local headerLine, dataLine
-    for i = #lines, 1, -1 do
-        if string.find(lines[i], "raw_text") then
-            headerLine = lines[i]
-            dataLine = lines[i + 1]
-            break
-        end
-    end
-
-    -- Ueberpruefen, ob Header und Daten gefunden wurden
-    if not headerLine or not dataLine then
-        return nil
-    end
-
-    -- Header extrahieren
-    local headers = {}
-    local startPosHeader = 1
-    while true do
-        local endPosHeader = string.find(headerLine, ",", startPosHeader)
-        if not endPosHeader then
-            table.insert(headers, string.sub(headerLine, startPosHeader))
-            break
-        end
-        table.insert(headers, string.sub(headerLine, startPosHeader, endPosHeader - 1))
-        startPosHeader = endPosHeader + 1
-    end
-
-    -- Daten extrahieren
-    local values = {}
-    local startPosData = 1
-    while true do
-        local endPosData = string.find(dataLine, ",", startPosData)
-        if not endPosData then
-            table.insert(values, string.sub(dataLine, startPosData)) -- Corrected: dataLine instead of dataData
-            break
-        end
-        table.insert(values, string.sub(dataLine, startPosData, endPosData - 1)) -- Corrected: dataLine instead of dataData
-        startPosData = endPosData + 1
-    end
-
-    -- Kombiniere Header und Werte in einer Tabelle
-    local resultTable = {}
-    for i = 1, #headers do
-        resultTable[headers[i]] = values[i] or ""
-    end
-
-    return resultTable
-end
-
---------------------------------------------------------------------------------------------------------------
 function P.getMetar(icaocode)
+    local metarstring = nil
+    local metarsource = "X-Plane"
 
-    local metarTable = {}
-    local metarUrl = def.AVWEATHERFURLCSV .. icaocode
-    local tempFilePath = def.YALCACHEPATH .. icaocode .. "_metar.csv"
+    local metarbuffer = ffi.new("char[150]")
+    local buffer_size = 150
+    local c_icaocode = ffi.cast("char*", icaocode)
+    xplm.XPLMGetMETARForAirport(c_icaocode, metarbuffer, buffer_size)
+    metarstring = ffi.string(metarbuffer)
 
-    sasl.logDebug("URL " .. metarUrl)
+    if ((metarstring == "") or (metarstring:sub(1, 4) ~= icaocode)) then
+        sasl.logInfo("XPLM METAR for " .. icaocode .. " not found. Trying web download.")
+        
+        metarstring = nil 
+        
+        local metarUrl = def.AVWEATHERFURLCSV .. icaocode
+        local tempFilePath = def.YALCACHEPATH .. icaocode .. "_metar.txt"
+
+        sasl.logDebug("URL " .. metarUrl)
         sasl.logDebug("Path " .. tempFilePath)
 
-    if sasl.net.downloadFileSync(metarUrl, tempFilePath) then
-        sasl.logInfo("METAR for " .. icaocode .. " successfully loaded")
-
-        local file = io.open(tempFilePath, "r")
-        if file then
-            local csvData = file:read("*a")
-            file:close()
-
-            os.remove(tempFilePath)
-            
-            metarTable = P.parseCSVToTable(csvData)
-            if metarTable then
-                -- Tabelle ausgeben
-                sasl.logDebug("METAR-Data for " .. icaocode .. ":")
-                for key, value in pairs(metarTable) do
-                    sasl.logDebug(key .. ": " .. value)
-                end
+        if sasl.net.downloadFileSync(metarUrl, tempFilePath) then
+            local file = io.open(tempFilePath, "r")
+            if file then
+                metarstring = file:read("*a")
+                file:close()
+                metarsource = "Aviation Weather"
             else
-                sasl.logError("Error Parsing CSV-Data.")
+                sasl.logError("Error: Could not open temp file for " .. icaocode)
             end
+            os.remove(tempFilePath)
         else
-            sasl.logError("Error Opening Temp File.")
-        end
-    else
-               local metarbuffer = ffi.new("char[150]")
-        local buffer_size = 150
-
-        -- Direkte Konvertierung des Strings in einen C-Pointer
-        local c_icaocode = ffi.cast("char*", icaocode)
-
-        xplm.XPLMGetMETARForAirport(c_icaocode, metarbuffer, buffer_size)
-
-        local metarstring = ffi.string(metarbuffer)
-
-        if metarstring == "" or metarstring:sub(1, 4) ~= icaocode then
-            sasl.logInfo("Error Downloading METAR for " .. icaocode .. ".")
-        else
-            metarTable.raw_text = metarstring
+            sasl.logError("Error: Download of METAR failed for " .. icaocode)
         end
     end
 
-    return metarTable
+    if (metarstring ~= nil and metarstring ~= "") then
+        sasl.logInfo("METAR for " .. icaocode .. " successfully loaded from " .. metarsource)
+    else
+        sasl.logError("METAR for " .. icaocode .. " could not be obtained.")
+        metarstring = nil
+    end
+
+    return metarstring
 end
 
 --------------------------------------------------------------------------------------------------------------
@@ -1353,11 +1297,13 @@ function P.getRunwayHeadingFromDesignator(runwayDesignator)
 end
 
 --------------------------------------------------------------------------------------------------------------
-function P.shouldCheckRunwaySuitability(weatherData, runwayDesignator)
+function P.shouldCheckRunwaySuitability(metar, runwayDesignator)
     -- --- Schwellenwerte anpassbar ---
     local MAX_TAILWIND_KN = 10     -- Maximal erlaubter Rueckenwind fuer normale Landung
     local MAX_CROSSWIND_KN = 20    -- Maximal erlaubter Seitenwind (oft Flugzeug-spezifisch)
     local MIN_WIND_SPEED_FOR_CHECK = 5 -- Mindestwindstaerke, ab der Windkomponenten relevant werden
+
+    local weatherData = metar.decodedmetar
 
     sasl.logDebug("Checking suitability for runway: " .. tostring(runwayDesignator)) -- sasl.logDebug ist global (angenommen)
 
@@ -1409,7 +1355,7 @@ function P.shouldCheckRunwaySuitability(weatherData, runwayDesignator)
         return false -- Seitenwind zu stark
     end
 
-    sasl.logDebug(string.format("Runway %s is suitable based def.ON current wind conditions.", runwayDesignator))
+    sasl.logDebug(string.format("Runway %s is suitable based on current wind conditions.", runwayDesignator))
     return true -- Landebahn ist innerhalb der Schwellenwerte geeignet
 end
 
@@ -1541,6 +1487,56 @@ function P.formatMetarSpeechSummary(metar)
     end
 
     return table.concat(parts, ", ")
+end
+
+--------------------------------------------------------------------------------------------------------------
+function P.formatWindSpeechSummary(metar, latpos, lonpos)
+
+
+    if (not metar or not metar.decodedmetar or not metar.decodedmetar.wind or not metar.decodedmetar.wind.direction or (type(metar.decodedmetar.wind.speed) ~= "number")) then
+        return nil
+    end
+
+    local wind_data = metar.decodedmetar.wind
+
+    if wind_data.speed <= 2 then
+        return "Wind calm."
+    end
+
+    local magnetic_variation = P.getmagneticvariation(latpos, lonpos)
+    
+    local report_parts = {"Wind"}
+
+    local function correct_and_round(true_dir)
+        local magnetic_dir = true_dir + magnetic_variation
+        local rounded_dir = math.floor((magnetic_dir / 10) + 0.5) * 10
+        rounded_dir = (rounded_dir - 1 + 360) % 360 + 1
+        if rounded_dir == 0 then rounded_dir = 360 end
+        return rounded_dir
+    end
+
+    if wind_data.direction == "VRB" then
+        table.insert(report_parts, "variable")
+    elseif wind_data.variable_direction then
+        local mag_dir1 = correct_and_round(wind_data.variable_direction.dir1)
+        local mag_dir2 = correct_and_round(wind_data.variable_direction.dir2)
+        table.insert(report_parts, "variable between " .. string.format("%03d", mag_dir1) .. " and " .. string.format("%03d", mag_dir2))
+    else
+        local magnetic_direction = correct_and_round(wind_data.direction)
+        table.insert(report_parts, string.format("%03d", magnetic_direction))
+    end
+
+    table.insert(report_parts, "at")
+    table.insert(report_parts, wind_data.speed)
+
+    if wind_data.gust and wind_data.gust > wind_data.speed then
+        table.insert(report_parts, "gusting")
+        table.insert(report_parts, wind_data.gust)
+    end
+
+    table.insert(report_parts, "knots.")
+
+    return table.concat(report_parts, " ")
 end
 
 --------------------------------------------------------------------------------------------------------------
@@ -1723,7 +1719,9 @@ function P.determineTakeoffFlapsSetting(totalweightkgs, deprwylen, deprwyheading
 end
 
 --------------------------------------------------------------------------------------------------------------
-function P.calcappflapsvref(totalweightkgs, desrwylen, desrwyheading, vref30, weatherData)
+function P.calcappflapsvref(totalweightkgs, desrwylen, desrwyheading, vref30, metar)
+
+    local weatherData = metar.decodedmetar
 
     if not (weatherData and weatherData.wind and weatherData.wind.direction ~= nil and weatherData.wind.speed ~= nil and
             weatherData.temperature and weatherData.temperature.value ~= nil and
@@ -1827,13 +1825,15 @@ function P.calculateVref(weightKg, flapsSetting, weatherData, crosswindKnots)
 end
 
 --------------------------------------------------------------------------------------------------------------
-function P.calcautobrake(landingSpeed, totalweightkgs, desrwylen, weatherData)
+function P.calcautobrake(landingSpeed, totalweightkgs, desrwylen, metar)
     local autobrakeSettings = {
         {maxDeceleration = 1.5, setting = def.AUTOBRAKE1},
         {maxDeceleration = 2.0, setting = def.AUTOBRAKE2},
         {maxDeceleration = 3.0, setting = def.AUTOBRAKE3},
         {maxDeceleration = 4.0, setting = def.AUTOBRAKEMAX}
     }
+
+    local weatherData = metar.decodedmetar
 
     local requiredDeceleration = (landingSpeed^2) / (2 * desrwylen)
 
@@ -2397,6 +2397,45 @@ function P.writenavdatatable(navdatatable)
     end
 
     destnavdatafile:close()
+
+    return true
+end
+
+--------------------------------------------------------------------------------------------------------------
+function P.buildairportdatatable(airport_db)
+  
+    local file = io.open("Resources/default data/earth_aptmeta.dat", "r")
+
+
+    if not file then
+        sasl.logError("Could not open Resources/default data/earth_aptmeta.dat")
+        return false
+    end
+
+    local line_count = 0
+
+    for line in file:lines() do
+        local icao, _, lat, lon, elev, type, rwy, ils = 
+            line:match("^(%S+)%s+(%S+)%s+(%S+)%s+(%S+)%s+(%S+)%s+(%S+)%s+(%S+)%s+(%S+)")
+        
+
+        if icao then
+            airport_db[icao] = {
+                latitude     = tonumber(lat),
+                longitude    = tonumber(lon),
+                elevation_ft = tonumber(elev),
+                airport_type = type,
+                max_rwy_ft   = tonumber(rwy),
+                has_ils      = (ils == "I")
+            }
+            line_count = line_count + 1
+        end
+    end
+
+    -- Datei wieder schließen
+    file:close()
+    
+    sasl.logInfo("Airport Data Table created, " .. line_count .. " entries.")
 
     return true
 end
