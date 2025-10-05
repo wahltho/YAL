@@ -968,10 +968,6 @@ function P.decodemetar(metar)
                 local gust = (gust_str_val and tonumber(gust_str_val)) or 0
 
                 if (speed ~= nil) then
-                    local original_speed_for_log = speed
-                    local original_gust_for_log = gust
-                    local original_unit_for_log = unit_str
-
                     if (unit_str == "MPS") then
                         speed = math.floor(speed * 1.94384 + 0.5)
                         if (gust_str_val) then gust = math.floor(gust * 1.94384 + 0.5) end
@@ -986,9 +982,6 @@ function P.decodemetar(metar)
                         gust = gust,
                         variable_direction = var_dir_match
                     }
-                    if unit_str ~= "KT" then
-                        sasl.logDebug(string.format("Converted %s %s (gust %s) to %d kt (gust %d kt)", speed_str_val, original_unit_for_log, gust_str_val or "N/A", speed, gust))
-                    end
                     sasl.logDebug(string.format("Parsed wind: dir=%s, speed=%d kt, gust=%d kt%s",
                         tostring(direction), speed, gust, (var_dir_match and string.format(", var=%d-%d", var_dir_match.dir1, var_dir_match.dir2)) or ""))
                     parsed = true
@@ -1035,32 +1028,22 @@ function P.decodemetar(metar)
             if (sm_value) then
                 local meters = math.floor(sm_value * 1609.34 + 0.5)
                 result.visibility = { value = math.min(meters, 10000) }
-                sasl.logDebug(string.format("Parsed visibility: %sSM, converted to %d meters (limited to 10000)", sm_val_str, result.visibility.value))
-                parsed = true
-            elseif sm_val_str == "P6" then
-                result.visibility = { value = math.min(math.floor(7 * 1609.34 + 0.5), 10000) }
-                sasl.logDebug(string.format("Parsed visibility: P6SM, interpreted as >6SM (~%d meters)", result.visibility.value))
+                sasl.logDebug(string.format("Parsed visibility: %sSM, converted to %d meters", sm_val_str, result.visibility.value))
                 parsed = true
             else
                 sasl.logError("Warning: Could not parse SM visibility value from: " .. part)
             end
-            
+
         elseif (not result.visibility and #part == 4 and (tonumber(part) or part == "9999")) then
             if (part == "9999") then
                 result.visibility = { value = 10000 }
                 sasl.logDebug("Parsed visibility: 10000+ meters (from 9999)")
-                parsed = true
             else
-                local vis_value = tonumber(part)
-                if vis_value then
-                    result.visibility = { value = vis_value }
-                    sasl.logDebug(string.format("Parsed visibility: %d meters", result.visibility.value))
-                    parsed = true
-                else
-                    sasl.logError("Warning: Numeric visibility part #4 failed tonumber unexpectedly: " .. part)
-                end
+                result.visibility = { value = tonumber(part) }
+                sasl.logDebug(string.format("Parsed visibility: %d meters", result.visibility.value))
             end
-            
+            parsed = true
+
         elseif (string.sub(part, 1, 1) == "R" and string.find(part, "/", 1, true) and #part >= 5) then
             result.runway_reports = result.runway_reports or {}
             table.insert(result.runway_reports, part)
@@ -1078,43 +1061,50 @@ function P.decodemetar(metar)
                 intensity = "heavy"
                 phenomenon = string.sub(part, 2)
             end
-            
-            local valid_phenomenon = false
-            if #phenomenon >= 2 then
-                for _, wc_entry in ipairs(weather_codes) do
-                    if phenomenon == wc_entry or string.find(phenomenon, wc_entry, 1, true) then
-                        valid_phenomenon = true
-                        break
-                    end
-                end
-            end
 
-            if valid_phenomenon then
-                table.insert(result.weather, {
-                    intensity = intensity,
-                    phenomenon = phenomenon
-                })
-                sasl.logDebug(string.format("Parsed weather: %s (%s)", phenomenon, intensity))
-                parsed = true
-            else
-                sasl.logError("Warning: Part looked like weather but phenomenon not matched or invalid: " .. part .. " (phenomenon checked: " .. phenomenon .. ")")
-            end
+            table.insert(result.weather, {
+                intensity = intensity,
+                phenomenon = phenomenon
+            })
+            sasl.logDebug(string.format("Parsed weather: %s (%s)", phenomenon, intensity))
+            parsed = true
 
         elseif ( (string.sub(part, 1, 3) == "FEW" or string.sub(part, 1, 3) == "SCT" or string.sub(part, 1, 3) == "BKN" or string.sub(part, 1, 3) == "OVC") and
-                     #part >= 6 and tonumber(string.sub(part, 4, 6)) ~= nil ) or
-                     ( string.sub(part, 1, 2) == "VV" and #part >= 5 and tonumber(string.sub(part, 3, 5)) ~= nil ) or
-                     ( part == "SKC" or part == "CLR" or part == "NSC" )
+                 #part >= 6 and tonumber(string.sub(part, 4, 6)) ~= nil ) or
+               ( string.sub(part, 1, 2) == "VV" and #part >= 5 and tonumber(string.sub(part, 3, 5)) ~= nil ) or
+               ( part == "SKC" or part == "CLR" or part == "NSC" ) or
+               ( string.sub(part, 1, 1) == '/' and (string.find(part, "TCU$") or string.find(part, "CB$")) ) or
+               ( string.sub(part, 1, 1) == '/' and (string.find(part, "FEW$") or string.find(part, "SCT$") or string.find(part, "BKN$") or string.find(part, "OVC$")) ) or
+               ( (string.sub(part, 1, 3) == "FEW" or string.sub(part, 1, 3) == "SCT" or string.sub(part, 1, 3) == "BKN" or string.sub(part, 1, 3) == "OVC") and string.sub(part, -3) == "///" )
         then
             result.clouds = result.clouds or {}
             if (part == "SKC" or part == "CLR" or part == "NSC") then
                 table.insert(result.clouds, { coverage = part, altitude = nil, type = "" })
                 sasl.logDebug("Parsed cloud: " .. part)
                 parsed = true
+            elseif (string.sub(part, 1, 1) == '/') then
+                local coverage = "///"
+                local altitude = nil
+                local cloud_type = ""
+                if string.find(part, "TCU$") then
+                    cloud_type = "TCU"
+                elseif string.find(part, "CB$") then
+                    cloud_type = "CB"
+                elseif string.find(part, "FEW$") or string.find(part, "SCT$") or string.find(part, "BKN$") or string.find(part, "OVC$") then
+                    coverage = string.sub(part, -3)
+                end
+                table.insert(result.clouds, { coverage = coverage, altitude = altitude, type = cloud_type })
+                sasl.logDebug(string.format("Parsed cloud with missing data: coverage=%s, altitude=nil, type=%s", coverage, cloud_type))
+                parsed = true
+            elseif (string.sub(part, -3) == "///") then
+                local coverage = string.sub(part, 1, 3)
+                table.insert(result.clouds, { coverage = coverage, altitude = nil, type = "" })
+                sasl.logDebug(string.format("Parsed cloud with missing altitude: coverage=%s, altitude=nil", coverage))
+                parsed = true
             else
                 local coverage_code
                 local altitude_str_val
                 local altitude_idx_start
-
                 if string.sub(part, 1, 2) == "VV" then
                     coverage_code = "VV"
                     altitude_idx_start = 3
@@ -1124,20 +1114,13 @@ function P.decodemetar(metar)
                 end
                 altitude_str_val = string.sub(part, altitude_idx_start, altitude_idx_start + 2)
                 local altitude_val = tonumber(altitude_str_val)
-
                 if altitude_val then
                     local cloud_significant_type = ""
                     if #part > (altitude_idx_start + 2) then
                         cloud_significant_type = string.sub(part, altitude_idx_start + 3)
                     end
-                    table.insert(result.clouds, {
-                        coverage = coverage_code,
-                        altitude = altitude_val * 100,
-                        type = cloud_significant_type
-                    })
-                    sasl.logDebug(string.format("Parsed cloud: %s at %d ft%s",
-                        coverage_code, altitude_val * 100,
-                        (cloud_significant_type ~= "" and (" ("..cloud_significant_type..")")) or ""))
+                    table.insert(result.clouds, { coverage = coverage_code, altitude = altitude_val * 100, type = cloud_significant_type })
+                    sasl.logDebug(string.format("Parsed cloud: %s at %d ft%s", coverage_code, altitude_val * 100, (cloud_significant_type ~= "" and (" ("..cloud_significant_type..")")) or ""))
                     parsed = true
                 else
                     sasl.logError("Warning: Could not parse cloud altitude for: " .. part .. " (altitude_str: '" .. altitude_str_val .. "')")
@@ -1145,12 +1128,11 @@ function P.decodemetar(metar)
             end
 
         elseif ( string.find(part, "/", 1, true) and (#part >= 5 and #part <= 7) and
-                     (string.sub(part, 1, 1) == "M" or tonumber(string.sub(part, 1, 1)) ~= nil) ) then
+                 (string.sub(part, 1, 1) == "M" or tonumber(string.sub(part, 1, 1)) ~= nil) ) then
             local slash_pos = string.find(part, "/", 2, true)
-            if slash_pos and slash_pos > 1 and slash_pos < #part then
+            if slash_pos then
                 local temp_str_val = string.sub(part, 1, slash_pos - 1)
                 local dew_str_val = string.sub(part, slash_pos + 1)
-
                 local temp_val = tonumber((string.gsub(temp_str_val, "M", "-")))
                 local dew_val = tonumber((string.gsub(dew_str_val, "M", "-")))
 
@@ -1159,67 +1141,43 @@ function P.decodemetar(metar)
                     result.dew_point = { value = dew_val }
                     sasl.logDebug(string.format("Parsed temp/dew: %d°C/%d°C", temp_val, dew_val))
                     parsed = true
-                else
-                    sasl.logError("Warning: Could not parse temperature or dew point values from: " .. part .. " (temp_str="..temp_str_val..", dew_str="..dew_str_val..")")
                 end
-            else
-                sasl.logError("Warning: Temp/Dew part malformed (slash position or content): " .. part)
             end
 
         elseif ((#part == 5) and (string.sub(part, 1, 1) == "Q" or string.sub(part, 1, 1) == "A") and tonumber(string.sub(part, 2))) then
             local val_str = string.sub(part, 2)
-            local value_num = tonumber(val_str)
-            local pressure_hpa = nil
-
             if (string.sub(part, 1, 1) == "Q") then
-                pressure_hpa = math.floor(value_num + 0.5)
+                result.pressure = { qnh_hpa = tonumber(val_str) }
+                sasl.logDebug(string.format("Parsed pressure: %d hPa", result.pressure.qnh_hpa))
             elseif (string.sub(part, 1, 1) == "A") then
-                local inHg = value_num / 100
-                pressure_hpa = math.floor(inHg * 33.8639 + 0.5)
+                local inHg = tonumber(val_str) / 100
+                result.pressure = { qnh_hpa = math.floor(inHg * 33.8639) }
+                sasl.logDebug(string.format("Parsed pressure: %.2f inHg, converted to %d hPa", inHg, result.pressure.qnh_hpa))
             end
-
-            if pressure_hpa then
-                result.pressure = { qnh_hpa = pressure_hpa }
-                sasl.logDebug(string.format("Parsed pressure: %d hPa (raw: %s)", pressure_hpa, part))
-                parsed = true
-            else
-                sasl.logError("Warning: Could not calculate hPa pressure from: " .. part)
-            end
+            parsed = true
 
         elseif (part == "NOSIG") then
             result.nosig = true
-            sasl.logDebug("Parsed NOSIG: no significant change expected")
+            sasl.logDebug("Parsed NOSIG")
             parsed = true
-            
+
         elseif (part == "RMK") then
-            result.remarks = {}
-            sasl.logDebug("Entered RMK block.")
+            result.remarks = ""
             local remark_idx = i + 1
             while(remark_idx <= #parts) do
                 local current_remark = parts[remark_idx]
                 if (current_remark == "TEMPO" or current_remark == "BECMG" or (string.len(current_remark) >=4 and string.sub(current_remark, 1, 4) == "PROB") or current_remark == "TREND") then
-                    sasl.logDebug("Remark parsing stopped; trend/change group encountered: " .. current_remark)
                     break
                 end
-
-                table.insert(result.remarks, current_remark)
-                sasl.logDebug("Parsed remark: " .. current_remark)
-
-                if current_remark == "$" then
-                    result.maintenance_indicator = true
-                    sasl.logDebug("Maintenance indicator '$' found and included in remarks.")
-                    remark_idx = remark_idx + 1
-                    break
-                end
+                result.remarks = result.remarks .. current_remark .. " "
                 remark_idx = remark_idx + 1
             end
-            i = remark_idx -1
+            i = remark_idx - 1
+            sasl.logDebug("Parsed RMK: " .. result.remarks)
             parsed = true
-            parsing_main_data = false
-            sasl.logDebug("Finished RMK section. Main data parsing will stop.")
         end
 
-        if (not parsed and parsing_main_data) then
+        if (not parsed) then
             sasl.logInfo("METAR Parsing unknown element: " .. part)
         end
         i = i + 1
@@ -2068,6 +2026,30 @@ function P.estimatefuelattod(currentLeftLbs, currentRightLbs, currentCenterLbs, 
         center = finalCenterLbs,
         total = finalLeftLbs + finalRightLbs + finalCenterLbs
     }
+end
+
+--------------------------------------------------------------------------------------------------------------
+function P.calculateRequiredFuelNow(distanceToTODNM, reserveFuelLbs)
+    if type(distanceToTODNM) ~= "number" or distanceToTODNM < 0 or
+       type(reserveFuelLbs) ~= "number" or reserveFuelLbs < 0 then
+        return nil
+    end
+
+    local CRUISE_SPEED_KNOTS = 450
+    local CRUISE_FUEL_FLOW_LBS_HR = 5000
+
+    local FUEL_FOR_DESCENT_LBS = 1200
+    local FUEL_FOR_APPROACH_LBS = 1800
+    local FUEL_FOR_TAXI_IN_LBS = 300
+
+    local flightTimeHoursToTOD = distanceToTODNM / CRUISE_SPEED_KNOTS
+    local cruiseBurnLbs = flightTimeHoursToTOD * CRUISE_FUEL_FLOW_LBS_HR
+
+    local descentAndLandingBurn = FUEL_FOR_DESCENT_LBS + FUEL_FOR_APPROACH_LBS + FUEL_FOR_TAXI_IN_LBS
+
+    local totalRequiredFuelNow = cruiseBurnLbs + descentAndLandingBurn + reserveFuelLbs
+
+    return totalRequiredFuelNow
 end
 
 --------------------------------------------------------------------------------------------------------------

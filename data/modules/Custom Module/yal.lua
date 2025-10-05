@@ -66,28 +66,28 @@ function P.YalinitGlobal()
     P.procedureloop3 = { lock = def.NOPROCEDURE, stepindex = 0, stepindexprevious = 0, steprepeat = false, lastActiveTime = 0, procedureabort = false, procedureskipstep = false, procedurenotpossible = false, triggeredmanually = false, setonabort = false }
 
     P.proceduretable = {
-        [def.COLDANDDARKPROCEDURE] = { number = 1, name = "Cold and Dark Startup", cycable = true, speakname = true, steps = 29, set = false, procedurefunction = P.coldanddarkstartupsteps, loop = 1, prerequisite = nil, allowedState = def.GROUNDONLY, requiredFlightstate = def.FLIGHTSTATEPREFLIGHT },
-        [def.COCKPITINITPROCEDURE] = { number = 2, name = "Cockpit Initialization", cycable = true, speakname = true, steps = 32, set = false, procedurefunction = P.cockpitinitsteps, loop = 1, prerequisite = def.COLDANDDARKPROCEDURE, allowedState = def.GROUNDONLY, requiredFlightstate = def.FLIGHTSTATEPREFLIGHT },
-        [def.APUSTARTUPPROCEDURE] = { number = 3, name = "A P U Startup", cycable = true, speakname = true, steps = 7, set = false, procedurefunction = P.apustartupsteps, loop = 1, prerequisite = def.COCKPITINITPROCEDURE, allowedState = def.GROUNDONLY, requiredFlightstate = def.FLIGHTSTATEPREFLIGHT },
-        [def.ENGINESTARTPROCEDURE] = { number = 4, name = "Engine Start", cycable = true, speakname = true, steps = 33, set = false , procedurefunction = P.enginestartsteps, loop = 1, prerequisite = def.COCKPITINITPROCEDURE, allowedState = def.GROUNDONLY, requiredFlightstate = def.FLIGHTSTATEPREFLIGHT },
-        [def.BEFORETAXIPROCEDURE] = { number = 5, name = "Before Taxi", cycable = true, speakname = true, steps = 28, set = false, procedurefunction = P.beforetaxisteps, loop = 1, prerequisite = def.ENGINESTARTPROCEDURE, allowedState = def.GROUNDONLY, requiredFlightstate = def.FLIGHTSTATEPREFLIGHT },
-        [def.BEFORETAKEOFFPROCEDURE] = { number = 6, name = "Before Takeoff", cycable = true, speakname = true, steps = 14, set = false, procedurefunction = P.beforetakeoffsteps, loop = 1, prerequisite = def.BEFORETAXIPROCEDURE, allowedState = def.GROUNDONLY, requiredFlightstate = def.FLIGHTSTATEPREFLIGHT },
-        [def.AFTERTAKEOFFPROCEDURE] = { number = 7, name = "After Takeoff", cycable = false, speakname = false, steps = 3, set = false, procedurefunction = P.aftertakeoffsteps, loop = 2, prerequisite = def.BEFORETAKEOFFPROCEDURE, allowedState = def.AIRONLY, requiredFlightstate = def.FLIGHTSTATEINITIALCLIMB },
-        [def.DURINGCLIMBPROCEDURE] = { number = 8, name = "During Climb", cycable = false, speakname = false, steps = 13, set = false, procedurefunction = P.duringclimbsteps, loop = 2, prerequisite = nil, allowedState = def.AIRONLY, requiredFlightstate = def.FLIGHTSTATECLIMB },
-        [def.ALTITUDEA10000PROCEDURE] = { number = 9, name = "Altitude Above 10000", cycable = true, speakname = false, steps = 7, set = false, procedurefunction = P.altitudea10000steps, loop = 1, prerequisite = nil, allowedState = def.AIRONLY, requiredFlightstate = def.FLIGHTSTATECLIMB },
-        [def.DURINGDESCENTPROCEDURE] = { number = 10, name = "During Descent", cycable = false, speakname = false, steps = 10, set = false, procedurefunction = P.duringdescentsteps, loop = 2, prerequisite = nil, allowedState = def.AIRONLY, requiredFlightstate = { def.FLIGHTSTATECRUISE, def.FLIGHTSTATEAPPROACH } },
-        [def.ALTITUDEB10000PROCEDURE] = { number = 11, name = "Altitude Below 10000", cycable = true, speakname = false, steps = 12, set = false, procedurefunction = P.altitudeb10000steps, loop = 1, prerequisite = nil, allowedState = def.AIRONLY, requiredFlightstate = { def.FLIGHTSTATECRUISE, def.FLIGHTSTATEAPPROACH } },
-        [def.RADIOALTITUDEB2500PROCEDURE] = { number = 12, name = "Altitude Below 2500", cycable = false, speakname = false, steps = 1, set = false, procedurefunction = P.radioaltitudeb2500steps, loop = 1, prerequisite = def.ALTITUDEB10000PROCEDURE, allowedState = def.AIRONLY, requiredFlightstate = { def.FLIGHTSTATECRUISE, def.FLIGHTSTATEAPPROACH } },
-        [def.RADIOALTITUDEB1000PROCEDURE] = { number = 13, name = "Altitude Belowe 1000 ", cycable = false, speakname = false, steps = 8, set = false, procedurefunction = P.radioaltitudeb1000steps, loop = 1, prerequisite = def.RADIOALTITUDEB2500PROCEDURE, allowedState = def.AIRONLY, requiredFlightstate = { def.FLIGHTSTATECRUISE, def.FLIGHTSTATEAPPROACH } },
-        [def.AFTERLANDINGPROCEDURE] = { number = 14, name = "After Landing", cycable = true, speakname = true, steps = 19, set = false, procedurefunction = P.afterlandingsteps, loop = 1, prerequisite = nil, allowedState = def.GROUNDONLY, requiredFlightstate = def.FLIGHTSTATEAPPROACH },
-        [def.ATPARKINGPOSITIONPROCEDURE] = { number = 15, name = "At Parking Position", cycable = true, speakname = true, steps = 12, set = false, procedurefunction = P.atparkingpositionsteps, loop = 1, prerequisite = def.AFTERLANDINGPROCEDURE, allowedState = def.GROUNDONLY, requiredFlightstate = { def.FLIGHTSTATETAXITOGATE, def.FLIGHTSTATESHUTDOWN } },
-        [def.TURNAROUNDENGINESHUTDOWNPROCEDURE] = { number = 16, name = "Turnaround Engine Shutdown", cycable = true, speakname = true, steps = 17, set = false, procedurefunction = P.engineshutdownsteps, loop = 1, prerequisite = def.ATPARKINGPOSITIONPROCEDURE, allowedState = def.GROUNDONLY, requiredFlightstate = nil },
-        [def.FINALENGINESHUTDOWNPROCEDURE] = { number = 17, name = "Final Engine Shutdown", cycable = false, speakname = true, steps = 17, set = false, procedurefunction = P.engineshutdownsteps, loop = 1, prerequisite = def.ATPARKINGPOSITIONPROCEDURE, allowedState = def.GROUNDONLY, requiredFlightstate = def.FLIGHTSTATESHUTDOWN },
-        [def.SHUTDOWNPROCEDURE] = { number = 18, name = "Shutdown", cycable = true, speakname = true, steps = 24, set = false, procedurefunction = P.shutdownsteps, loop = 1, prerequisite = def.FINALENGINESHUTDOWNPROCEDURE, allowedState = def.GROUNDONLY, requiredFlightstate = def.FLIGHTSTATESHUTDOWN },
-        [def.SETILSPROCEDURE] = { number = 19, name = "Set ILS", cycable = false, speakname = false, steps = 11, set = false, procedurefunction = P.setilssteps, loop = 3, prerequisite = def.ALTITUDEB10000PROCEDURE, allowedState = nil, requiredFlightstate = { def.FLIGHTSTATECRUISE, def.FLIGHTSTATEAPPROACH } },
-        [def.SETVREFPROCEDURE] = { number = 20, name = "Set V Ref", cycable = false, speakname = false, steps = 4, set = false, procedurefunction = P.setvrefsteps, loop = 3, prerequisite = def.ALTITUDEB10000PROCEDURE, allowedState = nil, requiredFlightstate = { def.FLIGHTSTATECRUISE, def.FLIGHTSTATEAPPROACH } },
-        [def.SETTOFLAPSPROCEDURE] = { number = 21, name = "Set Takeoff Flaps", cycable = false, speakname = false, steps = 4, set = false, procedurefunction = P.settoflapssteps, loop = 3, prerequisite = def.COCKPITINITPROCEDEDURE, allowedState = def.GROUNDONLY, requiredFlightstate = def.FLIGHTSTATEPREFLIGHT },
-        [def.TESTPROCEDURE] = { number = 22, name = "Test", cycable = false, speakname = false, steps = 47, set = false, procedurefunction = P.teststeps, loop = 1, prerequisite = nil, allowedState = nil, requiredFlightstate = def.FLIGHTSTATEPREFLIGHT },
+        [def.COLDANDDARKPROCEDURE] = { number = 1, name = "Cold and Dark Startup", cycable = true, speakname = true, steps = 29, set = false, procedurefunction = P.coldanddarkstartupsteps, loop = 1, prerequisite = nil, allowedState = def.GROUNDONLY, requiredFlightstate = def.FLIGHTSTATEPREFLIGHT, skipCondition = function() return (get(P.battery) == def.ON) end },
+        [def.COCKPITINITPROCEDURE] = { number = 2, name = "Cockpit Initialization", cycable = true, speakname = true, steps = 34, set = false, procedurefunction = P.cockpitinitsteps, loop = 1, prerequisite = def.COLDANDDARKPROCEDURE, allowedState = def.GROUNDONLY, requiredFlightstate = def.FLIGHTSTATEPREFLIGHT, skipCondition = nil },
+        [def.APUSTARTUPPROCEDURE] = { number = 3, name = "A P U Startup", cycable = true, speakname = true, steps = 7, set = false, procedurefunction = P.apustartupsteps, loop = 1, prerequisite = def.COCKPITINITPROCEDURE, allowedState = def.GROUNDONLY, requiredFlightstate = def.FLIGHTSTATEPREFLIGHT, skipCondition = function() return (P.apurunning() == def.APUONBUS) end },
+        [def.ENGINESTARTPROCEDURE] = { number = 4, name = "Engine Start", cycable = true, speakname = true, steps = 33, set = false , procedurefunction = P.enginestartsteps, loop = 1, prerequisite = def.COCKPITINITPROCEDURE, allowedState = def.GROUNDONLY, requiredFlightstate = def.FLIGHTSTATEPREFLIGHT, skipCondition = function() return P.enginesrunning(def.BOTH) end },
+        [def.BEFORETAXIPROCEDURE] = { number = 5, name = "Before Taxi", cycable = true, speakname = true, steps = 30, set = false, procedurefunction = P.beforetaxisteps, loop = 1, prerequisite = def.ENGINESTARTPROCEDURE, allowedState = def.GROUNDONLY, requiredFlightstate = def.FLIGHTSTATEPREFLIGHT, skipCondition = nil },
+        [def.BEFORETAKEOFFPROCEDURE] = { number = 6, name = "Before Takeoff", cycable = true, speakname = true, steps = 14, set = false, procedurefunction = P.beforetakeoffsteps, loop = 1, prerequisite = def.BEFORETAXIPROCEDURE, allowedState = def.GROUNDONLY, requiredFlightstate = def.FLIGHTSTATEPREFLIGHT, skipCondition = nil },
+        [def.AFTERTAKEOFFPROCEDURE] = { number = 7, name = "After Takeoff", cycable = false, speakname = false, steps = 3, set = false, procedurefunction = P.aftertakeoffsteps, loop = 2, prerequisite = def.BEFORETAKEOFFPROCEDURE, allowedState = def.AIRONLY, requiredFlightstate = def.FLIGHTSTATEINITIALCLIMB, skipCondition = nil },
+        [def.DURINGCLIMBPROCEDURE] = { number = 8, name = "During Climb", cycable = false, speakname = false, steps = 13, set = false, procedurefunction = P.duringclimbsteps, loop = 2, prerequisite = nil, allowedState = def.AIRONLY, requiredFlightstate = def.FLIGHTSTATECLIMB, skipCondition = nil },
+        [def.ALTITUDEA10000PROCEDURE] = { number = 9, name = "Altitude Above 10000", cycable = true, speakname = false, steps = 7, set = false, procedurefunction = P.altitudea10000steps, loop = 1, prerequisite = nil, allowedState = def.AIRONLY, requiredFlightstate = def.FLIGHTSTATECLIMB, skipCondition = nil },
+        [def.DURINGDESCENTPROCEDURE] = { number = 10, name = "During Descent", cycable = false, speakname = false, steps = 10, set = false, procedurefunction = P.duringdescentsteps, loop = 2, prerequisite = nil, allowedState = def.AIRONLY, requiredFlightstate = { def.FLIGHTSTATECRUISE, def.FLIGHTSTATEAPPROACH }, skipCondition = nil },
+        [def.ALTITUDEB10000PROCEDURE] = { number = 11, name = "Altitude Below 10000", cycable = true, speakname = false, steps = 12, set = false, procedurefunction = P.altitudeb10000steps, loop = 1, prerequisite = nil, allowedState = def.AIRONLY, requiredFlightstate = { def.FLIGHTSTATECRUISE, def.FLIGHTSTATEAPPROACH }, skipCondition = nil },
+        [def.RADIOALTITUDEB2500PROCEDURE] = { number = 12, name = "Altitude Below 2500", cycable = false, speakname = false, steps = 1, set = false, procedurefunction = P.radioaltitudeb2500steps, loop = 1, prerequisite = def.ALTITUDEB10000PROCEDURE, allowedState = def.AIRONLY, requiredFlightstate = { def.FLIGHTSTATECRUISE, def.FLIGHTSTATEAPPROACH }, skipCondition = nil },
+        [def.RADIOALTITUDEB1000PROCEDURE] = { number = 13, name = "Altitude Belowe 1000 ", cycable = false, speakname = false, steps = 8, set = false, procedurefunction = P.radioaltitudeb1000steps, loop = 1, prerequisite = def.RADIOALTITUDEB2500PROCEDURE, allowedState = def.AIRONLY, requiredFlightstate = { def.FLIGHTSTATECRUISE, def.FLIGHTSTATEAPPROACH }, skipCondition = nil },
+        [def.AFTERLANDINGPROCEDURE] = { number = 14, name = "After Landing", cycable = true, speakname = true, steps = 19, set = false, procedurefunction = P.afterlandingsteps, loop = 1, prerequisite = nil, allowedState = def.GROUNDONLY, requiredFlightstate = def.FLIGHTSTATEAPPROACH, skipCondition = nil },
+        [def.ATPARKINGPOSITIONPROCEDURE] = { number = 15, name = "At Parking Position", cycable = true, speakname = true, steps = 12, set = false, procedurefunction = P.atparkingpositionsteps, loop = 1, prerequisite = def.AFTERLANDINGPROCEDURE, allowedState = def.GROUNDONLY, requiredFlightstate = { def.FLIGHTSTATETAXITOGATE, def.FLIGHTSTATESHUTDOWN }, skipCondition = nil },
+        [def.TURNAROUNDENGINESHUTDOWNPROCEDURE] = { number = 16, name = "Turnaround Engine Shutdown", cycable = true, speakname = true, steps = 18, set = false, procedurefunction = P.engineshutdownsteps, loop = 1, prerequisite = def.ATPARKINGPOSITIONPROCEDURE, allowedState = def.GROUNDONLY, requiredFlightstate = nil, skipCondition = function() return not P.enginesrunning(def.BOTH) end },
+        [def.FINALENGINESHUTDOWNPROCEDURE] = { number = 17, name = "Final Engine Shutdown", cycable = false, speakname = true, steps = 18, set = false, procedurefunction = P.engineshutdownsteps, loop = 1, prerequisite = def.ATPARKINGPOSITIONPROCEDURE, allowedState = def.GROUNDONLY, requiredFlightstate = def.FLIGHTSTATESHUTDOWN, skipCondition = function() return not P.enginesrunning(def.BOTH) end },
+        [def.SHUTDOWNPROCEDURE] = { number = 18, name = "Shutdown", cycable = true, speakname = true, steps = 24, set = false, procedurefunction = P.shutdownsteps, loop = 1, prerequisite = def.FINALENGINESHUTDOWNPROCEDURE, allowedState = def.GROUNDONLY, requiredFlightstate = def.FLIGHTSTATESHUTDOWN, skipCondition = nil },
+        [def.SETILSPROCEDURE] = { number = 19, name = "Set ILS", cycable = false, speakname = false, steps = 11, set = false, procedurefunction = P.setilssteps, loop = 3, prerequisite = def.ALTITUDEB10000PROCEDURE, allowedState = nil, requiredFlightstate = { def.FLIGHTSTATECRUISE, def.FLIGHTSTATEAPPROACH }, skipCondition = nil },
+        [def.SETVREFPROCEDURE] = { number = 20, name = "Set V Ref", cycable = false, speakname = false, steps = 4, set = false, procedurefunction = P.setvrefsteps, loop = 3, prerequisite = def.ALTITUDEB10000PROCEDURE, allowedState = nil, requiredFlightstate = { def.FLIGHTSTATECRUISE, def.FLIGHTSTATEAPPROACH }, skipCondition = nil },
+        [def.SETTOFLAPSPROCEDURE] = { number = 21, name = "Set Takeoff Flaps", cycable = false, speakname = false, steps = 4, set = false, procedurefunction = P.settoflapssteps, loop = 3, prerequisite = def.COCKPITINITPROCEDURE, allowedState = def.GROUNDONLY, requiredFlightstate = def.FLIGHTSTATEPREFLIGHT, skipCondition = nil },
+        [def.TESTPROCEDURE] = { number = 22, name = "Test", cycable = false, speakname = false, steps = 47, set = false, procedurefunction = P.teststeps, loop = 1, prerequisite = nil, allowedState = nil, requiredFlightstate = def.FLIGHTSTATEPREFLIGHT, skipCondition = nil },
     }
 
     P.lastExecutedLoopIndex = 0
@@ -474,6 +474,17 @@ function P.initDataref()
         sasl.logInfo("X-Camera installed")
     end
 
+    if P.YANSHisinstalled() then
+        P.YANSHFuelAlternateBurn = globalProperty("YANSH/sb/fuel/alternate_burn")
+        P.YANSHFuelEnrouteBurn = globalProperty("YANSH/sb/fuel/enroute_burn")
+        P.YANSHFuelMinTakeoff = globalProperty("YANSH/sb/fuel/min_takeoff")
+        P.YANSHFuelPlanRamp = globalProperty("YANSH/sb/fuel/plan_ramp")
+        P.YANSHFuelReserve = globalProperty("YANSH/sb/fuel/reserve")
+        P.YANSHGeneralInitialAltitude = globalProperty("YANSH/sb/general/initial_altitude")
+        P.YANSHGeneralMaxAltitude = globalProperty("YANSH/sb/general/max_altitude")
+        P.YANSHParamsUnits = globalProperty("YANSH/sb/params/units")
+    end
+
     --------------------------------------------------------------------------------------------------------------
     -- Variables for Monitor Switches Function, etc.
 
@@ -686,8 +697,76 @@ function P.initDataref()
 
 end
 
+-------------------------------------------------------------------------------------------------------------- 
+function P.YANSHisinstalled()
+    if P.YANSHPluginID == nil then
+        local yanshSignature = "1-sim YANSH"
+        P.YANSHPluginID = sasl.findPluginBySignature(yanshSignature)
+        
+        if P.YANSHPluginID ~= NO_PLUGIN_ID then
+            sasl.logInfo("YANSH plugin found, integration enabled.")
+        end
+    end
+    
+    return (P.YANSHPluginID ~= NO_PLUGIN_ID)
+end
+
+-------------------------------------------------------------------------------------------------------------- 
+function P.YANSHflightplanloaded()
+    if P.YANSHisinstalled() and P.YANSHFuelPlanRamp then
+        if (get(P.YANSHFuelPlanRamp) > 0) then
+            return true
+        end
+    end       
+    return false
+end
+
 --------------------------------------------------------------------------------------------------------------
--- Custom Commands
+function P.checkYANSHFuel()
+    if P.YANSHisinstalled() and P.YANSHflightplanloaded() and P.YANSHFuelPlanRamp and P.YANSHParamsUnits then
+        
+        local currentFuelLbs = get(P.totalfuellbs)
+        local plannedFuelRaw = get(P.YANSHFuelPlanRamp)
+        local yanshUnit = get(P.YANSHParamsUnits)
+
+        if type(currentFuelLbs) ~= "number" or type(plannedFuelRaw) ~= "number" or plannedFuelRaw <= 0 then
+            return
+        end
+
+        local plannedFuelLbs = plannedFuelRaw
+
+        if yanshUnit ~= "lbs" then
+            plannedFuelLbs = plannedFuelRaw * def.KGTOLBS
+        end
+
+        local difference = math.abs(currentFuelLbs - plannedFuelLbs)
+
+        if difference > 2000 then
+            local plannedForDisplay
+            local currentForDisplay
+            local unitForDisplay
+
+            if (get(P.fuelunit) == def.KG) then
+                plannedForDisplay = helpers.roundnumber(plannedFuelLbs * def.LBSTOKG)
+                currentForDisplay = helpers.roundnumber(currentFuelLbs * def.LBSTOKG)
+                unitForDisplay = "K G"
+            else
+                plannedForDisplay = helpers.roundnumber(plannedFuelLbs)
+                currentForDisplay = helpers.roundnumber(currentFuelLbs)
+                unitForDisplay = "L B S"
+            end
+
+            local message = "Warning: Fuel discrepancy. Planned " .. plannedForDisplay .. ", actual " .. currentForDisplay .. " " .. unitForDisplay .. "."
+            P.commandtableentry(def.TEXT, message)
+            
+            return false
+        end
+
+        return true
+    end
+end
+
+--------------------------------------------------------------------------------------------------------------
 
 function P.yalreset()
 
@@ -830,7 +909,7 @@ function P.timewarptotod()
         return true
     end
 
-    if (get(P.fmsflightphase) ~= 2) then
+    if (get(P.fmsflightphase) ~= def.FMSPHASECRUISE) then
         P.commandtableentry(def.TEXT, "Time Warp only possible during Cruise")
         return true
     end
@@ -1210,7 +1289,6 @@ end
 
 --------------------------------------------------------------------------------------------------------------
 function P.cycleprocedures()
-
     if ((P.procedureloop1.lock ~= def.NOPROCEDURE) or (P.procedureloop2.lock ~= def.NOPROCEDURE) or (P.procedureloop3.lock ~= def.NOPROCEDURE)) then
         return true
     end
@@ -1227,16 +1305,13 @@ function P.cycleprocedures()
     for i, p in ipairs(proceduresToSort) do
         if p.data.cycable and p.data.set then
             firstCompletedIndex = i
-            sasl.logInfo("CYCLEPROCEDURES: Erste mit Set = true - " .. p.data.name)
             break
         end
     end
-
     if firstCompletedIndex then
         for i = 1, firstCompletedIndex - 1 do
             local procedureToUpdate = proceduresToSort[i]
             if procedureToUpdate.data.cycable and not procedureToUpdate.data.set then
-                sasl.logInfo("CYCLEPROCEDURES: Aufräumen - '" .. procedureToUpdate.data.name .. "' wird auf 'set = true' gesetzt.")
                 procedureToUpdate.data.set = true
             end
         end
@@ -1244,14 +1319,19 @@ function P.cycleprocedures()
 
     for _, procedure in ipairs(proceduresToSort) do
         if procedure.data.cycable and not procedure.data.set then
-            sasl.logInfo("CYCLEPROCEDURES: Nächste Prozedur ist: " .. procedure.data.name)
-            P.procedureloop1.lock = procedure.originalKey
-            return true
+            local skipFunc = procedure.data.skipCondition
+            if skipFunc and skipFunc() then
+                procedure.data.set = true
+                sasl.logInfo("Skipping " .. procedure.data.name .. " Procedure as its skip condition is met.")
+            else
+                sasl.logInfo("Next Procedure is: " .. procedure.data.name)
+                P.procedureloop1.lock = procedure.originalKey
+                return true
+            end
         end
     end
 
-    sasl.logInfo("CYCLEPROCEDURES: Alle zyklenfähigen Prozeduren abgeschlossen.")
-
+    sasl.logInfo("All cycable procedures completed")
     return true
 end
 
@@ -1266,6 +1346,65 @@ my_command_cycleprocedures = sasl.createCommand(def.APPNAMEPREFIX .. "/cycleproc
 sasl.registerCommandHandler(my_command_cycleprocedures, 0, P.cycleprocedures_)
 
 --------------------------------------------------------------------------------------------------------------
+function P.refuelAircraft(totalFuelLbs)
+
+    if type(totalFuelLbs) ~= "number" or totalFuelLbs < 0 then
+        P.commandtableentry(def.TEXT, "Refueling failed: Invalid fuel amount specified.")
+        return false
+    end
+
+    local currentLeftLbs = get(P.lefttanklbs)
+    local currentRightLbs = get(P.righttanklbs)
+    local currentCenterLbs = get(P.centertanklbs)
+    local currentTotalFuel = currentLeftLbs + currentRightLbs + currentCenterLbs
+
+    if totalFuelLbs > def.MAXTOTALLBS then
+        P.commandtableentry(def.TEXT, "Requested fuel exceeds maximum capacity. Fueling to max.")
+        totalFuelLbs = def.MAXTOTALLBS
+    end
+
+    local leftTank, rightTank, centerTank
+    local isDefueling = (totalFuelLbs < currentTotalFuel)
+
+    if totalFuelLbs <= (def.MAXWINGTANKLBS * 2) then
+        leftTank = totalFuelLbs / 2
+        rightTank = totalFuelLbs / 2
+        centerTank = 0
+    else
+        leftTank = def.MAXWINGTANKLBS
+        rightTank = def.MAXWINGTANKLBS
+        centerTank = totalFuelLbs - (def.MAXWINGTANKLBS * 2)
+    end
+
+    if isDefueling and currentCenterLbs > 1000 and centerTank < 1000 then
+        local deficit = 1000 - centerTank
+        centerTank = 1000
+        leftTank = leftTank - (deficit / 2)
+        rightTank = rightTank - (deficit / 2)
+    end
+
+    set(P.fueltank1, leftTank * def.LBSTOKG)
+    set(P.fueltank2, centerTank * def.LBSTOKG)
+    set(P.fueltank3, rightTank * def.LBSTOKG)
+
+    local totalSetFuelLbs = helpers.roundnumber(leftTank + rightTank + centerTank)
+    local actionText = isDefueling and "Defueling" or "Refueling"
+    
+    local fuelForDisplay
+    local unitForDisplay
+
+    if (get(P.fuelunit) == def.KG) then
+        fuelForDisplay = helpers.roundnumber(totalSetFuelLbs * def.LBSTOKG)
+        unitForDisplay = "K G"
+    else
+        fuelForDisplay = totalSetFuelLbs
+        unitForDisplay = "L B S"
+    end
+    
+    P.commandtableentry(def.TEXT, actionText .. " complete. Total fuel: " .. fuelForDisplay .. " " .. unitForDisplay .. ".")
+    
+    return true
+end
 
 function P.headingsync()
 
@@ -3232,10 +3371,10 @@ function P.coldanddarkstartupsteps(procedureloop)
     end
 
     if (procedureloop.stepindex == 13) then
-        if (P.apurunning() == def.APUOFFBUS) then
-            P.commandtableentry(def.TEXT, "A P U Running")
-        else
+        if (P.apurunning() < def.APUOFFBUS) then
             procedureloop.stepindex = procedureloop.stepindex - 1
+        else
+            P.commandtableentry(def.TEXT, "A P U Running")
         end
     end
 
@@ -3997,22 +4136,17 @@ function P.engineshutdownsteps(procedureloop)
                         procedureloop.stepindex = procedureloop.stepindex - 1
                     else
                         helpers.command_once("laminar/B738/toggle_switch/gpu_dn")
-                        procedureloop.stepindex = 9
+                        procedureloop.stepindex = 8
                         return true
                     end
-                else
-                    if (not procedureloop.steprepeat) then
-                        P.commandtableentry(def.TEXT, "Ground Power checked and On")
-                    end
-                    procedureloop.stepindex = 9
+                elseif (not procedureloop.steprepeat) then
+                    P.commandtableentry(def.TEXT, "Ground Power checked and On")
+                    procedureloop.stepindex = 8
                     return true
                 end
             end
-        end
-
-        if (procedureloop.lock == def.FINALENGINESHUTDOWNPROCEDURE) then
+        elseif (procedureloop.lock == def.FINALENGINESHUTDOWNPROCEDURE) then
             procedureloop.stepindex = 9
-            return true
         end
     end
 
@@ -4194,6 +4328,21 @@ function P.engineshutdownsteps(procedureloop)
     end
 
     if (procedureloop.stepindex == 17) then
+        if (procedureloop.lock == def.TURNAROUNDENGINESHUTDOWNPROCEDURE) then
+            if (get(P.nosmokingsignpos) ~= def.NOSMOKINGSIGNOFF) then
+                if (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
+                    P.setnosmokingsign(def.NOSMOKINGSIGNOFF)
+                elseif (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
+                    P.commandtableentry(def.TEXT, "Set No Smoking Signs Off")
+                    procedureloop.stepindex = procedureloop.stepindex - 1
+                end
+            elseif (not procedureloop.steprepeat) then
+                P.commandtableentry(def.TEXT, "NO Smoking Signs checked and Off")
+            end
+        end
+    end
+
+    if (procedureloop.stepindex == 18) then
         if (P.configvalues[def.CONFIGVIEWCHANGES] == def.ON) then
             P.setview(P.configvalues[def.CONFIGVIEWMAINPANEL])
         else
@@ -4944,7 +5093,21 @@ function P.cockpitinitsteps(procedureloop)
         end
     end
 
+    
     if (procedureloop.stepindex == 10) then
+        if P.YANSHisinstalled() then
+            if P.YANSHflightplanloaded() then
+                P.checkYANSHFuel()
+            else
+                P.commandtableentry(def.TEXT, "Yansh Flightplan not loaded")
+                procedureloop.stepindex = procedureloop.stepindex - 1
+            end
+        else
+            procedureloop.stepindex = procedureloop.stepindex + 1
+        end
+    end
+
+    if (procedureloop.stepindex == 11) then
         if (P.configvalues[def.CONFIGVIEWCHANGES] == def.ON) then
             P.setview(P.configvalues[def.CONFIGVIEWPEDESTAL])
         else
@@ -4953,7 +5116,7 @@ function P.cockpitinitsteps(procedureloop)
         end
     end
 
-    if (procedureloop.stepindex == 11) then
+    if (procedureloop.stepindex == 12) then
         if (P.configvalues[def.CONFIGTRANSPONDER] ~= 0) then
             if (get(P.transpondercode) ~= P.configvalues[def.CONFIGTRANSPONDER]) then
                 if (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
@@ -4968,7 +5131,7 @@ function P.cockpitinitsteps(procedureloop)
         end
     end
 
-    if (procedureloop.stepindex == 12) then
+    if (procedureloop.stepindex == 13) then
         if (get(P.transponderpos) ~= def.STANDBY) then
             if (P.configvalues[def.CONFIGTRANSPONDER] ~= 0) then
                 if (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
@@ -4983,7 +5146,7 @@ function P.cockpitinitsteps(procedureloop)
         end
     end
 
-    if (procedureloop.stepindex == 13) then
+    if (procedureloop.stepindex == 14) then
         if (P.configvalues[def.CONFIGVIEWCHANGES] == def.ON) then
             P.setview(P.configvalues[def.CONFIGVIEWOVERHEADPANEL])
         else
@@ -4992,7 +5155,7 @@ function P.cockpitinitsteps(procedureloop)
         end
     end
 
-    if (procedureloop.stepindex == 14) then
+    if (procedureloop.stepindex == 15) then
         if ((get(P.captainprobepos) ~= def.OFF) or (get(P.foprobepos) ~= def.OFF)) then
             if (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
                 P.toggleprobeheat(def.OFF)
@@ -5005,7 +5168,7 @@ function P.cockpitinitsteps(procedureloop)
         end
     end
 
-    if (procedureloop.stepindex == 15) then
+    if (procedureloop.stepindex == 16) then
         if (get(P.seatbeltsignpos) ~= def.SEATBELTSIGNOFF) then
             if (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
                 P.setseatbeltsign(def.SEATBELTSIGNOFF)
@@ -5018,7 +5181,7 @@ function P.cockpitinitsteps(procedureloop)
         end
     end
 
-    if (procedureloop.stepindex == 16) then
+    if (procedureloop.stepindex == 17) then
         if (get(P.nosmokingsignpos) ~= def.NOSMOKINGSIGNON) then
             if (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
                 P.setnosmokingsign(def.NOSMOKINGSIGNON)
@@ -5031,7 +5194,7 @@ function P.cockpitinitsteps(procedureloop)
         end
     end
 
-    if (procedureloop.stepindex == 17) then
+    if (procedureloop.stepindex == 18) then
         if(get(P.positionlights) ~= def.POSLIGHTSSTEADY) then
             if (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
                 P.togglepositionlights(def.POSLIGHTSSTEADY)
@@ -5044,7 +5207,7 @@ function P.cockpitinitsteps(procedureloop)
         end
     end
 
-    if (procedureloop.stepindex == 18) then
+    if (procedureloop.stepindex == 19) then
         if ((get(P.llights1) ~= def.OFF) or (get(P.llights2) ~= def.OFF) or (get(P.llights3) ~= def.OFF) or (get(P.llights4) ~= def.OFF)) then
             if (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
                 P.togglelandinglights(def.OFF)
@@ -5057,7 +5220,7 @@ function P.cockpitinitsteps(procedureloop)
         end
     end
 
-    if (procedureloop.stepindex == 19) then
+    if (procedureloop.stepindex == 20) then
         if ((get(P.rwylightl) == def.ON) or (get(P.rwylightl) == def.ON)) then
             if (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
                 P.togglerwylights(def.OFF)
@@ -5070,7 +5233,7 @@ function P.cockpitinitsteps(procedureloop)
         end
     end
 
-    if (procedureloop.stepindex == 20) then
+    if (procedureloop.stepindex == 21) then
         if (get(P.taxilight) ~= def.OFF) then
             if (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
                 P.toggletaxilights(def.OFF)
@@ -5083,7 +5246,7 @@ function P.cockpitinitsteps(procedureloop)
         end
     end
 
-    if (procedureloop.stepindex == 21) then
+    if (procedureloop.stepindex == 22) then
         if (P.configvalues[def.CONFIGVIEWCHANGES] == def.ON) then
             P.setview(P.configvalues[def.CONFIGVIEWMAINPANEL])
         else
@@ -5093,13 +5256,13 @@ function P.cockpitinitsteps(procedureloop)
     end
 
 
-    if (procedureloop.stepindex == 22) then
+    if (procedureloop.stepindex == 23) then
         if (get(P.apdiscpos) == def.ON) then
             helpers.command_once("laminar/B738/autopilot/disconnect_toggle")
         end
     end
 
-    if (procedureloop.stepindex == 23) then
+    if (procedureloop.stepindex == 24) then
         if ((get(P.fdpilotpos) == def.ON) or (get(P.fdfopos) == def.ON)) then
             if (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
                 P.togglefds(def.OFF)
@@ -5112,7 +5275,7 @@ function P.cockpitinitsteps(procedureloop)
         end
     end
 
-    if (procedureloop.stepindex == 24) then
+    if (procedureloop.stepindex == 25) then
         if (get(P.mcpaltitude) ~= P.configvalues[def.CONFIGLOWEAIRSPACEALT]) then
             if (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
                 set(P.mcpaltitude, P.configvalues[def.CONFIGLOWEAIRSPACEALT])
@@ -5125,7 +5288,7 @@ function P.cockpitinitsteps(procedureloop)
         end
     end
 
-    if (procedureloop.stepindex == 25) then
+    if (procedureloop.stepindex == 26) then
         if (get(P.bankanglepos) ~= P.configvalues[def.CONFIGBANKANGLEMAX]) then
             if (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
                 P.setbankanglepos(P.configvalues[def.CONFIGBANKANGLEMAX])
@@ -5138,7 +5301,7 @@ function P.cockpitinitsteps(procedureloop)
         end
     end
 
-    if (procedureloop.stepindex == 26) then
+    if (procedureloop.stepindex == 27) then
         if (get(P.efisdatapilotpos) == def.OFF) then
             helpers.command_once("laminar/B738/EFIS_control/capt/push_button/data_press")
         end
@@ -5147,14 +5310,28 @@ function P.cockpitinitsteps(procedureloop)
         end
     end
 
-    if (procedureloop.stepindex == 27) then
+    if (procedureloop.stepindex == 28) then
+        if (get(P.autobrakepos) ~= def.AUTOBRAKEOFF) then
+            if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
+                P.commandtableentry(def.TEXT, "Set Auto Brake Off")
+                procedureloop.stepindex = procedureloop.stepindex - 1
+            else
+                P.setautobrake(def.AUTOBRAKEOFF)
+            end
+        elseif (not procedureloop.steprepeat) then
+            P.commandtableentry(def.TEXT, "Auto Brake checked and Off")
+        end
+    end
+
+
+    if (procedureloop.stepindex == 29) then
         if (get(P.aponstat) == def.ON) then
             set(P.aponstat, def.OFF)
         end
     end
 
     if (((not P.enginesrunning(BOTH)) and ((get(P.mixture1pos) ~= def.OFF) or (get(P.mixture2pos) ~= def.OFF))) or (speedbrakeleverrounded ~= def.SPEEDBRAKEDOWN)) then
-        if (procedureloop.stepindex == 28) then
+        if (procedureloop.stepindex == 30) then
             if (P.configvalues[def.CONFIGVIEWCHANGES] == def.ON) then
                 P.setview(P.configvalues[def.CONFIGVIEWTHROTTLE])
             else
@@ -5163,7 +5340,7 @@ function P.cockpitinitsteps(procedureloop)
             end
         end
 
-        if (procedureloop.stepindex == 29) then
+        if (procedureloop.stepindex == 31) then
             if ((not P.enginesrunning(BOTH)) and ((get(P.mixture1pos) ~= def.OFF) or (get(P.mixture2pos) ~= def.OFF))) then
                 if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
                     P.commandtableentry(def.TEXT, "Set Both Engine Fuel Levers Cutoff")
@@ -5182,7 +5359,7 @@ function P.cockpitinitsteps(procedureloop)
             end
         end
 
-        if (procedureloop.stepindex == 30) then
+        if (procedureloop.stepindex == 32) then
             speedbrakeleverrounded = helpers.roundnumber(get(P.speedbrakelever), 1)
             if (speedbrakeleverrounded ~= def.SPEEDBRAKEDOWN) then
                 if (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
@@ -5197,7 +5374,7 @@ function P.cockpitinitsteps(procedureloop)
             end
         end
 
-        if (procedureloop.stepindex == 31) then
+        if (procedureloop.stepindex == 33) then
             if (P.configvalues[def.CONFIGVIEWCHANGES] == def.ON) then
                 P.setview(P.configvalues[def.CONFIGVIEWMAINPANEL])
             else
@@ -5205,12 +5382,11 @@ function P.cockpitinitsteps(procedureloop)
                 procedureloop.stepindexprevious = procedureloop.stepindexprevious + 1
             end
         end
-    elseif (procedureloop.stepindex == 28) then
-        procedureloop.stepindex = 31
-        return true
+    elseif (procedureloop.stepindex == 30) then
+        procedureloop.stepindex = 34
     end
 
-    if (procedureloop.stepindex == 32) then
+    if (procedureloop.stepindex == 34) then
         helpers.command_once("laminar/B738/push_button/master_caution1")
         helpers.command_once("laminar/B738/button/fmc1_clr")
     end
@@ -6063,7 +6239,7 @@ function P.afterlandingsteps(procedureloop)
     end
 
     if (procedureloop.stepindex == 1) then
-        P.flightstate = 5
+        P.flightstate = def.FLIGHTSTATETAXITOGATE
 
         if (P.configvalues[def.CONFIGVIEWCHANGES] == def.ON) then
             P.setview(def.DEFAULTVIEW)
@@ -6662,21 +6838,26 @@ function P.beforetaxisteps(procedureloop)
     end
 
     if (procedureloop.stepindex == 29) then
-        if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-            if (get(P.parkingbrakepos) ~= def.OFF) then
+        if (get(P.parkingbrakepos) ~= def.OFF) then
+            if (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
+                set(P.parkingbrakepos, def.OFF)
+            else
                 P.commandtableentry(def.TEXT, "Release Parking Brake")
                 procedureloop.stepindex = procedureloop.stepindex - 1
-            elseif ((get(P.groundspeed) < 1) and not procedureloop.steprepeat) then
-                P.commandtableentry(def.TEXT, "Parking Brake checked and Released")
             end
-        else
-            if (P.configvalues[def.CONFIGVIEWCHANGES] == def.ON) then
-                P.setview(P.configvalues[def.CONFIGVIEWMAINPANEL])
-            else
-                procedureloop.stepindex = procedureloop.stepindex + 1
-                procedureloop.stepindexprevious = procedureloop.stepindexprevious + 1
-            end
+        elseif ((not procedureloop.steprepeat) and (get(P.tirespeed) < 1)) then
+            P.commandtableentry(def.TEXT, "Parking Brake checked and Released")
         end
+    end
+
+    if (procedureloop.stepindex == 30) then
+        if (P.configvalues[def.CONFIGVIEWCHANGES] == def.ON) then
+            P.setview(P.configvalues[def.CONFIGVIEWMAINPANEL])
+        else
+            procedureloop.stepindex = procedureloop.stepindex + 1
+            procedureloop.stepindexprevious = procedureloop.stepindexprevious + 1
+        end
+
     end
 
     return true
@@ -6707,6 +6888,7 @@ function P.beforetakeoffsteps(procedureloop)
 
     if (get(P.groundspeed) > 45) then
         procedureloop.procedureabort = true
+        procedureloop.setonabort = true
         return true
     end
 
@@ -7184,33 +7366,31 @@ function P.autofunctions()
                 P.flightstate = def.FLIGHTSTATESHUTDOWN
             end
         end
-        
-        P.triggerprocedure(def.FINALENGINESHUTDOWNPROCEDURE)
-        P.triggerprocedure(def.SHUTDOWNPROCEDURE)
 
     else
         if not P.aircraftwasonground then
             P.inflightrestoreactions()
 
             local fmsPhase = get(P.fmsflightphase)
-            if (fmsPhase > 6) then
+            if (fmsPhase >= def.FMSPHASEDESCENT) then
                 P.flightstate = def.FLIGHTSTATEAPPROACH
-            elseif (fmsPhase > 2) then
+            elseif (fmsPhase == def.FMSPHASECRUISE) then
                 P.flightstate = def.FLIGHTSTATECRUISE
             else
                 P.flightstate = def.FLIGHTSTATECLIMB
             end
 
             P.synchronizeProcedureStates()
+
             P.aircraftwasonground = true
         end
 
         local fmsPhase = get(P.fmsflightphase)
-        if (P.flightstate <= def.FLIGHTSTATEAPPROACH) and (fmsPhase > 6) then
+        if (fmsPhase >= def.FMSPHASEDESCENT) then
             P.flightstate = def.FLIGHTSTATEAPPROACH
-        elseif (P.flightstate <= def.FLIGHTSTATECRUISE) and (fmsPhase > 2) then
+        elseif (fmsPhase == def.FMSPHASECRUISE) and (P.flightstate < def.FLIGHTSTATECRUISE) then
             P.flightstate = def.FLIGHTSTATECRUISE
-        elseif (P.flightstate <= def.FLIGHTSTATECLIMB) and (fmsPhase <= 2) and P.proceduretable[def.AFTERTAKEOFFPROCEDURE].set then
+        elseif (fmsPhase == def.FMSPHASECLIMB) and P.proceduretable[def.AFTERTAKEOFFPROCEDURE].set and (P.flightstate < def.FLIGHTSTATECLIMB) then
             P.flightstate = def.FLIGHTSTATECLIMB
         elseif (P.flightstate == def.FLIGHTSTATEPREFLIGHT) then
             P.flightstate = def.FLIGHTSTATEINITIALCLIMB
@@ -7220,7 +7400,7 @@ function P.autofunctions()
             P.triggerprocedure(def.AFTERTAKEOFFPROCEDURE)
         elseif P.flightstate == def.FLIGHTSTATECLIMB then
             P.duringclimb()
-        elseif P.flightstate > def.FLIGHTSTATECLIMB then
+        elseif P.flightstate == def.FLIGHTSTATEAPPROACH then
             P.duringdescent()
         end
     end
@@ -7313,7 +7493,7 @@ function P.voicereadback()
                     speed = helpers.roundnumber(get(P.mcpspeed))
                 end
 
-                if ((P.flightstate > 2) and (get(P.mcpspeed) == get(P.vref))) then
+                if ((P.flightstate > def.FLIGHTSTATECRUISE) and (get(P.mcpspeed) == get(P.vref))) then
                     P.commandtableentry(def.TEXT, "M C P Speed set to V REF " .. tostring(speed))
                 else
                     P.commandtableentry(def.TEXT, "M C P Speed " .. tostring(speed))
@@ -9177,13 +9357,26 @@ function P.ongoingtasks()
         P.savetimer = nil
     end
 
-    if ((P.procedureloop1.lock == def.NOPROCEDURE) and (get(P.airgroundsensor) == def.OFF) and (P.flightstate == 2)) then
+    if ((P.procedureloop1.lock == def.NOPROCEDURE) and (get(P.airgroundsensor) == def.OFF) and (P.flightstate == def.FLIGHTSTATECLIMB)) then
         if ((math.abs(get(P.altitude) - P.configvalues[def.CONFIGLOWEAIRSPACEALT]) < 100) and (get(P.fmccruisealt) > P.configvalues[def.CONFIGLOWEAIRSPACEALT]) and (get(P.apvnavaltmode) == def.ON)) then
             if (P.altitudetimer == nil) then
                 P.altitudetimer = sasl.createTimer()
                 sasl.startTimer(P.altitudetimer)
-            elseif (sasl.getElapsedSeconds(P.altitudetimer) > 600) then
-                P.commandtableentry(def.TEXT, "Check M C P Alitude and V N A V Mode")
+            elseif (sasl.getElapsedSeconds(P.altitudetimer) > 600) then 
+                local message = "Check M C P Altitude and V N A V Mode"
+                local fmcCruiseAlt = get(P.fmccruisealt)             
+                if P.YANSHisinstalled() and P.YANSHflightplanloaded() and P.YANSHGeneralInitialAltitude and get(P.YANSHGeneralInitialAltitude) > 0 then
+                    local initialAlt = get(P.YANSHGeneralInitialAltitude)
+                    local additionalInfo = ". Planned initial cruise altitude was " .. initialAlt                  
+                    if fmcCruiseAlt > 0 and fmcCruiseAlt ~= initialAlt then
+                        additionalInfo = additionalInfo .. ", current is " .. fmcCruiseAlt
+                    end               
+                    message = message .. additionalInfo .. " feet."                 
+                elseif fmcCruiseAlt > 0 then
+                    message = message .. ". Planned cruise altitude is " .. fmcCruiseAlt .. " feet."
+                end           
+                P.commandtableentry(def.TEXT, message)
+                sasl.startTimer(P.altitudetimer)
             end
         elseif (P.altitudetimer ~= nil) then
             sasl.stopTimer(P.altitudetimer)
@@ -9194,7 +9387,7 @@ function P.ongoingtasks()
         P.altitudetimer = nil
     end
 
-    if ((P.procedureloop1.lock == def.NOPROCEDURE) and (get(P.airgroundsensor) == def.ON) and (P.flightstate == 0)) then
+    if ((P.procedureloop1.lock == def.NOPROCEDURE) and (get(P.airgroundsensor) == def.ON) and (P.flightstate == P.FLIGHTSTATEPREFLIGHT)) then
         if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
             if ((get(P.battery) == def.ON) and (get(P.positionlights) ~= def.POSLIGHTSSTEADY) and (get(P.parkingbrakepos) == def.ON)) then
                 P.commandtableentry(def.TEXT, "Set Position Lights Steady") 
@@ -9224,7 +9417,7 @@ function P.ongoingtasks()
                 P.commandtableentry(def.TEXT, "Set Isolation Valve Auto")
             end
         end
-        if ((get(P.atarmpos) == def.ARMED) and (get(P.atn1stat) == def.OFF) and (get(P.atthrottlelock) == def.OFF) and (get(P.eng1n1percent) > 40) and (get(P.eng1n1percent) > 40)) then 
+        if ((get(P.atarmpos) == def.ARMED) and (get(P.atn1stat) == def.OFF) and (get(P.atthrottlelock) == def.OFF) and (get(P.eng1n1percent) > 40) and (get(P.eng2n1percent) > 40)) then 
             P.commandtableentry(def.TEXT, "Both Engine N 1 at 40 Percent")
         end
     end
@@ -9249,7 +9442,7 @@ function P.ongoingtasks()
                 end
             end
         elseif (P.ongoingtaskstepindex == 2) then
-            if ( (P.flightstate < 3) and (get(P.fmccruisealt) ~= 0) and (get(P.fmccruisealt) ~= 20000)) then
+            if ( (P.flightstate < def.FLIGHTSTATECRUISE) and (get(P.fmccruisealt) ~= 0) and (get(P.fmccruisealt) ~= 20000)) then
                 local fmccruisealttmp = helpers.roundnumber(get(P.fmccruisealt) / 500) * 500
                 if (get(P.cabincruisealt)  ~= fmccruisealttmp) then
                     if ((P.configvalues[def.CONFIGAUTOFUNCTIONS] == def.ON) and (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON)) then 
@@ -9261,7 +9454,7 @@ function P.ongoingtasks()
                 end
             end
         elseif (P.ongoingtaskstepindex == 3) then
-             if ((P.flightstate < 4) and helpers.isvalidicao(get(P.desicao))) then
+             if ((P.flightstate < def.FLIGHTSTATEAPPROACH) and helpers.isvalidicao(get(P.desicao))) then
                 local deslandingalttmp = 0
                 if (P.airportdatatable[get(P.desicao)] and P.airportdatatable[get(P.desicao)].elevation_ft) then
                     deslandingalttmp = helpers.roundnumber(get(P.airportdatatable[get(P.desicao)].elevation_ft) / 50) * 50
@@ -9279,13 +9472,13 @@ function P.ongoingtasks()
             end
         end
     elseif (P.ongoingtaskstepindex == 1) then
-        P.ongoingtaskstepindex = 3
+        P.ongoingtaskstepindex = 4
     end
     
     if (P.ongoingtaskstepindex == 4) then
         if (P.configvalues[def.CONFIGAUTOANTIICE] == def.ON) then
             if ((P.configvalues[def.CONFIGAUTOFUNCTIONS] == def.ON) and (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON)) then
-                if ((P.flightstate < 5) and P.proceduretable[def.BEFORETAXIPROCEDURE].set) then
+                if ((P.flightstate < def.FLIGHTSTATETAXITOGATE) and P.proceduretable[def.BEFORETAXIPROCEDURE].set) then
                     if ((get(P.frameice) > 0.01) and (get(P.altitude) < 30000)) then
                         P.iceprotection(def.ON)
                     elseif ((get(P.altitude) > 30000) or (get(P.tatdegc) > 10)) then
@@ -9325,7 +9518,7 @@ function P.ongoingtasks()
         end
     end
 
-    if (((get(P.airgroundsensor) == def.ON) and (P.procedureloop1.lock == def.NOPROCEDURE) and (get(P.battery) == def.ON) and (get(P.mainbus) ~= def.OFF) and (P.flightstate == 0) and (get(P.taxilight) == def.OFF))) then
+    if (((get(P.airgroundsensor) == def.ON) and (P.procedureloop1.lock == def.NOPROCEDURE) and (get(P.battery) == def.ON) and (get(P.mainbus) ~= def.OFF) and (P.flightstate == def.FLIGHTSTATEPREFLIGHT) and (get(P.taxilight) == def.OFF))) then
         if (P.ongoingtaskstepindex == 6) then
             if ((P.configvalues[def.CONFIGAUTOBARO] == def.ON) and (get(P.groundspeed) < 45)) then
                 local baroinchtmp, baropastmp = P.getlocalqnh(DEPARTURE)
@@ -9379,20 +9572,47 @@ function P.ongoingtasks()
                 end
             end
         end
-    elseif (P.ongoingtaskstepindex >= 5) then
+    elseif (P.ongoingtaskstepindex == 6) then
         P.ongoingtaskstepindex = 10
     end
 
     if (P.ongoingtaskstepindex == 10) then
-        if ((get(P.airgroundsensor) == def.OFF) and (P.flightstate < 3) and (get(P.fmsflightphase) < 3) and (get(P.mcpaltitude) >= get(P.fmccruisealt)) and (get(P.vnavtoddist) < 20)) then
+        if ((P.flightstate == def.FLIGHTSTATECRUISE) and (get(P.fmsflightphase) == def.FMSPHASECRUISE) and (get(P.mcpaltitude) >= get(P.fmccruisealt)) and (get(P.vnavtoddist) < 20)) then
             P.commandtableentry(def.TEXT, "Approaching Top of Descent, Reset M C P Altitude")
             P.ongoingtaskstepindex = P.ongoingtaskstepindex - 1
         end
     end
 
+     if (P.ongoingtaskstepindex == 11) then
+        if (P.flightstate == def.FLIGHTSTATECRUISE) and (get(P.fmsflightphase) == def.FMSPHASECRUISE) and (get(P.totalfuellbs) < 1000) then
+            
+            local reservefuelLbs = 5000
+            
+            if P.YANSHisinstalled() and P.YANSHflightplanloaded() and P.YANSHFuelReserve and P.YANSHFuelAlternateBurn and P.YANSHParamsUnits then
+                local yanshReserveRaw = get(P.YANSHFuelReserve)
+                local yanshAlternateRaw = get(P.YANSHFuelAlternateBurn)
+                local yanshUnit = get(P.YANSHParamsUnits)
+
+                local yanshReserveLbs = yanshReserveRaw
+                local yanshAlternateLbs = yanshAlternateRaw
+
+                if yanshUnit ~= "lbs" then
+                    yanshReserveLbs = yanshReserveRaw * def.KGTOLBS
+                    yanshAlternateLbs = yanshAlternateRaw * def.KGTOLBS
+                end         
+                reservefuelLbs = yanshReserveLbs + yanshAlternateLbs
+            end
+
+            local distanceToTODNM = get(P.vnavtoddist)
+            local requiredfuellbs = P.calculateRequiredFuelNow(distanceToTODNM, reservefuelLbs)
+            
+            P.refuelAircraft(requiredfuellbs)
+        end
+    end
+
     P.ongoingtaskstepindex = P.ongoingtaskstepindex + 1
 
-    if (P.ongoingtaskstepindex > 10) then
+    if (P.ongoingtaskstepindex > 11) then
         P.ongoingtaskstepindex = 1
     end
 
@@ -9418,8 +9638,10 @@ function P.commandtableloop()
             if ((P.configvalues[def.CONFIGVOICEREADBACK] == def.ON) or (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON)) then
                 sasl.logInfo("YAL SpeakString TEXT: " .. P.commandtable[1][2])
                 helpers.speak(P.commandtable[1][2])
-                if (string.len(P.commandtable[1][2]) > def.LONGSPEAK) then
-                    next_recommended_wait_step = def.LONGSPEAKWAIT 
+                if (string.len(P.commandtable[1][2]) > def.VERYLONGSPEAK) then
+                    next_recommended_wait_step = def.LONGWAIT 
+                elseif (string.len(P.commandtable[1][2]) > def.LONGSPEAK) then
+                    next_recommended_wait_step = def.MEDIUMWAIT
                 end
                 processedentry = true
             end
@@ -9508,6 +9730,10 @@ function P.do_yal()
     if P.initialstartup then
         P.yalreset()
         P.initialstartup = false
+        
+        P.lastLoggedFlightstate = P.flightstate
+        P.lastLoggedFmsFlightphase = get(P.fmsflightphase)
+        P.lastLoggedAircraftwasonground = P.aircraftwasonground
     end
 
     if settings.newSettingsAvailable then
@@ -9557,7 +9783,6 @@ function P.do_yal()
 
         if current_loop_state_table.lock ~= def.NOPROCEDURE then
             P.runProcedureLoop(current_loop_idx)
- 
             P.lastExecutedLoopIndex = (current_loop_idx % loops_count) + 1
             loop_executed_this_cycle = true
             sasl.logDebug("SCHEDULER: Executing loop " .. tostring(current_loop_idx) .. " (locked: " .. current_loop_state_table.lock .. "). Next scan starts at " .. tostring(P.lastExecutedLoopIndex) .. ".")
@@ -9573,6 +9798,27 @@ function P.do_yal()
     end
 
     next_recommended_wait_step = P.commandtableloop() 
+    
+    local currentFmsPhase = get(P.fmsflightphase)
+    local timestamp = string.format("[%s]", os.date("%H:%M:%S"))
+
+    if P.flightstate ~= P.lastLoggedFlightstate then
+        sasl.logInfo(string.format("%s State Change: Flightstate -> Old: %s, New: %s", 
+            timestamp, tostring(P.lastLoggedFlightstate), tostring(P.flightstate)))
+        P.lastLoggedFlightstate = P.flightstate
+    end
+
+    if currentFmsPhase ~= P.lastLoggedFmsFlightphase then
+        sasl.logInfo(string.format("%s State Change: FMS Flightphase -> Old: %s, New: %s", 
+            timestamp, tostring(P.lastLoggedFmsFlightphase), tostring(currentFmsPhase)))
+        P.lastLoggedFmsFlightphase = currentFmsPhase
+    end
+
+    if P.aircraftwasonground ~= P.lastLoggedAircraftwasonground then
+        sasl.logInfo(string.format("%s State Change: AircraftWasOnGround -> Old: %s, New: %s", 
+            timestamp, tostring(P.lastLoggedAircraftwasonground), tostring(P.aircraftwasonground)))
+        P.lastLoggedAircraftwasonground = P.aircraftwasonground
+    end
 
     sasl.logDebug("--------------------------------------------")
     sasl.logDebug("BEFORETAXISET: " .. tostring(P.proceduretable[def.BEFORETAXIPROCEDURE].set))
@@ -9587,7 +9833,6 @@ function P.do_yal()
     sasl.logDebug("AFTERLANDINGSET: " .. tostring(P.proceduretable[def.AFTERLANDINGPROCEDURE].set))
     sasl.logDebug("ATPARKINGPOSITIONSET: " .. tostring(P.proceduretable[def.ATPARKINGPOSITIONPROCEDURE].set))
     sasl.logDebug("--------------------------------------------")
-    sasl.logDebug("FLIGHTSTATE: " .. tostring(P.flightstate) .. " FMSFLIGHTPHASE: " .. tostring(get(P.fmsflightphase)) .. " AIRCRAFTWASONGROUND: " .. tostring(P.aircraftwasonground))
     sasl.logDebug("Raw METAR Departure: " .. tostring(P.depmetar.metar))
     sasl.logDebug("Raw METAR Destination: " .. tostring(P.desmetar.metar))
 
