@@ -442,6 +442,31 @@ function P.containsvalue(tbl, target_value)
 end
 
 --------------------------------------------------------------------------------------------------------------
+function P.stringToBytes(inputStr)
+    local byteStr = ""
+    if type(inputStr) == "string" then
+        for i = 1, #inputStr do
+            byteStr = byteStr .. string.byte(inputStr, i) .. " "
+        end
+    end
+    return byteStr
+end
+
+--------------------------------------------------------------------------------------------------------------
+function P.forceCleanString(inputStr)
+    local cleanStr = ""
+    if type(inputStr) == "string" then
+        for i = 1, #inputStr do
+            local byte = string.byte(inputStr, i)
+            if byte ~= 0 then
+                cleanStr = cleanStr .. string.char(byte)
+            end
+        end
+    end
+    return cleanStr
+end
+
+--------------------------------------------------------------------------------------------------------------
 function P.addspaces(input)
     local result = ""
     

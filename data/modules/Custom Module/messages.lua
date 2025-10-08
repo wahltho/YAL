@@ -12,6 +12,7 @@ local english = {
     VOICEREADBACK = 'Command Voice Readback',
     AUTOFUNCTIONS = 'Automatic Functions',
     VOICEADVICEONLY = 'Voice Advice Only',
+    AUTOFUELING = 'YANSH Automatic Fueling',
     DEBUGMODE = 'Debug mode log',
     TODPAUSEQUITTIME = 'Sim exit after Pause at TOD (0-9999 sec)',
     SAVETIME = 'Auto Flight Save Time (0-9999 sec)',

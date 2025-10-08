@@ -14,8 +14,6 @@ P.menu_main = sasl.createMenu("", PLUGINS_MENU_ID, menu_master)
 
 function P.YalinitGlobal()
 
-    P.initialstartup = true
-
     P.aircraftwasonground = false
 
     P.updatemetartimer = nil
@@ -102,6 +100,76 @@ end
 -- Datarefs
 
 function P.initDataref()
+
+   local dataref_path = def.APPNAMEPREFIX .. "/state/procedureset"
+
+    local handle = globalProperty(dataref_path)
+
+    if not isProperty(handle) then
+        sasl.logInfo("Dataref '" .. dataref_path .. "' not found. Creating it now.")
+        
+        local maxId = 0
+        for id, _ in pairs(P.proceduretable) do
+            if id > maxId then maxId = id end
+        end
+        
+        P.ProcSetStatusarraydr = createGlobalPropertyia(dataref_path, maxId, false, true, true)
+    else
+        sasl.logInfo("Found existing dataref: '" .. dataref_path .. "'")
+        P.ProcSetStatusarraydr = handle
+    end
+
+    sasl.logInfo("Restoring procedure '.set' status from dataref array...")
+    for id, proc in pairs(P.proceduretable) do
+        local status = get(P.ProcSetStatusarraydr, id)
+        proc.set = (status == 1)
+    end
+
+
+
+    local loopDatarefPaths = { def.APPNAMEPREFIX .. "/state/loop1", def.APPNAMEPREFIX .. "/state/loop2", def.APPNAMEPREFIX .. "/state/loop3"}
+    
+    P.ProcLoopHandlesdr = {}
+
+    for i = 1, #loopDatarefPaths do
+        local path = loopDatarefPaths[i]
+        local handle = globalProperty(path)
+
+        if not isProperty(handle) then
+            sasl.logInfo("Dataref '" .. path .. "' not found. Creating it now.")
+            P.ProcLoopHandlesdr[i] = createGlobalPropertyia(path, 5, false, true, true)
+        else
+            sasl.logInfo("Found existing dataref: '" .. path .. "'")
+            P.ProcLoopHandlesdr[i] = handle
+        end
+    end
+
+    P.procedureloop1 = P.decodeArrayToLoop(get(P.ProcLoopHandlesdr[1]))
+    P.procedureloop2 = P.decodeArrayToLoop(get(P.ProcLoopHandlesdr[2]))
+    P.procedureloop3 = P.decodeArrayToLoop(get(P.ProcLoopHandlesdr[3]))
+
+    P.loopStateTables = { P.procedureloop1, P.procedureloop2, P.procedureloop3 }
+
+    sasl.logInfo("YAL: Procedure loop states restored from datarefs.")
+
+    local path = def.APPNAMEPREFIX .. "/state/ongoingtaskstepindex"
+    local handle = globalProperty(path)
+
+    if not isProperty(handle) then
+        sasl.logInfo("Dataref '" .. path .. "' not found. Creating it now.")
+        P.drOngoingTaskIndex = createGlobalPropertyi(path, 1, false, true, true)
+    else
+        sasl.logInfo("Found existing dataref: '" .. path .. "'")
+        P.drOngoingTaskIndex = handle
+    end
+
+    P.ongoingtaskstepindex = get(P.drOngoingTaskIndex)
+    if P.ongoingtaskstepindex == 0 then
+        P.ongoingtaskstepindex = 1
+    end
+
+    sasl.logInfo("YAL: Ongoing task index restored to: " .. P.ongoingtaskstepindex)
+
     P.simpaused = globalProperty("sim/time/paused")
     P.simfreezed = globalPropertyfae("sim/operation/override/override_planepath", 1)
     P.battery = globalProperty("laminar/B738/electric/battery_pos")
@@ -463,6 +531,7 @@ function P.initDataref()
     P.irsrightpos = globalProperty("laminar/B738/toggle_switch/irs_right")
     P.irsalignleft = globalProperty("laminar/B738/annunciator/irs_align_left2")
     P.irsalignright = globalProperty("laminar/B738/annunciator/irs_align_right2")
+    P.irsposset = globalProperty("laminar/B738/irs/irs_pos_set")
 
     P.yawdamperswitch = globalProperty("laminar/B738/toggle_switch/yaw_dumper_pos")
 
@@ -482,7 +551,7 @@ function P.initDataref()
         P.YANSHFuelReserve = globalProperty("YANSH/sb/fuel/reserve")
         P.YANSHGeneralInitialAltitude = globalProperty("YANSH/sb/general/initial_altitude")
         P.YANSHGeneralMaxAltitude = globalProperty("YANSH/sb/general/max_altitude")
-        P.YANSHParamsUnits = globalProperty("YANSH/sb/params/units")
+        P.YANSHParamsUnitsFlag = globalProperty("YANSH/sb/params/units_flag")
     end
 
     --------------------------------------------------------------------------------------------------------------
@@ -713,8 +782,8 @@ end
 
 -------------------------------------------------------------------------------------------------------------- 
 function P.YANSHflightplanloaded()
-    if P.YANSHisinstalled() and P.YANSHFuelPlanRamp then
-        if (get(P.YANSHFuelPlanRamp) > 0) then
+    if P.YANSHisinstalled() and P.YANSHFuelPlanRamp and P.YANSHGeneralMaxAltitude then
+        if ((get(P.YANSHFuelPlanRamp) > 0) and (get(P.YANSHGeneralMaxAltitude) > 0)) then
             return true
         end
     end       
@@ -723,25 +792,24 @@ end
 
 --------------------------------------------------------------------------------------------------------------
 function P.checkYANSHFuel()
-    if P.YANSHisinstalled() and P.YANSHflightplanloaded() and P.YANSHFuelPlanRamp and P.YANSHParamsUnits then
+    if P.YANSHisinstalled() and P.YANSHflightplanloaded() and P.YANSHFuelPlanRamp and P.YANSHParamsUnitsFlag then
         
         local currentFuelLbs = get(P.totalfuellbs)
         local plannedFuelRaw = get(P.YANSHFuelPlanRamp)
-        local yanshUnit = get(P.YANSHParamsUnits)
 
         if type(currentFuelLbs) ~= "number" or type(plannedFuelRaw) ~= "number" or plannedFuelRaw <= 0 then
             return
         end
-
+        
         local plannedFuelLbs = plannedFuelRaw
 
-        if yanshUnit ~= "lbs" then
+        if get(P.YANSHParamsUnitsFlag) == def.YANSHUNITKGS then
             plannedFuelLbs = plannedFuelRaw * def.KGTOLBS
         end
 
         local difference = math.abs(currentFuelLbs - plannedFuelLbs)
 
-        if difference > 2000 then
+        if difference > 200 then
             local plannedForDisplay
             local currentForDisplay
             local unitForDisplay
@@ -767,31 +835,51 @@ function P.checkYANSHFuel()
 end
 
 --------------------------------------------------------------------------------------------------------------
-
-function P.yalreset()
+function P.initializeScript()
 
     P.YalinitGlobal()
     P.initDataref()
-
     P.readconfig()
-
     helpers.buildnavdatatable(P.navdatatable)
+
     if (sasl.getLogLevel() == LOG_DEBUG) then
         helpers.writenavdatatable(P.navdatatable)
     end
 
-    helpers.buildairportdatatable(P.airportdatatable)
+    P.commandtableentry(def.TEXT, "YAL Initialization done")
 
-    if (P.configvalues[def.CONFIGWAKEOVERRIDE] == def.ON) then
-        set(P.wakeoverride, def.ON)
+    sasl.logInfo("Initialization and state restored")
+
+    P.lastLoggedFlightstate = P.flightstate
+    P.lastLoggedFmsFlightphase = get(P.fmsflightphase)
+    P.lastLoggedAircraftwasonground = P.aircraftwasonground
+end
+
+--------------------------------------------------------------------------------------------------------------
+function P.yalreset()
+    
+    P.YalinitGlobal() 
+    P.initDataref()
+    P.readconfig()
+
+    P.synchronizeProcedureStates() 
+    
+    local statusArray = P.encodeProcedureSetStatusToArray()
+    set(P.drProcSetStatus_array, statusArray)
+
+    helpers.buildnavdatatable(P.navdatatable)
+
+    if (sasl.getLogLevel() == LOG_DEBUG) then
+        helpers.writenavdatatable(P.navdatatable)
     end
 
-    P.commandtableentry(def.TEXT, "YAL Reset Done")
+    P.commandtableentry(def.TEXT, "Reset and Synchronization with aircraft done")
 
-    P.initialstartup = false
+    sasl.logInfo("Manual YAL Reset initiated")
 
-    return true
-
+    P.lastLoggedFlightstate = P.flightstate
+    P.lastLoggedFmsFlightphase = get(P.fmsflightphase)
+    P.lastLoggedAircraftwasonground = P.aircraftwasonground
 end
 
 function P.yalreset_(phase)
@@ -805,10 +893,18 @@ my_command_yalreset = sasl.createCommand(def.APPNAMEPREFIX .. "/yalreset", "Rese
 sasl.registerCommandHandler(my_command_yalreset, 0, P.yalreset_)
 
 --------------------------------------------------------------------------------------------------------------
-
 function P.readconfig()
 
     P.configvalues = settings.getSettings()
+
+    P.remainingtimetoquit = P.configvalues[def.CONFIGTODPAUSEQUITTIME]
+    P.remainingtimetosave = P.configvalues[def.CONFIGSAVETIME]
+    if (P.configvalues[def.CONFIGWAKEOVERRIDE] == def.ON) then
+        set(P.wakeoverride, def.ON)
+    else
+        set(P.wakeoverride, def.OFF)
+    end
+    P.lowerairspacealt = P.configvalues[def.CONFIGLOWEAIRSPACEALT]
 
     return true
 
@@ -878,7 +974,6 @@ function P.commandtableentry(state, text)
 end
 
 --------------------------------------------------------------------------------------------------------------
-
 function P.togglesimfreeze()
 
     if (get(P.simfreezed) == def.OFF) then
@@ -902,8 +997,6 @@ sasl.registerCommandHandler(my_command_togglesimfreeze, 0, P.togglesimfreeze_)
 
 --------------------------------------------------------------------------------------------------------------
 function P.timewarptotod()
-
-
     if ((P.procedureloop1.lock ~= def.NOPROCEDURE) or (P.procedureloop2.lock ~= def.NOPROCEDURE) or (P.procedureloop3.lock ~= def.NOPROCEDURE)) then
         P.commandtableentry(def.TEXT, "Time Warp not possible when Procedure is Active")
         return true
@@ -1036,7 +1129,7 @@ end
 
 function P.toggleadviceonly_(phase)
     if phase == SASL_COMMAND_BEGIN then
-        toggleadviceonly()
+        P.toggleadviceonly()
     end
     return 0
 end
@@ -1134,7 +1227,7 @@ end
 
 --------------------------------------------------------------------------------------------------------------
 
-function mastercaution()
+function P.mastercaution()
 
     if (((P.procedureloop1.lock ~= def.NOPROCEDURE) or (P.procedureloop2.lock ~= def.NOPROCEDURE) or (P.procedureloop3.lock ~= def.NOPROCEDURE)) and (get(P.mastercautionannunc) == def.OFF)) then
         P.skipprocedurestep()
@@ -1150,15 +1243,15 @@ function mastercaution()
 
 end
 
-function mastercaution_(phase)
+function P.mastercaution_(phase)
     if phase == SASL_COMMAND_BEGIN then
-        mastercaution()
+        P.mastercaution()
     end
     return 0
 end
 
 my_command_mastercaution = sasl.createCommand(def.APPNAMEPREFIX .. "/mastercaution", "Master Caution + FMS CLR")
-sasl.registerCommandHandler(my_command_mastercaution, 0, mastercaution_)
+sasl.registerCommandHandler(my_command_mastercaution, 0, P.mastercaution_)
 
 
 --------------------------------------------------------------------------------------------------------------
@@ -1406,6 +1499,74 @@ function P.refuelAircraft(totalFuelLbs)
     return true
 end
 
+--------------------------------------------------------------------------------------------------------------
+function P.synchronizeProcedureStates()
+    sasl.logInfo("SYNC: Resynchronizing procedure states with aircraft status...")
+
+    for id, proc in pairs(P.proceduretable) do
+        proc.set = false
+    end
+
+    -- Erstelle eine sortierte Liste der Prozeduren
+    local orderedProcedures = {}
+    for key, value in pairs(P.proceduretable) do
+        table.insert(orderedProcedures, value)
+    end
+    table.sort(orderedProcedures, function(a, b)
+        return a.number < b.number
+    end)
+
+    for _, proc in ipairs(orderedProcedures) do
+        if proc and proc.skipCondition and proc.skipCondition() == true then
+            proc.set = true
+            sasl.logInfo("SYNC: Procedure '" .. proc.name .. "' skipped (condition met).")
+        else
+            if proc then
+                sasl.logInfo("SYNC: Stopping sync at procedure '" .. proc.name .. "'.")
+            end
+            break
+        end
+    end
+end
+
+--------------------------------------------------------------------------------------------------------------
+function P.encodeLoopToArray(loopTable)
+    if not loopTable then return {0, 0, 0, 0, 0} end
+
+    local repeatNum = loopTable.steprepeat and 1 or 0
+    local abortNum = loopTable.procedureabort and 1 or 0
+    local skipNum = loopTable.procedureskipstep and 1 or 0
+
+    return {
+        loopTable.lock or 0,
+        loopTable.stepindex or 0,
+        repeatNum,
+        abortNum,
+        skipNum
+    }
+end
+
+--------------------------------------------------------------------------------------------------------------
+function P.decodeArrayToLoop(loadedArray)
+    local loop = {
+        lock = def.NOPROCEDURE, stepindex = 0, previousstepindex = 0,
+        steprepeat = false, procedureabort = false, procedureskipstep = false,
+        lastActiveTime = 0, procedurenotpossible = false, setonabort = false
+    }
+
+    if type(loadedArray) == "table" and #loadedArray >= 5 then
+        loop.lock = loadedArray[1]
+        loop.stepindex = loadedArray[2]
+        loop.steprepeat = (loadedArray[3] == 1)
+        loop.procedureabort = (loadedArray[4] == 1)
+        loop.procedureskipstep = (loadedArray[5] == 1)
+        loop.previousstepindex = loop.stepindex
+    end
+
+    return loop
+end
+
+--------------------------------------------------------------------------------------------------------------
 function P.headingsync()
 
     set(P.mcpheading, helpers.roundnumber(get(P.groundtrackmag)))
@@ -3496,7 +3657,16 @@ function P.coldanddarkstartupsteps(procedureloop)
 
     if (procedureloop.stepindex == 24) then
         if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-            P.commandtableentry(def.TEXT, "Initialize I R S Position")
+            if (get(P.irsposset) == "*****.*******.*") then
+                P.commandtableentry(def.TEXT, "Initialize I R S Position")
+                procedureloop.stepindex = procedureloop.stepindex - 1
+            else
+                if (not procedureloop.steprepeat) then
+                    P.commandtableentry(def.TEXT, "I R S Position Initialized")
+                end
+                procedureloop.stepindex = 28
+                return true
+            end
         end
         helpers.command_once("laminar/B738/button/fmc1_init_ref")
     end
@@ -3942,7 +4112,7 @@ function P.enginestartsteps(procedureloop)
                 end
             end
         elseif (not procedureloop.steprepeat) then
-            P.commandtableentry(def.TEXT, "Both Generators checked and Ground")
+            P.commandtableentry(def.TEXT, "Both Generators checked and On")
         end
     end
 
@@ -4151,7 +4321,7 @@ function P.engineshutdownsteps(procedureloop)
     end
 
     if (procedureloop.stepindex == 3) then
-        if (P.apurunning == def.APUOFF) then
+        if (P.apurunning() == def.APUOFF) then
             if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
                 P.commandtableentry(def.TEXT, "Start A P U")
                 procedureloop.stepindex = procedureloop.stepindex - 1
@@ -5095,15 +5265,29 @@ function P.cockpitinitsteps(procedureloop)
 
     
     if (procedureloop.stepindex == 10) then
-        if P.YANSHisinstalled() then
-            if P.YANSHflightplanloaded() then
-                P.checkYANSHFuel()
-            else
-                P.commandtableentry(def.TEXT, "Yansh Flightplan not loaded")
-                procedureloop.stepindex = procedureloop.stepindex - 1
+         if P. YANSHisinstalled() and P.YANSHflightplanloaded() and P.YANSHFuelPlanRamp and get(P.YANSHFuelPlanRamp) > 0 and P.YANSHParamsUnitsFlag then
+            if (P.configvalues[def.CONFIGAUTOFUELING] == def.ON) then
+                if (P.configvalues[def.CONFIGAUTOFUNCTIONS] == def.ON) then
+                    local plannedFuelRaw = get(P.YANSHFuelPlanRamp)   
+                    local plannedFuelLbs = plannedFuelRaw
+            
+                    if get(P.YANSHParamsUnitsFlag) == def.YANSHUNITKGS then
+                        plannedFuelLbs = plannedFuelRaw * def.KGTOLBS
+                    end
+          
+                    P.refuelAircraft(plannedFuelLbs)
+                elseif (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
+                    P.checkYANSHFuel()
+                end
             end
         else
-            procedureloop.stepindex = procedureloop.stepindex + 1
+            if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
+                P.commandtableentry(def.TEXT, "Load YANSH Flight Plan")
+            else
+                helpers.command_once("YANSH/fetchOFP")
+            end
+            procedureloop.stepindex = procedureloop.stepindex - 1
+            return true
         end
     end
 
@@ -6240,6 +6424,10 @@ function P.afterlandingsteps(procedureloop)
 
     if (procedureloop.stepindex == 1) then
         P.flightstate = def.FLIGHTSTATETAXITOGATE
+        if P.YANSHisinstalled() and P.YANSHFuelPlanRamp and P.YANSHGeneralMaxAltitude then
+            set(P.YANSHFuelPlanRamp, 0)
+            set(P.YANSHGeneralMaxAltitude, 0)
+        end
 
         if (P.configvalues[def.CONFIGVIEWCHANGES] == def.ON) then
             P.setview(def.DEFAULTVIEW)
@@ -9387,7 +9575,7 @@ function P.ongoingtasks()
         P.altitudetimer = nil
     end
 
-    if ((P.procedureloop1.lock == def.NOPROCEDURE) and (get(P.airgroundsensor) == def.ON) and (P.flightstate == P.FLIGHTSTATEPREFLIGHT)) then
+    if ((P.procedureloop1.lock == def.NOPROCEDURE) and (get(P.airgroundsensor) == def.ON) and (P.flightstate == def.FLIGHTSTATEPREFLIGHT)) then
         if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
             if ((get(P.battery) == def.ON) and (get(P.positionlights) ~= def.POSLIGHTSSTEADY) and (get(P.parkingbrakepos) == def.ON)) then
                 P.commandtableentry(def.TEXT, "Set Position Lights Steady") 
@@ -9417,6 +9605,7 @@ function P.ongoingtasks()
                 P.commandtableentry(def.TEXT, "Set Isolation Valve Auto")
             end
         end
+
         if ((get(P.atarmpos) == def.ARMED) and (get(P.atn1stat) == def.OFF) and (get(P.atthrottlelock) == def.OFF) and (get(P.eng1n1percent) > 40) and (get(P.eng2n1percent) > 40)) then 
             P.commandtableentry(def.TEXT, "Both Engine N 1 at 40 Percent")
         end
@@ -9588,15 +9777,13 @@ function P.ongoingtasks()
             
             local reservefuelLbs = 5000
             
-            if P.YANSHisinstalled() and P.YANSHflightplanloaded() and P.YANSHFuelReserve and P.YANSHFuelAlternateBurn and P.YANSHParamsUnits then
+            if P.YANSHisinstalled() and P.YANSHflightplanloaded() and P.YANSHFuelReserve and P.YANSHFuelAlternateBurn and P.YANSHParamsUnitsFlag then
                 local yanshReserveRaw = get(P.YANSHFuelReserve)
                 local yanshAlternateRaw = get(P.YANSHFuelAlternateBurn)
-                local yanshUnit = get(P.YANSHParamsUnits)
-
                 local yanshReserveLbs = yanshReserveRaw
                 local yanshAlternateLbs = yanshAlternateRaw
 
-                if yanshUnit ~= "lbs" then
+                if get(P.YANSHParamsUnitsFlag) == def.YANSHUNITKGS then
                     yanshReserveLbs = yanshReserveRaw * def.KGTOLBS
                     yanshAlternateLbs = yanshAlternateRaw * def.KGTOLBS
                 end         
@@ -9614,6 +9801,10 @@ function P.ongoingtasks()
 
     if (P.ongoingtaskstepindex > 11) then
         P.ongoingtaskstepindex = 1
+    end
+
+    if P.drOngoingTaskIndex then
+        set(P.drOngoingTaskIndex, P.ongoingtaskstepindex)
     end
 
     return true
@@ -9671,31 +9862,42 @@ function P.runProcedureLoop(loopIndex)
         elseif ((loop.stepindex <= P.proceduretable[loop.lock].steps) and not loop.procedureabort and not loop.procedureskipstep and not loop.procedurenotpossible) then
             P.proceduretable[loop.lock].procedurefunction(loop)
         elseif (((loop.stepindex > P.proceduretable[loop.lock].steps) or loop.procedureabort or loop.procedurenotpossible) and not loop.procedureskipstep) then
+            
+            local wasSetStatusChanged = false
+
             if (loop.stepindex > P.proceduretable[loop.lock].steps) then
                 if (P.proceduretable[loop.lock].speakname == true) then
                     P.commandtableentry(def.TEXT, P.proceduretable[loop.lock].name .. " Procedure Complete")
                 end
                 sasl.logInfo(P.proceduretable[loop.lock].name .. " Procedure completed at " .. timestring .. " at " .. helpers.roundnumber(get(P.altitude)) .. " feet")
                 P.proceduretable[loop.lock].set = true
+                wasSetStatusChanged = true
             elseif loop.procedureabort then
                 P.commandtableentry(def.TEXT, P.proceduretable[loop.lock].name .. " Procedure Aborted")
                 sasl.logInfo(P.proceduretable[loop.lock].name .. " Procedure aborted at " .. timestring .. " at " .. helpers.roundnumber(get(P.altitude)) .. " feet")
                 loop.procedureabort = false
                 P.proceduretable[loop.lock].set = true
+                wasSetStatusChanged = true
             elseif loop.procedurenotpossible then
-                -- HIER IST DIE FINALE LOGIK:
                 if loop.setonabort then
-                    P.proceduretable[loop.lock].set = true -- Nur setzen, wenn explizit gefordert.
+                    P.proceduretable[loop.lock].set = true
+                    wasSetStatusChanged = true
                 end
                 loop.procedurenotpossible = false
             end
+            
+            if wasSetStatusChanged then
+                local procId = loop.lock
+                set(P.ProcSetStatusarraydr, 1, procId)
+            end
+
             loop.lock = def.NOPROCEDURE
         end
 
         if (loop.lock == def.NOPROCEDURE) then
             loop.stepindex = 0
             loop.lastActiveTime = 0
-            loop.setonabort = false -- Wichtig: Flag immer zurücksetzen
+            loop.setonabort = false
         else
             loop.stepindex = loop.stepindex + 1
         end
@@ -9719,26 +9921,25 @@ function P.runProcedureLoop(loopIndex)
         loop.lastActiveTime = 0
         loop.procedureabort = false
         loop.procedureskipstep = false
-        loop.setonabort = false -- Wichtig: Flag immer zurücksetzen
+        loop.setonabort = false
     end
+
+    local datarefHandle = P.ProcLoopHandlesdr[loopIndex]
+
+    if datarefHandle then
+        local stateArray = P.encodeLoopToArray(loop)
+        set(datarefHandle, stateArray)
+    end
+
     return true
 end
 
 --------------------------------------------------------------------------------------------------------------
 
 function P.do_yal()
-    if P.initialstartup then
-        P.yalreset()
-        P.initialstartup = false
-        
-        P.lastLoggedFlightstate = P.flightstate
-        P.lastLoggedFmsFlightphase = get(P.fmsflightphase)
-        P.lastLoggedAircraftwasonground = P.aircraftwasonground
-    end
 
     if settings.newSettingsAvailable then
         P.readconfig()
-        P.initDataref()
         sasl.logInfo("Loading new settings")
     end
 
@@ -9763,9 +9964,32 @@ function P.do_yal()
         P.voicereadback()
     end
 
-    sasl.logDebug("PROCEDURELOOP1: LOCK ".. P.procedureloop1.lock .. " STEPINDEX " .. P.procedureloop1.stepindex)
-    sasl.logDebug("PROCEDURELOOP2: LOCK ".. P.procedureloop2.lock .. " STEPINDEX " .. P.procedureloop2.stepindex)
-    sasl.logDebug("PROCEDURELOOP3: LOCK ".. P.procedureloop3.lock .. " STEPINDEX " .. P.procedureloop3.stepindex)
+    local lockId1 = P.procedureloop1.lock
+    local procName1
+    if lockId1 == def.NOPROCEDURE then
+        procName1 = "NOPROCEDURE"
+    else
+        procName1 = (P.proceduretable[lockId1] and P.proceduretable[lockId1].name) or lockId1
+    end
+    sasl.logDebug("PROCEDURELOOP1: LOCK " .. tostring(procName1) .. " STEPINDEX " .. P.procedureloop1.stepindex)
+
+    local lockId2 = P.procedureloop2.lock
+    local procName2
+    if lockId2 == def.NOPROCEDURE then
+        procName2 = "NOPROCEDURE"
+    else
+        procName2 = (P.proceduretable[lockId2] and P.proceduretable[lockId2].name) or lockId2
+    end
+    sasl.logDebug("PROCEDURELOOP2: LOCK " .. tostring(procName2) .. " STEPINDEX " .. P.procedureloop2.stepindex)
+
+    local lockId3 = P.procedureloop3.lock
+    local procName3
+    if lockId3 == def.NOPROCEDURE then
+        procName3 = "NOPROCEDURE"
+    else
+        procName3 = (P.proceduretable[lockId3] and P.proceduretable[lockId3].name) or lockId3
+    end
+    sasl.logDebug("PROCEDURELOOP3: LOCK " .. tostring(procName3) .. " STEPINDEX " .. P.procedureloop3.stepindex)
 
     local loops_count = #P.loopStateTables
     local loop_executed_this_cycle = false
@@ -9785,7 +10009,14 @@ function P.do_yal()
             P.runProcedureLoop(current_loop_idx)
             P.lastExecutedLoopIndex = (current_loop_idx % loops_count) + 1
             loop_executed_this_cycle = true
-            sasl.logDebug("SCHEDULER: Executing loop " .. tostring(current_loop_idx) .. " (locked: " .. current_loop_state_table.lock .. "). Next scan starts at " .. tostring(P.lastExecutedLoopIndex) .. ".")
+            
+            -- NEU: Hole den Prozedur-Namen für die Log-Ausgabe
+            local lockId = current_loop_state_table.lock
+            local procName = (P.proceduretable[lockId] and P.proceduretable[lockId].name) or lockId
+            
+            -- GEÄNDERT: Gib den Namen statt der Nummer aus
+            sasl.logDebug("SCHEDULER: Executing loop " .. tostring(current_loop_idx) .. " (locked: " .. tostring(procName) .. "). Next scan starts at " .. tostring(P.lastExecutedLoopIndex) .. ".")
+            
             break
         else
             sasl.logDebug("SCHEDULER: Skipping loop " .. tostring(current_loop_idx) .. " (not locked).")
@@ -9833,6 +10064,7 @@ function P.do_yal()
     sasl.logDebug("AFTERLANDINGSET: " .. tostring(P.proceduretable[def.AFTERLANDINGPROCEDURE].set))
     sasl.logDebug("ATPARKINGPOSITIONSET: " .. tostring(P.proceduretable[def.ATPARKINGPOSITIONPROCEDURE].set))
     sasl.logDebug("--------------------------------------------")
+    sasl.logDebug("FLIGHTSTATE: " .. tostring(P.flightstate) .. " FMSFLIGHTPHASE: " .. tostring(get(P.fmsflightphase)) .. " AIRCRAFTWASONGROUND: " .. tostring(P.aircraftwasonground))
     sasl.logDebug("Raw METAR Departure: " .. tostring(P.depmetar.metar))
     sasl.logDebug("Raw METAR Destination: " .. tostring(P.desmetar.metar))
 

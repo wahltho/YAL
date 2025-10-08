@@ -11,6 +11,7 @@ local settingsDefinition = {
     [def.CONFIGVOICEREADBACK] = { dvalue = 1 , type = "number", min = 0, max = 1 },
     [def.CONFIGAUTOFUNCTIONS] = { dvalue = 1 , type = "number", min = 0, max = 1 },
     [def.CONFIGVOICEADVICEONLY] = { dvalue = 1 , type = "number", min = 0, max = 1 },
+    [def.CONFIGAUTOFUELING] = { dvalue = 0 , type = "number", min = 0, max = 1 },
 
     [def.CONFIGAUTOANTIICE] = { dvalue = 1 , type = "number", min = 0, max = 1 },
     [def.CONFIGAUTOWIPER] = { dvalue = 1 , type = "number", min = 0, max = 1 },

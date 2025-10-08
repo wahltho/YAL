@@ -18,11 +18,11 @@ sasl.options.setInteractivity(true)
 
 if helpers.check_create_path(def.XPCACHESPATH) then
     if not helpers.check_create_path(def.YALCACHEPATH) then
-        sasl.logWarning("Fail to create cache folder, reverting to legacy folder")
+        sasl.logWarning("Failed to create cache folder, reverting to legacy folder")
         def.YALCACHESPATH = def.XPOUTPUTPATH
     end
 else
-    sasl.logWarning("Fail to create cache folder, reverting to legacy folder")
+    sasl.logWarning("Failed to create cache folder, reverting to legacy folder")
     def.YALCACHESPATH = def.XPOUTPUTPATH
 end
 
@@ -36,9 +36,8 @@ local waitstep = def.LONGWAIT
 yal.enableMenus()
 
 if helpers.isZibo then
-    sasl.logInfo("Zibo Mod detected on initial plugin load. Initializing plugin functionality.")
-    yal.YalinitGlobal()
-    yal.initDataref()
+    sasl.logInfo("Zibo Mod detected on initial plugin load")
+    yal.initializeScript()
     sasl.startTimer(oneSecTimer)
 else
     sasl.logInfo("No Zibo Mod detected on initial plugin load. Plugin functionality currently inactive.")
@@ -96,9 +95,8 @@ function onAirportLoaded(flightNumber)
     sasl.enableMenuItem(yal.menu_main , menu_settings , enable_settings_menu_on_load)
 
     if helpers.isZibo then
-        sasl.logInfo("Zibo Mod detected after airport load. Re-initializing plugin functionality.")
-        yal.YalinitGlobal()
-        yal.initDataref()
+        sasl.logInfo("Zibo Mod detected after airport load.")
+        yal.initializeScript()
         sasl.startTimer(oneSecTimer)
         waitstep = def.LONGWAIT
     else
