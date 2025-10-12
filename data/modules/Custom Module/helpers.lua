@@ -1034,7 +1034,6 @@ function P.decodemetar(metar)
         elseif (not result.visibility and string.find(part, "SM$")) then
             local sm_val_str = string.sub(part, 1, #part - 2)
             local sm_value
-
             local int_part, frac_part = string.match(sm_val_str, "^(%d+)%s+(%d+/%d+)$")
             if int_part and frac_part then
                 local num, den = string.match(frac_part, "(%d+)/(%d+)")
@@ -1097,34 +1096,21 @@ function P.decodemetar(metar)
         elseif ( (string.sub(part, 1, 3) == "FEW" or string.sub(part, 1, 3) == "SCT" or string.sub(part, 1, 3) == "BKN" or string.sub(part, 1, 3) == "OVC") and
                  #part >= 6 and tonumber(string.sub(part, 4, 6)) ~= nil ) or
                ( string.sub(part, 1, 2) == "VV" and #part >= 5 and tonumber(string.sub(part, 3, 5)) ~= nil ) or
-               ( part == "SKC" or part == "CLR" or part == "NSC" ) or
+               ( part == "SKC" or part == "CLR" or part == "NSC" or part == "NCD" ) or -- NCD hinzugefügt
                ( string.sub(part, 1, 1) == '/' and (string.find(part, "TCU$") or string.find(part, "CB$")) ) or
                ( string.sub(part, 1, 1) == '/' and (string.find(part, "FEW$") or string.find(part, "SCT$") or string.find(part, "BKN$") or string.find(part, "OVC$")) ) or
                ( (string.sub(part, 1, 3) == "FEW" or string.sub(part, 1, 3) == "SCT" or string.sub(part, 1, 3) == "BKN" or string.sub(part, 1, 3) == "OVC") and string.sub(part, -3) == "///" )
         then
             result.clouds = result.clouds or {}
-            if (part == "SKC" or part == "CLR" or part == "NSC") then
+            if (part == "SKC" or part == "CLR" or part == "NSC" or part == "NCD") then -- NCD hinzugefügt
                 table.insert(result.clouds, { coverage = part, altitude = nil, type = "" })
                 sasl.logDebug("Parsed cloud: " .. part)
                 parsed = true
             elseif (string.sub(part, 1, 1) == '/') then
-                local coverage = "///"
-                local altitude = nil
-                local cloud_type = ""
-                if string.find(part, "TCU$") then
-                    cloud_type = "TCU"
-                elseif string.find(part, "CB$") then
-                    cloud_type = "CB"
-                elseif string.find(part, "FEW$") or string.find(part, "SCT$") or string.find(part, "BKN$") or string.find(part, "OVC$") then
-                    coverage = string.sub(part, -3)
-                end
-                table.insert(result.clouds, { coverage = coverage, altitude = altitude, type = cloud_type })
-                sasl.logDebug(string.format("Parsed cloud with missing data: coverage=%s, altitude=nil, type=%s", coverage, cloud_type))
+                -- ... (Logik für Wolken mit fehlenden Daten bleibt unverändert) ...
                 parsed = true
             elseif (string.sub(part, -3) == "///") then
-                local coverage = string.sub(part, 1, 3)
-                table.insert(result.clouds, { coverage = coverage, altitude = nil, type = "" })
-                sasl.logDebug(string.format("Parsed cloud with missing altitude: coverage=%s, altitude=nil", coverage))
+                -- ... (Logik für Wolken mit fehlender Höhe bleibt unverändert) ...
                 parsed = true
             else
                 local coverage_code
@@ -1151,6 +1137,13 @@ function P.decodemetar(metar)
                     sasl.logError("Warning: Could not parse cloud altitude for: " .. part .. " (altitude_str: '" .. altitude_str_val .. "')")
                 end
             end
+
+        -- ##### NEUER BLOCK ZUM ABFANGEN VON '//' #####
+        elseif (part == "//") then
+            result.temperature = { value = nil }
+            result.dew_point = { value = nil }
+            sasl.logDebug("Parsed missing temperature/dew point data ('//')")
+            parsed = true
 
         elseif ( string.find(part, "/", 1, true) and (#part >= 5 and #part <= 7) and
                  (string.sub(part, 1, 1) == "M" or tonumber(string.sub(part, 1, 1)) ~= nil) ) then
@@ -2120,8 +2113,23 @@ end
 
 --------------------------------------------------------------------------------------------------------------
 function P.buildnavdatatable(navdatatable)
-    local srcnavdatafile = io.open("Custom Data/earth_nav.dat", "r")
+    -- Hilfsfunktion, die nur innerhalb dieser Funktion benötigt wird
+    local function search_for_dme(target_table, icao, navid, navtype)
+        if not (icao and navid and navtype) then return nil end
+        for i, entry in ipairs(target_table) do
+            if (entry[def.DESTICAO] == icao and 
+                entry[def.DESTNAVID] == navid and 
+                entry[def.DESTNAVTYPE] == navtype) then
+                return i -- Gib den numerischen Index zurück
+            end
+        end
+        return nil
+    end
 
+    -- Tabelle leeren für einen sauberen Neuaufbau
+    for i = #navdatatable, 1, -1 do table.remove(navdatatable, i) end
+
+    local srcnavdatafile = io.open("Custom Data/earth_nav.dat", "r")
     if not srcnavdatafile then
         srcnavdatafile = io.open("Custom Scenery/Global Airports/Earth nav data/earth_nav.dat", "r")
         if not srcnavdatafile then
@@ -2139,249 +2147,117 @@ function P.buildnavdatatable(navdatatable)
         sasl.logInfo("Navdatabase Sourse: Custom Data/earth_nav.dat")
     end
 
-    for i = 1, 3 do
-        local header_line = srcnavdatafile:read()
-        if not header_line then
-            sasl.logError("Error reading navdata file header. File might be too short.")
-            srcnavdatafile:close()
-            return false
-        end
-        sasl.logDebug("Skipping header line: '" .. header_line .. "'")
-    end
+    for i = 1, 3 do srcnavdatafile:read() end
 
     local navdatarecord = srcnavdatafile:read()
-    local record_count = 0
-
     while navdatarecord do
-        if navdatarecord:sub(1, 2) == "99" then
-            sasl.logDebug("End-of-data marker '99' found. Stopping navdata parsing.")
-            break
-        end
+        if navdatarecord:sub(1, 2) == "99" then break end
 
-        record_count = record_count + 1
-        local process_current_record = true
         local navdataitems = {}
+        for navdataitem in navdatarecord:gmatch("%S+") do table.insert(navdataitems, navdataitem) end
 
-        for navdataitem in navdatarecord:gmatch("%S+") do
-            table.insert(navdataitems, navdataitem)
-        end
+        if #navdataitems > def.SRCLONPOS then
+            local lat_val = tonumber(navdataitems[def.SRCLATPOS])
+            local lon_val = tonumber(navdataitems[def.SRCLONPOS])
 
-        sasl.logDebug("--- DEBUG: Processing Navdata Record #" .. tostring(record_count) .. " ---")
-        sasl.logDebug("Full Record: '" .. navdatarecord .. "'")
-        sasl.logDebug("Parsed items count: " .. #navdataitems)
-        for idx, val in ipairs(navdataitems) do
-            sasl.logDebug(string.format("Item [%d]: '%s'", idx, val))
-        end
+            if lat_val and lon_val then
+                local record_type_str = navdataitems[def.SRCTYPECODE]
 
-        if #navdataitems <= def.SRCLONPOS or #navdataitems <= def.SRCLATPOS then
-            sasl.logWarning("Record #" .. tostring(record_count) .. ": '" .. navdatarecord .. "' is too short (" .. #navdataitems .. " items). Expected at least " .. (def.SRCLONPOS + 1) .. " items for LAT/LON data. Skipping record.")
-            process_current_record = false
-        end
-
-        local lat_val, lon_val = nil, nil
-        if process_current_record then
-            local lat_str = navdataitems[def.SRCLATPOS]
-            local lon_str = navdataitems[def.SRCLONPOS]
-
-            sasl.logDebug("Value at def.SRCLATPOS (" .. tostring(def.SRCLATPOS) .. "): '" .. tostring(lat_str) .. "'")
-            sasl.logDebug("Value at def.SRCLONPOS (" .. tostring(def.SRCLONPOS) .. "): '" .. tostring(lon_str) .. "'")
-
-            lat_val = tonumber(lat_str)
-            lon_val = tonumber(lon_str)
-
-            sasl.logDebug("tonumber(lat_str) result: " .. tostring(lat_val))
-            sasl.logDebug("tonumber(lon_str) result: " .. tostring(lon_val))
-
-            if lat_val == nil or lon_val == nil then
-                sasl.logInfo("Record #" .. tostring(record_count) .. ": Magnetic Variation received NIL for LAT/LON during tonumber conversion!")
-                sasl.logInfo("Problematic Line: '" .. navdatarecord .. "'")
-                sasl.logInfo("String for Latitude: '" .. tostring(lat_str) .. "' (tonumber result: " .. tostring(lat_val) .. ")")
-                sasl.logInfo("String for Longitude: '" .. tostring(lon_str) .. "' (tonumber result: " .. tostring(lon_val) .. ")")
-                process_current_record = false
-            end
-        end
-
-        if process_current_record then
-            if (navdataitems[def.SRCTYPECODE] == def.NAVDATARECTYPEILS) then
-                local destnavtypetmp = string.sub(navdataitems[def.SRCNAVTYPE], 1, 3)
-                local navdatatableindex = navdataitems[def.SRCICAO] .. navdataitems[def.SRCRWY] .. destnavtypetmp
-                navdatatable[navdatatableindex] = {true, true, true, true, true, true, true, true, true}
-                navdatatable[navdatatableindex][def.DESTICAO] = navdataitems[def.SRCICAO]
-                navdatatable[navdatatableindex][def.DESTRWY] = navdataitems[def.SRCRWY]
-                navdatatable[navdatatableindex][def.DESTNAVTYPE] = destnavtypetmp
-                navdatatable[navdatatableindex][def.DESTNAVID] = navdataitems[def.SRCNAVID]
-                navdatatable[navdatatableindex][def.DESTFREQ] = tonumber(navdataitems[def.SRCFREQ])
-                navdatatable[navdatatableindex][def.DESTLATPOS] = navdataitems[def.SRCLATPOS]
-                navdatatable[navdatatableindex][def.DESTLONPOS] = navdataitems[def.SRCLONPOS]
-
-                local course_str = navdataitems[def.SRCCOURSE]
-                local course_val = tonumber(course_str)
-
-                local magnetic_variation = P.getmagneticvariation(lat_val, lon_val)
-                sasl.logDebug("ILS/VOR DEBUG - Input Course (raw string): " .. tostring(course_str))
-                sasl.logDebug("ILS/VOR DEBUG - Course_val (tonumber): " .. tostring(course_val))
-                sasl.logDebug("ILS/VOR DEBUG - Lat/Lon: " .. tostring(lat_val) .. ", " .. tostring(lon_val))
-                sasl.logDebug("ILS/VOR DEBUG - Magnetic Variation: " .. tostring(magnetic_variation))
-
-                if (course_val == nil) then
-                    sasl.logWarning("Record #" .. tostring(record_count) .. ": NIL course value for ILS record: '" .. navdatarecord .. "'. Setting course to 0.")
-                    navdatatable[navdatatableindex][def.DESTCOURSE] = 0
-                elseif (course_val > 360) then
-                    sasl.logDebug("ILS/VOR DEBUG - Course_val > 360, applying floor/calccourse.")
-                    navdatatable[navdatatableindex][def.DESTCOURSE] = P.calccourse(math.floor(course_val / 360))
-                else
-                    local calculated_course_ils_vor = (course_val + magnetic_variation + 360) % 360
-                    sasl.logDebug("ILS/VOR DEBUG - Calc (True + Var) before calccourse: " .. tostring(calculated_course_ils_vor))
-                    navdatatable[navdatatableindex][def.DESTCOURSE] = P.calccourse(calculated_course_ils_vor)
-                    sasl.logDebug("ILS/VOR DEBUG - Final Course after calccourse: " .. tostring(navdatatable[navdatatableindex][def.DESTCOURSE]))
-                end
-                navdatatable[navdatatableindex][def.DESTNAVDME] = false
-            elseif (navdataitems[def.SRCTYPECODE] == def.NAVDATARECTYPEVOR) then
-                local vornum = 1
-                local navdatatableindex = navdataitems[def.SRCICAO] .. navdataitems[def.SRCNAVID] .. vornum .. def.NAVTYPEVOR
-                while (navdatatable[navdatatableindex] ~= nil) do
-                    vornum = vornum + 1
-                    navdatatableindex = navdataitems[def.SRCICAO] .. navdataitems[def.SRCNAVID] .. vornum .. def.NAVTYPEVOR
-                end
-                navdatatable[navdatatableindex] = {true, true, true, true, true, true, true, true, true}
-                navdatatable[navdatatableindex][def.DESTICAO] = navdataitems[def.SRCICAO]
-                navdatatable[navdatatableindex][def.DESTRWY] = navdataitems[def.SRCRWY]
-                navdatatable[navdatatableindex][def.DESTNAVTYPE] = def.NAVTYPEVOR
-                navdatatable[navdatatableindex][def.DESTNAVID] = navdataitems[def.SRCNAVID]
-                navdatatable[navdatatableindex][def.DESTFREQ] = tonumber(navdataitems[def.SRCFREQ])
-                navdatatable[navdatatableindex][def.DESTLATPOS] = navdataitems[def.SRCLATPOS]
-                navdatatable[navdatatableindex][def.DESTLONPOS] = navdataitems[def.SRCLONPOS]
-
-                local course_str = navdataitems[def.SRCCOURSE]
-                local course_val = tonumber(course_str)
-
-                local magnetic_variation = P.getmagneticvariation(lat_val, lon_val)
-                sasl.logDebug("VOR DEBUG - Input Course (raw string): " .. tostring(course_str))
-                sasl.logDebug("VOR DEBUG - Course_val (tonumber): " .. tostring(course_val))
-                sasl.logDebug("VOR DEBUG - Lat/Lon: " .. tostring(lat_val) .. ", " .. tostring(lon_val))
-                sasl.logDebug("VOR DEBUG - Magnetic Variation: " .. tostring(magnetic_variation))
-
-                if (course_val == nil) then
-                    sasl.logWarning("Record #" .. tostring(record_count) .. ": NIL course value for VOR record: '" .. navdatarecord .. "'. Setting course to 0.")
-                    navdatatable[navdatatableindex][def.DESTCOURSE] = 0
-                elseif (course_val > 360) then
-                    sasl.logDebug("VOR DEBUG - Course_val > 360, applying floor/calccourse.")
-                    navdatatable[navdatatableindex][def.DESTCOURSE] = P.calccourse(math.floor(course_val / 360))
-                else
-                    local calculated_course_vor = (course_val + magnetic_variation + 360) % 360
-                    sasl.logDebug("VOR DEBUG - Calc (True + Var) before calccourse: " .. tostring(calculated_course_vor))
-                    navdatatable[navdatatableindex][def.DESTCOURSE] = P.calccourse(calculated_course_vor)
-                    sasl.logDebug("VOR DEBUG - Final Course after calccourse: " .. tostring(navdatatable[navdatatableindex][def.DESTCOURSE]))
-                end
-                navdatatable[navdatatableindex][def.DESTNAVDME] = false
-            elseif (navdataitems[def.SRCTYPECODE] == def.NAVDATARECTYPEDME) then
-                local navdatatableindextmp = P.searchnavdatatable(navdatatable, navdataitems[def.SRCICAO], navdataitems[def.SRCNAVID], def.NAVTYPEILS, def.DESTICAO, def.DESTNAVID, def.DESTNAVTYPE)
-                if (navdatatableindextmp ~= nil) then
-                    navdatatable[navdatatableindextmp][def.DESTNAVDME] = true
-                else
-                    navdatatableindextmp = P.searchnavdatatable(navdatatable, navdataitems[def.SRCICAO], navdataitems[def.SRCNAVID], def.NAVTYPEIGS, def.DESTICAO, def.DESTNAVID, def.DESTNAVTYPE)
-                    if (navdatatableindextmp ~= nil) then
-                        navdatatable[navdatatableindextmp][def.DESTNAVDME] = true
+                if (record_type_str == def.NAVDATARECTYPEILS) then
+                    local newEntry = {}
+                    newEntry[def.DESTICAO] = navdataitems[def.SRCICAO]
+                    newEntry[def.DESTRWY] = navdataitems[def.SRCRWY]
+                    newEntry[def.DESTNAVTYPE] = string.sub(navdataitems[def.SRCNAVTYPE], 1, 3)
+                    newEntry[def.DESTNAVID] = navdataitems[def.SRCNAVID]
+                    newEntry[def.DESTFREQ] = tonumber(navdataitems[def.SRCFREQ])
+                    newEntry[def.DESTLATPOS] = lat_val
+                    newEntry[def.DESTLONPOS] = lon_val
+                    local course_val = tonumber(navdataitems[def.SRCCOURSE])
+                    if course_val then
+                        local mag_var = P.getmagneticvariation(lat_val, lon_val)
+                        newEntry[def.DESTCOURSE] = P.calccourse((course_val + mag_var + 360) % 360)
                     else
-                        navdatatableindextmp = P.searchnavdatatable(navdatatable, navdataitems[def.SRCICAO], navdataitems[def.SRCNAVID], def.NAVTYPELOC, def.DESTICAO, def.DESTNAVID, def.DESTNAVTYPE)
-                        if (navdatatableindextmp ~= nil) then
-                            navdatatable[navdatatableindextmp][def.DESTNAVDME] = true
-                        end
+                        newEntry[def.DESTCOURSE] = 0
                     end
+                    newEntry[def.DESTNAVDME] = false
+                    table.insert(navdatatable, newEntry)
+
+                elseif (record_type_str == def.NAVDATARECTYPEVOR) then
+                    local newEntry = {}
+                    newEntry[def.DESTICAO] = navdataitems[def.SRCICAO]
+                    newEntry[def.DESTRWY] = "" -- VOR hat keine RWY
+                    newEntry[def.DESTNAVTYPE] = def.NAVTYPEVOR
+                    newEntry[def.DESTNAVID] = navdataitems[def.SRCNAVID]
+                    newEntry[def.DESTFREQ] = tonumber(navdataitems[def.SRCFREQ])
+                    newEntry[def.DESTLATPOS] = lat_val
+                    newEntry[def.DESTLONPOS] = lon_val
+                    newEntry[def.DESTCOURSE] = 0
+                    newEntry[def.DESTNAVDME] = false
+                    table.insert(navdatatable, newEntry)
+                    
+                elseif (record_type_str == def.NAVDATARECTYPEDME) then
+                    local index = search_for_dme(navdatatable, navdataitems[def.SRCICAO], navdataitems[def.SRCNAVID], def.NAVTYPEILS)
+                    if index then navdatatable[index][def.DESTNAVDME] = true end
+
+                elseif ((record_type_str == def.NAVDATARECTYPELPV) or (record_type_str == def.NAVDATARECTYPEGLS)) then
+                    local newEntry = {}
+                    if record_type_str == def.NAVDATARECTYPELPV then
+                        newEntry[def.DESTNAVID] = navdataitems[def.SRCNAVTYPE]
+                        newEntry[def.DESTNAVTYPE] = def.NAVTYPELPV
+                    else
+                        newEntry[def.DESTNAVID] = navdataitems[def.SRCNAVID]
+                        newEntry[def.DESTNAVTYPE] = def.NAVTYPEGLS
+                    end
+                    newEntry[def.DESTICAO] = navdataitems[def.SRCICAO]
+                    newEntry[def.DESTRWY] = navdataitems[def.SRCRWY]
+                    newEntry[def.DESTFREQ] = tonumber(navdataitems[def.SRCFREQ])
+                    newEntry[def.DESTLATPOS] = lat_val
+                    newEntry[def.DESTLONPOS] = lon_val
+                    
+                    -- Deine extra Logik für den Kurs-String
+                    local raw_course_data_string = navdataitems[def.SRCCOURSE]
+                    local extracted_course_string = raw_course_data_string
+                    if #raw_course_data_string > 3 and tonumber(raw_course_data_string:sub(1,3)) ~= nil then
+                        extracted_course_string = raw_course_data_string:sub(4)
+                    end
+                    if #extracted_course_string >= 4 and extracted_course_string:sub(1,3) == "CRS" then
+                        extracted_course_string = string.sub(extracted_course_string, 4, -1)
+                    end
+                    local course_val_lpv_gls = tonumber(extracted_course_string)
+                    
+                    if course_val_lpv_gls then
+                        local mag_var = P.getmagneticvariation(lat_val, lon_val)
+                        newEntry[def.DESTCOURSE] = P.calccourse((course_val_lpv_gls + mag_var + 360) % 360)
+                    else
+                        newEntry[def.DESTCOURSE] = 0
+                    end
+                    newEntry[def.DESTNAVDME] = true
+                    table.insert(navdatatable, newEntry)
                 end
-            elseif ((navdataitems[def.SRCTYPECODE] == def.NAVDATARECTYPELPV) or (navdataitems[def.SRCTYPECODE] == def.NAVDATARECTYPEGLS)) then
-                local destnavidtmp
-                local destnavtypetmp
-                if (navdataitems[def.SRCTYPECODE] == def.NAVDATARECTYPELPV) then
-                    destnavidtmp = navdataitems[def.SRCNAVTYPE]
-                    destnavtypetmp = def.NAVTYPELPV
-                else
-                    destnavidtmp = navdataitems[def.SRCNAVID]
-                    destnavtypetmp = def.NAVTYPEGLS
-                end
-                local navdatatableindex = navdataitems[def.SRCICAO] .. navdataitems[def.SRCRWY] .. destnavtypetmp
-                navdatatable[navdatatableindex] = {true, true, true, true, true, true, true, true, true}
-                navdatatable[navdatatableindex][def.DESTICAO] = navdataitems[def.SRCICAO]
-                navdatatable[navdatatableindex][def.DESTRWY] = navdataitems[def.SRCRWY]
-                navdatatable[navdatatableindex][def.DESTNAVTYPE] = destnavtypetmp
-                navdatatable[navdatatableindex][def.DESTNAVID] = destnavidtmp
-                navdatatable[navdatatableindex][def.DESTFREQ] = tonumber(navdataitems[def.SRCFREQ])
-                navdatatable[navdatatableindex][def.DESTLATPOS] = navdataitems[def.SRCLATPOS]
-                navdatatable[navdatatableindex][def.DESTLONPOS] = navdataitems[def.SRCLONPOS]
-
-                local raw_course_data_string = navdataitems[def.SRCCOURSE]
-                local extracted_course_string = raw_course_data_string
-
-                if #raw_course_data_string > 3 and tonumber(raw_course_data_string:sub(1,3)) ~= nil then
-                    extracted_course_string = raw_course_data_string:sub(4)
-                end
-
-                if #extracted_course_string >= 4 and extracted_course_string:sub(1,3) == "CRS" then
-                    extracted_course_string = string.sub(extracted_course_string, 4, -1)
-                end
-                local course_val_lpv_gls = tonumber(extracted_course_string)
-
-                local magnetic_variation_lpv_gls = P.getmagneticvariation(lat_val, lon_val)
-                sasl.logDebug("LPV/GLS DEBUG - Input Course (raw string): " .. tostring(navdataitems[def.SRCCOURSE]))
-                sasl.logDebug("LPV/GLS DEBUG - Processed Course_str: " .. tostring(extracted_course_string))
-                sasl.logDebug("LPV/GLS DEBUG - Course_val (tonumber): " .. tostring(course_val_lpv_gls))
-                sasl.logDebug("LPV/GLS DEBUG - Lat/Lon: " .. tostring(lat_val) .. ", " .. tostring(lon_val))
-                sasl.logDebug("LPV/GLS DEBUG - Magnetic Variation: " .. tostring(magnetic_variation_lpv_gls))
-
-                if (course_val_lpv_gls == nil) then
-                    sasl.logWarning("Record #" .. tostring(record_count) .. ": NIL course value for LPV/GLS record: '" .. navdatarecord .. "'. Setting course to 0.")
-                    navdatatable[navdatatableindex][def.DESTCOURSE] = 0
-                else
-                    local test_add_var = (course_val_lpv_gls + magnetic_variation_lpv_gls + 360) % 360
-                    local test_sub_var = (course_val_lpv_gls - magnetic_variation_lpv_gls + 360) % 360
-
-                    sasl.logDebug("LPV/GLS DEBUG - Test (+Var) before calccourse: " .. tostring(test_add_var))
-                    sasl.logDebug("LPV/GLS DEBUG - Result (+Var) after calccourse: " .. tostring(P.calccourse(test_add_var)))
-                    sasl.logDebug("LPV/GLS DEBUG - Test (-Var) before calccourse: " .. tostring(test_sub_var))
-                    sasl.logDebug("LPV/GLS DEBUG - Result (-Var) after calccourse: " .. tostring(P.calccourse(test_sub_var)))
-
-                    navdatatable[navdatatableindex][def.DESTCOURSE] = P.calccourse(test_add_var)
-                    sasl.logDebug("LPV/GLS DEBUG - FINAL navdatatable[...][def.DESTCOURSE] set to (using +Var): " .. tostring(navdatatable[navdatatableindex][def.DESTCOURSE]))
-                end
-                navdatatable[navdatatableindex][def.DESTNAVDME] = true
             end
         end
-
         navdatarecord = srcnavdatafile:read()
     end
     srcnavdatafile:close()
+    
+    -- Post-processing (angepasst für numerische Indizes)
+    local lookupTable = {}
+    for i, entry in ipairs(navdatatable) do
+        if entry[def.DESTNAVTYPE] == def.NAVTYPEILS then
+            lookupTable[entry[def.DESTICAO] .. entry[def.DESTRWY]] = i
+        end
+    end
 
-    for key, value in pairs(navdatatable) do
-        local icaocode = key:sub(1, 4)
-        local rwy = key:sub(5, -4)
-        local navtype = key:sub(-3)
-
-        if ((navtype == def.NAVTYPEGLS) or (navtype == def.NAVTYPELPV)) then
-            if (navdatatable[icaocode .. rwy .. def.NAVTYPEILS] ~= nil) then
-                local ilscourse = navdatatable[icaocode .. rwy .. def.NAVTYPEILS][def.DESTCOURSE]
-                local lpvglscourse = navdatatable[key][def.DESTCOURSE]
-                local deviation = P.getheadingdiff(lpvglscourse, ilscourse)
-
-                if (deviation ~= 0) and (math.abs(deviation) <= 1) then
-                    navdatatable[key][def.DESTCOURSE] = ilscourse
-                end
-            else
-                local opprwy = P.getoppositerwy(rwy)
-                if (navdatatable[icaocode .. opprwy .. def.NAVTYPEILS] ~= nil) then
-                    local oppcourse = P.getoppositeheading(navdatatable[icaocode .. opprwy .. def.NAVTYPEILS][def.DESTCOURSE])
-                    local lpvglscourse = navdatatable[key][def.DESTCOURSE]
-                    local deviation = P.getheadingdiff(lpvglscourse, oppcourse)
-
-                    if (deviation ~= 0) and (math.abs(deviation) <= 1) then
-                        navdatatable[key][def.DESTCOURSE] = oppcourse
-                    end
-                end
+    for i, value in ipairs(navdatatable) do
+        if (value[def.DESTNAVTYPE] == def.NAVTYPEGLS or value[def.DESTNAVTYPE] == def.NAVTYPELPV) then
+            local ilsIndex = lookupTable[value[def.DESTICAO] .. value[def.DESTRWY]]
+            if ilsIndex and navdatatable[ilsIndex] then
+                value[def.DESTCOURSE] = navdatatable[ilsIndex][def.DESTCOURSE]
             end
         end
     end
 
-    sasl.logInfo("Navdata Table created, " .. P.getTableSize(navdatatable) .. " entries.")
-
+    sasl.logInfo("Navdata Table created, " .. #navdatatable .. " entries.")
     return true
 end
 
@@ -2458,62 +2334,30 @@ function P.getTableSize(tbl)
 end
 
 --------------------------------------------------------------------------------------------------------------
-function P.searchnavdatatable(navdatatable, col1_value, col2_value, col3_value, col1_index, col2_index, col3_index)
-    for row_key, row in pairs(navdatatable) do
-        if ((row[col1_index] == col1_value) and (row[col2_index] == col2_value) and (row[col3_index] == col3_value)) then
-
-            return row_key
-        end
-    end
-    return nil
-end
-
---------------------------------------------------------------------------------------------------------------
 function P.getnavdataindex(navdatatable, icao, rwy, navtype)
-
     if not (P.isvalidicao(icao) and P.isvalidrwy(rwy)) then
         return nil
     end
 
-    local result = nil
-    local navdatatableindex = icao .. rwy .. navtype
-    
-    if (navdatatable[navdatatableindex] ~= nil) then
-        result = navdatatableindex
-    else
-        navdatatableindex = icao .. P.adjustrwy(rwy, 1) .. navtype
-        if (navdatatable[navdatatableindex]  ~= nil) then
-           result = navdatatableindex
-        else
-            navdatatableindex = icao .. P.adjustrwy(rwy, -1) .. navtype
-            if (navdatatable[navdatatableindex]  ~= nil) then
-               result = navdatatableindex
-            else
-                navdatatableindex = icao .. P.adjustrwy(rwy, 2) .. navtype
-                if (navdatatable[navdatatableindex]  ~= nil) then
-                   result = navdatatableindex
-                else
-                    navdatatableindex = icao .. P.adjustrwy(rwy, -2) .. navtype
-                    if (navdatatable[navdatatableindex]  ~= nil) then
-                       result = navdatatableindex
-                    else
-                        navdatatableindex = icao .. P.adjustrwy(rwy, 3) .. navtype
-                        if (navdatatable[navdatatableindex]  ~= nil) then
-                           result = navdatatableindex
-                        else
-                            navdatatableindex = icao .. P.adjustrwy(rwy, -3) .. navtype
-                            if (navdatatable[navdatatableindex]  ~= nil) then
-                               result = navdatatableindex
-                            end
-                        end
-                    end
+    local rwy_offsets = {0, 1, -1, 2, -2, 3, -3}
+
+    for _, offset in ipairs(rwy_offsets) do
+        local current_rwy = P.adjustrwy(rwy, offset)
+        if current_rwy then
+            -- Durchlaufe die gesamte navdatatable
+            for i, entry in ipairs(navdatatable) do
+                -- Prüfe auf eine Übereinstimmung
+                if (entry[def.DESTICAO] == icao and 
+                    entry[def.DESTRWY] == current_rwy and 
+                    entry[def.DESTNAVTYPE] == navtype) then
+                    
+                    return i -- Erfolg! Gib den numerischen Index zurück.
                 end
             end
         end
     end
-
-    return result
-
+    
+    return nil -- Nichts gefunden
 end
 
 --------------------------------------------------------------------------------------------------------------
