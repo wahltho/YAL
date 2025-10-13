@@ -6168,7 +6168,7 @@ function P.altitudeb10000steps(procedureloop)
                         end
                         procedureloop.stepindex = procedureloop.stepindex - 1
                     end
-                elseif (not procedureloop.steprepeat) then
+                elseif (not procedureloop.steprepeat) and (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
                     if (autobrake < def.AUTOBRAKEMAX) then
                         P.commandtableentry(def.TEXT, "Auto Brake checked and " .. tostring(autobrake - 1))
                     else
@@ -6176,7 +6176,7 @@ function P.altitudeb10000steps(procedureloop)
                     end
                 end
             end
-        elseif (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
+        elseif not procedureloop.steprepeat and (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
             if (get(P.autobrakepos) < def.AUTOBRAKEMAX) then
                 P.commandtableentry(def.TEXT, "Auto Brake checked and " .. tostring(get(P.autobrakepos) - 1))
             else
@@ -7677,7 +7677,7 @@ function P.autofunctions()
         end
 
         local fmsPhase = get(P.fmsflightphase)
-        if (fmsPhase >= def.FMSPHASEDESCENT) then
+        if ((fmsPhase >= def.FMSPHASEDESCENT) and (get(P.vnavtoddist) <= 1)) then
             P.flightstate = def.FLIGHTSTATEAPPROACH
             set(P.flightstatedr, P.flightstate)
         elseif (fmsPhase == def.FMSPHASECRUISE) and (P.flightstate < def.FLIGHTSTATECRUISE) then
