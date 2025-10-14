@@ -802,23 +802,24 @@ function P.checkYANSHFuel()
             plannedFuelLbs = plannedFuelRaw * def.KGTOLBS
         end
 
+        local plannedForDisplay
+        local currentForDisplay
+        local unitForDisplay
+
+        if (get(P.fuelunit) == def.KG) then
+            plannedForDisplay = helpers.roundnumber(plannedFuelLbs * def.LBSTOKG)
+            currentForDisplay = helpers.roundnumber(currentFuelLbs * def.LBSTOKG)
+            unitForDisplay = "K G"
+        else
+            plannedForDisplay = helpers.roundnumber(plannedFuelLbs)
+            currentForDisplay = helpers.roundnumber(currentFuelLbs)
+            unitForDisplay = "L B S"
+        end
+
         local difference = math.abs(currentFuelLbs - plannedFuelLbs)
 
         if difference > 200 then
-            local plannedForDisplay
-            local currentForDisplay
-            local unitForDisplay
-
-            if (get(P.fuelunit) == def.KG) then
-                plannedForDisplay = helpers.roundnumber(plannedFuelLbs * def.LBSTOKG)
-                currentForDisplay = helpers.roundnumber(currentFuelLbs * def.LBSTOKG)
-                unitForDisplay = "K G"
-            else
-                plannedForDisplay = helpers.roundnumber(plannedFuelLbs)
-                currentForDisplay = helpers.roundnumber(currentFuelLbs)
-                unitForDisplay = "L B S"
-            end
-
+ 
             local message = "Fuel discrepancy found, planned " .. plannedForDisplay .. ", actual " .. currentForDisplay .. " " .. unitForDisplay .. "."
             P.commandtableentry(def.TEXT, message)
             
