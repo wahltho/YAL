@@ -2,7 +2,7 @@
 
 local P = {}
 
-P.VERSION = "4.3"
+P.VERSION = "4.4"
 
 --------------------------------------------------------------------------------------------------------------
 -- Constants
@@ -58,9 +58,9 @@ P.FEETTOMETER = 3.28084
 P.LBSTOKG = 0.453592
 P.KGTOLBS = 2.20462
 
-P.MAXCENTERTANKLBS = 28834
-P.MAXWINGTANKLBS = 8613
-P.MAXTOTALLBS = (2 * P.MAXWINGTANKLBS) + P.MAXCENTERTANKLBS
+P.MAXTOTALLBS = 45917 -- FMC Tablet value
+P.MAXWINGTANKLBS = 8609 -- FMC Tablet value
+P.MAXCENTERTANKLBS = P.MAXTOTALLBS - (2 * P.MAXWINGTANKLBS)
 
 P.YANSHUNITKGS = 1
 

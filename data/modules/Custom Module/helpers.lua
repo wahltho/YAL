@@ -14,7 +14,6 @@ local xplm = ffi.load(xplm_lib[ffi.os])
 ffi.cdef [[
     void XPLMSpeakString(char *);
     float XPLMGetMagneticVariation(double, double);
-    void XPLMGetMETARForAirport(char *, char *, int);
     void XPLMWorldToLocal(double inLatitude, double inLongitude, double inAltitude, double *outX, double *outY, double *outZ);
     ]]
 
@@ -1210,13 +1209,9 @@ function P.getMetar(icaocode)
     local metarstring = nil
     local metarsource = "X-Plane"
 
-    local metarbuffer = ffi.new("char[150]")
-    local buffer_size = 150
-    local c_icaocode = ffi.cast("char*", icaocode)
-    xplm.XPLMGetMETARForAirport(c_icaocode, metarbuffer, buffer_size)
-    metarstring = ffi.string(metarbuffer)
+    metarstring = sasl.weather.getMETARForAirport(icaocode)
 
-    if ((metarstring == "") or (metarstring:sub(1, 4) ~= icaocode)) then
+    if (not metarstring or (metarstring == "") or (metarstring:sub(1, 4) ~= icaocode)) then
         sasl.logInfo("XPLM METAR for " .. icaocode .. " not found. Trying web download.")
         
         metarstring = nil 
@@ -1245,7 +1240,7 @@ function P.getMetar(icaocode)
     if (metarstring ~= nil and metarstring ~= "") then
         sasl.logInfo("METAR for " .. icaocode .. " successfully loaded from " .. metarsource)
     else
-        sasl.logError("METAR for " .. icaocode .. " could not be obtained.")
+        sasl.logInfo("METAR for " .. icaocode .. " could not be obtained.")
         metarstring = nil
     end
 

@@ -14,6 +14,8 @@ P.menu_main = sasl.createMenu("", PLUGINS_MENU_ID, menu_master)
 
 function P.YalinitGlobal()
 
+    P.needsreadbackinit = true
+
     P.aircraftwasonground = false
 
     P.updatemetartimer = nil
@@ -136,7 +138,7 @@ function P.initDataref()
     P.procedureloop2 = P.decodeArrayToLoop(get(P.ProcLoopHandlesdr[2]))
     P.procedureloop3 = P.decodeArrayToLoop(get(P.ProcLoopHandlesdr[3]))
     P.loopStateTables = { P.procedureloop1, P.procedureloop2, P.procedureloop3 }
-    sasl.logInfo("YAL: Procedure loop states restored from datarefs.")
+    sasl.logInfo("Procedure loop states restored from datarefs.")
 
     local path = def.APPNAMEPREFIX .. "/state/ongoingtaskstepindex"
     local handle = globalProperty(path)
@@ -151,7 +153,7 @@ function P.initDataref()
     if P.ongoingtaskstepindex == 0 then
         P.ongoingtaskstepindex = 1
     end
-    sasl.logInfo("YAL: Ongoing task index restored to: " .. P.ongoingtaskstepindex)
+    sasl.logInfo("Ongoing task index restored to: " .. P.ongoingtaskstepindex)
 
     local path = def.APPNAMEPREFIX .. "/state/flightstate"
     local handle = globalProperty(path)
@@ -163,7 +165,7 @@ function P.initDataref()
         P.flightstatedr = handle
     end
     P.flightstate = get(P.flightstatedr)
-    sasl.logInfo("YAL: Flightstate restored to: " .. P.flightstate)
+    sasl.logInfo("Flightstate restored to: " .. P.flightstate)
 
     P.simpaused = globalProperty("sim/time/paused")
     P.simfreezed = globalPropertyfae("sim/operation/override/override_planepath", 1)
@@ -549,8 +551,13 @@ function P.initDataref()
         P.YANSHParamsUnitsFlag = globalProperty("YANSH/sb/params/units_flag")
     end
 
-    --------------------------------------------------------------------------------------------------------------
-    -- Variables for Monitor Switches Function, etc.
+    P.needsreadbackinit = true
+end
+
+--------------------------------------------------------------------------------------------------------------
+function P.initializeReadbackVariables()
+
+    sasl.logInfo("Initializing variables for voice readback.")
 
     set(P.n1setsource, 0)
 
@@ -797,15 +804,11 @@ function P.checkYANSHFuel()
         end
         
         local plannedFuelLbs = plannedFuelRaw
-
         if get(P.YANSHParamsUnitsFlag) == def.YANSHUNITKGS then
             plannedFuelLbs = plannedFuelRaw * def.KGTOLBS
         end
 
-        local plannedForDisplay
-        local currentForDisplay
-        local unitForDisplay
-
+        local plannedForDisplay, currentForDisplay, unitForDisplay
         if (get(P.fuelunit) == def.KG) then
             plannedForDisplay = helpers.roundnumber(plannedFuelLbs * def.LBSTOKG)
             currentForDisplay = helpers.roundnumber(currentFuelLbs * def.LBSTOKG)
@@ -816,20 +819,24 @@ function P.checkYANSHFuel()
             unitForDisplay = "L B S"
         end
 
-        local difference = math.abs(currentFuelLbs - plannedFuelLbs)
+        local difference = currentFuelLbs - plannedFuelLbs
+        local message = ""
+        local result = true
 
-        if difference > 200 then
- 
-            local message = "Fuel discrepancy found, planned " .. plannedForDisplay .. ", actual " .. currentForDisplay .. " " .. unitForDisplay .. "."
-            P.commandtableentry(def.TEXT, message)
-            
-            return false
+        if difference < -200 then
+            message = "Warning: Underfuel. Planned " .. plannedForDisplay .. ", actual " .. currentForDisplay .. " " .. unitForDisplay .. "."
+            result = false
+        elseif difference > 500 then
+            message = "Note: Extra fuel onboard. Planned " .. plannedForDisplay .. ", actual " .. currentForDisplay .. " " .. unitForDisplay .. "."
+            result = true
+        else
+            message = "Fuel quantity checked and ok. Planned " .. plannedForDisplay .. ", actual " .. currentForDisplay .. " " .. unitForDisplay .. "."
+            result = true
         end
 
-        local message = "Total Fuel checked and ok, planned " .. plannedForDisplay .. ", actual " .. currentForDisplay .. " " .. unitForDisplay .. "."
         P.commandtableentry(def.TEXT, message)
+        return result
 
-        return true
     end
 end
 
@@ -863,7 +870,7 @@ function P.yalresetForNewFlight()
         return true
     end
 
-    sasl.logInfo("YAL: Reset for new flight initiated.")
+    sasl.logInfo("Reset for new flight initiated.")
     
     P.YalinitGlobal() 
     
@@ -5753,7 +5760,13 @@ end
 function P.altitudea10000steps(procedureloop)
 
     if (procedureloop.stepindex == 1) then
-        if (get(P.altitude) < P.configvalues[def.CONFIGLOWEAIRSPACEALT]) then
+        local departure_altitude = 0
+        if P.airportdatatable[get(P.depicao)] and P.airportdatatable[get(P.depicao)].elevation_ft then
+            departure_altitude = P.airportdatatable[get(P.depicao)].elevation_ft
+        end
+        local height_above_field = get(P.altitude) - departure_altitude
+
+        if (height_above_field < P.configvalues[def.CONFIGLOWEAIRSPACEALT]) then
             procedureloop.procedurenotpossible = true
             P.commandtableentry(def.TEXT, P.proceduretable[def.ALTITUDEA10000PROCEDURE].name .. " Procedure only possible above lower Airspace Altitude")
             return true
@@ -6016,17 +6029,26 @@ end
 --------------------------------------------------------------------------------------------------------------
 
 function P.duringclimb()
-
     P.triggerprocedure(def.DURINGCLIMBPROCEDURE)
 
-    if (get(P.altitude) >= P.configvalues[def.CONFIGLOWEAIRSPACEALT]) or (get(P.fmccruisealt) < P.configvalues[def.CONFIGLOWEAIRSPACEALT]) then
+    local departure_icao = get(P.depicao)
+    local departure_altitude = nil
+    
+    if P.airportdatatable[departure_icao] and P.airportdatatable[departure_icao].elevation_ft then
+        departure_altitude = P.airportdatatable[departure_icao].elevation_ft
+    end
+
+    local height_above_field = get(P.altitude) - departure_altitude
+    
+    local lower_airspace_alt = P.configvalues[def.CONFIGLOWEAIRSPACEALT]
+
+    if (height_above_field >= lower_airspace_alt) or (get(P.altitude) >= lower_airspace_alt) then
         P.triggerprocedure(def.ALTITUDEA10000PROCEDURE)
     end
 
     if (P.configvalues[def.CONFIGAUTOFLAPS] == def.ON) and (get(P.flapleverpos) > def.FLAPSUP) then
         P.flapsuphandling()
     end
-
 end
 
 --------------------------------------------------------------------------------------------------------------
@@ -6034,12 +6056,18 @@ end
 function P.altitudeb10000steps(procedureloop)
 
     if (procedureloop.stepindex == 1) then
-        if (get(P.altitude) > P.configvalues[def.CONFIGLOWEAIRSPACEALT]) then
+        local destination_altitude = get(P.desrwyalt)
+        if P.airportdatatable[get(P.desicao)] and P.airportdatatable[get(P.desicao)].elevation_ft then
+            destination_altitude = P.airportdatatable[get(P.desicao)].elevation_ft
+        end
+        local height_above_field = get(P.altitude) - destination_altitude
+        
+        if (height_above_field > P.configvalues[def.CONFIGLOWEAIRSPACEALT]) then
             procedureloop.procedurenotpossible = true
             P.commandtableentry(def.TEXT, P.proceduretable[def.ALTITUDEB10000PROCEDURE].name .. " Procedure only possible below lower Airspace Altitude")
             return true
         end
-
+        
         P.commandtableentry(def.TEXT, "Below " .. P.configvalues[def.CONFIGLOWEAIRSPACEALT] .. " Feet")
     end
 
@@ -6497,15 +6525,33 @@ function P.duringdescent()
 
     P.triggerprocedure(def.DURINGDESCENTPROCEDURE)
 
-    if get(P.altitude) < P.configvalues[def.CONFIGLOWEAIRSPACEALT] then
+    local destination_icao = get(P.desicao)
+    local destination_altitude = nil
+    
+    if P.airportdatatable[destination_icao] and P.airportdatatable[destination_icao].elevation_ft then
+        destination_altitude = P.airportdatatable[destination_icao].elevation_ft
+    else
+        destination_altitude = get(P.desrwyalt)
+    end
+
+    local height_above_field = 99999
+    
+    if destination_altitude and destination_altitude > -1000 then -- Prüfe auf einen plausiblen Wert
+        height_above_field = get(P.altitude) - destination_altitude
+    end
+
+    local radio_alt = get(P.radioaltitude)
+    local lower_airspace_alt = P.configvalues[def.CONFIGLOWEAIRSPACEALT]
+
+    if (height_above_field < lower_airspace_alt) or (radio_alt < lower_airspace_alt) then
         P.triggerprocedure(def.ALTITUDEB10000PROCEDURE)
     end
 
-    if get(P.radioaltitude) < 2500 then
+    if (height_above_field < 2500) or (radio_alt < 2500) then
         P.triggerprocedure(def.RADIOALTITUDEB2500PROCEDURE)
     end
 
-    if get(P.radioaltitude) < 1000 then
+    if (height_above_field < 1000) or (radio_alt < 1000) then
         P.triggerprocedure(def.RADIOALTITUDEB1000PROCEDURE)
     end
 
@@ -7648,11 +7694,10 @@ function P.autofunctions()
             end
         end
 
-        if (get(P.parkingbrakepos) == def.ON) then
+        if (get(P.parkingbrakepos) == def.ON) and (P.flightstate == def.FLIGHTSTATETAXITOGATE or P.flightstate == def.FLIGHTSTATESHUTDOWN) then
             if P.triggerprocedure(def.ATPARKINGPOSITIONPROCEDURE) then
                 P.flightstate = def.FLIGHTSTATESHUTDOWN
                 set(P.flightstatedr, P.flightstate)
-
             end
         end
 
@@ -9751,17 +9796,20 @@ function P.ongoingtasks()
                 end
             end
         elseif (P.ongoingtaskstepindex == 3) then
-             if ((P.flightstate < def.FLIGHTSTATEAPPROACH) and helpers.isvalidicao(get(P.desicao))) then
+            if ((P.flightstate < 4) and helpers.isvalidicao(get(P.desicao))) then
                 local deslandingalttmp = 0
-                if (P.airportdatatable[get(P.desicao)] and P.airportdatatable[get(P.desicao)].elevation_ft) then
-                    deslandingalttmp = helpers.roundnumber(get(P.airportdatatable[get(P.desicao)].elevation_ft) / 50) * 50
-                elseif helpers.isvalidrwy(get(P.desrwy)) then
-                    deslandingalttmp = helpers.roundnumber(get(P.desrwyalt) / 50) * 50
+                local destination_icao = get(P.desicao)
+
+                if (P.airportdatatable[destination_icao] and P.airportdatatable[destination_icao].elevation_ft) then
+                    deslandingalttmp = helpers.roundnumber(P.airportdatatable[destination_icao].elevation_ft / 50) * 50
+                elseif (get(P.desrwyalt) > -1000) then
+                     deslandingalttmp = helpers.roundnumber(get(P.desrwyalt) / 50) * 50
                 end
-                if (get(P.cabinlandingalt) ~= deslandingalttmp) then
+
+                if (deslandingalttmp > 0 and get(P.cabinlandingalt) ~= deslandingalttmp) then
                     if ((P.configvalues[def.CONFIGAUTOFUNCTIONS] == def.ON) and (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON)) then
                         set(P.cabinlandingalt, deslandingalttmp)
-                    elseif (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then 
+                    elseif (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
                         P.commandtableentry(def.TEXT, "Set Cabin Landing Altitude " .. helpers.addspaces(deslandingalttmp))
                         P.ongoingtaskstepindex = P.ongoingtaskstepindex - 1
                     end
@@ -9930,12 +9978,12 @@ function P.commandtableloop()
     while ((#P.commandtable > 0) and (processedentry == false)) do
 
         if (P.commandtable[1][1] == def.COMMAND) then
-            sasl.logInfo("YAL COMMAND: " .. P.commandtable[1][2])
+            sasl.logInfo("COMMAND: " .. P.commandtable[1][2])
             helpers.command_once(P.commandtable[1][2])
             processedentry = true
         elseif (P.commandtable[1][1] == def.TEXT) then
             if ((P.configvalues[def.CONFIGVOICEREADBACK] == def.ON) or (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON)) then
-                sasl.logInfo("YAL SpeakString TEXT: " .. P.commandtable[1][2])
+                sasl.logInfo("SpeakString TEXT: " .. P.commandtable[1][2])
                 helpers.speak(P.commandtable[1][2])
                 if (string.len(P.commandtable[1][2]) > def.VERYLONGSPEAK) then
                     next_recommended_wait_step = def.LONGWAIT 
@@ -9962,6 +10010,18 @@ function P.runProcedureLoop(loopIndex)
         loop.lastActiveTime = os.time()
         local timestring = os.date("%H:%M:%S", loop.lastActiveTime)
 
+        local procedureData = P.proceduretable[loop.lock]
+        if procedureData then
+            local aircraftIsOnGround = (get(P.airgroundsensor) == def.ON)
+            local allowedState = procedureData.allowedState
+            if (allowedState == def.GROUNDONLY and not aircraftIsOnGround) or
+               (allowedState == def.AIRONLY and aircraftIsOnGround) then
+                
+                sasl.logInfo("Aborting '" .. procedureData.name .. "' due to invalid aircraft state.")
+                loop.procedureabort = true
+            end
+        end
+
         if ((loop.stepindex == 0) and not loop.procedureabort and not loop.procedureskipstep and not loop.procedurenotpossible) then
             if (P.proceduretable[loop.lock].speakname == true) then
                 P.commandtableentry(def.TEXT, P.proceduretable[loop.lock].name .. " Procedure")
@@ -9981,7 +10041,7 @@ function P.runProcedureLoop(loopIndex)
                 P.proceduretable[loop.lock].set = true
                 wasSetStatusChanged = true
                 if loop.lock == def.SHUTDOWNPROCEDURE or loop.lock == def.TURNAROUNDENGINESHUTDOWNPROCEDURE then
-                    sasl.logInfo("YAL: End of flight detected (via " .. P.proceduretable[loop.lock].name .. "). Automatically resetting for new flight.")
+                    sasl.logInfo("End of flight detected (via " .. P.proceduretable[loop.lock].name .. "). Automatically resetting for new flight.")
                     P.yalresetForNewFlight()
                     return true
                 end
@@ -10050,6 +10110,11 @@ end
 --------------------------------------------------------------------------------------------------------------
 
 function P.do_yal()
+
+    if P.needsreadbackinit then
+        P.initializeReadbackVariables()
+        P.needsreadbackinit = false
+    end
 
     if settings.newSettingsAvailable then
         P.readconfig()
