@@ -1097,7 +1097,7 @@ function P.timewarptotod()
     sasl.logInfo("WARP: Next Waypoint " .. warppoint.nextwaypointname)
     sasl.logInfo("WARP: Remaining Distance " .. warppoint.remainingdistance)
 
-    local localpositionx, localpositiony, localpositionz = helpers.worldtolocal(warppoint.latitude, warppoint.longitude, get(P.cabincruisealt) / def.FEETTOMETER)
+    local localpositionx, localpositiony, localpositionz = sasl.worldToLocal(warppoint.latitude, warppoint.longitude, get(P.cabincruisealt) / def.FEETTOMETER)
 
     sasl.logInfo("WARP: Local Position X " .. localpositionx)
     sasl.logInfo("WARP: Local Position Y " .. localpositiony)
@@ -2976,58 +2976,15 @@ end
 
 --------------------------------------------------------------------------------------------------------------
 function P.updatemetar()
-
-    local nearesticaotmp = helpers.cleanstring(get(P.nearesticao))
     local depicaotmp = helpers.cleanstring(get(P.depicao))
     local desicaotmp = helpers.cleanstring(get(P.desicao))
 
-    if (helpers.isvalidicao(depicaotmp)) then
-        P.depmetar.metar = helpers.getMetar(depicaotmp)
-        if P.depmetar.metar then
-            P.depmetar.icaocode = depicaotmp
-            P.depmetar.metarfound = true
-            P.depmetar.decodedmetar = helpers.decodemetar(P.depmetar.metar)
-        else
-            P.depmetar.icaocode = "XXXX"
-            P.depmetar.metarfound = false
-            P.depmetar.decodedmetar = {}
-        end
-    elseif (helpers.isvalidicao(nearesticaotmp)) then
-        P.depmetar.metar = helpers.getMetar(nearesticaotmp)
-        if P.depmetar.metar then
-            P.depmetar.icaocode = nearesticaotmp
-            P.depmetar.metarfound = true
-            P.depmetar.decodedmetar = helpers.decodemetar(P.depmetar.metar)
-        else
-            P.depmetar.icaocode = "XXXX"
-            P.depmetar.metarfound = false
-            P.depmetar.decodedmetar = {}
-        end
+    if helpers.isvalidicao(depicaotmp) and depicaotmp ~= P.depmetar.icaocode then
+        helpers.getMetar(depicaotmp, P.depmetar)
     end
 
-    if (helpers.isvalidicao(desicaotmp)) then
-        P.desmetar.metar = helpers.getMetar(desicaotmp)
-        if P.desmetar.metar then
-            P.desmetar.icaocode = desicaotmp
-            P.desmetar.metarfound = true
-            P.desmetar.decodedmetar = helpers.decodemetar(P.desmetar.metar)
-        else
-            P.desmetar.icaocode = "XXXX"
-            P.desmetar.metarfound = false
-            P.desmetar.decodedmetar = {}
-        end
-    end
-
-    if (P.depmetar.metarfound and P.depmetar.decodedmetar) then
-        if (sasl.getLogLevel() == LOG_DEBUG) then
-            helpers.logtable(P.depmetar, "P.depmetar")
-        end
-    end
-
-    if (P.desmetar.metarfound and P.desmetar.decodedmetar) then
-        if (sasl.getLogLevel() == LOG_DEBUG) then
-            helpers.logtable(P.desmetar, "P.desmetar")
-        end
+    if helpers.isvalidicao(desicaotmp) and desicaotmp ~= P.desmetar.icaocode then
+        helpers.getMetar(desicaotmp, P.desmetar)
     end
 
     return true

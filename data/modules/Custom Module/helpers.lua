@@ -13,8 +13,6 @@ local xplm = ffi.load(xplm_lib[ffi.os])
 
 ffi.cdef [[
     void XPLMSpeakString(char *);
-    float XPLMGetMagneticVariation(double, double);
-    void XPLMWorldToLocal(double inLatitude, double inLongitude, double inAltitude, double *outX, double *outY, double *outZ);
     ]]
 
 --------------------------------------------------------------------------------------------------------------
@@ -308,31 +306,6 @@ function P.speak(text)
     ffi.copy(c_str, text)
     xplm.XPLMSpeakString(c_str)
 end
-
---------------------------------------------------------------------------------------------------------------
-function P.getmagneticvariation(lat_val, lon_val)
-
-    local magenticvariation = xplm.XPLMGetMagneticVariation(lat_val, lon_val)
-
-    return magenticvariation
-end
-
---------------------------------------------------------------------------------------------------------------
-function P.worldtolocal(lat_val, lon_val, alt_val)
-
-    local out_x = ffi.new("double[1]")
-    local out_y = ffi.new("double[1]")
-    local out_z = ffi.new("double[1]")
-
-    xplm.XPLMWorldToLocal(lat_val, lon_val, alt_val, out_x, out_y, out_z)
-
-    local local_x = out_x[0]
-    local local_y = out_y[0]
-    local local_z = out_z[0]
-
-    return local_x, local_y, local_z
-end
-
 
 --------------------------------------------------------------------------------------------------------------
 function P.calccourse(in_crs)
@@ -1205,46 +1178,56 @@ function P.decodemetar(metar)
 end
 
 --------------------------------------------------------------------------------------------------------------
-function P.getMetar(icaocode)
-    local metarstring = nil
-    local metarsource = "X-Plane"
+function P.onMetarDownloaded(url, path, isOk, responseCodeOrError, metarTable)
 
-    metarstring = sasl.weather.getMETARForAirport(icaocode)
+    if isOk then
+        local file = io.open(path, "r")
+        if file then
+            local metarstring = file:read("*a")
+            file:close()
 
-    if (not metarstring or (metarstring == "") or (metarstring:sub(1, 4) ~= icaocode)) then
-        sasl.logInfo("XPLM METAR for " .. icaocode .. " not found. Trying web download.")
-        
-        metarstring = nil 
+            if metarstring and #metarstring > 0 then
+                sasl.logInfo("METAR for " .. metarTable.icaocode .. " successfully downloaded.")
+                metarTable.metar.raw_text = metarstring
+                metarTable.decodedmetar = helpers.decodemetar(metarstring)
+                metarTable.metarfound = true
+            else
+                sasl.logInfo("Downloaded METAR file for " .. metarTable.icaocode .. " was empty.")
+            end
+        else
+            sasl.logInfo("Could not open temp file for " .. metarTable.icaocode)
+        end
+        os.remove(path)
+    else
+        sasl.logInfo("Download of METAR failed for " .. metarTable.icaocode .. ": " .. tostring(responseCodeOrError))
+    end
+end
+
+--------------------------------------------------------------------------------------------------------------
+function P.getMetar(icaocode, metarTable)
+
+    if not (icaocode and icaocode ~= "XXXX" and metarTable) then return end
+
+    local metarstring = sasl.weather.getMETARForAirport(icaocode)
+
+    if (metarstring and (metarstring ~= "") and (metarstring:sub(1, 4) == icaocode)) then
+        sasl.logInfo("METAR for " .. icaocode .. " successfully loaded from X-Plane.")
+        metarTable.icaocode = icaocode
+        metarTable.metar.raw_text = metarstring
+        metarTable.decodedmetar = helpers.decodemetar(metarstring)
+        metarTable.metarfound = true
+    else
+        sasl.logInfo("X-Plane METAR for " .. icaocode .. " not found or invalid. Trying async web download.")
         
         local metarUrl = def.AVWEATHERFURLCSV .. icaocode
         local tempFilePath = def.YALCACHEPATH .. icaocode .. "_metar.txt"
+        metarTable.icaocode = icaocode
 
-        sasl.logDebug("URL " .. metarUrl)
-        sasl.logDebug("Path " .. tempFilePath)
 
-        if sasl.net.downloadFileSync(metarUrl, tempFilePath) then
-            local file = io.open(tempFilePath, "r")
-            if file then
-                metarstring = file:read("*a")
-                file:close()
-                metarsource = "Aviation Weather"
-            else
-                sasl.logError("Error: Could not open temp file for " .. icaocode)
-            end
-            os.remove(tempFilePath)
-        else
-            sasl.logError("Error: Download of METAR failed for " .. icaocode)
-        end
+        sasl.net.downloadFileAsync(metarUrl, tempFilePath, function(url, path, isOk, responseCodeOrError)
+            P.onMetarDownloaded(url, path, isOk, responseCodeOrError, metarTable)
+        end)
     end
-
-    if (metarstring ~= nil and metarstring ~= "") then
-        sasl.logInfo("METAR for " .. icaocode .. " successfully loaded from " .. metarsource)
-    else
-        sasl.logInfo("METAR for " .. icaocode .. " could not be obtained.")
-        metarstring = nil
-    end
-
-    return metarstring
 end
 
 --------------------------------------------------------------------------------------------------------------
@@ -1474,7 +1457,7 @@ function P.formatWindSpeechSummary(metar, latpos, lonpos)
         return "Wind calm."
     end
 
-    local magnetic_variation = P.getmagneticvariation(latpos, lonpos)
+    local magnetic_variation = sasl.getMagneticVariation(latpos, lonpos)
     
     local report_parts = {"Wind"}
 
@@ -1913,7 +1896,7 @@ function P.buildlegstable(legs_string, lat_array, lon_array)
             local distance_to_next = P.getdistance(wp1.latitude, wp1.longitude, wp2.latitude, wp2.longitude)
             local true_course = P.getbearing(wp1.latitude, wp1.longitude, wp2.latitude, wp2.longitude)
 
-            local mag_var = P.getmagneticvariation(wp1.latitude, wp1.longitude)
+            local mag_var = sasl.getMagneticVariation(wp1.latitude, wp1.longitude)
             local magnetic_course = (true_course - mag_var + 360) % 360
 
             wp1.distance_to_next = distance_to_next
@@ -2169,7 +2152,7 @@ function P.buildnavdatatable(navdatatable)
                     newEntry[def.DESTLONPOS] = lon_val
                     local course_val = tonumber(navdataitems[def.SRCCOURSE])
                     if course_val then
-                        local mag_var = P.getmagneticvariation(lat_val, lon_val)
+                        local mag_var = sasl.getMagneticVariation(lat_val, lon_val)
                         newEntry[def.DESTCOURSE] = P.calccourse((course_val + mag_var + 360) % 360)
                     else
                         newEntry[def.DESTCOURSE] = 0
@@ -2221,7 +2204,7 @@ function P.buildnavdatatable(navdatatable)
                     local course_val_lpv_gls = tonumber(extracted_course_string)
                     
                     if course_val_lpv_gls then
-                        local mag_var = P.getmagneticvariation(lat_val, lon_val)
+                        local mag_var = sasl.getMagneticVariation(lat_val, lon_val)
                         newEntry[def.DESTCOURSE] = P.calccourse((course_val_lpv_gls + mag_var + 360) % 360)
                     else
                         newEntry[def.DESTCOURSE] = 0
