@@ -3,6 +3,7 @@ yal = P -- package name
 
 local def = require("definitions")
 require("settings")
+local VR = require("voicereadback")
 
 --------------------------------------------------------------------------------------------------------------
 
@@ -14,7 +15,7 @@ P.menu_main = sasl.createMenu("", PLUGINS_MENU_ID, menu_master)
 
 function P.YalinitGlobal()
 
-    P.needsreadbackinit = true
+    P.needstempinit = true
 
     P.aircraftwasonground = false
 
@@ -551,17 +552,29 @@ function P.initDataref()
         P.YANSHParamsUnitsFlag = globalProperty("YANSH/sb/params/units_flag")
     end
 
-    P.needsreadbackinit = true
+    set(P.n1setsource, 0)
+
+    P.needstempinit = true
 end
 
 --------------------------------------------------------------------------------------------------------------
-function P.initializeReadbackVariables()
+function P.initializeSharedVariables()
 
-    sasl.logInfo("Initializing variables for voice readback.")
-
-    set(P.n1setsource, 0)
+    sasl.logInfo("Initializing SHARED monitoring variables.")
 
     P.apgoaroundtemp = get(P.apgoaround)
+
+    P.desrwyheadingtemp = get(P.desrwyheading)
+    P.desrwylatstartpostemp = get(P.desrwylatstartpos)
+    P.desrwylonstartpostemp = get(P.desrwylonstartpos)
+    P.desrwylatendpostemp = get(P.desrwylatendpos)
+    P.desrwylonendpostemp = get(P.desrwylonendpos)
+end
+
+--------------------------------------------------------------------------------------------------------------
+function P.initializeVoicereadbackVariables()
+
+    sasl.logInfo("Initializing VOICE-READBACK-ONLY variables.")
 
     P.cabincruisealttemp = get(P.cabincruisealt)
     P.cabincruisealttemp2 = get(P.cabincruisealt)
@@ -579,12 +592,6 @@ function P.initializeReadbackVariables()
 
     P.mcpvsspeedtemp = get(P.mcpvsspeed)
     P.mcpvsspeedtemp2 = get(P.mcpvsspeed)
-
-    P.desrwyheadingtemp = get(P.desrwyheading)
-    P.desrwylatstartpostemp = get(P.desrwylatstartpos)
-    P.desrwylonstartpostemp = get(P.desrwylonstartpos)
-    P.desrwylatendpostemp = get(P.desrwylatendpos)
-    P.desrwylonendpostemp = get(P.desrwylonendpos)
 
     P.flapleverpostemp = get(P.flapleverpos)
     P.flapleverpostemp2 = get(P.flapleverpos)
@@ -5716,14 +5723,15 @@ end
 
 function P.altitudea10000steps(procedureloop)
 
-    if (procedureloop.stepindex == 1) then
+     if (procedureloop.stepindex == 1) then
         local departure_altitude = 0
         if P.airportdatatable[get(P.depicao)] and P.airportdatatable[get(P.depicao)].elevation_ft then
             departure_altitude = P.airportdatatable[get(P.depicao)].elevation_ft
         end
         local height_above_field = get(P.altitude) - departure_altitude
+        local lower_airspace_alt = P.configvalues[def.CONFIGLOWEAIRSPACEALT]
 
-        if (height_above_field < P.configvalues[def.CONFIGLOWEAIRSPACEALT]) then
+        if not ((height_above_field >= lower_airspace_alt) or (get(P.altitude) >= lower_airspace_alt)) then
             procedureloop.procedurenotpossible = true
             P.commandtableentry(def.TEXT, P.proceduretable[def.ALTITUDEA10000PROCEDURE].name .. " Procedure only possible above lower Airspace Altitude")
             return true
@@ -6013,19 +6021,26 @@ end
 function P.altitudeb10000steps(procedureloop)
 
     if (procedureloop.stepindex == 1) then
-        local destination_altitude = get(P.desrwyalt)
+        local destination_altitude = get(P.desrwyalt) -- Fallback
         if P.airportdatatable[get(P.desicao)] and P.airportdatatable[get(P.desicao)].elevation_ft then
             destination_altitude = P.airportdatatable[get(P.desicao)].elevation_ft
         end
-        local height_above_field = get(P.altitude) - destination_altitude
         
-        if (height_above_field > P.configvalues[def.CONFIGLOWEAIRSPACEALT]) then
+        local height_above_field = 99999
+        if destination_altitude then
+            height_above_field = get(P.altitude) - destination_altitude
+        end
+        
+        local radio_alt = get(P.radioaltitude)
+        local lower_airspace_alt = P.configvalues[def.CONFIGLOWEAIRSPACEALT]
+
+        if not ((height_above_field < lower_airspace_alt) or (radio_alt < lower_airspace_alt)) then
             procedureloop.procedurenotpossible = true
             P.commandtableentry(def.TEXT, P.proceduretable[def.ALTITUDEB10000PROCEDURE].name .. " Procedure only possible below lower Airspace Altitude")
             return true
         end
         
-        P.commandtableentry(def.TEXT, "Below " .. P.configvalues[def.CONFIGLOWEAIRSPACEALT] .. " Feet")
+        P.commandtableentry(def.TEXT, "Below " .. lower_airspace_alt .. " Feet")
     end
 
     if (procedureloop.stepindex == 2) then
@@ -7707,7 +7722,26 @@ function P.autofunctions()
 end
 
 --------------------------------------------------------------------------------------------------------------
+function P.updateSharedVariables()
 
+    if ((get(P.desrwyheading) ~= P.desrwyheadingtemp) and (get(P.desrwyheading) ~= 0)) then
+        P.desrwyheadingtemp = get(P.desrwyheading)
+    end
+    if ((get(P.desrwylatstartpos) ~= P.desrwylatstartpostemp) and (get(P.desrwylatstartpos) ~= 0)) then
+        P.desrwylatstartpostemp = get(P.desrwylatstartpos)
+    end
+    if ((get(P.desrwylonstartpos) ~= P.desrwylonstartpostemp) and (get(P.desrwylonstartpos) ~= 0)) then
+        P.desrwylonstartpostemp = get(P.desrwylonstartpos)
+    end
+    if ((get(P.desrwylatendpos) ~= P.desrwylatendpostemp) and (get(P.desrwylatendpos) ~= 0)) then
+        P.desrwylatendpostemp = get(P.desrwylatendpos)
+    end
+    if ((get(P.desrwylonendpos) ~= P.desrwylonendpostemp) and (get(P.desrwylonendpos) ~= 0)) then
+        P.desrwylonendpostemp = get(P.desrwylonendpos)
+    end
+end
+
+--------------------------------------------------------------------------------------------------------------
 function P.voicereadback()
 
 
@@ -7874,26 +7908,6 @@ function P.voicereadback()
                 P.commandtableentry(def.TEXT, "Pilot Decision Altitude " .. tostring(helpers.roundnumber(get(P.dhpilot))))
             end
         end
-    end
-
-    if ((get(P.desrwyheading) ~= P.desrwyheadingtemp) and (get(P.desrwyheading) ~= 0)) then
-        P.desrwyheadingtemp = get(P.desrwyheading)
-    end
-
-    if ((get(P.desrwylatstartpos) ~= P.desrwylatstartpostemp) and (get(P.desrwylatstartpos) ~= 0)) then
-        P.desrwylatstartpostemp = get(P.desrwylatstartpos)
-    end
-
-    if ((get(P.desrwylonstartpos) ~= P.desrwylonstartpostemp) and (get(P.desrwylonstartpos) ~= 0)) then
-        P.desrwylonstartpostemp = get(P.desrwylonstartpos)
-    end
-
-    if ((get(P.desrwylatendpos) ~= P.desrwylatendpostemp) and (get(P.desrwylatendpos) ~= 0)) then
-        P.desrwylatendpostemp = get(P.desrwylatendpos)
-    end
-
-    if ((get(P.desrwylonendpos) ~= P.desrwylonendpostemp) and (get(P.desrwylonendpos) ~= 0)) then
-        P.desrwylonendpostemp = get(P.desrwylonendpos)
     end
 
     if (get(P.aponstat) ~= P.aponstattemp) then
@@ -9590,7 +9604,6 @@ function P.voicereadback()
 end
 
 --------------------------------------------------------------------------------------------------------------
-
 function P.ongoingtasks()
 
     if (P.updatemetartimer == nil) then
@@ -10068,15 +10081,20 @@ end
 
 function P.do_yal()
 
-    if P.needsreadbackinit then
-        P.initializeReadbackVariables()
-        P.needsreadbackinit = false
-    end
-
     if settings.newSettingsAvailable then
         P.readconfig()
         sasl.logInfo("Loading new settings")
     end
+
+    if P.needstempinit then
+        P.initializeSharedVariables()
+        if (P.configvalues[def.CONFIGVOICEREADBACK] == def.ON) then
+            P.initializeVoicereadbackVariables()
+        end
+        P.needstempinit = false
+    end
+
+    P.updateSharedVariables()
 
     local next_recommended_wait_step = def.STANDARDWAIT 
 
@@ -10200,8 +10218,8 @@ function P.do_yal()
     sasl.logDebug("ATPARKINGPOSITIONSET: " .. tostring(P.proceduretable[def.ATPARKINGPOSITIONPROCEDURE].set))
     sasl.logDebug("--------------------------------------------")
     sasl.logDebug("FLIGHTSTATE: " .. tostring(P.flightstate) .. " FMSFLIGHTPHASE: " .. tostring(get(P.fmsflightphase)) .. " AIRCRAFTWASONGROUND: " .. tostring(P.aircraftwasonground))
-    sasl.logDebug("Raw METAR Departure: " .. tostring(P.depmetar.metar))
-    sasl.logDebug("Raw METAR Destination: " .. tostring(P.desmetar.metar))
+    sasl.logDebug("Raw METAR Departure: " .. tostring(P.depmetar.metar.raw_text))
+    sasl.logDebug("Raw METAR Destination: " .. tostring(P.desmetar.metar.raw_text))
 
     return next_recommended_wait_step
 end
