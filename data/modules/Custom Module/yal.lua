@@ -65,10 +65,10 @@ function P.YalinitGlobal()
 
     P.proceduretable = {
         [def.COLDANDDARKPROCEDURE] = { number = 1, name = "Cold and Dark Startup", cycable = true, speakname = true, steps = 30, set = false, procedurefunction = P.coldanddarkstartupsteps, loop = 1, prerequisite = nil, allowedState = def.GROUNDONLY, requiredFlightstate = def.FLIGHTSTATEPREFLIGHT, skipCondition = function() return (get(P.battery) == def.ON) end },
-        [def.COCKPITINITPROCEDURE] = { number = 2, name = "Cockpit Initialization", cycable = true, speakname = true, steps = 36, set = false, procedurefunction = P.cockpitinitsteps, loop = 1, prerequisite = def.COLDANDDARKPROCEDURE, allowedState = def.GROUNDONLY, requiredFlightstate = def.FLIGHTSTATEPREFLIGHT, skipCondition = nil },
+        [def.COCKPITINITPROCEDURE] = { number = 2, name = "Cockpit Initialization", cycable = true, speakname = true, steps = 39, set = false, procedurefunction = P.cockpitinitsteps, loop = 1, prerequisite = def.COLDANDDARKPROCEDURE, allowedState = def.GROUNDONLY, requiredFlightstate = def.FLIGHTSTATEPREFLIGHT, skipCondition = nil },
         [def.APUSTARTUPPROCEDURE] = { number = 3, name = "A P U Startup", cycable = true, speakname = true, steps = 7, set = false, procedurefunction = P.apustartupsteps, loop = 1, prerequisite = def.COCKPITINITPROCEDURE, allowedState = def.GROUNDONLY, requiredFlightstate = def.FLIGHTSTATEPREFLIGHT, skipCondition = function() return (P.apurunning() == def.APUONBUS) or P.enginesrunning(def.BOTH) end },
         [def.ENGINESTARTPROCEDURE] = { number = 4, name = "Engine Start", cycable = true, speakname = true, steps = 33, set = false , procedurefunction = P.enginestartsteps, loop = 1, prerequisite = def.COCKPITINITPROCEDURE, allowedState = def.GROUNDONLY, requiredFlightstate = def.FLIGHTSTATEPREFLIGHT, skipCondition = function() return P.enginesrunning(def.BOTH) end },
-        [def.BEFORETAXIPROCEDURE] = { number = 5, name = "Before Taxi", cycable = true, speakname = true, steps = 30, set = false, procedurefunction = P.beforetaxisteps, loop = 1, prerequisite = function() return P.enginesrunning(def.BOTH) end, allowedState = def.GROUNDONLY, requiredFlightstate = def.FLIGHTSTATEPREFLIGHT, skipCondition = nil },     
+        [def.BEFORETAXIPROCEDURE] = { number = 5, name = "Before Taxi", cycable = true, speakname = true, steps = 26, set = false, procedurefunction = P.beforetaxisteps, loop = 1, prerequisite = function() return P.enginesrunning(def.BOTH) end, allowedState = def.GROUNDONLY, requiredFlightstate = def.FLIGHTSTATEPREFLIGHT, skipCondition = nil },     
         [def.BEFORETAKEOFFPROCEDURE] = { number = 6, name = "Before Takeoff", cycable = true, speakname = true, steps = 14, set = false, procedurefunction = P.beforetakeoffsteps, loop = 1, prerequisite = def.BEFORETAXIPROCEDURE, allowedState = def.GROUNDONLY, requiredFlightstate = def.FLIGHTSTATEPREFLIGHT, skipCondition = nil },
         [def.AFTERTAKEOFFPROCEDURE] = { number = 7, name = "After Takeoff", cycable = false, speakname = false, steps = 3, set = false, procedurefunction = P.aftertakeoffsteps, loop = 2, prerequisite = def.BEFORETAKEOFFPROCEDURE, allowedState = def.AIRONLY, requiredFlightstate = def.FLIGHTSTATEINITIALCLIMB, skipCondition = nil },
         [def.DURINGCLIMBPROCEDURE] = { number = 8, name = "During Climb", cycable = false, speakname = false, steps = 13, set = false, procedurefunction = P.duringclimbsteps, loop = 2, prerequisite = nil, allowedState = def.AIRONLY, requiredFlightstate = def.FLIGHTSTATECLIMB, skipCondition = nil },
@@ -768,6 +768,8 @@ function P.readconfig()
     else
         set(P.wakeoverride, def.OFF)
     end
+
+    P.needstempinit = true
 
     return true
 
@@ -2782,8 +2784,10 @@ function P.updatemetar()
     local depicaotmp = helpers.cleanstring(get(P.depicao))
     local desicaotmp = helpers.cleanstring(get(P.desicao))
 
-    if helpers.isvalidicao(depicaotmp) and depicaotmp ~= P.depmetar.icaocode then
-        helpers.getMetar(depicaotmp, P.depmetar)
+    if P.flightstate <= def.FLIGHTSTATEINITIALCLIMB then
+        if helpers.isvalidicao(depicaotmp) and depicaotmp ~= P.depmetar.icaocode then
+            P.getMetar(depicaotmp, P.depmetar)
+        end
     end
 
     if helpers.isvalidicao(desicaotmp) and desicaotmp ~= P.desmetar.icaocode then
@@ -5124,9 +5128,10 @@ function P.cockpitinitsteps(procedureloop)
             elseif (not procedureloop.steprepeat) then
                 P.commandtableentry(def.TEXT, "Simbrief Flight Plan Loaded")
             end
+        else
+            procedureloop.stepindex = procedureloop.stepindex + 1
         end
     end
-
 
     if (procedureloop.stepindex == 11) then
         if P. YANSHisinstalled() and P.YANSHflightplanloaded() and P.YANSHFuelPlanRamp and get(P.YANSHFuelPlanRamp) > 0 and P.YANSHParamsUnitsFlag then
@@ -5142,6 +5147,8 @@ function P.cockpitinitsteps(procedureloop)
                     P.checkYANSHFuel()
                 end
             end
+        else
+            procedureloop.stepindex = procedureloop.stepindex + 1
         end
     end
 
@@ -5152,13 +5159,53 @@ function P.cockpitinitsteps(procedureloop)
                     P.commandtableentry(def.TEXT, "Activate Flight Plan in F M C")
                     procedureloop.stepindex = procedureloop.stepindex - 1
                 elseif (not procedureloop.steprepeat) then
-                    P.commandtableentry(def.TEXT, "Flight Plan in F M C Activated")
+                    P.commandtableentry(def.TEXT, "Flight Plan in F M C Checked and Activated")
                 end
             end
+        else
+            procedureloop.stepindex = procedureloop.stepindex + 1
         end
     end
 
     if (procedureloop.stepindex == 13) then
+        if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
+            if (get(P.toflaps) == 0) then
+                local toflapscalc = helpers.determineTakeoffFlapsSetting(get(P.totalweightkgs), get(P.deprwylen), get(P.deprwyheading), get(P.elevation), P.depmetar)
+                if (get(P.toflaps) ~= toflapscalc) then                
+                    P.commandtableentry(def.TEXT, "Set Takeoff Flaps " .. tostring(toflapscalc))
+                    procedureloop.stepindex = procedureloop.stepindex - 1
+                elseif not procedureloop.steprepeat then
+                    P.commandtableentry(def.TEXT, "Takeoff Flaps set and " .. tostring(get(P.toflaps)))
+                end
+            else
+                P.commandtableentry(def.TEXT, "Takeoff Flaps set and " .. tostring(get(P.toflaps)))
+            end
+        end
+    end
+
+    if (procedureloop.stepindex == 14) then
+        if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
+            if (get(P.fmccg) == 0) then
+                P.commandtableentry(def.TEXT, "Set C G " .. tostring(helpers.roundnumber(get(P.tabcg),1)))
+                procedureloop.stepindex = procedureloop.stepindex - 1
+            elseif not procedureloop.steprepeat then
+                P.commandtableentry(def.TEXT, "C G checked and " .. tostring(get(P.fmccg)))
+            end
+        end
+    end
+
+    if (procedureloop.stepindex == 15) then
+        if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
+            if ((get(P.v1setspeed) == 0) or (get(P.v2setspeed) == 0) or (get(P.vrsetspeed) == 0)) then
+                P.commandtableentry(def.TEXT, "Enter V Speeds")
+                procedureloop.stepindex = procedureloop.stepindex - 1
+            elseif not procedureloop.steprepeat then
+                P.commandtableentry(def.TEXT, "V Speeds checked and Set")
+            end
+        end
+    end
+
+    if (procedureloop.stepindex == 16) then
         if (P.configvalues[def.CONFIGVIEWCHANGES] == def.ON) then
             P.setview(P.configvalues[def.CONFIGVIEWPEDESTAL])
         else
@@ -5167,7 +5214,7 @@ function P.cockpitinitsteps(procedureloop)
         end
     end
 
-    if (procedureloop.stepindex == 14) then
+    if (procedureloop.stepindex == 17) then
         if (P.configvalues[def.CONFIGTRANSPONDER] ~= 0) then
             if (get(P.transpondercode) ~= P.configvalues[def.CONFIGTRANSPONDER]) then
                 if (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
@@ -5182,7 +5229,7 @@ function P.cockpitinitsteps(procedureloop)
         end
     end
 
-    if (procedureloop.stepindex == 15) then
+    if (procedureloop.stepindex == 18) then
         if (get(P.transponderpos) ~= def.STANDBY) then
             if (P.configvalues[def.CONFIGTRANSPONDER] ~= 0) then
                 if (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
@@ -5197,7 +5244,7 @@ function P.cockpitinitsteps(procedureloop)
         end
     end
 
-    if (procedureloop.stepindex == 16) then
+    if (procedureloop.stepindex == 19) then
         if (P.configvalues[def.CONFIGVIEWCHANGES] == def.ON) then
             P.setview(P.configvalues[def.CONFIGVIEWOVERHEADPANEL])
         else
@@ -5206,7 +5253,7 @@ function P.cockpitinitsteps(procedureloop)
         end
     end
 
-    if (procedureloop.stepindex == 17) then
+    if (procedureloop.stepindex == 20) then
         if ((get(P.captainprobepos) ~= def.OFF) or (get(P.foprobepos) ~= def.OFF)) then
             if (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
                 P.toggleprobeheat(def.OFF)
@@ -5219,7 +5266,7 @@ function P.cockpitinitsteps(procedureloop)
         end
     end
 
-    if (procedureloop.stepindex == 18) then
+    if (procedureloop.stepindex == 21) then
         if (get(P.seatbeltsignpos) ~= def.SEATBELTSIGNOFF) then
             if (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
                 P.setseatbeltsign(def.SEATBELTSIGNOFF)
@@ -5232,7 +5279,7 @@ function P.cockpitinitsteps(procedureloop)
         end
     end
 
-    if (procedureloop.stepindex == 19) then
+    if (procedureloop.stepindex == 22) then
         if (get(P.nosmokingsignpos) ~= def.NOSMOKINGSIGNON) then
             if (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
                 P.setnosmokingsign(def.NOSMOKINGSIGNON)
@@ -5245,7 +5292,7 @@ function P.cockpitinitsteps(procedureloop)
         end
     end
 
-    if (procedureloop.stepindex == 20) then
+    if (procedureloop.stepindex == 23) then
         if(get(P.positionlights) ~= def.POSLIGHTSSTEADY) then
             if (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
                 P.togglepositionlights(def.POSLIGHTSSTEADY)
@@ -5258,7 +5305,7 @@ function P.cockpitinitsteps(procedureloop)
         end
     end
 
-    if (procedureloop.stepindex == 21) then
+    if (procedureloop.stepindex == 24) then
         if ((get(P.llights1) ~= def.OFF) or (get(P.llights2) ~= def.OFF) or (get(P.llights3) ~= def.OFF) or (get(P.llights4) ~= def.OFF)) then
             if (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
                 P.togglelandinglights(def.OFF)
@@ -5271,7 +5318,7 @@ function P.cockpitinitsteps(procedureloop)
         end
     end
 
-    if (procedureloop.stepindex == 22) then
+    if (procedureloop.stepindex == 25) then
         if ((get(P.rwylightl) == def.ON) or (get(P.rwylightl) == def.ON)) then
             if (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
                 P.togglerwylights(def.OFF)
@@ -5284,7 +5331,7 @@ function P.cockpitinitsteps(procedureloop)
         end
     end
 
-    if (procedureloop.stepindex == 23) then
+    if (procedureloop.stepindex == 26) then
         if (get(P.taxilight) ~= def.OFF) then
             if (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
                 P.toggletaxilights(def.OFF)
@@ -5297,7 +5344,7 @@ function P.cockpitinitsteps(procedureloop)
         end
     end
 
-    if (procedureloop.stepindex == 24) then
+    if (procedureloop.stepindex == 27) then
         if (P.configvalues[def.CONFIGVIEWCHANGES] == def.ON) then
             P.setview(P.configvalues[def.CONFIGVIEWMAINPANEL])
         else
@@ -5307,13 +5354,13 @@ function P.cockpitinitsteps(procedureloop)
     end
 
 
-    if (procedureloop.stepindex == 25) then
+    if (procedureloop.stepindex == 28) then
         if (get(P.apdiscpos) == def.ON) then
             helpers.command_once("laminar/B738/autopilot/disconnect_toggle")
         end
     end
 
-    if (procedureloop.stepindex == 26) then
+    if (procedureloop.stepindex == 29) then
         if ((get(P.fdpilotpos) == def.ON) or (get(P.fdfopos) == def.ON)) then
             if (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
                 P.togglefds(def.OFF)
@@ -5326,7 +5373,7 @@ function P.cockpitinitsteps(procedureloop)
         end
     end
 
-    if (procedureloop.stepindex == 27) then
+    if (procedureloop.stepindex == 30) then
         if (get(P.mcpaltitude) ~= P.configvalues[def.CONFIGLOWEAIRSPACEALT]) then
             if (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
                 set(P.mcpaltitude, P.configvalues[def.CONFIGLOWEAIRSPACEALT])
@@ -5339,7 +5386,7 @@ function P.cockpitinitsteps(procedureloop)
         end
     end
 
-    if (procedureloop.stepindex == 28) then
+    if (procedureloop.stepindex == 31) then
         if (get(P.bankanglepos) ~= P.configvalues[def.CONFIGBANKANGLEMAX]) then
             if (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
                 P.setbankanglepos(P.configvalues[def.CONFIGBANKANGLEMAX])
@@ -5352,7 +5399,7 @@ function P.cockpitinitsteps(procedureloop)
         end
     end
 
-    if (procedureloop.stepindex == 29) then
+    if (procedureloop.stepindex == 32) then
         if (get(P.efisdatapilotpos) == def.OFF) then
             helpers.command_once("laminar/B738/EFIS_control/capt/push_button/data_press")
         end
@@ -5361,7 +5408,7 @@ function P.cockpitinitsteps(procedureloop)
         end
     end
 
-    if (procedureloop.stepindex == 30) then
+    if (procedureloop.stepindex == 33) then
         if (get(P.autobrakepos) ~= def.AUTOBRAKEOFF) then
             if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
                 P.commandtableentry(def.TEXT, "Set Auto Brake Off")
@@ -5375,14 +5422,14 @@ function P.cockpitinitsteps(procedureloop)
     end
 
 
-    if (procedureloop.stepindex == 31) then
+    if (procedureloop.stepindex == 34) then
         if (get(P.aponstat) == def.ON) then
             set(P.aponstat, def.OFF)
         end
     end
 
     if (((not P.enginesrunning(BOTH)) and ((get(P.mixture1pos) ~= def.OFF) or (get(P.mixture2pos) ~= def.OFF))) or (speedbrakeleverrounded ~= def.SPEEDBRAKEDOWN)) then
-        if (procedureloop.stepindex == 32) then
+        if (procedureloop.stepindex == 35) then
             if (P.configvalues[def.CONFIGVIEWCHANGES] == def.ON) then
                 P.setview(P.configvalues[def.CONFIGVIEWTHROTTLE])
             else
@@ -5391,7 +5438,7 @@ function P.cockpitinitsteps(procedureloop)
             end
         end
 
-        if (procedureloop.stepindex == 33) then
+        if (procedureloop.stepindex == 36) then
             if ((not P.enginesrunning(BOTH)) and ((get(P.mixture1pos) ~= def.OFF) or (get(P.mixture2pos) ~= def.OFF))) then
                 if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
                     P.commandtableentry(def.TEXT, "Set Both Engine Fuel Levers Cutoff")
@@ -5410,7 +5457,7 @@ function P.cockpitinitsteps(procedureloop)
             end
         end
 
-        if (procedureloop.stepindex == 34) then
+        if (procedureloop.stepindex == 37) then
             speedbrakeleverrounded = helpers.roundnumber(get(P.speedbrakelever), 1)
             if (speedbrakeleverrounded ~= def.SPEEDBRAKEDOWN) then
                 if (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
@@ -5425,7 +5472,7 @@ function P.cockpitinitsteps(procedureloop)
             end
         end
 
-        if (procedureloop.stepindex == 35) then
+        if (procedureloop.stepindex == 38) then
             if (P.configvalues[def.CONFIGVIEWCHANGES] == def.ON) then
                 P.setview(P.configvalues[def.CONFIGVIEWMAINPANEL])
             else
@@ -5433,12 +5480,12 @@ function P.cockpitinitsteps(procedureloop)
                 procedureloop.stepindexprevious = procedureloop.stepindexprevious + 1
             end
         end
-    elseif (procedureloop.stepindex == 32) then
-        procedureloop.stepindex = 36
+    elseif (procedureloop.stepindex == 35) then
+        procedureloop.stepindex = 39
 
     end
 
-    if (procedureloop.stepindex == 36) then
+    if (procedureloop.stepindex == 39) then
         helpers.command_once("laminar/B738/push_button/master_caution1")
         helpers.command_once("laminar/B738/button/fmc1_clr")
     end
@@ -6822,54 +6869,7 @@ function P.beforetaxisteps(procedureloop)
         end
     end
 
-    if (procedureloop.stepindex == 19) then
-        if (P.configvalues[def.CONFIGVIEWCHANGES] == def.ON) then
-            P.setview(P.configvalues[def.CONFIGVIEWFMS])
-        else
-            procedureloop.stepindex = procedureloop.stepindex + 1
-            procedureloop.stepindexprevious = procedureloop.stepindexprevious + 1
-        end
-    end
-
-    if (procedureloop.stepindex == 20) then
-        if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-            if (get(P.toflaps) == 0) then
-                local toflapscalc = helpers.determineTakeoffFlapsSetting(get(P.totalweightkgs), get(P.deprwylen), get(P.deprwyheading), get(P.elevation), P.depmetar)
-                if (get(P.toflaps) ~= toflapscalc) then                
-                    P.commandtableentry(def.TEXT, "Set Takeoff Flaps " .. tostring(toflapscalc))
-                    procedureloop.stepindex = procedureloop.stepindex - 1
-                elseif not procedureloop.steprepeat then
-                    P.commandtableentry(def.TEXT, "Takeoff Flaps set and " .. tostring(get(P.toflaps)))
-                end
-            else
-                P.commandtableentry(def.TEXT, "Takeoff Flaps set and " .. tostring(get(P.toflaps)))
-            end
-        end
-    end
-
-    if (procedureloop.stepindex == 21) then
-        if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-            if (get(P.fmccg) == 0) then
-                P.commandtableentry(def.TEXT, "Set C G " .. tostring(helpers.roundnumber(get(P.tabcg),1)))
-                procedureloop.stepindex = procedureloop.stepindex - 1
-            elseif not procedureloop.steprepeat then
-                P.commandtableentry(def.TEXT, "C G checked and " .. tostring(get(P.fmccg)))
-            end
-        end
-    end
-
-    if (procedureloop.stepindex == 22) then
-        if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-            if ((get(P.v1setspeed) == 0) or (get(P.v2setspeed) == 0) or (get(P.vrsetspeed) == 0)) then
-                P.commandtableentry(def.TEXT, "Enter V Speeds")
-                procedureloop.stepindex = procedureloop.stepindex - 1
-            elseif not procedureloop.steprepeat then
-                P.commandtableentry(def.TEXT, "V Speeds checked and Set")
-            end
-        end
-    end
-
-    if (procedureloop.stepindex == 23) then
+    if (procedureloop.stepindex == 29) then
         if (P.configvalues[def.CONFIGVIEWCHANGES] == def.ON) then
             P.setview(P.configvalues[def.CONFIGVIEWMAINPANEL])
         else
@@ -6878,7 +6878,7 @@ function P.beforetaxisteps(procedureloop)
         end
     end
 
-    if (procedureloop.stepindex == 24) then
+    if (procedureloop.stepindex == 20) then
         if ((get(P.fdpilotpos) == def.OFF) or (get(P.fdfopos) == def.OFF)) then
             if (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
                 P.togglefds(def.ON)
@@ -6891,7 +6891,7 @@ function P.beforetaxisteps(procedureloop)
         end
     end
 
-    if (procedureloop.stepindex == 25) then
+    if (procedureloop.stepindex == 21) then
         if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
             if (get(P.aplnavstat) ~= def.ON) then
                 P.commandtableentry(def.TEXT, "Arm L NAV")
@@ -6902,7 +6902,7 @@ function P.beforetaxisteps(procedureloop)
         end
     end
 
-    if (procedureloop.stepindex == 26) then
+    if (procedureloop.stepindex == 22) then
         if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
             if (get(P.apvnavstat) ~= def.ON) then
                 P.commandtableentry(def.TEXT, "Arm V NAV")
@@ -6913,7 +6913,7 @@ function P.beforetaxisteps(procedureloop)
         end
     end
 
-    if (procedureloop.stepindex == 27) then
+    if (procedureloop.stepindex == 23) then
         if (P.configvalues[def.CONFIGVIEWCHANGES] == def.ON) then
             P.setview(P.configvalues[def.CONFIGVIEWTHROTTLE])
         else
@@ -6922,7 +6922,7 @@ function P.beforetaxisteps(procedureloop)
         end
     end
 
-    if (procedureloop.stepindex == 28) then
+    if (procedureloop.stepindex == 24) then
         if ((helpers.convflaplevertoflappos(get(P.flapleverpos)) ~= get(P.toflaps))) then
             if (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
                 local toflapscmd = "laminar/B738/push_button/flaps_" .. get(P.toflaps)
@@ -6937,7 +6937,7 @@ function P.beforetaxisteps(procedureloop)
         end
     end
 
-    if (procedureloop.stepindex == 29) then
+    if (procedureloop.stepindex == 25) then
         if (get(P.parkingbrakepos) ~= def.OFF) then
             if (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
                 set(P.parkingbrakepos, def.OFF)
@@ -6950,7 +6950,7 @@ function P.beforetaxisteps(procedureloop)
         end
     end
 
-    if (procedureloop.stepindex == 30) then
+    if (procedureloop.stepindex == 26) then
         if (P.configvalues[def.CONFIGVIEWCHANGES] == def.ON) then
             P.setview(P.configvalues[def.CONFIGVIEWMAINPANEL])
         else
@@ -7632,39 +7632,43 @@ function P.ongoingtasks()
         P.altitudetimer = nil
     end
 
-    if ((P.procedureloop1.lock == def.NOPROCEDURE) and (get(P.airgroundsensor) == def.ON) and (P.flightstate == def.FLIGHTSTATEPREFLIGHT)) then
-        if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-            if ((get(P.battery) == def.ON) and (get(P.positionlights) ~= def.POSLIGHTSSTEADY) and (get(P.parkingbrakepos) == def.ON)) then
-                P.commandtableentry(def.TEXT, "Set Position Lights Steady") 
-            elseif (((get(P.starter1pos) == def.GROUND) or (get(P.starter2pos) == def.GROUND)) and (get(P.beaconlights) == def.OFF)) then
-                P.commandtableentry(def.TEXT, "Set Collision Lights On")      
-            elseif (((get(P.starter1pos) == def.GROUND) or (get(P.starter2pos) == def.GROUND)) and ((get(P.lefttanklswitch) == def.OFF) or (get(P.lefttankrswitch) == def.OFF) or (get(P.righttanklswitch) == def.OFF) or (get(P.righttankrswitch) == def.OFF))) then
-                P.commandtableentry(def.TEXT, "Set Wing Tank Fuel Pumps On")
-            elseif (((get(P.starter1pos) == def.GROUND) or (get(P.starter2pos) == def.GROUND)) and ((get(P.packlpos) ~= def.PACKOFF) or (get(P.packrpos) ~= def.PACKOFF))) then
-                P.commandtableentry(def.TEXT, "Set Both Packs Off")
-            elseif (((get(P.starter1pos) == def.GROUND) or (get(P.starter2pos) == def.GROUND)) and (get(P.bleedairapupos) ~= def.ON)) then
-                P.commandtableentry(def.TEXT, "Set A P U Bleed Air On")
-            elseif ((get(P.starter2pos) == def.GROUND) and (get(P.isolvalvepos) ~= def.ISOLVALVEOPEN)) then
-                P.commandtableentry(def.TEXT, "Set Isolation Valve Open")
-            elseif ((get(P.starter1pos) == def.GROUND) and (get(P.eng1n2percent) > 25) and (get(P.mixture1pos) == def.OFF)) then 
-                P.commandtableentry(def.TEXT, "Engine 1 N 2 at 25 Percent")        
-            elseif ((get(P.starter2pos) == def.GROUND) and (get(P.eng2n2percent) > 25) and (get(P.mixture2pos) == def.OFF)) then 
-                P.commandtableentry(def.TEXT, "Engine 2 N 2 at 25 Percent")
-            elseif ((P.apurunning() == def.APUOFFBUS) and (get(P.gen1pos) == def.OFF) and (get(P.gen1pos) == def.OFF)) then
-                P.commandtableentry(def.TEXT, "Switch A P U Generator On")
-            elseif ((get(P.bleedairapupos) == def.OFF) and (P.apurunning() > def.APUSTARTED) and ((not P.enginesrunning(P.BOTH)) or (P.enginesrunning(P.BOTH) and get(P.bleedair1pos) == def.OFF and get(P.bleedair2pos) == def.OFF))) then
-                P.commandtableentry(def.TEXT, "Set A P U Bleedair On")
-            elseif ((get(P.isolvalvepos) ~= def.ISOLVALVEOPEN) and (P.apurunning() > def.APUSTARTED) and not(P.enginesrunning(P.BOTH) and get(P.bleedair2pos) == def.ON)) then
-                P.commandtableentry(def.TEXT, "Set Isolation Valve Open")
-            elseif ((get(P.bleedairapupos) == def.ON) and P.enginesrunning(P.BOTH) and (get(P.bleedair1pos) == def.ON or get(P.bleedair2pos) == def.ON)) then
-                P.commandtableentry(def.TEXT, "Set A P U Bleedair Off")
-            elseif ((get(P.isolvalvepos) ~= def.ISOLVALVEAUTO) and P.enginesrunning(P.BOTH) and (get(P.bleedair1pos) == def.ON or get(P.bleedair2pos) == def.ON)) then
-                P.commandtableentry(def.TEXT, "Set Isolation Valve Auto")
+    if ((get(P.airgroundsensor) == def.ON) and (P.flightstate == def.FLIGHTSTATEPREFLIGHT)) then
+        if (P.procedureloop1.lock == def.NOPROCEDURE) then  
+            if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
+                if ((get(P.battery) == def.ON) and (get(P.positionlights) ~= def.POSLIGHTSSTEADY) and (get(P.parkingbrakepos) == def.ON)) then
+                    P.commandtableentry(def.TEXT, "Set Position Lights Steady") 
+                elseif (((get(P.starter1pos) == def.GROUND) or (get(P.starter2pos) == def.GROUND)) and (get(P.beaconlights) == def.OFF)) then
+                    P.commandtableentry(def.TEXT, "Set Collision Lights On")      
+                elseif (((get(P.starter1pos) == def.GROUND) or (get(P.starter2pos) == def.GROUND)) and ((get(P.lefttanklswitch) == def.OFF) or (get(P.lefttankrswitch) == def.OFF) or (get(P.righttanklswitch) == def.OFF) or (get(P.righttankrswitch) == def.OFF))) then
+                    P.commandtableentry(def.TEXT, "Set Wing Tank Fuel Pumps On")
+                elseif (((get(P.starter1pos) == def.GROUND) or (get(P.starter2pos) == def.GROUND)) and ((get(P.packlpos) ~= def.PACKOFF) or (get(P.packrpos) ~= def.PACKOFF))) then
+                    P.commandtableentry(def.TEXT, "Set Both Packs Off")
+                elseif (((get(P.starter1pos) == def.GROUND) or (get(P.starter2pos) == def.GROUND)) and (get(P.bleedairapupos) ~= def.ON)) then
+                    P.commandtableentry(def.TEXT, "Set A P U Bleed Air On")
+                elseif ((get(P.starter2pos) == def.GROUND) and (get(P.isolvalvepos) ~= def.ISOLVALVEOPEN)) then
+                    P.commandtableentry(def.TEXT, "Set Isolation Valve Open")
+                elseif ((get(P.starter1pos) == def.GROUND) and (get(P.eng1n2percent) > 25) and (get(P.mixture1pos) == def.OFF)) then 
+                    P.commandtableentry(def.TEXT, "Engine 1 N 2 at 25 Percent")        
+                elseif ((get(P.starter2pos) == def.GROUND) and (get(P.eng2n2percent) > 25) and (get(P.mixture2pos) == def.OFF)) then 
+                    P.commandtableentry(def.TEXT, "Engine 2 N 2 at 25 Percent")
+                elseif ((P.apurunning() == def.APUOFFBUS) and (get(P.gen1pos) == def.OFF) and (get(P.gen1pos) == def.OFF)) then
+                    P.commandtableentry(def.TEXT, "Switch A P U Generator On")
+                elseif ((get(P.bleedairapupos) == def.OFF) and (P.apurunning() > def.APUSTARTED) and ((not P.enginesrunning(P.BOTH)) or (P.enginesrunning(P.BOTH) and get(P.bleedair1pos) == def.OFF and get(P.bleedair2pos) == def.OFF))) then
+                    P.commandtableentry(def.TEXT, "Set A P U Bleedair On")
+                elseif ((get(P.isolvalvepos) ~= def.ISOLVALVEOPEN) and (P.apurunning() > def.APUSTARTED) and not(P.enginesrunning(P.BOTH) and get(P.bleedair2pos) == def.ON)) then
+                    P.commandtableentry(def.TEXT, "Set Isolation Valve Open")
+                elseif ((get(P.bleedairapupos) == def.ON) and P.enginesrunning(P.BOTH) and (get(P.bleedair1pos) == def.ON or get(P.bleedair2pos) == def.ON)) then
+                    P.commandtableentry(def.TEXT, "Set A P U Bleedair Off")
+                elseif ((get(P.isolvalvepos) ~= def.ISOLVALVEAUTO) and P.enginesrunning(P.BOTH) and (get(P.bleedair1pos) == def.ON or get(P.bleedair2pos) == def.ON)) then
+                    P.commandtableentry(def.TEXT, "Set Isolation Valve Auto")
+                end
             end
         end
 
-        if ((get(P.atarmpos) == def.ARMED) and (get(P.atn1stat) == def.OFF) and (get(P.atthrottlelock) == def.OFF) and (get(P.eng1n1percent) > 40) and (get(P.eng2n1percent) > 40)) then 
-            P.commandtableentry(def.TEXT, "Both Engine N 1 at 40 Percent")
+        if ((P.procedureloop1.lock == def.NOPROCEDURE) or (P.procedureloop1.lock == def.BEFORETAKEOFFPROCEDURE)) then
+            if ((get(P.atarmpos) == def.ARMED) and (get(P.atn1stat) == def.OFF) and (get(P.atthrottlelock) == def.OFF) and (get(P.eng1n1percent) > 40) and (get(P.eng2n1percent) > 40)) then 
+                P.commandtableentry(def.TEXT, "Both Engine N 1 at 40 Percent")
+            end
         end
     end
 

@@ -29,26 +29,36 @@ end
 --------------------------------------------------------------------------------------------------------------
 local function complex_check(P)
 
-   if (math.abs(get(P.totalfuellbs) - P.totalfuellbstemp) > 200) then
-        if (get(P.totalfuellbs) ~= P.totalfuellbstemp2) then P.totalfuellbstemp2 = get(P.totalfuellbs)
+    if (math.abs(get(P.totalfuellbs) - P.totalfuellbstemp) > 200) then
+        if (get(P.totalfuellbs) ~= P.totalfuellbstemp2) then
+            P.totalfuellbstemp2 = get(P.totalfuellbs)
         else
-            if (get(P.fuelunit) == def.LBS) then P.commandtableentry(def.TEXT, "Fuel quantity " .. tostring(get(P.totalfuellbs)) .. "L B S")
-            else P.commandtableentry(def.TEXT, "Fuel quantity " .. tostring(get(P.totalfuelkgs)) .. "K G") end
+            if (get(P.fuelunit) == def.LBS) then
+                P.commandtableentry(def.TEXT, "Fuel quantity " .. tostring(get(P.totalfuellbs)) .. "L B S")
+            else
+                P.commandtableentry(def.TEXT, "Fuel quantity " .. tostring(get(P.totalfuelkgs)) .. "K G")
+            end
             P.totalfuellbstemp = get(P.totalfuellbs)
         end
     else
         P.totalfuellbstemp = get(P.totalfuellbs)
     end
-    
+
     if (get(P.apcmdastat) ~= P.apcmdastattemp) then
-        if (get(P.apcmdastat) == def.ON) then P.commandtableentry(def.TEXT, "Command A On")
-        elseif (get(P.aponstat) == def.ON) then P.commandtableentry(def.TEXT, "Command A Off") end
+        if (get(P.apcmdastat) == def.ON) then
+            P.commandtableentry(def.TEXT, "Command A On")
+        else
+            if (get(P.aponstat) == def.ON) then
+                P.commandtableentry(def.TEXT, "Command A Off")
+            end
+        end
         P.apcmdastattemp = get(P.apcmdastat)
     end
 
     if (get(P.apcmdbstat) ~= P.apcmdbstattemp) then
         if (get(P.apcmdbstat) == def.ON) then
             P.commandtableentry(def.TEXT, "Command B On")
+
             if ((get(P.apcmdastat) == def.ON) and ((get(P.apgscapturedstat) ~= def.OFF) or (get(P.aploccapturedstat) ~= def.OFF))) then
                 if (get(P.mmrinstalled) == def.ON) then
                     if ((get(P.mmrcptactvalue) ~= get(P.mmrfoactvalue)) or (get(P.mmrcptactmode) ~= get(P.mmrfoactmode)) or (get(P.mcppilotcourse) ~= get(P.mcpcopilotcourse))) then
@@ -60,8 +70,10 @@ local function complex_check(P)
                     end
                 end
             end
-        elseif (get(P.aponstat) == def.ON) then
-            P.commandtableentry(def.TEXT, "Command B Off")
+        else
+            if (get(P.aponstat) == def.ON) then
+                P.commandtableentry(def.TEXT, "Command B Off")
+            end
         end
         P.apcmdbstattemp = get(P.apcmdbstat)
     end
@@ -126,28 +138,6 @@ local function complex_check(P)
         P.apappstattemp = get(P.apappstat)
     end
 
-    if (get(P.apgscapturedstat) ~= P.apgscapturedstattemp) then
-        if (get(P.apgscapturedstat) == def.CAPTURED) then
-            P.commandtableentry(def.TEXT, "Glide Slope Captured")
-        end
-        P.apgscapturedstattemp = get(P.apgscapturedstat)
-    end
-
-    if (get(P.aploccapturedstat) ~= P.aploccapturedstattemp) then
-        if (get(P.aploccapturedstat) == def.CAPTURED) then
-            P.commandtableentry(def.TEXT, "Localizer Captured")
-        end
-        P.aploccapturedstattemp = get(P.aploccapturedstat)
-    end
-
-    if ((get(P.apflarestat) ~= P.apflarestattemp) or (get(P.aprolloutstat) ~= P.aprolloutstattemp)) then
-        if ((get(P.apflarestat) == def.ON) and (get(P.aprolloutstat) == def.ON)) then
-            P.commandtableentry(def.TEXT, "Autoland Armed")
-            P.apflarestattemp = get(P.apflarestat)
-            P.aprolloutstattemp = get(P.aprolloutstat)
-        end
-    end
-
     if (get(P.apvorlocstat) ~= P.apvorlocstattemp) then
         if (get(P.apvorlocstat) == def.ON) then
             if (get(P.aponstat) == def.ON) then
@@ -161,50 +151,6 @@ local function complex_check(P)
             end
         end
         P.apvorlocstattemp = get(P.apvorlocstat)
-    end
-
-    if (get(P.apfacgscapturedstat) ~= P.apfacgscapturedstattemp) then
-        if (get(P.apfacgscapturedstat) == def.CAPTURED) then
-            P.commandtableentry(def.TEXT, "Glide Path Captured")
-        end
-        P.apfacgscapturedstattemp = get(P.apfacgscapturedstat)
-    end
-
-    if (get(P.apfacloccapturedstat) ~= P.apfacloccapturedstattemp) then
-        if (get(P.apfacloccapturedstat) == def.CAPTURED) then
-            P.commandtableentry(def.TEXT, "F A C Localizer Captured")
-        end
-        P.apfacloccapturedstattemp = get(P.apfacloccapturedstat)
-    end
-
-    if (get(P.lpvinstalled) == def.ON) then
-        if (get(P.aplpvgscapturedstat) ~= P.aplpvgscapturedstattemp) then
-            if (get(P.aplpvgscapturedstat) == def.CAPTURED) then
-                P.commandtableentry(def.TEXT, "L P V Glide Slope Captured")
-            end
-            P.aplpvgscapturedstattemp = get(P.aplpvgscapturedstat)
-        end
-
-        if (get(P.aplpvloccapturedstat) ~= P.aplpvloccapturedstattemp) then
-            if (get(P.aplpvloccapturedstat) == def.CAPTURED) then
-                P.commandtableentry(def.TEXT, "L P V Localizer Captured")
-            end
-            P.aplpvloccapturedstattemp = get(P.aplpvloccapturedstat)
-        end
-
-        if (get(P.apglsgscapturedstat) ~= P.apglsgscapturedstattemp) then
-            if (get(P.apglsgscapturedstat) == def.CAPTURED) then
-                P.commandtableentry(def.TEXT, "G L S Glide Slope Captured")
-            end
-            P.apglsgscapturedstattemp = get(P.apglsgscapturedstat)
-        end
-
-        if (get(P.apglsloccapturedstat) ~= P.apglsloccapturedstattemp) then
-            if (get(P.apglsloccapturedstat) == def.CAPTURED) then
-                P.commandtableentry(def.TEXT, "G L S Localizer Captured")
-            end
-            P.apglsloccapturedstattemp = get(P.apglsloccapturedstat)
-        end
     end
 
     if (get(P.apalthldstat) ~= P.apalthldstattemp) then
@@ -268,14 +214,68 @@ local function complex_check(P)
         P.aplvlchgstattemp = get(P.aplvlchgstat)
     end
 
-    if (get(P.atarmpos) ~= P.atarmpostemp) then
-        if (get(P.atarmpos) == def.ON) then
-            P.commandtableentry(def.TEXT, "Autothrottle Armed")
-
-        else
-            P.commandtableentry(def.TEXT, "Autothrottle Off")
+    if (get(P.apgscapturedstat) ~= P.apgscapturedstattemp) then
+        if (get(P.apgscapturedstat) == def.CAPTURED) then
+            P.commandtableentry(def.TEXT, "Glide Slope Captured")
         end
-        P.atarmpostemp = get(P.atarmpos)
+        P.apgscapturedstattemp = get(P.apgscapturedstat)
+    end
+
+    if (get(P.aploccapturedstat) ~= P.aploccapturedstattemp) then
+        if (get(P.aploccapturedstat) == def.CAPTURED) then
+            P.commandtableentry(def.TEXT, "Localizer Captured")
+        end
+        P.aploccapturedstattemp = get(P.aploccapturedstat)
+    end
+
+    if ((get(P.apflarestat) ~= P.apflarestattemp) or (get(P.aprolloutstat) ~= P.aprolloutstattemp)) then
+        if ((get(P.apflarestat) == def.ON) and (get(P.aprolloutstat) == def.ON)) then
+            P.commandtableentry(def.TEXT, "Autoland Armed")
+            P.apflarestattemp = get(P.apflarestat)
+            P.aprolloutstattemp = get(P.aprolloutstat)
+        end
+    end
+
+    if (get(P.aplpvgscapturedstat) ~= P.aplpvgscapturedstattemp) then
+        if (get(P.aplpvgscapturedstat) == def.CAPTURED) then
+            P.commandtableentry(def.TEXT, "L P V Glide Slope Captured")
+        end
+        P.aplpvgscapturedstattemp = get(P.aplpvgscapturedstat)
+    end
+
+    if (get(P.aplpvloccapturedstat) ~= P.aplpvloccapturedstattemp) then
+        if (get(P.aplpvloccapturedstat) == def.CAPTURED) then
+            P.commandtableentry(def.TEXT, "L P V Localizer Captured")
+        end
+        P.aplpvloccapturedstattemp = get(P.aplpvloccapturedstat)
+    end
+
+    if (get(P.apglsgscapturedstat) ~= P.apglsgscapturedstattemp) then
+        if (get(P.apglsgscapturedstat) == def.CAPTURED) then
+            P.commandtableentry(def.TEXT, "G L S Glide Slope Captured")
+        end
+        P.apglsgscapturedstattemp = get(P.apglsgscapturedstat)
+    end
+
+    if (get(P.apglsloccapturedstat) ~= P.apglsloccapturedstattemp) then
+        if (get(P.apglsloccapturedstat) == def.CAPTURED) then
+            P.commandtableentry(def.TEXT, "G L S Localizer Captured")
+        end
+        P.apglsloccapturedstattemp = get(P.apglsloccapturedstat)
+    end
+
+    if (get(P.apfacgscapturedstat) ~= P.apfacgscapturedstattemp) then
+        if (get(P.apfacgscapturedstat) == def.CAPTURED) then
+            P.commandtableentry(def.TEXT, "Glide Path Captured")
+        end
+        P.apfacgscapturedstattemp = get(P.apfacgscapturedstat)
+    end
+
+    if (get(P.apfacloccapturedstat) ~= P.apfacloccapturedstattemp) then
+        if (get(P.apfacloccapturedstat) == def.CAPTURED) then
+            P.commandtableentry(def.TEXT, "F A C Localizer Captured")
+        end
+        P.apfacloccapturedstattemp = get(P.apfacloccapturedstat)
     end
 
     if (get(P.atn1stat) ~= P.atn1stattemp) then
@@ -337,110 +337,10 @@ local function complex_check(P)
                     P.commandtableentry(def.TEXT, "Q N H " .. tostring(get(P.baropilot)))
                 end
             end
-
             P.baropilottemp = get(P.baropilot)
             P.baropilottemp2 = get(P.baropilot)
             P.barostdtemp = get(P.barostd)
         end
-    end
-
-    if (get(P.taxilight) ~= P.taxilighttemp) then
-        if (get(P.taxilight) ~= def.OFF) then
-            P.commandtableentry(def.TEXT, "Taxi Lights On")
-        else
-            P.commandtableentry(def.TEXT, "Taxi Lights Off")
-        end
-        P.taxilighttemp = get(P.taxilight)
-    end
-
-    if (get(P.beaconlights) ~= P.beaconlightstemp) then
-        if (get(P.beaconlights) == def.ON) then
-            P.commandtableentry(def.TEXT, "Collision Lights On")
-        else
-            P.commandtableentry(def.TEXT, "Collision Lights Off")
-        end
-        P.beaconlightstemp = get(P.beaconlights)
-    end
-
-    if ((get(P.llightson) ~= P.llightsontemp) or (get(P.llights1) ~= P.llights1temp) or (get(P.llights2) ~= P.llights2temp) or (get(P.llights3) ~= P.llights3temp) or
-        (get(P.llights4) ~= P.llights4temp)) then
-        if ((get(P.llightson) == def.OFF) and (get(P.llights1) == def.OFF) and (get(P.llights2) == def.OFF) and (get(P.llights3) == def.OFF) and (get(P.llights4) == def.OFF)) then
-            P.commandtableentry(def.TEXT, "Landing Lights Off")
-        else
-            if ((P.llightsontemp == def.OFF) and (P.llights1temp == def.OFF) and (P.llights2temp == def.OFF) and (P.llights3temp == def.OFF) and (P.llights4temp == def.OFF)) then
-                P.commandtableentry(def.TEXT, "Landing Lights On")
-            end
-        end
-        P.llightsontemp = get(P.llightson)
-        P.llights1temp = get(P.llights1)
-        P.llights2temp = get(P.llights2)
-        P.llights3temp = get(P.llights3)
-        P.llights4temp = get(P.llights4)
-    end
-
-    if ((get(P.rwylightl) ~= P.rwylightltemp) or (get(P.rwylightr) ~= P.rwylightrtemp)) then
-        if (((get(P.rwylightl) ~= P.rwylightltemp) and (get(P.rwylightr) ~= P.rwylightrtemp)) and (get(P.rwylightl) == get(P.rwylightr))) then
-            if ((get(P.rwylightl) == def.ON) and (get(P.rwylightr) == def.ON)) then
-                P.commandtableentry(def.TEXT, "Both Runway Turnoff Lights On")
-            else
-                P.commandtableentry(def.TEXT, "Both Runway Turnoff Lights Off")
-            end
-            P.rwylightltemp = get(P.rwylightl)
-            P.rwylightrtemp = get(P.rwylightr)
-        else
-            if (get(P.rwylightl) ~= P.rwylightltemp) then
-                if (get(P.rwylightl) == def.ON) then
-                    P.commandtableentry(def.TEXT, "Left Runway Turnoff Light On")
-                else
-                    P.commandtableentry(def.TEXT, "Left Runway Turnoff Light Off")
-                end
-                P.rwylightltemp = get(P.rwylightl)
-            end
-
-            if (get(P.rwylightr) ~= P.rwylightrtemp) then
-                if (get(P.rwylightr) == def.ON) then
-                    P.commandtableentry(def.TEXT, "Right Runway Turnoff Light On")
-                else
-                    P.commandtableentry(def.TEXT, "Right Runway Turnoff Light Off")
-                end
-                P.rwylightrtemp = get(P.rwylightr)
-            end
-        end
-    end
-
-    if (get(P.positionlights) ~= P.positionlightstemp) then
-        if (get(P.positionlights) == def.POSLIGHTSOFF) then
-            P.commandtableentry(def.TEXT, "Position Lights Off")
-        elseif (get(P.positionlights) == def.POSLIGHTSSTEADY) then
-            P.commandtableentry(def.TEXT, "Position Lights Steady")
-        elseif (get(P.positionlights) == def.POSLIGHTSSTROBE) then
-            P.commandtableentry(def.TEXT, "Position Lights Strobe")
-        end
-        P.positionlightstemp = get(P.positionlights)
-    end
-
-    if (get(P.logolighton) ~= P.logolightontemp) then
-
-        if (get(P.logolighton) == def.ON) then
-            P.commandtableentry(def.TEXT, "Logo Light On")
-        else
-            P.commandtableentry(def.TEXT, "Logo Light Off")
-        end
-        P.logolightontemp = get(P.logolighton)
-    end
-
-    if (get(P.transponderpos) ~= P.transponderpostemp) then
-        P.commandtableentry(def.TEXT, "Transponder " .. helpers.TransponderPostotring(get(P.transponderpos)))
-        P.transponderpostemp = get(P.transponderpos)
-    end
-
-    if (P.yawdamperswitchtemp ~= get(P.yawdamperswitch)) then
-        if (get(P.yawdamperswitch) == def.ON) then
-            P.commandtableentry(def.TEXT, "Yaw Damper On")
-        else
-            P.commandtableentry(def.TEXT, "Yaw Damper Off")
-        end
-        P.yawdamperswitchtemp = get(P.yawdamperswitch)
     end
 
     if ((get(P.fdpilotpos) ~= P.fdpilotpostemp) or (get(P.fdfopos) ~= P.fdfopostemp)) then
@@ -495,7 +395,6 @@ local function complex_check(P)
             if (get(P.efiswxfopos) ~= P.efiswxfopostemp) then
                 if (get(P.efiswxfopos) == def.ON) then
                     P.commandtableentry(def.TEXT, "Copilot Weather Radar On")
-
                 elseif (get(P.efisterrfopos) == def.OFF) then
                     P.commandtableentry(def.TEXT, "Copilot Weather Radar Off")
                 end
@@ -564,7 +463,7 @@ local function complex_check(P)
         end
     end
 
-       if ((get(P.efisfixpilotpos) ~= P.efisfixpilotpostemp) or (get(P.efisfixfopos) ~= P.efisfixfopostemp)) then
+    if ((get(P.efisfixpilotpos) ~= P.efisfixpilotpostemp) or (get(P.efisfixfopos) ~= P.efisfixfopostemp)) then
         if ((get(P.efisfixpilotpos) ~= P.efisfixpilotpostemp) and (get(P.efisfixfopos) ~= P.efisfixfopostemp) and (get(P.efisfixfopos) == get(P.efisfixfopos))) then
             if (get(P.efisfixpilotpos) == def.ON) then
                 P.commandtableentry(def.TEXT, "Both E F I S Waypoint On")
@@ -684,143 +583,132 @@ local function complex_check(P)
         end
     end
 
-    if (get(P.mmrinstalled) == def.ON) then
-        if ((get(P.mmrcptactmode) ~= P.mmrcptactmodetemp) or (get(P.mmrcptactvalue) ~= P.mmrcptactvaluetemp) or (get(P.mmrfoactmode) ~= P.mmrfoactmodetemp) or
-            (get(P.mmrfoactvalue) ~= P.mmrfoactvaluetemp)) then
-            local mmrstring = ""
-            local mmrchannel = 0
-            if (((get(P.mmrcptactmode) ~= P.mmrcptactmodetemp) or (get(P.mmrcptactvalue) ~= P.mmrcptactvaluetemp)) and
-                ((get(P.mmrfoactmode) ~= P.mmrfoactmodetemp) or (get(P.mmrfoactvalue) ~= P.mmrfoactvaluetemp)) and (get(P.mmrcptactmode) == get(P.mmrfoactmode)) and
-                (get(P.mmrcptactvalue) == get(P.mmrfoactvalue))) then
+    if ((get(P.mmrcptactmode) ~= P.mmrcptactmodetemp) or (get(P.mmrcptactvalue) ~= P.mmrcptactvaluetemp) or (get(P.mmrfoactmode) ~= P.mmrfoactmodetemp) or
+        (get(P.mmrfoactvalue) ~= P.mmrfoactvaluetemp)) then
+        local mmrstring = ""
+        local mmrchannel = 0
+        if (((get(P.mmrcptactmode) ~= P.mmrcptactmodetemp) or (get(P.mmrcptactvalue) ~= P.mmrcptactvaluetemp)) and
+            ((get(P.mmrfoactmode) ~= P.mmrfoactmodetemp) or (get(P.mmrfoactvalue) ~= P.mmrfoactvaluetemp)) and (get(P.mmrcptactmode) == get(P.mmrfoactmode)) and
+            (get(P.mmrcptactvalue) == get(P.mmrfoactvalue))) then
+            if (get(P.mmrcptactmode) == def.MMRLOC) then
+                mmrstring = "Both M M R V O R "
+                mmrchannel = get(P.mmrcptactvalue) / 100
+            elseif (get(P.mmrcptactmode) == def.MMRILS) then
+                mmrstring = "Both M M R I L S "
+                mmrchannel = get(P.mmrcptactvalue) / 100
+            elseif (get(P.mmrcptactmode) == def.MMRGLS) then
+                mmrstring = "Both M M R G L S "
+                mmrchannel = get(P.mmrcptactvalue)
+            elseif (get(P.mmrcptactmode) == def.MMRLPV) then
+                mmrstring = "Both M M R L P V "
+                mmrchannel = get(P.mmrcptactvalue)
+            end
+        else
+            if ((get(P.mmrcptactmode) ~= get(P.mmrcptactmode)) or (get(P.mmrcptactvalue) ~= P.mmrcptactvaluetemp)) then
                 if (get(P.mmrcptactmode) == def.MMRLOC) then
-                    mmrstring = "Both M M R V O R "
+                    mmrstring = "Pilot M M R V O R "
                     mmrchannel = get(P.mmrcptactvalue) / 100
                 elseif (get(P.mmrcptactmode) == def.MMRILS) then
-                    mmrstring = "Both M M R I L S "
+                    mmrstring = "Pilot M M R I L S "
                     mmrchannel = get(P.mmrcptactvalue) / 100
                 elseif (get(P.mmrcptactmode) == def.MMRGLS) then
-                    mmrstring = "Both M M R G L S "
+                    mmrstring = "Pilot M M R G L S "
                     mmrchannel = get(P.mmrcptactvalue)
                 elseif (get(P.mmrcptactmode) == def.MMRLPV) then
-                    mmrstring = "Both M M R L P V "
+                    mmrstring = "Pilot M M R L P V "
                     mmrchannel = get(P.mmrcptactvalue)
                 end
-            else
-                if ((get(P.mmrcptactmode) ~= get(P.mmrcptactmode)) or (get(P.mmrcptactvalue) ~= P.mmrcptactvaluetemp)) then
-                    if (get(P.mmrcptactmode) == def.MMRLOC) then
-                        mmrstring = "Pilot M M R V O R "
-                        mmrchannel = get(P.mmrcptactvalue) / 100
-                    elseif (get(P.mmrcptactmode) == def.MMRILS) then
-                        mmrstring = "Pilot M M R I L S "
-                        mmrchannel = get(P.mmrcptactvalue) / 100
-                    elseif (get(P.mmrcptactmode) == def.MMRGLS) then
-                        mmrstring = "Pilot M M R G L S "
-                        mmrchannel = get(P.mmrcptactvalue)
-                    elseif (get(P.mmrcptactmode) == def.MMRLPV) then
-                        mmrstring = "Pilot M M R L P V "
-                        mmrchannel = get(P.mmrcptactvalue)
-                    end
-                end
-
-                if ((get(P.mmrfoactmode) ~= P.mmrfoactmodetemp) or (get(P.mmrfoactvalue) ~= P.mmrfoactvaluetemp)) then
-                    if (get(P.mmrfoactmode) == def.MMRLOC) then
-                        mmrstring = "Copilot M M R V O R "
-                        mmrchannel = get(P.mmrfoactvalue) / 100
-                    elseif (get(P.mmrfoactmode) == def.MMRILS) then
-                        mmrstring = "Copilot M M R I L S "
-                        mmrchannel = get(P.mmrfoactvalue) / 100
-                    elseif (get(P.mmrfoactmode) == def.MMRGLS) then
-                        mmrstring = "Copilot M M R G L S "
-                        mmrchannel = get(P.mmrfoactvalue)
-                    elseif (get(P.mmrfoactmode) == def.MMRLPV) then
-                        mmrstring = "Copilot M M R L P V "
-                        mmrchannel = get(P.mmrfoactvalue)
-                    end
-                end
             end
-
-            P.commandtableentry(def.TEXT, mmrstring .. tostring(mmrchannel))
-
-            P.mmrcptactmodetemp = get(P.mmrcptactmode)
-            P.mmrcptactvaluetemp = get(P.mmrcptactvalue)
-            P.mmrfoactmodetemp = get(P.mmrfoactmode)
-            P.mmrfoactvaluetemp = get(P.mmrfoactvalue)
-            P.mmrcptstdbymodetemp = get(P.mmrcptstdbymode)
-            P.mmrfostdbymodetemp = get(P.mmrfostdbymode)
-        else
-            if ((get(P.mmrcptstdbymode) ~= P.mmrcptstdbymodetemp) or (get(P.mmrfostdbymode) ~= P.mmrfostdbymodetemp)) then
-                if ((get(P.mmrcptstdbymode) ~= P.mmrcptstdbymodetemp2) or (get(P.mmrfostdbymode) ~= P.mmrfostdbymodetemp2)) then
-                    P.mmrcptstdbymodetemp2 = get(P.mmrcptstdbymode)
-                    P.mmrfostdbymodetemp2 = get(P.mmrfostdbymode)
-                else
-                    if (get(P.mmrcptstdbymode) == get(P.mmrfostdbymode)) then
-                        if (get(P.mmrcptstdbymode) == def.MMRLOC) then
-                            P.commandtableentry(def.TEXT, "Both M M R Standby V O R")
-                        elseif (get(P.mmrcptstdbymode) == def.MMRILS) then
-                            P.commandtableentry(def.TEXT, "Both M M R Standby I L S")
-                        elseif (get(P.mmrcptstdbymode) == def.MMRGLS) then
-                            P.commandtableentry(def.TEXT, "Both M M R Standby G L S")
-                        elseif (get(P.mmrcptstdbymode) == def.MMRLPV) then
-                            P.commandtableentry(def.TEXT, "Both M M R Standby L P V")
-                        end
-                    else
-                        if (get(P.mmrcptstdbymode) ~= P.mmrcptstdbymodetemp) then
-                            if (get(P.mmrcptstdbymode) == def.MMRLOC) then
-                                P.commandtableentry(def.TEXT, "Pilot M M R Standby V O R")
-                            elseif (get(P.mmrcptstdbymode) == def.MMRILS) then
-                                P.commandtableentry(def.TEXT, "Pilot M M R Standby I L S")
-                            elseif (get(P.mmrcptstdbymode) == def.MMRGLS) then
-                                P.commandtableentry(def.TEXT, "Pilot M M R Standby G L S")
-                            elseif (get(P.mmrcptstdbymode) == def.MMRLPV) then
-                                P.commandtableentry(def.TEXT, "Pilot M M R Standby L P V")
-                            end
-                        end
-
-                        if (get(P.mmrfostdbymode) ~= P.mmrfostdbymodetemp) then
-                            if (get(P.mmrfostdbymode) == def.MMRLOC) then
-                                P.commandtableentry(def.TEXT, "Copilot M M R Standby V O R")
-                            elseif (get(P.mmrfostdbymode) == def.MMRILS) then
-                                P.commandtableentry(def.TEXT, "Copilot M M R Standby I L S")
-                            elseif (get(P.mmrfostdbymode) == def.MMRGLS) then
-                                P.commandtableentry(def.TEXT, "Copilot M M R Standby G L S")
-                            elseif (get(P.mmrfostdbymode) == def.MMRLPV) then
-                                P.commandtableentry(def.TEXT, "Copilot M M R Standby L P V")
-                            end
-
-                            P.mmrfostdbymodetemp = get(P.mmrfostdbymode)
-                        end
-                    end
-
-                    P.mmrcptactmodetemp = get(P.mmrcptactmode)
-                    P.mmrcptactvaluetemp = get(P.mmrcptactvalue)
-                    P.mmrfoactmodetemp = get(P.mmrfoactmode)
-                    P.mmrfoactvaluetemp = get(P.mmrfoactvalue)
-                    P.mmrcptstdbymodetemp = get(P.mmrcptstdbymode)
-                    P.mmrcptstdbymodetemp2 = get(P.mmrcptstdbymode)
-                    P.mmrfostdbymodetemp = get(P.mmrfostdbymode)
-                    P.mmrfostdbymodetemp2 = get(P.mmrfostdbymode)
+            if ((get(P.mmrfoactmode) ~= P.mmrfoactmodetemp) or (get(P.mmrfoactvalue) ~= P.mmrfoactvaluetemp)) then
+                if (get(P.mmrfoactmode) == def.MMRLOC) then
+                    mmrstring = "Copilot M M R V O R "
+                    mmrchannel = get(P.mmrfoactvalue) / 100
+                elseif (get(P.mmrfoactmode) == def.MMRILS) then
+                    mmrstring = "Copilot M M R I L S "
+                    mmrchannel = get(P.mmrfoactvalue) / 100
+                elseif (get(P.mmrfoactmode) == def.MMRGLS) then
+                    mmrstring = "Copilot M M R G L S "
+                    mmrchannel = get(P.mmrfoactvalue)
+                elseif (get(P.mmrfoactmode) == def.MMRLPV) then
+                    mmrstring = "Copilot M M R L P V "
+                    mmrchannel = get(P.mmrfoactvalue)
                 end
             end
         end
+
+        P.commandtableentry(def.TEXT, mmrstring .. tostring(mmrchannel))
+        P.mmrcptactmodetemp = get(P.mmrcptactmode)
+        P.mmrcptactvaluetemp = get(P.mmrcptactvalue)
+        P.mmrfoactmodetemp = get(P.mmrfoactmode)
+        P.mmrfoactvaluetemp = get(P.mmrfoactvalue)
+        P.mmrcptstdbymodetemp = get(P.mmrcptstdbymode)
+        P.mmrfostdbymodetemp = get(P.mmrfostdbymode)
     else
-        if ((get(P.nav1freq) ~= P.nav1freqtemp) or (get(P.nav2freq) ~= P.nav2freqtemp)) then
-            if (get(P.nav1freq) == get(P.nav2freq)) then
-                P.commandtableentry(def.TEXT, "Both N A V " .. helpers.addspaces(helpers.formatILSFrequency(get(P.nav1freq))))
-
-                P.nav1freqtemp = get(P.nav1freq)
-                P.nav2freqtemp = get(P.nav2freq)
+        if ((get(P.mmrcptstdbymode) ~= P.mmrcptstdbymodetemp) or (get(P.mmrfostdbymode) ~= P.mmrfostdbymodetemp)) then
+            if ((get(P.mmrcptstdbymode) ~= P.mmrcptstdbymodetemp2) or (get(P.mmrfostdbymode) ~= P.mmrfostdbymodetemp2)) then
+                P.mmrcptstdbymodetemp2 = get(P.mmrcptstdbymode)
+                P.mmrfostdbymodetemp2 = get(P.mmrfostdbymode)
             else
-                if (get(P.nav1freq) ~= P.nav1freqtemp) then
-                    P.commandtableentry(def.TEXT, "N A V 1 " .. helpers.addspaces(helpers.formatILSFrequency(get(P.nav1freq))))
-
-                    P.nav1freqtemp = get(P.nav1freq)
+                if (get(P.mmrcptstdbymode) == get(P.mmrfostdbymode)) then
+                    if (get(P.mmrcptstdbymode) == def.MMRLOC) then
+                        P.commandtableentry(def.TEXT, "Both M M R Standby V O R")
+                    elseif (get(P.mmrcptstdbymode) == def.MMRILS) then
+                        P.commandtableentry(def.TEXT, "Both M M R Standby I L S")
+                    elseif (get(P.mmrcptstdbymode) == def.MMRGLS) then
+                        P.commandtableentry(def.TEXT, "Both M M R Standby G L S")
+                    elseif (get(P.mmrcptstdbymode) == def.MMRLPV) then
+                        P.commandtableentry(def.TEXT, "Both M M R Standby L P V")
+                    end
+                else
+                    if (get(P.mmrcptstdbymode) ~= P.mmrcptstdbymodetemp) then
+                        if (get(P.mmrcptstdbymode) == def.MMRLOC) then
+                            P.commandtableentry(def.TEXT, "Pilot M M R Standby V O R")
+                        elseif (get(P.mmrcptstdbymode) == def.MMRILS) then
+                            P.commandtableentry(def.TEXT, "Pilot M M R Standby I L S")
+                        elseif (get(P.mmrcptstdbymode) == def.MMRGLS) then
+                            P.commandtableentry(def.TEXT, "Pilot M M R Standby G L S")
+                        elseif (get(P.mmrcptstdbymode) == def.MMRLPV) then
+                            P.commandtableentry(def.TEXT, "Pilot M M R Standby L P V")
+                        end
+                    end
+                    if (get(P.mmrfostdbymode) ~= P.mmrfostdbymodetemp) then
+                        if (get(P.mmrfostdbymode) == def.MMRLOC) then
+                            P.commandtableentry(def.TEXT, "Copilot M M R Standby V O R")
+                        elseif (get(P.mmrfostdbymode) == def.MMRILS) then
+                            P.commandtableentry(def.TEXT, "Copilot M M R Standby I L S")
+                        elseif (get(P.mmrfostdbymode) == def.MMRGLS) then
+                            P.commandtableentry(def.TEXT, "Copilot M M R Standby G L S")
+                        elseif (get(P.mmrfostdbymode) == def.MMRLPV) then
+                            P.commandtableentry(def.TEXT, "Copilot M M R Standby L P V")
+                        end
+                        P.mmrfostdbymodetemp = get(P.mmrfostdbymode)
+                    end
                 end
+                P.mmrcptactmodetemp = get(P.mmrcptactmode)
+                P.mmrcptactvaluetemp = get(P.mmrcptactvalue)
+                P.mmrfoactmodetemp = get(P.mmrfoactmode)
+                P.mmrfoactvaluetemp = get(P.mmrfoactvalue)
+                P.mmrcptstdbymodetemp = get(P.mmrcptstdbymode)
+                P.mmrcptstdbymodetemp2 = get(P.mmrcptstdbymode)
+                P.mmrfostdbymodetemp = get(P.mmrfostdbymode)
+                P.mmrfostdbymodetemp2 = get(P.mmrfostdbymode)
+            end
+        end
+    end
 
-                if (get(P.nav2freq) ~= P.nav2freqtemp) then
-                    P.commandtableentry(def.TEXT, "N A V 2 " .. helpers.addspaces(helpers.formatILSFrequency(get(P.nav1freq))))
-
-                    P.nav2freqtemp = get(P.nav2freq)
-                end
+    if ((get(P.nav1freq) ~= P.nav1freqtemp) or (get(P.nav2freq) ~= P.nav2freqtemp)) then
+        if (get(P.nav1freq) == get(P.nav2freq)) then
+            P.commandtableentry(def.TEXT, "Both N A V " .. helpers.addspaces(helpers.formatILSFrequency(get(P.nav1freq))))
+            P.nav1freqtemp = get(P.nav1freq)
+            P.nav2freqtemp = get(P.nav2freq)
+        else
+            if (get(P.nav1freq) ~= P.nav1freqtemp) then
+                P.commandtableentry(def.TEXT, "N A V 1 " .. helpers.addspaces(helpers.formatILSFrequency(get(P.nav1freq))))
+                P.nav1freqtemp = get(P.nav1freq)
+            end
+            if (get(P.nav2freq) ~= P.nav2freqtemp) then
+                P.commandtableentry(def.TEXT, "N A V 2 " .. helpers.addspaces(helpers.formatILSFrequency(get(P.nav1freq))))
+                P.nav2freqtemp = get(P.nav2freq)
             end
         end
     end
@@ -952,10 +840,8 @@ local function complex_check(P)
                 elseif (get(P.starter1pos) == def.FLIGHT) then
                     statestring = "Flight"
                 end
-
                 P.starter1postemp = get(P.starter1pos)
             end
-
             if (get(P.starter2pos) ~= P.starter2postemp) then
                 starterstring = "Engine 2 Starter "
                 if (get(P.starter2pos) == def.GROUND) then
@@ -971,11 +857,9 @@ local function complex_check(P)
                 elseif (get(P.starter2pos) == def.FLIGHT) then
                     statestring = "Flight"
                 end
-
                 P.starter2postemp = get(P.starter2pos)
             end
         end
-
         P.commandtableentry(def.TEXT, starterstring .. statestring)
     end
 
@@ -987,7 +871,6 @@ local function complex_check(P)
             elseif (get(P.mixture1pos) == def.OFF) then
                 statestring = "Cutoff"
             end
-
             P.mixture1postemp = get(P.mixture1pos)
             P.mixture2postemp = get(P.mixture2pos)
         else
@@ -998,10 +881,8 @@ local function complex_check(P)
                 elseif (get(P.mixture1pos) == def.OFF) then
                     statestring = "Cutoff"
                 end
-
                 P.mixture1postemp = get(P.mixture1pos)
             end
-
             if (get(P.mixture2pos) ~= P.mixture2postemp) then
                 mixturestring = "Engine 2 Fuel Lever "
                 if (get(P.mixture2pos) == def.ON) then
@@ -1009,11 +890,9 @@ local function complex_check(P)
                 elseif (get(P.mixture2pos) == def.OFF) then
                     statestring = "Cutoff"
                 end
-
                 P.mixture2postemp = get(P.mixture2pos)
             end
         end
-
         P.commandtableentry(def.TEXT, mixturestring .. statestring)
     end
 
@@ -1024,7 +903,6 @@ local function complex_check(P)
             elseif (((get(P.reverser1pos) ~= def.OFF) and (P.reverser1postemp == def.OFF)) or ((get(P.reverser2pos) ~= def.OFF) and (P.reverser2postemp == def.OFF))) then
                 P.commandtableentry(def.TEXT, "Both Reversers On")
             end
-
             P.reverser1postemp = get(P.reverser1pos)
             P.reverser2postemp = get(P.reverser2pos)
         else
@@ -1034,29 +912,17 @@ local function complex_check(P)
                 elseif ((get(P.reverser1pos) ~= def.OFF) and (P.reverser1postemp == def.OFF)) then
                     P.commandtableentry(def.TEXT, "Reverser 1 On")
                 end
-
                 P.reverser1postemp = get(P.reverser1pos)
             end
-
             if (get(P.reverser2pos) ~= P.reverser2postemp) then
                 if ((get(P.reverser2pos) == def.OFF) and (P.reverser2postemp ~= def.OFF)) then
                     P.commandtableentry(def.TEXT, "Reverser 2 Off")
                 elseif ((get(P.reverser2pos) ~= def.OFF) and (P.reverser2postemp == def.OFF)) then
                     P.commandtableentry(def.TEXT, "Reverser 2 On")
                 end
-
                 P.reverser2postemp = get(P.reverser2pos)
             end
         end
-    end
-
-    if (get(P.gpuon) ~= P.gpuontemp) then
-        if (get(P.gpuon) == def.ON) then
-            P.commandtableentry(def.TEXT, "Ground Power On")
-        else
-            P.commandtableentry(def.TEXT, "Ground Power Off")
-        end
-        P.gpuontemp = get(P.gpuon)
     end
 
     if ((helpers.roundnumber(get(P.announcsourceoff1),1) ~= P.announcsourceoff1temp) or (helpers.roundnumber(get(P.announcsourceoff2),1) ~= P.announcsourceoff2temp)) then
@@ -1075,7 +941,6 @@ local function complex_check(P)
                         P.commandtableentry(def.TEXT, "A P U Generator 1 Off")
                     end
                 end
-
                 if (get(P.announcsourceoff2) ~= P.announcsourceoff2temp) then
                     if ((get(P.apupowerbus2) == def.ON) and (get(P.announcsourceoff2) == def.OFF)) then
                         P.commandtableentry(def.TEXT, "A P U Generator 2 On")
@@ -1137,7 +1002,6 @@ local function complex_check(P)
                 end
                 P.captainprobepostemp = get(P.captainprobepos)
             end
-
             if (get(P.foprobepos) ~= P.foprobepostemp) then
                 if (get(P.foprobepos) == def.ON) then
                     P.commandtableentry(def.TEXT, "Right Probe Heat On")
@@ -1167,7 +1031,6 @@ local function complex_check(P)
                 end
                 P.wheatlfwdpostemp = get(P.wheatlfwdpos)
             end
-
             if (get(P.wheatlsidepos) ~= P.wheatlsidepostemp) then
                 if (get(P.wheatlsidepos) == def.ON) then
                     P.commandtableentry(def.TEXT, "Pilot Side Window Heat On")
@@ -1197,7 +1060,6 @@ local function complex_check(P)
                 end
                 P.wheatrfwdpostemp = get(P.wheatrfwdpos)
             end
-
             if (get(P.wheatrsidepos) ~= P.wheatrsidepostemp) then
                 if (get(P.wheatrsidepos) == def.ON) then
                     P.commandtableentry(def.TEXT, "Copilot Side Window Heat On")
@@ -1209,69 +1071,6 @@ local function complex_check(P)
         end
     end
 
-    if (get(P.flapleverpos) ~= P.flapleverpostemp) then
-        if (get(P.flapleverpos) ~= P.flapleverpostemp2) then
-            P.flapleverpostemp2 = get(P.flapleverpos)
-        else
-            if (get(P.flapleverpos) == def.FLAPSUP) then
-                P.commandtableentry(def.TEXT, "Flaps Up")
-            elseif (get(P.flapleverpos) == def.FLAPS1) then
-                P.commandtableentry(def.TEXT, "Flaps 1")
-            elseif (get(P.flapleverpos) == def.FLAPS2) then
-                P.commandtableentry(def.TEXT, "Flaps 2")
-            elseif (get(P.flapleverpos) == def.FLAPS5) then
-                P.commandtableentry(def.TEXT, "Flaps 5")
-            elseif (get(P.flapleverpos) == def.FLAPS10) then
-                P.commandtableentry(def.TEXT, "Flaps 10")
-            elseif (get(P.flapleverpos) == def.FLAPS15) then
-                P.commandtableentry(def.TEXT, "Flaps 15")
-            elseif (get(P.flapleverpos) == def.FLAPS25) then
-                P.commandtableentry(def.TEXT, "Flaps 25")
-            elseif (get(P.flapleverpos) == def.FLAPS30) then
-                P.commandtableentry(def.TEXT, "Flaps 30")
-            elseif (get(P.flapleverpos) == def.FLAPS40) then
-                P.commandtableentry(def.TEXT, "Flaps 40")
-            end
-
-            P.flapleverpostemp = get(P.flapleverpos)
-            P.flapleverpostemp2 = get(P.flapleverpos)
-        end
-    end
-
-    if (get(P.bankanglepos) ~= P.bankanglepostemp) then
-        if (get(P.bankanglepos) ~= P.bankanglepostemp2) then
-            P.bankanglepostemp2 = get(P.bankanglepos)
-        else
-            P.commandtableentry(def.TEXT, "Bank Angle " .. helpers.getbankanglestring(get(P.bankanglepos)))
-            P.bankanglepostemp = get(P.bankanglepos)
-            P.bankanglepostemp2 = get(P.bankanglepos)
-        end
-    end
-
-    if (get(P.gearhandlepos) ~= P.gearhandlepostemp) then
-        if (get(P.gearhandlepos) == def.GEARUP) then
-            P.commandtableentry(def.TEXT, "Landing Gear Up")
-        elseif (get(P.gearhandlepos) == def.GEAROFF) then
-            P.commandtableentry(def.TEXT, "Landing Gear Lever Off")
-        elseif (get(P.gearhandlepos) == def.GEARDOWN) then
-            P.commandtableentry(def.TEXT, "Landing Gear Down")
-        end
-
-        P.gearhandlepostemp = get(P.gearhandlepos)
-    end
-
-    if (get(P.parkingbrakepos) ~= P.parkingbrakepostemp) then
-        if (get(P.parkingbrakepos) == def.ON) then
-            P.commandtableentry(def.TEXT, "Parking Brake Set")
-        else
-            P.commandtableentry(def.TEXT, "Parking Brake Off")
-        end
-
-        P.parkingbrakepostemp = get(P.parkingbrakepos)
-    end
-
-    speedbrakeleverrounded = helpers.roundnumber(get(P.speedbrakelever), 1)
-
     if ((get(P.packlpos) ~= P.packlpostemp) or (get(P.packrpos) ~= P.packrpostemp)) then
         local packstring = ""
         local statestring = ""
@@ -1280,11 +1079,10 @@ local function complex_check(P)
             if (get(P.packlpos) == def.PACKOFF) then
                 statestring = "Off"
             elseif (get(P.packlpos) == def.PACKAUTO) then
-                    statestring = "Auto"
+                statestring = "Auto"
             elseif (get(P.packlpos) == def.PACKHIGH) then
                 statestring = "High"
             end
-
             P.packlpostemp = get(P.packlpos)
             P.packrpostemp = get(P.packrpos)
         else
@@ -1297,10 +1095,8 @@ local function complex_check(P)
                 elseif (get(P.packlpos) == def.PACKHIGH) then
                     statestring = "High"
                 end
-
                 P.packlpostemp = get(P.packlpos)
             end
-
             if (get(P.packrpos) ~= P.packrpostemp) then
                 packstring = "Right Pack "
                 if (get(P.packrpos) == def.PACKOFF) then
@@ -1310,34 +1106,19 @@ local function complex_check(P)
                 elseif (get(P.packrpos) == def.PACKHIGH) then
                     statestring = "High"
                 end
-
                 P.packrpostemp = get(P.packrpos)
             end
         end
-
         P.commandtableentry(def.TEXT, packstring .. statestring)
     end
 
-    if (get(P.isolvalvepos) ~= P.isolvalvepostemp) then
-        if (get(P.isolvalvepos) == def.ISOLVALVECLOSE) then
-            P.commandtableentry(def.TEXT, "Isolation Valve Closed")
-        elseif (get(P.isolvalvepos) == def.ISOLVALVEAUTO) then
-            P.commandtableentry(def.TEXT, "Isolation Valve Auto")
-        elseif (get(P.isolvalvepos) == def.ISOLVALVEOPEN) then
-            P.commandtableentry(def.TEXT, "Isolation Valve Open")
-        end
-
-        P.isolvalvepostemp = get(P.isolvalvepos)
-    end
-
-   if ((get(P.bleedair1pos) ~= P.bleedair1postemp) or (get(P.bleedair2pos) ~= P.bleedair2postemp)) then
+    if ((get(P.bleedair1pos) ~= P.bleedair1postemp) or (get(P.bleedair2pos) ~= P.bleedair2postemp)) then
         if (((get(P.bleedair1pos) ~= P.bleedair1postemp) and (get(P.bleedair2pos) ~= P.bleedair2postemp)) and (get(P.hydropos1) == get(P.hydropos2))) then
             if (get(P.bleedair1pos) == def.ON) then
                 P.commandtableentry(def.TEXT, "Both Engine Bleed Air On")
             else
                 P.commandtableentry(def.TEXT, "Both Engine Bleed Air Off")
             end
-
             P.bleedair1postemp = get(P.bleedair1pos)
             P.bleedair2postemp = get(P.bleedair2pos)
         else
@@ -1349,7 +1130,6 @@ local function complex_check(P)
                 end
                 P.bleedair1postemp = get(P.bleedair1pos)
             end
-
             if (get(P.bleedair2pos) ~= P.bleedair2postemp) then
                 if (get(P.bleedair2pos) == def.ON) then
                     P.commandtableentry(def.TEXT, "Engine 2 Bleed Air On")
@@ -1361,77 +1141,6 @@ local function complex_check(P)
         end
     end
 
-    if (get(P.trimairpos) ~= P.trimairpostemp) then
-        if (get(P.trimairpos) == def.ON) then
-            P.commandtableentry(def.TEXT, "Trim Air On")
-        else
-            P.commandtableentry(def.TEXT, "Trim Air Off")
-        end
-
-        P.trimairpostemp = get(P.trimairpos)
-    end
-
-    if (get(P.lrecircfanpos) ~= P.lrecircfanpostemp) then
-        if (get(P.lrecircfanpos) == def.ON) then
-            P.commandtableentry(def.TEXT, "Left Recircling Fan On")
-        else
-            P.commandtableentry(def.TEXT, "Left Recircling Fan Off")
-        end
-
-        P.lrecircfanpostemp = get(P.lrecircfanpos)
-    end
-
-    if (get(P.rrecircfanpos) ~= P.rrecircfanpostemp) then
-        if (get(P.rrecircfanpos) == def.ON) then
-            P.commandtableentry(def.TEXT, "Right Recircling Fan On")
-        else
-            P.commandtableentry(def.TEXT, "Right Recircling Fan Off")
-        end
-
-        P.rrecircfanpostemp = get(P.rrecircfanpos)
-    end
-
-    if (get(P.bleedairapupos) ~= P.bleedairapupostemp) then
-        if (get(P.bleedairapupos) == def.ON) then
-            P.commandtableentry(def.TEXT, "A P U Bleed Air On")
-        else
-            P.commandtableentry(def.TEXT, "A P U Bleed Air Off")
-        end
-
-        P.bleedairapupostemp = get(P.bleedairapupos)
-    end
-
-    if (get(P.battery) ~= P.batterytemp) then
-        if (get(P.battery) == def.ON) then
-            P.commandtableentry(def.TEXT, "Battery On")
-        else
-            P.commandtableentry(def.TEXT, "Battery Off")
-        end
-
-        P.batterytemp = get(P.battery)
-    end
-
-    if (get(P.apustarterpos) ~= P.apustarterpostemp) then
-        if (P.apurunning() > def.APUOFF) then
-            P.commandtableentry(def.TEXT, "A P U Started")
-        else
-            P.commandtableentry(def.TEXT, "A P U Shutting Down")
-        end
-
-        P.apustarterpostemp = get(P.apustarterpos)
-    end
-
-    if (get(P.emergencylights) ~= P.emergencylightstemp) then
-        if (get(P.emergencylights) == def.EMERGLIGHTSOFF) then
-            P.commandtableentry(def.TEXT, "Emergengy Lights Off")
-        elseif (get(P.emergencylights) == def.EMERGLIGHTSARMED) then
-            P.commandtableentry(def.TEXT, "Emergency Lights Armed")
-        elseif (get(P.emergencylights) == def.EMERGLIGHTSON) then
-            P.commandtableentry(def.TEXT, "Emergency Lights On")
-        end
-        P.emergencylightstemp = get(P.emergencylights)
-    end
-
     if ((get(P.hydro1pos) ~= P.hydro1postemp) or (get(P.hydro2pos) ~= P.hydro2postemp)) then
         if (((get(P.hydro1pos) ~= P.hydro1postemp) and (get(P.hydro2pos) ~= P.hydro2postemp)) and (get(P.hydropos1) == get(P.hydropos2))) then
             if (get(P.hydro1pos) == def.ON) then
@@ -1439,7 +1148,6 @@ local function complex_check(P)
             else
                 P.commandtableentry(def.TEXT, "Both Hydraulic Pumps Off")
             end
-
             P.hydro1postemp = get(P.hydro1pos)
             P.hydro2postemp = get(P.hydro2pos)
         else
@@ -1451,7 +1159,6 @@ local function complex_check(P)
                 end
                 P.hydro1postemp = get(P.hydro1pos)
             end
-
             if (get(P.hydro2pos) ~= P.hydro2postemp) then
                 if (get(P.hydro2pos) == def.ON) then
                     P.commandtableentry(def.TEXT, "Hydraulic Pump 2 On")
@@ -1470,7 +1177,6 @@ local function complex_check(P)
             else
                 P.commandtableentry(def.TEXT, "Both Electrical Hydraulic Pumps Off")
             end
-
             P.elechydro1postemp = get(P.elechydro1pos)
             P.elechydro2postemp = get(P.elechydro2pos)
         else
@@ -1482,7 +1188,6 @@ local function complex_check(P)
                 end
                 P.elechydro1postemp = get(P.elechydro1pos)
             end
-
             if (get(P.elechydro2pos) ~= P.elechydro2postemp) then
                 if (get(P.elechydro2pos) == def.ON) then
                     P.commandtableentry(def.TEXT, "Electrical Hydraulic Pump 1 On")
@@ -1494,46 +1199,10 @@ local function complex_check(P)
         end
     end
 
-    if (get(P.seatbeltsignpos) ~= P.seatbeltsignpostemp) then
-        if (get(P.seatbeltsignpos) == def.SEATBELTSIGNOFF) then
-            P.commandtableentry(def.TEXT, "Seatbelt Sign Off")
-        elseif (get(P.seatbeltsignpos) == def.SEATBELTSIGNAUTO) then
-            P.commandtableentry(def.TEXT, "Seatbelt Sign Auto")
-        elseif (get(P.seatbeltsignpos) == def.SEATBELTSIGNON) then
-            P.commandtableentry(def.TEXT, "Seatbelt Sign On")
-        end
-
-        P.seatbeltsignpostemp = get(P.seatbeltsignpos)
-    end
-
-    if (get(P.nosmokingsignpos) ~= P.nosmokingsignpostemp) then
-        if (get(P.nosmokingsignpos) == def.NOSMOKINGSIGNOFF) then
-            P.commandtableentry(def.TEXT, "No Smoking Sign Off")
-        elseif (get(P.nosmokingsignpos) == def.NOSMOKINGSIGNAUTO) then
-            P.commandtableentry(def.TEXT, "No Smoking Sign Auto")
-        elseif (get(P.nosmokingsignpos) == def.NOSMOKINGSIGNON) then
-            P.commandtableentry(def.TEXT, "No Smoking Sign On")
-        end
-
-        P.nosmokingsignpostemp = get(P.nosmokingsignpos)
-    end
-
-    if (get(P.domelightpos) ~= P.domelightpostemp) then
-        if (get(P.domelightpos) == def.DOMELIGHTOFF) then
-            P.commandtableentry(def.TEXT, "Dome Light Off")
-        elseif (get(P.domelightpos) == def.DOMELIGHTDIM) then
-            P.commandtableentry(def.TEXT, "Dome Light Dim")
-        elseif (get(P.domelightpos) == def.DOMELIGHTBRIGHT) then
-            P.commandtableentry(def.TEXT, "Dome Light Bright")
-        end
-
-        P.domelightpostemp = get(P.domelightpos)
-    end
-
     if ((get(P.irsleftpos) ~= P.irsleftpostemp) or (get(P.irsrightpos) ~= P.irsrightpostemp)) then
         if ((get(P.irsleftpos) ~= P.irsleftpostemp2) or (get(P.irsrightpos) ~= P.irsrightpostemp2)) then
-                P.irsleftpostemp2 = get(P.irsleftpos)
-                P.irsrightpostemp2 = get(P.irsrightpos)
+            P.irsleftpostemp2 = get(P.irsleftpos)
+            P.irsrightpostemp2 = get(P.irsrightpos)
         else
             local irsstring = ""
             local statestring = ""
@@ -1548,7 +1217,6 @@ local function complex_check(P)
                 elseif (get(P.irsleftpos) == def.IRSATT) then
                     statestring = "Attention"
                 end
-
                 P.irsleftpostemp = get(P.irsleftpos)
                 P.irsleftpostemp2 = get(P.irsleftpos)
                 P.irsrightpostemp = get(P.irsrightpos)
@@ -1565,11 +1233,9 @@ local function complex_check(P)
                     elseif (get(P.irsleftpos) == def.IRSATT) then
                         statestring = "Attention"
                     end
-
                     P.irsleftpostemp = get(P.irsleftpos)
                     P.irsleftpostemp2 = get(P.irsleftpos)
                 end
-
                 if (get(P.irsrightpos) ~= P.irsrightpostemp) then
                     irsstring = "Right I R S "
                     if (get(P.irsrightpos) == def.IRSOFF) then
@@ -1581,37 +1247,39 @@ local function complex_check(P)
                     elseif (get(P.irsrightpos) == def.IRSATT) then
                         statestring = "Attention"
                     end
-
                     P.irsrightpostemp = get(P.irsrightpos)
                     P.irsrightpostemp2 = get(P.irsrightpos)
                 end
             end
-
             P.commandtableentry(def.TEXT, irsstring .. statestring)
         end
     end
 
-    if (get(P.transpondercode) ~= P.transpondercodetemp) then
-        if (get(P.transpondercode) ~= P.transpondercodetemp2) then
-            P.transpondercodetemp2 = get(P.transpondercode)
+    if ((get(P.lwiperpos) ~= P.lwiperpostemp) or (get(P.rwiperpos) ~= P.rwiperpostemp)) then
+        if ((get(P.lwiperpos) ~= P.lwiperpostemp2) or (get(P.rwiperpos) ~= P.rwiperpostemp2)) then
+            P.lwiperpostemp2 = get(P.lwiperpos)
+            P.rwiperpostemp2 = get(P.rwiperpos)
         else
-            P.commandtableentry(def.TEXT, "Transponder Code " .. helpers.addspaces(get(P.transpondercode)))
-            P.transpondercodetemp = get(P.transpondercode)
-            P.transpondercodetemp2 = get(P.transpondercode)
-        end
-
-    end
-
-    if (P.configvalues[def.CONFIGAUTOWIPER] ~= def.ON) then
-        if ((get(P.lwiperpos) ~= P.lwiperpostemp) or (get(P.rwiperpos) ~= P.rwiperpostemp)) then
-            if ((get(P.lwiperpos) ~= P.lwiperpostemp2) or (get(P.rwiperpos) ~= P.rwiperpostemp2)) then
+            local wiperstring = ""
+            local statestring = ""
+            if (((get(P.lwiperpos) ~= P.lwiperpostemp) and (get(P.rwiperpos) ~= P.rwiperpostemp)) and (get(P.lwiperpos) == get(P.rwiperpos))) then
+                wiperstring = "Both Wipers "
+                if (get(P.lwiperpos) == def.WIPEROFF) then
+                    statestring = "Off"
+                elseif (get(P.lwiperpos) == def.WIPERINT) then
+                    statestring = "Interval"
+                elseif (get(P.lwiperpos) == def.WIPERLOW) then
+                    statestring = "Low"
+                elseif (get(P.lwiperpos) == def.WIPERHIGH) then
+                    statestring = "High"
+                end
+                P.lwiperpostemp = get(P.lwiperpos)
                 P.lwiperpostemp2 = get(P.lwiperpos)
+                P.rwiperpostemp = get(P.rwiperpos)
                 P.rwiperpostemp2 = get(P.rwiperpos)
             else
-                local wiperstring = ""
-                local statestring = ""
-                if (((get(P.lwiperpos) ~= P.lwiperpostemp) and (get(P.rwiperpos) ~= P.rwiperpostemp)) and (get(P.lwiperpos) == get(P.rwiperpos))) then
-                    wiperstring = "Both Wipers "
+                if (get(P.lwiperpos) ~= P.lwiperpostemp) then
+                    wiperstring = "Left Wiper "
                     if (get(P.lwiperpos) == def.WIPEROFF) then
                         statestring = "Off"
                     elseif (get(P.lwiperpos) == def.WIPERINT) then
@@ -1621,49 +1289,72 @@ local function complex_check(P)
                     elseif (get(P.lwiperpos) == def.WIPERHIGH) then
                         statestring = "High"
                     end
-
                     P.lwiperpostemp = get(P.lwiperpos)
                     P.lwiperpostemp2 = get(P.lwiperpos)
+                end
+                if (get(P.rwiperpos) ~= P.rwiperpostemp) then
+                    wiperstring = "Right Wiper "
+                    if (get(P.rwiperpos) == def.WIPEROFF) then
+                        statestring = "Off"
+                    elseif (get(P.rwiperpos) == def.WIPERINT) then
+                        statestring = "Interval"
+                    elseif (get(P.rwiperpos) == def.WIPERLOW) then
+                        statestring = "Low"
+                    elseif (get(P.rwiperpos) == def.WIPERHIGH) then
+                        statestring = "High"
+                    end
                     P.rwiperpostemp = get(P.rwiperpos)
                     P.rwiperpostemp2 = get(P.rwiperpos)
-                else
-                    if (get(P.lwiperpos) ~= P.lwiperpostemp) then
-                        wiperstring = "Left Wiper "
-                        if (get(P.lwiperpos) == def.WIPEROFF) then
-                            statestring = "Off"
-                        elseif (get(P.lwiperpos) == def.WIPERINT) then
-                            statestring = "Interval"
-                        elseif (get(P.lwiperpos) == def.WIPERLOW) then
-                            statestring = "Low"
-                        elseif (get(P.lwiperpos) == def.WIPERHIGH) then
-                            statestring = "High"
-                        end
-
-                        P.lwiperpostemp = get(P.lwiperpos)
-                        P.lwiperpostemp2 = get(P.lwiperpos)
-                    end
-
-                    if (get(P.rwiperpos) ~= P.rwiperpostemp) then
-                        wiperstring = "Right Wiper "
-                        if (get(P.rwiperpos) == def.WIPEROFF) then
-                            statestring = "Off"
-                        elseif (get(P.rwiperpos) == def.WIPERINT) then
-                            statestring = "Interval"
-                        elseif (get(P.rwiperpos) == def.WIPERLOW) then
-                            statestring = "Low"
-                        elseif (get(P.rwiperpos) == def.WIPERHIGH) then
-                            statestring = "High"
-                        end
-
-                        P.rwiperpostemp = get(P.rwiperpos)
-                        P.rwiperpostemp2 = get(P.rwiperpos)
-                    end
                 end
+            end
+            P.commandtableentry(def.TEXT, wiperstring .. statestring)
+        end
+    end
 
-                P.commandtableentry(def.TEXT, wiperstring .. statestring)
+    if ((get(P.llightson) ~= P.llightsontemp) or (get(P.llights1) ~= P.llights1temp) or (get(P.llights2) ~= P.llights2temp) or (get(P.llights3) ~= P.llights3temp) or
+        (get(P.llights4) ~= P.llights4temp)) then
+        if ((get(P.llightson) == def.OFF) and (get(P.llights1) == def.OFF) and (get(P.llights2) == def.OFF) and (get(P.llights3) == def.OFF) and (get(P.llights4) == def.OFF)) then
+            P.commandtableentry(def.TEXT, "Landing Lights Off")
+        else
+            if ((P.llightsontemp == def.OFF) and (P.llights1temp == def.OFF) and (P.llights2temp == def.OFF) and (P.llights3temp == def.OFF) and (P.llights4temp == def.OFF)) then
+                P.commandtableentry(def.TEXT, "Landing Lights On")
             end
         end
-    end 
+        P.llightsontemp = get(P.llightson)
+        P.llights1temp = get(P.llights1)
+        P.llights2temp = get(P.llights2)
+        P.llights3temp = get(P.llights3)
+        P.llights4temp = get(P.llights4)
+    end
+
+    if ((get(P.rwylightl) ~= P.rwylightltemp) or (get(P.rwylightr) ~= P.rwylightrtemp)) then
+        if (((get(P.rwylightl) ~= P.rwylightltemp) and (get(P.rwylightr) ~= P.rwylightrtemp)) and (get(P.rwylightl) == get(P.rwylightr))) then
+            if ((get(P.rwylightl) == def.ON) and (get(P.rwylightr) == def.ON)) then
+                P.commandtableentry(def.TEXT, "Both Runway Turnoff Lights On")
+            else
+                P.commandtableentry(def.TEXT, "Both Runway Turnoff Lights Off")
+            end
+            P.rwylightltemp = get(P.rwylightl)
+            P.rwylightrtemp = get(P.rwylightr)
+        else
+            if (get(P.rwylightl) ~= P.rwylightltemp) then
+                if (get(P.rwylightl) == def.ON) then
+                    P.commandtableentry(def.TEXT, "Left Runway Turnoff Light On")
+                else
+                    P.commandtableentry(def.TEXT, "Left Runway Turnoff Light Off")
+                end
+                P.rwylightltemp = get(P.rwylightl)
+            end
+            if (get(P.rwylightr) ~= P.rwylightrtemp) then
+                if (get(P.rwylightr) == def.ON) then
+                    P.commandtableentry(def.TEXT, "Right Runway Turnoff Light On")
+                else
+                    P.commandtableentry(def.TEXT, "Right Runway Turnoff Light Off")
+                end
+                P.rwylightrtemp = get(P.rwylightr)
+            end
+        end
+    end
 
     return true
 end
@@ -1708,6 +1399,7 @@ VR.config = {
     { dataref = "rrecircfanpos", temp = "rrecircfanpostemp", check = simple_check, format = function(v) return v == def.ON and "Right Recirculating Fan On" or "Right Recirculating Fan Off" end },
     { dataref = "bleedairapupos", temp = "bleedairapupostemp", check = simple_check, format = function(v) return v == def.ON and "A P U Bleed Air On" or "A P U Bleed Air Off" end },
     { dataref = "apustarterpos", temp = "apustarterpostemp", check = simple_check, format = function(v, P) if P.apurunning() > def.APUOFF then return "A P U Started" else return "A P U Shutting Down" end end },
+    { dataref = "parkingbrakepos", temp = "parkingbrakepostemp", check = simple_check, format = function(v) return v == def.ON and "Parking Brake Set" or "Parking Brake Off" end },
 
     { dataref = "cabincruisealt", temp1 = "cabincruisealttemp", temp2 = "cabincruisealttemp2", check = debounce_check, format = function(v) return "Cabin Cruise Altitude " .. tostring(v) end },
     { dataref = "cabinlandingalt", temp1 = "cabinlandingalttemp", temp2 = "cabinlandingalttemp2", check = debounce_check, format = function(v) return "Cabin Landing Altitude " .. tostring(v) end },
@@ -1726,24 +1418,10 @@ VR.config = {
     { dataref = "flapleverpos", temp1 = "flapleverpostemp", temp2 = "flapleverpostemp2", check = debounce_check, format = function(v)
         local pos = helpers.convflaplevertoflappos(v); if pos == 0 then return "Flaps Up" else return "Flaps " .. tostring(pos) end
     end },
-    
-    { dataref = "mcpspeed", temp1 = "mcpspeedtemp", temp2 = "mcpspeedtemp2", check = debounce_check,
-      condition = function(P) return (get(P.atarmpos) == def.OFF) or (get(P.atspeedstat) == def.ON) or (get(P.atspeedintvstat) == def.ON) end,
-      format = function(v, P)
-          local speed_str = (v < 1) and helpers.roundnumber(v, 2) or helpers.roundnumber(v)
-          if ((P.flightstate > 2) and (v == get(P.vref))) then return "M C P Speed set to V REF " .. tostring(speed_str)
-          else return "M C P Speed " .. tostring(speed_str) end
-      end
-    },
-    { dataref = "mcpvsspeed", temp1 = "mcpvsspeedtemp", temp2 = "mcpvsspeedtemp2", check = debounce_check,
-      condition = function(P) return (get(P.mcpvsspeed) ~= 0) and (get(P.apalthldstat) ~= def.ON) and (get(P.apvnavstat) ~= def.ON) end,
-      format = function(v) return "M C P Vertical Speed " .. tostring(v) end
-    },
     { dataref = "speedbrakelever", temp1 = "speedbrakelevertemp", temp2 = "speedbrakelevertemp2", check = debounce_check, format = function(v)
-        local rounded = helpers.roundnumber(v, 1)
-        if rounded == def.SPEEDBRAKEDOWN then return "Speedbrake Down"
-        elseif rounded == def.SPEEDBRAKEARMED then return "Speedbrake Armed"
-        elseif rounded >= def.SPEEDBRAKEUP then return "Speedbrake Up" end
+        if v == def.SPEEDBRAKEDOWN then return "Speedbrake Down"
+        elseif v == def.SPEEDBRAKEARMED then return "Speedbrake Armed"
+        elseif v >= def.SPEEDBRAKEUP then return "Speedbrake Up" end
     end },
     { dataref = "autobrakepos", temp1 = "autobrakepostemp", temp2 = "autobrakepostemp2", check = debounce_check, format = function(v)
         if v == def.AUTOBRAKERTO then return "Auto Brake R T O"
@@ -1755,23 +1433,43 @@ VR.config = {
     end },
     { dataref = "autobrakedisarm", temp1 = "autobrakedisarmtemp", temp2 = "autobrakedisarmtemp2", check = debounce_check, format = function(v) 
         if v == def.ON then return "Auto Brake Disarmed" end 
-    end }
+    end },
+
+    -- Debounce mit Bedingung
+    { dataref = "mcpspeed", temp1 = "mcpspeedtemp", temp2 = "mcpspeedtemp2", check = debounce_check,
+      condition = function(P) return (get(P.atarmpos) == def.OFF) or (get(P.atspeedstat) == def.ON) or (get(P.atspeedintvstat) == def.ON) end,
+      format = function(v, P)
+          local speed_str = (v < 1) and helpers.roundnumber(v, 2) or helpers.roundnumber(v)
+          if ((P.flightstate > 2) and (v == get(P.vref))) then return "M C P Speed set to V REF " .. tostring(speed_str)
+          else return "M C P Speed " .. tostring(speed_str) end
+      end
+    },
+    { dataref = "mcpvsspeed", temp1 = "mcpvsspeedtemp", temp2 = "mcpvsspeedtemp2", check = debounce_check,
+      condition = function(P) return (get(P.mcpvsspeed) ~= 0) and (get(P.apalthldstat) ~= def.ON) and (get(P.apvnavstat) ~= def.ON) end,
+      format = function(v) return "M C P Vertical Speed " .. tostring(v) end
+    }
 }
 
 --------------------------------------------------------------------------------------------------------------
-
 function VR.initialize(P)
+    -- Initialisiert ALLE temp-Variablen, die in diesem Modul verwendet werden
     sasl.logInfo("YAL: Initializing all variables for voice readback.")
-
+    
     for _, config in ipairs(VR.config) do
         if config.dataref then
-            local currentValue = get(P[config.dataref])
+            local currentValue
+            if config.dataref == "speedbrakelever" then
+                currentValue = helpers.roundnumber(get(P[config.dataref]), 1)
+            else
+                currentValue = get(P[config.dataref])
+            end
+            
             if config.temp then P[config.temp] = currentValue end
             if config.temp1 then P[config.temp1] = currentValue end
             if config.temp2 then P[config.temp2] = currentValue end
         end
     end
-    -- Manuelle Initialisierung für die komplexen Fälle
+    
     P.totalfuellbstemp = get(P.totalfuellbs); P.totalfuellbstemp2 = get(P.totalfuellbs)
     P.apcmdastattemp = get(P.apcmdastat); P.apcmdbstattemp = get(P.apcmdbstat)
     P.apvnavstattemp = get(P.apvnavstat); P.aplnavstattemp = get(P.aplnavstat); P.apappstattemp = get(P.apappstat)
@@ -1808,7 +1506,6 @@ function VR.initialize(P)
     P.captainprobepostemp = get(P.captainprobepos); P.foprobepostemp = get(P.foprobepos)
     P.wheatlfwdpostemp = get(P.wheatlfwdpos); P.wheatlsidepostemp = get(P.wheatlsidepos)
     P.wheatrfwdpostemp = get(P.wheatrfwdpos); P.wheatrsidepostemp = get(P.wheatrsidepos)
-    P.speedbrakelevertemp = helpers.roundnumber(get(P.speedbrakelever), 1); P.speedbrakelevertemp2 = helpers.roundnumber(get(P.speedbrakelever), 1)
     P.packlpostemp = get(P.packlpos); P.packrpostemp = get(P.packrpos)
     P.bleedair1postemp = get(P.bleedair1pos); P.bleedair2postemp = get(P.bleedair2pos)
     P.hydro1postemp = get(P.hydro1pos); P.hydro2postemp = get(P.hydro2pos)
@@ -1823,13 +1520,21 @@ end
 
 --------------------------------------------------------------------------------------------------------------
 function VR.run(P)
-
     for _, config in ipairs(VR.config) do
-        local currentValue = get(P[config.dataref])
+        local currentValue
+        if config.dataref == "speedbrakelever" then
+            currentValue = helpers.roundnumber(get(P[config.dataref]), 1)
+        else
+            currentValue = get(P[config.dataref])
+        end
         
         local hasChanged = false
         if (not config.condition or config.condition(P)) then
-            hasChanged = config.check(currentValue, config.temp or config.temp1, config.temp2, P)
+            if config.check == simple_check then
+                hasChanged = simple_check(currentValue, config.temp, P)
+            elseif config.check == debounce_check then
+                hasChanged = debounce_check(currentValue, config.temp1, config.temp2, P)
+            end
         else
             if config.temp then P[config.temp] = currentValue end
             if config.temp1 then P[config.temp1] = currentValue end
