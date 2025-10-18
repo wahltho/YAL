@@ -2786,7 +2786,7 @@ function P.updatemetar()
 
     if P.flightstate <= def.FLIGHTSTATEINITIALCLIMB then
         if helpers.isvalidicao(depicaotmp) and depicaotmp ~= P.depmetar.icaocode then
-            P.getMetar(depicaotmp, P.depmetar)
+            helpers.getMetar(depicaotmp, P.depmetar)
         end
     end
 
@@ -7632,41 +7632,77 @@ function P.ongoingtasks()
         P.altitudetimer = nil
     end
 
-    if ((get(P.airgroundsensor) == def.ON) and (P.flightstate == def.FLIGHTSTATEPREFLIGHT)) then
-        if (P.procedureloop1.lock == def.NOPROCEDURE) then  
-            if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                if ((get(P.battery) == def.ON) and (get(P.positionlights) ~= def.POSLIGHTSSTEADY) and (get(P.parkingbrakepos) == def.ON)) then
-                    P.commandtableentry(def.TEXT, "Set Position Lights Steady") 
-                elseif (((get(P.starter1pos) == def.GROUND) or (get(P.starter2pos) == def.GROUND)) and (get(P.beaconlights) == def.OFF)) then
-                    P.commandtableentry(def.TEXT, "Set Collision Lights On")      
-                elseif (((get(P.starter1pos) == def.GROUND) or (get(P.starter2pos) == def.GROUND)) and ((get(P.lefttanklswitch) == def.OFF) or (get(P.lefttankrswitch) == def.OFF) or (get(P.righttanklswitch) == def.OFF) or (get(P.righttankrswitch) == def.OFF))) then
+    local airGroundSensor = get(P.airgroundsensor)
+    if airGroundSensor ~= nil and airGroundSensor == def.ON and P.flightstate == def.FLIGHTSTATEPREFLIGHT then
+
+        if P.procedureloop1 and P.procedureloop1.lock == def.NOPROCEDURE then
+            local voiceAdviceSetting = P.configvalues and P.configvalues[def.CONFIGVOICEADVICEONLY]
+            if voiceAdviceSetting == def.ON then
+
+                local battery = get(P.battery)
+                local posLights = get(P.positionlights)
+                local parkBrake = get(P.parkingbrakepos)
+                local starter1 = get(P.starter1pos)
+                local starter2 = get(P.starter2pos)
+                local beaconLights = get(P.beaconlights)
+                local leftTankL = get(P.lefttanklswitch)
+                local leftTankR = get(P.lefttankrswitch)
+                local rightTankL = get(P.righttanklswitch)
+                local rightTankR = get(P.righttankrswitch)
+                local packL = get(P.packlpos)
+                local packR = get(P.packrpos)
+                local apuBleed = get(P.bleedairapupos)
+                local isolValve = get(P.isolvalvepos)
+                local eng1N2 = get(P.eng1n2percent)
+                local eng2N2 = get(P.eng2n2percent)
+                local mixture1 = get(P.mixture1pos)
+                local mixture2 = get(P.mixture2pos)
+                local apuStatus = P.apurunning()
+                local gen1 = get(P.gen1pos)
+                local gen2 = get(P.gen2pos)
+                local enginesRunningBoth = P.enginesrunning(P.BOTH)
+                local bleed1 = get(P.bleedair1pos)
+                local bleed2 = get(P.bleedair2pos)
+
+                if battery == def.ON and posLights ~= nil and posLights ~= def.POSLIGHTSSTEADY and parkBrake == def.ON then
+                    P.commandtableentry(def.TEXT, "Set Position Lights Steady")
+                elseif ((starter1 == def.GROUND or starter2 == def.GROUND)) and beaconLights == def.OFF then
+                    P.commandtableentry(def.TEXT, "Set Collision Lights On")
+                elseif ((starter1 == def.GROUND or starter2 == def.GROUND)) and (leftTankL == def.OFF or leftTankR == def.OFF or rightTankL == def.OFF or rightTankR == def.OFF) then
                     P.commandtableentry(def.TEXT, "Set Wing Tank Fuel Pumps On")
-                elseif (((get(P.starter1pos) == def.GROUND) or (get(P.starter2pos) == def.GROUND)) and ((get(P.packlpos) ~= def.PACKOFF) or (get(P.packrpos) ~= def.PACKOFF))) then
+                elseif ((starter1 == def.GROUND or starter2 == def.GROUND)) and (packL ~= nil and packL ~= def.PACKOFF or packR ~= nil and packR ~= def.PACKOFF) then
                     P.commandtableentry(def.TEXT, "Set Both Packs Off")
-                elseif (((get(P.starter1pos) == def.GROUND) or (get(P.starter2pos) == def.GROUND)) and (get(P.bleedairapupos) ~= def.ON)) then
+                elseif ((starter1 == def.GROUND or starter2 == def.GROUND)) and apuBleed ~= nil and apuBleed ~= def.ON then
                     P.commandtableentry(def.TEXT, "Set A P U Bleed Air On")
-                elseif ((get(P.starter2pos) == def.GROUND) and (get(P.isolvalvepos) ~= def.ISOLVALVEOPEN)) then
+                elseif starter2 == def.GROUND and isolValve ~= nil and isolValve ~= def.ISOLVALVEOPEN then
                     P.commandtableentry(def.TEXT, "Set Isolation Valve Open")
-                elseif ((get(P.starter1pos) == def.GROUND) and (get(P.eng1n2percent) > 25) and (get(P.mixture1pos) == def.OFF)) then 
-                    P.commandtableentry(def.TEXT, "Engine 1 N 2 at 25 Percent")        
-                elseif ((get(P.starter2pos) == def.GROUND) and (get(P.eng2n2percent) > 25) and (get(P.mixture2pos) == def.OFF)) then 
+                elseif starter1 == def.GROUND and eng1N2 ~= nil and eng1N2 > 25 and mixture1 == def.OFF then
+                    P.commandtableentry(def.TEXT, "Engine 1 N 2 at 25 Percent")
+                elseif starter2 == def.GROUND and eng2N2 ~= nil and eng2N2 > 25 and mixture2 == def.OFF then
                     P.commandtableentry(def.TEXT, "Engine 2 N 2 at 25 Percent")
-                elseif ((P.apurunning() == def.APUOFFBUS) and (get(P.gen1pos) == def.OFF) and (get(P.gen1pos) == def.OFF)) then
+                elseif apuStatus ~= nil and apuStatus == def.APUOFFBUS and gen1 == def.OFF and gen2 == def.OFF then -- Corrected gen1/gen2 check
                     P.commandtableentry(def.TEXT, "Switch A P U Generator On")
-                elseif ((get(P.bleedairapupos) == def.OFF) and (P.apurunning() > def.APUSTARTED) and ((not P.enginesrunning(P.BOTH)) or (P.enginesrunning(P.BOTH) and get(P.bleedair1pos) == def.OFF and get(P.bleedair2pos) == def.OFF))) then
+                elseif (apuBleed == def.OFF and apuStatus ~= nil and apuStatus > def.APUSTARTED and enginesRunningBoth ~= nil and ((not enginesRunningBoth) or (enginesRunningBoth and bleed1 == def.OFF and bleed2 == def.OFF))) then
                     P.commandtableentry(def.TEXT, "Set A P U Bleedair On")
-                elseif ((get(P.isolvalvepos) ~= def.ISOLVALVEOPEN) and (P.apurunning() > def.APUSTARTED) and not(P.enginesrunning(P.BOTH) and get(P.bleedair2pos) == def.ON)) then
+                elseif (isolValve ~= nil and isolValve ~= def.ISOLVALVEOPEN and apuStatus ~= nil and apuStatus > def.APUSTARTED and enginesRunningBoth ~= nil and not(enginesRunningBoth and bleed2 == def.ON)) then
                     P.commandtableentry(def.TEXT, "Set Isolation Valve Open")
-                elseif ((get(P.bleedairapupos) == def.ON) and P.enginesrunning(P.BOTH) and (get(P.bleedair1pos) == def.ON or get(P.bleedair2pos) == def.ON)) then
+                elseif (apuBleed == def.ON and enginesRunningBoth and (bleed1 == def.ON or bleed2 == def.ON)) then
                     P.commandtableentry(def.TEXT, "Set A P U Bleedair Off")
-                elseif ((get(P.isolvalvepos) ~= def.ISOLVALVEAUTO) and P.enginesrunning(P.BOTH) and (get(P.bleedair1pos) == def.ON or get(P.bleedair2pos) == def.ON)) then
+                elseif (isolValve ~= nil and isolValve ~= def.ISOLVALVEAUTO and enginesRunningBoth and (bleed1 == def.ON or bleed2 == def.ON)) then
                     P.commandtableentry(def.TEXT, "Set Isolation Valve Auto")
                 end
             end
         end
 
-        if ((P.procedureloop1.lock == def.NOPROCEDURE) or (P.procedureloop1.lock == def.BEFORETAKEOFFPROCEDURE)) then
-            if ((get(P.atarmpos) == def.ARMED) and (get(P.atn1stat) == def.OFF) and (get(P.atthrottlelock) == def.OFF) and (get(P.eng1n1percent) > 40) and (get(P.eng2n1percent) > 40)) then 
+        if P.procedureloop1 and (P.procedureloop1.lock == def.NOPROCEDURE or P.procedureloop1.lock == def.BEFORETAKEOFFPROCEDURE) then
+            local atArmPos = get(P.atarmpos)
+            local atN1Stat = get(P.atn1stat)
+            local atThrottleLock = get(P.atthrottlelock)
+            local eng1N1 = get(P.eng1n1percent)
+            local eng2N1 = get(P.eng2n1percent)
+
+
+            if (atArmPos == def.ARMED and atN1Stat == def.OFF and atThrottleLock == def.OFF and eng1N1 ~= nil and eng1N1 > 40 and eng2N1 ~= nil and eng2N1 > 40) then
                 P.commandtableentry(def.TEXT, "Both Engine N 1 at 40 Percent")
             end
         end
