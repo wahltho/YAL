@@ -56,6 +56,34 @@ function P.YalinitGlobal()
 
     P.airportdatatable = {}
 
+    -------------------------------------------------------------------------------------------------------------- 
+
+    P.proceduretable = PD.getProcedureTable(P)
+
+    sasl.logInfo("Building procedure step label maps...")
+    for procKey, procData in pairs(P.proceduretable) do
+        if procData.steps and type(procData.steps) == "table" then
+            
+            procData.label_to_index = {}
+            
+            for i, step in ipairs(procData.steps) do
+                if step.label then
+                    -- 3. Füge das Label zur Map hinzu
+                    procData.label_to_index[step.label] = i
+                end
+            end
+            
+            procData.get_index = function(self, label)
+                local index = self.label_to_index[label]
+                if not index then
+                    sasl.logError("Procedure " .. self.name .. ": Invalid jump label '" .. tostring(label) .. "'")
+                    return -1
+                end
+                return index
+            end
+        end
+    end
+
     --------------------------------------------------------------------------------------------------------------
 
     P.ongoingtaskstepindex = 1
@@ -63,8 +91,6 @@ function P.YalinitGlobal()
     P.procedureloop1 = { lock = def.NOPROCEDURE, stepindex = 0, stepindexprevious = 0, steprepeat = false, lastActiveTime = 0, procedureabort = false, procedureskipstep = false, procedurenotpossible = false, triggeredmanually = false, setonabort = false, navdatatableindex = nil }
     P.procedureloop2 = { lock = def.NOPROCEDURE, stepindex = 0, stepindexprevious = 0, steprepeat = false, lastActiveTime = 0, procedureabort = false, procedureskipstep = false, procedurenotpossible = false, triggeredmanually = false, setonabort = false, navdatatableindex = nil }
     P.procedureloop3 = { lock = def.NOPROCEDURE, stepindex = 0, stepindexprevious = 0, steprepeat = false, lastActiveTime = 0, procedureabort = false, procedureskipstep = false, procedurenotpossible = false, triggeredmanually = false, setonabort = false, navdatatableindex = nil }
-
-    P.proceduretable = PD.getProcedureTable(P)
 
     P.lastExecutedLoopIndex = 0
     
@@ -5544,7 +5570,7 @@ end
 
 function P.altitudea10000steps(procedureloop)
 
-     if (procedureloop.stepindex == 1) then
+    if (procedureloop.stepindex == 1) then
         local departure_altitude = 0
         if P.airportdatatable[get(P.depicao)] and P.airportdatatable[get(P.depicao)].elevation_ft then
             departure_altitude = P.airportdatatable[get(P.depicao)].elevation_ft
@@ -5552,12 +5578,14 @@ function P.altitudea10000steps(procedureloop)
         local height_above_field = get(P.altitude) - departure_altitude
         local lower_airspace_alt = P.configvalues[def.CONFIGLOWEAIRSPACEALT]
 
-        if not ((height_above_field >= lower_airspace_alt) or (get(P.altitude) >= lower_airspace_alt)) then
-            procedureloop.procedurenotpossible = true
-            P.commandtableentry(def.TEXT, P.proceduretable[def.ALTITUDEA10000PROCEDURE].name .. " Procedure only possible above lower Airspace Altitude")
-            return true
+        if procedureloop.triggeredmanually then
+            if not ((height_above_field >= lower_airspace_alt) or (get(P.altitude) >= lower_airspace_alt)) then
+                procedureloop.procedurenotpossible = true
+                P.commandtableentry(def.TEXT, P.proceduretable[def.ALTITUDEA10000PROCEDURE].name .. " Procedure only possible above lower Airspace Altitude")
+                return true
+            end
         end
-
+        
         if (P.configvalues[def.CONFIGVIEWCHANGES] == def.ON) then
             P.setview(def.DEFAULTVIEW)
             P.setview(P.configvalues[def.CONFIGVIEWOVERHEADPANEL])
@@ -5848,19 +5876,21 @@ function P.altitudeb10000steps(procedureloop)
         end
         
         local height_above_field = 99999
-        if destination_altitude then
+        if destination_altitude and destination_altitude > -1000 then -- Sicherstellen, dass die Höhe gültig ist
             height_above_field = get(P.altitude) - destination_altitude
         end
         
         local radio_alt = get(P.radioaltitude)
         local lower_airspace_alt = P.configvalues[def.CONFIGLOWEAIRSPACEALT]
 
-        if not ((height_above_field < lower_airspace_alt) or (radio_alt < lower_airspace_alt)) then
-            procedureloop.procedurenotpossible = true
-            P.commandtableentry(def.TEXT, P.proceduretable[def.ALTITUDEB10000PROCEDURE].name .. " Procedure only possible below lower Airspace Altitude")
-            return true
+        if procedureloop.triggeredmanually then
+            if not ((height_above_field < lower_airspace_alt) or (radio_alt < lower_airspace_alt)) then
+                procedureloop.procedurenotpossible = true
+                P.commandtableentry(def.TEXT, P.proceduretable[def.ALTITUDEB10000PROCEDURE].name .. " Procedure only possible below lower Airspace Altitude")
+                return true
+            end
         end
-        
+ 
         P.commandtableentry(def.TEXT, "Below " .. lower_airspace_alt .. " Feet")
     end
 
@@ -7928,22 +7958,195 @@ end
 function P.runProcedureLoop(loopIndex)
     local loop = P.loopStateTables[loopIndex]
 
-    if (loop.lock ~= def.NOPROCEDURE) then
-        loop.lastActiveTime = os.time()
-        local timestring = os.date("%H:%M:%S", loop.lastActiveTime)
+    if (loop.lock == def.NOPROCEDURE) then
+        -- Wenn die Schleife nicht gesperrt ist, setze sie sauber zurück
+        loop.stepindex = 0
+        loop.stepindexprevious = 0
+        loop.steprepeat = false
+        loop.lastActiveTime = 0
+        loop.procedureabort = false
+        loop.procedureskipstep = false
+        loop.setonabort = false
+        loop.currentStepName = nil -- Wichtig für die neue Engine
+        loop.lastStepName = nil   -- Wichtig für die neue Engine
+        
+        -- Speichere den sauberen Zustand
+        local datarefHandle = P.ProcLoopHandlesdr[loopIndex]
+        if datarefHandle then
+            local stateArray = P.encodeLoopToArray(loop)
+            set(datarefHandle, stateArray)
+        end
+        return true -- Beende die Funktion
+    end
 
-        local procedureData = P.proceduretable[loop.lock]
-        if procedureData then
-            local aircraftIsOnGround = (get(P.airgroundsensor) == def.ON)
-            local allowedState = procedureData.allowedState
-            if (allowedState == def.GROUNDONLY and not aircraftIsOnGround) or
-               (allowedState == def.AIRONLY and aircraftIsOnGround) then
-                
-                sasl.logInfo("Aborting '" .. procedureData.name .. "' due to invalid aircraft state.")
-                loop.procedureabort = true
+    -- Ab hier ist die Schleife gesperrt (loop.lock ~= def.NOPROCEDURE)
+    loop.lastActiveTime = os.time()
+    local timestring = os.date("%H:%M:%S", loop.lastActiveTime)
+    
+    local procedureData = P.proceduretable[loop.lock]
+    
+    -- ##################################################################
+    -- ## 1. GEMEINSAME CHECKS (für BEIDE Engines) ##
+    -- ##################################################################
+    
+    if not procedureData then
+        sasl.logError("Procedure " .. tostring(loop.lock) .. " not found in proceduretable! Aborting.")
+        loop.procedureabort = true
+    else
+        -- KORREKTUR 1: Fehlender allowedState-Check
+        local aircraftIsOnGround = (get(P.airgroundsensor) == def.ON)
+        local allowedState = procedureData.allowedState
+        if (allowedState == def.GROUNDONLY and not aircraftIsOnGround) or
+           (allowedState == def.AIRONLY and aircraftIsOnGround) then
+            
+            sasl.logInfo("Aborting '" .. procedureData.name .. "' due to invalid aircraft state.")
+            loop.procedureabort = true
+        end
+    end
+
+    -- ##################################################################
+    -- ## 2. DER GENERISCHE "ROUTER" / "SCHALTER" ##
+    -- ##################################################################
+
+    if procedureData and procedureData.steps and type(procedureData.steps) == "table" then
+        -- #############################################
+        -- ## ENGINE A: NEUE Data-Driven Engine (mit String-Keys)
+        -- #############################################
+        local useViewChanges = (P.configvalues[def.CONFIGVIEWCHANGES] == def.ON)
+        local useAdviceOnly = (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON)
+
+        -- A1. PREREQUISITE CHECKS (nur bei Schritt 0)
+        if loop.stepindex == 0 then -- 'stepindex' wird als Flag "nicht gestartet" (0) oder "gestartet" (1) verwendet
+            if procedureData.speakname then P.commandtableentry(def.TEXT, procedureData.name .. " Procedure") end
+            sasl.logInfo(procedureData.name .. " Procedure (Data-Driven) started at " .. timestring)
+
+            if procedureData.prerequisiteChecks then
+                for _, prereq in ipairs(procedureData.prerequisiteChecks) do
+                    if not prereq.check(P) then
+                        P.commandtableentry(def.TEXT, prereq.failMsg)
+                        loop.procedurenotpossible = true
+                        break
+                    end
+                end
+            end
+            
+            if not loop.procedurenotpossible then
+                loop.stepindex = 1 -- "Gestartet" Flag
+                loop.currentStepName = procedureData.startStep -- Setze den Startpunkt
+                loop.lastStepName = nil 
             end
         end
 
+        -- A2. ABBRUCH-HANDLING
+        if loop.procedureabort or loop.procedurenotpossible then
+            local msg = loop.procedureabort and "Procedure Aborted" or "Procedure Not Possible"
+            if not loop.procedurenotpossible then 
+                 P.commandtableentry(def.TEXT, procedureData.name .. " " .. msg)
+            end
+            sasl.logInfo(procedureData.name .. " " .. msg .. " at " .. timestring)
+            
+            if loop.procedureabort or loop.setonabort then
+                 P.proceduretable[loop.lock].set = true
+                 set(P.ProcSetStatusarraydr, 1, loop.lock)
+            end
+            
+            loop.lock = def.NOPROCEDURE -- Setzt die Schleife zurück
+            
+        -- A3. SKIP-HANDLING (Manueller Skip)
+        elseif loop.procedureskipstep then
+            P.commandtableentry(def.TEXT, "Procedure Step Skipped")
+            loop.procedureskipstep = false
+            local currentStep = procedureData.steps[loop.currentStepName]
+            if currentStep and currentStep.nextStep then
+                loop.currentStepName = currentStep.nextStep
+            else
+                loop.currentStepName = nil -- Beende die Prozedur, wenn am Ende geskippt wird
+            end
+            
+        -- A4. PRÜFE AUF PROZEDUR-ENDE
+        elseif loop.currentStepName == nil then
+            if procedureData.speakname then P.commandtableentry(def.TEXT, procedureData.name .. " Procedure Complete") end
+            sasl.logInfo(procedureData.name .. " Procedure completed at " .. timestring)
+            P.proceduretable[loop.lock].set = true
+            set(P.ProcSetStatusarraydr, 1, loop.lock)
+            
+            loop.lock = def.NOPROCEDURE
+            
+        -- A5. ENGINE-HAUPTTEIL
+        elseif loop.stepindex == 1 then -- Nur ausführen, wenn gestartet
+            local stepName = loop.currentStepName
+            local step = procedureData.steps[stepName]
+
+            if not step then
+                sasl.logError("Procedure " .. procedureData.name .. " failed: Step '" .. tostring(stepName) .. "' is nil!")
+                loop.procedureabort = true
+            else
+                -- 5a. Step Repeat Logik
+                if stepName == loop.lastStepName then loop.steprepeat = true
+                else loop.steprepeat = false end
+                loop.lastStepName = stepName
+
+                -- 5b. (Effizienz) Irrelevante Schritte überspringen
+                if step.skipIf and step.skipIf(P) then
+                    sasl.logDebug("Data-Driven: Skipping irrelevant step " .. stepName)
+                    loop.currentStepName = step.nextStep
+                    loop.lastStepName = nil -- Erzwingt 'steprepeat = false' im nächsten Zyklus
+                
+                -- 5c. (Flexibilität) Verzweigung
+                elseif step.branch then
+                    local nextStepName = step.branch(loop, P, procedureData) 
+                    if nextStepName then
+                        sasl.logDebug("Data-Driven: Branch taken at step " .. stepName .. ", jumping to " .. nextStepName)
+                        loop.currentStepName = nextStepName
+                    elseif nextStepName == nil then 
+                         loop.procedurenotpossible = true
+                    end
+                
+                -- 5d. Ansicht setzen
+                elseif useViewChanges and step.view then
+                    local viewID = step.view(P)
+                    if P.setview(viewID) then
+                        sasl.logDebug("Data-Driven: View changed for step " .. stepName .. ", repeating step.")
+                        loop.lastStepName = nil -- Verhindert 'steprepeat = true' im nächsten Zyklus
+                    else
+                        -- Ansichtswechsel nicht nötig/erfolgt, fahre sofort mit Logik fort
+                        if step.check then
+                            if step.check(P) then
+                                if not loop.steprepeat and step.confirm then local msg = (type(step.confirm) == "function") and step.confirm(P) or step.confirm; if msg then P.commandtableentry(def.TEXT, msg) end end
+                                loop.currentStepName = step.nextStep
+                            else
+                                if useAdviceOnly then if step.advice then local msg = (type(step.advice) == "function") and step.advice(P) or step.advice; if msg then P.commandtableentry(def.TEXT, msg) end end
+                                else if step.action then step.action(P) end end
+                            end
+                        else
+                            if step.action and not loop.steprepeat then step.action(P) end
+                            loop.currentStepName = step.nextStep
+                        end
+                    end
+                
+                -- 5e. Kernlogik: Check, Action, Advice
+                elseif step.check then
+                    if step.check(P) then
+                        if not loop.steprepeat and step.confirm then local msg = (type(step.confirm) == "function") and step.confirm(P) or step.confirm; if msg then P.commandtableentry(def.TEXT, msg) end end
+                        loop.currentStepName = step.nextStep
+                    else
+                        if useAdviceOnly then if step.advice then local msg = (type(step.advice) == "function") and step.advice(P) or step.advice; if msg then P.commandtableentry(def.TEXT, msg) end end
+                        else if step.action then step.action(P) end end
+                    end
+                else
+                    -- Schritt ohne Check (z.B. nur Ansicht oder Aktion)
+                    if step.action and not loop.steprepeat then step.action(P) end
+                    loop.currentStepName = step.nextStep
+                end
+            end
+        end
+
+    elseif procedureData and procedureData.procedurefunction then
+        -- #############################################
+        -- ## ENGINE B: ALTE Legacy-Engine           ##
+        -- #############################################
+        
+        -- Dies ist der *gesamte* alte Code-Block, 1:1 kopiert
         if ((loop.stepindex == 0) and not loop.procedureabort and not loop.procedureskipstep and not loop.procedurenotpossible) then
             if (P.proceduretable[loop.lock].speakname == true) then
                 P.commandtableentry(def.TEXT, P.proceduretable[loop.lock].name .. " Procedure")
@@ -7989,6 +8192,7 @@ function P.runProcedureLoop(loopIndex)
             loop.lock = def.NOPROCEDURE
         end
 
+        -- Post-processing für die ALTE Engine
         if (loop.lock == def.NOPROCEDURE) then
             loop.stepindex = 0
             loop.lastActiveTime = 0
@@ -8009,18 +8213,20 @@ function P.runProcedureLoop(loopIndex)
             loop.procedureskipstep = false
             loop.stepindex = loop.stepindex + 1
         end
+
     else
-        loop.stepindex = 0
-        loop.stepindexprevious = 0
-        loop.steprepeat = false
-        loop.lastActiveTime = 0
-        loop.procedureabort = false
-        loop.procedureskipstep = false
-        loop.setonabort = false
+        -- #############################################
+        -- ## FALLBACK: Prozedur ist kaputt           ##
+        -- #############################################
+        sasl.logError("Procedure " .. tostring(loop.lock) .. " has no 'steps' table or 'procedurefunction'!")
+        loop.procedureabort = true
     end
 
+    -- ##################################################################
+    -- ## 3. GEMEINSAME POST-PROCESSING-LOGIK (Speichern) ##
+    -- ##################################################################
+    
     local datarefHandle = P.ProcLoopHandlesdr[loopIndex]
-
     if datarefHandle then
         local stateArray = P.encodeLoopToArray(loop)
         set(datarefHandle, stateArray)
