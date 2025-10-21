@@ -1,10 +1,9 @@
 local P = {}
-yal = P -- package name
+yal = P
 
 local def = require("definitions")
 require("settings")
 local VR = require("voicereadback")
-local PD = require("proceduredata")
 
 --------------------------------------------------------------------------------------------------------------
 
@@ -58,32 +57,8 @@ function P.YalinitGlobal()
 
     -------------------------------------------------------------------------------------------------------------- 
 
-    P.proceduretable = PD.getProcedureTable(P)
-
-    sasl.logInfo("Building procedure step label maps...")
-    for procKey, procData in pairs(P.proceduretable) do
-        if procData.steps and type(procData.steps) == "table" then
-            
-            procData.label_to_index = {}
-            
-            for i, step in ipairs(procData.steps) do
-                if step.label then
-                    -- 3. Füge das Label zur Map hinzu
-                    procData.label_to_index[step.label] = i
-                end
-            end
-            
-            procData.get_index = function(self, label)
-                local index = self.label_to_index[label]
-                if not index then
-                    sasl.logError("Procedure " .. self.name .. ": Invalid jump label '" .. tostring(label) .. "'")
-                    return -1
-                end
-                return index
-            end
-        end
-    end
-
+    P.proceduretable = {}
+    
     --------------------------------------------------------------------------------------------------------------
 
     P.ongoingtaskstepindex = 1
@@ -105,6 +80,34 @@ end
 
 function P.initDataref()
 
+    
+    local debug_dataref_path = def.APPNAMEPREFIX .. "/state/debuglevel"
+    local handle = globalProperty(debug_dataref_path)
+    
+    if not isProperty(handle) then
+        sasl.logInfo("Dataref '" .. debug_dataref_path .. "' not found. Creating it now.")    
+        local default_level = LOG_INFO       
+        P.debugLevelDataref = createGlobalPropertyi(debug_dataref_path, default_level, false, true, true)
+        set(P.debugLevelDataref, default_level) 
+        
+    else
+        sasl.logInfo("Found existing dataref: '" .. debug_dataref_path .. "'")
+        P.debugLevelDataref = handle
+    end
+    
+    sasl.logInfo("Restoring Debug Log Level from dataref...")
+    local stored_level = get(P.debugLevelDataref)
+    
+    if (stored_level ~= LOG_INFO) and (stored_level ~= LOG_DEBUG) then
+         sasl.logWarning("Invalid debug level in dataref (" .. stored_level .. "). Resetting to INFO.")
+         stored_level = LOG_INFO
+         set(P.debugLevelDataref, stored_level) 
+    end
+
+    sasl.setLogLevel(stored_level)
+    P.lastPolledDebugLevel = stored_level 
+    sasl.logInfo("Debug Log Level set to: " .. stored_level)
+    
     local dataref_path = def.APPNAMEPREFIX .. "/state/procedureset"
     local handle = globalProperty(dataref_path)
     if not isProperty(handle) then
@@ -139,9 +142,9 @@ function P.initDataref()
             P.ProcLoopHandlesdr[i] = handle
         end
     end
-    P.procedureloop1 = P.decodeArrayToLoop(get(P.ProcLoopHandlesdr[1]))
-    P.procedureloop2 = P.decodeArrayToLoop(get(P.ProcLoopHandlesdr[2]))
-    P.procedureloop3 = P.decodeArrayToLoop(get(P.ProcLoopHandlesdr[3]))
+    P.procedureloop1 = P.decodeArrayToLoop(get(P.ProcLoopHandlesdr[1]), 1)
+    P.procedureloop2 = P.decodeArrayToLoop(get(P.ProcLoopHandlesdr[2]), 2)
+    P.procedureloop3 = P.decodeArrayToLoop(get(P.ProcLoopHandlesdr[3]), 3)
     P.loopStateTables = { P.procedureloop1, P.procedureloop2, P.procedureloop3 }
     sasl.logInfo("Procedure loop states restored from datarefs.")
 
@@ -575,6 +578,82 @@ function P.initializeSharedVariables()
     P.desrwylonendpostemp = get(P.desrwylonendpos)
 end
 
+--------------------------------------------------------------------------------------------------------------
+function P.buildProcedureLabelMaps()
+    sasl.logInfo("YAL: Building and validating procedure step label maps...")
+    
+    for procKey, procData in pairs(P.proceduretable) do
+        if procData.steps and type(procData.steps) == "table" then
+            
+            -- Prüfe, ob es ein Array (Liste) oder eine Map (String-Keys) ist
+            if procData.startStep then
+                -- STRING-KEY FORMAT (z.B. cockpitinit)
+                sasl.logInfo("YAL: Validating (String-Key) labels for " .. procData.name)
+                
+                if not procData.get_index then
+                     procData.get_index = function(self, label)
+                        if not self.steps[label] then
+                            sasl.logError("Procedure " .. self.name .. ": Invalid jump label '" .. tostring(label) .. "'")
+                            return nil -- Engine muss nil abfangen
+                        end
+                        return label
+                    end
+                end
+                
+            elseif type(procData.steps[1]) == "table" then
+                -- ARRAY FORMAT (z.B. coldanddark)
+                sasl.logInfo("YAL: Building and validating (Array) labels for " .. procData.name)
+                local hardcoded_map = procData.label_to_index
+                local dynamic_map = {}
+                
+                for i, step in ipairs(procData.steps) do
+                    if step.label then
+                        dynamic_map[step.label] = i
+                    end
+                end
+                
+                if hardcoded_map then
+                    local hasMismatch = false
+                    for label, dynamic_index in pairs(dynamic_map) do
+                        local hardcoded_index = hardcoded_map[label]
+                        if hardcoded_index == nil then
+                            sasl.logInfo("YAL VALIDATION: Procedure '" .. procData.name .. "' has NEW label '" .. label .. "' at index " .. dynamic_index .. ". Please update 'label_to_index' table.")
+                            hasMismatch = true
+                        elseif hardcoded_index ~= dynamic_index then
+                            sasl.logInfo("YAL VALIDATION: Procedure '" .. procData.name .. "' label '" .. label .. "' needs update. File says " .. hardcoded_index .. ", but is " .. dynamic_index .. ". Please update 'label_to_index' table.")
+                            hasMismatch = true
+                        end
+                    end
+                    for label, hardcoded_index in pairs(hardcoded_map) do
+                        if dynamic_map[label] == nil then
+                            sasl.logInfo("YAL VALIDATION: Procedure '" .. procData.name .. "' has REMOVED label '" .. label .. "'. Please update 'label_to_index' table.")
+                            hasMismatch = true
+                        end
+                    end
+                    if not hasMismatch then
+                        sasl.logInfo("YAL: Procedure '" .. procData.name .. "' labels validated successfully.")
+                    end
+                else
+                     sasl.logInfo("YAL: Procedure '" .. procData.name .. "' has no 'label_to_index' table. Building it dynamically.")
+                end
+
+                procData.label_to_index = dynamic_map
+                
+                if not procData.get_index then
+                    procData.get_index = function(self, label)
+                        local index = self.label_to_index[label]
+                        if not index then
+                            sasl.logError("Procedure " .. self.name .. ": Invalid jump label '" .. tostring(label) .. "'")
+                            return -1 
+                        end
+                        return index
+                    end
+                end
+            end
+        end
+    end
+end
+
 -------------------------------------------------------------------------------------------------------------- 
 function P.YANSHisinstalled()
     if P.YANSHPluginID == nil then
@@ -650,10 +729,18 @@ end
 --------------------------------------------------------------------------------------------------------------
 function P.initializeScript()
 
-    P.YalinitGlobal()
-    P.initDataref()
-    P.readconfig()
+    P.YalinitGlobal() 
     
+    P.readconfig() 
+
+    local PD = require("proceduredata")
+    
+    PD.fillProcedureTable() 
+
+    P.buildProcedureLabelMaps()
+
+    P.initDataref()
+
     helpers.buildnavdatatable(P.navdatatable)
     if (sasl.getLogLevel() == LOG_DEBUG) then
         helpers.writenavdatatable(P.navdatatable)
@@ -661,7 +748,6 @@ function P.initializeScript()
     helpers.buildairportdatatable(P.airportdatatable)
 
     P.commandtableentry(def.TEXT, "YAL Initialization done")
-
     sasl.logInfo("Initialization and state restored")
 
     P.lastLoggedFlightstate = P.flightstate
@@ -685,9 +771,18 @@ function P.yalresetForNewFlight()
         P.proceduretable[def.COLDANDDARKPROCEDURE].set = true
     end
 
-    local statusArray = P.encodeProcedureSetStatusToArray()
-    set(P.drProcSetStatus_array, statusArray) 
+    -- Ersetzter (korrigierter) Block:
+    local statusArray = {}
+    for i = 1, #P.proceduretable do
+        if P.proceduretable[i].set == true then
+            statusArray[i] = 1
+        else
+            statusArray[i] = 0
+        end
+    end
+    set(P.drProcSetStatus_array, statusArray)
 
+    -- Weiterer Code bleibt gleich:
     for i = 1, #P.ProcLoopHandlesdr do
         local handle = P.ProcLoopHandlesdr[i]
         local stateArray = P.encodeLoopToArray(P.loopStateTables[i]) 
@@ -734,9 +829,18 @@ function P.yalreset()
 
     P.synchronizeProcedureStates() 
     
-    local statusArray = P.encodeProcedureSetStatusToArray()
+    -- Ersetzter (korrigierter) Block:
+    local statusArray = {}
+    for i = 1, #P.proceduretable do
+        if P.proceduretable[i].set == true then
+            statusArray[i] = 1
+        else
+            statusArray[i] = 0
+        end
+    end
     set(P.drProcSetStatus_array, statusArray)
 
+    -- Weiterer Code bleibt gleich:
     helpers.buildnavdatatable(P.navdatatable)
     if (sasl.getLogLevel() == LOG_DEBUG) then
         helpers.writenavdatatable(P.navdatatable)
@@ -765,8 +869,20 @@ sasl.registerCommandHandler(my_command_yalreset, 0, P.yalreset_)
 --------------------------------------------------------------------------------------------------------------
 function P.readconfig()
 
-    P.configvalues = settings.getSettings()
+    -- Hole die neuen Einstellungen
+    local newSettings = settings.getSettings()
+    
+    -- 1. Lösche alte Werte aus der *bestehenden* Tabelle
+    for k in pairs(P.configvalues) do
+        P.configvalues[k] = nil
+    end
+    
+    -- 2. Fülle die *bestehende* Tabelle mit den neuen Werten
+    for k, v in pairs(newSettings) do
+        P.configvalues[k] = v
+    end
 
+    -- Ab hier greifen alle Funktionen (auch die alten) auf die korrekten Werte zu
     if (P.configvalues[def.CONFIGWAKEOVERRIDE] == def.ON) then
         set(P.wakeoverride, def.ON)
     else
@@ -1171,25 +1287,27 @@ sasl.registerCommandHandler(my_command_speakdepmetar, 0, P.speakdepmetar_)
 
 --------------------------------------------------------------------------------------------------------------
 function P.triggerprocedure(procedureKey, isManual)
-    isManual = isManual or false
+    isManual = isManual or false -- Standardwert, falls isManual nicht übergeben wird
 
     local procedureData = P.proceduretable[procedureKey]
     if not procedureData then
-        return false
+        sasl.logError("YAL Error: Trigger failed. Procedure data not found for key: " .. tostring(procedureKey))
+        return false -- Prozedur nicht gefunden
     end
 
+    -- ### 1. FLIGHT STATE CHECK ###
     local requiredState = procedureData.requiredFlightstate
     if requiredState then
         local currentState = P.flightstate
         local isStateAllowed = false
-        if type(requiredState) == "table" then
+        if type(requiredState) == "table" then -- Wenn mehrere States erlaubt sind
             for _, allowed in ipairs(requiredState) do
                 if currentState == allowed then
                     isStateAllowed = true
                     break
                 end
             end
-        else
+        else -- Nur ein State erlaubt
             isStateAllowed = (currentState == requiredState)
         end
 
@@ -1197,10 +1315,12 @@ function P.triggerprocedure(procedureKey, isManual)
             if isManual then
                 P.commandtableentry(def.TEXT, procedureData.name .. " Procedure not possible in current flight state.")
             end
-            return false
+            sasl.logDebug("Trigger failed for '" .. procedureData.name .. "'. Required state: " .. helpers.tableToStringOrValue(requiredState) .. ", Current state: " .. currentState)
+            return false -- Falscher Flight State
         end
     end
 
+    -- ### 2. AIRCRAFT STATE CHECK (GROUND/AIR) ###
     local aircraftIsOnGround = (get(P.airgroundsensor) == def.ON)
     local allowedState = procedureData.allowedState
     if allowedState then
@@ -1208,54 +1328,97 @@ function P.triggerprocedure(procedureKey, isManual)
             if isManual then
                 P.commandtableentry(def.TEXT, procedureData.name .. " Procedure can only be executed on the ground.")
             end
+            sasl.logDebug("Trigger failed for '" .. procedureData.name .. "'. Requires GROUNDONLY, but aircraft is in air.")
             return false
         elseif allowedState == def.AIRONLY and aircraftIsOnGround then
             if isManual then
                 P.commandtableentry(def.TEXT, procedureData.name .. " Procedure can only be executed in the air.")
             end
+            sasl.logDebug("Trigger failed for '" .. procedureData.name .. "'. Requires AIRONLY, but aircraft is on ground.")
             return false
         end
     end
 
+    -- ### 3. PREREQUISITE CHECK (VORHERIGE PROZEDUR ERLEDIGT?) ###
     local prerequisite = procedureData.prerequisite
     if prerequisite then
         local prerequisiteMet = false
         
-        -- Fall 1: Die Voraussetzung ist eine Funktion
         if type(prerequisite) == "function" then
-            prerequisiteMet = prerequisite() -- Funktion aufrufen und Ergebnis verwenden
-        
-        -- Fall 2: Die Voraussetzung ist (wie bisher) eine Prozedur-ID
+            prerequisiteMet = prerequisite() -- Funktion direkt aufrufen
+            sasl.logDebug("Checking functional prerequisite for '" .. procedureData.name .. "'. Result: " .. tostring(prerequisiteMet))
         elseif type(prerequisite) == "number" and P.proceduretable[prerequisite] then
             prerequisiteMet = P.proceduretable[prerequisite].set
+            sasl.logDebug("Checking prerequisite procedure ID " .. prerequisite .. " for '" .. procedureData.name .. "'. Result: " .. tostring(prerequisiteMet))
+        else
+             sasl.logWarning("Invalid prerequisite type (" .. type(prerequisite) .. ") for '" .. procedureData.name .. "'")
         end
 
         if not prerequisiteMet then
             if isManual then
-                -- Allgemeine Fehlermeldung, da wir den genauen Grund nicht kennen
-                P.commandtableentry(def.TEXT, procedureData.name .. " Procedure: Prerequisite not met.")
+                local prereqName = "Requirement"
+                if type(prerequisite) == "number" and P.proceduretable[prerequisite] then
+                    prereqName = P.proceduretable[prerequisite].name .. " procedure"
+                end
+                P.commandtableentry(def.TEXT, procedureData.name .. " Procedure: Prerequisite (" .. prereqName .. ") not met.")
             end
+            sasl.logDebug("Trigger failed for '" .. procedureData.name .. "'. Prerequisite not met.")
             return false
         end
     end
 
+    -- ### 4. BEREITS ERLEDIGT? (Nur relevant für Auto-Trigger) ###
     if not isManual and procedureData.set then
-        return true
+        -- sasl.logDebug("Auto-trigger skipped for '" .. procedureData.name .. "'. Already set as complete.") -- Kann Log überfluten
+        return true -- Nicht fehlschlagen, nur nicht erneut triggern
     end
 
+    -- ### 5. ZIEL-LOOP FINDEN UND PRÜFEN ###
     local loopIndex = procedureData.loop
-    local targetLoopObject = P[def.PROCEDURELOOP .. loopIndex]
-
-    if not targetLoopObject then
-        return false
+    if not loopIndex or not P.loopStateTables[loopIndex] then
+         sasl.logError("YAL Error: Procedure '" .. procedureData.name .. "' has invalid or missing loop index: " .. tostring(loopIndex))
+         return false
     end
-    
+    local targetLoopObject = P.loopStateTables[loopIndex] -- Direkte Referenz
+
+    -- ### 6. LOOP SPERREN UND ZUSTAND ZURÜCKSETZEN ###
     if targetLoopObject.lock == def.NOPROCEDURE then
+        sasl.logInfo("YAL: Triggering procedure '" .. procedureData.name .. "' (ID: " .. procedureKey .. ") in loop " .. loopIndex)
         targetLoopObject.lock = procedureKey
-        targetLoopObject.triggeredmanually = isManual 
-        return true
+        targetLoopObject.triggeredmanually = isManual
+
+        -- EXPLIZITER RESET BEIM TRIGGERN:
+        targetLoopObject.stepindex = 0          -- Wichtig für BEIDE Engines
+        targetLoopObject.stepindexprevious = 0  -- Wichtig für Engine B
+        targetLoopObject.steprepeat = false
+        targetLoopObject.procedureabort = false
+        targetLoopObject.procedureskipstep = false
+        targetLoopObject.procedurenotpossible = false
+        targetLoopObject.setonabort = false
+        targetLoopObject.currentStepName = nil  -- Wichtig für Engine A
+        targetLoopObject.lastStepName = nil     -- Wichtig für Engine A
+        targetLoopObject.lastActiveTime = os.time() -- Setze Aktivitätszeit sofort
+        -- navdatatableindex wird NICHT zurückgesetzt, da es spezifisch sein könnte
+
+        sasl.logDebug("Loop " .. loopIndex .. " state explicitly reset upon trigger.")
+
+        -- Speichere den initialen Zustand sofort
+        local datarefHandle = P.ProcLoopHandlesdr[loopIndex]
+        if datarefHandle then
+            local stateArray = P.encodeLoopToArray(targetLoopObject) -- Verwendet deinen Encoder
+            set(datarefHandle, stateArray)
+            sasl.logDebug("Saved initial triggered state for loop " .. loopIndex .. ": [".. table.concat(stateArray, ", ") .."]")
+        end
+
+        return true -- Erfolgreich getriggert
     else
-        return false
+        -- Loop ist bereits beschäftigt
+        local currentProcName = (P.proceduretable[targetLoopObject.lock] and P.proceduretable[targetLoopObject.lock].name) or targetLoopObject.lock
+        if isManual then -- Nur bei manuellem Versuch eine Meldung geben
+             P.commandtableentry(def.TEXT, "Cannot start " .. procedureData.name .. ". Loop " .. loopIndex .. " is busy with " .. currentProcName .. ".")
+        end
+        sasl.logInfo("YAL: Cannot trigger procedure '" .. procedureData.name .. "' in loop " .. loopIndex .. ". Loop is already locked by '" .. currentProcName .."'.")
+        return false -- Loop besetzt
     end
 end
 
@@ -1429,23 +1592,63 @@ function P.encodeLoopToArray(loopTable)
 end
 
 --------------------------------------------------------------------------------------------------------------
-function P.decodeArrayToLoop(loadedArray)
+function P.decodeArrayToLoop(loadedArray, loopIndex) -- loopIndex für bessere Logs hinzugefügt
     local loop = {
         lock = def.NOPROCEDURE, stepindex = 0, stepindexprevious = 0,
         steprepeat = false, procedureabort = false, procedureskipstep = false,
         lastActiveTime = 0, procedurenotpossible = false, setonabort = false,
-        navdatatableindex = nil -- NEUES FELD
+        navdatatableindex = nil, -- Dein Feld
+        currentStepName = nil, lastStepName = nil -- Engine A Felder IMMER nil initialisieren
     }
+    local loopIdStr = "Loop " .. tostring(loopIndex) -- Für Debugging
 
+    -- Prüfe auf gültiges Array (Größe >= 7 wegen navdatatableindex)
     if type(loadedArray) == "table" and #loadedArray >= 7 then
+        sasl.logDebug("" .. loopIdStr .. " - Decoding array: [" .. table.concat(loadedArray, ", ") .. "]")
         loop.lock = loadedArray[1]
-        loop.stepindex = loadedArray[2]
+        loop.stepindex = loadedArray[2] 
         loop.steprepeat = (loadedArray[3] == 1)
         loop.procedureabort = (loadedArray[4] == 1)
         loop.procedureskipstep = (loadedArray[5] == 1)
-        loop.stepindexprevious = loadedArray[6]
+        loop.stepindexprevious = loadedArray[6] -- Für Engine B
         loop.navdatatableindex = loadedArray[7]
+        -- Das setonabort-Flag fehlt in deiner Version, füge es bei Bedarf hinzu
+
+        -- *** NEUE LOGIK: Zustand nach Laden prüfen/bereinigen ***
+        if loop.lock ~= def.NOPROCEDURE then
+            local procData = yal.proceduretable[loop.lock] -- Braucht global yal
+
+            if procData and procData.steps and type(procData.steps) == "table" then
+                -- Engine A Prozedur wurde geladen
+                if loop.stepindex > 0 then 
+                    -- Sie war aktiv, aber wir haben den Namen nicht -> Nicht wiederherstellbar
+                    sasl.logWarning("" .. loopIdStr .. " - Cannot restore data-driven procedure " .. loop.lock .. " (step names not saved). Resetting.")
+                    loop.lock = def.NOPROCEDURE -- Setze Lock zurück
+                    loop.stepindex = 0         -- Setze Index zurück
+                    -- Die anderen Flags werden beim nächsten Aufruf von runProcedureLoop oben sowieso zurückgesetzt.
+                else
+                    -- Prozedur war geladen, aber noch nicht gestartet (stepindex == 0) -> OK
+                    sasl.logDebug("" .. loopIdStr .. " - Data-driven procedure " .. loop.lock .. " was loaded but not started (stepindex=0). State OK.")
+                end
+            elseif procData and procData.procedurefunction then
+                 -- Engine B Prozedur wurde geladen -> OK, Zustand passt
+                 sasl.logDebug("" .. loopIdStr .. " - Restored state for legacy procedure " .. loop.lock .. " at step " .. loop.stepindex)
+                 -- stepindexprevious wurde bereits aus dem Array geladen
+            else
+                -- Geladener Lock ungültig
+                sasl.logWarning("" .. loopIdStr .. " - Loaded invalid lock ID " .. loop.lock .. ". Resetting.")
+                loop.lock = def.NOPROCEDURE
+                loop.stepindex = 0
+            end
+        else
+             sasl.logDebug("" .. loopIdStr .. " - Loaded state is not locked (NOPROCEDURE). State OK.")
+        end
+    else
+         sasl.logWarning("" .. loopIdStr .. " - Could not decode state array (size " .. tostring(loadedArray and #loadedArray or '?') .. " or type " .. type(loadedArray) .. "). Resetting loop.")
+         -- loop bleibt im sauberen Reset-Zustand
     end
+
+    sasl.logDebug("" .. loopIdStr .. " - FINAL state before return: Lock=" .. tostring(loop.lock) .. ", StepIndex=" .. tostring(loop.stepindex) .. ", CurrentStepName=" .. tostring(loop.currentStepName))
 
     return loop
 end
@@ -3192,7 +3395,6 @@ function P.setnosmokingsign(state)
 end
 
 --------------------------------------------------------------------------------------------------------------
-
 function P.setemergencylights(state)
 
     local emergencylightsdiff = math.abs(get(P.emergencylights) - state)
@@ -3215,353 +3417,6 @@ function P.setemergencylights(state)
 end
 
 --------------------------------------------------------------------------------------------------------------
-
-function P.coldanddarkstartupsteps(procedureloop)
-
-    if (procedureloop.stepindex == 1) then
-        if (get(P.airgroundsensor) == def.OFF) then
-            procedureloop.procedurenotpossible = true
-            procedureloop.setonabort = true
-            P.commandtableentry(def.TEXT, P.proceduretable[def.COLDANDDARKPROCEDURE].name .. " Procedure not Possible Inflight")
-            return true
-        end
-
-        if ((get(P.battery) == def.ON) and (get(P.mainbus) == def.ON)) then
-            procedureloop.procedurenotpossible = true
-            procedureloop.setonabort = true
-            P.commandtableentry(def.TEXT, P.proceduretable[def.COLDANDDARKPROCEDURE].name .. " Procedure aborted")
-            return true
-        end
-
-        if (P.apurunning() == def.APUONBUS) then
-            procedureloop.procedurenotpossible = true
-            procedureloop.setonabort = true
-            P.commandtableentry(def.TEXT, P.proceduretable[def.COLDANDDARKPROCEDURE].name .. " Procedure aborted, A P U already running")
-            return true
-        end
-
-        if P.enginesrunning(def.BOTH) then
-            procedureloop.procedurenotpossible = true
-            procedureloop.setonabort = true
-            P.commandtableentry(def.TEXT, P.proceduretable[def.COLDANDDARKPROCEDURE].name .. " Procedure aborted, Engines already running")
-            return true
-        end
-
-        if (P.configvalues[def.CONFIGVIEWCHANGES] == def.ON) then
-            P.setview(def.DEFAULTVIEW)
-            P.setview(P.configvalues[def.CONFIGVIEWOVERHEADPANEL])
-        else
-            procedureloop.stepindex = procedureloop.stepindex + 1
-            procedureloop.stepindexprevious = procedureloop.stepindexprevious + 1
-        end
-    end
-
-    if (procedureloop.stepindex == 2) then
-        if (get(P.battery) == def.OFF) then
-            if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                P.commandtableentry(def.TEXT, "Switch Battery On")
-                procedureloop.stepindex = procedureloop.stepindex - 1
-            else
-                helpers.command_once("laminar/B738/switch/battery_dn")
-            end
-        elseif (not procedureloop.steprepeat) then
-            P.commandtableentry(def.TEXT, "Battery checked and On")
-        end
-    end
-
-    if (procedureloop.stepindex == 3) then
-        if (get(P.batteryswitchcover) == def.OPEN) then
-            helpers.command_once("laminar/B738/button_switch_cover02")
-        end
-    end
-
-    if (procedureloop.stepindex == 4) then
-        if ((P.configvalues[def.CONFIGVIEWCHANGES] == def.ON)and (get(P.sunpitchdegrees) < 0)) then
-            P.setview(P.configvalues[def.CONFIGVIEWUPPEROVERHEADPANEL])
-        elseif ((P.configvalues[def.CONFIGVIEWCHANGES] ~= def.ON) and (get(P.sunpitchdegrees) < 0)) then
-            procedureloop.stepindex = procedureloop.stepindex + 1
-            procedureloop.stepindexprevious = procedureloop.stepindexprevious + 1
-        end
-    end
-
-    if (procedureloop.stepindex == 5) then
-        if (get(P.sunpitchdegrees) < 0) then
-            if (get(P.domelightpos) == def.DOMELIGHTOFF) then
-                if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                    P.commandtableentry(def.TEXT, "Set Domelight On")
-                    procedureloop.stepindex = procedureloop.stepindex - 1
-                else
-                    P.setdomelight(def.DOMELIGHTDIM)
-                end
-            elseif (not procedureloop.steprepeat) then
-                P.commandtableentry(def.TEXT, "Domelight checked and On")
-            end
-        end
-    end
-
-    if (procedureloop.stepindex == 6) then
-        if ((P.configvalues[def.CONFIGVIEWCHANGES] == def.ON) and (get(P.sunpitchdegrees) < 0)) then
-            P.setview(P.configvalues[def.CONFIGVIEWOVERHEADPANEL])
-        elseif ((P.configvalues[def.CONFIGVIEWCHANGES] ~= def.ON) and (get(P.sunpitchdegrees) < 0)) then
-            procedureloop.stepindex = procedureloop.stepindex + 1
-            procedureloop.stepindexprevious = procedureloop.stepindexprevious + 1
-        end
-    end
-
-    if (procedureloop.stepindex == 7) then
-        if (get(P.emergencylights) ~= def.EMERGLIGHTSARMED) then
-            if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                P.commandtableentry(def.TEXT, "Arm Emergency Lights")
-                procedureloop.stepindex = procedureloop.stepindex - 1
-            else
-                P.setemergencylights(def.EMERGLIGHTSARMED)
-            end
-        elseif (not procedureloop.steprepeat) then
-            P.commandtableentry(def.TEXT, "Emergency Lights checked and Armed")
-        end
-    end
-
-    if (procedureloop.stepindex == 8) then
-        if (get(P.emergencylightcover) == def.OPEN) then
-            helpers.command_once("laminar/B738/button_switch_cover09")
-        end
-    end
-
-    if (procedureloop.stepindex == 9) then
-        if (get(P.positionlights) ~= def.POSLIGHTSSTEADY) then
-            if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                P.commandtableentry(def.TEXT, "Set Position Lights Steady")
-                procedureloop.stepindex = procedureloop.stepindex - 1
-            else
-                helpers.command_once("laminar/B738/toggle_switch/position_light_steady")
-            end
-        elseif (not procedureloop.steprepeat) then
-            P.commandtableentry(def.TEXT, "Position Lights checked and Steady")
-        end
-    end
-
-    if (procedureloop.stepindex == 10) then
-        if ((P.configvalues[def.CONFIGUSEGROUNDPOWER] == def.ON) and (get(P.gpuavailable) == def.ON)) then
-            if (get(P.gpuon) == def.OFF) then
-                if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                    P.commandtableentry(def.TEXT, "Switch Ground Power On")
-                    procedureloop.stepindex = procedureloop.stepindex - 1
-                else
-                    helpers.command_once("laminar/B738/toggle_switch/gpu_dn")
-                    procedureloop.stepindex = 19
-                    return true
-                end
-            else
-                if (not procedureloop.steprepeat) then
-                    P.commandtableentry(def.TEXT, "G P U checked and On")
-                end
-                procedureloop.stepindex = 19
-                return true
-            end
-        end
-    end
-
-    if (procedureloop.stepindex == 11) then
-        if (get(P.apustarterpos) ~= def.ON) then
-            if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                P.commandtableentry(def.TEXT, "Start A P U")
-                procedureloop.stepindex = procedureloop.stepindex - 1
-            else
-                helpers.command_once("laminar/B738/spring_toggle_switch/APU_start_pos_dn")
-            end
-        elseif (not procedureloop.steprepeat) then
-            P.commandtableentry(def.TEXT, "A P U checked and Started")
-        end
-    end
-
-    if (procedureloop.stepindex == 12) then
-        if (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
-            helpers.command_once("laminar/B738/spring_toggle_switch/APU_start_pos_dn")
-            P.commandtableentry(def.TEXT, "A P U Started")
-        end
-    end
-
-    if (procedureloop.stepindex == 13) then
-        if (P.apurunning() < def.APUOFFBUS) then
-            procedureloop.stepindex = procedureloop.stepindex - 1
-        else
-            P.commandtableentry(def.TEXT, "A P U Running")
-        end
-    end
-
-    if (procedureloop.stepindex == 14) then
-        if (not((get(P.apupowerbus1) == def.ON) and (get(P.announcsourceoff1) == def.OFF)) or not((get(P.apupowerbus2) == def.ON) and (get(P.announcsourceoff2) == def.OFF))) then
-            if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                P.commandtableentry(def.TEXT, "Switch A P U Generator On")
-                procedureloop.stepindex = procedureloop.stepindex - 1
-            else
-                if not((get(P.apupowerbus1) == def.ON) and (get(P.announcsourceoff1) == def.OFF)) then
-                    helpers.command_once("laminar/B738/toggle_switch/apu_gen1_dn")
-                end
-                if not((get(P.apupowerbus2) == def.ON) and (get(P.announcsourceoff2) == def.OFF)) then
-                    helpers.command_once("laminar/B738/toggle_switch/apu_gen2_dn")
-                end
-            end
-        elseif (not procedureloop.steprepeat) then
-            P.commandtableentry(def.TEXT, "A P U Generator checked and On")
-        end
-    end
-
-    if (procedureloop.stepindex == 15) then
-        if (get(P.bleedairapupos) == def.OFF) then
-            if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                P.commandtableentry(def.TEXT, "Switch A P U Bleed Air On")
-                procedureloop.stepindex = procedureloop.stepindex - 1
-            else
-                helpers.command_once("laminar/B738/toggle_switch/bleed_air_apu")
-            end
-        elseif (not procedureloop.steprepeat) then
-            P.commandtableentry(def.TEXT, "A P U Bleed Air checked and On")
-        end
-    end
-
-    if (procedureloop.stepindex == 16) then
-        if (get(P.isolvalvepos) ~= def.ISOLVALVEOPEN) then
-            if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                P.commandtableentry(def.TEXT, "Set Isolation Valve Open")
-                procedureloop.stepindex = procedureloop.stepindex - 1
-            else
-                set(P.isolvalvepos, def.ISOLVALVEOPEN)
-            end
-        elseif (not procedureloop.steprepeat) then
-            P.commandtableentry(def.TEXT, "Isolation Valve checked and Open")
-        end
-    end
-
-    if (procedureloop.stepindex == 17) then
-        if ((get(P.packlpos) ~= def.PACKAUTO) or (get(P.packrpos) ~= def.PACKAUTO)) then
-            if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                P.commandtableentry(def.TEXT, "Set Both Packs Auto")
-                procedureloop.stepindex = procedureloop.stepindex - 1
-            else
-                set(P.packlpos, def.PACKAUTO)
-                set(P.packrpos, def.PACKAUTO)
-            end
-        elseif (not procedureloop.steprepeat) then
-            P.commandtableentry(def.TEXT, "Both Packs checked and Auto")
-        end
-    end
-
-    if (procedureloop.stepindex == 18) then
-        if (get(P.trimairpos) ~= def.ON) then
-            if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                P.commandtableentry(def.TEXT, "Set Trim Air On")
-                procedureloop.stepindex = procedureloop.stepindex - 1
-            else
-                set(P.trimairpos, def.ON)
-            end
-        elseif (not procedureloop.steprepeat) then
-            P.commandtableentry(def.TEXT, "Trim Air checked and On")
-        end
-    end
-
-    if (procedureloop.stepindex == 19) then
-        P.proceduretable[def.APUSTARTUPPROCEDURE].set = true
-    end
-
-    if (procedureloop.stepindex == 20) then
-        if (P.configvalues[def.CONFIGVIEWCHANGES] == def.ON) then
-            P.setview(P.configvalues[def.CONFIGVIEWUPPEROVERHEADPANEL])
-        else
-            procedureloop.stepindex = procedureloop.stepindex + 1
-            procedureloop.stepindexprevious = procedureloop.stepindexprevious + 1
-        end
-    end
-
-    if (procedureloop.stepindex == 21) then
-        if (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
-            if not P.setirs(def.BOTHIRS, def.IRSNAV) then
-                procedureloop.stepindex = procedureloop.stepindex - 1
-            end
-        end
-    end
-
-    if (procedureloop.stepindex == 22) then
-        if ((get(P.irsalignleft) == def.OFF) or (get(P.irsalignright) == def.OFF)) then
-            if ((get(P.irsleftpos) ~= def.IRSNAV) or (get(P.irsrightpos) ~= def.IRSNAV)) then
-                if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                    P.commandtableentry(def.TEXT, "Set Both I R S to Nav")
-                    procedureloop.stepindex = procedureloop.stepindex - 1
-                end
-            elseif (not procedureloop.steprepeat) then
-                P.commandtableentry(def.TEXT, "Both I R S checked and Nav")
-            end
-        else
-            P.commandtableentry(def.TEXT, "I R S Alignment Started")
-        end
-    end
-
-    if (procedureloop.stepindex == 23) then
-        if (P.configvalues[def.CONFIGVIEWCHANGES] == def.ON) then
-            P.setview(P.configvalues[def.CONFIGVIEWFMS])
-        else
-            procedureloop.stepindex = procedureloop.stepindex + 1
-            procedureloop.stepindexprevious = procedureloop.stepindexprevious + 1
-        end
-    end
-
-    if (procedureloop.stepindex == 24) then
-        helpers.command_once("laminar/B738/button/fmc1_init_ref")
-    end
-
-    if (procedureloop.stepindex == 25) then
-        if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-            if (get(P.irsposset) == "*****.*******.*") then
-                P.commandtableentry(def.TEXT, "Initialize I R S Position")
-                procedureloop.stepindex = procedureloop.stepindex - 1
-            else
-                if (not procedureloop.steprepeat) then
-                    P.commandtableentry(def.TEXT, "I R S Position Initialized")
-                end
-                procedureloop.stepindex = 29
-                return true
-            end
-        end
-    end
-
-    if (procedureloop.stepindex == 26) then
-        if (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
-            helpers.command_once("laminar/B738/button/fmc1_next_page")
-        end
-    end
-
-    if (procedureloop.stepindex == 27) then
-        if (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
-            helpers.command_once("laminar/B738/button/fmc1_4L")
-        end
-    end
-
-    if (procedureloop.stepindex == 28) then
-        if (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
-            helpers.command_once("laminar/B738/button/fmc1_prev_page")
-        end
-    end
-
-    if (procedureloop.stepindex == 29) then
-        if (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
-            helpers.command_once("laminar/B738/button/fmc1_4R")
-            P.commandtableentry(def.TEXT, "I R S Position Initialization Complete")
-        end
-    end
-
-    if (procedureloop.stepindex == 30) then
-        if (P.configvalues[def.CONFIGVIEWCHANGES] == def.ON) then
-            P.setview(P.configvalues[def.CONFIGVIEWMAINPANEL])
-        else
-            procedureloop.stepindex = procedureloop.stepindex + 1
-            procedureloop.stepindexprevious = procedureloop.stepindexprevious + 1
-        end
-    end
-
-    return true
-
-end
-
 function P.coldanddarkstartup()
 
     return P.triggerprocedure(def.COLDANDDARKPROCEDURE, def.TRIGGEREDMANUALLY)
@@ -3580,533 +3435,6 @@ my_command_coldanddarkstartup = sasl.createCommand(def.APPNAMEPREFIX .. "/coldan
 sasl.registerCommandHandler(my_command_coldanddarkstartup, 0, P.coldanddarkstartup_)
 
 --------------------------------------------------------------------------------------------------------------
-
-function P.apustartupsteps(procedureloop)
-
-    if (procedureloop.stepindex == 1) then
-
-        if ((get(P.battery) == def.OFF) and (get(P.mainbus) == def.OFF)) then
-            procedureloop.procedurenotpossible = true
-            P.commandtableentry(def.TEXT, P.proceduretable[def.APUSTARTUPPROCEDURE].name .. " Procedure aborted, Battery is Off")
-            return true
-        end
-
-        if (P.apurunning() == def.APUONBUS) then
-            procedureloop.procedurenotpossible = true
-            procedureloop.setonabort = true
-            P.commandtableentry(def.TEXT, P.proceduretable[def.APUSTARTUPPROCEDURE].name .. " Procedure aborted, A P U already running")
-            return true
-        end
-
-        if (P.configvalues[def.CONFIGVIEWCHANGES] == def.ON) then
-            P.setview(def.DEFAULTVIEW)
-            P.setview(P.configvalues[def.CONFIGVIEWOVERHEADPANEL])
-        else
-            procedureloop.stepindex = procedureloop.stepindex + 1
-            procedureloop.stepindexprevious = procedureloop.stepindexprevious + 1
-        end
-    end
-
-    if (procedureloop.stepindex == 2) then
-        if (P.apurunning() == def.APUOFF) then
-            if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                P.commandtableentry(def.TEXT, "Start A P U")
-                procedureloop.stepindex = procedureloop.stepindex - 1
-            else
-                helpers.command_once("laminar/B738/spring_toggle_switch/APU_start_pos_dn")
-            end
-        elseif not procedureloop.steprepeat then
-            P.commandtableentry(def.TEXT, "A P U checked and Started")
-        end
-    end
-
-    if (procedureloop.stepindex == 3) then
-        if (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
-            helpers.command_once("laminar/B738/spring_toggle_switch/APU_start_pos_dn")
-            P.commandtableentry(def.TEXT, "A P U Running Up")
-        else
-            P.commandtableentry(def.TEXT, "A P U Running Up")
-        end
-    end
-
-    if (procedureloop.stepindex == 4) then
-        if (P.apurunning() < def.APUOFFBUS) then
-            procedureloop.stepindex = procedureloop.stepindex - 1
-        else
-            P.commandtableentry(def.TEXT, "A P U Running")
-        end
-    end
-
-    if (procedureloop.stepindex == 5) then
-        if (P.apurunning() ~= def.APUONBUS) then
-            if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                P.commandtableentry(def.TEXT, "Switch A P U Generator On")
-                procedureloop.stepindex = procedureloop.stepindex - 1
-            else
-                if not((get(P.apupowerbus1) == def.ON) and (get(P.announcsourceoff1) == def.OFF)) then
-                    helpers.command_once("laminar/B738/toggle_switch/apu_gen1_dn")
-                end
-                if not((get(P.apupowerbus2) == def.ON) and (get(P.announcsourceoff2) == def.OFF)) then
-                    helpers.command_once("laminar/B738/toggle_switch/apu_gen2_dn")
-                end
-            end
-        elseif (not procedureloop.steprepeat) then
-            P.commandtableentry(def.TEXT, "A P U Generator checked and On")
-        end
-    end
-
-    if (procedureloop.stepindex == 6) then
-        if (get(P.gpuon) == def.ON) then
-            if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                P.commandtableentry(def.TEXT, "Switch Ground Power Off")
-                procedureloop.stepindex = procedureloop.stepindex - 1
-            else
-                helpers.command_once("laminar/B738/toggle_switch/gpu_up")
-            end
-        elseif (not procedureloop.steprepeat) then
-            P.commandtableentry(def.TEXT, "Ground Power checked and Off")
-        end
-    end
-
-    if (procedureloop.stepindex == 7) then
-        if (P.configvalues[def.CONFIGVIEWCHANGES] == def.ON) then
-            P.setview(P.configvalues[def.CONFIGVIEWMAINPANEL])
-        else
-            procedureloop.stepindex = procedureloop.stepindex + 1
-            procedureloop.stepindexprevious = procedureloop.stepindexprevious + 1
-        end
-    end
-
-    return true
-
-end
-
-function P.apustartup()
-
-    return P.triggerprocedure(def.APUSTARTUPPROCEDURE, def.TRIGGEREDMANUALLY)
-
-end
-
-function P.apustartup_(phase)
-    if phase == SASL_COMMAND_BEGIN then
-        P.apustartup()
-    end
-    return 0
-end
-
-my_command_apustartup = sasl.createCommand(def.APPNAMEPREFIX .. "/apustartup", "APU Startup")
-sasl.registerCommandHandler(my_command_apustartup, 0, P.apustartup_)
-
---------------------------------------------------------------------------------------------------------------
--- Engine Start
-
-function P.enginestartsteps(procedureloop)
-
-    if (procedureloop.stepindex == 1) then
-
-        if (P.apurunning() ~= def.APUONBUS) then
-            procedureloop.procedurenotpossible = true
-            P.commandtableentry(def.TEXT, P.proceduretable[def.ENGINESTARTPROCEDURE].name .. " Procedure not possible, A P U not running")
-            return true
-        end
-
-        if P.enginesrunning(def.BOTH) then
-            procedureloop.procedurenotpossible = true
-            procedureloop.setonabort = true
-            P.commandtableentry(def.TEXT, P.proceduretable[def.ENGINESTARTPROCEDURE].name .. " Procedure aborted, Engines already running")
-            return true
-        end
-
-        if (P.configvalues[def.CONFIGVIEWCHANGES] == def.ON) then
-            P.setview(def.DEFAULTVIEW)
-            P.setview(P.configvalues[def.CONFIGVIEWOVERHEADPANEL])
-        else
-            procedureloop.stepindex = procedureloop.stepindex + 1
-            procedureloop.stepindexprevious = procedureloop.stepindexprevious + 1
-        end
-    end
-
-    if (procedureloop.stepindex == 2) then
-        if (get(P.beaconlights) == def.OFF) then
-            if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                P.commandtableentry(def.TEXT, "Set Collision Lights On")
-                procedureloop.stepindex = procedureloop.stepindex - 1
-            else
-                P.togglecollisionlights(def.ON)
-            end
-        elseif (not procedureloop.steprepeat) then
-            P.commandtableentry(def.TEXT, "Collision lightset checked and On")
-        end
-    end
-
-    if (procedureloop.stepindex == 3) then
-        if ((get(P.lefttanklswitch) == def.OFF) or (get(P.lefttankrswitch) == def.OFF) or (get(P.righttanklswitch) == def.OFF) or (get(P.righttankrswitch) == def.OFF)) then
-            if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                P.commandtableentry(def.TEXT, "Set Wing Tank Fuel Pumps On")
-                procedureloop.stepindex = procedureloop.stepindex - 1
-            else
-                set(P.lefttanklswitch, def.ON)
-                set(P.lefttankrswitch, def.ON)
-                set(P.righttanklswitch, def.ON)
-                set(P.righttankrswitch, def.ON)
-            end
-        elseif (not procedureloop.steprepeat) then
-            P.commandtableentry(def.TEXT, "Wing Fuel Tanks checked and On")
-        end
-    end
-
-    if (procedureloop.stepindex == 4) then
-        if ((get(P.packlpos) ~= def.PACKOFF) or (get(P.packrpos) ~= def.PACKOFF)) then
-            if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                P.commandtableentry(def.TEXT, "Set Both Packs Off")
-                procedureloop.stepindex = procedureloop.stepindex - 1
-            else
-                set(P.packlpos, def.PACKOFF)
-                set(P.packrpos, def.PACKOFF)
-            end
-        elseif (not procedureloop.steprepeat) then
-            P.commandtableentry(def.TEXT, "Both Packs checked and Off")
-        end
-    end
-
-    if (procedureloop.stepindex == 5) then
-        if (get(P.bleedairapupos) == def.OFF) then
-            if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                P.commandtableentry(def.TEXT, "Set A P U Bleed Air On")
-                procedureloop.stepindex = procedureloop.stepindex - 1
-            else
-                helpers.command_once("laminar/B738/toggle_switch/bleed_air_apu")
-            end
-        elseif (not procedureloop.steprepeat) then
-            P.commandtableentry(def.TEXT, "A P U Bleed Air checked and On")
-        end
-    end
-
-    if (procedureloop.stepindex == 6) then
-        if (get(P.isolvalvepos) ~= def.ISOLVALVEOPEN) then
-            if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                P.commandtableentry(def.TEXT, "Set Isolation Valve Open")
-                procedureloop.stepindex = procedureloop.stepindex - 1
-            else
-                set(P.isolvalvepos, def.ISOLVALVEOPEN)
-            end
-        elseif (not procedureloop.steprepeat) then
-            P.commandtableentry(def.TEXT, "Isolation Valve checked and Open")
-        end
-    end
-
-    if (procedureloop.stepindex == 7) then
-        if (get(P.starter2pos) ~= def.GROUND) then
-            if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                P.commandtableentry(def.TEXT, "Set Starter 2 Ground")
-                procedureloop.stepindex = procedureloop.stepindex - 1
-            else
-                P.setstarter(def.ENGINE2, def.GROUND)
-            end
-        elseif (not procedureloop.steprepeat) then
-            P.commandtableentry(def.TEXT, "Engine 2 Starter checked and Ground")
-        end
-    end
-
-    if (procedureloop.stepindex == 8) then
-        if (P.configvalues[def.CONFIGVIEWCHANGES] == def.ON) then
-            P.setview(P.configvalues[def.CONFIGVIEWMAINPANEL])
-        else
-            procedureloop.stepindex = procedureloop.stepindex + 1
-            procedureloop.stepindexprevious = procedureloop.stepindexprevious + 1
-        end
-    end
-
-    if (procedureloop.stepindex == 9) then
-        if (get(P.eng2n2percent) < 25) then
-            procedureloop.stepindex = procedureloop.stepindex - 1
-        else
-            P.commandtableentry(def.TEXT, "Engine 2 N 2 at 25 Percent")
-        end
-    end
-
-    if (procedureloop.stepindex == 10) then
-        if (P.configvalues[def.CONFIGVIEWCHANGES] == def.ON) then
-            P.setview(P.configvalues[def.CONFIGVIEWTHROTTLE])
-        else
-            procedureloop.stepindex = procedureloop.stepindex + 1
-            procedureloop.stepindexprevious = procedureloop.stepindexprevious + 1
-        end
-    end
-
-    if (procedureloop.stepindex == 11) then
-        if (get(P.mixture2pos) ~= def.ON) then
-            if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                P.commandtableentry(def.TEXT, "Set Engine 2 Fuel Lever Idle")
-                procedureloop.stepindex = procedureloop.stepindex - 1
-            else
-                helpers.command_once("laminar/B738/engine/mixture2_idle")
-            end
-        elseif (not procedureloop.steprepeat) then
-            P.commandtableentry(def.TEXT, "Engine 2 Fuel Lever checked and Idle")
-        end
-    end
-
-    if (procedureloop.stepindex == 12) then
-        if (P.configvalues[def.CONFIGVIEWCHANGES] == def.ON) then
-            P.setview(P.configvalues[def.CONFIGVIEWMAINPANEL])
-        else
-            procedureloop.stepindex = procedureloop.stepindex + 1
-            procedureloop.stepindexprevious = procedureloop.stepindexprevious + 1
-        end
-    end
-
-    if (procedureloop.stepindex == 13) then
-        if not P.enginesrunning(def.ENGINE2) then
-            procedureloop.stepindex = procedureloop.stepindex - 1
-        else
-            P.commandtableentry(def.TEXT, "Engine 2 Running")
-        end
-    end
-
-    if (procedureloop.stepindex == 14) then
-        if (P.configvalues[def.CONFIGVIEWCHANGES] == def.ON) then
-            P.setview(P.configvalues[def.CONFIGVIEWOVERHEADPANEL])
-        else
-            procedureloop.stepindex = procedureloop.stepindex + 1
-            procedureloop.stepindexprevious = procedureloop.stepindexprevious + 1
-        end
-    end
-
-    if (procedureloop.stepindex == 15) then
-        if (get(P.starter1pos) ~= def.GROUND) then
-            if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                P.commandtableentry(def.TEXT, "Set Starter 1 Ground")
-                procedureloop.stepindex = procedureloop.stepindex - 1
-            else
-                P.setstarter(def.ENGINE1, def.GROUND)
-            end
-        elseif (not procedureloop.steprepeat) then
-            P.commandtableentry(def.TEXT, "Engine 1 Starter checked and Ground")
-        end
-    end
-
-    if (procedureloop.stepindex == 16) then
-        if (P.configvalues[def.CONFIGVIEWCHANGES] == def.ON) then
-            P.setview(P.configvalues[def.CONFIGVIEWMAINPANEL])
-        else
-            procedureloop.stepindex = procedureloop.stepindex + 1
-            procedureloop.stepindexprevious = procedureloop.stepindexprevious + 1
-        end
-    end
-
-    if (procedureloop.stepindex == 17) then
-        if (get(P.eng1n2percent) < 25) then
-            procedureloop.stepindex = procedureloop.stepindex - 1
-        else
-            P.commandtableentry(def.TEXT, "Engine 1 N 2 at 25 Percent")
-        end
-    end
-
-    if (procedureloop.stepindex == 18) then
-        if (P.configvalues[def.CONFIGVIEWCHANGES] == def.ON) then
-            P.setview(P.configvalues[def.CONFIGVIEWTHROTTLE])
-        else
-            procedureloop.stepindex = procedureloop.stepindex + 1
-            procedureloop.stepindexprevious = procedureloop.stepindexprevious + 1
-        end
-    end
-
-    if (procedureloop.stepindex == 19) then
-        if (get(P.mixture1pos) ~= def.ON) then
-            if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                P.commandtableentry(def.TEXT, "Set Engine 1 Fuel Lever Idle")
-                procedureloop.stepindex = procedureloop.stepindex - 1
-            else
-                helpers.command_once("laminar/B738/engine/mixture1_idle")
-            end
-        elseif (not procedureloop.steprepeat) then
-            P.commandtableentry(def.TEXT, "Engine 1 Fuel Lever checked and Idle")
-        end
-    end
-
-    if (procedureloop.stepindex == 20) then
-        if (P.configvalues[def.CONFIGVIEWCHANGES] == def.ON) then
-            P.setview(P.configvalues[def.CONFIGVIEWMAINPANEL])
-        else
-            procedureloop.stepindex = procedureloop.stepindex + 1
-            procedureloop.stepindexprevious = procedureloop.stepindexprevious + 1
-        end
-    end
-
-    if (procedureloop.stepindex == 21) then
-        if not P.enginesrunning(def.ENGINE1) then
-            procedureloop.stepindex = procedureloop.stepindex - 1
-        else
-            P.commandtableentry(def.TEXT, "Engine 1 Running")
-        end
-    end
-
-    if (procedureloop.stepindex == 22) then
-        if (P.configvalues[def.CONFIGVIEWCHANGES] == def.ON) then
-            P.setview(P.configvalues[def.CONFIGVIEWOVERHEADPANEL])
-        else
-            procedureloop.stepindex = procedureloop.stepindex + 1
-            procedureloop.stepindexprevious = procedureloop.stepindexprevious + 1
-        end
-    end
-
-    if (procedureloop.stepindex == 23) then
-        if ((get(P.gen1pos) ~= def.ON) or (get(P.gen2pos) ~= def.ON)) then
-            if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                P.commandtableentry(def.TEXT, "Switch Both Generators On")
-                procedureloop.stepindex = procedureloop.stepindex - 1
-            else
-                if (get(P.gen1pos) ~= def.ON) then
-                    helpers.command_once("laminar/B738/toggle_switch/gen1_dn")
-                end
-                if (get(P.gen2pos) ~= def.ON) then
-                    helpers.command_once("laminar/B738/toggle_switch/gen2_dn")
-                end
-            end
-        elseif (not procedureloop.steprepeat) then
-            P.commandtableentry(def.TEXT, "Both Generators checked and On")
-        end
-    end
-
-    if (procedureloop.stepindex == 24) then
-        if ((get(P.hydro1pos) ~= def.ON) or (get(P.hydro2pos) ~= def.ON)) then
-            if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                P.commandtableentry(def.TEXT, "Switch Both Hydraulic Pumps On")
-                procedureloop.stepindex = procedureloop.stepindex - 1
-            else
-                set(P.hydro1pos, def.ON)
-                set(P.hydro2pos, def.ON)
-            end
-        elseif (not procedureloop.steprepeat) then
-            P.commandtableentry(def.TEXT, "Both Hydraulic Pumps checked and On")
-        end
-    end
-
-    if (procedureloop.stepindex == 25) then
-        if ((get(P.elechydro1pos) ~= def.ON) or (get(P.elechydro2pos) ~= def.ON)) then
-            if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                P.commandtableentry(def.TEXT, "Switch Both Electrical Hydraulic Pumps On")
-                procedureloop.stepindex = procedureloop.stepindex - 1
-            else
-                set(P.elechydro1pos, def.ON)
-                set(P.elechydro2pos, def.ON)
-            end
-        elseif (not procedureloop.steprepeat) then
-            P.commandtableentry(def.TEXT, "Both Electrical Hydraulic Pumps checked and On")
-        end
-    end
-
-    if (procedureloop.stepindex == 26) then
-        if ((get(P.bleedair1pos) == def.OFF) or (get(P.bleedair2pos) == def.OFF)) then
-            if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                P.commandtableentry(def.TEXT, "Set Both Engine Bleed Air On")
-                procedureloop.stepindex = procedureloop.stepindex - 1
-            else
-                if (get(P.bleedair1pos) == def.OFF) then
-                    helpers.command_once("laminar/B738/toggle_switch/bleed_air_1")
-                end
-                if (get(P.bleedair2pos) == def.OFF) then
-                    helpers.command_once("laminar/B738/toggle_switch/bleed_air_2")
-                end
-            end
-        elseif (not procedureloop.steprepeat) then
-            P.commandtableentry(def.TEXT, "Both Engine Bleed Air checked and On")
-        end
-    end
-
-    if (procedureloop.stepindex == 27) then
-        if ((get(P.packlpos) ~= def.PACKAUTO) or (get(P.packrpos) ~= def.PACKAUTO)) then
-            if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                P.commandtableentry(def.TEXT, "Set Both Packs Auto")
-                procedureloop.stepindex = procedureloop.stepindex - 1
-            else
-                set(P.packlpos, def.PACKAUTO)
-                set(P.packrpos, def.PACKAUTO)
-            end
-        elseif (not procedureloop.steprepeat) then
-            P.commandtableentry(def.TEXT, "Both Packs checked and Auto")
-        end
-    end
-
-    if (procedureloop.stepindex == 28) then
-        if (get(P.isolvalvepos) ~= def.ISOLVALVEAUTO) then
-            if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                P.commandtableentry(def.TEXT, "Set Isolation Valve Auto")
-                procedureloop.stepindex = procedureloop.stepindex - 1
-            else
-                set(P.isolvalvepos, def.ISOLVALVEAUTO)
-            end
-        elseif (not procedureloop.steprepeat) then
-            P.commandtableentry(def.TEXT, "Isolation Valvechecked and Auto")
-        end
-    end
-
-    if (procedureloop.stepindex == 29) then
-        if (get(P.trimairpos) ~= def.ON) then
-            if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                P.commandtableentry(def.TEXT, "Set Trim Air On")
-                procedureloop.stepindex = procedureloop.stepindex - 1
-            else
-                set(P.trimairpos, def.ON)
-            end
-        elseif (not procedureloop.steprepeat) then
-            P.commandtableentry(def.TEXT, "Trim Air checked and On")
-        end
-    end
-
-    if (procedureloop.stepindex == 30) then
-        if (get(P.bleedairapupos) ~= def.OFF) then
-            if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                P.commandtableentry(def.TEXT, "Switch A P U Bleed Air Off")
-                procedureloop.stepindex = procedureloop.stepindex - 1
-            else
-                helpers.command_once("laminar/B738/toggle_switch/bleed_air_apu")
-            end
-        elseif (not procedureloop.steprepeat) then
-            P.commandtableentry(def.TEXT, "A P U Bleed Air checked and Off")
-        end
-    end
-
-    if (procedureloop.stepindex == 31) then
-        if (P.apurunning() ~= def.APUOFF) then
-            if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                P.commandtableentry(def.TEXT, "Switch APU Off")
-                procedureloop.stepindex = procedureloop.stepindex - 1
-            else
-                helpers.command_once("laminar/B738/spring_toggle_switch/APU_start_pos_up")
-            end
-        elseif (not procedureloop.steprepeat) then
-            P.commandtableentry(def.TEXT, "A P U checked and Off")
-        end
-    end
-
-    if (procedureloop.stepindex == 32) then
-        if (get(P.yawdamperswitch) ~= def.ON) then
-            if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                P.commandtableentry(def.TEXT, "Set Yaw Damper On")
-                procedureloop.stepindex = procedureloop.stepindex - 1
-            else
-                set(P.yawdamperswitch, def.ON)
-            end
-        elseif (not procedureloop.steprepeat) then
-            P.commandtableentry(def.TEXT, "Yaw Damper checked and On")
-        end
-    end
-
-    if (procedureloop.stepindex == 33) then
-        if (P.configvalues[def.CONFIGVIEWCHANGES] == def.ON) then
-            P.setview(P.configvalues[def.CONFIGVIEWMAINPANEL])
-        else
-            procedureloop.stepindex = procedureloop.stepindex + 1
-            procedureloop.stepindexprevious = procedureloop.stepindexprevious + 1
-        end
-    end
-
-    return true
-
-end
-
 function P.enginestart()
 
     return P.triggerprocedure(def.ENGINESTARTPROCEDURE, def.TRIGGEREDMANUALLY)
@@ -4125,263 +3453,6 @@ sasl.registerCommandHandler(my_command_enginestart, 0, P.enginestart_)
 
 --------------------------------------------------------------------------------------------------------------
 
-function P.engineshutdownsteps(procedureloop)
-
-    if (procedureloop.stepindex == 1) then
-        if (get(P.airgroundsensor) == def.OFF) then
-            procedureloop.procedurenotpossible = true
-            P.commandtableentry(def.TEXT, "Engine Shutdown Procedure not possible Inflight")
-            return true
-        end
-
-        if not P.enginesrunning(def.BOTH) then
-            procedureloop.procedurenotpossible = true
-            procedureloop.setonabort = true
-            P.commandtableentry(def.TEXT, " Engine Shutdown Procedure aborted, Engines not running")
-            return true
-        end
-
-        if (P.configvalues[def.CONFIGVIEWCHANGES] == def.ON) then
-            P.setview(def.DEFAULTVIEW)
-            P.setview(P.configvalues[def.CONFIGVIEWOVERHEADPANEL])
-        else
-            procedureloop.stepindex = procedureloop.stepindex + 1
-            procedureloop.stepindexprevious = procedureloop.stepindexprevious + 1
-        end
-    end
-
-    if (procedureloop.stepindex == 2) then
-        if (procedureloop.lock == def.TURNAROUNDENGINESHUTDOWNPROCEDURE) then
-            if ((P.configvalues[def.CONFIGUSEGROUNDPOWER] == def.ON) and (get(P.gpuavailable) == def.ON)) then
-                if (get(P.gpuon) == def.OFF) then
-                    if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                        P.commandtableentry(def.TEXT, "Switch Ground Power On")
-                        procedureloop.stepindex = procedureloop.stepindex - 1
-                    else
-                        helpers.command_once("laminar/B738/toggle_switch/gpu_dn")
-                        procedureloop.stepindex = 8
-                        return true
-                    end
-                elseif (not procedureloop.steprepeat) then
-                    P.commandtableentry(def.TEXT, "Ground Power checked and On")
-                    procedureloop.stepindex = 8
-                    return true
-                end
-            end
-        elseif (procedureloop.lock == def.FINALENGINESHUTDOWNPROCEDURE) then
-            procedureloop.stepindex = 9
-        end
-    end
-
-    if (procedureloop.stepindex == 3) then
-        if (P.apurunning() == def.APUOFF) then
-            if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                P.commandtableentry(def.TEXT, "Start A P U")
-                procedureloop.stepindex = procedureloop.stepindex - 1
-            else
-                helpers.command_once("laminar/B738/spring_toggle_switch/APU_start_pos_dn")
-            end
-        elseif (not procedureloop.steprepeat) then
-            P.commandtableentry(def.TEXT, "A P U checked and Started")
-        end
-    end
-
-    if (procedureloop.stepindex == 4) then
-        if (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
-            helpers.command_once("laminar/B738/spring_toggle_switch/APU_start_pos_dn")
-            P.commandtableentry(def.TEXT, "A P U Running Up")
-        else
-            P.commandtableentry(def.TEXT, "A P U Running Up")
-        end
-    end
-
-    if (procedureloop.stepindex == 5) then
-        if (P.apurunning() == def.APUOFFBUS) then
-            P.commandtableentry(def.TEXT, "A P U Running")
-        else
-            procedureloop.stepindex = procedureloop.stepindex - 1
-        end
-    end
-
-    if (procedureloop.stepindex == 6) then
-        if (not((get(P.apupowerbus1) == def.ON) and (get(P.announcsourceoff1) == def.OFF)) or not((get(P.apupowerbus2) == def.ON) and (get(P.announcsourceoff2) == def.OFF))) then
-            if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                P.commandtableentry(def.TEXT, "Switch A P U Generator On")
-                procedureloop.stepindex = procedureloop.stepindex - 1
-            else
-                if not((get(P.apupowerbus1) == def.ON) and (get(P.announcsourceoff1) == def.OFF)) then
-                    helpers.command_once("laminar/B738/toggle_switch/apu_gen1_dn")
-                end
-                if not((get(P.apupowerbus2) == def.ON) and (get(P.announcsourceoff2) == def.OFF)) then
-                    helpers.command_once("laminar/B738/toggle_switch/apu_gen2_dn")
-                end
-            end
-        elseif (not procedureloop.steprepeat) then
-            P.commandtableentry(def.TEXT, "A P U Generator checked and On")
-        end
-    end
-
-    if (procedureloop.stepindex == 7) then
-        if (get(P.bleedairapupos) == def.OFF) then
-            if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                P.commandtableentry(def.TEXT, "Switch A P U Bleed Air On")
-                procedureloop.stepindex = procedureloop.stepindex - 1
-            else
-                helpers.command_once("laminar/B738/toggle_switch/bleed_air_apu")
-            end
-        elseif (not procedureloop.steprepeat) then
-            P.commandtableentry(def.TEXT, "A P U Bleed Air checked and On")
-        end
-    end
-
-    if (procedureloop.stepindex == 8) then
-        if (get(P.isolvalvepos) ~= def.ISOLVALVEOPEN) then
-            if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                P.commandtableentry(def.TEXT, "Set Isolation Valve Open")
-                procedureloop.stepindex = procedureloop.stepindex - 1
-            else
-                set(P.isolvalvepos, def.ISOLVALVEOPEN)
-            end
-        elseif (not procedureloop.steprepeat) then
-            P.commandtableentry(def.TEXT, "Isolation Valve checked and Open")
-        end
-    end
-
-    if (procedureloop.stepindex == 9) then
-        if (P.configvalues[def.CONFIGVIEWCHANGES] == def.ON) then
-            P.setview(P.configvalues[def.CONFIGVIEWTHROTTLE])
-        else
-            procedureloop.stepindex = procedureloop.stepindex + 1
-            procedureloop.stepindexprevious = procedureloop.stepindexprevious + 1
-        end
-    end
-
-    if (procedureloop.stepindex == 10) then
-        if ((get(P.mixture1pos) ~= def.OFF) or (get(P.mixture2pos) ~= def.OFF)) then
-            if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                P.commandtableentry(def.TEXT, "Set Both Engine Fuel Levers Cutoff")
-                procedureloop.stepindex = procedureloop.stepindex - 1
-            else
-                if (get(P.mixture2pos) ~= def.OFF) then
-                    helpers.command_once("laminar/B738/engine/mixture2_cutoff")
-                end
-                if (get(P.mixture1pos) ~= def.OFF) then
-                    helpers.command_once("laminar/B738/engine/mixture1_cutoff")
-                end
-            end
-        elseif (not procedureloop.steprepeat) then
-            P.commandtableentry(def.TEXT, "Both Fuel Levers checked and Cutoff")
-        end
-    end
-
-    if (procedureloop.stepindex == 11) then
-        if (P.configvalues[def.CONFIGVIEWCHANGES] == def.ON) then
-            P.setview(P.configvalues[def.CONFIGVIEWOVERHEADPANEL])
-        else
-            procedureloop.stepindex = procedureloop.stepindex + 1
-            procedureloop.stepindexprevious = procedureloop.stepindexprevious + 1
-        end
-    end
-
-    if (procedureloop.stepindex == 12) then
-        if ((get(P.centertanklswitch) == def.ON) or (get(P.centertankrswitch) == def.ON)) then
-            if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                P.commandtableentry(def.TEXT, "Set Center Tank Fuel Pumps Off")
-                procedureloop.stepindex = procedureloop.stepindex - 1
-            else
-                set(P.centertanklswitch, def.OFF)
-                set(P.centertankrswitch, def.OFF)
-            end
-        elseif (not procedureloop.steprepeat) then
-            P.commandtableentry(def.TEXT, "Center Tank Fuel Pumps checked and Off")
-        end
-    end
-
-    if (procedureloop.stepindex == 13) then
-        if ((get(P.lefttanklswitch) == def.ON) or (get(P.lefttankrswitch) == def.ON) or (get(P.righttanklswitch) == def.ON) or (get(P.righttankrswitch) == def.ON)) then
-            if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                P.commandtableentry(def.TEXT, "Set Wing Tank Fuel Pumps Off")
-                procedureloop.stepindex = procedureloop.stepindex - 1
-            else
-                set(P.lefttanklswitch, def.OFF)
-                set(P.leftttankrswitch, def.OFF)
-                set(P.righttanklswitch, def.OFF)
-                set(P.righttankrswitch, def.OFF)
-            end
-        elseif (not procedureloop.steprepeat) then
-            P.commandtableentry(def.TEXT, "Wing Tank Fuel Pumps checked and Off")
-        end
-    end
-
-    if (procedureloop.stepindex == 14) then
-        if ((get(P.hydro1pos) ~= def.OFF) or (get(P.hydro2pos) ~= def.OFF)) then
-            if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                P.commandtableentry(def.TEXT, "Switch Both Hydraulic Pumps Off")
-                procedureloop.stepindex = procedureloop.stepindex - 1
-            else
-                set(P.hydro1pos, def.OFF)
-                set(P.hydro2pos, def.OFF)
-            end
-        elseif (not procedureloop.steprepeat) then
-            P.commandtableentry(def.TEXT, "Both Hydraulic Pumps checked and Off")
-        end
-    end
-
-    if (procedureloop.stepindex == 15) then
-        if ((get(P.elechydro1pos) ~= def.OFF) or (get(P.elechydro2pos) ~= def.OFF)) then
-            if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                P.commandtableentry(def.TEXT, "Switch Both Electrical Hydraulic Pumps Off")
-                procedureloop.stepindex = procedureloop.stepindex - 1
-            else
-                set(P.elechydro1pos, def.OFF)
-                set(P.elechydro2pos, def.OFF)
-            end
-        elseif (not procedureloop.steprepeat) then
-            P.commandtableentry(def.TEXT, "Both Electrical Hydraulic Pumps checked and Off")
-        end
-    end
-
-    if (procedureloop.stepindex == 16) then
-        if (get(P.beaconlights) == def.ON) then
-            if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                P.commandtableentry(def.TEXT, "Set Collision Lights Off")
-                procedureloop.stepindex = procedureloop.stepindex - 1
-            else
-                P.togglecollisionlights(def.OFF)
-            end
-        elseif (not procedureloop.steprepeat) then
-            P.commandtableentry(def.TEXT, "Collision lightset checked and Off")
-        end
-    end
-
-    if (procedureloop.stepindex == 17) then
-        if (procedureloop.lock == def.TURNAROUNDENGINESHUTDOWNPROCEDURE) then
-            if (get(P.nosmokingsignpos) ~= def.NOSMOKINGSIGNOFF) then
-                if (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
-                    P.setnosmokingsign(def.NOSMOKINGSIGNOFF)
-                elseif (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                    P.commandtableentry(def.TEXT, "Set No Smoking Signs Off")
-                    procedureloop.stepindex = procedureloop.stepindex - 1
-                end
-            elseif (not procedureloop.steprepeat) then
-                P.commandtableentry(def.TEXT, "NO Smoking Signs checked and Off")
-            end
-        end
-    end
-
-    if (procedureloop.stepindex == 18) then
-        if (P.configvalues[def.CONFIGVIEWCHANGES] == def.ON) then
-            P.setview(P.configvalues[def.CONFIGVIEWMAINPANEL])
-        else
-            procedureloop.stepindex = procedureloop.stepindex + 1
-            procedureloop.stepindexprevious = procedureloop.stepindexprevious + 1
-        end
-    end
-
-    return true
-
-end
-
 function P.turnaroundengineshutdown()
 
     return P.triggerprocedure(def.TURNAROUNDENGINESHUTDOWNPROCEDURE, def.TRIGGEREDMANUALLY)
@@ -4398,6 +3469,7 @@ end
 my_command_turnaroundengineshutdown = sasl.createCommand(def.APPNAMEPREFIX .. "/turnaroundengineshutdown", "Engine Shutdown Turnaround")
 sasl.registerCommandHandler(my_command_turnaroundengineshutdown, 0, P.turnaroundengineshutdown_)
 
+--------------------------------------------------------------------------------------------------------------
 function P.finalengineshutdown()
 
     return P.triggerprocedure(def.FINALENGINESHUTDOWNPROCEDURE, def.TRIGGEREDMANUALLY)
@@ -4415,325 +3487,6 @@ my_command_finalengineshutdown = sasl.createCommand(def.APPNAMEPREFIX .. "/final
 sasl.registerCommandHandler(my_command_finalengineshutdown, 0, P.finalengineshutdown_)
 
 --------------------------------------------------------------------------------------------------------------
--- Shutdown
-
-function P.shutdownsteps(procedureloop)
-
-    if (procedureloop.stepindex == 1) then
-        if (get(P.airgroundsensor) == def.OFF) then
-            procedureloop.procedurenotpossible = true
-            P.commandtableentry(def.TEXT, P.proceduretable[def.SHUTDOWNPROCEDURE].name .. " Procedure not possible Inflight")
-            return true
-        end
-
-        if ((get(P.battery) == def.OFF) and (get(P.mainbus) == def.OFF)) then
-            procedureloop.procedurenotpossible = true
-            procedureloop.setonabort = true
-            P.commandtableentry(def.TEXT, P.proceduretable[def.SHUTDOWNPROCEDURE].name .. " Procedure aborted")
-            return true
-        end
-
-        if (P.configvalues[def.CONFIGVIEWCHANGES] == def.ON) then
-            P.setview(def.DEFAULTVIEW)
-            P.setview(P.configvalues[def.CONFIGVIEWUPPEROVERHEADPANEL])
-        else
-            procedureloop.stepindex = procedureloop.stepindex + 1
-            procedureloop.stepindexprevious = procedureloop.stepindexprevious + 1
-        end
-    end
-
-    if (procedureloop.stepindex == 2) then
-        if ((get(P.irsleftpos) ~= def.IRSOFF) or (get(P.irsrightpos) ~= def.IRSOFF)) then
-            if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                P.commandtableentry(def.TEXT, "Set Both I R S Off")
-                procedureloop.stepindex = procedureloop.stepindex - 1
-            else
-                if not P.setirs(def.BOTHIRS, def.IRSNAV) then
-                    procedureloop.stepindex = procedureloop.stepindex - 1
-                end
-            end
-        elseif (not procedureloop.steprepeat) then
-            P.commandtableentry(def.TEXT, "Both I R S checked and Off")
-        end
-    end
-
-    if (procedureloop.stepindex == 3) then
-        if (P.configvalues[def.CONFIGVIEWCHANGES] == def.ON) then
-            P.setview(P.configvalues[def.CONFIGVIEWOVERHEADPANEL])
-        else
-            procedureloop.stepindex = procedureloop.stepindex + 1
-            procedureloop.stepindexprevious = procedureloop.stepindexprevious + 1
-        end
-    end
-
-    if (procedureloop.stepindex == 4) then
-        if (get(P.yawdamperswitch) == def.ON) then
-            if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                P.commandtableentry(def.TEXT, "Set Yaw Damper Off")
-                procedureloop.stepindex = procedureloop.stepindex - 1
-            else
-                set(P.yawdamperswitch, def.OFF)
-            end
-        elseif (not procedureloop.steprepeat) then
-            P.commandtableentry(def.TEXT, "Yaw Damper checked and Off")
-        end
-    end
-
-    if (procedureloop.stepindex == 5) then
-        if (get(P.bleedairapupos) == def.ON) then
-            if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                P.commandtableentry(def.TEXT, "Switch A P U Bleed Air Off")
-                procedureloop.stepindex = procedureloop.stepindex - 1
-            else
-                helpers.command_once("laminar/B738/toggle_switch/bleed_air_apu")
-            end
-        elseif (not procedureloop.steprepeat) then
-            P.commandtableentry(def.TEXT, "A P U Bleed Air checked and Off")
-        end
-    end
-
-    if (procedureloop.stepindex == 6) then
-        if (get(P.isolvalvepos) ~= def.ISOLVALVEAUTO) then
-            if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                P.commandtableentry(def.TEXT, "Set Isolation Valve Auto")
-                procedureloop.stepindex = procedureloop.stepindex - 1
-            else
-                set(P.isolvalvepos, def.ISOLVALVEAUTO)
-            end
-        elseif (not procedureloop.steprepeat) then
-            P.commandtableentry(def.TEXT, "Isolation Valve checked and Auto")
-        end
-    end
-
-    if (procedureloop.stepindex == 7) then
-        if ((get(P.packlpos) ~= def.PACKOFF) or (get(P.packrpos) ~= def.PACKOFF)) then
-            if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                P.commandtableentry(def.TEXT, "Set Both Packs Off")
-                procedureloop.stepindex = procedureloop.stepindex - 1
-            else
-                set(P.packlpos, def.PACKOFF)
-                set(P.packrpos, def.PACKOFF)
-            end
-        elseif (not procedureloop.steprepeat) then
-            P.commandtableentry(def.TEXT, "Both Packs checked and Off")
-        end
-    end
-
-    if (procedureloop.stepindex == 8) then
-        if ((get(P.bleedair1pos) == def.ON) or (get(P.bleedair2pos) == def.ON)) then
-            if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                P.commandtableentry(def.TEXT, "Set Both Engine Bleed Air Off")
-                procedureloop.stepindex = procedureloop.stepindex - 1
-            else
-                if (get(P.bleedair1pos) == def.ON) then
-                    helpers.command_once("laminar/B738/toggle_switch/bleed_air_1")
-                end
-                if (get(P.bleedair2pos) == def.ON) then
-                    helpers.command_once("laminar/B738/toggle_switch/bleed_air_2")
-                end
-            end
-        elseif (not procedureloop.steprepeat) then
-            P.commandtableentry(def.TEXT, "Both Engine Bleed Air checked and Off")
-        end
-    end
-
-    if (procedureloop.stepindex == 9) then
-        if (get(P.trimairpos) ~= def.OFF) then
-            if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                P.commandtableentry(def.TEXT, "Set Trim Air Off")
-                procedureloop.stepindex = procedureloop.stepindex - 1
-            else
-                set(P.trimairpos, def.OFF)
-            end
-        elseif (not procedureloop.steprepeat) then
-            P.commandtableentry(def.TEXT, "Trim Air checked and Off")
-        end
-    end
-
-    if (procedureloop.stepindex == 10) then
-        if ((get(P.wheatlfwdpos) ~= def.OFF) or (get(P.wheatrfwdpos) ~= def.OFF) or (get(P.wheatlsidepos) ~= def.OFF) or (get(P.wheatrsidepos) ~= def.OFF)) then
-            if (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
-                P.togglewindowheat(def.OFF)
-            elseif (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                P.commandtableentry(def.TEXT, "Set Window Heat Off")
-                procedureloop.stepindex = procedureloop.stepindex - 1
-            end
-        elseif (not procedureloop.steprepeat) then
-            P.commandtableentry(def.TEXT, "Window Heat checked and Off")
-        end
-    end
-
-    if (procedureloop.stepindex == 11) then
-        if (P.configvalues[def.CONFIGUSEGROUNDPOWER] == def.ON) then
-            if (get(P.gpuon) == def.ON) then
-                if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                    P.commandtableentry(def.TEXT, "Switch Ground Power Off")
-                    procedureloop.stepindex = procedureloop.stepindex - 1
-                else
-                    helpers.command_once("laminar/B738/toggle_switch/gpu_up")
-                    procedureloop.stepindex = 13
-                    return true
-                end
-            elseif (not procedureloop.steprepeat) then
-                P.commandtableentry(def.TEXT, "Ground Power checked and Off")
-                procedureloop.stepindex = 13
-                return true
-            end
-        end
-    end
-
-    if (procedureloop.stepindex == 12) then
-        if (((get(P.apupowerbus1) == def.ON) and (get(P.announcsourceoff1) == def.OFF)) or ((get(P.apupowerbus2) == def.ON) and (get(P.announcsourceoff2) == def.OFF))) then
-            if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                P.commandtableentry(def.TEXT, "Switch A P U Generator Off")
-                procedureloop.stepindex = procedureloop.stepindex - 1
-            else
-                if ((get(P.apupowerbus1) == def.ON) and (get(P.announcsourceoff1) == def.OFF)) then
-                    helpers.command_once("laminar/B738/toggle_switch/apu_gen1_up")
-                end
-                if ((get(P.apupowerbus2) == def.ON) and (get(P.announcsourceoff2) == def.OFF)) then
-                    helpers.command_once("laminar/B738/toggle_switch/apu_gen2_up")
-                end
-            end
-        elseif (not procedureloop.steprepeat) then
-            P.commandtableentry(def.TEXT, "A P U Generator checked and Off")
-        end
-    end
-
-    if (procedureloop.stepindex == 13) then
-        if (P.apurunning() ~= def.APUOFF) then
-            if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                P.commandtableentry(def.TEXT, "Switch A P U Off")
-                procedureloop.stepindex = procedureloop.stepindex - 1
-            else
-                helpers.command_once("laminar/B738/spring_toggle_switch/APU_start_pos_up")
-            end
-        elseif (not procedureloop.steprepeat) then
-            P.commandtableentry(def.TEXT, "A P U checked and Off")
-        end
-    end
-
-    if (procedureloop.stepindex == 14) then
-        if (get(P.positionlights) ~= def.POSLIGHTSOFF) then
-            if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                P.commandtableentry(def.TEXT, "Set Position Lights Off")
-                procedureloop.stepindex = procedureloop.stepindex - 1
-            else
-                P.togglepositionlights(def.POSLIGHTSOFF)
-            end
-        elseif (not procedureloop.steprepeat) then
-            P.commandtableentry(def.TEXT, "Position LIghts checked and Off")
-        end
-    end
-
-    if (procedureloop.stepindex == 15) then
-        if (get(P.seatbeltsignpos) ~= def.SEATBELTSIGNOFF) then
-            if (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
-                P.setseatbeltsign(def.SEATBELTSIGNOFF)
-            elseif (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                P.commandtableentry(def.TEXT, "Set Seatbeltsigns Off")
-                procedureloop.stepindex = procedureloop.stepindex - 1
-            end
-        elseif (not procedureloop.steprepeat) then
-            P.commandtableentry(def.TEXT, "Seatbeltsigns checked and Off")
-        end
-    end
-
-    if (procedureloop.stepindex == 16) then
-        if (get(P.nosmokingsignpos) ~= def.NOSMOKINGSIGNOFF) then
-            if (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
-                P.setnosmokingsign(def.NOSMOKINGSIGNOFF)
-            elseif (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                P.commandtableentry(def.TEXT, "Set No Smoking Signs Off")
-                procedureloop.stepindex = procedureloop.stepindex - 1
-            end
-        elseif (not procedureloop.steprepeat) then
-            P.commandtableentry(def.TEXT, "NO Smoking Signs checked and Off")
-        end
-    end
-
-    if (procedureloop.stepindex == 17) then
-        if (get(P.emergencylightcover) == def.CLOSED) then
-            helpers.command_once("laminar/B738/button_switch_cover09")
-        end
-    end
-
-    if (procedureloop.stepindex == 18) then
-        if (get(P.emergencylights) ~= def.EMERGLIGHTSOFF) then
-            if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                P.commandtableentry(def.TEXT, "Set Emergency Lights Off")
-                procedureloop.stepindex = procedureloop.stepindex - 1
-            else
-                P.setemergencylights(def.EMERGLIGHTSOFF)
-            end
-        elseif (not procedureloop.steprepeat) then
-            P.commandtableentry(def.TEXT, "Emergency Lights checked and Off")
-        end
-    end
-
-    if (procedureloop.stepindex == 19) then
-        if (P.configvalues[def.CONFIGVIEWCHANGES] == def.ON) then
-            P.setview(P.configvalues[def.CONFIGVIEWUPPEROVERHEADPANEL])
-        else
-            procedureloop.stepindex = procedureloop.stepindex + 1
-            procedureloop.stepindexprevious = procedureloop.stepindexprevious + 1
-        end
-    end
-
-    if (procedureloop.stepindex == 20) then
-        if (get(P.domelightpos) ~= def.DOMELIGHTOFF) then
-            if (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
-                P.setdomelight(def.DOMELIGHTOFF)
-            elseif (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                P.commandtableentry(def.TEXT, "Set Domelight Off")
-                procedureloop.stepindex = procedureloop.stepindex - 1
-            end
-        elseif (not procedureloop.steprepeat) then
-            P.commandtableentry(def.TEXT, "Domelight checked and Off")
-        end
-    end
-
-    if (procedureloop.stepindex == 21) then
-        if (P.configvalues[def.CONFIGVIEWCHANGES] == def.ON) then
-            P.setview(P.configvalues[def.CONFIGVIEWOVERHEADPANEL])
-        else
-            procedureloop.stepindex = procedureloop.stepindex + 1
-            procedureloop.stepindexprevious = procedureloop.stepindexprevious + 1
-        end
-    end
-
-    if (procedureloop.stepindex == 22) then
-        if (get(P.batteryswitchcover) == def.CLOSED) then
-            helpers.command_once("laminar/B738/button_switch_cover02")
-        end
-    end
-
-    if (procedureloop.stepindex == 23) then
-        if (get(P.battery) == def.ON) then
-            if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                P.commandtableentry(def.TEXT, "Switch Battery Off")
-                procedureloop.stepindex = procedureloop.stepindex - 1
-            else
-                helpers.command_once("laminar/B738/switch/battery_up")
-            end
-        elseif (not procedureloop.steprepeat) then
-            P.commandtableentry(def.TEXT, "Battery checked and Off")
-        end
-    end
-
-    if (procedureloop.stepindex == 24) then
-        if (P.configvalues[def.CONFIGVIEWCHANGES] == def.ON) then
-            P.setview(P.configvalues[def.CONFIGVIEWMAINPANEL])
-        else
-            procedureloop.stepindex = procedureloop.stepindex + 1
-            procedureloop.stepindexprevious = procedureloop.stepindexprevious + 1
-        end
-    end
-
-    return true
-
-end
-
 function P.shutdown()
 
     return P.triggerprocedure(def.SHUTDOWNPROCEDURE, def.TRIGGEREDMANUALLY)
@@ -4751,7 +3504,6 @@ my_command_shutdown = sasl.createCommand(def.APPNAMEPREFIX .. "/shutdown", "Shut
 sasl.registerCommandHandler(my_command_shutdown, 0, P.shutdown_)
 
 --------------------------------------------------------------------------------------------------------------
-
 function P.teststeps(procedureloop)
 
     if (procedureloop.stepindex == 1) then
@@ -4996,508 +3748,6 @@ my_command_test = sasl.createCommand(def.APPNAMEPREFIX .. "/test", "Tests")
 sasl.registerCommandHandler(my_command_test, 0, P.test_)
 
 --------------------------------------------------------------------------------------------------------------
-
-function P.cockpitinitsteps(procedureloop)
-
-    if (procedureloop.stepindex == 1) then
-        if ((get(P.battery) == def.OFF) and (get(P.mainbus) == def.OFF)) then
-            procedureloop.procedurenotpossible = true
-            P.commandtableentry(def.TEXT, P.proceduretable[def.COCKPITINITPROCEDURE].name .. " Procedure aborted, Cockpit is Cold and Dark")
-            return true
-        end
-
-        if (get(P.parkingbrakepos) == def.OFF) then
-            procedureloop.procedurenotpossible = true
-            P.commandtableentry(def.TEXT, P.proceduretable[def.COCKPITINITPROCEDURE].name .. " Procedure not possible, Parking brake must be set")
-            return true
-        end
-
-        if (P.configvalues[def.CONFIGVIEWCHANGES] == def.ON) then
-            P.setview(def.DEFAULTVIEW)
-        end
-        if (get(P.sunpitchdegrees) < 0) then
-            procedureloop.stepindex = 2
-        else
-            procedureloop.stepindex = 4
-        end
-    end
-
-    if (procedureloop.stepindex == 2) then
-        if (P.configvalues[def.CONFIGVIEWCHANGES] == def.ON) then
-            P.setview(P.configvalues[def.CONFIGVIEWUPPEROVERHEADPANEL])
-        else
-            procedureloop.stepindex = procedureloop.stepindex + 1
-            procedureloop.stepindexprevious = procedureloop.stepindexprevious + 1
-        end
-    end
-
-    if (procedureloop.stepindex == 3) then
-        if (get(P.domelightpos) == def.DOMELIGHTOFF) then
-            if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                P.commandtableentry(def.TEXT, "Set Dome Light On")
-                procedureloop.stepindex = procedureloop.stepindex - 1
-            else
-                P.setdomelight(def.DOMELIGHTDIM)
-            end
-        elseif (not procedureloop.steprepeat) then
-            P.commandtableentry(def.TEXT, "Dome light checked and On")
-        end
-    end
-
-    if (procedureloop.stepindex == 4) then
-        if (P.configvalues[def.CONFIGVIEWCHANGES] == def.ON) then
-            P.setview(P.configvalues[def.CONFIGVIEWMAINPANEL])
-        else
-            procedureloop.stepindex = procedureloop.stepindex + 1
-            procedureloop.stepindexprevious = procedureloop.stepindexprevious + 1
-        end
-    end
-
-    if (procedureloop.stepindex == 5) then
-        if (P.configvalues[def.CONFIGHIDEEFBS] == def.ON) then
-            hideefb = false
-            if (get(P.hidecptefb) == def.OFF) then
-                helpers.command_once("laminar/B738/tab/toggle")
-                hideefb = true
-            end
-            if (get(P.hidefoefb) == def.OFF) then
-                helpers.command_once("laminar/B738/tab/fo_toggle")
-                hideefb = true
-            end
-            if hideefb then
-                P.commandtableentry(def.TEXT, "E F B S Hidden")
-            end
-        end
-    end
-
-    if ((procedureloop.stepindex == 6) and ((P.configvalues[def.CONFIGIGNOREALLBRIGHTHNESSSETTINGS] == def.OFF))) then
-        if P.setcockpitlights() then
-            P.commandtableentry(def.TEXT, "Instrument Lights set")
-        end
-    end
-
-    if (procedureloop.stepindex == 7) then
-        if (P.configvalues[def.CONFIGLOWERDU] == def.ON) then
-            local lowerduset = def.OFF
-            if (get(P.lowerdupage) == 0) then
-                lowerduset = def.ON
-                helpers.command_once("laminar/B738/LDU_control/push_button/MFD_ENG")
-                helpers.command_once("laminar/B738/LDU_control/push_button/MFD_ENG")
-            else
-                if (get(P.lowerdupage) == 1) then
-                    lowerduset = def.ON
-                    helpers.command_once("laminar/B738/LDU_control/push_button/MFD_ENG")
-                end
-            end
-
-            if (get(P.lowerdupage2) ~= 1) then
-                lowerduset = def.ON
-                helpers.command_once("laminar/B738/LDU_control/push_button/MFD_SYS")
-            end
-
-            if (lowerduset == def.ON) then
-                P.commandtableentry(def.TEXT, "Lower Display Unit Pages Set")
-                lowerduset = def.OFF
-            end
-        end
-    end
-
-    if (procedureloop.stepindex == 8) then
-        if (P.configvalues[def.CONFIGVIEWCHANGES] == def.ON) then
-            P.setview(P.configvalues[def.CONFIGVIEWFMS])
-        else
-            procedureloop.stepindex = procedureloop.stepindex + 1
-            procedureloop.stepindexprevious = procedureloop.stepindexprevious + 1
-        end
-    end
-
-    if (procedureloop.stepindex == 9) then
-        if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-            P.commandtableentry(def.TEXT, "Reset F M C")
-        else
-            helpers.command_once("laminar/B738/button/reset_fmc")
-            P.commandtableentry(def.TEXT, "F M C Reset Done")
-        end
-    end
-
-    if (procedureloop.stepindex == 10) then
-        if P. YANSHisinstalled() then
-            if not P.YANSHflightplanloaded() then
-                if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                    P.commandtableentry(def.TEXT, "Load Simbrief Flight Plan")
-                    procedureloop.stepindex = procedureloop.stepindex - 1
-                else
-                    helpers.command_once("YANSH/fetchOFP")
-                end
-            elseif (not procedureloop.steprepeat) then
-                P.commandtableentry(def.TEXT, "Simbrief Flight Plan Loaded")
-            end
-        else
-            procedureloop.stepindex = procedureloop.stepindex + 1
-        end
-    end
-
-    if (procedureloop.stepindex == 11) then
-        if P. YANSHisinstalled() and P.YANSHflightplanloaded() and P.YANSHFuelPlanRamp and get(P.YANSHFuelPlanRamp) > 0 and P.YANSHParamsUnitsFlag then
-            if (P.configvalues[def.CONFIGAUTOFUELING] == def.ON) then
-                if (P.configvalues[def.CONFIGAUTOFUNCTIONS] == def.ON) then
-                    local plannedFuelRaw = get(P.YANSHFuelPlanRamp)   
-                    local plannedFuelLbs = plannedFuelRaw          
-                    if get(P.YANSHParamsUnitsFlag) == def.YANSHUNITKGS then
-                        plannedFuelLbs = plannedFuelRaw * def.KGTOLBS
-                    end
-                    P.refuelAircraft(plannedFuelLbs)
-                elseif (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                    P.checkYANSHFuel()
-                end
-            end
-        else
-            procedureloop.stepindex = procedureloop.stepindex + 1
-        end
-    end
-
-    if (procedureloop.stepindex == 12) then
-        if P. YANSHisinstalled() and P.YANSHflightplanloaded() then
-            if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                if not (helpers.isvalidicao(get(P.depicao)) and helpers.isvalidicao(get(P.desicao))) then
-                    P.commandtableentry(def.TEXT, "Activate Flight Plan in F M C")
-                    procedureloop.stepindex = procedureloop.stepindex - 1
-                elseif (not procedureloop.steprepeat) then
-                    P.commandtableentry(def.TEXT, "Flight Plan in F M C Checked and Activated")
-                end
-            end
-        else
-            procedureloop.stepindex = procedureloop.stepindex + 1
-        end
-    end
-
-    if (procedureloop.stepindex == 13) then
-        if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-            if (get(P.toflaps) == 0) then
-                local toflapscalc = helpers.determineTakeoffFlapsSetting(get(P.totalweightkgs), get(P.deprwylen), get(P.deprwyheading), get(P.elevation), P.depmetar)
-                if (get(P.toflaps) ~= toflapscalc) then                
-                    P.commandtableentry(def.TEXT, "Set Takeoff Flaps " .. tostring(toflapscalc))
-                    procedureloop.stepindex = procedureloop.stepindex - 1
-                elseif not procedureloop.steprepeat then
-                    P.commandtableentry(def.TEXT, "Takeoff Flaps set and " .. tostring(get(P.toflaps)))
-                end
-            else
-                P.commandtableentry(def.TEXT, "Takeoff Flaps set and " .. tostring(get(P.toflaps)))
-            end
-        end
-    end
-
-    if (procedureloop.stepindex == 14) then
-        if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-            if (get(P.fmccg) == 0) then
-                P.commandtableentry(def.TEXT, "Set C G " .. tostring(helpers.roundnumber(get(P.tabcg),1)))
-                procedureloop.stepindex = procedureloop.stepindex - 1
-            elseif not procedureloop.steprepeat then
-                P.commandtableentry(def.TEXT, "C G checked and " .. tostring(get(P.fmccg)))
-            end
-        end
-    end
-
-    if (procedureloop.stepindex == 15) then
-        if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-            if ((get(P.v1setspeed) == 0) or (get(P.v2setspeed) == 0) or (get(P.vrsetspeed) == 0)) then
-                P.commandtableentry(def.TEXT, "Enter V Speeds")
-                procedureloop.stepindex = procedureloop.stepindex - 1
-            elseif not procedureloop.steprepeat then
-                P.commandtableentry(def.TEXT, "V Speeds checked and Set")
-            end
-        end
-    end
-
-    if (procedureloop.stepindex == 16) then
-        if (P.configvalues[def.CONFIGVIEWCHANGES] == def.ON) then
-            P.setview(P.configvalues[def.CONFIGVIEWPEDESTAL])
-        else
-            procedureloop.stepindex = procedureloop.stepindex + 1
-            procedureloop.stepindexprevious = procedureloop.stepindexprevious + 1
-        end
-    end
-
-    if (procedureloop.stepindex == 17) then
-        if (P.configvalues[def.CONFIGTRANSPONDER] ~= 0) then
-            if (get(P.transpondercode) ~= P.configvalues[def.CONFIGTRANSPONDER]) then
-                if (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
-                    set(P.transpondercode, P.configvalues[def.CONFIGTRANSPONDER])
-                elseif (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                    P.commandtableentry(def.TEXT, "Set Transponder Code " .. helpers.addspaces(P.configvalues[def.CONFIGTRANSPONDER]))
-                    procedureloop.stepindex = procedureloop.stepindex - 1
-                end
-            elseif (not procedureloop.steprepeat) then
-                P.commandtableentry(def.TEXT, "Transponder Code checked and " .. helpers.addspaces(P.configvalues[def.CONFIGTRANSPONDER]))
-            end
-        end
-    end
-
-    if (procedureloop.stepindex == 18) then
-        if (get(P.transponderpos) ~= def.STANDBY) then
-            if (P.configvalues[def.CONFIGTRANSPONDER] ~= 0) then
-                if (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
-                    P.toggletransponder(def.STANDBY)
-                elseif (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                    P.commandtableentry(def.TEXT, "Set Transponder Standby")
-                    procedureloop.stepindex = procedureloop.stepindex - 1
-                end
-            end
-        elseif (not procedureloop.steprepeat) then
-            P.commandtableentry(def.TEXT, "Transponder checked and Standby")
-        end
-    end
-
-    if (procedureloop.stepindex == 19) then
-        if (P.configvalues[def.CONFIGVIEWCHANGES] == def.ON) then
-            P.setview(P.configvalues[def.CONFIGVIEWOVERHEADPANEL])
-        else
-            procedureloop.stepindex = procedureloop.stepindex + 1
-            procedureloop.stepindexprevious = procedureloop.stepindexprevious + 1
-        end
-    end
-
-    if (procedureloop.stepindex == 20) then
-        if ((get(P.captainprobepos) ~= def.OFF) or (get(P.foprobepos) ~= def.OFF)) then
-            if (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
-                P.toggleprobeheat(def.OFF)
-            elseif (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                P.commandtableentry(def.TEXT, "Set Probe Heat Off")
-                procedureloop.stepindex = procedureloop.stepindex - 1
-            end
-        elseif (not procedureloop.steprepeat) then
-            P.commandtableentry(def.TEXT, "Probe Heat checked and Off")
-        end
-    end
-
-    if (procedureloop.stepindex == 21) then
-        if (get(P.seatbeltsignpos) ~= def.SEATBELTSIGNOFF) then
-            if (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
-                P.setseatbeltsign(def.SEATBELTSIGNOFF)
-            elseif (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                P.commandtableentry(def.TEXT, "Set Seatbelt Signs Off")
-                procedureloop.stepindex = procedureloop.stepindex - 1
-            end
-        elseif (not procedureloop.steprepeat) then
-            P.commandtableentry(def.TEXT, "Seatbelt Signs checked and Off")
-        end
-    end
-
-    if (procedureloop.stepindex == 22) then
-        if (get(P.nosmokingsignpos) ~= def.NOSMOKINGSIGNON) then
-            if (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
-                P.setnosmokingsign(def.NOSMOKINGSIGNON)
-            elseif (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                P.commandtableentry(def.TEXT, "Set No Smoking Signs On")
-                procedureloop.stepindex = procedureloop.stepindex - 1
-            end
-        elseif (not procedureloop.steprepeat) then
-            P.commandtableentry(def.TEXT, "No Smoking Signs checked and On")
-        end
-    end
-
-    if (procedureloop.stepindex == 23) then
-        if(get(P.positionlights) ~= def.POSLIGHTSSTEADY) then
-            if (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
-                P.togglepositionlights(def.POSLIGHTSSTEADY)
-            elseif (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                P.commandtableentry(def.TEXT, "Set Position Lights Steady")
-                procedureloop.stepindex = procedureloop.stepindex - 1
-            end
-        elseif (not procedureloop.steprepeat) then
-            P.commandtableentry(def.TEXT, "Position Lights checked and Steady")
-        end
-    end
-
-    if (procedureloop.stepindex == 24) then
-        if ((get(P.llights1) ~= def.OFF) or (get(P.llights2) ~= def.OFF) or (get(P.llights3) ~= def.OFF) or (get(P.llights4) ~= def.OFF)) then
-            if (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
-                P.togglelandinglights(def.OFF)
-            elseif (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                P.commandtableentry(def.TEXT, "Set Landing Lights Off")
-                procedureloop.stepindex = procedureloop.stepindex - 1
-            end
-        elseif (not procedureloop.steprepeat) then
-            P.commandtableentry(def.TEXT, "Landing Lights checked and Off")
-        end
-    end
-
-    if (procedureloop.stepindex == 25) then
-        if ((get(P.rwylightl) == def.ON) or (get(P.rwylightl) == def.ON)) then
-            if (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
-                P.togglerwylights(def.OFF)
-            elseif (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                P.commandtableentry(def.TEXT, "Set Runway Turnoff Lights Off")
-                procedureloop.stepindex = procedureloop.stepindex - 1
-            end
-        elseif (not procedureloop.steprepeat) then
-            P.commandtableentry(def.TEXT, "Runway Turnoff Lights checked and Off")
-        end
-    end
-
-    if (procedureloop.stepindex == 26) then
-        if (get(P.taxilight) ~= def.OFF) then
-            if (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
-                P.toggletaxilights(def.OFF)
-            elseif (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                P.commandtableentry(def.TEXT, "Set Taxi Lights Off")
-                procedureloop.stepindex = procedureloop.stepindex - 1
-            end
-        elseif (not procedureloop.steprepeat) then
-            P.commandtableentry(def.TEXT, "Taxi Lights checked and Off")
-        end
-    end
-
-    if (procedureloop.stepindex == 27) then
-        if (P.configvalues[def.CONFIGVIEWCHANGES] == def.ON) then
-            P.setview(P.configvalues[def.CONFIGVIEWMAINPANEL])
-        else
-            procedureloop.stepindex = procedureloop.stepindex + 1
-            procedureloop.stepindexprevious = procedureloop.stepindexprevious + 1
-        end
-    end
-
-
-    if (procedureloop.stepindex == 28) then
-        if (get(P.apdiscpos) == def.ON) then
-            helpers.command_once("laminar/B738/autopilot/disconnect_toggle")
-        end
-    end
-
-    if (procedureloop.stepindex == 29) then
-        if ((get(P.fdpilotpos) == def.ON) or (get(P.fdfopos) == def.ON)) then
-            if (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
-                P.togglefds(def.OFF)
-            elseif (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                P.commandtableentry(def.TEXT, "Set Both Flight Directors Off")
-                procedureloop.stepindex = procedureloop.stepindex - 1
-            end
-        elseif (not procedureloop.steprepeat) then
-            P.commandtableentry(def.TEXT, "Both Flight Directors checked and Off")
-        end
-    end
-
-    if (procedureloop.stepindex == 30) then
-        if (get(P.mcpaltitude) ~= P.configvalues[def.CONFIGLOWEAIRSPACEALT]) then
-            if (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
-                set(P.mcpaltitude, P.configvalues[def.CONFIGLOWEAIRSPACEALT])
-            elseif (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                P.commandtableentry(def.TEXT, "Set M C P ALtitude " .. tostring(P.configvalues[def.CONFIGLOWEAIRSPACEALT]))
-                procedureloop.stepindex = procedureloop.stepindex - 1
-            end
-        elseif (not procedureloop.steprepeat) then
-            P.commandtableentry(def.TEXT, "M C P ALtitude checked and " .. tostring(P.configvalues[def.CONFIGLOWEAIRSPACEALT]))
-        end
-    end
-
-    if (procedureloop.stepindex == 31) then
-        if (get(P.bankanglepos) ~= P.configvalues[def.CONFIGBANKANGLEMAX]) then
-            if (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
-                P.setbankanglepos(P.configvalues[def.CONFIGBANKANGLEMAX])
-            elseif (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                P.commandtableentry(def.TEXT, "Set Bank Angle " .. helpers.getbankanglestring(P.configvalues[def.CONFIGBANKANGLEMAX]))
-                procedureloop.stepindex = procedureloop.stepindex - 1
-            end
-        elseif (not procedureloop.steprepeat) then
-            P.commandtableentry(def.TEXT, "Bank Angle checked and " .. helpers.getbankanglestring(P.configvalues[def.CONFIGBANKANGLEMAX]))
-        end
-    end
-
-    if (procedureloop.stepindex == 32) then
-        if (get(P.efisdatapilotpos) == def.OFF) then
-            helpers.command_once("laminar/B738/EFIS_control/capt/push_button/data_press")
-        end
-        if (get(P.efisdatafopos) == def.OFF) then
-            helpers.command_once("laminar/B738/EFIS_control/fo/push_button/data_press")
-        end
-    end
-
-    if (procedureloop.stepindex == 33) then
-        if (get(P.autobrakepos) ~= def.AUTOBRAKEOFF) then
-            if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                P.commandtableentry(def.TEXT, "Set Auto Brake Off")
-                procedureloop.stepindex = procedureloop.stepindex - 1
-            else
-                P.setautobrake(def.AUTOBRAKEOFF)
-            end
-        elseif (not procedureloop.steprepeat) then
-            P.commandtableentry(def.TEXT, "Auto Brake checked and Off")
-        end
-    end
-
-
-    if (procedureloop.stepindex == 34) then
-        if (get(P.aponstat) == def.ON) then
-            set(P.aponstat, def.OFF)
-        end
-    end
-
-    if (((not P.enginesrunning(BOTH)) and ((get(P.mixture1pos) ~= def.OFF) or (get(P.mixture2pos) ~= def.OFF))) or (speedbrakeleverrounded ~= def.SPEEDBRAKEDOWN)) then
-        if (procedureloop.stepindex == 35) then
-            if (P.configvalues[def.CONFIGVIEWCHANGES] == def.ON) then
-                P.setview(P.configvalues[def.CONFIGVIEWTHROTTLE])
-            else
-                procedureloop.stepindex = procedureloop.stepindex + 1
-                procedureloop.stepindexprevious = procedureloop.stepindexprevious + 1
-            end
-        end
-
-        if (procedureloop.stepindex == 36) then
-            if ((not P.enginesrunning(BOTH)) and ((get(P.mixture1pos) ~= def.OFF) or (get(P.mixture2pos) ~= def.OFF))) then
-                if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                    P.commandtableentry(def.TEXT, "Set Both Engine Fuel Levers Cutoff")
-                    procedureloop.stepindex = procedureloop.stepindex - 1
-                else
-                    if (get(P.mixture2pos) ~= def.OFF) then
-                        helpers.command_once("laminar/B738/engine/mixture2_cutoff")
-                    end
-                    if (get(P.mixture1pos) ~= def.OFF) then
-                        helpers.command_once("laminar/B738/engine/mixture1_cutoff")
-                    end
-                end
-            else
-                procedureloop.stepindex = procedureloop.stepindex + 1
-                procedureloop.stepindexprevious = procedureloop.stepindexprevious + 1
-            end
-        end
-
-        if (procedureloop.stepindex == 37) then
-            speedbrakeleverrounded = helpers.roundnumber(get(P.speedbrakelever), 1)
-            if (speedbrakeleverrounded ~= def.SPEEDBRAKEDOWN) then
-                if (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
-                    set(P.speedbrakelever, def.OFF)
-                elseif (not procedureloop.steprepeat) then
-                    P.commandtableentry(def.TEXT, "Retract Speed Brakes")
-                    procedureloop.stepindex = procedureloop.stepindex - 1
-                end
-            else
-                procedureloop.stepindex = procedureloop.stepindex + 1
-                procedureloop.stepindexprevious = procedureloop.stepindexprevious + 1
-            end
-        end
-
-        if (procedureloop.stepindex == 38) then
-            if (P.configvalues[def.CONFIGVIEWCHANGES] == def.ON) then
-                P.setview(P.configvalues[def.CONFIGVIEWMAINPANEL])
-            else
-                procedureloop.stepindex = procedureloop.stepindex + 1
-                procedureloop.stepindexprevious = procedureloop.stepindexprevious + 1
-            end
-        end
-    elseif (procedureloop.stepindex == 35) then
-        procedureloop.stepindex = 39
-
-    end
-
-    if (procedureloop.stepindex == 39) then
-        helpers.command_once("laminar/B738/push_button/master_caution1")
-        helpers.command_once("laminar/B738/button/fmc1_clr")
-    end
-
-    return true
-
-end
-
 function P.cockpitinit()
 
     return P.triggerprocedure(def.COCKPITINITPROCEDURE, def.TRIGGEREDMANUALLY)
@@ -5515,7 +3765,6 @@ my_command_cockpitinit = sasl.createCommand(def.APPNAMEPREFIX .. "/cockpitinit",
 sasl.registerCommandHandler(my_command_cockpitinit, 0, P.cockpitinit_)
 
 --------------------------------------------------------------------------------------------------------------
-
 function P.aftertakeoffsteps(procedureloop)
 
     if (procedureloop.stepindex == 1) then
@@ -5693,7 +3942,6 @@ my_command_altitudea10000 = sasl.createCommand(def.APPNAMEPREFIX .. "/altitudea1
 sasl.registerCommandHandler(my_command_altitudea10000, 0, P.altitudea10000_)
 
 --------------------------------------------------------------------------------------------------------------
-
 function P.duringclimbsteps(procedureloop)
 
     if (procedureloop.stepindex == 1) then
@@ -5841,22 +4089,28 @@ function P.duringclimbsteps(procedureloop)
 end
 
 --------------------------------------------------------------------------------------------------------------
-
 function P.duringclimb()
-    P.triggerprocedure(def.DURINGCLIMBPROCEDURE)
+    local proc_to_check = def.DURINGCLIMBPROCEDURE
+    local targetLoopIndex = P.proceduretable[proc_to_check].loop
+    local isLoopFree = (P.loopStateTables[targetLoopIndex].lock == def.NOPROCEDURE)
+    if isLoopFree then
+        sasl.logDebug("Autofunctions triggering DURINGCLIMBPROCEDURE (Loop " .. targetLoopIndex .. " is free).")
+        P.triggerprocedure(proc_to_check)
+    end
 
     local departure_icao = get(P.depicao)
-    local departure_altitude = nil
-    
+    local departure_altitude = nil  
     if P.airportdatatable[departure_icao] and P.airportdatatable[departure_icao].elevation_ft then
         departure_altitude = P.airportdatatable[departure_icao].elevation_ft
     end
 
-    local height_above_field = get(P.altitude) - departure_altitude
-    
+    local height_above_field = get(P.altitude) - departure_altitude    
     local lower_airspace_alt = P.configvalues[def.CONFIGLOWEAIRSPACEALT]
-
-    if (height_above_field >= lower_airspace_alt) or (get(P.altitude) >= lower_airspace_alt) then
+    local altitudeTriggerConditions = (height_above_field >= lower_airspace_alt) or (get(P.altitude) >= lower_airspace_alt)   
+    local above10kTargetLoopIndex = P.proceduretable[def.ALTITUDEA10000PROCEDURE].loop    
+    local isAbove10kLoopFree = (P.loopStateTables[above10kTargetLoopIndex].lock == def.NOPROCEDURE)   
+    if altitudeTriggerConditions and isAbove10kLoopFree then
+        sasl.logDebug("Autofunctions triggering ALTITUDEA10000PROCEDURE (Loop " .. above10kTargetLoopIndex .. " is free).")        
         P.triggerprocedure(def.ALTITUDEA10000PROCEDURE)
     end
 
@@ -5866,7 +4120,6 @@ function P.duringclimb()
 end
 
 --------------------------------------------------------------------------------------------------------------
-
 function P.altitudeb10000steps(procedureloop)
 
     if (procedureloop.stepindex == 1) then
@@ -6085,7 +4338,6 @@ function P.radioaltitudeb2500steps(procedureloop)
 end
 
 --------------------------------------------------------------------------------------------------------------
-
 function P.radioaltitudeb1000steps(procedureloop)
 
     if (procedureloop.stepindex == 1) then
@@ -6346,36 +4598,54 @@ end
 --------------------------------------------------------------------------------------------------------------
 function P.duringdescent()
 
-    P.triggerprocedure(def.DURINGDESCENTPROCEDURE)
+    local proc_to_check = def.DURINGDESCENTPROCEDURE
+    local targetLoopIndex = P.proceduretable[proc_to_check].loop
+    local isLoopFree = (P.loopStateTables[targetLoopIndex].lock == def.NOPROCEDURE)  
+    if isLoopFree then
+        sasl.logDebug("Autofunctions triggering DURINGDESCENTPROCEDURE (Loop " .. targetLoopIndex .. " is free).")
+        P.triggerprocedure(proc_to_check)
+    end
 
     local destination_icao = get(P.desicao)
-    local destination_altitude = nil
-    
+    local destination_altitude = nil   
     if P.airportdatatable[destination_icao] and P.airportdatatable[destination_icao].elevation_ft then
         destination_altitude = P.airportdatatable[destination_icao].elevation_ft
     else
         destination_altitude = get(P.desrwyalt)
     end
 
-    local height_above_field = 99999
-    
-    if destination_altitude and destination_altitude > -1000 then -- Prüfe auf einen plausiblen Wert
+    local height_above_field = 99999   
+    if destination_altitude and destination_altitude > -1000 then
         height_above_field = get(P.altitude) - destination_altitude
     end
 
     local radio_alt = get(P.radioaltitude)
     local lower_airspace_alt = P.configvalues[def.CONFIGLOWEAIRSPACEALT]
-
-    if (height_above_field < lower_airspace_alt) or (radio_alt < lower_airspace_alt) then
-        P.triggerprocedure(def.ALTITUDEB10000PROCEDURE)
+    local altitudeB10kConditions = (height_above_field < lower_airspace_alt) or (radio_alt < lower_airspace_alt)
+    local procB10k = def.ALTITUDEB10000PROCEDURE
+    local loopB10kIndex = P.proceduretable[procB10k].loop
+    local isLoopB10kFree = (P.loopStateTables[loopB10kIndex].lock == def.NOPROCEDURE)
+    if altitudeB10kConditions and isLoopB10kFree then
+        sasl.logDebug("Autofunctions triggering ALTITUDEB10000PROCEDURE (Loop " .. loopB10kIndex .. " is free).")
+        P.triggerprocedure(procB10k)
     end
 
-    if (height_above_field < 2500) or (radio_alt < 2500) then
-        P.triggerprocedure(def.RADIOALTITUDEB2500PROCEDURE)
+    local altitudeB2500Conditions = (height_above_field < 2500) or (radio_alt < 2500)
+    local procB2500 = def.RADIOALTITUDEB2500PROCEDURE
+    local loopB2500Index = P.proceduretable[procB2500].loop
+    local isLoopB2500Free = (P.loopStateTables[loopB2500Index].lock == def.NOPROCEDURE)
+    if altitudeB2500Conditions and isLoopB2500Free then
+        sasl.logDebug("Autofunctions triggering RADIOALTITUDEB2500PROCEDURE (Loop " .. loopB2500Index .. " is free).")
+        P.triggerprocedure(procB2500)
     end
 
-    if (height_above_field < 1000) or (radio_alt < 1000) then
-        P.triggerprocedure(def.RADIOALTITUDEB1000PROCEDURE)
+    local altitudeB1000Conditions = (height_above_field < 1000) or (radio_alt < 1000)
+    local procB1000 = def.RADIOALTITUDEB1000PROCEDURE
+    local loopB1000Index = P.proceduretable[procB1000].loop
+    local isLoopB1000Free = (P.loopStateTables[loopB1000Index].lock == def.NOPROCEDURE)
+    if altitudeB1000Conditions and isLoopB1000Free then
+        sasl.logDebug("Autofunctions triggering RADIOALTITUDEB1000PROCEDURE (Loop " .. loopB1000Index .. " is free).")
+        P.triggerprocedure(procB1000)
     end
 
     if P.configvalues[def.CONFIGAUTOFLAPS] == def.ON then
@@ -6384,596 +4654,6 @@ function P.duringdescent()
 end
 
 --------------------------------------------------------------------------------------------------------------
-
-function P.afterlandingsteps(procedureloop)
-
-    if (get(P.battery) ~= def.ON) then
-        procedureloop.procedureabort = true
-        return true
-    end
-
-    if (procedureloop.stepindex == 1) then
-        P.flightstate = def.FLIGHTSTATETAXITOGATE
-        set(P.flightstatedr, P.flightstate)
-   
-        if (P.configvalues[def.CONFIGVIEWCHANGES] == def.ON) then
-            P.setview(def.DEFAULTVIEW)
-            P.setview(P.configvalues[def.CONFIGVIEWOVERHEADPANEL])
-        else
-            procedureloop.stepindex = procedureloop.stepindex + 1
-            procedureloop.stepindexprevious = procedureloop.stepindexprevious + 1
-        end
-    end
-
-    if (procedureloop.stepindex == 2) then
-        if ((get(P.llights1) ~= def.OFF) or (get(P.llights2) ~= def.OFF) or (get(P.llights3) ~= def.OFF) or (get(P.llights4) ~= def.OFF)) then
-            if (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
-                P.togglelandinglights(def.OFF)
-            elseif (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                P.commandtableentry(def.TEXT, "Set Landing Lights Off")
-                procedureloop.stepindex = procedureloop.stepindex - 1
-            end
-        elseif (not procedureloop.steprepeat) then
-            P.commandtableentry(def.TEXT, "Landing Lights checked and Off")
-        end
-    end
-
-    if (procedureloop.stepindex == 3) then
-        if (get(P.taxilight) == def.OFF) then
-            if (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
-                P.toggletaxilights(def.ON)
-            elseif (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                P.commandtableentry(def.TEXT, "Set Taxi Lights On")
-                procedureloop.stepindex = procedureloop.stepindex - 1
-            end
-        elseif (not procedureloop.steprepeat) then
-            P.commandtableentry(def.TEXT, "Taxi Lights checked and On")
-        end
-    end
-
-    if (procedureloop.stepindex == 4) then
-        if ((get(P.rwylightl) == def.ON) or (get(P.rwylightl) == def.ON)) then
-            if (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
-                P.togglerwylights(def.OFF)
-            elseif (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                P.commandtableentry(def.TEXT, "Set Runway Turnoff Lights Off")
-                procedureloop.stepindex = procedureloop.stepindex - 1
-            end
-        elseif (not procedureloop.steprepeat) then
-            P.commandtableentry(def.TEXT, "Runway Turnoff Lights checked and Off")
-        end
-    end
-
-    if (procedureloop.stepindex == 5) then
-        if(get(P.positionlights) ~= def.POSLIGHTSSTEADY) then
-            if (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
-                P.togglepositionlights(def.POSLIGHTSSTEADY)
-            elseif (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                P.commandtableentry(def.TEXT, "Set Position Lights Steady")
-                procedureloop.stepindex = procedureloop.stepindex - 1
-            end
-        elseif (not procedureloop.steprepeat) then
-            P.commandtableentry(def.TEXT, "Position Lights checked and Steady")
-        end
-    end
-
-    if (procedureloop.stepindex == 6) then
-        if ((get(P.captainprobepos) ~= def.OFF) or (get(P.foprobepos) ~= def.OFF)) then
-            if (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
-                P.toggleprobeheat(def.OFF)
-            elseif (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                P.commandtableentry(def.TEXT, "Set Probe Heat Off")
-                procedureloop.stepindex = procedureloop.stepindex - 1
-            end
-        elseif (not procedureloop.steprepeat) then
-            P.commandtableentry(def.TEXT, "Probe Heat checked and Off")
-        end
-    end
-
-    if (procedureloop.stepindex == 7) then
-        if (P.configvalues[def.CONFIGVIEWCHANGES] == def.ON) then
-            P.setview(P.configvalues[def.CONFIGVIEWPEDESTAL])
-        else
-            procedureloop.stepindex = procedureloop.stepindex + 1
-            procedureloop.stepindexprevious = procedureloop.stepindexprevious + 1
-        end
-    end
-
-    if (procedureloop.stepindex == 8) then
-        if (get(P.transponderpos) == def.TARA) then
-            if (P.configvalues[def.CONFIGTRANSPONDER] ~= 0) then
-                if (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
-                    P.toggletransponder(def.STANDBY)
-                elseif (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                    P.commandtableentry(def.TEXT, "Set Transponder Off")
-                    procedureloop.stepindex = procedureloop.stepindex - 1
-                end
-            end
-        elseif (not procedureloop.steprepeat) then
-            P.commandtableentry(def.TEXT, "Transponder checked and " .. helpers.TransponderPostotring(get(P.transponderpos)))
-        end
-    end
-
-    if (procedureloop.stepindex == 9) then
-        if (P.configvalues[def.CONFIGVIEWCHANGES] == def.ON) then
-            P.setview(P.configvalues[def.CONFIGVIEWTHROTTLE])
-        else
-            procedureloop.stepindex = procedureloop.stepindex + 1
-            procedureloop.stepindexprevious = procedureloop.stepindexprevious + 1
-        end
-    end
-
-    if (procedureloop.stepindex == 10) then
-        if (get(P.flapleverpos) > def.FLAPSUP) then
-            if (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
-                helpers.command_once("laminar/B738/push_button/flaps_0")
-            elseif (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                P.commandtableentry(def.TEXT, "Set Flaps Up")
-                procedureloop.stepindex = procedureloop.stepindex - 1
-            end
-        elseif (not procedureloop.steprepeat) then
-            P.commandtableentry(def.TEXT, "Flaps checked and Up")
-        end
-    end
-
-    if (procedureloop.stepindex == 11) then
-        speedbrakeleverrounded = helpers.roundnumber(get(P.speedbrakelever), 1)
-        if (speedbrakeleverrounded ~= def.SPEEDBRAKEDOWN) then
-            if (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
-                set(P.speedbrakelever, def.OFF)
-            elseif (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                P.commandtableentry(def.TEXT, "Retract Speed Brakes")
-                procedureloop.stepindex = procedureloop.stepindex - 1
-            end
-        elseif (not procedureloop.steprepeat) then
-            P.commandtableentry(def.TEXT, "Speedbrakes Up and Retracted")
-        end
-    end
-
-    if (procedureloop.stepindex == 12) then
-        if (P.configvalues[def.CONFIGVIEWCHANGES] == def.ON) then
-            P.setview(P.configvalues[def.CONFIGVIEWMAINPANEL])
-        else
-            procedureloop.stepindex = procedureloop.stepindex + 1
-            procedureloop.stepindexprevious = procedureloop.stepindexprevious + 1
-        end
-    end
-
-    if (procedureloop.stepindex == 13) then
-        if ((get(P.fdpilotpos) == def.ON) or (get(P.fdfopos) == def.ON)) then
-            if (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
-                P.togglefds(def.OFF)
-            elseif (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                P.commandtableentry(def.TEXT, "Set Both Flight Directors Off")
-                procedureloop.stepindex = procedureloop.stepindex - 1
-            end
-        elseif (not procedureloop.steprepeat) then
-            P.commandtableentry(def.TEXT, "Both Flight Directors checked and Off")
-        end
-    end
-
-    if (procedureloop.stepindex == 14) then
-        if ((get(P.efiswxpilotpos) == def.ON) or (get(P.efiswxfopos) == def.ON)) then
-            if (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
-                P.togglewx(def.OFF)
-            elseif (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                P.commandtableentry(def.TEXT, "Set Both Weather Radars Off")
-                procedureloop.stepindex = procedureloop.stepindex - 1
-            end
-        elseif (not procedureloop.steprepeat) then
-            P.commandtableentry(def.TEXT, "Both Weather Radars checked and Off")
-        end
-    end
-
-    if (procedureloop.stepindex == 15) then
-        if ((get(P.efisterrpilotpos) == def.ON) or (get(P.efisterrfopos) == def.ON)) then
-            if (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
-                P.toggleterr(def.OFF)
-            elseif (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                P.commandtableentry(def.TEXT, "Set Both Terrain Radars Off")
-                procedureloop.stepindex = procedureloop.stepindex - 1
-            end
-        elseif (not procedureloop.steprepeat) then
-            P.commandtableentry(def.TEXT, "Both Terrain Radars checked and Off")
-        end
-    end
-
-    if (procedureloop.stepindex == 16) then
-        if (get(P.autobrakepos) ~= def.AUTOBRAKEOFF) then
-            if (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
-                P.setautobrake(def.AUTOBRAKEOFF)
-            elseif (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                P.commandtableentry(def.TEXT, "Set Auto Brake Off")
-                procedureloop.stepindex = procedureloop.stepindex - 1
-            end
-        elseif (not procedureloop.steprepeat) then
-            P.commandtableentry(def.TEXT, "Auto Brake checked and Off")
-        end
-    end
-
-    if (procedureloop.stepindex == 17) then
-        if (get(P.aponstat) == def.ON) then
-            set(P.aponstat, def.OFF)
-        end
-    end
-
-    if (procedureloop.stepindex == 18) then
-        P.iceprotection(def.OFF)
-    end
-
-    if (procedureloop.stepindex == 19) then
-        helpers.command_once("laminar/B738/push_button/master_caution1")
-    end
-
-    return true
-
-end
-
---------------------------------------------------------------------------------------------------------------
-
-function P.afterlanding()
-
-    return P.triggerprocedure(def.AFTERLANDINGPROCEDURE, def.TRIGGEREDMANUALLY)
-
-end
-
-function P.afterlanding_(phase)
-    if phase == SASL_COMMAND_BEGIN then
-        P.afterlanding()
-    end
-    return 0
-end
-
-my_command_afterlanding = sasl.createCommand(def.APPNAMEPREFIX .. "/afterlanding", "After Landing Procedure")
-sasl.registerCommandHandler(my_command_afterlanding, 0, P.afterlanding_)
-
---------------------------------------------------------------------------------------------------------------
-
-function P.beforetaxisteps(procedureloop)
-
-
-    if (procedureloop.stepindex == 1) then
-
-        if not P.enginesrunning(BOTH) then
-            procedureloop.procedurenotpossible = true
-            P.commandtableentry(def.TEXT, P.proceduretable[def.BEFORETAXIPROCEDURE].name .. " Procedure aborted, Engines not running")
-            return true
-        end
-
-        if (P.configvalues[def.CONFIGVIEWCHANGES] == def.ON) then
-            P.setview(def.DEFAULTVIEW)
-            P.setview(P.configvalues[def.CONFIGVIEWMAINPANEL])
-        else
-            procedureloop.stepindex = procedureloop.stepindex + 1
-            procedureloop.stepindexprevious = procedureloop.stepindexprevious + 1
-        end
-    end
-
-    if (procedureloop.stepindex == 2) then
-        if (get(P.chockstatus) ~= def.OFF) then
-            if (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
-                helpers.command_once("laminar/B738/toggle_switch/chock")
-            elseif (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                P.commandtableentry(def.TEXT, "Remove Chocks")
-                procedureloop.stepindex = procedureloop.stepindex - 1
-            end
-        elseif ((P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) and (get(P.groundspeed) < 1) and not procedureloop.steprepeat) then
-            P.commandtableentry(def.TEXT, "Chocks checked and Removed")
-        end
-    end
-
-    if ((procedureloop.stepindex == 3) and (get(P.domelightpos) == def.DOMELIGHTOFF)) then
-        procedureloop.stepindex = 5
-    end
-
-    if (procedureloop.stepindex == 3) then
-        if (P.configvalues[def.CONFIGVIEWCHANGES] == def.ON) then
-            P.setview(def.DEFAULTVIEW)
-            P.setview(P.configvalues[def.CONFIGVIEWUPPEROVERHEADPANEL])
-        else
-            procedureloop.stepindex = procedureloop.stepindex + 1
-            procedureloop.stepindexprevious = procedureloop.stepindexprevious + 1
-        end
-    end
-
-    if (procedureloop.stepindex == 4) then
-        if (get(P.domelightpos) ~= def.DOMELIGHTOFF) then
-            if (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
-                P.setdomelight(def.DOMELIGHTOFF)
-            elseif (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                P.commandtableentry(def.TEXT, "Set Domelight Off")
-                procedureloop.stepindex = procedureloop.stepindex - 1
-            end
-        elseif (not procedureloop.steprepeat) then
-            P.commandtableentry(def.TEXT, "Domelight checked and Off")
-        end
-    end
-
-    if (procedureloop.stepindex == 5) then
-        if (P.configvalues[def.CONFIGVIEWCHANGES] == def.ON) then
-            P.setview(P.configvalues[def.CONFIGVIEWOVERHEADPANEL])
-        else
-            procedureloop.stepindex = procedureloop.stepindex + 1
-            procedureloop.stepindexprevious = procedureloop.stepindexprevious + 1
-        end
-    end
-
-    if (procedureloop.stepindex == 6) then
-        if (get(P.taxilight) == def.OFF) then
-            if (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
-                P.toggletaxilights(def.ON)
-            elseif (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                P.commandtableentry(def.TEXT, "Set Taxi Lights On")
-                procedureloop.stepindex = procedureloop.stepindex - 1
-            end
-        elseif (not procedureloop.steprepeat) then
-            P.commandtableentry(def.TEXT, "Taxi Lights checked and On")
-        end
-    end
-
-    if (procedureloop.stepindex == 7) then
-        if(get(P.positionlights) ~= def.POSLIGHTSSTEADY) then
-            if (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
-                P.togglepositionlights(def.POSLIGHTSSTEADY)
-            elseif (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                P.commandtableentry(def.TEXT, "Set Position Lights Steady")
-                procedureloop.stepindex = procedureloop.stepindex - 1
-            end
-        elseif (not procedureloop.steprepeat) then
-            P.commandtableentry(def.TEXT, "Position Lights checked and Steady")
-        end
-    end
-
-    if (procedureloop.stepindex == 8) then
-        if (get(P.beaconlights) == def.OFF) then
-            if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                P.commandtableentry(def.TEXT, "Set Collision Lights On")
-                procedureloop.stepindex = procedureloop.stepindex - 1
-            else
-                P.togglecollisionlights(def.ON)
-            end
-        elseif (not procedureloop.steprepeat) then
-            P.commandtableentry(def.TEXT, "Collision Lights checked and On")
-        end
-    end
-
-    if (procedureloop.stepindex == 9) then
-        if (get(P.seatbeltsignpos) ~= def.SEATBELTSIGNON) then
-            if (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
-                P.setseatbeltsign(def.SEATBELTSIGNON)
-            elseif (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                P.commandtableentry(def.TEXT, "Set Seatbeltsigns On")
-                procedureloop.stepindex = procedureloop.stepindex - 1
-            end
-        elseif (not procedureloop.steprepeat) then
-            P.commandtableentry(def.TEXT, "Seatbeltsigns checked and On")
-        end
-    end
-
-    if (procedureloop.stepindex == 10) then
-        if (get(P.logolighton) ~= def.ON) then
-            if (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
-                P.togglelogolight(def.ON)
-            elseif (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                P.commandtableentry(def.TEXT, "Set Logo Lights On")
-                procedureloop.stepindex = procedureloop.stepindex - 1
-            end
-        elseif (not procedureloop.steprepeat) then
-            P.commandtableentry(def.TEXT, "Logo Lights checked and On")
-        end
-    end
-
-    if (procedureloop.stepindex == 11) then
-        if (get(P.yawdamperswitch) ~= def.ON) then
-            if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                P.commandtableentry(def.TEXT, "Set Yaw Damper On")
-                procedureloop.stepindex = procedureloop.stepindex - 1
-            else
-                set(P.yawdamperswitch, def.ON)
-            end
-        elseif (not procedureloop.steprepeat) then
-            P.commandtableentry(def.TEXT, "Yaw Damper checked and On")
-        end
-    end
-
-    if (procedureloop.stepindex == 12) then
-        if ((get(P.hydro1pos) ~= def.ON) or (get(P.hydro2pos) ~= def.ON) or (get(P.elechydro1pos) ~= def.ON) or (get(P.elechydro2pos) ~= def.ON)) then
-            if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                P.commandtableentry(def.TEXT, "Switch Hydraulic Pumps On")
-                procedureloop.stepindex = procedureloop.stepindex - 1
-            else
-                set(P.hydro1pos, def.ON)
-                set(P.hydro2pos, def.ON)
-                set(P.elechydro1pos, def.ON)
-                set(P.elechydro2pos, def.ON)
-            end
-        elseif (not procedureloop.steprepeat) then
-            P.commandtableentry(def.TEXT, "Hydraulic Pumps checked and On")
-        end
-    end
-
-    if (procedureloop.stepindex == 13) then
-        if ((get(P.wheatlfwdpos) == def.OFF) or (get(P.wheatrfwdpos) == def.OFF) or (get(P.wheatlsidepos) == def.OFF) or (get(P.wheatrsidepos) == def.OFF)) then
-            if (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
-                P.togglewindowheat(def.ON)
-            elseif (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                P.commandtableentry(def.TEXT, "Set Window Heat On")
-                procedureloop.stepindex = procedureloop.stepindex - 1
-            end
-        elseif (not procedureloop.steprepeat) then
-            P.commandtableentry(def.TEXT, "Window Heat checked and On")
-        end
-    end
-
-    if (procedureloop.stepindex == 14) then
-        if ((get(P.captainprobepos) == def.OFF) or (get(P.foprobepos) == def.OFF)) then
-            if (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
-                P.toggleprobeheat(def.ON)
-            elseif (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                P.commandtableentry(def.TEXT, "Set Probe Heat On")
-                procedureloop.stepindex = procedureloop.stepindex - 1
-            end
-        elseif (not procedureloop.steprepeat) then
-            P.commandtableentry(def.TEXT, "Probe Heat checked and On")
-        end
-    end
-
-    if (procedureloop.stepindex == 15) then
-        if ((get(P.starter1pos) ~= def.FLIGHT) or (get(P.starter2pos) ~= def.FLIGHT)) then
-            if (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
-                P.setstarter(def.BOTH, def.FLIGHT)
-            elseif (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                P.commandtableentry(def.TEXT, "Set Both Starters Flight")
-                procedureloop.stepindex = procedureloop.stepindex - 1
-            end
-        elseif (not procedureloop.steprepeat) then
-            P.commandtableentry(def.TEXT, "Both Starters checked and FLight")
-        end
-    end
-
-    if (procedureloop.stepindex == 16) then
-        if (P.apurunning() < def.APUOFFBUS) then
-            if (get(P.bleedairapupos) == def.ON) then
-                if (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
-                    set(P.bleedairapupos, def.OFF)
-                elseif (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                    P.commandtableentry(def.TEXT, "Set A P U Bleed Air Off")
-                    procedureloop.stepindex = procedureloop.stepindex - 1
-                end
-            elseif (not procedureloop.steprepeat) then
-                P.commandtableentry(def.TEXT, "A P U Bleed Air checked and Off")
-            end
-        end
-    end
-
-    if (procedureloop.stepindex == 17) then
-        if ((get(P.bleedairapupos) == def.OFF) and (get(P.bleedair1pos) == def.ON) and (get(P.bleedair2pos) == def.ON)) then
-            if (get(P.isolvalvepos) == def.ISOLVALVEOPEN) then
-                if (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
-                    set(P.isolvalvepos, def.ISOLVALVEAUTO)
-                elseif (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                    P.commandtableentry(def.TEXT, "Set Isolation Valve Auto")
-                    procedureloop.stepindex = procedureloop.stepindex - 1
-                end
-            elseif (not procedureloop.steprepeat) then
-                P.commandtableentry(def.TEXT, "Isolation Valve checked and Auto")
-            end
-        end
-    end
-
-    if (procedureloop.stepindex == 18) then
-        if ((get(P.bleedairapupos) == def.ON) or ((get(P.bleedair1pos) == def.ON) and (get(P.bleedair2pos) == def.ON))) then
-            if ((get(P.packlpos) ~= def.PACKAUTO) or (get(P.packrpos) ~= def.PACKAUTO)) then
-                if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                    P.commandtableentry(def.TEXT, "Set Both Packs Auto")
-                    procedureloop.stepindex = procedureloop.stepindex - 1
-                else
-                    set(P.packlpos, def.PACKAUTO)
-                    set(P.packrpos, def.PACKAUTO)
-                end
-            elseif (not procedureloop.steprepeat) then
-                P.commandtableentry(def.TEXT, "Both Packs checked and Auto")
-            end
-        end
-    end
-
-    if (procedureloop.stepindex == 29) then
-        if (P.configvalues[def.CONFIGVIEWCHANGES] == def.ON) then
-            P.setview(P.configvalues[def.CONFIGVIEWMAINPANEL])
-        else
-            procedureloop.stepindex = procedureloop.stepindex + 1
-            procedureloop.stepindexprevious = procedureloop.stepindexprevious + 1
-        end
-    end
-
-    if (procedureloop.stepindex == 20) then
-        if ((get(P.fdpilotpos) == def.OFF) or (get(P.fdfopos) == def.OFF)) then
-            if (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
-                P.togglefds(def.ON)
-            elseif (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                P.commandtableentry(def.TEXT, "Set Both Flight Directors On")
-                procedureloop.stepindex = procedureloop.stepindex - 1
-            end
-        elseif (not procedureloop.steprepeat) then
-            P.commandtableentry(def.TEXT, "Flight Directors checked and On")
-        end
-    end
-
-    if (procedureloop.stepindex == 21) then
-        if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-            if (get(P.aplnavstat) ~= def.ON) then
-                P.commandtableentry(def.TEXT, "Arm L NAV")
-                procedureloop.stepindex = procedureloop.stepindex - 1
-            elseif not procedureloop.steprepeat then
-                P.commandtableentry(def.TEXT, "L NAV checked and Armed")
-            end
-        end
-    end
-
-    if (procedureloop.stepindex == 22) then
-        if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-            if (get(P.apvnavstat) ~= def.ON) then
-                P.commandtableentry(def.TEXT, "Arm V NAV")
-                procedureloop.stepindex = procedureloop.stepindex - 1
-            elseif not procedureloop.steprepeat then
-                P.commandtableentry(def.TEXT, "V NAV checked and Armed")
-            end
-        end
-    end
-
-    if (procedureloop.stepindex == 23) then
-        if (P.configvalues[def.CONFIGVIEWCHANGES] == def.ON) then
-            P.setview(P.configvalues[def.CONFIGVIEWTHROTTLE])
-        else
-            procedureloop.stepindex = procedureloop.stepindex + 1
-            procedureloop.stepindexprevious = procedureloop.stepindexprevious + 1
-        end
-    end
-
-    if (procedureloop.stepindex == 24) then
-        if ((helpers.convflaplevertoflappos(get(P.flapleverpos)) ~= get(P.toflaps))) then
-            if (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
-                local toflapscmd = "laminar/B738/push_button/flaps_" .. get(P.toflaps)
-                helpers.command_once(toflapscmd)
-            elseif (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                toflapscmd = "Set Flap Lever " .. tostring(get(P.toflaps))
-                P.commandtableentry(def.TEXT, toflapscmd)
-                procedureloop.stepindex = procedureloop.stepindex - 1
-            end
-        elseif (not procedureloop.steprepeat) then
-            P.commandtableentry(def.TEXT, "Flap Lever checked and " .. get(P.toflaps))
-        end
-    end
-
-    if (procedureloop.stepindex == 25) then
-        if (get(P.parkingbrakepos) ~= def.OFF) then
-            if (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
-                set(P.parkingbrakepos, def.OFF)
-            else
-                P.commandtableentry(def.TEXT, "Release Parking Brake")
-                procedureloop.stepindex = procedureloop.stepindex - 1
-            end
-        elseif ((not procedureloop.steprepeat) and (get(P.tirespeed) < 1)) then
-            P.commandtableentry(def.TEXT, "Parking Brake checked and Released")
-        end
-    end
-
-    if (procedureloop.stepindex == 26) then
-        if (P.configvalues[def.CONFIGVIEWCHANGES] == def.ON) then
-            P.setview(P.configvalues[def.CONFIGVIEWMAINPANEL])
-        else
-            procedureloop.stepindex = procedureloop.stepindex + 1
-            procedureloop.stepindexprevious = procedureloop.stepindexprevious + 1
-        end
-
-    end
-
-    return true
-
-end
-
---------------------------------------------------------------------------------------------------------------
-
 function P.beforetaxi()
 
     return P.triggerprocedure(def.BEFORETAXIPROCEDURE, def.TRIGGEREDMANUALLY)
@@ -6990,211 +4670,8 @@ end
 my_command_beforetaxi = sasl.createCommand(def.APPNAMEPREFIX .. "/beforetaxi", "Before Taxi Procedure")
 sasl.registerCommandHandler(my_command_beforetaxi, 0, P.beforetaxi_)
 
---------------------------------------------------------------------------------------------------------------
-
-function P.beforetakeoffsteps(procedureloop)
-
-    if (get(P.groundspeed) > 45) then
-        procedureloop.procedureabort = true
-        procedureloop.setonabort = true
-        return true
-    end
-
-    if (procedureloop.stepindex == 1) then
-        if (get(P.airgroundsensor) == def.OFF) then
-            procedureloop.procedurenotpossible = true
-            P.commandtableentry(def.TEXT, P.proceduretable[def.BEFORETAKEOFFPROCEDURE].name .. " Procedure not possible Inflight")
-            return true
-        end
-
-        if not P.proceduretable[def.BEFORETAXIPROCEDURE].set then
-            procedureloop.procedurenotpossible = true
-            P.commandtableentry(def.TEXT, P.proceduretable[def.BEFORETAKEOFFPROCEDURE].name .. " Procedure Not Possible, before Taxi Procedure")
-            return true
-        end
-
-        if (P.configvalues[def.CONFIGVIEWCHANGES] == def.ON) then
-            P.setview(def.DEFAULTVIEW)
-            P.setview(P.configvalues[def.CONFIGVIEWPEDESTAL])
-        else
-            procedureloop.stepindex = procedureloop.stepindex + 1
-            procedureloop.stepindexprevious = procedureloop.stepindexprevious + 1
-        end
-    end
-
-    if (procedureloop.stepindex == 2) then
-        if (get(P.transponderpos) ~= def.TARA) then
-            if (P.configvalues[def.CONFIGTRANSPONDER] ~= 0) then
-                if (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
-                    P.toggletransponder(def.TARA)
-                elseif (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                    P.commandtableentry(def.TEXT, "Set Transponder T A R A")
-                    procedureloop.stepindex = procedureloop.stepindex - 1
-                end
-            end
-        elseif (not procedureloop.steprepeat) then
-            P.commandtableentry(def.TEXT, "Transponder checked and T A R A")
-        end
-    end
-
-    if (procedureloop.stepindex == 3) then
-        if (P.configvalues[def.CONFIGVIEWCHANGES] == def.ON) then
-            P.setview(P.configvalues[def.CONFIGVIEWOVERHEADPANEL])
-        else
-            procedureloop.stepindex = procedureloop.stepindex + 1
-            procedureloop.stepindexprevious = procedureloop.stepindexprevious + 1
-        end
-    end
-
-    if (procedureloop.stepindex == 4) then
-        if(get(P.positionlights) ~= def.POSLIGHTSSTROBE) then
-            if (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
-                P.togglepositionlights(def.POSLIGHTSSTROBE)
-            elseif (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                P.commandtableentry(def.TEXT, "Set Position Lights Strobe")
-                procedureloop.stepindex = procedureloop.stepindex - 1
-            end
-        elseif (not procedureloop.steprepeat) then
-            P.commandtableentry(def.TEXT, "Position Lights checked and Strobe")
-        end
-    end
-
-    if (procedureloop.stepindex == 5) then
-        if ((get(P.llights1) == def.OFF) or (get(P.llights2) == def.OFF) or (get(P.llights3) == def.OFF) or (get(P.llights4) == def.OFF)) then
-            if (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
-                P.togglelandinglights(def.ON)
-            elseif (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                P.commandtableentry(def.TEXT, "Set Landing Lights On")
-                procedureloop.stepindex = procedureloop.stepindex - 1
-            end
-        elseif (not procedureloop.steprepeat) then
-            P.commandtableentry(def.TEXT, "Landing Lights checked and On")
-        end
-    end
-
-    if (procedureloop.stepindex == 6) then
-        if (get(P.taxilight) ~= def.OFF) then
-            if (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
-                P.toggletaxilights(def.OFF)
-            elseif (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                P.commandtableentry(def.TEXT, "Set Taxi Lights Off")
-                procedureloop.stepindex = procedureloop.stepindex - 1
-            end
-        elseif (not procedureloop.steprepeat) then
-            P.commandtableentry(def.TEXT, "Taxi Lights checked and Off")
-        end
-    end
-
-    if (procedureloop.stepindex == 7) then
-        if ((get(P.rwylightl) == def.ON) or (get(P.rwylightl) == def.ON)) then
-            if (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
-                P.togglerwylights(def.OFF)
-            elseif (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.OFF) then
-                P.commandtableentry(def.TEXT, "Set Runway Turnoff Lights Off")
-                procedureloop.stepindex = procedureloop.stepindex - 1
-            end
-        elseif (not procedureloop.steprepeat) then
-            P.commandtableentry(def.TEXT, "Runway Turnoff Lights checked and Off")
-        end
-    end
-
-    if (procedureloop.stepindex == 8) then
-        if (P.configvalues[def.CONFIGVIEWCHANGES] == def.ON) then
-            P.setview(P.configvalues[def.CONFIGVIEWMAINPANEL])
-        else
-            procedureloop.stepindex = procedureloop.stepindex + 1
-            procedureloop.stepindexprevious = procedureloop.stepindexprevious + 1
-        end
-    end
-
-    if (procedureloop.stepindex == 9) then
-        if (get(P.autobrakepos) ~= def.AUTOBRAKERTO) then
-            if (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
-                P.setautobrake(def.AUTOBRAKERTO)
-            elseif (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                P.commandtableentry(def.TEXT, "Set Auto Brake R T O")
-                procedureloop.stepindex = procedureloop.stepindex - 1
-            end
-        elseif (not procedureloop.steprepeat) then
-            P.commandtableentry(def.TEXT, "Auto Brake checked and R T O")
-        end
-    end
-
-    if (procedureloop.stepindex == 10) then
-        local headingrounded = nil
-        if (helpers.isvalidicao(get(P.depicao)) and helpers.isvalidrwy(get(P.deprwy)) and tonumber(get(P.deprwyheading))) then
-            headingrounded = helpers.roundnumber(get(P.deprwyheading))
-        end
-        local navrwyheading = helpers.getrwyheadingfromnavdata(P.navdatatable, get(P.depicao), get(P.deprwy))
-        if (navrwyheading and ((not headingrounded) or (headingrounded and (math.abs(headingrounded - navrwyheading) <= 3)))) then
-            headingrounded = navrwyheading
-        end
-        if headingrounded then
-            if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                if (get(P.mcpheading) ~= headingrounded) then
-                    P.commandtableentry(def.TEXT, "Set M C P Heading" .. helpers.addspaces(helpers.padNumberWithZerosStrict(headingrounded, 3)))
-                    procedureloop.stepindex = procedureloop.stepindex - 1
-                elseif not procedureloop.steprepeat then
-                    P.commandtableentry(def.TEXT, "M C P Heading checked" .. helpers.addspaces(helpers.padNumberWithZerosStrict(headingrounded, 3)))
-                end
-            end
-        end
-    end
-
-    if (procedureloop.stepindex == 11) then
-        if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-            if (get(P.aplnavstat) ~= def.ON) then
-                P.commandtableentry(def.TEXT, "Arm L NAV")
-                procedureloop.stepindex = procedureloop.stepindex - 1
-            elseif not procedureloop.steprepeat then
-                P.commandtableentry(def.TEXT, "L NAV checked and Armed")
-            end
-        end
-    end
-
-    if (procedureloop.stepindex == 12) then
-        if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-            if (get(P.apvnavstat) ~= def.ON) then
-                P.commandtableentry(def.TEXT, "Arm V NAV")
-                procedureloop.stepindex = procedureloop.stepindex - 1
-            elseif not procedureloop.steprepeat then
-                P.commandtableentry(def.TEXT, "V NAV checked and Armed")
-            end
-        end
-    end
-
-    if (procedureloop.stepindex == 13) then
-        if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-            if (get(P.atarmpos) ~= def.ON) then
-                P.commandtableentry(def.TEXT, "Arm Autothrottle")
-                procedureloop.stepindex = procedureloop.stepindex - 1
-            elseif not procedureloop.steprepeat then
-                P.commandtableentry(def.TEXT, "Autothrottle checked and Armed")
-            end
-        end
-    end
-
-    if (procedureloop.stepindex == 14) then
-        local windreport = nil
-
-        if (P.depmetar and P.airportdatatable[get(P.depicao)] and P.airportdatatable[get(P.depicao)].latitude and P.airportdatatable[get(P.depicao)].longitude) then
-            windreport = helpers.formatWindSpeechSummary(P.depmetar, P.airportdatatable[get(P.depicao)].latitude, P.airportdatatable[get(P.depicao)].longitude)
-        elseif (P.depmetar and helpers.isvalidrwy(get(P.deprwy))) then
-            windreport = helpers.formatWindSpeechSummary(P.depmetar, get(P.deprwylatstartpos), get(P.deprwylonstartpos))
-        end
-
-        if (windreport  ~= nil) then
-            P.commandtableentry(def.TEXT, windreport)
-        end
-    end
-
-
-    return true
-
-end
 
 --------------------------------------------------------------------------------------------------------------
-
 function P.beforetakeoff()
 
     return P.triggerprocedure(def.BEFORETAKEOFFPROCEDURE, def.TRIGGEREDMANUALLY)
@@ -7212,170 +4689,21 @@ my_command_beforetakeoff = sasl.createCommand(def.APPNAMEPREFIX .. "/beforetakeo
 sasl.registerCommandHandler(my_command_beforetakeoff, 0, P.beforetakeoff_)
 
 --------------------------------------------------------------------------------------------------------------
+function P.afterlanding()
 
-function P.atparkingpositionsteps(procedureloop)
-
-    if (get(P.battery) ~= def.ON) then
-        procedureloop.procedureabort = true
-        return true
-    end
-
-    if (procedureloop.stepindex == 1) then
-        if (P.configvalues[def.CONFIGVIEWCHANGES] == def.ON) then
-            P.setview(def.DEFAULTVIEW)
-            P.setview(P.configvalues[def.CONFIGVIEWMAINPANEL])
-        else
-            procedureloop.stepindex = procedureloop.stepindex + 1
-            procedureloop.stepindexprevious = procedureloop.stepindexprevious + 1
-        end
-    end
-
-    if (procedureloop.stepindex == 2) then
-        if (get(P.chockstatus) ~= def.ON) then
-            if (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
-                helpers.command_once("laminar/B738/toggle_switch/chock")
-            elseif (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                P.commandtableentry(def.TEXT, "Set Chocks")
-                procedureloop.stepindex = procedureloop.stepindex - 1
-            end
-        elseif (not procedureloop.steprepeat) then
-            P.commandtableentry(def.TEXT, "Chocks checked and Set")
-        end
-    end
-
-    if ((procedureloop.stepindex == 3) and (get(P.sunpitchdegrees) > 0)) then
-        procedureloop.stepindex = 5
-    end
-
-    if (procedureloop.stepindex == 3) then
-        if ((P.configvalues[def.CONFIGVIEWCHANGES] == def.ON) and (get(P.sunpitchdegrees) < 0)) then
-            P.setview(P.configvalues[def.CONFIGVIEWUPPEROVERHEADPANEL])
-        elseif ((P.configvalues[def.CONFIGVIEWCHANGES] ~= def.ON) and (get(P.sunpitchdegrees) < 0)) then
-            procedureloop.stepindex = procedureloop.stepindex + 1
-            procedureloop.stepindexprevious = procedureloop.stepindexprevious + 1
-        end
-    end
-
-    if (procedureloop.stepindex == 4) then
-        if (get(P.sunpitchdegrees) < 0) then
-            if (get(P.domelightpos) == def.DOMELIGHTOFF) then
-                if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                    P.commandtableentry(def.TEXT, "Set Dome Light On")
-                    procedureloop.stepindex = procedureloop.stepindex - 1
-                else
-                    P.setdomelight(def.DOMELIGHTDIM)
-                end
-            elseif (not procedureloop.steprepeat) then
-                P.commandtableentry(def.TEXT, "Dome light checked and On")
-            end
-        end
-    end
-
-    if (procedureloop.stepindex == 5) then
-        if (P.configvalues[def.CONFIGVIEWCHANGES] == def.ON) then
-            P.setview(P.configvalues[def.CONFIGVIEWPEDESTAL])
-        else
-            procedureloop.stepindex = procedureloop.stepindex + 1
-            procedureloop.stepindexprevious = procedureloop.stepindexprevious + 1
-        end
-    end
-
-    if (procedureloop.stepindex == 6) then
-        if (get(P.transponderpos) ~= def.STANDBY) then
-            if (P.configvalues[def.CONFIGTRANSPONDER] ~= 0) then
-                if (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
-                    P.toggletransponder(def.STANDBY)
-                elseif (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                    P.commandtableentry(def.TEXT, "Set Transponder Standby")
-                    procedureloop.stepindex = procedureloop.stepindex - 1
-                end
-            end
-        elseif (not procedureloop.steprepeat) then
-            P.commandtableentry(def.TEXT, "Transponder checked and Standby")
-        end
-    end
-
-    if (procedureloop.stepindex == 7) then
-        if (P.configvalues[def.CONFIGVIEWCHANGES] == def.ON) then
-            P.setview(P.configvalues[def.CONFIGVIEWOVERHEADPANEL])
-        else
-            procedureloop.stepindex = procedureloop.stepindex + 1
-            procedureloop.stepindexprevious = procedureloop.stepindexprevious + 1
-        end
-    end
-
-    if (procedureloop.stepindex == 8) then
-        if (get(P.taxilight) ~= def.OFF) then
-            if (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
-                P.toggletaxilights(def.OFF)
-            elseif (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                P.commandtableentry(def.TEXT, "Set Taxi Lights Off")
-                procedureloop.stepindex = procedureloop.stepindex - 1
-            end
-        elseif (not procedureloop.steprepeat) then
-            P.commandtableentry(def.TEXT, "Taxi Lights checked and Off")
-        end
-    end
-
-    if (procedureloop.stepindex == 9) then
-        if (get(P.logolighton) ~= def.OFF) then
-            if (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
-                P.togglelogolight(def.OFF)
-            elseif (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                P.commandtableentry(def.TEXT, "Set Logo Lights Off")
-                procedureloop.stepindex = procedureloop.stepindex - 1
-            end
-        elseif (not procedureloop.steprepeat) then
-            P.commandtableentry(def.TEXT, "Logo Lights checked and Off")
-        end
-    end
-
-    if (procedureloop.stepindex == 10) then
-        if (get(P.seatbeltsignpos) ~= def.SEATBELTSIGNOFF) then
-            if (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
-                P.setseatbeltsign(def.SEATBELTSIGNOFF)
-            elseif (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                P.commandtableentry(def.TEXT, "Set Seatbeltsigns Off")
-                procedureloop.stepindex = procedureloop.stepindex - 1
-            end
-        elseif (not procedureloop.steprepeat) then
-            P.commandtableentry(def.TEXT, "Seatbeltsigns checked and Off")
-        end
-    end
-
-    if (procedureloop.stepindex == 11) then
-        if ((get(P.starter1pos) ~= def.AUTO) or (get(P.starter2pos) ~= def.AUTO)) then
-            if (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
-                P.setstarter(def.BOTH, def.AUTO)
-            elseif (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                if (get(P.starterauto) == def.ON) then
-                    P.commandtableentry(def.TEXT, "Set Both Starters Auto")
-                else
-                    P.commandtableentry(def.TEXT, "Set Both Starters Off")
-                end
-                procedureloop.stepindex = procedureloop.stepindex - 1
-            end
-        elseif (not procedureloop.steprepeat) then
-            if (get(P.starterauto) == def.ON) then
-                P.commandtableentry(def.TEXT, "Both Starters checked and Auto")
-            else
-                P.commandtableentry(def.TEXT, "Both Starters checked and Off")
-            end
-        end
-    end
-
-    if (procedureloop.stepindex == 12) then
-        if (P.configvalues[def.CONFIGVIEWCHANGES] == def.ON) then
-            P.setview(P.configvalues[def.CONFIGVIEWMAINPANEL])
-        else
-            procedureloop.stepindex = procedureloop.stepindex + 1
-            procedureloop.stepindexprevious = procedureloop.stepindexprevious + 1
-        end
-    end
-
-    return true
+    return P.triggerprocedure(def.AFTERLANDINGPROCEDURE, def.TRIGGEREDMANUALLY)
 
 end
+
+function P.afterlanding_(phase)
+    if phase == SASL_COMMAND_BEGIN then
+        P.afterlanding()
+    end
+    return 0
+end
+
+my_command_afterlanding = sasl.createCommand(def.APPNAMEPREFIX .. "/afterlanding", "After Landing Procedure")
+sasl.registerCommandHandler(my_command_afterlanding, 0, P.afterlanding_)
 
 --------------------------------------------------------------------------------------------------------------
 
@@ -7451,12 +4779,20 @@ function P.autofunctions()
     if aircraftIsOnGround then
         P.aircraftwasonground = true
 
-        if (get(P.taxilight) ~= def.OFF) and P.enginesrunning(BOTH) and (get(P.groundspeed) < 45) then
+        local taxiTriggerConditions = (get(P.taxilight) ~= def.OFF) and P.enginesrunning(BOTH) and (get(P.groundspeed) < 45)
+        local taxiTargetLoopIndex = P.proceduretable[def.BEFORETAXIPROCEDURE].loop
+        local isTaxiLoopFree = (P.loopStateTables[taxiTargetLoopIndex].lock == def.NOPROCEDURE)
+        if taxiTriggerConditions and isTaxiLoopFree then
+            sasl.logDebug("Autofunctions triggering BEFORETAXIPROCEDURE (Loop " .. taxiTargetLoopIndex .. " is free).")
             P.triggerprocedure(def.BEFORETAXIPROCEDURE)
         end
 
-        if (((helpers.aircraftonrwy(get(P.aircraftlatpos), get(P.aircraftlonpos), get(P.deprwylatstartpos), get(P.deprwylonstartpos), get(P.deprwylatendpos), get(P.deprwylonendpos), 0.0003) and
-             (helpers.headingdiff(get(P.groundtrackmag), get(P.deprwyheading)) < 20) and (helpers.roundnumber(get(P.groundspeed)) == 0)) and (get(P.transponderpos) == def.TARA)) or (get(P.positionlights) == def.POSLIGHTSSTROBE)) then
+        local triggerConditionsMet = (((helpers.aircraftonrwy(get(P.aircraftlatpos), get(P.aircraftlonpos), get(P.deprwylatstartpos), get(P.deprwylonstartpos), get(P.deprwylatendpos), get(P.deprwylonendpos), 0.0003) and
+             (helpers.headingdiff(get(P.groundtrackmag), get(P.deprwyheading)) < 20) and (helpers.roundnumber(get(P.groundspeed)) == 0)) and (get(P.transponderpos) == def.TARA)) or (get(P.positionlights) == def.POSLIGHTSSTROBE))
+        local targetLoopIndex = P.proceduretable[def.BEFORETAKEOFFPROCEDURE].loop
+        local isLoopFree = (P.loopStateTables[targetLoopIndex].lock == def.NOPROCEDURE)
+        if triggerConditionsMet and isLoopFree then
+            sasl.logDebug("Autofunctions triggering BEFORETAKEOFFPROCEDURE (Loop " .. targetLoopIndex .. " is free).")
             P.triggerprocedure(def.BEFORETAKEOFFPROCEDURE)
         end
         
@@ -7514,7 +4850,14 @@ function P.autofunctions()
         end
 
         if P.flightstate == def.FLIGHTSTATEINITIALCLIMB then
-            P.triggerprocedure(def.AFTERTAKEOFFPROCEDURE)
+            local proc_to_check = def.AFTERTAKEOFFPROCEDURE
+            local triggerConditions = true 
+            local targetLoopIndex = P.proceduretable[proc_to_check].loop
+            local isLoopFree = (P.loopStateTables[targetLoopIndex].lock == def.NOPROCEDURE)
+            if triggerConditions and isLoopFree then
+                sasl.logDebug("Autofunctions triggering AFTERTAKEOFFPROCEDURE (Loop " .. targetLoopIndex .. " is free).")
+                P.triggerprocedure(proc_to_check)
+            end
         elseif P.flightstate == def.FLIGHTSTATECLIMB then
             P.duringclimb()
         elseif P.flightstate == def.FLIGHTSTATEAPPROACH then
@@ -7547,6 +4890,15 @@ end
 
 --------------------------------------------------------------------------------------------------------------
 function P.ongoingtasks()
+
+    local current_level = sasl.getLogLevel()
+    
+    if current_level ~= P.lastPolledDebugLevel then
+    
+        set(P.debugLevelDataref, current_level)        
+        P.lastPolledDebugLevel = current_level       
+        sasl.logDebug("Debug level change detected by poll. Saved to dataref: " .. current_level)
+    end
 
     if (P.updatemetartimer == nil) then
         P.updatemetartimer = sasl.createTimer()
@@ -7956,285 +5308,375 @@ end
 
 --------------------------------------------------------------------------------------------------------------
 function P.runProcedureLoop(loopIndex)
+    local P = yal -- Zugriff auf P sicherstellen (wichtig für Prereq-Fix)
     local loop = P.loopStateTables[loopIndex]
+    local procData = P.proceduretable[loop.lock] -- procData hier holen für einfachen Zugriff
+
+    sasl.logDebug("=== runProcedureLoop(" .. loopIndex .. ") - Lock: " .. tostring(loop.lock) .. " ===")
 
     if (loop.lock == def.NOPROCEDURE) then
-        -- Wenn die Schleife nicht gesperrt ist, setze sie sauber zurück
+
+        sasl.logDebug("Loop " .. loopIndex .. " is not locked. Resetting and saving clean state.")
+
+
         loop.stepindex = 0
-        loop.stepindexprevious = 0
+        loop.stepindexprevious = 0 -- Für Engine B
         loop.steprepeat = false
         loop.lastActiveTime = 0
         loop.procedureabort = false
         loop.procedureskipstep = false
         loop.setonabort = false
-        loop.currentStepName = nil -- Wichtig für die neue Engine
-        loop.lastStepName = nil   -- Wichtig für die neue Engine
-        
-        -- Speichere den sauberen Zustand
+        loop.currentStepName = nil -- Für Engine A
+        loop.lastStepName = nil   -- Für Engine A
+
         local datarefHandle = P.ProcLoopHandlesdr[loopIndex]
         if datarefHandle then
+            -- Annahme: Der alte Encoder (mit Namen) wird verwendet
             local stateArray = P.encodeLoopToArray(loop)
             set(datarefHandle, stateArray)
         end
-        return true -- Beende die Funktion
+        return true
     end
 
-    -- Ab hier ist die Schleife gesperrt (loop.lock ~= def.NOPROCEDURE)
+    -- Ab hier ist die Schleife gesperrt
     loop.lastActiveTime = os.time()
     local timestring = os.date("%H:%M:%S", loop.lastActiveTime)
-    
-    local procedureData = P.proceduretable[loop.lock]
-    
-    -- ##################################################################
-    -- ## 1. GEMEINSAME CHECKS (für BEIDE Engines) ##
-    -- ##################################################################
-    
-    if not procedureData then
-        sasl.logError("Procedure " .. tostring(loop.lock) .. " not found in proceduretable! Aborting.")
+
+    sasl.logDebug("Loop " .. loopIndex .. " locked with ProcID: " .. loop.lock .. ", EngineA stepName: " .. tostring(loop.currentStepName) .. ", EngineB stepIndex: " .. loop.stepindex)
+
+    -- ## 1. GEMEINSAME CHECKS ##
+    if not procData then
+        sasl.logError("Procedure " .. tostring(loop.lock) .. " not found! Aborting.")
         loop.procedureabort = true
     else
-        -- KORREKTUR 1: Fehlender allowedState-Check
         local aircraftIsOnGround = (get(P.airgroundsensor) == def.ON)
-        local allowedState = procedureData.allowedState
+        local allowedState = procData.allowedState
         if (allowedState == def.GROUNDONLY and not aircraftIsOnGround) or
            (allowedState == def.AIRONLY and aircraftIsOnGround) then
-            
-            sasl.logInfo("Aborting '" .. procedureData.name .. "' due to invalid aircraft state.")
+            sasl.logInfo("Aborting '" .. procData.name .. "' due to invalid aircraft state.")
             loop.procedureabort = true
         end
     end
 
-    -- ##################################################################
-    -- ## 2. DER GENERISCHE "ROUTER" / "SCHALTER" ##
-    -- ##################################################################
+    -- ## 2. ROUTER / SCHALTER ##
 
-    if procedureData and procedureData.steps and type(procedureData.steps) == "table" then
-        -- #############################################
-        -- ## ENGINE A: NEUE Data-Driven Engine (mit String-Keys)
-        -- #############################################
+    -- ENGINE A: Data-Driven
+    if procData and procData.steps and type(procData.steps) == "table" then
+        sasl.logDebug("Using Engine A (Data-Driven) for ProcID " .. loop.lock)
         local useViewChanges = (P.configvalues[def.CONFIGVIEWCHANGES] == def.ON)
         local useAdviceOnly = (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON)
 
-        -- A1. PREREQUISITE CHECKS (nur bei Schritt 0)
-        if loop.stepindex == 0 then -- 'stepindex' wird als Flag "nicht gestartet" (0) oder "gestartet" (1) verwendet
-            if procedureData.speakname then P.commandtableentry(def.TEXT, procedureData.name .. " Procedure") end
-            sasl.logInfo(procedureData.name .. " Procedure (Data-Driven) started at " .. timestring)
+        -- A1. PREREQUISITE CHECKS
+        if loop.stepindex == 0 then
+            sasl.logDebug("Engine A - Running Prerequisite Checks (stepindex == 0)")
+            if procData.speakname then P.commandtableentry(def.TEXT, procData.name .. " Procedure") end
+            sasl.logInfo(procData.name .. " Procedure (Data-Driven) started at " .. timestring)
 
-            if procedureData.prerequisiteChecks then
-                for _, prereq in ipairs(procedureData.prerequisiteChecks) do
-                    if not prereq.check(P) then
+            if procData.prerequisiteChecks then
+                for i, prereq in ipairs(procData.prerequisiteChecks) do
+                    sasl.logDebug("Checking Prereq #" .. i)
+                    if not prereq.check(P) then -- Übergib P (yal) an die Check-Funktion
+                        sasl.logDebug("Prereq #" .. i .. " FAILED.")
                         P.commandtableentry(def.TEXT, prereq.failMsg)
                         loop.procedurenotpossible = true
+                        if prereq.setonabort then loop.setonabort = true end
                         break
+                    else
+                        sasl.logDebug("Prereq #" .. i .. " PASSED.")
                     end
                 end
             end
-            
+
             if not loop.procedurenotpossible then
-                loop.stepindex = 1 -- "Gestartet" Flag
-                loop.currentStepName = procedureData.startStep -- Setze den Startpunkt
-                loop.lastStepName = nil 
+                sasl.logDebug("All Prerequisites PASSED. Setting stepindex=1, currentStepName=" .. tostring(procData.startStep))
+                loop.stepindex = 1 -- Setze Engine B Index auf 1 (als "gestartet" Flag)
+                loop.currentStepName = procData.startStep -- Setze Engine A Startpunkt
+                loop.lastStepName = nil
+            else
+                sasl.logDebug("Prerequisite failed. loop.procedurenotpossible=true")
             end
         end
 
         -- A2. ABBRUCH-HANDLING
         if loop.procedureabort or loop.procedurenotpossible then
             local msg = loop.procedureabort and "Procedure Aborted" or "Procedure Not Possible"
-            if not loop.procedurenotpossible then 
-                 P.commandtableentry(def.TEXT, procedureData.name .. " " .. msg)
-            end
-            sasl.logInfo(procedureData.name .. " " .. msg .. " at " .. timestring)
-            
+            sasl.logDebug("Engine A - Handling Abort/NotPossible. Message: " .. msg)
+            if loop.procedureabort then P.commandtableentry(def.TEXT, procData.name .. " " .. msg) end
+            sasl.logInfo(procData.name .. " " .. msg .. " at " .. timestring)
             if loop.procedureabort or loop.setonabort then
+                 sasl.logDebug("Setting procedure " .. loop.lock .. " as completed due to abort/setonabort flag.")
                  P.proceduretable[loop.lock].set = true
                  set(P.ProcSetStatusarraydr, 1, loop.lock)
             end
-            
-            loop.lock = def.NOPROCEDURE -- Setzt die Schleife zurück
-            
-        -- A3. SKIP-HANDLING (Manueller Skip)
+            sasl.logDebug("Resetting loop lock.")
+            loop.lock = def.NOPROCEDURE
+
+        -- A3. SKIP-HANDLING
         elseif loop.procedureskipstep then
+            sasl.logDebug("Engine A - Handling Skip Step.")
             P.commandtableentry(def.TEXT, "Procedure Step Skipped")
             loop.procedureskipstep = false
-            local currentStep = procedureData.steps[loop.currentStepName]
-            if currentStep and currentStep.nextStep then
-                loop.currentStepName = currentStep.nextStep
+            local currentStepData = procData.steps[loop.currentStepName]
+            if currentStepData and currentStepData.nextStep then
+                sasl.logDebug("Skipping to nextStep: " .. tostring(currentStepData.nextStep))
+                loop.currentStepName = currentStepData.nextStep
             else
-                loop.currentStepName = nil -- Beende die Prozedur, wenn am Ende geskippt wird
+                sasl.logDebug("Skipping at end or no nextStep defined. Setting currentStepName=nil.")
+                loop.currentStepName = nil
             end
-            
-        -- A4. PRÜFE AUF PROZEDUR-ENDE
-        elseif loop.currentStepName == nil then
-            if procedureData.speakname then P.commandtableentry(def.TEXT, procedureData.name .. " Procedure Complete") end
-            sasl.logInfo(procedureData.name .. " Procedure completed at " .. timestring)
+
+        -- A4. PROZEDUR-ENDE
+        elseif loop.currentStepName == nil and loop.stepindex == 1 then -- stepindex == 1 prüft, ob die Proc überhaupt gestartet wurde
+            sasl.logDebug("Engine A - Procedure End detected (currentStepName == nil and stepindex == 1).")
+            if procData.speakname then P.commandtableentry(def.TEXT, procData.name .. " Procedure Complete") end
+            sasl.logInfo(procData.name .. " Procedure completed at " .. timestring)
             P.proceduretable[loop.lock].set = true
             set(P.ProcSetStatusarraydr, 1, loop.lock)
-            
+            sasl.logDebug("Resetting loop lock.")
             loop.lock = def.NOPROCEDURE
-            
+            loop.stepindex = 0
+
+        -- A4b. Reload-Fall (Name fehlt, aber war gestartet)
+        elseif loop.currentStepName == nil and loop.stepindex > 0 then
+            sasl.logWarning("Engine A - Reload detected (currentStepName == nil and stepindex > 0). Resetting loop.")
+            loop.lock = def.NOPROCEDURE
+            loop.stepindex = 0
+
         -- A5. ENGINE-HAUPTTEIL
-        elseif loop.stepindex == 1 then -- Nur ausführen, wenn gestartet
+        elseif loop.stepindex == 1 then
             local stepName = loop.currentStepName
-            local step = procedureData.steps[stepName]
+            sasl.logDebug("Engine A - Processing Step: '" .. tostring(stepName) .. "'")
+            local step = procData.steps[stepName]
 
             if not step then
-                sasl.logError("Procedure " .. procedureData.name .. " failed: Step '" .. tostring(stepName) .. "' is nil!")
+                sasl.logError("Procedure " .. procData.name .. " failed: Step '" .. tostring(stepName) .. "' is nil! Aborting.")
                 loop.procedureabort = true
             else
                 -- 5a. Step Repeat Logik
-                if stepName == loop.lastStepName then loop.steprepeat = true
-                else loop.steprepeat = false end
+                if stepName == loop.lastStepName then loop.steprepeat = true else loop.steprepeat = false end
                 loop.lastStepName = stepName
+                sasl.logDebug("steprepeat=" .. tostring(loop.steprepeat))
 
-                -- 5b. (Effizienz) Irrelevante Schritte überspringen
-                if step.skipIf and step.skipIf(P) then
-                    sasl.logDebug("Data-Driven: Skipping irrelevant step " .. stepName)
+                -- 5b. skipIf
+                if step.skipIf and step.skipIf() then
+                    sasl.logDebug("skipIf condition met. Skipping to step: " .. tostring(step.nextStep))
                     loop.currentStepName = step.nextStep
-                    loop.lastStepName = nil -- Erzwingt 'steprepeat = false' im nächsten Zyklus
-                
-                -- 5c. (Flexibilität) Verzweigung
-                elseif step.branch then
-                    local nextStepName = step.branch(loop, P, procedureData) 
-                    if nextStepName then
-                        sasl.logDebug("Data-Driven: Branch taken at step " .. stepName .. ", jumping to " .. nextStepName)
-                        loop.currentStepName = nextStepName
-                    elseif nextStepName == nil then 
-                         loop.procedurenotpossible = true
-                    end
-                
-                -- 5d. Ansicht setzen
-                elseif useViewChanges and step.view then
-                    local viewID = step.view(P)
-                    if P.setview(viewID) then
-                        sasl.logDebug("Data-Driven: View changed for step " .. stepName .. ", repeating step.")
-                        loop.lastStepName = nil -- Verhindert 'steprepeat = true' im nächsten Zyklus
-                    else
-                        -- Ansichtswechsel nicht nötig/erfolgt, fahre sofort mit Logik fort
-                        if step.check then
-                            if step.check(P) then
-                                if not loop.steprepeat and step.confirm then local msg = (type(step.confirm) == "function") and step.confirm(P) or step.confirm; if msg then P.commandtableentry(def.TEXT, msg) end end
-                                loop.currentStepName = step.nextStep
+                    loop.lastStepName = nil
+
+                -- 5d. view
+                elseif useViewChanges and step.view and P.setview(step.view()) then
+                    sasl.logDebug("View changed. Repeating step '" .. stepName .. "' in next cycle.")
+                    loop.lastStepName = nil
+
+                -- 5e. Kernlogik
+                else
+                    sasl.logDebug("Entering core logic (check/branch/action/advice).")
+                    if step.check then
+                        sasl.logDebug("Step has a check function.")
+                        if step.check() then
+                            sasl.logDebug("Check PASSED.")
+                            if not loop.steprepeat and step.confirm then local msg = (type(step.confirm) == "function") and step.confirm() or step.confirm; if msg then P.commandtableentry(def.TEXT, msg); sasl.logDebug("Confirmation message: " .. msg) end end
+
+                            if step.branch then
+                                sasl.logDebug("Executing branch function (after successful check).")
+                                local nextStepName = step.branch(loop, procData) -- Argumente wie definiert
+                                sasl.logDebug("Branch returned: " .. tostring(nextStepName))
+                                if type(nextStepName) == "string" then loop.currentStepName = nextStepName
+                                elseif nextStepName == true then sasl.logDebug("Branch handled progression.")
+                                elseif nextStepName == nil then loop.procedurenotpossible = true; sasl.logDebug("Branch signaled procedure not possible.")
+                                else loop.currentStepName = step.nextStep; sasl.logDebug("Branch returned unexpected value, proceeding to default nextStep: " .. tostring(step.nextStep))
+                                end
                             else
-                                if useAdviceOnly then if step.advice then local msg = (type(step.advice) == "function") and step.advice(P) or step.advice; if msg then P.commandtableentry(def.TEXT, msg) end end
-                                else if step.action then step.action(P) end end
+                                sasl.logDebug("No branch function, proceeding to default nextStep: " .. tostring(step.nextStep))
+                                loop.currentStepName = step.nextStep
+                            end
+                        -- ####################################################################
+                        -- ## START DES KORRIGIERTEN "Check FAILED"-BLOCKS                 ##
+                        -- ####################################################################
+                        else
+                            sasl.logDebug("Check FAILED.")
+                            local branchResult = nil -- Standardwert, falls kein Branch existiert
+                            local branchExecuted = false -- Flag, ob Branch-Funktion aufgerufen wurde
+
+                            if step.branch then
+                                sasl.logDebug("Executing branch function (after failed check).")
+                                branchResult = step.branch(loop, procData) -- Argumente wie definiert
+                                branchExecuted = true -- Wichtiges Flag setzen
+                                sasl.logDebug("Branch returned: " .. tostring(branchResult))
+                            else
+                                sasl.logDebug("No branch function defined for this step.")
+                            end
+
+                            -- Jetzt die Ergebnisse auswerten:
+                            if branchExecuted and branchResult == nil then
+                                -- Der Branch wurde ausgeführt UND hat explizit nil zurückgegeben -> Nicht möglich
+                                loop.procedurenotpossible = true;
+                                sasl.logDebug("Branch EXPLICITLY returned nil, signaling procedure not possible.")
+                            elseif branchResult == false then
+                                -- Branch sagt "hier bleiben"
+                                sasl.logDebug("Branch returned false. Staying on step. Issuing advice/action.")
+                                if useAdviceOnly then if step.advice then local msg = (type(step.advice) == "function") and step.advice() or step.advice; if msg then P.commandtableentry(def.TEXT, msg); sasl.logDebug("Advice message: " .. msg) end end
+                                else if step.action then step.action(); sasl.logDebug("Executed action.") end end
+                                -- Bleibe beim aktuellen Schritt (Name wird nicht geändert)
+                            elseif type(branchResult) == "string" then
+                                -- Branch gibt nächsten Schritt vor
+                                sasl.logDebug("Branch returned next step name: " .. branchResult)
+                                loop.currentStepName = branchResult
+                            elseif branchResult == true then
+                                -- Branch hat alles selbst gemacht
+                                sasl.logDebug("Branch returned true, handled progression.")
+                            else
+                                -- Standardverhalten (KEIN Branch ODER Branch gab was Unerwartetes zurück)
+                                sasl.logDebug("Default behavior (No branch or unexpected return). Staying on step. Issuing advice/action.")
+                                if useAdviceOnly then if step.advice then local msg = (type(step.advice) == "function") and step.advice() or step.advice; if msg then P.commandtableentry(def.TEXT, msg); sasl.logDebug("Advice message: " .. msg) end end
+                                else if step.action then step.action(); sasl.logDebug("Executed action.") end end
+                                -- Bleibe beim aktuellen Schritt (Name wird nicht geändert)
+                            end
+                        end -- Ende von if step.check()
+                        -- ####################################################################
+                        -- ## ENDE DES KORRIGIERTEN "Check FAILED"-BLOCKS                  ##
+                        -- ####################################################################
+                    else
+                        -- Schritt ohne Check
+                        sasl.logDebug("Step has NO check function.")
+                        if step.branch then
+                            sasl.logDebug("Executing branch function (no check).")
+                            local nextStepName = step.branch(loop, procData) -- Argumente wie definiert
+                            sasl.logDebug("Branch returned: " .. tostring(nextStepName))
+                            if type(nextStepName) == "string" then loop.currentStepName = nextStepName
+                            elseif nextStepName == true then sasl.logDebug("Branch handled progression.")
+                            elseif nextStepName == nil then loop.procedurenotpossible = true; sasl.logDebug("Branch signaled procedure not possible.")
+                            else loop.currentStepName = step.nextStep; sasl.logDebug("Branch returned unexpected value, proceeding to default nextStep: " .. tostring(step.nextStep))
                             end
                         else
-                            if step.action and not loop.steprepeat then step.action(P) end
+                            sasl.logDebug("No branch function. Executing action (if any) and proceeding to default nextStep: " .. tostring(step.nextStep))
+                            if step.action and not loop.steprepeat then step.action(); sasl.logDebug("Executed action.") end
                             loop.currentStepName = step.nextStep
                         end
                     end
-                
-                -- 5e. Kernlogik: Check, Action, Advice
-                elseif step.check then
-                    if step.check(P) then
-                        if not loop.steprepeat and step.confirm then local msg = (type(step.confirm) == "function") and step.confirm(P) or step.confirm; if msg then P.commandtableentry(def.TEXT, msg) end end
-                        loop.currentStepName = step.nextStep
-                    else
-                        if useAdviceOnly then if step.advice then local msg = (type(step.advice) == "function") and step.advice(P) or step.advice; if msg then P.commandtableentry(def.TEXT, msg) end end
-                        else if step.action then step.action(P) end end
-                    end
-                else
-                    -- Schritt ohne Check (z.B. nur Ansicht oder Aktion)
-                    if step.action and not loop.steprepeat then step.action(P) end
-                    loop.currentStepName = step.nextStep
+
+                    sasl.logDebug("After core logic, next currentStepName is: " .. tostring(loop.currentStepName))
+
                 end
             end
-        end
+        end -- Ende elseif loop.stepindex == 1 (A5)
 
-    elseif procedureData and procedureData.procedurefunction then
+    -- ENGINE B: Legacy
+    elseif procData and procData.procedurefunction then
+
+        sasl.logDebug("Using Engine B (Legacy) for ProcID " .. loop.lock .. " at step index " .. loop.stepindex)
+
         -- #############################################
-        -- ## ENGINE B: ALTE Legacy-Engine           ##
+        -- ## VOLLSTÄNDIGER CODE FÜR ENGINE B         ##
         -- #############################################
-        
-        -- Dies ist der *gesamte* alte Code-Block, 1:1 kopiert
+
         if ((loop.stepindex == 0) and not loop.procedureabort and not loop.procedureskipstep and not loop.procedurenotpossible) then
-            if (P.proceduretable[loop.lock].speakname == true) then
-                P.commandtableentry(def.TEXT, P.proceduretable[loop.lock].name .. " Procedure")
-            end
-            sasl.logInfo(P.proceduretable[loop.lock].name .. " Procedure started at ".. timestring .. " at " .. helpers.roundnumber(get(P.altitude)) .. " feet")
-        elseif ((loop.stepindex <= P.proceduretable[loop.lock].steps) and not loop.procedureabort and not loop.procedureskipstep and not loop.procedurenotpossible) then
-            P.proceduretable[loop.lock].procedurefunction(loop)
-        elseif (((loop.stepindex > P.proceduretable[loop.lock].steps) or loop.procedureabort or loop.procedurenotpossible) and not loop.procedureskipstep) then
-            
-            local wasSetStatusChanged = false
+            -- Start der Prozedur (Legacy)
+            sasl.logDebug("Engine B - Starting procedure.")
+            if (procData.speakname == true) then P.commandtableentry(def.TEXT, procData.name .. " Procedure") end
+            sasl.logInfo(procData.name .. " Procedure started at ".. timestring .. " at " .. helpers.roundnumber(get(P.altitude)) .. " feet")
+            loop.stepindex = 1
+            loop.stepindexprevious = 0
+            loop.steprepeat = false
 
-            if (loop.stepindex > P.proceduretable[loop.lock].steps) then
-                if (P.proceduretable[loop.lock].speakname == true) then
-                    P.commandtableentry(def.TEXT, P.proceduretable[loop.lock].name .. " Procedure Complete")
-                end
-                sasl.logInfo(P.proceduretable[loop.lock].name .. " Procedure completed at " .. timestring .. " at " .. helpers.roundnumber(get(P.altitude)) .. " feet")
+        elseif ((loop.stepindex >= 1 and loop.stepindex <= procData.steps) and not loop.procedureabort and not loop.procedureskipstep and not loop.procedurenotpossible) then
+            -- Ausführen eines Schritts (Legacy)
+            sasl.logDebug("Engine B - Executing step function for step " .. loop.stepindex)
+
+            if (loop.stepindex == loop.stepindexprevious) then loop.steprepeat = true
+            else loop.steprepeat = false; loop.stepindexprevious = loop.stepindex end
+            sasl.logDebug("Engine B - steprepeat=" .. tostring(loop.steprepeat))
+
+            procData.procedurefunction(loop)
+
+            if loop.lock ~= def.NOPROCEDURE and not loop.procedureabort and not loop.procedurenotpossible and not loop.procedureskipstep then
+                loop.stepindex = loop.stepindex + 1
+                sasl.logDebug("Engine B - Incremented stepindex to " .. loop.stepindex)
+            end
+
+        elseif (((loop.stepindex > procData.steps) or loop.procedureabort or loop.procedurenotpossible) and not loop.procedureskipstep) then
+            -- Ende / Abbruch der Prozedur (Legacy)
+            local wasSetStatusChanged = false
+            sasl.logDebug("Engine B - Handling end/abort/notpossible.")
+
+            if (loop.stepindex > procData.steps) then
+                sasl.logDebug("Engine B - Procedure Complete.")
+                if (procData.speakname == true) then P.commandtableentry(def.TEXT, procData.name .. " Procedure Complete") end
+                sasl.logInfo(procData.name .. " Procedure completed at " .. timestring .. " at " .. helpers.roundnumber(get(P.altitude)) .. " feet")
                 P.proceduretable[loop.lock].set = true
                 wasSetStatusChanged = true
                 if loop.lock == def.SHUTDOWNPROCEDURE or loop.lock == def.TURNAROUNDENGINESHUTDOWNPROCEDURE then
-                    sasl.logInfo("End of flight detected (via " .. P.proceduretable[loop.lock].name .. "). Automatically resetting for new flight.")
+                    sasl.logInfo("End of flight detected (via " .. procData.name .. "). Automatically resetting for new flight.")
                     P.yalresetForNewFlight()
-                    return true
+                    return true -- Wichtig: Frühzeitiger Ausstieg
                 end
             elseif loop.procedureabort then
-                P.commandtableentry(def.TEXT, P.proceduretable[loop.lock].name .. " Procedure Aborted")
-                sasl.logInfo(P.proceduretable[loop.lock].name .. " Procedure aborted at " .. timestring .. " at " .. helpers.roundnumber(get(P.altitude)) .. " feet")
-                loop.procedureabort = false
+                sasl.logDebug("Engine B - Procedure Aborted.")
+                P.commandtableentry(def.TEXT, procData.name .. " Procedure Aborted")
+                sasl.logInfo(procData.name .. " Procedure aborted at " .. timestring .. " at " .. helpers.roundnumber(get(P.altitude)) .. " feet")
+                loop.procedureabort = false -- Flag zurücksetzen
                 P.proceduretable[loop.lock].set = true
                 wasSetStatusChanged = true
             elseif loop.procedurenotpossible then
+                sasl.logDebug("Engine B - Procedure Not Possible.")
                 if loop.setonabort then
+                    sasl.logDebug("Setting procedure as complete due to setonabort flag.")
                     P.proceduretable[loop.lock].set = true
                     wasSetStatusChanged = true
                 end
-                loop.procedurenotpossible = false
+                loop.procedurenotpossible = false -- Flag zurücksetzen
             end
-            
+
             if wasSetStatusChanged then
-                local procId = loop.lock
-                set(P.ProcSetStatusarraydr, 1, procId)
+                sasl.logDebug("Saving set status for ProcID " .. loop.lock)
+                set(P.ProcSetStatusarraydr, 1, loop.lock)
             end
 
+            sasl.logDebug("Resetting loop lock (Engine B end/abort).")
             loop.lock = def.NOPROCEDURE
-        end
-
-        -- Post-processing für die ALTE Engine
-        if (loop.lock == def.NOPROCEDURE) then
             loop.stepindex = 0
+            loop.stepindexprevious = 0
+            loop.steprepeat = false
             loop.lastActiveTime = 0
             loop.setonabort = false
-        else
-            loop.stepindex = loop.stepindex + 1
         end
 
-        if (loop.stepindex == loop.stepindexprevious) then
-            loop.steprepeat = true
-        else
-            loop.steprepeat = false
-            loop.stepindexprevious = loop.stepindex
-        end
-
-        if loop.procedureskipstep then
+        -- Skip Handling für Engine B
+        if loop.procedureskipstep and loop.lock ~= def.NOPROCEDURE then
+            sasl.logDebug("Engine B - Handling Skip Step.")
             P.commandtableentry(def.TEXT, "Procedure Step Skipped")
             loop.procedureskipstep = false
             loop.stepindex = loop.stepindex + 1
+            sasl.logDebug("Engine B - Incremented stepindex to " .. loop.stepindex .. " due to skip.")
+            loop.stepindexprevious = -1
         end
 
     else
-        -- #############################################
-        -- ## FALLBACK: Prozedur ist kaputt           ##
-        -- #############################################
-        sasl.logError("Procedure " .. tostring(loop.lock) .. " has no 'steps' table or 'procedurefunction'!")
+        -- Fallback
+        sasl.logError("Procedure " .. tostring(loop.lock) .. " has no valid 'steps' table or 'procedurefunction'! Aborting.")
         loop.procedureabort = true
+        loop.lock = def.NOPROCEDURE
     end
 
-    -- ##################################################################
-    -- ## 3. GEMEINSAME POST-PROCESSING-LOGIK (Speichern) ##
-    -- ##################################################################
-    
+    -- ## 3. POST-PROCESSING (Speichern) ##
+
+    if loop.lock == def.NOPROCEDURE and (loop.stepindex == 0 or loop.currentStepName == nil) then
+        sasl.logDebug("Loop " .. loopIndex .. " just finished or was reset. Saving final state.")
+    elseif loop.lock ~= def.NOPROCEDURE then
+        sasl.logDebug("Saving loop " .. loopIndex .. " state - Lock: " .. loop.lock .. ", StepName: " .. tostring(loop.currentStepName) .. ", StepIndex(B): " .. loop.stepindex)
+    end
+
     local datarefHandle = P.ProcLoopHandlesdr[loopIndex]
     if datarefHandle then
+
         local stateArray = P.encodeLoopToArray(loop)
         set(datarefHandle, stateArray)
     end
 
+    sasl.logDebug("=== runProcedureLoop(" .. loopIndex .. ") - END ===")
+
     return true
 end
-
 --------------------------------------------------------------------------------------------------------------
 
 function P.do_yal()
@@ -8472,6 +5914,6 @@ function P.enableMenus()
 
 end
 
-P.YalinitGlobal()
+-- P.YalinitGlobal()
 
 return yal

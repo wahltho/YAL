@@ -201,6 +201,32 @@ local function os_is_unix()
 end
 
 --------------------------------------------------------------------------------------------------------------
+function P.tableToStringOrValue(value)
+  if type(value) == "table" then
+    -- Versuche, es als sequenzielle Tabelle zu behandeln
+    local parts = {}
+    local is_sequence = true
+    for i = 1, #value do
+        if value[i] == nil then 
+            is_sequence = false 
+            break 
+        end
+        table.insert(parts, tostring(value[i]))
+    end
+    
+    if is_sequence and #parts > 0 then
+        return "{ " .. table.concat(parts, ", ") .. " }"
+    else 
+        -- Fallback für nicht-sequenzielle Tabellen oder leere Tabellen
+        return "(table)" -- Einfache Darstellung für komplexere Tabellen
+    end
+  else
+    -- Für Zahlen, Strings, Booleans etc.
+    return tostring(value) 
+  end
+end
+
+--------------------------------------------------------------------------------------------------------------
 function P.create_directories(dirnames)
     local cmd, args = nil, ""
 
@@ -2091,22 +2117,23 @@ end
 
 --------------------------------------------------------------------------------------------------------------
 function P.buildnavdatatable(navdatatable)
-    -- Hilfsfunktion, die nur innerhalb dieser Funktion benötigt wird
+    -- Interne Hilfsfunktion, um DME-Eintraege zu finden
     local function search_for_dme(target_table, icao, navid, navtype)
         if not (icao and navid and navtype) then return nil end
         for i, entry in ipairs(target_table) do
             if (entry[def.DESTICAO] == icao and 
                 entry[def.DESTNAVID] == navid and 
                 entry[def.DESTNAVTYPE] == navtype) then
-                return i -- Gib den numerischen Index zurück
+                return i
             end
         end
         return nil
     end
 
-    -- Tabelle leeren für einen sauberen Neuaufbau
+    -- Bestehende Tabelle leeren
     for i = #navdatatable, 1, -1 do table.remove(navdatatable, i) end
 
+    -- Dateipfade (Logik zum Finden der earth_nav.dat)
     local srcnavdatafile = io.open("Custom Data/earth_nav.dat", "r")
     if not srcnavdatafile then
         srcnavdatafile = io.open("Custom Scenery/Global Airports/Earth nav data/earth_nav.dat", "r")
@@ -2125,11 +2152,11 @@ function P.buildnavdatatable(navdatatable)
         sasl.logInfo("Navdatabase Sourse: Custom Data/earth_nav.dat")
     end
 
-    for i = 1, 3 do srcnavdatafile:read() end
+    for i = 1, 3 do srcnavdatafile:read() end -- Header ueberspringen
 
     local navdatarecord = srcnavdatafile:read()
     while navdatarecord do
-        if navdatarecord:sub(1, 2) == "99" then break end
+        if navdatarecord:sub(1, 2) == "99" then break end -- Dateiende
 
         local navdataitems = {}
         for navdataitem in navdatarecord:gmatch("%S+") do table.insert(navdataitems, navdataitem) end
@@ -2150,33 +2177,39 @@ function P.buildnavdatatable(navdatatable)
                     newEntry[def.DESTFREQ] = tonumber(navdataitems[def.SRCFREQ])
                     newEntry[def.DESTLATPOS] = lat_val
                     newEntry[def.DESTLONPOS] = lon_val
-                    local course_val = tonumber(navdataitems[def.SRCCOURSE])
-                    if course_val then
-                        local mag_var = sasl.getMagneticVariation(lat_val, lon_val)
-                        newEntry[def.DESTCOURSE] = P.calccourse((course_val + mag_var + 360) % 360)
+                    
+                    local course_val_packed = tonumber(navdataitems[def.SRCCOURSE])
+                    
+                    if course_val_packed then
+                        -- ### KORRIGIERTE LOGIK ###
+                        -- Entpacke den MAGNETISCHEN Kurs (den Chart-Kurs)
+                        local magnetic_course = math.floor(course_val_packed / 360)
+                        -- Speichere den gerundeten MAGNETISCHEN Kurs
+                        newEntry[def.DESTCOURSE] = P.calccourse(magnetic_course) 
                     else
                         newEntry[def.DESTCOURSE] = 0
                     end
-                    newEntry[def.DESTNAVDME] = false
+                    newEntry[def.DESTNAVDME] = false -- Wird spaeter von Typ 7 gesetzt
                     table.insert(navdatatable, newEntry)
 
                 elseif (record_type_str == def.NAVDATARECTYPEVOR) then
                     local newEntry = {}
                     newEntry[def.DESTICAO] = navdataitems[def.SRCICAO]
-                    newEntry[def.DESTRWY] = "" -- VOR hat keine RWY
+                    newEntry[def.DESTRWY] = "" 
                     newEntry[def.DESTNAVTYPE] = def.NAVTYPEVOR
                     newEntry[def.DESTNAVID] = navdataitems[def.SRCNAVID]
                     newEntry[def.DESTFREQ] = tonumber(navdataitems[def.SRCFREQ])
                     newEntry[def.DESTLATPOS] = lat_val
                     newEntry[def.DESTLONPOS] = lon_val
                     newEntry[def.DESTCOURSE] = 0
-                    newEntry[def.DESTNAVDME] = false
+                    newEntry[def.DESTNAVDME] = false -- VOR only
                     table.insert(navdatatable, newEntry)
                     
                 elseif (record_type_str == def.NAVDATARECTYPEDME) then
+                    -- Suche nach einem passenden ILS und setze dessen DME-Flag
                     local index = search_for_dme(navdatatable, navdataitems[def.SRCICAO], navdataitems[def.SRCNAVID], def.NAVTYPEILS)
                     if index then navdatatable[index][def.DESTNAVDME] = true end
-
+                    
                 elseif ((record_type_str == def.NAVDATARECTYPELPV) or (record_type_str == def.NAVDATARECTYPEGLS)) then
                     local newEntry = {}
                     if record_type_str == def.NAVDATARECTYPELPV then
@@ -2192,20 +2225,14 @@ function P.buildnavdatatable(navdatatable)
                     newEntry[def.DESTLATPOS] = lat_val
                     newEntry[def.DESTLONPOS] = lon_val
                     
-                    -- Deine extra Logik für den Kurs-String
-                    local raw_course_data_string = navdataitems[def.SRCCOURSE]
-                    local extracted_course_string = raw_course_data_string
-                    if #raw_course_data_string > 3 and tonumber(raw_course_data_string:sub(1,3)) ~= nil then
-                        extracted_course_string = raw_course_data_string:sub(4)
-                    end
-                    if #extracted_course_string >= 4 and extracted_course_string:sub(1,3) == "CRS" then
-                        extracted_course_string = string.sub(extracted_course_string, 4, -1)
-                    end
-                    local course_val_lpv_gls = tonumber(extracted_course_string)
+                    local course_val_packed = tonumber(navdataitems[def.SRCCOURSE])
                     
-                    if course_val_lpv_gls then
-                        local mag_var = sasl.getMagneticVariation(lat_val, lon_val)
-                        newEntry[def.DESTCOURSE] = P.calccourse((course_val_lpv_gls + mag_var + 360) % 360)
+                    if course_val_packed then
+                        -- ### KORRIGIERTE LOGIK ###
+                        -- Entpacke den MAGNETISCHEN Kurs
+                        local magnetic_course = math.floor(course_val_packed / 360)
+                        -- Speichere den gerundeten MAGNETISCHEN Kurs
+                        newEntry[def.DESTCOURSE] = P.calccourse(magnetic_course) 
                     else
                         newEntry[def.DESTCOURSE] = 0
                     end
@@ -2217,23 +2244,6 @@ function P.buildnavdatatable(navdatatable)
         navdatarecord = srcnavdatafile:read()
     end
     srcnavdatafile:close()
-    
-    -- Post-processing (angepasst für numerische Indizes)
-    local lookupTable = {}
-    for i, entry in ipairs(navdatatable) do
-        if entry[def.DESTNAVTYPE] == def.NAVTYPEILS then
-            lookupTable[entry[def.DESTICAO] .. entry[def.DESTRWY]] = i
-        end
-    end
-
-    for i, value in ipairs(navdatatable) do
-        if (value[def.DESTNAVTYPE] == def.NAVTYPEGLS or value[def.DESTNAVTYPE] == def.NAVTYPELPV) then
-            local ilsIndex = lookupTable[value[def.DESTICAO] .. value[def.DESTRWY]]
-            if ilsIndex and navdatatable[ilsIndex] then
-                value[def.DESTCOURSE] = navdatatable[ilsIndex][def.DESTCOURSE]
-            end
-        end
-    end
 
     sasl.logInfo("Navdata Table created, " .. #navdatatable .. " entries.")
     return true

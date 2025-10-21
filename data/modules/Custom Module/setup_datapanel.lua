@@ -1021,7 +1021,7 @@ wdef = {
     },
     debugMode = {
         t = messages.translation['DEBUGMODE'],
-        value = false,
+        value = (sasl.getLogLevel() == LOG_DEBUG),
         x = x_col2 + 20,
         y = hSize - 680,
         w = cb_w,
