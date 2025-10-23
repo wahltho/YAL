@@ -1052,6 +1052,22 @@ function P.decodemetar(metar)
                 result.visibility = { value = math.min(meters, 10000) }
                 sasl.logDebug(string.format("Parsed visibility: %sSM, converted to %d meters", sm_val_str, result.visibility.value))
                 parsed = true
+
+                -- ## START VISIBILITY CHANGE ##
+                if result.visibility and i + 1 <= #parts then
+                    local next_part = parts[i + 1]
+                    local dir_vis_val, dir_code = string.match(next_part, "^(%d%d%d%d)([NSEW][EW]?)$")
+                    if dir_vis_val and dir_code then
+                        result.visibility.directional = {
+                            value = tonumber(dir_vis_val),
+                            direction = dir_code
+                        }
+                        sasl.logDebug(string.format("Parsed directional visibility: %d meters towards %s",
+                                      result.visibility.directional.value, result.visibility.directional.direction))
+                        i = i + 1
+                    end
+                end
+                -- ## END VISIBILITY CHANGE ##
             else
                 sasl.logError("Warning: Could not parse SM visibility value from: " .. part)
             end
@@ -1065,6 +1081,22 @@ function P.decodemetar(metar)
                 sasl.logDebug(string.format("Parsed visibility: %d meters", result.visibility.value))
             end
             parsed = true
+
+            -- ## START VISIBILITY CHANGE ##
+            if result.visibility and i + 1 <= #parts then
+                local next_part = parts[i + 1]
+                local dir_vis_val, dir_code = string.match(next_part, "^(%d%d%d%d)([NSEW][EW]?)$")
+                if dir_vis_val and dir_code then
+                    result.visibility.directional = {
+                        value = tonumber(dir_vis_val),
+                        direction = dir_code
+                    }
+                    sasl.logDebug(string.format("Parsed directional visibility: %d meters towards %s",
+                                  result.visibility.directional.value, result.visibility.directional.direction))
+                    i = i + 1
+                end
+            end
+            -- ## END VISIBILITY CHANGE ##
 
         elseif (string.sub(part, 1, 1) == "R" and string.find(part, "/", 1, true) and #part >= 5) then
             result.runway_reports = result.runway_reports or {}
@@ -1094,22 +1126,20 @@ function P.decodemetar(metar)
         elseif ( (string.sub(part, 1, 3) == "FEW" or string.sub(part, 1, 3) == "SCT" or string.sub(part, 1, 3) == "BKN" or string.sub(part, 1, 3) == "OVC") and
                  #part >= 6 and tonumber(string.sub(part, 4, 6)) ~= nil ) or
                ( string.sub(part, 1, 2) == "VV" and #part >= 5 and tonumber(string.sub(part, 3, 5)) ~= nil ) or
-               ( part == "SKC" or part == "CLR" or part == "NSC" or part == "NCD" ) or -- NCD hinzugefügt
+               ( part == "SKC" or part == "CLR" or part == "NSC" or part == "NCD" ) or
                ( string.sub(part, 1, 1) == '/' and (string.find(part, "TCU$") or string.find(part, "CB$")) ) or
                ( string.sub(part, 1, 1) == '/' and (string.find(part, "FEW$") or string.find(part, "SCT$") or string.find(part, "BKN$") or string.find(part, "OVC$")) ) or
                ( (string.sub(part, 1, 3) == "FEW" or string.sub(part, 1, 3) == "SCT" or string.sub(part, 1, 3) == "BKN" or string.sub(part, 1, 3) == "OVC") and string.sub(part, -3) == "///" )
         then
             result.clouds = result.clouds or {}
-            if (part == "SKC" or part == "CLR" or part == "NSC" or part == "NCD") then -- NCD hinzugefügt
+            if (part == "SKC" or part == "CLR" or part == "NSC" or part == "NCD") then
                 table.insert(result.clouds, { coverage = part, altitude = nil, type = "" })
                 sasl.logDebug("Parsed cloud: " .. part)
                 parsed = true
             elseif (string.sub(part, 1, 1) == '/') then
-                -- ... (Logik für Wolken mit fehlenden Daten bleibt unverändert) ...
-                parsed = true
+                 parsed = true
             elseif (string.sub(part, -3) == "///") then
-                -- ... (Logik für Wolken mit fehlender Höhe bleibt unverändert) ...
-                parsed = true
+                 parsed = true
             else
                 local coverage_code
                 local altitude_str_val
@@ -1136,7 +1166,6 @@ function P.decodemetar(metar)
                 end
             end
 
-        -- ##### NEUER BLOCK ZUM ABFANGEN VON '//' #####
         elseif (part == "//") then
             result.temperature = { value = nil }
             result.dew_point = { value = nil }
@@ -1155,7 +1184,7 @@ function P.decodemetar(metar)
                 if ((temp_val ~= nil) and (dew_val ~= nil)) then
                     result.temperature = { value = temp_val }
                     result.dew_point = { value = dew_val }
-                    sasl.logDebug(string.format("Parsed temp/dew: %d°C/%d°C", temp_val, dew_val))
+                    sasl.logDebug(string.format("Parsed temp/dew: %d C/%d C", temp_val, dew_val))
                     parsed = true
                 end
             end
@@ -1315,12 +1344,22 @@ function P.shouldCheckRunwaySuitability(metar, runwayDesignator)
         return true -- Kann Landebahn nicht ableiten, kann nicht pruefen.
     end
 
-    -- 3. Windkomponenten berechnen
-    local headwindComponent, crosswindKnots = P.calculateWindComponents(windDirection, runwayHeading, windSpeed)
+ -- 3. Windkomponenten berechnen (Korrigiert für magnetische Konsistenz)
+    --    Annahme: windDirection ist True, runwayHeading ist Magnetic
+    local magnetic_variation = 0 -- Default
+    if metar.latitude and metar.longitude then -- Versuche, Variation vom METAR-Ort zu bekommen
+         magnetic_variation = sasl.getMagneticVariation(metar.latitude, metar.longitude) or 0
+    end
+    -- Konvertiere Wind zu magnetisch
+    local magneticWindDirection = (windDirection - magnetic_variation + 360) % 360 
 
-    sasl.logDebug(string.format("Calculated for RWY %s (Heading %d): Headwind %.1f kt, Crosswind %.1f kt (from Wind %d@%dkt)",
-                                 runwayDesignator, runwayHeading, headwindComponent, crosswindKnots, windDirection, windSpeed))
+    -- Berechne Komponenten mit magnetischer Windrichtung und magnetischem Runway-Heading
+    local headwindComponent, crosswindKnots = P.calculateWindComponents(magneticWindDirection, runwayHeading, windSpeed)
 
+    sasl.logDebug(string.format("Calculated for RWY %s (Mag Hdg %d): Headwind %.1f kt, Crosswind %.1f kt (from Mag Wind %03d@%dkt, True Wind %s@%dkt, MagVar %.1f)",
+                                runwayDesignator, runwayHeading, headwindComponent, crosswindKnots,
+                                math.floor(magneticWindDirection + 0.5), windSpeed,
+                                tostring(windDirection), windSpeed, magnetic_variation))
 
     -- 4. Ueberpruefung der Schwellenwerte
     -- Rueckenwind (HeadwindComponent ist negativ bei Rueckenwind)
@@ -1329,9 +1368,12 @@ function P.shouldCheckRunwaySuitability(metar, runwayDesignator)
         return false -- Rueckenwind zu stark
     end
 
-    -- Seitenwind
-    if crosswindKnots > MAX_CROSSWIND_KN then
-        sasl.logDebug(string.format("Runway %s: Crosswind (%.1f kt) exceeds max allowed (%.1f kt). Check recommended.", runwayDesignator, crosswindKnots, MAX_CROSSWIND_KN))
+    -- Seitenwind- KORRIGIET
+    local crosswindMagnitude = math.abs(crosswindKnots) -- Get the absolute value
+    if crosswindMagnitude > MAX_CROSSWIND_KN then
+        -- Log the signed value for context, but compare the magnitude
+        sasl.logDebug(string.format("Runway %s: Crosswind magnitude (%.1f kt, signed: %.1f kt) exceeds max allowed (%.1f kt). Check recommended.", 
+                       runwayDesignator, crosswindMagnitude, crosswindKnots, MAX_CROSSWIND_KN))
         return false -- Seitenwind zu stark
     end
 
@@ -1340,69 +1382,135 @@ function P.shouldCheckRunwaySuitability(metar, runwayDesignator)
 end
 
 --------------------------------------------------------------------------------------------------------------
-function P.formatMetarSpeechSummary(metar)
+-- Nimmt jetzt runwayName ("07L", "25R", etc.)
+function P.formatMetarSpeechSummary(metar, runwayName)
     local parts = {}
 
-    -- Extract necessary data from the metar table
     local icaocode = metar.icaocode
     local metar_data = metar.decodedmetar
 
-    -- Add airport ICAO code to the beginning of the summary
     if icaocode and #icaocode > 0 then
         table.insert(parts, P.addspaces(icaocode))
     end
 
-    -- Wind
+    -- NEU: Heading aus Runway-Namen ableiten, nur wenn gültig
+    local derivedHeading = nil
+    -- *** VERBESSERUNG: Prüfe mit P.isvalidrwy ***
+    if P.isvalidrwy(runwayName) then
+        -- Versuche, die ersten zwei Ziffern zu extrahieren
+        local rwyNumStr = string.match(runwayName, "^(%d%d)")
+        if rwyNumStr then
+            local rwyNum = tonumber(rwyNumStr)
+            if rwyNum then
+                if rwyNum == 0 then -- Handle "runway 00" edge case if needed, though unlikely
+                   derivedHeading = 360 -- Or handle as error depending on format
+                elseif rwyNum >= 1 and rwyNum <= 36 then
+                   derivedHeading = rwyNum * 10
+                end
+                 -- Überprüfung, ob das Ergebnis im gültigen Bereich liegt (eigentlich durch obiges check abgedeckt)
+                 if not (derivedHeading and derivedHeading >= 1 and derivedHeading <= 360) then
+                      derivedHeading = nil -- Ungültiges Ergebnis
+                      sasl.logInfo("formatMetarSpeechSummary: Ungültiges Heading " .. tostring(derivedHeading or "nil") .. " aus Runway '" .. runwayName .. "' abgeleitet (nach Nummern-Extraktion).") -- Geändert zu logInfo
+                 end
+            else
+                 sasl.logInfo("formatMetarSpeechSummary: Konnte Ziffern '" .. rwyNumStr .. "' aus Runway '" .. runwayName .. "' nicht in Zahl umwandeln.") -- Geändert zu logInfo
+            end
+        else
+             sasl.logInfo("formatMetarSpeechSummary: Konnte keine Heading-Zahl aus gültiger Runway '" .. runwayName .. "' extrahieren (string.match fehlgeschlagen).") -- Geändert zu logInfo
+        end
+    else
+         -- Log optional, wenn ungültige Namen übergeben werden könnten
+         if runwayName and runwayName ~= "" then
+              sasl.logInfo("formatMetarSpeechSummary: Übergabener runwayName '".. runwayName .."' ist laut P.isvalidrwy ungültig. Keine Windkomponentenberechnung.") -- Geändert zu logInfo
+         end
+    end
+    -- derivedHeading ist jetzt entweder eine Zahl (10-360) oder nil
+
     if metar_data.wind then
         local dir = metar_data.wind.direction
         local speed = metar_data.wind.speed
         local gust = metar_data.wind.gust
-
         local wind_part = ""
-        if speed == 0 then -- Handle calm condition
+
+        if speed == 0 then
             wind_part = "Wind calm"
+        -- GEÄNDERT: Prüfe derivedHeading und numerische Windrichtung
+        elseif derivedHeading and type(dir) == "number" then
+            sasl.logInfo(string.format("Calculating wind components: dir=%s, speed=%s, rwyHdg=%s",
+                           tostring(dir), tostring(speed), tostring(derivedHeading)))
+            -- Ruft die korrigierte Funktion auf, die vorzeichenbehafteten Crosswind liefert
+            local headwind, crosswind = P.calculateWindComponents(dir, derivedHeading, speed)
+            sasl.logInfo(string.format("Calculated components: headwind=%.2f, crosswind=%.2f", headwind, crosswind))
+
+            -- Gib den Runway-NAMEN aus
+            wind_part = string.format("Wind runway %s, ", runwayName)
+
+            -- Format Headwind/Tailwind
+            if headwind >= 1 then
+                wind_part = wind_part .. string.format("headwind %d knots", math.floor(headwind + 0.5))
+            elseif headwind <= -1 then
+                wind_part = wind_part .. string.format("tailwind %d knots", math.floor(math.abs(headwind) + 0.5))
+            else
+                -- Optional: "no headwind component" hinzufügen, wenn gewünscht
+            end
+
+            -- Korrigierte Crosswind-Logik
+            if crosswind >= 1 then -- Positiv = Links
+                if headwind >= 1 or headwind <= -1 then wind_part = wind_part .. "," end
+                wind_part = wind_part .. string.format(" crosswind from left %d knots", math.floor(crosswind + 0.5))
+            elseif crosswind <= -1 then -- Negativ = Rechts
+                if headwind >= 1 or headwind <= -1 then wind_part = wind_part .. "," end
+                wind_part = wind_part .. string.format(" crosswind from right %d knots", math.floor(math.abs(crosswind) + 0.5))
+            end
+
+             -- Füge Böen-Info hinzu, falls relevant
+             if gust and gust > speed then
+                  wind_part = wind_part .. string.format(" (gusting %d knots)", gust)
+             end
+
+        -- Fallback (wenn kein Heading abgeleitet werden konnte oder Wind VRB etc.)
         elseif dir == "VRB" then
-            wind_part = "Wind variable at "
-            wind_part = wind_part .. string.format("%d knots", speed)
-            if gust and gust > 0 then
-                wind_part = wind_part .. string.format(" gusting %d", gust)
-            end
-        else
-            wind_part = string.format("Wind %d at ", dir)
-            wind_part = wind_part .. string.format("%d knots", speed)
-            if gust and gust > 0 then
-                wind_part = wind_part .. string.format(" gusting %d", gust)
-            end
+            wind_part = string.format("Wind variable at %d knots", speed)
+            if gust and gust > 0 then wind_part = wind_part .. string.format(" gusting %d", gust) end
+        elseif type(dir) == "number" then -- Windrichtung numerisch, aber kein RWY-Heading
+             wind_part = string.format("Wind %03d degrees at %d knots", dir, speed)
+             if gust and gust > 0 then wind_part = wind_part .. string.format(" gusting %d", gust) end
+        else -- Windrichtung ist Text (z.B. N)
+             wind_part = string.format("Wind %s at %d knots", tostring(dir), speed)
+             if gust and gust > 0 then wind_part = wind_part .. string.format(" gusting %d", gust) end
         end
         table.insert(parts, wind_part)
     end
 
-    -- Visibility
+    -- Rest der Funktion (Visibility, Weather, Clouds) bleibt unverändert
     if metar_data.visibility then
         local vis_val = metar_data.visibility.value
         local vis_part = "Visibility "
-        if metar_data.cavok then -- Prioritize CAVOK if present
+        if metar_data.cavok then
             vis_part = "Visibility 10 kilometers or more"
         elseif vis_val >= 10000 then
             vis_part = vis_part .. "10 kilometers or more"
-        elseif vis_val >= 1609 then -- Convert to miles if close to a mile (1609m = 1 mile)
+        elseif vis_val >= 1609 then
             vis_part = vis_part .. string.format("%d statute miles", math.floor(vis_val / 1609.34 + 0.5))
-        elseif vis_val >= 1000 then -- Convert to kilometers if 1km or more
+        elseif vis_val >= 1000 then
             vis_part = vis_part .. string.format("%d kilometers", math.floor(vis_val / 1000 + 0.5))
         else
             vis_part = vis_part .. string.format("%d meters", vis_val)
         end
+        if metar_data.visibility.directional then
+             vis_part = vis_part .. string.format(" specific %d meters to the %s",
+                                 metar_data.visibility.directional.value,
+                                 metar_data.visibility.directional.direction)
+        end
         table.insert(parts, vis_part)
     end
 
-    -- General Weather (simplified)
     if metar_data.weather and #metar_data.weather > 0 then
         local weather_desc = {}
         for _, wx_entry in ipairs(metar_data.weather) do
             local intensity = ""
             if wx_entry.intensity == "light" then intensity = "light "
             elseif wx_entry.intensity == "heavy" then intensity = "heavy " end
-            -- Map common phenomena to more speech-friendly terms
             local phenomenon = wx_entry.phenomenon
             if phenomenon == "RA" then phenomenon = "rain"
             elseif phenomenon == "SN" then phenomenon = "snow"
@@ -1411,7 +1519,7 @@ function P.formatMetarSpeechSummary(metar)
             elseif phenomenon == "BR" then phenomenon = "mist"
             elseif phenomenon == "HZ" then phenomenon = "haze"
             elseif phenomenon == "TS" then phenomenon = "thunderstorm"
-            -- Add more mappings for other weather codes if necessary
+            -- Füge hier bei Bedarf weitere Übersetzungen hinzu
             end
             table.insert(weather_desc, intensity .. phenomenon)
         end
@@ -1420,53 +1528,51 @@ function P.formatMetarSpeechSummary(metar)
         end
     end
 
-    -- Clouds (simplified, only highest significant cloud layer or broken/overcast)
     if metar_data.clouds and #metar_data.clouds > 0 then
-        local cloud_part = ""
-        local significant_cloud = nil
+        if metar_data.cavok then
+             table.insert(parts, "sky clear")
+        else
+            local cloud_reports = {}
+            for _, cloud in ipairs(metar_data.clouds) do
+                local coverage_str = cloud.coverage
+                local altitude_ft = cloud.altitude
+                local readable_coverage = coverage_str
 
-        -- Find the lowest broken/overcast layer or highest significant cloud
-        for _, cloud in ipairs(metar_data.clouds) do
-            if cloud.coverage == "OVC" or cloud.coverage == "BKN" or cloud.coverage == "VV" then
-                significant_cloud = cloud
-                break -- Found a ceiling, which is usually the most important
-            elseif (not significant_cloud and cloud.altitude) then
-                -- If no ceiling found yet, keep track of the highest cloud for "scattered/few" case
-                if not significant_cloud or cloud.altitude > significant_cloud.altitude then
-                    significant_cloud = cloud
+                if coverage_str == "FEW" then readable_coverage = "few"
+                elseif coverage_str == "SCT" then readable_coverage = "scattered"
+                elseif coverage_str == "BKN" then readable_coverage = "broken"
+                elseif coverage_str == "OVC" then readable_coverage = "overcast"
+                elseif coverage_str == "SKC" or coverage_str == "CLR" then readable_coverage = "sky clear"
+                elseif coverage_str == "NSC" then readable_coverage = "no significant clouds"
+                elseif coverage_str == "VV" then readable_coverage = "vertical visibility"
+                end
+
+                local report_str = ""
+                if readable_coverage == "sky clear" or readable_coverage == "no significant clouds" then
+                    report_str = readable_coverage
+                elseif readable_coverage == "vertical visibility" and altitude_ft then
+                    report_str = string.format("%s %d feet", readable_coverage, altitude_ft)
+                elseif altitude_ft then
+                    report_str = string.format("%s clouds at %d feet", readable_coverage, altitude_ft)
+                else
+                    report_str = readable_coverage -- Falls keine Höhe angegeben ist
+                end
+
+                if cloud.type and cloud.type ~= "" then
+                    report_str = report_str .. " (" .. cloud.type .. ")"
+                end
+
+                if report_str ~= "" then
+                    table.insert(cloud_reports, report_str)
                 end
             end
-        end
-
-        if metar_data.cavok then
-            -- CAVOK implies "no significant clouds" and visibility >= 10km, handled by visibility
-        elseif significant_cloud then
-            local coverage_str = significant_cloud.coverage
-            local altitude_ft = significant_cloud.altitude
-
-            -- Expanded cloud coverage abbreviations for speech
-            local readable_coverage = coverage_str
-            if coverage_str == "FEW" then readable_coverage = "few"
-            elseif coverage_str == "SCT" then readable_coverage = "scattered"
-            elseif coverage_str == "BKN" then readable_coverage = "broken"
-            elseif coverage_str == "OVC" then readable_coverage = "overcast"
-            elseif coverage_str == "SKC" or coverage_str == "CLR" then readable_coverage = "sky clear"
-            elseif coverage_str == "NSC" then readable_coverage = "no significant clouds"
-            elseif coverage_str == "VV" then readable_coverage = "vertical visibility"
+            if #cloud_reports > 0 then
+                table.insert(parts, table.concat(cloud_reports, ", "))
             end
-
-            if readable_coverage == "sky clear" or readable_coverage == "no significant clouds" then
-                cloud_part = readable_coverage
-            elseif readable_coverage == "vertical visibility" then
-                cloud_part = string.format("%s %d feet", readable_coverage, altitude_ft)
-            else
-                cloud_part = string.format("%s clouds at %d feet", readable_coverage, altitude_ft)
-            end
-            table.insert(parts, cloud_part)
         end
     end
 
-    return table.concat(parts, ", ")
+    return table.concat(parts, ". ") -- Punkt als Trenner
 end
 
 --------------------------------------------------------------------------------------------------------------
@@ -1558,18 +1664,31 @@ end
 --------------------------------------------------------------------------------------------------------------
 function P.calculateWindComponents(windDirectionDegrees, runwayHeadingDegrees, windSpeedKnots)
     if type(windDirectionDegrees) ~= "number" or type(runwayHeadingDegrees) ~= "number" or type(windSpeedKnots) ~= "number" then
-        return 0, 0
+        return 0, 0 -- Return zero for invalid inputs
     end
 
-    local angleDifference = math.abs(windDirectionDegrees - runwayHeadingDegrees)
-    if angleDifference > 180 then
-        angleDifference = 360 - angleDifference
-    end
-    local angleRad = math.rad(angleDifference)
+    -- 1. Calculate relative angle (wind relative to runway)
+    local relativeAngle = windDirectionDegrees - runwayHeadingDegrees
 
-    local headwindComponent = math.cos(angleRad) * windSpeedKnots
-    local crosswindComponent = math.abs(math.sin(angleRad) * windSpeedKnots)
+    -- 2. Normalize angle to +/- 180 degrees
+    --    Ensures the angle represents the shortest way around the compass
+    while relativeAngle > 180 do relativeAngle = relativeAngle - 360 end
+    while relativeAngle <= -180 do relativeAngle = relativeAngle + 360 end -- Use <= to include -180
 
+    -- 3. Convert to radians for Lua's math functions
+    local relativeAngleRad = math.rad(relativeAngle)
+
+    -- 4. Calculate headwind/tailwind component
+    --    cos(0)=1 (pure headwind), cos(180)=-1 (pure tailwind), cos(90)=0
+    --    Result is positive for headwind component, negative for tailwind component
+    local headwindComponent = math.cos(relativeAngleRad) * windSpeedKnots
+
+    -- 5. Calculate SIGNED crosswind component (NO math.abs!)
+    --    sin(90)=1 (wind from left), sin(-90)=-1 (wind from right), sin(0)=0
+    --    Result is positive for left crosswind, negative for right crosswind
+    local crosswindComponent = math.sin(relativeAngleRad) * windSpeedKnots
+
+    -- Return signed components
     return headwindComponent, crosswindComponent
 end
 
@@ -1610,91 +1729,148 @@ function P.determineTakeoffFlapsSetting(totalweightkgs, deprwylen, deprwyheading
     local TAKEOFF_DENSITY_ALTITUDE_THRESHOLD_HIGH = 3000
 
     local TAKEOFF_TAILWIND_CONSIDERATION_THRESHOLD = 5
-    local TAKEOFF_WET_RUNWAY_PENALTY_FLAPS = 1
+    -- local TAKEOFF_WET_RUNWAY_PENALTY_FLAPS = 1 -- Not currently used directly, logic adds flap step
 
+    -- Check for essential METAR data
     if not (metar.decodedmetar and metar.decodedmetar.wind and metar.decodedmetar.wind.direction ~= nil and metar.decodedmetar.wind.speed ~= nil and
             metar.decodedmetar.temperature and metar.decodedmetar.temperature.value ~= nil and
             metar.decodedmetar.pressure and metar.decodedmetar.pressure.qnh_hpa ~= nil) then
+        sasl.logInfo("determineTakeoffFlapsSetting: Insufficient METAR data, returning default flaps " .. STANDARD_TAKEOFF_FLAPS)
         return STANDARD_TAKEOFF_FLAPS
     end
 
-    local isRunwayWet = false
-    if ((P.fieldexists(metar.decodedmetar, "weather") and ((P.containsvalue(metar.decodedmetar.weather, "FZRA")) or (P.containsvalue(metar.decodedmetar.weather, "FZDZ")) or (P.containsvalue(metar.decodedmetar.weather, "FZFG"))))
-        or (P.fieldexists(metar.decodedmetar, "temperature.value") and (metar.decodedmetar.temperature.value < 1))) then
-        isRunwayWet = true
-    elseif (P.fieldexists(metar.decodedmetar, "weather") and (P.containsvalue(metar.decodedmetar.weather, "SN")))  then
-        isRunwayWet = true
-    elseif (P.fieldexists(metar.decodedmetar, "weather") and (P.containsvalue(metar.decodedmetar.weather, "RA"))) then
-        isRunwayWet = true
-    end 
-
+    -- Check for essential input parameters
     if not (type(totalweightkgs) == "number" and totalweightkgs > 0 and
             type(deprwylen) == "number" and deprwylen > 0 and
             type(elevation) == "number" and type(deprwyheading) == "number") then
+        sasl.logInfo("determineTakeoffFlapsSetting: Invalid input parameters (weight, length, elevation, heading), returning default flaps " .. STANDARD_TAKEOFF_FLAPS)
         return STANDARD_TAKEOFF_FLAPS
     end
 
+    -- Determine if runway is likely wet/contaminated
+    local isRunwayWet = false
+    if metar.decodedmetar.weather then -- Check if weather array exists
+        for _, wx in ipairs(metar.decodedmetar.weather) do
+            if wx.phenomenon == "RA" or wx.phenomenon == "SN" or wx.phenomenon == "DZ" or
+               wx.phenomenon == "FZRA" or wx.phenomenon == "FZDZ" or wx.phenomenon == "FZFG" then
+                isRunwayWet = true
+                break
+            end
+        end
+    end
+    -- Also consider freezing temps, though precipitation is a stronger indicator
+    if not isRunwayWet and metar.decodedmetar.temperature.value < 1 then
+        -- Maybe add a log here if needed, but precip check is usually sufficient
+        -- isRunwayWet = true -- Decide if temp alone should trigger it
+    end
+    if isRunwayWet then sasl.logDebug("determineTakeoffFlapsSetting: Runway considered wet/contaminated based on METAR.") end
+
+    -- Start with standard flaps
     local recommendedFlaps = STANDARD_TAKEOFF_FLAPS
 
-    local headwindComponent, crosswindComponent = P.calculateWindComponents(
-        metar.decodedmetar.wind.direction,
-        deprwyheading,
-        metar.decodedmetar.wind.speed
-    )
+    -- Calculate wind components (using magnetic)
+    local headwindComponent = 0
+    local crosswindComponent = 0 -- Although not used, calculate for completeness
+    local trueWindDirection = metar.decodedmetar.wind.direction
+    local windSpeed = metar.decodedmetar.wind.speed
 
+    if type(trueWindDirection) == "number" and windSpeed > 0 then -- Only calculate if wind is numeric and has speed
+        -- Get magnetic variation
+        local magnetic_variation = 0
+        if metar.latitude and metar.longitude then
+            magnetic_variation = sasl.getMagneticVariation(metar.latitude, metar.longitude) or 0
+        -- Add fallback if needed, e.g., using aircraft position:
+        -- elseif P.latitude and P.longitude then
+        --     magnetic_variation = sasl.getMagneticVariation(P.latitude, P.longitude) or 0
+        end
+
+        -- Correct wind direction to magnetic
+        local magneticWindDirection = (trueWindDirection - magnetic_variation + 360) % 360
+
+        -- Calculate components using MAGNETIC wind and MAGNETIC runway heading
+        headwindComponent, crosswindComponent = P.calculateWindComponents(
+            magneticWindDirection,
+            deprwyheading,
+            windSpeed
+        )
+
+        sasl.logDebug(string.format("Takeoff Flaps Calc: TrueWind=%s@%dkt, MagVar=%.1f, MagWind=%03d@%dkt, RwyHdg=%d -> Headwind=%.1f kt, Crosswind=%.1f kt",
+                        tostring(trueWindDirection), windSpeed, magnetic_variation, math.floor(magneticWindDirection+0.5), windSpeed, deprwyheading, headwindComponent, crosswindComponent))
+    else
+         sasl.logDebug("Takeoff Flaps Calc: Wind is VRB, Calm, or direction not numeric. Using 0 for components.")
+    end
+
+    -- Adjust flaps based on weight
     if totalweightkgs > TAKEOFF_WEIGHT_THRESHOLD_VERY_HIGH then
         recommendedFlaps = 15
+        sasl.logDebug("Takeoff Flaps Calc: Weight > VERY_HIGH threshold -> Base flaps 15")
     elseif totalweightkgs > TAKEOFF_WEIGHT_THRESHOLD_HIGH then
         recommendedFlaps = math.max(recommendedFlaps, 10)
+        sasl.logDebug("Takeoff Flaps Calc: Weight > HIGH threshold -> Base flaps increased to " .. recommendedFlaps)
     end
 
+    -- Adjust flaps based on runway length
     if deprwylen < TAKEOFF_RUNWAY_LENGTH_VERY_SHORT_THRESHOLD then
         recommendedFlaps = math.max(recommendedFlaps, 15)
+        sasl.logDebug("Takeoff Flaps Calc: Runway < VERY_SHORT threshold -> Flaps increased to " .. recommendedFlaps)
     elseif deprwylen < TAKEOFF_RUNWAY_LENGTH_SHORT_THRESHOLD then
         recommendedFlaps = math.max(recommendedFlaps, 10)
+        sasl.logDebug("Takeoff Flaps Calc: Runway < SHORT threshold -> Flaps increased to " .. recommendedFlaps)
     end
 
-    local deprwyalt = 0
-
-    if (metar.metar and tonumber(metar.metar.elevation_m)) then
-        deprwyalt = metar.metar.elevation_m
-    else
-        deprwyalt = elevation
-    end
+    -- Adjust flaps based on density altitude
+    local airport_elev_m = elevation -- Use provided elevation as primary source
+    -- Optional: Use METAR elevation if more reliable?
+    -- if (metar.metar and tonumber(metar.metar.elevation_m)) then
+    --     airport_elev_m = metar.metar.elevation_m
+    -- end
 
     local densityAltitude = P.calculateDensityAltitude(
-        deprwyalt,
+        airport_elev_m, -- Should be in meters for the function
         metar.decodedmetar.temperature.value,
         metar.decodedmetar.pressure.qnh_hpa
     )
-    if densityAltitude > TAKEOFF_DENSITY_ALTITUDE_THRESHOLD_HIGH then
+    sasl.logDebug(string.format("Takeoff Flaps Calc: Density Altitude calculated: %.0f ft", densityAltitude * 3.28084)) -- Log in feet
+    if densityAltitude * 3.28084 > TAKEOFF_DENSITY_ALTITUDE_THRESHOLD_HIGH then -- Compare threshold in feet
         recommendedFlaps = math.max(recommendedFlaps, 10)
+        sasl.logDebug("Takeoff Flaps Calc: Density Altitude > HIGH threshold -> Flaps increased to " .. recommendedFlaps)
     end
 
+    -- Adjust flaps for tailwind
     if headwindComponent < -TAKEOFF_TAILWIND_CONSIDERATION_THRESHOLD then
         recommendedFlaps = math.max(recommendedFlaps, 10)
+        sasl.logDebug("Takeoff Flaps Calc: Tailwind > Threshold -> Flaps increased to " .. recommendedFlaps)
     end
 
+    -- Adjust flaps for wet runway (increase by one step)
     if isRunwayWet then
         if recommendedFlaps == 5 then
             recommendedFlaps = 10
+            sasl.logDebug("Takeoff Flaps Calc: Wet runway -> Flaps increased from 5 to 10")
         elseif recommendedFlaps == 10 then
             recommendedFlaps = 15
+            sasl.logDebug("Takeoff Flaps Calc: Wet runway -> Flaps increased from 10 to 15")
+        elseif recommendedFlaps == 15 then
+             sasl.logDebug("Takeoff Flaps Calc: Wet runway -> Flaps already 15, no change.")
+             -- Consider if Flaps 25 might be needed in extreme cases (short, wet, heavy, high DA) - outside simple logic
         end
     end
 
+    -- Final constraints (ensure flaps are 5, 10, or 15)
+    -- Clamp to max 15 first
     if recommendedFlaps > 15 then
         recommendedFlaps = 15
+    end
+    -- Then ensure it's one of the discrete steps
+    if recommendedFlaps < 10 and recommendedFlaps > 5 then
+        recommendedFlaps = 10 -- Round up between 5 and 10
     elseif recommendedFlaps < 5 then
-        recommendedFlaps = 5
-    end
-
-    if recommendedFlaps > 5 and recommendedFlaps < 10 then
-        recommendedFlaps = 10
+         recommendedFlaps = 5 -- Minimum is 5
     elseif recommendedFlaps > 10 and recommendedFlaps < 15 then
-        recommendedFlaps = 15
+         recommendedFlaps = 15 -- Round up between 10 and 15
     end
 
+    sasl.logInfo("determineTakeoffFlapsSetting: Recommended flaps setting: " .. recommendedFlaps)
     return recommendedFlaps
 end
 
@@ -1703,90 +1879,145 @@ function P.calcappflapsvref(totalweightkgs, desrwylen, desrwyheading, vref30, me
 
     local weatherData = metar.decodedmetar
 
+    -- Check essential METAR data
     if not (weatherData and weatherData.wind and weatherData.wind.direction ~= nil and weatherData.wind.speed ~= nil and
             weatherData.temperature and weatherData.temperature.value ~= nil and
             weatherData.pressure and weatherData.pressure.qnh_hpa ~= nil) then
+        sasl.logInfo("calcappflapsvref: Insufficient METAR data, returning default 30/" .. tostring(vref30))
         return 30, vref30
     end
 
+    -- Check essential input parameters
     if not (type(totalweightkgs) == "number" and totalweightkgs > 0 and
             type(desrwylen) == "number" and desrwylen > 0 and
-            type(desrwyheading) == "number") and 
-            type(vref30) == "number" and vref30 > 0 then
+            type(desrwyheading) == "number" and -- Keep as number
+            type(vref30) == "number" and vref30 > 0) then
+        sasl.logInfo("calcappflapsvref: Invalid input parameters, returning default 30/" .. tostring(vref30))
         return 30, vref30
     end
 
-    local headwindComponent, crosswindKnots = P.calculateWindComponents(
-        weatherData.wind.direction,
-        desrwyheading,
-        weatherData.wind.speed
-    )
+    -- Calculate wind components (using magnetic)
+    local headwindComponent = 0
+    local crosswindKnots = 0 -- Signed: +Left / -Right
+    local trueWindDirection = weatherData.wind.direction
+    local windSpeed = weatherData.wind.speed
 
+    if type(trueWindDirection) == "number" and windSpeed > 0 then
+        -- Get magnetic variation
+        local magnetic_variation = 0
+        if metar.latitude and metar.longitude then
+            magnetic_variation = sasl.getMagneticVariation(metar.latitude, metar.longitude) or 0
+        end
+
+        -- Correct wind direction to magnetic
+        local magneticWindDirection = (trueWindDirection - magnetic_variation + 360) % 360
+
+        -- Calculate components using MAGNETIC wind and MAGNETIC runway heading
+        headwindComponent, crosswindKnots = P.calculateWindComponents(
+            magneticWindDirection,
+            desrwyheading, -- Assume this is already magnetic
+            windSpeed
+        )
+        sasl.logDebug(string.format("App Flaps Calc: TrueWind=%s@%dkt, MagVar=%.1f, MagWind=%03d@%dkt, RwyHdg=%d -> Headwind=%.1f kt, Crosswind=%.1f kt",
+                        tostring(trueWindDirection), windSpeed, magnetic_variation, math.floor(magneticWindDirection+0.5), windSpeed, desrwyheading, headwindComponent, crosswindKnots))
+    else
+        sasl.logDebug("App Flaps Calc: Wind is VRB, Calm, or direction not numeric. Using 0 for components.")
+    end
+
+
+    -- Determine bad weather conditions
     local isBadWeather = false
-
-
     if weatherData.weather then
         for _, wx_entry in ipairs(weatherData.weather) do
-            if wx_entry.phenomenon == "RA" or wx_entry.phenomenon == "SN" then
+            -- Consider heavy rain/snow, thunderstorms, freezing conditions etc.
+            if wx_entry.intensity == "heavy" or wx_entry.phenomenon == "TS" or
+               wx_entry.phenomenon == "SN" or wx_entry.phenomenon == "FZRA" or wx_entry.phenomenon == "FZDZ" then
                 isBadWeather = true
-                break 
+                sasl.logDebug("App Flaps Calc: Bad weather detected (precipitation/TS).")
+                break
             end
         end
     end
-
-    if weatherData.visibility and weatherData.visibility.value and (weatherData.visibility.value < 5000) then
-        isBadWeather = true
+    -- Low vis / Low ceiling might also imply bad weather/need for more flaps
+    if not isBadWeather and weatherData.visibility and weatherData.visibility.value and (weatherData.visibility.value < 5000) then
+         isBadWeather = true
+         sasl.logDebug("App Flaps Calc: Bad weather detected (low visibility).")
     end
-    if weatherData.clouds and weatherData.clouds[1] and weatherData.clouds[1].altitude and (weatherData.clouds[1].altitude < 1000) then
-        isBadWeather = true
+    if not isBadWeather and weatherData.clouds and #weatherData.clouds > 0 then
+         for _, cloud in ipairs(weatherData.clouds) do
+             if (cloud.coverage == "BKN" or cloud.coverage == "OVC") and cloud.altitude and cloud.altitude < 1000 then
+                 isBadWeather = true
+                 sasl.logDebug("App Flaps Calc: Bad weather detected (low ceiling).")
+                 break
+             end
+         end
     end
 
-    local flapsSetting = P.determineLandingFlapsSetting(desrwylen, weatherData.wind.speed, crosswindKnots, isBadWeather, totalweightkgs)
+    -- Determine flaps setting (Passes SIGNED crosswind)
+    local flapsSetting = P.determineLandingFlapsSetting(desrwylen, windSpeed, crosswindKnots, isBadWeather, totalweightkgs)
+
+    -- Calculate Vref (Passes SIGNED crosswind - ensure calculateVref handles it or use math.abs if needed there)
     local vrefKnots = P.calculateVref(totalweightkgs, flapsSetting, weatherData, crosswindKnots)
 
+    -- Round final values
     flapsSetting = math.floor(flapsSetting + 0.5)
     vrefKnots = math.floor(vrefKnots + 0.5)
 
+    sasl.logInfo("calcappflapsvref: Calculated Flaps=" .. flapsSetting .. ", Vref=" .. vrefKnots)
     return flapsSetting, vrefKnots
 end
 
 --------------------------------------------------------------------------------------------------------------
 function P.determineLandingFlapsSetting(runwayLengthMeters, windSpeedKnots, crosswindKnots, isBadWeather, weightKg)
     local LANDING_SHORT_RUNWAY_THRESHOLD = 2000
-    local LANDING_HIGH_WIND_THRESHOLD = 20
+    local LANDING_HIGH_WIND_THRESHOLD = 20 -- Gusts might be more relevant here
     local LANDING_HIGH_CROSSWIND_THRESHOLD = 15
-    local LANDING_HIGH_WEIGHT_THRESHOLD = 55000
+    local LANDING_HIGH_WEIGHT_THRESHOLD = 55000 -- In Kg
 
+    -- *** KORREKTUR: Benutze math.abs() für den Crosswind-Vergleich ***
+    local crosswindMagnitude = math.abs(crosswindKnots)
+
+    sasl.logDebug(string.format("determineLandingFlapsSetting: Inputs: RwyLen=%.0f, WindSpd=%.0f, XWindMag=%.1f (Signed=%.1f), BadWx=%s, Weight=%.0f",
+                   runwayLengthMeters, windSpeedKnots, crosswindMagnitude, crosswindKnots, tostring(isBadWeather), weightKg))
+
+    -- Determine if Flaps 40 are recommended
     if runwayLengthMeters < LANDING_SHORT_RUNWAY_THRESHOLD or
        windSpeedKnots > LANDING_HIGH_WIND_THRESHOLD or
-       crosswindKnots > LANDING_HIGH_CROSSWIND_THRESHOLD or
+       crosswindMagnitude > LANDING_HIGH_CROSSWIND_THRESHOLD or -- Vergleich mit Betrag
        isBadWeather or
        weightKg > LANDING_HIGH_WEIGHT_THRESHOLD then
+        sasl.logDebug("determineLandingFlapsSetting: Recommending Flaps 40 due to conditions.")
         return 40
     else
+        sasl.logDebug("determineLandingFlapsSetting: Recommending Flaps 30.")
         return 30
     end
 end
 
 --------------------------------------------------------------------------------------------------------------
-function P.calculateVref(weightKg, flapsSetting, weatherData, crosswindKnots)
+function P.calculateVref(weightKg, flapsSetting, weatherData, crosswindKnots) -- Receives SIGNED crosswind
     local VREF_STALL_SPEED_FACTOR = 1.37
-    local VREF_WIND_ADDITION = 5
+    local VREF_WIND_ADDITION = 5 -- Typically half the headwind + full gust increment, but 5 is a common simplification
     local VREF_PRECIPITATION_ADDITION = 5
-    local VREF_CROSSWIND_ADDITION = 5
+    local VREF_CROSSWIND_THRESHOLD_FOR_ADDITION = 10 -- Example threshold (adjust as needed)
+    local VREF_CROSSWIND_ADDITION = 5           -- Example additive if crosswind > threshold
     local LANDING_HIGH_WIND_THRESHOLD_FOR_VREF = 20
+
 
     local stallSpeedKnots = P.calculateStallSpeed(weightKg, weatherData, flapsSetting)
     local vrefKnots = stallSpeedKnots * VREF_STALL_SPEED_FACTOR
 
-    if weatherData.wind and weatherData.wind.speed and weatherData.wind.speed > LANDING_HIGH_WIND_THRESHOLD_FOR_VREF then
+    -- Additive for general wind speed (could refine to use headwind component if desired)
+    if weatherData.wind and weatherData.wind.speed and weatherData.wind.speed > LANDING_HIGH_WIND_THRESHOLD_FOR_VREF then -- Use the constant defined earlier
         vrefKnots = vrefKnots + VREF_WIND_ADDITION
+        sasl.logDebug(string.format("Vref Calc: Added %d kts for high wind.", VREF_WIND_ADDITION))
     end
 
+    -- Additive for precipitation
     local hasPrecipitation = false
     if weatherData.weather then
         for _, wx_entry in ipairs(weatherData.weather) do
-            if wx_entry.phenomenon == "RA" or wx_entry.phenomenon == "SN" then
+            if wx_entry.phenomenon == "RA" or wx_entry.phenomenon == "SN" or wx_entry.phenomenon == "DZ" or wx_entry.phenomenon == "FZRA" or wx_entry.phenomenon == "FZDZ" then
                 hasPrecipitation = true
                 break
             end
@@ -1795,12 +2026,18 @@ function P.calculateVref(weightKg, flapsSetting, weatherData, crosswindKnots)
 
     if hasPrecipitation then
         vrefKnots = vrefKnots + VREF_PRECIPITATION_ADDITION
+        sasl.logDebug(string.format("Vref Calc: Added %d kts for precipitation.", VREF_PRECIPITATION_ADDITION))
     end
 
-    if crosswindKnots > VREF_CROSSWIND_ADDITION then
+    -- *** KORRIGIERTER Crosswind Additive Check ***
+    local crosswindMagnitude = math.abs(crosswindKnots)
+    if crosswindMagnitude > VREF_CROSSWIND_THRESHOLD_FOR_ADDITION then -- Compare magnitude to threshold
         vrefKnots = vrefKnots + VREF_CROSSWIND_ADDITION
+        sasl.logDebug(string.format("Vref Calc: Added %d kts for high crosswind (%.1f kts > %.0f kts).", VREF_CROSSWIND_ADDITION, crosswindMagnitude, VREF_CROSSWIND_THRESHOLD_FOR_ADDITION))
     end
+    -- *** ENDE KORREKTUR ***
 
+    sasl.logDebug(string.format("Vref Calc: Stall=%.1f, Base Vref=%.1f, Final Vref=%.1f", stallSpeedKnots, stallSpeedKnots * VREF_STALL_SPEED_FACTOR, vrefKnots))
     return vrefKnots
 end
 
@@ -2117,12 +2354,12 @@ end
 
 --------------------------------------------------------------------------------------------------------------
 function P.buildnavdatatable(navdatatable)
-    -- Interne Hilfsfunktion, um DME-Eintraege zu finden
+
     local function search_for_dme(target_table, icao, navid, navtype)
         if not (icao and navid and navtype) then return nil end
         for i, entry in ipairs(target_table) do
-            if (entry[def.DESTICAO] == icao and 
-                entry[def.DESTNAVID] == navid and 
+            if (entry[def.DESTICAO] == icao and
+                entry[def.DESTNAVID] == navid and
                 entry[def.DESTNAVTYPE] == navtype) then
                 return i
             end
@@ -2130,10 +2367,9 @@ function P.buildnavdatatable(navdatatable)
         return nil
     end
 
-    -- Bestehende Tabelle leeren
     for i = #navdatatable, 1, -1 do table.remove(navdatatable, i) end
 
-    -- Dateipfade (Logik zum Finden der earth_nav.dat)
+    -- ... (Datei-Öffnen-Logik bleibt unverändert) ...
     local srcnavdatafile = io.open("Custom Data/earth_nav.dat", "r")
     if not srcnavdatafile then
         srcnavdatafile = io.open("Custom Scenery/Global Airports/Earth nav data/earth_nav.dat", "r")
@@ -2152,11 +2388,11 @@ function P.buildnavdatatable(navdatatable)
         sasl.logInfo("Navdatabase Sourse: Custom Data/earth_nav.dat")
     end
 
-    for i = 1, 3 do srcnavdatafile:read() end -- Header ueberspringen
+    for i = 1, 3 do srcnavdatafile:read() end
 
     local navdatarecord = srcnavdatafile:read()
     while navdatarecord do
-        if navdatarecord:sub(1, 2) == "99" then break end -- Dateiende
+        if navdatarecord:sub(1, 2) == "99" then break end
 
         local navdataitems = {}
         for navdataitem in navdatarecord:gmatch("%S+") do table.insert(navdataitems, navdataitem) end
@@ -2170,73 +2406,79 @@ function P.buildnavdatatable(navdatatable)
 
                 if (record_type_str == def.NAVDATARECTYPEILS) then
                     local newEntry = {}
-                    newEntry[def.DESTICAO] = navdataitems[def.SRCICAO]
-                    newEntry[def.DESTRWY] = navdataitems[def.SRCRWY]
-                    newEntry[def.DESTNAVTYPE] = string.sub(navdataitems[def.SRCNAVTYPE], 1, 3)
-                    newEntry[def.DESTNAVID] = navdataitems[def.SRCNAVID]
-                    newEntry[def.DESTFREQ] = tonumber(navdataitems[def.SRCFREQ])
+                    newEntry[def.DESTICAO] = navdataitems[def.SRCICAO] -- S9
+                    newEntry[def.DESTRWY] = navdataitems[def.SRCRWY] -- S11
+                    newEntry[def.DESTNAVTYPE] = string.sub(navdataitems[def.SRCNAVTYPE], 1, 3) -- S12
+                    newEntry[def.DESTNAVID] = navdataitems[def.SRCNAVID] -- S8
+                    newEntry[def.DESTFREQ] = tonumber(navdataitems[def.SRCFREQ]) -- S5
                     newEntry[def.DESTLATPOS] = lat_val
                     newEntry[def.DESTLONPOS] = lon_val
-                    
-                    local course_val_packed = tonumber(navdataitems[def.SRCCOURSE])
-                    
+
+                    local course_val_packed = tonumber(navdataitems[def.SRCCOURSE]) -- S7
+
                     if course_val_packed then
-                        -- ### KORRIGIERTE LOGIK ###
-                        -- Entpacke den MAGNETISCHEN Kurs (den Chart-Kurs)
-                        local magnetic_course = math.floor(course_val_packed / 360)
-                        -- Speichere den gerundeten MAGNETISCHEN Kurs
-                        newEntry[def.DESTCOURSE] = P.calccourse(magnetic_course) 
+                        local magnetic_course = math.floor(course_val_packed / 360) 
+                        newEntry[def.DESTCOURSE] = P.calccourse(magnetic_course)
                     else
                         newEntry[def.DESTCOURSE] = 0
                     end
-                    newEntry[def.DESTNAVDME] = false -- Wird spaeter von Typ 7 gesetzt
+                    newEntry[def.DESTNAVDME] = false
                     table.insert(navdatatable, newEntry)
 
                 elseif (record_type_str == def.NAVDATARECTYPEVOR) then
                     local newEntry = {}
                     newEntry[def.DESTICAO] = navdataitems[def.SRCICAO]
-                    newEntry[def.DESTRWY] = "" 
+                    newEntry[def.DESTRWY] = ""
                     newEntry[def.DESTNAVTYPE] = def.NAVTYPEVOR
                     newEntry[def.DESTNAVID] = navdataitems[def.SRCNAVID]
                     newEntry[def.DESTFREQ] = tonumber(navdataitems[def.SRCFREQ])
                     newEntry[def.DESTLATPOS] = lat_val
                     newEntry[def.DESTLONPOS] = lon_val
                     newEntry[def.DESTCOURSE] = 0
-                    newEntry[def.DESTNAVDME] = false -- VOR only
+                    newEntry[def.DESTNAVDME] = false
                     table.insert(navdatatable, newEntry)
-                    
+
                 elseif (record_type_str == def.NAVDATARECTYPEDME) then
-                    -- Suche nach einem passenden ILS und setze dessen DME-Flag
                     local index = search_for_dme(navdatatable, navdataitems[def.SRCICAO], navdataitems[def.SRCNAVID], def.NAVTYPEILS)
                     if index then navdatatable[index][def.DESTNAVDME] = true end
-                    
-                elseif ((record_type_str == def.NAVDATARECTYPELPV) or (record_type_str == def.NAVDATARECTYPEGLS)) then
+
+                elseif (record_type_str == def.NAVDATARECTYPELPV or record_type_str == def.NAVDATARECTYPEGLS) then
                     local newEntry = {}
-                    if record_type_str == def.NAVDATARECTYPELPV then
-                        newEntry[def.DESTNAVID] = navdataitems[def.SRCNAVTYPE]
-                        newEntry[def.DESTNAVTYPE] = def.NAVTYPELPV
-                    else
-                        newEntry[def.DESTNAVID] = navdataitems[def.SRCNAVID]
-                        newEntry[def.DESTNAVTYPE] = def.NAVTYPEGLS
-                    end
-                    newEntry[def.DESTICAO] = navdataitems[def.SRCICAO]
-                    newEntry[def.DESTRWY] = navdataitems[def.SRCRWY]
-                    newEntry[def.DESTFREQ] = tonumber(navdataitems[def.SRCFREQ])
+                    newEntry[def.DESTICAO] = navdataitems[def.SRCICAO] -- S9
+                    newEntry[def.DESTRWY] = navdataitems[def.SRCRWY] -- S11
+                    newEntry[def.DESTFREQ] = tonumber(navdataitems[def.SRCFREQ]) -- S5
                     newEntry[def.DESTLATPOS] = lat_val
                     newEntry[def.DESTLONPOS] = lon_val
-                    
-                    local course_val_packed = tonumber(navdataitems[def.SRCCOURSE])
-                    
-                    if course_val_packed then
-                        -- ### KORRIGIERTE LOGIK ###
-                        -- Entpacke den MAGNETISCHEN Kurs
-                        local magnetic_course = math.floor(course_val_packed / 360)
-                        -- Speichere den gerundeten MAGNETISCHEN Kurs
-                        newEntry[def.DESTCOURSE] = P.calccourse(magnetic_course) 
-                    else
-                        newEntry[def.DESTCOURSE] = 0
-                    end
                     newEntry[def.DESTNAVDME] = true
+
+                    if record_type_str == def.NAVDATARECTYPELPV then
+                        newEntry[def.DESTNAVTYPE] = def.NAVTYPELPV
+                    else
+                        newEntry[def.DESTNAVTYPE] = def.NAVTYPEGLS
+                    end
+                    newEntry[def.DESTNAVID] = navdataitems[def.SRCNAVID] -- S8
+                    
+                    local raw_course_str = navdataitems[def.SRCCOURSE] 
+                    local true_course = tonumber(raw_course_str) -- S7
+
+                    if true_course then
+                        if true_course > 100000 then 
+                            true_course = true_course % 10000 
+                        end
+                        
+                        local mag_variation = sasl.getMagneticVariation(lat_val, lon_val)
+                        if not mag_variation then mag_variation = 0 end
+                        
+                        local magnetic_course = true_course + mag_variation
+                        
+                        magnetic_course = P.calccourse(magnetic_course)
+                        newEntry[def.DESTCOURSE] = magnetic_course
+                        
+                    else
+                        sasl.logInfo("Could not read true course for LPV/GLS (Spalte 7/SRCCOURSE): " .. navdatarecord)
+                        newEntry[def.DESTCOURSE] = 0 -- Fallback zu 0
+                    end
+                    
                     table.insert(navdatatable, newEntry)
                 end
             end
@@ -2245,10 +2487,28 @@ function P.buildnavdatatable(navdatatable)
     end
     srcnavdatafile:close()
 
+    local lookupTable = {}
+    for i, entry in ipairs(navdatatable) do
+        if entry[def.DESTNAVTYPE] == def.NAVTYPEILS then
+            local key = entry[def.DESTICAO] .. entry[def.DESTRWY]
+            lookupTable[key] = entry[def.DESTCOURSE]
+        end
+    end
+
+    for i, value in ipairs(navdatatable) do
+        if (value[def.DESTNAVTYPE] == def.NAVTYPEGLS or value[def.DESTNAVTYPE] == def.NAVTYPELPV) then
+            local key = value[def.DESTICAO] .. value[def.DESTRWY]
+            local ilsCourse = lookupTable[key]
+            
+            if ilsCourse then
+                value[def.DESTCOURSE] = ilsCourse
+            end
+        end
+    end
+
     sasl.logInfo("Navdata Table created, " .. #navdatatable .. " entries.")
     return true
 end
-
 --------------------------------------------------------------------------------------------------------------
 function P.writenavdatatable(navdatatable)
 
