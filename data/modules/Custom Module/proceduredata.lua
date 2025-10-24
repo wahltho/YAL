@@ -36,10 +36,8 @@ function M.fillProcedureTable()
             steps = {
                 ['set_view_overhead'] = {
                     view = function() return P.configvalues[def.CONFIGVIEWOVERHEADPANEL] end,
-                    branch = function(loop, procData)
-                        P.setview(P.configvalues[def.CONFIGVIEWOVERHEADPANEL])
-                        return 'set_battery_on' 
-                    end
+                    normalize = true,
+                    nextStep = 'set_battery_on'
                 },
                 ['set_battery_on'] = {
                     check = function() return get(P.battery) == def.ON end,
@@ -282,6 +280,7 @@ function M.fillProcedureTable()
                 
                 ['view_upper_overhead'] = { 
                     view = function() return P.configvalues[def.CONFIGVIEWUPPEROVERHEADPANEL] end,
+                    normalize = true,
                     nextStep = 'set_dome_light'
                 },
 
@@ -301,27 +300,18 @@ function M.fillProcedureTable()
                 ['hide_efbs'] = { 
                     skipIf = function() return P.configvalues[def.CONFIGHIDEEFBS] == def.OFF end,
                     
-                    -- NEU: Prüft, ob die EFBs versteckt sind (Annahme: ON = versteckt)
+                    
                     check = function() 
                         return (get(P.hidecptefb) == def.ON) and (get(P.hidefoefb) == def.ON) 
                     end,
-                    
-                    -- Aktion (wird in beiden Modi ausgeführt, dank Flag unten)
                     action = function() 
-                        -- Verstecke EFBs, falls sie noch sichtbar sind
                         if (get(P.hidecptefb) == def.OFF) then helpers.command_once("laminar/B738/tab/toggle") end
                         if (get(P.hidefoefb) == def.OFF) then helpers.command_once("laminar/B738/tab/fo_toggle") end
                     end,
-                    
-                    -- NEU: Standard-Aufforderung für Advice-Modus
                     advice = "Hide E F Bs", 
-                    
-                    -- NEU: Bestätigung (statt Text in der Action)
                     confirm = "E F B S checked and hidden", 
                     
                     nextStep = 'set_cockpit_lights',
-                    
-                    -- WICHTIG: Stellt sicher, dass die 'action' auch im Advice-Modus läuft
                     runActionInAdviceMode = true 
                 },
                 
@@ -355,14 +345,12 @@ function M.fillProcedureTable()
                 ['reset_fmc'] = {
                     action = function()
                         if P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON then
-                            -- Im Advice-Modus nur die Anweisung geben
                             P.commandtableentry(def.TEXT, "Reset F M C")
                         else
                             helpers.command_once("laminar/B738/button/reset_fmc")
                             P.commandtableentry(def.TEXT, "F M C Reset Done")
                         end
                     end,
-                    -- 'advice' wird nicht mehr benötigt, da es in 'action' integriert ist
                     nextStep = 'load_yansh_ofp'
                 },
                 
@@ -624,7 +612,7 @@ function M.fillProcedureTable()
             speakname = true,
             set = false, 
             loop = 1, 
-            prerequisite = def.COCKPITINITPROCEDURE, 
+            prerequisite = def.COLDANDDARKPROCEDURE, 
             allowedState = def.GROUNDONLY, 
             requiredFlightstate = def.FLIGHTSTATEPREFLIGHT, 
             skipCondition = function() return (P.apurunning() == def.APUONBUS) or P.enginesrunning(def.BOTH) end,
@@ -641,6 +629,7 @@ function M.fillProcedureTable()
             steps = {
                 ['view_overhead'] = {
                     view = function() return P.configvalues[def.CONFIGVIEWOVERHEADPANEL] end,
+                    normalize = true,
                     nextStep = 'start_apu'
                 },
                 ['start_apu'] = {
@@ -719,6 +708,7 @@ function M.fillProcedureTable()
             steps = {
                 ['view_overhead'] = {
                     view = function() return P.configvalues[def.CONFIGVIEWOVERHEADPANEL] end,
+                    normalize = true,
                     nextStep = 'set_beacon_on'
                 },
                 ['set_beacon_on'] = {
@@ -943,6 +933,7 @@ function M.fillProcedureTable()
             steps = {
                 ['view_main_panel'] = {
                     view = function() return P.configvalues[def.CONFIGVIEWMAINPANEL] end,
+                    normalize = true,
                     nextStep = 'remove_chocks'
                 },
                 ['remove_chocks'] = {
@@ -1153,6 +1144,7 @@ function M.fillProcedureTable()
             steps = {
                 ['view_pedestal'] = {
                     view = function() return P.configvalues[def.CONFIGVIEWPEDESTAL] end,
+                    normalize = true,
                     nextStep = 'transponder_tara'
                 },
                 ['transponder_tara'] = {
@@ -1528,6 +1520,7 @@ function M.fillProcedureTable()
                 
                 ['set_view_overhead'] = {
                     view = function() return P.configvalues[def.CONFIGVIEWOVERHEADPANEL] end,
+                    normalize = true,
                     nextStep = 'announce_altitude'
                 },
                 
@@ -1769,8 +1762,8 @@ function M.fillProcedureTable()
                 },
                 
                 ['set_view_overhead'] = {
-                    skipIf = function() return P.configvalues[def.CONFIGVIEWCHANGES] ~= def.ON end,
                     view = function() return P.configvalues[def.CONFIGVIEWOVERHEADPANEL] end,
+                    normalize = true,
                     nextStep = 'set_seatbelts_on'
                 },
                 
@@ -1815,7 +1808,7 @@ function M.fillProcedureTable()
                 ['trigger_ils_proc'] = {
                     action = function()
                         sasl.logDebug("ALTITUDEB10000: Attempting to trigger SETILSPROCEDURE.")
-                        P.triggerprocedure(def.SETILSPROCEDURE, false) -- Trigger ILS setup
+                        P.triggerprocedure(def.SETILSPROCEDURE, false) 
                     end,
                     check = function()
                         local procKey = def.SETILSPROCEDURE
@@ -1826,12 +1819,11 @@ function M.fillProcedureTable()
                             return true 
                         else
                             local targetLoop = P.loopStateTables[procData.loop]
-                            local current_lock_name -- Variable für den Namen
+                            local current_lock_name 
                             
-                            if targetLoop.lock == procKey then -- Ist die Zielprozedur aktiv?
+                            if targetLoop.lock == procKey then 
                                  sasl.logDebug("ALTITUDEB10000: Waiting for " .. procData.name .. " (running in loop " .. procData.loop .. ")")
-                            else -- Die Zielprozedur läuft nicht
-                                 -- Sicherer Abruf des Namens
+                            else 
                                  if targetLoop.lock == def.NOPROCEDURE then
                                      current_lock_name = "NOPROCEDURE"
                                  else
@@ -1842,15 +1834,14 @@ function M.fillProcedureTable()
                                          current_lock_name = "Unknown Procedure (" .. tostring(targetLoop.lock) .. ")"
                                      end
                                  end
-                                 -- Jetzt die Log-Nachricht sicher erstellen
                                  sasl.logInfo("ALTITUDEB10000: Waiting for " .. procData.name .. ", but it is NOT running in loop " .. procData.loop .. " (Current lock: " .. current_lock_name .. "). Trigger might have failed.")
                             end
-                            return false -- Weiter warten
+                            return false 
                         end
                     end,
                     advice = nil, 
                     confirm = nil,
-                    runActionInAdviceMode = true, -- WICHTIG: Flag für Trigger-Steps
+                    runActionInAdviceMode = true, 
                     nextStep = 'trigger_vref_proc' 
                 },
                 
@@ -1859,7 +1850,7 @@ function M.fillProcedureTable()
                     action = function()
                         if get(P.vref) == 0 then 
                             sasl.logDebug("ALTITUDEB10000: Attempting to trigger SETVREFPROCEDURE.")
-                            P.triggerprocedure(def.SETVREFPROCEDURE, false) -- Trigger VREF setup
+                            P.triggerprocedure(def.SETVREFPROCEDURE, false) 
                         end
                     end,
                     check = function()
@@ -1876,12 +1867,11 @@ function M.fillProcedureTable()
                             return true 
                         else
                             local targetLoop = P.loopStateTables[procData.loop]
-                            local current_lock_name -- Variable für den Namen
+                            local current_lock_name 
 
-                            if targetLoop.lock == procKey then -- Ist die Zielprozedur aktiv?
+                            if targetLoop.lock == procKey then 
                                  sasl.logDebug("ALTITUDEB10000: Waiting for " .. procData.name .. " (running in loop " .. procData.loop .. ")")
-                            else -- Die Zielprozedur läuft nicht
-                                 -- Sicherer Abruf des Namens
+                            else 
                                  if targetLoop.lock == def.NOPROCEDURE then
                                      current_lock_name = "NOPROCEDURE"
                                  else
@@ -1892,10 +1882,9 @@ function M.fillProcedureTable()
                                          current_lock_name = "Unknown Procedure (" .. tostring(targetLoop.lock) .. ")"
                                      end
                                  end
-                                 -- Jetzt die Log-Nachricht sicher erstellen
                                  sasl.logInfo("ALTITUDEB10000: Waiting for " .. procData.name .. ", but it is NOT running in loop " .. procData.loop .. " (Current lock: " .. current_lock_name .. "). Vref still 0. Trigger might have failed.")
                             end
-                            return false -- Weiter warten
+                            return false 
                         end
                     end,
                     advice = nil,
@@ -1906,7 +1895,7 @@ function M.fillProcedureTable()
                             return false 
                         end
                     end,
-                    runActionInAdviceMode = true, -- WICHTIG: Flag für Trigger-Steps
+                    runActionInAdviceMode = true, 
                     nextStep = 'set_view_main_2' 
                 },
                 
@@ -2206,6 +2195,11 @@ function M.fillProcedureTable()
                             P.setview(P.configvalues[def.CONFIGVIEWOVERHEADPANEL])
                         end
                     end,
+                    nextStep = 'view_overhead'
+                },
+                ['view_overhead'] = {
+                    view = function() return P.configvalues[def.CONFIGVIEWOVERHEADPANEL] end,
+                    normalize = true,
                     nextStep = 'landing_lights_off'
                 },
                 ['landing_lights_off'] = {
@@ -2358,6 +2352,7 @@ function M.fillProcedureTable()
                 },
                 ['view_main_panel'] = {
                     view = function() return P.configvalues[def.CONFIGVIEWMAINPANEL] end,
+                    normalize = true,
                     nextStep = 'set_chocks'
                 },
                 ['set_chocks'] = {
@@ -2460,6 +2455,7 @@ function M.fillProcedureTable()
             steps = {
                 ['view_overhead'] = {
                     view = function() return P.configvalues[def.CONFIGVIEWOVERHEADPANEL] end,
+                    normalize = true,
                     nextStep = 'check_power_source'
                 },
                 ['check_power_source'] = {
@@ -2626,6 +2622,7 @@ function M.fillProcedureTable()
             steps = {
                 ['view_overhead'] = {
                     view = function() return P.configvalues[def.CONFIGVIEWOVERHEADPANEL] end,
+                    normalize = true,
                     branch = function(loop, procData)
                         return 'view_throttle'
                     end
@@ -2719,6 +2716,7 @@ function M.fillProcedureTable()
             steps = {
                 ['view_upper_overhead'] = {
                     view = function() return P.configvalues[def.CONFIGVIEWUPPEROVERHEADPANEL] end,
+                    normalize = true,
                     nextStep = 'irs_off'
                 },
                 ['irs_off'] = {

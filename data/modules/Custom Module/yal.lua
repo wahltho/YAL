@@ -906,7 +906,9 @@ my_command_readconfig = sasl.createCommand(def.APPNAMEPREFIX .. "/readconfig", "
 sasl.registerCommandHandler(my_command_readconfig, 0, P.readconfig_)
 
 --------------------------------------------------------------------------------------------------------------
-function P.setview(view)
+function P.setview(view, normalizeFirst)
+    
+    normalizeFirst = normalizeFirst or false
 
     if ((P.configvalues[def.CONFIGVIEWCHANGES] == def.ON) and ((get(P.tirespeed) < 1) or (get(P.airgroundsensor == def.OFF)))) then
         if ((view == nil) or (type(view) ~= "number") or (view ~= math.floor(view))) then
@@ -915,6 +917,12 @@ function P.setview(view)
         end
 
         if (view ~= P.previousview) then
+            
+            if normalizeFirst and (view ~= def.DEFAULTVIEW) then
+                sasl.logDebug("Normalizing view to default first...")
+                P.commandtableentry(def.COMMAND, "sim/view/default_view")
+            end
+ 
             if (view == def.DEFAULTVIEW) then
                 P.commandtableentry(def.COMMAND, "sim/view/default_view")
             else
@@ -924,6 +932,7 @@ function P.setview(view)
                     P.commandtableentry(def.COMMAND, "sim/view/quick_look_" .. tostring(view - 1))
                 end
             end
+            
             sasl.logDebug("Setting View #" .. view)
             P.previousview = view
         else
@@ -4802,40 +4811,177 @@ function P.runProcedureLoop(loopIndex)
                     loop.lastStepName = stepName
                     sasl.logDebug("steprepeat=" .. tostring(loop.steprepeat))
 
+                    -- *** NEUE VIEW-OPTIMIERUNG START ***
+                    
+                    -- Definiere die Step-Typen
+                    local isPureViewStep = step.view and not step.check and not step.action and not step.branch and step.nextStep
+                    local isViewBranchStep = step.view and not step.check and not step.action and step.branch
+
+                    if not useViewChanges and (isPureViewStep or isViewBranchStep) then
+                        -- OPTIMIERUNG AKTIV (Views sind AUS und es ist ein reiner View-Step)
+                        
+                        if isPureViewStep then
+                            -- Fall 1: Purer View-Step (view + nextStep)
+                            -- Überspringe direkt zum nextStep
+                            sasl.logDebug("View changes OFF. Skipping pure view step to: " .. tostring(step.nextStep))
+                            loop.currentStepName = step.nextStep
+                            loop.lastStepName = nil -- Wichtig für den nächsten Schritt
+
+                        else -- Muss isViewBranchStep sein
+                            -- Fall 2: View + Branch Step (view + branch)
+                            -- Führe die branch-Funktion aus, um den nächsten Schritt zu ermitteln
+                            sasl.logDebug("View changes OFF. Skipping view+branch step. Executing branch...")
+                            local nextStepNameFromBranch = step.branch(loop, procData)
+                            sasl.logDebug("Branch (during skip) returned: " .. tostring(nextStepNameFromBranch))
+                            
+                            -- Verarbeite das Ergebnis der branch-Funktion
+                            if type(nextStepNameFromBranch) == "string" then
+                                loop.currentStepName = nextStepNameFromBranch
+                            elseif nextStepNameFromBranch == true then
+                                sasl.logDebug("Branch handled progression itself during skip.")
+                            elseif nextStepNameFromBranch == nil then
+                                loop.procedurenotpossible = true
+                                sasl.logDebug("Branch signaled procedure not possible during skip.")
+                                loop.currentStepName = nil -- Stellt sicher, dass Prozedur endet
+                            else
+                                loop.currentStepName = step.nextStep -- Fallback (wird nil sein)
+                                sasl.logDebug("Branch returned unexpected value, proceeding to default nextStep (nil).")
+                            end
+                            loop.lastStepName = nil -- Wichtig für den nächsten Schritt
+                        end
+                        -- Ende der Optimierungslogik für diesen Zyklus
+
+                    else
+
                     -- *** ORIGINAL-LOGIK (OHNE View-Skip-Optimierung) WIEDERHERGESTELLT ***
-                    if step.skipIf and step.skipIf() then -- 5b. skipIf
-                        sasl.logDebug("skipIf condition met. Skipping to step: " .. tostring(step.nextStep))
-                        loop.currentStepName = step.nextStep
-                        loop.lastStepName = nil -- Damit skipIf/view im nächsten Schritt wieder funktionieren
+                        if step.skipIf and step.skipIf() then -- 5b. skipIf
+                            sasl.logDebug("skipIf condition met. Skipping to step: " .. tostring(step.nextStep))
+                            loop.currentStepName = step.nextStep
+                            loop.lastStepName = nil -- Damit skipIf/view im nächsten Schritt wieder funktionieren
 
-                    elseif useViewChanges and step.view and P.setview(step.view()) then -- 5d. view
-                        sasl.logDebug("View changed. Repeating step '" .. stepName .. "' in next cycle.")
-                        loop.lastStepName = nil -- Erzwingt, dass steprepeat = false ist
+                        elseif useViewChanges and step.view and P.setview(step.view(), (step.normalize == true)) then -- 5d. view (Modifiziert für Normalisierung)
+                            sasl.logDebug("View changed. Repeating step '" .. stepName .. "' in next cycle.")
+                            loop.lastStepName = nil -- Erzwingt, dass steprepeat = false ist
 
-                    else -- 5e. Kernlogik (mit msg-Fix)
-                        sasl.logDebug("Entering core logic (check/branch/action/advice).")
-                        if step.check then
-                            sasl.logDebug("Step has a check function.")
-                            if step.check() then
-                                sasl.logDebug("Check PASSED.")
-                                -- *** FIX FÜR msg-ERROR ANWENDEN (confirm) ***
-                                if step.confirm and (not useAdviceOnly or not loop.steprepeat) then
-                                    local confirm_msg_raw
-                                    if type(step.confirm) == "function" then
-                                        confirm_msg_raw = step.confirm()
+                        else -- 5e. Kernlogik (mit msg-Fix)
+                            sasl.logDebug("Entering core logic (check/branch/action/advice).")
+                            if step.check then
+                                sasl.logDebug("Step has a check function.")
+                                if step.check() then
+                                    sasl.logDebug("Check PASSED.")
+                                    -- *** FIX FÜR msg-ERROR ANWENDEN (confirm) ***
+                                    if step.confirm and (not useAdviceOnly or not loop.steprepeat) then
+                                        local confirm_msg_raw
+                                        if type(step.confirm) == "function" then
+                                            confirm_msg_raw = step.confirm()
+                                        else
+                                            confirm_msg_raw = step.confirm
+                                        end
+                                        -- Nur hinzufügen, wenn es ein gültiger String ist
+                                        if type(confirm_msg_raw) == "string" and confirm_msg_raw ~= "" then
+                                            P.commandtableentry(def.TEXT, confirm_msg_raw)
+                                            sasl.logDebug("Confirmation message: " .. confirm_msg_raw)
+                                        end
+                                    end
+                                    -- Ende confirm Fix
+
+                                    if step.branch then
+                                        sasl.logDebug("Executing branch function (after successful check).")
+                                        local nextStepName = step.branch(loop, procData)
+                                        sasl.logDebug("Branch returned: " .. tostring(nextStepName))
+                                        if type(nextStepName) == "string" then loop.currentStepName = nextStepName
+                                        elseif nextStepName == true then sasl.logDebug("Branch handled progression.")
+                                        elseif nextStepName == nil then loop.procedurenotpossible = true; sasl.logDebug("Branch signaled procedure not possible.")
+                                        else loop.currentStepName = step.nextStep; sasl.logDebug("Branch returned unexpected value, proceeding to default nextStep: " .. tostring(step.nextStep))
+                                        end
                                     else
-                                        confirm_msg_raw = step.confirm
+                                        sasl.logDebug("No branch function, proceeding to default nextStep: " .. tostring(step.nextStep))
+                                        loop.currentStepName = step.nextStep
                                     end
-                                    -- Nur hinzufügen, wenn es ein gültiger String ist
-                                    if type(confirm_msg_raw) == "string" and confirm_msg_raw ~= "" then
-                                        P.commandtableentry(def.TEXT, confirm_msg_raw)
-                                        sasl.logDebug("Confirmation message: " .. confirm_msg_raw)
+                                else -- Check FAILED
+                                    sasl.logDebug("Check FAILED.")
+                                    local branchResult = nil
+                                    local branchExecuted = false
+                                    if step.branch then
+                                        sasl.logDebug("Executing branch function (after failed check).")
+                                        branchResult = step.branch(loop, procData)
+                                        branchExecuted = true
+                                        sasl.logDebug("Branch returned: " .. tostring(branchResult))
+                                    else
+                                        sasl.logDebug("No branch function defined for this step.")
                                     end
-                                end
-                                -- Ende confirm Fix
 
+                                    if branchExecuted and branchResult == nil then
+                                        loop.procedurenotpossible = true;
+                                        sasl.logDebug("Branch EXPLICITLY returned nil, signaling procedure not possible.")
+                                    elseif branchResult == false then
+                                        sasl.logDebug("Branch returned false. Staying on step. Issuing advice/action.")
+                                        if useAdviceOnly then
+                                            -- *** FIX FÜR msg-ERROR ANWENDEN (advice nach failed check+branch=false) ***
+                                            if step.advice then
+                                                local advice_msg_raw
+                                                if type(step.advice) == "function" then
+                                                    advice_msg_raw = step.advice()
+                                                else
+                                                    advice_msg_raw = step.advice
+                                                end
+                                                 -- Nur hinzufügen, wenn es ein gültiger String ist
+                                                if type(advice_msg_raw) == "string" and advice_msg_raw ~= "" then
+                                                    P.commandtableentry(def.TEXT, advice_msg_raw)
+                                                    sasl.logDebug("Advice message: " .. advice_msg_raw)
+                                                end
+                                            end
+                                            if step.action and step.runActionInAdviceMode then 
+                                                 step.action(); 
+                                                 sasl.logDebug("Executed 'runActionInAdviceMode' action.")
+                                            end
+                                            -- Ende advice Fix
+                                        else if step.action then step.action(); sasl.logDebug("Executed action.") end end
+                                    elseif type(branchResult) == "string" then
+                                        sasl.logDebug("Branch returned next step name: " .. branchResult)
+                                        loop.currentStepName = branchResult
+                                    elseif branchResult == true then
+                                        sasl.logDebug("Branch returned true, handled progression.")
+                            else -- Default behavior (No branch or unexpected return)
+                                sasl.logDebug("Default behavior. Staying on step. Issuing advice/action.")
+
+                                if useAdviceOnly then
+                                    -- *** ADVICE ONLY MODE ***
+                                    
+                                    -- 1. Advice sprechen (wenn vorhanden und nicht wiederholt)
+                                    if step.advice then
+                                        local advice_msg_raw
+                                        if type(step.advice) == "function" then
+                                            advice_msg_raw = step.advice()
+                                        else
+                                            advice_msg_raw = step.advice
+                                        end
+                                        if type(advice_msg_raw) == "string" and advice_msg_raw ~= "" then
+                                            P.commandtableentry(def.TEXT, advice_msg_raw)
+                                            sasl.logDebug("Advice message: " .. advice_msg_raw)
+                                        end
+                                    end
+                                    
+                                    -- 2. Action AUSNAHMSWEISE ausführen (wenn geflaggt und nicht wiederholt)
+                                    if step.action and step.runActionInAdviceMode then
+                                         step.action(); 
+                                         sasl.logDebug("Executed 'runActionInAdviceMode' action (on first fail).")
+                                    end
+
+                                else 
+                                    -- *** AUTO MODE ***
+                                    -- Führe Action aus (wie in deiner Original-Logik, bei jedem Fehlschlag)
+                                    if step.action then 
+                                        step.action(); 
+                                        sasl.logDebug("Executed action (Auto Mode).") 
+                                    end 
+                                end
+                            end -- Ende Default behavior
+                                end -- Ende Check FAILED
+                            else -- Step has NO check function
+                                sasl.logDebug("Step has NO check function.")
                                 if step.branch then
-                                    sasl.logDebug("Executing branch function (after successful check).")
+                                    sasl.logDebug("Executing branch function (no check).")
                                     local nextStepName = step.branch(loop, procData)
                                     sasl.logDebug("Branch returned: " .. tostring(nextStepName))
                                     if type(nextStepName) == "string" then loop.currentStepName = nextStepName
@@ -4844,121 +4990,30 @@ function P.runProcedureLoop(loopIndex)
                                     else loop.currentStepName = step.nextStep; sasl.logDebug("Branch returned unexpected value, proceeding to default nextStep: " .. tostring(step.nextStep))
                                     end
                                 else
-                                    sasl.logDebug("No branch function, proceeding to default nextStep: " .. tostring(step.nextStep))
+                                    sasl.logDebug("No branch function. Executing action (if any) and proceeding to default nextStep: " .. tostring(step.nextStep))
+                                    if step.action and not loop.steprepeat then step.action(); sasl.logDebug("Executed action.") end
+
+                                    if step.confirm and (not useAdviceOnly or not loop.steprepeat) then
+                                        local confirm_msg_raw
+                                        if type(step.confirm) == "function" then
+                                            confirm_msg_raw = step.confirm()
+                                        else
+                                            confirm_msg_raw = step.confirm
+                                        end
+                                        -- Nur hinzufügen, wenn es ein gültiger String ist
+                                        if type(confirm_msg_raw) == "string" and confirm_msg_raw ~= "" then
+                                            P.commandtableentry(def.TEXT, confirm_msg_raw)
+                                            sasl.logDebug("Confirmation message (no-check step): " .. confirm_msg_raw)
+                                        end
+                                    end
+                                    -- *** ENDE NEU ***
                                     loop.currentStepName = step.nextStep
                                 end
-                            else -- Check FAILED
-                                sasl.logDebug("Check FAILED.")
-                                local branchResult = nil
-                                local branchExecuted = false
-                                if step.branch then
-                                    sasl.logDebug("Executing branch function (after failed check).")
-                                    branchResult = step.branch(loop, procData)
-                                    branchExecuted = true
-                                    sasl.logDebug("Branch returned: " .. tostring(branchResult))
-                                else
-                                    sasl.logDebug("No branch function defined for this step.")
-                                end
-
-                                if branchExecuted and branchResult == nil then
-                                    loop.procedurenotpossible = true;
-                                    sasl.logDebug("Branch EXPLICITLY returned nil, signaling procedure not possible.")
-                                elseif branchResult == false then
-                                    sasl.logDebug("Branch returned false. Staying on step. Issuing advice/action.")
-                                    if useAdviceOnly then
-                                        -- *** FIX FÜR msg-ERROR ANWENDEN (advice nach failed check+branch=false) ***
-                                        if step.advice then
-                                            local advice_msg_raw
-                                            if type(step.advice) == "function" then
-                                                advice_msg_raw = step.advice()
-                                            else
-                                                advice_msg_raw = step.advice
-                                            end
-                                             -- Nur hinzufügen, wenn es ein gültiger String ist
-                                            if type(advice_msg_raw) == "string" and advice_msg_raw ~= "" then
-                                                P.commandtableentry(def.TEXT, advice_msg_raw)
-                                                sasl.logDebug("Advice message: " .. advice_msg_raw)
-                                            end
-                                        end
-                                        -- Ende advice Fix
-                                    else if step.action then step.action(); sasl.logDebug("Executed action.") end end
-                                elseif type(branchResult) == "string" then
-                                    sasl.logDebug("Branch returned next step name: " .. branchResult)
-                                    loop.currentStepName = branchResult
-                                elseif branchResult == true then
-                                    sasl.logDebug("Branch returned true, handled progression.")
-                        else -- Default behavior (No branch or unexpected return)
-                            sasl.logDebug("Default behavior. Staying on step. Issuing advice/action.")
-
-                            if useAdviceOnly then
-                                -- *** ADVICE ONLY MODE ***
-                                
-                                -- 1. Advice sprechen (wenn vorhanden und nicht wiederholt)
-                                if step.advice then
-                                    local advice_msg_raw
-                                    if type(step.advice) == "function" then
-                                        advice_msg_raw = step.advice()
-                                    else
-                                        advice_msg_raw = step.advice
-                                    end
-                                    if type(advice_msg_raw) == "string" and advice_msg_raw ~= "" then
-                                        P.commandtableentry(def.TEXT, advice_msg_raw)
-                                        sasl.logDebug("Advice message: " .. advice_msg_raw)
-                                    end
-                                end
-                                
-                                -- 2. Action AUSNAHMSWEISE ausführen (wenn geflaggt und nicht wiederholt)
-                                if step.action and not loop.steprepeat and step.runActionInAdviceMode then
-                                     step.action(); 
-                                     sasl.logDebug("Executed 'runActionInAdviceMode' action (on first fail).")
-                                end
-
-                            else 
-                                -- *** AUTO MODE ***
-                                -- Führe Action aus (wie in deiner Original-Logik, bei jedem Fehlschlag)
-                                if step.action then 
-                                    step.action(); 
-                                    sasl.logDebug("Executed action (Auto Mode).") 
-                                end 
-                            end
-                        end -- Ende Default behavior
-                            end -- Ende Check FAILED
-                        else -- Step has NO check function
-                            sasl.logDebug("Step has NO check function.")
-                            if step.branch then
-                                sasl.logDebug("Executing branch function (no check).")
-                                local nextStepName = step.branch(loop, procData)
-                                sasl.logDebug("Branch returned: " .. tostring(nextStepName))
-                                if type(nextStepName) == "string" then loop.currentStepName = nextStepName
-                                elseif nextStepName == true then sasl.logDebug("Branch handled progression.")
-                                elseif nextStepName == nil then loop.procedurenotpossible = true; sasl.logDebug("Branch signaled procedure not possible.")
-                                else loop.currentStepName = step.nextStep; sasl.logDebug("Branch returned unexpected value, proceeding to default nextStep: " .. tostring(step.nextStep))
-                                end
-                            else
-                                sasl.logDebug("No branch function. Executing action (if any) and proceeding to default nextStep: " .. tostring(step.nextStep))
-                                if step.action and not loop.steprepeat then step.action(); sasl.logDebug("Executed action.") end
-
-                                if step.confirm and (not useAdviceOnly or not loop.steprepeat) then
-                                    local confirm_msg_raw
-                                    if type(step.confirm) == "function" then
-                                        confirm_msg_raw = step.confirm()
-                                    else
-                                        confirm_msg_raw = step.confirm
-                                    end
-                                    -- Nur hinzufügen, wenn es ein gültiger String ist
-                                    if type(confirm_msg_raw) == "string" and confirm_msg_raw ~= "" then
-                                        P.commandtableentry(def.TEXT, confirm_msg_raw)
-                                        sasl.logDebug("Confirmation message (no-check step): " .. confirm_msg_raw)
-                                    end
-                                end
-                                -- *** ENDE NEU ***
-                                loop.currentStepName = step.nextStep
-                            end
-                        end -- Ende if step.check / else
-                        sasl.logDebug("After core logic, next currentStepName is: " .. tostring(loop.currentStepName))
-                    end -- Ende der Kernlogik (5e) / elseif skipIf / elseif view
-                    -- *** ENDE DER ORIGINAL-LOGIK ***
-
+                            end -- Ende if step.check / else
+                            sasl.logDebug("After core logic, next currentStepName is: " .. tostring(loop.currentStepName))
+                        end -- Ende der Kernlogik (5e) / elseif skipIf / elseif view
+                        -- *** ENDE DER ORIGINAL-LOGIK ***
+                    end
                 end -- Ende "if not step"
             end -- Ende "elseif loop.stepindex == 1" (Engine Hauptteil)
 
