@@ -304,6 +304,10 @@ P.NAVDATARECTYPELPV = "16"
 P.DEPARTURE = 0
 P.ARRIVAL = 1
 
+P.EFBSHOWN = 0
+P.EFBHIDDEN = 2
+
+
 ----------------------------------------------
 -- DO NOT TOUCH BELOW
 ----------------------------------------------

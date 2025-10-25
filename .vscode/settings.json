@@ -1,0 +1,41 @@
+{
+    "Lua.workspace.ignoreDir": [
+        "data/modules/3rd-modules",
+        "data/modules/configuration",
+        "data/init",
+        "data/api",
+        "data/components",
+        "data/output",
+        "liblux",
+        "64"
+    ],
+    "Lua.diagnostics.globals": [
+        "sasl",
+        "globalProperty",
+        "get",
+        "registerGlobalKeyHandler",
+        "set",
+        "toboolean",
+        "interactive",
+        "PLUGINS_MENU_ID",
+        "isProperty",
+        "createGlobalPropertyia",
+        "helpers",
+        "defineProperty",
+        "size",
+        "TEXT_ALIGN_LEFT",
+        "contents",
+        "wSize",
+        "LOG_INFO",
+        "LOG_DEBUG",
+        "createGlobalPropertyi",
+        "globalPropertyfae",
+        "drawRectangle",
+        "TEXT_ALIGN_CENTER",
+        "NO_PLUGIN_ID",
+        "SASL_COMMAND_BEGIN"
+    ],
+    "Lua.diagnostics.disable": [
+        "deprecated"
+    ]
+}

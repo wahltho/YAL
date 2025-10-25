@@ -1,13 +1,8 @@
 local def = require("definitions")
 local helpers = require("helpers")
-
 local M = {}
-
-
 function M.fillProcedureTable()
-
     local P = yal 
-
     P.proceduretable = {
         [def.COLDANDDARKPROCEDURE] = { 
             number = 1, 
@@ -30,9 +25,7 @@ function M.fillProcedureTable()
                 { check = function() return not P.enginesrunning(def.BOTH) end, 
                   failMsg = "Procedure aborted, Engines already running" }
             },  
-
             startStep = 'set_view_overhead',
-
             steps = {
                 ['set_view_overhead'] = {
                     view = function() return P.configvalues[def.CONFIGVIEWOVERHEADPANEL] end,
@@ -242,16 +235,13 @@ function M.fillProcedureTable()
             allowedState = def.GROUNDONLY, 
             requiredFlightstate = def.FLIGHTSTATEPREFLIGHT, 
             skipCondition = nil,
-            
             prerequisiteChecks = {
                 { check = function() return (get(P.battery) == def.ON) or (get(P.mainbus) == def.ON) end, 
                   failMsg = "Procedure aborted, Cockpit is Cold and Dark" },
                 { check = function() return (get(P.parkingbrakepos) == def.ON) end, 
                   failMsg = "Procedure not possible, Parking brake must be set" }
             },
-
             startStep = 'check_prerequisites',
-
             steps = {
                 ['check_prerequisites'] = { 
                     branch = function(loop) 
@@ -259,17 +249,11 @@ function M.fillProcedureTable()
                             loop.procedurenotpossible = true
                             P.commandtableentry(def.TEXT, P.proceduretable[def.COCKPITINITPROCEDURE].name .. " Procedure aborted, Cockpit is Cold and Dark")
                             return nil 
-                        
                         elseif (get(P.parkingbrakepos) == def.OFF) then
                             loop.procedurenotpossible = true
                             P.commandtableentry(def.TEXT, P.proceduretable[def.COCKPITINITPROCEDURE].name .. " Procedure not possible, Parking brake must be set")
                             return nil 
                         end
-                        
-                        if (P.configvalues[def.CONFIGVIEWCHANGES] == def.ON) then
-                            P.setview(def.DEFAULTVIEW) 
-                        end
-
                         if (get(P.sunpitchdegrees) < 0) then
                             return 'view_upper_overhead' 
                         else
@@ -277,13 +261,11 @@ function M.fillProcedureTable()
                         end
                     end
                 },
-                
                 ['view_upper_overhead'] = { 
                     view = function() return P.configvalues[def.CONFIGVIEWUPPEROVERHEADPANEL] end,
                     normalize = true,
                     nextStep = 'set_dome_light'
                 },
-
                 ['set_dome_light'] = { 
                     check = function() return get(P.domelightpos) ~= def.DOMELIGHTOFF end,
                     action = function() P.setdomelight(def.DOMELIGHTDIM) end,
@@ -291,30 +273,24 @@ function M.fillProcedureTable()
                     confirm = "Dome light checked and On",
                     nextStep = 'view_main_panel'
                 },
-                
                 ['view_main_panel'] = { 
                     view = function() return P.configvalues[def.CONFIGVIEWMAINPANEL] end,
                     nextStep = 'hide_efbs'
                 },
-                
                 ['hide_efbs'] = { 
                     skipIf = function() return P.configvalues[def.CONFIGHIDEEFBS] == def.OFF end,
-                    
-                    
                     check = function() 
-                        return (get(P.hidecptefb) == def.ON) and (get(P.hidefoefb) == def.ON) 
+                        return (get(P.hidecptefb) == def.EFBHIDDEN) and (get(P.hidefoefb) == def.EFBHIDDEN) 
                     end,
                     action = function() 
-                        if (get(P.hidecptefb) == def.OFF) then helpers.command_once("laminar/B738/tab/toggle") end
-                        if (get(P.hidefoefb) == def.OFF) then helpers.command_once("laminar/B738/tab/fo_toggle") end
+                        if (get(P.hidecptefb) == def.EFBSHOWN) then helpers.command_once("laminar/B738/tab/toggle") end
+                        if (get(P.hidefoefb) == def.EFBSHOWN) then helpers.command_once("laminar/B738/tab/fo_toggle") end
                     end,
                     advice = "Hide E F Bs", 
                     confirm = "E F B S checked and hidden", 
-                    
                     nextStep = 'set_cockpit_lights',
                     runActionInAdviceMode = true 
                 },
-                
                 ['set_cockpit_lights'] = { 
                     skipIf = function() return P.configvalues[def.CONFIGIGNOREALLBRIGHTHNESSSETTINGS] == def.ON end,
                     action = function() 
@@ -324,7 +300,6 @@ function M.fillProcedureTable()
                     end,
                     nextStep = 'set_lower_du'
                 },
-                
                 ['set_lower_du'] = { 
                     skipIf = function() return P.configvalues[def.CONFIGLOWERDU] == def.OFF end,
                     action = function()
@@ -336,12 +311,10 @@ function M.fillProcedureTable()
                     end,
                     nextStep = 'view_fms'
                 },
-
                 ['view_fms'] = { 
                     view = function() return P.configvalues[def.CONFIGVIEWFMS] end,
                     nextStep = 'reset_fmc'
                 },
-
                 ['reset_fmc'] = {
                     action = function()
                         if P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON then
@@ -353,7 +326,6 @@ function M.fillProcedureTable()
                     end,
                     nextStep = 'load_yansh_ofp'
                 },
-                
                 ['load_yansh_ofp'] = { 
                     skipIf = function() return not P.YANSHisinstalled() end,
                     check = function() return P.YANSHflightplanloaded() end,
@@ -362,11 +334,10 @@ function M.fillProcedureTable()
                     confirm = "Simbrief Flight Plan Loaded",
                     nextStep = 'auto_fueling'
                 },
-
                 ['auto_fueling'] = { 
                     skipIf = function() return not (P.YANSHisinstalled() and P.YANSHflightplanloaded() and get(P.YANSHFuelPlanRamp) > 0 and P.configvalues[def.CONFIGAUTOFUELING] == def.ON) end,
                     action = function() 
-                        if (P.configvalues[def.CONFIGAUTOFUNCTIONS] == def.ON) then
+                        if (P.configvalues[def.CONFIGAUTOFUELING] == def.ON) then
                             local plannedFuelLbs = get(P.YANSHFuelPlanRamp)
                             if get(P.YANSHParamsUnitsFlag) == def.YANSHUNITKGS then plannedFuelLbs = plannedFuelLbs * def.KGTOLBS end
                             P.refuelAircraft(plannedFuelLbs)
@@ -376,7 +347,6 @@ function M.fillProcedureTable()
                     end,
                     nextStep = 'activate_fmc_plan'
                 },
-
                 ['activate_fmc_plan'] = { 
                     skipIf = function() return not (P.YANSHisinstalled() and P.YANSHflightplanloaded() and P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) end,
                     check = function() return (helpers.isvalidicao(get(P.depicao)) and helpers.isvalidicao(get(P.desicao))) end,
@@ -384,7 +354,6 @@ function M.fillProcedureTable()
                     confirm = "Flight Plan in F M C Checked and Activated",
                     nextStep = 'set_fmc_to_flaps'
                 },
-
                 ['set_fmc_to_flaps'] = { 
                     skipIf = function() return P.configvalues[def.CONFIGVOICEADVICEONLY] == def.OFF end,
                     check = function() return get(P.toflaps) ~= 0 end, 
@@ -392,7 +361,6 @@ function M.fillProcedureTable()
                     confirm = function() return "Takeoff Flaps set and " .. tostring(get(P.toflaps)) end,
                     nextStep = 'set_fmc_cg'
                 },
-
                 ['set_fmc_cg'] = { 
                     skipIf = function() return P.configvalues[def.CONFIGVOICEADVICEONLY] == def.OFF end,
                     check = function() return get(P.fmccg) ~= 0 end,
@@ -400,7 +368,6 @@ function M.fillProcedureTable()
                     confirm = function() return "C G checked and " .. tostring(get(P.fmccg)) end,
                     nextStep = 'set_fmc_vspeeds'
                 },
-
                 ['set_fmc_vspeeds'] = { 
                     skipIf = function() return P.configvalues[def.CONFIGVOICEADVICEONLY] == def.OFF end,
                     check = function() return (get(P.v1setspeed) > 0) and (get(P.v2setspeed) > 0) and (get(P.vrsetspeed) > 0) end,
@@ -408,35 +375,30 @@ function M.fillProcedureTable()
                     confirm = "V Speeds checked and Set",
                     nextStep = 'view_pedestal'
                 },
-
                 ['view_pedestal'] = { 
                     view = function() return P.configvalues[def.CONFIGVIEWPEDESTAL] end,
                     nextStep = 'set_transponder_code'
                 },
-
                 ['set_transponder_code'] = { 
-                    skipIf = function() return P.configvalues[def.CONFIGTRANSPONDER] == 0 end,
+                    skipIf = function() return P.configvalues[def.CONFIGTRANSPONDER] == def.OFF end,
                     check = function() return get(P.transpondercode) == P.configvalues[def.CONFIGTRANSPONDER] end,
                     action = function() set(P.transpondercode, P.configvalues[def.CONFIGTRANSPONDER]) end,
                     advice = function() return "Set Transponder Code " .. helpers.addspaces(P.configvalues[def.CONFIGTRANSPONDER]) end,
                     confirm = function() return "Transponder Code checked and " .. helpers.addspaces(P.configvalues[def.CONFIGTRANSPONDER]) end,
                     nextStep = 'set_transponder_stby'
                 },
-
                 ['set_transponder_stby'] = { 
-                    skipIf = function() return P.configvalues[def.CONFIGTRANSPONDER] == 0 end,
+                    skipIf = function() return P.configvalues[def.CONFIGTRANSPONDER] == def.OFF end,
                     check = function() return get(P.transponderpos) == def.STANDBY end,
                     action = function() P.toggletransponder(def.STANDBY) end,
                     advice = "Set Transponder Standby",
                     confirm = "Transponder checked and Standby",
                     nextStep = 'view_overhead_2'
                 },
-
                 ['view_overhead_2'] = { 
                     view = function() return P.configvalues[def.CONFIGVIEWOVERHEADPANEL] end,
                     nextStep = 'set_probe_heat_off'
                 },
-
                 ['set_probe_heat_off'] = { 
                     check = function() return get(P.captainprobepos) == def.OFF and get(P.foprobepos) == def.OFF end,
                     action = function() P.toggleprobeheat(def.OFF) end,
@@ -444,7 +406,6 @@ function M.fillProcedureTable()
                     confirm = "Probe Heat checked and Off",
                     nextStep = 'set_seatbelts_off'
                 },
-                
                 ['set_seatbelts_off'] = { 
                     check = function() return get(P.seatbeltsignpos) == def.SEATBELTSIGNOFF end,
                     action = function() P.setseatbeltsign(def.SEATBELTSIGNOFF) end,
@@ -452,7 +413,6 @@ function M.fillProcedureTable()
                     confirm = "Seatbelt Signs checked and Off",
                     nextStep = 'set_nosmoking_on'
                 },
-                
                 ['set_nosmoking_on'] = { 
                     check = function() return get(P.nosmokingsignpos) == def.NOSMOKINGSIGNON end,
                     action = function() P.setnosmokingsign(def.NOSMOKINGSIGNON) end,
@@ -460,7 +420,6 @@ function M.fillProcedureTable()
                     confirm = "No Smoking Signs checked and On",
                     nextStep = 'set_poslights_steady'
                 },
-
                 ['set_poslights_steady'] = { 
                     check = function() return get(P.positionlights) == def.POSLIGHTSSTEADY end,
                     action = function() P.togglepositionlights(def.POSLIGHTSSTEADY) end,
@@ -468,7 +427,6 @@ function M.fillProcedureTable()
                     confirm = "Position Lights checked and Steady",
                     nextStep = 'set_landinglights_off'
                 },
-
                 ['set_landinglights_off'] = { 
                     check = function() return (get(P.llights1)==def.OFF) and (get(P.llights2)==def.OFF) and (get(P.llights3)==def.OFF) and (get(P.llights4)==def.OFF) end,
                     action = function() P.togglelandinglights(def.OFF) end,
@@ -476,7 +434,6 @@ function M.fillProcedureTable()
                     confirm = "Landing Lights checked and Off",
                     nextStep = 'set_rwy_lights_off'
                 },
-
                 ['set_rwy_lights_off'] = { 
                     check = function() return (get(P.rwylightl) == def.OFF) and (get(P.rwylightr) == def.OFF) end,
                     action = function() P.togglerwylights(def.OFF) end,
@@ -484,7 +441,6 @@ function M.fillProcedureTable()
                     confirm = "Runway Turnoff Lights checked and Off",
                     nextStep = 'set_taxilight_off'
                 },
-                
                 ['set_taxilight_off'] = { 
                     check = function() return get(P.taxilight) == def.OFF end,
                     action = function() P.toggletaxilights(def.OFF) end,
@@ -492,19 +448,16 @@ function M.fillProcedureTable()
                     confirm = "Taxi Lights checked and Off",
                     nextStep = 'view_main_panel_2'
                 },
-
                 ['view_main_panel_2'] = { 
                     view = function() return P.configvalues[def.CONFIGVIEWMAINPANEL] end,
                     nextStep = 'reset_ap_disconnect'
                 },
-
                 ['reset_ap_disconnect'] = { 
                     check = function() return get(P.apdiscpos) == def.OFF end,
                     action = function() helpers.command_once("laminar/B738/autopilot/disconnect_toggle") end,
                     advice = "Reset Autopilot Disconnect Bar",
                     nextStep = 'set_fds_off'
                 },
-                
                 ['set_fds_off'] = { 
                     check = function() return get(P.fdpilotpos) == def.OFF and get(P.fdfopos) == def.OFF end,
                     action = function() P.togglefds(def.OFF) end,
@@ -512,7 +465,6 @@ function M.fillProcedureTable()
                     confirm = "Both Flight Directors checked and Off",
                     nextStep = 'set_mcp_altitude'
                 },
-
                 ['set_mcp_altitude'] = { 
                     check = function() return get(P.mcpaltitude) == P.configvalues[def.CONFIGLOWEAIRSPACEALT] end,
                     action = function() set(P.mcpaltitude, P.configvalues[def.CONFIGLOWEAIRSPACEALT]) end,
@@ -520,7 +472,6 @@ function M.fillProcedureTable()
                     confirm = function() return "M C P ALtitude checked and " .. tostring(P.configvalues[def.CONFIGLOWEAIRSPACEALT]) end,
                     nextStep = 'set_bank_angle'
                 },
-
                 ['set_bank_angle'] = { 
                     check = function() return get(P.bankanglepos) == P.configvalues[def.CONFIGBANKANGLEMAX] end,
                     action = function() P.setbankanglepos(P.configvalues[def.CONFIGBANKANGLEMAX]) end,
@@ -528,7 +479,6 @@ function M.fillProcedureTable()
                     confirm = function() return "Bank Angle checked and " .. helpers.getbankanglestring(P.configvalues[def.CONFIGBANKANGLEMAX]) end,
                     nextStep = 'set_efis_data'
                 },
-                
                 ['set_efis_data'] = { 
                     action = function() 
                         if (get(P.efisdatapilotpos) == def.OFF) then helpers.command_once("laminar/B738/EFIS_control/capt/push_button/data_press") end
@@ -536,7 +486,6 @@ function M.fillProcedureTable()
                     end,
                     nextStep = 'set_autobrake_off'
                 },
-
                 ['set_autobrake_off'] = { 
                     check = function() return get(P.autobrakepos) == def.AUTOBRAKEOFF end,
                     action = function() P.setautobrake(def.AUTOBRAKEOFF) end,
@@ -544,21 +493,18 @@ function M.fillProcedureTable()
                     confirm = "Auto Brake checked and Off",
                     nextStep = 'set_ap_off'
                 },
-                
                 ['set_ap_off'] = { 
                     check = function() return get(P.aponstat) == def.OFF end,
                     action = function() set(P.aponstat, def.OFF) end,
                     advice = "Set Autopilot Off",
                     nextStep = 'check_throttle_quadrant'
                 },
-                
                 ['check_throttle_quadrant'] = { 
                     branch = function(loop, procData)
                         local speedbrakeleverrounded = helpers.roundnumber(get(P.speedbrakelever), 1)
                         local engines_not_running = not P.enginesrunning(def.BOTH)
                         local mixture_not_cutoff = (get(P.mixture1pos) ~= def.OFF or get(P.mixture2pos) ~= def.OFF)
                         local speedbrake_not_down = (speedbrakeleverrounded ~= def.SPEEDBRAKEDOWN)
-
                         if (engines_not_running and mixture_not_cutoff) or speedbrake_not_down then
                             return 'view_throttle' 
                         else
@@ -566,12 +512,10 @@ function M.fillProcedureTable()
                         end
                     end
                 },
-                
                 ['view_throttle'] = { 
                     view = function() return P.configvalues[def.CONFIGVIEWTHROTTLE] end,
                     nextStep = 'set_fuel_levers_cutoff'
                 },
-
                 ['set_fuel_levers_cutoff'] = { 
                     skipIf = function() return P.enginesrunning(def.BOTH) end,
                     check = function() return get(P.mixture1pos) == def.OFF and get(P.mixture2pos) == def.OFF end,
@@ -582,7 +526,6 @@ function M.fillProcedureTable()
                     advice = "Set Both Engine Fuel Levers Cutoff",
                     nextStep = 'retract_speedbrake'
                 },
-
                 ['retract_speedbrake'] = { 
                     skipIf = function() return helpers.roundnumber(get(P.speedbrakelever), 1) == def.SPEEDBRAKEDOWN end,
                     check = function() return helpers.roundnumber(get(P.speedbrakelever), 1) == def.SPEEDBRAKEDOWN end,
@@ -590,12 +533,10 @@ function M.fillProcedureTable()
                     advice = "Retract Speed Brakes",
                     nextStep = 'view_main_panel_3'
                 },
-
                 ['view_main_panel_3'] = { 
                     view = function() return P.configvalues[def.CONFIGVIEWMAINPANEL] end,
                     nextStep = 'reset_master_caution'
                 },
-
                 ['reset_master_caution'] = { 
                     action = function() 
                         helpers.command_once("laminar/B738/push_button/master_caution1")
@@ -616,16 +557,13 @@ function M.fillProcedureTable()
             allowedState = def.GROUNDONLY, 
             requiredFlightstate = def.FLIGHTSTATEPREFLIGHT, 
             skipCondition = function() return (P.apurunning() == def.APUONBUS) or P.enginesrunning(def.BOTH) end,
-            
             prerequisiteChecks = {
                 { check = function() return (get(P.battery) == def.ON) or (get(P.mainbus) == def.ON) end, 
                   failMsg = "Procedure aborted, Battery is Off" },
                 { check = function() return P.apurunning() ~= def.APUONBUS end, 
                   failMsg = "Procedure aborted, A P U already running" }
             },
-
             startStep = 'view_overhead',
-            
             steps = {
                 ['view_overhead'] = {
                     view = function() return P.configvalues[def.CONFIGVIEWOVERHEADPANEL] end,
@@ -695,16 +633,13 @@ function M.fillProcedureTable()
             allowedState = def.GROUNDONLY, 
             requiredFlightstate = def.FLIGHTSTATEPREFLIGHT, 
             skipCondition = function() return P.enginesrunning(def.BOTH) end,
-            
             prerequisiteChecks = {
                 { check = function() return P.apurunning() == def.APUONBUS end, 
                   failMsg = "Procedure not possible, A P U not running" },
                 { check = function() return not P.enginesrunning(def.BOTH) end, 
                   failMsg = "Procedure aborted, Engines already running", setonabort = true }
             },
-
             startStep = 'view_overhead',
-            
             steps = {
                 ['view_overhead'] = {
                     view = function() return P.configvalues[def.CONFIGVIEWOVERHEADPANEL] end,
@@ -922,14 +857,11 @@ function M.fillProcedureTable()
             allowedState = def.GROUNDONLY, 
             requiredFlightstate = def.FLIGHTSTATEPREFLIGHT, 
             skipCondition = nil,
-            
             prerequisiteChecks = {
                 { check = function() return P.enginesrunning(def.BOTH) end, 
                   failMsg = "Procedure aborted, Engines not running" }
             },
-
             startStep = 'view_main_panel',
-
             steps = {
                 ['view_main_panel'] = {
                     view = function() return P.configvalues[def.CONFIGVIEWMAINPANEL] end,
@@ -941,7 +873,8 @@ function M.fillProcedureTable()
                     action = function() helpers.command_once("laminar/B738/toggle_switch/chock") end,
                     advice = "Remove Chocks",
                     confirm = "Chocks checked and Removed",
-                    nextStep = 'check_night_view'
+                    nextStep = 'check_night_view',
+                    runActionInAdviceMode = true
                 },
                 ['check_night_view'] = {
                     view = function() return def.DEFAULTVIEW end,
@@ -1135,12 +1068,9 @@ function M.fillProcedureTable()
                 { condition = function() return get(P.airgroundsensor) == def.OFF end },
                 { condition = function() return get(P.groundspeed) > 45 end } 
             },
-
             startStep = 'view_pedestal',
-            
             label_to_index = {},
             get_index = function(self, label) return nil end,
-            
             steps = {
                 ['view_pedestal'] = {
                     view = function() return P.configvalues[def.CONFIGVIEWPEDESTAL] end,
@@ -1281,16 +1211,12 @@ function M.fillProcedureTable()
             allowedState = def.AIRONLY,
             requiredFlightstate = def.FLIGHTSTATEINITIALCLIMB,
             skipCondition = nil,
-            
             prerequisiteChecks = {
                 { check = function() return get(P.airgroundsensor) == def.OFF end, 
                   failMsg = "Procedure only available Inflight" }
             },
-
             startStep = 'wait_for_altitude',
-
             steps = {
-                
                 ['wait_for_altitude'] = {
                     check = function() 
                         return get(P.radioaltitude) > 200 
@@ -1299,7 +1225,6 @@ function M.fillProcedureTable()
                     action = nil,
                     nextStep = 'set_gear_up'
                 },
-
                 ['set_gear_up'] = {
                     check = function() 
                         return get(P.gearhandlepos) == def.GEARUP 
@@ -1311,17 +1236,14 @@ function M.fillProcedureTable()
                     confirm = "Gear checked and Up",
                     nextStep = 'set_gear_lever_off'
                 },
-
                 ['set_gear_lever_off'] = {
                     check = function() 
                         return get(P.gearhandlepos) == def.GEAROFF 
                     end,
-                    
                     advice = function()
                         local gear_is_stowed = (get(P.lgeardeployed) == 0) and 
                                                (get(P.ngeardeployed) == 0) and 
                                                (get(P.rgeardeployed) == 0)
-                                               
                         if (get(P.gearhandlepos) == def.GEARUP) and gear_is_stowed then
                             return "Set Gear Lever Off"
                         end
@@ -1331,7 +1253,6 @@ function M.fillProcedureTable()
                         local gear_is_stowed = (get(P.lgeardeployed) == 0) and 
                                                (get(P.ngeardeployed) == 0) and 
                                                (get(P.rgeardeployed) == 0)
-                                               
                         if (get(P.gearhandlepos) == def.GEARUP) and gear_is_stowed then
                             set(P.gearhandlepos, def.GEAROFF)
                         end
@@ -1339,7 +1260,6 @@ function M.fillProcedureTable()
                     confirm = "Gear Lever checked and Off",
                     nextStep = 'set_autobrake_off'
                 },
-
                 ['set_autobrake_off'] = {
                     check = function() 
                         return get(P.autobrakepos) == def.AUTOBRAKEOFF 
@@ -1364,22 +1284,17 @@ function M.fillProcedureTable()
             allowedState = def.AIRONLY,
             requiredFlightstate = def.FLIGHTSTATECLIMB,
             skipCondition = nil,
-            
             prerequisiteChecks = {
                 { check = function() return get(P.airgroundsensor) == def.OFF end, 
                   failMsg = "Procedure only available Inflight" }
             },
-
             startStep = 'set_dome_light_off',
-
             steps = {
-                
                 ['set_dome_light_off'] = {
                     skipIf = function() return P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON end,
                     action = function() P.setdomelight(def.DOMELIGHTOFF) end,
                     nextStep = 'check_landing_lights'
                 },
-                
                 ['check_landing_lights'] = {
                     skipIf = function() return P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON end,
                     action = function() 
@@ -1389,25 +1304,21 @@ function M.fillProcedureTable()
                     end,
                     nextStep = 'set_pos_lights_strobe'
                 },
-                
                 ['set_pos_lights_strobe'] = {
                     skipIf = function() return P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON end,
                     action = function() P.togglepositionlights(def.POSLIGHTSSTROBE) end,
                     nextStep = 'set_rwy_lights_off'
                 },
-                
                 ['set_rwy_lights_off'] = {
                     skipIf = function() return P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON end,
                     action = function() P.togglerwylights(def.OFF) end,
                     nextStep = 'set_taxi_lights_off'
                 },
-                
                 ['set_taxi_lights_off'] = {
                     skipIf = function() return P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON end,
                     action = function() P.toggletaxilights(def.OFF) end,
                     nextStep = 'set_transponder_tara'
                 },
-                
                 ['set_transponder_tara'] = {
                     skipIf = function() 
                         return (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) or (P.configvalues[def.CONFIGTRANSPONDER] == 0) 
@@ -1415,7 +1326,6 @@ function M.fillProcedureTable()
                     action = function() P.toggletransponder(def.TARA) end,
                     nextStep = 'wait_for_transition'
                 },
-                
                 ['wait_for_transition'] = {
                     check = function() 
                         return get(P.altitude) > get(P.fmctransalt) 
@@ -1423,7 +1333,6 @@ function M.fillProcedureTable()
                     confirm = "Passing Transition Altitude",
                     nextStep = 'set_qnh_standard'
                 },
-                
                 ['set_qnh_standard'] = {
                     skipIf = function() 
                         return (P.configvalues[def.CONFIGAUTOBARO] == def.OFF) or (get(P.fmccruisealt) <= get(P.fmctransalt))
@@ -1434,7 +1343,6 @@ function M.fillProcedureTable()
                     confirm = "Q N H checked and Standard",
                     nextStep = 'set_eng_bleed_on'
                 },
-                
                 ['set_eng_bleed_on'] = {
                     check = function() return (get(P.bleedair1pos) == def.ON) and (get(P.bleedair2pos) == def.ON) end,
                     advice = "Set Both Engine Bleed Air On",
@@ -1445,7 +1353,6 @@ function M.fillProcedureTable()
                     confirm = "Both Engine Bleed Air checked and On",
                     nextStep = 'set_packs_auto'
                 },
-                
                 ['set_packs_auto'] = {
                     check = function() return (get(P.packlpos) == def.PACKAUTO) and (get(P.packrpos) == def.PACKAUTO) end,
                     advice = "Set Both Packs Auto",
@@ -1456,7 +1363,6 @@ function M.fillProcedureTable()
                     confirm = "Both Packs checked and On",
                     nextStep = 'set_isol_valve_auto'
                 },
-                
                 ['set_isol_valve_auto'] = {
                     check = function() return get(P.isolvalvepos) == def.ISOLVALVEAUTO end,
                     advice = "Set Isolation Valve Auto",
@@ -1464,7 +1370,6 @@ function M.fillProcedureTable()
                     confirm = "Isolation Valve checked and Auto",
                     nextStep = 'set_apu_bleed_off'
                 },
-                
                 ['set_apu_bleed_off'] = {
                     check = function() return get(P.bleedairapupos) == def.OFF end,
                     advice = "Switch A P U Bleed Air Off",
@@ -1472,7 +1377,6 @@ function M.fillProcedureTable()
                     confirm = "A P U Bleed Air checked and Off",
                     nextStep = 'set_apu_off'
                 },
-                
                 ['set_apu_off'] = {
                     check = function() return P.apurunning() == def.APUOFF end,
                     advice = "Switch A P U Off",
@@ -1493,37 +1397,30 @@ function M.fillProcedureTable()
             allowedState = def.AIRONLY,
             requiredFlightstate = def.FLIGHTSTATECLIMB,
             skipCondition = nil,
-            
             prerequisiteChecks = {
                 { check = function() return get(P.airgroundsensor) == def.OFF end, 
                   failMsg = "Procedure only available Inflight" },
                 { 
                   check = function(loop) 
                       if not loop.triggeredmanually then return true end
-                      
                       local departure_altitude = 0
                       if P.airportdatatable[get(P.depicao)] and P.airportdatatable[get(P.depicao)].elevation_ft then
                           departure_altitude = P.airportdatatable[get(P.depicao)].elevation_ft
                       end
                       local height_above_field = get(P.altitude) - departure_altitude
                       local lower_airspace_alt = P.configvalues[def.CONFIGLOWEAIRSPACEALT]
-                      
                       return (height_above_field >= lower_airspace_alt) or (get(P.altitude) >= lower_airspace_alt)
                   end, 
                   failMsg = "Procedure only possible above lower Airspace Altitude" 
                 }
             },
-
             startStep = 'set_view_overhead',
-
             steps = {
-                
                 ['set_view_overhead'] = {
                     view = function() return P.configvalues[def.CONFIGVIEWOVERHEADPANEL] end,
                     normalize = true,
                     nextStep = 'announce_altitude'
                 },
-                
                 ['announce_altitude'] = {
                     skipIf = function() 
                         return (get(P.fmccruisealt) <= P.configvalues[def.CONFIGLOWEAIRSPACEALT])
@@ -1535,7 +1432,6 @@ function M.fillProcedureTable()
                     end,
                     nextStep = 'set_landing_lights_off'
                 },
-                
                 ['set_landing_lights_off'] = {
                     check = function() 
                         return (get(P.llights1) == def.OFF) and (get(P.llights2) == def.OFF) and (get(P.llights3) == def.OFF) and (get(P.llights4) == def.OFF) 
@@ -1545,7 +1441,6 @@ function M.fillProcedureTable()
                     confirm = "Landing Lights checked and Off",
                     nextStep = 'set_logo_lights_off'
                 },
-                
                 ['set_logo_lights_off'] = {
                     check = function() return get(P.logolighton) == def.OFF end,
                     advice = "Set Logo Lights Off",
@@ -1553,7 +1448,6 @@ function M.fillProcedureTable()
                     confirm = "Logo Lights checked and Off",
                     nextStep = 'set_seatbelts_off'
                 },
-                
                 ['set_seatbelts_off'] = {
                     check = function() return get(P.seatbeltsignpos) == def.SEATBELTSIGNOFF end,
                     advice = "Set Seatbeltsigns Off",
@@ -1561,7 +1455,6 @@ function M.fillProcedureTable()
                     confirm = "Seatbelt Signs checked and Off",
                     nextStep = 'set_starters'
                 },
-                
                 ['set_starters'] = {
                     check = function() 
                         if (get(P.starterauto) == def.ON) then
@@ -1584,7 +1477,6 @@ function M.fillProcedureTable()
                     end,
                     nextStep = 'set_view_main'
                 },
-                
                 ['set_view_main'] = {
                     view = function() return P.configvalues[def.CONFIGVIEWMAINPANEL] end,
                     nextStep = nil
@@ -1602,21 +1494,16 @@ function M.fillProcedureTable()
             allowedState = def.AIRONLY,
             requiredFlightstate = { def.FLIGHTSTATECRUISE, def.FLIGHTSTATEAPPROACH },
             skipCondition = nil,
-            
             prerequisiteChecks = {
                 { check = function() return get(P.airgroundsensor) == def.OFF end, 
                   failMsg = "Procedure only available Inflight" }
             },
-
             startStep = 'announce_descent',
-
             steps = {
-                
                 ['announce_descent'] = {
                     confirm = "Descent Started",
                     nextStep = 'set_speed_restriction'
                 },
-                
                 ['set_speed_restriction'] = {
                     skipIf = function() return P.configvalues[def.CONFIGSPDRESTR250] ~= def.ON end,
                     check = function() 
@@ -1631,12 +1518,10 @@ function M.fillProcedureTable()
                     confirm = "Speed 250 below 10000 Feet checked and set",
                     nextStep = 'speak_des_metar'
                 },
-                
                 ['speak_des_metar'] = {
                     action = function() P.speakdesmetar() end,
                     nextStep = 'check_des_rwy'
                 },
-                
                 ['check_des_rwy'] = {
                     action = function() 
                         if (get(P.desrwy) == "") then
@@ -1645,7 +1530,6 @@ function M.fillProcedureTable()
                     end,
                     nextStep = 'check_rwy_suitability'
                 },
-                
                 ['check_rwy_suitability'] = {
                     action = function()
                         if P.desmetar.metarfound then
@@ -1656,7 +1540,6 @@ function M.fillProcedureTable()
                     end,
                     nextStep = 'wait_for_transition'
                 },
-                
                 ['wait_for_transition'] = {
                     skipIf = function() return get(P.fmccruisealt) <= get(P.fmctranslvl) end,
                     check = function() 
@@ -1667,26 +1550,22 @@ function M.fillProcedureTable()
                     confirm = "Passing Transition Level",
                     nextStep = 'set_qnh_local'
                 },
-                
                 ['set_qnh_local'] = {
                     skipIf = function() return P.configvalues[def.CONFIGAUTOBARO] == def.OFF end,
                     check = function()
                         local tl = get(P.fmctranslvl)
                         if (tl == nil) or (tl <= 0) or (tl > 25000) then return false end 
                         if (get(P.altitude) >= tl) then return false end 
-
-                        local baroinchtmp, _ = P.getlocalqnh(ARRIVAL)
+                        local baroinchtmp, _ = P.getlocalqnh(def.ARRIVAL)
                         if (get(P.barostd) == def.ON) then return false end 
                         if (helpers.roundnumber(math.abs(helpers.roundnumber(get(P.baropilot), 2) - baroinchtmp), 2) > 0.01) then return false end 
-                        
-                        return true 
+                        return true
                     end,
                     advice = function()
                         local tl = get(P.fmctranslvl)
                         if (tl == nil) or (tl <= 0) or (tl > 25000) then return false end 
                         if (get(P.altitude) >= tl) then return false end 
-                        
-                        local baroinchtmp, baropastmp = P.getlocalqnh(ARRIVAL)
+                        local baroinchtmp, baropastmp = P.getlocalqnh(def.ARRIVAL)
                         if (get(P.baroinhpa) == def.ON) then
                             return "Set Q N H " .. helpers.addspaces(baropastmp)
                         else
@@ -1697,13 +1576,12 @@ function M.fillProcedureTable()
                         local tl = get(P.fmctranslvl)
                         if (tl == nil) or (tl <= 0) or (tl > 25000) then return end 
                         if (get(P.altitude) >= tl) then return end 
-                        
-                        local baroinchtmp, _ = P.getlocalqnh(ARRIVAL)
+                        local baroinchtmp, _ = P.getlocalqnh(def.ARRIVAL)
                         helpers.command_once("laminar/B738/EFIS_control/capt/push_button/std_press")
                         set(P.baropilot, baroinchtmp)
                     end,
                     confirm = function()
-                        local baroinchtmp, baropastmp = P.getlocalqnh(ARRIVAL)
+                        local baroinchtmp, baropastmp = P.getlocalqnh(def.ARRIVAL)
                         if (get(P.baroinhpa) == def.ON) then
                             return "Q N H checked and " .. helpers.addspaces(baropastmp)
                         else
@@ -1725,48 +1603,38 @@ function M.fillProcedureTable()
             allowedState = def.AIRONLY,
             requiredFlightstate = { def.FLIGHTSTATECRUISE, def.FLIGHTSTATEAPPROACH },
             skipCondition = nil,
-            
             prerequisiteChecks = {
                 { check = function() return get(P.airgroundsensor) == def.OFF end, 
                   failMsg = "Procedure only available Inflight" },
                 { 
                   check = function(loop) 
                       if not loop.triggeredmanually then return true end
-                      
                       local destination_altitude = get(P.desrwyalt)
                       if P.airportdatatable[get(P.desicao)] and P.airportdatatable[get(P.desicao)].elevation_ft then
                           destination_altitude = P.airportdatatable[get(P.desicao)].elevation_ft
                       end
-                      
                       local height_above_field = 99999
                       if destination_altitude and destination_altitude > -1000 then
                           height_above_field = get(P.altitude) - destination_altitude
                       end
-                      
                       local radio_alt = get(P.radioaltitude)
                       local lower_airspace_alt = P.configvalues[def.CONFIGLOWEAIRSPACEALT]
-                      
                       return (height_above_field < lower_airspace_alt) or (radio_alt < lower_airspace_alt)
                   end, 
                   failMsg = "Procedure only possible below lower Airspace Altitude" 
                 }
             },
-
             startStep = 'announce_below_10000',
-
             steps = {
-                
                 ['announce_below_10000'] = {
                     action = function() P.commandtableentry(def.TEXT, "Below " .. P.configvalues[def.CONFIGLOWEAIRSPACEALT] .. " Feet") end,
                     nextStep = 'set_view_overhead'
                 },
-                
                 ['set_view_overhead'] = {
                     view = function() return P.configvalues[def.CONFIGVIEWOVERHEADPANEL] end,
                     normalize = true,
                     nextStep = 'set_seatbelts_on'
                 },
-                
                 ['set_seatbelts_on'] = {
                     check = function() return get(P.seatbeltsignpos) == def.SEATBELTSIGNON end,
                     advice = "Set Seatbeltsigns On",
@@ -1774,7 +1642,6 @@ function M.fillProcedureTable()
                     confirm = "Seatbeltsigns checked and On",
                     nextStep = 'set_landing_lights_on'
                 },
-                
                 ['set_landing_lights_on'] = {
                     check = function() return (get(P.llights1) ~= def.OFF) and (get(P.llights2) ~= def.OFF) and (get(P.llights3) ~= def.OFF) and (get(P.llights4) ~= def.OFF) end,
                     advice = "Set Landing Lights On",
@@ -1782,7 +1649,6 @@ function M.fillProcedureTable()
                     confirm = "Landing Lights checked and On",
                     nextStep = 'set_starters_flight'
                 },
-                
                 ['set_starters_flight'] = {
                     check = function() return (get(P.starter1pos) == def.FLIGHT) and (get(P.starter2pos) == def.FLIGHT) end,
                     advice = "Set Both Starters Flight",
@@ -1790,7 +1656,6 @@ function M.fillProcedureTable()
                     confirm = "Both Starters checked and Flight",
                     nextStep = 'set_logo_lights_on'
                 },
-                
                 ['set_logo_lights_on'] = {
                     check = function() return get(P.logolighton) == def.ON end,
                     advice = "Set Logo Lights On",
@@ -1798,92 +1663,45 @@ function M.fillProcedureTable()
                     confirm = "Logo Lights checked and On",
                     nextStep = 'set_view_main_1'
                 },
-                
                 ['set_view_main_1'] = {
                     skipIf = function() return P.configvalues[def.CONFIGVIEWCHANGES] ~= def.ON end,
                     view = function() return P.configvalues[def.CONFIGVIEWMAINPANEL] end,
                     nextStep = 'trigger_ils_proc'
                 },
-
                 ['trigger_ils_proc'] = {
                     action = function()
-                        sasl.logDebug("ALTITUDEB10000: Attempting to trigger SETILSPROCEDURE.")
                         P.triggerprocedure(def.SETILSPROCEDURE, false) 
                     end,
                     check = function()
                         local procKey = def.SETILSPROCEDURE
                         local procData = P.proceduretable[procKey]
-                        
-                        if procData.set then 
-                            sasl.logDebug("ALTITUDEB10000: Check PASSED for " .. procData.name .. " (.set is true)")
-                            return true 
+                        if procData.set then
+                            return true
                         else
-                            local targetLoop = P.loopStateTables[procData.loop]
-                            local current_lock_name 
-                            
-                            if targetLoop.lock == procKey then 
-                                 sasl.logDebug("ALTITUDEB10000: Waiting for " .. procData.name .. " (running in loop " .. procData.loop .. ")")
-                            else 
-                                 if targetLoop.lock == def.NOPROCEDURE then
-                                     current_lock_name = "NOPROCEDURE"
-                                 else
-                                     local locking_proc_data = P.proceduretable[targetLoop.lock]
-                                     if locking_proc_data and locking_proc_data.name then
-                                         current_lock_name = locking_proc_data.name
-                                     else
-                                         current_lock_name = "Unknown Procedure (" .. tostring(targetLoop.lock) .. ")"
-                                     end
-                                 end
-                                 sasl.logInfo("ALTITUDEB10000: Waiting for " .. procData.name .. ", but it is NOT running in loop " .. procData.loop .. " (Current lock: " .. current_lock_name .. "). Trigger might have failed.")
-                            end
-                            return false 
+                            return false
                         end
                     end,
                     advice = nil, 
                     confirm = nil,
-                    runActionInAdviceMode = true, 
+                    runActionInAdviceMode = true,
                     nextStep = 'trigger_vref_proc' 
                 },
-                
                 ['trigger_vref_proc'] = {
                     skipIf = function() return P.configvalues[def.CONFIGVREF30SET] == def.OFF end,
                     action = function()
                         if get(P.vref) == 0 then 
-                            sasl.logDebug("ALTITUDEB10000: Attempting to trigger SETVREFPROCEDURE.")
-                            P.triggerprocedure(def.SETVREFPROCEDURE, false) 
+                            P.triggerprocedure(def.SETVREFPROCEDURE, false)
                         end
                     end,
                     check = function()
                         local procKey = def.SETVREFPROCEDURE 
                         local procData = P.proceduretable[procKey]
-                        
                         if get(P.vref) ~= 0 then 
-                            sasl.logDebug("ALTITUDEB10000: Check PASSED for VREF (Vref dataref is non-zero: " .. get(P.vref) .. ")")
                             return true 
                         end
-
-                        if procData.set then 
-                            sasl.logDebug("ALTITUDEB10000: Check PASSED for VREF (.set is true)")
+                        if procData.set then
                             return true 
                         else
-                            local targetLoop = P.loopStateTables[procData.loop]
-                            local current_lock_name 
-
-                            if targetLoop.lock == procKey then 
-                                 sasl.logDebug("ALTITUDEB10000: Waiting for " .. procData.name .. " (running in loop " .. procData.loop .. ")")
-                            else 
-                                 if targetLoop.lock == def.NOPROCEDURE then
-                                     current_lock_name = "NOPROCEDURE"
-                                 else
-                                     local locking_proc_data = P.proceduretable[targetLoop.lock]
-                                     if locking_proc_data and locking_proc_data.name then
-                                         current_lock_name = locking_proc_data.name
-                                     else
-                                         current_lock_name = "Unknown Procedure (" .. tostring(targetLoop.lock) .. ")"
-                                     end
-                                 end
-                                 sasl.logInfo("ALTITUDEB10000: Waiting for " .. procData.name .. ", but it is NOT running in loop " .. procData.loop .. " (Current lock: " .. current_lock_name .. "). Vref still 0. Trigger might have failed.")
-                            end
                             return false 
                         end
                     end,
@@ -1898,13 +1716,11 @@ function M.fillProcedureTable()
                     runActionInAdviceMode = true, 
                     nextStep = 'set_view_main_2' 
                 },
-                
                 ['set_view_main_2'] = {
                     skipIf = function() return P.configvalues[def.CONFIGVIEWCHANGES] ~= def.ON end,
                     view = function() return P.configvalues[def.CONFIGVIEWMAINPANEL] end,
                     nextStep = 'set_autobrake'
                 },
-
                 ['set_autobrake'] = {
                     skipIf = function() return P.configvalues[def.CONFIGVREF30SET] ~= def.ON end,
                     check = function()
@@ -1927,13 +1743,11 @@ function M.fillProcedureTable()
                         local autobrake
                         if get(P.autobrakepos) > def.AUTOBRAKEOFF then autobrake = get(P.autobrakepos)
                         else autobrake = helpers.calcautobrake(get(P.vref), get(P.totalweightkgs), get(P.desrwylen), P.desmetar) end
-                        
                         if (autobrake < def.AUTOBRAKEMAX) then return "Auto Brake checked and " .. tostring(autobrake - 1)
                         else return "Auto Brake checked and Maximum" end
                     end,
                     nextStep = 'speak_des_metar_2'
                 },
-                
                 ['speak_des_metar_2'] = {
                     action = function() P.speakdesmetar() end,
                     nextStep = nil
@@ -1951,16 +1765,12 @@ function M.fillProcedureTable()
             allowedState = def.AIRONLY,
             requiredFlightstate = { def.FLIGHTSTATECRUISE, def.FLIGHTSTATEAPPROACH },
             skipCondition = nil,
-            
             prerequisiteChecks = {
                 { check = function() return get(P.airgroundsensor) == def.OFF end, 
                   failMsg = "Procedure only available Inflight" }
             },
-
             startStep = 'check_gear_down',
-
             steps = {
-                
                 ['check_gear_down'] = {
                     skipIf = function()
                         return (helpers.convflaplevertoflappos(get(P.flapleverpos)) < P.configvalues[def.CONFIGGEARDOWNFLAPS])
@@ -1995,11 +1805,8 @@ function M.fillProcedureTable()
             transitionConditions = {
                 { condition = function() return get(P.airgroundsensor) == def.ON end }
             }, 
-
             startStep = 'arm_speedbrakes',
-
             steps = {
-                
                 ['arm_speedbrakes'] = {
                     check = function() return helpers.roundnumber(get(P.speedbrakelever), 1) == def.SPEEDBRAKEARMED end,
                     advice = "Arm Speed Brakes",
@@ -2007,7 +1814,6 @@ function M.fillProcedureTable()
                     confirm = "Speedbrakes checked and Armed",
                     nextStep = 'set_taxi_lights_on'
                 },
-                
                 ['set_taxi_lights_on'] = {
                     check = function() return get(P.taxilight) ~= def.OFF end,
                     advice = "Set Taxi Lights On",
@@ -2015,7 +1821,6 @@ function M.fillProcedureTable()
                     confirm = "Taxi Lights checked and On",
                     nextStep = 'set_rwy_lights_on'
                 },
-                
                 ['set_rwy_lights_on'] = {
                     check = function() return (get(P.rwylightl) ~= def.OFF) and (get(P.rwylightr) ~= def.OFF) end,
                     advice = "Set Runway Turnoff Lights On",
@@ -2023,7 +1828,6 @@ function M.fillProcedureTable()
                     confirm = "Runway Turnoff Lights checked and On",
                     nextStep = 'set_mcp_altitude'
                 },
-                
                 ['set_mcp_altitude'] = {
                     check = function()
                         local missedappalttmp = helpers.roundnumber((get(P.missedappalt) / 100)) * 100
@@ -2056,7 +1860,6 @@ function M.fillProcedureTable()
                     end,
                     nextStep = 'set_mcp_heading'
                 },
-                
                 ['set_mcp_heading'] = {
                     check = function()
                         local headingrounded = nil
@@ -2067,13 +1870,15 @@ function M.fillProcedureTable()
                         if (navrwyheading and ((not headingrounded) or (headingrounded and (math.abs(headingrounded - navrwyheading) <= 3)))) then
                             headingrounded = navrwyheading
                         end
-                        
-                        if (headingrounded and (get(P.aphdgselstat) == def.OFF)) then
-                            return (headingrounded == get(P.mcpheading))
-                        elseif not headingrounded then
-                            return false
+                        if not headingrounded then
+                            sasl.logInfo("set_mcp_heading: Skipping, no valid runway heading found to check against.")
+                            return true
                         end
-                        return true
+                        if get(P.aphdgselstat) ~= def.OFF then
+                            sasl.logInfo("set_mcp_heading: Skipping, HDG SEL mode is active.")
+                            return true
+                        end
+                        return (headingrounded == get(P.mcpheading))
                     end,
                     advice = function()
                         local headingrounded = nil
@@ -2084,13 +1889,11 @@ function M.fillProcedureTable()
                         if (navrwyheading and ((not headingrounded) or (headingrounded and (math.abs(headingrounded - navrwyheading) <= 3)))) then
                             headingrounded = navrwyheading
                         end
-
-                        if (headingrounded and (get(P.aphdgselstat) == def.OFF)) then
+                        if headingrounded then
                             return "Set M C P Heading " .. helpers.addspaces(helpers.padNumberWithZerosStrict(headingrounded, 3))
-                        elseif not headingrounded then
-                            return "Set Missed Approach Heading"
+                        else
+                            return "Set M C P Heading"
                         end
-                        return false
                     end,
                     action = function()
                         local headingrounded = nil
@@ -2101,7 +1904,6 @@ function M.fillProcedureTable()
                         if (navrwyheading and ((not headingrounded) or (headingrounded and (math.abs(headingrounded - navrwyheading) <= 3)))) then
                             headingrounded = navrwyheading
                         end
-                        
                         if (headingrounded and (get(P.aphdgselstat) == def.OFF)) then
                             set(P.mcpheading, headingrounded)
                         end
@@ -2115,15 +1917,13 @@ function M.fillProcedureTable()
                         if (navrwyheading and ((not headingrounded) or (headingrounded and (math.abs(headingrounded - navrwyheading) <= 3)))) then
                             headingrounded = navrwyheading
                         end
-                        
-                        if (headingrounded and (get(P.aphdgselstat) == def.OFF)) then
+                        if (headingrounded and (get(P.aphdgselstat) == def.OFF) and (headingrounded == get(P.mcpheading))) then
                             return "M C P Heading checked and " .. helpers.addspaces(helpers.padNumberWithZerosStrict(headingrounded, 3))
                         end
                         return false
                     end,
                     nextStep = 'set_gear_down'
                 },
-                
                 ['set_gear_down'] = {
                     check = function() return get(P.gearhandlepos) == def.GEARDOWN end,
                     advice = "Set Gear Down",
@@ -2131,7 +1931,6 @@ function M.fillProcedureTable()
                     confirm = "Gear checked and Down",
                     nextStep = 'set_app_flaps'
                 },
-                
                 ['set_app_flaps'] = {
                     check = function() return (get(P.appflapsset) == def.ON) or (get(P.appflaps) == 0) end,
                     advice = function() return "Set Flaps " .. tostring(get(P.appflaps)) end,
@@ -2139,7 +1938,6 @@ function M.fillProcedureTable()
                     confirm = function() return "Flaps checked and " .. tostring(get(P.appflaps)) end,
                     nextStep = 'announce_wind'
                 },
-                
                 ['announce_wind'] = {
                     action = function()
                         local windreport = nil
@@ -2174,26 +1972,12 @@ function M.fillProcedureTable()
             transitionConditions = {
                 { condition = function() return get(P.battery) ~= def.ON end } 
             },
-
             startStep = 'set_flightstate_taxitogate', 
-
             steps = {
                 ['set_flightstate_taxitogate'] = {
                     action = function()
                     P.flightstate = def.FLIGHTSTATETAXITOGATE
                     set(P.flightstatedr, P.flightstate)
-                    sasl.logInfo("Flight state changed to TAXITOGATE.")
-                    end,
-                    nextStep = 'set_flightstate'
-                },
-                ['set_flightstate'] = {
-                    action = function() 
-                        P.flightstate = def.FLIGHTSTATETAXITOGATE
-                        set(P.flightstatedr, P.flightstate)
-                        if (P.configvalues[def.CONFIGVIEWCHANGES] == def.ON) then
-                            P.setview(def.DEFAULTVIEW)
-                            P.setview(P.configvalues[def.CONFIGVIEWOVERHEADPANEL])
-                        end
                     end,
                     nextStep = 'view_overhead'
                 },
@@ -2246,7 +2030,7 @@ function M.fillProcedureTable()
                     check = function() return get(P.transponderpos) ~= def.TARA end,
                     action = function() P.toggletransponder(def.STANDBY) end,
                     advice = "Set Transponder Off",
-                    confirm = function() return "Transponder checked and " .. helpers.TransponderPostotring(get(P.transponderpos)) end,
+                    confirm = function() return "Transponder checked and Off" end,
                     nextStep = 'view_throttle'
                 },
                 ['view_throttle'] = {
@@ -2335,18 +2119,14 @@ function M.fillProcedureTable()
             transitionConditions = {
                 { condition = function() return get(P.battery) ~= def.ON end } 
             },
-
             startStep = 'set_flightstate_shutdown', 
-
             label_to_index = {},
             get_index = function(self, label) return nil end,
-            
             steps = {
                 ['set_flightstate_shutdown'] = {
                     action = function()
                         P.flightstate = def.FLIGHTSTATESHUTDOWN
                         set(P.flightstatedr, P.flightstate)
-                        sasl.logInfo("Flight state changed to SHUTDOWN.")
                     end,
                     nextStep = 'view_main_panel'
                 },
@@ -2423,6 +2203,17 @@ function M.fillProcedureTable()
                         if (get(P.starterauto) == def.ON) then return "Both Starters checked and Auto"
                         else return "Both Starters checked and Off" end
                     end,
+                    nextStep = 'set_wipers_off'
+                },
+                ['set_wipers_off'] = {
+                    check = function() 
+                        return (get(P.lwiperpos) == def.WIPEROFF) and (get(P.rwiperpos) == def.WIPEROFF) 
+                    end,
+                    action = function() 
+                        P.autowiper(def.WIPEROFF)
+                    end,
+                    advice = "Set Both Wipers Off",
+                    confirm = "Wipers checked and Off",
                     nextStep = 'view_main_panel_final'
                 },
                 ['view_main_panel_final'] = {
@@ -2442,16 +2233,13 @@ function M.fillProcedureTable()
             allowedState = def.GROUNDONLY, 
             requiredFlightstate = nil, 
             skipCondition = function() return not P.enginesrunning(def.BOTH) end,
-            
             prerequisiteChecks = {
                 { check = function() return get(P.airgroundsensor) == def.ON end, 
                   failMsg = "Procedure not possible Inflight" },
                 { check = function() return P.enginesrunning(def.BOTH) end, 
                   failMsg = "Procedure aborted, Engines not running", setonabort = true }
             },
-        
             startStep = 'view_overhead',
-            
             steps = {
                 ['view_overhead'] = {
                     view = function() return P.configvalues[def.CONFIGVIEWOVERHEADPANEL] end,
@@ -2606,19 +2394,15 @@ function M.fillProcedureTable()
             allowedState = def.GROUNDONLY, 
             requiredFlightstate = def.FLIGHTSTATESHUTDOWN, 
             skipCondition = function() return not P.enginesrunning(def.BOTH) end,
-            
             prerequisiteChecks = {
                 { check = function() return get(P.airgroundsensor) == def.ON end, 
                   failMsg = "Procedure not possible Inflight" },
                 { check = function() return P.enginesrunning(def.BOTH) end, 
                   failMsg = "Procedure aborted, Engines not running", setonabort = true }
             },
-        
             startStep = 'view_overhead',
-            
             label_to_index = {},
             get_index = function(self, label) return nil end,
-            
             steps = {
                 ['view_overhead'] = {
                     view = function() return P.configvalues[def.CONFIGVIEWOVERHEADPANEL] end,
@@ -2700,19 +2484,15 @@ function M.fillProcedureTable()
             allowedState = def.GROUNDONLY, 
             requiredFlightstate = def.FLIGHTSTATESHUTDOWN, 
             skipCondition = nil,
-            
             prerequisiteChecks = {
                 { check = function() return get(P.airgroundsensor) == def.ON end, 
                   failMsg = "Procedure not possible Inflight" },
                 { check = function() return (get(P.battery) == def.ON) or (get(P.mainbus) == def.ON) end, 
                   failMsg = "Procedure aborted, Cockpit is not Cold and Dark", setonabort = true }
             },
-
             startStep = 'view_upper_overhead',
-            
             label_to_index = {},
             get_index = function(self, label) return nil end,
-            
             steps = {
                 ['view_upper_overhead'] = {
                     view = function() return P.configvalues[def.CONFIGVIEWUPPEROVERHEADPANEL] end,
@@ -2892,8 +2672,6 @@ function M.fillProcedureTable()
         [def.SETTOFLAPSPROCEDURE] = { number = 21, name = "Set Takeoff Flaps", cycable = false, speakname = false, steps = 4, set = false, procedurefunction = P.settoflapssteps, loop = 3, prerequisite = def.COCKPITINITPROCEDURE, allowedState = def.GROUNDONLY, requiredFlightstate = def.FLIGHTSTATEPREFLIGHT, skipCondition = nil },
         [def.TESTPROCEDURE] = { number = 22, name = "Test", cycable = false, speakname = false, steps = 47, set = false, procedurefunction = P.teststeps, loop = 1, prerequisite = nil, allowedState = nil, requiredFlightstate = def.FLIGHTSTATEPREFLIGHT, skipCondition = nil }
     }
-
     return true
 end
-
 return M

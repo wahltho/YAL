@@ -827,7 +827,7 @@ function P.yalreset()
     P.initDataref()
     P.readconfig()
 
-    P.synchronizeProcedureStates() 
+    P.syncProceduresOnLoad()
     
     -- Ersetzter (korrigierter) Block:
     local statusArray = {}
@@ -910,7 +910,7 @@ function P.setview(view, normalizeFirst)
     
     normalizeFirst = normalizeFirst or false
 
-    if ((P.configvalues[def.CONFIGVIEWCHANGES] == def.ON) and ((get(P.tirespeed) < 1) or (get(P.airgroundsensor == def.OFF)))) then
+    if ((P.configvalues[def.CONFIGVIEWCHANGES] == def.ON) and ((get(P.tirespeed) < 1) or (get(P.airgroundsensor) == def.OFF))) then
         if ((view == nil) or (type(view) ~= "number") or (view ~= math.floor(view))) then
             sasl.logError("Invalid input to setview")
             return false
@@ -1459,8 +1459,14 @@ function P.triggerprocedure(procedureKey, isManual)
         -- *** ADD DETAILED LOGGING INSIDE ELSE ***
         local currentLockingProcKey = targetLoopObject.lock -- Get the ID of the locking procedure
         local currentProcName = (P.proceduretable[currentLockingProcKey] and P.proceduretable[currentLockingProcKey].name) or currentLockingProcKey -- Get its name safely
-        sasl.logInfo("triggerprocedure: Loop " .. loopIndex .. " IS NOT free. Current lock: '" .. tostring(currentProcName) .. "' (ID: " .. tostring(currentLockingProcKey) .. "). Cannot trigger '" .. procedureData.name .. "'.")
-
+        
+        if currentLockingProcKey ~= procedureKey then
+            sasl.logInfo("triggerprocedure: Loop " .. loopIndex .. " IS NOT free. Current lock: '" .. tostring(currentProcName) .. "' (ID: " .. tostring(currentLockingProcKey) .. "). Cannot trigger '" .. procedureData.name .. "'.")
+        else
+            -- Optional: Debug-Log, wenn der Trigger dieselbe Prozedur erneut aufruft
+            sasl.logDebug("triggerprocedure: Loop " .. loopIndex .. " is already running the requested procedure ('" .. procedureData.name .. "'). Trigger ignored.")
+        end
+        
         if isManual then
              P.commandtableentry(def.TEXT, "Cannot start " .. procedureData.name .. ". Loop " .. loopIndex .. " is busy with " .. tostring(currentProcName) .. ".")
         end
@@ -1585,11 +1591,12 @@ function P.refuelAircraft(totalFuelLbs)
     
     P.commandtableentry(def.TEXT, actionText .. " complete. Total fuel: " .. fuelForDisplay .. " " .. unitForDisplay .. ".")
     
+    
     return true
 end
 
 --------------------------------------------------------------------------------------------------------------
-function P.synchronizeProcedureStates()
+function P.syncProceduresOnLoad()
     sasl.logInfo("SYNC: Resynchronizing procedure states with aircraft status...")
 
     for id, proc in pairs(P.proceduretable) do
@@ -3238,7 +3245,7 @@ end
 
 function P.setirs(irs, state)
 
-    result = true
+    local result = true
 
     sasl.logDebug("SETIRS IRS LEFT POS: " .. tostring(get(P.irsleftpos)) .. " IRS RIGHT POS: " .. tostring(get(P.irsrightpos)))
 
@@ -4035,7 +4042,7 @@ function P.inflightrestoreactions()
 
         if ((get(P.altitude) < get(P.fmctranslvl)) and (get(P.barostd) == def.ON)) then
             helpers.command_once("laminar/B738/EFIS_control/capt/push_button/std_press")
-            local baroinchtmp, baropastemp = P.getlocalqnh(ARRIVAL)
+            local baroinchtmp, baropastemp = P.getlocalqnh(def.ARRIVAL)
             set(P.baropilot, baroinchtmp)
         end
     end
@@ -4043,7 +4050,7 @@ function P.inflightrestoreactions()
 end
 
 --------------------------------------------------------------------------------------------------------------
-function P.synchronizeProcedureStates()
+function P.syncProceduresToFlightState()
     local currentFlightState = P.flightstate
     if currentFlightState == 0 then
         return
@@ -4079,7 +4086,7 @@ function P.autofunctions()
     if aircraftIsOnGround then
         P.aircraftwasonground = true
 
-        local taxiTriggerConditions = (get(P.taxilight) ~= def.OFF) and P.enginesrunning(BOTH) and (get(P.groundspeed) < 45)
+        local taxiTriggerConditions = (get(P.taxilight) ~= def.OFF) and P.enginesrunning(def.BOTH) and (get(P.groundspeed) < 45)
         local taxiTargetLoopIndex = P.proceduretable[def.BEFORETAXIPROCEDURE].loop
         local isTaxiLoopFree = (P.loopStateTables[taxiTargetLoopIndex].lock == def.NOPROCEDURE)
         if taxiTriggerConditions and isTaxiLoopFree then
@@ -4129,7 +4136,7 @@ function P.autofunctions()
                 set(P.flightstatedr, P.flightstate)
             end
 
-            P.synchronizeProcedureStates()
+            P.syncProceduresToFlightState()
 
             P.aircraftwasonground = true
         end
@@ -4470,7 +4477,7 @@ function P.ongoingtasks()
     if (((get(P.airgroundsensor) == def.ON) and (P.procedureloop1.lock == def.NOPROCEDURE) and (get(P.battery) == def.ON) and (get(P.mainbus) ~= def.OFF) and (P.flightstate == def.FLIGHTSTATEPREFLIGHT) and (get(P.taxilight) == def.OFF))) then
         if (P.ongoingtaskstepindex == 6) then
             if ((P.configvalues[def.CONFIGAUTOBARO] == def.ON) and (get(P.groundspeed) < 45)) then
-                local baroinchtmp, baropastmp = P.getlocalqnh(DEPARTURE)
+                local baroinchtmp, baropastmp = P.getlocalqnh(def.DEPARTURE)
                 if (helpers.roundnumber(math.abs(helpers.roundnumber(get(P.baropilot),2) - baroinchtmp),2) > 0.01) then
                     if ((P.configvalues[def.CONFIGAUTOFUNCTIONS] == def.ON) and (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON)) then
                         set(P.baropilot, baroinchtmp)
@@ -4665,7 +4672,7 @@ function P.runProcedureLoop(loopIndex)
                 if transCond.condition() then
                     sasl.logInfo("Skipping '" .. procData.name .. "' due to met transition condition.")
 
-                    local transition_message = procData.name .. " skipped." 
+                    local transition_message = procData.name .. " Procedure skipped." 
                     P.commandtableentry(def.TEXT, transition_message)
 
                     -- 1. Prozedur als erledigt markieren

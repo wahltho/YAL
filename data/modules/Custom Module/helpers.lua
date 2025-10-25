@@ -39,7 +39,7 @@ function P.checkForUpdate()
     local url = def.YALGITHUBURL
     local updateAvailable = false
     local newVersion = ""
-    downloadResult, contents = sasl.net.downloadFileContentsSync(url)
+    local downloadResult, contents = sasl.net.downloadFileContentsSync(url)
     if downloadResult then -- ... process data
         newVersion = helpers.cleanString(contents, true)
         sasl.logDebug(string.format("Current version: %s, available version %s", def.VERSION, newVersion))
