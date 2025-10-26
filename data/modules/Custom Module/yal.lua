@@ -39,14 +39,6 @@ function P.YalinitGlobal()
 
     P.configvalues = {}
 
-    --------------------------------------------------------------------------------------------------------------
-
-    P.vrefcmdtable = {"del", "clr", "X", "X", "slash", "X", "X", "X", "4R", "exec", "end"}
-
-    P.toflapscmdtable = {"del", "clr", "X", "X", "1L", "exec", "end"}
-
-    --------------------------------------------------------------------------------------------------------------
-
     P.commandtable = {}
 
     -------------------------------------------------------------------------------------------------------------- 
@@ -817,7 +809,7 @@ function P.yalresetForNewFlight_(phase)
     return 0
 end
 
-my_command_yalresetForNewFlight = sasl.createCommand(def.APPNAMEPREFIX .. "/yalresetForNewFlight", "YAL Reset for New Flight")
+local my_command_yalresetForNewFlight = sasl.createCommand(def.APPNAMEPREFIX .. "/yalresetForNewFlight", "YAL Reset for New Flight")
 sasl.registerCommandHandler(my_command_yalresetForNewFlight, 0, P.yalresetForNewFlight_)
 
 --------------------------------------------------------------------------------------------------------------
@@ -863,7 +855,7 @@ function P.yalreset_(phase)
     return 0
 end
 
-my_command_yalreset = sasl.createCommand(def.APPNAMEPREFIX .. "/yalreset", "YAL Reset")
+local my_command_yalreset = sasl.createCommand(def.APPNAMEPREFIX .. "/yalreset", "YAL Reset")
 sasl.registerCommandHandler(my_command_yalreset, 0, P.yalreset_)
 
 --------------------------------------------------------------------------------------------------------------
@@ -902,7 +894,7 @@ function P.readconfig_(phase)
     return 0
 end
 
-my_command_readconfig = sasl.createCommand(def.APPNAMEPREFIX .. "/readconfig", "Read Config File")
+local my_command_readconfig = sasl.createCommand(def.APPNAMEPREFIX .. "/readconfig", "Read Config File")
 sasl.registerCommandHandler(my_command_readconfig, 0, P.readconfig_)
 
 --------------------------------------------------------------------------------------------------------------
@@ -959,7 +951,7 @@ function P.commandtableentry(state, text)
     end
 
     if not duplicateentryfound then
-        newentryindex = #P.commandtable + 1
+        local newentryindex = #P.commandtable + 1
         P.commandtable[newentryindex] = {}
         P.commandtable[newentryindex][1] = state
         P.commandtable[newentryindex][2] = text
@@ -985,7 +977,7 @@ function P.togglesimfreeze_(phase)
     return 0
 end
 
-my_command_togglesimfreeze = sasl.createCommand(def.APPNAMEPREFIX .. "/togglesimfreeze", "Toggle Freeze Sim")
+local my_command_togglesimfreeze = sasl.createCommand(def.APPNAMEPREFIX .. "/togglesimfreeze", "Toggle Freeze Sim")
 sasl.registerCommandHandler(my_command_togglesimfreeze, 0, P.togglesimfreeze_)
 
 
@@ -1053,7 +1045,7 @@ function P.timewarptotod_(phase)
     return 0
 end
 
-my_command_timewarptotod = sasl.createCommand(def.APPNAMEPREFIX .. "/timewarptotod", "Time Warp to TOD")
+local my_command_timewarptotod = sasl.createCommand(def.APPNAMEPREFIX .. "/timewarptotod", "Time Warp to TOD")
 sasl.registerCommandHandler(my_command_timewarptotod, 0, P.timewarptotod_)
 
 --------------------------------------------------------------------------------------------------------------
@@ -1078,7 +1070,7 @@ function P.toggleautofunctions_(phase)
     return 0
 end
 
-my_command_toggleautofunctions = sasl.createCommand(def.APPNAMEPREFIX .. "/toggleautofunctions", "Toggle Auto Functions")
+local my_command_toggleautofunctions = sasl.createCommand(def.APPNAMEPREFIX .. "/toggleautofunctions", "Toggle Auto Functions")
 sasl.registerCommandHandler(my_command_toggleautofunctions, 0, P.toggleautofunctions_)
 
 --------------------------------------------------------------------------------------------------------------
@@ -1103,7 +1095,7 @@ function P.toggleviewchanges_(phase)
     return 0
 end
 
-my_command_toggleviewchanges = sasl.createCommand(def.APPNAMEPREFIX .. "/toggleviewchanges", "Toggle View Changes")
+local my_command_toggleviewchanges = sasl.createCommand(def.APPNAMEPREFIX .. "/toggleviewchanges", "Toggle View Changes")
 sasl.registerCommandHandler(my_command_toggleviewchanges, 0, P.toggleviewchanges_)
 
 --------------------------------------------------------------------------------------------------------------
@@ -1128,7 +1120,7 @@ function P.toggleadviceonly_(phase)
     return 0
 end
 
-my_command_toggleadviceonly = sasl.createCommand(def.APPNAMEPREFIX .. "/toggleadviceonly", "Toggle def.TEXT Only")
+local my_command_toggleadviceonly = sasl.createCommand(def.APPNAMEPREFIX .. "/toggleadviceonly", "Toggle def.TEXT Only")
 sasl.registerCommandHandler(my_command_toggleadviceonly, 0, P.toggleadviceonly_)
 
 --------------------------------------------------------------------------------------------------------------
@@ -1164,7 +1156,7 @@ function P.abortprocedure_(phase)
     return 0
 end
 
-my_command_abortprocedure = sasl.createCommand(def.APPNAMEPREFIX .. "/abortprocedure", "Abort Procedure (Repeatable)")
+local my_command_abortprocedure = sasl.createCommand(def.APPNAMEPREFIX .. "/abortprocedure", "Abort Procedure (Repeatable)")
 sasl.registerCommandHandler(my_command_abortprocedure, 0, P.abortprocedure_)
 
 --------------------------------------------------------------------------------------------------------------
@@ -1185,7 +1177,7 @@ function P.skipprocedure_(phase)
     return 0
 end
 
-my_command_skipprocedure = sasl.createCommand(def.APPNAMEPREFIX .. "/skipprocedure", "Skip Procedure (Mark as Done)")
+local my_command_skipprocedure = sasl.createCommand(def.APPNAMEPREFIX .. "/skipprocedure", "Skip Procedure (Mark as Done)")
 sasl.registerCommandHandler(my_command_skipprocedure, 0, P.skipprocedure_)
 
 --------------------------------------------------------------------------------------------------------------
@@ -1205,7 +1197,7 @@ function P.skipprocedurestep_(phase)
     return 0
 end
 
-my_command_skipprocedurestep = sasl.createCommand(def.APPNAMEPREFIX .. "/skipprocedurestep", "Skip Procedure Step")
+local my_command_skipprocedurestep = sasl.createCommand(def.APPNAMEPREFIX .. "/skipprocedurestep", "Skip Procedure Step")
 sasl.registerCommandHandler(my_command_skipprocedurestep, 0, P.skipprocedurestep_)
 
 --------------------------------------------------------------------------------------------------------------
@@ -1261,7 +1253,7 @@ function P.mastercaution_(phase)
     return 0
 end
 
-my_command_mastercaution = sasl.createCommand(def.APPNAMEPREFIX .. "/mastercaution", "Master Caution + FMS CLR")
+local my_command_mastercaution = sasl.createCommand(def.APPNAMEPREFIX .. "/mastercaution", "Master Caution + FMS CLR")
 sasl.registerCommandHandler(my_command_mastercaution, 0, P.mastercaution_)
 
 
@@ -1285,7 +1277,7 @@ function P.speakdesmetar_(phase)
     return 0
 end
 
-my_command_speakdesmetar = sasl.createCommand(def.APPNAMEPREFIX .. "/speakdesmetar", "Speak Destination Metar")
+local my_command_speakdesmetar = sasl.createCommand(def.APPNAMEPREFIX .. "/speakdesmetar", "Speak Destination Metar")
 sasl.registerCommandHandler(my_command_speakdesmetar, 0, P.speakdesmetar_)
  
 --------------------------------------------------------------------------------------------------------------
@@ -1307,7 +1299,7 @@ function P.speakdepmetar_(phase)
     return 0
 end
 
-my_command_speakdepmetar = sasl.createCommand(def.APPNAMEPREFIX .. "/speakdepmetar", "Speak Departure Metar")
+local my_command_speakdepmetar = sasl.createCommand(def.APPNAMEPREFIX .. "/speakdepmetar", "Speak Departure Metar")
 sasl.registerCommandHandler(my_command_speakdepmetar, 0, P.speakdepmetar_)
 
 
@@ -1530,7 +1522,7 @@ function P.cycleprocedures_(phase)
     return 0
 end
 
-my_command_cycleprocedures = sasl.createCommand(def.APPNAMEPREFIX .. "/cycleprocedures", "Cycle Through Procedures")
+local my_command_cycleprocedures = sasl.createCommand(def.APPNAMEPREFIX .. "/cycleprocedures", "Cycle Through Procedures")
 sasl.registerCommandHandler(my_command_cycleprocedures, 0, P.cycleprocedures_)
 
 --------------------------------------------------------------------------------------------------------------
@@ -1595,6 +1587,86 @@ function P.refuelAircraft(totalFuelLbs)
     return true
 end
 
+--------------------------------------------------------------------------------------------------------------
+function P.aircraftonrwy(runwayType, dist, headingLimit)
+
+    headingLimit = headingLimit or 20 -- Standard-Limit von 20 Grad
+
+    local aircraftlat = get(P.aircraftlatpos)
+    local aircraftlon = get(P.aircraftlonpos)
+    
+    local rwystartlat, rwystartlon, rwyendlat, rwyendlon
+    local runwayHeading 
+
+    if runwayType == def.DEPARTURE then
+        rwystartlat = get(P.deprwylatstartpos)
+        rwystartlon = get(P.deprwylonstartpos)
+        rwyendlat = get(P.deprwylatendpos)
+        rwyendlon = get(P.deprwylonendpos)
+        runwayHeading = get(P.deprwyheading) 
+    elseif runwayType == def.ARRIVAL then
+        rwystartlat = P.desrwylatstartpostemp 
+        rwystartlon = P.desrwylonstartpostemp
+        rwyendlat = P.desrwylatendpostemp
+        rwyendlon = P.desrwylonendpostemp
+        runwayHeading = P.desrwyheadingtemp 
+    else
+        return false
+    end
+
+    if (rwystartlat == 0) then
+        if runwayType == def.DEPARTURE then return false end
+        if runwayType == def.ARRIVAL then return true end
+        return true 
+    end
+
+    local rwystartlatrad = math.rad(rwystartlat)
+    local rwystartlonrad = math.rad(rwystartlon)
+    local rwyendlatrad = math.rad(rwyendlat)
+    local rwyendlonrad = math.rad(rwyendlon)
+    local aircraftlatrad = math.rad(aircraftlat)
+    local aircraftlonrad = math.rad(aircraftlon)
+
+    local v1 = (rwyendlonrad - rwystartlonrad) * math.cos(rwystartlatrad)
+    local v2 = (rwyendlatrad - rwystartlatrad)
+    local d1 = (aircraftlatrad - rwystartlatrad)
+    local d2 = (aircraftlonrad - rwystartlonrad) * math.cos(rwystartlatrad)
+    
+    local v_mag_sq = v1*v1 + v2*v2
+    if v_mag_sq == 0 then return false end 
+    
+    local s = (d1 * v1 + d2 * v2) / v_mag_sq
+
+    local disttorwy_sq
+    
+    if s < 0 then
+        disttorwy_sq = d1*d1 + d2*d2
+    elseif s > 1 then
+        local d1_end = (aircraftlatrad - rwyendlatrad)
+        local d2_end = (aircraftlonrad - rwyendlonrad) * math.cos(rwyendlatrad)
+        disttorwy_sq = d1_end*d1_end + d2_end*d2_end
+    else
+        local nearest_x = v1 * s
+        local nearest_y = v2 * s
+        disttorwy_sq = (d1 - nearest_y)^2 + (d2 - nearest_x)^2
+    end
+
+    local isOnRunwayProximity = (disttorwy_sq < (dist*dist))
+    
+    local aircraftTrack = get(P.groundtrackmag)
+    local headingDiff = helpers.headingdiff(aircraftTrack, runwayHeading)
+    local isHeadingAligned = (headingDiff < headingLimit) -- True wenn < 20 Grad
+    
+    if runwayType == def.DEPARTURE then
+        return isOnRunwayProximity and isHeadingAligned
+        
+    elseif runwayType == def.ARRIVAL then
+        return (not isOnRunwayProximity) and (not isHeadingAligned)
+    
+    else
+        return isOnRunwayProximity
+    end
+end
 --------------------------------------------------------------------------------------------------------------
 function P.syncProceduresOnLoad()
     sasl.logInfo("SYNC: Resynchronizing procedure states with aircraft status...")
@@ -1721,7 +1793,7 @@ function P.headingsync_(phase)
     return 0
 end
 
-my_command_headingsync = sasl.createCommand(def.APPNAMEPREFIX .. "/headingsync", "Sync AP Heading with Ground Track")
+local my_command_headingsync = sasl.createCommand(def.APPNAMEPREFIX .. "/headingsync", "Sync AP Heading with Ground Track")
 sasl.registerCommandHandler(my_command_headingsync, 0, P.headingsync_)
 
 --------------------------------------------------------------------------------------------------------------
@@ -1740,7 +1812,7 @@ function P.wipersup_(phase)
     return 0
 end
 
-my_command_wipersup = sasl.createCommand(def.APPNAMEPREFIX .. "/wipersup", "Both Wipers Up")
+local my_command_wipersup = sasl.createCommand(def.APPNAMEPREFIX .. "/wipersup", "Both Wipers Up")
 sasl.registerCommandHandler(my_command_wipersup, 0, P.wipersup_)
 
 --------------------------------------------------------------------------------------------------------------
@@ -1759,7 +1831,7 @@ function P.wipersdown_(phase)
     return 0
 end
 
-my_command_wipersdown = sasl.createCommand(def.APPNAMEPREFIX .. "/wipersdownn", "Both Wipers Down")
+local my_command_wipersdown = sasl.createCommand(def.APPNAMEPREFIX .. "/wipersdownn", "Both Wipers Down")
 sasl.registerCommandHandler(my_command_wipersdown, 0, P.wipersdown_)
 
 --------------------------------------------------------------------------------------------------------------
@@ -1789,7 +1861,7 @@ function P.toggletaxilights_(phase)
     return 0
 end
 
-my_command_toggletaxilights = sasl.createCommand(def.APPNAMEPREFIX .. "/toggletaxilights", "Toggle Taxi Lights")
+local my_command_toggletaxilights = sasl.createCommand(def.APPNAMEPREFIX .. "/toggletaxilights", "Toggle Taxi Lights")
 sasl.registerCommandHandler(my_command_toggletaxilights, 0, P.toggletaxilights_)
 
 --------------------------------------------------------------------------------------------------------------
@@ -1817,7 +1889,7 @@ function P.togglecollisionlights_(phase)
     return 0
 end
 
-my_command_togglecollisionlights = sasl.createCommand(def.APPNAMEPREFIX .. "/togglecollisionlights", "Toggle Collision Lights")
+local my_command_togglecollisionlights = sasl.createCommand(def.APPNAMEPREFIX .. "/togglecollisionlights", "Toggle Collision Lights")
 sasl.registerCommandHandler(my_command_togglecollisionlights, 0, P.togglecollisionlights_)
 
 --------------------------------------------------------------------------------------------------------------
@@ -1847,7 +1919,7 @@ function P.togglelandinglights_(phase)
     return 0
 end
 
-my_command_togglelandinglights = sasl.createCommand(def.APPNAMEPREFIX .. "/togglelandinglights", "Toggle Landing Lights")
+local my_command_togglelandinglights = sasl.createCommand(def.APPNAMEPREFIX .. "/togglelandinglights", "Toggle Landing Lights")
 sasl.registerCommandHandler(my_command_togglelandinglights, 0, P.togglelandinglights_)
 
 --------------------------------------------------------------------------------------------------------------
@@ -1875,7 +1947,7 @@ function P.togglelogolight_(phase)
     return 0
 end
 
-my_command_togglelogolight = sasl.createCommand(def.APPNAMEPREFIX .. "/togglelogolight", "Toggle Logo Light")
+local my_command_togglelogolight = sasl.createCommand(def.APPNAMEPREFIX .. "/togglelogolight", "Toggle Logo Light")
 sasl.registerCommandHandler(my_command_togglelogolight, 0, P.togglelogolight_)
 
 --------------------------------------------------------------------------------------------------------------
@@ -1916,7 +1988,7 @@ function P.togglerwylights_(phase)
     return 0
 end
 
-my_command_togglerwylights = sasl.createCommand(def.APPNAMEPREFIX .. "/togglerwylights", "Toggle Runway Turnoff Lights")
+local my_command_togglerwylights = sasl.createCommand(def.APPNAMEPREFIX .. "/togglerwylights", "Toggle Runway Turnoff Lights")
 sasl.registerCommandHandler(my_command_togglerwylights, 0, P.togglerwylights_)
 
 --------------------------------------------------------------------------------------------------------------
@@ -1945,7 +2017,7 @@ function P.togglepositionlights_(phase)
     return 0
 end
 
-my_command_togglepositionlights = sasl.createCommand(def.APPNAMEPREFIX .. "/togglepositionlights", "Toggle Position Lights")
+local my_command_togglepositionlights = sasl.createCommand(def.APPNAMEPREFIX .. "/togglepositionlights", "Toggle Position Lights")
 sasl.registerCommandHandler(my_command_togglepositionlights, 0, P.togglepositionlights_)
 
 --------------------------------------------------------------------------------------------------------------
@@ -1975,7 +2047,7 @@ function P.toggletransponder_(phase)
     return 0
 end
 
-my_command_toggletransponder = sasl.createCommand(def.APPNAMEPREFIX .. "/toggletransponder", "Toggle Transponder Stdby def.TA/RA")
+local my_command_toggletransponder = sasl.createCommand(def.APPNAMEPREFIX .. "/toggletransponder", "Toggle Transponder Stdby def.TA/RA")
 sasl.registerCommandHandler(my_command_toggletransponder, 0, P.toggletransponder_)
 
 --------------------------------------------------------------------------------------------------------------
@@ -2018,7 +2090,7 @@ function P.togglefds_(phase)
     return 0
 end
 
-my_command_togglefds = sasl.createCommand(def.APPNAMEPREFIX .. "/togglefds", "Toggle Both Flight Directors")
+local my_command_togglefds = sasl.createCommand(def.APPNAMEPREFIX .. "/togglefds", "Toggle Both Flight Directors")
 sasl.registerCommandHandler(my_command_togglefds, 0, P.togglefds_)
 
 --------------------------------------------------------------------------------------------------------------
@@ -2061,7 +2133,7 @@ function P.togglewx_(phase)
     return 0
 end
 
-my_command_togglewx = sasl.createCommand(def.APPNAMEPREFIX .. "/togglewx", "Toggle Both Weather Radars")
+local my_command_togglewx = sasl.createCommand(def.APPNAMEPREFIX .. "/togglewx", "Toggle Both Weather Radars")
 sasl.registerCommandHandler(my_command_togglewx, 0, P.togglewx_)
 
 --------------------------------------------------------------------------------------------------------------
@@ -2104,7 +2176,7 @@ function P.toggleterr_(phase)
     return 0
 end
 
-my_command_toggleterr = sasl.createCommand(def.APPNAMEPREFIX .. "/toggleterr", "Toggle Both Terrain Radars")
+local my_command_toggleterr = sasl.createCommand(def.APPNAMEPREFIX .. "/toggleterr", "Toggle Both Terrain Radars")
 sasl.registerCommandHandler(my_command_toggleterr, 0, P.toggleterr_)
 
 --------------------------------------------------------------------------------------------------------------
@@ -2144,7 +2216,7 @@ function P.togglewindowheat_(phase)
     return 0
 end
 
-my_command_togglewindowheat = sasl.createCommand(def.APPNAMEPREFIX .. "/togglewindowheat", "Toggle Window Heat")
+local my_command_togglewindowheat = sasl.createCommand(def.APPNAMEPREFIX .. "/togglewindowheat", "Toggle Window Heat")
 sasl.registerCommandHandler(my_command_togglewindowheat, 0, P.togglewindowheat_)
 
 --------------------------------------------------------------------------------------------------------------
@@ -2176,7 +2248,7 @@ function P.toggleprobeheat_(phase)
     return 0
 end
 
-my_command_toggleprobeheat = sasl.createCommand(def.APPNAMEPREFIX .. "/toggleprobeheat", "Toggle Probe Heat")
+local my_command_toggleprobeheat = sasl.createCommand(def.APPNAMEPREFIX .. "/toggleprobeheat", "Toggle Probe Heat")
 sasl.registerCommandHandler(my_command_toggleprobeheat, 0, P.toggleprobeheat_)
 
 --------------------------------------------------------------------------------------------------------------
@@ -2253,7 +2325,7 @@ function P.iceprotection_(phase)
     return 0
 end
 
-my_command_iceprotection = sasl.createCommand(def.APPNAMEPREFIX .. "/iceprotection", "Toggle Ice Protection")
+local my_command_iceprotection = sasl.createCommand(def.APPNAMEPREFIX .. "/iceprotection", "Toggle Ice Protection")
 sasl.registerCommandHandler(my_command_iceprotection, 0, P.iceprotection_)
 
  --------------------------------------------------------------------------------------------------------------
@@ -2336,7 +2408,7 @@ function P.setcockpitlights_(phase)
     return 0
 end
 
-my_command_setcockpitlights = sasl.createCommand(def.APPNAMEPREFIX .. "/setcockpitlights", "Set Cockpit Lights")
+local my_command_setcockpitlights = sasl.createCommand(def.APPNAMEPREFIX .. "/setcockpitlights", "Set Cockpit Lights")
 sasl.registerCommandHandler(my_command_setcockpitlights, 0, P.setcockpitlights_)
 
 
@@ -2363,7 +2435,7 @@ function P.togglevoicereadback_(phase)
     return 0
 end
 
-my_command_togglevoicereadback = sasl.createCommand(def.APPNAMEPREFIX .. "/togglevoicereadback", "Toggle Voice Readback")
+local my_command_togglevoicereadback = sasl.createCommand(def.APPNAMEPREFIX .. "/togglevoicereadback", "Toggle Voice Readback")
 sasl.registerCommandHandler(my_command_togglevoicereadback, 0, P.togglevoicereadback_)
 
 --------------------------------------------------------------------------------------------------------------
@@ -2570,224 +2642,10 @@ function P.copynav_(phase)
     return 0
 end
 
-my_command_copynav = sasl.createCommand(def.APPNAMEPREFIX .. "/copynav", "Copy NAV1/MMR1 to NAV2/MMR2")
+local my_command_copynav = sasl.createCommand(def.APPNAMEPREFIX .. "/copynav", "Copy NAV1/MMR1 to NAV2/MMR2")
 sasl.registerCommandHandler(my_command_copynav, 0, P.copynav_)
 
 --------------------------------------------------------------------------------------------------------------
-function P.setilssteps(procedureloop)
-
-    local FMC1Line00L = helpers.get("laminar/B738/fmc1/Line00_L")
-    local FMC1Line04X = helpers.get("laminar/B738/fmc1/Line04_X")
-    local FMC1Line04L = helpers.get("laminar/B738/fmc1/Line04_L")
-
-    local apptype
-    local dmestring
-
-    if (procedureloop.stepindex == 1) then
-        if (P.configvalues[def.CONFIGVIEWCHANGES] == def.ON) then
-            P.setview(P.configvalues[def.CONFIGVIEWFMS])
-        else
-            procedureloop.stepindex = procedureloop.stepindex + 1
-            procedureloop.stepindexprevious = procedureloop.stepindexprevious + 1
-        end
-    end
-
-    if (procedureloop.stepindex == 2) then
-        if ((string.len(FMC1Line00L) < 9) or (string.sub(FMC1Line00L, 7, 9) ~= "APP")) then
-            helpers.command_once("laminar/B738/button/fmc1_init_ref")
-            procedureloop.stepindex = procedureloop.stepindex - 1
-        end
-    end
-
-    if (procedureloop.stepindex == 3) then
-        local foundIndex = nil -- Temporäre Variable, um das Ergebnis zu halten
-        procedureloop.navdatatableindex = nil
-
-        if ((string.len(FMC1Line04X) == 24) and (string.len(FMC1Line04L) == 24)) then
-            apptype = string.sub(FMC1Line04X, 2, 4)
-
-            if ((apptype == def.NAVTYPEILS) or (apptype == def.NAVTYPEGLS)) then
-                foundIndex = helpers.getnavdataindex(P.navdatatable, get(P.desicao), get(P.desrwy), apptype)
-            else
-                foundIndex = helpers.getnavdataindex(P.navdatatable, get(P.desicao), get(P.desrwy), def.NAVTYPELPV)
-            end
-        else
-            foundIndex = helpers.getnavdataindex(P.navdatatable, get(P.desicao), get(P.desrwy), def.NAVTYPELPV)
-        end
-        
-        procedureloop.navdatatableindex = foundIndex
-
-        if ((procedureloop.navdatatableindex ~= nil) and (P.navdatatable[procedureloop.navdatatableindex] ~= nil)) then
-            if (get(P.desrwy) ~= P.navdatatable[procedureloop.navdatatableindex][def.DESTRWY]) then
-                sasl.logInfo("Destination Runway Diff FMC: " .. tostring(get(P.desrwy)) .. " Navdata: " .. tostring(P.navdatatable[procedureloop.navdatatableindex][def.DESTRWY]))
-            end
-
-            if ((P.navdatatable[procedureloop.navdatatableindex][def.DESTNAVTYPE] == def.NAVTYPEILS) and P.navdatatable[procedureloop.navdatatableindex][def.DESTNAVDME]) then
-                dmestring = "with DME"
-            else
-                dmestring = ""
-            end
-            P.commandtableentry(def.TEXT, "Runway " .. helpers.formatRunwayDesignator(P.navdatatable[procedureloop.navdatatableindex][def.DESTRWY]) .. " has " .. helpers.addspaces(P.navdatatable[procedureloop.navdatatableindex][def.DESTNAVTYPE]) .. " Approach " .. dmestring)
-            procedureloop.stepindex = 5
-            return true
-        else
-            P.commandtableentry(def.TEXT, "Runway " .. helpers.formatRunwayDesignator(get(P.desrwy)) .. " has no Precision Approach")
-            if (P.configvalues[def.CONFIGVIEWCHANGES] == def.ON) then
-                P.setview(P.configvalues[def.CONFIGVIEWMAINPANEL])
-            end
-        end
-    end
-
-    if ((procedureloop.stepindex == 4) and (procedureloop.navdatatableindex == nil)) then
-        local nearestvor = nil
-        if (P.airportdatatable[get(P.desicao)] and P.airportdatatable[get(P.desicao)].latitude and P.airportdatatable[get(P.desicao)].longitude) then
-            nearestvor = helpers.findnearestvor(P.navdatatable, P.airportdatatable[get(P.desicao)].latitude, P.airportdatatable[get(P.desicao)].longitude)
-        elseif helpers.isvalidrwy(get(P.desrwy)) then
-            nearestvor = helpers.findnearestvor(P.navdatatable, get(P.desrwylatstartpos), get(P.desrwylonstartpos))
-        end       
-        if (nearestvor == nil) then
-            P.commandtableentry(def.TEXT, "No V O R near " .. helpers.addspaces(get(P.desicao)) .. " found")
-        else
-            P.commandtableentry(def.TEXT, "Nearest V O R for " .. helpers.addspaces(get(P.desicao)) .. " is " .. helpers.addspaces(nearestvor.navid) .. " with frequency " .. helpers.addspaces(helpers.formatILSFrequency(nearestvor.frequency)))
-        end
-    end
-
-    if ((procedureloop.stepindex == 5) and (procedureloop.navdatatableindex == nil)) then             
-        P.commandtableentry(def.TEXT, "Runway " .. helpers.formatRunwayDesignator(get(P.desrwy)) .. " has heading " .. helpers.addspaces(helpers.padNumberWithZerosStrict(helpers.roundnumber(get(P.desrwyheading)), 3)))
-        procedureloop.stepindex = 11
-        return true
-    end
-
-    if ((procedureloop.stepindex == 6) and (procedureloop.navdatatableindex ~= nil)) then
-        if (P.configvalues[def.CONFIGVIEWCHANGES] == def.ON) then
-            P.setview(P.configvalues[def.CONFIGVIEWPEDESTAL])
-        else
-            procedureloop.stepindex = procedureloop.stepindex + 1
-            procedureloop.stepindexprevious = procedureloop.stepindexprevious + 1
-        end
-    end
-
-    if ((procedureloop.stepindex == 7) and (procedureloop.navdatatableindex ~= nil)) then
-        if (P.navdatatable[procedureloop.navdatatableindex][def.DESTNAVTYPE] == def.NAVTYPEILS) then
-            if ((get(P.nav1freq) ~= P.navdatatable[procedureloop.navdatatableindex][def.DESTFREQ]) or ((get(P.mmrinstalled) == def.ON) and ((get(P.mmrcptactvalue) ~= P.navdatatable[procedureloop.navdatatableindex][def.DESTFREQ]) or (get(P.mmrcptactmode) ~= def.MMRILS)))) then
-                if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                    P.commandtableentry(def.TEXT, "Set Captain Frequency " .. helpers.addspaces(helpers.formatILSFrequency(P.navdatatable[procedureloop.navdatatableindex][def.DESTFREQ])))
-                    procedureloop.stepindex = procedureloop.stepindex - 1
-                else
-                    if (get(P.mmrinstalled) == def.ON) then
-                        P.setmmrils(def.MMRCAPTAIN, P.navdatatable[procedureloop.navdatatableindex][def.DESTFREQ])
-                    else
-                        set(P.nav1stdbyfreq, get(P.nav1freq))
-                        set(P.nav1freq, P.navdatatable[procedureloop.navdatatableindex][def.DESTFREQ])
-                    end
-                end
-            elseif ((P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON)  and (not procedureloop.steprepeat)) then
-                P.commandtableentry(def.TEXT, "Captain Frequency checked and " .. helpers.addspaces(helpers.formatILSFrequency(P.navdatatable[procedureloop.navdatatableindex][def.DESTFREQ])))
-            end
-        end
-
-        if (((P.navdatatable[procedureloop.navdatatableindex][def.DESTNAVTYPE] == def.NAVTYPEGLS) or (P.navdatatable[procedureloop.navdatatableindex][def.DESTNAVTYPE] == def.NAVTYPELPV)) and (get(P.mmrinstalled) == def.ON)) then
-            if ((get(P.mmrcptactvalue) ~= P.navdatatable[procedureloop.navdatatableindex][def.DESTFREQ]) or not ((get(P.mmrcptactmode) ~= def.MMRGLS) or (get(P.mmrcptactmode) ~= def.MMRLPV))) then
-                if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                    P.commandtableentry(def.TEXT, "Set Captain Channel " .. helpers.addspaces(P.navdatatable[procedureloop.navdatatableindex][def.DESTFREQ]))
-                    procedureloop.stepindex = procedureloop.stepindex - 1
-                else
-                    P.setmmrgls(def.MMRCAPTAIN, P.navdatatable[procedureloop.navdatatableindex][def.DESTFREQ])
-                end
-            elseif ((P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON)  and (not procedureloop.steprepeat)) then
-                P.commandtableentry(def.TEXT, "Captain Channel checked and " .. helpers.addspaces(P.navdatatable[procedureloop.navdatatableindex][def.DESTFREQ]))
-            end
-        end
-    end
-
-    if ((procedureloop.stepindex == 8)  and (procedureloop.navdatatableindex ~= nil)) then
-        if ((P.navdatatable[procedureloop.navdatatableindex][def.DESTNAVTYPE] == def.NAVTYPEILS) and P.navdatatable[procedureloop.navdatatableindex][def.DESTNAVDME]) then
-            if ((get(P.nav2freq) ~= P.navdatatable[procedureloop.navdatatableindex][def.DESTFREQ]) or ((get(P.mmrinstalled) == def.ON) and ((get(P.mmrfoactvalue) ~= (P.navdatatable[procedureloop.navdatatableindex][def.DESTFREQ])) or (get(P.mmrfoactmode) ~= def.MMRILS)))) then
-                if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                    P.commandtableentry(def.TEXT, "Set Copilot Frequency " .. helpers.addspaces(helpers.formatILSFrequency(P.navdatatable[procedureloop.navdatatableindex][def.DESTFREQ])))
-                    procedureloop.stepindex = procedureloop.stepindex - 1
-                else
-                    if (get(P.mmrinstalled) == def.ON) then
-                        P.setmmrils(def.MMRFO, P.navdatatable[procedureloop.navdatatableindex][def.DESTFREQ])
-                    else
-                        set(P.nav2stdbyfreq, get(P.nav2freq))
-                        set(P.nav2freq, P.navdatatable[procedureloop.navdatatableindex][def.DESTFREQ])
-                    end
-                end
-            elseif ((P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON)  and (not procedureloop.steprepeat)) then
-                P.commandtableentry(def.TEXT, "Copilot Frequency checked and " .. helpers.addspaces(helpers.formatILSFrequency(P.navdatatable[procedureloop.navdatatableindex][def.DESTFREQ])))
-            end
-        end
-
-        if ((P.navdatatable[procedureloop.navdatatableindex][def.DESTNAVTYPE] == def.NAVTYPEGLS) and (get(P.mmrinstalled) == def.ON)) then
-            if ((get(P.mmrfoactvalue) ~= P.navdatatable[procedureloop.navdatatableindex][def.DESTFREQ]) or (get(P.mmrfoactmode) ~= def.MMRGLS)) then
-                if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                    P.commandtableentry(def.TEXT, "Set Copilot Channel " .. helpers.addspaces(P.navdatatable[procedureloop.navdatatableindex][def.DESTFREQ]))
-                    procedureloop.stepindex = procedureloop.stepindex - 1
-                else
-                    P.setmmrgls(def.MMRFO, P.navdatatable[procedureloop.navdatatableindex][def.DESTFREQ])
-                end
-            elseif ((P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON)  and (not procedureloop.steprepeat)) then
-                P.commandtableentry(def.TEXT, "Copilot Channel checked and " .. helpers.addspaces(P.navdatatable[procedureloop.navdatatableindex][def.DESTFREQ]))
-            end
-        end
-    end
-
-    if ((procedureloop.stepindex == 9)  and (procedureloop.navdatatableindex ~= nil)) then
-        if (P.configvalues[def.CONFIGVIEWCHANGES] == def.ON) then
-            P.setview(P.configvalues[def.CONFIGVIEWMAINPANEL])
-        else
-            procedureloop.stepindex = procedureloop.stepindex + 1
-            procedureloop.stepindexprevious = procedureloop.stepindexprevious + 1
-        end
-    end
-
-    if ((procedureloop.stepindex == 10)  and (procedureloop.navdatatableindex ~= nil)) then
-        local pilotcoursenew = P.navdatatable[procedureloop.navdatatableindex][def.DESTCOURSE]
-
-        if (get(P.mcppilotcourse) ~= pilotcoursenew) then
-            if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                P.commandtableentry(def.TEXT, "Set Captain Course " .. helpers.addspaces(helpers.padNumberWithZerosStrict(pilotcoursenew, 3)))
-                procedureloop.stepindex = procedureloop.stepindex - 1
-            else
-                set(P.mcppilotcourse, pilotcoursenew)
-            end
-        elseif ((P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON)  and (not procedureloop.steprepeat)) then
-            P.commandtableentry(def.TEXT, "Captain Course checked and " .. helpers.addspaces(helpers.padNumberWithZerosStrict(pilotcoursenew, 3)))
-        end
-    end
-
-    if ((procedureloop.stepindex == 11)  and (procedureloop.navdatatableindex ~= nil)) then
-        if ((P.navdatatable[procedureloop.navdatatableindex][def.DESTNAVTYPE] == def.NAVTYPEILS) and P.navdatatable[procedureloop.navdatatableindex][def.DESTNAVDME]) then
-            if (get(P.mcpcopilotcourse) ~= get(P.mcppilotcourse)) then
-                if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                    P.commandtableentry(def.TEXT, "Set Copilot Course " .. helpers.addspaces(helpers.padNumberWithZerosStrict(get(P.mcppilotcourse), 3)))
-                    procedureloop.stepindex = procedureloop.stepindex - 1
-                else
-                    set(P.mcpcopilotcourse, get(P.mcppilotcourse))
-                end
-            elseif ((P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON)  and (not procedureloop.steprepeat)) then
-                P.commandtableentry(def.TEXT, "Copilot Course checked and " .. helpers.addspaces(helpers.padNumberWithZerosStrict(get(P.mcppilotcourse), 3)))
-            end
-        end
-
-        if ((P.navdatatable[procedureloop.navdatatableindex][def.DESTNAVTYPE] == def.NAVTYPEGLS) and (get(P.mmrinstalled) == def.ON)) then
-            if (get(P.mcpcopilotcourse) ~= get(P.mcppilotcourse)) then
-                if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                    P.commandtableentry(def.TEXT, "Set Copilot Course " .. helpers.addspaces(helpers.padNumberWithZerosStrict(get(P.mcppilotcourse), 3)))
-                    procedureloop.stepindex = procedureloop.stepindex - 1
-                else
-                    set(P.mcpcopilotcourse, get(P.mcppilotcourse))
-                end
-            elseif ((P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON)  and (not procedureloop.steprepeat)) then
-                P.commandtableentry(def.TEXT, "Copilot Course checked and " .. helpers.addspaces(helpers.padNumberWithZerosStrict(get(P.mcppilotcourse), 3)))
-            end
-        end
-    end
-
-    return true
-end
-
 function P.setilsproc()
 
     return P.triggerprocedure(def.SETILSPROCEDURE, def.TRIGGEREDMANUALLY)
@@ -2801,77 +2659,11 @@ function P.setilsproc_(phase)
     return 0
 end
 
-my_command_setils = sasl.createCommand(def.APPNAMEPREFIX .. "/setils", "Set ILS/GLS Frequency and Course")
+local my_command_setils = sasl.createCommand(def.APPNAMEPREFIX .. "/setils", "Set ILS/GLS Frequency and Course")
 sasl.registerCommandHandler(my_command_setils, 0, P.setilsproc_)
 
 
 --------------------------------------------------------------------------------------------------------------
-function P.setvrefsteps(procedureloop)
-
-    local FMC1Line00L = helpers.get("laminar/B738/fmc1/Line00_L")
-
-    local appflapscalc, appvrefcalc = helpers.calcappflapsvref(get(P.totalweightkgs), get(P.desrwylen), get(P.desrwyheading), get(P.vref30), P.desmetar)
-    local appflapscalcstring = tostring(appflapscalc)
-    local appvrefcalcstring = tostring(appvrefcalc)
-
-    if (procedureloop.stepindex == 1) then
-        if (P.configvalues[def.CONFIGVIEWCHANGES] == def.ON) then
-            P.setview(P.configvalues[def.CONFIGVIEWFMS])
-        else
-            procedureloop.stepindex = procedureloop.stepindex + 1
-            procedureloop.stepindexprevious = procedureloop.stepindexprevious + 1
-        end
-    end
-
-    if (procedureloop.stepindex == 2) then
-        if ((string.len(FMC1Line00L) < 9) or (string.sub(FMC1Line00L, 7, 9) ~= "APP")) then
-            helpers.command_once("laminar/B738/button/fmc1_init_ref")
-            procedureloop.stepindex = procedureloop.stepindex - 1
-        end
-    end
-
-    if (procedureloop.stepindex == 3) then
-        if (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
-            if (get(P.vref) ~= appvrefcalc) then
-                P.vrefcmdtable[3] = string.sub(appflapscalcstring, 1, 1)
-                P.vrefcmdtable[4] = string.sub(appflapscalcstring, 2, 2)
-                P.vrefcmdtable[6] = string.sub(appvrefcalcstring, 1, 1)
-                P.vrefcmdtable[7] = string.sub(appvrefcalcstring, 2, 2)
-                P.vrefcmdtable[8] = string.sub(appvrefcalcstring, 3, 3)
-
-                local tableindex = 1
-                while (P.vrefcmdtable[tableindex] ~= "end") do
-                    sasl.logDebug("while loop setvref")
-                    P.commandtableentry(def.COMMAND, "laminar/B738/button/fmc1_" .. P.vrefcmdtable[tableindex])
-                    tableindex = tableindex + 1
-                end
-
-                P.commandtableentry(def.TEXT, "V REF " .. appflapscalc .. " " .. appvrefcalc .. " Knots set")
-            end
-        end
-
-        if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-            if (get(P.vref) ~= appvrefcalc) then
-                P.commandtableentry(def.TEXT, "Set V REF " .. appflapscalc .. " " .. appvrefcalc)
-                procedureloop.stepindex = procedureloop.stepindex - 1
-            elseif not procedureloop.steprepeat then
-                P.commandtableentry(def.TEXT, "V REF " .. appflapscalc .. " checked and " .. appvrefcalc)
-            end
-        end
-    end
-
-    if (procedureloop.stepindex == 4) then
-        if (P.configvalues[def.CONFIGVIEWCHANGES] == def.ON) then
-            P.setview(P.configvalues[def.CONFIGVIEWMAINPANEL])
-        else
-            procedureloop.stepindex = procedureloop.stepindex + 1
-            procedureloop.stepindexprevious = procedureloop.stepindexprevious + 1
-        end
-    end
-
-    return true
-end
-
 function P.setvrefproc()
 
     return P.triggerprocedure(def.SETVREFPROCEDURE, def.TRIGGEREDMANUALLY)
@@ -2885,70 +2677,10 @@ function P.setvrefproc_(phase)
     return 0
 end
 
-my_command_setvref = sasl.createCommand(def.APPNAMEPREFIX .. "/setvref", "Set Landing Flaps/VREF")
+local my_command_setvref = sasl.createCommand(def.APPNAMEPREFIX .. "/setvref", "Set Landing Flaps/VREF")
 sasl.registerCommandHandler(my_command_setvref, 0, P.setvrefproc_)
 
 --------------------------------------------------------------------------------------------------------------
-function P.settoflapssteps(procedureloop)
-
-    local FMC1Line00L = helpers.get("laminar/B738/fmc1/Line00_L")
-
-    local toflapscalc = helpers.determineTakeoffFlapsSetting(get(P.totalweightkgs), get(P.deprwylen), get(P.deprwyheading), get(P.elevation), P.depmetar)
-    local toflapscalcstring = tostring(toflapscalc)
-
-    if (procedureloop.stepindex == 1) then
-        if (P.configvalues[def.CONFIGVIEWCHANGES] == def.ON) then
-            P.setview(P.configvalues[def.CONFIGVIEWFMS])
-        else
-            procedureloop.stepindex = procedureloop.stepindex + 1
-            procedureloop.stepindexprevious = procedureloop.stepindexprevious + 1
-        end
-    end
-
-    if (procedureloop.stepindex == 2) then
-        if ((string.len(FMC1Line00L) < 9) or (string.sub(FMC1Line00L, 7, 13) ~= "TAKEOFF")) then
-            helpers.command_once("laminar/B738/button/fmc1_init_ref")
-            procedureloop.stepindex = procedureloop.stepindex - 1
-        end
-    end
-
-    if (procedureloop.stepindex == 3) then
-        if (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
-            if (get(P.toflapsset) == def.OFF) then
-                P.toflapscmdtable[3] = string.sub(toflapscalcstring, 1, 1)
-                P.toflapscmdtable[4] = string.sub(toflapscalcstring, 2, 2)
-
-                local tableindex = 1
-                while (P.toflapscmdtable[tableindex] ~= "end") do
-                    sasl.logDebug("while loop toflaps")
-                    P.commandtableentry(def.COMMAND, "laminar/B738/button/fmc1_" .. P.toflapscmdtable[tableindex])
-                    tableindex = tableindex + 1
-                end
-
-                P.commandtableentry(def.TEXT, "Takeoff Flaps " .. toflapscalcstring .. "set")
-            end
-        else
-            if (get(P.toflaps) ~= toflapscalc) then
-                P.commandtableentry(def.TEXT, "Enter Takeoff Flaps " .. toflapscalcstring)
-                procedureloop.stepindex = procedureloop.stepindex - 1
-            elseif (not procedureloop.steprepeat) then
-                P.commandtableentry(def.TEXT, "Takeoff Flaps Entered and " .. toflapscalcstring)
-            end
-        end
-    end
-
-    if (procedureloop.stepindex == 4) then
-        if (P.configvalues[def.CONFIGVIEWCHANGES] == def.ON) then
-            P.setview(P.configvalues[def.CONFIGVIEWMAINPANEL])
-        else
-            procedureloop.stepindex = procedureloop.stepindex + 1
-            procedureloop.stepindexprevious = procedureloop.stepindexprevious + 1
-        end
-    end
-
-    return true
-end
-
 function P.settoflapsproc()
 
     return P.triggerprocedure(def.SETTOFLAPSPROCEDURE, def.TRIGGEREDMANUALLY)
@@ -2962,7 +2694,7 @@ function P.settoflapsproc_(phase)
     return 0
 end
 
-my_command_settoflapsproc = sasl.createCommand(def.APPNAMEPREFIX .. "/settoflapsproc", "Set Takeoff Flaps")
+local my_command_settoflapsproc = sasl.createCommand(def.APPNAMEPREFIX .. "/settoflapsproc", "Set Takeoff Flaps")
 sasl.registerCommandHandler(my_command_settoflapsproc, 0, P.settoflapsproc_)
 
 --------------------------------------------------------------------------------------------------------------
@@ -3471,233 +3203,6 @@ function P.setemergencylights(state)
 end
 
 --------------------------------------------------------------------------------------------------------------
-function P.teststeps(procedureloop)
-
-    if (procedureloop.stepindex == 1) then
-        if ((get(P.battery) == def.OFF) and (get(P.mainbus) == def.OFF)) then
-            procedureloop.procedurenotpossible = true
-            P.commandtableentry(def.TEXT, P.proceduretable[def.TESTPROCEDURE].name .. " Procedure aborted, Battery is Off")
-            return true
-        end
-
-        if (P.configvalues[def.CONFIGVIEWCHANGES] == def.ON) then
-            P.setview(def.DEFAULTVIEW)
-            P.setview(P.configvalues[def.CONFIGVIEWTHROTTLE])
-        else
-            procedureloop.stepindex = procedureloop.stepindex + 1
-            procedureloop.stepindexprevious = procedureloop.stepindexprevious + 1
-        end
-    end
-
-    if (procedureloop.stepindex == 2) then
-        helpers.command_begin("laminar/B738/toggle_switch/fire_test_lft")
-    end
-
-    if (procedureloop.stepindex == 4) then
-        helpers.command_end("laminar/B738/toggle_switch/fire_test_lft")
-    end
-
-    if (procedureloop.stepindex == 5) then
-        helpers.command_begin("laminar/B738/toggle_switch/fire_test_rgt")
-    end
-
-    if (procedureloop.stepindex == 6) then
-        helpers.command_end("laminar/B738/toggle_switch/fire_test_rgt")
-    end
-
-    if (procedureloop.stepindex == 7) then
-        helpers.command_begin("laminar/B738/toggle_switch/exting_test_lft")
-    end
-
-    if (procedureloop.stepindex == 8) then
-        helpers.command_end("laminar/B738/toggle_switch/exting_test_lft")
-    end
-
-    if (procedureloop.stepindex == 9) then
-        helpers.command_begin("laminar/B738/toggle_switch/exting_test_rgt")
-    end
-
-    if (procedureloop.stepindex == 10) then
-        helpers.command_end("laminar/B738/toggle_switch/exting_test_rgt")
-    end
-
-    if (procedureloop.stepindex == 11) then
-        helpers.command_begin("laminar/B738/push_button/cargo_fire_test_push")
-    end
-
-    if (procedureloop.stepindex == 12) then
-        helpers.command_end("laminar/B738/push_button/cargo_fire_test_push")
-    end
-
-    if (procedureloop.stepindex == 13) then
-        if (P.configvalues[def.CONFIGVIEWCHANGES] == def.ON) then
-            P.setview(P.configvalues[def.CONFIGVIEWUPPEROVERHEADPANEL])
-        else
-            procedureloop.stepindex = procedureloop.stepindex + 1
-            procedureloop.stepindexprevious = procedureloop.stepindexprevious + 1
-        end
-    end
-
-    if (procedureloop.stepindex == 14) then
-        helpers.command_begin("laminar/B738/push_button/flaps_test")
-    end
-
-    if (procedureloop.stepindex == 15) then
-        helpers.command_end("laminar/B738/push_button/flaps_test")
-    end
-
-    if (procedureloop.stepindex == 16) then
-        helpers.command_begin("laminar/B738/push_button/mach_warn1_test")
-    end
-
-    if (procedureloop.stepindex == 17) then
-        helpers.command_end("laminar/B738/push_button/mach_warn1_test")
-    end
-
-    if (procedureloop.stepindex == 18) then
-        helpers.command_begin("laminar/B738/push_button/mach_warn2_test")
-    end
-
-    if (procedureloop.stepindex == 19) then
-        helpers.command_end("laminar/B738/push_button/mach_warn2_test")
-    end
-
-    if (procedureloop.stepindex == 20) then
-        helpers.command_begin("laminar/B738/push_button/stall_test1_press")
-    end
-
-    if (procedureloop.stepindex == 21) then
-        helpers.command_end("laminar/B738/push_button/stall_test1_press")
-    end
-
-    if (procedureloop.stepindex == 22) then
-        helpers.command_begin("laminar/B738/push_button/stall_test2_press")
-    end
-
-    if (procedureloop.stepindex == 23) then
-        helpers.command_end("laminar/B738/push_button/stall_test1_press")
-    end
-
-    if (procedureloop.stepindex == 24) then
-        if (P.configvalues[def.CONFIGVIEWCHANGES] == def.ON) then
-            P.setview(P.configvalues[def.CONFIGVIEWOVERHEADPANEL])
-        else
-            procedureloop.stepindex = procedureloop.stepindex + 1
-            procedureloop.stepindexprevious = procedureloop.stepindexprevious + 1
-        end
-    end
-
-    if (procedureloop.stepindex == 25) then
-        helpers.command_begin("laminar/B738/toggle_switch/window_ovht_test_up")
-    end
-
-    if (procedureloop.stepindex == 26) then
-        helpers.command_end("laminar/B738/toggle_switch/window_ovht_test_up")
-    end
-
-    if (procedureloop.stepindex == 27) then
-        helpers.command_end("laminar/B738/toggle_switch/window_ovht_test_up")
-    end
-
-    if (procedureloop.stepindex == 28) then
-        helpers.command_begin("laminar/B738/toggle_switch/window_ovht_test_dn")
-    end
-
-    if (procedureloop.stepindex == 29) then
-        helpers.command_end("laminar/B738/toggle_switch/window_ovht_test_dn")
-    end
-
-    if (procedureloop.stepindex == 30) then
-        helpers.command_begin("laminar/B738/push_button/tat_test")
-    end
-
-    if (procedureloop.stepindex == 31) then
-        helpers.command_end("laminar/B738/push_button/tat_test")
-    end
-
-    if (procedureloop.stepindex == 32) then
-        helpers.command_begin("laminar/B738/push_button/duct_ovht_test")
-    end
-
-    if (procedureloop.stepindex == 33) then
-        helpers.command_end("laminar/B738/push_button/duct_ovht_test")
-    end
-
-    if (procedureloop.stepindex == 34) then
-        if (P.configvalues[def.CONFIGVIEWCHANGES] == def.ON) then
-            P.setview(P.configvalues[def.CONFIGVIEWMAINPANEL])
-        else
-            procedureloop.stepindex = procedureloop.stepindex + 1
-            procedureloop.stepindexprevious = procedureloop.stepindexprevious + 1
-        end
-    end
-
-    if (procedureloop.stepindex == 35) then
-        helpers.command_once("laminar/B738/toggle_switch/bright_test_up")
-    end
-
-    if (procedureloop.stepindex == 36) then
-        helpers.command_once("laminar/B738/toggle_switch/bright_test_dn")
-    end
-
-    if (procedureloop.stepindex == 37) then
-        helpers.command_begin("laminar/B738/toggle_switch/ap_disconnect_test1_up")
-    end
-
-    if (procedureloop.stepindex == 38) then
-        helpers.command_end("laminar/B738/toggle_switch/ap_disconnect_test1_up")
-    end
-
-    if (procedureloop.stepindex == 39) then
-        helpers.command_begin("laminar/B738/toggle_switch/ap_disconnect_test1_dn")
-    end
-
-    if (procedureloop.stepindex == 40) then
-        helpers.command_end("laminar/B738/toggle_switch/ap_disconnect_test1_dn")
-    end
-
-    if (procedureloop.stepindex == 41) then
-        helpers.command_begin("laminar/B738/toggle_switch/ap_disconnect_test2_up")
-    end
-
-    if (procedureloop.stepindex == 42) then
-        helpers.command_end("laminar/B738/toggle_switch/ap_disconnect_test2_up")
-    end
-
-    if (procedureloop.stepindex == 43) then
-        helpers.command_begin("laminar/B738/toggle_switch/ap_disconnect_test2_dn")
-    end
-
-    if (procedureloop.stepindex == 44) then
-        helpers.command_end("laminar/B738/toggle_switch/ap_disconnect_test2_dn")
-    end
-
-    if (procedureloop.stepindex == 45) then
-        if (P.configvalues[def.CONFIGVIEWCHANGES] == def.ON) then
-            P.setview(P.configvalues[def.CONFIGVIEWPEDESTAL])
-        else
-            procedureloop.stepindex = procedureloop.stepindex + 1
-            procedureloop.stepindexprevious = procedureloop.stepindexprevious + 1
-        end
-    end
-
-    if (procedureloop.stepindex == 46) then
-        helpers.command_once("laminar/B738/knob/transponder_tcas_test")
-    end
-
-    if (procedureloop.stepindex == 47) then
-        if (P.configvalues[def.CONFIGVIEWCHANGES] == def.ON) then
-            P.setview(P.configvalues[def.CONFIGVIEWMAINPANEL])
-        else
-            procedureloop.stepindex = procedureloop.stepindex + 1
-            procedureloop.stepindexprevious = procedureloop.stepindexprevious + 1
-        end
-    end
-
-    return true
-
-end
-
 function P.test()
 
    return P.triggerprocedure(def.TESTPROCEDURE, def.TRIGGEREDMANUALLY)
@@ -3711,7 +3216,7 @@ function P.test_(phase)
     return 0
 end
 
-my_command_test = sasl.createCommand(def.APPNAMEPREFIX .. "/test", "Tests")
+local my_command_test = sasl.createCommand(def.APPNAMEPREFIX .. "/test", "Tests")
 sasl.registerCommandHandler(my_command_test, 0, P.test_)
 
 --------------------------------------------------------------------------------------------------------------
@@ -3729,7 +3234,7 @@ function P.coldanddarkstartup_(phase)
     return 0
 end
 
-my_command_coldanddarkstartup = sasl.createCommand(def.APPNAMEPREFIX .. "/coldanddarkstartup", "Cold and Dark Startup")
+local my_command_coldanddarkstartup = sasl.createCommand(def.APPNAMEPREFIX .. "/coldanddarkstartup", "Cold and Dark Startup")
 sasl.registerCommandHandler(my_command_coldanddarkstartup, 0, P.coldanddarkstartup_)
 
 --------------------------------------------------------------------------------------------------------------
@@ -3746,7 +3251,7 @@ function P.apustartup_(phase)
     return 0
 end
 
-my_command_apustartup = sasl.createCommand(def.APPNAMEPREFIX .. "/apustartup", "APU Startup")
+local my_command_apustartup = sasl.createCommand(def.APPNAMEPREFIX .. "/apustartup", "APU Startup")
 sasl.registerCommandHandler(my_command_apustartup, 0, P.apustartup_)
 
 --------------------------------------------------------------------------------------------------------------
@@ -3763,7 +3268,7 @@ function P.enginestart_(phase)
     return 0
 end
 
-my_command_enginestart = sasl.createCommand(def.APPNAMEPREFIX .. "/enginestart", "Engine Startup")
+local my_command_enginestart = sasl.createCommand(def.APPNAMEPREFIX .. "/enginestart", "Engine Startup")
 sasl.registerCommandHandler(my_command_enginestart, 0, P.enginestart_)
 
 --------------------------------------------------------------------------------------------------------------
@@ -3781,7 +3286,7 @@ function P.turnaroundengineshutdown_(phase)
     return 0
 end
 
-my_command_turnaroundengineshutdown = sasl.createCommand(def.APPNAMEPREFIX .. "/turnaroundengineshutdown", "Engine Shutdown Turnaround")
+local my_command_turnaroundengineshutdown = sasl.createCommand(def.APPNAMEPREFIX .. "/turnaroundengineshutdown", "Engine Shutdown Turnaround")
 sasl.registerCommandHandler(my_command_turnaroundengineshutdown, 0, P.turnaroundengineshutdown_)
 
 --------------------------------------------------------------------------------------------------------------
@@ -3798,7 +3303,7 @@ function P.finalengineshutdown_(phase)
     return 0
 end
 
-my_command_finalengineshutdown = sasl.createCommand(def.APPNAMEPREFIX .. "/finalengineshutdown", "Final Engine Shutdown")
+local my_command_finalengineshutdown = sasl.createCommand(def.APPNAMEPREFIX .. "/finalengineshutdown", "Final Engine Shutdown")
 sasl.registerCommandHandler(my_command_finalengineshutdown, 0, P.finalengineshutdown_)
 
 --------------------------------------------------------------------------------------------------------------
@@ -3815,7 +3320,7 @@ function P.shutdown_(phase)
     return 0
 end
 
-my_command_shutdown = sasl.createCommand(def.APPNAMEPREFIX .. "/shutdown", "Shutdown")
+local my_command_shutdown = sasl.createCommand(def.APPNAMEPREFIX .. "/shutdown", "Shutdown")
 sasl.registerCommandHandler(my_command_shutdown, 0, P.shutdown_)
 
 --------------------------------------------------------------------------------------------------------------
@@ -3832,7 +3337,7 @@ function P.cockpitinit_(phase)
     return 0
 end
 
-my_command_cockpitinit = sasl.createCommand(def.APPNAMEPREFIX .. "/cockpitinit", "Cockpit Initialization")
+local my_command_cockpitinit = sasl.createCommand(def.APPNAMEPREFIX .. "/cockpitinit", "Cockpit Initialization")
 sasl.registerCommandHandler(my_command_cockpitinit, 0, P.cockpitinit_)
 
 --------------------------------------------------------------------------------------------------------------
@@ -3849,7 +3354,7 @@ function P.beforetaxi_(phase)
     return 0
 end
 
-my_command_beforetaxi = sasl.createCommand(def.APPNAMEPREFIX .. "/beforetaxi", "Before Taxi Procedure")
+local my_command_beforetaxi = sasl.createCommand(def.APPNAMEPREFIX .. "/beforetaxi", "Before Taxi Procedure")
 sasl.registerCommandHandler(my_command_beforetaxi, 0, P.beforetaxi_)
 
 
@@ -3867,7 +3372,7 @@ function P.beforetakeoff_(phase)
     return 0
 end
 
-my_command_beforetakeoff = sasl.createCommand(def.APPNAMEPREFIX .. "/beforetakeoff", "Before Takeoff Procedure")
+local my_command_beforetakeoff = sasl.createCommand(def.APPNAMEPREFIX .. "/beforetakeoff", "Before Takeoff Procedure")
 sasl.registerCommandHandler(my_command_beforetakeoff, 0, P.beforetakeoff_)
 
 --------------------------------------------------------------------------------------------------------------
@@ -3884,7 +3389,7 @@ function P.afterlanding_(phase)
     return 0
 end
 
-my_command_afterlanding = sasl.createCommand(def.APPNAMEPREFIX .. "/afterlanding", "After Landing Procedure")
+local my_command_afterlanding = sasl.createCommand(def.APPNAMEPREFIX .. "/afterlanding", "After Landing Procedure")
 sasl.registerCommandHandler(my_command_afterlanding, 0, P.afterlanding_)
 
 --------------------------------------------------------------------------------------------------------------
@@ -3902,7 +3407,7 @@ function P.atparkingposition_(phase)
     return 0
 end
 
-my_command_atparkingposition = sasl.createCommand(def.APPNAMEPREFIX .. "/atparkingposition", "At Parking Position")
+local my_command_atparkingposition = sasl.createCommand(def.APPNAMEPREFIX .. "/atparkingposition", "At Parking Position")
 sasl.registerCommandHandler(my_command_atparkingposition, 0, P.atparkingposition_)
 
 
@@ -3920,7 +3425,7 @@ function P.altitudea10000_(phase)
     return 0
 end
 
-my_command_altitudea10000 = sasl.createCommand(def.APPNAMEPREFIX .. "/altitudea10000", "Above 10000")
+local my_command_altitudea10000 = sasl.createCommand(def.APPNAMEPREFIX .. "/altitudea10000", "Above 10000")
 sasl.registerCommandHandler(my_command_altitudea10000, 0, P.altitudea10000_)
 
 --------------------------------------------------------------------------------------------------------------
@@ -3937,7 +3442,7 @@ function P.altitudeb10000_(phase)
     return 0
 end
 
-my_command_altitudeb10000 = sasl.createCommand(def.APPNAMEPREFIX .. "/altitudeb10000", "Below 10000")
+local my_command_altitudeb10000 = sasl.createCommand(def.APPNAMEPREFIX .. "/altitudeb10000", "Below 10000")
 sasl.registerCommandHandler(my_command_altitudeb10000, 0, P.altitudeb10000_)
 
 --------------------------------------------------------------------------------------------------------------
@@ -4087,39 +3592,24 @@ function P.autofunctions()
         P.aircraftwasonground = true
 
         local taxiTriggerConditions = (get(P.taxilight) ~= def.OFF) and P.enginesrunning(def.BOTH) and (get(P.groundspeed) < 45)
-        local taxiTargetLoopIndex = P.proceduretable[def.BEFORETAXIPROCEDURE].loop
-        local isTaxiLoopFree = (P.loopStateTables[taxiTargetLoopIndex].lock == def.NOPROCEDURE)
-        if taxiTriggerConditions and isTaxiLoopFree then
-            sasl.logDebug("Autofunctions triggering BEFORETAXIPROCEDURE (Loop " .. taxiTargetLoopIndex .. " is free).")
+        if taxiTriggerConditions then
             P.triggerprocedure(def.BEFORETAXIPROCEDURE)
         end
 
-        local triggerConditionsMet = (((helpers.aircraftonrwy(get(P.aircraftlatpos), get(P.aircraftlonpos), get(P.deprwylatstartpos), get(P.deprwylonstartpos), get(P.deprwylatendpos), get(P.deprwylonendpos), 0.0003) and
-            (helpers.headingdiff(get(P.groundtrackmag), get(P.deprwyheading)) < 20) and (helpers.roundnumber(get(P.groundspeed)) == 0)) and (get(P.transponderpos) == def.TARA)) or (get(P.positionlights) == def.POSLIGHTSSTROBE))
-        local targetLoopIndex = P.proceduretable[def.BEFORETAKEOFFPROCEDURE].loop
-        local isLoopFree = (P.loopStateTables[targetLoopIndex].lock == def.NOPROCEDURE)
-        if triggerConditionsMet and isLoopFree then
-            sasl.logDebug("Autofunctions triggering BEFORETAKEOFFPROCEDURE (Loop " .. targetLoopIndex .. " is free).")
+        local triggerConditionsMet_BTO = ((((P.aircraftonrwy(def.DEPARTURE, 0.0003, 20) and (helpers.roundnumber(get(P.groundspeed)) == 0)) and (get(P.transponderpos) == def.TARA))) or (get(P.positionlights) == def.POSLIGHTSSTROBE))
+        if triggerConditionsMet_BTO then
             P.triggerprocedure(def.BEFORETAKEOFFPROCEDURE)
         end
         
-        local triggerConditionsMet = (get(P.groundspeed) < 45) and (((not helpers.aircraftonrwy(get(P.aircraftlatpos), get(P.aircraftlonpos), P.desrwylatstartpostemp, P.desrwylonstartpostemp, P.desrwylatendpostemp, P.desrwylonendpostemp, 0.0001)) and
-            (helpers.headingdiff(get(P.groundtrackmag), P.desrwyheadingtemp) > 20)) or (helpers.roundnumber(get(P.groundspeed)) == 0) or (get(P.positionlights) == def.POSLIGHTSSTEADY))
-        local targetLoopIndex = P.proceduretable[def.AFTERLANDINGPROCEDURE].loop
-        local isLoopFree = (P.loopStateTables[targetLoopIndex].lock == def.NOPROCEDURE)
-        if triggerConditionsMet and isLoopFree then
-            sasl.logDebug("Autofunctions triggering AFTERLANDINGPROCEDURE (Loop " .. targetLoopIndex .. " is free).")
+        local triggerConditionsMet_AL = ((get(P.groundspeed) < 45) and (P.aircraftonrwy(def.ARRIVAL, 0.0001, 20) or (helpers.roundnumber(get(P.groundspeed)) == 0))) or (get(P.positionlights) == def.POSLIGHTSSTEADY)
+        if triggerConditionsMet_AL then
             P.triggerprocedure(def.AFTERLANDINGPROCEDURE)
         end
 
-        local triggerConditionsMet = (get(P.parkingbrakepos) == def.ON) and (P.flightstate == def.FLIGHTSTATETAXITOGATE or P.flightstate == def.FLIGHTSTATESHUTDOWN)
-        local targetLoopIndex = P.proceduretable[def.ATPARKINGPOSITIONPROCEDURE].loop
-        local isLoopFree = (P.loopStateTables[targetLoopIndex].lock == def.NOPROCEDURE)
-        if triggerConditionsMet and isLoopFree then
-            sasl.logDebug("Autofunctions triggering ATPARKINGPOSITIONPROCEDURE (Loop " .. targetLoopIndex .. " is free).")
+        local triggerConditionsMet_AP = (get(P.parkingbrakepos) == def.ON) and (P.flightstate == def.FLIGHTSTATETAXITOGATE or P.flightstate == def.FLIGHTSTATESHUTDOWN)
+        if triggerConditionsMet_AP then
             P.triggerprocedure(def.ATPARKINGPOSITIONPROCEDURE)
         end
-
     else
         if not P.aircraftwasonground then
             P.inflightrestoreactions()
@@ -4142,29 +3632,31 @@ function P.autofunctions()
         end
 
         local fmsPhase = get(P.fmsflightphase)
+        local flightStateChanged = false -- Flag, um Änderungen zu erkennen
+
         if ((fmsPhase >= def.FMSPHASEDESCENT) and (get(P.vnavtoddist) <= 1)) then
-            P.flightstate = def.FLIGHTSTATEAPPROACH
-            set(P.flightstatedr, P.flightstate)
+            if P.flightstate ~= def.FLIGHTSTATEAPPROACH then -- Prüfen, ob sich was ändert
+                 P.flightstate = def.FLIGHTSTATEAPPROACH
+                 flightStateChanged = true
+            end
         elseif (fmsPhase == def.FMSPHASECRUISE) and (P.flightstate < def.FLIGHTSTATECRUISE) then
-            P.flightstate = def.FLIGHTSTATECRUISE
-            set(P.flightstatedr, P.flightstate)
+             P.flightstate = def.FLIGHTSTATECRUISE
+             flightStateChanged = true
         elseif (fmsPhase == def.FMSPHASECLIMB) and P.proceduretable[def.AFTERTAKEOFFPROCEDURE].set and (P.flightstate < def.FLIGHTSTATECLIMB) then
-            P.flightstate = def.FLIGHTSTATECLIMB
-            set(P.flightstatedr, P.flightstate)
+             P.flightstate = def.FLIGHTSTATECLIMB
+             flightStateChanged = true
         elseif (P.flightstate == def.FLIGHTSTATEPREFLIGHT) then
-            P.flightstate = def.FLIGHTSTATEINITIALCLIMB
-            set(P.flightstatedr, P.flightstate)
+             P.flightstate = def.FLIGHTSTATEINITIALCLIMB
+             flightStateChanged = true
+        end
+
+        if flightStateChanged then
+             set(P.flightstatedr, P.flightstate)
+             P.syncProceduresToFlightState()
         end
 
         if P.flightstate == def.FLIGHTSTATEINITIALCLIMB then
-            local proc_to_check = def.AFTERTAKEOFFPROCEDURE
-            local triggerConditions = true 
-            local targetLoopIndex = P.proceduretable[proc_to_check].loop
-            local isLoopFree = (P.loopStateTables[targetLoopIndex].lock == def.NOPROCEDURE)
-            if triggerConditions and isLoopFree then
-                sasl.logDebug("Autofunctions triggering AFTERTAKEOFFPROCEDURE (Loop " .. targetLoopIndex .. " is free).")
-                P.triggerprocedure(proc_to_check)
-            end
+            P.triggerprocedure(def.AFTERTAKEOFFPROCEDURE)
         elseif P.flightstate == def.FLIGHTSTATECLIMB then
             P.duringclimb()
         elseif P.flightstate == def.FLIGHTSTATEAPPROACH then
@@ -4861,12 +4353,12 @@ function P.runProcedureLoop(loopIndex)
                     else
 
                     -- *** ORIGINAL-LOGIK (OHNE View-Skip-Optimierung) WIEDERHERGESTELLT ***
-                        if step.skipIf and step.skipIf() then -- 5b. skipIf
+                        if step.skipIf and step.skipIf(loop, procData) then -- 5b. skipIf
                             sasl.logDebug("skipIf condition met. Skipping to step: " .. tostring(step.nextStep))
                             loop.currentStepName = step.nextStep
                             loop.lastStepName = nil -- Damit skipIf/view im nächsten Schritt wieder funktionieren
 
-                        elseif useViewChanges and step.view and P.setview(step.view(), (step.normalize == true)) then -- 5d. view (Modifiziert für Normalisierung)
+                        elseif useViewChanges and step.view and P.setview(step.view(loop, procData), (step.normalize == true)) then -- 5d. view (Modifiziert für Normalisierung)
                             sasl.logDebug("View changed. Repeating step '" .. stepName .. "' in next cycle.")
                             loop.lastStepName = nil -- Erzwingt, dass steprepeat = false ist
 
@@ -4874,13 +4366,13 @@ function P.runProcedureLoop(loopIndex)
                             sasl.logDebug("Entering core logic (check/branch/action/advice).")
                             if step.check then
                                 sasl.logDebug("Step has a check function.")
-                                if step.check() then
+                                if step.check(loop, procData) then
                                     sasl.logDebug("Check PASSED.")
                                     -- *** FIX FÜR msg-ERROR ANWENDEN (confirm) ***
                                     if step.confirm and (not useAdviceOnly or not loop.steprepeat) then
                                         local confirm_msg_raw
                                         if type(step.confirm) == "function" then
-                                            confirm_msg_raw = step.confirm()
+                                            confirm_msg_raw = step.confirm(loop, procData)
                                         else
                                             confirm_msg_raw = step.confirm
                                         end
@@ -4928,7 +4420,7 @@ function P.runProcedureLoop(loopIndex)
                                             if step.advice then
                                                 local advice_msg_raw
                                                 if type(step.advice) == "function" then
-                                                    advice_msg_raw = step.advice()
+                                                    advice_msg_raw = step.advice(loop, procData)
                                                 else
                                                     advice_msg_raw = step.advice
                                                 end
@@ -4939,11 +4431,11 @@ function P.runProcedureLoop(loopIndex)
                                                 end
                                             end
                                             if step.action and step.runActionInAdviceMode then 
-                                                 step.action(); 
+                                                 step.action(loop, procData); 
                                                  sasl.logDebug("Executed 'runActionInAdviceMode' action.")
                                             end
                                             -- Ende advice Fix
-                                        else if step.action then step.action(); sasl.logDebug("Executed action.") end end
+                                        else if step.action then step.action(loop, procData); sasl.logDebug("Executed action.") end end
                                     elseif type(branchResult) == "string" then
                                         sasl.logDebug("Branch returned next step name: " .. branchResult)
                                         loop.currentStepName = branchResult
@@ -4959,7 +4451,7 @@ function P.runProcedureLoop(loopIndex)
                                     if step.advice then
                                         local advice_msg_raw
                                         if type(step.advice) == "function" then
-                                            advice_msg_raw = step.advice()
+                                            advice_msg_raw = step.advice(loop, procData)
                                         else
                                             advice_msg_raw = step.advice
                                         end
@@ -4971,7 +4463,7 @@ function P.runProcedureLoop(loopIndex)
                                     
                                     -- 2. Action AUSNAHMSWEISE ausführen (wenn geflaggt und nicht wiederholt)
                                     if step.action and step.runActionInAdviceMode then
-                                         step.action(); 
+                                         step.action(loop, procData); 
                                          sasl.logDebug("Executed 'runActionInAdviceMode' action (on first fail).")
                                     end
 
@@ -4979,7 +4471,7 @@ function P.runProcedureLoop(loopIndex)
                                     -- *** AUTO MODE ***
                                     -- Führe Action aus (wie in deiner Original-Logik, bei jedem Fehlschlag)
                                     if step.action then 
-                                        step.action(); 
+                                        step.action(loop, procData); 
                                         sasl.logDebug("Executed action (Auto Mode).") 
                                     end 
                                 end
@@ -4998,12 +4490,12 @@ function P.runProcedureLoop(loopIndex)
                                     end
                                 else
                                     sasl.logDebug("No branch function. Executing action (if any) and proceeding to default nextStep: " .. tostring(step.nextStep))
-                                    if step.action and not loop.steprepeat then step.action(); sasl.logDebug("Executed action.") end
+                                    if step.action and not loop.steprepeat then step.action(loop, procData); sasl.logDebug("Executed action.") end
 
                                     if step.confirm and (not useAdviceOnly or not loop.steprepeat) then
                                         local confirm_msg_raw
                                         if type(step.confirm) == "function" then
-                                            confirm_msg_raw = step.confirm()
+                                            confirm_msg_raw = step.confirm(loop, procData)
                                         else
                                             confirm_msg_raw = step.confirm
                                         end
@@ -5330,44 +4822,45 @@ end
 
 --------------------------------------------------------------------------------------------------------------
 
-menu_cycleprocedures = sasl.appendMenuItem(P.menu_main, "Cycle Through Procedures", P.cycleprocedures)
-menu_skip_procedure_step = sasl.appendMenuItem(P.menu_main, "Skip Procedure Step", P.skipprocedurestep)
-menu_skip_procedure = sasl.appendMenuItem(P.menu_main, "Skip Procedure", P.skipprocedure)
-menu_abort_procedure = sasl.appendMenuItem(P.menu_main, "Abort Procedure", P.abortprocedure)
+local menu_cycleprocedures = sasl.appendMenuItem(P.menu_main, "Cycle Through Procedures", P.cycleprocedures)
+local menu_skip_procedure_step = sasl.appendMenuItem(P.menu_main, "Skip Procedure Step", P.skipprocedurestep)
+local menu_skip_procedure = sasl.appendMenuItem(P.menu_main, "Skip Procedure", P.skipprocedure)
+local menu_abort_procedure = sasl.appendMenuItem(P.menu_main, "Abort Procedure", P.abortprocedure)
 sasl.appendMenuSeparator ( P.menu_main )
-menu_speak_depmetar = sasl.appendMenuItem(P.menu_main, "Speak Departure Metar", P.speakdepmetar)
-menu_speak_desmetar = sasl.appendMenuItem(P.menu_main, "Speak Destination Metar", P.speakdesmetar)
+local menu_speak_depmetar = sasl.appendMenuItem(P.menu_main, "Speak Departure Metar", P.speakdepmetar)
+local menu_speak_desmetar = sasl.appendMenuItem(P.menu_main, "Speak Destination Metar", P.speakdesmetar)
 sasl.appendMenuSeparator ( P.menu_main )
-menu_cd = sasl.appendMenuItem(P.menu_main, "Cold and Dark Startup", P.coldanddarkstartup)
-menu_cockpit_init = sasl.appendMenuItem(P.menu_main, "Cockpit Initialization", P.cockpitinit)
-menu_apu_start = sasl.appendMenuItem(P.menu_main, "APU Startup", P.apustartup)
-menu_eng_start = sasl.appendMenuItem(P.menu_main, "Engine Startup", P.enginestart)
-menu_before_taxi = sasl.appendMenuItem(P.menu_main, "Before Taxi Procedure", P.beforetaxi)
-menu_before_takeoff = sasl.appendMenuItem(P.menu_main, "Before Takeoff Procedure", P.beforetakeoff)
-menu_after_landing = sasl.appendMenuItem(P.menu_main, "After Landing Procedure", P.afterlanding)
-menu_atparkingposition = sasl.appendMenuItem(P.menu_main, "At Parking Position Procedure", P.atparkingposition)
-menu_eng_stop_ta = sasl.appendMenuItem(P.menu_main, "Turnaround Engine Shutdown", P.turnaroundengineshutdown)
-menu_eng_stop_final = sasl.appendMenuItem(P.menu_main, "Final Engine Shutdown", P.finalengineshutdown)
-menu_shutdown = sasl.appendMenuItem(P.menu_main, "Shutdown", P.shutdown)
+local menu_cd = sasl.appendMenuItem(P.menu_main, "Cold and Dark Startup", P.coldanddarkstartup)
+local menu_cockpit_init = sasl.appendMenuItem(P.menu_main, "Cockpit Initialization", P.cockpitinit)
+local menu_apu_start = sasl.appendMenuItem(P.menu_main, "APU Startup", P.apustartup)
+local menu_eng_start = sasl.appendMenuItem(P.menu_main, "Engine Startup", P.enginestart)
+local menu_before_taxi = sasl.appendMenuItem(P.menu_main, "Before Taxi Procedure", P.beforetaxi)
+local menu_before_takeoff = sasl.appendMenuItem(P.menu_main, "Before Takeoff Procedure", P.beforetakeoff)
+local menu_after_landing = sasl.appendMenuItem(P.menu_main, "After Landing Procedure", P.afterlanding)
+local menu_atparkingposition = sasl.appendMenuItem(P.menu_main, "At Parking Position Procedure", P.atparkingposition)
+local menu_eng_stop_ta = sasl.appendMenuItem(P.menu_main, "Turnaround Engine Shutdown", P.turnaroundengineshutdown)
+local menu_eng_stop_final = sasl.appendMenuItem(P.menu_main, "Final Engine Shutdown", P.finalengineshutdown)
+local menu_shutdown = sasl.appendMenuItem(P.menu_main, "Shutdown", P.shutdown)
 sasl.appendMenuSeparator ( P.menu_main )
-menu_above1000 = sasl.appendMenuItem(P.menu_main, "Above 10000", P.altitudea10000)
-menu_below1000 = sasl.appendMenuItem(P.menu_main, "Below 10000", P.altitudeb10000)
-menu_ils_freq = sasl.appendMenuItem(P.menu_main, "Set ILS/GLS Freq/Course", P.setilsproc)
-menu_copy_nav = sasl.appendMenuItem(P.menu_main, "Copy NAV1/MMR1 to NAV2/MMR2", P.copynav)
-menu_set_vref = sasl.appendMenuItem(P.menu_main, "Set Landing Flaps/VREF", P.setvrefproc)
-menu_set_toflaps = sasl.appendMenuItem(P.menu_main, "Set Takeoff Flaps", P.settoflapsproc)
+local menu_above1000 = sasl.appendMenuItem(P.menu_main, "Above 10000", P.altitudea10000)
+local menu_below1000 = sasl.appendMenuItem(P.menu_main, "Below 10000", P.altitudeb10000)
+local menu_ils_freq = sasl.appendMenuItem(P.menu_main, "Set ILS/GLS Freq/Course", P.setilsproc)
+local menu_copy_nav = sasl.appendMenuItem(P.menu_main, "Copy NAV1/MMR1 to NAV2/MMR2", P.copynav)
+local menu_set_vref = sasl.appendMenuItem(P.menu_main, "Set Landing Flaps/VREF", P.setvrefproc)
+local menu_set_toflaps = sasl.appendMenuItem(P.menu_main, "Set Takeoff Flaps", P.settoflapsproc)
+
 sasl.appendMenuSeparator ( P.menu_main )
-menu_test = sasl.appendMenuItem(P.menu_main, "Tests", P.test)
+local menu_test = sasl.appendMenuItem(P.menu_main, "Tests", P.test)
 sasl.appendMenuSeparator ( P.menu_main )
-menu_toggle_setcockpitlights = sasl.appendMenuItem(P.menu_main, "Set Cockpit Lights", P.setcockpitlights)
-menu_toggle_auto = sasl.appendMenuItem(P.menu_main, "Toggle Auto Functions", P.toggleautofunctions)
-menu_toogle_voice = sasl.appendMenuItem(P.menu_main, "Toggle Voice Readback", P.togglevoicereadback)
-menu_toogle_adviceonly = sasl.appendMenuItem(P.menu_main, "Toggle Voice Advice Only", P.toggleadviceonly)
-menu_toogle_freeze = sasl.appendMenuItem(P.menu_main, "Toggle Sim Freeze", P.togglesimfreeze)
-menu_toggle_view = sasl.appendMenuItem(P.menu_main, "Toggle View Changes", P.toggleviewchanges)
-menu_timewarptotod = sasl.appendMenuItem(P.menu_main, "Time Warp to TOD", P.timewarptotod)
-menu_yalreset = sasl.appendMenuItem(P.menu_main, "Reset", P.yalreset)
-menu_yalresetfornewflight = sasl.appendMenuItem(P.menu_main, "Reset for New Flight", P.yalresetForNewFlight)
+local menu_toggle_setcockpitlights = sasl.appendMenuItem(P.menu_main, "Set Cockpit Lights", P.setcockpitlights)
+local menu_toggle_auto = sasl.appendMenuItem(P.menu_main, "Toggle Auto Functions", P.toggleautofunctions)
+local menu_toogle_voice = sasl.appendMenuItem(P.menu_main, "Toggle Voice Readback", P.togglevoicereadback)
+local menu_toogle_adviceonly = sasl.appendMenuItem(P.menu_main, "Toggle Voice Advice Only", P.toggleadviceonly)
+local menu_toogle_freeze = sasl.appendMenuItem(P.menu_main, "Toggle Sim Freeze", P.togglesimfreeze)
+local menu_toggle_view = sasl.appendMenuItem(P.menu_main, "Toggle View Changes", P.toggleviewchanges)
+local menu_timewarptotod = sasl.appendMenuItem(P.menu_main, "Time Warp to TOD", P.timewarptotod)
+local menu_yalreset = sasl.appendMenuItem(P.menu_main, "Reset", P.yalreset)
+local menu_yalresetfornewflight = sasl.appendMenuItem(P.menu_main, "Reset for New Flight", P.yalresetForNewFlight)
 
 sasl.appendMenuSeparator ( P.menu_main )
 

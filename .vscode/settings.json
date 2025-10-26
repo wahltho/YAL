@@ -33,9 +33,27 @@
         "drawRectangle",
         "TEXT_ALIGN_CENTER",
         "NO_PLUGIN_ID",
-        "SASL_COMMAND_BEGIN"
+        "SASL_COMMAND_BEGIN",
+        "KB_DOWN_EVENT",
+        "SASL_KEY_ESCAPE",
+        "SASL_KEY_RETURN",
+        "drawAll",
+        "globalPropertyiae",
+        "contextWindow",
+        "include",
+        "messages",
+        "settings",
+        "yal",
+        "menu_master",
+        "my_command_yalresetForNewFlight",
+        "my_command_yalreset",
+        "my_command_toggleadviceonly",
+        "my_command_abortprocedure",
+        "my_command_skipprocedure",
+        "my_command_skipprocedurestep"
     ],
     "Lua.diagnostics.disable": [
-        "deprecated"
+        "deprecated",
+        "need-check-nil"
     ]
 }

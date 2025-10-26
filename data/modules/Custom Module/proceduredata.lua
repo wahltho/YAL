@@ -2667,11 +2667,707 @@ function M.fillProcedureTable()
                 }
             }
         },
-        [def.SETILSPROCEDURE] = { number = 19, name = "Set ILS", cycable = false, speakname = false, steps = 11, set = false, procedurefunction = P.setilssteps, loop = 3, prerequisite = nil, allowedState = nil, requiredFlightstate = { def.FLIGHTSTATECRUISE, def.FLIGHTSTATEAPPROACH }, skipCondition = nil, repeatable = true },
-        [def.SETVREFPROCEDURE] = { number = 20, name = "Set V Ref", cycable = false, speakname = false, steps = 4, set = false, procedurefunction = P.setvrefsteps, loop = 3, prerequisite = nil, allowedState = nil, requiredFlightstate = { def.FLIGHTSTATECRUISE, def.FLIGHTSTATEAPPROACH }, skipCondition = nil, repeatable = true },
-        [def.SETTOFLAPSPROCEDURE] = { number = 21, name = "Set Takeoff Flaps", cycable = false, speakname = false, steps = 4, set = false, procedurefunction = P.settoflapssteps, loop = 3, prerequisite = def.COCKPITINITPROCEDURE, allowedState = def.GROUNDONLY, requiredFlightstate = def.FLIGHTSTATEPREFLIGHT, skipCondition = nil },
-        [def.TESTPROCEDURE] = { number = 22, name = "Test", cycable = false, speakname = false, steps = 47, set = false, procedurefunction = P.teststeps, loop = 1, prerequisite = nil, allowedState = nil, requiredFlightstate = def.FLIGHTSTATEPREFLIGHT, skipCondition = nil }
+        [def.SETILSPROCEDURE] = { 
+            number = 19, 
+            name = "Set ILS", 
+            cycable = false, 
+            speakname = false, 
+            set = false, 
+            loop = 3, 
+            prerequisite = nil, 
+            allowedState = nil, 
+            requiredFlightstate = { def.FLIGHTSTATECRUISE, def.FLIGHTSTATEAPPROACH, def.FLIGHTSTATEINITIALCLIMB }, 
+            skipCondition = nil,
+            repeatable = true, 
+            startStep = 'view_fms',
+            steps = {
+                ['view_fms'] = {
+                    view = function(loop, procData) return P.configvalues[def.CONFIGVIEWFMS] end,
+                    normalize = true, 
+                    nextStep = 'check_fms_page'
+                },
+                ['check_fms_page'] = {
+                    check = function(loop, procData) 
+                        local FMC1Line00L = helpers.get("laminar/B738/fmc1/Line00_L")
+                        return (string.len(FMC1Line00L) >= 9) and (string.sub(FMC1Line00L, 7, 9) == "APP")
+                    end,
+                    action = function(loop, procData) helpers.command_once("laminar/B738/button/fmc1_init_ref") end,
+                    advice = "Open F M C Approach Reference Page",
+                    runActionInAdviceMode = true,
+                    nextStep = 'find_navdata'
+                },
+                ['find_navdata'] = {
+                    branch = function(loop, procData)
+                        local FMC1Line04X = helpers.get("laminar/B738/fmc1/Line04_X")
+                        local FMC1Line04L = helpers.get("laminar/B738/fmc1/Line04_L")
+                        local apptype
+                        local foundIndex = nil 
+                        if ((string.len(FMC1Line04X) == 24) and (string.len(FMC1Line04L) == 24)) then
+                            apptype = string.sub(FMC1Line04X, 2, 4)
+                            if ((apptype == def.NAVTYPEILS) or (apptype == def.NAVTYPEGLS)) then
+                                foundIndex = helpers.getnavdataindex(P.navdatatable, get(P.desicao), get(P.desrwy), apptype)
+                            else
+                                foundIndex = helpers.getnavdataindex(P.navdatatable, get(P.desicao), get(P.desrwy), def.NAVTYPELPV)
+                            end
+                        else
+                            foundIndex = helpers.getnavdataindex(P.navdatatable, get(P.desicao), get(P.desrwy), def.NAVTYPELPV)
+                        end
+                        loop.navdatatableindex = foundIndex 
+                        if loop.navdatatableindex ~= nil and P.navdatatable[loop.navdatatableindex] ~= nil then
+                            return 'announce_approach_type' 
+                        else
+                            return 'announce_no_approach'
+                        end
+                    end
+                },
+                ['announce_no_approach'] = {
+                    action = function(loop, procData) P.commandtableentry(def.TEXT, "Runway " .. helpers.formatRunwayDesignator(get(P.desrwy)) .. " has no Precision Approach") end,
+                    runActionInAdviceMode = true, 
+                    nextStep = 'find_nearest_vor'
+                },
+                ['find_nearest_vor'] = {
+                    action = function(loop, procData)
+                        local nearestvor = nil
+                        if (P.airportdatatable[get(P.desicao)] and P.airportdatatable[get(P.desicao)].latitude and P.airportdatatable[get(P.desicao)].longitude) then
+                            nearestvor = helpers.findnearestvor(P.navdatatable, P.airportdatatable[get(P.desicao)].latitude, P.airportdatatable[get(P.desicao)].longitude)
+                        elseif helpers.isvalidrwy(get(P.desrwy)) then
+                            nearestvor = helpers.findnearestvor(P.navdatatable, get(P.desrwylatstartpos), get(P.desrwylonstartpos))
+                        end       
+                        if (nearestvor == nil) then
+                            P.commandtableentry(def.TEXT, "No V O R near " .. helpers.addspaces(get(P.desicao)) .. " found")
+                        else
+                            P.commandtableentry(def.TEXT, "Nearest V O R for " .. helpers.addspaces(get(P.desicao)) .. " is " .. helpers.addspaces(nearestvor.navid) .. " with frequency " .. helpers.addspaces(helpers.formatILSFrequency(nearestvor.frequency)))
+                        end
+                    end,
+                    runActionInAdviceMode = true, 
+                    nextStep = 'announce_heading_only'
+                },
+                ['announce_heading_only'] = {
+                    action = function(loop, procData)
+                        P.commandtableentry(def.TEXT, "Runway " .. helpers.formatRunwayDesignator(get(P.desrwy)) .. " has heading " .. helpers.addspaces(helpers.padNumberWithZerosStrict(helpers.roundnumber(get(P.desrwyheading)), 3)))
+                    end,
+                    runActionInAdviceMode = true, 
+                    nextStep = nil 
+                },
+                ['announce_approach_type'] = {
+                    action = function(loop, procData)
+                        local navdata = P.navdatatable[loop.navdatatableindex]
+                        if (get(P.desrwy) ~= navdata[def.DESTRWY]) then
+                            sasl.logInfo("Destination Runway Diff FMC: " .. tostring(get(P.desrwy)) .. " Navdata: " .. tostring(navdata[def.DESTRWY]))
+                        end
+                        local dmestring = ""
+                        if (navdata[def.DESTNAVTYPE] == def.NAVTYPEILS) and navdata[def.DESTNAVDME] then
+                            dmestring = "with DME"
+                        end
+                        P.commandtableentry(def.TEXT, "Runway " .. helpers.formatRunwayDesignator(navdata[def.DESTRWY]) .. " has " .. helpers.addspaces(navdata[def.DESTNAVTYPE]) .. " Approach " .. dmestring)
+                    end,
+                    runActionInAdviceMode = true, 
+                    nextStep = 'view_pedestal' 
+                },
+                ['view_pedestal'] = {
+                    view = function(loop, procData) return P.configvalues[def.CONFIGVIEWPEDESTAL] end,
+                    nextStep = 'set_capt_freq'
+                },
+                ['set_capt_freq'] = {
+                    check = function(loop, procData)
+                        local navdata = P.navdatatable[loop.navdatatableindex]
+                        if (navdata[def.DESTNAVTYPE] == def.NAVTYPEILS) then
+                            if (get(P.mmrinstalled) == def.ON) then
+                                return (get(P.mmrcptactvalue) == navdata[def.DESTFREQ]) and (get(P.mmrcptactmode) == def.MMRILS)
+                            else
+                                return (get(P.nav1freq) == navdata[def.DESTFREQ])
+                            end
+                        elseif ((navdata[def.DESTNAVTYPE] == def.NAVTYPEGLS) or (navdata[def.DESTNAVTYPE] == def.NAVTYPELPV)) and (get(P.mmrinstalled) == def.ON) then
+                            return (get(P.mmrcptactvalue) == navdata[def.DESTFREQ]) and ((get(P.mmrcptactmode) == def.MMRGLS) or (get(P.mmrcptactmode) == def.MMRLPV))
+                        end
+                        return true 
+                    end,
+                    action = function(loop, procData)
+                        local navdata = P.navdatatable[loop.navdatatableindex]
+                        if (navdata[def.DESTNAVTYPE] == def.NAVTYPEILS) then
+                            if (get(P.mmrinstalled) == def.ON) then
+                                P.setmmrils(def.MMRCAPTAIN, navdata[def.DESTFREQ])
+                            else
+                                set(P.nav1stdbyfreq, get(P.nav1freq))
+                                set(P.nav1freq, navdata[def.DESTFREQ])
+                            end
+                        elseif ((navdata[def.DESTNAVTYPE] == def.NAVTYPEGLS) or (navdata[def.DESTNAVTYPE] == def.NAVTYPELPV)) and (get(P.mmrinstalled) == def.ON) then
+                            P.setmmrgls(def.MMRCAPTAIN, navdata[def.DESTFREQ])
+                        end
+                    end,
+                    advice = function(loop, procData)
+                        local navdata = P.navdatatable[loop.navdatatableindex]
+                        if (navdata[def.DESTNAVTYPE] == def.NAVTYPEILS) then
+                            return "Set Captain Frequency " .. helpers.addspaces(helpers.formatILSFrequency(navdata[def.DESTFREQ]))
+                        else
+                            return "Set Captain Channel " .. helpers.addspaces(navdata[def.DESTFREQ])
+                        end
+                    end,
+                    confirm = function(loop, procData)
+                        local navdata = P.navdatatable[loop.navdatatableindex]
+                        if (navdata[def.DESTNAVTYPE] == def.NAVTYPEILS) then
+                            return "Captain Frequency checked and " .. helpers.addspaces(helpers.formatILSFrequency(navdata[def.DESTFREQ]))
+                        else
+                            return "Captain Channel checked and " .. helpers.addspaces(navdata[def.DESTFREQ])
+                        end
+                    end,
+                    nextStep = 'set_fo_freq'
+                },
+                ['set_fo_freq'] = {
+                    skipIf = function(loop, procData)
+                        local navdata = P.navdatatable[loop.navdatatableindex]
+                        if navdata[def.DESTNAVTYPE] == def.NAVTYPELPV then return true end
+                        if (navdata[def.DESTNAVTYPE] == def.NAVTYPEILS) and not navdata[def.DESTNAVDME] then return true end
+                        return false 
+                    end,
+                    check = function(loop, procData)
+                        local navdata = P.navdatatable[loop.navdatatableindex]
+                        if (navdata[def.DESTNAVTYPE] == def.NAVTYPEILS) then 
+                            if (get(P.mmrinstalled) == def.ON) then
+                                return (get(P.mmrfoactvalue) == navdata[def.DESTFREQ]) and (get(P.mmrfoactmode) == def.MMRILS)
+                            else
+                                return (get(P.nav2freq) == navdata[def.DESTFREQ])
+                            end
+                        elseif (navdata[def.DESTNAVTYPE] == def.NAVTYPEGLS) and (get(P.mmrinstalled) == def.ON) then
+                            return (get(P.mmrfoactvalue) == navdata[def.DESTFREQ]) and (get(P.mmrfoactmode) == def.MMRGLS)
+                        end
+                        return true 
+                    end,
+                    action = function(loop, procData)
+                        local navdata = P.navdatatable[loop.navdatatableindex]
+                        if (navdata[def.DESTNAVTYPE] == def.NAVTYPEILS) then
+                            if (get(P.mmrinstalled) == def.ON) then
+                                P.setmmrils(def.MMRFO, navdata[def.DESTFREQ])
+                            else
+                                set(P.nav2stdbyfreq, get(P.nav2freq))
+                                set(P.nav2freq, navdata[def.DESTFREQ])
+                            end
+                        elseif (navdata[def.DESTNAVTYPE] == def.NAVTYPEGLS) and (get(P.mmrinstalled) == def.ON) then
+                            P.setmmrgls(def.MMRFO, navdata[def.DESTFREQ])
+                        end
+                    end,
+                    advice = function(loop, procData)
+                        local navdata = P.navdatatable[loop.navdatatableindex]
+                        if (navdata[def.DESTNAVTYPE] == def.NAVTYPEILS) then
+                            return "Set Copilot Frequency " .. helpers.addspaces(helpers.formatILSFrequency(navdata[def.DESTFREQ]))
+                        else
+                            return "Set Copilot Channel " .. helpers.addspaces(navdata[def.DESTFREQ])
+                        end
+                    end,
+                    confirm = function(loop, procData)
+                        local navdata = P.navdatatable[loop.navdatatableindex]
+                        if (navdata[def.DESTNAVTYPE] == def.NAVTYPEILS) then
+                            return "Copilot Frequency checked and " .. helpers.addspaces(helpers.formatILSFrequency(navdata[def.DESTFREQ]))
+                        else
+                            return "Copilot Channel checked and " .. helpers.addspaces(navdata[def.DESTFREQ])
+                        end
+                    end,
+                    nextStep = 'view_main_panel'
+                },
+                ['view_main_panel'] = {
+                    view = function(loop, procData) return P.configvalues[def.CONFIGVIEWMAINPANEL] end,
+                    nextStep = 'set_capt_course'
+                },
+                ['set_capt_course'] = {
+                    check = function(loop, procData)
+                        local pilotcoursenew = P.navdatatable[loop.navdatatableindex][def.DESTCOURSE]
+                        return get(P.mcppilotcourse) == pilotcoursenew
+                    end,
+                    action = function(loop, procData)
+                        local pilotcoursenew = P.navdatatable[loop.navdatatableindex][def.DESTCOURSE]
+                        set(P.mcppilotcourse, pilotcoursenew)
+                    end,
+                    advice = function(loop, procData)
+                        local pilotcoursenew = P.navdatatable[loop.navdatatableindex][def.DESTCOURSE]
+                        return "Set Captain Course " .. helpers.addspaces(helpers.padNumberWithZerosStrict(pilotcoursenew, 3))
+                    end,
+                    confirm = function(loop, procData)
+                        local pilotcoursenew = P.navdatatable[loop.navdatatableindex][def.DESTCOURSE]
+                        return "Captain Course checked and " .. helpers.addspaces(helpers.padNumberWithZerosStrict(pilotcoursenew, 3))
+                    end,
+                    nextStep = 'set_fo_course'
+                },
+                ['set_fo_course'] = {
+                    skipIf = function(loop, procData)
+                        local navdata = P.navdatatable[loop.navdatatableindex]
+                        if navdata[def.DESTNAVTYPE] == def.NAVTYPELPV then return true end
+                        if (navdata[def.DESTNAVTYPE] == def.NAVTYPEILS) and not navdata[def.DESTNAVDME] then return true end
+                        return false 
+                    end,
+                    check = function(loop, procData)
+                        return get(P.mcpcopilotcourse) == get(P.mcppilotcourse)
+                    end,
+                    action = function(loop, procData)
+                        set(P.mcpcopilotcourse, get(P.mcppilotcourse))
+                    end,
+                    advice = function(loop, procData)
+                        return "Set Copilot Course " .. helpers.addspaces(helpers.padNumberWithZerosStrict(get(P.mcppilotcourse), 3))
+                    end,
+                    confirm = function(loop, procData)
+                        return "Copilot Course checked and " .. helpers.addspaces(helpers.padNumberWithZerosStrict(get(P.mcppilotcourse), 3))
+                    end,
+                    nextStep = nil 
+                }
+            } 
+        },
+        [def.SETVREFPROCEDURE] = { 
+            number = 20, 
+            name = "Set V Ref", 
+            cycable = false, 
+            speakname = false, 
+            set = false, 
+            loop = 3, 
+            prerequisite = nil, 
+            allowedState = nil, 
+            requiredFlightstate = { def.FLIGHTSTATECRUISE, def.FLIGHTSTATEAPPROACH, def.FLIGHTSTATEINITIALCLIMB }, 
+            skipCondition = nil,
+            repeatable = true, 
+            startStep = 'view_fms',
+            steps = {
+                ['view_fms'] = {
+                    view = function(loop, procData) return P.configvalues[def.CONFIGVIEWFMS] end,
+                    normalize = true, 
+                    nextStep = 'calculate_vref'
+                },
+                ['calculate_vref'] = {
+                    action = function(loop, procData)
+                        local appflapscalc, appvrefcalc = helpers.calcappflapsvref(get(P.totalweightkgs), get(P.desrwylen), get(P.desrwyheading), get(P.vref30), P.desmetar)
+                        loop.appflapscalc = appflapscalc
+                        loop.appvrefcalc = appvrefcalc
+                        loop.appflapscalcstring = tostring(appflapscalc)
+                        loop.appvrefcalcstring = tostring(appvrefcalc)
+                        sasl.logInfo("SetVref: Calculated Flaps " .. loop.appflapscalcstring .. " Vref " .. loop.appvrefcalcstring)
+                    end,
+                    runActionInAdviceMode = true, 
+                    nextStep = 'check_fms_page'
+                },
+                ['check_fms_page'] = {
+                    check = function(loop, procData) 
+                        local FMC1Line00L = helpers.get("laminar/B738/fmc1/Line00_L")
+                        return (string.len(FMC1Line00L) >= 9) and (string.sub(FMC1Line00L, 7, 9) == "APP")
+                    end,
+                    action = function(loop, procData) helpers.command_once("laminar/B738/button/fmc1_init_ref") end,
+                    advice = "Open F M C Approach Reference Page",
+                    runActionInAdviceMode = true,
+                    branch = function(loop, procData)
+                        if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
+                            sasl.logDebug("SetVref: VoiceAdviceOnly mode. Skipping auto-input steps.")
+                            return 'check_vref_set' 
+                        else
+                            sasl.logDebug("SetVref: Auto mode. Starting FMC input sequence.")
+                            return 'fmc_press_del' 
+                        end
+                    end
+                },
+                ['fmc_press_del'] = {
+                    action = function(loop, procData) P.commandtableentry(def.COMMAND, "laminar/B738/button/fmc1_del") end,
+                    runActionInAdviceMode = false, 
+                    nextStep = 'fmc_press_clr'
+                },
+                ['fmc_press_clr'] = {
+                    action = function(loop, procData) P.commandtableentry(def.COMMAND, "laminar/B738/button/fmc1_clr") end,
+                    runActionInAdviceMode = false,
+                    nextStep = 'fmc_enter_flap_1'
+                },
+                ['fmc_enter_flap_1'] = {
+                    action = function(loop, procData)
+                        local char = string.sub(loop.appflapscalcstring, 1, 1)
+                        if char and char ~= "" then P.commandtableentry(def.COMMAND, "laminar/B738/button/fmc1_" .. char) end
+                    end,
+                    runActionInAdviceMode = false,
+                    nextStep = 'fmc_enter_flap_2'
+                },
+                ['fmc_enter_flap_2'] = {
+                    action = function(loop, procData)
+                        local char = string.sub(loop.appflapscalcstring, 2, 2)
+                        if char and char ~= "" then P.commandtableentry(def.COMMAND, "laminar/B738/button/fmc1_" .. char) end
+                    end,
+                    runActionInAdviceMode = false,
+                    nextStep = 'fmc_press_slash'
+                },
+                ['fmc_press_slash'] = {
+                    action = function(loop, procData) P.commandtableentry(def.COMMAND, "laminar/B738/button/fmc1_slash") end,
+                    runActionInAdviceMode = false,
+                    nextStep = 'fmc_enter_vref_1'
+                },
+                ['fmc_enter_vref_1'] = {
+                    action = function(loop, procData)
+                        local char = string.sub(loop.appvrefcalcstring, 1, 1)
+                        if char and char ~= "" then P.commandtableentry(def.COMMAND, "laminar/B738/button/fmc1_" .. char) end
+                    end,
+                    runActionInAdviceMode = false,
+                    nextStep = 'fmc_enter_vref_2'
+                },
+                ['fmc_enter_vref_2'] = {
+                    action = function(loop, procData)
+                        local char = string.sub(loop.appvrefcalcstring, 2, 2)
+                        if char and char ~= "" then P.commandtableentry(def.COMMAND, "laminar/B738/button/fmc1_" .. char) end
+                    end,
+                    runActionInAdviceMode = false,
+                    nextStep = 'fmc_enter_vref_3'
+                },
+                ['fmc_enter_vref_3'] = {
+                    action = function(loop, procData)
+                        local char = string.sub(loop.appvrefcalcstring, 3, 3)
+                        if char and char ~= "" then P.commandtableentry(def.COMMAND, "laminar/B738/button/fmc1_" .. char) end
+                    end,
+                    runActionInAdviceMode = false,
+                    nextStep = 'fmc_press_4R'
+                },
+                ['fmc_press_4R'] = {
+                    action = function(loop, procData) P.commandtableentry(def.COMMAND, "laminar/B738/button/fmc1_4R") end,
+                    runActionInAdviceMode = false,
+                    nextStep = 'fmc_press_exec'
+                },
+                ['fmc_press_exec'] = {
+                    action = function(loop, procData) 
+                        P.commandtableentry(def.COMMAND, "laminar/B738/button/fmc1_exec") 
+                        P.commandtableentry(def.TEXT, "V REF " .. loop.appflapscalcstring .. " " .. loop.appvrefcalcstring .. " Knots set")
+                    end,
+                    runActionInAdviceMode = false,
+                    nextStep = 'check_vref_set'
+                },
+                ['check_vref_set'] = {
+                    check = function(loop, procData)
+                        return (get(P.vref) == loop.appvrefcalc)
+                    end,
+                    advice = function(loop, procData)
+                        return "Set V REF " .. loop.appflapscalcstring .. " " .. loop.appvrefcalcstring
+                    end,
+                    confirm = function(loop, procData)
+                        if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
+                            return "V REF " .. loop.appflapscalcstring .. " checked and " .. loop.appvrefcalcstring
+                        else
+                            return false 
+                        end
+                    end,
+                    nextStep = 'view_main_panel'
+                },
+                ['view_main_panel'] = {
+                    view = function(loop, procData) return P.configvalues[def.CONFIGVIEWMAINPANEL] end,
+                    nextStep = nil 
+                }
+            }
+        },
+        [def.SETTOFLAPSPROCEDURE] = { 
+            number = 21, 
+            name = "Set Takeoff Flaps", 
+            cycable = false, 
+            speakname = false, 
+            set = false, 
+            loop = 3, 
+            prerequisite = def.COCKPITINITPROCEDURE, 
+            allowedState = def.GROUNDONLY, 
+            requiredFlightstate = def.FLIGHTSTATEPREFLIGHT, 
+            skipCondition = nil,
+            repeatable = true, 
+            startStep = 'view_fms',
+            steps = {
+                ['view_fms'] = {
+                    view = function(loop, procData) return P.configvalues[def.CONFIGVIEWFMS] end,
+                    normalize = true, 
+                    nextStep = 'calculate_flaps'
+                },
+                ['calculate_flaps'] = {
+                    action = function(loop, procData)
+                        loop.toflapscalc = helpers.determineTakeoffFlapsSetting(get(P.totalweightkgs), get(P.deprwylen), get(P.deprwyheading), get(P.elevation), P.depmetar)
+                        loop.toflapscalcstring = tostring(loop.toflapscalc)
+                        sasl.logInfo("SetTakeoffFlaps: Calculated Flaps " .. loop.toflapscalcstring)
+                    end,
+                    runActionInAdviceMode = true, 
+                    nextStep = 'check_fms_page'
+                },
+                ['check_fms_page'] = {
+                    check = function(loop, procData) 
+                        local FMC1Line00L = helpers.get("laminar/B738/fmc1/Line00_L")
+                        return (string.len(FMC1Line00L) >= 13) and (string.sub(FMC1Line00L, 7, 13) == "TAKEOFF")
+                    end,
+                    action = function(loop, procData) helpers.command_once("laminar/B738/button/fmc1_init_ref") end,
+                    advice = "Open F M C Takeoff Reference Page",
+                    runActionInAdviceMode = true,
+                    branch = function(loop, procData)
+                        if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
+                            sasl.logDebug("SetTakeoffFlaps: VoiceAdviceOnly mode. Skipping auto-input steps.")
+                            return 'check_flaps_set' 
+                        else
+                            sasl.logDebug("SetTakeoffFlaps: Auto mode. Starting FMC input sequence.")
+                            return 'fmc_press_del' 
+                        end
+                    end
+                },
+                ['fmc_press_del'] = {
+                    action = function(loop, procData) P.commandtableentry(def.COMMAND, "laminar/B738/button/fmc1_del") end,
+                    runActionInAdviceMode = false, 
+                    nextStep = 'fmc_press_clr'
+                },
+                ['fmc_press_clr'] = {
+                    action = function(loop, procData) P.commandtableentry(def.COMMAND, "laminar/B738/button/fmc1_clr") end,
+                    runActionInAdviceMode = false,
+                    nextStep = 'fmc_enter_flap_1'
+                },
+                ['fmc_enter_flap_1'] = {
+                    action = function(loop, procData)
+                        local char = string.sub(loop.toflapscalcstring, 1, 1)
+                        if char and char ~= "" then P.commandtableentry(def.COMMAND, "laminar/B738/button/fmc1_" .. char) end
+                    end,
+                    runActionInAdviceMode = false,
+                    nextStep = 'fmc_enter_flap_2'
+                },
+                ['fmc_enter_flap_2'] = {
+                    action = function(loop, procData)
+                        local char = string.sub(loop.toflapscalcstring, 2, 2)
+                        if char and char ~= "" then P.commandtableentry(def.COMMAND, "laminar/B738/button/fmc1_" .. char) end
+                    end,
+                    runActionInAdviceMode = false,
+                    nextStep = 'fmc_press_1L'
+                },
+                ['fmc_press_1L'] = {
+                    action = function(loop, procData) P.commandtableentry(def.COMMAND, "laminar/B738/button/fmc1_1L") end,
+                    runActionInAdviceMode = false,
+                    nextStep = 'fmc_press_exec'
+                },
+                ['fmc_press_exec'] = {
+                    action = function(loop, procData) 
+                        P.commandtableentry(def.COMMAND, "laminar/B738/button/fmc1_exec") 
+                        P.commandtableentry(def.TEXT, "Takeoff Flaps " .. loop.toflapscalcstring .. " set")
+                    end,
+                    runActionInAdviceMode = false,
+                    nextStep = 'check_flaps_set'
+                },
+                ['check_flaps_set'] = {
+                    check = function(loop, procData)
+                        return (get(P.toflaps) == loop.toflapscalc)
+                    end,
+                    advice = function(loop, procData)
+                        return "Enter Takeoff Flaps " .. loop.toflapscalcstring
+                    end,
+                    confirm = function(loop, procData)
+                        if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
+                            return "Takeoff Flaps " .. loop.toflapscalcstring .. " checked and set"
+                        else
+                            return false 
+                        end
+                    end,
+                    nextStep = 'view_main_panel'
+                },
+                ['view_main_panel'] = {
+                    view = function(loop, procData) return P.configvalues[def.CONFIGVIEWMAINPANEL] end,
+                    nextStep = nil 
+                }
+            }
+        },
+        [def.TESTPROCEDURE] = {
+            number = 22, -- (Nummer geraten, bitte anpassen)
+            name = "Test",
+            cycable = true,
+            speakname = true,
+            set = false,
+            loop = 1, -- (Annahme: Läuft in Loop 1)
+            prerequisite = nil,
+            allowedState = def.GROUNDONLY,
+            requiredFlightstate = def.FLIGHTSTATEPREFLIGHT,
+            skipCondition = nil,
+            prerequisiteChecks = {
+                { check = function() return (get(P.battery) == def.ON) or (get(P.mainbus) == def.ON) end, 
+                failMsg = "Procedure aborted, Battery is Off" }
+            },
+            
+            startStep = 'view_throttle',
+            
+            steps = {
+                ['view_throttle'] = {
+                    view = function(loop, procData) return P.configvalues[def.CONFIGVIEWTHROTTLE] end,
+                    normalize = true, -- (Ersetzt P.setview(def.DEFAULTVIEW) aus altem Step 1)
+                    nextStep = 'fire_test_lft_begin'
+                },
+                ['fire_test_lft_begin'] = {
+                    action = function(loop, procData) helpers.command_begin("laminar/B738/toggle_switch/fire_test_lft") end,
+                    nextStep = 'fire_test_lft_wait'
+                },
+                ['fire_test_lft_wait'] = {
+                    -- (Dieser leere Step entspricht dem alten 'stepindex == 3', der nichts tat)
+                    nextStep = 'fire_test_lft_end'
+                },
+                ['fire_test_lft_end'] = {
+                    action = function(loop, procData) helpers.command_end("laminar/B738/toggle_switch/fire_test_lft") end,
+                    nextStep = 'fire_test_rgt_begin'
+                },
+                ['fire_test_rgt_begin'] = {
+                    action = function(loop, procData) helpers.command_begin("laminar/B738/toggle_switch/fire_test_rgt") end,
+                    nextStep = 'fire_test_rgt_end'
+                },
+                ['fire_test_rgt_end'] = {
+                    action = function(loop, procData) helpers.command_end("laminar/B738/toggle_switch/fire_test_rgt") end,
+                    nextStep = 'exting_test_lft_begin'
+                },
+                ['exting_test_lft_begin'] = {
+                    action = function(loop, procData) helpers.command_begin("laminar/B738/toggle_switch/exting_test_lft") end,
+                    nextStep = 'exting_test_lft_end'
+                },
+                ['exting_test_lft_end'] = {
+                    action = function(loop, procData) helpers.command_end("laminar/B738/toggle_switch/exting_test_lft") end,
+                    nextStep = 'exting_test_rgt_begin'
+                },
+                ['exting_test_rgt_begin'] = {
+                    action = function(loop, procData) helpers.command_begin("laminar/B738/toggle_switch/exting_test_rgt") end,
+                    nextStep = 'exting_test_rgt_end'
+                },
+                ['exting_test_rgt_end'] = {
+                    action = function(loop, procData) helpers.command_end("laminar/B738/toggle_switch/exting_test_rgt") end,
+                    nextStep = 'cargo_fire_test_begin'
+                },
+                ['cargo_fire_test_begin'] = {
+                    action = function(loop, procData) helpers.command_begin("laminar/B738/push_button/cargo_fire_test_push") end,
+                    nextStep = 'cargo_fire_test_end'
+                },
+                ['cargo_fire_test_end'] = {
+                    action = function(loop, procData) helpers.command_end("laminar/B738/push_button/cargo_fire_test_push") end,
+                    nextStep = 'view_upper_overhead'
+                },
+                ['view_upper_overhead'] = {
+                    view = function(loop, procData) return P.configvalues[def.CONFIGVIEWUPPEROVERHEADPANEL] end,
+                    nextStep = 'flaps_test_begin'
+                },
+                ['flaps_test_begin'] = {
+                    action = function(loop, procData) helpers.command_begin("laminar/B738/push_button/flaps_test") end,
+                    nextStep = 'flaps_test_end'
+                },
+                ['flaps_test_end'] = {
+                    action = function(loop, procData) helpers.command_end("laminar/B738/push_button/flaps_test") end,
+                    nextStep = 'mach_warn1_test_begin'
+                },
+                ['mach_warn1_test_begin'] = {
+                    action = function(loop, procData) helpers.command_begin("laminar/B738/push_button/mach_warn1_test") end,
+                    nextStep = 'mach_warn1_test_end'
+                },
+                ['mach_warn1_test_end'] = {
+                    action = function(loop, procData) helpers.command_end("laminar/B738/push_button/mach_warn1_test") end,
+                    nextStep = 'mach_warn2_test_begin'
+                },
+                ['mach_warn2_test_begin'] = {
+                    action = function(loop, procData) helpers.command_begin("laminar/B738/push_button/mach_warn2_test") end,
+                    nextStep = 'mach_warn2_test_end'
+                },
+                ['mach_warn2_test_end'] = {
+                    action = function(loop, procData) helpers.command_end("laminar/B738/push_button/mach_warn2_test") end,
+                    nextStep = 'stall_test1_begin'
+                },
+                ['stall_test1_begin'] = {
+                    action = function(loop, procData) helpers.command_begin("laminar/B738/push_button/stall_test1_press") end,
+                    nextStep = 'stall_test1_end'
+                },
+                ['stall_test1_end'] = {
+                    action = function(loop, procData) helpers.command_end("laminar/B738/push_button/stall_test1_press") end,
+                    nextStep = 'stall_test2_begin'
+                },
+                ['stall_test2_begin'] = {
+                    action = function(loop, procData) helpers.command_begin("laminar/B738/push_button/stall_test2_press") end,
+                    nextStep = 'stall_test2_end'
+                },
+                ['stall_test2_end'] = {
+                    action = function(loop, procData) helpers.command_end("laminar/B738/push_button/stall_test2_press") end, -- Korrigiert (annahme: war ein Tippfehler im Original)
+                    nextStep = 'view_overhead'
+                },
+                ['view_overhead'] = {
+                    view = function(loop, procData) return P.configvalues[def.CONFIGVIEWOVERHEADPANEL] end,
+                    nextStep = 'window_ovht_test_up_begin'
+                },
+                ['window_ovht_test_up_begin'] = {
+                    action = function(loop, procData) helpers.command_begin("laminar/B738/toggle_switch/window_ovht_test_up") end,
+                    nextStep = 'window_ovht_test_up_end1'
+                },
+                ['window_ovht_test_up_end1'] = {
+                    action = function(loop, procData) helpers.command_end("laminar/B738/toggle_switch/window_ovht_test_up") end,
+                    nextStep = 'window_ovht_test_up_end2'
+                },
+                ['window_ovht_test_up_end2'] = {
+                    action = function(loop, procData) helpers.command_end("laminar/B738/toggle_switch/window_ovht_test_up") end,
+                    nextStep = 'window_ovht_test_dn_begin'
+                },
+                ['window_ovht_test_dn_begin'] = {
+                    action = function(loop, procData) helpers.command_begin("laminar/B738/toggle_switch/window_ovht_test_dn") end,
+                    nextStep = 'window_ovht_test_dn_end'
+                },
+                ['window_ovht_test_dn_end'] = {
+                    action = function(loop, procData) helpers.command_end("laminar/B738/toggle_switch/window_ovht_test_dn") end,
+                    nextStep = 'tat_test_begin'
+                },
+                ['tat_test_begin'] = {
+                    action = function(loop, procData) helpers.command_begin("laminar/B738/push_button/tat_test") end,
+                    nextStep = 'tat_test_end'
+                },
+                ['tat_test_end'] = {
+                    action = function(loop, procData) helpers.command_end("laminar/B738/push_button/tat_test") end,
+                    nextStep = 'duct_ovht_test_begin'
+                },
+                ['duct_ovht_test_begin'] = {
+                    action = function(loop, procData) helpers.command_begin("laminar/B738/push_button/duct_ovht_test") end,
+                    nextStep = 'duct_ovht_test_end'
+                },
+                ['duct_ovht_test_end'] = {
+                    action = function(loop, procData) helpers.command_end("laminar/B738/push_button/duct_ovht_test") end,
+                    nextStep = 'view_main_panel'
+                },
+                ['view_main_panel'] = {
+                    view = function(loop, procData) return P.configvalues[def.CONFIGVIEWMAINPANEL] end,
+                    nextStep = 'bright_test_up'
+                },
+                ['bright_test_up'] = {
+                    action = function(loop, procData) helpers.command_once("laminar/B738/toggle_switch/bright_test_up") end,
+                    nextStep = 'bright_test_dn'
+                },
+                ['bright_test_dn'] = {
+                    action = function(loop, procData) helpers.command_once("laminar/B738/toggle_switch/bright_test_dn") end,
+                    nextStep = 'ap_disconnect_test1_up_begin'
+                },
+                ['ap_disconnect_test1_up_begin'] = {
+                    action = function(loop, procData) helpers.command_begin("laminar/B738/toggle_switch/ap_disconnect_test1_up") end,
+                    nextStep = 'ap_disconnect_test1_up_end'
+                },
+                ['ap_disconnect_test1_up_end'] = {
+                    action = function(loop, procData) helpers.command_end("laminar/B738/toggle_switch/ap_disconnect_test1_up") end,
+                    nextStep = 'ap_disconnect_test1_dn_begin'
+                },
+                ['ap_disconnect_test1_dn_begin'] = {
+                    action = function(loop, procData) helpers.command_begin("laminar/B738/toggle_switch/ap_disconnect_test1_dn") end,
+                    nextStep = 'ap_disconnect_test1_dn_end'
+                },
+                ['ap_disconnect_test1_dn_end'] = {
+                    action = function(loop, procData) helpers.command_end("laminar/B738/toggle_switch/ap_disconnect_test1_dn") end,
+                    nextStep = 'ap_disconnect_test2_up_begin'
+                },
+                ['ap_disconnect_test2_up_begin'] = {
+                    action = function(loop, procData) helpers.command_begin("laminar/B738/toggle_switch/ap_disconnect_test2_up") end,
+                    nextStep = 'ap_disconnect_test2_up_end'
+                },
+                ['ap_disconnect_test2_up_end'] = {
+                    action = function(loop, procData) helpers.command_end("laminar/B738/toggle_switch/ap_disconnect_test2_up") end,
+                    nextStep = 'ap_disconnect_test2_dn_begin'
+                },
+                ['ap_disconnect_test2_dn_begin'] = {
+                    action = function(loop, procData) helpers.command_begin("laminar/B738/toggle_switch/ap_disconnect_test2_dn") end,
+                    nextStep = 'ap_disconnect_test2_dn_end'
+                },
+                ['ap_disconnect_test2_dn_end'] = {
+                    action = function(loop, procData) helpers.command_end("laminar/B738/toggle_switch/ap_disconnect_test2_dn") end,
+                    nextStep = 'view_pedestal'
+                },
+                ['view_pedestal'] = {
+                view = function(loop, procData) return P.configvalues[def.CONFIGVIEWPEDESTAL] end,
+                nextStep = 'transponder_tcas_test'
+                },
+                ['transponder_tcas_test'] = {
+                    action = function(loop, procData) helpers.command_once("laminar/B738/knob/transponder_tcas_test") end,
+                    nextStep = 'view_main_panel_final'
+                },
+                ['view_main_panel_final'] = {
+                    view = function(loop, procData) return P.configvalues[def.CONFIGVIEWMAINPANEL] end,
+                    nextStep = nil
+                }
+            }
+        }
     }
+    
     return true
 end
 return M

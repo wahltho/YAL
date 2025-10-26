@@ -683,35 +683,6 @@ function P.getheadingdiff(heading1, heading2)
 end
 
 --------------------------------------------------------------------------------------------------------------
-function P.aircraftonrwy(aircraftlat, aircraftlon, rwystartlat, rwystartlon, rwyendlat, rwyendlon, dist)
-
-    if (rwystartlat == 0) then
-        return true
-    end
-
-    local rwystartlatrad = math.rad(rwystartlat)
-    local rwystartlonrad = math.rad(rwystartlon)
-    local rwyendlatrad = math.rad(rwyendlat)
-    local rwyendlonrad = math.rad(rwyendlon)
-    local aircraftlatrad = math.rad(aircraftlat)
-    local aircraftlonrad = math.rad(aircraftlon)
-
-    local v1 = (rwyendlonrad - rwystartlonrad) * math.cos(rwystartlatrad)
-    local v2 = (rwyendlatrad - rwystartlatrad)
-    local d1 = (aircraftlatrad - rwystartlatrad)
-    local d2 = (aircraftlonrad - rwystartlonrad) * math.cos(rwystartlatrad)
-    local s = d1 * v1 + d2 * v2
-
-    local disttorwy = math.sqrt(math.abs(d1 ^ 2 + d2 ^ 2 - 2 * s))
-
-    if (disttorwy < dist) then
-        return true
-    else
-        return false
-    end
-end
-
---------------------------------------------------------------------------------------------------------------
 
 function P.roundnumber(num, decimalPlaces)
 
