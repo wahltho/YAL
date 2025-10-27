@@ -192,6 +192,7 @@ function P.initDataref()
     else
         sasl.logInfo("Found existing dataref: '" .. path .. "'")
         P.flightstatedr = handle
+        P.isReloadWithinSession = true
     end
     P.flightstate = get(P.flightstatedr)
     sasl.logInfo("Flightstate restored to: " .. P.flightstate)
@@ -3727,24 +3728,223 @@ function P.syncProceduresToFlightState()
 end
 
 --------------------------------------------------------------------------------------------------------------
+function P.determineStateFromLastSetProc(lastSetKey)
+    local state = def.FLIGHTSTATEPREFLIGHT -- Default
+
+    if lastSetKey then
+         -- Ground States
+         if lastSetKey == def.SHUTDOWNPROCEDURE then state = def.FLIGHTSTATEPREFLIGHT
+         elseif lastSetKey == def.FINALENGINESHUTDOWNPROCEDURE then state = def.FLIGHTSTATEPREFLIGHT
+         elseif lastSetKey == def.ATPARKINGPOSITIONPROCEDURE then state = def.FLIGHTSTATESHUTDOWN
+         elseif lastSetKey == def.TURNAROUNDENGINESHUTDOWNPROCEDURE then state = def.FLIGHTSTATESHUTDOWN
+         elseif lastSetKey == def.AFTERLANDINGPROCEDURE then state = def.FLIGHTSTATETAXITOGATE
+         -- Pre-Takeoff States
+         elseif lastSetKey == def.BEFORETAKEOFFPROCEDURE then state = def.FLIGHTSTATEPREFLIGHT
+         elseif lastSetKey == def.BEFORETAXIPROCEDURE then state = def.FLIGHTSTATEPREFLIGHT
+         elseif lastSetKey == def.ENGINESTARTPROCEDURE then state = def.FLIGHTSTATEPREFLIGHT
+         -- Air States
+         elseif lastSetKey == def.DURINGDESCENTPROCEDURE or
+                lastSetKey == def.ALTITUDEB10000PROCEDURE or
+                lastSetKey == def.RADIOALTITUDEB2500PROCEDURE or
+                lastSetKey == def.RADIOALTITUDEB1000PROCEDURE then
+                    state = def.FLIGHTSTATEAPPROACH
+         elseif lastSetKey == def.ALTITUDEA10000PROCEDURE then
+             local fmsPhase = get(P.fmsflightphase) or 0
+             if fmsPhase == def.FMSPHASECRUISE then
+                 state = def.FLIGHTSTATECRUISE
+             elseif fmsPhase >= def.FMSPHASEDESCENT then
+                 state = def.FLIGHTSTATEAPPROACH -- Corrected else case
+             else
+                 state = def.FLIGHTSTATECLIMB
+             end
+         elseif lastSetKey == def.DURINGCLIMBPROCEDURE then
+             state = def.FLIGHTSTATECLIMB
+         elseif lastSetKey == def.AFTERTAKEOFFPROCEDURE then
+             state = def.FLIGHTSTATEINITIALCLIMB
+         end
+    end
+    sasl.logDebug("...... Derived state from last set proc (".. (P.proceduretable[lastSetKey] and P.proceduretable[lastSetKey].name or "N/A") .."): " .. state)
+    return state
+end
+
+--------------------------------------------------------------------------------------------------------------
+function P.determineFlightStateFromProcedures()
+    sasl.logDebug("Determining flight state based on first unset procedure's requirement...")
+
+    -- 1. Sort procedures by number
+    local orderedProcs = {}
+    for key, value in pairs(P.proceduretable) do
+        -- Ensure proc has a number and is valid before adding
+        if value and value.number then 
+            table.insert(orderedProcs, {key=key, data=value})
+        end
+    end
+    -- Sort ascending by procedure number
+    table.sort(orderedProcs, function(a, b) return a.data.number < b.data.number end)
+
+    local firstUnsetProcKey = nil
+    local firstUnsetProcName = "None Found (All Set?)"
+    local lastSetProcKeyBeforeUnset = nil -- Track the last one that WAS set
+
+    -- 2. Find the first procedure that is NOT set
+    for _, procInfo in ipairs(orderedProcs) do
+        -- Skip procedures without a defined .set flag if any exist
+        if procInfo.data and procInfo.data.set ~= nil then 
+            if not procInfo.data.set then
+                firstUnsetProcKey = procInfo.key
+                firstUnsetProcName = procInfo.data.name or ("ID:"..firstUnsetProcKey)
+                break -- Stop at the first unset procedure
+            else
+                lastSetProcKeyBeforeUnset = procInfo.key -- Remember the last one seen that was set
+            end
+        end
+    end
+
+    sasl.logDebug("... First unset procedure found: " .. firstUnsetProcName)
+
+    -- 3. Determine state based on the required state of the first *unset* procedure
+    local stateFromReqs = def.FLIGHTSTATEPREFLIGHT -- Default if none are set or all are set
+
+    if firstUnsetProcKey then
+        local reqState = P.proceduretable[firstUnsetProcKey].requiredFlightstate
+        if reqState then
+            -- If multiple states are allowed, take the *lowest* as the most likely current state
+            if type(reqState) == "table" then
+                 local minState = 99 -- Start high
+                 for _, state in ipairs(reqState) do
+                     if state < minState then minState = state end
+                 end
+                 -- Handle case where table might be empty or contain invalid states
+                 if minState ~= 99 then 
+                    stateFromReqs = minState
+                 else
+                     sasl.logWarning("Procedure '"..firstUnsetProcName.."' has an empty/invalid requiredFlightstate table. Falling back.")
+                     -- Fallback logic based on the *last set* procedure
+                     if lastSetProcKeyBeforeUnset then 
+                        sasl.logWarning("... Falling back to state determination based on last SET procedure: " .. P.proceduretable[lastSetProcKeyBeforeUnset].name) 
+                        stateFromReqs = P.determineStateFromLastSetProc(lastSetProcKeyBeforeUnset) -- Use helper for fallback
+                     else
+                         stateFromReqs = def.FLIGHTSTATEPREFLIGHT -- Remain default if nothing was set before
+                     end
+                 end
+            else -- Single required state
+                 stateFromReqs = reqState
+            end
+            sasl.logDebug("... Required state for '"..firstUnsetProcName.."' is ".. helpers.tableToStringOrValue(reqState) .. ". Derived state: " .. stateFromReqs)
+        else
+            -- If the first unset procedure has *no* required state, 
+            -- use the state implied by the *last set* procedure.
+            sasl.logDebug("... First unset procedure '"..firstUnsetProcName.."' has no required state. Using state from last SET procedure if available.")
+            if lastSetProcKeyBeforeUnset then
+                stateFromReqs = P.determineStateFromLastSetProc(lastSetProcKeyBeforeUnset) -- Use helper for fallback
+            else
+                 -- Nothing set yet, remains PREFLIGHT
+                 stateFromReqs = def.FLIGHTSTATEPREFLIGHT
+            end
+        end
+    elseif lastSetProcKeyBeforeUnset then
+         -- All procedures are set, or the remaining ones have no .set flag
+         -- Determine state based on the VERY last procedure that *was* set
+         sasl.logDebug("... All checkable procedures are set. Determining state based on the last one.")
+         stateFromReqs = P.determineStateFromLastSetProc(lastSetProcKeyBeforeUnset) -- Use helper for fallback
+
+    end
+
+    sasl.logDebug("... Final State derived from procedure requirements: " .. stateFromReqs)
+    return stateFromReqs
+end
+
+--------------------------------------------------------------------------------------------------------------
 function P.autofunctions()
     local aircraftIsOnGround = (get(P.airgroundsensor) == def.ON)
+    local flightStateChanged = false
+    local currentFlightState = P.flightstate
+
+    if P.isReloadWithinSession then
+        local stateFromProcs = P.determineFlightStateFromProcedures()
+        local stateIsPlausible = false
+        local finalState = stateFromProcs
+
+        sasl.logDebug("State from Procs = " .. stateFromProcs .. ", On Ground = " .. tostring(aircraftIsOnGround))
+        if aircraftIsOnGround then
+            if stateFromProcs == def.FLIGHTSTATEPREFLIGHT or
+               stateFromProcs == def.FLIGHTSTATETAXITOGATE or
+               stateFromProcs == def.FLIGHTSTATESHUTDOWN then
+                stateIsPlausible = true
+            end
+        else
+            if stateFromProcs == def.FLIGHTSTATEINITIALCLIMB or
+               stateFromProcs == def.FLIGHTSTATECLIMB or
+               stateFromProcs == def.FLIGHTSTATECRUISE or
+               stateFromProcs == def.FLIGHTSTATEAPPROACH then
+                stateIsPlausible = true
+            end
+        end
+
+        if not stateIsPlausible then
+            sasl.logInfo("State from procedures ("..stateFromProcs..") is implausible for current ground/air status (" .. (aircraftIsOnGround and "GROUND" or "AIR") .. "). Falling back.")
+            if aircraftIsOnGround then
+                if get(P.parkingbrakepos) == def.ON then
+                    finalState = def.FLIGHTSTATESHUTDOWN
+                else
+                    finalState = def.FLIGHTSTATETAXITOGATE
+                end
+            else
+                local vs = get(P.verticalspeed) or 0
+                if vs < -300 then
+                    finalState = def.FLIGHTSTATEAPPROACH
+                else
+                    finalState = def.FLIGHTSTATECLIMB
+                end
+            end
+            sasl.logInfo("State after fallback: " .. finalState)
+        else
+            sasl.logDebug("State from procedures ("..finalState..") is plausible.")
+        end
+
+        if finalState ~= currentFlightState then
+             sasl.logInfo("Correcting flight state after reload. Old: " .. currentFlightState .. ", New: " .. finalState)
+             P.flightstate = finalState
+             flightStateChanged = true
+        end
+
+        if not aircraftIsOnGround then
+             sasl.logInfo("Performing inflight restore actions after reload.")
+             P.inflightrestoreactions()
+        end
+
+        P.isReloadWithinSession = false
+    end
+
+    currentFlightState = P.flightstate
 
     if aircraftIsOnGround then
-        P.aircraftwasonground = true
 
-        local taxiTriggerConditions = (get(P.taxilight) ~= def.OFF) and P.enginesrunning(def.BOTH) and (get(P.groundspeed) < 45)
+        if currentFlightState >= def.FLIGHTSTATEAPPROACH then
+            local newState = def.FLIGHTSTATETAXITOGATE
+            if get(P.parkingbrakepos) == def.ON then newState = def.FLIGHTSTATESHUTDOWN end
+            if newState ~= currentFlightState then
+                P.flightstate = newState
+                flightStateChanged = true
+            end
+        elseif currentFlightState > def.FLIGHTSTATEPREFLIGHT and currentFlightState < def.FLIGHTSTATEAPPROACH then
+             sasl.logInfo("Unexpected inflight state ("..P.flightstate..") while on ground. Resetting to PREFLIGHT.")
+             P.flightstate = def.FLIGHTSTATEPREFLIGHT
+             flightStateChanged = true
+        end
+
+        local taxiTriggerConditions = ((get(P.taxilight) ~= def.OFF) and P.enginesrunning(def.BOTH) and (get(P.groundspeed) < 45) and P.flightstate == def.FLIGHTSTATEPREFLIGHT)
         if taxiTriggerConditions then
             P.triggerprocedure(def.BEFORETAXIPROCEDURE)
         end
 
-        local triggerConditionsMet_BTO = ((((P.aircraftonrwy(def.DEPARTURE, 0.0003, 20) and (helpers.roundnumber(get(P.groundspeed)) == 0)) and (get(P.transponderpos) == def.TARA))) or (get(P.positionlights) == def.POSLIGHTSSTROBE))
+        local triggerConditionsMet_BTO = (((((P.aircraftonrwy(def.DEPARTURE, 0.0003, 20) and (helpers.roundnumber(get(P.groundspeed)) == 0)) and (get(P.transponderpos) == def.TARA))) or (get(P.positionlights) == def.POSLIGHTSSTROBE)) and P.flightstate == def.FLIGHTSTATEPREFLIGHT)
         if triggerConditionsMet_BTO then
             P.triggerprocedure(def.BEFORETAKEOFFPROCEDURE)
         end
 
-        local triggerConditionsMet_AL = ((get(P.groundspeed) < 45) and (P.aircraftonrwy(def.ARRIVAL, 0.0001, 20) or (helpers.roundnumber(get(P.groundspeed)) == 0))) or (get(P.positionlights) == def.POSLIGHTSSTEADY)
-        if triggerConditionsMet_AL then
+        local triggerConditionsMet_AL = (((get(P.groundspeed) < 45) and (P.aircraftonrwy(def.ARRIVAL, 0.0001, 20) or (helpers.roundnumber(get(P.groundspeed)) == 0))) or (get(P.positionlights) == def.POSLIGHTSSTEADY))
+        if triggerConditionsMet_AL and P.flightstate >= def.FLIGHTSTATEAPPROACH then
             P.triggerprocedure(def.AFTERLANDINGPROCEDURE)
         end
 
@@ -3752,49 +3952,24 @@ function P.autofunctions()
         if triggerConditionsMet_AP then
             P.triggerprocedure(def.ATPARKINGPOSITIONPROCEDURE)
         end
+
     else
-        if not P.aircraftwasonground then
-            P.inflightrestoreactions()
-
-            local fmsPhase = get(P.fmsflightphase)
-            if (fmsPhase >= def.FMSPHASEDESCENT) then
-                P.flightstate = def.FLIGHTSTATEAPPROACH
-                set(P.flightstatedr, P.flightstate)
-            elseif (fmsPhase == def.FMSPHASECRUISE) then
-                P.flightstate = def.FLIGHTSTATECRUISE
-                set(P.flightstatedr, P.flightstate)
-            else
-                P.flightstate = def.FLIGHTSTATECLIMB
-                set(P.flightstatedr, P.flightstate)
-            end
-
-            P.syncProceduresToFlightState()
-
-            P.aircraftwasonground = true
-        end
-
-        local fmsPhase = get(P.fmsflightphase)
-        local flightStateChanged = false -- Flag, um Änderungen zu erkennen
+        local fmsPhase = get(P.fmsflightphase) or 0
+        local targetFlightState = P.flightstate
 
         if ((fmsPhase >= def.FMSPHASEDESCENT) and (get(P.vnavtoddist) <= 1)) then
-            if P.flightstate ~= def.FLIGHTSTATEAPPROACH then -- Prüfen, ob sich was ändert
-                 P.flightstate = def.FLIGHTSTATEAPPROACH
-                 flightStateChanged = true
-            end
-        elseif (fmsPhase == def.FMSPHASECRUISE) and (P.flightstate < def.FLIGHTSTATECRUISE) then
-             P.flightstate = def.FLIGHTSTATECRUISE
-             flightStateChanged = true
-        elseif (fmsPhase == def.FMSPHASECLIMB) and P.proceduretable[def.AFTERTAKEOFFPROCEDURE].set and (P.flightstate < def.FLIGHTSTATECLIMB) then
-             P.flightstate = def.FLIGHTSTATECLIMB
-             flightStateChanged = true
+            targetFlightState = def.FLIGHTSTATEAPPROACH
+        elseif (fmsPhase == def.FMSPHASECRUISE) then
+            targetFlightState = def.FLIGHTSTATECRUISE
+        elseif (fmsPhase == def.FMSPHASECLIMB) and P.proceduretable[def.AFTERTAKEOFFPROCEDURE].set then
+            targetFlightState = def.FLIGHTSTATECLIMB
         elseif (P.flightstate == def.FLIGHTSTATEPREFLIGHT) then
-             P.flightstate = def.FLIGHTSTATEINITIALCLIMB
-             flightStateChanged = true
+            targetFlightState = def.FLIGHTSTATEINITIALCLIMB
         end
 
-        if flightStateChanged then
-             set(P.flightstatedr, P.flightstate)
-             P.syncProceduresToFlightState()
+        if targetFlightState > P.flightstate then
+             P.flightstate = targetFlightState
+             flightStateChanged = true
         end
 
         if P.flightstate == def.FLIGHTSTATEINITIALCLIMB then
@@ -3804,6 +3979,11 @@ function P.autofunctions()
         elseif P.flightstate == def.FLIGHTSTATEAPPROACH then
             P.duringdescent()
         end
+    end
+
+    if flightStateChanged then
+        set(P.flightstatedr, P.flightstate)
+        P.syncProceduresToFlightState()
     end
 
     return true
