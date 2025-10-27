@@ -50,7 +50,9 @@
         "my_command_toggleadviceonly",
         "my_command_abortprocedure",
         "my_command_skipprocedure",
-        "my_command_skipprocedurestep"
+        "my_command_skipprocedurestep",
+        "createGlobalPropertys",
+        "register_handler"
     ],
     "Lua.diagnostics.disable": [
         "deprecated",

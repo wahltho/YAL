@@ -227,6 +227,15 @@ function P.tableToStringOrValue(value)
 end
 
 --------------------------------------------------------------------------------------------------------------
+function P.shallowcopy(original)
+    local copy = {}
+    for k, v in pairs(original) do
+        copy[k] = v
+    end
+    return copy
+end
+
+--------------------------------------------------------------------------------------------------------------
 function P.create_directories(dirnames)
     local cmd, args = nil, ""
 
@@ -270,7 +279,7 @@ function P.create_directories(dirnames)
 end
 
 --------------------------------------------------------------------------------------------------------------
-function file_exists_v2(file)
+function P.file_exists_v2(file)
     -- some error codes:
     -- 13 : EACCES - Permission denied
     -- 17 : EEXIST - File exists
@@ -289,15 +298,15 @@ function file_exists_v2(file)
 end
 
 --------------------------------------------------------------------------------------------------------------
-function dir_exists_v2(path)
-    return file_exists_v2(path .. "/")
+function P.dir_exists_v2(path)
+    return P.file_exists_v2(path .. "/")
 end
 
 function P.check_create_path(path)
-    if not dir_exists_v2(path) then
+    if not P.dir_exists_v2(path) then
         sasl.logInfo("Folder " .. path .. " does not exist... creating it")
         P.create_directories({path})
-        if not dir_exists_v2(path) then
+        if not P.dir_exists_v2(path) then
             sasl.logWarning("Failure to create folder " .. path)
             return false
         end
@@ -2483,7 +2492,7 @@ end
 --------------------------------------------------------------------------------------------------------------
 function P.writenavdatatable(navdatatable)
 
-    destnavdatafile = io.open("Custom Data/yal_nav.dat", "w")
+    local destnavdatafile = io.open("Custom Data/yal_nav.dat", "w")
 
     if not destnavdatafile then
         sasl.logError("Could not open Custom Data/yal_nav.dat")

@@ -2140,7 +2140,8 @@ function M.fillProcedureTable()
                     action = function() helpers.command_once("laminar/B738/toggle_switch/chock") end,
                     advice = "Set Chocks",
                     confirm = "Chocks checked and Set",
-                    nextStep = 'check_night'
+                    nextStep = 'check_night',
+                    runActionInAdviceMode = true
                 },
                 ['check_night'] = {
                     skipIf = function() return get(P.sunpitchdegrees) > 0 end,
