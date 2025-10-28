@@ -1,3 +1,4 @@
+-- date : 28-Oct-2025
 local P = {}
 helpers = P -- package name
 
@@ -1264,6 +1265,60 @@ function P.getMetar(icaocode, metarTable)
         end)
     end
 end
+--------------------------------------------------------------------------------------------------------------
+function P.isGroundIcingCondition(wx_in)
+    if not wx_in then return false end
+
+    local function normalize_temp(v)
+        if v == nil then
+            return nil
+        elseif type(v) == "number" then
+            return v
+        elseif type(v) == "table" then
+            if v.value ~= nil and type(v.value) == "number" then
+                return v.value
+            end
+            if v.temp ~= nil and type(v.temp) == "number" then
+                return v.temp
+            end
+            if v.temperature ~= nil and type(v.temperature) == "number" then
+                return v.temperature
+            end
+        end
+        return nil
+    end
+
+    local temp_c = normalize_temp(wx_in.temp) or normalize_temp(wx_in.temperature)
+    if temp_c == nil then
+        return false
+    end
+
+    local precip = false
+    if wx_in.precipitation then precip = true end
+    if wx_in.freezing then precip = true end
+
+    if (not precip) and wx_in.weather and type(wx_in.weather) == "table" then
+        for _, w in ipairs(wx_in.weather) do
+            if w:match("RA")
+            or w:match("SN")
+            or w:match("DZ")
+            or w:match("BR")
+            or w:match("FG")
+            or w:match("FZ") then
+                precip = true
+                break
+            end
+        end
+    end
+
+    if temp_c <= 10 then
+        if precip or temp_c <= 5 then
+            return true
+        end
+    end
+
+    return false
+end
 
 --------------------------------------------------------------------------------------------------------------
 function P.getRunwayHeadingFromDesignator(runwayDesignator)
@@ -2335,13 +2390,15 @@ end
 --------------------------------------------------------------------------------------------------------------
 function P.buildnavdatatable(navdatatable)
 
-    local function search_for_dme(target_table, icao, navid, navtype)
+    local function find_nav_entry(target_table, icao, navid, navtype, runway)
         if not (icao and navid and navtype) then return nil end
         for i, entry in ipairs(target_table) do
-            if (entry[def.DESTICAO] == icao and
-                entry[def.DESTNAVID] == navid and
-                entry[def.DESTNAVTYPE] == navtype) then
-                return i
+            if  entry[def.DESTICAO] == icao
+            and entry[def.DESTNAVID] == navid
+            and entry[def.DESTNAVTYPE] == navtype then
+                if (runway == nil) or (runway == "") or (entry[def.DESTRWY] == runway) then
+                    return i
+                end
             end
         end
         return nil
@@ -2377,56 +2434,118 @@ function P.buildnavdatatable(navdatatable)
         local navdataitems = {}
         for navdataitem in navdatarecord:gmatch("%S+") do table.insert(navdataitems, navdataitem) end
 
-        if #navdataitems > def.SRCLONPOS then
-            local lat_val = tonumber(navdataitems[def.SRCLATPOS])
-            local lon_val = tonumber(navdataitems[def.SRCLONPOS])
+        if #navdataitems > def.NAVSRC_COL_LON then
+            local lat_val = tonumber(navdataitems[def.NAVSRC_COL_LAT])
+            local lon_val = tonumber(navdataitems[def.NAVSRC_COL_LON])
 
             if lat_val and lon_val then
-                local record_type_str = navdataitems[def.SRCTYPECODE]
+                local record_type_str = navdataitems[def.NAVSRC_COL_TYPE]
 
                 if (record_type_str == def.NAVDATARECTYPEILS) then
                     local newEntry = {}
-                    newEntry[def.DESTICAO] = navdataitems[def.SRCICAO] -- S9
-                    newEntry[def.DESTRWY] = navdataitems[def.SRCRWY] -- S11
-                    newEntry[def.DESTNAVTYPE] = string.sub(navdataitems[def.SRCNAVTYPE], 1, 3) -- S12
-                    newEntry[def.DESTNAVID] = navdataitems[def.SRCNAVID] -- S8
-                    newEntry[def.DESTFREQ] = tonumber(navdataitems[def.SRCFREQ]) -- S5
+                    newEntry[def.DESTICAO] = navdataitems[def.NAVSRC_COL_REGION]
+                    newEntry[def.DESTRWY] = navdataitems[def.NAVSRC_COL_RUNWAY]
+                    newEntry[def.DESTNAVTYPE] = string.sub(navdataitems[def.NAVSRC_COL_NAME], 1, 3)
+                    newEntry[def.DESTNAVID] = navdataitems[def.NAVSRC_COL_IDENT]
+                    newEntry[def.DESTFREQ] = tonumber(navdataitems[def.NAVSRC_COL_FREQ])
                     newEntry[def.DESTLATPOS] = lat_val
                     newEntry[def.DESTLONPOS] = lon_val
 
-                    local course_val_packed = tonumber(navdataitems[def.SRCCOURSE]) -- S7
+                    local course_val_packed = tonumber(navdataitems[def.NAVSRC_COL_BEARING])
 
                     if course_val_packed then
-                        local magnetic_course = math.floor(course_val_packed / 360) 
+                        -- NAV1200 encodes localizer heading as magnetic course * 360
+                        local magnetic_course = math.floor(course_val_packed / 360)
                         newEntry[def.DESTCOURSE] = P.calccourse(magnetic_course)
                     else
                         newEntry[def.DESTCOURSE] = 0
                     end
                     newEntry[def.DESTNAVDME] = false
+                    newEntry[def.DESTELEVATION] = tonumber(navdataitems[def.NAVSRC_COL_ELEV_FT]) or 0
+                    newEntry[def.DESTRANGE] = tonumber(navdataitems[def.NAVSRC_COL_RANGE_NM]) or 0
+                    newEntry[def.DESTRAWBEARING] = course_val_packed or 0
+                    local mag_var = sasl.getMagneticVariation(lat_val, lon_val)
+                    newEntry[def.DESTMAGVAR] = mag_var or 0
+                    newEntry[def.DESTFACILITYNAME] = navdataitems[def.NAVSRC_COL_NAME] or ""
+                    newEntry[def.DESTSRCRECTYPE] = record_type_str
+                    newEntry[def.DESTDMELAT] = 0
+                    newEntry[def.DESTDMELON] = 0
+                    newEntry[def.DESTDMEELEVATION] = 0
+                    newEntry[def.DESTDMERANGE] = 0
+                    newEntry[def.DESTGSLAT] = 0
+                    newEntry[def.DESTGSLON] = 0
+                    newEntry[def.DESTGSELEVATION] = 0
+                    newEntry[def.DESTGSRANGE] = 0
+                    newEntry[def.DESTGSSLOPE] = 0
+                    newEntry[def.DESTGSRAWBEARING] = 0
                     table.insert(navdatatable, newEntry)
 
                 elseif (record_type_str == def.NAVDATARECTYPEVOR) then
                     local newEntry = {}
-                    newEntry[def.DESTICAO] = navdataitems[def.SRCICAO]
+                    newEntry[def.DESTICAO] = navdataitems[def.NAVSRC_COL_REGION]
                     newEntry[def.DESTRWY] = ""
                     newEntry[def.DESTNAVTYPE] = def.NAVTYPEVOR
-                    newEntry[def.DESTNAVID] = navdataitems[def.SRCNAVID]
-                    newEntry[def.DESTFREQ] = tonumber(navdataitems[def.SRCFREQ])
+                    newEntry[def.DESTNAVID] = navdataitems[def.NAVSRC_COL_IDENT]
+                    newEntry[def.DESTFREQ] = tonumber(navdataitems[def.NAVSRC_COL_FREQ])
                     newEntry[def.DESTLATPOS] = lat_val
                     newEntry[def.DESTLONPOS] = lon_val
                     newEntry[def.DESTCOURSE] = 0
                     newEntry[def.DESTNAVDME] = false
+                    newEntry[def.DESTELEVATION] = tonumber(navdataitems[def.NAVSRC_COL_ELEV_FT]) or 0
+                    newEntry[def.DESTRANGE] = tonumber(navdataitems[def.NAVSRC_COL_RANGE_NM]) or 0
+                    local raw_bearing = tonumber(navdataitems[def.NAVSRC_COL_BEARING]) or 0
+                    newEntry[def.DESTRAWBEARING] = raw_bearing
+                    newEntry[def.DESTMAGVAR] = raw_bearing
+                    newEntry[def.DESTFACILITYNAME] = navdataitems[def.NAVSRC_COL_NAME] or ""
+                    newEntry[def.DESTSRCRECTYPE] = record_type_str
+                    newEntry[def.DESTDMELAT] = 0
+                    newEntry[def.DESTDMELON] = 0
+                    newEntry[def.DESTDMEELEVATION] = 0
+                    newEntry[def.DESTDMERANGE] = 0
+                    newEntry[def.DESTGSLAT] = 0
+                    newEntry[def.DESTGSLON] = 0
+                    newEntry[def.DESTGSELEVATION] = 0
+                    newEntry[def.DESTGSRANGE] = 0
+                    newEntry[def.DESTGSSLOPE] = 0
+                    newEntry[def.DESTGSRAWBEARING] = 0
                     table.insert(navdatatable, newEntry)
 
                 elseif (record_type_str == def.NAVDATARECTYPEDME) then
-                    local index = search_for_dme(navdatatable, navdataitems[def.SRCICAO], navdataitems[def.SRCNAVID], def.NAVTYPEILS)
-                    if index then navdatatable[index][def.DESTNAVDME] = true end
+                    local icao = navdataitems[def.NAVSRC_COL_REGION]
+                    local ident = navdataitems[def.NAVSRC_COL_IDENT]
+                    local runway = navdataitems[def.NAVSRC_COL_RUNWAY]
+                    local index = find_nav_entry(navdatatable, icao, ident, def.NAVTYPEILS, runway)
+                    if not index then
+                        index = find_nav_entry(navdatatable, icao, ident, def.NAVTYPEVOR, runway)
+                    end
+                    if index then
+                        navdatatable[index][def.DESTNAVDME] = true
+                        navdatatable[index][def.DESTDMELAT] = lat_val
+                        navdatatable[index][def.DESTDMELON] = lon_val
+                        navdatatable[index][def.DESTDMEELEVATION] = tonumber(navdataitems[def.NAVSRC_COL_ELEV_FT]) or navdatatable[index][def.DESTDMEELEVATION]
+                        navdatatable[index][def.DESTDMERANGE] = tonumber(navdataitems[def.NAVSRC_COL_RANGE_NM]) or navdatatable[index][def.DESTDMERANGE]
+                    end
+
+                elseif (record_type_str == def.NAVDATARECTYPEGS) then
+                    local icao = navdataitems[def.NAVSRC_COL_REGION]
+                    local ident = navdataitems[def.NAVSRC_COL_IDENT]
+                    local runway = navdataitems[def.NAVSRC_COL_RUNWAY]
+                    local index = find_nav_entry(navdatatable, icao, ident, def.NAVTYPEILS, runway)
+                    if index then
+                        navdatatable[index][def.DESTGSLAT] = lat_val
+                        navdatatable[index][def.DESTGSLON] = lon_val
+                        navdatatable[index][def.DESTGSELEVATION] = tonumber(navdataitems[def.NAVSRC_COL_ELEV_FT]) or navdatatable[index][def.DESTGSELEVATION]
+                        navdatatable[index][def.DESTGSRANGE] = tonumber(navdataitems[def.NAVSRC_COL_RANGE_NM]) or navdatatable[index][def.DESTGSRANGE]
+                        local raw_value = tonumber(navdataitems[def.NAVSRC_COL_BEARING]) or 0
+                        navdatatable[index][def.DESTGSRAWBEARING] = raw_value
+                        navdatatable[index][def.DESTGSSLOPE] = raw_value / 100000
+                    end
 
                 elseif (record_type_str == def.NAVDATARECTYPELPV or record_type_str == def.NAVDATARECTYPEGLS) then
                     local newEntry = {}
-                    newEntry[def.DESTICAO] = navdataitems[def.SRCICAO] -- S9
-                    newEntry[def.DESTRWY] = navdataitems[def.SRCRWY] -- S11
-                    newEntry[def.DESTFREQ] = tonumber(navdataitems[def.SRCFREQ]) -- S5
+                    newEntry[def.DESTICAO] = navdataitems[def.NAVSRC_COL_REGION]
+                    newEntry[def.DESTRWY] = navdataitems[def.NAVSRC_COL_RUNWAY]
+                    newEntry[def.DESTFREQ] = tonumber(navdataitems[def.NAVSRC_COL_FREQ])
                     newEntry[def.DESTLATPOS] = lat_val
                     newEntry[def.DESTLONPOS] = lon_val
                     newEntry[def.DESTNAVDME] = true
@@ -2436,10 +2555,10 @@ function P.buildnavdatatable(navdatatable)
                     else
                         newEntry[def.DESTNAVTYPE] = def.NAVTYPEGLS
                     end
-                    newEntry[def.DESTNAVID] = navdataitems[def.SRCNAVID] -- S8
+                    newEntry[def.DESTNAVID] = navdataitems[def.NAVSRC_COL_IDENT]
                     
-                    local raw_course_str = navdataitems[def.SRCCOURSE] 
-                    local true_course = tonumber(raw_course_str) -- S7
+                    local raw_course_str = navdataitems[def.NAVSRC_COL_BEARING]
+                    local true_course = tonumber(raw_course_str)
 
                     if true_course then
                         if true_course > 100000 then 
@@ -2455,10 +2574,27 @@ function P.buildnavdatatable(navdatatable)
                         newEntry[def.DESTCOURSE] = magnetic_course
                         
                     else
-                        sasl.logInfo("Could not read true course for LPV/GLS (Spalte 7/SRCCOURSE): " .. navdatarecord)
+                        sasl.logInfo("Could not read true course for LPV/GLS (column NAVSRC_COL_BEARING): " .. navdatarecord)
                         newEntry[def.DESTCOURSE] = 0 -- Fallback zu 0
                     end
                     
+                    newEntry[def.DESTELEVATION] = tonumber(navdataitems[def.NAVSRC_COL_ELEV_FT]) or 0
+                    newEntry[def.DESTRANGE] = tonumber(navdataitems[def.NAVSRC_COL_RANGE_NM]) or 0
+                    newEntry[def.DESTRAWBEARING] = tonumber(raw_course_str) or 0
+                    local mag_var = sasl.getMagneticVariation(lat_val, lon_val)
+                    newEntry[def.DESTMAGVAR] = mag_var or 0
+                    newEntry[def.DESTFACILITYNAME] = navdataitems[def.NAVSRC_COL_NAME] or ""
+                    newEntry[def.DESTSRCRECTYPE] = record_type_str
+                    newEntry[def.DESTDMELAT] = 0
+                    newEntry[def.DESTDMELON] = 0
+                    newEntry[def.DESTDMEELEVATION] = 0
+                    newEntry[def.DESTDMERANGE] = 0
+                    newEntry[def.DESTGSLAT] = 0
+                    newEntry[def.DESTGSLON] = 0
+                    newEntry[def.DESTGSELEVATION] = 0
+                    newEntry[def.DESTGSRANGE] = 0
+                    newEntry[def.DESTGSSLOPE] = 0
+                    newEntry[def.DESTGSRAWBEARING] = 0
                     table.insert(navdatatable, newEntry)
                 end
             end
@@ -2562,30 +2698,57 @@ function P.getTableSize(tbl)
 end
 
 --------------------------------------------------------------------------------------------------------------
-function P.getnavdataindex(navdatatable, icao, rwy, navtype)
+function P.getnavdataindices(navdatatable, icao, rwy, navtypes)
     if not (P.isvalidicao(icao) and P.isvalidrwy(rwy)) then
-        return nil
+        return {}
+    end
+
+    local navtypeList = {}
+    if type(navtypes) == "table" then
+        for _, t in ipairs(navtypes) do
+            if t ~= nil then
+                table.insert(navtypeList, t)
+            end
+        end
+    elseif navtypes ~= nil then
+        navtypeList = { navtypes }
+    end
+
+    if #navtypeList == 0 then
+        return {}
     end
 
     local rwy_offsets = {0, 1, -1, 2, -2, 3, -3}
+    local result = {}
+    local seen = {}
 
-    for _, offset in ipairs(rwy_offsets) do
-        local current_rwy = P.adjustrwy(rwy, offset)
-        if current_rwy then
-            -- Durchlaufe die gesamte navdatatable
-            for i, entry in ipairs(navdatatable) do
-                -- Prüfe auf eine Übereinstimmung
-                if (entry[def.DESTICAO] == icao and 
-                    entry[def.DESTRWY] == current_rwy and 
-                    entry[def.DESTNAVTYPE] == navtype) then
-                    
-                    return i -- Erfolg! Gib den numerischen Index zurück.
+    for _, navtype in ipairs(navtypeList) do
+        for _, offset in ipairs(rwy_offsets) do
+            local current_rwy = P.adjustrwy(rwy, offset)
+            if current_rwy then
+                for idx, entry in ipairs(navdatatable) do
+                    if entry[def.DESTICAO] == icao
+                    and entry[def.DESTRWY] == current_rwy
+                    and entry[def.DESTNAVTYPE] == navtype then
+                        if not seen[idx] then
+                            table.insert(result, idx)
+                            seen[idx] = true
+                        end
+                    end
                 end
             end
         end
     end
-    
-    return nil -- Nichts gefunden
+
+    return result
+end
+
+function P.getnavdataindex(navdatatable, icao, rwy, navtype)
+    local indices = P.getnavdataindices(navdatatable, icao, rwy, navtype)
+    if indices and #indices > 0 then
+        return indices[1]
+    end
+    return nil
 end
 
 --------------------------------------------------------------------------------------------------------------

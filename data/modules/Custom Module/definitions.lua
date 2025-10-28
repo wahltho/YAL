@@ -263,18 +263,23 @@ P.AUTOBRAKE2 = 3
 P.AUTOBRAKE3 = 4
 P.AUTOBRAKEMAX = 5
 
--- Source Data Typen
-P.SRCTYPECODE = 1
-P.SRCLATPOS = 2
-P.SRCLONPOS = 3
-P.SRCHEIGHT = 4
-P.SRCFREQ = 5
-P.SRCCOURSE = 7
-P.SRCNAVID = 8
-P.SRCICAO = 9
-P.SRCREGCODE = 10
-P.SRCRWY = 11
-P.SRCNAVTYPE = 12
+-- Navigation source column indices (earth_nav.dat NAV1200 format)
+P.NAVSRC_COL_TYPE = 1          -- Record type code (string, e.g. "3", "4", "12")
+P.NAVSRC_COL_LAT = 2           -- Latitude in degrees
+P.NAVSRC_COL_LON = 3           -- Longitude in degrees
+P.NAVSRC_COL_ELEV_FT = 4       -- Elevation in feet
+P.NAVSRC_COL_FREQ = 5          -- Frequency or channel (*100 for LOC/VOR)
+P.NAVSRC_COL_RANGE_NM = 6      -- Service volume / range in NM (varies by record type)
+P.NAVSRC_COL_BEARING = 7       -- Bearing information:
+                               --   LOC/ILS: magnetic course * 360
+                               --   VOR/NDB: magnetic variation
+                               --   GLS/LPV: true course * 100 or 10000 depending on data source
+P.NAVSRC_COL_IDENT = 8         -- Navigation aid identifier (e.g. "ABC")
+P.NAVSRC_COL_REGION = 9        -- Region or ICAO parent (e.g. "ENRT", airport ICAO)
+P.NAVSRC_COL_COUNTRY = 10      -- Country/region code (e.g. "DN")
+P.NAVSRC_COL_RUNWAY = 11       -- Runway designator (for approach-related records)
+P.NAVSRC_COL_NAME = 12         -- Descriptive name / nav type string ("ILS-cat-I", "VOR/DME", ...)
+
 
 -- Destination Data Typen
 P.DESTICAO = 1
@@ -286,6 +291,22 @@ P.DESTCOURSE = 6
 P.DESTNAVDME = 7
 P.DESTLATPOS = 8
 P.DESTLONPOS = 9
+P.DESTELEVATION = 10
+P.DESTRANGE = 11
+P.DESTRAWBEARING = 12
+P.DESTMAGVAR = 13
+P.DESTFACILITYNAME = 14
+P.DESTSRCRECTYPE = 15
+P.DESTDMELAT = 16
+P.DESTDMELON = 17
+P.DESTDMEELEVATION = 18
+P.DESTDMERANGE = 19
+P.DESTGSLAT = 20
+P.DESTGSLON = 21
+P.DESTGSELEVATION = 22
+P.DESTGSRANGE = 23
+P.DESTGSSLOPE = 24
+P.DESTGSRAWBEARING = 25
 
 -- Navigationstypen (Strings)
 P.NAVTYPEILS = "ILS"
@@ -299,6 +320,7 @@ P.NAVTYPEVOR = "VOR"
 -- NavData Record Typen
 P.NAVDATARECTYPEVOR = "3"
 P.NAVDATARECTYPEILS = "4"
+P.NAVDATARECTYPEGS = "6"
 P.NAVDATARECTYPEDME = "12"
 P.NAVDATARECTYPEGLS = "15"
 P.NAVDATARECTYPELPV = "16"

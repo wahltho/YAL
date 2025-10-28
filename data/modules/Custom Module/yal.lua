@@ -3972,20 +3972,6 @@ function P.autofunctions()
     currentFlightState = P.flightstate
 
     if aircraftIsOnGround then
-
-        if currentFlightState >= def.FLIGHTSTATEAPPROACH then
-            local newState = def.FLIGHTSTATETAXITOGATE
-            if get(P.parkingbrakepos) == def.ON then newState = def.FLIGHTSTATESHUTDOWN end
-            if newState ~= currentFlightState then
-                P.flightstate = newState
-                flightStateChanged = true
-            end
-        elseif currentFlightState > def.FLIGHTSTATEPREFLIGHT and currentFlightState < def.FLIGHTSTATEAPPROACH then
-             sasl.logInfo("Unexpected inflight state ("..P.flightstate..") while on ground. Resetting to PREFLIGHT.")
-             P.flightstate = def.FLIGHTSTATEPREFLIGHT
-             flightStateChanged = true
-        end
-
         local taxiTriggerConditions = ((get(P.taxilight) ~= def.OFF) and P.enginesrunning(def.BOTH) and (get(P.groundspeed) < 45) and P.flightstate == def.FLIGHTSTATEPREFLIGHT)
         if taxiTriggerConditions then
             P.triggerprocedure(def.BEFORETAXIPROCEDURE)
@@ -3995,11 +3981,12 @@ function P.autofunctions()
         if triggerConditionsMet_BTO then
             P.triggerprocedure(def.BEFORETAKEOFFPROCEDURE)
         end
-
+    
         local triggerConditionsMet_AL = (((get(P.groundspeed) < 45) and (P.aircraftonrwy(def.ARRIVAL, 0.0001, 20) or (helpers.roundnumber(get(P.groundspeed)) == 0))) or (get(P.positionlights) == def.POSLIGHTSSTEADY))
-        if triggerConditionsMet_AL and P.flightstate >= def.FLIGHTSTATEAPPROACH then
+        if triggerConditionsMet_AL and currentFlightState >= def.FLIGHTSTATEAPPROACH then
             P.triggerprocedure(def.AFTERLANDINGPROCEDURE)
         end
+
 
         local triggerConditionsMet_AP = (get(P.parkingbrakepos) == def.ON) and (P.flightstate == def.FLIGHTSTATETAXITOGATE or P.flightstate == def.FLIGHTSTATESHUTDOWN)
         if triggerConditionsMet_AP then
