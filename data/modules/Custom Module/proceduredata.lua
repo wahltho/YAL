@@ -1,3 +1,4 @@
+-- date : 28-Oct-2025
 local def = require("definitions")
 local helpers = require("helpers")
 local M = {}
@@ -86,9 +87,11 @@ function M.fillProcedureTable()
                 ['check_power_source'] = {
                     branch = function(loop, procData)
                         if (P.configvalues[def.CONFIGUSEGROUNDPOWER] == def.ON) and (get(P.gpuavailable) == def.ON) then
+                            loop.power_source = 'gpu'
                             return 'check_gpu_power'
                         else
-                            return 'start_apu'
+                            loop.power_source = 'apu'
+                            return 'set_apu_fuel_pump_on'
                         end
                     end
                 },
@@ -98,6 +101,13 @@ function M.fillProcedureTable()
                     advice = "Switch Ground Power On",
                     confirm = "G P U checked and On",
                     nextStep = 'start_irs_align'
+                },
+                ['set_apu_fuel_pump_on'] = {
+                    check = function() return get(P.lefttanklswitch) == def.ON end,
+                    action = function() set(P.lefttanklswitch, def.ON) end,
+                    advice = "Set Left Forward Fuel Pump On",
+                    confirm = "Left Forward Fuel Pump checked and On",
+                    nextStep = 'start_apu'
                 },
                 ['start_apu'] = {
                     check = function() return get(P.apustarterpos) == def.ON end,
@@ -568,6 +578,13 @@ function M.fillProcedureTable()
                 ['view_overhead'] = {
                     view = function() return P.configvalues[def.CONFIGVIEWOVERHEADPANEL] end,
                     normalize = true,
+                    nextStep = 'set_apu_fuel_pump_on'
+                },
+                ['set_apu_fuel_pump_on'] = {
+                    check = function() return get(P.lefttanklswitch) == def.ON end,
+                    action = function() set(P.lefttanklswitch, def.ON) end,
+                    advice = "Set Left Forward Fuel Pump On",
+                    confirm = "Left Forward Fuel Pump checked and On",
                     nextStep = 'start_apu'
                 },
                 ['start_apu'] = {
@@ -954,16 +971,21 @@ function M.fillProcedureTable()
                     nextStep = 'window_heat_on'
                 },
                 ['window_heat_on'] = {
-                    check = function() return (get(P.wheatlfwdpos) == def.ON) and (get(P.wheatrfwdpos) == def.ON) and (get(P.wheatlsidepos) == def.ON) and (get(P.wheatrsidepos) == def.ON) end,
-                    action = function() P.togglewindowheat(def.ON) end,
-                    advice = "Set Window Heat On",
+                    check = function()
+                        return  (get(P.wheatlfwdpos) == def.ON)
+                            and (get(P.wheatrfwdpos) == def.ON)
+                            and (get(P.wheatlsidepos) == def.ON)
+                            and (get(P.wheatrsidepos) == def.ON)
+                    end,
+                    advice = "Confirm Window Heat On",
                     confirm = "Window Heat checked and On",
                     nextStep = 'probe_heat_on'
                 },
                 ['probe_heat_on'] = {
-                    check = function() return (get(P.captainprobepos) == def.ON) and (get(P.foprobepos) == def.ON) end,
-                    action = function() P.toggleprobeheat(def.ON) end,
-                    advice = "Set Probe Heat On",
+                    check = function()
+                        return (get(P.captainprobepos) == def.ON) and (get(P.foprobepos) == def.ON)
+                    end,
+                    advice = "Confirm Probe Heat On",
                     confirm = "Probe Heat checked and On",
                     nextStep = 'starters_flight'
                 },
@@ -1097,7 +1119,12 @@ function M.fillProcedureTable()
                     nextStep = 'landing_lights_on'
                 },
                 ['landing_lights_on'] = {
-                    check = function() return (not (get(P.llights1) == def.OFF) or (get(P.llights2) == def.OFF) or (get(P.llights3) == def.OFF) or (get(P.llights4) == def.OFF)) end,
+                    check = function()
+                        return  (get(P.llights1) ~= def.OFF)
+                            and (get(P.llights2) ~= def.OFF)
+                            and (get(P.llights3) ~= def.OFF)
+                            and (get(P.llights4) ~= def.OFF)
+                    end,
                     action = function() P.togglelandinglights(def.ON) end,
                     advice = "Set Landing Lights On",
                     confirm = "Landing Lights checked and On",
@@ -1329,6 +1356,11 @@ function M.fillProcedureTable()
                 ['wait_for_transition'] = {
                     check = function() 
                         return get(P.altitude) > get(P.fmctransalt) 
+                    end,
+                    action = function()
+                        if P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON then
+                            P.commandtableentry(def.TEXT, "Passing Transition Altitude")
+                        end
                     end,
                     confirm = "Passing Transition Altitude",
                     nextStep = 'set_qnh_standard'
@@ -2012,13 +2044,6 @@ function M.fillProcedureTable()
                     action = function() P.togglepositionlights(def.POSLIGHTSSTEADY) end,
                     advice = "Set Position Lights Steady",
                     confirm = "Position Lights checked and Steady",
-                    nextStep = 'probe_heat_off'
-                },
-                ['probe_heat_off'] = {
-                    check = function() return (get(P.captainprobepos) == def.OFF) and (get(P.foprobepos) == def.OFF) end,
-                    action = function() P.toggleprobeheat(def.OFF) end,
-                    advice = "Set Probe Heat Off",
-                    confirm = "Probe Heat checked and Off",
                     nextStep = 'view_pedestal'
                 },
                 ['view_pedestal'] = {
@@ -2087,12 +2112,6 @@ function M.fillProcedureTable()
                     check = function() return get(P.aponstat) == def.OFF end,
                     action = function() set(P.aponstat, def.OFF) end,
                     advice = "Set Autopilot Off",
-                    nextStep = 'ice_off'
-                },
-                ['ice_off'] = {
-                    check = function() return (get(P.eng1heatpos) == def.OFF) and (get(P.eng2heatpos) == def.OFF) and (get(P.wingheatpos) == def.OFF) end,
-                    action = function() P.iceprotection(def.OFF) end,
-                    advice = "Set Anti Ice Off",
                     nextStep = 'master_caution'
                 },
                 ['master_caution'] = {
@@ -2261,7 +2280,7 @@ function M.fillProcedureTable()
                     action = function() helpers.command_once("laminar/B738/toggle_switch/gpu_dn") end,
                     advice = "Switch Ground Power On",
                     confirm = "G P U checked and On",
-                    nextStep = 'view_throttle'
+                    nextStep = 'verify_power_source_ready'
                 },
                 ['start_apu'] = {
                     check = function() return get(P.apustarterpos) == def.ON end,
@@ -2313,6 +2332,48 @@ function M.fillProcedureTable()
                     action = function() set(P.isolvalvepos, def.ISOLVALVEOPEN) end,
                     advice = "Set Isolation Valve Open",
                     confirm = "Isolation Valve checked and Open",
+                    nextStep = 'verify_power_source_ready'
+                },
+                ['verify_power_source_ready'] = {
+                    view = function() return P.configvalues[def.CONFIGVIEWOVERHEADPANEL] end,
+                    check = function(loop)
+                        local gpu_on = (get(P.gpuon) == def.ON)
+                        local apu_ready = (P.apurunning() == def.APUONBUS) and (get(P.bleedairapupos) == def.ON)
+                        if loop.power_source == 'gpu' then
+                            return gpu_on
+                        end
+                        return apu_ready
+                    end,
+                    advice = function(loop)
+                        if loop.power_source == 'gpu' then
+                            return "Confirm Ground Power On Bus"
+                        end
+                        return "Confirm A P U Power On Bus"
+                    end,
+                    confirm = function(loop)
+                        if loop.power_source == 'gpu' then
+                            if (get(P.gpuon) == def.ON) then
+                                return "Ground Power checked and On"
+                            end
+                            return false
+                        end
+                        if (P.apurunning() == def.APUONBUS) and (get(P.bleedairapupos) == def.ON) then
+                            return "A P U Power and Bleed checked and On"
+                        end
+                        return false
+                    end,
+                    nextStep = 'set_engine_bleeds_off'
+                },
+                ['set_engine_bleeds_off'] = {
+                    check = function()
+                        return (get(P.bleedair1pos) == def.OFF) and (get(P.bleedair2pos) == def.OFF)
+                    end,
+                    action = function()
+                        if (get(P.bleedair1pos) ~= def.OFF) then helpers.command_once("laminar/B738/toggle_switch/bleed_air_1") end
+                        if (get(P.bleedair2pos) ~= def.OFF) then helpers.command_once("laminar/B738/toggle_switch/bleed_air_2") end
+                    end,
+                    advice = "Set Both Engine Bleeds Off",
+                    confirm = "Both Engine Bleeds checked and Off",
                     nextStep = 'view_throttle'
                 },
                 ['view_throttle'] = {
@@ -2331,6 +2392,61 @@ function M.fillProcedureTable()
                 },
                 ['view_overhead_2'] = {
                     view = function() return P.configvalues[def.CONFIGVIEWOVERHEADPANEL] end,
+                    nextStep = 'probe_heat_off'
+                },
+                ['probe_heat_off'] = {
+                    check = function() return (get(P.captainprobepos) == def.OFF) and (get(P.foprobepos) == def.OFF) end,
+                    action = function() P.toggleprobeheat(def.OFF) end,
+                    advice = "Set Probe Heat Off",
+                    confirm = "Probe Heat checked and Off",
+                    nextStep = 'ice_off'
+                },
+                ['ice_off'] = {
+                    skipIf = function()
+                        local wx = P.desmetar.decodedmetar
+                        local function isGroundIcingCondition(wx_in)
+                            if not wx_in then return false end
+                            local temp_c = wx_in.temp or wx_in.temperature
+                            if temp_c == nil then return false end
+                            local precip = false
+                            if wx_in.precipitation then precip = true end
+                            if wx_in.freezing then precip = true end
+                            if (not precip) and wx_in.weather and type(wx_in.weather) == "table" then
+                                for _, w in ipairs(wx_in.weather) do
+                                    if w:match("RA") or w:match("SN") or w:match("DZ") or w:match("BR") or w:match("FG") or w:match("FZ") then
+                                        precip = true
+                                        break
+                                    end
+                                end
+                            end
+                            if temp_c <= 10 then
+                                if precip or temp_c <= 5 then
+                                    return true
+                                end
+                            end
+                            return false
+                        end
+                        return isGroundIcingCondition(wx)
+                    end,
+                    check = function()
+                        return (get(P.eng1heatpos) == def.OFF)
+                        and (get(P.eng2heatpos) == def.OFF)
+                        and (get(P.wingheatpos) == def.OFF)
+                    end,
+                    action = function() P.iceprotection(def.OFF) end,
+                    advice = "Set Anti Ice Off",
+                    nextStep = 'set_engine_bleeds_off'
+                },
+                ['set_engine_bleeds_off_final'] = {
+                    check = function()
+                        return (get(P.bleedair1pos) == def.OFF) and (get(P.bleedair2pos) == def.OFF)
+                    end,
+                    action = function()
+                        if (get(P.bleedair1pos) ~= def.OFF) then helpers.command_once("laminar/B738/toggle_switch/bleed_air_1") end
+                        if (get(P.bleedair2pos) ~= def.OFF) then helpers.command_once("laminar/B738/toggle_switch/bleed_air_2") end
+                    end,
+                    advice = "Set Both Engine Bleeds Off",
+                    confirm = "Both Engine Bleeds checked and Off",
                     nextStep = 'center_pumps_off'
                 },
                 ['center_pumps_off'] = {
@@ -2341,13 +2457,42 @@ function M.fillProcedureTable()
                     nextStep = 'wing_pumps_off'
                 },
                 ['wing_pumps_off'] = {
-                    check = function() return (get(P.lefttanklswitch) == def.OFF) and (get(P.lefttankrswitch) == def.OFF) and (get(P.righttanklswitch) == def.OFF) and (get(P.righttankrswitch) == def.OFF) end,
-                    action = function() 
-                        set(P.lefttanklswitch, def.OFF); set(P.lefttankrswitch, def.OFF)
-                        set(P.righttanklswitch, def.OFF); set(P.righttankrswitch, def.OFF)
+                    check = function(loop)
+                        local keep_left_fwd = (loop and loop.power_source == 'apu') and (P.apurunning() == def.APUONBUS)
+                        if keep_left_fwd then
+                            return  (get(P.lefttanklswitch) == def.ON)
+                                and (get(P.lefttankrswitch) == def.OFF)
+                                and (get(P.righttanklswitch) == def.OFF)
+                                and (get(P.righttankrswitch) == def.OFF)
+                        end
+                        return  (get(P.lefttanklswitch) == def.OFF)
+                            and (get(P.lefttankrswitch) == def.OFF)
+                            and (get(P.righttanklswitch) == def.OFF)
+                            and (get(P.righttankrswitch) == def.OFF)
                     end,
-                    advice = "Set Wing Tank Fuel Pumps Off",
-                    confirm = "Wing Tank Fuel Pumps checked and Off",
+                    action = function(loop) 
+                        local keep_left_fwd = (loop and loop.power_source == 'apu') and (P.apurunning() == def.APUONBUS)
+                        if keep_left_fwd then
+                            set(P.lefttanklswitch, def.ON)
+                        else
+                            set(P.lefttanklswitch, def.OFF)
+                        end
+                        set(P.lefttankrswitch, def.OFF)
+                        set(P.righttanklswitch, def.OFF)
+                        set(P.righttankrswitch, def.OFF)
+                    end,
+                    advice = function(loop)
+                        if (loop and loop.power_source == 'apu') and (P.apurunning() == def.APUONBUS) then
+                            return "Leave Left Fwd Pump On, switch remaining Wing Pumps Off"
+                        end
+                        return "Set Wing Tank Fuel Pumps Off"
+                    end,
+                    confirm = function(loop)
+                        if (loop and loop.power_source == 'apu') and (P.apurunning() == def.APUONBUS) then
+                            return "Left Fwd Pump On, remaining Wing Pumps Off"
+                        end
+                        return "Wing Tank Fuel Pumps checked and Off"
+                    end,
                     nextStep = 'hyd_pumps_off'
                 },
                 ['hyd_pumps_off'] = {
@@ -2428,6 +2573,49 @@ function M.fillProcedureTable()
                 },
                 ['view_overhead_2'] = {
                     view = function() return P.configvalues[def.CONFIGVIEWOVERHEADPANEL] end,
+                    nextStep = 'probe_heat_off'
+                },
+                ['probe_heat_off'] = {
+                    check = function() return (get(P.captainprobepos) == def.OFF) and (get(P.foprobepos) == def.OFF) end,
+                    action = function() P.toggleprobeheat(def.OFF) end,
+                    advice = "Set Probe Heat Off",
+                    confirm = "Probe Heat checked and Off",
+                    nextStep = 'ice_off'
+                },
+                ['ice_off'] = {
+                    skipIf = function()
+                        local wx = P.desmetar.decodedmetar
+                        local function isGroundIcingCondition(wx_in)
+                            if not wx_in then return false end
+                            local temp_c = wx_in.temp or wx_in.temperature
+                            if temp_c == nil then return false end
+                            local precip = false
+                            if wx_in.precipitation then precip = true end
+                            if wx_in.freezing then precip = true end
+                            if (not precip) and wx_in.weather and type(wx_in.weather) == "table" then
+                                for _, w in ipairs(wx_in.weather) do
+                                    if w:match("RA") or w:match("SN") or w:match("DZ") or w:match("BR") or w:match("FG") or w:match("FZ") then
+                                        precip = true
+                                        break
+                                    end
+                                end
+                            end
+                            if temp_c <= 10 then
+                                if precip or temp_c <= 5 then
+                                    return true
+                                end
+                            end
+                            return false
+                        end
+                        return isGroundIcingCondition(wx)
+                    end,
+                    check = function()
+                        return (get(P.eng1heatpos) == def.OFF)
+                        and (get(P.eng2heatpos) == def.OFF)
+                        and (get(P.wingheatpos) == def.OFF)
+                    end,
+                    action = function() P.iceprotection(def.OFF) end,
+                    advice = "Set Anti Ice Off",
                     nextStep = 'center_pumps_off'
                 },
                 ['center_pumps_off'] = {
@@ -2438,10 +2626,17 @@ function M.fillProcedureTable()
                     nextStep = 'wing_pumps_off'
                 },
                 ['wing_pumps_off'] = {
-                    check = function() return (get(P.lefttanklswitch) == def.OFF) and (get(P.lefttankrswitch) == def.OFF) and (get(P.righttanklswitch) == def.OFF) and (get(P.righttankrswitch) == def.OFF) end,
+                    check = function()
+                        return  (get(P.lefttanklswitch) == def.OFF)
+                            and (get(P.lefttankrswitch) == def.OFF)
+                            and (get(P.righttanklswitch) == def.OFF)
+                            and (get(P.righttankrswitch) == def.OFF)
+                    end,
                     action = function() 
-                        set(P.lefttanklswitch, def.OFF); set(P.lefttankrswitch, def.OFF)
-                        set(P.righttanklswitch, def.OFF); set(P.righttankrswitch, def.OFF)
+                        set(P.lefttanklswitch, def.OFF)
+                        set(P.lefttankrswitch, def.OFF)
+                        set(P.righttanklswitch, def.OFF)
+                        set(P.righttankrswitch, def.OFF)
                     end,
                     advice = "Set Wing Tank Fuel Pumps Off",
                     confirm = "Wing Tank Fuel Pumps checked and Off",
@@ -2702,18 +2897,32 @@ function M.fillProcedureTable()
                         local FMC1Line04X = helpers.get("laminar/B738/fmc1/Line04_X")
                         local FMC1Line04L = helpers.get("laminar/B738/fmc1/Line04_L")
                         local apptype
-                        local foundIndex = nil 
+                        local candidateTypes = {}
+                        local hasLPV = false
                         if ((string.len(FMC1Line04X) == 24) and (string.len(FMC1Line04L) == 24)) then
                             apptype = string.sub(FMC1Line04X, 2, 4)
                             if ((apptype == def.NAVTYPEILS) or (apptype == def.NAVTYPEGLS)) then
-                                foundIndex = helpers.getnavdataindex(P.navdatatable, get(P.desicao), get(P.desrwy), apptype)
+                                table.insert(candidateTypes, apptype)
                             else
-                                foundIndex = helpers.getnavdataindex(P.navdatatable, get(P.desicao), get(P.desrwy), def.NAVTYPELPV)
+                                table.insert(candidateTypes, def.NAVTYPELPV)
+                                hasLPV = true
                             end
                         else
-                            foundIndex = helpers.getnavdataindex(P.navdatatable, get(P.desicao), get(P.desrwy), def.NAVTYPELPV)
+                            table.insert(candidateTypes, def.NAVTYPELPV)
+                            hasLPV = true
                         end
-                        loop.navdatatableindex = foundIndex 
+
+                        local navIndices = helpers.getnavdataindices(P.navdatatable, get(P.desicao), get(P.desrwy), candidateTypes)
+                        navIndices = navIndices or {}
+                        if (#navIndices == 0) and not hasLPV then
+                            navIndices = helpers.getnavdataindices(P.navdatatable, get(P.desicao), get(P.desrwy), { def.NAVTYPELPV })
+                            navIndices = navIndices or {}
+                            hasLPV = true
+                        end
+
+                        loop.navdatatableindices = navIndices
+                        loop.navdatatableindex = (navIndices and navIndices[1]) or nil
+
                         if loop.navdatatableindex ~= nil and P.navdatatable[loop.navdatatableindex] ~= nil then
                             return 'announce_approach_type' 
                         else
@@ -2753,17 +2962,58 @@ function M.fillProcedureTable()
                 ['announce_approach_type'] = {
                     action = function(loop, procData)
                         local navdata = P.navdatatable[loop.navdatatableindex]
+                        if not navdata then
+                            return
+                        end
                         if (get(P.desrwy) ~= navdata[def.DESTRWY]) then
                             sasl.logInfo("Destination Runway Diff FMC: " .. tostring(get(P.desrwy)) .. " Navdata: " .. tostring(navdata[def.DESTRWY]))
                         end
-                        local dmestring = ""
-                        if (navdata[def.DESTNAVTYPE] == def.NAVTYPEILS) and navdata[def.DESTNAVDME] then
-                            dmestring = "with DME"
+                        local navtype = navdata[def.DESTNAVTYPE] or ""
+                        local ident = navdata[def.DESTNAVID] or ""
+                        local freqMsg
+                        if (navtype == def.NAVTYPEILS) then
+                            freqMsg = "Frequency " .. helpers.formatILSFrequency(navdata[def.DESTFREQ] or 0)
+                            if navdata[def.DESTNAVDME] then
+                                freqMsg = freqMsg .. " with DME"
+                            end
+                        else
+                            freqMsg = "Channel " .. tostring(navdata[def.DESTFREQ] or "")
                         end
-                        P.commandtableentry(def.TEXT, "Runway " .. helpers.formatRunwayDesignator(navdata[def.DESTRWY]) .. " has " .. helpers.addspaces(navdata[def.DESTNAVTYPE]) .. " Approach " .. dmestring)
+                        local message = "Runway " .. helpers.formatRunwayDesignator(navdata[def.DESTRWY])
+                            .. " has " .. helpers.addspaces(navtype) .. " Approach (Ident " .. helpers.addspaces(ident) .. ") "
+                            .. freqMsg
+                        P.commandtableentry(def.TEXT, message)
                     end,
                     runActionInAdviceMode = true, 
-                    nextStep = 'view_pedestal' 
+                    nextStep = 'announce_additional_variants' 
+                },
+                ['announce_additional_variants'] = {
+                    skipIf = function(loop, procData)
+                        return not (loop.navdatatableindices and (#loop.navdatatableindices > 1))
+                    end,
+                    action = function(loop, procData)
+                        for idx = 2, #loop.navdatatableindices do
+                            local navdata = P.navdatatable[loop.navdatatableindices[idx]]
+                            if navdata then
+                                local navtype = navdata[def.DESTNAVTYPE] or ""
+                                local ident = navdata[def.DESTNAVID] or ""
+                                local freqMsg
+                                if (navtype == def.NAVTYPEILS) then
+                                    freqMsg = "Frequency " .. helpers.formatILSFrequency(navdata[def.DESTFREQ] or 0)
+                                    if navdata[def.DESTNAVDME] then
+                                        freqMsg = freqMsg .. " with DME"
+                                    end
+                                else
+                                    freqMsg = "Channel " .. tostring(navdata[def.DESTFREQ] or "")
+                                end
+                                local altMessage = "Alternate option: " .. helpers.addspaces(navtype)
+                                    .. " (Ident " .. helpers.addspaces(ident) .. ") " .. freqMsg
+                                P.commandtableentry(def.TEXT, altMessage)
+                            end
+                        end
+                    end,
+                    runActionInAdviceMode = true,
+                    nextStep = 'view_pedestal'
                 },
                 ['view_pedestal'] = {
                     view = function(loop, procData) return P.configvalues[def.CONFIGVIEWPEDESTAL] end,

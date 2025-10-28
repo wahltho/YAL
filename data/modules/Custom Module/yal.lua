@@ -1,3 +1,4 @@
+-- date : 28-Oct-2025
 local P = {}
 yal = P
 
@@ -821,30 +822,83 @@ sasl.registerCommandHandler(my_command_yalresetForNewFlight, 0, P.yalresetForNew
 
 --------------------------------------------------------------------------------------------------------------
 function P.yalreset()
+    sasl.logInfo("Manual YAL Reset initiated")
 
+    -- Setzt Speicher zurück, lädt dann Persistenz, liest Config
     P.YalinitGlobal()
-    P.initDataref()
+    P.initDataref() -- Lädt .set Flags, Loops und flightstate aus Datarefs
     P.readconfig()
 
+    -- Versucht, .set Flags basierend auf dem Flugzeugzustand zu aktualisieren
     P.syncProceduresOnLoad()
 
-    -- Ersetzter (korrigierter) Block:
+    -- *** NEU: Flight State prüfen und korrigieren ***
+    local aircraftIsOnGround = (get(P.airgroundsensor) == def.ON)
+    local stateFromProcs = P.determineFlightStateFromProcedures() -- State aus .set Flags ableiten
+    local stateIsPlausible = false
+    local finalState = stateFromProcs
+
+    -- Plausibilitätscheck
+    sasl.logDebug("Reset Plausibility Check: State from Procs = " .. stateFromProcs .. ", On Ground = " .. tostring(aircraftIsOnGround))
+    if aircraftIsOnGround then
+        if stateFromProcs == def.FLIGHTSTATEPREFLIGHT or
+           stateFromProcs == def.FLIGHTSTATETAXITOGATE or
+           stateFromProcs == def.FLIGHTSTATESHUTDOWN then
+            stateIsPlausible = true
+        end
+    else
+        if stateFromProcs == def.FLIGHTSTATEINITIALCLIMB or
+           stateFromProcs == def.FLIGHTSTATECLIMB or
+           stateFromProcs == def.FLIGHTSTATECRUISE or
+           stateFromProcs == def.FLIGHTSTATEAPPROACH then
+            stateIsPlausible = true
+        end
+    end
+
+    if not stateIsPlausible then
+        sasl.logInfo("State from procedures ("..stateFromProcs..") implausible after reset sync. Falling back.")
+        -- Fallback
+        if aircraftIsOnGround then
+            if get(P.parkingbrakepos) == def.ON then
+                finalState = def.FLIGHTSTATESHUTDOWN
+            else
+                finalState = def.FLIGHTSTATETAXITOGATE
+            end
+        else
+            local vs = get(P.verticalspeed) or 0
+            if vs < -300 then
+                finalState = def.FLIGHTSTATEAPPROACH
+            else
+                finalState = def.FLIGHTSTATECLIMB
+            end
+        end
+        sasl.logInfo("State after fallback: " .. finalState)
+    else
+        sasl.logDebug("State from procedures ("..finalState..") is plausible.")
+    end
+
+    -- Update und Speichern, falls nötig
+    if finalState ~= P.flightstate then
+         sasl.logInfo("Correcting flight state during reset. Old: " .. P.flightstate .. ", New: " .. finalState)
+         P.flightstate = finalState
+         set(P.flightstatedr, P.flightstate) -- Sofort speichern!
+    end
+    -- *** ENDE NEU ***
+
+    -- Aktualisierte .set Flags speichern
     local statusArray = {}
     for i = 1, #P.proceduretable do
-        if P.proceduretable[i].set == true then
-            statusArray[i] = 1
-        else
-            statusArray[i] = 0
-        end
+         statusArray[i] = (P.proceduretable[i] and P.proceduretable[i].set and 1) or 0
     end
     set(P.ProcSetStatusarraydr, statusArray)
 
-    sasl.logDebug("Saving reset loop states after yalreset...")
+    -- Aktuellen Loop States speichern (wichtig nach initDataref)
+    sasl.logDebug("Saving current loop states after yalreset...")
     for i = 1, #P.loopStateTables do
         P.saveLoopState(P.loopStateTables[i], i)
     end
 
-    -- Weiterer Code bleibt gleich:
+    -- Rest (NavData bauen etc.)
     helpers.buildnavdatatable(P.navdatatable)
     if (sasl.getLogLevel() == LOG_DEBUG) then
         helpers.writenavdatatable(P.navdatatable)
@@ -853,11 +907,10 @@ function P.yalreset()
 
     P.commandtableentry(def.TEXT, "YAL Reset done")
 
-    sasl.logInfo("Manual YAL Reset initiated")
-
+    -- Logging Vars zurücksetzen
     P.lastLoggedFlightstate = P.flightstate
     P.lastLoggedFmsFlightphase = get(P.fmsflightphase)
-    P.lastLoggedAircraftwasonground = P.aircraftwasonground
+    P.lastLoggedAircraftwasonground = aircraftIsOnGround -- Use current value
 end
 
 function P.yalreset_(phase)
@@ -1653,7 +1706,7 @@ function P.aircraftonrwy(runwayType, dist, headingLimit)
         return isOnRunwayProximity and isHeadingAligned
 
     elseif runwayType == def.ARRIVAL then
-        return (not isOnRunwayProximity) and (not isHeadingAligned)
+        return (not isOnRunwayProximity) or (not isHeadingAligned)
 
     else
         return isOnRunwayProximity
@@ -4247,36 +4300,133 @@ function P.ongoingtasks()
 
     if (P.ongoingtaskstepindex == 4) then
         if (P.configvalues[def.CONFIGAUTOANTIICE] == def.ON) then
-            if ((P.configvalues[def.CONFIGAUTOFUNCTIONS] == def.ON) and (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON)) then
-                if ((P.flightstate < def.FLIGHTSTATETAXITOGATE) and P.proceduretable[def.BEFORETAXIPROCEDURE].set) then
+
+            if (get(P.airgroundsensor) == def.ON) then
+                local apu_bleed_ok = P.apurunning() and (get(P.apubleedpos) == def.ON)
+                local eng_bleed_ok = P.enginesrunning() and ((get(P.eng1bleedpos) == def.ON) or (get(P.eng2bleedpos) == def.ON))
+                local bleed_ok = apu_bleed_ok or eng_bleed_ok
+
+                local dep_phase = (P.flightstate == def.FLIGHTSTATEPREFLIGHT)
+                local arr_afterlanding = (P.flightstate == def.FLIGHTSTATEAFTERLANDING)
+                local arr_taxi_to_gate = (P.flightstate == def.FLIGHTSTATETAXITOGATE)
+
+                local wx
+                if dep_phase then
+                    wx = P.depmetar.decodedmetar
+                else
+                    wx = P.desmetar.decodedmetar
+                end
+
+                local ground_icing
+                if wx ~= nil then
+                    ground_icing = helpers.isGroundIcingCondition(wx)
+                else
+                    local tat_c = get(P.tatdegc)
+                    ground_icing = (tat_c ~= nil) and (tat_c <= 5)
+                end
+                ground_icing = not not ground_icing
+
+                local function anyAntiIceOn()
+                    return (get(P.eng1heatpos) == def.ON) or (get(P.eng2heatpos) == def.ON) or (get(P.wingheatpos) == def.ON)
+                end
+
+                local function anyAntiIceOff()
+                    return (get(P.eng1heatpos) == def.OFF) or (get(P.eng2heatpos) == def.OFF) or (get(P.wingheatpos) == def.OFF)
+                end
+
+                if dep_phase then
+                    if (P.configvalues[def.CONFIGAUTOFUNCTIONS] == def.ON) and (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
+                        if ground_icing and bleed_ok then
+                            P.iceprotection(def.ON)
+                        else
+                            P.iceprotection(def.OFF)
+                        end
+                    else
+                        if ground_icing and bleed_ok then
+                            if anyAntiIceOff() then
+                                P.commandtableentry(def.TEXT, "Ground Icing Conditions, Switch Anti Icing On")
+                                P.ongoingtaskstepindex = P.ongoingtaskstepindex - 1
+                            end
+                        else
+                            if anyAntiIceOn() then
+                                P.commandtableentry(def.TEXT, "No Ground Icing Conditions, Switch Anti Icing Off")
+                                P.ongoingtaskstepindex = P.ongoingtaskstepindex - 1
+                            end
+                        end
+                    end
+
+                elseif arr_afterlanding then
+                    if (P.configvalues[def.CONFIGAUTOFUNCTIONS] == def.ON) and (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
+                        if ground_icing and bleed_ok then
+                            P.iceprotection(def.ON)
+                        end
+                    else
+                        if ground_icing and bleed_ok then
+                            if anyAntiIceOff() then
+                                P.commandtableentry(def.TEXT, "Icing Conditions After Landing, Switch Anti Icing On")
+                                P.ongoingtaskstepindex = P.ongoingtaskstepindex - 1
+                            end
+                        end
+                    end
+
+                elseif arr_taxi_to_gate then
+                    if (P.configvalues[def.CONFIGAUTOFUNCTIONS] == def.ON) and (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
+                        if ground_icing and bleed_ok then
+                            P.iceprotection(def.ON)
+                        else
+                            P.iceprotection(def.OFF)
+                        end
+                    else
+                        if ground_icing and bleed_ok then
+                            if anyAntiIceOff() then
+                                P.commandtableentry(def.TEXT, "Icing Conditions Taxi In, Switch Anti Icing On")
+                                P.ongoingtaskstepindex = P.ongoingtaskstepindex - 1
+                            end
+                        else
+                            if anyAntiIceOn() then
+                                P.commandtableentry(def.TEXT, "No Icing Conditions Taxi In, Switch Anti Icing Off")
+                                P.ongoingtaskstepindex = P.ongoingtaskstepindex - 1
+                            end
+                        end
+                    end
+                end
+
+            else
+                if (P.configvalues[def.CONFIGAUTOFUNCTIONS] == def.ON)
+                and (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
+
                     if ((get(P.frameice) > 0.01) and (get(P.altitude) < 30000)) then
                         P.iceprotection(def.ON)
                     elseif ((get(P.altitude) > 30000) or (get(P.tatdegc) > 10)) then
                         P.iceprotection(def.OFF)
                     end
-                end
-            elseif ((P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) and (get(P.airgroundsensor) == def.OFF)) then
-                if ((get(P.frameice) > 0.01) and (get(P.altitude) < 30000)) then
-                    if ((get(P.eng1heatpos) == def.OFF) or (get(P.eng2heatpos) == def.OFF) or (get(P.wingheatpos) == def.OFF)) then
-                        P.commandtableentry(def.TEXT, "Caution Icing Detected, Switch Anti Icing On")
-                        P.ongoingtaskstepindex = P.ongoingtaskstepindex - 1
-                    end
-                elseif (get(P.altitude) > 30000) then
-                    if ((get(P.eng1heatpos) == def.ON) or (get(P.eng2heatpos) == def.ON) or (get(P.wingheatpos) == def.ON)) then
-                        P.commandtableentry(def.TEXT, "Above 30000 Feet, Switch Anti Icing Off")
-                        P.ongoingtaskstepindex = P.ongoingtaskstepindex - 1
-                    end
-                elseif (get(P.tatdegc) > 10) then
-                    if ((get(P.eng1heatpos) == def.ON) or (get(P.eng2heatpos) == def.ON) or (get(P.wingheatpos) == def.ON)) then
-                        P.commandtableentry(def.TEXT, "T A T above 10 degree, Switch Anti Icing Off")
-                        P.ongoingtaskstepindex = P.ongoingtaskstepindex - 1
+
+                elseif (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
+
+                    if ((get(P.frameice) > 0.01) and (get(P.altitude) < 30000)) then
+                        if ((get(P.eng1heatpos) == def.OFF) or (get(P.eng2heatpos) == def.OFF) or (get(P.wingheatpos) == def.OFF)) then
+                            P.commandtableentry(def.TEXT, "Caution Icing Detected, Switch Anti Icing On")
+                            P.ongoingtaskstepindex = P.ongoingtaskstepindex - 1
+                        end
+                    elseif (get(P.altitude) > 30000) then
+                        if ((get(P.eng1heatpos) == def.ON) or (get(P.eng2heatpos) == def.ON) or (get(P.wingheatpos) == def.ON)) then
+                            P.commandtableentry(def.TEXT, "Above 30000 Feet, Switch Anti Icing Off")
+                            P.ongoingtaskstepindex = P.ongoingtaskstepindex - 1
+                        end
+                    elseif (get(P.tatdegc) > 10) then
+                        if ((get(P.eng1heatpos) == def.ON) or (get(P.eng2heatpos) == def.ON) or (get(P.wingheatpos) == def.ON)) then
+                            P.commandtableentry(def.TEXT, "T A T above 10 degree, Switch Anti Icing Off")
+                            P.ongoingtaskstepindex = P.ongoingtaskstepindex - 1
+                        end
                     end
                 end
             end
         end
-    elseif (P.ongoingtaskstepindex == 5) then
+    end
+
+    if (P.ongoingtaskstepindex == 5) then
         if (P.configvalues[def.CONFIGAUTOWIPER] == def.ON) then
-            if ((P.configvalues[def.CONFIGAUTOFUNCTIONS] == def.ON) and (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON)) then
+            if ((P.configvalues[def.CONFIGAUTOFUNCTIONS] == def.ON) and (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON)) then               
                 if (get(P.groundspeed) > 250) then
                     P.autowiper(def.OFF)
                 elseif ((P.apurunning() == def.APUONBUS) or (get(P.gen1pos) == def.ON) or (get(P.gen2pos) == def.ON)) then
