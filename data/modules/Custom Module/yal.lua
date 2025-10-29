@@ -745,10 +745,11 @@ function P.initializeScript()
     P.initDataref()
 
     helpers.buildnavdatatable(P.navdatatable)
+    helpers.buildairportdatatable(P.airportdatatable)
     if (sasl.getLogLevel() == LOG_DEBUG) then
         helpers.writenavdatatable(P.navdatatable)
+        helpers.writeairportdatatable(P.airportdatatable)
     end
-    helpers.buildairportdatatable(P.airportdatatable)
 
     P.commandtableentry(def.TEXT, "YAL Initialization done")
     sasl.logInfo("Initialization and state restored")
@@ -791,10 +792,11 @@ function P.yalresetForNewFlight()
 
     P.readconfig()
     helpers.buildnavdatatable(P.navdatatable)
+    helpers.buildairportdatatable(P.airportdatatable)
     if (sasl.getLogLevel() == LOG_DEBUG) then
         helpers.writenavdatatable(P.navdatatable)
+        helpers.writeairportdatatable(P.airportdatatable)
     end
-    helpers.buildairportdatatable(P.airportdatatable)
 
     P.commandtableentry(def.TEXT, "Reset for a new flight done.")
 
@@ -900,10 +902,11 @@ function P.yalreset()
 
     -- Rest (NavData bauen etc.)
     helpers.buildnavdatatable(P.navdatatable)
+    helpers.buildairportdatatable(P.airportdatatable)
     if (sasl.getLogLevel() == LOG_DEBUG) then
         helpers.writenavdatatable(P.navdatatable)
+        helpers.writeairportdatatable(P.airportdatatable)
     end
-    helpers.buildairportdatatable(P.airportdatatable)
 
     P.commandtableentry(def.TEXT, "YAL Reset done")
 

@@ -1753,6 +1753,76 @@ function P.calculateStallSpeed(weightKg, weatherData, flapsSetting)
 end
 
 --------------------------------------------------------------------------------------------------------------
+local function toNumber(value, default)
+    if value == nil then
+        return default
+    end
+
+    local valueType = type(value)
+
+    if valueType == "number" then
+        return value
+    elseif valueType == "string" then
+        local num = tonumber(value)
+        return num or default
+    elseif valueType == "boolean" then
+        return value and 1 or 0
+    elseif valueType == "table" then
+        if value.value ~= nil then
+            return toNumber(value.value, default)
+        end
+    elseif valueType == "userdata" then
+        local ok, result = pcall(get, value)
+        if ok and type(result) == "number" then
+            return result
+        end
+    end
+
+    local num = tonumber(value)
+    return num or default
+end
+
+local function normalizeWeatherCode(entry)
+    if type(entry) == "table" then
+        if entry.code then
+            return tostring(entry.code):upper()
+        end
+        local parts = {}
+        if entry.intensity and entry.intensity ~= "" then
+            table.insert(parts, tostring(entry.intensity))
+        end
+        if entry.descriptor and entry.descriptor ~= "" then
+            table.insert(parts, tostring(entry.descriptor))
+        end
+        if entry.phenomenon and entry.phenomenon ~= "" then
+            table.insert(parts, tostring(entry.phenomenon))
+        end
+        if #parts > 0 then
+            return table.concat(parts):upper()
+        end
+    elseif type(entry) == "string" then
+        return entry:upper()
+    end
+    return nil
+end
+
+local function weatherListHasPhenomenon(weatherList, targets)
+    if type(weatherList) ~= "table" or #weatherList == 0 then
+        return false
+    end
+    for _, entry in ipairs(weatherList) do
+        local code = normalizeWeatherCode(entry)
+        if code then
+            for _, needle in ipairs(targets) do
+                if code:find(needle, 1, true) then
+                    return true
+                end
+            end
+        end
+    end
+    return false
+end
+
 function P.determineTakeoffFlapsSetting(totalweightkgs, deprwylen, deprwyheading, elevation, metar)
     local STANDARD_TAKEOFF_FLAPS = 5
     local TAKEOFF_WEIGHT_THRESHOLD_HIGH = 65000
@@ -1766,37 +1836,35 @@ function P.determineTakeoffFlapsSetting(totalweightkgs, deprwylen, deprwyheading
     local TAKEOFF_TAILWIND_CONSIDERATION_THRESHOLD = 5
     -- local TAKEOFF_WET_RUNWAY_PENALTY_FLAPS = 1 -- Not currently used directly, logic adds flap step
 
-    -- Check for essential METAR data
-    if not (metar.decodedmetar and metar.decodedmetar.wind and metar.decodedmetar.wind.direction ~= nil and metar.decodedmetar.wind.speed ~= nil and
-            metar.decodedmetar.temperature and metar.decodedmetar.temperature.value ~= nil and
-            metar.decodedmetar.pressure and metar.decodedmetar.pressure.qnh_hpa ~= nil) then
-        sasl.logInfo("determineTakeoffFlapsSetting: Insufficient METAR data, returning default flaps " .. STANDARD_TAKEOFF_FLAPS)
-        return STANDARD_TAKEOFF_FLAPS
-    end
+    local totalWeightKg = toNumber(totalweightkgs, 0)
+    local runwayLengthMeters = toNumber(deprwylen, 0)
+    local runwayHeading = toNumber(deprwyheading, 0)
+    local airportElevationMeters = toNumber(elevation, 0)
 
-    -- Check for essential input parameters
-    if not (type(totalweightkgs) == "number" and totalweightkgs > 0 and
-            type(deprwylen) == "number" and deprwylen > 0 and
-            type(elevation) == "number" and type(deprwyheading) == "number") then
+    if totalWeightKg <= 0 or runwayLengthMeters <= 0 then
         sasl.logInfo("determineTakeoffFlapsSetting: Invalid input parameters (weight, length, elevation, heading), returning default flaps " .. STANDARD_TAKEOFF_FLAPS)
         return STANDARD_TAKEOFF_FLAPS
     end
 
-    -- Determine if runway is likely wet/contaminated
-    local isRunwayWet = false
-    if metar.decodedmetar.weather then -- Check if weather array exists
-        for _, wx in ipairs(metar.decodedmetar.weather) do
-            if wx.phenomenon == "RA" or wx.phenomenon == "SN" or wx.phenomenon == "DZ" or
-               wx.phenomenon == "FZRA" or wx.phenomenon == "FZDZ" or wx.phenomenon == "FZFG" then
-                isRunwayWet = true
-                break
-            end
+    local weatherData = (metar and metar.decodedmetar) or {}
+    local windInfo = weatherData.wind or {}
+    local rawWindDirection = toNumber(windInfo.direction, nil)
+    if rawWindDirection == nil and type(windInfo.direction) == "string" then
+        local dirStr = windInfo.direction:upper()
+        if dirStr ~= "" and dirStr ~= "VRB" then
+            rawWindDirection = toNumber(dirStr, nil)
         end
     end
-    -- Also consider freezing temps, though precipitation is a stronger indicator
-    if not isRunwayWet and metar.decodedmetar.temperature.value < 1 then
-        -- Maybe add a log here if needed, but precip check is usually sufficient
-        -- isRunwayWet = true -- Decide if temp alone should trigger it
+    local windSpeed = toNumber(windInfo.speed, 0)
+    if windSpeed < 0 then windSpeed = 0 end
+
+    local temperatureC = toNumber(weatherData.temperature and weatherData.temperature.value, 15)
+    local qnhHpa = toNumber(weatherData.pressure and weatherData.pressure.qnh_hpa, 1013.25)
+
+    -- Determine if runway is likely wet/contaminated
+    local isRunwayWet = weatherListHasPhenomenon(weatherData.weather, {"RA", "DZ", "SN", "FZ", "TS"})
+    if not isRunwayWet and temperatureC < 1 then
+        isRunwayWet = true
     end
     if isRunwayWet then sasl.logDebug("determineTakeoffFlapsSetting: Runway considered wet/contaminated based on METAR.") end
 
@@ -1806,67 +1874,57 @@ function P.determineTakeoffFlapsSetting(totalweightkgs, deprwylen, deprwyheading
     -- Calculate wind components (using magnetic)
     local headwindComponent = 0
     local crosswindComponent = 0 -- Although not used, calculate for completeness
-    local trueWindDirection = metar.decodedmetar.wind.direction
-    local windSpeed = metar.decodedmetar.wind.speed
-
-    if type(trueWindDirection) == "number" and windSpeed > 0 then -- Only calculate if wind is numeric and has speed
+    if rawWindDirection and windSpeed > 0 and runwayHeading ~= nil then -- Only calculate if wind is numeric and has speed
         -- Get magnetic variation
         local magnetic_variation = 0
-        if metar.latitude and metar.longitude then
-            magnetic_variation = sasl.getMagneticVariation(metar.latitude, metar.longitude) or 0
-        -- Add fallback if needed, e.g., using aircraft position:
-        -- elseif P.latitude and P.longitude then
-        --     magnetic_variation = sasl.getMagneticVariation(P.latitude, P.longitude) or 0
+        local metarLat = toNumber(metar and metar.latitude, nil)
+        local metarLon = toNumber(metar and metar.longitude, nil)
+        if metarLat and metarLon then
+            magnetic_variation = sasl.getMagneticVariation(metarLat, metarLon) or 0
         end
 
         -- Correct wind direction to magnetic
-        local magneticWindDirection = (trueWindDirection - magnetic_variation + 360) % 360
+        local magneticWindDirection = (rawWindDirection - magnetic_variation + 360) % 360
 
         -- Calculate components using MAGNETIC wind and MAGNETIC runway heading
         headwindComponent, crosswindComponent = P.calculateWindComponents(
             magneticWindDirection,
-            deprwyheading,
+            runwayHeading,
             windSpeed
         )
 
         sasl.logDebug(string.format("Takeoff Flaps Calc: TrueWind=%s@%dkt, MagVar=%.1f, MagWind=%03d@%dkt, RwyHdg=%d -> Headwind=%.1f kt, Crosswind=%.1f kt",
-                        tostring(trueWindDirection), windSpeed, magnetic_variation, math.floor(magneticWindDirection+0.5), windSpeed, deprwyheading, headwindComponent, crosswindComponent))
+                        tostring(rawWindDirection), windSpeed, magnetic_variation, math.floor(magneticWindDirection+0.5), windSpeed, runwayHeading, headwindComponent, crosswindComponent))
     else
          sasl.logDebug("Takeoff Flaps Calc: Wind is VRB, Calm, or direction not numeric. Using 0 for components.")
     end
 
     -- Adjust flaps based on weight
-    if totalweightkgs > TAKEOFF_WEIGHT_THRESHOLD_VERY_HIGH then
+    if totalWeightKg > TAKEOFF_WEIGHT_THRESHOLD_VERY_HIGH then
         recommendedFlaps = 15
         sasl.logDebug("Takeoff Flaps Calc: Weight > VERY_HIGH threshold -> Base flaps 15")
-    elseif totalweightkgs > TAKEOFF_WEIGHT_THRESHOLD_HIGH then
+    elseif totalWeightKg > TAKEOFF_WEIGHT_THRESHOLD_HIGH then
         recommendedFlaps = math.max(recommendedFlaps, 10)
         sasl.logDebug("Takeoff Flaps Calc: Weight > HIGH threshold -> Base flaps increased to " .. recommendedFlaps)
     end
 
     -- Adjust flaps based on runway length
-    if deprwylen < TAKEOFF_RUNWAY_LENGTH_VERY_SHORT_THRESHOLD then
+    if runwayLengthMeters < TAKEOFF_RUNWAY_LENGTH_VERY_SHORT_THRESHOLD then
         recommendedFlaps = math.max(recommendedFlaps, 15)
         sasl.logDebug("Takeoff Flaps Calc: Runway < VERY_SHORT threshold -> Flaps increased to " .. recommendedFlaps)
-    elseif deprwylen < TAKEOFF_RUNWAY_LENGTH_SHORT_THRESHOLD then
+    elseif runwayLengthMeters < TAKEOFF_RUNWAY_LENGTH_SHORT_THRESHOLD then
         recommendedFlaps = math.max(recommendedFlaps, 10)
         sasl.logDebug("Takeoff Flaps Calc: Runway < SHORT threshold -> Flaps increased to " .. recommendedFlaps)
     end
 
     -- Adjust flaps based on density altitude
-    local airport_elev_m = elevation -- Use provided elevation as primary source
-    -- Optional: Use METAR elevation if more reliable?
-    -- if (metar.metar and tonumber(metar.metar.elevation_m)) then
-    --     airport_elev_m = metar.metar.elevation_m
-    -- end
-
-    local densityAltitude = P.calculateDensityAltitude(
-        airport_elev_m, -- Should be in meters for the function
-        metar.decodedmetar.temperature.value,
-        metar.decodedmetar.pressure.qnh_hpa
+    local densityAltitudeFeet = P.calculateDensityAltitude(
+        airportElevationMeters,
+        temperatureC,
+        qnhHpa
     )
-    sasl.logDebug(string.format("Takeoff Flaps Calc: Density Altitude calculated: %.0f ft", densityAltitude * 3.28084)) -- Log in feet
-    if densityAltitude * 3.28084 > TAKEOFF_DENSITY_ALTITUDE_THRESHOLD_HIGH then -- Compare threshold in feet
+    sasl.logDebug(string.format("Takeoff Flaps Calc: Density Altitude calculated: %.0f ft", densityAltitudeFeet))
+    if densityAltitudeFeet > TAKEOFF_DENSITY_ALTITUDE_THRESHOLD_HIGH then -- Threshold in feet
         recommendedFlaps = math.max(recommendedFlaps, 10)
         sasl.logDebug("Takeoff Flaps Calc: Density Altitude > HIGH threshold -> Flaps increased to " .. recommendedFlaps)
     end
@@ -1912,87 +1970,90 @@ end
 --------------------------------------------------------------------------------------------------------------
 function P.calcappflapsvref(totalweightkgs, desrwylen, desrwyheading, vref30, metar)
 
-    local weatherData = metar.decodedmetar
+    local totalWeightKg = toNumber(totalweightkgs, 0)
+    local runwayLengthMeters = toNumber(desrwylen, 0)
+    local runwayHeading = toNumber(desrwyheading, 0)
+    local defaultVref = toNumber(vref30, 0)
 
-    -- Check essential METAR data
-    if not (weatherData and weatherData.wind and weatherData.wind.direction ~= nil and weatherData.wind.speed ~= nil and
-            weatherData.temperature and weatherData.temperature.value ~= nil and
-            weatherData.pressure and weatherData.pressure.qnh_hpa ~= nil) then
-        sasl.logInfo("calcappflapsvref: Insufficient METAR data, returning default 30/" .. tostring(vref30))
-        return 30, vref30
-    end
-
-    -- Check essential input parameters
-    if not (type(totalweightkgs) == "number" and totalweightkgs > 0 and
-            type(desrwylen) == "number" and desrwylen > 0 and
-            type(desrwyheading) == "number" and -- Keep as number
-            type(vref30) == "number" and vref30 > 0) then
+    if totalWeightKg <= 0 or runwayLengthMeters <= 0 or defaultVref <= 0 then
         sasl.logInfo("calcappflapsvref: Invalid input parameters, returning default 30/" .. tostring(vref30))
-        return 30, vref30
+        return 30, defaultVref
     end
 
-    -- Calculate wind components (using magnetic)
-    local headwindComponent = 0
-    local crosswindKnots = 0 -- Signed: +Left / -Right
-    local trueWindDirection = weatherData.wind.direction
-    local windSpeed = weatherData.wind.speed
+    local weatherData = (metar and metar.decodedmetar) or {}
+    local windInfo = weatherData.wind or {}
+    local rawWindDirection = toNumber(windInfo.direction, nil)
+    if rawWindDirection == nil and type(windInfo.direction) == "string" then
+        local dirStr = windInfo.direction:upper()
+        if dirStr ~= "" and dirStr ~= "VRB" then
+            rawWindDirection = toNumber(dirStr, nil)
+        end
+    end
+    local windSpeed = toNumber(windInfo.speed, 0)
+    if windSpeed < 0 then windSpeed = 0 end
+    weatherData.wind = weatherData.wind or {}
+    weatherData.wind.speed = windSpeed
 
-    if type(trueWindDirection) == "number" and windSpeed > 0 then
-        -- Get magnetic variation
+    local temperatureC = toNumber(weatherData.temperature and weatherData.temperature.value, 15)
+    local qnhHpa = toNumber(weatherData.pressure and weatherData.pressure.qnh_hpa, 1013.25)
+
+    local headwindComponent = 0
+    local crosswindKnots = 0
+    local tailwindKnots = 0
+    if rawWindDirection and windSpeed > 0 and runwayHeading ~= nil then
         local magnetic_variation = 0
-        if metar.latitude and metar.longitude then
-            magnetic_variation = sasl.getMagneticVariation(metar.latitude, metar.longitude) or 0
+        local metarLat = toNumber(metar and metar.latitude, nil)
+        local metarLon = toNumber(metar and metar.longitude, nil)
+        if metarLat and metarLon then
+            magnetic_variation = sasl.getMagneticVariation(metarLat, metarLon) or 0
         end
 
-        -- Correct wind direction to magnetic
-        local magneticWindDirection = (trueWindDirection - magnetic_variation + 360) % 360
-
-        -- Calculate components using MAGNETIC wind and MAGNETIC runway heading
+        local magneticWindDirection = (rawWindDirection - magnetic_variation + 360) % 360
         headwindComponent, crosswindKnots = P.calculateWindComponents(
             magneticWindDirection,
-            desrwyheading, -- Assume this is already magnetic
+            runwayHeading,
             windSpeed
         )
+        tailwindKnots = math.max(-headwindComponent, 0)
         sasl.logDebug(string.format("App Flaps Calc: TrueWind=%s@%dkt, MagVar=%.1f, MagWind=%03d@%dkt, RwyHdg=%d -> Headwind=%.1f kt, Crosswind=%.1f kt",
-                        tostring(trueWindDirection), windSpeed, magnetic_variation, math.floor(magneticWindDirection+0.5), windSpeed, desrwyheading, headwindComponent, crosswindKnots))
+                        tostring(rawWindDirection), windSpeed, magnetic_variation, math.floor(magneticWindDirection+0.5), windSpeed, runwayHeading, headwindComponent, crosswindKnots))
     else
         sasl.logDebug("App Flaps Calc: Wind is VRB, Calm, or direction not numeric. Using 0 for components.")
     end
 
+    local visibilityMeters = nil
+    if weatherData.visibility then
+        if type(weatherData.visibility) == "table" then
+            visibilityMeters = toNumber(weatherData.visibility.value, nil)
+        else
+            visibilityMeters = toNumber(weatherData.visibility, nil)
+        end
+    end
 
-    -- Determine bad weather conditions
-    local isBadWeather = false
-    if weatherData.weather then
-        for _, wx_entry in ipairs(weatherData.weather) do
-            -- Consider heavy rain/snow, thunderstorms, freezing conditions etc.
-            if wx_entry.intensity == "heavy" or wx_entry.phenomenon == "TS" or
-               wx_entry.phenomenon == "SN" or wx_entry.phenomenon == "FZRA" or wx_entry.phenomenon == "FZDZ" then
-                isBadWeather = true
-                sasl.logDebug("App Flaps Calc: Bad weather detected (precipitation/TS).")
-                break
+    local isBadWeather = weatherListHasPhenomenon(weatherData.weather, {"TS", "SN", "FZ", "RA", "DZ"})
+    if not isBadWeather and visibilityMeters and visibilityMeters < 5000 then
+        isBadWeather = true
+        sasl.logDebug("App Flaps Calc: Bad weather detected (low visibility).")
+    end
+    if not isBadWeather and weatherData.clouds and #weatherData.clouds > 0 then
+        for _, cloud in ipairs(weatherData.clouds) do
+            local coverage = ""
+            if type(cloud) == "table" then
+                coverage = tostring(cloud.coverage or cloud.type or ""):upper()
+                local cloudBase = toNumber(cloud.altitude, toNumber(cloud.base, nil))
+                if (coverage == "BKN" or coverage == "OVC") and cloudBase and cloudBase < 1000 then
+                    isBadWeather = true
+                    sasl.logDebug("App Flaps Calc: Bad weather detected (low ceiling).")
+                    break
+                end
+            elseif type(cloud) == "string" then
+                coverage = cloud:upper()
             end
         end
     end
-    -- Low vis / Low ceiling might also imply bad weather/need for more flaps
-    if not isBadWeather and weatherData.visibility and weatherData.visibility.value and (weatherData.visibility.value < 5000) then
-         isBadWeather = true
-         sasl.logDebug("App Flaps Calc: Bad weather detected (low visibility).")
-    end
-    if not isBadWeather and weatherData.clouds and #weatherData.clouds > 0 then
-         for _, cloud in ipairs(weatherData.clouds) do
-             if (cloud.coverage == "BKN" or cloud.coverage == "OVC") and cloud.altitude and cloud.altitude < 1000 then
-                 isBadWeather = true
-                 sasl.logDebug("App Flaps Calc: Bad weather detected (low ceiling).")
-                 break
-             end
-         end
-    end
 
-    -- Determine flaps setting (Passes SIGNED crosswind)
-    local flapsSetting = P.determineLandingFlapsSetting(desrwylen, windSpeed, crosswindKnots, isBadWeather, totalweightkgs)
-
-    -- Calculate Vref (Passes SIGNED crosswind - ensure calculateVref handles it or use math.abs if needed there)
-    local vrefKnots = P.calculateVref(totalweightkgs, flapsSetting, weatherData, crosswindKnots)
+    local flapsSetting = P.determineLandingFlapsSetting(runwayLengthMeters, tailwindKnots, crosswindKnots, isBadWeather, totalWeightKg)
+    local vrefKnots = P.calculateVref(totalWeightKg, flapsSetting, weatherData, crosswindKnots)
 
     -- Round final values
     flapsSetting = math.floor(flapsSetting + 0.5)
@@ -2003,30 +2064,36 @@ function P.calcappflapsvref(totalweightkgs, desrwylen, desrwyheading, vref30, me
 end
 
 --------------------------------------------------------------------------------------------------------------
-function P.determineLandingFlapsSetting(runwayLengthMeters, windSpeedKnots, crosswindKnots, isBadWeather, weightKg)
+function P.determineLandingFlapsSetting(runwayLengthMeters, tailwindKnots, crosswindKnots, isBadWeather, weightKg)
     local LANDING_SHORT_RUNWAY_THRESHOLD = 2000
-    local LANDING_HIGH_WIND_THRESHOLD = 20 -- Gusts might be more relevant here
+    local LANDING_HIGH_TAILWIND_THRESHOLD = 5 -- Consider Flaps 40 if tailwind exceeds 5 kts
     local LANDING_HIGH_CROSSWIND_THRESHOLD = 15
     local LANDING_HIGH_WEIGHT_THRESHOLD = 55000 -- In Kg
 
-    -- *** KORREKTUR: Benutze math.abs() für den Crosswind-Vergleich ***
     local crosswindMagnitude = math.abs(crosswindKnots)
+    local tailwindMagnitude = math.max(tailwindKnots or 0, 0)
 
-    sasl.logDebug(string.format("determineLandingFlapsSetting: Inputs: RwyLen=%.0f, WindSpd=%.0f, XWindMag=%.1f (Signed=%.1f), BadWx=%s, Weight=%.0f",
-                   runwayLengthMeters, windSpeedKnots, crosswindMagnitude, crosswindKnots, tostring(isBadWeather), weightKg))
+    sasl.logDebug(string.format("determineLandingFlapsSetting: Inputs: RwyLen=%.0f, Tailwind=%.1f, XWindMag=%.1f (Signed=%.1f), BadWx=%s, Weight=%.0f",
+                   runwayLengthMeters, tailwindMagnitude, crosswindMagnitude, crosswindKnots, tostring(isBadWeather), weightKg))
 
-    -- Determine if Flaps 40 are recommended
-    if runwayLengthMeters < LANDING_SHORT_RUNWAY_THRESHOLD or
-       windSpeedKnots > LANDING_HIGH_WIND_THRESHOLD or
-       crosswindMagnitude > LANDING_HIGH_CROSSWIND_THRESHOLD or -- Vergleich mit Betrag
-       isBadWeather or
-       weightKg > LANDING_HIGH_WEIGHT_THRESHOLD then
-        sasl.logDebug("determineLandingFlapsSetting: Recommending Flaps 40 due to conditions.")
-        return 40
-    else
-        sasl.logDebug("determineLandingFlapsSetting: Recommending Flaps 30.")
+    local requiresFlaps40 =
+        (runwayLengthMeters > 0 and runwayLengthMeters < LANDING_SHORT_RUNWAY_THRESHOLD) or
+        (tailwindMagnitude > LANDING_HIGH_TAILWIND_THRESHOLD) or
+        isBadWeather or
+        (weightKg or 0) > LANDING_HIGH_WEIGHT_THRESHOLD
+
+    if crosswindMagnitude > LANDING_HIGH_CROSSWIND_THRESHOLD and not (runwayLengthMeters > 0 and runwayLengthMeters < LANDING_SHORT_RUNWAY_THRESHOLD) then
+        sasl.logDebug("determineLandingFlapsSetting: High crosswind detected - preferring Flaps 30 for controllability.")
         return 30
     end
+
+    if requiresFlaps40 then
+        sasl.logDebug("determineLandingFlapsSetting: Recommending Flaps 40 due to landing distance factors.")
+        return 40
+    end
+
+    sasl.logDebug("determineLandingFlapsSetting: Conditions nominal - recommending Flaps 30.")
+    return 30
 end
 
 --------------------------------------------------------------------------------------------------------------
@@ -2049,16 +2116,7 @@ function P.calculateVref(weightKg, flapsSetting, weatherData, crosswindKnots) --
     end
 
     -- Additive for precipitation
-    local hasPrecipitation = false
-    if weatherData.weather then
-        for _, wx_entry in ipairs(weatherData.weather) do
-            if wx_entry.phenomenon == "RA" or wx_entry.phenomenon == "SN" or wx_entry.phenomenon == "DZ" or wx_entry.phenomenon == "FZRA" or wx_entry.phenomenon == "FZDZ" then
-                hasPrecipitation = true
-                break
-            end
-        end
-    end
-
+    local hasPrecipitation = weatherListHasPhenomenon(weatherData.weather, {"RA", "SN", "DZ", "FZ", "GR", "GS"})
     if hasPrecipitation then
         vrefKnots = vrefKnots + VREF_PRECIPITATION_ADDITION
         sasl.logDebug(string.format("Vref Calc: Added %d kts for precipitation.", VREF_PRECIPITATION_ADDITION))
@@ -2514,10 +2572,20 @@ function P.buildnavdatatable(navdatatable)
                     local icao = navdataitems[def.NAVSRC_COL_REGION]
                     local ident = navdataitems[def.NAVSRC_COL_IDENT]
                     local runway = navdataitems[def.NAVSRC_COL_RUNWAY]
+
                     local index = find_nav_entry(navdatatable, icao, ident, def.NAVTYPEILS, runway)
                     if not index then
                         index = find_nav_entry(navdatatable, icao, ident, def.NAVTYPEVOR, runway)
                     end
+                    -- Some DME records carry descriptive text instead of a runway designator.
+                    -- If no match was found, retry without forcing the runway to align.
+                    if not index then
+                        index = find_nav_entry(navdatatable, icao, ident, def.NAVTYPEILS, nil)
+                    end
+                    if not index then
+                        index = find_nav_entry(navdatatable, icao, ident, def.NAVTYPEVOR, nil)
+                    end
+
                     if index then
                         navdatatable[index][def.DESTNAVDME] = true
                         navdatatable[index][def.DESTDMELAT] = lat_val
@@ -2683,6 +2751,41 @@ function P.buildairportdatatable(airport_db)
     file:close()
     
     sasl.logInfo("Airport Data Table created, " .. line_count .. " entries.")
+
+    return true
+end
+
+--------------------------------------------------------------------------------------------------------------
+function P.writeairportdatatable(airport_db)
+
+    local destairportfile = io.open("Custom Data/yal_apt.dat", "w")
+
+    if not destairportfile then
+        sasl.logError("Could not open Custom Data/yal_apt.dat")
+        return false
+    end
+
+    for icao, data in pairs(airport_db) do
+        local latitude = tonumber(data.latitude) or 0
+        local longitude = tonumber(data.longitude) or 0
+        local elevation = tonumber(data.elevation_ft) or 0
+        local airport_type = tostring(data.airport_type or "")
+        local max_rwy_ft = tonumber(data.max_rwy_ft) or 0
+        local has_ils = (data.has_ils and 1) or 0
+
+        destairportfile:write(string.format(
+            "%s %.6f %.6f %d %s %d %d\n",
+            tostring(icao),
+            latitude,
+            longitude,
+            elevation,
+            airport_type,
+            max_rwy_ft,
+            has_ils
+        ))
+    end
+
+    destairportfile:close()
 
     return true
 end

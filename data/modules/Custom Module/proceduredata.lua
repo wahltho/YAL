@@ -362,6 +362,16 @@ function M.fillProcedureTable()
                     check = function() return (helpers.isvalidicao(get(P.depicao)) and helpers.isvalidicao(get(P.desicao))) end,
                     advice = "Activate Flight Plan in F M C",
                     confirm = "Flight Plan in F M C Checked and Activated",
+                    nextStep = 'open_fmc_takeoff_page'
+                },
+                ['open_fmc_takeoff_page'] = {
+                    action = function()
+                        -- Fix: ensure TAKEOFF page is open before entering flaps/CG/V-speeds
+                        helpers.command_once("laminar/B738/button/fmc1_init_ref")
+                        helpers.command_once("laminar/B738/button/fmc1_6R")
+                        helpers.command_once("laminar/B738/button/fmc1_6R")
+                    end,
+                    runActionInAdviceMode = true,
                     nextStep = 'set_fmc_to_flaps'
                 },
                 ['set_fmc_to_flaps'] = { 
@@ -1578,6 +1588,11 @@ function M.fillProcedureTable()
                         local tl = get(P.fmctranslvl)
                         if (tl == nil) or (tl <= 0) or (tl > 25000) then return false end 
                         return (get(P.altitude) < tl) 
+                    end,
+                    action = function()
+                        if P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON then
+                            P.commandtableentry(def.TEXT, "Passing Transition Level")
+                        end
                     end,
                     confirm = "Passing Transition Level",
                     nextStep = 'set_qnh_local'
@@ -2972,12 +2987,12 @@ function M.fillProcedureTable()
                         local ident = navdata[def.DESTNAVID] or ""
                         local freqMsg
                         if (navtype == def.NAVTYPEILS) then
-                            freqMsg = "Frequency " .. helpers.formatILSFrequency(navdata[def.DESTFREQ] or 0)
+                            freqMsg = "Frequency " .. helpers.addspaces(helpers.formatILSFrequency(navdata[def.DESTFREQ] or 0))
                             if navdata[def.DESTNAVDME] then
                                 freqMsg = freqMsg .. " with DME"
                             end
                         else
-                            freqMsg = "Channel " .. tostring(navdata[def.DESTFREQ] or "")
+                            freqMsg = "Channel " .. helpers.addspaces(navdata[def.DESTFREQ] or "")
                         end
                         local message = "Runway " .. helpers.formatRunwayDesignator(navdata[def.DESTRWY])
                             .. " has " .. helpers.addspaces(navtype) .. " Approach (Ident " .. helpers.addspaces(ident) .. ") "
@@ -2999,12 +3014,12 @@ function M.fillProcedureTable()
                                 local ident = navdata[def.DESTNAVID] or ""
                                 local freqMsg
                                 if (navtype == def.NAVTYPEILS) then
-                                    freqMsg = "Frequency " .. helpers.formatILSFrequency(navdata[def.DESTFREQ] or 0)
+                                    freqMsg = "Frequency " .. helpers.addspaces(helpers.formatILSFrequency(navdata[def.DESTFREQ] or 0))
                                     if navdata[def.DESTNAVDME] then
                                         freqMsg = freqMsg .. " with DME"
                                     end
                                 else
-                                    freqMsg = "Channel " .. tostring(navdata[def.DESTFREQ] or "")
+                                    freqMsg = "Channel " .. helpers.addspaces(navdata[def.DESTFREQ] or "")
                                 end
                                 local altMessage = "Alternate option: " .. helpers.addspaces(navtype)
                                     .. " (Ident " .. helpers.addspaces(ident) .. ") " .. freqMsg
