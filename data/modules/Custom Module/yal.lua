@@ -495,6 +495,7 @@ function P.initDataref()
 
     P.fmccg = globalProperty("laminar/B738/FMS/fmc_cg")
     P.tabcg = globalProperty("laminar/B738/tab/cg_pos")
+    P.calctakeoffcg = globalProperty("laminar/B738/fms/calc_to_cg")
 
     P.speedrestr = globalProperty("laminar/B738/autopilot/fmc_descent_r_speed1")
 
@@ -4543,9 +4544,15 @@ function P.commandtableloop()
     while ((#P.commandtable > 0) and (processedentry == false)) do
 
         if (P.commandtable[1][1] == def.COMMAND) then
-            sasl.logInfo("COMMAND: " .. P.commandtable[1][2])
-            helpers.command_once(P.commandtable[1][2])
-            processedentry = true
+            local command_path = P.commandtable[1][2]
+            sasl.logInfo("COMMAND: " .. tostring(command_path))
+
+            local command_handle = sasl.findCommand(command_path)
+            if command_handle then
+                sasl.commandOnce(command_handle)
+            else
+                sasl.logWarning("Command not found: " .. tostring(command_path))
+            end
         elseif (P.commandtable[1][1] == def.TEXT) then
             if ((P.configvalues[def.CONFIGVOICEREADBACK] == def.ON) or (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON)) then
                 sasl.logInfo("SpeakString TEXT: " .. P.commandtable[1][2])
