@@ -8,7 +8,8 @@ function M.fillProcedureTable()
         [def.COLDANDDARKPROCEDURE] = { 
             number = 1, 
             name = "Cold and Dark Startup", 
-            cycable = true, 
+            cycable = true,
+            repeatable = true, 
             speakname = true,
             set = false,
             loop = 1, 
@@ -362,15 +363,28 @@ function M.fillProcedureTable()
                     check = function() return (helpers.isvalidicao(get(P.depicao)) and helpers.isvalidicao(get(P.desicao))) end,
                     advice = "Activate Flight Plan in F M C",
                     confirm = "Flight Plan in F M C Checked and Activated",
+                    nextStep = 'check_fmc_route_continuity'
+                },
+                ['check_fmc_route_continuity'] = {
+                    check = function()
+                        local discontinuity = helpers.detectFMSDiscontinuity(get(P.fmslegs))
+                        if not discontinuity then
+                            return true
+                        end
+                        P.commandtableentry(def.TEXT, "Warning: F M C route still contains a Discontinuity")
+                        return false
+                    end,
+                    advice = "Resolve F M C Discontinuity before continuing",
+                    confirm = "F M C Route checked and Continuous",
                     nextStep = 'open_fmc_takeoff_page'
                 },
                 ['open_fmc_takeoff_page'] = {
                     action = function()
-                        -- Fix: ensure TAKEOFF page is open before entering flaps/CG/V-speeds
                         helpers.command_once("laminar/B738/button/fmc1_init_ref")
                         helpers.command_once("laminar/B738/button/fmc1_6R")
                         helpers.command_once("laminar/B738/button/fmc1_6R")
                     end,
+                    advice = "Open F M C Takeoff Reference Page",
                     runActionInAdviceMode = true,
                     nextStep = 'set_fmc_to_flaps'
                 },
@@ -384,8 +398,20 @@ function M.fillProcedureTable()
                 ['set_fmc_cg'] = { 
                     skipIf = function() return P.configvalues[def.CONFIGVOICEADVICEONLY] == def.OFF end,
                     check = function() return get(P.fmccg) ~= 0 end,
-                    advice = function() return "Set C G " .. tostring(helpers.roundnumber(get(P.tabcg),1)) end,
-                    confirm = function() return "C G checked and " .. tostring(get(P.fmccg)) end,
+                    advice = function()
+                        local targetCg = helpers.formatcgvalue(get(P.tabcg)) or helpers.formatcgvalue(get(P.calctakeoffcg))
+                        if targetCg then
+                            return "Set C G " .. tostring(targetCg)
+                        end
+                        return "Set C G according to Tablet"
+                    end,
+                    confirm = function()
+                        local setCg = helpers.formatcgvalue(get(P.fmccg))
+                        if setCg then
+                            return "C G checked and " .. tostring(setCg)
+                        end
+                        return "C G checked"
+                    end,
                     nextStep = 'set_fmc_vspeeds'
                 },
                 ['set_fmc_vspeeds'] = { 
@@ -2938,6 +2964,32 @@ function M.fillProcedureTable()
                         loop.navdatatableindices = navIndices
                         loop.navdatatableindex = (navIndices and navIndices[1]) or nil
 
+                        local detectedVariant = helpers.detectCIFPApproachVariant(
+                            get(P.desicao),
+                            get(P.desrwy),
+                            get(P.fmslegs),
+                            get(P.fmslegslat),
+                            get(P.fmslegslon)
+                        )
+                        loop.detectedApproach = detectedVariant
+                        if detectedVariant and detectedVariant.navType then
+                            local desiredIndex = helpers.getnavdataindex(P.navdatatable, get(P.desicao), get(P.desrwy), detectedVariant.navType)
+                            if desiredIndex then
+                                loop.navdatatableindex = desiredIndex
+                                local reordered = { desiredIndex }
+                                if navIndices then
+                                    for _, idx in ipairs(navIndices) do
+                                        if idx ~= desiredIndex then
+                                            table.insert(reordered, idx)
+                                        end
+                                    end
+                                end
+                                loop.navdatatableindices = reordered
+                            end
+                        else
+                            loop.detectedApproach = nil
+                        end
+
                         if loop.navdatatableindex ~= nil and P.navdatatable[loop.navdatatableindex] ~= nil then
                             return 'announce_approach_type' 
                         else
@@ -2946,7 +2998,32 @@ function M.fillProcedureTable()
                     end
                 },
                 ['announce_no_approach'] = {
-                    action = function(loop, procData) P.commandtableentry(def.TEXT, "Runway " .. helpers.formatRunwayDesignator(get(P.desrwy)) .. " has no Precision Approach") end,
+                    action = function(loop, procData) 
+                        local runwayFormatted = helpers.formatRunwayDesignator(get(P.desrwy))
+                        P.commandtableentry(def.TEXT, "Runway " .. runwayFormatted .. " has no Precision Approach")
+
+                        local destinationIcao = get(P.desicao)
+                        local runwayRaw = get(P.desrwy)
+                        local runwayKey = ""
+                        if type(runwayRaw) == "string" then
+                            runwayKey = runwayRaw:upper():gsub("%s+", "")
+                        elseif type(runwayRaw) == "number" then
+                            runwayKey = string.format("%02d", runwayRaw)
+                        end
+
+                        if helpers.isvalidicao(destinationIcao) and runwayKey ~= "" then
+                            local cifpData = helpers.loadCIFP(destinationIcao)
+                            if cifpData then
+                                local rnEntries = cifpData[def.NAVTYPERNAV]
+                                local list = rnEntries and rnEntries[runwayKey]
+                                if list and #list > 0 then
+                                    local entry = list[1]
+                                    local descriptor = entry.displayName or ("RNAV " .. runwayFormatted)
+                                    P.commandtableentry(def.TEXT, "Best alternative: " .. descriptor .. " Approach")
+                                end
+                            end
+                        end
+                    end,
                     runActionInAdviceMode = true, 
                     nextStep = 'find_nearest_vor'
                 },
@@ -2985,6 +3062,28 @@ function M.fillProcedureTable()
                         end
                         local navtype = navdata[def.DESTNAVTYPE] or ""
                         local ident = navdata[def.DESTNAVID] or ""
+                        local runwayDesignator = navdata[def.DESTRWY] or ""
+                        local approachDescriptor = helpers.addspaces(navtype) .. " Approach"
+                        local destinationIcao = get(P.desicao)
+                        local detectedVariant = loop.detectedApproach
+                        local useDetected = detectedVariant
+                            and detectedVariant.navType
+                            and (navdata[def.DESTNAVTYPE] == detectedVariant.navType)
+                        if useDetected then
+                            navtype = detectedVariant.navType
+                        end
+
+                        if destinationIcao and destinationIcao ~= "" then
+                            local cifpName
+                            if useDetected and detectedVariant.entry and detectedVariant.entry.displayName then
+                                cifpName = detectedVariant.entry.displayName
+                            else
+                                cifpName = helpers.getCIFPApproachName(destinationIcao, navtype, runwayDesignator)
+                            end
+                            if cifpName and cifpName ~= "" then
+                                approachDescriptor = cifpName .. " Approach"
+                            end
+                        end
                         local freqMsg
                         if (navtype == def.NAVTYPEILS) then
                             freqMsg = "Frequency " .. helpers.addspaces(helpers.formatILSFrequency(navdata[def.DESTFREQ] or 0))
@@ -2995,7 +3094,7 @@ function M.fillProcedureTable()
                             freqMsg = "Channel " .. helpers.addspaces(navdata[def.DESTFREQ] or "")
                         end
                         local message = "Runway " .. helpers.formatRunwayDesignator(navdata[def.DESTRWY])
-                            .. " has " .. helpers.addspaces(navtype) .. " Approach (Ident " .. helpers.addspaces(ident) .. ") "
+                            .. " has " .. approachDescriptor .. " (Ident " .. helpers.addspaces(ident) .. ") "
                             .. freqMsg
                         P.commandtableentry(def.TEXT, message)
                     end,
@@ -3012,6 +3111,7 @@ function M.fillProcedureTable()
                             if navdata then
                                 local navtype = navdata[def.DESTNAVTYPE] or ""
                                 local ident = navdata[def.DESTNAVID] or ""
+                                local runwayDesignator = navdata[def.DESTRWY] or ""
                                 local freqMsg
                                 if (navtype == def.NAVTYPEILS) then
                                     freqMsg = "Frequency " .. helpers.addspaces(helpers.formatILSFrequency(navdata[def.DESTFREQ] or 0))
@@ -3021,7 +3121,15 @@ function M.fillProcedureTable()
                                 else
                                     freqMsg = "Channel " .. helpers.addspaces(navdata[def.DESTFREQ] or "")
                                 end
-                                local altMessage = "Alternate option: " .. helpers.addspaces(navtype)
+                                local descriptor = helpers.addspaces(navtype) .. " Approach"
+                                local destinationIcao = get(P.desicao)
+                                if destinationIcao and destinationIcao ~= "" then
+                                    local cifpName = helpers.getCIFPApproachName(destinationIcao, navtype, runwayDesignator)
+                                    if cifpName and cifpName ~= "" then
+                                        descriptor = cifpName .. " Approach"
+                                    end
+                                end
+                                local altMessage = "Alternate option: " .. descriptor
                                     .. " (Ident " .. helpers.addspaces(ident) .. ") " .. freqMsg
                                 P.commandtableentry(def.TEXT, altMessage)
                             end

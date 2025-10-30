@@ -47,6 +47,17 @@ local function paired_check(c1, t1, c2, t2, P, isDebounced)
     return "none"
 end
 
+local unpack = table.unpack or unpack
+local function call_format(format_fn, args)
+    local ok, result = pcall(function() return format_fn(unpack(args)) end)
+    if ok then return result end
+    if #args > 1 then
+        ok, result = pcall(function() return format_fn(args[1]) end)
+        if ok then return result end
+    end
+    return nil
+end
+
 --------------------------------------------------------------------------------------------------------------
 VR.config = {
     -- ## Simple Checks ##
@@ -441,15 +452,22 @@ function VR.run(P)
         if not (config.condition and not config.condition(P)) then
             if config.check == simple_check then
                 local current = get(P[config.dataref])
-                if simple_check(current, config.temp, P) then local msg = config.format(current, P); if msg then P.commandtableentry(def.TEXT, msg) end end
+                if simple_check(current, config.temp, P) then
+                    local msg = call_format(config.format, { current, P })
+                    if msg then P.commandtableentry(def.TEXT, msg) end
+                end
             elseif config.check == debounce_check then
                 local current = get(P[config.dataref]); if config.dataref == "speedbrakelever" then current = helpers.roundnumber(current, 1) end
-                if debounce_check(current, config.temp1, config.temp2, P) then local msg = config.format(current, P); if msg then P.commandtableentry(def.TEXT, msg) end end
+                if debounce_check(current, config.temp1, config.temp2, P) then
+                    local msg = call_format(config.format, { current, P })
+                    if msg then P.commandtableentry(def.TEXT, msg) end
+                end
             elseif config.check == paired_check then
                 local c1, c2 = get(P[config.dr1]), get(P[config.dr2])
                 local type = paired_check(c1, config.t1, c2, config.t2, P, config.isDebounced)
                 if type ~= "none" then
-                    local msg = config.format(type, c1, c2, P); if msg then P.commandtableentry(def.TEXT, msg) end
+                    local msg = call_format(config.format, { type, c1, c2, P })
+                    if msg then P.commandtableentry(def.TEXT, msg) end
                     if type=="both"or type=="one"or type=="one_and_two"then P[config.t1]=c1;if config.isDebounced then P[config.t1.."2"]=c1 end end
                     if type=="both"or type=="two"or type=="one_and_two"then P[config.t2]=c2;if config.isDebounced then P[config.t2.."2"]=c2 end end
                 end

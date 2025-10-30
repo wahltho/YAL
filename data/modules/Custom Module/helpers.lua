@@ -4,6 +4,8 @@ helpers = P -- package name
 
 local def = require("definitions")
 
+P.cifpCache = P.cifpCache or {}
+
 local ffi = require("ffi")
 local xplm_lib = {
     Linux = "Resources/plugins/XPLM_64.so",
@@ -62,8 +64,12 @@ return get(globalProperty(dataref))
 end    
 
 function P.command_once(cmd)
-    local cmdId = sasl.findCommand(cmd) 
-    sasl.commandOnce(cmdId)
+    local cmdId = sasl.findCommand(cmd)
+    if cmdId then
+        sasl.commandOnce(cmdId)
+    else
+        sasl.logWarning("Command not found: " .. tostring(cmd))
+    end
 end
 
 function P.command_begin(cmd)
@@ -708,6 +714,25 @@ function P.roundnumber(num, decimalPlaces)
 end
 
 --------------------------------------------------------------------------------------------------------------
+function P.formatcgvalue(value)
+    local cg = tonumber(value)
+    if not cg then
+        return nil
+    end
+    if math.abs(cg) < 0.01 then
+        return nil
+    end
+    if math.abs(cg) < 1 then
+        cg = cg * 100
+    end
+    local rounded = P.roundnumber(cg, 1)
+    if rounded == 0 then
+        return nil
+    end
+    return rounded
+end
+
+--------------------------------------------------------------------------------------------------------------
 function P.headingdiff(heading1, heading2)
 
     local headingdifftemp = math.abs(heading1 - heading2)
@@ -830,6 +855,43 @@ function P.getbankanglestring(bankangle)
 end
 
 --------------------------------------------------------------------------------------------------------------
+local function sanitizeWeatherEntries(list)
+    if type(list) ~= "table" then
+        return nil
+    end
+    local sanitized = {}
+    for _, entry in ipairs(list) do
+        local intensity = "moderate"
+        local phenomenon = nil
+        if type(entry) == "string" then
+            phenomenon = entry
+        elseif type(entry) == "table" then
+            if type(entry.phenomenon) == "string" and entry.phenomenon ~= "" then
+                phenomenon = entry.phenomenon
+            elseif type(entry.code) == "string" and entry.code ~= "" then
+                phenomenon = entry.code
+            elseif type(entry[1]) == "string" and entry[1] ~= "" then
+                phenomenon = entry[1]
+            end
+            if type(entry.intensity) == "string" and entry.intensity ~= "" then
+                intensity = entry.intensity
+            elseif type(entry[2]) == "string" and entry[2] ~= "" then
+                intensity = entry[2]
+            end
+        end
+        if phenomenon and phenomenon ~= "" then
+            table.insert(sanitized, {
+                intensity = intensity,
+                phenomenon = phenomenon
+            })
+        end
+    end
+    if #sanitized == 0 then
+        return nil
+    end
+    return sanitized
+end
+
 function P.decodemetar(metar)
     local result = {}
     local parts = {}
@@ -1210,6 +1272,7 @@ function P.decodemetar(metar)
     end
 
     sasl.logDebug("METAR parsing complete")
+    result.weather = sanitizeWeatherEntries(result.weather)
     return result
 end
 
@@ -1299,14 +1362,27 @@ function P.isGroundIcingCondition(wx_in)
 
     if (not precip) and wx_in.weather and type(wx_in.weather) == "table" then
         for _, w in ipairs(wx_in.weather) do
-            if w:match("RA")
-            or w:match("SN")
-            or w:match("DZ")
-            or w:match("BR")
-            or w:match("FG")
-            or w:match("FZ") then
-                precip = true
-                break
+            local phenomenon = nil
+            if type(w) == "string" then
+                phenomenon = w
+            elseif type(w) == "table" then
+                if type(w.phenomenon) == "string" and w.phenomenon ~= "" then
+                    phenomenon = w.phenomenon
+                elseif type(w.code) == "string" and w.code ~= "" then
+                    phenomenon = w.code
+                end
+            end
+            if phenomenon then
+                local upper = phenomenon:upper()
+                if upper:find("RA", 1, true)
+                or upper:find("SN", 1, true)
+                or upper:find("DZ", 1, true)
+                or upper:find("BR", 1, true)
+                or upper:find("FG", 1, true)
+                or upper:find("FZ", 1, true) then
+                    precip = true
+                    break
+                end
             end
         end
     end
@@ -2446,6 +2522,305 @@ function P.findnearestvor(navdatatable, airport_lat, airport_lon)
 end
 
 --------------------------------------------------------------------------------------------------------------
+local function trimString(str)
+    if type(str) ~= "string" then
+        return ""
+    end
+    return (str:gsub("^%s+", ""):gsub("%s+$", ""))
+end
+
+local function formatCIFPApproachName(typeChar, runwayPart, suffix)
+    local prefix = typeChar
+    if typeChar == "I" then
+        prefix = "ILS"
+    elseif typeChar == "G" then
+        prefix = "GLS"
+    elseif typeChar == "L" then
+        prefix = "LPV"
+    elseif typeChar == "R" then
+        prefix = "RNAV"
+    end
+
+    local formattedRunway = P.formatRunwayDesignator(runwayPart)
+    local suffixPart = ""
+    if suffix and suffix ~= "" then
+        suffixPart = " " .. P.addspaces(suffix)
+    end
+
+    return string.format("%s %s%s", prefix, formattedRunway, suffixPart)
+end
+
+function P.loadCIFP(icao)
+    if type(icao) ~= "string" or #icao < 3 then
+        return nil
+    end
+
+    icao = string.upper(icao)
+    P.cifpCache = P.cifpCache or {}
+
+    if P.cifpCache[icao] ~= nil then
+        return P.cifpCache[icao] or nil
+    end
+
+    local cifpPath = string.format("Custom Data/CIFP/%s.dat", icao)
+    local file = io.open(cifpPath, "r")
+    if not file then
+        sasl.logDebug(string.format("CIFP: No file for %s (%s)", icao, cifpPath))
+        P.cifpCache[icao] = false
+        return nil
+    end
+
+    local approaches = {}
+    local entryByCode = {}
+
+    for line in file:lines() do
+        if string.sub(line, 1, 6) == "APPCH:" then
+            local parts = {}
+            for token in string.gmatch(line, "([^,]+)") do
+                table.insert(parts, trimString(token))
+            end
+
+            local code = parts[3]
+            if code and code ~= "" then
+                code = string.upper(code)
+                local typeChar = string.sub(code, 1, 1)
+                local navType
+                if typeChar == "I" then
+                    navType = def.NAVTYPEILS
+                elseif typeChar == "G" then
+                    navType = def.NAVTYPEGLS
+                elseif typeChar == "L" then
+                    navType = def.NAVTYPELPV
+                elseif typeChar == "R" then
+                    navType = def.NAVTYPERNAV
+                end
+
+                if navType then
+                    local entry = entryByCode[code]
+                    if not entry then
+                        local rest = string.sub(code, 2)
+                        local runwayPart, suffix = rest:match("^(%d%d%a?)(%a*)$")
+                        if runwayPart then
+                            runwayPart = string.upper(runwayPart)
+                            suffix = suffix or ""
+
+                            approaches[navType] = approaches[navType] or {}
+                            approaches[navType][runwayPart] = approaches[navType][runwayPart] or {}
+
+                            entry = {
+                                code = code,
+                                typeChar = typeChar,
+                                runway = runwayPart,
+                                suffix = suffix,
+                                displayName = formatCIFPApproachName(typeChar, runwayPart, suffix),
+                                course = nil,
+                                finalFixIdent = nil,
+                                legFixes = {}
+                            }
+
+                            entryByCode[code] = entry
+                            table.insert(approaches[navType][runwayPart], entry)
+                        end
+                    end
+
+                    entry = entryByCode[code]
+                    if entry then
+                        local function register_fix(fix)
+                            fix = trimString(fix or "")
+                            if fix ~= "" then
+                                entry.legFixes[fix] = true
+                            end
+                            return fix
+                        end
+
+                        local procedureFix = register_fix(parts[4])
+                        register_fix(parts[5])
+
+                        local pathTerminator = trimString(parts[11] or "")
+                        local fixIdent = trimString(parts[4] or "")
+                        if pathTerminator == "CF" and fixIdent ~= "" and string.sub(fixIdent, 1, 2) == "RW" then
+                            if not entry.course then
+                                local courseField = trimString(parts[19] or "")
+                                local courseValue = tonumber(courseField)
+                                if courseValue then
+                                    local trueCourse = courseValue / 10.0
+                                    local inboundCourse = (trueCourse + 180.0) % 360.0
+                                    if inboundCourse < 0 then
+                                        inboundCourse = inboundCourse + 360.0
+                                    end
+                                    entry.course = inboundCourse
+                                end
+                            end
+
+                            if not entry.finalFixIdent then
+                                local recommendedFix = register_fix(parts[14])
+                                entry.finalFixIdent = recommendedFix ~= "" and recommendedFix or procedureFix
+                            end
+                        else
+                            register_fix(parts[14])
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    file:close()
+
+    P.cifpCache[icao] = approaches
+    if approaches and next(approaches) then
+        return approaches
+    end
+    P.cifpCache[icao] = false
+    return nil
+end
+
+function P.getCIFPApproach(icao, navType, runway)
+    if type(icao) ~= "string" or type(navType) ~= "string" or type(runway) ~= "string" then
+        return nil
+    end
+
+    local cifpData = P.loadCIFP(icao)
+    if not cifpData then
+        return nil
+    end
+
+    local navEntries = cifpData[navType]
+    if not navEntries then
+        return nil
+    end
+
+    runway = string.upper(runway)
+    local candidates = navEntries[runway]
+    if not candidates or #candidates == 0 then
+        return nil
+    end
+
+    return candidates[1]
+end
+
+function P.getCIFPApproachName(icao, navType, runway)
+    local entry = P.getCIFPApproach(icao, navType, runway)
+    return entry and entry.displayName or nil
+end
+
+function P.getCIFPApproachCourse(icao, navType, runway)
+    local entry = P.getCIFPApproach(icao, navType, runway)
+    return entry and entry.course or nil
+end
+
+local function collectLegNameSet(legs_string, lat_array, lon_array)
+    local names = {}
+    if legs_string then
+        local hasLatArray = type(lat_array) == "table" and type(lon_array) == "table"
+        if hasLatArray then
+            local legstable = P.buildlegstable(legs_string, lat_array, lon_array)
+            if legstable and #legstable > 0 then
+                for _, wp in ipairs(legstable) do
+                    if wp.name and wp.name ~= "" then
+                        names[string.upper(trimString(wp.name))] = true
+                    end
+                end
+            end
+        end
+        if not next(names) then
+            for word in string.gmatch(legs_string, "([^%s]+)") do
+                local key = string.upper(trimString(word))
+                if key ~= "" then
+                    names[key] = true
+                end
+            end
+        end
+    end
+    return names
+end
+
+function P.detectCIFPApproachVariant(icao, runway, legs_string, lat_array, lon_array)
+    if not (P.isvalidicao(icao) and P.isvalidrwy(runway)) then
+        return nil
+    end
+
+    local cifpData = P.loadCIFP(icao)
+    if not cifpData then
+        return nil
+    end
+
+    local legNames = collectLegNameSet(legs_string, lat_array, lon_array)
+    if not next(legNames) then
+        return nil
+    end
+
+    runway = string.upper(runway)
+    local navPriority = {
+        [def.NAVTYPELPV] = 1,
+        [def.NAVTYPEGLS] = 2,
+        [def.NAVTYPEILS] = 3
+    }
+
+    local bestMatch = nil
+
+    for navType, byRunway in pairs(cifpData) do
+        local entries = byRunway[runway]
+        if entries then
+            for _, entry in ipairs(entries) do
+                local matchScore = 0
+                if entry.finalFixIdent then
+                    local key = string.upper(entry.finalFixIdent)
+                    if legNames[key] then
+                        matchScore = matchScore + 5
+                    end
+                end
+                if entry.legFixes then
+                    for fixIdent in pairs(entry.legFixes) do
+                        local key = string.upper(fixIdent)
+                        if legNames[key] then
+                            matchScore = matchScore + 1
+                        end
+                    end
+                end
+
+                if matchScore > 0 then
+                    local currentPriority = navPriority[navType] or 99
+                    if not bestMatch
+                        or currentPriority < bestMatch.priority
+                        or (currentPriority == bestMatch.priority and matchScore > bestMatch.score) then
+                        bestMatch = {
+                            navType = navType,
+                            entry = entry,
+                            score = matchScore,
+                            priority = currentPriority
+                        }
+                    end
+                end
+            end
+        end
+    end
+
+    return bestMatch
+end
+
+function P.detectFMSDiscontinuity(legs_string)
+    if type(legs_string) ~= "string" then
+        return nil
+    end
+
+    local tokens = {}
+    for token in string.gmatch(legs_string, "([^%s]+)") do
+        table.insert(tokens, token)
+    end
+
+    for idx, token in ipairs(tokens) do
+        if token == "DISCONTINUITY" then
+            if idx < #tokens then
+                return { index = idx, total = #tokens }
+            end
+        end
+    end
+
+    return nil
+end
+
+--------------------------------------------------------------------------------------------------------------
 function P.buildnavdatatable(navdatatable)
 
     local function find_nav_entry(target_table, icao, navid, navtype, runway)
@@ -2483,7 +2858,7 @@ function P.buildnavdatatable(navdatatable)
         sasl.logInfo("Navdatabase Sourse: Custom Data/earth_nav.dat")
     end
 
-    for i = 1, 3 do srcnavdatafile:read() end
+    for i = 1, 3 do local _ = srcnavdatafile:read() end
 
     local navdatarecord = srcnavdatafile:read()
     while navdatarecord do
