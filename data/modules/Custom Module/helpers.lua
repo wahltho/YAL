@@ -4,6 +4,89 @@ helpers = P -- package name
 
 local def = require("definitions")
 
+local function parse_version_string(str)
+    str = tostring(str or "")
+    str = str:match("^%s*(.-)%s*$") or ""
+    local major, minor, rest = str:match("^(%d+)%s*%.%s*(%d+)%s*(.*)$")
+    if not major or not minor then
+        return { valid = false }
+    end
+    local patch = 0
+    local suffix = ""
+    rest = rest or ""
+    if rest ~= "" then
+        local patchPart, suffixPart = rest:match("^%.%s*(%d+)%s*(.*)$")
+        if patchPart then
+            patch = tonumber(patchPart) or 0
+            suffix = suffixPart or ""
+        else
+            suffix = rest
+        end
+    end
+    suffix = suffix:match("^%s*(.-)%s*$") or ""
+    local label, num = suffix:match("^([%a%-]+)([%d]*)")
+    label = (label or ""):lower()
+    local prereleaseType = "release"
+    if label ~= "" then
+        if label == "alpha" or label == "a" then
+            prereleaseType = "alpha"
+        elseif label == "beta" or label == "b" then
+            prereleaseType = "beta"
+        elseif label == "rc" then
+            prereleaseType = "rc"
+        else
+            prereleaseType = "prerelease"
+        end
+    elseif suffix ~= "" then
+        prereleaseType = "prerelease"
+    end
+    local prereleaseNum = tonumber(num) or 0
+    return {
+        valid = true,
+        major = tonumber(major) or 0,
+        minor = tonumber(minor) or 0,
+        patch = patch,
+        prereleaseType = prereleaseType,
+        prereleaseNum = prereleaseNum,
+    }
+end
+
+local function is_version_newer(newVersion, currentVersion)
+    local orderMap = {
+        alpha = 0,
+        prerelease = 0,
+        beta = 1,
+        rc = 2,
+        release = 3
+    }
+    local newParsed = parse_version_string(newVersion)
+    local curParsed = parse_version_string(currentVersion)
+    if not newParsed.valid then
+        return false
+    end
+    if not curParsed.valid then
+        return true
+    end
+    if newParsed.major ~= curParsed.major then
+        return newParsed.major > curParsed.major
+    end
+    if newParsed.minor ~= curParsed.minor then
+        return newParsed.minor > curParsed.minor
+    end
+    if newParsed.patch ~= curParsed.patch then
+        return newParsed.patch > curParsed.patch
+    end
+    local newOrder = orderMap[newParsed.prereleaseType] or 0
+    local curOrder = orderMap[curParsed.prereleaseType] or 0
+    if newOrder ~= curOrder then
+        return newOrder > curOrder
+    end
+    if newOrder < 3 then
+        return newParsed.prereleaseNum > curParsed.prereleaseNum
+    end
+    return false
+end
+
 P.cifpCache = P.cifpCache or {}
 
 local ffi = require("ffi")
@@ -45,8 +128,9 @@ function P.checkForUpdate()
     local downloadResult, contents = sasl.net.downloadFileContentsSync(url)
     if downloadResult then -- ... process data
         newVersion = helpers.cleanString(contents, true)
-        sasl.logDebug(string.format("Current version: %s, available version %s", def.VERSION, newVersion))
-        if (tonumber(newVersion) > (tonumber(def.VERSION))) then
+        local currentVersion = tostring(def.VERSION or "")
+        sasl.logDebug(string.format("Current version: %s, available version %s", currentVersion, newVersion))
+        if is_version_newer(newVersion, currentVersion) then
             updateAvailable = true
             sasl.logInfo(string.format("New YAL version available v%s", newVersion))
         else
