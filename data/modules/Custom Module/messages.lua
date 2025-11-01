@@ -14,6 +14,7 @@ local english = {
     VOICEADVICEONLY = 'Voice Advice Only',
     AUTOFUELING = 'YANSH Automatic Fueling',
     DEBUGMODE = 'Debug mode log',
+    SHOWBETAUPDATES = 'Show beta updates',
     TODPAUSEQUITTIME = 'Sim exit after Pause at TOD (0-9999 sec)',
     SAVETIME = 'Auto Flight Save Time (0-9999 sec)',
     SAVENUMBER = 'Auto Flight Save EFB Position (1-8)',

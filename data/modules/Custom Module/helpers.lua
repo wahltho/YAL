@@ -121,8 +121,12 @@ function P.initTailNum()
 end
 
 --------------------------------------------------------------------------------------------------------------
-function P.checkForUpdate()
+function P.checkForUpdate(showBeta)
     local url = def.YALGITHUBURL
+    if showBeta and def.YALBETAGITHUBURL and def.YALBETAGITHUBURL ~= "" then
+        url = def.YALBETAGITHUBURL
+    end
+    sasl.logDebug(string.format("Checking for %s updates via %s", showBeta and "beta" or "stable", url))
     local updateAvailable = false
     local newVersion = ""
     local downloadResult, contents = sasl.net.downloadFileContentsSync(url)

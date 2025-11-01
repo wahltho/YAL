@@ -55,6 +55,7 @@ local settingsDefinition = {
     [def.CONFIGSAVENUMBER] = { dvalue = 1 , type = "number", min = 1, max = 8 },
     [def.CONFIGIGNOREALLBRIGHTHNESSSETTINGS] = { dvalue = 0 , type = "number", min = 0, max = 1 },
     [def.CONFIGHIDEEFBS] = { dvalue = 1 , type = "number", min = 0, max = 1 },
+    [def.CONFIGSHOWBETAUPDATES] = { dvalue = 0 , type = "number", min = 0, max = 1 },
 
 }   
 

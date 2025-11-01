@@ -12,7 +12,8 @@ size = get(size)
 wSize = size[1]
 hSize = size[2]
 
-local YALupdateavailable, YALnewversion = helpers.checkForUpdate()
+local showBetaUpdates = toboolean(settings.appSettings.SHOWBETAUPDATES)
+local YALupdateavailable, YALnewversion = helpers.checkForUpdate(showBetaUpdates)
 
 local wTitle = string.format("%s - " .. messages.translation['SETUP'], def.APPNAMEPREFIXLONG.. " v".. def.VERSION)
 if YALupdateavailable then
@@ -1019,11 +1020,28 @@ wdef = {
             windows.drawText(wdef.misc)
         end
     },
+    SHOWBETAUPDATES = {
+        t = messages.translation['SHOWBETAUPDATES'],
+        value = toboolean(settings.appSettings.SHOWBETAUPDATES),
+        x = x_col2 + 20,
+        y = hSize - 680,
+        w = cb_w,
+        h = cb_h,
+        onMouseDown_ = function()
+            setFocusOnInput(nil)
+            settings.appSettings.SHOWBETAUPDATES = not_(settings.appSettings.SHOWBETAUPDATES)
+            settings.writeSettings(settings.appSettings)
+            wdef.SHOWBETAUPDATES.value = toboolean(settings.appSettings.SHOWBETAUPDATES)
+        end,
+        draw_ = function()
+            windows.drawCheckBox(wdef.SHOWBETAUPDATES)
+        end
+    },
     debugMode = {
         t = messages.translation['DEBUGMODE'],
         value = (sasl.getLogLevel() == LOG_DEBUG),
         x = x_col2 + 20,
-        y = hSize - 680,
+        y = hSize - 700,
         w = cb_w,
         h = cb_h,
         onMouseDown_ = function()
@@ -1045,6 +1063,9 @@ wdef = {
 
 components = {
     interactive {
+        position = getElementInteractive(wdef.SHOWBETAUPDATES)[1],
+        onMouseDown = getElementInteractive(wdef.SHOWBETAUPDATES)[2]
+    }, interactive {
         position = getElementInteractive(wdef.debugMode)[1],
         onMouseDown = getElementInteractive(wdef.debugMode)[2]
     }, interactive {

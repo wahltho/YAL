@@ -2,7 +2,7 @@
 
 local P = {}
 
-P.VERSION = "4.4"
+P.VERSION = "4.4b1"
 
 --------------------------------------------------------------------------------------------------------------
 -- Constants
@@ -50,6 +50,7 @@ P.CONFIGAUTOFLAPS = "AUTOFLAPS"
 P.CONFIGSAVETIME = "SAVETIME"
 P.CONFIGSAVENUMBER = "SAVENUMBER"
 P.CONFIGGEARDOWNFLAPS = "GEARDOWNFLAPS"
+P.CONFIGSHOWBETAUPDATES = "SHOWBETAUPDATES"
 
 P.STRINGDRNONEVALUE = "[NONE]" .. string.rep(" ", 74)
 
@@ -348,6 +349,7 @@ P.XPOUTPUTPATH = sasl.getXPlanePath() .. P.OSSEPARATOR .. "Output" .. P.OSSEPARA
 P.XPCACHESPATH = P.XPOUTPUTPATH .. "caches" .. P.OSSEPARATOR
 P.YALCACHEPATH = P.XPOUTPUTPATH .. "caches" .. P.OSSEPARATOR .. P.APPNAMEPREFIX .. ".cache".. P.OSSEPARATOR
 P.YALGITHUBURL = "https://raw.githubusercontent.com/wahltho/YAL/main/data/modules/configuration/version.ini"
+P.YALBETAGITHUBURL = "https://raw.githubusercontent.com/wahltho/YAL/beta/data/modules/configuration/version.ini"
 
 P.AVWEATHERFURLCSV = "https://aviationweather.gov/api/data/metar?taf=false&ids="
 

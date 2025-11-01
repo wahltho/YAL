@@ -12,6 +12,13 @@
 1.  Copy the main `YAL` folder into your X-Plane `X-Plane 11/Resources/plugins` folder.
 2.  Launch X-Plane and configure YAL via the settings window at "Plugins" -> "Yet Another Linda" -> "Settings".
 
+**Optional: Skunkcrafts Beta Channel**
+1.  Copy the included `skunkcrafts_updater_beta.cfg` into the same directory that contains your aircraft (`X-Plane 12/Aircraft/B737-800X/`).
+2.  Start X-Plane, open the Skunkcrafts Updater and refresh – a new entry named **YAL Beta** will appear.
+3.  In the YAL settings window enable **Show beta updates** (Misc section). The update checker will now use the beta feed (`4.4b1` and newer).
+4.  Run the Skunkcrafts updater for **YAL Beta** to download beta builds. Leave the original entry untouched for the stable channel.
+5.  To revert to stable builds: disable **Show beta updates**, run the normal Skunkcrafts entry and (optionally) remove the beta `.cfg`.
+
 **Requirements:**
 * X-Plane 11 or 12 (Windows, Mac/Intel/Arm, Linux)
 * Aircraft: B737-800 by Zibo
