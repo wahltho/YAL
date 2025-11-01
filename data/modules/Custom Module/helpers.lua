@@ -168,6 +168,31 @@ function P.trimInnerSpace(text)
 end
 
 --------------------------------------------------------------------------------------------------------------
+local function normalize_fmc_text(str)
+    if type(str) ~= "string" then return "" end
+    local trimmed = str:gsub("^%s+", ""):gsub("%s+$", "")
+    return trimmed:gsub("%s+", " ")
+end
+
+function P.getFMCHeader(lineDataref)
+    local raw = P.get(lineDataref or "laminar/B738/fmc1/Line00_L") or ""
+    return normalize_fmc_text(raw), raw
+end
+
+function P.fmcHeaderContains(expected, lineDataref)
+    local header = select(1, P.getFMCHeader(lineDataref))
+    if expected ~= nil and expected ~= "" then
+        sasl.logDebug(string.format("FMC Header check for '%s': '%s'", expected, header))
+    else
+        sasl.logDebug(string.format("FMC Header fetched: '%s'", header))
+    end
+    if expected == nil or expected == "" then
+        return header
+    end
+    return header:upper():find(expected:upper(), 1, true) ~= nil
+end
+
+--------------------------------------------------------------------------------------------------------------
 function P.splitText(text, tabSize, maxColumn)
 
     local tab = ""
@@ -1448,6 +1473,26 @@ function P.shouldCheckRunwaySuitability(metar, runwayDesignator)
           return true
     end
 
+    -- Sicherstellen, dass wir eine numerische Windrichtung besitzen
+    local numericWindDirection = windDirection
+    if type(numericWindDirection) ~= "number" then
+        local vari = weatherData.wind.variable_direction
+        if vari and type(vari.dir1) == "number" and type(vari.dir2) == "number" then
+            numericWindDirection = (vari.dir1 + vari.dir2) / 2
+            sasl.logDebug(string.format(
+                "Wind direction is variable (%s). Using averaged value %.1f° for component calculation.",
+                tostring(windDirection),
+                numericWindDirection
+            ))
+        else
+            sasl.logDebug(string.format(
+                "Wind direction '%s' is non-numeric and no variable range provided. Recommend manual runway suitability check.",
+                tostring(windDirection)
+            ))
+            return false
+        end
+    end
+
     -- 2. Landebahn-Richtung ableiten
     local runwayHeading = P.getRunwayHeadingFromDesignator(runwayDesignator)
     if not runwayHeading then
@@ -1462,7 +1507,7 @@ function P.shouldCheckRunwaySuitability(metar, runwayDesignator)
          magnetic_variation = sasl.getMagneticVariation(metar.latitude, metar.longitude) or 0
     end
     -- Konvertiere Wind zu magnetisch
-    local magneticWindDirection = (windDirection - magnetic_variation + 360) % 360 
+    local magneticWindDirection = (numericWindDirection - magnetic_variation + 360) % 360 
 
     -- Berechne Komponenten mit magnetischer Windrichtung und magnetischem Runway-Heading
     local headwindComponent, crosswindKnots = P.calculateWindComponents(magneticWindDirection, runwayHeading, windSpeed)
@@ -2341,6 +2386,45 @@ function P.buildlegstable(legs_string, lat_array, lon_array)
 end
 
 --------------------------------------------------------------------------------------------------------------
+function P.getRemainingRouteDistance(legs_string, lat_array, lon_array, aircraftLat, aircraftLon)
+    if type(legs_string) ~= "string" or not lat_array or not lon_array then
+        return nil
+    end
+
+    local detailed_route = P.buildlegstable(legs_string, lat_array, lon_array)
+    local waypoint_count = #detailed_route
+
+    if waypoint_count < 2 then
+        return nil
+    end
+
+    local totalDistance = 0
+    for i = 1, waypoint_count - 1 do
+        totalDistance = totalDistance + (detailed_route[i].distance_to_next or 0)
+    end
+
+    if totalDistance <= 0 then
+        return nil
+    end
+
+    if not aircraftLat or not aircraftLon then
+        return totalDistance, detailed_route[waypoint_count]
+    end
+
+    local distanceFromStart = P.getdistancealongroute(detailed_route, aircraftLat, aircraftLon)
+    if not distanceFromStart then
+        return totalDistance, detailed_route[waypoint_count]
+    end
+
+    local remaining = totalDistance - distanceFromStart
+    if remaining < 0 then
+        remaining = 0
+    end
+
+    return remaining, detailed_route[waypoint_count]
+end
+
+--------------------------------------------------------------------------------------------------------------
 function P.getdistancealongroute(detailed_route, currentLat, currentLon)
     local cumulativeDistance = 0
     local totalWaypoints = #detailed_route
@@ -2812,7 +2896,11 @@ function P.detectFMSDiscontinuity(legs_string)
     for idx, token in ipairs(tokens) do
         if token == "DISCONTINUITY" then
             if idx < #tokens then
-                return { index = idx, total = #tokens }
+                local prevLeg = nil
+                if idx > 1 then
+                    prevLeg = tokens[idx - 1]
+                end
+                return { index = idx, total = #tokens, previous = prevLeg }
             end
         end
     end

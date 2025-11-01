@@ -371,20 +371,34 @@ function M.fillProcedureTable()
                         if not discontinuity then
                             return true
                         end
-                        P.commandtableentry(def.TEXT, "Warning: F M C route still contains a Discontinuity")
+                        local prevLeg = discontinuity.previous and helpers.addspaces(discontinuity.previous) or ""
+                        local detail = (prevLeg ~= "") and (" after " .. prevLeg) or ""
+                        P.commandtableentry(def.TEXT, "Warning: F M C route still contains a Discontinuity" .. detail)
                         return false
                     end,
                     advice = "Resolve F M C Discontinuity before continuing",
                     confirm = "F M C Route checked and Continuous",
+                    nextStep = 'open_fmc_init_ref_page'
+                },
+                ['open_fmc_init_ref_page'] = {
+                    check = function()
+                        return helpers.fmcHeaderContains("PERF INIT")
+                    end,
+                    action = function()
+                        helpers.command_once("laminar/B738/button/fmc1_init_ref")
+                    end,
+                    advice = "Open F M C Init Reference Page",
+                    runActionInAdviceMode = true,
                     nextStep = 'open_fmc_takeoff_page'
                 },
                 ['open_fmc_takeoff_page'] = {
+                    check = function()
+                        return helpers.fmcHeaderContains("TAKEOFF REF")
+                    end,
                     action = function()
-                        helpers.command_once("laminar/B738/button/fmc1_init_ref")
-                        helpers.command_once("laminar/B738/button/fmc1_6R")
                         helpers.command_once("laminar/B738/button/fmc1_6R")
                     end,
-                    advice = "Open F M C Takeoff Reference Page",
+                    advice = "Switch to F M C Takeoff Reference Page",
                     runActionInAdviceMode = true,
                     nextStep = 'set_fmc_to_flaps'
                 },
@@ -1606,6 +1620,45 @@ function M.fillProcedureTable()
                             end
                         end
                     end,
+                    nextStep = 'check_route_continuity_before_approach'
+                },
+                ['check_route_continuity_before_approach'] = {
+                    check = function()
+                        local legs = get(P.fmslegs)
+                        if type(legs) ~= "string" or legs == "" then
+                            return true
+                        end
+
+                        local discontinuity = helpers.detectFMSDiscontinuity(legs)
+                        if discontinuity then
+                            local prevLeg = discontinuity.previous and helpers.addspaces(discontinuity.previous) or ""
+                            local detail = (prevLeg ~= "") and (" after " .. prevLeg) or ""
+                            P.commandtableentry(def.TEXT, "Resolve F M C Discontinuity" .. detail .. " before Approach")
+                            return false
+                        end
+
+                        local remainingDistance = helpers.getRemainingRouteDistance(
+                            legs,
+                            get(P.fmslegslat),
+                            get(P.fmslegslon),
+                            get(P.aircraftlatpos),
+                            get(P.aircraftlonpos)
+                        )
+
+                        local todDistance = get(P.vnavtoddist)
+                        local tolerance = 5
+
+                        if remainingDistance and remainingDistance > 0 and todDistance and todDistance > 0 then
+                            if todDistance > (remainingDistance + tolerance) then
+                                P.commandtableentry(def.TEXT, "Verify F M C route extends beyond Top of Descent")
+                                return false
+                            end
+                        end
+
+                        return true
+                    end,
+                    advice = "Ensure F M C route is continuous and extends beyond Top of Descent",
+                    confirm = "F M C route continuity checked",
                     nextStep = 'wait_for_transition'
                 },
                 ['wait_for_transition'] = {
@@ -2445,29 +2498,7 @@ function M.fillProcedureTable()
                 ['ice_off'] = {
                     skipIf = function()
                         local wx = P.desmetar.decodedmetar
-                        local function isGroundIcingCondition(wx_in)
-                            if not wx_in then return false end
-                            local temp_c = wx_in.temp or wx_in.temperature
-                            if temp_c == nil then return false end
-                            local precip = false
-                            if wx_in.precipitation then precip = true end
-                            if wx_in.freezing then precip = true end
-                            if (not precip) and wx_in.weather and type(wx_in.weather) == "table" then
-                                for _, w in ipairs(wx_in.weather) do
-                                    if w:match("RA") or w:match("SN") or w:match("DZ") or w:match("BR") or w:match("FG") or w:match("FZ") then
-                                        precip = true
-                                        break
-                                    end
-                                end
-                            end
-                            if temp_c <= 10 then
-                                if precip or temp_c <= 5 then
-                                    return true
-                                end
-                            end
-                            return false
-                        end
-                        return isGroundIcingCondition(wx)
+                        return helpers.isGroundIcingCondition(wx)
                     end,
                     check = function()
                         return (get(P.eng1heatpos) == def.OFF)
@@ -2626,29 +2657,7 @@ function M.fillProcedureTable()
                 ['ice_off'] = {
                     skipIf = function()
                         local wx = P.desmetar.decodedmetar
-                        local function isGroundIcingCondition(wx_in)
-                            if not wx_in then return false end
-                            local temp_c = wx_in.temp or wx_in.temperature
-                            if temp_c == nil then return false end
-                            local precip = false
-                            if wx_in.precipitation then precip = true end
-                            if wx_in.freezing then precip = true end
-                            if (not precip) and wx_in.weather and type(wx_in.weather) == "table" then
-                                for _, w in ipairs(wx_in.weather) do
-                                    if w:match("RA") or w:match("SN") or w:match("DZ") or w:match("BR") or w:match("FG") or w:match("FZ") then
-                                        precip = true
-                                        break
-                                    end
-                                end
-                            end
-                            if temp_c <= 10 then
-                                if precip or temp_c <= 5 then
-                                    return true
-                                end
-                            end
-                            return false
-                        end
-                        return isGroundIcingCondition(wx)
+                        return helpers.isGroundIcingCondition(wx)
                     end,
                     check = function()
                         return (get(P.eng1heatpos) == def.OFF)
@@ -2924,9 +2933,8 @@ function M.fillProcedureTable()
                     nextStep = 'check_fms_page'
                 },
                 ['check_fms_page'] = {
-                    check = function(loop, procData) 
-                        local FMC1Line00L = helpers.get("laminar/B738/fmc1/Line00_L")
-                        return (string.len(FMC1Line00L) >= 9) and (string.sub(FMC1Line00L, 7, 9) == "APP")
+                    check = function(loop, procData)
+                        return helpers.fmcHeaderContains("APPROACH REF")
                     end,
                     action = function(loop, procData) helpers.command_once("laminar/B738/button/fmc1_init_ref") end,
                     advice = "Open F M C Approach Reference Page",
@@ -3316,9 +3324,8 @@ function M.fillProcedureTable()
                     nextStep = 'check_fms_page'
                 },
                 ['check_fms_page'] = {
-                    check = function(loop, procData) 
-                        local FMC1Line00L = helpers.get("laminar/B738/fmc1/Line00_L")
-                        return (string.len(FMC1Line00L) >= 9) and (string.sub(FMC1Line00L, 7, 9) == "APP")
+                    check = function(loop, procData)
+                        return helpers.fmcHeaderContains("APPROACH REF")
                     end,
                     action = function(loop, procData) helpers.command_once("laminar/B738/button/fmc1_init_ref") end,
                     advice = "Open F M C Approach Reference Page",
@@ -3452,12 +3459,20 @@ function M.fillProcedureTable()
                     nextStep = 'check_fms_page'
                 },
                 ['check_fms_page'] = {
-                    check = function(loop, procData) 
-                        local FMC1Line00L = helpers.get("laminar/B738/fmc1/Line00_L")
-                        return (string.len(FMC1Line00L) >= 13) and (string.sub(FMC1Line00L, 7, 13) == "TAKEOFF")
+                    check = function(loop, procData)
+                        return helpers.fmcHeaderContains("PERF INIT")
                     end,
                     action = function(loop, procData) helpers.command_once("laminar/B738/button/fmc1_init_ref") end,
-                    advice = "Open F M C Takeoff Reference Page",
+                    advice = "Open F M C Init Reference Page",
+                    runActionInAdviceMode = true,
+                    nextStep = 'ensure_takeoff_ref_page'
+                },
+                ['ensure_takeoff_ref_page'] = {
+                    check = function(loop, procData)
+                        return helpers.fmcHeaderContains("TAKEOFF REF")
+                    end,
+                    action = function(loop, procData) helpers.command_once("laminar/B738/button/fmc1_6R") end,
+                    advice = "Switch to F M C Takeoff Reference Page",
                     runActionInAdviceMode = true,
                     branch = function(loop, procData)
                         if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
@@ -3556,10 +3571,6 @@ function M.fillProcedureTable()
                 },
                 ['fire_test_lft_begin'] = {
                     action = function(loop, procData) helpers.command_begin("laminar/B738/toggle_switch/fire_test_lft") end,
-                    nextStep = 'fire_test_lft_wait'
-                },
-                ['fire_test_lft_wait'] = {
-                    -- (Dieser leere Step entspricht dem alten 'stepindex == 3', der nichts tat)
                     nextStep = 'fire_test_lft_end'
                 },
                 ['fire_test_lft_end'] = {

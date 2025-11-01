@@ -35,6 +35,10 @@ function P.YalinitGlobal()
     P.depmetar = {icaocode = "XXXX", metarfound = false, metar = {}, decodedmetar = {}}
     P.desmetar = {icaocode = "XXXX", metarfound = false, metar = {}, decodedmetar = {}}
 
+    P.todDiscontinuityWarned30 = false
+    P.todDiscontinuityWarned10 = false
+    P.routeEndsEarlyWarned = false
+
 
     --------------------------------------------------------------------------------------------------------------
 
@@ -224,6 +228,7 @@ function P.initDataref()
     P.pausetod = globalProperty("laminar/B738/fms/pause_td")
 
     P.vnavtoddist = globalProperty("laminar/B738/fms/vnav_td_dist")
+    P.distdest = globalProperty("laminar/B738/FMS/dist_dest")
     P.vnavtocdist = globalProperty("laminar/B738/fms/vnav_tc_dist")
 
 
@@ -281,6 +286,7 @@ function P.initDataref()
     P.atspeedstat = globalProperty("laminar/B738/autopilot/speed_status1")
     P.atspeedintvstat = globalProperty("laminar/B738/autopilot/spd_interv_status")
     P.atn1mode = globalProperty("laminar/B738/FMS/N1_mode")
+    P.atn1modetoselection = globalProperty("laminar/B738/FMS/N1_mode_to_sel")
     P.atthrottlelock = globalProperty("laminar/B738/autopilot/lock_throttle")
 
     P.atspeedmode = globalProperty("laminar/B738/autopilot/speed_mode")
@@ -4488,6 +4494,81 @@ function P.ongoingtasks()
     end
 
     if (P.ongoingtaskstepindex == 10) then
+        local todDistance = get(P.vnavtoddist)
+        if todDistance and todDistance > 0 then
+            local discontinuity = helpers.detectFMSDiscontinuity(get(P.fmslegs))
+            if discontinuity then
+                local prevLegText = ""
+                if discontinuity.previous then
+                    prevLegText = " after " .. helpers.addspaces(discontinuity.previous)
+                end
+
+                if todDistance <= 10 and not P.todDiscontinuityWarned10 then
+                    P.commandtableentry(def.TEXT, "Warning: Route still contains a Discontinuity" .. prevLegText .. " about 10 NM before Top of Descent")
+                    P.todDiscontinuityWarned10 = true
+                elseif todDistance <= 30 and not P.todDiscontinuityWarned30 then
+                    P.commandtableentry(def.TEXT, "Warning: Route still contains a Discontinuity" .. prevLegText .. " about 30 NM before Top of Descent")
+                    P.todDiscontinuityWarned30 = true
+                end
+            else
+                P.todDiscontinuityWarned30 = false
+                P.todDiscontinuityWarned10 = false
+            end
+
+            if todDistance > 40 then
+                P.todDiscontinuityWarned30 = false
+                P.todDiscontinuityWarned10 = false
+            end
+
+            local routeCheckEligible =
+                (P.flightstate == def.FLIGHTSTATECRUISE) or
+                (P.flightstate == def.FLIGHTSTATEAPPROACH)
+
+            local routeWarningTolerance = 5
+
+            if routeCheckEligible and todDistance and todDistance > routeWarningTolerance then
+                local remainingDistance = helpers.getRemainingRouteDistance(
+                    get(P.fmslegs),
+                    get(P.fmslegslat),
+                    get(P.fmslegslon),
+                    get(P.aircraftlatpos),
+                    get(P.aircraftlonpos)
+                )
+
+                local hasRemaining = remainingDistance and remainingDistance > 0
+                local distDest = get(P.distdest)
+                local hasDestDistance = distDest and distDest > 0
+
+                if hasRemaining then
+                    if todDistance > (remainingDistance + routeWarningTolerance) then
+                        if not P.routeEndsEarlyWarned then
+                            P.commandtableentry(def.TEXT, "Warning: Route may end before Top of Descent, check Arrival setup")
+                            P.routeEndsEarlyWarned = true
+                        end
+                    elseif P.routeEndsEarlyWarned and todDistance <= (remainingDistance + routeWarningTolerance * 0.2) then
+                        P.routeEndsEarlyWarned = false
+                    end
+                elseif hasDestDistance then
+                    if todDistance > (distDest + routeWarningTolerance) then
+                        if not P.routeEndsEarlyWarned then
+                            P.commandtableentry(def.TEXT, "Warning: Route may end before Top of Descent, check Arrival setup")
+                            P.routeEndsEarlyWarned = true
+                        end
+                    elseif P.routeEndsEarlyWarned and todDistance <= (distDest + routeWarningTolerance * 0.2) then
+                        P.routeEndsEarlyWarned = false
+                    end
+                else
+                    P.routeEndsEarlyWarned = false
+                end
+            else
+                P.routeEndsEarlyWarned = false
+            end
+        else
+            P.todDiscontinuityWarned30 = false
+            P.todDiscontinuityWarned10 = false
+            P.routeEndsEarlyWarned = false
+        end
+
         if ((P.flightstate == def.FLIGHTSTATECRUISE) and (get(P.fmsflightphase) == def.FMSPHASECRUISE) and (get(P.mcpaltitude) >= get(P.fmccruisealt)) and (get(P.vnavtoddist) < 20)) then
             P.commandtableentry(def.TEXT, "Approaching Top of Descent, Reset M C P Altitude")
             P.ongoingtaskstepindex = P.ongoingtaskstepindex - 1
