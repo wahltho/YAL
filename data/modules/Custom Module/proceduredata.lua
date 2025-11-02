@@ -106,8 +106,8 @@ function M.fillProcedureTable()
                 ['set_apu_fuel_pump_on'] = {
                     check = function() return get(P.lefttanklswitch) == def.ON end,
                     action = function() set(P.lefttanklswitch, def.ON) end,
-                    advice = "Set Left Forward Fuel Pump On",
-                    confirm = "Left Forward Fuel Pump checked and On",
+                    advice = "Set Left After Fuel Pump On",
+                    confirm = "Left After Fuel Pump checked and On",
                     nextStep = 'start_apu'
                 },
                 ['start_apu'] = {
@@ -633,8 +633,8 @@ function M.fillProcedureTable()
                 ['set_apu_fuel_pump_on'] = {
                     check = function() return get(P.lefttanklswitch) == def.ON end,
                     action = function() set(P.lefttanklswitch, def.ON) end,
-                    advice = "Set Left Forward Fuel Pump On",
-                    confirm = "Left Forward Fuel Pump checked and On",
+                    advice = "Set Left After Fuel Pump On",
+                    confirm = "Left After Fuel Pump checked and On",
                     nextStep = 'start_apu'
                 },
                 ['start_apu'] = {
@@ -673,7 +673,7 @@ function M.fillProcedureTable()
                     end,
                     advice = "Switch A P U Generator On",
                     confirm = "A P U Generator checked and On",
-                    nextStep = 'set_apu_bleed'
+                    nextStep = 'gpu_off'
                 },
                 ['gpu_off'] = {
                     skipIf = function() return get(P.gpuon) == def.OFF end,
@@ -681,6 +681,34 @@ function M.fillProcedureTable()
                     action = function() helpers.command_once("laminar/B738/toggle_switch/gpu_up") end,
                     advice = "Switch Ground Power Off",
                     confirm = "Ground Power checked and Off",
+                    nextStep = 'set_apu_bleed'
+                },
+                ['set_apu_bleed'] = {
+                    check = function() return get(P.bleedairapupos) == def.ON end,
+                    action = function() helpers.command_once("laminar/B738/toggle_switch/bleed_air_apu") end,
+                    advice = "Switch A P U Bleed Air On",
+                    confirm = "A P U Bleed Air checked and On",
+                    nextStep = 'set_isol_valve'
+                },
+                ['set_isol_valve'] = {
+                    check = function() return get(P.isolvalvepos) == def.ISOLVALVEOPEN end,
+                    action = function() set(P.isolvalvepos, def.ISOLVALVEOPEN) end,
+                    advice = "Set Isolation Valve Open",
+                    confirm = "Isolation Valve checked and Open",
+                    nextStep = 'set_packs_auto'
+                },
+                ['set_packs_auto'] = {
+                    check = function() return (get(P.packlpos) == def.PACKAUTO) and (get(P.packrpos) == def.PACKAUTO) end,
+                    action = function() set(P.packlpos, def.PACKAUTO); set(P.packrpos, def.PACKAUTO) end,
+                    advice = "Set Both Packs Auto",
+                    confirm = "Both Packs checked and Auto",
+                    nextStep = 'set_trim_air'
+                },
+                ['set_trim_air'] = {
+                    check = function() return get(P.trimairpos) == def.ON end,
+                    action = function() set(P.trimairpos, def.ON) end,
+                    advice = "Set Trim Air On",
+                    confirm = "Trim Air checked and On",
                     nextStep = 'view_main_panel'
                 },
                 ['view_main_panel'] = {
@@ -1335,6 +1363,30 @@ function M.fillProcedureTable()
                         end
                     end,
                     confirm = "Gear Lever checked and Off",
+                    nextStep = 'set_autobrake_off'
+                },
+                ['set_autobrake_off'] = {
+                    check = function()
+                        return get(P.autobrakepos) == def.AUTOBRAKEOFF
+                    end,
+                    advice = "Set Auto Brake Off",
+                    action = function()
+                        P.setautobrake(def.AUTOBRAKEOFF)
+                    end,
+                    confirm = "Auto Brake checked and Off",
+                    nextStep = 'set_flaps_up'
+                },
+                ['set_flaps_up'] = {
+                    check = function()
+                        return get(P.flapleverpos) <= def.FLAPSUP
+                    end,
+                    advice = "Set Flaps Up",
+                    action = function()
+                        if P.configvalues[def.CONFIGAUTOFLAPS] == def.ON then
+                            P.flapsuphandling()
+                        end
+                    end,
+                    confirm = "Flaps checked and Up",
                     nextStep = 'wait_packs_restore_altitude'
                 },
                 ['wait_packs_restore_altitude'] = {
@@ -1402,17 +1454,6 @@ function M.fillProcedureTable()
                     advice = "Switch A P U Off",
                     action = function() helpers.command_once("laminar/B738/spring_toggle_switch/APU_start_pos_up") end,
                     confirm = "A P U checked and Off",
-                    nextStep = 'set_autobrake_off'
-                },
-                ['set_autobrake_off'] = {
-                    check = function()
-                        return get(P.autobrakepos) == def.AUTOBRAKEOFF
-                    end,
-                    advice = "Set Auto Brake Off",
-                    action = function() 
-                        P.setautobrake(def.AUTOBRAKEOFF) 
-                    end,
-                    confirm = "Auto Brake checked and Off",
                     nextStep = nil
                 }
             }
@@ -1490,47 +1531,6 @@ function M.fillProcedureTable()
                     advice = "Set Q N H to Standard",
                     action = function() helpers.command_once("laminar/B738/EFIS_control/capt/push_button/std_press") end,
                     confirm = "Q N H checked and Standard",
-                    nextStep = 'set_eng_bleed_on'
-                },
-                ['set_eng_bleed_on'] = {
-                    check = function() return (get(P.bleedair1pos) == def.ON) and (get(P.bleedair2pos) == def.ON) end,
-                    advice = "Set Both Engine Bleed Air On",
-                    action = function() 
-                        if (get(P.bleedair1pos) == def.OFF) then helpers.command_once("laminar/B738/toggle_switch/bleed_air_1") end
-                        if (get(P.bleedair2pos) == def.OFF) then helpers.command_once("laminar/B738/toggle_switch/bleed_air_2") end
-                    end,
-                    confirm = "Both Engine Bleed Air checked and On",
-                    nextStep = 'set_packs_auto'
-                },
-                ['set_packs_auto'] = {
-                    check = function() return (get(P.packlpos) == def.PACKAUTO) and (get(P.packrpos) == def.PACKAUTO) end,
-                    advice = "Set Both Packs Auto",
-                    action = function() 
-                        set(P.packlpos, def.PACKAUTO)
-                        set(P.packrpos, def.PACKAUTO) 
-                    end,
-                    confirm = "Both Packs checked and On",
-                    nextStep = 'set_isol_valve_auto'
-                },
-                ['set_isol_valve_auto'] = {
-                    check = function() return get(P.isolvalvepos) == def.ISOLVALVEAUTO end,
-                    advice = "Set Isolation Valve Auto",
-                    action = function() set(P.isolvalvepos, def.ISOLVALVEAUTO) end,
-                    confirm = "Isolation Valve checked and Auto",
-                    nextStep = 'set_apu_bleed_off'
-                },
-                ['set_apu_bleed_off'] = {
-                    check = function() return get(P.bleedairapupos) == def.OFF end,
-                    advice = "Switch A P U Bleed Air Off",
-                    action = function() helpers.command_once("laminar/B738/toggle_switch/bleed_air_apu") end,
-                    confirm = "A P U Bleed Air checked and Off",
-                    nextStep = 'set_apu_off'
-                },
-                ['set_apu_off'] = {
-                    check = function() return P.apurunning() == def.APUOFF end,
-                    advice = "Switch A P U Off",
-                    action = function() helpers.command_once("laminar/B738/spring_toggle_switch/APU_start_pos_up") end,
-                    confirm = "A P U checked and Off",
                     nextStep = nil
                 }
             }
