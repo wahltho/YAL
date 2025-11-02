@@ -2734,13 +2734,29 @@ function P.loadCIFP(icao)
         return P.cifpCache[icao] or nil
     end
 
-    local cifpPath = string.format("Custom Data/CIFP/%s.dat", icao)
-    local file = io.open(cifpPath, "r")
+    local searchPaths = {
+        string.format("Custom Data/CIFP/%s.dat", icao),
+        string.format("Resources/default data/CIFP/%s.dat", icao)
+    }
+
+    local file
+    local usedPath
+    for _, candidate in ipairs(searchPaths) do
+        local handle = io.open(candidate, "r")
+        if handle then
+            file = handle
+            usedPath = candidate
+            break
+        end
+    end
+
     if not file then
-        sasl.logDebug(string.format("CIFP: No file for %s (%s)", icao, cifpPath))
+        sasl.logDebug(string.format("CIFP: No file for %s (checked Custom & Default)", icao))
         P.cifpCache[icao] = false
         return nil
     end
+
+    sasl.logDebug(string.format("CIFP: Loaded %s from %s", icao, usedPath))
 
     local approaches = {}
     local entryByCode = {}

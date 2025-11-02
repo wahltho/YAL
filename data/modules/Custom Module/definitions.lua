@@ -2,7 +2,7 @@
 
 local P = {}
 
-P.VERSION = "4.4b1"
+P.VERSION = "4.4b2"
 
 --------------------------------------------------------------------------------------------------------------
 -- Constants
@@ -50,6 +50,7 @@ P.CONFIGAUTOFLAPS = "AUTOFLAPS"
 P.CONFIGSAVETIME = "SAVETIME"
 P.CONFIGSAVENUMBER = "SAVENUMBER"
 P.CONFIGGEARDOWNFLAPS = "GEARDOWNFLAPS"
+P.CONFIGPACKSRESTOREALT = "PACKSRESTOREALT"
 P.CONFIGSHOWBETAUPDATES = "SHOWBETAUPDATES"
 
 P.STRINGDRNONEVALUE = "[NONE]" .. string.rep(" ", 74)

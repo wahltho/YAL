@@ -32,6 +32,7 @@ local english = {
     VREF30 = 'Calculate Approach Flaps, Vref, Autobrake',
     LOWERAIRSPACEALT = 'Lower Airspace Altitude (feet)',
     BANKANGLEMAX = 'Maximum Bank Angle (1-4)',
+    PACKSRESTOREALT = 'Packs Restore Altitude (ft AGL)',
     LOWERDU = 'Set Lower Display Unit',
     TRANSPONDERCODE = 'Default Transponder Code',
     GEARDOWNFLAPS = 'Gear Down Flaps',

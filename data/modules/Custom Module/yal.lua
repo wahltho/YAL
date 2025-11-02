@@ -977,6 +977,8 @@ function P.setview(view, normalizeFirst)
 
     normalizeFirst = normalizeFirst or false
 
+    local commandIssued = false
+
     if ((P.configvalues[def.CONFIGVIEWCHANGES] == def.ON) and ((get(P.tirespeed) < 1) or (get(P.airgroundsensor) == def.OFF))) then
         if ((view == nil) or (type(view) ~= "number") or (view ~= math.floor(view))) then
             sasl.logDebug("Invalid input to setview")
@@ -988,6 +990,7 @@ function P.setview(view, normalizeFirst)
             if normalizeFirst and (view ~= def.DEFAULTVIEW) then
                 sasl.logDebug("Normalizing view to default first...")
                 P.commandtableentry(def.COMMAND, "sim/view/default_view")
+                commandIssued = true
             end
 
             if (view == def.DEFAULTVIEW) then
@@ -1002,12 +1005,13 @@ function P.setview(view, normalizeFirst)
 
             sasl.logDebug("Setting View #" .. view)
             P.previousview = view
+            commandIssued = true
         else
             sasl.logDebug("View #" .. view .. " already set")
         end
     end
 
-    return true
+    return commandIssued
 end
 
 --------------------------------------------------------------------------------------------------------------

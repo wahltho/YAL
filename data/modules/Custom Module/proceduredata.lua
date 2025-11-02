@@ -1314,32 +1314,99 @@ function M.fillProcedureTable()
                     nextStep = 'set_gear_lever_off'
                 },
                 ['set_gear_lever_off'] = {
-                    check = function() 
-                        return get(P.gearhandlepos) == def.GEAROFF 
+                    check = function()
+                        return get(P.gearhandlepos) == def.GEAROFF
                     end,
                     advice = function()
-                        local gear_is_stowed = (get(P.lgeardeployed) == 0) and 
-                                               (get(P.ngeardeployed) == 0) and 
+                        local gear_is_stowed = (get(P.lgeardeployed) == 0) and
+                                               (get(P.ngeardeployed) == 0) and
                                                (get(P.rgeardeployed) == 0)
                         if (get(P.gearhandlepos) == def.GEARUP) and gear_is_stowed then
                             return "Set Gear Lever Off"
                         end
-                        return false 
+                        return false
                     end,
                     action = function()
-                        local gear_is_stowed = (get(P.lgeardeployed) == 0) and 
-                                               (get(P.ngeardeployed) == 0) and 
+                        local gear_is_stowed = (get(P.lgeardeployed) == 0) and
+                                               (get(P.ngeardeployed) == 0) and
                                                (get(P.rgeardeployed) == 0)
                         if (get(P.gearhandlepos) == def.GEARUP) and gear_is_stowed then
                             set(P.gearhandlepos, def.GEAROFF)
                         end
                     end,
                     confirm = "Gear Lever checked and Off",
+                    nextStep = 'wait_packs_restore_altitude'
+                },
+                ['wait_packs_restore_altitude'] = {
+                    check = function()
+                        local restore_alt = P.configvalues[def.CONFIGPACKSRESTOREALT] or 0
+                        if restore_alt <= 0 then
+                            return true
+                        end
+
+                        local departure_altitude = 0
+                        local dep_icao = get(P.depicao)
+                        if dep_icao ~= "" and P.airportdatatable[dep_icao] and P.airportdatatable[dep_icao].elevation_ft then
+                            departure_altitude = P.airportdatatable[dep_icao].elevation_ft
+                        end
+
+                        local height_above_field = get(P.altitude) - departure_altitude
+                        if height_above_field < 0 then
+                            height_above_field = 0
+                        end
+
+                        local flaps_up = get(P.flapleverpos) <= 0
+
+                        return height_above_field >= restore_alt and flaps_up
+                    end,
+                    advice = nil,
+                    action = nil,
+                    nextStep = 'set_eng_bleed_on'
+                },
+                ['set_eng_bleed_on'] = {
+                    check = function() return (get(P.bleedair1pos) == def.ON) and (get(P.bleedair2pos) == def.ON) end,
+                    advice = "Set Both Engine Bleed Air On",
+                    action = function()
+                        if (get(P.bleedair1pos) == def.OFF) then helpers.command_once("laminar/B738/toggle_switch/bleed_air_1") end
+                        if (get(P.bleedair2pos) == def.OFF) then helpers.command_once("laminar/B738/toggle_switch/bleed_air_2") end
+                    end,
+                    confirm = "Both Engine Bleed Air checked and On",
+                    nextStep = 'set_packs_auto'
+                },
+                ['set_packs_auto'] = {
+                    check = function() return (get(P.packlpos) == def.PACKAUTO) and (get(P.packrpos) == def.PACKAUTO) end,
+                    advice = "Set Both Packs Auto",
+                    action = function()
+                        set(P.packlpos, def.PACKAUTO)
+                        set(P.packrpos, def.PACKAUTO)
+                    end,
+                    confirm = "Both Packs checked and On",
+                    nextStep = 'set_isol_valve_auto'
+                },
+                ['set_isol_valve_auto'] = {
+                    check = function() return get(P.isolvalvepos) == def.ISOLVALVEAUTO end,
+                    advice = "Set Isolation Valve Auto",
+                    action = function() set(P.isolvalvepos, def.ISOLVALVEAUTO) end,
+                    confirm = "Isolation Valve checked and Auto",
+                    nextStep = 'set_apu_bleed_off'
+                },
+                ['set_apu_bleed_off'] = {
+                    check = function() return get(P.bleedairapupos) == def.OFF end,
+                    advice = "Switch A P U Bleed Air Off",
+                    action = function() helpers.command_once("laminar/B738/toggle_switch/bleed_air_apu") end,
+                    confirm = "A P U Bleed Air checked and Off",
+                    nextStep = 'set_apu_off'
+                },
+                ['set_apu_off'] = {
+                    check = function() return P.apurunning() == def.APUOFF end,
+                    advice = "Switch A P U Off",
+                    action = function() helpers.command_once("laminar/B738/spring_toggle_switch/APU_start_pos_up") end,
+                    confirm = "A P U checked and Off",
                     nextStep = 'set_autobrake_off'
                 },
                 ['set_autobrake_off'] = {
-                    check = function() 
-                        return get(P.autobrakepos) == def.AUTOBRAKEOFF 
+                    check = function()
+                        return get(P.autobrakepos) == def.AUTOBRAKEOFF
                     end,
                     advice = "Set Auto Brake Off",
                     action = function() 

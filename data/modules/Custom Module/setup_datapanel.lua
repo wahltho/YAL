@@ -468,12 +468,33 @@ wdef = {
             return true
         end
     },
+    PACKSRESTOREALT = {
+        t = messages.translation['PACKSRESTOREALT'],
+        value = tostring(settings.appSettings.PACKSRESTOREALT),
+        x = x_col1 + 20,
+        y = hSize - 540,
+        w = 60,
+        h = def.lineHeight * 1.5,
+        isFocused = false,
+        ascii_min = 48,
+        ascii_max = 57,
+        value_min_len = 1,
+        value_max_len = 5,
+        draw_ = function()
+            windows.inputTextBox(wdef.PACKSRESTOREALT)
+        end,
+        onMouseDown_ = function()
+            setFocusOnInput("PACKSRESTOREALT")
+            register_handler(process_key)
+            return true
+        end
+    },
     BANKANGLEMAX = {
         t = messages.translation['BANKANGLEMAX'],
         value = tostring(settings.appSettings.BANKANGLEMAX),
         x = x_col1,
         x2 = x_col1 + 50,
-        y = hSize - 550,
+        y = hSize - 570,
         w = 20,
         h = 20,
         linePadding = 6,
@@ -498,7 +519,7 @@ wdef = {
         t = messages.translation['LOWERDU'],
         value = toboolean(settings.appSettings.LOWERDU),
         x = x_col1 + 60,
-        y = hSize - 580,
+        y = hSize - 590,
         w = cb_w,
         h = cb_h,
         onMouseDown_ = function()
@@ -515,7 +536,7 @@ wdef = {
         t = messages.translation['TRANSPONDERCODE'],
         value = tostring(settings.appSettings.TRANSPONDERCODE),
         x = x_col1 + 20,
-        y = hSize - 610,
+        y = hSize - 620,
         w = 50,
         h = def.lineHeight * 1.5,
         isFocused = false,
@@ -999,7 +1020,7 @@ wdef = {
         t = messages.translation['IGNOREALLBRIGHTHNESSSETTINGS'],
         value = false,
         x = x_col2 ,
-        y = hSize - 630,
+        y = hSize - 625,
         w = cb_w,
         h = cb_h,
         onMouseDown_ = function()
@@ -1015,7 +1036,7 @@ wdef = {
     misc = {
         t = messages.translation['MISC'],
         x = x_col2,
-        y = hSize - 660,
+        y = hSize - 650,
         draw_ = function()
             windows.drawText(wdef.misc)
         end
@@ -1024,7 +1045,7 @@ wdef = {
         t = messages.translation['SHOWBETAUPDATES'],
         value = toboolean(settings.appSettings.SHOWBETAUPDATES),
         x = x_col2 + 20,
-        y = hSize - 680,
+        y = hSize - 670,
         w = cb_w,
         h = cb_h,
         onMouseDown_ = function()
@@ -1041,7 +1062,7 @@ wdef = {
         t = messages.translation['DEBUGMODE'],
         value = (sasl.getLogLevel() == LOG_DEBUG),
         x = x_col2 + 20,
-        y = hSize - 700,
+        y = hSize - 690,
         w = cb_w,
         h = cb_h,
         onMouseDown_ = function()
@@ -1164,6 +1185,10 @@ components = {
     --cursor = def.cursor,
     position = getElementInteractive(wdef.LOWERAIRSPACEALT)[1],
     onMouseDown = getElementInteractive(wdef.LOWERAIRSPACEALT)[2]
+}, interactive {
+    --cursor = def.cursor,
+    position = getElementInteractive(wdef.PACKSRESTOREALT)[1],
+    onMouseDown = getElementInteractive(wdef.PACKSRESTOREALT)[2]
 }, interactive {
     --cursor = def.cursor,
     position = getElementInteractive(wdef.TRANSPONDERCODE)[1],

@@ -24,6 +24,7 @@ local settingsDefinition = {
     [def.CONFIGVREF30SET] = { dvalue = 1 , type = "number", min = 0, max = 1 },
     [def.CONFIGLOWEAIRSPACEALT] = { dvalue = 10000 , type = "number", min = 1000, max = 20000 },
     [def.CONFIGBANKANGLEMAX] = { dvalue = 4 , type = "number", min = 1, max = 4 },
+    [def.CONFIGPACKSRESTOREALT] = { dvalue = 3000 , type = "number", min = 0, max = 20000 },
     [def.CONFIGLOWERDU] = { dvalue = 1 , type = "number", min = 0, max = 1 },
     [def.CONFIGTRANSPONDER] = { dvalue = 2000 , type = "number", min = 0, max = 7777 },
     [def.CONFIGGEARDOWNFLAPS] = { dvalue = 5 , type = "number", min = 5, max = 15 },
