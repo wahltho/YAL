@@ -193,7 +193,14 @@ function M.fillProcedureTable()
                     nextStep = 'fmc_init_ref'
                 },
                 ['fmc_init_ref'] = {
-                    action = function() helpers.command_once("laminar/B738/button/fmc1_init_ref") end,
+                    check = function()
+                        return helpers.fmcHeaderContains("INIT REF")
+                    end,
+                    action = function()
+                        helpers.command_once("laminar/B738/button/fmc1_init_ref")
+                    end,
+                    advice = "Switch to F M C Init Reference Page Page",
+                    runActionInAdviceMode = true,
                     nextStep = 'check_fms_pos'
                 },
                 ['check_fms_pos'] = {
@@ -388,6 +395,17 @@ function M.fillProcedureTable()
                         helpers.command_once("laminar/B738/button/fmc1_init_ref")
                     end,
                     advice = "Open F M C Init Reference Page",
+                    runActionInAdviceMode = true,
+                    nextStep = 'open_fmc_n1limit_page'
+                },
+                ['open_fmc_n1limit_page'] = {
+                    check = function()
+                        return helpers.fmcHeaderContains("N1 LIMIT")
+                    end,
+                    action = function()
+                        helpers.command_once("laminar/B738/button/fmc1_6R")
+                    end,
+                    advice = "Switch to F M C N 1 Limit Page",
                     runActionInAdviceMode = true,
                     nextStep = 'open_fmc_takeoff_page'
                 },
@@ -1305,7 +1323,7 @@ function M.fillProcedureTable()
                 }
             }
         },
-        [def.AFTERTAKEOFFPROCEDURE] = {
+        [def.AFTERTAKEOFFPROCEDURE] = { 
             number = 7,
             name = "After Takeoff",
             cycable = false,
@@ -1374,26 +1392,36 @@ function M.fillProcedureTable()
                         P.setautobrake(def.AUTOBRAKEOFF)
                     end,
                     confirm = "Auto Brake checked and Off",
-                    nextStep = 'set_flaps_up'
+                    nextStep = 'trigger_packs_restore'
                 },
-                ['set_flaps_up'] = {
-                    check = function()
-                        return get(P.flapleverpos) <= def.FLAPSUP
-                    end,
-                    advice = "Set Flaps Up",
+                ['trigger_packs_restore'] = {
                     action = function()
-                        if P.configvalues[def.CONFIGAUTOFLAPS] == def.ON then
-                            P.flapsuphandling()
+                        local loopInfo = P.loopStateTables[3]
+                        if loopInfo and loopInfo.lock == def.NOPROCEDURE and not P.proceduretable[def.PACKSRESTOREPROCEDURE].set then
+                            P.triggerprocedure(def.PACKSRESTOREPROCEDURE)
                         end
                     end,
-                    confirm = "Flaps checked and Up",
-                    nextStep = 'wait_packs_restore_altitude'
-                },
+                    nextStep = nil
+                }
+            }
+        },
+        [def.PACKSRESTOREPROCEDURE] = {
+            number = 8,
+            name = "Packs Restore",
+            cycable = false,
+            speakname = false,
+            set = false,
+            loop = 3,
+            allowedState = def.AIRONLY,
+            requiredFlightstate = { def.FLIGHTSTATEINITIALCLIMB, def.FLIGHTSTATECLIMB },
+            skipCondition = nil,
+            startStep = 'wait_packs_restore_altitude',
+            steps = {
                 ['wait_packs_restore_altitude'] = {
                     check = function()
                         local restore_alt = P.configvalues[def.CONFIGPACKSRESTOREALT] or 0
                         if restore_alt <= 0 then
-                            return true
+                            return get(P.flapleverpos) <= def.FLAPSUP
                         end
 
                         local departure_altitude = 0
@@ -1407,7 +1435,7 @@ function M.fillProcedureTable()
                             height_above_field = 0
                         end
 
-                        local flaps_up = get(P.flapleverpos) <= 0
+                        local flaps_up = get(P.flapleverpos) <= def.FLAPSUP
 
                         return height_above_field >= restore_alt and flaps_up
                     end,
@@ -1459,7 +1487,7 @@ function M.fillProcedureTable()
             }
         },
         [def.DURINGCLIMBPROCEDURE] = {
-            number = 8,
+            number = 9,
             name = "During Climb",
             cycable = false,
             speakname = false,
@@ -1536,7 +1564,7 @@ function M.fillProcedureTable()
             }
         },
         [def.ALTITUDEA10000PROCEDURE] = {
-            number = 9,
+            number = 10,
             name = "Altitude Above 10000",
             cycable = true,
             speakname = false,
@@ -1633,7 +1661,7 @@ function M.fillProcedureTable()
             }
         },
         [def.DURINGDESCENTPROCEDURE] = {
-            number = 10,
+            number = 11,
             name = "During Descent",
             cycable = false,
             speakname = false,
@@ -1786,7 +1814,7 @@ function M.fillProcedureTable()
             }
         },
         [def.ALTITUDEB10000PROCEDURE] = {
-            number = 11,
+            number = 12,
             name = "Altitude Below 10000",
             cycable = true,
             speakname = false,
@@ -1948,7 +1976,7 @@ function M.fillProcedureTable()
             }
         },
         [def.RADIOALTITUDEB2500PROCEDURE] = {
-            number = 12,
+            number = 13,
             name = "Altitude Below 2500",
             cycable = false,
             speakname = false,
@@ -1981,7 +2009,7 @@ function M.fillProcedureTable()
             }
         },
         [def.RADIOALTITUDEB1000PROCEDURE] = {
-            number = 13,
+            number = 14,
             name = "Altitude Belowe 1000 ",
             cycable = false,
             speakname = false,
@@ -2147,8 +2175,8 @@ function M.fillProcedureTable()
                 }
             }
         },
-        [def.AFTERLANDINGPROCEDURE] = { 
-            number = 14, 
+        [def.AFTERLANDINGPROCEDURE] = {
+            number = 15, 
             name = "After Landing", 
             cycable = true, 
             speakname = true,
@@ -2281,8 +2309,8 @@ function M.fillProcedureTable()
                 }
             }
         },
-        [def.ATPARKINGPOSITIONPROCEDURE] = { 
-            number = 15, 
+        [def.ATPARKINGPOSITIONPROCEDURE] = {
+            number = 16, 
             name = "At Parking Position", 
             cycable = true, 
             speakname = true,
@@ -2403,8 +2431,8 @@ function M.fillProcedureTable()
                 }
             }
         },
-        [def.TURNAROUNDENGINESHUTDOWNPROCEDURE] = { 
-            number = 16, 
+        [def.TURNAROUNDENGINESHUTDOWNPROCEDURE] = {
+            number = 17, 
             name = "Turnaround Engine Shutdown", 
             cycable = true, 
             speakname = true,
@@ -2668,8 +2696,8 @@ function M.fillProcedureTable()
                 }
             }
         },
-        [def.FINALENGINESHUTDOWNPROCEDURE] = { 
-            number = 17, 
+        [def.FINALENGINESHUTDOWNPROCEDURE] = {
+            number = 18, 
             name = "Final Engine Shutdown", 
             cycable = false, 
             speakname = true,
@@ -2786,8 +2814,8 @@ function M.fillProcedureTable()
                 }
             }
         },
-        [def.SHUTDOWNPROCEDURE] = { 
-            number = 18, 
+        [def.SHUTDOWNPROCEDURE] = {
+            number = 19, 
             name = "Shutdown", 
             cycable = true, 
             speakname = true, 
@@ -2980,8 +3008,8 @@ function M.fillProcedureTable()
                 }
             }
         },
-        [def.SETILSPROCEDURE] = { 
-            number = 19, 
+        [def.SETILSPROCEDURE] = {
+            number = 20, 
             name = "Set ILS", 
             cycable = false, 
             speakname = false, 
@@ -3359,8 +3387,8 @@ function M.fillProcedureTable()
                 }
             } 
         },
-        [def.SETVREFPROCEDURE] = { 
-            number = 20, 
+        [def.SETVREFPROCEDURE] = {
+            number = 21, 
             name = "Set V Ref", 
             cycable = false, 
             speakname = false, 
@@ -3497,8 +3525,8 @@ function M.fillProcedureTable()
                 }
             }
         },
-        [def.SETTOFLAPSPROCEDURE] = { 
-            number = 21, 
+        [def.SETTOFLAPSPROCEDURE] = {
+            number = 22, 
             name = "Set Takeoff Flaps", 
             cycable = false, 
             speakname = false, 
@@ -3613,7 +3641,7 @@ function M.fillProcedureTable()
             }
         },
         [def.TESTPROCEDURE] = {
-            number = 22, -- (Nummer geraten, bitte anpassen)
+            number = 23,
             name = "Test",
             cycable = true,
             speakname = true,

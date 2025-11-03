@@ -60,7 +60,20 @@ function P.YalinitGlobal()
 
     P.ongoingtaskstepindex = 1
 
-    P.procedurelooptemplate = { lock = def.NOPROCEDURE, stepindex = 0, currentStepName = "", steprepeat = false, lastActiveTime = 0, procedureabort = false, procedureskipstep = false, procedurenotpossible = false, triggeredmanually = false, setonabort = false, lastStepName = "" }
+    P.procedurelooptemplate = {
+        lock = def.NOPROCEDURE,
+        stepindex = 0,
+        currentStepName = "",
+        steprepeat = false,
+        lastActiveTime = 0,
+        procedureabort = false,
+        procedureskipstep = false,
+        procedurenotpossible = false,
+        triggeredmanually = false,
+        setonabort = false,
+        lastStepName = "",
+        skipConfirmForStep = nil
+    }
 
     P.procedureloop1 = helpers.shallowcopy(P.procedurelooptemplate)
     P.procedureloop2 = helpers.shallowcopy(P.procedurelooptemplate)
@@ -658,6 +671,7 @@ function P.resetLoopState(loopTable)
     loopTable.lastStepName = nil                           -- Explizit nil setzen
     loopTable.procedurenotpossible = cleanTemplate.procedurenotpossible -- Setzt auf false
     loopTable.triggeredmanually = cleanTemplate.triggeredmanually -- Setzt auf false (Standard)
+    loopTable.skipConfirmForStep = nil
 
     P.deleteCustomData(loopTable) -- Entfernt vref, navindex etc.
 
@@ -4427,13 +4441,20 @@ function P.ongoingtasks()
 
     if (P.ongoingtaskstepindex == 5) then
         if (P.configvalues[def.CONFIGAUTOWIPER] == def.ON) then
-            if ((P.configvalues[def.CONFIGAUTOFUNCTIONS] == def.ON) and (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON)) then               
-                if (get(P.groundspeed) > 250) then
+            local groundspeed = get(P.groundspeed)
+            local wipersOn = (get(P.lwiperpos) ~= def.WIPEROFF) or (get(P.rwiperpos) ~= def.WIPEROFF)
+
+            if ((P.configvalues[def.CONFIGAUTOFUNCTIONS] == def.ON) and (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON)) then
+                if (groundspeed > 250) then
                     P.autowiper(def.OFF)
                 elseif ((P.apurunning() == def.APUONBUS) or (get(P.gen1pos) == def.ON) or (get(P.gen2pos) == def.ON)) then
                     P.autowiper(def.ON)
                 elseif ((P.apurunning() < def.APUONBUS) and (get(P.gen1pos) == def.OFF) and (get(P.gen2pos) == def.OFF)) then
                     P.autowiper(def.OFF)
+                end
+            elseif (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
+                if (groundspeed > 250) and wipersOn then
+                    P.commandtableentry(def.TEXT, "Wipers On above 250 knots - set Off")
                 end
             end
         end
@@ -4499,7 +4520,43 @@ function P.ongoingtasks()
 
     if (P.ongoingtaskstepindex == 10) then
         local todDistance = get(P.vnavtoddist)
-        if todDistance and todDistance > 0 then
+        local aircraftInAir = (get(P.airgroundsensor) == def.OFF)
+        local flightStateEligible =
+            (P.flightstate == def.FLIGHTSTATECLIMB) or
+            (P.flightstate == def.FLIGHTSTATECRUISE) or
+            (P.flightstate == def.FLIGHTSTATEAPPROACH)
+
+        if aircraftInAir and flightStateEligible then
+            -- Additional guard: ToD missing but route still long
+            if (not todDistance) or (todDistance <= 0) then
+                local remainingDistance = helpers.getRemainingRouteDistance(
+                    get(P.fmslegs),
+                    get(P.fmslegslat),
+                    get(P.fmslegslon),
+                    get(P.aircraftlatpos),
+                    get(P.aircraftlonpos)
+                )
+                local distDest = get(P.distdest)
+
+                if remainingDistance and distDest and (remainingDistance > 0) and (distDest > 0) then
+                    local diff = distDest - remainingDistance
+                    if diff > 50 then -- significant gap -> route likely incomplete
+                        if not P.routeEndsEarlyWarned then
+                            P.commandtableentry(def.TEXT, "Warning: Route may end too early. Check Arrival / Approach setup.")
+                            P.routeEndsEarlyWarned = true
+                        end
+                    else
+                        P.routeEndsEarlyWarned = false
+                    end
+                end
+            else
+                P.routeEndsEarlyWarned = false
+            end
+        else
+            P.routeEndsEarlyWarned = false
+        end
+
+        if todDistance and todDistance > 0 and aircraftInAir then
             local discontinuity = helpers.detectFMSDiscontinuity(get(P.fmslegs))
             if discontinuity then
                 local prevLegText = ""
@@ -4913,7 +4970,11 @@ function P.runProcedureLoop(loopIndex)
                                 if step.check(loop, procData) then
                                     sasl.logDebug("Check PASSED.")
                                     -- *** FIX FÜR msg-ERROR ANWENDEN (confirm) ***
-                                    if step.confirm and (not useAdviceOnly or not loop.steprepeat) then
+                                    local skipConfirm = (loop.skipConfirmForStep == stepName)
+                                    if skipConfirm then
+                                        sasl.logDebug("Skipping confirmation for step '" .. tostring(stepName) .. "' due to auto action.")
+                                        loop.skipConfirmForStep = nil
+                                    elseif step.confirm and (not useAdviceOnly or not loop.steprepeat) then
                                         local confirm_msg_raw
                                         if type(step.confirm) == "function" then
                                             confirm_msg_raw = step.confirm(loop, procData)
@@ -4927,6 +4988,9 @@ function P.runProcedureLoop(loopIndex)
                                         end
                                     end
                                     -- Ende confirm Fix
+                                    if loop.skipConfirmForStep == stepName then
+                                        loop.skipConfirmForStep = nil
+                                    end
 
                                     if step.branch then
                                         sasl.logDebug("Executing branch function (after successful check).")
@@ -4979,7 +5043,13 @@ function P.runProcedureLoop(loopIndex)
                                                  sasl.logDebug("Executed 'runActionInAdviceMode' action.")
                                             end
                                             -- Ende advice Fix
-                                        else if step.action then step.action(loop, procData); sasl.logDebug("Executed action.") end end
+                                        else
+                                            if step.action then
+                                                step.action(loop, procData)
+                                                loop.skipConfirmForStep = stepName
+                                                sasl.logDebug("Executed action.")
+                                            end
+                                        end
                                     elseif type(branchResult) == "string" then
                                         sasl.logDebug("Branch returned next step name: " .. branchResult)
                                         loop.currentStepName = branchResult
@@ -5015,7 +5085,8 @@ function P.runProcedureLoop(loopIndex)
                                             -- *** AUTO MODE ***
                                             -- Führe Action aus (wie in deiner Original-Logik, bei jedem Fehlschlag)
                                             if step.action then
-                                                step.action(loop, procData);
+                                                step.action(loop, procData)
+                                                loop.skipConfirmForStep = stepName
                                                 sasl.logDebug("Executed action (Auto Mode).")
                                             end
                                         end
