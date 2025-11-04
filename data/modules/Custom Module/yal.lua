@@ -129,18 +129,72 @@ function P.initDataref()
 
     local dataref_path = def.APPNAMEPREFIX .. "/state/procedureset"
     local handle = globalProperty(dataref_path)
+    local maxId = 0
+    for id, _ in pairs(P.proceduretable) do
+        if id > maxId then maxId = id end
+    end
+    local expectedSize = maxId
+
     if not isProperty(handle) then
         sasl.logInfo("Dataref '" .. dataref_path .. "' not found. Creating it now.")
-
-        local maxId = 0
-        for id, _ in pairs(P.proceduretable) do
-            if id > maxId then maxId = id end
-        end
-
-        P.ProcSetStatusarraydr = createGlobalPropertyia(dataref_path, maxId, false, true, true)
+        P.ProcSetStatusarraydr = createGlobalPropertyia(dataref_path, expectedSize, false, true, true)
     else
         sasl.logInfo("Found existing dataref: '" .. dataref_path .. "'")
         P.ProcSetStatusarraydr = handle
+
+        local currentSize = expectedSize
+        if P.ProcSetStatusarraydr and P.ProcSetStatusarraydr.size then
+            local ok, sizeValue = pcall(function() return P.ProcSetStatusarraydr:size() end)
+            if ok and type(sizeValue) == "number" then
+                currentSize = sizeValue
+            end
+        end
+
+        if currentSize < expectedSize then
+            sasl.logInfo("Expanding '" .. dataref_path .. "' from " .. tostring(currentSize) .. " to " .. tostring(expectedSize) .. " entries.")
+            local existingValues = {}
+            for idx = 1, currentSize do
+                existingValues[idx] = get(P.ProcSetStatusarraydr, idx) or 0
+            end
+
+            local migratedValues = {}
+            for idx = 1, expectedSize do migratedValues[idx] = 0 end
+
+            local insertIndex = math.min(def.PACKSRESTOREPROCEDURE or (expectedSize - currentSize + 1), expectedSize)
+
+            for idx = 1, expectedSize do
+                if idx == insertIndex then
+                    migratedValues[idx] = 0
+                else
+                    local sourceIndex = idx
+                    if idx > insertIndex then
+                        sourceIndex = idx - 1
+                    end
+                    if sourceIndex >= 1 and sourceIndex <= currentSize then
+                        migratedValues[idx] = existingValues[sourceIndex] or 0
+                    else
+                        migratedValues[idx] = 0
+                    end
+                end
+            end
+
+            set(P.ProcSetStatusarraydr, migratedValues)
+
+            local resized = currentSize
+            if P.ProcSetStatusarraydr and P.ProcSetStatusarraydr.size then
+                local ok, sizeValue = pcall(function() return P.ProcSetStatusarraydr:size() end)
+                if ok and type(sizeValue) == "number" then
+                    resized = sizeValue
+                end
+            end
+
+            if resized < expectedSize then
+                sasl.logInfo("Recreating '" .. dataref_path .. "' to ensure expanded size.")
+                P.ProcSetStatusarraydr = createGlobalPropertyia(dataref_path, migratedValues, false, true, true)
+            end
+        elseif currentSize > expectedSize then
+            sasl.logWarning("Dataref '" .. dataref_path .. "' has unexpected size " .. tostring(currentSize) .. " (expected " .. tostring(expectedSize) .. "). Extra entries will be ignored.")
+        end
     end
     sasl.logInfo("Restoring procedure '.set' status from dataref array...")
     for id, proc in pairs(P.proceduretable) do
@@ -418,6 +472,7 @@ function P.initDataref()
     P.llights2 = globalPropertyfae("sim/cockpit2/switches/landing_lights_switch", 2)
     P.llights3 = globalPropertyfae("sim/cockpit2/switches/landing_lights_switch", 3)
     P.llights4 = globalPropertyfae("sim/cockpit2/switches/landing_lights_switch", 4)
+    P.ledlightsvariant = globalProperty("laminar/B738/led_lights")
 
     P.taxilight = globalProperty("laminar/B738/toggle_switch/taxi_light_brightness_pos")
     P.positionlights = globalProperty("laminar/B738/toggle_switch/position_light_pos")
@@ -1571,15 +1626,36 @@ function P.cycleprocedures()
     end
 
     for _, procedure in ipairs(proceduresToSort) do
-        if procedure.data.cycable and not procedure.data.set then
+        if procedure.data.cycable then
             local skipFunc = procedure.data.skipCondition
-            if skipFunc and skipFunc() then
-                procedure.data.set = true
-                sasl.logInfo("Skipping " .. procedure.data.name .. " Procedure as its skip condition is met.")
-            else
+            local shouldSkip = false
+            if skipFunc then
+                shouldSkip = skipFunc()
+                if shouldSkip then
+                    if not procedure.data.__skipApplied then
+                        procedure.data.set = true
+                        procedure.data.__skipApplied = true
+                        if P.ProcSetStatusarraydr then
+                            set(P.ProcSetStatusarraydr, 1, procedure.originalKey)
+                        end
+                    end
+                else
+                    if procedure.data.__skipApplied then
+                        procedure.data.__skipApplied = nil
+                        procedure.data.set = false
+                        if P.ProcSetStatusarraydr then
+                            set(P.ProcSetStatusarraydr, 0, procedure.originalKey)
+                        end
+                    end
+                end
+            end
+
+            if not shouldSkip and not procedure.data.set then
                 sasl.logInfo("Next Procedure is: " .. procedure.data.name)
                 P.procedureloop1.lock = procedure.originalKey
                 return true
+            elseif shouldSkip then
+                sasl.logInfo("Skipping " .. procedure.data.name .. " Procedure as its skip condition is met.")
             end
         end
     end
@@ -2100,9 +2176,19 @@ sasl.registerCommandHandler(my_command_togglecollisionlights, 0, P.togglecollisi
 
 --------------------------------------------------------------------------------------------------------------
 function P.togglelandinglights(state)
-    if (state == nil) then
-        if (get(P.llightson) == def.OFF) then
-            if ((get(P.llights1) ~= def.OFF) or (get(P.llights2) ~= def.OFF) or (get(P.llights3) ~= def.OFF) or (get(P.llights4) ~= def.OFF)) then
+    local ledVariant = (get(P.ledlightsvariant) == def.ON)
+
+    if state == nil then
+        if get(P.llightson) == def.OFF then
+            local anyOn = false
+            if ledVariant then
+                anyOn = (get(P.llights3) ~= def.OFF) or (get(P.llights4) ~= def.OFF)
+            else
+                anyOn = (get(P.llights1) ~= def.OFF) or (get(P.llights2) ~= def.OFF) or
+                        (get(P.llights3) ~= def.OFF) or (get(P.llights4) ~= def.OFF)
+            end
+
+            if anyOn then
                 helpers.command_once("sim/lights/landing_lights_off")
             else
                 helpers.command_once("sim/lights/landing_lights_on")
@@ -2110,12 +2196,11 @@ function P.togglelandinglights(state)
         else
             helpers.command_once("sim/lights/landing_lights_off")
         end
-    elseif (state == def.OFF) then
+    elseif state == def.OFF then
         helpers.command_once("sim/lights/landing_lights_off")
-    elseif (state == def.ON) then
+    elseif state == def.ON then
         helpers.command_once("sim/lights/landing_lights_on")
     end
-
 end
 
 function P.togglelandinglights_(phase)

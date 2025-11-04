@@ -1227,32 +1227,45 @@ function P.decodemetar(metar)
             else
                 sasl.logError("Warning: Could not parse SM visibility value from: " .. part)
             end
-
-        elseif (not result.visibility and #part == 4 and (tonumber(part) or part == "9999")) then
-            if (part == "9999") then
-                result.visibility = { value = 10000 }
-                sasl.logDebug("Parsed visibility: 10000+ meters (from 9999)")
-            else
-                result.visibility = { value = tonumber(part) }
-                sasl.logDebug(string.format("Parsed visibility: %d meters", result.visibility.value))
-            end
-            parsed = true
-
-            -- ## START VISIBILITY CHANGE ##
-            if result.visibility and i + 1 <= #parts then
-                local next_part = parts[i + 1]
-                local dir_vis_val, dir_code = string.match(next_part, "^(%d%d%d%d)([NSEW][EW]?)$")
-                if dir_vis_val and dir_code then
-                    result.visibility.directional = {
-                        value = tonumber(dir_vis_val),
-                        direction = dir_code
-                    }
-                    sasl.logDebug(string.format("Parsed directional visibility: %d meters towards %s",
-                                  result.visibility.directional.value, result.visibility.directional.direction))
-                    i = i + 1
+        elseif (not result.visibility) then
+            local ndv_value = string.match(part, "^(%d%d%d%d)NDV$")
+            if ndv_value then
+                local numeric_val = tonumber(ndv_value)
+                if ndv_value == "9999" then
+                    result.visibility = { value = 10000 }
+                    sasl.logDebug("Parsed visibility: 10000+ meters (from 9999NDV)")
+                else
+                    result.visibility = { value = numeric_val }
+                    sasl.logDebug(string.format("Parsed visibility: %d meters (NDV)", result.visibility.value))
                 end
+                result.visibility_ndv = true
+                parsed = true
+            elseif #part == 4 and (tonumber(part) or part == "9999") then
+                if (part == "9999") then
+                    result.visibility = { value = 10000 }
+                    sasl.logDebug("Parsed visibility: 10000+ meters (from 9999)")
+                else
+                    result.visibility = { value = tonumber(part) }
+                    sasl.logDebug(string.format("Parsed visibility: %d meters", result.visibility.value))
+                end
+                parsed = true
+
+                -- ## START VISIBILITY CHANGE ##
+                if result.visibility and i + 1 <= #parts then
+                    local next_part = parts[i + 1]
+                    local dir_vis_val, dir_code = string.match(next_part, "^(%d%d%d%d)([NSEW][EW]?)$")
+                    if dir_vis_val and dir_code then
+                        result.visibility.directional = {
+                            value = tonumber(dir_vis_val),
+                            direction = dir_code
+                        }
+                        sasl.logDebug(string.format("Parsed directional visibility: %d meters towards %s",
+                                      result.visibility.directional.value, result.visibility.directional.direction))
+                        i = i + 1
+                    end
+                end
+                -- ## END VISIBILITY CHANGE ##
             end
-            -- ## END VISIBILITY CHANGE ##
 
         elseif (string.sub(part, 1, 1) == "R" and string.find(part, "/", 1, true) and #part >= 5) then
             result.runway_reports = result.runway_reports or {}
@@ -1803,7 +1816,10 @@ function P.formatMetarSpeechSummary(metar, runwayName)
                 end
 
                 if cloud.type and cloud.type ~= "" then
-                    report_str = report_str .. " (" .. cloud.type .. ")"
+                    local trimmedType = cloud.type:gsub("%s+", "")
+                    if trimmedType:find("%w") then
+                        report_str = report_str .. " (" .. trimmedType .. ")"
+                    end
                 end
 
                 if report_str ~= "" then
@@ -2897,6 +2913,57 @@ function P.getCIFPApproachCourse(icao, navType, runway)
     return entry and entry.course or nil
 end
 
+function P.findApproachDME(navdatatable, icao, runway, refLat, refLon)
+    if type(navdatatable) ~= "table" then return nil end
+    if type(icao) ~= "string" or icao == "" then return nil end
+
+    icao = string.upper(icao)
+    runway = runway and trimString(runway) or ""
+    runway = runway ~= "" and string.upper(runway) or ""
+
+    local bestEntry = nil
+    local bestScore = math.huge
+
+    for _, entry in ipairs(navdatatable) do
+        local hasDME = (entry[def.DESTNAVTYPE] == def.NAVTYPEDME)
+        if not hasDME and entry[def.DESTNAVDME] then
+            local navType = entry[def.DESTNAVTYPE]
+            if navType == def.NAVTYPEVOR or navType == def.NAVTYPEILS then
+                hasDME = true
+            end
+        end
+        if hasDME and entry[def.DESTICAO] == icao then
+            local entryRunway = entry[def.DESTRWY] or ""
+            entryRunway = entryRunway ~= "" and string.upper(entryRunway) or ""
+
+            local score = 0
+            if runway ~= "" then
+                if entryRunway == runway then
+                    score = score - 1000
+                else
+                    score = score + 500
+                end
+            elseif entryRunway ~= "" then
+                score = score + 100
+            end
+
+            if refLat and refLon and entry[def.DESTLATPOS] and entry[def.DESTLONPOS] and entry[def.DESTLATPOS] ~= 0 then
+                local distanceNm = P.getdistance(refLat, refLon, entry[def.DESTLATPOS], entry[def.DESTLONPOS])
+                score = score + distanceNm
+            else
+                score = score + 9999
+            end
+
+            if score < bestScore then
+                bestScore = score
+                bestEntry = entry
+            end
+        end
+    end
+
+    return bestEntry
+end
+
 local function collectLegNameSet(legs_string, lat_array, lon_array)
     local names = {}
     if legs_string then
@@ -3013,6 +3080,42 @@ function P.detectFMSDiscontinuity(legs_string)
 end
 
 --------------------------------------------------------------------------------------------------------------
+local function isUsableLegToken(token)
+    if token == nil or token == "" then
+        return false
+    end
+    if token == "DISCONTINUITY" then
+        return false
+    end
+    if token:match("^%b()%s*$") then
+        return false
+    end
+    return true
+end
+
+function P.hasUsableFMSLegs(legs_string)
+    if type(legs_string) ~= "string" then
+        return false
+    end
+
+    for token in string.gmatch(legs_string, "([^%s]+)") do
+        if isUsableLegToken(token) then
+            return true
+        end
+    end
+
+    return false
+end
+
+function P.isFMSPlanLoaded(depIcao, destIcao, legs_string)
+    if not (P.isvalidicao(depIcao) and P.isvalidicao(destIcao)) then
+        return false
+    end
+
+    return P.hasUsableFMSLegs(legs_string)
+end
+
+--------------------------------------------------------------------------------------------------------------
 function P.buildnavdatatable(navdatatable)
 
     local function find_nav_entry(target_table, icao, navid, navtype, runway)
@@ -3103,9 +3206,11 @@ function P.buildnavdatatable(navdatatable)
                     newEntry[def.DESTGSRANGE] = 0
                     newEntry[def.DESTGSSLOPE] = 0
                     newEntry[def.DESTGSRAWBEARING] = 0
+                    newEntry[def.DESTDMEIDENT] = ""
+                    newEntry[def.DESTDMEFREQ] = 0
                     table.insert(navdatatable, newEntry)
 
-                elseif (record_type_str == def.NAVDATARECTYPEVOR) then
+                elseif (record_type_str == def.NAVDATARECTYPEVOR or record_type_str == def.NAVDATARECTYPEVORDME) then
                     local newEntry = {}
                     newEntry[def.DESTICAO] = navdataitems[def.NAVSRC_COL_REGION]
                     newEntry[def.DESTRWY] = ""
@@ -3115,7 +3220,8 @@ function P.buildnavdatatable(navdatatable)
                     newEntry[def.DESTLATPOS] = lat_val
                     newEntry[def.DESTLONPOS] = lon_val
                     newEntry[def.DESTCOURSE] = 0
-                    newEntry[def.DESTNAVDME] = false
+                    local hasDME = (record_type_str == def.NAVDATARECTYPEVORDME)
+                    newEntry[def.DESTNAVDME] = hasDME
                     newEntry[def.DESTELEVATION] = tonumber(navdataitems[def.NAVSRC_COL_ELEV_FT]) or 0
                     newEntry[def.DESTRANGE] = tonumber(navdataitems[def.NAVSRC_COL_RANGE_NM]) or 0
                     local raw_bearing = tonumber(navdataitems[def.NAVSRC_COL_BEARING]) or 0
@@ -3123,10 +3229,21 @@ function P.buildnavdatatable(navdatatable)
                     newEntry[def.DESTMAGVAR] = raw_bearing
                     newEntry[def.DESTFACILITYNAME] = navdataitems[def.NAVSRC_COL_NAME] or ""
                     newEntry[def.DESTSRCRECTYPE] = record_type_str
-                    newEntry[def.DESTDMELAT] = 0
-                    newEntry[def.DESTDMELON] = 0
-                    newEntry[def.DESTDMEELEVATION] = 0
-                    newEntry[def.DESTDMERANGE] = 0
+                    if hasDME then
+                        newEntry[def.DESTDMELAT] = lat_val
+                        newEntry[def.DESTDMELON] = lon_val
+                        newEntry[def.DESTDMEELEVATION] = newEntry[def.DESTELEVATION]
+                        newEntry[def.DESTDMERANGE] = newEntry[def.DESTRANGE]
+                        newEntry[def.DESTDMEIDENT] = navdataitems[def.NAVSRC_COL_IDENT] or ""
+                        newEntry[def.DESTDMEFREQ] = tonumber(navdataitems[def.NAVSRC_COL_FREQ]) or 0
+                    else
+                        newEntry[def.DESTDMELAT] = 0
+                        newEntry[def.DESTDMELON] = 0
+                        newEntry[def.DESTDMEELEVATION] = 0
+                        newEntry[def.DESTDMERANGE] = 0
+                        newEntry[def.DESTDMEIDENT] = ""
+                        newEntry[def.DESTDMEFREQ] = 0
+                    end
                     newEntry[def.DESTGSLAT] = 0
                     newEntry[def.DESTGSLON] = 0
                     newEntry[def.DESTGSELEVATION] = 0
@@ -3159,6 +3276,39 @@ function P.buildnavdatatable(navdatatable)
                         navdatatable[index][def.DESTDMELON] = lon_val
                         navdatatable[index][def.DESTDMEELEVATION] = tonumber(navdataitems[def.NAVSRC_COL_ELEV_FT]) or navdatatable[index][def.DESTDMEELEVATION]
                         navdatatable[index][def.DESTDMERANGE] = tonumber(navdataitems[def.NAVSRC_COL_RANGE_NM]) or navdatatable[index][def.DESTDMERANGE]
+                        navdatatable[index][def.DESTDMEIDENT] = ident or navdatatable[index][def.DESTDMEIDENT]
+                        navdatatable[index][def.DESTDMEFREQ] = tonumber(navdataitems[def.NAVSRC_COL_FREQ]) or navdatatable[index][def.DESTDMEFREQ]
+                    else
+                        local newEntry = {}
+                        newEntry[def.DESTICAO] = icao
+                        newEntry[def.DESTRWY] = navdataitems[def.NAVSRC_COL_RUNWAY] or ""
+                        newEntry[def.DESTNAVTYPE] = def.NAVTYPEDME
+                        newEntry[def.DESTNAVID] = ident
+                        local freq_val = tonumber(navdataitems[def.NAVSRC_COL_FREQ]) or 0
+                        newEntry[def.DESTFREQ] = freq_val
+                        newEntry[def.DESTCOURSE] = 0
+                        newEntry[def.DESTNAVDME] = true
+                        newEntry[def.DESTLATPOS] = lat_val
+                        newEntry[def.DESTLONPOS] = lon_val
+                        newEntry[def.DESTELEVATION] = tonumber(navdataitems[def.NAVSRC_COL_ELEV_FT]) or 0
+                        newEntry[def.DESTRANGE] = tonumber(navdataitems[def.NAVSRC_COL_RANGE_NM]) or 0
+                        newEntry[def.DESTRAWBEARING] = tonumber(navdataitems[def.NAVSRC_COL_BEARING]) or 0
+                        newEntry[def.DESTMAGVAR] = 0
+                        newEntry[def.DESTFACILITYNAME] = navdataitems[def.NAVSRC_COL_NAME] or ""
+                        newEntry[def.DESTSRCRECTYPE] = record_type_str
+                        newEntry[def.DESTDMELAT] = lat_val
+                        newEntry[def.DESTDMELON] = lon_val
+                        newEntry[def.DESTDMEELEVATION] = newEntry[def.DESTELEVATION]
+                        newEntry[def.DESTDMERANGE] = newEntry[def.DESTRANGE]
+                        newEntry[def.DESTGSLAT] = 0
+                        newEntry[def.DESTGSLON] = 0
+                        newEntry[def.DESTGSELEVATION] = 0
+                        newEntry[def.DESTGSRANGE] = 0
+                        newEntry[def.DESTGSSLOPE] = 0
+                        newEntry[def.DESTGSRAWBEARING] = 0
+                        newEntry[def.DESTDMEIDENT] = ident or ""
+                        newEntry[def.DESTDMEFREQ] = freq_val
+                        table.insert(navdatatable, newEntry)
                     end
 
                 elseif (record_type_str == def.NAVDATARECTYPEGS) then
@@ -3230,6 +3380,8 @@ function P.buildnavdatatable(navdatatable)
                     newEntry[def.DESTGSRANGE] = 0
                     newEntry[def.DESTGSSLOPE] = 0
                     newEntry[def.DESTGSRAWBEARING] = 0
+                    newEntry[def.DESTDMEIDENT] = ""
+                    newEntry[def.DESTDMEFREQ] = 0
                     table.insert(navdatatable, newEntry)
                 end
             end

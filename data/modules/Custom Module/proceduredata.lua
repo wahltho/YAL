@@ -194,12 +194,12 @@ function M.fillProcedureTable()
                 },
                 ['fmc_init_ref'] = {
                     check = function()
-                        return helpers.fmcHeaderContains("INIT REF")
+                        return helpers.fmcHeaderContains("POS INIT")
                     end,
                     action = function()
                         helpers.command_once("laminar/B738/button/fmc1_init_ref")
                     end,
-                    advice = "Switch to F M C Init Reference Page Page",
+                    advice = "Switch to F M C Init Reference Page",
                     runActionInAdviceMode = true,
                     nextStep = 'check_fms_pos'
                 },
@@ -366,8 +366,13 @@ function M.fillProcedureTable()
                     nextStep = 'activate_fmc_plan'
                 },
                 ['activate_fmc_plan'] = { 
-                    skipIf = function() return not (P.YANSHisinstalled() and P.YANSHflightplanloaded() and P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) end,
-                    check = function() return (helpers.isvalidicao(get(P.depicao)) and helpers.isvalidicao(get(P.desicao))) end,
+                    check = function()
+                        return helpers.isFMSPlanLoaded(
+                            get(P.depicao),
+                            get(P.desicao),
+                            get(P.fmslegs)
+                        )
+                    end,
                     advice = "Activate Flight Plan in F M C",
                     confirm = "Flight Plan in F M C Checked and Activated",
                     nextStep = 'check_fmc_route_continuity'
@@ -385,9 +390,16 @@ function M.fillProcedureTable()
                     end,
                     advice = "Resolve F M C Discontinuity before continuing",
                     confirm = "F M C Route checked and Continuous",
+                    branch = function()
+                        if P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON then
+                            return 'open_fmc_init_ref_page'
+                        end
+                        return 'view_pedestal'
+                    end,
                     nextStep = 'open_fmc_init_ref_page'
                 },
                 ['open_fmc_init_ref_page'] = {
+                    skipIf = function() return P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON end,
                     check = function()
                         return helpers.fmcHeaderContains("PERF INIT")
                     end,
@@ -399,6 +411,7 @@ function M.fillProcedureTable()
                     nextStep = 'open_fmc_n1limit_page'
                 },
                 ['open_fmc_n1limit_page'] = {
+                    skipIf = function() return P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON end,
                     check = function()
                         return helpers.fmcHeaderContains("N1 LIMIT")
                     end,
@@ -410,6 +423,7 @@ function M.fillProcedureTable()
                     nextStep = 'open_fmc_takeoff_page'
                 },
                 ['open_fmc_takeoff_page'] = {
+                    skipIf = function() return P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON end,
                     check = function()
                         return helpers.fmcHeaderContains("TAKEOFF REF")
                     end,
@@ -421,14 +435,12 @@ function M.fillProcedureTable()
                     nextStep = 'set_fmc_to_flaps'
                 },
                 ['set_fmc_to_flaps'] = { 
-                    skipIf = function() return P.configvalues[def.CONFIGVOICEADVICEONLY] == def.OFF end,
                     check = function() return get(P.toflaps) ~= 0 end, 
                     advice = function() return "Set Takeoff Flaps " .. tostring(helpers.determineTakeoffFlapsSetting(get(P.totalweightkgs), get(P.deprwylen), get(P.deprwyheading), get(P.elevation), P.depmetar)) end,
                     confirm = function() return "Takeoff Flaps set and " .. tostring(get(P.toflaps)) end,
                     nextStep = 'set_fmc_cg'
                 },
                 ['set_fmc_cg'] = { 
-                    skipIf = function() return P.configvalues[def.CONFIGVOICEADVICEONLY] == def.OFF end,
                     check = function() return get(P.fmccg) ~= 0 end,
                     advice = function()
                         local targetCg = helpers.formatcgvalue(get(P.tabcg)) or helpers.formatcgvalue(get(P.calctakeoffcg))
@@ -447,7 +459,6 @@ function M.fillProcedureTable()
                     nextStep = 'set_fmc_vspeeds'
                 },
                 ['set_fmc_vspeeds'] = { 
-                    skipIf = function() return P.configvalues[def.CONFIGVOICEADVICEONLY] == def.OFF end,
                     check = function() return (get(P.v1setspeed) > 0) and (get(P.v2setspeed) > 0) and (get(P.vrsetspeed) > 0) end,
                     advice = "Enter V Speeds",
                     confirm = "V Speeds checked and Set",
@@ -506,7 +517,15 @@ function M.fillProcedureTable()
                     nextStep = 'set_landinglights_off'
                 },
                 ['set_landinglights_off'] = { 
-                    check = function() return (get(P.llights1)==def.OFF) and (get(P.llights2)==def.OFF) and (get(P.llights3)==def.OFF) and (get(P.llights4)==def.OFF) end,
+                    check = function()
+                        local ledVariant = (get(P.ledlightsvariant) == def.ON)
+                        if ledVariant then
+                            return (get(P.llights3) == def.OFF) and (get(P.llights4) == def.OFF)
+                        else
+                            return (get(P.llights1) == def.OFF) and (get(P.llights2) == def.OFF)
+                                and (get(P.llights3) == def.OFF) and (get(P.llights4) == def.OFF)
+                        end
+                    end,
                     action = function() P.togglelandinglights(def.OFF) end,
                     advice = "Set Landing Lights Off",
                     confirm = "Landing Lights checked and Off",
@@ -1081,6 +1100,9 @@ function M.fillProcedureTable()
                     check = function()
                         return (get(P.captainprobepos) == def.ON) and (get(P.foprobepos) == def.ON)
                     end,
+                    action = function()
+                        P.toggleprobeheat(def.ON)
+                    end,
                     advice = "Confirm Probe Heat On",
                     confirm = "Probe Heat checked and On",
                     nextStep = 'starters_flight'
@@ -1216,10 +1238,16 @@ function M.fillProcedureTable()
                 },
                 ['landing_lights_on'] = {
                     check = function()
-                        return  (get(P.llights1) ~= def.OFF)
-                            and (get(P.llights2) ~= def.OFF)
-                            and (get(P.llights3) ~= def.OFF)
-                            and (get(P.llights4) ~= def.OFF)
+                        local ledVariant = (get(P.ledlightsvariant) == def.ON)
+                        if ledVariant then
+                            return (get(P.llights3) ~= def.OFF)
+                                and (get(P.llights4) ~= def.OFF)
+                        else
+                            return  (get(P.llights1) ~= def.OFF)
+                                and (get(P.llights2) ~= def.OFF)
+                                and (get(P.llights3) ~= def.OFF)
+                                and (get(P.llights4) ~= def.OFF)
+                        end
                     end,
                     action = function() P.togglelandinglights(def.ON) end,
                     advice = "Set Landing Lights On",
@@ -1610,8 +1638,16 @@ function M.fillProcedureTable()
                     nextStep = 'set_landing_lights_off'
                 },
                 ['set_landing_lights_off'] = {
-                    check = function() 
-                        return (get(P.llights1) == def.OFF) and (get(P.llights2) == def.OFF) and (get(P.llights3) == def.OFF) and (get(P.llights4) == def.OFF) 
+                    check = function()
+                        local ledVariant = (get(P.ledlightsvariant) == def.ON)
+                        if ledVariant then
+                            return (get(P.llights3) == def.OFF) and (get(P.llights4) == def.OFF)
+                        else
+                            return (get(P.llights1) == def.OFF)
+                                and (get(P.llights2) == def.OFF)
+                                and (get(P.llights3) == def.OFF)
+                                and (get(P.llights4) == def.OFF)
+                        end
                     end,
                     advice = "Set Landing Lights Off",
                     action = function() P.togglelandinglights(def.OFF) end,
@@ -1864,7 +1900,15 @@ function M.fillProcedureTable()
                     nextStep = 'set_landing_lights_on'
                 },
                 ['set_landing_lights_on'] = {
-                    check = function() return (get(P.llights1) ~= def.OFF) and (get(P.llights2) ~= def.OFF) and (get(P.llights3) ~= def.OFF) and (get(P.llights4) ~= def.OFF) end,
+                    check = function()
+                        local ledVariant = (get(P.ledlightsvariant) == def.ON)
+                        if ledVariant then
+                            return (get(P.llights3) ~= def.OFF) and (get(P.llights4) ~= def.OFF)
+                        else
+                            return (get(P.llights1) ~= def.OFF) and (get(P.llights2) ~= def.OFF)
+                                and (get(P.llights3) ~= def.OFF) and (get(P.llights4) ~= def.OFF)
+                        end
+                    end,
                     advice = "Set Landing Lights On",
                     action = function() P.togglelandinglights(def.ON) end,
                     confirm = "Landing Lights checked and On",
@@ -2208,7 +2252,15 @@ function M.fillProcedureTable()
                     nextStep = 'landing_lights_off'
                 },
                 ['landing_lights_off'] = {
-                    check = function() return (get(P.llights1) == def.OFF) and (get(P.llights2) == def.OFF) and (get(P.llights3) == def.OFF) and (get(P.llights4) == def.OFF) end,
+                    check = function()
+                        local ledVariant = (get(P.ledlightsvariant) == def.ON)
+                        if ledVariant then
+                            return (get(P.llights3) == def.OFF) and (get(P.llights4) == def.OFF)
+                        else
+                            return (get(P.llights1) == def.OFF) and (get(P.llights2) == def.OFF)
+                                and (get(P.llights3) == def.OFF) and (get(P.llights4) == def.OFF)
+                        end
+                    end,
                     action = function() P.togglelandinglights(def.OFF) end,
                     advice = "Set Landing Lights Off",
                     confirm = "Landing Lights checked and Off",
@@ -3293,17 +3345,39 @@ function M.fillProcedureTable()
                 ['set_fo_freq'] = {
                     skipIf = function(loop, procData)
                         local navdata = P.navdatatable[loop.navdatatableindex]
-                        if navdata[def.DESTNAVTYPE] == def.NAVTYPELPV then return true end
-                        if (navdata[def.DESTNAVTYPE] == def.NAVTYPEILS) and not navdata[def.DESTNAVDME] then return true end
+                        if not navdata then return true end
+                        if navdata[def.DESTNAVTYPE] == def.NAVTYPELPV then
+                            loop.approachDME = nil
+                            return true
+                        end
+                        if navdata[def.DESTNAVTYPE] == def.NAVTYPEILS then
+                            if navdata[def.DESTNAVDME] then
+                                loop.approachDME = nil
+                                return false
+                            end
+                            local dmeInfo = helpers.findApproachDME(P.navdatatable, get(P.desicao), get(P.desrwy), navdata[def.DESTLATPOS], navdata[def.DESTLONPOS])
+                            loop.approachDME = dmeInfo
+                            return dmeInfo == nil
+                        end
+                        loop.approachDME = nil
                         return false 
                     end,
                     check = function(loop, procData)
                         local navdata = P.navdatatable[loop.navdatatableindex]
+                        if not navdata then return true end
                         if (navdata[def.DESTNAVTYPE] == def.NAVTYPEILS) then 
-                            if (get(P.mmrinstalled) == def.ON) then
-                                return (get(P.mmrfoactvalue) == navdata[def.DESTFREQ]) and (get(P.mmrfoactmode) == def.MMRILS)
+                            if navdata[def.DESTNAVDME] then
+                                if (get(P.mmrinstalled) == def.ON) then
+                                    return (get(P.mmrfoactvalue) == navdata[def.DESTFREQ]) and (get(P.mmrfoactmode) == def.MMRILS)
+                                else
+                                    return (get(P.nav2freq) == navdata[def.DESTFREQ])
+                                end
                             else
-                                return (get(P.nav2freq) == navdata[def.DESTFREQ])
+                                local dmeInfo = loop.approachDME or helpers.findApproachDME(P.navdatatable, get(P.desicao), get(P.desrwy), navdata[def.DESTLATPOS], navdata[def.DESTLONPOS])
+                                loop.approachDME = dmeInfo
+                                if not dmeInfo then return true end
+                                local freqValue = dmeInfo[def.DESTDMEFREQ] ~= 0 and dmeInfo[def.DESTDMEFREQ] or dmeInfo[def.DESTFREQ]
+                                return (get(P.nav2freq) == freqValue)
                             end
                         elseif (navdata[def.DESTNAVTYPE] == def.NAVTYPEGLS) and (get(P.mmrinstalled) == def.ON) then
                             return (get(P.mmrfoactvalue) == navdata[def.DESTFREQ]) and (get(P.mmrfoactmode) == def.MMRGLS)
@@ -3312,12 +3386,23 @@ function M.fillProcedureTable()
                     end,
                     action = function(loop, procData)
                         local navdata = P.navdatatable[loop.navdatatableindex]
+                        if not navdata then return end
                         if (navdata[def.DESTNAVTYPE] == def.NAVTYPEILS) then
-                            if (get(P.mmrinstalled) == def.ON) then
-                                P.setmmrils(def.MMRFO, navdata[def.DESTFREQ])
+                            if navdata[def.DESTNAVDME] then
+                                if (get(P.mmrinstalled) == def.ON) then
+                                    P.setmmrils(def.MMRFO, navdata[def.DESTFREQ])
+                                else
+                                    set(P.nav2stdbyfreq, get(P.nav2freq))
+                                    set(P.nav2freq, navdata[def.DESTFREQ])
+                                end
                             else
-                                set(P.nav2stdbyfreq, get(P.nav2freq))
-                                set(P.nav2freq, navdata[def.DESTFREQ])
+                                local dmeInfo = loop.approachDME or helpers.findApproachDME(P.navdatatable, get(P.desicao), get(P.desrwy), navdata[def.DESTLATPOS], navdata[def.DESTLONPOS])
+                                loop.approachDME = dmeInfo
+                                if dmeInfo then
+                                    local freqValue = dmeInfo[def.DESTDMEFREQ] ~= 0 and dmeInfo[def.DESTDMEFREQ] or dmeInfo[def.DESTFREQ]
+                                    set(P.nav2stdbyfreq, get(P.nav2freq))
+                                    set(P.nav2freq, freqValue)
+                                end
                             end
                         elseif (navdata[def.DESTNAVTYPE] == def.NAVTYPEGLS) and (get(P.mmrinstalled) == def.ON) then
                             P.setmmrgls(def.MMRFO, navdata[def.DESTFREQ])
@@ -3325,19 +3410,52 @@ function M.fillProcedureTable()
                     end,
                     advice = function(loop, procData)
                         local navdata = P.navdatatable[loop.navdatatableindex]
+                        if not navdata then return "" end
                         if (navdata[def.DESTNAVTYPE] == def.NAVTYPEILS) then
-                            return "Set Copilot Frequency " .. helpers.addspaces(helpers.formatILSFrequency(navdata[def.DESTFREQ]))
+                            if navdata[def.DESTNAVDME] then
+                                return "Set Copilot Frequency " .. helpers.addspaces(helpers.formatILSFrequency(navdata[def.DESTFREQ]))
+                            else
+                                local dmeInfo = loop.approachDME or helpers.findApproachDME(P.navdatatable, get(P.desicao), get(P.desrwy), navdata[def.DESTLATPOS], navdata[def.DESTLONPOS])
+                                loop.approachDME = dmeInfo
+                                if dmeInfo then
+                                    local freqValue = dmeInfo[def.DESTDMEFREQ] ~= 0 and dmeInfo[def.DESTDMEFREQ] or dmeInfo[def.DESTFREQ]
+                                    local ident = dmeInfo[def.DESTDMEIDENT] or dmeInfo[def.DESTNAVID] or ""
+                                    local identText = (ident ~= "" and (" (" .. ident .. ")")) or ""
+                                    return "Set Copilot D M E Frequency " .. helpers.addspaces(helpers.formatILSFrequency(freqValue)) .. identText
+                                end
+                            end
                         else
                             return "Set Copilot Channel " .. helpers.addspaces(navdata[def.DESTFREQ])
                         end
+                        return ""
                     end,
                     confirm = function(loop, procData)
                         local navdata = P.navdatatable[loop.navdatatableindex]
-                        if (navdata[def.DESTNAVTYPE] == def.NAVTYPEILS) then
-                            return "Copilot Frequency checked and " .. helpers.addspaces(helpers.formatILSFrequency(navdata[def.DESTFREQ]))
-                        else
-                            return "Copilot Channel checked and " .. helpers.addspaces(navdata[def.DESTFREQ])
+                        if not navdata then
+                            loop.approachDME = nil
+                            return ""
                         end
+
+                        local message = ""
+
+                        if (navdata[def.DESTNAVTYPE] == def.NAVTYPEILS) then
+                            if navdata[def.DESTNAVDME] then
+                                message = "Copilot Frequency checked and " .. helpers.addspaces(helpers.formatILSFrequency(navdata[def.DESTFREQ]))
+                            else
+                                local dmeInfo = loop.approachDME or helpers.findApproachDME(P.navdatatable, get(P.desicao), get(P.desrwy), navdata[def.DESTLATPOS], navdata[def.DESTLONPOS])
+                                loop.approachDME = dmeInfo
+                                if dmeInfo then
+                                    local freqValue = dmeInfo[def.DESTDMEFREQ] ~= 0 and dmeInfo[def.DESTDMEFREQ] or dmeInfo[def.DESTFREQ]
+                                    local ident = dmeInfo[def.DESTDMEIDENT] or dmeInfo[def.DESTNAVID] or ""
+                                    local identText = (ident ~= "" and (" (" .. ident .. ")")) or ""
+                                    message = "Copilot D M E Frequency checked and " .. helpers.addspaces(helpers.formatILSFrequency(freqValue)) .. identText
+                                end
+                            end
+                        else
+                            message = "Copilot Channel checked and " .. helpers.addspaces(navdata[def.DESTFREQ])
+                        end
+                        loop.approachDME = nil
+                        return message
                     end,
                     nextStep = 'view_main_panel'
                 },
