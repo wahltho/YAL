@@ -1,17 +1,6 @@
 -- date : 28-Oct-2025
 local def = require("definitions")
 local helpers = require("helpers")
-
-local function getNavEntryCourse(entry)
-    if not entry then
-        return nil
-    end
-    if entry.isTrueCourse and entry.truecourse then
-        return entry.truecourse
-    end
-    return entry[def.DESTCOURSE]
-end
-
 local M = {}
 function M.fillProcedureTable()
     local P = yal 
@@ -49,7 +38,7 @@ function M.fillProcedureTable()
                     check = function() return get(P.battery) == def.ON end,
                     action = function() helpers.command_once("laminar/B738/switch/battery_dn") end,
                     advice = "Switch Battery On",
-                    confirm = "Battery checked On",
+                    confirm = "Battery checked and On",
                     nextStep = 'close_battery_cover'
                 },
                 ['close_battery_cover'] = {
@@ -68,7 +57,7 @@ function M.fillProcedureTable()
                     check = function() return get(P.domelightpos) ~= def.DOMELIGHTOFF end,
                     action = function() P.setdomelight(def.DOMELIGHTDIM) end,
                     advice = "Set Domelight On",
-                    confirm = "Domelight checked On",
+                    confirm = "Domelight checked and On",
                     nextStep = 'view_overhead_2'
                 },
                 ['view_overhead_2'] = {
@@ -80,7 +69,7 @@ function M.fillProcedureTable()
                     check = function() return get(P.emergencylights) == def.EMERGLIGHTSARMED end,
                     action = function() P.setemergencylights(def.EMERGLIGHTSARMED) end,
                     advice = "Arm Emergency Lights",
-                    confirm = "Emergency Lights checked Armed",
+                    confirm = "Emergency Lights checked and Armed",
                     nextStep = 'close_emerg_light_cover'
                 },
                 ['close_emerg_light_cover'] = {
@@ -93,7 +82,7 @@ function M.fillProcedureTable()
                     check = function() return get(P.positionlights) == def.POSLIGHTSSTEADY end,
                     action = function() helpers.command_once("laminar/B738/toggle_switch/position_light_steady") end,
                     advice = "Set Position Lights Steady",
-                    confirm = "Position Lights checked Steady",
+                    confirm = "Position Lights checked and Steady",
                     nextStep = 'check_power_source'
                 },
                 ['check_power_source'] = {
@@ -110,15 +99,15 @@ function M.fillProcedureTable()
                 ['check_gpu_power'] = {
                     check = function() return get(P.gpuon) == def.ON end,
                     action = function() helpers.command_once("laminar/B738/toggle_switch/gpu_dn") end,
-                    advice = "Set Ground Power On",
-                    confirm = "G P U checked On",
+                    advice = "Switch Ground Power On",
+                    confirm = "G P U checked and On",
                     nextStep = 'start_irs_align'
                 },
                 ['set_apu_fuel_pump_on'] = {
                     check = function() return get(P.lefttanklswitch) == def.ON end,
                     action = function() set(P.lefttanklswitch, def.ON) end,
                     advice = "Set Left After Fuel Pump On",
-                    confirm = "Left After Fuel Pump checked On",
+                    confirm = "Left After Fuel Pump checked and On",
                     nextStep = 'start_apu'
                 },
                 ['start_apu'] = {
@@ -152,36 +141,36 @@ function M.fillProcedureTable()
                             helpers.command_once("laminar/B738/toggle_switch/apu_gen2_dn")
                         end
                     end,
-                    advice = "Set A P U Generator On",
-                    confirm = "A P U Generator checked On",
+                    advice = "Switch A P U Generator On",
+                    confirm = "A P U Generator checked and On",
                     nextStep = 'set_apu_bleed'
                 },
                 ['set_apu_bleed'] = {
                     check = function() return get(P.bleedairapupos) == def.ON end,
                     action = function() helpers.command_once("laminar/B738/toggle_switch/bleed_air_apu") end,
-                    advice = "Set A P U Bleed On",
-                    confirm = "A P U Bleed checked On",
+                    advice = "Switch A P U Bleed Air On",
+                    confirm = "A P U Bleed Air checked and On",
                     nextStep = 'set_isol_valve'
                 },
                 ['set_isol_valve'] = {
                     check = function() return get(P.isolvalvepos) == def.ISOLVALVEOPEN end,
                     action = function() set(P.isolvalvepos, def.ISOLVALVEOPEN) end,
                     advice = "Set Isolation Valve Open",
-                    confirm = "Isolation Valve checked Open",
+                    confirm = "Isolation Valve checked and Open",
                     nextStep = 'set_packs_auto'
                 },
                 ['set_packs_auto'] = {
                     check = function() return (get(P.packlpos) == def.PACKAUTO) and (get(P.packrpos) == def.PACKAUTO) end,
                     action = function() set(P.packlpos, def.PACKAUTO); set(P.packrpos, def.PACKAUTO) end,
-                    advice = "Set Packs Auto",
-                    confirm = "Packs checked Auto",
+                    advice = "Set Both Packs Auto",
+                    confirm = "Both Packs checked and Auto",
                     nextStep = 'set_trim_air'
                 },
                 ['set_trim_air'] = {
                     check = function() return get(P.trimairpos) == def.ON end,
                     action = function() set(P.trimairpos, def.ON) end,
                     advice = "Set Trim Air On",
-                    confirm = "Trim Air checked On",
+                    confirm = "Trim Air checked and On",
                     nextStep = 'set_apu_proc_done'
                 },
                 ['set_apu_proc_done'] = {
@@ -210,7 +199,7 @@ function M.fillProcedureTable()
                     action = function()
                         helpers.command_once("laminar/B738/button/fmc1_init_ref")
                     end,
-                    advice = "Open F M C Position Init Page",
+                    advice = "Switch to F M C Init Reference Page",
                     runActionInAdviceMode = true,
                     nextStep = 'check_fms_pos'
                 },
@@ -299,7 +288,7 @@ function M.fillProcedureTable()
                     check = function() return get(P.domelightpos) ~= def.DOMELIGHTOFF end,
                     action = function() P.setdomelight(def.DOMELIGHTDIM) end,
                     advice = "Set Dome Light On",
-                    confirm = "Dome light checked On",
+                    confirm = "Dome light checked and On",
                     nextStep = 'view_main_panel'
                 },
                 ['view_main_panel'] = { 
@@ -390,38 +379,44 @@ function M.fillProcedureTable()
                 },
                 ['check_fmc_route_continuity'] = {
                     check = function()
-                        local discontinuity = helpers.detectFMSDiscontinuity(
-                            get(P.fmslegs),
-                            get(P.fmslegslat),
-                            get(P.fmslegslon),
-                            get(P.aircraftlatpos),
-                            get(P.aircraftlonpos)
-                        )
+                        local discontinuity = helpers.detectFMSDiscontinuity(get(P.fmslegs))
                         if not discontinuity then
                             return true
                         end
                         local prevLegRaw = discontinuity.previous or ""
                         local nextLegRaw = discontinuity.next or ""
-                        local message
-                        if prevLegRaw ~= "" and prevLegRaw:match("^RW") and nextLegRaw ~= "" and nextLegRaw:upper():match("^MISSED") then
-                            message = "Discontinuity between " .. helpers.replaceRunwayPrefix(prevLegRaw) .. " and missed approach"
-                        elseif prevLegRaw ~= "" or nextLegRaw ~= "" then
+                        local message = "Warning: F M C route still contains a Discontinuity"
+
+                        if prevLegRaw ~= "" and prevLegRaw:match("^RW") then
+                            if nextLegRaw ~= "" and nextLegRaw:upper():match("^MISSED") then
+                                message = "F M C route has a Discontinuity between the runway leg " ..
+                                    helpers.addspaces(prevLegRaw) ..
+                                    " and the missed approach segment."
+                            elseif nextLegRaw ~= "" then
+                                message = "F M C route shows a Discontinuity after runway leg " ..
+                                    helpers.addspaces(prevLegRaw) .. " before " .. helpers.addspaces(nextLegRaw) .. "."
+                            else
+                                message = "F M C route shows a Discontinuity after runway leg " ..
+                                    helpers.addspaces(prevLegRaw) .. "."
+                            end
+                        else
                             local parts = {}
                             if prevLegRaw ~= "" then
-                                table.insert(parts, "after " .. helpers.replaceRunwayPrefix(prevLegRaw))
+                                table.insert(parts, "after " .. helpers.addspaces(prevLegRaw))
                             end
                             if nextLegRaw ~= "" then
-                                table.insert(parts, "before " .. helpers.replaceRunwayPrefix(nextLegRaw))
+                                table.insert(parts, "before " .. helpers.addspaces(nextLegRaw))
                             end
-                            message = "Discontinuity " .. table.concat(parts, " ")
-                        else
-                            message = "Discontinuity in flight plan"
+                            if #parts > 0 then
+                                message = message .. " " .. table.concat(parts, " ")
+                            end
                         end
+
                         P.commandtableentry(def.TEXT, message)
                         return false
                     end,
                     advice = "Resolve F M C Discontinuity before continuing",
-                    confirm = "F M C Route checked Continuous",
+                    confirm = "F M C Route checked and Continuous",
                     nextStep = 'trigger_settoflaps'
                 },
                 ['trigger_settoflaps'] = {
@@ -469,7 +464,7 @@ function M.fillProcedureTable()
                     check = function() return get(P.transponderpos) == def.STANDBY end,
                     action = function() P.toggletransponder(def.STANDBY) end,
                     advice = "Set Transponder Standby",
-                    confirm = "Transponder checked Standby",
+                    confirm = "Transponder checked and Standby",
                     nextStep = 'view_overhead_2'
                 },
                 ['view_overhead_2'] = { 
@@ -480,28 +475,28 @@ function M.fillProcedureTable()
                     check = function() return get(P.captainprobepos) == def.OFF and get(P.foprobepos) == def.OFF end,
                     action = function() P.toggleprobeheat(def.OFF) end,
                     advice = "Set Probe Heat Off",
-                    confirm = "Probe Heat checked Off",
+                    confirm = "Probe Heat checked and Off",
                     nextStep = 'set_seatbelts_off'
                 },
                 ['set_seatbelts_off'] = { 
                     check = function() return get(P.seatbeltsignpos) == def.SEATBELTSIGNOFF end,
                     action = function() P.setseatbeltsign(def.SEATBELTSIGNOFF) end,
                     advice = "Set Seatbelt Signs Off",
-                    confirm = "Seatbelt Signs checked Off",
+                    confirm = "Seatbelt Signs checked and Off",
                     nextStep = 'set_nosmoking_on'
                 },
                 ['set_nosmoking_on'] = { 
                     check = function() return get(P.nosmokingsignpos) == def.NOSMOKINGSIGNON end,
                     action = function() P.setnosmokingsign(def.NOSMOKINGSIGNON) end,
                     advice = "Set No Smoking Signs On",
-                    confirm = "No Smoking Signs checked On",
+                    confirm = "No Smoking Signs checked and On",
                     nextStep = 'set_poslights_steady'
                 },
                 ['set_poslights_steady'] = { 
                     check = function() return get(P.positionlights) == def.POSLIGHTSSTEADY end,
                     action = function() P.togglepositionlights(def.POSLIGHTSSTEADY) end,
                     advice = "Set Position Lights Steady",
-                    confirm = "Position Lights checked Steady",
+                    confirm = "Position Lights checked and Steady",
                     nextStep = 'set_landinglights_off'
                 },
                 ['set_landinglights_off'] = { 
@@ -516,21 +511,21 @@ function M.fillProcedureTable()
                     end,
                     action = function() P.togglelandinglights(def.OFF) end,
                     advice = "Set Landing Lights Off",
-                    confirm = "Landing Lights checked Off",
+                    confirm = "Landing Lights checked and Off",
                     nextStep = 'set_rwy_lights_off'
                 },
                 ['set_rwy_lights_off'] = { 
                     check = function() return (get(P.rwylightl) == def.OFF) and (get(P.rwylightr) == def.OFF) end,
                     action = function() P.togglerwylights(def.OFF) end,
                     advice = "Set Runway Turnoff Lights Off",
-                    confirm = "Runway Turnoff Lights checked Off",
+                    confirm = "Runway Turnoff Lights checked and Off",
                     nextStep = 'set_taxilight_off'
                 },
                 ['set_taxilight_off'] = { 
                     check = function() return get(P.taxilight) == def.OFF end,
                     action = function() P.toggletaxilights(def.OFF) end,
                     advice = "Set Taxi Lights Off",
-                    confirm = "Taxi Lights checked Off",
+                    confirm = "Taxi Lights checked and Off",
                     nextStep = 'view_main_panel_2'
                 },
                 ['view_main_panel_2'] = { 
@@ -547,7 +542,7 @@ function M.fillProcedureTable()
                     check = function() return get(P.fdpilotpos) == def.OFF and get(P.fdfopos) == def.OFF end,
                     action = function() P.togglefds(def.OFF) end,
                     advice = "Set Both Flight Directors Off",
-                    confirm = "Both Flight Directors checked Off",
+                    confirm = "Both Flight Directors checked and Off",
                     nextStep = 'set_mcp_altitude'
                 },
                 ['set_mcp_altitude'] = { 
@@ -575,7 +570,7 @@ function M.fillProcedureTable()
                     check = function() return get(P.autobrakepos) == def.AUTOBRAKEOFF end,
                     action = function() P.setautobrake(def.AUTOBRAKEOFF) end,
                     advice = "Set Auto Brake Off",
-                    confirm = "Auto Brake checked Off",
+                    confirm = "Auto Brake checked and Off",
                     nextStep = 'set_ap_off'
                 },
                 ['set_ap_off'] = { 
@@ -659,7 +654,7 @@ function M.fillProcedureTable()
                     check = function() return get(P.lefttanklswitch) == def.ON end,
                     action = function() set(P.lefttanklswitch, def.ON) end,
                     advice = "Set Left After Fuel Pump On",
-                    confirm = "Left After Fuel Pump checked On",
+                    confirm = "Left After Fuel Pump checked and On",
                     nextStep = 'start_apu'
                 },
                 ['start_apu'] = {
@@ -696,44 +691,44 @@ function M.fillProcedureTable()
                             helpers.command_once("laminar/B738/toggle_switch/apu_gen2_dn")
                         end
                     end,
-                    advice = "Set A P U Generator On",
-                    confirm = "A P U Generator checked On",
+                    advice = "Switch A P U Generator On",
+                    confirm = "A P U Generator checked and On",
                     nextStep = 'gpu_off'
                 },
                 ['gpu_off'] = {
                     skipIf = function() return get(P.gpuon) == def.OFF end,
                     check = function() return get(P.gpuon) == def.OFF end,
                     action = function() helpers.command_once("laminar/B738/toggle_switch/gpu_up") end,
-                    advice = "Set Ground Power Off",
-                    confirm = "Ground Power checked Off",
+                    advice = "Switch Ground Power Off",
+                    confirm = "Ground Power checked and Off",
                     nextStep = 'set_apu_bleed'
                 },
                 ['set_apu_bleed'] = {
                     check = function() return get(P.bleedairapupos) == def.ON end,
                     action = function() helpers.command_once("laminar/B738/toggle_switch/bleed_air_apu") end,
-                    advice = "Set A P U Bleed On",
-                    confirm = "A P U Bleed checked On",
+                    advice = "Switch A P U Bleed Air On",
+                    confirm = "A P U Bleed Air checked and On",
                     nextStep = 'set_isol_valve'
                 },
                 ['set_isol_valve'] = {
                     check = function() return get(P.isolvalvepos) == def.ISOLVALVEOPEN end,
                     action = function() set(P.isolvalvepos, def.ISOLVALVEOPEN) end,
                     advice = "Set Isolation Valve Open",
-                    confirm = "Isolation Valve checked Open",
+                    confirm = "Isolation Valve checked and Open",
                     nextStep = 'set_packs_auto'
                 },
                 ['set_packs_auto'] = {
                     check = function() return (get(P.packlpos) == def.PACKAUTO) and (get(P.packrpos) == def.PACKAUTO) end,
                     action = function() set(P.packlpos, def.PACKAUTO); set(P.packrpos, def.PACKAUTO) end,
-                    advice = "Set Packs Auto",
-                    confirm = "Packs checked Auto",
+                    advice = "Set Both Packs Auto",
+                    confirm = "Both Packs checked and Auto",
                     nextStep = 'set_trim_air'
                 },
                 ['set_trim_air'] = {
                     check = function() return get(P.trimairpos) == def.ON end,
                     action = function() set(P.trimairpos, def.ON) end,
                     advice = "Set Trim Air On",
-                    confirm = "Trim Air checked On",
+                    confirm = "Trim Air checked and On",
                     nextStep = 'view_main_panel'
                 },
                 ['view_main_panel'] = {
@@ -770,7 +765,7 @@ function M.fillProcedureTable()
                     check = function() return get(P.beaconlights) == def.ON end,
                     action = function() P.togglecollisionlights(def.ON) end,
                     advice = "Set Collision Lights On",
-                    confirm = "Collision Lights checked On",
+                    confirm = "Collision lightset checked and On",
                     nextStep = 'set_fuel_pumps_on'
                 },
                 ['set_fuel_pumps_on'] = {
@@ -779,36 +774,36 @@ function M.fillProcedureTable()
                         set(P.lefttanklswitch, def.ON); set(P.lefttankrswitch, def.ON)
                         set(P.righttanklswitch, def.ON); set(P.righttankrswitch, def.ON)
                     end,
-                    advice = "Set Wing Tank Pumps On",
-                    confirm = "Wing Tank Pumps checked On",
+                    advice = "Set Wing Tank Fuel Pumps On",
+                    confirm = "Wing Fuel Tanks checked and On",
                     nextStep = 'set_packs_off'
                 },
                 ['set_packs_off'] = {
                     check = function() return (get(P.packlpos) == def.PACKOFF) and (get(P.packrpos) == def.PACKOFF) end,
                     action = function() set(P.packlpos, def.PACKOFF); set(P.packrpos, def.PACKOFF) end,
-                    advice = "Set Packs Off",
-                    confirm = "Packs checked Off",
+                    advice = "Set Both Packs Off",
+                    confirm = "Both Packs checked and Off",
                     nextStep = 'set_apu_bleed_on'
                 },
                 ['set_apu_bleed_on'] = {
                     check = function() return get(P.bleedairapupos) == def.ON end,
                     action = function() helpers.command_once("laminar/B738/toggle_switch/bleed_air_apu") end,
-                    advice = "Set A P U Bleed On",
-                    confirm = "A P U Bleed checked On",
+                    advice = "Set A P U Bleed Air On",
+                    confirm = "A P U Bleed Air checked and On",
                     nextStep = 'set_isol_valve_open'
                 },
                 ['set_isol_valve_open'] = {
                     check = function() return get(P.isolvalvepos) == def.ISOLVALVEOPEN end,
                     action = function() set(P.isolvalvepos, def.ISOLVALVEOPEN) end,
                     advice = "Set Isolation Valve Open",
-                    confirm = "Isolation Valve checked Open",
+                    confirm = "Isolation Valve checked and Open",
                     nextStep = 'set_starter2_gnd'
                 },
                 ['set_starter2_gnd'] = {
                     check = function() return get(P.starter2pos) == def.GROUND end,
                     action = function() P.setstarter(def.ENGINE2, def.GROUND) end,
                     advice = "Set Starter 2 Ground",
-                    confirm = "Engine 2 Starter checked Ground",
+                    confirm = "Engine 2 Starter checked and Ground",
                     nextStep = 'view_main_panel_1'
                 },
                 ['view_main_panel_1'] = {
@@ -828,7 +823,7 @@ function M.fillProcedureTable()
                     check = function() return get(P.mixture2pos) == def.ON end,
                     action = function() helpers.command_once("laminar/B738/engine/mixture2_idle") end,
                     advice = "Set Engine 2 Fuel Lever Idle",
-                    confirm = "Engine 2 Fuel Lever checked Idle",
+                    confirm = "Engine 2 Fuel Lever checked and Idle",
                     nextStep = 'view_main_panel_2'
                 },
                 ['view_main_panel_2'] = {
@@ -848,7 +843,7 @@ function M.fillProcedureTable()
                     check = function() return get(P.starter1pos) == def.GROUND end,
                     action = function() P.setstarter(def.ENGINE1, def.GROUND) end,
                     advice = "Set Starter 1 Ground",
-                    confirm = "Engine 1 Starter checked Ground",
+                    confirm = "Engine 1 Starter checked and Ground",
                     nextStep = 'view_main_panel_3'
                 },
                 ['view_main_panel_3'] = {
@@ -868,7 +863,7 @@ function M.fillProcedureTable()
                     check = function() return get(P.mixture1pos) == def.ON end,
                     action = function() helpers.command_once("laminar/B738/engine/mixture1_idle") end,
                     advice = "Set Engine 1 Fuel Lever Idle",
-                    confirm = "Engine 1 Fuel Lever checked Idle",
+                    confirm = "Engine 1 Fuel Lever checked and Idle",
                     nextStep = 'view_main_panel_4'
                 },
                 ['view_main_panel_4'] = {
@@ -891,21 +886,21 @@ function M.fillProcedureTable()
                         if (get(P.gen2pos) ~= def.ON) then helpers.command_once("laminar/B738/toggle_switch/gen2_dn") end
                     end,
                     advice = "Switch Both Generators On",
-                    confirm = "Both Generators checked On",
+                    confirm = "Both Generators checked and On",
                     nextStep = 'set_hyd_on'
                 },
                 ['set_hyd_on'] = {
                     check = function() return (get(P.hydro1pos) == def.ON) and (get(P.hydro2pos) == def.ON) end,
                     action = function() set(P.hydro1pos, def.ON); set(P.hydro2pos, def.ON) end,
                     advice = "Switch Both Hydraulic Pumps On",
-                    confirm = "Both Hydraulic Pumps checked On",
+                    confirm = "Both Hydraulic Pumps checked and On",
                     nextStep = 'set_elec_hyd_on'
                 },
                 ['set_elec_hyd_on'] = {
                     check = function() return (get(P.elechydro1pos) == def.ON) and (get(P.elechydro2pos) == def.ON) end,
                     action = function() set(P.elechydro1pos, def.ON); set(P.elechydro2pos, def.ON) end,
                     advice = "Switch Both Electrical Hydraulic Pumps On",
-                    confirm = "Both Electrical Hydraulic Pumps checked On",
+                    confirm = "Both Electrical Hydraulic Pumps checked and On",
                     nextStep = 'set_eng_bleed_on'
                 },
                 ['set_eng_bleed_on'] = {
@@ -914,50 +909,50 @@ function M.fillProcedureTable()
                         if (get(P.bleedair1pos) == def.OFF) then helpers.command_once("laminar/B738/toggle_switch/bleed_air_1") end
                         if (get(P.bleedair2pos) == def.OFF) then helpers.command_once("laminar/B738/toggle_switch/bleed_air_2") end
                     end,
-                    advice = "Engine Bleeds On",
-                    confirm = "Engine Bleeds checked On",
+                    advice = "Set Both Engine Bleed Air On",
+                    confirm = "Both Engine Bleed Air checked and On",
                     nextStep = 'set_packs_auto'
                 },
                 ['set_packs_auto'] = {
                     check = function() return (get(P.packlpos) == def.PACKAUTO) and (get(P.packrpos) == def.PACKAUTO) end,
                     action = function() set(P.packlpos, def.PACKAUTO); set(P.packrpos, def.PACKAUTO) end,
-                    advice = "Set Packs Auto",
-                    confirm = "Packs checked Auto",
+                    advice = "Set Both Packs Auto",
+                    confirm = "Both Packs checked and Auto",
                     nextStep = 'set_isol_valve_auto'
                 },
                 ['set_isol_valve_auto'] = {
                     check = function() return get(P.isolvalvepos) == def.ISOLVALVEAUTO end,
                     action = function() set(P.isolvalvepos, def.ISOLVALVEAUTO) end,
                     advice = "Set Isolation Valve Auto",
-                    confirm = "Isolation Valve checked Auto",
+                    confirm = "Isolation Valve checked and Auto",
                     nextStep = 'set_trim_air_on'
                 },
                 ['set_trim_air_on'] = {
                     check = function() return get(P.trimairpos) == def.ON end,
                     action = function() set(P.trimairpos, def.ON) end,
                     advice = "Set Trim Air On",
-                    confirm = "Trim Air checked On",
+                    confirm = "Trim Air checked and On",
                     nextStep = 'set_apu_bleed_off'
                 },
                 ['set_apu_bleed_off'] = {
                     check = function() return get(P.bleedairapupos) == def.OFF end,
                     action = function() helpers.command_once("laminar/B738/toggle_switch/bleed_air_apu") end,
-                    advice = "Set A P U Bleed Off",
-                    confirm = "A P U Bleed checked Off",
+                    advice = "Switch A P U Bleed Air Off",
+                    confirm = "A P U Bleed Air checked and Off",
                     nextStep = 'set_apu_off'
                 },
                 ['set_apu_off'] = {
                     check = function() return P.apurunning() == def.APUOFF end,
                     action = function() helpers.command_once("laminar/B738/spring_toggle_switch/APU_start_pos_up") end,
                     advice = "Switch APU Off",
-                    confirm = "A P U checked Off",
+                    confirm = "A P U checked and Off",
                     nextStep = 'set_yaw_damper_on'
                 },
                 ['set_yaw_damper_on'] = {
                     check = function() return get(P.yawdamperswitch) == def.ON end,
                     action = function() set(P.yawdamperswitch, def.ON) end,
                     advice = "Set Yaw Damper On",
-                    confirm = "Yaw Damper checked On",
+                    confirm = "Yaw Damper checked and On",
                     nextStep = 'view_main_panel_final'
                 },
                 ['view_main_panel_final'] = {
@@ -1014,7 +1009,7 @@ function M.fillProcedureTable()
                     check = function() return get(P.domelightpos) == def.DOMELIGHTOFF end,
                     action = function() P.setdomelight(def.DOMELIGHTOFF) end,
                     advice = "Set Domelight Off",
-                    confirm = "Domelight checked Off",
+                    confirm = "Domelight checked and Off",
                     nextStep = 'view_overhead'
                 },
                 ['view_overhead'] = {
@@ -1025,42 +1020,42 @@ function M.fillProcedureTable()
                     check = function() return get(P.taxilight) ~= def.OFF end,
                     action = function() P.toggletaxilights(def.ON) end,
                     advice = "Set Taxi Lights On",
-                    confirm = "Taxi Lights checked On",
+                    confirm = "Taxi Lights checked and On",
                     nextStep = 'pos_lights_steady'
                 },
                 ['pos_lights_steady'] = {
                     check = function() return get(P.positionlights) == def.POSLIGHTSSTEADY end,
                     action = function() P.togglepositionlights(def.POSLIGHTSSTEADY) end,
                     advice = "Set Position Lights Steady",
-                    confirm = "Position Lights checked Steady",
+                    confirm = "Position Lights checked and Steady",
                     nextStep = 'beacon_on'
                 },
                 ['beacon_on'] = {
                     check = function() return get(P.beaconlights) == def.ON end,
                     action = function() P.togglecollisionlights(def.ON) end,
                     advice = "Set Collision Lights On",
-                    confirm = "Collision Lights checked On",
+                    confirm = "Collision Lights checked and On",
                     nextStep = 'seatbelts_on'
                 },
                 ['seatbelts_on'] = {
                     check = function() return get(P.seatbeltsignpos) == def.SEATBELTSIGNON end,
                     action = function() P.setseatbeltsign(def.SEATBELTSIGNON) end,
                     advice = "Set Seatbeltsigns On",
-                    confirm = "Seatbelt Signs checked On",
+                    confirm = "Seatbeltsigns checked and On",
                     nextStep = 'logo_light_on'
                 },
                 ['logo_light_on'] = {
                     check = function() return get(P.logolighton) == def.ON end,
                     action = function() P.togglelogolight(def.ON) end,
                     advice = "Set Logo Lights On",
-                    confirm = "Logo Lights checked On",
+                    confirm = "Logo Lights checked and On",
                     nextStep = 'yaw_damper_on'
                 },
                 ['yaw_damper_on'] = {
                     check = function() return get(P.yawdamperswitch) == def.ON end,
                     action = function() set(P.yawdamperswitch, def.ON) end,
                     advice = "Set Yaw Damper On",
-                    confirm = "Yaw Damper checked On",
+                    confirm = "Yaw Damper checked and On",
                     nextStep = 'hyd_pumps_on'
                 },
                 ['hyd_pumps_on'] = {
@@ -1070,7 +1065,7 @@ function M.fillProcedureTable()
                         set(P.elechydro1pos, def.ON); set(P.elechydro2pos, def.ON)
                     end,
                     advice = "Switch Hydraulic Pumps On",
-                    confirm = "Hydraulic Pumps checked On",
+                    confirm = "Hydraulic Pumps checked and On",
                     nextStep = 'window_heat_on'
                 },
                 ['window_heat_on'] = {
@@ -1081,7 +1076,7 @@ function M.fillProcedureTable()
                             and (get(P.wheatrsidepos) == def.ON)
                     end,
                     advice = "Confirm Window Heat On",
-                    confirm = "Window Heat checked On",
+                    confirm = "Window Heat checked and On",
                     nextStep = 'probe_heat_on'
                 },
                 ['probe_heat_on'] = {
@@ -1092,22 +1087,22 @@ function M.fillProcedureTable()
                         P.toggleprobeheat(def.ON)
                     end,
                     advice = "Confirm Probe Heat On",
-                    confirm = "Probe Heat checked On",
+                    confirm = "Probe Heat checked and On",
                     nextStep = 'starters_flight'
                 },
                 ['starters_flight'] = {
                     check = function() return (get(P.starter1pos) == def.FLIGHT) and (get(P.starter2pos) == def.FLIGHT) end,
                     action = function() P.setstarter(def.BOTH, def.FLIGHT) end,
                     advice = "Set Both Starters Flight",
-                    confirm = "Both Starters checked Flight",
+                    confirm = "Both Starters checked and FLight",
                     nextStep = 'apu_bleed_off'
                 },
                 ['apu_bleed_off'] = {
                     skipIf = function() return P.apurunning() >= def.APUOFFBUS end,
                     check = function() return get(P.bleedairapupos) == def.OFF end,
                     action = function() set(P.bleedairapupos, def.OFF) end,
-                    advice = "Set A P U Bleed Off",
-                    confirm = "A P U Bleed checked Off",
+                    advice = "Set A P U Bleed Air Off",
+                    confirm = "A P U Bleed Air checked and Off",
                     nextStep = 'isol_valve_auto'
                 },
                 ['isol_valve_auto'] = {
@@ -1115,15 +1110,15 @@ function M.fillProcedureTable()
                     check = function() return get(P.isolvalvepos) == def.ISOLVALVEAUTO end,
                     action = function() set(P.isolvalvepos, def.ISOLVALVEAUTO) end,
                     advice = "Set Isolation Valve Auto",
-                    confirm = "Isolation Valve checked Auto",
+                    confirm = "Isolation Valve checked and Auto",
                     nextStep = 'packs_auto'
                 },
                 ['packs_auto'] = {
                     skipIf = function() return not (get(P.bleedairapupos) == def.ON or (get(P.bleedair1pos) == def.ON and get(P.bleedair2pos) == def.ON)) end,
                     check = function() return (get(P.packlpos) == def.PACKAUTO) and (get(P.packrpos) == def.PACKAUTO) end,
                     action = function() set(P.packlpos, def.PACKAUTO); set(P.packrpos, def.PACKAUTO) end,
-                    advice = "Set Packs Auto",
-                    confirm = "Packs checked Auto",
+                    advice = "Set Both Packs Auto",
+                    confirm = "Both Packs checked and Auto",
                     nextStep = 'view_main_panel_2'
                 },
                 ['view_main_panel_2'] = {
@@ -1134,21 +1129,21 @@ function M.fillProcedureTable()
                     check = function() return (get(P.fdpilotpos) == def.ON) and (get(P.fdfopos) == def.ON) end,
                     action = function() P.togglefds(def.ON) end,
                     advice = "Set Both Flight Directors On",
-                    confirm = "Flight Directors checked On",
+                    confirm = "Flight Directors checked and On",
                     nextStep = 'arm_lnav'
                 },
                 ['arm_lnav'] = {
                     skipIf = function() return P.configvalues[def.CONFIGVOICEADVICEONLY] == def.OFF end,
                     check = function() return get(P.aplnavstat) == def.ON end,
                     advice = "Arm L NAV",
-                    confirm = "L NAV checked Armed",
+                    confirm = "L NAV checked and Armed",
                     nextStep = 'arm_vnav'
                 },
                 ['arm_vnav'] = {
                     skipIf = function() return P.configvalues[def.CONFIGVOICEADVICEONLY] == def.OFF end,
                     check = function() return get(P.apvnavstat) == def.ON end,
                     advice = "Arm V NAV",
-                    confirm = "V NAV checked Armed",
+                    confirm = "V NAV checked and Armed",
                     nextStep = 'view_throttle'
                 },
                 ['view_throttle'] = {
@@ -1166,7 +1161,7 @@ function M.fillProcedureTable()
                     check = function() return get(P.parkingbrakepos) == def.OFF end,
                     action = function() set(P.parkingbrakepos, def.OFF) end,
                     advice = "Release Parking Brake",
-                    confirm = "Parking Brake checked Released",
+                    confirm = "Parking Brake checked and Released",
                     nextStep = 'view_main_panel_final'
                 },
                 ['view_main_panel_final'] = {
@@ -1221,7 +1216,7 @@ function M.fillProcedureTable()
                     check = function() return get(P.positionlights) == def.POSLIGHTSSTROBE end,
                     action = function() P.togglepositionlights(def.POSLIGHTSSTROBE) end,
                     advice = "Set Position Lights Strobe",
-                    confirm = "Position Lights checked Strobe",
+                    confirm = "Position Lights checked and Strobe",
                     nextStep = 'landing_lights_on'
                 },
                 ['landing_lights_on'] = {
@@ -1239,21 +1234,21 @@ function M.fillProcedureTable()
                     end,
                     action = function() P.togglelandinglights(def.ON) end,
                     advice = "Set Landing Lights On",
-                    confirm = "Landing Lights checked On",
+                    confirm = "Landing Lights checked and On",
                     nextStep = 'taxi_light_off'
                 },
                 ['taxi_light_off'] = {
                     check = function() return get(P.taxilight) == def.OFF end,
                     action = function() P.toggletaxilights(def.OFF) end,
                     advice = "Set Taxi Lights Off",
-                    confirm = "Taxi Lights checked Off",
+                    confirm = "Taxi Lights checked and Off",
                     nextStep = 'rwy_lights_off'
                 },
                 ['rwy_lights_off'] = {
                     check = function() return (get(P.rwylightl) == def.OFF) and (get(P.rwylightr) == def.OFF) end,
                     action = function() P.togglerwylights(def.OFF) end,
                     advice = "Set Runway Turnoff Lights Off",
-                    confirm = "Runway Turnoff Lights checked Off",
+                    confirm = "Runway Turnoff Lights checked and Off",
                     nextStep = 'view_main_panel'
                 },
                 ['view_main_panel'] = {
@@ -1306,21 +1301,21 @@ function M.fillProcedureTable()
                     skipIf = function() return P.configvalues[def.CONFIGVOICEADVICEONLY] == def.OFF end,
                     check = function() return get(P.aplnavstat) == def.ON end,
                     advice = "Arm L NAV",
-                    confirm = "L NAV checked Armed",
+                    confirm = "L NAV checked and Armed",
                     nextStep = 'arm_vnav'
                 },
                 ['arm_vnav'] = {
                     skipIf = function() return P.configvalues[def.CONFIGVOICEADVICEONLY] == def.OFF end,
                     check = function() return get(P.apvnavstat) == def.ON end,
                     advice = "Arm V NAV",
-                    confirm = "V NAV checked Armed",
+                    confirm = "V NAV checked and Armed",
                     nextStep = 'arm_at'
                 },
                 ['arm_at'] = {
                     skipIf = function() return P.configvalues[def.CONFIGVOICEADVICEONLY] == def.OFF end,
                     check = function() return get(P.atarmpos) == def.ON end,
                     advice = "Arm Autothrottle",
-                    confirm = "Autothrottle checked Armed",
+                    confirm = "Autothrottle checked and Armed",
                     nextStep = 'speak_wind'
                 },
                 ['speak_wind'] = {
@@ -1372,7 +1367,7 @@ function M.fillProcedureTable()
                     action = function() 
                         set(P.gearhandlepos, def.GEARUP) 
                     end,
-                    confirm = "Gear checked Up",
+                    confirm = "Gear checked and Up",
                     nextStep = 'set_gear_lever_off'
                 },
                 ['set_gear_lever_off'] = {
@@ -1396,7 +1391,7 @@ function M.fillProcedureTable()
                             set(P.gearhandlepos, def.GEAROFF)
                         end
                     end,
-                    confirm = "Gear Lever checked Off",
+                    confirm = "Gear Lever checked and Off",
                     nextStep = 'set_autobrake_off'
                 },
                 ['set_autobrake_off'] = {
@@ -1407,7 +1402,7 @@ function M.fillProcedureTable()
                     action = function()
                         P.setautobrake(def.AUTOBRAKEOFF)
                     end,
-                    confirm = "Auto Brake checked Off",
+                    confirm = "Auto Brake checked and Off",
                     nextStep = 'trigger_packs_restore'
                 },
                 ['trigger_packs_restore'] = {
@@ -1461,43 +1456,43 @@ function M.fillProcedureTable()
                 },
                 ['set_eng_bleed_on'] = {
                     check = function() return (get(P.bleedair1pos) == def.ON) and (get(P.bleedair2pos) == def.ON) end,
-                    advice = "Engine Bleeds On",
+                    advice = "Set Both Engine Bleed Air On",
                     action = function()
                         if (get(P.bleedair1pos) == def.OFF) then helpers.command_once("laminar/B738/toggle_switch/bleed_air_1") end
                         if (get(P.bleedair2pos) == def.OFF) then helpers.command_once("laminar/B738/toggle_switch/bleed_air_2") end
                     end,
-                    confirm = "Engine Bleeds checked On",
+                    confirm = "Both Engine Bleed Air checked and On",
                     nextStep = 'set_packs_auto'
                 },
                 ['set_packs_auto'] = {
                     check = function() return (get(P.packlpos) == def.PACKAUTO) and (get(P.packrpos) == def.PACKAUTO) end,
-                    advice = "Set Packs Auto",
+                    advice = "Set Both Packs Auto",
                     action = function()
                         set(P.packlpos, def.PACKAUTO)
                         set(P.packrpos, def.PACKAUTO)
                     end,
-                    confirm = "Both Packs checked On",
+                    confirm = "Both Packs checked and On",
                     nextStep = 'set_isol_valve_auto'
                 },
                 ['set_isol_valve_auto'] = {
                     check = function() return get(P.isolvalvepos) == def.ISOLVALVEAUTO end,
                     advice = "Set Isolation Valve Auto",
                     action = function() set(P.isolvalvepos, def.ISOLVALVEAUTO) end,
-                    confirm = "Isolation Valve checked Auto",
+                    confirm = "Isolation Valve checked and Auto",
                     nextStep = 'set_apu_bleed_off'
                 },
                 ['set_apu_bleed_off'] = {
                     check = function() return get(P.bleedairapupos) == def.OFF end,
-                    advice = "Set A P U Bleed Off",
+                    advice = "Switch A P U Bleed Air Off",
                     action = function() helpers.command_once("laminar/B738/toggle_switch/bleed_air_apu") end,
-                    confirm = "A P U Bleed checked Off",
+                    confirm = "A P U Bleed Air checked and Off",
                     nextStep = 'set_apu_off'
                 },
                 ['set_apu_off'] = {
                     check = function() return P.apurunning() == def.APUOFF end,
-                    advice = "Set A P U Off",
+                    advice = "Switch A P U Off",
                     action = function() helpers.command_once("laminar/B738/spring_toggle_switch/APU_start_pos_up") end,
-                    confirm = "A P U checked Off",
+                    confirm = "A P U checked and Off",
                     nextStep = nil
                 }
             }
@@ -1639,21 +1634,21 @@ function M.fillProcedureTable()
                     end,
                     advice = "Set Landing Lights Off",
                     action = function() P.togglelandinglights(def.OFF) end,
-                    confirm = "Landing Lights checked Off",
+                    confirm = "Landing Lights checked and Off",
                     nextStep = 'set_logo_lights_off'
                 },
                 ['set_logo_lights_off'] = {
                     check = function() return get(P.logolighton) == def.OFF end,
                     advice = "Set Logo Lights Off",
                     action = function() P.togglelogolight(def.OFF) end,
-                    confirm = "Logo Lights checked Off",
+                    confirm = "Logo Lights checked and Off",
                     nextStep = 'set_seatbelts_off'
                 },
                 ['set_seatbelts_off'] = {
                     check = function() return get(P.seatbeltsignpos) == def.SEATBELTSIGNOFF end,
                     advice = "Set Seatbeltsigns Off",
                     action = function() P.setseatbeltsign(def.SEATBELTSIGNOFF) end,
-                    confirm = "Seatbelt Signs checked Off",
+                    confirm = "Seatbelt Signs checked and Off",
                     nextStep = 'set_starters'
                 },
                 ['set_starters'] = {
@@ -1673,8 +1668,8 @@ function M.fillProcedureTable()
                         else P.setstarter(def.BOTH, def.CONT) end
                     end,
                     confirm = function()
-                        if (get(P.starterauto) == def.ON) then return "Both Starters checked Auto"
-                        else return "Both Starters checked Continuous" end
+                        if (get(P.starterauto) == def.ON) then return "Both Starters checked and Auto"
+                        else return "Both Starters checked and Continuous" end
                     end,
                     nextStep = 'set_view_main'
                 },
@@ -1748,17 +1743,11 @@ function M.fillProcedureTable()
                             return true
                         end
 
-                        local discontinuity = helpers.detectFMSDiscontinuity(
-                            legs,
-                            get(P.fmslegslat),
-                            get(P.fmslegslon),
-                            get(P.aircraftlatpos),
-                            get(P.aircraftlonpos)
-                        )
+                        local discontinuity = helpers.detectFMSDiscontinuity(legs)
                         if discontinuity then
-                            local prevLeg = discontinuity.previous and helpers.replaceRunwayPrefix(discontinuity.previous) or ""
-                            local suffix = (prevLeg ~= "") and (" after " .. prevLeg) or ""
-                            P.commandtableentry(def.TEXT, "Discontinuity" .. suffix .. " before approach")
+                            local prevLeg = discontinuity.previous and helpers.addspaces(discontinuity.previous) or ""
+                            local detail = (prevLeg ~= "") and (" after " .. prevLeg) or ""
+                            P.commandtableentry(def.TEXT, "Resolve F M C Discontinuity" .. detail .. " before Approach")
                             return false
                         end
 
@@ -1771,10 +1760,9 @@ function M.fillProcedureTable()
                         )
 
                         local todDistance = get(P.vnavtoddist)
-                        local cruiseAlt = get(P.fmccruisealt)
                         local tolerance = 5
 
-                        if cruiseAlt and cruiseAlt > 0 and remainingDistance and remainingDistance > 0 and todDistance and todDistance > 0 then
+                        if remainingDistance and remainingDistance > 0 and todDistance and todDistance > 0 then
                             if todDistance > (remainingDistance + tolerance) then
                                 P.commandtableentry(def.TEXT, "Verify F M C route extends beyond Top of Descent")
                                 return false
@@ -1891,7 +1879,7 @@ function M.fillProcedureTable()
                     check = function() return get(P.seatbeltsignpos) == def.SEATBELTSIGNON end,
                     advice = "Set Seatbeltsigns On",
                     action = function() P.setseatbeltsign(def.SEATBELTSIGNON) end,
-                    confirm = "Seatbelt Signs checked On",
+                    confirm = "Seatbeltsigns checked and On",
                     nextStep = 'set_landing_lights_on'
                 },
                 ['set_landing_lights_on'] = {
@@ -1906,21 +1894,21 @@ function M.fillProcedureTable()
                     end,
                     advice = "Set Landing Lights On",
                     action = function() P.togglelandinglights(def.ON) end,
-                    confirm = "Landing Lights checked On",
+                    confirm = "Landing Lights checked and On",
                     nextStep = 'set_starters_flight'
                 },
                 ['set_starters_flight'] = {
                     check = function() return (get(P.starter1pos) == def.FLIGHT) and (get(P.starter2pos) == def.FLIGHT) end,
                     advice = "Set Both Starters Flight",
                     action = function() P.setstarter(def.BOTH, def.FLIGHT) end,
-                    confirm = "Both Starters checked Flight",
+                    confirm = "Both Starters checked and Flight",
                     nextStep = 'set_logo_lights_on'
                 },
                 ['set_logo_lights_on'] = {
                     check = function() return get(P.logolighton) == def.ON end,
                     advice = "Set Logo Lights On",
                     action = function() P.togglelogolight(def.ON) end,
-                    confirm = "Logo Lights checked On",
+                    confirm = "Logo Lights checked and On",
                     nextStep = 'set_view_main_1'
                 },
                 ['set_view_main_1'] = {
@@ -2004,7 +1992,7 @@ function M.fillProcedureTable()
                         if get(P.autobrakepos) > def.AUTOBRAKEOFF then autobrake = get(P.autobrakepos)
                         else autobrake = helpers.calcautobrake(get(P.vref), get(P.totalweightkgs), get(P.desrwylen), P.desmetar) end
                         if (autobrake < def.AUTOBRAKEMAX) then return "Auto Brake checked and " .. tostring(autobrake - 1)
-                        else return "Auto Brake checked Maximum" end
+                        else return "Auto Brake checked and Maximum" end
                     end,
                     nextStep = 'speak_des_metar_2'
                 },
@@ -2042,7 +2030,7 @@ function M.fillProcedureTable()
                     action = function() 
                         set(P.gearhandlepos, def.GEARDOWN) 
                     end,
-                    confirm = "Gear checked Down",
+                    confirm = "Gear checked and Down",
                     nextStep = nil
                 }
             }
@@ -2071,21 +2059,21 @@ function M.fillProcedureTable()
                     check = function() return helpers.roundnumber(get(P.speedbrakelever), 1) == def.SPEEDBRAKEARMED end,
                     advice = "Arm Speed Brakes",
                     action = function() set(P.speedbrakelever, def.SPEEDBRAKEARMED) end,
-                    confirm = "Speedbrakes checked Armed",
+                    confirm = "Speedbrakes checked and Armed",
                     nextStep = 'set_taxi_lights_on'
                 },
                 ['set_taxi_lights_on'] = {
                     check = function() return get(P.taxilight) ~= def.OFF end,
                     advice = "Set Taxi Lights On",
                     action = function() P.toggletaxilights(def.ON) end,
-                    confirm = "Taxi Lights checked On",
+                    confirm = "Taxi Lights checked and On",
                     nextStep = 'set_rwy_lights_on'
                 },
                 ['set_rwy_lights_on'] = {
                     check = function() return (get(P.rwylightl) ~= def.OFF) and (get(P.rwylightr) ~= def.OFF) end,
                     advice = "Set Runway Turnoff Lights On",
                     action = function() P.togglerwylights(def.ON) end,
-                    confirm = "Runway Turnoff Lights checked On",
+                    confirm = "Runway Turnoff Lights checked and On",
                     nextStep = 'set_mcp_altitude'
                 },
                 ['set_mcp_altitude'] = {
@@ -2188,7 +2176,7 @@ function M.fillProcedureTable()
                     check = function() return get(P.gearhandlepos) == def.GEARDOWN end,
                     advice = "Set Gear Down",
                     action = function() set(P.gearhandlepos, def.GEARDOWN) end,
-                    confirm = "Gear checked Down",
+                    confirm = "Gear checked and Down",
                     nextStep = 'set_app_flaps'
                 },
                 ['set_app_flaps'] = {
@@ -2258,28 +2246,28 @@ function M.fillProcedureTable()
                     end,
                     action = function() P.togglelandinglights(def.OFF) end,
                     advice = "Set Landing Lights Off",
-                    confirm = "Landing Lights checked Off",
+                    confirm = "Landing Lights checked and Off",
                     nextStep = 'taxi_lights_on'
                 },
                 ['taxi_lights_on'] = {
                     check = function() return get(P.taxilight) ~= def.OFF end,
                     action = function() P.toggletaxilights(def.ON) end,
                     advice = "Set Taxi Lights On",
-                    confirm = "Taxi Lights checked On",
+                    confirm = "Taxi Lights checked and On",
                     nextStep = 'rwy_lights_off'
                 },
                 ['rwy_lights_off'] = {
                     check = function() return (get(P.rwylightl) == def.OFF) and (get(P.rwylightr) == def.OFF) end,
                     action = function() P.togglerwylights(def.OFF) end,
                     advice = "Set Runway Turnoff Lights Off",
-                    confirm = "Runway Turnoff Lights checked Off",
+                    confirm = "Runway Turnoff Lights checked and Off",
                     nextStep = 'pos_lights_steady'
                 },
                 ['pos_lights_steady'] = {
                     check = function() return get(P.positionlights) == def.POSLIGHTSSTEADY end,
                     action = function() P.togglepositionlights(def.POSLIGHTSSTEADY) end,
                     advice = "Set Position Lights Steady",
-                    confirm = "Position Lights checked Steady",
+                    confirm = "Position Lights checked and Steady",
                     nextStep = 'view_pedestal'
                 },
                 ['view_pedestal'] = {
@@ -2291,7 +2279,7 @@ function M.fillProcedureTable()
                     check = function() return get(P.transponderpos) ~= def.TARA end,
                     action = function() P.toggletransponder(def.STANDBY) end,
                     advice = "Set Transponder Off",
-                    confirm = function() return "Transponder checked Off" end,
+                    confirm = function() return "Transponder checked and Off" end,
                     nextStep = 'view_throttle'
                 },
                 ['view_throttle'] = {
@@ -2302,7 +2290,7 @@ function M.fillProcedureTable()
                     check = function() return get(P.flapleverpos) == def.FLAPSUP end,
                     action = function() helpers.command_once("laminar/B738/push_button/flaps_0") end,
                     advice = "Set Flaps Up",
-                    confirm = "Flaps checked Up",
+                    confirm = "Flaps checked and Up",
                     nextStep = 'speedbrake_down'
                 },
                 ['speedbrake_down'] = {
@@ -2320,28 +2308,28 @@ function M.fillProcedureTable()
                     check = function() return (get(P.fdpilotpos) == def.OFF) and (get(P.fdfopos) == def.OFF) end,
                     action = function() P.togglefds(def.OFF) end,
                     advice = "Set Both Flight Directors Off",
-                    confirm = "Both Flight Directors checked Off",
+                    confirm = "Both Flight Directors checked and Off",
                     nextStep = 'wx_off'
                 },
                 ['wx_off'] = {
                     check = function() return (get(P.efiswxpilotpos) == def.OFF) and (get(P.efiswxfopos) == def.OFF) end,
                     action = function() P.togglewx(def.OFF) end,
                     advice = "Set Both Weather Radars Off",
-                    confirm = "Both Weather Radars checked Off",
+                    confirm = "Both Weather Radars checked and Off",
                     nextStep = 'terr_off'
                 },
                 ['terr_off'] = {
                     check = function() return (get(P.efisterrpilotpos) == def.OFF) and (get(P.efisterrfopos) == def.OFF) end,
                     action = function() P.toggleterr(def.OFF) end,
                     advice = "Set Both Terrain Radars Off",
-                    confirm = "Both Terrain Radars checked Off",
+                    confirm = "Both Terrain Radars checked and Off",
                     nextStep = 'autobrake_off'
                 },
                 ['autobrake_off'] = {
                     check = function() return get(P.autobrakepos) == def.AUTOBRAKEOFF end,
                     action = function() P.setautobrake(def.AUTOBRAKEOFF) end,
                     advice = "Set Auto Brake Off",
-                    confirm = "Auto Brake checked Off",
+                    confirm = "Auto Brake checked and Off",
                     nextStep = 'ap_off'
                 },
                 ['ap_off'] = {
@@ -2408,7 +2396,7 @@ function M.fillProcedureTable()
                     check = function() return get(P.domelightpos) ~= def.DOMELIGHTOFF end,
                     action = function() P.setdomelight(def.DOMELIGHTDIM) end,
                     advice = "Set Dome Light On",
-                    confirm = "Dome light checked On",
+                    confirm = "Dome light checked and On",
                     nextStep = 'view_pedestal'
                 },
                 ['view_pedestal'] = {
@@ -2420,7 +2408,7 @@ function M.fillProcedureTable()
                     check = function() return get(P.transponderpos) ~= def.TARA end,
                     action = function() P.toggletransponder(def.STANDBY) end,
                     advice = "Set Transponder Standby",
-                    confirm = "Transponder checked Standby",
+                    confirm = "Transponder checked and Standby",
                     nextStep = 'view_overhead'
                 },
                 ['view_overhead'] = {
@@ -2431,21 +2419,21 @@ function M.fillProcedureTable()
                     check = function() return get(P.taxilight) == def.OFF end,
                     action = function() P.toggletaxilights(def.OFF) end,
                     advice = "Set Taxi Lights Off",
-                    confirm = "Taxi Lights checked Off",
+                    confirm = "Taxi Lights checked and Off",
                     nextStep = 'logo_light_off'
                 },
                 ['logo_light_off'] = {
                     check = function() return get(P.logolighton) == def.OFF end,
                     action = function() P.togglelogolight(def.OFF) end,
                     advice = "Set Logo Lights Off",
-                    confirm = "Logo Lights checked Off",
+                    confirm = "Logo Lights checked and Off",
                     nextStep = 'seatbelts_off'
                 },
                 ['seatbelts_off'] = {
                     check = function() return get(P.seatbeltsignpos) == def.SEATBELTSIGNOFF end,
                     action = function() P.setseatbeltsign(def.SEATBELTSIGNOFF) end,
                     advice = "Set Seatbeltsigns Off",
-                    confirm = "Seatbeltsigns checked Off",
+                    confirm = "Seatbeltsigns checked and Off",
                     nextStep = 'starters_auto'
                 },
                 ['starters_auto'] = {
@@ -2456,8 +2444,8 @@ function M.fillProcedureTable()
                         else return "Set Both Starters Off" end
                     end,
                     confirm = function()
-                        if (get(P.starterauto) == def.ON) then return "Both Starters checked Auto"
-                        else return "Both Starters checked Off" end
+                        if (get(P.starterauto) == def.ON) then return "Both Starters checked and Auto"
+                        else return "Both Starters checked and Off" end
                     end,
                     nextStep = 'set_wipers_off'
                 },
@@ -2469,7 +2457,7 @@ function M.fillProcedureTable()
                         P.autowiper(def.WIPEROFF)
                     end,
                     advice = "Set Both Wipers Off",
-                    confirm = "Wipers checked Off",
+                    confirm = "Wipers checked and Off",
                     nextStep = 'view_main_panel_final'
                 },
                 ['view_main_panel_final'] = {
@@ -2514,8 +2502,8 @@ function M.fillProcedureTable()
                 ['check_gpu_power'] = {
                     check = function() return get(P.gpuon) == def.ON end,
                     action = function() helpers.command_once("laminar/B738/toggle_switch/gpu_dn") end,
-                    advice = "Set Ground Power On",
-                    confirm = "G P U checked On",
+                    advice = "Switch Ground Power On",
+                    confirm = "G P U checked and On",
                     nextStep = 'verify_power_source_ready'
                 },
                 ['start_apu'] = {
@@ -2552,22 +2540,22 @@ function M.fillProcedureTable()
                             helpers.command_once("laminar/B738/toggle_switch/apu_gen2_dn")
                         end
                     end,
-                    advice = "Set A P U Generator On",
-                    confirm = "A P U Generator checked On",
+                    advice = "Switch A P U Generator On",
+                    confirm = "A P U Generator checked and On",
                     nextStep = 'set_apu_bleed'
                 },
                 ['set_apu_bleed'] = {
                     check = function() return get(P.bleedairapupos) == def.ON end,
                     action = function() helpers.command_once("laminar/B738/toggle_switch/bleed_air_apu") end,
-                    advice = "Set A P U Bleed On",
-                    confirm = "A P U Bleed checked On",
+                    advice = "Switch A P U Bleed Air On",
+                    confirm = "A P U Bleed Air checked and On",
                     nextStep = 'set_isol_valve'
                 },
                 ['set_isol_valve'] = {
                     check = function() return get(P.isolvalvepos) == def.ISOLVALVEOPEN end,
                     action = function() set(P.isolvalvepos, def.ISOLVALVEOPEN) end,
                     advice = "Set Isolation Valve Open",
-                    confirm = "Isolation Valve checked Open",
+                    confirm = "Isolation Valve checked and Open",
                     nextStep = 'verify_power_source_ready'
                 },
                 ['verify_power_source_ready'] = {
@@ -2589,12 +2577,12 @@ function M.fillProcedureTable()
                     confirm = function(loop)
                         if loop.power_source == 'gpu' then
                             if (get(P.gpuon) == def.ON) then
-                                return "Ground Power checked On"
+                                return "Ground Power checked and On"
                             end
                             return false
                         end
                         if (P.apurunning() == def.APUONBUS) and (get(P.bleedairapupos) == def.ON) then
-                            return "A P U Power and Bleed checked On"
+                            return "A P U Power and Bleed checked and On"
                         end
                         return false
                     end,
@@ -2609,7 +2597,7 @@ function M.fillProcedureTable()
                         if (get(P.bleedair2pos) ~= def.OFF) then helpers.command_once("laminar/B738/toggle_switch/bleed_air_2") end
                     end,
                     advice = "Set Both Engine Bleeds Off",
-                    confirm = "Both Engine Bleeds checked Off",
+                    confirm = "Both Engine Bleeds checked and Off",
                     nextStep = 'view_throttle'
                 },
                 ['view_throttle'] = {
@@ -2634,7 +2622,7 @@ function M.fillProcedureTable()
                     check = function() return (get(P.captainprobepos) == def.OFF) and (get(P.foprobepos) == def.OFF) end,
                     action = function() P.toggleprobeheat(def.OFF) end,
                     advice = "Set Probe Heat Off",
-                    confirm = "Probe Heat checked Off",
+                    confirm = "Probe Heat checked and Off",
                     nextStep = 'ice_off'
                 },
                 ['ice_off'] = {
@@ -2660,14 +2648,14 @@ function M.fillProcedureTable()
                         if (get(P.bleedair2pos) ~= def.OFF) then helpers.command_once("laminar/B738/toggle_switch/bleed_air_2") end
                     end,
                     advice = "Set Both Engine Bleeds Off",
-                    confirm = "Both Engine Bleeds checked Off",
+                    confirm = "Both Engine Bleeds checked and Off",
                     nextStep = 'center_pumps_off'
                 },
                 ['center_pumps_off'] = {
                     check = function() return (get(P.centertanklswitch) == def.OFF) and (get(P.centertankrswitch) == def.OFF) end,
                     action = function() set(P.centertanklswitch, def.OFF); set(P.centertankrswitch, def.OFF) end,
                     advice = "Set Center Tank Fuel Pumps Off",
-                    confirm = "Center Tank Fuel Pumps checked Off",
+                    confirm = "Center Tank Fuel Pumps checked and Off",
                     nextStep = 'wing_pumps_off'
                 },
                 ['wing_pumps_off'] = {
@@ -2705,7 +2693,7 @@ function M.fillProcedureTable()
                         if (loop and loop.power_source == 'apu') and (P.apurunning() == def.APUONBUS) then
                             return "Left Fwd Pump On, remaining Wing Pumps Off"
                         end
-                        return "Wing Tank Fuel Pumps checked Off"
+                        return "Wing Tank Fuel Pumps checked and Off"
                     end,
                     nextStep = 'hyd_pumps_off'
                 },
@@ -2713,28 +2701,28 @@ function M.fillProcedureTable()
                     check = function() return (get(P.hydro1pos) == def.OFF) and (get(P.hydro2pos) == def.OFF) end,
                     action = function() set(P.hydro1pos, def.OFF); set(P.hydro2pos, def.OFF) end,
                     advice = "Switch Both Hydraulic Pumps Off",
-                    confirm = "Both Hydraulic Pumps checked Off",
+                    confirm = "Both Hydraulic Pumps checked and Off",
                     nextStep = 'elec_hyd_pumps_off'
                 },
                 ['elec_hyd_pumps_off'] = {
                     check = function() return (get(P.elechydro1pos) == def.OFF) and (get(P.elechydro2pos) == def.OFF) end,
                     action = function() set(P.elechydro1pos, def.OFF); set(P.elechydro2pos, def.OFF) end,
                     advice = "Switch Both Electrical Hydraulic Pumps Off",
-                    confirm = "Both Electrical Hydraulic Pumps checked Off",
+                    confirm = "Both Electrical Hydraulic Pumps checked and Off",
                     nextStep = 'beacon_off'
                 },
                 ['beacon_off'] = {
                     check = function() return get(P.beaconlights) == def.OFF end,
                     action = function() P.togglecollisionlights(def.OFF) end,
                     advice = "Set Collision Lights Off",
-                    confirm = "Collision lightset checked Off",
+                    confirm = "Collision lightset checked and Off",
                     nextStep = 'no_smoking_off'
                 },
                 ['no_smoking_off'] = {
                     check = function() return get(P.nosmokingsignpos) == def.NOSMOKINGSIGNOFF end,
                     action = function() P.setnosmokingsign(def.NOSMOKINGSIGNOFF) end,
                     advice = "Set No Smoking Signs Off",
-                    confirm = "NO Smoking Signs checked Off",
+                    confirm = "NO Smoking Signs checked and Off",
                     nextStep = 'view_main_panel'
                 },
                 ['view_main_panel'] = {
@@ -2793,7 +2781,7 @@ function M.fillProcedureTable()
                     check = function() return (get(P.captainprobepos) == def.OFF) and (get(P.foprobepos) == def.OFF) end,
                     action = function() P.toggleprobeheat(def.OFF) end,
                     advice = "Set Probe Heat Off",
-                    confirm = "Probe Heat checked Off",
+                    confirm = "Probe Heat checked and Off",
                     nextStep = 'ice_off'
                 },
                 ['ice_off'] = {
@@ -2814,7 +2802,7 @@ function M.fillProcedureTable()
                     check = function() return (get(P.centertanklswitch) == def.OFF) and (get(P.centertankrswitch) == def.OFF) end,
                     action = function() set(P.centertanklswitch, def.OFF); set(P.centertankrswitch, def.OFF) end,
                     advice = "Set Center Tank Fuel Pumps Off",
-                    confirm = "Center Tank Fuel Pumps checked Off",
+                    confirm = "Center Tank Fuel Pumps checked and Off",
                     nextStep = 'wing_pumps_off'
                 },
                 ['wing_pumps_off'] = {
@@ -2830,29 +2818,29 @@ function M.fillProcedureTable()
                         set(P.righttanklswitch, def.OFF)
                         set(P.righttankrswitch, def.OFF)
                     end,
-                    advice = "Set Wing Tank Pumps Off",
-                    confirm = "Wing Tank Pumps checked Off",
+                    advice = "Set Wing Tank Fuel Pumps Off",
+                    confirm = "Wing Tank Fuel Pumps checked and Off",
                     nextStep = 'hyd_pumps_off'
                 },
                 ['hyd_pumps_off'] = {
                     check = function() return (get(P.hydro1pos) == def.OFF) and (get(P.hydro2pos) == def.OFF) end,
                     action = function() set(P.hydro1pos, def.OFF); set(P.hydro2pos, def.OFF) end,
                     advice = "Switch Both Hydraulic Pumps Off",
-                    confirm = "Both Hydraulic Pumps checked Off",
+                    confirm = "Both Hydraulic Pumps checked and Off",
                     nextStep = 'elec_hyd_pumps_off'
                 },
                 ['elec_hyd_pumps_off'] = {
                     check = function() return (get(P.elechydro1pos) == def.OFF) and (get(P.elechydro2pos) == def.OFF) end,
                     action = function() set(P.elechydro1pos, def.OFF); set(P.elechydro2pos, def.OFF) end,
                     advice = "Switch Both Electrical Hydraulic Pumps Off",
-                    confirm = "Both Electrical Hydraulic Pumps checked Off",
+                    confirm = "Both Electrical Hydraulic Pumps checked and Off",
                     nextStep = 'beacon_off'
                 },
                 ['beacon_off'] = {
                     check = function() return get(P.beaconlights) == def.OFF end,
                     action = function() P.togglecollisionlights(def.OFF) end,
                     advice = "Set Collision Lights Off",
-                    confirm = "Collision lightset checked Off",
+                    confirm = "Collision lightset checked and Off",
                     nextStep = 'view_main_panel'
                 },
                 ['view_main_panel'] = {
@@ -2891,7 +2879,7 @@ function M.fillProcedureTable()
                     check = function() return (get(P.irsleftpos) == def.IRSOFF) and (get(P.irsrightpos) == def.IRSOFF) end,
                     action = function() P.setirs(def.BOTHIRS, def.IRSOFF) end,
                     advice = "Set Both I R S Off",
-                    confirm = "Both I R S checked Off",
+                    confirm = "Both I R S checked and Off",
                     nextStep = 'view_overhead'
                 },
                 ['view_overhead'] = {
@@ -2902,28 +2890,28 @@ function M.fillProcedureTable()
                     check = function() return get(P.yawdamperswitch) == def.OFF end,
                     action = function() set(P.yawdamperswitch, def.OFF) end,
                     advice = "Set Yaw Damper Off",
-                    confirm = "Yaw Damper checked Off",
+                    confirm = "Yaw Damper checked and Off",
                     nextStep = 'apu_bleed_off'
                 },
                 ['apu_bleed_off'] = {
                     check = function() return get(P.bleedairapupos) == def.OFF end,
                     action = function() helpers.command_once("laminar/B738/toggle_switch/bleed_air_apu") end,
-                    advice = "Set A P U Bleed Off",
-                    confirm = "A P U Bleed checked Off",
+                    advice = "Switch A P U Bleed Air Off",
+                    confirm = "A P U Bleed Air checked and Off",
                     nextStep = 'isol_valve_auto'
                 },
                 ['isol_valve_auto'] = {
                     check = function() return get(P.isolvalvepos) == def.ISOLVALVEAUTO end,
                     action = function() set(P.isolvalvepos, def.ISOLVALVEAUTO) end,
                     advice = "Set Isolation Valve Auto",
-                    confirm = "Isolation Valve checked Auto",
+                    confirm = "Isolation Valve checked and Auto",
                     nextStep = 'packs_off'
                 },
                 ['packs_off'] = {
                     check = function() return (get(P.packlpos) == def.PACKOFF) and (get(P.packrpos) == def.PACKOFF) end,
                     action = function() set(P.packlpos, def.PACKOFF); set(P.packrpos, def.PACKOFF) end,
-                    advice = "Set Packs Off",
-                    confirm = "Packs checked Off",
+                    advice = "Set Both Packs Off",
+                    confirm = "Both Packs checked and Off",
                     nextStep = 'eng_bleed_off'
                 },
                 ['eng_bleed_off'] = {
@@ -2932,22 +2920,22 @@ function M.fillProcedureTable()
                         if (get(P.bleedair1pos) == def.ON) then helpers.command_once("laminar/B738/toggle_switch/bleed_air_1") end
                         if (get(P.bleedair2pos) == def.ON) then helpers.command_once("laminar/B738/toggle_switch/bleed_air_2") end
                     end,
-                    advice = "Engine Bleeds Off",
-                    confirm = "Engine Bleeds checked Off",
+                    advice = "Set Both Engine Bleed Air Off",
+                    confirm = "Both Engine Bleed Air checked and Off",
                     nextStep = 'trim_air_off'
                 },
                 ['trim_air_off'] = {
                     check = function() return get(P.trimairpos) == def.OFF end,
                     action = function() set(P.trimairpos, def.OFF) end,
                     advice = "Set Trim Air Off",
-                    confirm = "Trim Air checked Off",
+                    confirm = "Trim Air checked and Off",
                     nextStep = 'window_heat_off'
                 },
                 ['window_heat_off'] = {
                     check = function() return (get(P.wheatlfwdpos) == def.OFF) and (get(P.wheatrfwdpos) == def.OFF) and (get(P.wheatlsidepos) == def.OFF) and (get(P.wheatrsidepos) == def.OFF) end,
                     action = function() P.togglewindowheat(def.OFF) end,
                     advice = "Set Window Heat Off",
-                    confirm = "Window Heat checked Off",
+                    confirm = "Window Heat checked and Off",
                     nextStep = 'check_power_source'
                 },
                 ['check_power_source'] = {
@@ -2962,8 +2950,8 @@ function M.fillProcedureTable()
                 ['check_gpu_power'] = {
                     check = function() return get(P.gpuon) == def.OFF end,
                     action = function() helpers.command_once("laminar/B738/toggle_switch/gpu_up") end,
-                    advice = "Set Ground Power Off",
-                    confirm = "Ground Power checked Off",
+                    advice = "Switch Ground Power Off",
+                    confirm = "Ground Power checked and Off",
                     nextStep = 'apu_off'
                 },
                 ['check_apu_gen_off'] = {
@@ -2976,36 +2964,36 @@ function M.fillProcedureTable()
                             helpers.command_once("laminar/B738/toggle_switch/apu_gen2_up")
                         end
                     end,
-                    advice = "Set A P U Generator Off",
-                    confirm = "A P U Generator checked Off",
+                    advice = "Switch A P U Generator Off",
+                    confirm = "A P U Generator checked and Off",
                     nextStep = 'apu_off'
                 },
                 ['apu_off'] = {
                     check = function() return P.apurunning() == def.APUOFF end,
                     action = function() helpers.command_once("laminar/B738/spring_toggle_switch/APU_start_pos_up") end,
-                    advice = "Set A P U Off",
-                    confirm = "A P U checked Off",
+                    advice = "Switch A P U Off",
+                    confirm = "A P U checked and Off",
                     nextStep = 'pos_lights_off'
                 },
                 ['pos_lights_off'] = {
                     check = function() return get(P.positionlights) == def.POSLIGHTSOFF end,
                     action = function() P.togglepositionlights(def.POSLIGHTSOFF) end,
                     advice = "Set Position Lights Off",
-                    confirm = "Position LIghts checked Off",
+                    confirm = "Position LIghts checked and Off",
                     nextStep = 'seatbelts_off'
                 },
                 ['seatbelts_off'] = {
                     check = function() return get(P.seatbeltsignpos) == def.SEATBELTSIGNOFF end,
                     action = function() P.setseatbeltsign(def.SEATBELTSIGNOFF) end,
                     advice = "Set Seatbeltsigns Off",
-                    confirm = "Seatbeltsigns checked Off",
+                    confirm = "Seatbeltsigns checked and Off",
                     nextStep = 'no_smoking_off'
                 },
                 ['no_smoking_off'] = {
                     check = function() return get(P.nosmokingsignpos) == def.NOSMOKINGSIGNOFF end,
                     action = function() P.setnosmokingsign(def.NOSMOKINGSIGNOFF) end,
                     advice = "Set No Smoking Signs Off",
-                    confirm = "NO Smoking Signs checked Off",
+                    confirm = "NO Smoking Signs checked and Off",
                     nextStep = 'open_emerg_cover'
                 },
                 ['open_emerg_cover'] = {
@@ -3018,7 +3006,7 @@ function M.fillProcedureTable()
                     check = function() return get(P.emergencylights) == def.EMERGLIGHTSOFF end,
                     action = function() P.setemergencylights(def.EMERGLIGHTSOFF) end,
                     advice = "Set Emergency Lights Off",
-                    confirm = "Emergency Lights checked Off",
+                    confirm = "Emergency Lights checked and Off",
                     nextStep = 'view_upper_overhead_2'
                 },
                 ['view_upper_overhead_2'] = {
@@ -3029,7 +3017,7 @@ function M.fillProcedureTable()
                     check = function() return get(P.domelightpos) == def.DOMELIGHTOFF end,
                     action = function() P.setdomelight(def.DOMELIGHTOFF) end,
                     advice = "Set Domelight Off",
-                    confirm = "Domelight checked Off",
+                    confirm = "Domelight checked and Off",
                     nextStep = 'view_overhead_2'
                 },
                 ['view_overhead_2'] = {
@@ -3046,7 +3034,7 @@ function M.fillProcedureTable()
                     check = function() return get(P.battery) == def.OFF end,
                     action = function() helpers.command_once("laminar/B738/switch/battery_up") end,
                     advice = "Switch Battery Off",
-                    confirm = "Battery checked Off",
+                    confirm = "Battery checked and Off",
                     nextStep = 'view_main_panel'
                 },
                 ['view_main_panel'] = {
@@ -3460,19 +3448,19 @@ function M.fillProcedureTable()
                 },
                 ['set_capt_course'] = {
                     check = function(loop, procData)
-                        local pilotcoursenew = getNavEntryCourse(P.navdatatable[loop.navdatatableindex])
+                        local pilotcoursenew = P.navdatatable[loop.navdatatableindex][def.DESTCOURSE]
                         return get(P.mcppilotcourse) == pilotcoursenew
                     end,
                     action = function(loop, procData)
-                        local pilotcoursenew = getNavEntryCourse(P.navdatatable[loop.navdatatableindex])
+                        local pilotcoursenew = P.navdatatable[loop.navdatatableindex][def.DESTCOURSE]
                         set(P.mcppilotcourse, pilotcoursenew)
                     end,
                     advice = function(loop, procData)
-                        local pilotcoursenew = getNavEntryCourse(P.navdatatable[loop.navdatatableindex])
+                        local pilotcoursenew = P.navdatatable[loop.navdatatableindex][def.DESTCOURSE]
                         return "Set Captain Course " .. helpers.addspaces(helpers.padNumberWithZerosStrict(pilotcoursenew, 3))
                     end,
                     confirm = function(loop, procData)
-                        local pilotcoursenew = getNavEntryCourse(P.navdatatable[loop.navdatatableindex])
+                        local pilotcoursenew = P.navdatatable[loop.navdatatableindex][def.DESTCOURSE]
                         return "Captain Course checked and " .. helpers.addspaces(helpers.padNumberWithZerosStrict(pilotcoursenew, 3))
                     end,
                     nextStep = 'set_fo_course'
@@ -3667,40 +3655,10 @@ function M.fillProcedureTable()
                 },
                 ['calculate_flaps'] = {
                     action = function(loop, procData)
-                        local computedFlaps = helpers.determineTakeoffFlapsSetting(
-                            get(P.totalweightkgs),
-                            get(P.deprwylen),
-                            get(P.deprwyheading),
-                            get(P.elevation),
-                            P.depmetar
-                        )
-                        local existingFlaps = get(P.toflaps)
-                        if existingFlaps and existingFlaps > 0 then
-                            loop.toflapscalc = existingFlaps
-                            loop.flapsPreSet = true
-                        else
-                            loop.toflapscalc = computedFlaps
-                            loop.flapsPreSet = false
-                        end
+                        loop.toflapscalc = helpers.determineTakeoffFlapsSetting(get(P.totalweightkgs), get(P.deprwylen), get(P.deprwyheading), get(P.elevation), P.depmetar)
                         loop.toflapscalcstring = tostring(loop.toflapscalc)
-
-                        local tabletCg = helpers.formatcgvalue(get(P.tabcg))
-                        local calculatedCg = helpers.formatcgvalue(get(P.calctakeoffcg))
-                        loop.calculatedCgString = tabletCg or calculatedCg
-
-                        local existingCg = helpers.formatcgvalue(get(P.fmccg))
-                        if existingCg then
-                            loop.targetCgString = existingCg
-                            loop.cgPreSet = true
-                        else
-                            loop.targetCgString = loop.calculatedCgString
-                            loop.cgPreSet = false
-                        end
-
-                        sasl.logInfo(string.format("SetTakeoffFlaps: target flaps %s, CG %s",
-                            tostring(loop.toflapscalcstring),
-                            tostring(loop.targetCgString)
-                        ))
+                        loop.targetCgString = helpers.formatcgvalue(get(P.tabcg)) or helpers.formatcgvalue(get(P.calctakeoffcg))
+                        sasl.logInfo("SetTakeoffFlaps: Calculated Flaps " .. loop.toflapscalcstring)
                     end,
                     runActionInAdviceMode = true, 
                     nextStep = 'check_fms_page'
@@ -3719,7 +3677,7 @@ function M.fillProcedureTable()
                         return helpers.fmcHeaderContains("N1 LIMIT")
                     end,
                     action = function(loop, procData) helpers.command_once("laminar/B738/button/fmc1_6R") end,
-                    advice = "Open F M C N 1 Limit Page",
+                    advice = "Switch to F M C N 1 Limit Page",
                     runActionInAdviceMode = true,
                     nextStep = 'ensure_takeoff_ref_page'
                 },
@@ -3728,22 +3686,15 @@ function M.fillProcedureTable()
                         return helpers.fmcHeaderContains("TAKEOFF REF")
                     end,
                     action = function(loop, procData) helpers.command_once("laminar/B738/button/fmc1_6R") end,
-                    advice = "Open F M C Takeoff Reference Page",
+                    advice = "Switch to F M C Takeoff Reference Page",
                     runActionInAdviceMode = true,
-                    nextStep = 'branch_after_takeoff_ref'
-                },
-                ['branch_after_takeoff_ref'] = {
                     branch = function(loop, procData)
-                        if loop.flapsPreSet and loop.cgPreSet then
-                            sasl.logDebug("SetTakeoffFlaps: Flaps/CG already present, skipping FMC input.")
-                            return 'check_flaps_set'
-                        end
                         if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
                             sasl.logDebug("SetTakeoffFlaps: VoiceAdviceOnly mode. Skipping auto-input steps.")
-                            return 'check_flaps_set'
+                            return 'check_flaps_set' 
                         else
                             sasl.logDebug("SetTakeoffFlaps: Auto mode. Starting FMC input sequence.")
-                            return 'fmc_press_del'
+                            return 'fmc_press_del' 
                         end
                     end
                 },
@@ -3788,21 +3739,10 @@ function M.fillProcedureTable()
                 },
                 ['check_flaps_set'] = {
                     check = function(loop, procData)
-                        local currentFlaps = get(P.toflaps)
-                        if currentFlaps and currentFlaps > 0 then
-                            if currentFlaps ~= loop.toflapscalc then
-                                loop.toflapscalc = currentFlaps
-                                loop.toflapscalcstring = tostring(currentFlaps)
-                            end
-                            return true
-                        end
-                        return false
+                        return (get(P.toflaps) == loop.toflapscalc)
                     end,
                     advice = function(loop, procData)
-                        if (get(P.toflaps) or 0) == 0 then
-                            return "Enter Takeoff Flaps " .. loop.toflapscalcstring
-                        end
-                        return nil
+                        return "Enter Takeoff Flaps " .. loop.toflapscalcstring
                     end,
                     confirm = function(loop, procData)
                         if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
@@ -3815,19 +3755,10 @@ function M.fillProcedureTable()
                 },
                 ['check_cg_set'] = {
                     check = function(loop, procData)
-                        local currentCg = helpers.formatcgvalue(get(P.fmccg))
-                        if currentCg then
-                            loop.targetCgString = currentCg
-                            return true
-                        end
-                        return false
+                        return get(P.fmccg) ~= 0
                     end,
                     advice = function(loop, procData)
-                        local currentCg = helpers.formatcgvalue(get(P.fmccg))
-                        if currentCg then
-                            return "C G already set " .. tostring(currentCg)
-                        end
-                        local targetCg = loop.calculatedCgString or loop.targetCgString
+                        local targetCg = loop.targetCgString
                         if targetCg then
                             return "Set C G " .. tostring(targetCg)
                         end

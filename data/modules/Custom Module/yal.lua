@@ -789,13 +789,13 @@ function P.checkYANSHFuel()
         local result = true
 
         if difference < -200 then
-            message = "Warning: Underfuel. Planned " .. plannedForDisplay .. ", actual " .. currentForDisplay .. " " .. unitForDisplay .. "."
+            message = "Underfuel: planned " .. plannedForDisplay .. ", actual " .. currentForDisplay .. " " .. unitForDisplay .. "."
             result = false
         elseif difference > 500 then
-            message = "Note: Extra fuel onboard. Planned " .. plannedForDisplay .. ", actual " .. currentForDisplay .. " " .. unitForDisplay .. "."
+            message = "Extra fuel: planned " .. plannedForDisplay .. ", actual " .. currentForDisplay .. " " .. unitForDisplay .. "."
             result = true
         else
-            message = "Fuel quantity checked and ok. Planned " .. plannedForDisplay .. ", actual " .. currentForDisplay .. " " .. unitForDisplay .. "."
+            message = "Fuel ok: planned " .. plannedForDisplay .. ", actual " .. currentForDisplay .. " " .. unitForDisplay .. "."
             result = true
         end
 
@@ -1678,7 +1678,7 @@ sasl.registerCommandHandler(my_command_cycleprocedures, 0, P.cycleprocedures_)
 function P.refuelAircraft(totalFuelLbs)
 
     if type(totalFuelLbs) ~= "number" or totalFuelLbs < 0 then
-        P.commandtableentry(def.TEXT, "Refueling failed: Invalid fuel amount specified.")
+        P.commandtableentry(def.TEXT, "Fuel load failed: invalid amount.")
         return false
     end
 
@@ -1688,12 +1688,12 @@ function P.refuelAircraft(totalFuelLbs)
     local currentTotalFuel = currentLeftLbs + currentRightLbs + currentCenterLbs
 
     if totalFuelLbs > def.MAXTOTALLBS then
-        P.commandtableentry(def.TEXT, "Requested fuel exceeds maximum capacity. Fueling to max.")
+        P.commandtableentry(def.TEXT, "Fuel request above max, loading maximum.")
         totalFuelLbs = def.MAXTOTALLBS
     end
 
     local leftTank, rightTank, centerTank
-    local isDefueling = (totalFuelLbs < currentTotalFuel)
+    local isDefuel = (totalFuelLbs < currentTotalFuel)
 
     if totalFuelLbs <= (def.MAXWINGTANKLBS * 2) then
         leftTank = totalFuelLbs / 2
@@ -1705,7 +1705,7 @@ function P.refuelAircraft(totalFuelLbs)
         centerTank = totalFuelLbs - (def.MAXWINGTANKLBS * 2)
     end
 
-    if isDefueling and currentCenterLbs > 1000 and centerTank < 1000 then
+    if isDefuel and currentCenterLbs > 1000 and centerTank < 1000 then
         local deficit = 1000 - centerTank
         centerTank = 1000
         leftTank = leftTank - (deficit / 2)
@@ -1717,7 +1717,7 @@ function P.refuelAircraft(totalFuelLbs)
     set(P.fueltank3, rightTank * def.LBSTOKG)
 
     local totalSetFuelLbs = helpers.roundnumber(leftTank + rightTank + centerTank)
-    local actionText = isDefueling and "Defueling" or "Refueling"
+    local actionText = isDefuel and "Defuel" or "Refuel"
 
     local fuelForDisplay
     local unitForDisplay
@@ -1730,7 +1730,7 @@ function P.refuelAircraft(totalFuelLbs)
         unitForDisplay = "L B S"
     end
 
-    P.commandtableentry(def.TEXT, actionText .. " complete. Total fuel: " .. fuelForDisplay .. " " .. unitForDisplay .. ".")
+    P.commandtableentry(def.TEXT, actionText .. " complete. Total fuel " .. fuelForDisplay .. " " .. unitForDisplay .. ".")
 
 
     return true
@@ -4642,19 +4642,27 @@ function P.ongoingtasks()
         end
 
         if todDistance and todDistance > 0 and aircraftInAir then
-            local discontinuity = helpers.detectFMSDiscontinuity(get(P.fmslegs))
+            local discontinuity = helpers.detectFMSDiscontinuity(
+                get(P.fmslegs),
+                get(P.fmslegslat),
+                get(P.fmslegslon),
+                get(P.aircraftlatpos),
+                get(P.aircraftlonpos)
+            )
             if discontinuity then
                 local prevLegText = ""
                 if discontinuity.previous then
-                    prevLegText = " after " .. helpers.addspaces(discontinuity.previous)
+                    prevLegText = " after " .. helpers.replaceRunwayPrefix(discontinuity.previous)
                 end
 
-                if todDistance <= 10 and not P.todDiscontinuityWarned10 then
-                    P.commandtableentry(def.TEXT, "Warning: Route still contains a Discontinuity" .. prevLegText .. " about 10 NM before Top of Descent")
-                    P.todDiscontinuityWarned10 = true
-                elseif todDistance <= 30 and not P.todDiscontinuityWarned30 then
-                    P.commandtableentry(def.TEXT, "Warning: Route still contains a Discontinuity" .. prevLegText .. " about 30 NM before Top of Descent")
-                    P.todDiscontinuityWarned30 = true
+                if (get(P.fmccruisealt) or 0) > 0 then
+                    if todDistance <= 10 and not P.todDiscontinuityWarned10 then
+                        P.commandtableentry(def.TEXT, "Warning: Route still contains a Discontinuity" .. prevLegText .. " about 10 NM before Top of Descent")
+                        P.todDiscontinuityWarned10 = true
+                    elseif todDistance <= 30 and not P.todDiscontinuityWarned30 then
+                        P.commandtableentry(def.TEXT, "Warning: Route still contains a Discontinuity" .. prevLegText .. " about 30 NM before Top of Descent")
+                        P.todDiscontinuityWarned30 = true
+                    end
                 end
             else
                 P.todDiscontinuityWarned30 = false

@@ -607,6 +607,20 @@ function P.addspaces(input)
 end
 
 --------------------------------------------------------------------------------------------------------------
+function P.replaceRunwayPrefix(input)
+    if type(input) ~= "string" then
+        return input
+    end
+
+    if input:match("^RW%d") then
+        local suffix = input:sub(3)
+        return "runway " .. P.addspaces(suffix)
+    end
+
+    return P.addspaces(input)
+end
+
+--------------------------------------------------------------------------------------------------------------
 
 function P.padNumberWithZerosStrict(number, length)
     local str = tostring(number)
@@ -3054,7 +3068,7 @@ function P.detectCIFPApproachVariant(icao, runway, legs_string, lat_array, lon_a
     return bestMatch
 end
 
-function P.detectFMSDiscontinuity(legs_string)
+function P.detectFMSDiscontinuity(legs_string, lat_array, lon_array, aircraftLat, aircraftLon)
     if type(legs_string) ~= "string" then
         return nil
     end
@@ -3064,14 +3078,74 @@ function P.detectFMSDiscontinuity(legs_string)
         table.insert(tokens, token)
     end
 
+    local usePositionFilter = type(lat_array) == "table"
+        and type(lon_array) == "table"
+        and type(aircraftLat) == "number"
+        and type(aircraftLon) == "number"
+
+    local tokenDistances = nil
+    local distanceFromStart = nil
+
+    if usePositionFilter then
+        local detailed_route = P.buildlegstable(legs_string, lat_array, lon_array)
+        if detailed_route and #detailed_route >= 2 then
+            local totalDistance = 0
+            for i = 1, #detailed_route - 1 do
+                totalDistance = totalDistance + (detailed_route[i].distance_to_next or 0)
+            end
+
+            local remaining = P.getRemainingRouteDistance(
+                legs_string,
+                lat_array,
+                lon_array,
+                aircraftLat,
+                aircraftLon
+            )
+
+            if type(remaining) == "number" and totalDistance then
+                distanceFromStart = totalDistance - remaining
+                if distanceFromStart < 0 then
+                    distanceFromStart = 0
+                end
+            end
+
+            tokenDistances = {}
+            local lastLat, lastLon = nil, nil
+            local cumulative = 0
+            for idx = 1, #tokens do
+                local lat = lat_array[idx]
+                local lon = lon_array[idx]
+                if lat and lon and (lat ~= 0 or lon ~= 0) then
+                    if lastLat and lastLon then
+                        cumulative = cumulative + P.getdistance(lastLat, lastLon, lat, lon)
+                    end
+                    lastLat, lastLon = lat, lon
+                end
+                tokenDistances[idx] = cumulative
+            end
+        end
+    end
+
     for idx, token in ipairs(tokens) do
         if token == "DISCONTINUITY" then
-            if idx < #tokens then
-                local prevLeg = nil
-                if idx > 1 then
-                    prevLeg = tokens[idx - 1]
+            local prevLeg = (idx > 1) and tokens[idx - 1] or nil
+            local nextLeg = (idx < #tokens) and tokens[idx + 1] or nil
+
+            local skip = false
+            if tokenDistances and distanceFromStart and (idx > 1) then
+                local prevDistance = tokenDistances[idx - 1]
+                if prevDistance and (prevDistance < (distanceFromStart - 5)) then
+                    skip = true
                 end
-                return { index = idx, total = #tokens, previous = prevLeg }
+            end
+
+            if not skip then
+                return {
+                    index = idx,
+                    total = #tokens,
+                    previous = prevLeg,
+                    next = nextLeg
+                }
             end
         end
     end
@@ -3166,8 +3240,8 @@ function P.buildnavdatatable(navdatatable)
             local lat_val = tonumber(navdataitems[def.NAVSRC_COL_LAT])
             local lon_val = tonumber(navdataitems[def.NAVSRC_COL_LON])
 
-            if lat_val and lon_val then
-                local record_type_str = navdataitems[def.NAVSRC_COL_TYPE]
+                if lat_val and lon_val then
+                    local record_type_str = navdataitems[def.NAVSRC_COL_TYPE]
 
                 if (record_type_str == def.NAVDATARECTYPEILS) then
                     local newEntry = {}
@@ -3345,18 +3419,33 @@ function P.buildnavdatatable(navdatatable)
                     local raw_course_str = navdataitems[def.NAVSRC_COL_BEARING]
                     local true_course = tonumber(raw_course_str)
 
+                    local nameField = navdataitems[def.NAVSRC_COL_NAME] or ""
+                    local isTrueCourse = false
+                    if nameField:find("TRUE", 1, true) then
+                        isTrueCourse = true
+                    elseif navdatarecord and navdatarecord:find(" TRUE", 1, true) then
+                        isTrueCourse = true
+                    end
+
                     if true_course then
                         if true_course > 100000 then 
                             true_course = true_course % 10000 
                         end
                         
-                        local mag_variation = sasl.getMagneticVariation(lat_val, lon_val)
-                        if not mag_variation then mag_variation = 0 end
+                        local trueCourseNormalized = P.calccourse(true_course)
                         
-                        local magnetic_course = true_course + mag_variation
-                        
-                        magnetic_course = P.calccourse(magnetic_course)
+                        local mag_variation = sasl.getMagneticVariation(lat_val, lon_val) or 0
+                        local magnetic_course
+
+                        if isTrueCourse then
+                            magnetic_course = trueCourseNormalized
+                            newEntry.isTrueCourse = true
+                        else
+                            magnetic_course = P.calccourse(true_course + mag_variation)
+                        end
+
                         newEntry[def.DESTCOURSE] = magnetic_course
+                        newEntry.truecourse = trueCourseNormalized
                         
                     else
                         sasl.logInfo("Could not read true course for LPV/GLS (column NAVSRC_COL_BEARING): " .. navdatarecord)
@@ -3398,18 +3487,23 @@ function P.buildnavdatatable(navdatatable)
         end
     end
 
-    for i, value in ipairs(navdatatable) do
+        for i, value in ipairs(navdatatable) do
         if (value[def.DESTNAVTYPE] == def.NAVTYPEGLS or value[def.DESTNAVTYPE] == def.NAVTYPELPV) then
             local key = value[def.DESTICAO] .. value[def.DESTRWY]
-            local ilsCourse = lookupTable[key]
-            
-            if ilsCourse then
-                value[def.DESTCOURSE] = ilsCourse
+            local ilsEntryIndex = lookupTable[key]
+
+            if (value[def.DESTCOURSE] == 0 or value[def.DESTCOURSE] == nil) and ilsEntryIndex then
+                local ilsEntry = navdatatable[ilsEntryIndex]
+                if ilsEntry then
+                    value[def.DESTCOURSE] = ilsEntry[def.DESTCOURSE]
+                    value.truecourse = ilsEntry.truecourse
+                    value.isTrueCourse = ilsEntry.isTrueCourse
+                end
             end
         end
     end
 
-    sasl.logInfo("Navdata Table created, " .. #navdatatable .. " entries.")
+sasl.logInfo("Navdata Table created, " .. #navdatatable .. " entries.")
     return true
 end
 --------------------------------------------------------------------------------------------------------------
@@ -3584,15 +3678,30 @@ function P.getrwyheadingfromnavdata(navdatatable, icao, rwy)
     local navdatatableindex = P.getnavdataindex(navdatatable, icao, rwy, def.NAVTYPEILS)
 
     if (navdatatableindex ~= nil) then
-        result = navdatatable[navdatatableindex][def.DESTCOURSE]
+        local entry = navdatatable[navdatatableindex]
+        if entry.isTrueCourse and entry.truecourse then
+            result = entry.truecourse
+        else
+            result = entry[def.DESTCOURSE]
+        end
     else
         navdatatableindex = P.getnavdataindex(navdatatable, icao, rwy, def.NAVTYPEGLS)
         if (navdatatableindex ~= nil) then
-            result = navdatatable[navdatatableindex][def.DESTCOURSE]
+            local entry = navdatatable[navdatatableindex]
+            if entry.isTrueCourse and entry.truecourse then
+                result = entry.truecourse
+            else
+                result = entry[def.DESTCOURSE]
+            end
         else
             navdatatableindex = P.getnavdataindex(navdatatable, icao, rwy, def.NAVTYPELPV)
             if (navdatatableindex ~= nil) then
-                result = navdatatable[navdatatableindex][def.DESTCOURSE]
+                local entry = navdatatable[navdatatableindex]
+                if entry.isTrueCourse and entry.truecourse then
+                    result = entry.truecourse
+                else
+                    result = entry[def.DESTCOURSE]
+                end
             end
         end
     end
