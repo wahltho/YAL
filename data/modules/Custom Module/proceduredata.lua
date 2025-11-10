@@ -734,6 +734,47 @@ function M.fillProcedureTable()
                     action = function() set(P.trimairpos, def.ON) end,
                     advice = "Set Trim Air On",
                     confirm = "Trim Air checked On",
+                    nextStep = 'plan_pushback'
+                },
+                ['plan_pushback'] = {
+                    skipIf = function()
+                        if not P.BPBisinstalled() then return true end
+                        if not P.BPBPlanComplete then return true end
+                        local planState = get(P.BPBPlanComplete)
+                        if type(planState) ~= "number" then return true end
+                        return planState ~= 0
+                    end,
+                    check = function(loop)
+                        if not (P.BPBisinstalled() and P.BPBPlanComplete) then
+                            return true
+                        end
+                        local planState = get(P.BPBPlanComplete)
+                        if type(planState) == "number" and planState ~= 0 then
+                            if loop then
+                                loop.bpbPlannerRequested = nil
+                                loop.bpbAdviceAnnounced = nil
+                            end
+                            return true
+                        end
+                        return false
+                    end,
+                    action = function(loop)
+                        if not loop then return end
+                        if loop.bpbPlannerRequested then return end
+                        helpers.command_once("BetterPushback/start_planner")
+                        loop.bpbPlannerRequested = true
+                    end,
+                    advice = function(loop)
+                        if loop and loop.bpbAdviceAnnounced then
+                            return nil
+                        end
+                        if loop then
+                            loop.bpbAdviceAnnounced = true
+                        end
+                        return "Plan Pushback using BetterPushback"
+                    end,
+                    confirm = "BetterPushback plan ready",
+                    runActionInAdviceMode = true,
                     nextStep = 'view_main_panel'
                 },
                 ['view_main_panel'] = {
@@ -1556,14 +1597,25 @@ function M.fillProcedureTable()
                     nextStep = 'wait_for_transition'
                 },
                 ['wait_for_transition'] = {
-                    check = function() 
-                        return get(P.altitude) > get(P.fmctransalt) 
-                    end,
-                    action = function()
-                        if P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON then
-                            P.commandtableentry(def.TEXT, "Passing Transition Altitude")
+                    check = function(loop) 
+                        local trans_alt = get(P.fmctransalt)
+                        if (trans_alt == nil) or (trans_alt <= 0) then
+                            loop.altAbove10kTransitionAnnounced = false
+                            return false
                         end
+
+                        local above = get(P.altitude) > trans_alt
+                        if above then
+                            if not loop.altAbove10kTransitionAnnounced then
+                                loop.altAbove10kTransitionAnnounced = true
+                                return true
+                            end
+                        else
+                            loop.altAbove10kTransitionAnnounced = false
+                        end
+                        return false
                     end,
+                    ensureConfirmInAdviceMode = true,
                     confirm = "Passing Transition Altitude",
                     nextStep = 'set_qnh_standard'
                 },
@@ -1620,9 +1672,10 @@ function M.fillProcedureTable()
                     end,
                     action = function() 
                         if (get(P.altitude) < (P.configvalues[def.CONFIGLOWEAIRSPACEALT] + 1000)) then
-                            P.commandtableentry(def.TEXT, "Passing " .. P.configvalues[def.CONFIGLOWEAIRSPACEALT] .. " Feet")
+                            P.commandtableentry(def.TEXT, "Above " .. P.configvalues[def.CONFIGLOWEAIRSPACEALT] .. " Feet")
                         end
                     end,
+                    runActionInAdviceMode = true,
                     nextStep = 'set_landing_lights_off'
                 },
                 ['set_landing_lights_off'] = {
@@ -1716,7 +1769,7 @@ function M.fillProcedureTable()
                         helpers.command_once("laminar/B738/button/fmc1_des")
                         set(P.speedrestr, 250) 
                     end,
-                    confirm = "Speed 250 below 10000 Feet checked and set",
+                    confirm = "Speed 250 below 10000 Feet checked",
                     nextStep = 'speak_des_metar'
                 },
                 ['speak_des_metar'] = {
@@ -1742,10 +1795,37 @@ function M.fillProcedureTable()
                     nextStep = 'check_route_continuity_before_approach'
                 },
                 ['check_route_continuity_before_approach'] = {
-                    check = function()
+                    check = function(loop)
                         local legs = get(P.fmslegs)
                         if type(legs) ~= "string" or legs == "" then
                             return true
+                        end
+
+                        local destIcao = get(P.desicao)
+                        local destRunway = get(P.desrwy)
+
+                        if not (helpers.isvalidicao(destIcao) and helpers.isvalidrwy(destRunway)) then
+                            return false
+                        end
+
+                        local hasRunwayLeg = false
+                        for token in legs:gmatch("([^%s]+)") do
+                            local upperToken = string.upper(token)
+                            if upperToken:match("^RW%d%d?[LRC]?$") then
+                                hasRunwayLeg = true
+                                break
+                            end
+                        end
+
+                        if not hasRunwayLeg then
+                            if loop and not loop.approachReminderIssued then
+                                local runwayDisplay = helpers.addspaces(destRunway)
+                                P.commandtableentry(def.TEXT, "Select Approach for Runway " .. runwayDisplay .. " at " .. helpers.addspaces(destIcao))
+                                loop.approachReminderIssued = true
+                            end
+                            return false
+                        elseif loop and loop.approachReminderIssued then
+                            loop.approachReminderIssued = nil
                         end
 
                         local discontinuity = helpers.detectFMSDiscontinuity(
@@ -1789,16 +1869,25 @@ function M.fillProcedureTable()
                 },
                 ['wait_for_transition'] = {
                     skipIf = function() return get(P.fmccruisealt) <= get(P.fmctranslvl) end,
-                    check = function() 
-                        local tl = get(P.fmctranslvl)
-                        if (tl == nil) or (tl <= 0) or (tl > 25000) then return false end 
-                        return (get(P.altitude) < tl) 
-                    end,
-                    action = function()
-                        if P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON then
-                            P.commandtableentry(def.TEXT, "Passing Transition Level")
+                    check = function(loop) 
+                        local transition_level = get(P.fmctranslvl)
+                        if (transition_level == nil) or (transition_level <= 0) or (transition_level > 25000) then
+                            loop.descentTransitionLevelAnnounced = false
+                            return false
                         end
+
+                        local below = (get(P.altitude) < transition_level)
+                        if below then
+                            if not loop.descentTransitionLevelAnnounced then
+                                loop.descentTransitionLevelAnnounced = true
+                                return true
+                            end
+                        else
+                            loop.descentTransitionLevelAnnounced = false
+                        end
+                        return false
                     end,
+                    ensureConfirmInAdviceMode = true,
                     confirm = "Passing Transition Level",
                     nextStep = 'set_qnh_local'
                 },
@@ -1880,6 +1969,7 @@ function M.fillProcedureTable()
             steps = {
                 ['announce_below_10000'] = {
                     action = function() P.commandtableentry(def.TEXT, "Below " .. P.configvalues[def.CONFIGLOWEAIRSPACEALT] .. " Feet") end,
+                    runActionInAdviceMode = true;
                     nextStep = 'set_view_overhead'
                 },
                 ['set_view_overhead'] = {
@@ -3806,7 +3896,7 @@ function M.fillProcedureTable()
                     end,
                     confirm = function(loop, procData)
                         if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                            return "Takeoff Flaps " .. loop.toflapscalcstring .. " checked and set"
+                            return "Takeoff Flaps " .. loop.toflapscalcstring .. " checked"
                         else
                             return false 
                         end
