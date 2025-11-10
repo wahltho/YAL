@@ -92,13 +92,16 @@ function P.YalinitGlobal()
 
     P.previousview = -1
 
+    P.XCameraIsInstalled()
+    P.YANSHisinstalled()
+    P.BPBisinstalled()
+
 end
 
 --------------------------------------------------------------------------------------------------------------
 -- Datarefs
 
 function P.initDataref()
-
 
     local debug_dataref_path = def.APPNAMEPREFIX .. "/state/debuglevel"
     local handle = globalProperty(debug_dataref_path)
@@ -637,26 +640,7 @@ function P.initDataref()
     P.irsposset = globalProperty("laminar/B738/irs/irs_pos_set")
 
     P.yawdamperswitch = globalProperty("laminar/B738/toggle_switch/yaw_dumper_pos")
-
-    if sasl.findPluginBySignature("SRS.X-Camera") == NO_PLUGIN_ID then
-        P.xcamerastatus = nil
-        sasl.logInfo("X-Camera not installed")
-    else
-        P.xcamerastatus = globalProperty("SRS/X-Camera/integration/overall_status")
-        sasl.logInfo("X-Camera installed")
-    end
-
-    if P.YANSHisinstalled() then
-        P.YANSHFuelAlternateBurn = globalProperty("YANSH/sb/fuel/alternate_burn")
-        P.YANSHFuelEnrouteBurn = globalProperty("YANSH/sb/fuel/enroute_burn")
-        P.YANSHFuelMinTakeoff = globalProperty("YANSH/sb/fuel/min_takeoff")
-        P.YANSHFuelPlanRamp = globalProperty("YANSH/sb/fuel/plan_ramp")
-        P.YANSHFuelReserve = globalProperty("YANSH/sb/fuel/reserve")
-        P.YANSHGeneralInitialAltitude = globalProperty("YANSH/sb/general/initial_altitude")
-        P.YANSHGeneralMaxAltitude = globalProperty("YANSH/sb/general/max_altitude")
-        P.YANSHParamsUnitsFlag = globalProperty("YANSH/sb/params/units_flag")
-    end
-
+ 
     set(P.n1setsource, 0)
 
     P.needstempinit = true
@@ -734,17 +718,49 @@ function P.resetLoopState(loopTable)
 end
 
 --------------------------------------------------------------------------------------------------------------
-function P.YANSHisinstalled()
-    if P.YANSHPluginID == nil then
-        local yanshSignature = "1-sim YANSH"
-        P.YANSHPluginID = sasl.findPluginBySignature(yanshSignature)
+function P.XCameraIsInstalled()
+    local signature = "SRS.X-Camera"
+    local pluginID = sasl.findPluginBySignature(signature)
 
-        if P.YANSHPluginID ~= NO_PLUGIN_ID then
-            sasl.logInfo("YANSH plugin found, integration enabled.")
+    if pluginID ~= NO_PLUGIN_ID then
+        if P.XCameraPluginID ~= pluginID then
+            sasl.logInfo("X-Camera plugin detected, integration enabled.")
         end
+        P.XCameraPluginID = pluginID
+        P.xcamerastatus = globalProperty("SRS/X-Camera/integration/overall_status")
+    else
+        P.XCameraPluginID = NO_PLUGIN_ID
+        P.xcamerastatus = nil
+    end
+end
+
+--------------------------------------------------------------------------------------------------------------
+function P.YANSHisinstalled()
+    local signature = "1-sim YANSH"
+    local pluginID = sasl.findPluginBySignature(signature)
+
+    if pluginID ~= NO_PLUGIN_ID then
+        if P.YANSHPluginID ~= pluginID then
+            sasl.logInfo("YANSH plugin detected, integration enabled.")
+        end
+        P.YANSHPluginID = pluginID
+
+        if not P.YANSHFuelPlanRamp then
+            P.YANSHFuelAlternateBurn = globalProperty("YANSH/sb/fuel/alternate_burn")
+            P.YANSHFuelEnrouteBurn = globalProperty("YANSH/sb/fuel/enroute_burn")
+            P.YANSHFuelMinTakeoff = globalProperty("YANSH/sb/fuel/min_takeoff")
+            P.YANSHFuelPlanRamp = globalProperty("YANSH/sb/fuel/plan_ramp")
+            P.YANSHFuelReserve = globalProperty("YANSH/sb/fuel/reserve")
+            P.YANSHGeneralInitialAltitude = globalProperty("YANSH/sb/general/initial_altitude")
+            P.YANSHGeneralMaxAltitude = globalProperty("YANSH/sb/general/max_altitude")
+            P.YANSHParamsUnitsFlag = globalProperty("YANSH/sb/params/units_flag")
+        end
+
+        return true
     end
 
-    return (P.YANSHPluginID ~= NO_PLUGIN_ID)
+    P.YANSHPluginID = NO_PLUGIN_ID
+    return false
 end
 
 -------------------------------------------------------------------------------------------------------------- 
@@ -803,6 +819,23 @@ function P.checkYANSHFuel()
         return result
 
     end
+end
+
+--------------------------------------------------------------------------------------------------------------
+function P.BPBisinstalled()
+    local signature = "skiselkov.BetterPushback"
+    local pluginID = sasl.findPluginBySignature(signature)
+
+    if pluginID ~= NO_PLUGIN_ID then
+        if P.BPBPluginID ~= pluginID then
+            sasl.logInfo("BetterPushback plugin detected, integration enabled.")
+        end
+        P.BPBPluginID = pluginID
+        return true
+    end
+
+    P.BPBPluginID = NO_PLUGIN_ID
+    return false
 end
 
 --------------------------------------------------------------------------------------------------------------
@@ -5067,7 +5100,7 @@ function P.runProcedureLoop(loopIndex)
                                     if skipConfirm then
                                         sasl.logDebug("Skipping confirmation for step '" .. tostring(stepName) .. "' due to auto action.")
                                         loop.skipConfirmForStep = nil
-                                    elseif step.confirm and (not useAdviceOnly or not loop.steprepeat) then
+                                    elseif step.confirm and (not useAdviceOnly or not loop.steprepeat or step.ensureConfirmInAdviceMode) then
                                         local confirm_msg_raw
                                         if type(step.confirm) == "function" then
                                             confirm_msg_raw = step.confirm(loop, procData)
@@ -5200,7 +5233,7 @@ function P.runProcedureLoop(loopIndex)
                                     sasl.logDebug("No branch function. Executing action (if any) and proceeding to default nextStep: " .. tostring(step.nextStep))
                                     if step.action and not loop.steprepeat then step.action(loop, procData); sasl.logDebug("Executed action.") end
 
-                                    if step.confirm and (not useAdviceOnly or not loop.steprepeat) then
+                                    if step.confirm and (not useAdviceOnly or not loop.steprepeat or step.ensureConfirmInAdviceMode) then
                                         local confirm_msg_raw
                                         if type(step.confirm) == "function" then
                                             confirm_msg_raw = step.confirm(loop, procData)

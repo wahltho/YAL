@@ -178,10 +178,18 @@ function M.fillProcedureTable()
                     nextStep = 'set_trim_air'
                 },
                 ['set_trim_air'] = {
-                    check = function() return get(P.trimairpos) == def.ON end,
-                    action = function() set(P.trimairpos, def.ON) end,
-                    advice = "Set Trim Air On",
-                    confirm = "Trim Air checked On",
+                    check = function()
+                        return (get(P.trimairpos) == def.ON)
+                            and (get(P.lrecircfanpos) == def.ON)
+                            and (get(P.rrecircfanpos) == def.ON)
+                    end,
+                    action = function()
+                        set(P.trimairpos, def.ON)
+                        set(P.lrecircfanpos, def.ON)
+                        set(P.rrecircfanpos, def.ON)
+                    end,
+                    advice = "Set Trim Air and Recirc Fans On",
+                    confirm = "Trim Air and Recirc Fans checked On",
                     nextStep = 'set_apu_proc_done'
                 },
                 ['set_apu_proc_done'] = {
@@ -316,7 +324,7 @@ function M.fillProcedureTable()
                         if (get(P.hidefoefb) == def.EFBSHOWN) then helpers.command_once("laminar/B738/tab/fo_toggle") end
                     end,
                     advice = "Hide E F Bs", 
-                    confirm = "E F B S checked and hidden", 
+                    confirm = "E F B S checked hidden", 
                     nextStep = 'set_cockpit_lights',
                     runActionInAdviceMode = true 
                 },
@@ -385,7 +393,7 @@ function M.fillProcedureTable()
                         )
                     end,
                     advice = "Activate Flight Plan in F M C",
-                    confirm = "Flight Plan in F M C Checked and Activated",
+                    confirm = "Flight Plan in F M C Checked Activated",
                     nextStep = 'check_fmc_route_continuity'
                 },
                 ['check_fmc_route_continuity'] = {
@@ -425,6 +433,10 @@ function M.fillProcedureTable()
                     nextStep = 'trigger_settoflaps'
                 },
                 ['trigger_settoflaps'] = {
+                    skipIf = function()
+                        local legs = get(P.fmslegs)
+                        return not helpers.isFMSPlanLoaded(get(P.depicao), get(P.desicao), legs)
+                    end,
                     action = function()
                         local procId = def.SETTOFLAPSPROCEDURE
                         local loopIndex = P.proceduretable[procId].loop
@@ -444,6 +456,10 @@ function M.fillProcedureTable()
                     nextStep = 'wait_settoflaps_done'
                 },
                 ['wait_settoflaps_done'] = {
+                    skipIf = function()
+                        local legs = get(P.fmslegs)
+                        return not helpers.isFMSPlanLoaded(get(P.depicao), get(P.desicao), legs)
+                    end,
                     check = function()
                         local procId = def.SETTOFLAPSPROCEDURE
                         local loopIndex = P.proceduretable[procId].loop
@@ -627,6 +643,16 @@ function M.fillProcedureTable()
                         helpers.command_once("laminar/B738/push_button/master_caution1")
                         helpers.command_once("laminar/B738/button/fmc1_clr")
                     end,
+                    nextStep = 'plan_pushback'
+                },
+                ['plan_pushback'] = {
+                    skipIf = function()
+                        return not P.BPBisinstalled()
+                    end,
+                    action = function() helpers.command_once("BetterPushback/start_planner") end,
+                    advice = "Plan Pushback using BetterPushback",
+                    confirm = "Plan Pushback using BetterPushback",
+                    runActionInAdviceMode = true,
                     nextStep = nil
                 }
             }
@@ -730,51 +756,18 @@ function M.fillProcedureTable()
                     nextStep = 'set_trim_air'
                 },
                 ['set_trim_air'] = {
-                    check = function() return get(P.trimairpos) == def.ON end,
-                    action = function() set(P.trimairpos, def.ON) end,
-                    advice = "Set Trim Air On",
-                    confirm = "Trim Air checked On",
-                    nextStep = 'plan_pushback'
-                },
-                ['plan_pushback'] = {
-                    skipIf = function()
-                        if not P.BPBisinstalled() then return true end
-                        if not P.BPBPlanComplete then return true end
-                        local planState = get(P.BPBPlanComplete)
-                        if type(planState) ~= "number" then return true end
-                        return planState ~= 0
+                    check = function()
+                        return (get(P.trimairpos) == def.ON)
+                            and (get(P.lrecircfanpos) == def.ON)
+                            and (get(P.rrecircfanpos) == def.ON)
                     end,
-                    check = function(loop)
-                        if not (P.BPBisinstalled() and P.BPBPlanComplete) then
-                            return true
-                        end
-                        local planState = get(P.BPBPlanComplete)
-                        if type(planState) == "number" and planState ~= 0 then
-                            if loop then
-                                loop.bpbPlannerRequested = nil
-                                loop.bpbAdviceAnnounced = nil
-                            end
-                            return true
-                        end
-                        return false
+                    action = function()
+                        set(P.trimairpos, def.ON)
+                        set(P.lrecircfanpos, def.ON)
+                        set(P.rrecircfanpos, def.ON)
                     end,
-                    action = function(loop)
-                        if not loop then return end
-                        if loop.bpbPlannerRequested then return end
-                        helpers.command_once("BetterPushback/start_planner")
-                        loop.bpbPlannerRequested = true
-                    end,
-                    advice = function(loop)
-                        if loop and loop.bpbAdviceAnnounced then
-                            return nil
-                        end
-                        if loop then
-                            loop.bpbAdviceAnnounced = true
-                        end
-                        return "Plan Pushback using BetterPushback"
-                    end,
-                    confirm = "BetterPushback plan ready",
-                    runActionInAdviceMode = true,
+                    advice = "Set Trim Air and Recirc Fans On",
+                    confirm = "Trim Air and Recirc Fans checked On",
                     nextStep = 'view_main_panel'
                 },
                 ['view_main_panel'] = {
@@ -974,10 +967,18 @@ function M.fillProcedureTable()
                     nextStep = 'set_trim_air_on'
                 },
                 ['set_trim_air_on'] = {
-                    check = function() return get(P.trimairpos) == def.ON end,
-                    action = function() set(P.trimairpos, def.ON) end,
-                    advice = "Set Trim Air On",
-                    confirm = "Trim Air checked On",
+                    check = function()
+                        return (get(P.trimairpos) == def.ON)
+                            and (get(P.lrecircfanpos) == def.ON)
+                            and (get(P.rrecircfanpos) == def.ON)
+                    end,
+                    action = function()
+                        set(P.trimairpos, def.ON)
+                        set(P.lrecircfanpos, def.ON)
+                        set(P.rrecircfanpos, def.ON)
+                    end,
+                    advice = "Set Trim Air and Recirc Fans On",
+                    confirm = "Trim Air and Recirc Fans checked On",
                     nextStep = 'set_apu_bleed_off'
                 },
                 ['set_apu_bleed_off'] = {
@@ -1756,6 +1757,16 @@ function M.fillProcedureTable()
             steps = {
                 ['announce_descent'] = {
                     confirm = "Descent Started",
+                    nextStep = 'check_fms_page'
+                },
+                ['check_fms_page'] = {
+                    skipIf = function() return P.configvalues[def.CONFIGSPDRESTR250] ~= def.ON end,                 
+                    check = function(loop, procData)
+                        return helpers.fmcHeaderContains("DES")
+                    end,
+                    action = function(loop, procData) helpers.command_once("laminar/B738/button/fmc1_des") end,
+                    advice = "Open Descent Page",
+                    runActionInAdviceMode = true,
                     nextStep = 'set_speed_restriction'
                 },
                 ['set_speed_restriction'] = {
@@ -1766,7 +1777,6 @@ function M.fillProcedureTable()
                     end,
                     advice = "Set Speed below 10000 Feet to 250",
                     action = function() 
-                        helpers.command_once("laminar/B738/button/fmc1_des")
                         set(P.speedrestr, 250) 
                     end,
                     confirm = "Speed 250 below 10000 Feet checked",
@@ -3027,10 +3037,18 @@ function M.fillProcedureTable()
                     nextStep = 'trim_air_off'
                 },
                 ['trim_air_off'] = {
-                    check = function() return get(P.trimairpos) == def.OFF end,
-                    action = function() set(P.trimairpos, def.OFF) end,
-                    advice = "Set Trim Air Off",
-                    confirm = "Trim Air checked Off",
+                    check = function()
+                        return (get(P.trimairpos) == def.OFF)
+                            and (get(P.lrecircfanpos) == def.OFF)
+                            and (get(P.rrecircfanpos) == def.OFF)
+                    end,
+                    action = function()
+                        set(P.trimairpos, def.OFF)
+                        set(P.lrecircfanpos, def.OFF)
+                        set(P.rrecircfanpos, def.OFF)
+                    end,
+                    advice = "Set Trim Air and Recirc Fans Off",
+                    confirm = "Trim Air and Recirc Fans checked Off",
                     nextStep = 'window_heat_off'
                 },
                 ['window_heat_off'] = {
@@ -3440,7 +3458,7 @@ function M.fillProcedureTable()
                                 loop.approachDME = nil
                                 return false
                             end
-                            local dmeInfo = helpers.findApproachDME(P.navdatatable, get(P.desicao), get(P.desrwy), navdata[def.DESTLATPOS], navdata[def.DESTLONPOS])
+                            local dmeInfo = helpers.findApproachDME(P.navdatatable, get(P.desicao), get(P.desrwy), navdata[def.DESTLATPOS], navdata[def.DESTLONPOS], navdata[def.DESTNAVID])
                             loop.approachDME = dmeInfo
                             return dmeInfo == nil
                         end
@@ -3458,7 +3476,7 @@ function M.fillProcedureTable()
                                     return (get(P.nav2freq) == navdata[def.DESTFREQ])
                                 end
                             else
-                                local dmeInfo = loop.approachDME or helpers.findApproachDME(P.navdatatable, get(P.desicao), get(P.desrwy), navdata[def.DESTLATPOS], navdata[def.DESTLONPOS])
+                                local dmeInfo = loop.approachDME or helpers.findApproachDME(P.navdatatable, get(P.desicao), get(P.desrwy), navdata[def.DESTLATPOS], navdata[def.DESTLONPOS], navdata[def.DESTNAVID])
                                 loop.approachDME = dmeInfo
                                 if not dmeInfo then return true end
                                 local freqValue = dmeInfo[def.DESTDMEFREQ] ~= 0 and dmeInfo[def.DESTDMEFREQ] or dmeInfo[def.DESTFREQ]
@@ -3481,7 +3499,7 @@ function M.fillProcedureTable()
                                     set(P.nav2freq, navdata[def.DESTFREQ])
                                 end
                             else
-                                local dmeInfo = loop.approachDME or helpers.findApproachDME(P.navdatatable, get(P.desicao), get(P.desrwy), navdata[def.DESTLATPOS], navdata[def.DESTLONPOS])
+                                local dmeInfo = loop.approachDME or helpers.findApproachDME(P.navdatatable, get(P.desicao), get(P.desrwy), navdata[def.DESTLATPOS], navdata[def.DESTLONPOS], navdata[def.DESTNAVID])
                                 loop.approachDME = dmeInfo
                                 if dmeInfo then
                                     local freqValue = dmeInfo[def.DESTDMEFREQ] ~= 0 and dmeInfo[def.DESTDMEFREQ] or dmeInfo[def.DESTFREQ]
@@ -3500,7 +3518,7 @@ function M.fillProcedureTable()
                             if navdata[def.DESTNAVDME] then
                                 return "Set Copilot Frequency " .. helpers.addspaces(helpers.formatILSFrequency(navdata[def.DESTFREQ]))
                             else
-                                local dmeInfo = loop.approachDME or helpers.findApproachDME(P.navdatatable, get(P.desicao), get(P.desrwy), navdata[def.DESTLATPOS], navdata[def.DESTLONPOS])
+                                local dmeInfo = loop.approachDME or helpers.findApproachDME(P.navdatatable, get(P.desicao), get(P.desrwy), navdata[def.DESTLATPOS], navdata[def.DESTLONPOS], navdata[def.DESTNAVID])
                                 loop.approachDME = dmeInfo
                                 if dmeInfo then
                                     local freqValue = dmeInfo[def.DESTDMEFREQ] ~= 0 and dmeInfo[def.DESTDMEFREQ] or dmeInfo[def.DESTFREQ]
@@ -3527,7 +3545,7 @@ function M.fillProcedureTable()
                             if navdata[def.DESTNAVDME] then
                                 message = "Copilot Frequency checked and " .. helpers.addspaces(helpers.formatILSFrequency(navdata[def.DESTFREQ]))
                             else
-                                local dmeInfo = loop.approachDME or helpers.findApproachDME(P.navdatatable, get(P.desicao), get(P.desrwy), navdata[def.DESTLATPOS], navdata[def.DESTLONPOS])
+                                local dmeInfo = loop.approachDME or helpers.findApproachDME(P.navdatatable, get(P.desicao), get(P.desrwy), navdata[def.DESTLATPOS], navdata[def.DESTLONPOS], navdata[def.DESTNAVID])
                                 loop.approachDME = dmeInfo
                                 if dmeInfo then
                                     local freqValue = dmeInfo[def.DESTDMEFREQ] ~= 0 and dmeInfo[def.DESTDMEFREQ] or dmeInfo[def.DESTFREQ]
@@ -3796,6 +3814,7 @@ function M.fillProcedureTable()
                     nextStep = 'check_fms_page'
                 },
                 ['check_fms_page'] = {
+                    skipIf = function() return helpers.fmcHeaderContains("N1 LIMIT") or helpers.fmcHeaderContains("TAKEOFF REF") end,
                     check = function(loop, procData)
                         return helpers.fmcHeaderContains("PERF INIT")
                     end,
@@ -3805,6 +3824,7 @@ function M.fillProcedureTable()
                     nextStep = 'ensure_n1_limit_page'
                 },
                 ['ensure_n1_limit_page'] = {
+                    skipIf = function() return helpers.fmcHeaderContains("TAKEOFF REF") end,
                     check = function(loop, procData)
                         return helpers.fmcHeaderContains("N1 LIMIT")
                     end,

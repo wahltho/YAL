@@ -2927,7 +2927,7 @@ function P.getCIFPApproachCourse(icao, navType, runway)
     return entry and entry.course or nil
 end
 
-function P.findApproachDME(navdatatable, icao, runway, refLat, refLon)
+function P.findApproachDME(navdatatable, icao, runway, refLat, refLon, refIdent)
     if type(navdatatable) ~= "table" then return nil end
     if type(icao) ~= "string" or icao == "" then return nil end
 
@@ -2935,42 +2935,102 @@ function P.findApproachDME(navdatatable, icao, runway, refLat, refLon)
     runway = runway and trimString(runway) or ""
     runway = runway ~= "" and string.upper(runway) or ""
 
+    local refIdentUpper = nil
+    if type(refIdent) == "string" then
+        local trimmed = trimString(refIdent)
+        if trimmed ~= "" then
+            refIdentUpper = string.upper(trimmed)
+        end
+    end
+
+    local function entryHasDME(entry)
+        if entry[def.DESTNAVTYPE] == def.NAVTYPEDME then
+            return true
+        end
+        if entry[def.DESTNAVDME] then
+            local navType = entry[def.DESTNAVTYPE]
+            return (navType == def.NAVTYPEVOR) or (navType == def.NAVTYPEILS)
+        end
+        return false
+    end
+
+    local function buildScore(entry, strict)
+        local score = 0
+        local entryRunway = entry[def.DESTRWY] or ""
+        entryRunway = entryRunway ~= "" and string.upper(entryRunway) or ""
+
+        if runway ~= "" then
+            if entryRunway == runway then
+                score = score - 1000
+            else
+                score = score + (strict and 500 or 50)
+            end
+        elseif entryRunway ~= "" then
+            score = score + (strict and 100 or 40)
+        end
+
+        if refLat and refLon and entry[def.DESTLATPOS] and entry[def.DESTLONPOS] and entry[def.DESTLATPOS] ~= 0 then
+            local distanceNm = P.getdistance(refLat, refLon, entry[def.DESTLATPOS], entry[def.DESTLONPOS])
+            score = score + distanceNm
+        else
+            score = score + 9999
+        end
+
+        local entryIdent = entry[def.DESTDMEIDENT]
+        if not entryIdent or entryIdent == "" then
+            entryIdent = entry[def.DESTNAVID] or ""
+        end
+        entryIdent = entryIdent ~= "" and string.upper(entryIdent) or ""
+
+        if refIdentUpper and entryIdent ~= "" then
+            if entryIdent == refIdentUpper then
+                score = score - 500
+            else
+                local entrySuffix = #entryIdent >= 3 and entryIdent:sub(-3) or entryIdent
+                local refSuffix = #refIdentUpper >= 3 and refIdentUpper:sub(-3) or refIdentUpper
+                if entrySuffix ~= "" and entrySuffix == refSuffix then
+                    score = score - 200
+                end
+            end
+        end
+
+        return score
+    end
+
     local bestEntry = nil
     local bestScore = math.huge
 
+    -- Pass 1: strict ICAO match
     for _, entry in ipairs(navdatatable) do
-        local hasDME = (entry[def.DESTNAVTYPE] == def.NAVTYPEDME)
-        if not hasDME and entry[def.DESTNAVDME] then
-            local navType = entry[def.DESTNAVTYPE]
-            if navType == def.NAVTYPEVOR or navType == def.NAVTYPEILS then
-                hasDME = true
-            end
-        end
-        if hasDME and entry[def.DESTICAO] == icao then
-            local entryRunway = entry[def.DESTRWY] or ""
-            entryRunway = entryRunway ~= "" and string.upper(entryRunway) or ""
-
-            local score = 0
-            if runway ~= "" then
-                if entryRunway == runway then
-                    score = score - 1000
-                else
-                    score = score + 500
-                end
-            elseif entryRunway ~= "" then
-                score = score + 100
-            end
-
-            if refLat and refLon and entry[def.DESTLATPOS] and entry[def.DESTLONPOS] and entry[def.DESTLATPOS] ~= 0 then
-                local distanceNm = P.getdistance(refLat, refLon, entry[def.DESTLATPOS], entry[def.DESTLONPOS])
-                score = score + distanceNm
-            else
-                score = score + 9999
-            end
-
+        if entry[def.DESTICAO] == icao and entryHasDME(entry) then
+            local score = buildScore(entry, true)
             if score < bestScore then
                 bestScore = score
                 bestEntry = entry
+            end
+        end
+    end
+
+    if bestEntry and bestScore < math.huge then
+        return bestEntry
+    end
+
+    -- Pass 2: nearby DME (e.g., separate TACAN)
+    local maxDistanceNm = 8 -- conservative threshold
+    bestScore = math.huge
+
+    for _, entry in ipairs(navdatatable) do
+        if entryHasDME(entry) then
+            local hasValidCoords = entry[def.DESTLATPOS] and entry[def.DESTLONPOS] and entry[def.DESTLATPOS] ~= 0
+            if hasValidCoords and refLat and refLon then
+                local distanceNm = P.getdistance(refLat, refLon, entry[def.DESTLATPOS], entry[def.DESTLONPOS])
+                if distanceNm <= maxDistanceNm then
+                    local score = buildScore(entry, false)
+                    if score < bestScore then
+                        bestScore = score
+                        bestEntry = entry
+                    end
+                end
             end
         end
     end
@@ -3126,16 +3186,47 @@ function P.detectFMSDiscontinuity(legs_string, lat_array, lon_array, aircraftLat
         end
     end
 
+    local lastUsableToken = nil
+    local function isUsableToken(token)
+        if not token or token == "" then return false end
+        local clean = token:gsub("[-]", "")
+        if clean == "" then return false end
+        if token:match("^%b()%s*$") then return false end
+        if token == "(INTC)" then return false end
+        if token:upper() == "ROUTE" then return false end
+        return token:upper() ~= "DISCONTINUITY"
+    end
+
+    local function findNextUsable(startIndex)
+        for j = startIndex, #tokens do
+            local candidate = tokens[j]
+            if isUsableToken(candidate) then
+                return candidate
+            end
+        end
+        return nil
+    end
+
     for idx, token in ipairs(tokens) do
-        if token == "DISCONTINUITY" then
-            local prevLeg = (idx > 1) and tokens[idx - 1] or nil
-            local nextLeg = (idx < #tokens) and tokens[idx + 1] or nil
+        local upperToken = string.upper(token)
+        if upperToken == "DISCONTINUITY" then
+            local prevLeg = lastUsableToken
+            local nextLeg = findNextUsable(idx + 1)
 
             local skip = false
-            if tokenDistances and distanceFromStart and (idx > 1) then
-                local prevDistance = tokenDistances[idx - 1]
-                if prevDistance and (prevDistance < (distanceFromStart - 5)) then
-                    skip = true
+            if tokenDistances and distanceFromStart and prevLeg then
+                local prevIndex = idx - 1
+                while prevIndex > 0 do
+                    if tokens[prevIndex] == prevLeg then
+                        break
+                    end
+                    prevIndex = prevIndex - 1
+                end
+                if prevIndex > 0 then
+                    local prevDistance = tokenDistances[prevIndex]
+                    if prevDistance and (prevDistance < (distanceFromStart - 5)) then
+                        skip = true
+                    end
                 end
             end
 
@@ -3147,7 +3238,18 @@ function P.detectFMSDiscontinuity(legs_string, lat_array, lon_array, aircraftLat
                     next = nextLeg
                 }
             end
+        elseif isUsableToken(token) then
+            lastUsableToken = token
         end
+    end
+
+    if string.find(string.upper(legs_string), "DISCO") then
+        return {
+            index = -1,
+            total = #tokens,
+            previous = lastUsableToken,
+            next = nil
+        }
     end
 
     return nil
