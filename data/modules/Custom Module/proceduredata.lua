@@ -12,6 +12,27 @@ local function getNavEntryCourse(entry)
     return entry[def.DESTCOURSE]
 end
 
+local function cleanLegToken(token)
+    if type(token) ~= "string" then
+        return ""
+    end
+    return token:gsub("[%(%)]", ""):gsub("%s+", "")
+end
+
+local function isRunwayLeg(token)
+    local clean = cleanLegToken(token)
+    return clean:upper():match("^RW%d%d?[LRC]?") ~= nil
+end
+
+local function isMissedApproachLeg(token)
+    local clean = cleanLegToken(token)
+    return clean:upper():match("^MISSED") ~= nil
+end
+
+local function isRunwayToMissedDiscontinuity(prevLeg, nextLeg)
+    return isRunwayLeg(prevLeg) and isMissedApproachLeg(nextLeg)
+end
+
 local M = {}
 function M.fillProcedureTable()
     local P = yal 
@@ -410,6 +431,9 @@ function M.fillProcedureTable()
                         end
                         local prevLegRaw = discontinuity.previous or ""
                         local nextLegRaw = discontinuity.next or ""
+                        if isRunwayToMissedDiscontinuity(prevLegRaw, nextLegRaw) then
+                            return true
+                        end
                         local message
                         if prevLegRaw ~= "" and prevLegRaw:match("^RW") and nextLegRaw ~= "" and nextLegRaw:upper():match("^MISSED") then
                             message = "Discontinuity between " .. helpers.replaceRunwayPrefix(prevLegRaw) .. " and missed approach"
@@ -1122,7 +1146,7 @@ function M.fillProcedureTable()
                             and (get(P.wheatlsidepos) == def.ON)
                             and (get(P.wheatrsidepos) == def.ON)
                     end,
-                    advice = "Confirm Window Heat On",
+                    advice = "Set Window Heat On",
                     confirm = "Window Heat checked On",
                     nextStep = 'probe_heat_on'
                 },
@@ -1133,7 +1157,7 @@ function M.fillProcedureTable()
                     action = function()
                         P.toggleprobeheat(def.ON)
                     end,
-                    advice = "Confirm Probe Heat On",
+                    advice = "Set Probe Heat On",
                     confirm = "Probe Heat checked On",
                     nextStep = 'starters_flight'
                 },
@@ -1846,7 +1870,11 @@ function M.fillProcedureTable()
                             get(P.aircraftlonpos)
                         )
                         if discontinuity then
-                            local prevLeg = discontinuity.previous and helpers.replaceRunwayPrefix(discontinuity.previous) or ""
+                            local prevLegRaw = discontinuity.previous
+                            if isRunwayToMissedDiscontinuity(prevLegRaw, discontinuity.next) then
+                                return true
+                            end
+                            local prevLeg = prevLegRaw and helpers.replaceRunwayPrefix(prevLegRaw) or ""
                             local suffix = (prevLeg ~= "") and (" after " .. prevLeg) or ""
                             P.commandtableentry(def.TEXT, "Discontinuity" .. suffix .. " before approach")
                             return false
@@ -2682,9 +2710,9 @@ function M.fillProcedureTable()
                     end,
                     advice = function(loop)
                         if loop.power_source == 'gpu' then
-                            return "Confirm Ground Power On Bus"
+                            return "Set Ground Power On Bus"
                         end
-                        return "Confirm A P U Power On Bus"
+                        return "Set A P U Power On Bus"
                     end,
                     confirm = function(loop)
                         if loop.power_source == 'gpu' then
