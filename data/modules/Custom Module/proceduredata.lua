@@ -6,8 +6,20 @@ local function getNavEntryCourse(entry)
     if not entry then
         return nil
     end
+
+    local icao = entry[def.DESTICAO]
+    local navType = entry[def.DESTNAVTYPE]
+    local runway = entry[def.DESTRWY]
+    if type(icao) == "string" and type(navType) == "string" and type(runway) == "string" then
+        local cifpCourse = helpers.getCIFPApproachCourse(icao, navType, runway)
+        if cifpCourse then
+            return helpers.calccourse(cifpCourse)
+        end
+    end
+
     if entry.isTrueCourse and entry.truecourse then
-        return entry.truecourse
+        local magVar = entry[def.DESTMAGVAR] or 0
+        return helpers.calccourse(entry.truecourse - magVar)
     end
     return entry[def.DESTCOURSE]
 end
@@ -356,6 +368,13 @@ function M.fillProcedureTable()
                             P.commandtableentry(def.TEXT, "Instrument Lights set")
                         end
                     end,
+                    nextStep = 'set_nosmoking_on'
+                },
+                ['set_nosmoking_on'] = {
+                    check = function() return get(P.nosmokingsignpos) == def.NOSMOKINGSIGNON end,
+                    action = function() P.setnosmokingsign(def.NOSMOKINGSIGNON) end,
+                    advice = "Set No Smoking Signs On",
+                    confirm = "No Smoking Signs checked On",
                     nextStep = 'set_lower_du'
                 },
                 ['set_lower_du'] = { 
@@ -528,13 +547,6 @@ function M.fillProcedureTable()
                     action = function() P.setseatbeltsign(def.SEATBELTSIGNOFF) end,
                     advice = "Set Seatbelt Signs Off",
                     confirm = "Seatbelt Signs checked Off",
-                    nextStep = 'set_nosmoking_on'
-                },
-                ['set_nosmoking_on'] = { 
-                    check = function() return get(P.nosmokingsignpos) == def.NOSMOKINGSIGNON end,
-                    action = function() P.setnosmokingsign(def.NOSMOKINGSIGNON) end,
-                    advice = "Set No Smoking Signs On",
-                    confirm = "No Smoking Signs checked On",
                     nextStep = 'set_poslights_steady'
                 },
                 ['set_poslights_steady'] = { 
@@ -671,11 +683,42 @@ function M.fillProcedureTable()
                 },
                 ['plan_pushback'] = {
                     skipIf = function()
-                        return not P.BPBisinstalled()
+                        if not P.BPBisinstalled() then
+                            return true
+                        end
+                        return P.BPBPlanComplete and (get(P.BPBPlanComplete) == 1)
                     end,
                     action = function() helpers.command_once("BetterPushback/start_planner") end,
                     advice = "Plan Pushback using BetterPushback",
                     confirm = "Plan Pushback using BetterPushback",
+                    runActionInAdviceMode = true,
+                    nextStep = 'start_planned_pushback'
+                },
+                ['start_planned_pushback'] = {
+                    skipIf = function()
+                        if not P.BPBisinstalled() then
+                            return true
+                        end
+                        if not (P.BPBPlanComplete and P.BPBStarted and P.BPBOpComplete) then
+                            return true
+                        end
+                        local planComplete = (get(P.BPBPlanComplete) == 1)
+                        local opComplete = (get(P.BPBOpComplete) == 1)
+                        local started = (get(P.BPBStarted) == 1)
+                        if not planComplete then
+                            return true
+                        end
+                        if opComplete then
+                            return true
+                        end
+                        if started then
+                            return true
+                        end
+                        return false
+                    end,
+                    action = function() helpers.command_once("BetterPushback/start") end,
+                    advice = "Start Pushback using BetterPushback",
+                    confirm = "Pushback started using BetterPushback",
                     runActionInAdviceMode = true,
                     nextStep = nil
                 }
@@ -703,6 +746,13 @@ function M.fillProcedureTable()
                 ['view_overhead'] = {
                     view = function() return P.configvalues[def.CONFIGVIEWOVERHEADPANEL] end,
                     normalize = true,
+                    nextStep = 'ensure_battery_on'
+                },
+                ['ensure_battery_on'] = {
+                    check = function() return get(P.battery) == def.ON end,
+                    action = function() helpers.command_once("laminar/B738/switch/battery_dn") end,
+                    advice = "Switch Battery On",
+                    confirm = "Battery checked On",
                     nextStep = 'set_apu_fuel_pump_on'
                 },
                 ['set_apu_fuel_pump_on'] = {
@@ -1145,6 +1195,9 @@ function M.fillProcedureTable()
                             and (get(P.wheatrfwdpos) == def.ON)
                             and (get(P.wheatlsidepos) == def.ON)
                             and (get(P.wheatrsidepos) == def.ON)
+                    end,
+                    action = function()
+                        P.togglewindowheat(def.ON)
                     end,
                     advice = "Set Window Heat On",
                     confirm = "Window Heat checked On",
@@ -3477,19 +3530,33 @@ function M.fillProcedureTable()
                     skipIf = function(loop, procData)
                         local navdata = P.navdatatable[loop.navdatatableindex]
                         if not navdata then return true end
-                        if navdata[def.DESTNAVTYPE] == def.NAVTYPELPV then
-                            loop.approachDME = nil
-                            return true
+                        local navtype = navdata[def.DESTNAVTYPE]
+
+                        local function prepareApproachDME()
+                            local dmeInfo = helpers.findApproachDME(
+                                P.navdatatable,
+                                get(P.desicao),
+                                get(P.desrwy),
+                                navdata[def.DESTLATPOS],
+                                navdata[def.DESTLONPOS],
+                                navdata[def.DESTNAVID]
+                            )
+                            loop.approachDME = dmeInfo
+                            return dmeInfo
                         end
-                        if navdata[def.DESTNAVTYPE] == def.NAVTYPEILS then
+
+                        if navtype == def.NAVTYPELPV then
+                            return (prepareApproachDME() == nil)
+                        end
+
+                        if navtype == def.NAVTYPEILS then
                             if navdata[def.DESTNAVDME] then
                                 loop.approachDME = nil
                                 return false
                             end
-                            local dmeInfo = helpers.findApproachDME(P.navdatatable, get(P.desicao), get(P.desrwy), navdata[def.DESTLATPOS], navdata[def.DESTLONPOS], navdata[def.DESTNAVID])
-                            loop.approachDME = dmeInfo
-                            return dmeInfo == nil
+                            return (prepareApproachDME() == nil)
                         end
+
                         loop.approachDME = nil
                         return false 
                     end,
@@ -3510,6 +3577,12 @@ function M.fillProcedureTable()
                                 local freqValue = dmeInfo[def.DESTDMEFREQ] ~= 0 and dmeInfo[def.DESTDMEFREQ] or dmeInfo[def.DESTFREQ]
                                 return (get(P.nav2freq) == freqValue)
                             end
+                        elseif (navdata[def.DESTNAVTYPE] == def.NAVTYPELPV) then
+                            local dmeInfo = loop.approachDME or helpers.findApproachDME(P.navdatatable, get(P.desicao), get(P.desrwy), navdata[def.DESTLATPOS], navdata[def.DESTLONPOS], navdata[def.DESTNAVID])
+                            loop.approachDME = dmeInfo
+                            if not dmeInfo then return true end
+                            local freqValue = dmeInfo[def.DESTDMEFREQ] ~= 0 and dmeInfo[def.DESTDMEFREQ] or dmeInfo[def.DESTFREQ]
+                            return (get(P.nav2freq) == freqValue)
                         elseif (navdata[def.DESTNAVTYPE] == def.NAVTYPEGLS) and (get(P.mmrinstalled) == def.ON) then
                             return (get(P.mmrfoactvalue) == navdata[def.DESTFREQ]) and (get(P.mmrfoactmode) == def.MMRGLS)
                         end
@@ -3535,6 +3608,14 @@ function M.fillProcedureTable()
                                     set(P.nav2freq, freqValue)
                                 end
                             end
+                        elseif (navdata[def.DESTNAVTYPE] == def.NAVTYPELPV) then
+                            local dmeInfo = loop.approachDME or helpers.findApproachDME(P.navdatatable, get(P.desicao), get(P.desrwy), navdata[def.DESTLATPOS], navdata[def.DESTLONPOS], navdata[def.DESTNAVID])
+                            loop.approachDME = dmeInfo
+                            if dmeInfo then
+                                local freqValue = dmeInfo[def.DESTDMEFREQ] ~= 0 and dmeInfo[def.DESTDMEFREQ] or dmeInfo[def.DESTFREQ]
+                                set(P.nav2stdbyfreq, get(P.nav2freq))
+                                set(P.nav2freq, freqValue)
+                            end
                         elseif (navdata[def.DESTNAVTYPE] == def.NAVTYPEGLS) and (get(P.mmrinstalled) == def.ON) then
                             P.setmmrgls(def.MMRFO, navdata[def.DESTFREQ])
                         end
@@ -3554,6 +3635,15 @@ function M.fillProcedureTable()
                                     local identText = (ident ~= "" and (" (" .. ident .. ")")) or ""
                                     return "Set Copilot D M E Frequency " .. helpers.addspaces(helpers.formatILSFrequency(freqValue)) .. identText
                                 end
+                            end
+                        elseif (navdata[def.DESTNAVTYPE] == def.NAVTYPELPV) then
+                            local dmeInfo = loop.approachDME or helpers.findApproachDME(P.navdatatable, get(P.desicao), get(P.desrwy), navdata[def.DESTLATPOS], navdata[def.DESTLONPOS], navdata[def.DESTNAVID])
+                            loop.approachDME = dmeInfo
+                            if dmeInfo then
+                                local freqValue = dmeInfo[def.DESTDMEFREQ] ~= 0 and dmeInfo[def.DESTDMEFREQ] or dmeInfo[def.DESTFREQ]
+                                local ident = dmeInfo[def.DESTDMEIDENT] or dmeInfo[def.DESTNAVID] or ""
+                                local identText = (ident ~= "" and (" (" .. ident .. ")")) or ""
+                                return "Set Copilot D M E Frequency " .. helpers.addspaces(helpers.formatILSFrequency(freqValue)) .. identText
                             end
                         else
                             return "Set Copilot Channel " .. helpers.addspaces(navdata[def.DESTFREQ])
@@ -3581,6 +3671,15 @@ function M.fillProcedureTable()
                                     local identText = (ident ~= "" and (" (" .. ident .. ")")) or ""
                                     message = "Copilot D M E Frequency checked and " .. helpers.addspaces(helpers.formatILSFrequency(freqValue)) .. identText
                                 end
+                            end
+                        elseif (navdata[def.DESTNAVTYPE] == def.NAVTYPELPV) then
+                            local dmeInfo = loop.approachDME or helpers.findApproachDME(P.navdatatable, get(P.desicao), get(P.desrwy), navdata[def.DESTLATPOS], navdata[def.DESTLONPOS], navdata[def.DESTNAVID])
+                            loop.approachDME = dmeInfo
+                            if dmeInfo then
+                                local freqValue = dmeInfo[def.DESTDMEFREQ] ~= 0 and dmeInfo[def.DESTDMEFREQ] or dmeInfo[def.DESTFREQ]
+                                local ident = dmeInfo[def.DESTDMEIDENT] or dmeInfo[def.DESTNAVID] or ""
+                                local identText = (ident ~= "" and (" (" .. ident .. ")")) or ""
+                                message = "Copilot D M E Frequency checked and " .. helpers.addspaces(helpers.formatILSFrequency(freqValue)) .. identText
                             end
                         else
                             message = "Copilot Channel checked and " .. helpers.addspaces(navdata[def.DESTFREQ])
