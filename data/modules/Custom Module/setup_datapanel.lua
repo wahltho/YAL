@@ -199,15 +199,49 @@ wdef = {
             settings.writeSettings(settings.appSettings)
             wdef.VOICEADVICEONLY.value = toboolean(settings.appSettings.VOICEADVICEONLY)
         end,      
-            draw_ = function()
+        draw_ = function()
             windows.drawCheckBox(wdef.VOICEADVICEONLY)
+        end
+    },
+    BPBINTEGRATION = {
+        t = messages.translation['BPBINTEGRATION'],
+        value = toboolean(settings.appSettings.BPBINTEGRATION),
+        x = x_col1 + 60,
+        y = hSize - 165,
+        w = cb_w,
+        h = cb_h,
+        onMouseDown_ = function()
+            setFocusOnInput(nil)
+            settings.appSettings.BPBINTEGRATION = not_(settings.appSettings.BPBINTEGRATION)
+            settings.writeSettings(settings.appSettings)
+            wdef.BPBINTEGRATION.value = toboolean(settings.appSettings.BPBINTEGRATION)
+        end,
+        draw_ = function()
+            windows.drawCheckBox(wdef.BPBINTEGRATION)
+        end
+    },
+    YANSHINTEGRATION = {
+        t = messages.translation['YANSHINTEGRATION'],
+        value = toboolean(settings.appSettings.YANSHINTEGRATION),
+        x = x_col1 + 60,
+        y = hSize - 190,
+        w = cb_w,
+        h = cb_h,
+        onMouseDown_ = function()
+            setFocusOnInput(nil)
+            settings.appSettings.YANSHINTEGRATION = not_(settings.appSettings.YANSHINTEGRATION)
+            settings.writeSettings(settings.appSettings)
+            wdef.YANSHINTEGRATION.value = toboolean(settings.appSettings.YANSHINTEGRATION)
+        end,
+        draw_ = function()
+            windows.drawCheckBox(wdef.YANSHINTEGRATION)
         end
     },
     AUTOFUELING = {
         t = messages.translation['AUTOFUELING'],
         value = toboolean(settings.appSettings.AUTOFUELING),
         x = x_col1 + 60,
-        y = hSize - 160,
+        y = hSize - 215,
         w = cb_w,
         h = cb_h,
         onMouseDown_ = function()
@@ -224,7 +258,7 @@ wdef = {
         t = messages.translation['TODPAUSEQUITTIME'],
         value = tostring(settings.appSettings.TODPAUSEQUITTIME),
         x = x_col1 +20,
-        y = hSize - 190,
+        y = hSize - 245,
         w = 50,
         h = def.lineHeight * 1.5,
         isFocused = false,
@@ -246,7 +280,7 @@ wdef = {
         t = messages.translation['SAVETIME'],
         value = tostring(settings.appSettings.SAVETIME),
         x = x_col1 +20,
-        y = hSize - 220,
+        y = hSize - 270,
         w = 50,
         h = def.lineHeight * 1.5,
         isFocused = false,
@@ -268,7 +302,7 @@ wdef = {
         t = messages.translation['SAVENUMBER'],
         value = tostring(settings.appSettings.SAVENUMBER),
         x = x_col1 +20,
-        y = hSize - 250,
+        y = hSize - 295,
         w = 50,
         h = def.lineHeight * 1.5,
         isFocused = false,
@@ -290,7 +324,7 @@ wdef = {
         t = messages.translation['WAKEOVERRIDE'],
         value = toboolean(settings.appSettings.WAKEOVERRIDE),
         x = x_col1 + 60,
-        y = hSize - 280,
+        y = hSize - 315,
         w = cb_w,
         h = cb_h,
         onMouseDown_ = function()
@@ -307,7 +341,7 @@ wdef = {
         t = messages.translation['AUTOANTIICE'],
         value = toboolean(settings.appSettings.AUTOANTIICE),
         x = x_col1 + 60,
-        y = hSize - 300,
+        y = hSize - 335,
         w = cb_w,
         h = cb_h,
         onMouseDown_ = function()
@@ -324,7 +358,7 @@ wdef = {
         t = messages.translation['AUTOWIPER'],
         value = toboolean(settings.appSettings.AUTOWIPER),
         x = x_col1 + 60,
-        y = hSize - 320,
+        y = hSize - 355,
         w = cb_w,
         h = cb_h,
         onMouseDown_ = function()
@@ -341,7 +375,7 @@ wdef = {
         t = messages.translation['AUTOCENTERTANKHANDLING'],
         value = toboolean(settings.appSettings.AUTOCENTERTANKHANDLING),
         x = x_col1 + 60,
-        y = hSize - 340,
+        y = hSize - 375,
         w = cb_w,
         h = cb_h,
         onMouseDown_ = function()
@@ -358,7 +392,7 @@ wdef = {
         t = messages.translation['AUTOFLAPS'],
         value = toboolean(settings.appSettings.AUTOFLAPS),
         x = x_col1 + 60,
-        y = hSize - 360,
+        y = hSize - 395,
         w = cb_w,
         h = cb_h,
         onMouseDown_ = function()
@@ -375,7 +409,7 @@ wdef = {
         t = messages.translation['AUTOBARO'],
         value = toboolean(settings.appSettings.AUTOBARO),
         x = x_col1 + 60,
-        y = hSize - 380,
+        y = hSize - 415,
         w = cb_w,
         h = cb_h,
         onMouseDown_ = function()
@@ -392,7 +426,7 @@ wdef = {
         t = messages.translation['VIEWCHANGES'],
         value = toboolean(settings.appSettings.VIEWCHANGES),
         x = x_col1 + 60,
-        y = hSize - 400,
+        y = hSize - 435,
         w = cb_w,
         h = cb_h,
         onMouseDown_ = function()
@@ -408,7 +442,7 @@ wdef = {
     customize = {
         t = messages.translation['CUSTOMIZE'],
         x = x_col1 ,
-        y = hSize - 440,
+        y = hSize - 460,
         draw_ = function()
             windows.drawText(wdef.customize)
         end
@@ -417,7 +451,7 @@ wdef = {
         t = messages.translation['SPEEDRESTR250'],
         value = toboolean(settings.appSettings.SPEEDRESTR250),
         x = x_col1 +60,
-        y = hSize - 460,
+        y = hSize - 480,
         w = cb_w,
         h = cb_h,
         onMouseDown_ = function()
@@ -434,7 +468,7 @@ wdef = {
         t = messages.translation['VREF30'],
         value = toboolean(settings.appSettings.VREF30),
         x = x_col1 + 60,
-        y = hSize - 480,
+        y = hSize - 500,
         w = cb_w,
         h = cb_h,
         onMouseDown_ = function()
@@ -447,11 +481,28 @@ wdef = {
             windows.drawCheckBox(wdef.VREF30)
         end
     },
+    CUSTOMAPPROACHCALC = {
+        t = messages.translation['CUSTOMAPPROACHCALC'],
+        value = toboolean(settings.appSettings.CUSTOMAPPROACHCALC),
+        x = x_col1 + 60,
+        y = hSize - 520,
+        w = cb_w,
+        h = cb_h,
+        onMouseDown_ = function()
+            setFocusOnInput(nil)
+            settings.appSettings.CUSTOMAPPROACHCALC = not_(settings.appSettings.CUSTOMAPPROACHCALC)
+            settings.writeSettings(settings.appSettings)
+            wdef.CUSTOMAPPROACHCALC.value = toboolean(settings.appSettings.CUSTOMAPPROACHCALC)
+        end,
+        draw_ = function()
+            windows.drawCheckBox(wdef.CUSTOMAPPROACHCALC)
+        end
+    },
     LOWERAIRSPACEALT = {
         t = messages.translation['LOWERAIRSPACEALT'],
         value = tostring(settings.appSettings.LOWERAIRSPACEALT),
         x = x_col1 + 20,
-        y = hSize - 510,
+        y = hSize - 550,
         w = 50,
         h = def.lineHeight * 1.5,
         isFocused = false,
@@ -472,7 +523,7 @@ wdef = {
         t = messages.translation['PACKSRESTOREALT'],
         value = tostring(settings.appSettings.PACKSRESTOREALT),
         x = x_col1 + 20,
-        y = hSize - 540,
+        y = hSize - 575,
         w = 60,
         h = def.lineHeight * 1.5,
         isFocused = false,
@@ -494,7 +545,7 @@ wdef = {
         value = tostring(settings.appSettings.BANKANGLEMAX),
         x = x_col1,
         x2 = x_col1 + 50,
-        y = hSize - 570,
+        y = hSize - 600,
         w = 20,
         h = 20,
         linePadding = 6,
@@ -519,7 +570,7 @@ wdef = {
         t = messages.translation['LOWERDU'],
         value = toboolean(settings.appSettings.LOWERDU),
         x = x_col1 + 60,
-        y = hSize - 590,
+        y = hSize - 620,
         w = cb_w,
         h = cb_h,
         onMouseDown_ = function()
@@ -536,7 +587,7 @@ wdef = {
         t = messages.translation['TRANSPONDERCODE'],
         value = tostring(settings.appSettings.TRANSPONDERCODE),
         x = x_col1 + 20,
-        y = hSize - 620,
+        y = hSize - 650,
         w = 50,
         h = def.lineHeight * 1.5,
         isFocused = false,
@@ -557,7 +608,7 @@ wdef = {
         t = messages.translation['GEARDOWNFLAPS'],
         value = tostring(settings.appSettings.GEARDOWNFLAPS),
         x = x_col1 + 20,
-        y = hSize - 640,
+        y = hSize - 675,
         w = 50,
         h = def.lineHeight * 1.5,
         isFocused = false,
@@ -578,7 +629,7 @@ wdef = {
         t = messages.translation['HIDEEFBS'],
         value = toboolean(settings.appSettings.HIDEEFBS),
         x = x_col1 + 60,
-        y = hSize - 670,
+        y = hSize - 690,
         w = cb_w,
         h = cb_h,
         onMouseDown_ = function()
@@ -1119,6 +1170,14 @@ components = {
     onMouseDown = getElementInteractive(wdef.VOICEADVICEONLY)[2]
 }, interactive {
     --cursor = def.cursor,
+    position = getElementInteractive(wdef.BPBINTEGRATION)[1],
+    onMouseDown = getElementInteractive(wdef.BPBINTEGRATION)[2]
+}, interactive {
+    --cursor = def.cursor,
+    position = getElementInteractive(wdef.YANSHINTEGRATION)[1],
+    onMouseDown = getElementInteractive(wdef.YANSHINTEGRATION)[2]
+}, interactive {
+    --cursor = def.cursor,
     position = getElementInteractive(wdef.AUTOFUELING)[1],
     onMouseDown = getElementInteractive(wdef.AUTOFUELING)[2]
 }, interactive {
@@ -1157,6 +1216,10 @@ components = {
     --cursor = def.cursor,
     position = getElementInteractive(wdef.VREF30)[1],
     onMouseDown = getElementInteractive(wdef.VREF30)[2]
+}, interactive {
+    --cursor = def.cursor,
+    position = getElementInteractive(wdef.CUSTOMAPPROACHCALC)[1],
+    onMouseDown = getElementInteractive(wdef.CUSTOMAPPROACHCALC)[2]
 }, interactive {
     --cursor = def.cursor,
     position = getElementInteractive(wdef.LOWERDU)[1],

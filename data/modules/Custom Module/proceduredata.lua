@@ -404,7 +404,12 @@ function M.fillProcedureTable()
                     nextStep = 'load_yansh_ofp'
                 },
                 ['load_yansh_ofp'] = { 
-                    skipIf = function() return not P.YANSHisinstalled() end,
+                    skipIf = function()
+                        if P.configvalues[def.CONFIGYANSHINTEGRATION] ~= def.ON then
+                            return true
+                        end
+                        return not P.YANSHisinstalled()
+                    end,
                     check = function() return P.YANSHflightplanloaded() end,
                     action = function() helpers.command_once("YANSH/fetchOFP") end,
                     advice = "Load Simbrief Flight Plan",
@@ -412,7 +417,12 @@ function M.fillProcedureTable()
                     nextStep = 'auto_fueling'
                 },
                 ['auto_fueling'] = { 
-                    skipIf = function() return not (P.YANSHisinstalled() and P.YANSHflightplanloaded() and get(P.YANSHFuelPlanRamp) > 0 and P.configvalues[def.CONFIGAUTOFUELING] == def.ON) end,
+                    skipIf = function()
+                        if P.configvalues[def.CONFIGYANSHINTEGRATION] ~= def.ON then
+                            return true
+                        end
+                        return not (P.YANSHisinstalled() and P.YANSHflightplanloaded() and get(P.YANSHFuelPlanRamp) > 0 and P.configvalues[def.CONFIGAUTOFUELING] == def.ON)
+                    end,
                     action = function() 
                         if (P.configvalues[def.CONFIGAUTOFUELING] == def.ON) then
                             local plannedFuelLbs = get(P.YANSHFuelPlanRamp)
@@ -683,6 +693,9 @@ function M.fillProcedureTable()
                 },
                 ['plan_pushback'] = {
                     skipIf = function()
+                        if P.configvalues[def.CONFIGBPBINTEGRATION] ~= def.ON then
+                            return true
+                        end
                         if not P.BPBisinstalled() then
                             return true
                         end
@@ -692,6 +705,9 @@ function M.fillProcedureTable()
                         helpers.command_once("BetterPushback/start_planner")
                     end,
                     check = function()
+                        if P.configvalues[def.CONFIGBPBINTEGRATION] ~= def.ON then
+                            return true
+                        end
                         if not P.BPBisinstalled() then
                             return true
                         end
@@ -715,6 +731,9 @@ function M.fillProcedureTable()
                 },
                 ['start_planned_pushback'] = {
                     skipIf = function()
+                        if P.configvalues[def.CONFIGBPBINTEGRATION] ~= def.ON then
+                            return true
+                        end
                         if not P.BPBisinstalled() then
                             return true
                         end
@@ -2185,17 +2204,26 @@ function M.fillProcedureTable()
                     skipIf = function() return P.configvalues[def.CONFIGVREF30SET] ~= def.ON end,
                     check = function()
                         if get(P.autobrakepos) > def.AUTOBRAKEOFF then return true end
+                        if P.configvalues[def.CONFIGCUSTOMAPPROACHCALC] ~= def.ON then
+                            return true
+                        end
                         local autobrake = helpers.calcautobrake(get(P.vref), get(P.totalweightkgs), get(P.desrwylen), P.desmetar)
                         return get(P.autobrakepos) == autobrake
                     end,
                     advice = function()
                         if get(P.autobrakepos) > def.AUTOBRAKEOFF then return false end
+                        if P.configvalues[def.CONFIGCUSTOMAPPROACHCALC] ~= def.ON then
+                            return false
+                        end
                         local autobrake = helpers.calcautobrake(get(P.vref), get(P.totalweightkgs), get(P.desrwylen), P.desmetar)
                         if (autobrake < def.AUTOBRAKEMAX) then return "Set Auto Brake " .. tostring(autobrake - 1)
                         else return "Set Auto Brake Maximum" end
                     end,
                     action = function()
                         if get(P.autobrakepos) > def.AUTOBRAKEOFF then return end
+                        if P.configvalues[def.CONFIGCUSTOMAPPROACHCALC] ~= def.ON then
+                            return
+                        end
                         local autobrake = helpers.calcautobrake(get(P.vref), get(P.totalweightkgs), get(P.desrwylen), P.desmetar)
                         P.setautobrake(autobrake)
                     end,
@@ -3775,12 +3803,34 @@ function M.fillProcedureTable()
                 },
                 ['calculate_vref'] = {
                     action = function(loop, procData)
-                        local appflapscalc, appvrefcalc = helpers.calcappflapsvref(get(P.totalweightkgs), get(P.desrwylen), get(P.desrwyheading), get(P.vref30), P.desmetar)
-                        loop.appflapscalc = appflapscalc
-                        loop.appvrefcalc = appvrefcalc
-                        loop.appflapscalcstring = tostring(appflapscalc)
-                        loop.appvrefcalcstring = tostring(appvrefcalc)
-                        sasl.logInfo("SetVref: Calculated Flaps " .. loop.appflapscalcstring .. " Vref " .. loop.appvrefcalcstring)
+                        if P.configvalues[def.CONFIGCUSTOMAPPROACHCALC] == def.ON then
+                            local appflapscalc, appvrefcalc = helpers.calcappflapsvref(
+                                get(P.totalweightkgs),
+                                get(P.desrwylen),
+                                get(P.desrwyheading),
+                                get(P.vref30),
+                                P.desmetar
+                            )
+                            loop.appflapscalc = appflapscalc
+                            loop.appvrefcalc = appvrefcalc
+                            loop.appflapscalcstring = tostring(appflapscalc)
+                            loop.appvrefcalcstring = tostring(appvrefcalc)
+                            sasl.logInfo("SetVref: Calculated Flaps " .. loop.appflapscalcstring .. " Vref " .. loop.appvrefcalcstring)
+                        else
+                            local fallbackFlaps = get(P.appflaps)
+                            if not fallbackFlaps or fallbackFlaps <= 0 then
+                                fallbackFlaps = 30
+                            end
+                            local fallbackVref = get(P.vref)
+                            if not fallbackVref or fallbackVref <= 0 then
+                                fallbackVref = get(P.vref30)
+                            end
+                            loop.appflapscalc = fallbackFlaps
+                            loop.appvrefcalc = fallbackVref
+                            loop.appflapscalcstring = helpers.padNumberWithZerosStrict(math.floor(fallbackFlaps + 0.5), 2)
+                            loop.appvrefcalcstring = tostring(math.floor(fallbackVref + 0.5))
+                            sasl.logInfo("SetVref: Using existing Flaps " .. loop.appflapscalcstring .. " Vref " .. loop.appvrefcalcstring)
+                        end
                     end,
                     runActionInAdviceMode = true, 
                     nextStep = 'check_fms_page'
@@ -3921,20 +3971,24 @@ function M.fillProcedureTable()
                 },
                 ['calculate_flaps'] = {
                     action = function(loop, procData)
-                        local computedFlaps = helpers.determineTakeoffFlapsSetting(
-                            get(P.totalweightkgs),
-                            get(P.deprwylen),
-                            get(P.deprwyheading),
-                            get(P.elevation),
-                            P.depmetar
-                        )
+                        local useCustomCalc = (P.configvalues[def.CONFIGCUSTOMAPPROACHCALC] == def.ON)
+                        local computedFlaps = nil
+                        if useCustomCalc then
+                            computedFlaps = helpers.determineTakeoffFlapsSetting(
+                                get(P.totalweightkgs),
+                                get(P.deprwylen),
+                                get(P.deprwyheading),
+                                get(P.elevation),
+                                P.depmetar
+                            )
+                        end
                         local existingFlaps = get(P.toflaps)
                         if existingFlaps and existingFlaps > 0 then
                             loop.toflapscalc = existingFlaps
                             loop.flapsPreSet = true
                         else
-                            loop.toflapscalc = computedFlaps
-                            loop.flapsPreSet = false
+                            loop.toflapscalc = computedFlaps or get(P.toflapsset) or 5
+                            loop.flapsPreSet = not useCustomCalc
                         end
                         loop.toflapscalcstring = tostring(loop.toflapscalc)
 
