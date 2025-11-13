@@ -2854,19 +2854,18 @@ function P.loadCIFP(icao)
                         local procedureFix = register_fix(parts[4])
                         register_fix(parts[5])
 
-                        local pathTerminator = trimString(parts[11] or "")
-                        local fixIdent = trimString(parts[4] or "")
-                        if pathTerminator == "CF" and fixIdent ~= "" and string.sub(fixIdent, 1, 2) == "RW" then
+                        local pathTerminator = trimString(parts[12] or "")
+                        local fixIdent = trimString(parts[5] or "")
+                        local isRunwayLeg = fixIdent ~= "" and string.sub(fixIdent, 1, 2) == "RW"
+                        local isFinalLeg = (pathTerminator == "CF") or (pathTerminator == "TF")
+
+                        if isRunwayLeg and isFinalLeg then
                             if not entry.course then
-                                local courseField = trimString(parts[19] or "")
+                                local courseField = trimString(parts[21] or "")
                                 local courseValue = tonumber(courseField)
                                 if courseValue then
-                                    local trueCourse = courseValue / 10.0
-                                    local inboundCourse = (trueCourse + 180.0) % 360.0
-                                    if inboundCourse < 0 then
-                                        inboundCourse = inboundCourse + 360.0
-                                    end
-                                    entry.course = inboundCourse
+                                    local magneticCourse = P.calccourse(courseValue / 10.0)
+                                    entry.course = magneticCourse
                                 end
                             end
 
@@ -2927,13 +2926,15 @@ function P.getCIFPApproachCourse(icao, navType, runway)
     return entry and entry.course or nil
 end
 
-function P.findApproachDME(navdatatable, icao, runway, refLat, refLon, refIdent)
+function P.findApproachDME(navdatatable, icao, runway, refLat, refLon, refIdent, options)
     if type(navdatatable) ~= "table" then return nil end
     if type(icao) ~= "string" or icao == "" then return nil end
 
     icao = string.upper(icao)
     runway = runway and trimString(runway) or ""
     runway = runway ~= "" and string.upper(runway) or ""
+
+    local includeILS = options and options.includeILS == true
 
     local refIdentUpper = nil
     if type(refIdent) == "string" then
@@ -2944,12 +2945,18 @@ function P.findApproachDME(navdatatable, icao, runway, refLat, refLon, refIdent)
     end
 
     local function entryHasDME(entry)
-        if entry[def.DESTNAVTYPE] == def.NAVTYPEDME then
+        local navType = entry[def.DESTNAVTYPE]
+
+        if navType == def.NAVTYPEDME then
             return true
         end
         if entry[def.DESTNAVDME] then
-            local navType = entry[def.DESTNAVTYPE]
-            return (navType == def.NAVTYPEVOR) or (navType == def.NAVTYPEILS)
+            if navType == def.NAVTYPEVOR then
+                return true
+            end
+            if includeILS and navType == def.NAVTYPEILS then
+                return true
+            end
         end
         return false
     end
@@ -3521,34 +3528,18 @@ function P.buildnavdatatable(navdatatable)
                     local raw_course_str = navdataitems[def.NAVSRC_COL_BEARING]
                     local true_course = tonumber(raw_course_str)
 
-                    local nameField = navdataitems[def.NAVSRC_COL_NAME] or ""
-                    local isTrueCourse = false
-                    if nameField:find("TRUE", 1, true) then
-                        isTrueCourse = true
-                    elseif navdatarecord and navdatarecord:find(" TRUE", 1, true) then
-                        isTrueCourse = true
-                    end
-
                     if true_course then
-                        if true_course > 100000 then 
-                            true_course = true_course % 10000 
+                        if true_course >= 1000 then
+                            true_course = true_course % 1000
                         end
-                        
+
                         local trueCourseNormalized = P.calccourse(true_course)
-                        
+
                         local mag_variation = sasl.getMagneticVariation(lat_val, lon_val) or 0
-                        local magnetic_course
-
-                        if isTrueCourse then
-                            magnetic_course = trueCourseNormalized
-                            newEntry.isTrueCourse = true
-                        else
-                            magnetic_course = P.calccourse(true_course + mag_variation)
-                        end
-
-                        newEntry[def.DESTCOURSE] = magnetic_course
                         newEntry.truecourse = trueCourseNormalized
-                        
+                        newEntry.isTrueCourse = true
+                        newEntry[def.DESTCOURSE] = P.calccourse(trueCourseNormalized - mag_variation)
+                        newEntry[def.DESTMAGVAR] = mag_variation
                     else
                         sasl.logInfo("Could not read true course for LPV/GLS (column NAVSRC_COL_BEARING): " .. navdatarecord)
                         newEntry[def.DESTCOURSE] = 0 -- Fallback zu 0
@@ -3557,8 +3548,10 @@ function P.buildnavdatatable(navdatatable)
                     newEntry[def.DESTELEVATION] = tonumber(navdataitems[def.NAVSRC_COL_ELEV_FT]) or 0
                     newEntry[def.DESTRANGE] = tonumber(navdataitems[def.NAVSRC_COL_RANGE_NM]) or 0
                     newEntry[def.DESTRAWBEARING] = tonumber(raw_course_str) or 0
-                    local mag_var = sasl.getMagneticVariation(lat_val, lon_val)
-                    newEntry[def.DESTMAGVAR] = mag_var or 0
+                    if not newEntry[def.DESTMAGVAR] then
+                        local mag_var = sasl.getMagneticVariation(lat_val, lon_val)
+                        newEntry[def.DESTMAGVAR] = mag_var or 0
+                    end
                     newEntry[def.DESTFACILITYNAME] = navdataitems[def.NAVSRC_COL_NAME] or ""
                     newEntry[def.DESTSRCRECTYPE] = record_type_str
                     newEntry[def.DESTDMELAT] = 0

@@ -688,7 +688,26 @@ function M.fillProcedureTable()
                         end
                         return P.BPBPlanComplete and (get(P.BPBPlanComplete) == 1)
                     end,
-                    action = function() helpers.command_once("BetterPushback/start_planner") end,
+                    action = function()
+                        helpers.command_once("BetterPushback/start_planner")
+                    end,
+                    check = function()
+                        if not P.BPBisinstalled() then
+                            return true
+                        end
+                        if not P.BPBPlanComplete then
+                            return true
+                        end
+                        if get(P.BPBPlanComplete) == 1 then
+                            return true
+                        end
+                        if P.BPBPlannerOpen and isProperty(P.BPBPlannerOpen) then
+                            if get(P.BPBPlannerOpen) ~= 1 then
+                                return true
+                            end
+                        end
+                        return false
+                    end,
                     advice = "Plan Pushback using BetterPushback",
                     confirm = "Plan Pushback using BetterPushback",
                     runActionInAdviceMode = true,

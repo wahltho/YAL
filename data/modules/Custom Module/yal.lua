@@ -831,10 +831,33 @@ function P.BPBisinstalled()
             sasl.logInfo("BetterPushback plugin detected, integration enabled.")
         end
         P.BPBPluginID = pluginID
+
+        if not P.BPBPlanComplete then
+            P.BPBPlanComplete = globalProperty("bp/plan_complete")
+        end
+        if not P.BPBOpComplete then
+            P.BPBOpComplete = globalProperty("bp/op_complete")
+        end
+        if not P.BPBStarted then
+            P.BPBStarted = globalProperty("bp/started")
+        end
+
+        local plannerref = globalProperty("bp/planner_open")
+        if isProperty(plannerref) then
+            if not P.BPBPlannerOpen or not isProperty(P.BPBPlannerOpen) then
+                P.BPBPlannerOpen = globalProperty("bp/planner_open")
+            end
+        else
+            P.BPBPlannerOpen = nil
+        end
         return true
     end
 
     P.BPBPluginID = NO_PLUGIN_ID
+    P.BPBPlanComplete = nil
+    P.BPBOpComplete = nil
+    P.BPBStarted = nil
+    P.BPBPlannerOpen = nil
     return false
 end
 
