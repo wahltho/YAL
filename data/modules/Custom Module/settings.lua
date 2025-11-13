@@ -12,6 +12,8 @@ local settingsDefinition = {
     [def.CONFIGAUTOFUNCTIONS] = { dvalue = 1 , type = "number", min = 0, max = 1 },
     [def.CONFIGVOICEADVICEONLY] = { dvalue = 1 , type = "number", min = 0, max = 1 },
     [def.CONFIGAUTOFUELING] = { dvalue = 0 , type = "number", min = 0, max = 1 },
+    [def.CONFIGBPBINTEGRATION] = { dvalue = 0 , type = "number", min = 0, max = 1 },
+    [def.CONFIGYANSHINTEGRATION] = { dvalue = 0 , type = "number", min = 0, max = 1 },
 
     [def.CONFIGAUTOANTIICE] = { dvalue = 1 , type = "number", min = 0, max = 1 },
     [def.CONFIGAUTOWIPER] = { dvalue = 1 , type = "number", min = 0, max = 1 },
