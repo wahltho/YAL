@@ -589,6 +589,7 @@ function P.forceCleanString(inputStr)
                 cleanStr = cleanStr .. string.char(byte)
             end
         end
+        cleanStr = cleanStr:match("^(.-)%s*$") or cleanStr
     end
     return cleanStr
 end
@@ -3135,7 +3136,7 @@ function P.detectCIFPApproachVariant(icao, runway, legs_string, lat_array, lon_a
     return bestMatch
 end
 
-function P.detectFMSDiscontinuity(legs_string, lat_array, lon_array, aircraftLat, aircraftLon)
+function P.detectFMSDiscontinuity(legs_string, lat_array, lon_array, aircraftLat, aircraftLon, options)
     if type(legs_string) ~= "string" then
         return nil
     end
@@ -3214,8 +3215,16 @@ function P.detectFMSDiscontinuity(legs_string, lat_array, lon_array, aircraftLat
         return nil
     end
 
+    local function normalizeToken(token)
+        if not token then return "" end
+        local stripped = token:gsub("[%-%*]", "")
+        return string.upper(stripped)
+    end
+
+    local maxAheadNm = options and options.maxAheadNm
+
     for idx, token in ipairs(tokens) do
-        local upperToken = string.upper(token)
+        local upperToken = normalizeToken(token)
         if upperToken == "DISCONTINUITY" then
             local prevLeg = lastUsableToken
             local nextLeg = findNextUsable(idx + 1)
@@ -3233,6 +3242,10 @@ function P.detectFMSDiscontinuity(legs_string, lat_array, lon_array, aircraftLat
                     local prevDistance = tokenDistances[prevIndex]
                     if prevDistance and (prevDistance < (distanceFromStart - 5)) then
                         skip = true
+                    elseif prevDistance and maxAheadNm then
+                        if prevDistance > (distanceFromStart + maxAheadNm) then
+                            skip = true
+                        end
                     end
                 end
             end
@@ -3248,15 +3261,6 @@ function P.detectFMSDiscontinuity(legs_string, lat_array, lon_array, aircraftLat
         elseif isUsableToken(token) then
             lastUsableToken = token
         end
-    end
-
-    if string.find(string.upper(legs_string), "DISCO") then
-        return {
-            index = -1,
-            total = #tokens,
-            previous = lastUsableToken,
-            next = nil
-        }
     end
 
     return nil

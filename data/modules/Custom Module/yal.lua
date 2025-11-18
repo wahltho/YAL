@@ -3386,21 +3386,32 @@ end
 --------------------------------------------------------------------------------------------------------------
 function P.apurunning()
 
-    if (get(P.apustarterpos) == def.OFF) then
+    local starter_pos = get(P.apustarterpos)
+    if starter_pos == nil then
         return def.APUOFF
-    elseif ((get(P.apustarterpos) == def.ON) and (get(P.apugenoffbus) == def.OFF)) then
+    end
+
+    if starter_pos == def.STARTEROFF then
+        return def.APUOFF
+    end
+
+    local starter_is_engaged = (starter_pos == def.STARTERON) or (starter_pos == def.STARTERPRESSED)
+
+    if starter_is_engaged and (get(P.apugenoffbus) == def.OFF) then
         if ((get(P.apupowerbus1) == def.ON) and (get(P.announcsourceoff1) == def.OFF) and (get(P.apupowerbus2) == def.ON) and (get(P.announcsourceoff2) == def.OFF)) then
             return def.APUONBUS
         else
             return def.APUSTARTED
         end
-    elseif ((get(P.apustarterpos) == def.ON) and (get(P.apugenoffbus) ~= def.OFF)) then
+    elseif starter_is_engaged and (get(P.apugenoffbus) ~= def.OFF) then
         if ((get(P.apupowerbus1) == def.ON) and (get(P.announcsourceoff1) == def.OFF) and (get(P.apupowerbus2) == def.ON) and (get(P.announcsourceoff2) == def.OFF)) then
             return def.APUONBUS
         else
             return def.APUOFFBUS
         end
     end
+
+    return def.APUOFF
 end
 
 --------------------------------------------------------------------------------------------------------------
@@ -4292,6 +4303,21 @@ function P.ongoingtasks()
         P.savetimer = nil
     end
 
+    local groundspeed = get(P.groundspeed) or 0
+    local onDepartureRunway = P.aircraftonrwy and P.aircraftonrwy(def.DEPARTURE, 0.02, 25)
+    local onArrivalRunway = P.aircraftonrwy and P.aircraftonrwy(def.ARRIVAL, 0.02, 25)
+    if (get(P.airgroundsensor) == def.ON)
+        and (P.flightstate == def.FLIGHTSTATEPREFLIGHT or P.flightstate == def.FLIGHTSTATETAXITOGATE)
+        and (groundspeed > 45)
+        and not onDepartureRunway and not onArrivalRunway then
+        local eng1N1 = get(P.eng1n1percent) or 0
+        local eng2N1 = get(P.eng2n1percent) or 0
+        local avgN1 = (eng1N1 + eng2N1) / 2
+        if avgN1 < 60 then
+            P.commandtableentry(def.TEXT, "Monitor Taxi Speed")
+        end
+    end
+
     if ((P.procedureloop1.lock == def.NOPROCEDURE) and (get(P.airgroundsensor) == def.OFF) and (P.flightstate == def.FLIGHTSTATECLIMB)) then
         if ((math.abs(get(P.altitude) - P.configvalues[def.CONFIGLOWEAIRSPACEALT]) < 100) and (get(P.fmccruisealt) > P.configvalues[def.CONFIGLOWEAIRSPACEALT]) and (get(P.apvnavaltmode) == def.ON)) then
             if (P.altitudetimer == nil) then
@@ -4703,7 +4729,8 @@ function P.ongoingtasks()
                 get(P.fmslegslat),
                 get(P.fmslegslon),
                 get(P.aircraftlatpos),
-                get(P.aircraftlonpos)
+                get(P.aircraftlonpos),
+                { maxAheadNm = 20 }
             )
             if discontinuity then
                 local prevLegText = ""

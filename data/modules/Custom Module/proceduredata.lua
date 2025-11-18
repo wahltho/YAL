@@ -2657,7 +2657,7 @@ function M.fillProcedureTable()
                 },
                 ['transponder_stby'] = {
                     skipIf = function() return P.configvalues[def.CONFIGTRANSPONDER] == 0 end,
-                    check = function() return get(P.transponderpos) ~= def.OFF end,
+                    check = function() return get(P.transponderpos) == def.STANDBY end,
                     action = function() P.toggletransponder(def.STANDBY) end,
                     advice = "Set Transponder Standby",
                     confirm = "Transponder checked Standby",
