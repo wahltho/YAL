@@ -453,7 +453,8 @@ function M.fillProcedureTable()
                             get(P.fmslegslat),
                             get(P.fmslegslon),
                             get(P.aircraftlatpos),
-                            get(P.aircraftlonpos)
+                            get(P.aircraftlonpos),
+                            { maxAheadNm = 100 }
                         )
                         if not discontinuity then
                             return true
@@ -705,28 +706,34 @@ function M.fillProcedureTable()
                         helpers.command_once("BetterPushback/start_planner")
                     end,
                     check = function()
+                        if P.BPBPlannerOpen and isProperty(P.BPBPlannerOpen) then
+                            return get(P.BPBPlannerOpen) == def.ON
+                        end
+                        return true
+                    end,
+                    runActionInAdviceMode = true,
+                    advice = "Plan Pushback",
+                    confirm = "Plan Pushback",
+                    nextStep = 'wait_for_pushback_planner'
+                },
+                ['wait_for_pushback_planner'] = {
+                    skipIf = function()
                         if P.configvalues[def.CONFIGBPBINTEGRATION] ~= def.ON then
                             return true
                         end
                         if not P.BPBisinstalled() then
                             return true
                         end
-                        if not P.BPBPlanComplete then
-                            return true
-                        end
-                        if get(P.BPBPlanComplete) == 1 then
-                            return true
-                        end
+                        return P.BPBPlanComplete and (get(P.BPBPlanComplete) == 1)
+                    end,
+                    check = function()
                         if P.BPBPlannerOpen and isProperty(P.BPBPlannerOpen) then
-                            if get(P.BPBPlannerOpen) ~= 1 then
-                                return true
+                            if get(P.BPBPlannerOpen) == def.ON then
+                                return false
                             end
                         end
-                        return false
+                        return true
                     end,
-                    advice = "Plan Pushback using BetterPushback",
-                    confirm = "Plan Pushback using BetterPushback",
-                    runActionInAdviceMode = true,
                     nextStep = 'start_planned_pushback'
                 },
                 ['start_planned_pushback'] = {
@@ -740,9 +747,9 @@ function M.fillProcedureTable()
                         if not (P.BPBPlanComplete and P.BPBStarted and P.BPBOpComplete) then
                             return true
                         end
-                        local planComplete = (get(P.BPBPlanComplete) == 1)
-                        local opComplete = (get(P.BPBOpComplete) == 1)
-                        local started = (get(P.BPBStarted) == 1)
+                        local planComplete = (get(P.BPBPlanComplete) == def.ON)
+                        local opComplete = (get(P.BPBOpComplete) == def.ON)
+                        local started = (get(P.BPBStarted) == def.ON)
                         if not planComplete then
                             return true
                         end
@@ -755,8 +762,6 @@ function M.fillProcedureTable()
                         return false
                     end,
                     action = function() helpers.command_once("BetterPushback/start") end,
-                    advice = "Start Pushback using BetterPushback",
-                    confirm = "Pushback started using BetterPushback",
                     runActionInAdviceMode = true,
                     nextStep = nil
                 }
@@ -1902,10 +1907,17 @@ function M.fillProcedureTable()
                     nextStep = 'check_des_rwy'
                 },
                 ['check_des_rwy'] = {
-                    action = function() 
-                        if (get(P.desrwy) == "") then
-                            P.commandtableentry(def.TEXT, "Set Destination Runway for " .. helpers.addspaces(get(P.desicao)))
+                    check = function()
+                        return helpers.isvalidicao(get(P.desicao)) and helpers.isvalidrwy(get(P.desrwy))
+                    end,
+                    advice = function()
+                        if helpers.isvalidicao(get(P.desicao)) then
+                            return "Set Destination Runway for " .. helpers.addspaces(get(P.desicao))
                         end
+                        return "Set Destination Airport and Runway in F M C"
+                    end,
+                    confirm = function()
+                        return "Destination Runway checked " .. helpers.addspaces(get(P.desrwy))
                     end,
                     nextStep = 'check_rwy_suitability'
                 },
@@ -1928,8 +1940,7 @@ function M.fillProcedureTable()
 
                         local destIcao = get(P.desicao)
                         local destRunway = get(P.desrwy)
-
-                        if not (helpers.isvalidicao(destIcao) and helpers.isvalidrwy(destRunway)) then
+                        if not helpers.isvalidicao(destIcao) then
                             return false
                         end
 
@@ -1942,7 +1953,8 @@ function M.fillProcedureTable()
                             end
                         end
 
-                        if not hasRunwayLeg then
+                        local runwayValid = helpers.isvalidrwy(destRunway)
+                        if not runwayValid and not hasRunwayLeg then
                             if loop and not loop.approachReminderIssued then
                                 local runwayDisplay = helpers.addspaces(destRunway)
                                 P.commandtableentry(def.TEXT, "Select Approach for Runway " .. runwayDisplay .. " at " .. helpers.addspaces(destIcao))
@@ -2645,7 +2657,7 @@ function M.fillProcedureTable()
                 },
                 ['transponder_stby'] = {
                     skipIf = function() return P.configvalues[def.CONFIGTRANSPONDER] == 0 end,
-                    check = function() return get(P.transponderpos) ~= def.TARA end,
+                    check = function() return get(P.transponderpos) ~= def.OFF end,
                     action = function() P.toggletransponder(def.STANDBY) end,
                     advice = "Set Transponder Standby",
                     confirm = "Transponder checked Standby",
@@ -3359,18 +3371,39 @@ function M.fillProcedureTable()
                         )
                         loop.detectedApproach = detectedVariant
                         if detectedVariant and detectedVariant.navType then
-                            local desiredIndex = helpers.getnavdataindex(P.navdatatable, get(P.desicao), get(P.desrwy), detectedVariant.navType)
-                            if desiredIndex then
-                                loop.navdatatableindex = desiredIndex
-                                local reordered = { desiredIndex }
-                                if navIndices then
-                                    for _, idx in ipairs(navIndices) do
-                                        if idx ~= desiredIndex then
-                                            table.insert(reordered, idx)
-                                        end
+                            local navType = detectedVariant.navType
+                            local targetCourse = detectedVariant.entry and detectedVariant.entry.course
+                            local filtered = {}
+                            if loop.navdatatableindices then
+                                for _, idx in ipairs(loop.navdatatableindices) do
+                                    local entry = P.navdatatable[idx]
+                                    if entry and entry[def.DESTNAVTYPE] == navType then
+                                        table.insert(filtered, idx)
                                     end
                                 end
-                                loop.navdatatableindices = reordered
+                            end
+
+                            if #filtered == 0 then
+                                loop.detectedApproach = detectedVariant
+                            else
+                                local function courseDiff(idx)
+                                    if not targetCourse then return math.huge end
+                                    local entry = P.navdatatable[idx]
+                                    if not entry then return math.huge end
+                                    local entryCourse = entry[def.DESTTRUECOURSE] or entry[def.DESTMAGCOURSE]
+                                    if not entryCourse then return math.huge end
+                                    return math.abs(helpers.headingdiff(entryCourse, targetCourse))
+                                end
+                                table.sort(filtered, function(a, b)
+                                    local diffA = courseDiff(a)
+                                    local diffB = courseDiff(b)
+                                    if diffA ~= diffB then
+                                        return diffA < diffB
+                                    end
+                                    return a < b
+                                end)
+                                loop.navdatatableindices = filtered
+                                loop.navdatatableindex = filtered[1]
                             end
                         else
                             loop.detectedApproach = nil
