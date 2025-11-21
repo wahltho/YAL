@@ -11,9 +11,15 @@ local function getNavEntryCourse(entry)
     local navType = entry[def.DESTNAVTYPE]
     local runway = entry[def.DESTRWY]
     if type(icao) == "string" and type(navType) == "string" and type(runway) == "string" then
-        local cifpCourse = helpers.getCIFPApproachCourse(icao, navType, runway)
-        if cifpCourse then
-            return helpers.calccourse(cifpCourse)
+        local candidateTypes = { navType }
+        if navType == def.NAVTYPELPV or navType == def.NAVTYPEGLS then
+            table.insert(candidateTypes, def.NAVTYPERNAV)
+        end
+        for _, candidateType in ipairs(candidateTypes) do
+            local cifpCourse = helpers.getCIFPApproachCourse(icao, candidateType, runway)
+            if cifpCourse then
+                return helpers.calccourse(cifpCourse)
+            end
         end
     end
 
@@ -448,13 +454,31 @@ function M.fillProcedureTable()
                 },
                 ['check_fmc_route_continuity'] = {
                     check = function()
+                        local discoOptions = { maxAheadNm = 100 }
+                        local depIcao = get(P.depicao)
+                        local aircraftLat = get(P.aircraftlatpos)
+                        local aircraftLon = get(P.aircraftlonpos)
+                        if depIcao and P.airportdatatable and P.airportdatatable[depIcao] then
+                            local originData = P.airportdatatable[depIcao]
+                            local originLat = originData.latitude
+                            local originLon = originData.longitude
+                            if originLat and originLon and aircraftLat and aircraftLon then
+                                local distanceToOrigin = helpers.getdistance(aircraftLat, aircraftLon, originLat, originLon)
+                                if distanceToOrigin and distanceToOrigin <= 5 then
+                                    discoOptions.maxAheadNm = 60
+                                    discoOptions.forceDistanceFromStart = 0
+                                    discoOptions.forcePositionFilter = true
+                                end
+                            end
+                        end
+
                         local discontinuity = helpers.detectFMSDiscontinuity(
                             get(P.fmslegs),
                             get(P.fmslegslat),
                             get(P.fmslegslon),
                             get(P.aircraftlatpos),
                             get(P.aircraftlonpos),
-                            { maxAheadNm = 100 }
+                            discoOptions
                         )
                         if not discontinuity then
                             return true
@@ -702,14 +726,22 @@ function M.fillProcedureTable()
                         end
                         return P.BPBPlanComplete and (get(P.BPBPlanComplete) == 1)
                     end,
-                    action = function()
-                        helpers.command_once("BetterPushback/start_planner")
-                    end,
-                    check = function()
-                        if P.BPBPlannerOpen and isProperty(P.BPBPlannerOpen) then
-                            return get(P.BPBPlannerOpen) == def.ON
+                    action = function(loop)
+                        if not loop.bpbPlannerAttempted then
+                            helpers.command_once("BetterPushback/start_planner")
+                            loop.bpbPlannerAttempted = true
                         end
-                        return true
+                    end,
+                    check = function(loop)
+                        if P.BPBPlannerOpen and isProperty(P.BPBPlannerOpen) then
+                            if get(P.BPBPlannerOpen) == def.ON then
+                                return true
+                            end
+                        end
+                        if loop and loop.bpbPlannerAttempted then
+                            return true
+                        end
+                        return false
                     end,
                     runActionInAdviceMode = true,
                     advice = "Plan Pushback",
@@ -726,10 +758,16 @@ function M.fillProcedureTable()
                         end
                         return P.BPBPlanComplete and (get(P.BPBPlanComplete) == 1)
                     end,
-                    check = function()
+                    check = function(loop)
                         if P.BPBPlannerOpen and isProperty(P.BPBPlannerOpen) then
                             if get(P.BPBPlannerOpen) == def.ON then
                                 return false
+                            end
+                        end
+                        if P.BPBPlanComplete and get(P.BPBPlanComplete) ~= 1 then
+                            if loop and not loop.bpbNoPlanWarned then
+                                P.commandtableentry(def.TEXT, "No Plan available, Pushback Skipped")
+                                loop.bpbNoPlanWarned = true
                             end
                         end
                         return true
@@ -1148,8 +1186,11 @@ function M.fillProcedureTable()
                     nextStep = 'remove_chocks'
                 },
                 ['remove_chocks'] = {
+                    skipIf = function() return P.configvalues[def.CONFIGAUTOCHOCKSPB] == def.OFF end,
                     check = function() return get(P.chockstatus) == def.OFF end,
-                    action = function() helpers.command_once("laminar/B738/toggle_switch/chock") end,
+                    action = function()
+                        helpers.command_once("laminar/B738/toggle_switch/chock")
+                    end,
                     advice = "Remove Chocks",
                     confirm = "Chocks checked and Removed",
                     nextStep = 'check_night_view',
@@ -1325,6 +1366,7 @@ function M.fillProcedureTable()
                     nextStep = 'release_parking_brake'
                 },
                 ['release_parking_brake'] = {
+                    skipIf = function() return P.configvalues[def.CONFIGAUTOCHOCKSPB] == def.OFF end,
                     check = function() return get(P.parkingbrakepos) == def.OFF end,
                     action = function() set(P.parkingbrakepos, def.OFF) end,
                     advice = "Release Parking Brake",
@@ -2329,12 +2371,17 @@ function M.fillProcedureTable()
                     nextStep = 'set_mcp_altitude'
                 },
                 ['set_mcp_altitude'] = {
-                    check = function()
+                    check = function(loop)
                         local missedappalttmp = helpers.roundnumber((get(P.missedappalt) / 100)) * 100
                         if (missedappalttmp > 1000) then
-                            return (missedappalttmp == get(P.mcpaltitude))
+                            local current = get(P.mcpaltitude)
+                            return math.abs(current - missedappalttmp) <= 100
                         else
-                            return false 
+                            if loop and not loop.missedAppAltInvalidWarned then
+                                P.commandtableentry(def.TEXT, "Missed Approach Altitude missing or invalid")
+                                loop.missedAppAltInvalidWarned = true
+                            end
+                            return true
                         end
                     end,
                     advice = function()
@@ -2351,10 +2398,17 @@ function M.fillProcedureTable()
                             set(P.mcpaltitude, missedappalttmp)
                         end
                     end,
-                    confirm = function()
+                    confirm = function(loop)
                         local missedappalttmp = helpers.roundnumber((get(P.missedappalt) / 100)) * 100
                         if (missedappalttmp > 1000) then
-                            return "M C P Altitude checked and " .. helpers.addspaces(missedappalttmp)
+                            local current = get(P.mcpaltitude)
+                            if math.abs(current - missedappalttmp) <= 100 then
+                                return "M C P Altitude checked and " .. helpers.addspaces(missedappalttmp)
+                            end
+                            return false
+                        end
+                        if loop and loop.missedAppAltInvalidWarned then
+                            return "Missed Approach Altitude invalid, step acknowledged"
                         end
                         return false
                     end,
@@ -2631,6 +2685,7 @@ function M.fillProcedureTable()
                     nextStep = 'set_chocks'
                 },
                 ['set_chocks'] = {
+                    skipIf = function() return P.configvalues[def.CONFIGAUTOCHOCKSPB] == def.OFF end,
                     check = function() return get(P.chockstatus) == def.ON end,
                     action = function() helpers.command_once("laminar/B738/toggle_switch/chock") end,
                     advice = "Set Chocks",

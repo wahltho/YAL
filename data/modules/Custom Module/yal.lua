@@ -2791,35 +2791,43 @@ function P.flapsuphandling()
     local current_flaps = get(P.flapleverpos)
     local speed_buffer = 3
 
-    if (current_speed > (get(P.flaps15speed) + speed_buffer) and current_flaps > def.FLAPS15) then
-        if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-            P.commandtableentry(def.TEXT, "Set Flaps 15")
+    local target_flaps = current_flaps
+
+    if current_speed > (get(P.flapsupspeed) + speed_buffer) then
+        target_flaps = def.FLAPSUP
+    elseif current_speed > (get(P.flaps1speed) + speed_buffer) then
+        target_flaps = def.FLAPS1
+    elseif current_speed > (get(P.flaps5speed) + speed_buffer) then
+        target_flaps = def.FLAPS5
+    elseif current_speed > (get(P.flaps10speed) + speed_buffer) then
+        target_flaps = def.FLAPS10
+    elseif current_speed > (get(P.flaps15speed) + speed_buffer) then
+        target_flaps = def.FLAPS15
+    end
+
+    if current_flaps > target_flaps then
+        local command_map = {
+            [def.FLAPSUP] = "laminar/B738/push_button/flaps_0",
+            [def.FLAPS1] = "laminar/B738/push_button/flaps_1",
+            [def.FLAPS5] = "laminar/B738/push_button/flaps_5",
+            [def.FLAPS10] = "laminar/B738/push_button/flaps_10",
+            [def.FLAPS15] = "laminar/B738/push_button/flaps_15"
+        }
+        local text_map = {
+            [def.FLAPSUP] = "Set Flaps Up",
+            [def.FLAPS1] = "Set Flaps 1",
+            [def.FLAPS5] = "Set Flaps 5",
+            [def.FLAPS10] = "Set Flaps 10",
+            [def.FLAPS15] = "Set Flaps 15"
+        }
+
+        if P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON then
+            P.commandtableentry(def.TEXT, text_map[target_flaps])
         else
-            helpers.command_once("laminar/B738/push_button/flaps_15")
-        end
-    elseif (current_speed > (get(P.flaps10speed) + speed_buffer) and current_flaps > def.FLAPS10) then
-        if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-            P.commandtableentry(def.TEXT, "Set Flaps 10")
-        else
-            helpers.command_once("laminar/B738/push_button/flaps_10")
-        end
-    elseif (current_speed > (get(P.flaps5speed) + speed_buffer) and current_flaps > def.FLAPS5) then
-        if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-            P.commandtableentry(def.TEXT, "Set Flaps 5")
-        else
-            helpers.command_once("laminar/B738/push_button/flaps_5")
-        end
-    elseif (current_speed > (get(P.flaps1speed) + speed_buffer) and current_flaps > def.FLAPS1) then
-        if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-            P.commandtableentry(def.TEXT, "Set Flaps 1")
-        else
-            helpers.command_once("laminar/B738/push_button/flaps_1")
-        end
-    elseif (current_speed > (get(P.flapsupspeed) + speed_buffer) and current_flaps > def.FLAPSUP) then
-        if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-            P.commandtableentry(def.TEXT, "Set Flaps Up")
-        else
-            helpers.command_once("laminar/B738/push_button/flaps_0")
+            local cmd = command_map[target_flaps]
+            if cmd then
+                helpers.command_once(cmd)
+            end
         end
     end
 
@@ -2832,41 +2840,52 @@ function P.flapsdownhandling()
     local current_flaps = get(P.flapleverpos)
     local speed_buffer = 5
 
-    if ((current_speed < (get(P.flapsupspeed) - speed_buffer)) and (current_flaps < def.FLAPS1)) then
-        if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-            P.commandtableentry(def.TEXT, "Set Flaps 1")
+    local target_flaps = current_flaps
+
+    if current_speed < (get(P.flapsupspeed) - speed_buffer) then
+        target_flaps = def.FLAPS1
+    end
+    if current_speed < (get(P.flaps1speed) - speed_buffer) then
+        target_flaps = def.FLAPS5
+    end
+    if current_speed < (get(P.flaps5speed) - speed_buffer) then
+        target_flaps = def.FLAPS10
+    end
+    if current_speed < (get(P.flaps10speed) - speed_buffer) then
+        target_flaps = def.FLAPS15
+    end
+    if current_speed < (get(P.flaps15speed) - speed_buffer) then
+        target_flaps = def.FLAPS25
+    end
+    if current_speed < (get(P.flaps25speed) - speed_buffer) then
+        target_flaps = def.FLAPS30
+    end
+
+    if current_flaps < target_flaps then
+        local command_map = {
+            [def.FLAPS1] = "laminar/B738/push_button/flaps_1",
+            [def.FLAPS5] = "laminar/B738/push_button/flaps_5",
+            [def.FLAPS10] = "laminar/B738/push_button/flaps_10",
+            [def.FLAPS15] = "laminar/B738/push_button/flaps_15",
+            [def.FLAPS25] = "laminar/B738/push_button/flaps_25",
+            [def.FLAPS30] = "laminar/B738/push_button/flaps_30"
+        }
+        local text_map = {
+            [def.FLAPS1] = "Set Flaps 1",
+            [def.FLAPS5] = "Set Flaps 5",
+            [def.FLAPS10] = "Set Flaps 10",
+            [def.FLAPS15] = "Set Flaps 15",
+            [def.FLAPS25] = "Set Flaps 25",
+            [def.FLAPS30] = "Set Flaps 30"
+        }
+
+        if P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON then
+            P.commandtableentry(def.TEXT, text_map[target_flaps])
         else
-            helpers.command_once("laminar/B738/push_button/flaps_1")
-        end
-    elseif ((current_speed < (get(P.flaps1speed) - speed_buffer)) and (current_flaps < def.FLAPS5)) then
-        if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-            P.commandtableentry(def.TEXT, "Set Flaps 5")
-        else
-            helpers.command_once("laminar/B738/push_button/flaps_5")
-        end
-    elseif ((current_speed < (get(P.flaps5speed) - speed_buffer)) and (current_flaps < def.FLAPS10)) then
-        if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-            P.commandtableentry(def.TEXT, "Set Flaps 10")
-        else
-            helpers.command_once("laminar/B738/push_button/flaps_10")
-        end
-    elseif ((current_speed < (get(P.flaps10speed) - speed_buffer)) and (current_flaps < def.FLAPS15)) then
-        if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-            P.commandtableentry(def.TEXT, "Set Flaps 15")
-        else
-            helpers.command_once("laminar/B738/push_button/flaps_15")
-        end
-    elseif ((current_speed < (get(P.flaps15speed) - speed_buffer)) and (current_flaps < def.FLAPS25)) then
-        if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-            P.commandtableentry(def.TEXT, "Set Flaps 25")
-        else
-            helpers.command_once("laminar/B738/push_button/flaps_25")
-        end
-    elseif ((current_speed < (get(P.flaps25speed) - speed_buffer)) and (current_flaps < def.FLAPS30)) then
-        if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-            P.commandtableentry(def.TEXT, "Set Flaps 30")
-        else
-            helpers.command_once("laminar/B738/push_button/flaps_30")
+            local cmd = command_map[target_flaps]
+            if cmd then
+                helpers.command_once(cmd)
+            end
         end
     end
 
@@ -4310,12 +4329,7 @@ function P.ongoingtasks()
         and (P.flightstate == def.FLIGHTSTATEPREFLIGHT or P.flightstate == def.FLIGHTSTATETAXITOGATE)
         and (groundspeed > 45)
         and not onDepartureRunway and not onArrivalRunway then
-        local eng1N1 = get(P.eng1n1percent) or 0
-        local eng2N1 = get(P.eng2n1percent) or 0
-        local avgN1 = (eng1N1 + eng2N1) / 2
-        if avgN1 < 60 then
             P.commandtableentry(def.TEXT, "Monitor Taxi Speed")
-        end
     end
 
     if ((P.procedureloop1.lock == def.NOPROCEDURE) and (get(P.airgroundsensor) == def.OFF) and (P.flightstate == def.FLIGHTSTATECLIMB)) then
@@ -4688,12 +4702,16 @@ function P.ongoingtasks()
     if (P.ongoingtaskstepindex == 10) then
         local todDistance = get(P.vnavtoddist)
         local aircraftInAir = (get(P.airgroundsensor) == def.OFF)
+        local radioAltitude = get(P.radioaltitude)
+        local suppressDiscoWarnings =
+            (P.flightstate == def.FLIGHTSTATEAPPROACH) and
+            radioAltitude and (radioAltitude >= 0) and (radioAltitude < 1000)
         local flightStateEligible =
             (P.flightstate == def.FLIGHTSTATECLIMB) or
             (P.flightstate == def.FLIGHTSTATECRUISE) or
             (P.flightstate == def.FLIGHTSTATEAPPROACH)
 
-        if aircraftInAir and flightStateEligible then
+        if aircraftInAir and flightStateEligible and not suppressDiscoWarnings then
             -- Additional guard: ToD missing but route still long
             if (not todDistance) or (todDistance <= 0) then
                 local remainingDistance = helpers.getRemainingRouteDistance(
@@ -4723,7 +4741,7 @@ function P.ongoingtasks()
             P.routeEndsEarlyWarned = false
         end
 
-        if todDistance and todDistance > 0 and aircraftInAir then
+        if todDistance and todDistance > 0 and aircraftInAir and not suppressDiscoWarnings then
             local discontinuity = helpers.detectFMSDiscontinuity(
                 get(P.fmslegs),
                 get(P.fmslegslat),
@@ -4806,7 +4824,7 @@ function P.ongoingtasks()
             P.routeEndsEarlyWarned = false
         end
 
-        if ((P.flightstate == def.FLIGHTSTATECRUISE) and (get(P.fmsflightphase) == def.FMSPHASECRUISE) and (get(P.mcpaltitude) >= get(P.fmccruisealt)) and (get(P.vnavtoddist) < 20)) then
+        if ((P.flightstate == def.FLIGHTSTATECRUISE) and (get(P.fmsflightphase) == def.FMSPHASECRUISE) and (get(P.mcpaltitude) >= get(P.fmccruisealt)) and (get(P.vnavtoddist) < 20) and not suppressDiscoWarnings) then
             P.commandtableentry(def.TEXT, "Approaching Top of Descent, Reset M C P Altitude")
             P.ongoingtaskstepindex = P.ongoingtaskstepindex - 1
         end

@@ -2527,12 +2527,12 @@ function P.getRemainingRouteDistance(legs_string, lat_array, lon_array, aircraft
     end
 
     if not aircraftLat or not aircraftLon then
-        return totalDistance, detailed_route[waypoint_count]
+        return totalDistance, detailed_route[waypoint_count], false
     end
 
-    local distanceFromStart = P.getdistancealongroute(detailed_route, aircraftLat, aircraftLon)
+    local distanceFromStart, onRoute = P.getdistancealongroute(detailed_route, aircraftLat, aircraftLon)
     if not distanceFromStart then
-        return totalDistance, detailed_route[waypoint_count]
+        return totalDistance, detailed_route[waypoint_count], false
     end
 
     local remaining = totalDistance - distanceFromStart
@@ -2540,13 +2540,14 @@ function P.getRemainingRouteDistance(legs_string, lat_array, lon_array, aircraft
         remaining = 0
     end
 
-    return remaining, detailed_route[waypoint_count]
+    return remaining, detailed_route[waypoint_count], onRoute == true
 end
 
 --------------------------------------------------------------------------------------------------------------
 function P.getdistancealongroute(detailed_route, currentLat, currentLon)
     local cumulativeDistance = 0
     local totalWaypoints = #detailed_route
+    local foundSegment = false
 
     for i = 1, totalWaypoints - 1 do
         local wp1 = detailed_route[i]
@@ -2558,13 +2559,14 @@ function P.getdistancealongroute(detailed_route, currentLat, currentLon)
 
         if math.abs(distFromAircraftToStart + distFromAircraftToEnd - segmentDistance) < 0.1 then
             cumulativeDistance = cumulativeDistance + distFromAircraftToStart
-            return cumulativeDistance
+            foundSegment = true
+            return cumulativeDistance, foundSegment
         end
 
         cumulativeDistance = cumulativeDistance + segmentDistance
     end
 
-    return cumulativeDistance
+    return cumulativeDistance, foundSegment
 end
 
 --------------------------------------------------------------------------------------------------------------
@@ -3153,6 +3155,7 @@ function P.detectFMSDiscontinuity(legs_string, lat_array, lon_array, aircraftLat
 
     local tokenDistances = nil
     local distanceFromStart = nil
+    local positionFilterActive = false
 
     if usePositionFilter then
         local detailed_route = P.buildlegstable(legs_string, lat_array, lon_array)
@@ -3162,7 +3165,7 @@ function P.detectFMSDiscontinuity(legs_string, lat_array, lon_array, aircraftLat
                 totalDistance = totalDistance + (detailed_route[i].distance_to_next or 0)
             end
 
-            local remaining = P.getRemainingRouteDistance(
+            local remaining, _, onRoute = P.getRemainingRouteDistance(
                 legs_string,
                 lat_array,
                 lon_array,
@@ -3174,6 +3177,11 @@ function P.detectFMSDiscontinuity(legs_string, lat_array, lon_array, aircraftLat
                 distanceFromStart = totalDistance - remaining
                 if distanceFromStart < 0 then
                     distanceFromStart = 0
+                end
+                if onRoute then
+                    positionFilterActive = true
+                else
+                    positionFilterActive = false
                 end
             end
 
@@ -3191,6 +3199,15 @@ function P.detectFMSDiscontinuity(legs_string, lat_array, lon_array, aircraftLat
                 end
                 tokenDistances[idx] = cumulative
             end
+        end
+    end
+
+    if options then
+        if type(options.forceDistanceFromStart) == "number" then
+            distanceFromStart = options.forceDistanceFromStart
+        end
+        if options.forcePositionFilter ~= nil then
+            positionFilterActive = options.forcePositionFilter and true or false
         end
     end
 
@@ -3230,7 +3247,7 @@ function P.detectFMSDiscontinuity(legs_string, lat_array, lon_array, aircraftLat
             local nextLeg = findNextUsable(idx + 1)
 
             local skip = false
-            if tokenDistances and distanceFromStart and prevLeg then
+            if positionFilterActive and tokenDistances and distanceFromStart and prevLeg then
                 local prevIndex = idx - 1
                 while prevIndex > 0 do
                     if tokens[prevIndex] == prevLeg then
@@ -3773,39 +3790,48 @@ function P.getrwyheadingfromnavdata(navdatatable, icao, rwy)
         return nil
     end
 
-    local result = nil
-    local navdatatableindex = P.getnavdataindex(navdatatable, icao, rwy, def.NAVTYPEILS)
+    local navTypePriority = { def.NAVTYPEILS, def.NAVTYPEGLS, def.NAVTYPELPV }
 
-    if (navdatatableindex ~= nil) then
-        local entry = navdatatable[navdatatableindex]
+    local function getCourseFromNavEntry(entry)
+        if not entry then return nil end
         if entry.isTrueCourse and entry.truecourse then
-            result = entry.truecourse
-        else
-            result = entry[def.DESTCOURSE]
+            return entry.truecourse
         end
-    else
-        navdatatableindex = P.getnavdataindex(navdatatable, icao, rwy, def.NAVTYPEGLS)
-        if (navdatatableindex ~= nil) then
-            local entry = navdatatable[navdatatableindex]
-            if entry.isTrueCourse and entry.truecourse then
-                result = entry.truecourse
-            else
-                result = entry[def.DESTCOURSE]
+        return entry[def.DESTCOURSE]
+    end
+
+    local function tryCIFPCourse(navType)
+        if not navType then return nil end
+        local candidateTypes = { navType }
+        if navType == def.NAVTYPELPV or navType == def.NAVTYPEGLS then
+            table.insert(candidateTypes, def.NAVTYPERNAV)
+        end
+        for _, candidate in ipairs(candidateTypes) do
+            local cifpCourse = P.getCIFPApproachCourse(icao, candidate, rwy)
+            if cifpCourse then
+                return P.calccourse(cifpCourse)
             end
-        else
-            navdatatableindex = P.getnavdataindex(navdatatable, icao, rwy, def.NAVTYPELPV)
-            if (navdatatableindex ~= nil) then
-                local entry = navdatatable[navdatatableindex]
-                if entry.isTrueCourse and entry.truecourse then
-                    result = entry.truecourse
-                else
-                    result = entry[def.DESTCOURSE]
-                end
+        end
+        return nil
+    end
+
+    for _, navType in ipairs(navTypePriority) do
+        local cifpHeading = tryCIFPCourse(navType)
+        if cifpHeading then
+            return cifpHeading
+        end
+
+        local navIndex = P.getnavdataindex(navdatatable, icao, rwy, navType)
+        if navIndex then
+            local entry = navdatatable[navIndex]
+            local course = getCourseFromNavEntry(entry)
+            if course then
+                return course
             end
         end
     end
 
-    return result
+    return nil
 
 end 
 

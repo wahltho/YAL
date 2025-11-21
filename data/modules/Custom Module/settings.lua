@@ -21,6 +21,7 @@ local settingsDefinition = {
     [def.CONFIGAUTOBARO] = { dvalue = 1 , type = "number", min = 0, max = 1 },
     [def.CONFIGAUTOCENTERTANKHANDLING] = { dvalue = 1 , type = "number", min = 0, max = 1 },
     [def.CONFIGAUTOFLAPS] = { dvalue = 1 , type = "number", min = 0, max = 1 },
+    [def.CONFIGAUTOCHOCKSPB] = { dvalue = 1 , type = "number", min = 0, max = 1 },
     [def.CONFIGUSEGROUNDPOWER] = { dvalue = 1 , type = "number", min = 0, max = 1 },
 
     [def.CONFIGSPDRESTR250] = { dvalue = 1 , type = "number", min = 0, max = 1 },

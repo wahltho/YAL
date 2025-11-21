@@ -25,6 +25,7 @@ local english = {
     AUTOWIPER = 'Automatic Wipers',
     AUTOBARO = 'Automatic Baro Settings',
     AUTOCENTERTANKHANDLING = 'Automatic Center Tank Handling',
+    AUTOCHOCKSPB = 'Automatic Chocks and Parking Brake',
     AUTOFLAPS = 'Automatic Flap Handling',
     VIEWCHANGES = 'View Changes during Procedures',
     USEGROUNDPOWER = 'Use Ground Power when available instead APU',

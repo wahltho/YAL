@@ -439,19 +439,28 @@ wdef = {
             windows.drawCheckBox(wdef.VIEWCHANGES)
         end
     },
-    customize = {
-        t = messages.translation['CUSTOMIZE'],
-        x = x_col1 ,
-        y = hSize - 460,
+    AUTOCHOCKSPB = {
+        t = messages.translation['AUTOCHOCKSPB'],
+        value = toboolean(settings.appSettings.AUTOCHOCKSPB),
+        x = x_col1 + 60,
+        y = hSize - 455,
+        w = cb_w,
+        h = cb_h,
+        onMouseDown_ = function()
+            setFocusOnInput(nil)
+            settings.appSettings.AUTOCHOCKSPB = not_(settings.appSettings.AUTOCHOCKSPB)
+            settings.writeSettings(settings.appSettings)
+            wdef.AUTOCHOCKSPB.value = toboolean(settings.appSettings.AUTOCHOCKSPB)
+        end,
         draw_ = function()
-            windows.drawText(wdef.customize)
+            windows.drawCheckBox(wdef.AUTOCHOCKSPB)
         end
     },
     SPEEDRESTR250 = {
         t = messages.translation['SPEEDRESTR250'],
         value = toboolean(settings.appSettings.SPEEDRESTR250),
         x = x_col1 +60,
-        y = hSize - 480,
+        y = hSize - 475,
         w = cb_w,
         h = cb_h,
         onMouseDown_ = function()
@@ -468,7 +477,7 @@ wdef = {
         t = messages.translation['VREF30'],
         value = toboolean(settings.appSettings.VREF30),
         x = x_col1 + 60,
-        y = hSize - 500,
+        y = hSize - 495,
         w = cb_w,
         h = cb_h,
         onMouseDown_ = function()
@@ -485,7 +494,7 @@ wdef = {
         t = messages.translation['CUSTOMAPPROACHCALC'],
         value = toboolean(settings.appSettings.CUSTOMAPPROACHCALC),
         x = x_col1 + 60,
-        y = hSize - 520,
+        y = hSize - 515,
         w = cb_w,
         h = cb_h,
         onMouseDown_ = function()
@@ -502,7 +511,7 @@ wdef = {
         t = messages.translation['LOWERAIRSPACEALT'],
         value = tostring(settings.appSettings.LOWERAIRSPACEALT),
         x = x_col1 + 20,
-        y = hSize - 550,
+        y = hSize - 545,
         w = 50,
         h = def.lineHeight * 1.5,
         isFocused = false,
@@ -523,7 +532,7 @@ wdef = {
         t = messages.translation['PACKSRESTOREALT'],
         value = tostring(settings.appSettings.PACKSRESTOREALT),
         x = x_col1 + 20,
-        y = hSize - 575,
+        y = hSize - 570,
         w = 60,
         h = def.lineHeight * 1.5,
         isFocused = false,
@@ -545,7 +554,7 @@ wdef = {
         value = tostring(settings.appSettings.BANKANGLEMAX),
         x = x_col1,
         x2 = x_col1 + 50,
-        y = hSize - 600,
+        y = hSize - 595,
         w = 20,
         h = 20,
         linePadding = 6,
