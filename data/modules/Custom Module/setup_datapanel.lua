@@ -459,23 +459,6 @@ wdef = {
             windows.drawCheckBox(wdef.AUTOCHOCKSPB)
         end
     },
-    AUTOCHOCKSPB = {
-        t = messages.translation['AUTOCHOCKSPB'],
-        value = toboolean(settings.appSettings.AUTOCHOCKSPB),
-        x = x_col1 + 60,
-        y = hSize - 455,
-        w = cb_w,
-        h = cb_h,
-        onMouseDown_ = function()
-            setFocusOnInput(nil)
-            settings.appSettings.AUTOCHOCKSPB = not_(settings.appSettings.AUTOCHOCKSPB)
-            settings.writeSettings(settings.appSettings)
-            wdef.AUTOCHOCKSPB.value = toboolean(settings.appSettings.AUTOCHOCKSPB)
-        end,
-        draw_ = function()
-            windows.drawCheckBox(wdef.AUTOCHOCKSPB)
-        end
-    },
     SPEEDRESTR250 = {
         t = messages.translation['SPEEDRESTR250'],
         value = toboolean(settings.appSettings.SPEEDRESTR250),
