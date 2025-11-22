@@ -595,7 +595,7 @@ function M.fillProcedureTable()
                     check = function()
                         local ledVariant = (get(P.ledlightsvariant) == def.ON)
                         if ledVariant then
-                            return (get(P.llights3) == def.OFF) and (get(P.llights4) == def.OFF)
+                            return (get(P.llights1) == def.OFF) and (get(P.llights4) == def.OFF)
                         else
                             return (get(P.llights1) == def.OFF) and (get(P.llights2) == def.OFF)
                                 and (get(P.llights3) == def.OFF) and (get(P.llights4) == def.OFF)
@@ -638,10 +638,39 @@ function M.fillProcedureTable()
                     nextStep = 'set_mcp_altitude'
                 },
                 ['set_mcp_altitude'] = { 
-                    check = function() return get(P.mcpaltitude) == P.configvalues[def.CONFIGLOWEAIRSPACEALT] end,
-                    action = function() set(P.mcpaltitude, P.configvalues[def.CONFIGLOWEAIRSPACEALT]) end,
-                    advice = function() return "Set M C P ALtitude " .. tostring(P.configvalues[def.CONFIGLOWEAIRSPACEALT]) end,
-                    confirm = function() return "M C P ALtitude checked and " .. tostring(P.configvalues[def.CONFIGLOWEAIRSPACEALT]) end,
+                    check = function()
+                        local target = P.configvalues[def.CONFIGLOWEAIRSPACEALT]
+                        local fmcAlt = get(P.fmccruisealt) or 0
+                        if fmcAlt > 0 then
+                            target = math.min(target, fmcAlt)
+                        end
+                        return get(P.mcpaltitude) == target
+                    end,
+                    action = function()
+                        local target = P.configvalues[def.CONFIGLOWEAIRSPACEALT]
+                        local fmcAlt = get(P.fmccruisealt) or 0
+                        if fmcAlt > 0 then
+                            target = math.min(target, fmcAlt)
+                        end
+                        set(P.mcpaltitude, target)
+                    end,
+                    advice = function()
+                        local target = P.configvalues[def.CONFIGLOWEAIRSPACEALT]
+                        local fmcAlt = get(P.fmccruisealt) or 0
+                        if fmcAlt > 0 then
+                            target = math.min(target, fmcAlt)
+                        end
+                        return "Set M C P ALtitude " .. tostring(target)
+                    end,
+                    confirm = function()
+                        local target = P.configvalues[def.CONFIGLOWEAIRSPACEALT]
+                        local fmcAlt = get(P.fmccruisealt) or 0
+                        if fmcAlt > 0 then
+                            target = math.min(target, fmcAlt)
+                        end
+                        if get(P.mcpaltitude) ~= target then return false end
+                        return "M C P ALtitude checked and " .. tostring(target)
+                    end,
                     nextStep = 'set_bank_angle'
                 },
                 ['set_bank_angle'] = { 
@@ -1432,7 +1461,7 @@ function M.fillProcedureTable()
                     check = function()
                         local ledVariant = (get(P.ledlightsvariant) == def.ON)
                         if ledVariant then
-                            return (get(P.llights3) ~= def.OFF)
+                            return (get(P.llights1) ~= def.OFF)
                                 and (get(P.llights4) ~= def.OFF)
                         else
                             return  (get(P.llights1) ~= def.OFF)
@@ -1845,7 +1874,7 @@ function M.fillProcedureTable()
                     check = function()
                         local ledVariant = (get(P.ledlightsvariant) == def.ON)
                         if ledVariant then
-                            return (get(P.llights3) == def.OFF) and (get(P.llights4) == def.OFF)
+                            return (get(P.llights1) == def.OFF) and (get(P.llights4) == def.OFF)
                         else
                             return (get(P.llights1) == def.OFF)
                                 and (get(P.llights2) == def.OFF)
@@ -2171,7 +2200,7 @@ function M.fillProcedureTable()
                     check = function()
                         local ledVariant = (get(P.ledlightsvariant) == def.ON)
                         if ledVariant then
-                            return (get(P.llights3) ~= def.OFF) and (get(P.llights4) ~= def.OFF)
+                            return (get(P.llights1) ~= def.OFF) and (get(P.llights4) ~= def.OFF)
                         else
                             return (get(P.llights1) ~= def.OFF) and (get(P.llights2) ~= def.OFF)
                                 and (get(P.llights3) ~= def.OFF) and (get(P.llights4) ~= def.OFF)
@@ -2544,7 +2573,7 @@ function M.fillProcedureTable()
                     check = function()
                         local ledVariant = (get(P.ledlightsvariant) == def.ON)
                         if ledVariant then
-                            return (get(P.llights3) == def.OFF) and (get(P.llights4) == def.OFF)
+                            return (get(P.llights1) == def.OFF) and (get(P.llights4) == def.OFF)
                         else
                             return (get(P.llights1) == def.OFF) and (get(P.llights2) == def.OFF)
                                 and (get(P.llights3) == def.OFF) and (get(P.llights4) == def.OFF)
@@ -2944,7 +2973,7 @@ function M.fillProcedureTable()
                     end,
                     action = function() P.iceprotection(def.OFF) end,
                     advice = "Set Anti Ice Off",
-                    nextStep = 'set_engine_bleeds_off'
+                    nextStep = 'set_engine_bleeds_off_final'
                 },
                 ['set_engine_bleeds_off_final'] = {
                     check = function()
@@ -3520,7 +3549,44 @@ function M.fillProcedureTable()
                 },
                 ['announce_heading_only'] = {
                     action = function(loop, procData)
-                        P.commandtableentry(def.TEXT, "Runway " .. helpers.formatRunwayDesignator(get(P.desrwy)) .. " has heading " .. helpers.addspaces(helpers.padNumberWithZerosStrict(helpers.roundnumber(get(P.desrwyheading)), 3)))
+                        local runway = get(P.desrwy)
+                        local runwayFormatted = helpers.formatRunwayDesignator(runway)
+                        local course = nil
+
+                        -- Prefer detected CIFP approach course
+                        if loop and loop.detectedApproach and loop.detectedApproach.entry and loop.detectedApproach.entry.course then
+                            course = helpers.calccourse(loop.detectedApproach.entry.course)
+                        end
+
+                        -- Fall back to navdata-derived runway heading
+                        if not course then
+                            course = helpers.getrwyheadingfromnavdata(P.navdatatable, get(P.desicao), runway)
+                            if course then
+                                course = helpers.calccourse(course)
+                            end
+                        end
+
+                        -- Compute bearing from runway endpoints if available
+                        if not course then
+                            local latStart = get(P.desrwylatstartpos)
+                            local lonStart = get(P.desrwylonstartpos)
+                            local latEnd = get(P.desrwylatendpos)
+                            local lonEnd = get(P.desrwylonendpos)
+                            if latStart and lonStart and latEnd and lonEnd and latStart ~= 0 and lonStart ~= 0 and latEnd ~= 0 and lonEnd ~= 0 then
+                                course = helpers.calccourse(helpers.getbearing(latStart, lonStart, latEnd, lonEnd))
+                            end
+                        end
+
+                        -- Fallback to FMC runway heading
+                        if not course and tonumber(get(P.desrwyheading)) then
+                            course = helpers.roundnumber(get(P.desrwyheading))
+                        end
+
+                        if course then
+                            P.commandtableentry(def.TEXT, "Runway " .. runwayFormatted .. " course " .. helpers.addspaces(helpers.padNumberWithZerosStrict(course, 3)))
+                        else
+                            P.commandtableentry(def.TEXT, "Runway " .. runwayFormatted .. " course unavailable")
+                        end
                     end,
                     runActionInAdviceMode = true, 
                     nextStep = nil 

@@ -451,6 +451,26 @@ wdef = {
             settings.appSettings.AUTOCHOCKSPB = not_(settings.appSettings.AUTOCHOCKSPB)
             settings.writeSettings(settings.appSettings)
             wdef.AUTOCHOCKSPB.value = toboolean(settings.appSettings.AUTOCHOCKSPB)
+            if yal and yal.configvalues then
+                yal.configvalues[def.CONFIGAUTOCHOCKSPB] = settings.appSettings.AUTOCHOCKSPB
+            end
+        end,
+        draw_ = function()
+            windows.drawCheckBox(wdef.AUTOCHOCKSPB)
+        end
+    },
+    AUTOCHOCKSPB = {
+        t = messages.translation['AUTOCHOCKSPB'],
+        value = toboolean(settings.appSettings.AUTOCHOCKSPB),
+        x = x_col1 + 60,
+        y = hSize - 455,
+        w = cb_w,
+        h = cb_h,
+        onMouseDown_ = function()
+            setFocusOnInput(nil)
+            settings.appSettings.AUTOCHOCKSPB = not_(settings.appSettings.AUTOCHOCKSPB)
+            settings.writeSettings(settings.appSettings)
+            wdef.AUTOCHOCKSPB.value = toboolean(settings.appSettings.AUTOCHOCKSPB)
         end,
         draw_ = function()
             windows.drawCheckBox(wdef.AUTOCHOCKSPB)
@@ -1223,6 +1243,10 @@ components = {
     --cursor = def.cursor,
     position = getElementInteractive(wdef.VIEWCHANGES)[1],
     onMouseDown = getElementInteractive(wdef.VIEWCHANGES)[2]
+}, interactive {
+    --cursor = def.cursor,
+    position = getElementInteractive(wdef.AUTOCHOCKSPB)[1],
+    onMouseDown = getElementInteractive(wdef.AUTOCHOCKSPB)[2]
 }, interactive {
     --cursor = def.cursor,
     position = getElementInteractive(wdef.SPEEDRESTR250)[1],

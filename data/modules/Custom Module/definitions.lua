@@ -361,6 +361,7 @@ P.XPRESSOURCESPATH = sasl.getXPlanePath() .. P.OSSEPARATOR .. "Resources" .. P.O
 P.XPOUTPUTPATH = sasl.getXPlanePath() .. P.OSSEPARATOR .. "Output" .. P.OSSEPARATOR
 P.XPCACHESPATH = P.XPOUTPUTPATH .. "caches" .. P.OSSEPARATOR
 P.YALCACHEPATH = P.XPOUTPUTPATH .. "caches" .. P.OSSEPARATOR .. P.APPNAMEPREFIX .. ".cache".. P.OSSEPARATOR
+P.ZIBO_B738_CALC_PATH = sasl.getXPlanePath() .. P.OSSEPARATOR .. "Aircraft" .. P.OSSEPARATOR .. "B737-800X" .. P.OSSEPARATOR .. "plugins" .. P.OSSEPARATOR .. "xlua" .. P.OSSEPARATOR .. "scripts" .. P.OSSEPARATOR .. "B738.calc" .. P.OSSEPARATOR .. "B738.calc.lua"
 P.YALGITHUBURL = "https://raw.githubusercontent.com/wahltho/YAL/main/data/modules/configuration/version.ini"
 P.YALBETAGITHUBURL = "https://raw.githubusercontent.com/wahltho/YAL/beta/data/modules/configuration/version.ini"
 

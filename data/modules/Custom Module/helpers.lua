@@ -3835,4 +3835,88 @@ function P.getrwyheadingfromnavdata(navdatatable, icao, rwy)
 
 end 
 
+--------------------------------------------------------------------------------------------------------------
+function P.loadZiboReferenceTables()
+    local path = def.ZIBO_B738_CALC_PATH
+    local file, err = io.open(path, "r")
+    if not file then
+        sasl.logDebug("Zibo reference load failed (open): " .. tostring(err))
+        return nil
+    end
+    local content = file:read("*a")
+    file:close()
+    if not content or content == "" then
+        sasl.logDebug("Zibo reference load failed: empty file")
+        return nil
+    end
+
+    local function extractTable(namePattern)
+        local startPos = select(1, content:find(namePattern))
+        if not startPos then return nil end
+        local bracePos = content:find("{", startPos)
+        if not bracePos then return nil end
+        local depth = 0
+        for i = bracePos, #content do
+            local ch = content:sub(i, i)
+            if ch == "{" then
+                depth = depth + 1
+            elseif ch == "}" then
+                depth = depth - 1
+                if depth == 0 then
+                    local literal = content:sub(bracePos, i)
+                    local chunk, loadErr = loadstring("return " .. literal)
+                    if not chunk then
+                        sasl.logDebug("Failed to parse table for pattern " .. namePattern .. ": " .. tostring(loadErr))
+                        return nil
+                    end
+                    setfenv(chunk, {})
+                    local ok, res = pcall(chunk)
+                    if ok and type(res) == "table" then
+                        return res
+                    end
+                    sasl.logDebug("Failed to eval table for pattern " .. namePattern .. ": " .. tostring(res))
+                    return nil
+                end
+            end
+        end
+        return nil
+    end
+
+    local result = { flaps = {}, vref = {}, fuel = {} }
+
+    -- Collect all flaps_* tables
+    for name in content:gmatch("flaps_[%w_]*%s*=") do
+        local tbl = extractTable(name)
+        if tbl then
+            local key = name:match("(flaps_[%w_]*)%s*=")
+            if key then result.flaps[key] = tbl end
+        end
+    end
+
+    -- Collect vref_calc* tables
+    for name in content:gmatch("vref_calc[%w_]*%s*=") do
+        local tbl = extractTable(name)
+        if tbl then
+            local key = name:match("(vref_calc[%w_]*)%s*=")
+            if key then result.vref[key] = tbl end
+        end
+    end
+
+    -- Fuel temp-adjusted capacity
+    local fuelTbl = extractTable("temp_adjusted_capacity%s*=")
+    if fuelTbl then
+        result.fuel.temp_adjusted_capacity = fuelTbl
+    end
+
+    -- If nothing was parsed, return nil
+    local hasData = (next(result.flaps) ~= nil) or (next(result.vref) ~= nil) or (next(result.fuel) ~= nil)
+    if not hasData then
+        sasl.logDebug("Zibo reference load: no tables parsed from " .. path)
+        return nil
+    end
+
+    sasl.logInfo("Loaded Zibo reference tables from " .. path)
+    return result
+end
+
 return helpers

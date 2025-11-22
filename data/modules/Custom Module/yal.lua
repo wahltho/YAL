@@ -30,6 +30,8 @@ function P.YalinitGlobal()
 
     P.flightstate = 0
 
+    P.xluaLoggingEnabled = nil
+
     P.centertankoffset = false
 
     P.depmetar = {icaocode = "XXXX", metarfound = false, metar = {}, decodedmetar = {}}
@@ -105,6 +107,12 @@ function P.initDataref()
 
     local debug_dataref_path = def.APPNAMEPREFIX .. "/state/debuglevel"
     local handle = globalProperty(debug_dataref_path)
+    local xluaLogHandle = globalProperty("xlua/logging_enabled")
+    if isProperty(xluaLogHandle) then
+        P.xluaLoggingEnabled = xluaLogHandle
+    else
+        P.xluaLoggingEnabled = nil
+    end
 
     if not isProperty(handle) then
         sasl.logInfo("Dataref '" .. debug_dataref_path .. "' not found. Creating it now.")
@@ -129,6 +137,9 @@ function P.initDataref()
     sasl.setLogLevel(stored_level)
     P.lastPolledDebugLevel = stored_level
     sasl.logInfo("Debug Log Level set to: " .. stored_level)
+    if P.xluaLoggingEnabled then
+        set(P.xluaLoggingEnabled, stored_level == LOG_DEBUG and 1 or 0)
+    end
 
     local dataref_path = def.APPNAMEPREFIX .. "/state/procedureset"
     local handle = globalProperty(dataref_path)
@@ -581,6 +592,17 @@ function P.initDataref()
     P.vref25 = globalProperty("laminar/B738/FMS/vref_25")
     P.vref30 = globalProperty("laminar/B738/FMS/vref_30")
     P.vref40 = globalProperty("laminar/B738/FMS/vref_40")
+    P.vrefapproachwindcorr = globalProperty("laminar/B738/FMS/approach_wind_corr")
+    P.fmclandinggw = globalProperty("laminar/B738/FMS/fmc_gw_app")
+    P.fmctakeoffgw = globalProperty("laminar/B738/FMS/fmc_gw")
+    P.fmcseltemp = globalProperty("laminar/B738/FMS/fmc_sel_temp")
+    P.fmcoattemp = globalProperty("laminar/B738/FMS/fmc_oat_temp")
+    P.b737variant = globalProperty("zibomod/b737_variant")
+    P.runwaywinddir = globalProperty("laminar/B738/fms/rw_wind_dir")
+    P.runwaywindspd = globalProperty("laminar/B738/fms/rw_wind_spd")
+    P.runwayslope = globalProperty("laminar/B738/fms/rw_slope")
+    P.runwayheadingfmc = globalProperty("laminar/B738/fms/rw_hdg")
+    P.fueltemp = globalProperty("sim/cockpit2/fuel/fuel_temperature")
 
     P.rain = globalProperty("sim/weather/view/rain_ratio")
 
@@ -2235,22 +2257,18 @@ function P.togglelandinglights(state)
     local ledVariant = (get(P.ledlightsvariant) == def.ON)
 
     if state == nil then
-        if get(P.llightson) == def.OFF then
-            local anyOn = false
-            if ledVariant then
-                anyOn = (get(P.llights3) ~= def.OFF) or (get(P.llights4) ~= def.OFF)
-            else
-                anyOn = (get(P.llights1) ~= def.OFF) or (get(P.llights2) ~= def.OFF) or
-                        (get(P.llights3) ~= def.OFF) or (get(P.llights4) ~= def.OFF)
-            end
-
-            if anyOn then
-                helpers.command_once("sim/lights/landing_lights_off")
-            else
-                helpers.command_once("sim/lights/landing_lights_on")
-            end
+        local anyOn = false
+        if ledVariant then
+            anyOn = (get(P.llights1) ~= def.OFF) or (get(P.llights4) ~= def.OFF)
         else
+            anyOn = (get(P.llights1) ~= def.OFF) or (get(P.llights2) ~= def.OFF) or
+                    (get(P.llights3) ~= def.OFF) or (get(P.llights4) ~= def.OFF)
+        end
+
+        if anyOn then
             helpers.command_once("sim/lights/landing_lights_off")
+        else
+            helpers.command_once("sim/lights/landing_lights_on")
         end
     elseif state == def.OFF then
         helpers.command_once("sim/lights/landing_lights_off")
@@ -4256,6 +4274,9 @@ function P.ongoingtasks()
     if current_level ~= P.lastPolledDebugLevel then
 
         set(P.debugLevelDataref, current_level)
+        if P.xluaLoggingEnabled then
+            set(P.xluaLoggingEnabled, current_level == LOG_DEBUG and 1 or 0)
+        end
         P.lastPolledDebugLevel = current_level
         sasl.logDebug("Debug level change detected by poll. Saved to dataref: " .. current_level)
     end
@@ -4398,6 +4419,8 @@ function P.ongoingtasks()
                     P.commandtableentry(def.TEXT, "Set Position Lights Steady")
                 elseif ((starter1 == def.GROUND or starter2 == def.GROUND)) and beaconLights == def.OFF then
                     P.commandtableentry(def.TEXT, "Set Collision Lights On")
+                elseif (apuStatus ~= nil and apuStatus > def.APUOFF and leftTankL == def.OFF) then
+                    P.commandtableentry(def.TEXT, "Set Left After Fuel Pump On for A P U")
                 elseif ((starter1 == def.GROUND or starter2 == def.GROUND)) and (leftTankL == def.OFF or leftTankR == def.OFF or rightTankL == def.OFF or rightTankR == def.OFF) then
                     P.commandtableentry(def.TEXT, "Set Wing Tank Fuel Pumps On")
                 elseif ((starter1 == def.GROUND or starter2 == def.GROUND)) and (packL ~= nil and packL ~= def.PACKOFF or packR ~= nil and packR ~= def.PACKOFF) then
