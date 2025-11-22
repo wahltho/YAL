@@ -1131,9 +1131,15 @@ wdef = {
             if wdef.debugMode.value then
                 sasl.setLogLevel(LOG_DEBUG)
                 sasl.logDebug("log mode set to DEBUG")
+                if yal.xluaLoggingEnabled then
+                    set(yal.xluaLoggingEnabled, 1)
+                end
             else
                 sasl.setLogLevel(LOG_INFO)
                 sasl.logInfo("log mode set to INFO")
+                if yal.xluaLoggingEnabled then
+                    set(yal.xluaLoggingEnabled, 0)
+                end
             end
         end,
         draw_ = function()
