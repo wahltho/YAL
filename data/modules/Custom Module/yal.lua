@@ -540,6 +540,24 @@ function P.initDataref()
     P.desrwyalt = globalProperty("laminar/B738/pfd/des_rwy_altitude")
     P.desrwylen = globalProperty("laminar/B738/fms/dest_runway_len")
     P.desrwy = globalProperty("laminar/B738/fms/dest_runway")
+    local fmsSelectedSid = globalProperty("laminar/B738/fms/selected_sid")
+    if isProperty(fmsSelectedSid) then
+        P.fmsselectedsid = fmsSelectedSid
+    else
+        P.fmsselectedsid = nil
+    end
+    local fmsSelectedStar = globalProperty("laminar/B738/fms/selected_star")
+    if isProperty(fmsSelectedStar) then
+        P.fmsselectedstar = fmsSelectedStar
+    else
+        P.fmsselectedstar = nil
+    end
+    local fmsSelectedApp = globalProperty("laminar/B738/fms/selected_app")
+    if isProperty(fmsSelectedApp) then
+        P.fmsselectedapp = fmsSelectedApp
+    else
+        P.fmsselectedapp = nil
+    end
 
     P.nearesticao = globalProperty("laminar/B738/near_apt_icao")
 
@@ -602,7 +620,7 @@ function P.initDataref()
     P.runwaywindspd = globalProperty("laminar/B738/fms/rw_wind_spd")
     P.runwayslope = globalProperty("laminar/B738/fms/rw_slope")
     P.runwayheadingfmc = globalProperty("laminar/B738/fms/rw_hdg")
-    P.fueltemp = globalProperty("sim/cockpit2/fuel/fuel_temperature")
+    P.fueltemp = globalProperty("laminar/B738/engine/fuel_temp")
 
     P.rain = globalProperty("sim/weather/view/rain_ratio")
 

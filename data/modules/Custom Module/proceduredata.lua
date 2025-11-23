@@ -168,12 +168,7 @@ function M.fillProcedureTable()
                     nextStep = 'start_apu_2'
                 },                
                 ['start_apu_2'] = {
-                    action = function() 
-                        if P.configvalues[def.CONFIGVOICEADVICEONLY] == def.OFF then
-                            helpers.command_once("laminar/B738/spring_toggle_switch/APU_start_pos_dn") 
-                            P.commandtableentry(def.TEXT, "A P U Started")
-                        end
-                    end,
+                    action = function() helpers.command_once("laminar/B738/spring_toggle_switch/APU_start_pos_dn") end,
                     nextStep = 'wait_apu_runup'
                 },          
                 ['wait_apu_runup'] = {
@@ -374,6 +369,20 @@ function M.fillProcedureTable()
                             P.commandtableentry(def.TEXT, "Instrument Lights set")
                         end
                     end,
+                    nextStep = 'window_heat_on_init'
+                },
+                ['window_heat_on_init'] = {
+                    check = function()
+                        return  (get(P.wheatlfwdpos) == def.ON)
+                            and (get(P.wheatrfwdpos) == def.ON)
+                            and (get(P.wheatlsidepos) == def.ON)
+                            and (get(P.wheatrsidepos) == def.ON)
+                    end,
+                    action = function()
+                        P.togglewindowheat(def.ON)
+                    end,
+                    advice = "Set Window Heat On",
+                    confirm = "Window Heat checked On",
                     nextStep = 'set_nosmoking_on'
                 },
                 ['set_nosmoking_on'] = {
@@ -876,29 +885,21 @@ function M.fillProcedureTable()
                     check = function() return get(P.apustarterpos) == def.ON end,
                     action = function() helpers.command_once("laminar/B738/spring_toggle_switch/APU_start_pos_dn") end,
                     advice = "Start A P U",
-                    confirm = nil,
-                    nextStep = 'wait_initial_apu_spoolup'
+                    confirm = "A P U checked and Started",
+                    nextStep = 'start_apu_2'
+                },                
+                ['start_apu_2'] = {
+                    action = function() helpers.command_once("laminar/B738/spring_toggle_switch/APU_start_pos_dn") end,
+                    nextStep = 'wait_apu_runup'
                 },
-                ['wait_initial_apu_spoolup'] = {
-                    check = function() return P.apurunning() > def.APUOFF end,
-                    action = function()
-                        if P.configvalues[def.CONFIGVOICEADVICEONLY] == def.OFF then
-                            helpers.command_once("laminar/B738/spring_toggle_switch/APU_start_pos_dn")
-                        end
-                    end,
-                    advice = nil,
-                    confirm = "A P U Started, Running Up",
-                    nextStep = 'wait_apu_ready'
-                },
-                ['wait_apu_ready'] = {
+                ['wait_apu_runup'] = {
                     check = function() return P.apurunning() >= def.APUOFFBUS end,
-                    advice = nil,
-                    confirm = "A P U Running",
+                    confirm = "A P U Running Up",
                     nextStep = 'set_apu_gen'
                 },
                 ['set_apu_gen'] = {
                     check = function() return P.apurunning() == def.APUONBUS end,
-                    action = function()
+                    action = function() 
                         if not((get(P.apupowerbus1) == def.ON) and (get(P.announcsourceoff1) == def.OFF)) then
                             helpers.command_once("laminar/B738/toggle_switch/apu_gen1_dn")
                         end
@@ -1300,20 +1301,6 @@ function M.fillProcedureTable()
                     end,
                     advice = "Switch Hydraulic Pumps On",
                     confirm = "Hydraulic Pumps checked On",
-                    nextStep = 'window_heat_on'
-                },
-                ['window_heat_on'] = {
-                    check = function()
-                        return  (get(P.wheatlfwdpos) == def.ON)
-                            and (get(P.wheatrfwdpos) == def.ON)
-                            and (get(P.wheatlsidepos) == def.ON)
-                            and (get(P.wheatrsidepos) == def.ON)
-                    end,
-                    action = function()
-                        P.togglewindowheat(def.ON)
-                    end,
-                    advice = "Set Window Heat On",
-                    confirm = "Window Heat checked On",
                     nextStep = 'probe_heat_on'
                 },
                 ['probe_heat_on'] = {
@@ -2829,8 +2816,10 @@ function M.fillProcedureTable()
                 ['check_power_source'] = {
                     branch = function(loop, procData)
                         if (P.configvalues[def.CONFIGUSEGROUNDPOWER] == def.ON) and (get(P.gpuavailable) == def.ON) then
+                            loop.power_source = 'gpu'
                             return 'check_gpu_power'
                         else
+                            loop.power_source = 'apu'
                             return 'start_apu'
                         end
                     end
@@ -2846,29 +2835,21 @@ function M.fillProcedureTable()
                     check = function() return get(P.apustarterpos) == def.ON end,
                     action = function() helpers.command_once("laminar/B738/spring_toggle_switch/APU_start_pos_dn") end,
                     advice = "Start A P U",
-                    confirm = nil,
-                    nextStep = 'wait_initial_apu_spoolup'
-                },
-                ['wait_initial_apu_spoolup'] = {
-                    check = function() return P.apurunning() > def.APUOFF end,
-                    action = function()
-                        if P.configvalues[def.CONFIGVOICEADVICEONLY] == def.OFF then
-                            helpers.command_once("laminar/B738/spring_toggle_switch/APU_start_pos_dn")
-                        end
-                    end,
-                    advice = nil,
-                    confirm = "A P U Started, Running Up",
-                    nextStep = 'wait_apu_ready'
-                },
-                ['wait_apu_ready'] = {
+                    confirm = "A P U checked and Started",
+                    nextStep = 'start_apu_2'
+                },                
+                ['start_apu_2'] = {
+                    action = function() helpers.command_once("laminar/B738/spring_toggle_switch/APU_start_pos_dn") end,
+                    nextStep = 'wait_apu_runup'
+                },          
+                ['wait_apu_runup'] = {
                     check = function() return P.apurunning() >= def.APUOFFBUS end,
-                    advice = nil,
-                    confirm = "A P U Running",
+                    confirm = "A P U Running Up",
                     nextStep = 'set_apu_gen'
                 },
                 ['set_apu_gen'] = {
                     check = function() return P.apurunning() == def.APUONBUS end,
-                    action = function()
+                    action = function() 
                         if not((get(P.apupowerbus1) == def.ON) and (get(P.announcsourceoff1) == def.OFF)) then
                             helpers.command_once("laminar/B738/toggle_switch/apu_gen1_dn")
                         end
@@ -3446,12 +3427,21 @@ function M.fillProcedureTable()
                         loop.navdatatableindices = navIndices
                         loop.navdatatableindex = (navIndices and navIndices[1]) or nil
 
+                        local selectedAppId = nil
+                        if P.fmsselectedapp then
+                            local val = get(P.fmsselectedapp)
+                            if val and val ~= "" and val ~= "------" then
+                                selectedAppId = val
+                            end
+                        end
+
                         local detectedVariant = helpers.detectCIFPApproachVariant(
                             get(P.desicao),
                             get(P.desrwy),
                             get(P.fmslegs),
                             get(P.fmslegslat),
-                            get(P.fmslegslon)
+                            get(P.fmslegslon),
+                            selectedAppId
                         )
                         loop.detectedApproach = detectedVariant
                         if detectedVariant and detectedVariant.navType then
@@ -3566,6 +3556,11 @@ function M.fillProcedureTable()
                             end
                         end
 
+                        -- Fallback to FMC runway heading
+                        if not course and tonumber(get(P.desrwyheading)) then
+                            course = helpers.roundnumber(get(P.desrwyheading))
+                        end
+
                         -- Compute bearing from runway endpoints if available
                         if not course then
                             local latStart = get(P.desrwylatstartpos)
@@ -3573,13 +3568,10 @@ function M.fillProcedureTable()
                             local latEnd = get(P.desrwylatendpos)
                             local lonEnd = get(P.desrwylonendpos)
                             if latStart and lonStart and latEnd and lonEnd and latStart ~= 0 and lonStart ~= 0 and latEnd ~= 0 and lonEnd ~= 0 then
-                                course = helpers.calccourse(helpers.getbearing(latStart, lonStart, latEnd, lonEnd))
+                                local trueCourse = helpers.getbearing(latStart, lonStart, latEnd, lonEnd)
+                                local magVar = sasl.getMagneticVariation(latStart, lonStart) or 0
+                                course = helpers.calccourse(trueCourse - magVar)
                             end
-                        end
-
-                        -- Fallback to FMC runway heading
-                        if not course and tonumber(get(P.desrwyheading)) then
-                            course = helpers.roundnumber(get(P.desrwyheading))
                         end
 
                         if course then

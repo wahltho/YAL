@@ -554,6 +554,9 @@ end
 
 --------------------------------------------------------------------------------------------------------------
 function P.containsvalue(tbl, target_value)
+    if type(tbl) ~= "table" then
+        return false
+    end
     -- Ueberpruefe, ob die Tabelle den Zielwert direkt enthaelt
     for key, value in pairs(tbl) do
         if value == target_value then
@@ -2394,7 +2397,17 @@ function P.calcautobrake(landingSpeed, totalweightkgs, desrwylen, metar, customA
 
     local weatherData = metar.decodedmetar
 
-    local requiredDeceleration = (landingSpeed^2) / (2 * desrwylen)
+    -- Normalize inputs: speed in m/s, runway length in meters (convert if value looks like feet)
+    local landingSpeedMps = (tonumber(landingSpeed) or 0) * 0.514444
+    local runwayLengthMeters = tonumber(desrwylen) or 0
+    if runwayLengthMeters > 5000 then -- likely feet
+        runwayLengthMeters = runwayLengthMeters * 0.3048
+    end
+    if runwayLengthMeters <= 0 or landingSpeedMps <= 0 then
+        return def.AUTOBRAKE2
+    end
+
+    local requiredDeceleration = (landingSpeedMps ^ 2) / (2 * runwayLengthMeters)
 
     if ((P.fieldexists(weatherData, "weather") and ((P.containsvalue(weatherData.weather, "FZRA")) or (P.containsvalue(weatherData.weather, "FZDZ")) or (P.containsvalue(weatherData.weather, "FZFG"))))
         or (P.fieldexists(weatherData, "temperature.value") and (weatherData.temperature.value < 1))) then
@@ -3092,7 +3105,36 @@ local function collectLegNameSet(legs_string, lat_array, lon_array)
     return names
 end
 
-function P.detectCIFPApproachVariant(icao, runway, legs_string, lat_array, lon_array)
+local function normalizeSelectedApproachId(selectedAppId, expectedRunway)
+    if type(selectedAppId) ~= "string" then return nil end
+    local trimmed = trimString(selectedAppId):upper()
+    if trimmed == "" or trimmed == "------" then return nil end
+
+    -- Pattern: first char = type, then runway (e.g. 08, 08L), optional suffix (Y/Z/etc.)
+    local typeChar, runwayPart, suffix = trimmed:match("^(%a)(%d%d%a?)(%a*)")
+    if not typeChar or not runwayPart then return nil end
+
+    local navTypeMap = {
+        I = def.NAVTYPEILS,
+        L = def.NAVTYPELOC,
+        R = def.NAVTYPERNAV,
+        G = def.NAVTYPEGLS
+    }
+    local navType = navTypeMap[typeChar]
+    if not navType then return nil end
+
+    if expectedRunway and string.upper(expectedRunway) ~= runwayPart then
+        -- Different runway, don't apply
+        return nil
+    end
+
+    return {
+        navType = navType,
+        suffix = suffix and suffix ~= "" and suffix or nil
+    }
+end
+
+function P.detectCIFPApproachVariant(icao, runway, legs_string, lat_array, lon_array, selectedAppId)
     if not (P.isvalidicao(icao) and P.isvalidrwy(runway)) then
         return nil
     end
@@ -3102,12 +3144,39 @@ function P.detectCIFPApproachVariant(icao, runway, legs_string, lat_array, lon_a
         return nil
     end
 
+    runway = string.upper(runway)
+    local selectedInfo = normalizeSelectedApproachId(selectedAppId, runway)
+    if selectedInfo then
+        local entries = cifpData[selectedInfo.navType] and cifpData[selectedInfo.navType][runway]
+        if entries and #entries > 0 then
+            if selectedInfo.suffix then
+                for _, entry in ipairs(entries) do
+                    if entry.suffix and string.upper(entry.suffix) == selectedInfo.suffix then
+                        return {
+                            navType = selectedInfo.navType,
+                            entry = entry,
+                            score = math.huge,
+                            priority = 0,
+                            fromSelection = true
+                        }
+                    end
+                end
+            end
+            return {
+                navType = selectedInfo.navType,
+                entry = entries[1],
+                score = math.huge,
+                priority = 0,
+                fromSelection = true
+            }
+        end
+    end
+
     local legNames = collectLegNameSet(legs_string, lat_array, lon_array)
     if not next(legNames) then
         return nil
     end
 
-    runway = string.upper(runway)
     local navPriority = {
         [def.NAVTYPELPV] = 1,
         [def.NAVTYPEGLS] = 2,
