@@ -2290,7 +2290,7 @@ function M.fillProcedureTable()
                         if P.configvalues[def.CONFIGCUSTOMAPPROACHCALC] ~= def.ON then
                             return true
                         end
-                        local autobrake = helpers.calcautobrake(get(P.vref), get(P.totalweightkgs), get(P.desrwylen), P.desmetar)
+                        local autobrake = helpers.calcautobrake(get(P.vref), get(P.totalweightkgs), get(P.desrwylen), P.desmetar, true)
                         return get(P.autobrakepos) == autobrake
                     end,
                     advice = function()
@@ -2298,7 +2298,7 @@ function M.fillProcedureTable()
                         if P.configvalues[def.CONFIGCUSTOMAPPROACHCALC] ~= def.ON then
                             return false
                         end
-                        local autobrake = helpers.calcautobrake(get(P.vref), get(P.totalweightkgs), get(P.desrwylen), P.desmetar)
+                        local autobrake = helpers.calcautobrake(get(P.vref), get(P.totalweightkgs), get(P.desrwylen), P.desmetar, true)
                         if (autobrake < def.AUTOBRAKEMAX) then return "Set Auto Brake " .. tostring(autobrake - 1)
                         else return "Set Auto Brake Maximum" end
                     end,
@@ -2307,13 +2307,13 @@ function M.fillProcedureTable()
                         if P.configvalues[def.CONFIGCUSTOMAPPROACHCALC] ~= def.ON then
                             return
                         end
-                        local autobrake = helpers.calcautobrake(get(P.vref), get(P.totalweightkgs), get(P.desrwylen), P.desmetar)
+                        local autobrake = helpers.calcautobrake(get(P.vref), get(P.totalweightkgs), get(P.desrwylen), P.desmetar, true)
                         P.setautobrake(autobrake)
                     end,
                     confirm = function()
                         local autobrake
                         if get(P.autobrakepos) > def.AUTOBRAKEOFF then autobrake = get(P.autobrakepos)
-                        else autobrake = helpers.calcautobrake(get(P.vref), get(P.totalweightkgs), get(P.desrwylen), P.desmetar) end
+                        else autobrake = helpers.calcautobrake(get(P.vref), get(P.totalweightkgs), get(P.desrwylen), P.desmetar, P.configvalues[def.CONFIGCUSTOMAPPROACHCALC] == def.ON) end
                         if (autobrake < def.AUTOBRAKEMAX) then return "Auto Brake checked and " .. tostring(autobrake - 1)
                         else return "Auto Brake checked Maximum" end
                     end,
@@ -3962,8 +3962,9 @@ function M.fillProcedureTable()
                                 get(P.totalweightkgs),
                                 get(P.desrwylen),
                                 get(P.desrwyheading),
-                                get(P.vref30),
-                                P.desmetar
+                                get(P.vref),
+                                P.desmetar,
+                                get(P.appflaps)
                             )
                             loop.appflapscalc = appflapscalc
                             loop.appvrefcalc = appvrefcalc
@@ -4133,13 +4134,19 @@ function M.fillProcedureTable()
                                 get(P.deprwylen),
                                 get(P.deprwyheading),
                                 get(P.elevation),
-                                P.depmetar
+                                P.depmetar,
+                                get(P.toflaps) or get(P.toflapsset)
                             )
                         end
                         local existingFlaps = get(P.toflaps)
                         if existingFlaps and existingFlaps > 0 then
-                            loop.toflapscalc = existingFlaps
-                            loop.flapsPreSet = true
+                            if useCustomCalc and computedFlaps then
+                                loop.toflapscalc = computedFlaps
+                                loop.flapsPreSet = false
+                            else
+                                loop.toflapscalc = existingFlaps
+                                loop.flapsPreSet = true
+                            end
                         else
                             loop.toflapscalc = computedFlaps or get(P.toflapsset) or 5
                             loop.flapsPreSet = not useCustomCalc

@@ -2063,8 +2063,8 @@ local function weatherListHasPhenomenon(weatherList, targets)
     return false
 end
 
-function P.determineTakeoffFlapsSetting(totalweightkgs, deprwylen, deprwyheading, elevation, metar)
-    local STANDARD_TAKEOFF_FLAPS = 5
+function P.determineTakeoffFlapsSetting(totalweightkgs, deprwylen, deprwyheading, elevation, metar, baseFlaps)
+    local STANDARD_TAKEOFF_FLAPS = toNumber(baseFlaps, 5)
     local TAKEOFF_WEIGHT_THRESHOLD_HIGH = 65000
     local TAKEOFF_WEIGHT_THRESHOLD_VERY_HIGH = 70000
 
@@ -2108,7 +2108,7 @@ function P.determineTakeoffFlapsSetting(totalweightkgs, deprwylen, deprwyheading
     end
     if isRunwayWet then sasl.logDebug("determineTakeoffFlapsSetting: Runway considered wet/contaminated based on METAR.") end
 
-    -- Start with standard flaps
+    -- Start with FMC/Zibo base flaps if provided, else standard
     local recommendedFlaps = STANDARD_TAKEOFF_FLAPS
 
     -- Calculate wind components (using magnetic)
@@ -2189,6 +2189,12 @@ function P.determineTakeoffFlapsSetting(totalweightkgs, deprwylen, deprwyheading
         end
     end
 
+    -- Crosswind consideration: keep flaps lower for strong crosswind
+    if math.abs(crosswindComponent) > 20 then
+        recommendedFlaps = math.min(recommendedFlaps, 5)
+        sasl.logDebug("Takeoff Flaps Calc: Strong crosswind -> Limiting flaps to 5")
+    end
+
     -- Final constraints (ensure flaps are 5, 10, or 15)
     -- Clamp to max 15 first
     if recommendedFlaps > 15 then
@@ -2208,16 +2214,22 @@ function P.determineTakeoffFlapsSetting(totalweightkgs, deprwylen, deprwyheading
 end
 
 --------------------------------------------------------------------------------------------------------------
-function P.calcappflapsvref(totalweightkgs, desrwylen, desrwyheading, vref30, metar)
+function P.calcappflapsvref(totalweightkgs, desrwylen, desrwyheading, baseVref, metar, baseFlaps)
 
     local totalWeightKg = toNumber(totalweightkgs, 0)
     local runwayLengthMeters = toNumber(desrwylen, 0)
     local runwayHeading = toNumber(desrwyheading, 0)
-    local defaultVref = toNumber(vref30, 0)
+    local targetFlaps = toNumber(baseFlaps, 30)
+    local targetVref = toNumber(baseVref, 0)
 
-    if totalWeightKg <= 0 or runwayLengthMeters <= 0 or defaultVref <= 0 then
-        sasl.logInfo("calcappflapsvref: Invalid input parameters, returning default 30/" .. tostring(vref30))
-        return 30, defaultVref
+    if targetVref <= 0 then
+        -- fallback
+        targetVref = 140
+    end
+
+    if totalWeightKg <= 0 or runwayLengthMeters <= 0 then
+        sasl.logInfo("calcappflapsvref: Invalid input parameters, returning base " .. tostring(targetFlaps) .. "/" .. tostring(targetVref))
+        return targetFlaps, targetVref
     end
 
     local weatherData = (metar and metar.decodedmetar) or {}
@@ -2233,9 +2245,6 @@ function P.calcappflapsvref(totalweightkgs, desrwylen, desrwyheading, vref30, me
     if windSpeed < 0 then windSpeed = 0 end
     weatherData.wind = weatherData.wind or {}
     weatherData.wind.speed = windSpeed
-
-    local temperatureC = toNumber(weatherData.temperature and weatherData.temperature.value, 15)
-    local qnhHpa = toNumber(weatherData.pressure and weatherData.pressure.qnh_hpa, 1013.25)
 
     local headwindComponent = 0
     local crosswindKnots = 0
@@ -2261,6 +2270,7 @@ function P.calcappflapsvref(totalweightkgs, desrwylen, desrwyheading, vref30, me
         sasl.logDebug("App Flaps Calc: Wind is VRB, Calm, or direction not numeric. Using 0 for components.")
     end
 
+    local hasPrecip = weatherListHasPhenomenon(weatherData.weather, {"TS", "SN", "FZ", "RA", "DZ"})
     local visibilityMeters = nil
     if weatherData.visibility then
         if type(weatherData.visibility) == "table" then
@@ -2269,38 +2279,37 @@ function P.calcappflapsvref(totalweightkgs, desrwylen, desrwyheading, vref30, me
             visibilityMeters = toNumber(weatherData.visibility, nil)
         end
     end
-
-    local isBadWeather = weatherListHasPhenomenon(weatherData.weather, {"TS", "SN", "FZ", "RA", "DZ"})
-    if not isBadWeather and visibilityMeters and visibilityMeters < 5000 then
-        isBadWeather = true
-        sasl.logDebug("App Flaps Calc: Bad weather detected (low visibility).")
-    end
-    if not isBadWeather and weatherData.clouds and #weatherData.clouds > 0 then
-        for _, cloud in ipairs(weatherData.clouds) do
-            local coverage = ""
-            if type(cloud) == "table" then
-                coverage = tostring(cloud.coverage or cloud.type or ""):upper()
-                local cloudBase = toNumber(cloud.altitude, toNumber(cloud.base, nil))
-                if (coverage == "BKN" or coverage == "OVC") and cloudBase and cloudBase < 1000 then
-                    isBadWeather = true
-                    sasl.logDebug("App Flaps Calc: Bad weather detected (low ceiling).")
-                    break
-                end
-            elseif type(cloud) == "string" then
-                coverage = cloud:upper()
-            end
-        end
+    if not hasPrecip and visibilityMeters and visibilityMeters < 5000 then
+        hasPrecip = true
+        sasl.logDebug("App Flaps Calc: Treating low visibility as adverse condition.")
     end
 
-    local flapsSetting = P.determineLandingFlapsSetting(runwayLengthMeters, tailwindKnots, crosswindKnots, isBadWeather, totalWeightKg)
-    local vrefKnots = P.calculateVref(totalWeightKg, flapsSetting, weatherData, crosswindKnots)
+    -- Custom adjustments: moderate deltas on top of FMC/Zibo baseline
+    local shortRunway = (runwayLengthMeters > 0 and runwayLengthMeters < 2000)
+    local crosswindMag = math.abs(crosswindKnots)
 
-    -- Round final values
-    flapsSetting = math.floor(flapsSetting + 0.5)
-    vrefKnots = math.floor(vrefKnots + 0.5)
+    if shortRunway or hasPrecip or tailwindKnots > 5 then
+        targetFlaps = math.max(targetFlaps, 40)
+    end
+    if crosswindMag > 15 then
+        targetFlaps = math.min(targetFlaps, 30)
+    end
 
-    sasl.logInfo("calcappflapsvref: Calculated Flaps=" .. flapsSetting .. ", Vref=" .. vrefKnots)
-    return flapsSetting, vrefKnots
+    local vrefAdd = 0
+    if hasPrecip then vrefAdd = vrefAdd + 5 end
+    if crosswindMag > 15 then vrefAdd = vrefAdd + 5 end
+    if tailwindKnots > 5 then vrefAdd = vrefAdd + 5 end
+    if shortRunway then vrefAdd = vrefAdd + 2 end
+    vrefAdd = math.min(vrefAdd, 10)
+    targetVref = targetVref + vrefAdd
+
+    targetFlaps = math.floor(targetFlaps + 0.5)
+    targetVref = math.floor(targetVref + 0.5)
+
+    sasl.logInfo(string.format("calcappflapsvref: Base Flaps/Vref %s/%s -> Custom %d/%d (add %d kts, wx=%s, tail=%.1f, xwind=%.1f)",
+        tostring(baseFlaps), tostring(baseVref), targetFlaps, targetVref, vrefAdd, tostring(hasPrecip), tailwindKnots, crosswindKnots))
+
+    return targetFlaps, targetVref
 end
 
 --------------------------------------------------------------------------------------------------------------
@@ -2375,7 +2384,7 @@ function P.calculateVref(weightKg, flapsSetting, weatherData, crosswindKnots) --
 end
 
 --------------------------------------------------------------------------------------------------------------
-function P.calcautobrake(landingSpeed, totalweightkgs, desrwylen, metar)
+function P.calcautobrake(landingSpeed, totalweightkgs, desrwylen, metar, customAdjust)
     local autobrakeSettings = {
         {maxDeceleration = 1.5, setting = def.AUTOBRAKE1},
         {maxDeceleration = 2.0, setting = def.AUTOBRAKE2},
@@ -2398,6 +2407,15 @@ function P.calcautobrake(landingSpeed, totalweightkgs, desrwylen, metar)
 
     local weightFactor = totalweightkgs / 70000
     requiredDeceleration = requiredDeceleration * weightFactor
+
+    if customAdjust and weatherData then
+        if P.containsvalue(weatherData.weather, "RA") or P.containsvalue(weatherData.weather, "SN") or P.containsvalue(weatherData.weather, "FZRA") then
+            requiredDeceleration = requiredDeceleration * 1.1
+        end
+        if desrwylen > 0 and desrwylen < 1800 then
+            requiredDeceleration = requiredDeceleration * 1.05
+        end
+    end
 
     for _, setting in ipairs(autobrakeSettings) do
         if requiredDeceleration <= setting.maxDeceleration then
