@@ -3711,11 +3711,11 @@ sasl.logInfo("Navdata Table created, " .. #navdatatable .. " entries.")
 end
 --------------------------------------------------------------------------------------------------------------
 function P.writenavdatatable(navdatatable)
-
-    local destnavdatafile = io.open("Custom Data/yal_nav.dat", "w")
+    local basePath = def.PLUGINOUTPUTPATH
+    local destnavdatafile = io.open(basePath .. "yal_nav.dat", "w")
 
     if not destnavdatafile then
-        sasl.logError("Could not open Custom Data/yal_nav.dat")
+        sasl.logError("Could not open " .. basePath .. "yal_nav.dat")
         return false
     end
 
@@ -3773,11 +3773,11 @@ end
 
 --------------------------------------------------------------------------------------------------------------
 function P.writeairportdatatable(airport_db)
-
-    local destairportfile = io.open("Custom Data/yal_apt.dat", "w")
+    local basePath = def.PLUGINOUTPUTPATH
+    local destairportfile = io.open(basePath .. "yal_apt.dat", "w")
 
     if not destairportfile then
-        sasl.logError("Could not open Custom Data/yal_apt.dat")
+        sasl.logError("Could not open " .. basePath .. "yal_apt.dat")
         return false
     end
 
@@ -3812,20 +3812,39 @@ function P.writeZiboCalcTable(ziboTable)
         sasl.logDebug("writeZiboCalcTable: no table to write")
         return false
     end
-    local file, err = io.open("Custom Data/yal_zibo_calc.json", "w")
+    local function tableNameList(tbl)
+        local list = {}
+        for k, _ in pairs(tbl or {}) do
+            table.insert(list, tostring(k))
+        end
+        table.sort(list)
+        return list
+    end
+    local basePath = def.PLUGINOUTPUTPATH
+    local file, err = io.open(basePath .. "yal_zibo_calc.txt", "w")
     if not file then
         sasl.logDebug("writeZiboCalcTable: open failed: " .. tostring(err))
         return false
     end
-    local ok, encoded = pcall(function() return json.encode(ziboTable) end)
-    if not ok then
-        sasl.logDebug("writeZiboCalcTable: json encode failed")
-        file:close()
-        return false
+    local function writeSection(title, tbl)
+        file:write("[" .. title .. "]\n")
+        if not tbl then
+            file:write("(nil)\n")
+            return
+        end
+        local keys = tableNameList(tbl)
+        for _, k in ipairs(keys) do
+            file:write(k .. "\n")
+        end
     end
-    file:write(encoded or "")
+    writeSection("flaps", ziboTable.flaps)
+    writeSection("vref", ziboTable.vref)
+    writeSection("vref_idx", ziboTable.vref and ziboTable.vref.idx)
+    writeSection("cg", ziboTable.cg)
+    writeSection("wet", ziboTable.wet)
+    writeSection("takeoff", ziboTable.takeoff)
     file:close()
-    sasl.logDebug("Zibo calc table written to Custom Data/yal_zibo_calc.json")
+    sasl.logDebug("Zibo calc table written to " .. basePath .. "yal_zibo_calc.txt")
     return true
 end
 
@@ -3960,10 +3979,10 @@ function P.loadZiboReferenceTables()
         return nil
     end
 
-    local function extractTable(namePattern)
-        local startPos = select(1, content:find(namePattern))
-        if not startPos then return nil end
-        local bracePos = content:find("{", startPos)
+    -- Generic table extractor
+    local function extractTableAt(pos)
+        if not pos then return nil end
+        local bracePos = content:find("{", pos)
         if not bracePos then return nil end
         local depth = 0
         for i = bracePos, #content do
@@ -3976,7 +3995,6 @@ function P.loadZiboReferenceTables()
                     local literal = content:sub(bracePos, i)
                     local chunk, loadErr = loadstring("return " .. literal)
                     if not chunk then
-                        sasl.logDebug("Failed to parse table for pattern " .. namePattern .. ": " .. tostring(loadErr))
                         return nil
                     end
                     setfenv(chunk, {})
@@ -3984,7 +4002,6 @@ function P.loadZiboReferenceTables()
                     if ok and type(res) == "table" then
                         return res
                     end
-                    sasl.logDebug("Failed to eval table for pattern " .. namePattern .. ": " .. tostring(res))
                     return nil
                 end
             end
@@ -3992,45 +4009,64 @@ function P.loadZiboReferenceTables()
         return nil
     end
 
-    local result = { flaps = {}, vref = {}, fuel = {} }
+    local result = {
+        flaps = {},
+        cg = {},
+        vref = { idx = {} },
+        wet = {},
+        takeoff = {}
+    }
 
-    -- Collect all flaps_* tables
-    for name in content:gmatch("flaps_[%w_]*%s*=") do
-        local tbl = extractTable(name)
-        if tbl then
-            local key = name:match("(flaps_[%w_]*)%s*=")
-            if key then result.flaps[key] = tbl end
+    -- Collect all table names from assignments and raw_table('name')
+    local names = {}
+    for name in content:gmatch("([%w_]+)%s*=") do
+        names[name] = true
+    end
+    for name in content:gmatch("raw_table%('%s*([%w_]+)%s*'%)") do
+        names[name] = true
+    end
+
+    local function categorize(name, tbl)
+        if not tbl then return end
+        if name:match("^flaps_") then
+            result.flaps[name] = tbl
+        elseif name:match("^cg_") then
+            result.cg[name] = tbl
+        elseif name:match("^vref_calc_idx") then
+            result.vref.idx[name] = tbl
+        elseif name:match("^vref_calc") then
+            result.vref[name] = tbl
+        elseif name == "v1_wet" or name == "vr_wet" or name == "v2_wet" or name == "v1_adj_wet" then
+            result.wet[name] = tbl
+        elseif name == "takeoff_thrust" or name == "v1_adj_wet" then
+            result.takeoff[name] = tbl
         end
     end
 
-    -- Collect vref_calc* tables
-    for name in content:gmatch("vref_calc[%w_]*%s*=") do
-        local tbl = extractTable(name)
-        if tbl then
-            local key = name:match("(vref_calc[%w_]*)%s*=")
-            if key then result.vref[key] = tbl end
+    for name in pairs(names) do
+        if name:match("^(flaps_.*)") or name:match("^cg_") or name:match("^vref_calc") or name:match("^v1_") or name:match("^v2_") or name:match("^vr_") or name:match("^takeoff_thrust") then
+            local startPos = select(1, content:find(name .. "%s*="))
+            if startPos then
+                local tbl = extractTableAt(startPos)
+                categorize(name, tbl)
+            end
         end
     end
 
-    -- Fuel temp-adjusted capacity
-    local fuelTbl = extractTable("temp_adjusted_capacity%s*=")
-    if fuelTbl then
-        result.fuel.temp_adjusted_capacity = fuelTbl
-    end
-
-    -- If nothing was parsed, return nil
-    local hasData = (next(result.flaps) ~= nil) or (next(result.vref) ~= nil) or (next(result.fuel) ~= nil)
+    local hasData = (next(result.flaps) ~= nil) or (next(result.vref) ~= nil) or (next(result.cg) ~= nil) or (next(result.wet) ~= nil) or (next(result.takeoff) ~= nil)
     if not hasData then
         sasl.logDebug("Zibo reference load: no tables parsed from " .. path)
         return nil
     end
 
-    local flapsCount = 0
+    local flapsCount, vrefCount, vrefIdxCount, cgCount, wetCount, takeoffCount = 0, 0, 0, 0, 0, 0
     for _ in pairs(result.flaps) do flapsCount = flapsCount + 1 end
-    local vrefCount = 0
     for _ in pairs(result.vref) do vrefCount = vrefCount + 1 end
-    local fuelCount = result.fuel.temp_adjusted_capacity and 1 or 0
-    sasl.logInfo(string.format("Loaded Zibo reference tables from %s (flaps=%d, vref=%d, fuel=%d)", path, flapsCount, vrefCount, fuelCount))
+    for _ in pairs(result.vref.idx) do vrefIdxCount = vrefIdxCount + 1 end
+    for _ in pairs(result.cg) do cgCount = cgCount + 1 end
+    for _ in pairs(result.wet) do wetCount = wetCount + 1 end
+    for _ in pairs(result.takeoff) do takeoffCount = takeoffCount + 1 end
+    sasl.logInfo(string.format("Loaded Zibo reference tables from %s (flaps=%d, vref=%d idx=%d, cg=%d, wet=%d, takeoff=%d)", path, flapsCount, vrefCount, vrefIdxCount, cgCount, wetCount, takeoffCount))
     return result
 end
 

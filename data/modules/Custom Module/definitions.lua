@@ -372,6 +372,10 @@ P.APPNAMEPREFIXLONG = "Yet Another Linda"
 P.DEFAULTPREF = sasl.getProjectPath() .. P.OSSEPARATOR .. "YAL.default"
 P.PREFFILE = P.XPOUTPUTPATH .. "preferences" .. P.OSSEPARATOR .. P.APPNAMEPREFIX .. ".prf"
 
+-- Plugin paths
+P.PLUGINPATH = P.XPRESSOURCESPATH .. "plugins" .. P.OSSEPARATOR .. "YAL"
+P.PLUGINOUTPUTPATH = P.PLUGINPATH .. P.OSSEPARATOR .. "data" .. P.OSSEPARATOR .. "output" .. P.OSSEPARATOR
+
 -- UI-bezogene Konstanten
 P.closeXHeight = 25
 P.closeXWidth = P.closeXHeight
