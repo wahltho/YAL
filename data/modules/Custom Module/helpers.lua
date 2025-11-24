@@ -4132,4 +4132,29 @@ function P.getZiboVref(ziboTable, variant, flaps, weightKgs)
     return tonumber(vref)
 end
 
+--------------------------------------------------------------------------------------------------------------
+-- Zibo thrust rating selection based on variant and N1 mode
+-- Returns a rating tag string matching table suffixes, e.g. "24k", "22k_700", "18k_600"
+function P.selectZiboThrustRating(variant, n1mode)
+    local v = tonumber(variant) or def.B737VARIANT_DEFAULT
+    if v < 0 then v = def.B737VARIANT_800 end -- default -> 800
+    local mode = tonumber(n1mode) or 0 -- 0=TO, 1=TO1, 2=TO2
+
+    -- Ratings per family
+    if v == def.B737VARIANT_600 then
+        if mode >= 2 then return "18k_600" else return "20k_600" end
+    elseif v == def.B737VARIANT_700 or v == def.B737VARIANT_MAX7 then
+        if mode >= 2 then return "20k_700" else return "22k_700" end
+    elseif v == def.B737VARIANT_900 or v == def.B737VARIANT_MAX8 or v == def.B737VARIANT_MAX9 then
+        -- 900/MAX haben 22k/24k Tabellen
+        if mode >= 2 then return "22k_900"
+        elseif mode >= 1 then return "22k_900"
+        else return "24k_900" end
+    else -- 800 / default
+        if mode >= 2 then return "20k"
+        elseif mode >= 1 then return "22k"
+        else return "24k" end
+    end
+end
+
 return helpers
