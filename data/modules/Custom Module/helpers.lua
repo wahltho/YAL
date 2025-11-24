@@ -4072,7 +4072,7 @@ end
 
 return helpers
 -- Fuel capacity factor based on fuel temperature (per Zibo tablet logic)
-local function getFuelCapacityFactor(fuelTemp)
+function P.getFuelCapacityFactor(fuelTemp)
     local temp = tonumber(fuelTemp) or 15
     local delta = temp - 15
     -- temp_coef = 1 +/- delta*0.00092
@@ -4083,4 +4083,53 @@ local function getFuelCapacityFactor(fuelTemp)
         coef = 1 - (delta * 0.00092)
     end
     return coef
+end
+
+--------------------------------------------------------------------------------------------------------------
+-- Zibo VREF lookup (weight in kg, flaps in degrees, variant per def.B737VARIANT_*)
+function P.getZiboVref(ziboTable, variant, flaps, weightKgs)
+    if type(ziboTable) ~= "table" or type(ziboTable.vref) ~= "table" then return nil end
+    local function pickVrefTable()
+        if variant == def.B737VARIANT_600 then
+            return ziboTable.vref["vref_calc_600"]
+        elseif variant == def.B737VARIANT_700 or variant == def.B737VARIANT_MAX7 then
+            return ziboTable.vref["vref_calc_700"]
+        elseif variant == def.B737VARIANT_900 or variant == def.B737VARIANT_MAX8 or variant == def.B737VARIANT_MAX9 then
+            return ziboTable.vref["vref_calc_900"] or ziboTable.vref["vref_calc"]
+        else -- default/-1/800/8200 etc.
+            return ziboTable.vref["vref_calc"]
+        end
+    end
+
+    local vrefTbl = pickVrefTable()
+    if type(vrefTbl) ~= "table" then return nil end
+    local flapKey = tonumber(flaps)
+    if not flapKey then return nil end
+    local flapSub = vrefTbl[flapKey]
+    if type(flapSub) ~= "table" then return nil end
+
+    local weightTon = (tonumber(weightKgs) or 0) / 1000
+    if weightTon <= 0 then return nil end
+
+    -- find nearest lower/upper weights
+    local lowerW, upperW = nil, nil
+    for w, _ in pairs(flapSub) do
+        local wt = tonumber(w)
+        if wt then
+            if wt <= weightTon and (not lowerW or wt > lowerW) then lowerW = wt end
+            if wt >= weightTon and (not upperW or wt < upperW) then upperW = wt end
+        end
+    end
+    if not lowerW and not upperW then return nil end
+    if lowerW and not upperW then upperW = lowerW end
+    if upperW and not lowerW then lowerW = upperW end
+
+    local vLower = flapSub[lowerW]
+    local vUpper = flapSub[upperW]
+    if not vLower or not vUpper then return nil end
+    if upperW == lowerW then return tonumber(vLower) end
+
+    local ratio = (weightTon - lowerW) / (upperW - lowerW)
+    local vref = vLower + (vUpper - vLower) * ratio
+    return tonumber(vref)
 end

@@ -3950,13 +3950,26 @@ function M.fillProcedureTable()
                 ['calculate_vref'] = {
                     action = function(loop, procData)
                         if P.configvalues[def.CONFIGCUSTOMAPPROACHCALC] == def.ON then
+                            local baseFlaps = get(P.appflaps)
+                            if not baseFlaps or baseFlaps <= 0 then baseFlaps = 30 end
+                            local baseVref = get(P.vref)
+                            local ziboVref = nil
+                            if P.zibocalctable then
+                                ziboVref = helpers.getZiboVref(
+                                    P.zibocalctable,
+                                    get(P.b737variant),
+                                    baseFlaps,
+                                    get(P.fmclandinggw) > 0 and get(P.fmclandinggw) or get(P.totalweightkgs)
+                                )
+                            end
+                            local vrefInput = ziboVref or baseVref
                             local appflapscalc, appvrefcalc = helpers.calcappflapsvref(
                                 get(P.totalweightkgs),
                                 get(P.desrwylen),
                                 get(P.desrwyheading),
-                                get(P.vref),
+                                vrefInput,
                                 P.desmetar,
-                                get(P.appflaps)
+                                baseFlaps
                             )
                             loop.appflapscalc = appflapscalc
                             loop.appvrefcalc = appvrefcalc
