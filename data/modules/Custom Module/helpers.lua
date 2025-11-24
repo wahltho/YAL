@@ -4025,7 +4025,12 @@ function P.loadZiboReferenceTables()
         return nil
     end
 
-    sasl.logInfo("Loaded Zibo reference tables from " .. path)
+    local flapsCount = 0
+    for _ in pairs(result.flaps) do flapsCount = flapsCount + 1 end
+    local vrefCount = 0
+    for _ in pairs(result.vref) do vrefCount = vrefCount + 1 end
+    local fuelCount = result.fuel.temp_adjusted_capacity and 1 or 0
+    sasl.logInfo(string.format("Loaded Zibo reference tables from %s (flaps=%d, vref=%d, fuel=%d)", path, flapsCount, vrefCount, fuelCount))
     return result
 end
 
