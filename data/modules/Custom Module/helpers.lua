@@ -4070,8 +4070,7 @@ function P.loadZiboReferenceTables()
     return result
 end
 
-return helpers
--- Fuel capacity factor based on fuel temperature (per Zibo tablet logic)
+--------------------------------------------------------------------------------------------------------------
 function P.getFuelCapacityFactor(fuelTemp)
     local temp = tonumber(fuelTemp) or 15
     local delta = temp - 15
@@ -4086,7 +4085,6 @@ function P.getFuelCapacityFactor(fuelTemp)
 end
 
 --------------------------------------------------------------------------------------------------------------
--- Zibo VREF lookup (weight in kg, flaps in degrees, variant per def.B737VARIANT_*)
 function P.getZiboVref(ziboTable, variant, flaps, weightKgs)
     if type(ziboTable) ~= "table" or type(ziboTable.vref) ~= "table" then return nil end
     local function pickVrefTable()
@@ -4133,3 +4131,5 @@ function P.getZiboVref(ziboTable, variant, flaps, weightKgs)
     local vref = vLower + (vUpper - vLower) * ratio
     return tonumber(vref)
 end
+
+return helpers

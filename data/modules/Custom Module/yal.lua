@@ -831,6 +831,19 @@ function P.checkYANSHFuel()
             plannedFuelLbs = plannedFuelRaw * def.KGTOLBS
         end
 
+        -- Check against max capacity (temp-scaled)
+        local capFactor = helpers.getFuelCapacityFactor(get(P.fueltemp))
+        local maxWing = def.MAXWINGTANKLBS * capFactor
+        local maxCenter = def.MAXCENTERTANKLBS * capFactor
+        local maxTotal = maxCenter + (2 * maxWing)
+
+        if plannedFuelLbs > maxTotal then
+            local unitSuffix = (get(P.fuelunit) == def.KG) and "K G" or "L B S"
+            local plannedDisplay = (get(P.fuelunit) == def.KG) and helpers.roundnumber(plannedFuelLbs * def.LBSTOKG) or helpers.roundnumber(plannedFuelLbs)
+            local maxDisplay = (get(P.fuelunit) == def.KG) and helpers.roundnumber(maxTotal * def.LBSTOKG) or helpers.roundnumber(maxTotal)
+            P.commandtableentry(def.TEXT, string.format("Planned fuel %s exceeds max capacity %s %s", tostring(plannedDisplay), tostring(maxDisplay), unitSuffix))
+        end
+
         local plannedForDisplay, currentForDisplay, unitForDisplay
         if (get(P.fuelunit) == def.KG) then
             plannedForDisplay = helpers.roundnumber(plannedFuelLbs * def.LBSTOKG)
