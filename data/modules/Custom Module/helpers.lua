@@ -3807,6 +3807,29 @@ function P.writeairportdatatable(airport_db)
 end
 
 --------------------------------------------------------------------------------------------------------------
+function P.writeZiboCalcTable(ziboTable)
+    if type(ziboTable) ~= "table" then
+        sasl.logDebug("writeZiboCalcTable: no table to write")
+        return false
+    end
+    local file, err = io.open("Custom Data/yal_zibo_calc.json", "w")
+    if not file then
+        sasl.logDebug("writeZiboCalcTable: open failed: " .. tostring(err))
+        return false
+    end
+    local ok, encoded = pcall(function() return json.encode(ziboTable) end)
+    if not ok then
+        sasl.logDebug("writeZiboCalcTable: json encode failed")
+        file:close()
+        return false
+    end
+    file:write(encoded or "")
+    file:close()
+    sasl.logDebug("Zibo calc table written to Custom Data/yal_zibo_calc.json")
+    return true
+end
+
+--------------------------------------------------------------------------------------------------------------
 
 function P.getTableSize(tbl)
     local count = 0

@@ -54,6 +54,8 @@ function P.YalinitGlobal()
 
     P.airportdatatable = {}
 
+    P.zibocalctable = {}
+
     -------------------------------------------------------------------------------------------------------------- 
 
     P.proceduretable = {}
@@ -918,9 +920,11 @@ function P.initializeScript()
 
     helpers.buildnavdatatable(P.navdatatable)
     helpers.buildairportdatatable(P.airportdatatable)
+    P.zibocalctable = helpers.loadZiboReferenceTables() or {}
     if (sasl.getLogLevel() == LOG_DEBUG) then
         helpers.writenavdatatable(P.navdatatable)
         helpers.writeairportdatatable(P.airportdatatable)
+        helpers.writeZiboCalcTable(P.zibocalctable)
     end
 
     P.commandtableentry(def.TEXT, "YAL Initialization done")
@@ -965,9 +969,11 @@ function P.yalresetForNewFlight()
     P.readconfig()
     helpers.buildnavdatatable(P.navdatatable)
     helpers.buildairportdatatable(P.airportdatatable)
+    P.zibocalctable = helpers.loadZiboReferenceTables() or {}
     if (sasl.getLogLevel() == LOG_DEBUG) then
         helpers.writenavdatatable(P.navdatatable)
         helpers.writeairportdatatable(P.airportdatatable)
+        helpers.writeZiboCalcTable(P.zibocalctable)
     end
 
     P.commandtableentry(def.TEXT, "Reset for a new flight done.")
@@ -1075,6 +1081,7 @@ function P.yalreset()
     -- Rest (NavData bauen etc.)
     helpers.buildnavdatatable(P.navdatatable)
     helpers.buildairportdatatable(P.airportdatatable)
+    P.zibocalctable = helpers.loadZiboReferenceTables() or {}
     if (sasl.getLogLevel() == LOG_DEBUG) then
         helpers.writenavdatatable(P.navdatatable)
         helpers.writeairportdatatable(P.airportdatatable)
@@ -2091,8 +2098,12 @@ function P.loadLoopState(loopIndex)
 
     else -- loop.lock is 0
         local cleanTemplate = P.procedurelooptemplate
-        -- Compare against nil now
-        if loop.stepindex ~= cleanTemplate.stepindex or loop.currentStepName ~= nil then
+        local nameClean = helpers.forceCleanString(loop.currentStepName)
+        if nameClean == "" or nameClean == "[NONE]" then
+            loop.currentStepName = nil
+            nameClean = ""
+        end
+        if loop.stepindex ~= cleanTemplate.stepindex or nameClean ~= "" then
              sasl.logWarning("" .. loopIdStr .. " - Loaded NOPROCEDURE lock but inconsistent state/stepname found and cleaned. Saving clean state.")
              loop.stepindex = cleanTemplate.stepindex
              loop.currentStepName = nil -- Explicitly set to nil
