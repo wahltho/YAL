@@ -1,4 +1,3 @@
--- date : 28-Oct-2025
 local P = {}
 yal = P
 
