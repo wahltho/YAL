@@ -4071,3 +4071,16 @@ function P.loadZiboReferenceTables()
 end
 
 return helpers
+-- Fuel capacity factor based on fuel temperature (per Zibo tablet logic)
+local function getFuelCapacityFactor(fuelTemp)
+    local temp = tonumber(fuelTemp) or 15
+    local delta = temp - 15
+    -- temp_coef = 1 +/- delta*0.00092
+    local coef
+    if delta < 0 then
+        coef = 1 + (math.abs(delta) * 0.00092)
+    else
+        coef = 1 - (delta * 0.00092)
+    end
+    return coef
+end

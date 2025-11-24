@@ -622,7 +622,7 @@ function P.initDataref()
     P.runwaywindspd = globalProperty("laminar/B738/fms/rw_wind_spd")
     P.runwayslope = globalProperty("laminar/B738/fms/rw_slope")
     P.runwayheadingfmc = globalProperty("laminar/B738/fms/rw_hdg")
-    P.fueltemp = globalProperty("laminar/B738/engine/fuel_temp")
+    P.fueltemp = globalProperty("laminar/B738/engine/fuel_temp_real")
 
     P.rain = globalProperty("sim/weather/view/rain_ratio")
 
@@ -1790,22 +1790,27 @@ function P.refuelAircraft(totalFuelLbs)
     local currentCenterLbs = get(P.centertanklbs)
     local currentTotalFuel = currentLeftLbs + currentRightLbs + currentCenterLbs
 
-    if totalFuelLbs > def.MAXTOTALLBS then
+    local capacityFactor = helpers.getFuelCapacityFactor(get(P.fueltemp))
+    local maxWing = def.MAXWINGTANKLBS * capacityFactor
+    local maxCenter = def.MAXCENTERTANKLBS * capacityFactor
+    local maxTotal = maxCenter + (2 * maxWing)
+
+    if totalFuelLbs > maxTotal then
         P.commandtableentry(def.TEXT, "Fuel request above max, loading maximum.")
-        totalFuelLbs = def.MAXTOTALLBS
+        totalFuelLbs = maxTotal
     end
 
     local leftTank, rightTank, centerTank
     local isDefuel = (totalFuelLbs < currentTotalFuel)
 
-    if totalFuelLbs <= (def.MAXWINGTANKLBS * 2) then
+    if totalFuelLbs <= (maxWing * 2) then
         leftTank = totalFuelLbs / 2
         rightTank = totalFuelLbs / 2
         centerTank = 0
     else
-        leftTank = def.MAXWINGTANKLBS
-        rightTank = def.MAXWINGTANKLBS
-        centerTank = totalFuelLbs - (def.MAXWINGTANKLBS * 2)
+        leftTank = maxWing
+        rightTank = maxWing
+        centerTank = totalFuelLbs - (maxWing * 2)
     end
 
     if isDefuel and currentCenterLbs > 1000 and centerTank < 1000 then
