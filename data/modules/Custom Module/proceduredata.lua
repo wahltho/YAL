@@ -3954,15 +3954,19 @@ function M.fillProcedureTable()
                             if not baseFlaps or baseFlaps <= 0 then baseFlaps = 30 end
                             local baseVref = get(P.vref)
                             local ziboVref = nil
+                            local variant = get(P.b737variant)
+                            local landingGw = get(P.fmclandinggw) > 0 and get(P.fmclandinggw) or get(P.totalweightkgs)
                             if P.zibocalctable then
                                 ziboVref = helpers.getZiboVref(
                                     P.zibocalctable,
-                                    get(P.b737variant),
+                                    variant,
                                     baseFlaps,
-                                    get(P.fmclandinggw) > 0 and get(P.fmclandinggw) or get(P.totalweightkgs)
+                                    landingGw
                                 )
                             end
                             local vrefInput = ziboVref or baseVref
+                            sasl.logInfo(string.format("SetVref: variant=%s, flaps=%s, weight=%.0f kg, ziboVref=%s, fmsVref=%s",
+                                tostring(variant), tostring(baseFlaps), landingGw, tostring(ziboVref), tostring(baseVref)))
                             local appflapscalc, appvrefcalc = helpers.calcappflapsvref(
                                 get(P.totalweightkgs),
                                 get(P.desrwylen),
@@ -4148,13 +4152,16 @@ function M.fillProcedureTable()
                             if useCustomCalc and computedFlaps then
                                 loop.toflapscalc = computedFlaps
                                 loop.flapsPreSet = false
+                                sasl.logInfo(string.format("SetTOFlaps (custom): existing=%s, computed=%s", tostring(existingFlaps), tostring(computedFlaps)))
                             else
                                 loop.toflapscalc = existingFlaps
                                 loop.flapsPreSet = true
+                                sasl.logInfo(string.format("SetTOFlaps: using existing flaps %s", tostring(existingFlaps)))
                             end
                         else
                             loop.toflapscalc = computedFlaps or get(P.toflapsset) or 5
                             loop.flapsPreSet = not useCustomCalc
+                            sasl.logInfo(string.format("SetTOFlaps: no FMC flaps, computed=%s -> using %s", tostring(computedFlaps), tostring(loop.toflapscalc)))
                         end
                         loop.toflapscalcstring = tostring(loop.toflapscalc)
 

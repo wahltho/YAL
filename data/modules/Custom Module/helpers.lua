@@ -2083,6 +2083,9 @@ function P.determineTakeoffFlapsSetting(totalweightkgs, deprwylen, deprwyheading
     local runwayHeading = toNumber(deprwyheading, 0)
     local airportElevationMeters = toNumber(elevation, 0)
 
+    sasl.logInfo(string.format("determineTakeoffFlapsSetting: inputs weight=%.0f kg, rwyLen=%.0f m, rwyHdg=%s, elev=%.0f m, baseFlaps=%s",
+        totalWeightKg, runwayLengthMeters, tostring(runwayHeading), airportElevationMeters, tostring(baseFlaps)))
+
     if totalWeightKg <= 0 or runwayLengthMeters <= 0 then
         sasl.logInfo("determineTakeoffFlapsSetting: Invalid input parameters (weight, length, elevation, heading), returning default flaps " .. STANDARD_TAKEOFF_FLAPS)
         return STANDARD_TAKEOFF_FLAPS
@@ -2403,6 +2406,7 @@ function P.calcautobrake(landingSpeed, totalweightkgs, desrwylen, metar, customA
         runwayLengthMeters = runwayLengthMeters * 0.3048
     end
     if runwayLengthMeters <= 0 or landingSpeedMps <= 0 then
+        sasl.logDebug("calcautobrake: invalid inputs, fallback to Autobrake 2")
         return def.AUTOBRAKE2
     end
 
