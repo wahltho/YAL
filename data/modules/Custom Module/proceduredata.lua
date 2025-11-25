@@ -3957,14 +3957,12 @@ function M.fillProcedureTable()
                             local variant = get(P.b737variant)
                             local landingGwFmc = get(P.fmclandinggw)
                             local landingGwKg = get(P.totalweightkgs)
-                            local fmcUnits = get(P.fuelunit) or 0 -- 0=lbs, 1=kg
+                            local fmcUnits = get(P.fuelunit) or 0
                             if landingGwFmc and landingGwFmc > 0 then
                                 if fmcUnits == def.LBS or fmcUnits == 0 then
-                                    -- FMC liefert tausender lbs (z.B. 111.7 = 111,700 lbs)
                                     landingGwKg = landingGwFmc * 1000 * def.LBSTOKG
                                 else
-                                    -- kg
-                                    landingGwKg = landingGwFmc
+                                    landingGwKg = landingGwFmc * 1000
                                 end
                             end
                             if P.zibocalctable then
