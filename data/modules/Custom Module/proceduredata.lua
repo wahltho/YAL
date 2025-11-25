@@ -3955,18 +3955,26 @@ function M.fillProcedureTable()
                             local baseVref = get(P.vref)
                             local ziboVref = nil
                             local variant = get(P.b737variant)
-                            local landingGw = get(P.fmclandinggw) > 0 and get(P.fmclandinggw) or get(P.totalweightkgs)
+                            local landingGwFmc = get(P.fmclandinggw)
+                            local landingGwKg = get(P.totalweightkgs)
+                            if landingGwFmc and landingGwFmc > 0 then
+                                if landingGwFmc < 5000 then -- plausibly already kg
+                                    landingGwKg = landingGwFmc
+                                else
+                                    landingGwKg = landingGwFmc * def.LBSTOKG
+                                end
+                            end
                             if P.zibocalctable then
                                 ziboVref = helpers.getZiboVref(
                                     P.zibocalctable,
                                     variant,
                                     baseFlaps,
-                                    landingGw
+                                    landingGwKg
                                 )
                             end
                             local vrefInput = ziboVref or baseVref
-                            sasl.logInfo(string.format("SetVref: variant=%s, flaps=%s, weight=%.0f kg, ziboVref=%s, fmsVref=%s",
-                                tostring(variant), tostring(baseFlaps), landingGw, tostring(ziboVref), tostring(baseVref)))
+                            sasl.logInfo(string.format("SetVref: variant=%s, flaps=%s, weight=%.0f kg (%.0f lbs), ziboVref=%s, fmsVref=%s",
+                                tostring(variant), tostring(baseFlaps), landingGwKg, landingGwKg / def.LBSTOKG, tostring(ziboVref), tostring(baseVref)))
                             local appflapscalc, appvrefcalc = helpers.calcappflapsvref(
                                 get(P.totalweightkgs),
                                 get(P.desrwylen),
