@@ -61,6 +61,7 @@ local settingsDefinition = {
     [def.CONFIGIGNOREALLBRIGHTHNESSSETTINGS] = { dvalue = 0 , type = "number", min = 0, max = 1 },
     [def.CONFIGHIDEEFBS] = { dvalue = 1 , type = "number", min = 0, max = 1 },
     [def.CONFIGSHOWBETAUPDATES] = { dvalue = 0 , type = "number", min = 0, max = 1 },
+    [def.CONFIGJITLUAON] = { dvalue = 0 , type = "number", min = 0, max = 1 },
 
 }   
 

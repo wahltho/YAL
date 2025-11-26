@@ -939,6 +939,17 @@ function P.initializeScript()
         helpers.writeZiboCalcTable(P.zibocalctable)
     end
 
+    -- Hidden JIT toggle: only on Windows, if configured and dataref exists
+    if sasl.getOS() == 'Windows' and P.configvalues[def.CONFIGJITLUAON] == def.ON then
+        local jitDr = globalProperty("xlua/jit_enabled")
+        if isProperty(jitDr) then
+            set(jitDr, 1)
+            sasl.logInfo("JITLUAON active: xlua/jit_enabled set to 1")
+        else
+            sasl.logInfo("JITLUAON requested but xlua/jit_enabled not found")
+        end
+    end
+
     P.commandtableentry(def.TEXT, "YAL Initialization done")
     sasl.logInfo("Initialization and state restored")
 
