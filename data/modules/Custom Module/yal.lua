@@ -541,22 +541,28 @@ function P.initDataref()
     P.desrwyalt = globalProperty("laminar/B738/pfd/des_rwy_altitude")
     P.desrwylen = globalProperty("laminar/B738/fms/dest_runway_len")
     P.desrwy = globalProperty("laminar/B738/fms/dest_runway")
-    local fmsSelectedSid = globalProperty("laminar/B738/fms/selected_sid")
-    if isProperty(fmsSelectedSid) then
-        P.fmsselectedsid = fmsSelectedSid
+    if P.configvalues[def.CONFIGZIBOISMODDED] == def.ON then
+        local fmsSelectedSid = globalProperty("laminar/B738/fms/selected_sid")
+        if isProperty(fmsSelectedSid) then
+            P.fmsselectedsid = fmsSelectedSid
+        else
+            P.fmsselectedsid = nil
+        end
+        local fmsSelectedStar = globalProperty("laminar/B738/fms/selected_star")
+        if isProperty(fmsSelectedStar) then
+            P.fmsselectedstar = fmsSelectedStar
+        else
+            P.fmsselectedstar = nil
+        end
+        local fmsSelectedApp = globalProperty("laminar/B738/fms/selected_app")
+        if isProperty(fmsSelectedApp) then
+            P.fmsselectedapp = fmsSelectedApp
+        else
+            P.fmsselectedapp = nil
+        end
     else
         P.fmsselectedsid = nil
-    end
-    local fmsSelectedStar = globalProperty("laminar/B738/fms/selected_star")
-    if isProperty(fmsSelectedStar) then
-        P.fmsselectedstar = fmsSelectedStar
-    else
         P.fmsselectedstar = nil
-    end
-    local fmsSelectedApp = globalProperty("laminar/B738/fms/selected_app")
-    if isProperty(fmsSelectedApp) then
-        P.fmsselectedapp = fmsSelectedApp
-    else
         P.fmsselectedapp = nil
     end
 

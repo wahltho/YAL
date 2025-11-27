@@ -62,6 +62,7 @@ local settingsDefinition = {
     [def.CONFIGHIDEEFBS] = { dvalue = 1 , type = "number", min = 0, max = 1 },
     [def.CONFIGSHOWBETAUPDATES] = { dvalue = 0 , type = "number", min = 0, max = 1 },
     [def.CONFIGJITLUAON] = { dvalue = 0 , type = "number", min = 0, max = 1 },
+    [def.CONFIGZIBOISMODDED] = { dvalue = 0 , type = "number", min = 0, max = 1 },
 
 }   
 
