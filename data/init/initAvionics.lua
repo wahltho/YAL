@@ -307,6 +307,20 @@ end
 -------------------------------------------------------------------------------
 -------------------------------------------------------------------------------
 
+--- Checks if Avionics Device with specified numeric ID is bound to currently loaded aircraft
+--- @param deviceId AvionicsDeviceID
+--- @return boolean
+--- @see reference
+--- : https://1-sim.com/files/SASL3Manual.pdf#avionicsDeviceIsBound
+function avionicsDeviceIsBound(deviceId)
+    local id = av.getAvionicsHandle(deviceId)
+    if id == nil then return false end
+    return av.isAvionicsBound(id)
+end
+
+-------------------------------------------------------------------------------
+-------------------------------------------------------------------------------
+
 --- Finds builtin avionics device
 --- @param deviceId AvionicsDeviceID
 --- @return AvionicsDevice
@@ -314,9 +328,7 @@ end
 --- : https://1-sim.com/files/SASL3Manual.pdf#avionicsDeviceBuiltin
 function avionicsDeviceBuiltin(deviceId)
     local device = {}
-    if not av.isAvionicsBound(deviceId) then return nil end
     device.id = av.getAvionicsHandle(deviceId)
-
     if device.id == nil then
         return nil
     end
@@ -338,7 +350,6 @@ end
 function avionicsDeviceOverride(params)
     local size, bezelSize = deviceParamsProcess(params)
     if size == nil then return nil end
-    if not av.isAvionicsBound(params.id) then return nil end
 
     local screenC
     local bezelC
@@ -395,7 +406,7 @@ function avionicsDeviceOverride(params)
     local drawBefore = params.replace and screenDraw or nil
     local drawAfter = drawBefore == nil and screenDraw or nil
 
-    device.id = av.registerAvionicsCallbacks(device.id, drawBefore, bezelMouseClick, bezelMouseWheel, bezelMouseCursor,
+    device.id = av.registerAvionicsCallbacks(params.id, drawBefore, bezelMouseClick, bezelMouseWheel, bezelMouseCursor,
             drawAfter, screenMouseClick, screenMouseWheel, screenMouseCursor)
 
     if device.id == nil then

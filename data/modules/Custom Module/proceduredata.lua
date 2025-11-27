@@ -42,6 +42,15 @@ local function isRunwayLeg(token)
     return clean:upper():match("^RW%d%d?[LRC]?") ~= nil
 end
 
+local function matchesDestRunway(token, destRunway)
+    if not token or not destRunway then
+        return false
+    end
+    local cleanToken = cleanLegToken(token):upper():gsub("^RW", "")
+    local cleanDest = cleanLegToken(destRunway):upper():gsub("^RW", "")
+    return cleanToken == cleanDest
+end
+
 local function isMissedApproachLeg(token)
     local clean = cleanLegToken(token)
     return clean:upper():match("^MISSED") ~= nil
@@ -2035,6 +2044,9 @@ function M.fillProcedureTable()
                             if isRunwayToMissedDiscontinuity(prevLegRaw, discontinuity.next) then
                                 return true
                             end
+                            if matchesDestRunway(prevLegRaw, destRunway) then
+                                return true
+                            end
                             local prevLeg = prevLegRaw and helpers.replaceRunwayPrefix(prevLegRaw) or ""
                             local suffix = (prevLeg ~= "") and (" after " .. prevLeg) or ""
                             P.commandtableentry(def.TEXT, "Discontinuity" .. suffix .. " before approach")
@@ -3825,7 +3837,7 @@ function M.fillProcedureTable()
                                 if dmeInfo then
                                     local freqValue = dmeInfo[def.DESTDMEFREQ] ~= 0 and dmeInfo[def.DESTDMEFREQ] or dmeInfo[def.DESTFREQ]
                                     local ident = dmeInfo[def.DESTDMEIDENT] or dmeInfo[def.DESTNAVID] or ""
-                                    local identText = (ident ~= "" and (" (" .. ident .. ")")) or ""
+                                    local identText = (ident ~= "" and (" (" .. helpers.addspaces(ident) .. ")")) or ""
                                     return "Set Copilot D M E Frequency " .. helpers.addspaces(helpers.formatILSFrequency(freqValue)) .. identText
                                 end
                             end
@@ -3835,7 +3847,7 @@ function M.fillProcedureTable()
                             if dmeInfo then
                                 local freqValue = dmeInfo[def.DESTDMEFREQ] ~= 0 and dmeInfo[def.DESTDMEFREQ] or dmeInfo[def.DESTFREQ]
                                 local ident = dmeInfo[def.DESTDMEIDENT] or dmeInfo[def.DESTNAVID] or ""
-                                local identText = (ident ~= "" and (" (" .. ident .. ")")) or ""
+                                local identText = (ident ~= "" and (" (" .. helpers.addspaces(ident) .. ")")) or ""
                                 return "Set Copilot D M E Frequency " .. helpers.addspaces(helpers.formatILSFrequency(freqValue)) .. identText
                             end
                         else

@@ -541,31 +541,7 @@ function P.initDataref()
     P.desrwyalt = globalProperty("laminar/B738/pfd/des_rwy_altitude")
     P.desrwylen = globalProperty("laminar/B738/fms/dest_runway_len")
     P.desrwy = globalProperty("laminar/B738/fms/dest_runway")
-    if P.configvalues[def.CONFIGZIBOISMODDED] == def.ON then
-        local fmsSelectedSid = globalProperty("laminar/B738/fms/selected_sid")
-        if isProperty(fmsSelectedSid) then
-            P.fmsselectedsid = fmsSelectedSid
-        else
-            P.fmsselectedsid = nil
-        end
-        local fmsSelectedStar = globalProperty("laminar/B738/fms/selected_star")
-        if isProperty(fmsSelectedStar) then
-            P.fmsselectedstar = fmsSelectedStar
-        else
-            P.fmsselectedstar = nil
-        end
-        local fmsSelectedApp = globalProperty("laminar/B738/fms/selected_app")
-        if isProperty(fmsSelectedApp) then
-            P.fmsselectedapp = fmsSelectedApp
-        else
-            P.fmsselectedapp = nil
-        end
-    else
-        P.fmsselectedsid = nil
-        P.fmsselectedstar = nil
-        P.fmsselectedapp = nil
-    end
-
+ 
     P.nearesticao = globalProperty("laminar/B738/near_apt_icao")
 
     P.fmslegs = globalProperty("laminar/B738/fms/legs")
@@ -689,6 +665,10 @@ function P.initDataref()
     P.yawdamperswitch = globalProperty("laminar/B738/toggle_switch/yaw_dumper_pos")
  
     set(P.n1setsource, 0)
+
+    P.fmsselectedsid = nil
+    P.fmsselectedstar = nil
+    P.fmsselectedapp = nil
 
     P.needstempinit = true
 end
@@ -926,8 +906,6 @@ function P.initializeScript()
 
     P.YalinitGlobal()
 
-    P.readconfig()
-
     local PD = require("proceduredata")
 
     PD.fillProcedureTable()
@@ -936,6 +914,8 @@ function P.initializeScript()
 
     P.initDataref()
 
+    P.readconfig()
+
     helpers.buildnavdatatable(P.navdatatable)
     helpers.buildairportdatatable(P.airportdatatable)
     P.zibocalctable = helpers.loadZiboReferenceTables() or {}
@@ -943,17 +923,6 @@ function P.initializeScript()
         helpers.writenavdatatable(P.navdatatable)
         helpers.writeairportdatatable(P.airportdatatable)
         helpers.writeZiboCalcTable(P.zibocalctable)
-    end
-
-    -- Hidden JIT toggle: only on Windows, if configured and dataref exists
-    if sasl.getOS() == 'Windows' and P.configvalues[def.CONFIGJITLUAON] == def.ON then
-        local jitDr = globalProperty("xlua/jit_enabled")
-        if isProperty(jitDr) then
-            set(jitDr, 1)
-            sasl.logInfo("JITLUAON active: xlua/jit_enabled set to 1")
-        else
-            sasl.logInfo("JITLUAON requested but xlua/jit_enabled not found")
-        end
     end
 
     P.commandtableentry(def.TEXT, "YAL Initialization done")
@@ -996,6 +965,7 @@ function P.yalresetForNewFlight()
     end
 
     P.readconfig()
+
     helpers.buildnavdatatable(P.navdatatable)
     helpers.buildairportdatatable(P.airportdatatable)
     P.zibocalctable = helpers.loadZiboReferenceTables() or {}
@@ -1137,24 +1107,58 @@ sasl.registerCommandHandler(my_command_yalreset, 0, P.yalreset_)
 --------------------------------------------------------------------------------------------------------------
 function P.readconfig()
 
-    -- Hole die neuen Einstellungen
     local newSettings = settings.getSettings()
 
-    -- 1. Lösche alte Werte aus der *bestehenden* Tabelle
     for k in pairs(P.configvalues) do
         P.configvalues[k] = nil
     end
 
-    -- 2. Fülle die *bestehende* Tabelle mit den neuen Werten
     for k, v in pairs(newSettings) do
         P.configvalues[k] = v
     end
 
-    -- Ab hier greifen alle Funktionen (auch die alten) auf die korrekten Werte zu
-    if (P.configvalues[def.CONFIGWAKEOVERRIDE] == def.ON) then
-        set(P.wakeoverride, def.ON)
+    if P.wakeoverride and isProperty(P.wakeoverride) then
+        if (P.configvalues[def.CONFIGWAKEOVERRIDE] == def.ON) then
+            set(P.wakeoverride, def.ON)
+        else
+            set(P.wakeoverride, def.OFF)
+        end
+    end
+
+    if sasl.getOS() == 'Windows' and P.configvalues[def.CONFIGJITLUAON] == def.ON then
+        local jitDr = globalProperty("xlua/jit_enabled")
+        if isProperty(jitDr) then
+            set(jitDr, 1)
+            sasl.logInfo("JITLUAON active: xlua/jit_enabled set to 1")
+        else
+            sasl.logInfo("JITLUAON requested but xlua/jit_enabled not found")
+        end
+    end
+
+    if P.configvalues[def.CONFIGZIBOISMODDED] == def.ON then
+        sasl.logInfo("ZIBOISMODDED active: FMS SID/STAR/APPROACH datarefs enabled")
+        local fmsSelectedSid = globalProperty("laminar/B738/fms/selected_sid")
+        if isProperty(fmsSelectedSid) then
+            P.fmsselectedsid = fmsSelectedSid
+        else
+            P.fmsselectedsid = nil
+        end
+        local fmsSelectedStar = globalProperty("laminar/B738/fms/selected_star")
+        if isProperty(fmsSelectedStar) then
+            P.fmsselectedstar = fmsSelectedStar
+        else
+            P.fmsselectedstar = nil
+        end
+        local fmsSelectedApp = globalProperty("laminar/B738/fms/selected_app")
+        if isProperty(fmsSelectedApp) then
+            P.fmsselectedapp = fmsSelectedApp
+        else
+            P.fmsselectedapp = nil
+        end
     else
-        set(P.wakeoverride, def.OFF)
+        P.fmsselectedsid = nil
+        P.fmsselectedstar = nil
+        P.fmsselectedapp = nil
     end
 
     P.needstempinit = true
