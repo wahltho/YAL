@@ -2327,7 +2327,7 @@ function P.determineLandingFlapsSetting(runwayLengthMeters, tailwindKnots, cross
     local crosswindMagnitude = math.abs(crosswindKnots)
     local tailwindMagnitude = math.max(tailwindKnots or 0, 0)
 
-    sasl.logDebug(string.format("determineLandingFlapsSetting: Inputs: RwyLen=%.0f, Tailwind=%.1f, XWindMag=%.1f (Signed=%.1f), BadWx=%s, Weight=%.0f",
+    sasl.logInfo(string.format("determineLandingFlapsSetting: Inputs RwyLen=%.0f m, Tailwind=%.1f kts, XWind=%.1f kts (signed %.1f), BadWx=%s, Weight=%.0f kg",
                    runwayLengthMeters, tailwindMagnitude, crosswindMagnitude, crosswindKnots, tostring(isBadWeather), weightKg))
 
     local requiresFlaps40 =
@@ -2337,16 +2337,16 @@ function P.determineLandingFlapsSetting(runwayLengthMeters, tailwindKnots, cross
         (weightKg or 0) > LANDING_HIGH_WEIGHT_THRESHOLD
 
     if crosswindMagnitude > LANDING_HIGH_CROSSWIND_THRESHOLD and not (runwayLengthMeters > 0 and runwayLengthMeters < LANDING_SHORT_RUNWAY_THRESHOLD) then
-        sasl.logDebug("determineLandingFlapsSetting: High crosswind detected - preferring Flaps 30 for controllability.")
+        sasl.logInfo("determineLandingFlapsSetting: High crosswind detected - preferring Flaps 30 for controllability.")
         return 30
     end
 
     if requiresFlaps40 then
-        sasl.logDebug("determineLandingFlapsSetting: Recommending Flaps 40 due to landing distance factors.")
+        sasl.logInfo("determineLandingFlapsSetting: Recommending Flaps 40 due to landing distance factors.")
         return 40
     end
 
-    sasl.logDebug("determineLandingFlapsSetting: Conditions nominal - recommending Flaps 30.")
+    sasl.logInfo("determineLandingFlapsSetting: Conditions nominal - recommending Flaps 30.")
     return 30
 end
 
@@ -2411,35 +2411,59 @@ function P.calcautobrake(landingSpeed, totalweightkgs, desrwylen, metar, customA
     end
 
     local requiredDeceleration = (landingSpeedMps ^ 2) / (2 * runwayLengthMeters)
+    local appliedMultiplier = 1
 
     if ((P.fieldexists(weatherData, "weather") and ((P.containsvalue(weatherData.weather, "FZRA")) or (P.containsvalue(weatherData.weather, "FZDZ")) or (P.containsvalue(weatherData.weather, "FZFG"))))
         or (P.fieldexists(weatherData, "temperature.value") and (weatherData.temperature.value < 1))) then
         requiredDeceleration = requiredDeceleration * 1.5
+        appliedMultiplier = appliedMultiplier * 1.5
     elseif (P.fieldexists(weatherData, "weather") and (P.containsvalue(weatherData.weather, "SN")))  then
         requiredDeceleration = requiredDeceleration * 1.3
+        appliedMultiplier = appliedMultiplier * 1.3
     elseif (P.fieldexists(weatherData, "weather") and (P.containsvalue(weatherData.weather, "RA"))) then
         requiredDeceleration = requiredDeceleration * 1.2
+        appliedMultiplier = appliedMultiplier * 1.2
     end
 
     local weightFactor = totalweightkgs / 70000
     requiredDeceleration = requiredDeceleration * weightFactor
+    appliedMultiplier = appliedMultiplier * weightFactor
 
     if customAdjust and weatherData then
         if P.containsvalue(weatherData.weather, "RA") or P.containsvalue(weatherData.weather, "SN") or P.containsvalue(weatherData.weather, "FZRA") then
             requiredDeceleration = requiredDeceleration * 1.1
+            appliedMultiplier = appliedMultiplier * 1.1
         end
         if desrwylen > 0 and desrwylen < 1800 then
             requiredDeceleration = requiredDeceleration * 1.05
+            appliedMultiplier = appliedMultiplier * 1.05
         end
     end
 
+    local chosenSetting = def.AUTOBRAKEMAX
     for _, setting in ipairs(autobrakeSettings) do
         if requiredDeceleration <= setting.maxDeceleration then
-            return setting.setting
+            chosenSetting = setting.setting
+            break
         end
     end
 
-    return def.AUTOBRAKE1
+    if chosenSetting == def.AUTOBRAKEMAX and requiredDeceleration <= autobrakeSettings[#autobrakeSettings].maxDeceleration then
+        chosenSetting = def.AUTOBRAKEMAX
+    end
+
+    sasl.logInfo(string.format(
+        "calcautobrake: vref=%.0f kts, weight=%.0f kg, rwyLen=%.0f m, custom=%s, multiplier=%.2f, reqDecel=%.2f -> AutoBrake %s",
+        tonumber(landingSpeed) or 0,
+        totalweightkgs or 0,
+        runwayLengthMeters,
+        tostring(customAdjust),
+        appliedMultiplier,
+        requiredDeceleration,
+        (chosenSetting == def.AUTOBRAKEMAX) and "MAX" or tostring(chosenSetting - 1)
+    ))
+
+    return chosenSetting
 end
 
 
