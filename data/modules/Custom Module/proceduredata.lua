@@ -2578,7 +2578,85 @@ function M.fillProcedureTable()
                     confirm = "Go Around acknowledged",
                     nextStep = 'set_goaround_speed'
                 },
-                ['check_missed_route_discontinuity'] = {
+                ['set_goaround_speed'] = {
+                    action = function()
+                        local vref = get(P.vref) or 0
+                        local gaSpeed = vref + 20
+                        if gaSpeed > 0 then
+                            if (P.configvalues[def.CONFIGAUTOFUNCTIONS] == def.ON) and (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
+                                set(P.mcpspeed, gaSpeed)
+                            end
+                            P.commandtableentry(def.TEXT, "Set M C P Speed " .. tostring(gaSpeed))
+                        end
+                    end,
+                    confirm = function()
+                        local vref = get(P.vref) or 0
+                        local gaSpeed = vref + 20
+                        if gaSpeed > 0 and get(P.mcpspeed) == gaSpeed then
+                            return "M C P Speed checked " .. tostring(gaSpeed)
+                        end
+                        return false
+                    end,
+                    nextStep = 'gear_up'
+                },
+                ['gear_up'] = {
+                    check = function()
+                        return get(P.gearhandlepos) == def.GEARUP
+                    end,
+                    advice = "Set Gear Up",
+                    action = function()
+                        if (P.configvalues[def.CONFIGAUTOFUNCTIONS] == def.ON) and (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
+                            set(P.gearhandlepos, def.GEARUP)
+                        end
+                    end,
+                    confirm = "Gear checked Up",
+                    nextStep = 'set_missed_altitude'
+                },
+                ['set_missed_altitude'] = {
+                    check = function(loop)
+                        local missedappalttmp = helpers.roundnumber((get(P.missedappalt) / 100)) * 100
+                        if (missedappalttmp > 1000) then
+                            local current = get(P.mcpaltitude)
+                            return math.abs(current - missedappalttmp) <= 100
+                        else
+                            if loop and not loop.missedAppAltInvalidWarned then
+                                P.commandtableentry(def.TEXT, "Missed Approach Altitude missing or invalid")
+                                loop.missedAppAltInvalidWarned = true
+                            end
+                            return true
+                        end
+                    end,
+                    advice = function()
+                        local missedappalttmp = helpers.roundnumber((get(P.missedappalt) / 100)) * 100
+                        if (missedappalttmp > 1000) then
+                            return "Set M C P Altitude " .. helpers.addspaces(missedappalttmp)
+                        else
+                            return "Set Missed Approach Altitude"
+                        end
+                    end,
+                    action = function()
+                        local missedappalttmp = helpers.roundnumber((get(P.missedappalt) / 100)) * 100
+                        if (missedappalttmp > 1000) then
+                            set(P.mcpaltitude, missedappalttmp)
+                        end
+                    end,
+                    confirm = function(loop)
+                        local missedappalttmp = helpers.roundnumber((get(P.missedappalt) / 100)) * 100
+                        if (missedappalttmp > 1000) then
+                            local current = get(P.mcpaltitude)
+                            if math.abs(current - missedappalttmp) <= 100 then
+                                return "M C P Altitude checked and " .. helpers.addspaces(missedappalttmp)
+                            end
+                            return false
+                        end
+                        if loop and loop.missedAppAltInvalidWarned then
+                            return "Missed Approach Altitude invalid, step acknowledged"
+                        end
+                        return false
+                    end,
+                    nextStep = 'check_missed_route_discontinuity'
+                },
+                               ['check_missed_route_discontinuity'] = {
                     action = function()
                         local legs = get(P.fmslegs)
                         local destRunway = get(P.desrwy)
@@ -2605,27 +2683,6 @@ function M.fillProcedureTable()
                     end,
                     nextStep = 'set_flaps_15'
                 },
-                ['set_goaround_speed'] = {
-                    action = function()
-                        local vref = get(P.vref) or 0
-                        local gaSpeed = vref + 20
-                        if gaSpeed > 0 then
-                            if (P.configvalues[def.CONFIGAUTOFUNCTIONS] == def.ON) and (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
-                                set(P.mcpspeed, gaSpeed)
-                            end
-                            P.commandtableentry(def.TEXT, "Set M C P Speed " .. tostring(gaSpeed))
-                        end
-                    end,
-                    confirm = function()
-                        local vref = get(P.vref) or 0
-                        local gaSpeed = vref + 20
-                        if gaSpeed > 0 and get(P.mcpspeed) == gaSpeed then
-                            return "M C P Speed checked " .. tostring(gaSpeed)
-                        end
-                        return false
-                    end,
-                    nextStep = 'gear_up'
-                },
                 ['set_flaps_15'] = {
                     check = function()
                         local flaps = get(P.flapleverpos)
@@ -2633,24 +2690,6 @@ function M.fillProcedureTable()
                     end,
                     advice = nil,
                     confirm = "Flaps checked 15",
-                    nextStep = 'accelerate_and_cleanup'
-                },
-                ['gear_up'] = {
-                    check = function()
-                        return get(P.gearhandlepos) == def.GEARUP
-                    end,
-                    advice = "Set Gear Up",
-                    action = function()
-                        if (P.configvalues[def.CONFIGAUTOFUNCTIONS] == def.ON) and (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
-                            set(P.gearhandlepos, def.GEARUP)
-                        end
-                    end,
-                    confirm = "Gear checked Up",
-                    nextStep = 'set_missed_altitude'
-                },
-                ['set_missed_altitude'] = {
-                    advice = "Set Missed Approach Altitude",
-                    confirm = "Missed Approach Altitude set",
                     nextStep = 'accelerate_and_cleanup'
                 },
                 ['accelerate_and_cleanup'] = {

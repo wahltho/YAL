@@ -28,21 +28,6 @@ end
 
 include "keyboard_handler"
 
-helpers.initTailNum() 
-
-local oneSecTimer = sasl.createTimer()
-local waitstep = def.LONGWAIT
-
-yal.enableMenus()
-
-if helpers.isZibo then
-    sasl.logInfo("Zibo Mod detected on initial plugin load")
-    yal.initializeScript()
-    sasl.startTimer(oneSecTimer)
-else
-    sasl.logInfo("No Zibo Mod detected on initial plugin load. Plugin functionality currently inactive.")
-end
-
 local xRoot, yRoot, wRoot, hRoot = sasl.windows.getMonitorBoundsOS(0)
 local st_height = 700
 local st_width = 750
@@ -64,6 +49,11 @@ setup_datapanel = contextWindow {
     }}
 }
 
+local oneSecTimer = sasl.createTimer()
+local waitstep = def.LONGWAIT
+
+helpers.initTailNum()
+
 function show_hide_setup()
     if helpers.isZibo then
         setup_datapanel:setIsVisible(not setup_datapanel:isVisible())
@@ -76,26 +66,30 @@ setup_datapanel:setIsVisible(false)
 
 menu_settings = sasl.appendMenuItem(yal.menu_main, "Settings", show_hide_setup)
 
-local enable_settings_menu = 0
 if helpers.isZibo then
-    enable_settings_menu = 1
+    sasl.logInfo("Zibo Mod detected on initial plugin load")
+    yal.enableMenus(def.ON)
+    sasl.enableMenuItem(yal.menu_main , menu_settings , def.ON)
+    yal.initializeScript()
+    sasl.startTimer(oneSecTimer)
+    waitstep = def.LONGWAIT
+else
+    sasl.logInfo("No Zibo Mod detected on initial plugin load. Plugin functionality currently inactive.")
+    sasl.enableMenuItem(yal.menu_main , menu_settings , def.OFF)
+    yal.enableMenus(def.OFF)
+    sasl.stopTimer(oneSecTimer)
+    setup_datapanel:setIsVisible(false)
 end
-sasl.enableMenuItem(yal.menu_main , menu_settings , enable_settings_menu)
 
 function onAirportLoaded(flightNumber)
     sasl.logInfo(string.format("Airport loaded: Flight #%s, Aircraft: %s", flightNumber, sasl.getAircraft()))
     
     helpers.initTailNum()
-    yal.enableMenus()    
-
-    local enable_settings_menu_on_load = 0
-    if helpers.isZibo then
-        enable_settings_menu_on_load = 1
-    end
-    sasl.enableMenuItem(yal.menu_main , menu_settings , enable_settings_menu_on_load)
 
     if helpers.isZibo then
         sasl.logInfo("Zibo Mod detected after airport load.")
+        yal.enableMenus(def.ON)  
+        sasl.enableMenuItem(yal.menu_main , menu_settings , def.ON)
         yal.initializeScript()
         sasl.startTimer(oneSecTimer)
         waitstep = def.LONGWAIT
@@ -103,6 +97,7 @@ function onAirportLoaded(flightNumber)
         sasl.logInfo("No Zibo Mod detected after airport load. Plugin functionality will remain inactive.")
         sasl.enableMenuItem(yal.menu_main, menu_settings, def.OFF)
         sasl.stopTimer(oneSecTimer)
+        yal.enableMenus(def.OFF)  
         setup_datapanel:setIsVisible(false)
     end
 end
