@@ -4359,21 +4359,19 @@ function P.ongoingtasks()
 
     if ((P.apgoaroundtemp ~= get(P.apgoaround)) and (get(P.apgoaround) == def.ON)) then
 
-        local voice_on = (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON)
-        local auto_on = (P.configvalues[def.CONFIGAUTOFUNCTIONS] == def.ON)
-
-        if (voice_on and auto_on) then
-            P.commandtableentry(def.TEXT, "Goaround: Voice Readback and Autofunctions switched off.")
-            P.configvalues[def.CONFIGVOICEADVICEONLY] = def.OFF
-            P.configvalues[def.CONFIGAUTOFUNCTIONS] = def.OFF
-
-        elseif (voice_on) then
-            P.commandtableentry(def.TEXT, "Goaround: Voice Readback switched off.")
-            P.configvalues[def.CONFIGVOICEADVICEONLY] = def.OFF
-
-        elseif (auto_on) then
-            P.commandtableentry(def.TEXT, "Goaround: Autofunctions switched off.")
-            P.configvalues[def.CONFIGAUTOFUNCTIONS] = def.OFF
+        local aircraftOnGround = (get(P.airgroundsensor) == def.ON)
+        local radioAlt = get(P.radioaltitude) or 0
+        if (P.flightstate == def.FLIGHTSTATEAPPROACH) and not aircraftOnGround and (radioAlt < 2500) then
+            -- Trigger dedicated Go-Around procedure if loop is free
+            local gaLoopIndex = P.proceduretable[def.GOAROUNDPROCEDURE].loop
+            if P.loopStateTables[gaLoopIndex] and P.loopStateTables[gaLoopIndex].lock == def.NOPROCEDURE then
+                sasl.logInfo("Go Around: triggering Go Around procedure on Loop " .. tostring(gaLoopIndex) .. ".")
+                P.triggerprocedure(def.GOAROUNDPROCEDURE)
+            else
+                sasl.logInfo("Go Around: Go Around procedure not triggered (loop busy).")
+            end
+        else
+            sasl.logDebug("Go Around detected but conditions not met (state/air/alt).")
         end
 
         P.apgoaroundtemp = get(P.apgoaround)

@@ -2536,6 +2536,130 @@ function M.fillProcedureTable()
                 }
             }
         },
+        [def.GOAROUNDPROCEDURE] = {
+            number = 24,
+            name = "Go Around",
+            cycable = false,
+            speakname = true,
+            set = false,
+            loop = 2,
+            prerequisite = nil,
+            allowedState = def.AIRONLY,
+            requiredFlightstate = def.FLIGHTSTATEAPPROACH,
+            skipCondition = nil,
+            prerequisiteChecks = {
+                { check = function() return get(P.airgroundsensor) == def.OFF end,
+                  failMsg = "Procedure only available Inflight" },
+                { check = function()
+                      local radioAlt = get(P.radioaltitude) or 0
+                      return radioAlt < 2500
+                  end,
+                  failMsg = "Procedure only available below 2500 A G L" }
+            },
+            startStep = 'announce_goaround',
+            steps = {
+                ['announce_goaround'] = {
+                    action = function()
+                        local loop1 = P.loopStateTables and P.loopStateTables[1]
+                        if loop1 and loop1.lock ~= def.NOPROCEDURE then
+                            sasl.logInfo("Go Around: aborting active procedure on Loop 1 (ID: " .. tostring(loop1.lock) .. ").")
+                            loop1.procedureabort = true
+                            loop1.procedureskipstep = false
+                            loop1.setonabort = false
+                        end
+                        if P.proceduretable[def.RADIOALTITUDEB2500PROCEDURE] then
+                            P.proceduretable[def.RADIOALTITUDEB2500PROCEDURE].set = false
+                        end
+                        if P.proceduretable[def.RADIOALTITUDEB1000PROCEDURE] then
+                            P.proceduretable[def.RADIOALTITUDEB1000PROCEDURE].set = false
+                        end
+                        P.commandtableentry(def.TEXT, "Go Around")
+                    end,
+                    confirm = "Go Around acknowledged",
+                    nextStep = 'set_goaround_speed'
+                },
+                ['check_missed_route_discontinuity'] = {
+                    action = function()
+                        local legs = get(P.fmslegs)
+                        local destRunway = get(P.desrwy)
+                        if type(legs) ~= "string" or legs == "" or not helpers.isvalidrwy(destRunway) then
+                            return
+                        end
+
+                        local prevToken = nil
+                        local discoAfterRunway = false
+                        for token in legs:gmatch("([^%s]+)") do
+                            if token:upper() == "DISCONTINUITY" then
+                                if matchesDestRunway(prevToken, destRunway) then
+                                    discoAfterRunway = true
+                                    break
+                                end
+                            elseif token and token ~= "" then
+                                prevToken = token
+                            end
+                        end
+
+                        if discoAfterRunway then
+                            P.commandtableentry(def.TEXT, "Discontinuity after runway before missed approach")
+                        end
+                    end,
+                    nextStep = 'set_flaps_15'
+                },
+                ['set_goaround_speed'] = {
+                    action = function()
+                        local vref = get(P.vref) or 0
+                        local gaSpeed = vref + 20
+                        if gaSpeed > 0 then
+                            if (P.configvalues[def.CONFIGAUTOFUNCTIONS] == def.ON) and (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
+                                set(P.mcpspeed, gaSpeed)
+                            end
+                            P.commandtableentry(def.TEXT, "Set M C P Speed " .. tostring(gaSpeed))
+                        end
+                    end,
+                    confirm = function()
+                        local vref = get(P.vref) or 0
+                        local gaSpeed = vref + 20
+                        if gaSpeed > 0 and get(P.mcpspeed) == gaSpeed then
+                            return "M C P Speed checked " .. tostring(gaSpeed)
+                        end
+                        return false
+                    end,
+                    nextStep = 'gear_up'
+                },
+                ['set_flaps_15'] = {
+                    check = function()
+                        local flaps = get(P.flapleverpos)
+                        return flaps and flaps >= def.FLAPS15
+                    end,
+                    advice = nil,
+                    confirm = "Flaps checked 15",
+                    nextStep = 'accelerate_and_cleanup'
+                },
+                ['gear_up'] = {
+                    check = function()
+                        return get(P.gearhandlepos) == def.GEARUP
+                    end,
+                    advice = "Set Gear Up",
+                    action = function()
+                        if (P.configvalues[def.CONFIGAUTOFUNCTIONS] == def.ON) and (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
+                            set(P.gearhandlepos, def.GEARUP)
+                        end
+                    end,
+                    confirm = "Gear checked Up",
+                    nextStep = 'set_missed_altitude'
+                },
+                ['set_missed_altitude'] = {
+                    advice = "Set Missed Approach Altitude",
+                    confirm = "Missed Approach Altitude set",
+                    nextStep = 'accelerate_and_cleanup'
+                },
+                ['accelerate_and_cleanup'] = {
+                    advice = "Accelerate, retract flaps on schedule, select L N A V/V N A V or Heading/Altitude",
+                    confirm = "Go Around profile established",
+                    nextStep = nil
+                }
+            }
+        },
         [def.AFTERLANDINGPROCEDURE] = {
             number = 15, 
             name = "After Landing", 

@@ -2066,7 +2066,11 @@ local function weatherListHasPhenomenon(weatherList, targets)
 end
 
 function P.determineTakeoffFlapsSetting(totalweightkgs, deprwylen, deprwyheading, elevation, metar, baseFlaps)
-    local STANDARD_TAKEOFF_FLAPS = toNumber(baseFlaps, 5)
+    local baseFlapsNum = toNumber(baseFlaps, 5)
+    if baseFlapsNum <= 0 then
+        baseFlapsNum = 5
+    end
+    local STANDARD_TAKEOFF_FLAPS = baseFlapsNum
     local TAKEOFF_WEIGHT_THRESHOLD_HIGH = 65000
     local TAKEOFF_WEIGHT_THRESHOLD_VERY_HIGH = 70000
 
