@@ -52,10 +52,8 @@ setup_datapanel = contextWindow {
 local oneSecTimer = sasl.createTimer()
 local waitstep = def.LONGWAIT
 
-helpers.initTailNum()
-
 function show_hide_setup()
-    if helpers.isZibo then
+    if helpers.isZibo() then
         setup_datapanel:setIsVisible(not setup_datapanel:isVisible())
     else
         sasl.logInfo("Setup window is only available for Zibo Mod. Current aircraft is not Zibo.")
@@ -66,7 +64,7 @@ setup_datapanel:setIsVisible(false)
 
 menu_settings = sasl.appendMenuItem(yal.menu_main, "Settings", show_hide_setup)
 
-if helpers.isZibo then
+if helpers.isZibo() then
     sasl.logInfo("Zibo Mod detected on initial plugin load")
     yal.enableMenus(def.ON)
     sasl.enableMenuItem(yal.menu_main , menu_settings , def.ON)
@@ -83,10 +81,8 @@ end
 
 function onAirportLoaded(flightNumber)
     sasl.logInfo(string.format("Airport loaded: Flight #%s, Aircraft: %s", flightNumber, sasl.getAircraft()))
-    
-    helpers.initTailNum()
 
-    if helpers.isZibo then
+    if helpers.isZibo() then
         sasl.logInfo("Zibo Mod detected after airport load.")
         yal.enableMenus(def.ON)  
         sasl.enableMenuItem(yal.menu_main , menu_settings , def.ON)
@@ -103,7 +99,7 @@ function onAirportLoaded(flightNumber)
 end
 
 function update()
-    if helpers.isZibo then
+    if helpers.isZibo() then
         local current_elapsed_time = sasl.getElapsedSeconds(oneSecTimer)
 
         if current_elapsed_time >= waitstep then
