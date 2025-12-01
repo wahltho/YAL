@@ -468,6 +468,27 @@ function M.fillProcedureTable()
                     end,
                     advice = "Activate Flight Plan in F M C",
                     confirm = "Flight Plan in F M C Checked Activated",
+                    nextStep = 'check_departure_airport_match'
+                },
+                ['check_departure_airport_match'] = {
+                    runActionInAdviceMode = true,
+                    action = function()
+                        local depIcao = get(P.depicao)
+                        local nearestIcao = get(P.nearesticao)
+                        if helpers.isvalidicao(depIcao) and helpers.isvalidicao(nearestIcao) then
+                            if depIcao ~= nearestIcao then
+                                P.commandtableentry(def.TEXT, "Nearest airport " .. helpers.addspaces(nearestIcao) .. " differs from departure " .. helpers.addspaces(depIcao))
+                            end
+                        end
+                    end,
+                    confirm = function()
+                        local depIcao = get(P.depicao)
+                        local nearestIcao = get(P.nearesticao)
+                        if helpers.isvalidicao(depIcao) and helpers.isvalidicao(nearestIcao) and depIcao == nearestIcao then
+                            return "Nearest airport matches departure " .. helpers.addspaces(depIcao)
+                        end
+                        return "Departure airport check noted"
+                    end,
                     nextStep = 'check_fmc_route_continuity'
                 },
                 ['check_fmc_route_continuity'] = {
