@@ -4912,9 +4912,16 @@ function P.ongoingtasks()
             P.routeEndsEarlyWarned = false
         end
 
-        if ((P.flightstate == def.FLIGHTSTATECRUISE) and (get(P.fmsflightphase) == def.FMSPHASECRUISE) and (get(P.mcpaltitude) >= get(P.fmccruisealt)) and (get(P.vnavtoddist) < 20) and not suppressDiscoWarnings) then
-            P.commandtableentry(def.TEXT, "Approaching Top of Descent, Reset M C P Altitude")
-            P.ongoingtaskstepindex = P.ongoingtaskstepindex - 1
+        if (P.flightstate == def.FLIGHTSTATECRUISE) and (get(P.fmsflightphase) == def.FMSPHASECRUISE) and not suppressDiscoWarnings then
+            local fmcCruiseAlt = get(P.fmccruisealt) or 0
+            local mcpAlt = get(P.mcpaltitude) or 0
+            -- FMC Cruise kann "ungerade" sein (z.B. 39100); MCP ist in 100-ft-Schritten.
+            local fmcCruiseRounded = helpers.roundnumber(fmcCruiseAlt / 100, 0) * 100
+            local withinTolerance = (mcpAlt >= (fmcCruiseRounded - 100))
+            if withinTolerance and (get(P.vnavtoddist) < 20) then
+                P.commandtableentry(def.TEXT, "Approaching Top of Descent, Reset M C P Altitude")
+                P.ongoingtaskstepindex = P.ongoingtaskstepindex - 1
+            end
         end
     end
 
