@@ -472,12 +472,15 @@ function M.fillProcedureTable()
                 },
                 ['check_departure_airport_match'] = {
                     runActionInAdviceMode = true,
-                    action = function()
+                    action = function(loop)
                         local depIcao = get(P.depicao)
                         local nearestIcao = get(P.nearesticao)
                         if helpers.isvalidicao(depIcao) and helpers.isvalidicao(nearestIcao) then
                             if depIcao ~= nearestIcao then
-                                P.commandtableentry(def.TEXT, "Nearest airport " .. helpers.addspaces(nearestIcao) .. " differs from departure " .. helpers.addspaces(depIcao))
+                                if not (loop and loop.nearestAirportWarned) then
+                                    P.commandtableentry(def.TEXT, "Nearest airport " .. helpers.addspaces(nearestIcao) .. " differs from departure " .. helpers.addspaces(depIcao))
+                                    if loop then loop.nearestAirportWarned = true end
+                                end
                             end
                         end
                     end,

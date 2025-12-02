@@ -250,14 +250,40 @@ local function complex_check(P)
         end
     end
     
-    -- Landing Lights (multi-variable check)
-    if ((get(P.llightson) ~= P.llightsontemp) or (get(P.llights1) ~= P.llights1temp) or (get(P.llights2) ~= P.llights2temp) or (get(P.llights3) ~= P.llights3temp) or (get(P.llights4) ~= P.llights4temp)) then
-        if (get(P.llightson)==def.OFF and get(P.llights1)==def.OFF and get(P.llights2)==def.OFF and get(P.llights3)==def.OFF and get(P.llights4)==def.OFF) then
-            P.commandtableentry(def.TEXT, "Landing Lights Off")
-        elseif (P.llightsontemp==def.OFF and P.llights1temp==def.OFF and P.llights2temp==def.OFF and P.llights3temp==def.OFF and P.llights4temp==def.OFF) then
-            P.commandtableentry(def.TEXT, "Landing Lights On")
+    -- Landing Lights (variant-aware check)
+    local ledVariant = (get(P.ledlightsvariant) == def.ON)
+    local current1 = get(P.llights1)
+    local current2 = get(P.llights2)
+    local current3 = get(P.llights3)
+    local current4 = get(P.llights4)
+
+    local temp1 = P.llights1temp
+    local temp2 = P.llights2temp
+    local temp3 = P.llights3temp
+    local temp4 = P.llights4temp
+
+    local changed = (current1 ~= temp1) or (current2 ~= temp2) or (current3 ~= temp3) or (current4 ~= temp4)
+    if changed then
+        if ledVariant then
+            -- LED: nur 1 und 4 relevant
+            if (current1 == def.OFF and current4 == def.OFF) then
+                P.commandtableentry(def.TEXT, "Landing Lights Off")
+            elseif (temp1 == def.OFF and temp4 == def.OFF) and (current1 ~= def.OFF and current4 ~= def.OFF) then
+                P.commandtableentry(def.TEXT, "Landing Lights On")
+            end
+        else
+            -- Halogen: alle vier relevant
+            if (current1 == def.OFF and current2 == def.OFF and current3 == def.OFF and current4 == def.OFF) then
+                P.commandtableentry(def.TEXT, "Landing Lights Off")
+            elseif (temp1 == def.OFF and temp2 == def.OFF and temp3 == def.OFF and temp4 == def.OFF)
+                and (current1 ~= def.OFF and current2 ~= def.OFF and current3 ~= def.OFF and current4 ~= def.OFF) then
+                P.commandtableentry(def.TEXT, "Landing Lights On")
+            end
         end
-        P.llightsontemp=get(P.llightson);P.llights1temp=get(P.llights1);P.llights2temp=get(P.llights2);P.llights3temp=get(P.llights3);P.llights4temp=get(P.llights4)
+        P.llights1temp = current1
+        P.llights2temp = current2
+        P.llights3temp = current3
+        P.llights4temp = current4
     end
     
     -- Reversers Check (state transition)
@@ -422,7 +448,7 @@ function VR.initialize(P)
     P.barostdtemp = get(P.barostd); P.baropilottemp = get(P.baropilot); P.baropilottemp2 = get(P.baropilot)
 
     -- Lights
-    P.llightsontemp = get(P.llightson); P.llights1temp = get(P.llights1); P.llights2temp = get(P.llights2); P.llights3temp = get(P.llights3); P.llights4temp = get(P.llights4)
+    P.llights1temp = get(P.llights1); P.llights2temp = get(P.llights2); P.llights3temp = get(P.llights3); P.llights4temp = get(P.llights4)
 
     -- Systems
     P.reverser1postemp = get(P.reverser1pos); P.reverser2postemp = get(P.reverser2pos)

@@ -482,7 +482,6 @@ function P.initDataref()
     P.cabinlandingalt = globalProperty("laminar/B738/pressurization/knobs/landing_alt")
     P.missedappalt = globalProperty("laminar/B738/fms/missed_app_alt")
 
-    P.llightson = globalProperty("sim/cockpit/electrical/landing_lights_on")
     P.llights1 = globalPropertyfae("sim/cockpit2/switches/landing_lights_switch", 1)
     P.llights2 = globalPropertyfae("sim/cockpit2/switches/landing_lights_switch", 2)
     P.llights3 = globalPropertyfae("sim/cockpit2/switches/landing_lights_switch", 3)
@@ -3918,7 +3917,7 @@ function P.duringclimb()
     end
 
     local departure_icao = get(P.depicao)
-    local departure_altitude = nil
+    local departure_altitude = 0
     if P.airportdatatable[departure_icao] and P.airportdatatable[departure_icao].elevation_ft then
         departure_altitude = P.airportdatatable[departure_icao].elevation_ft
     end
