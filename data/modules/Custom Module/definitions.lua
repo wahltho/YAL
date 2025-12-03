@@ -392,6 +392,9 @@ P.B737VARIANT_8200 = 7
 P.B737VARIANT_P8 = 8
 P.B737VARIANT_8200_BCM = 9
 
+-- Landing light thresholds (LED off-state tolerance)
+P.LEDLLIGHTSOFF = 0.19
+
 -- UI-bezogene Konstanten
 P.closeXHeight = 25
 P.closeXWidth = P.closeXHeight

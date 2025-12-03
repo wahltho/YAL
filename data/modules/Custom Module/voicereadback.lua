@@ -252,6 +252,7 @@ local function complex_check(P)
     
     -- Landing Lights (variant-aware check)
     local ledVariant = (get(P.ledlightsvariant) == def.ON)
+    local threshold = def.LEDLLIGHTSOFF or 0
     local current1 = get(P.llights1)
     local current2 = get(P.llights2)
     local current3 = get(P.llights3)
@@ -266,9 +267,9 @@ local function complex_check(P)
     if changed then
         if ledVariant then
             -- LED: nur 1 und 4 relevant
-            if (current1 == def.OFF and current4 == def.OFF) then
+            if (current1 <= threshold and current4 <= threshold) then
                 P.commandtableentry(def.TEXT, "Landing Lights Off")
-            elseif (temp1 == def.OFF and temp4 == def.OFF) and (current1 ~= def.OFF and current4 ~= def.OFF) then
+            elseif (temp1 <= threshold and temp4 <= threshold) and (current1 > threshold and current4 > threshold) then
                 P.commandtableentry(def.TEXT, "Landing Lights On")
             end
         else

@@ -2321,11 +2321,12 @@ sasl.registerCommandHandler(my_command_togglecollisionlights, 0, P.togglecollisi
 --------------------------------------------------------------------------------------------------------------
 function P.togglelandinglights(state)
     local ledVariant = (get(P.ledlightsvariant) == def.ON)
+    local ledOffThreshold = def.LEDLLIGHTSOFF or 0
 
     if state == nil then
         local anyOn = false
         if ledVariant then
-            anyOn = (get(P.llights1) ~= def.OFF) or (get(P.llights4) ~= def.OFF)
+            anyOn = (get(P.llights1) > ledOffThreshold) or (get(P.llights4) > ledOffThreshold)
         else
             anyOn = (get(P.llights1) ~= def.OFF) or (get(P.llights2) ~= def.OFF) or
                     (get(P.llights3) ~= def.OFF) or (get(P.llights4) ~= def.OFF)
@@ -5497,7 +5498,7 @@ function P.do_yal()
         P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
         next_recommended_wait_step = def.STANDARDWAIT
     end
-
+    
     sasl.logDebug("----------------------------------------------")
     sasl.logDebug("ONGOINGTASKSTEPINDEX: " .. P.ongoingtaskstepindex)
 
