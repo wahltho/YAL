@@ -638,10 +638,8 @@ function M.fillProcedureTable()
                         local ledVariant = (get(P.ledlightsvariant) == def.ON)
                         local thr = def.LEDLLIGHTSOFF or 0
                         if ledVariant then
-                            sasl.logInfo(string.format("LandingLightsOff LED: l1=%.2f l4=%.2f thr=%.2f variant=%s", get(P.llights1), get(P.llights4), thr, tostring(ledVariant)))
                             return (get(P.llights1) <= thr) and (get(P.llights4) <= thr)
                         else
-                            sasl.logInfo(string.format("LandingLightsOff HALO: l1=%.2f l2=%.2f l3=%.2f l4=%.2f", get(P.llights1), get(P.llights2), get(P.llights3), get(P.llights4)))
                             return (get(P.llights1) == def.OFF)
                                 and (get(P.llights2) == def.OFF)
                                 and (get(P.llights3) == def.OFF)
@@ -1487,11 +1485,9 @@ function M.fillProcedureTable()
                         local ledVariant = (get(P.ledlightsvariant) == def.ON)
                         local thr = def.LEDLLIGHTSOFF or 0
                         if ledVariant then
-                            sasl.logInfo(string.format("LandingLightsOn LED (Before Takeoff): l1=%.2f l4=%.2f thr=%.2f variant=%s", get(P.llights1), get(P.llights4), thr, tostring(ledVariant)))
                             return (get(P.llights1) > thr)
                                 and (get(P.llights4) > thr)
                         else
-                            sasl.logInfo(string.format("LandingLightsOn HALO (Before Takeoff): l1=%.2f l2=%.2f l3=%.2f l4=%.2f", get(P.llights1), get(P.llights2), get(P.llights3), get(P.llights4)))
                             return  (get(P.llights1) ~= def.OFF)
                                 and (get(P.llights2) ~= def.OFF)
                                 and (get(P.llights3) ~= def.OFF)
@@ -1903,10 +1899,8 @@ function M.fillProcedureTable()
                         local ledVariant = (get(P.ledlightsvariant) == def.ON)
                         local thr = def.LEDLLIGHTSOFF or 0
                         if ledVariant then
-                            sasl.logInfo(string.format("LandingLightsOff LED: l1=%.2f l4=%.2f thr=%.2f variant=%s", get(P.llights1), get(P.llights4), thr, tostring(ledVariant)))
                             return (get(P.llights1) <= thr) and (get(P.llights4) <= thr)
                         else
-                            sasl.logInfo(string.format("LandingLightsOff HALO: l1=%.2f l2=%.2f l3=%.2f l4=%.2f", get(P.llights1), get(P.llights2), get(P.llights3), get(P.llights4)))
                             return (get(P.llights1) == def.OFF)
                                 and (get(P.llights2) == def.OFF)
                                 and (get(P.llights3) == def.OFF)
@@ -2772,10 +2766,8 @@ function M.fillProcedureTable()
                         local ledVariant = (get(P.ledlightsvariant) == def.ON)
                         local thr = def.LEDLLIGHTSOFF or 0
                         if ledVariant then
-                            sasl.logInfo(string.format("LandingLightsOff LED: l1=%.2f l4=%.2f thr=%.2f variant=%s", get(P.llights1), get(P.llights4), thr, tostring(ledVariant)))
                             return (get(P.llights1) <= thr) and (get(P.llights4) <= thr)
                         else
-                            sasl.logInfo(string.format("LandingLightsOff HALO: l1=%.2f l2=%.2f l3=%.2f l4=%.2f", get(P.llights1), get(P.llights2), get(P.llights3), get(P.llights4)))
                             return (get(P.llights1) == def.OFF)
                                 and (get(P.llights2) == def.OFF)
                                 and (get(P.llights3) == def.OFF)
