@@ -2511,41 +2511,45 @@ end
 --------------------------------------------------------------------------------------------------------------
 function P.buildlegstable(legs_string, lat_array, lon_array)
     local waypoints = {}
-    local leg_names = {}
-    local seenWaypoints = {}
+    if type(legs_string) ~= "string" or not lat_array or not lon_array then
+        return waypoints
+    end
 
+    local leg_names = {}
     for word in string.gmatch(legs_string, "([^%s]+)") do
         table.insert(leg_names, word)
     end
 
+    local skip_ids = {
+        ["DISCONTINUITY"] = true,
+        ["(INTC)"] = true,
+        ["(HOLD)"] = true,
+        ["HOLD"] = true,
+        [""] = true
+    }
+
     local max_count = math.min(#lat_array, #leg_names)
+    local last_lat, last_lon = nil, nil
 
     for i = 1, max_count do
         local lat = lat_array[i]
         local lon = lon_array[i]
-        local leg_name = leg_names[i]
+        local leg_name = leg_names[i] or ""
 
-        if lat ~= 0 or lon ~= 0 then
-            if leg_name ~= "(INTC)" and leg_name ~= "DISCONTINUITY" and not leg_name:match("^%b()") then
-                local identifier = string.format("%.4f_%.4f", lat, lon)
-                if not seenWaypoints[identifier] then
-                    local waypoint = {
-                        name = leg_name,
-                        latitude = lat,
-                        longitude = lon,
-                        distance_to_next = 0,
-                        true_course = 0,
-                        magnetic_course = 0
-                    }
-                    table.insert(waypoints, waypoint)
-                    seenWaypoints[identifier] = true
-                end
-            end
-        else
-            break
+        if not skip_ids[leg_name] and not (lat == 0 and lon == 0) then
+            local waypoint = {
+                name = leg_name,
+                latitude = lat,
+                longitude = lon,
+                distance_to_next = 0,
+                true_course = 0,
+                magnetic_course = 0
+            }
+            table.insert(waypoints, waypoint)
+            last_lat, last_lon = lat, lon
         end
     end
-    
+
     if #waypoints > 1 then
         for i = 1, #waypoints - 1 do
             local wp1 = waypoints[i]
