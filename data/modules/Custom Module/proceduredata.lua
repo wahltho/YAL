@@ -2405,8 +2405,56 @@ function M.fillProcedureTable()
             transitionConditions = {
                 { condition = function() return get(P.airgroundsensor) == def.ON end }
             }, 
-            startStep = 'arm_speedbrakes',
+            startStep = 'check_mcp_speed_vapp',
             steps = {
+                ['check_mcp_speed_vapp'] = {
+                    check = function(loop)
+                        local vref = loop and loop.appvrefcalc or get(P.vref) or 0
+                        local windcorr = (loop and loop.appwindcorr) or get(P.vrefapproachwindcorr) or 0
+                        local target = tonumber(vref) or 0
+                        target = target + (tonumber(windcorr) or 0)
+                        if target <= 0 then return true end -- nichts bekannt, weiter
+
+                        local mcp = get(P.mcpspeed) or 0
+                        local tol = 5 -- kts oberhalb VAPP
+                        if mcp <= 0 then return false end
+
+                        -- bereits im Fenster?
+                        if mcp >= target and mcp <= (target + tol) then
+                            return true
+                        end
+
+                        -- Auto-Mode: einmalig setzen
+                        if P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON then
+                            set(P.mcpspeed, target)
+                            return true
+                        end
+
+                        return false
+                    end,
+                    advice = function(loop)
+                        local vref = loop and loop.appvrefcalc or get(P.vref) or 0
+                        local windcorr = (loop and loop.appwindcorr) or get(P.vrefapproachwindcorr) or 0
+                        local target = tonumber(vref) or 0
+                        target = target + (tonumber(windcorr) or 0)
+                        if target <= 0 then return "Check M C P Speed" end
+                        return "Set M C P Speed " .. helpers.addspaces(helpers.roundnumber(target))
+                    end,
+                    confirm = function(loop)
+                        local vref = loop and loop.appvrefcalc or get(P.vref) or 0
+                        local windcorr = (loop and loop.appwindcorr) or get(P.vrefapproachwindcorr) or 0
+                        local target = tonumber(vref) or 0
+                        target = target + (tonumber(windcorr) or 0)
+                        if target <= 0 then return "M C P Speed check skipped" end
+                        local mcp = get(P.mcpspeed) or 0
+                        local tol = 5
+                        if mcp >= target and mcp <= (target + tol) then
+                            return "M C P Speed checked " .. helpers.addspaces(helpers.roundnumber(target))
+                        end
+                        return false
+                    end,
+                    nextStep = 'arm_speedbrakes'
+                },
                 ['arm_speedbrakes'] = {
                     check = function() return helpers.roundnumber(get(P.speedbrakelever), 1) == def.SPEEDBRAKEARMED end,
                     advice = "Arm Speed Brakes",

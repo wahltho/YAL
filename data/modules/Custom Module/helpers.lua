@@ -4188,4 +4188,210 @@ function P.selectZiboThrustRating(variant, n1mode)
     end
 end
 
+--------------------------------------------------------------------------------------------------------------
+-- Fuel prediction helpers (per-engine flows in lbs/hr unless noted)
+
+local function rescale(x1, y1, x2, y2, x)
+    if x2 == x1 then return y1 end
+    local t = (x - x1) / (x2 - x1)
+    if t < 0 then t = 0 elseif t > 1 then t = 1 end
+    return y1 + t * (y2 - y1)
+end
+
+local function mach_to_tas(mach, alt_ft, isa_dev_c)
+    isa_dev_c = isa_dev_c or 0
+    local oat = (15 + isa_dev_c) - (alt_ft * 0.002)
+    if oat <= -273.15 then return 100 end
+    return mach * 39 * math.sqrt(oat + 273.15)
+end
+
+local function tas_to_mach(tas_kt, alt_ft, isa_dev_c)
+    isa_dev_c = isa_dev_c or 0
+    local oat = (15 + isa_dev_c) - (alt_ft * 0.002)
+    if oat <= -273.15 then return 0.82 end
+    return tas_kt / (39 * math.sqrt(oat + 273.15))
+end
+
+local function ias_to_tas(ias_kt, alt_ft)
+    local dens_corr = 1 + 0.02 * ((alt_ft or 0) / 10000)
+    return (ias_kt or 0) * dens_corr
+end
+
+local function clb_ff(alt_ft)
+    local a = alt_ft or 0
+    local ff
+    if a <= 5000 then ff = 6800
+    elseif a < 10000 then ff = rescale(5000, 6800, 10000, 5960, a)
+    elseif a < 15000 then ff = rescale(10000, 5960, 15000, 5380, a)
+    elseif a < 20000 then ff = rescale(15000, 5380, 20000, 4840, a)
+    elseif a < 25000 then ff = rescale(20000, 4840, 25000, 4320, a)
+    elseif a < 30000 then ff = rescale(25000, 4320, 30000, 3840, a)
+    elseif a < 35000 then ff = rescale(30000, 3840, 35000, 3260, a)
+    else                 ff = rescale(35000, 3260, 40000, 2640, a)
+    end
+    return ff * 1.15
+end
+
+local function crz_ff(alt_ft, spd)
+    local a = math.min(alt_ft or 0, 41000)
+    local ff, ff2
+    if spd < 100 then
+        a = math.max(a, 25000)
+        if a <= 25000 then
+            if spd < 0.60 then ff = 2220
+            elseif spd < 0.70 then ff = rescale(0.60, 2220, 0.70, 2800, spd)
+            elseif spd < 0.80 then ff = rescale(0.70, 2800, 0.80, 3600, spd)
+            else               ff = rescale(0.80, 3600, 0.82, 3820, spd)
+            end
+        elseif a < 30000 then
+            if spd < 0.60 then ff = 2080
+            elseif spd < 0.70 then ff = rescale(0.60, 2080, 0.70, 3600, spd)
+            elseif spd < 0.80 then ff = rescale(0.70, 3600, 0.80, 3040, spd)
+            else               ff = rescale(0.80, 3040, 0.82, 3220, spd)
+            end
+            if spd < 0.60 then ff2 = 2220
+            elseif spd < 0.70 then ff2 = rescale(0.60, 2220, 0.70, 2800, spd)
+            elseif spd < 0.80 then ff2 = rescale(0.70, 2800, 0.80, 3600, spd)
+            else               ff2 = rescale(0.80, 3600, 0.82, 3820, spd)
+            end
+            ff = rescale(25000, ff2, 30000, ff, a)
+        elseif a < 35000 then
+            if spd < 0.60 then ff = 1960
+            elseif spd < 0.70 then ff = rescale(0.60, 1960, 0.70, 2120, spd)
+            elseif spd < 0.80 then ff = rescale(0.70, 2120, 0.80, 2620, spd)
+            else               ff = rescale(0.80, 2620, 0.82, 2840, spd)
+            end
+            if spd < 0.60 then ff2 = 2080
+            elseif spd < 0.70 then ff2 = rescale(0.60, 2080, 0.70, 3600, spd)
+            elseif spd < 0.80 then ff2 = rescale(0.70, 3600, 0.80, 3040, spd)
+            else               ff2 = rescale(0.80, 3040, 0.82, 3220, spd)
+            end
+            ff = rescale(30000, ff2, 35000, ff, a)
+        else
+            if spd < 0.60 then ff = 1960
+            elseif spd < 0.70 then ff = rescale(0.60, 1960, 0.70, 2010, spd)
+            elseif spd < 0.80 then ff = rescale(0.70, 2010, 0.80, 2440, spd)
+            else               ff = rescale(0.80, 2440, 0.82, 2620, spd)
+            end
+            if spd < 0.60 then ff2 = 1960
+            elseif spd < 0.70 then ff2 = rescale(0.60, 1960, 0.70, 2120, spd)
+            elseif spd < 0.80 then ff2 = rescale(0.70, 2120, 0.80, 2620, spd)
+            else               ff2 = rescale(0.80, 2620, 0.82, 2840, spd)
+            end
+            ff = rescale(35000, ff2, 41000, ff, a)
+        end
+    else
+        a = math.max(math.min(a, 30000), 10000)
+        if a <= 10000 then
+            if     spd < 180 then ff = 1500
+            elseif spd < 250 then ff = rescale(180, 1500, 250, 2100, spd)
+            elseif spd < 270 then ff = rescale(250, 2100, 270, 2400, spd)
+            elseif spd < 290 then ff = rescale(270, 2400, 290, 2720, spd)
+            elseif spd < 320 then ff = rescale(290, 2720, 320, 3280, spd)
+            else                 ff = rescale(320, 3280, 340, 3660, spd)
+            end
+        elseif a < 15000 then
+            if     spd < 250 then ff = 2060
+            elseif spd < 270 then ff = rescale(250, 2060, 270, 2360, spd)
+            elseif spd < 290 then ff = rescale(270, 2360, 290, 2680, spd)
+            elseif spd < 320 then ff = rescale(290, 2680, 320, 3240, spd)
+            else                 ff = rescale(320, 3240, 340, 3600, spd)
+            end
+            if     spd < 180 then ff2 = 1500
+            elseif spd < 250 then ff2 = rescale(180, 1500, 250, 2100, spd)
+            elseif spd < 270 then ff2 = rescale(250, 2100, 270, 2400, spd)
+            elseif spd < 290 then ff2 = rescale(270, 2400, 290, 2720, spd)
+            elseif spd < 320 then ff2 = rescale(290, 2720, 320, 3280, spd)
+            else                 ff2 = rescale(320, 3280, 340, 3660, spd)
+            end
+            ff = rescale(10000, ff2, 15000, ff, a)
+        elseif a < 20000 then
+            if     spd < 250 then ff = 2040
+            elseif spd < 270 then ff = rescale(250, 2040, 270, 2320, spd)
+            elseif spd < 290 then ff = rescale(270, 2320, 290, 2640, spd)
+            elseif spd < 320 then ff = rescale(290, 2640, 320, 3200, spd)
+            else                 ff = rescale(320, 3200, 340, 3600, spd)
+            end
+            if     spd < 250 then ff2 = 2060
+            elseif spd < 270 then ff2 = rescale(250, 2060, 270, 2360, spd)
+            elseif spd < 290 then ff2 = rescale(270, 2360, 290, 2680, spd)
+            elseif spd < 320 then ff2 = rescale(290, 2680, 320, 3240, spd)
+            else                 ff2 = rescale(320, 3240, 340, 3600, spd)
+            end
+            ff = rescale(15000, ff2, 20000, ff, a)
+        elseif a < 25000 then
+            if     spd < 250 then ff = 2000
+            elseif spd < 270 then ff = rescale(250, 2000, 270, 2300, spd)
+            elseif spd < 290 then ff = rescale(270, 2300, 290, 2640, spd)
+            elseif spd < 320 then ff = rescale(290, 2640, 320, 3200, spd)
+            else                 ff = rescale(320, 3200, 340, 3620, spd)
+            end
+            if     spd < 250 then ff2 = 2040
+            elseif spd < 270 then ff2 = rescale(250, 2040, 270, 2320, spd)
+            elseif spd < 290 then ff2 = rescale(270, 2320, 290, 2640, spd)
+            elseif spd < 320 then ff2 = rescale(290, 2640, 320, 3200, spd)
+            else                 ff2 = rescale(320, 3200, 340, 3600, spd)
+            end
+            ff = rescale(20000, ff2, 25000, ff, a)
+        else
+            if     spd < 250 then ff = 1960
+            elseif spd < 270 then ff = rescale(250, 1960, 270, 2280, spd)
+            elseif spd < 290 then ff = rescale(270, 2280, 290, 2640, spd)
+            elseif spd < 320 then ff = rescale(290, 2640, 320, 3280, spd)
+            else                 ff = rescale(320, 3280, 340, 3280, spd)
+            end
+            if     spd < 250 then ff2 = 2000
+            elseif spd < 270 then ff2 = rescale(250, 2000, 270, 2300, spd)
+            elseif spd < 290 then ff2 = rescale(270, 2300, 290, 2640, spd)
+            elseif spd < 320 then ff2 = rescale(290, 2640, 320, 3200, spd)
+            else                 ff2 = rescale(320, 3200, 340, 3620, spd)
+            end
+            ff = rescale(25000, ff2, 41000, ff, a)
+        end
+    end
+    return ff * 1.02
+end
+
+local function calc_fuel_flow(phase, alt_from_ft, alt_to_ft, leg_speed, wc_speed, isa_dev_c)
+    local tas_kt
+    if (leg_speed or 0) == 0 then
+        tas_kt = 160 + (wc_speed or 0)
+    elseif leg_speed < 100 then
+        tas_kt = mach_to_tas(leg_speed, alt_to_ft, isa_dev_c) + (wc_speed or 0)
+    else
+        tas_kt = ias_to_tas(leg_speed, alt_to_ft) + (wc_speed or 0)
+    end
+    local per_eng
+    if phase == 0 or phase == 1 then
+        per_eng = clb_ff(alt_to_ft)
+    else
+        local spd_mach = (leg_speed < 100) and leg_speed or tas_to_mach(tas_kt, alt_to_ft, isa_dev_c)
+        per_eng = crz_ff(alt_to_ft, spd_mach)
+    end
+    return per_eng * 2
+end
+
+function P.estimateFuelForLeg(dist_nm, tas_kt, alt_ft, leg_speed, wc_speed, isa_dev_c, phase)
+    if not dist_nm or not tas_kt or tas_kt <= 0 then return 0 end
+    local ff_total = calc_fuel_flow(phase or 1, alt_ft or 0, alt_ft or 0, leg_speed or tas_kt, wc_speed or 0, isa_dev_c)
+    local time_hr = dist_nm / tas_kt
+    return ff_total * time_hr
+end
+
+function P.estimateFuelFlow(phase, alt_from_ft, alt_to_ft, leg_speed, wc_speed, isa_dev_c)
+    return calc_fuel_flow(phase or 1, alt_from_ft or 0, alt_to_ft or alt_from_ft or 0, leg_speed or 0, wc_speed or 0, isa_dev_c or 0)
+end
+
+function P.atmoMachToTas(mach, alt_ft, isa_dev_c)
+    return mach_to_tas(mach, alt_ft or 0, isa_dev_c or 0)
+end
+
+function P.atmoTasToMach(tas_kt, alt_ft, isa_dev_c)
+    return tas_to_mach(tas_kt or 0, alt_ft or 0, isa_dev_c or 0)
+end
+
+function P.atmoIasToTas(ias_kt, alt_ft)
+    return ias_to_tas(ias_kt or 0, alt_ft or 0)
+end
+
 return helpers

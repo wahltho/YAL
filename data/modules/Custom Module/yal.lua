@@ -3,6 +3,7 @@ yal = P
 
 local def = require("definitions")
 require("settings")
+local PD = require("proceduredata")
 local VR = require("voicereadback")
 
 --------------------------------------------------------------------------------------------------------------
@@ -906,14 +907,13 @@ function P.initializeScript()
 
     P.YalinitGlobal()
 
-    P.initDataref()
-
-    P.readconfig()
-
-    local PD = require("proceduredata")
     PD.fillProcedureTable()
 
     P.buildProcedureLabelMaps()
+
+    P.initDataref()
+
+    P.readconfig()
 
     helpers.buildnavdatatable(P.navdatatable)
     helpers.buildairportdatatable(P.airportdatatable)
@@ -944,12 +944,10 @@ function P.yalresetForNewFlight()
 
     P.YalinitGlobal()
 
-    P.initDataref()
-    P.readconfig()
-
-    local PD = require("proceduredata")
     PD.fillProcedureTable()
     P.buildProcedureLabelMaps()
+    P.initDataref()
+    P.readconfig()
 
     for _, proc in pairs(P.proceduretable) do
         proc.set = false
@@ -1013,12 +1011,10 @@ function P.yalreset()
 
     -- Setzt Speicher zurück, lädt dann Persistenz, liest Config
     P.YalinitGlobal()
-    P.initDataref() -- Lädt .set Flags, Loops und flightstate aus Datarefs
-    P.readconfig()
-
-    local PD = require("proceduredata")
     PD.fillProcedureTable()
     P.buildProcedureLabelMaps()
+    P.initDataref() -- Lädt .set Flags, Loops und flightstate aus Datarefs
+    P.readconfig()
 
     -- Versucht, .set Flags basierend auf dem Flugzeugzustand zu aktualisieren
     P.syncProceduresOnLoad()
