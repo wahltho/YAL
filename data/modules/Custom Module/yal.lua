@@ -726,6 +726,7 @@ function P.resetLoopState(loopTable)
 
     local cleanTemplate = P.procedurelooptemplate -- Use the master template
 
+    loopTable.lock = cleanTemplate.lock                  -- Setzt auf NOPROCEDURE
     loopTable.stepindex = cleanTemplate.stepindex          -- Setzt auf 0
     loopTable.steprepeat = cleanTemplate.steprepeat        -- Setzt auf false
     loopTable.procedureabort = cleanTemplate.procedureabort    -- Setzt auf false
@@ -905,15 +906,14 @@ function P.initializeScript()
 
     P.YalinitGlobal()
 
-    local PD = require("proceduredata")
-
-    PD.fillProcedureTable()
-
-    P.buildProcedureLabelMaps()
-
     P.initDataref()
 
     P.readconfig()
+
+    local PD = require("proceduredata")
+    PD.fillProcedureTable()
+
+    P.buildProcedureLabelMaps()
 
     helpers.buildnavdatatable(P.navdatatable)
     helpers.buildairportdatatable(P.airportdatatable)
@@ -944,8 +944,24 @@ function P.yalresetForNewFlight()
 
     P.YalinitGlobal()
 
+    P.initDataref()
+    P.readconfig()
+
+    local PD = require("proceduredata")
+    PD.fillProcedureTable()
+    P.buildProcedureLabelMaps()
+
+    for _, proc in pairs(P.proceduretable) do
+        proc.set = false
+    end
+
     if get(P.battery) == def.ON or (P.apurunning() == def.APUONBUS) or (get(P.gpuon) == def.ON) then
         P.proceduretable[def.COLDANDDARKPROCEDURE].set = true
+    end
+
+    for idx, loop in ipairs(P.loopStateTables) do
+        P.resetLoopState(loop)
+        P.saveLoopState(loop, idx)
     end
 
     local statusArray = {}
@@ -957,13 +973,6 @@ function P.yalresetForNewFlight()
         end
     end
     set( P.ProcSetStatusarraydr, statusArray)
-
-    sasl.logDebug("Saving reset loop states to datarefs...")
-    for i = 1, #P.loopStateTables do
-        P.saveLoopState(P.loopStateTables[i], i)
-    end
-
-    P.readconfig()
 
     helpers.buildnavdatatable(P.navdatatable)
     helpers.buildairportdatatable(P.airportdatatable)
@@ -1006,6 +1015,10 @@ function P.yalreset()
     P.YalinitGlobal()
     P.initDataref() -- Lädt .set Flags, Loops und flightstate aus Datarefs
     P.readconfig()
+
+    local PD = require("proceduredata")
+    PD.fillProcedureTable()
+    P.buildProcedureLabelMaps()
 
     -- Versucht, .set Flags basierend auf dem Flugzeugzustand zu aktualisieren
     P.syncProceduresOnLoad()
