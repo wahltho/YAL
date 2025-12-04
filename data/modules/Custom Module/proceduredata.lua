@@ -2405,8 +2405,43 @@ function M.fillProcedureTable()
             transitionConditions = {
                 { condition = function() return get(P.airgroundsensor) == def.ON end }
             }, 
-            startStep = 'check_mcp_speed_vapp',
+            startStep = 'arm_speedbrakes',
             steps = {
+                ['arm_speedbrakes'] = {
+                    check = function() return helpers.roundnumber(get(P.speedbrakelever), 1) == def.SPEEDBRAKEARMED end,
+                    advice = "Arm Speed Brakes",
+                    action = function() set(P.speedbrakelever, def.SPEEDBRAKEARMED) end,
+                    confirm = "Speedbrakes checked Armed",
+                    nextStep = 'set_taxi_lights_on'
+                },
+                ['set_taxi_lights_on'] = {
+                    check = function() return get(P.taxilight) ~= def.OFF end,
+                    advice = "Set Taxi Lights On",
+                    action = function() P.toggletaxilights(def.ON) end,
+                    confirm = "Taxi Lights checked On",
+                    nextStep = 'set_rwy_lights_on'
+                },
+                ['set_rwy_lights_on'] = {
+                    check = function() return (get(P.rwylightl) ~= def.OFF) and (get(P.rwylightr) ~= def.OFF) end,
+                    advice = "Set Runway Turnoff Lights On",
+                    action = function() P.togglerwylights(def.ON) end,
+                    confirm = "Runway Turnoff Lights checked On",
+                    nextStep = 'set_gear_down'
+                },
+                ['set_gear_down'] = {
+                    check = function() return get(P.gearhandlepos) == def.GEARDOWN end,
+                    advice = "Set Gear Down",
+                    action = function() set(P.gearhandlepos, def.GEARDOWN) end,
+                    confirm = "Gear checked Down",
+                    nextStep = 'set_app_flaps'
+                },
+                ['set_app_flaps'] = {
+                    check = function() return (get(P.appflapsset) == def.ON) or (get(P.appflaps) == 0) end,
+                    advice = function() return "Set Flaps " .. tostring(get(P.appflaps)) end,
+                    action = function() helpers.command_once("laminar/B738/push_button/flaps_" .. tostring(get(P.appflaps))) end,
+                    confirm = function() return "Flaps checked and " .. tostring(get(P.appflaps)) end,
+                    nextStep = 'check_mcp_speed_vapp'
+                },
                 ['check_mcp_speed_vapp'] = {
                     check = function(loop)
                         local vref = loop and loop.appvrefcalc or get(P.vref) or 0
@@ -2419,12 +2454,10 @@ function M.fillProcedureTable()
                         local tol = 5 -- kts oberhalb VAPP
                         if mcp <= 0 then return false end
 
-                        -- bereits im Fenster?
                         if mcp >= target and mcp <= (target + tol) then
                             return true
                         end
 
-                        -- Auto-Mode: einmalig setzen
                         if P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON then
                             set(P.mcpspeed, target)
                             return true
@@ -2450,71 +2483,6 @@ function M.fillProcedureTable()
                         local tol = 5
                         if mcp >= target and mcp <= (target + tol) then
                             return "M C P Speed checked " .. helpers.addspaces(helpers.roundnumber(target))
-                        end
-                        return false
-                    end,
-                    nextStep = 'arm_speedbrakes'
-                },
-                ['arm_speedbrakes'] = {
-                    check = function() return helpers.roundnumber(get(P.speedbrakelever), 1) == def.SPEEDBRAKEARMED end,
-                    advice = "Arm Speed Brakes",
-                    action = function() set(P.speedbrakelever, def.SPEEDBRAKEARMED) end,
-                    confirm = "Speedbrakes checked Armed",
-                    nextStep = 'set_taxi_lights_on'
-                },
-                ['set_taxi_lights_on'] = {
-                    check = function() return get(P.taxilight) ~= def.OFF end,
-                    advice = "Set Taxi Lights On",
-                    action = function() P.toggletaxilights(def.ON) end,
-                    confirm = "Taxi Lights checked On",
-                    nextStep = 'set_rwy_lights_on'
-                },
-                ['set_rwy_lights_on'] = {
-                    check = function() return (get(P.rwylightl) ~= def.OFF) and (get(P.rwylightr) ~= def.OFF) end,
-                    advice = "Set Runway Turnoff Lights On",
-                    action = function() P.togglerwylights(def.ON) end,
-                    confirm = "Runway Turnoff Lights checked On",
-                    nextStep = 'set_mcp_altitude'
-                },
-                ['set_mcp_altitude'] = {
-                    check = function(loop)
-                        local missedappalttmp = helpers.roundnumber((get(P.missedappalt) / 100)) * 100
-                        if (missedappalttmp > 1000) then
-                            local current = get(P.mcpaltitude)
-                            return math.abs(current - missedappalttmp) <= 100
-                        else
-                            if loop and not loop.missedAppAltInvalidWarned then
-                                P.commandtableentry(def.TEXT, "Missed Approach Altitude missing or invalid")
-                                loop.missedAppAltInvalidWarned = true
-                            end
-                            return true
-                        end
-                    end,
-                    advice = function()
-                        local missedappalttmp = helpers.roundnumber((get(P.missedappalt) / 100)) * 100
-                        if (missedappalttmp > 1000) then
-                            return "Set M C P Altitude " .. helpers.addspaces(missedappalttmp)
-                        else
-                            return "Set Missed Approach Altitude"
-                        end
-                    end,
-                    action = function()
-                        local missedappalttmp = helpers.roundnumber((get(P.missedappalt) / 100)) * 100
-                        if (missedappalttmp > 1000) then
-                            set(P.mcpaltitude, missedappalttmp)
-                        end
-                    end,
-                    confirm = function(loop)
-                        local missedappalttmp = helpers.roundnumber((get(P.missedappalt) / 100)) * 100
-                        if (missedappalttmp > 1000) then
-                            local current = get(P.mcpaltitude)
-                            if math.abs(current - missedappalttmp) <= 100 then
-                                return "M C P Altitude checked and " .. helpers.addspaces(missedappalttmp)
-                            end
-                            return false
-                        end
-                        if loop and loop.missedAppAltInvalidWarned then
-                            return "Missed Approach Altitude invalid, step acknowledged"
                         end
                         return false
                     end,
@@ -2582,20 +2550,50 @@ function M.fillProcedureTable()
                         end
                         return false
                     end,
-                    nextStep = 'set_gear_down'
+                    nextStep = 'set_mcp_altitude'
                 },
-                ['set_gear_down'] = {
-                    check = function() return get(P.gearhandlepos) == def.GEARDOWN end,
-                    advice = "Set Gear Down",
-                    action = function() set(P.gearhandlepos, def.GEARDOWN) end,
-                    confirm = "Gear checked Down",
-                    nextStep = 'set_app_flaps'
-                },
-                ['set_app_flaps'] = {
-                    check = function() return (get(P.appflapsset) == def.ON) or (get(P.appflaps) == 0) end,
-                    advice = function() return "Set Flaps " .. tostring(get(P.appflaps)) end,
-                    action = function() helpers.command_once("laminar/B738/push_button/flaps_" .. tostring(get(P.appflaps))) end,
-                    confirm = function() return "Flaps checked and " .. tostring(get(P.appflaps)) end,
+                ['set_mcp_altitude'] = {
+                    check = function(loop)
+                        local missedappalttmp = helpers.roundnumber((get(P.missedappalt) / 100)) * 100
+                        if (missedappalttmp > 1000) then
+                            local current = get(P.mcpaltitude)
+                            return math.abs(current - missedappalttmp) <= 100
+                        else
+                            if loop and not loop.missedAppAltInvalidWarned then
+                                P.commandtableentry(def.TEXT, "Missed Approach Altitude missing or invalid")
+                                loop.missedAppAltInvalidWarned = true
+                            end
+                            return true
+                        end
+                    end,
+                    advice = function()
+                        local missedappalttmp = helpers.roundnumber((get(P.missedappalt) / 100)) * 100
+                        if (missedappalttmp > 1000) then
+                            return "Set M C P Altitude " .. helpers.addspaces(missedappalttmp)
+                        else
+                            return "Set Missed Approach Altitude"
+                        end
+                    end,
+                    action = function()
+                        local missedappalttmp = helpers.roundnumber((get(P.missedappalt) / 100)) * 100
+                        if (missedappalttmp > 1000) then
+                            set(P.mcpaltitude, missedappalttmp)
+                        end
+                    end,
+                    confirm = function(loop)
+                        local missedappalttmp = helpers.roundnumber((get(P.missedappalt) / 100)) * 100
+                        if (missedappalttmp > 1000) then
+                            local current = get(P.mcpaltitude)
+                            if math.abs(current - missedappalttmp) <= 100 then
+                                return "M C P Altitude checked and " .. helpers.addspaces(missedappalttmp)
+                            end
+                            return false
+                        end
+                        if loop and loop.missedAppAltInvalidWarned then
+                            return "Missed Approach Altitude invalid, step acknowledged"
+                        end
+                        return false
+                    end,
                     nextStep = 'announce_wind'
                 },
                 ['announce_wind'] = {
