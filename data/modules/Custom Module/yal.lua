@@ -727,7 +727,6 @@ function P.resetLoopState(loopTable)
 
     local cleanTemplate = P.procedurelooptemplate -- Use the master template
 
-    loopTable.lock = cleanTemplate.lock                  -- Setzt auf NOPROCEDURE
     loopTable.stepindex = cleanTemplate.stepindex          -- Setzt auf 0
     loopTable.steprepeat = cleanTemplate.steprepeat        -- Setzt auf false
     loopTable.procedureabort = cleanTemplate.procedureabort    -- Setzt auf false
@@ -949,6 +948,11 @@ function P.yalresetForNewFlight()
     P.initDataref()
     P.readconfig()
 
+    -- Reset locks explicitly for a new flight
+    P.procedureloop1.lock = def.NOPROCEDURE
+    P.procedureloop2.lock = def.NOPROCEDURE
+    P.procedureloop3.lock = def.NOPROCEDURE
+
     for _, proc in pairs(P.proceduretable) do
         proc.set = false
     end
@@ -1015,6 +1019,11 @@ function P.yalreset()
     P.buildProcedureLabelMaps()
     P.initDataref() -- Lädt .set Flags, Loops und flightstate aus Datarefs
     P.readconfig()
+
+    -- Set loop locks clean for a fresh start
+    P.procedureloop1.lock = def.NOPROCEDURE
+    P.procedureloop2.lock = def.NOPROCEDURE
+    P.procedureloop3.lock = def.NOPROCEDURE
 
     -- Versucht, .set Flags basierend auf dem Flugzeugzustand zu aktualisieren
     P.syncProceduresOnLoad()
