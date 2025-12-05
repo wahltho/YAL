@@ -110,13 +110,9 @@ P.isXp12 = (P.xpVersion >= 12000 and P.xpVersion < 13000)
 
 --------------------------------------------------------------------------------------------------------------
 function P.isZibo()
-    local isZibo = ((string.sub(get(acf_tailnum), 1, 5) == "ZB738") or (string.sub(get(acf_tailnum), 1, 4) == "B736") or (string.sub(get(acf_tailnum), 1, 4) == "B737")  or (string.sub(get(acf_tailnum), 1, 4) == "738") or (string.sub(get(acf_tailnum), 1, 4) == "B739"))
-    if isZibo then
-        sasl.logDebug("is zibo YES ->" .. string.sub(get(acf_tailnum), 1, 5) .. "<-") 
-    else 
-        sasl.logDebug("is zibo NO ->" .. string.sub(get(acf_tailnum), 1, 5) .. "<-")
-    end
-    return isZibo
+
+    return ((string.sub(get(acf_tailnum), 1, 5) == "ZB738") or (string.sub(get(acf_tailnum), 1, 4) == "B736") or (string.sub(get(acf_tailnum), 1, 4) == "B737")  or (string.sub(get(acf_tailnum), 1, 4) == "738") or (string.sub(get(acf_tailnum), 1, 4) == "B739"))
+
 end
 
 --------------------------------------------------------------------------------------------------------------

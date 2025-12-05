@@ -4427,13 +4427,17 @@ function P.ongoingtasks()
     end
 
     local groundspeed = get(P.groundspeed) or 0
-    local onDepartureRunway = P.aircraftonrwy and P.aircraftonrwy(def.DEPARTURE, 0.02, 25)
-    local onArrivalRunway = P.aircraftonrwy and P.aircraftonrwy(def.ARRIVAL, 0.02, 25)
-    if (get(P.airgroundsensor) == def.ON)
-        and (P.flightstate == def.FLIGHTSTATEPREFLIGHT or P.flightstate == def.FLIGHTSTATETAXITOGATE)
-        and (groundspeed > 45)
-        and not onDepartureRunway and not onArrivalRunway then
+    local onDepartureRunway = P.aircraftonrwy and P.aircraftonrwy(def.DEPARTURE, 0.0003, 20)
+    local onArrivalRunway = P.aircraftonrwy and P.aircraftonrwy(def.ARRIVAL, 0.0001, 20)
+    if (get(P.airgroundsensor) == def.ON) and (groundspeed > 45) then
+        -- Departure taxi: warn if fast while not yet on the departure runway.
+        if (P.flightstate == def.FLIGHTSTATEPREFLIGHT) and (not onDepartureRunway) then
             P.commandtableentry(def.TEXT, "Monitor Taxi Speed")
+        end
+        -- Arrival taxi: warn if fast after vacating/misaligned from the landing runway.
+        if (P.flightstate == def.FLIGHTSTATETAXITOGATE) and onArrivalRunway then
+            P.commandtableentry(def.TEXT, "Monitor Taxi Speed")
+        end
     end
 
     if ((P.procedureloop1.lock == def.NOPROCEDURE) and (get(P.airgroundsensor) == def.OFF) and (P.flightstate == def.FLIGHTSTATECLIMB)) then
