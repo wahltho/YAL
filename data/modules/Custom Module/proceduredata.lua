@@ -7,6 +7,26 @@ local function getNavEntryCourse(entry)
         return nil
     end
 
+    -- Prefer FMC-provided final-leg course when modded Zibo is enabled
+    if P and P.configvalues and P.configvalues[def.CONFIGZIBOISMODDED] == def.ON then
+        local magCourse = nil
+        if P.appcoursemag then
+            local val = get(P.appcoursemag)
+            if val and val ~= 0 then
+                magCourse = val
+            end
+        end
+        if not magCourse and P.appcoursetrue then
+            local val = get(P.appcoursetrue)
+            if val and val ~= 0 then
+                magCourse = val -- app_course_mag falls back to true internally; treat true as mag if that's all we have
+            end
+        end
+        if magCourse then
+            return helpers.calccourse(magCourse)
+        end
+    end
+
     local icao = entry[def.DESTICAO]
     local navType = entry[def.DESTNAVTYPE]
     local runway = entry[def.DESTRWY]
@@ -3801,6 +3821,26 @@ function M.fillProcedureTable()
                         local runwayFormatted = helpers.formatRunwayDesignator(runway)
                         local course = nil
 
+                        -- Prefer FMC-provided final-leg course when modded Zibo is enabled
+                        if P.configvalues and P.configvalues[def.CONFIGZIBOISMODDED] == def.ON then
+                            local magCourse = nil
+                            if P.appcoursemag then
+                                local val = get(P.appcoursemag)
+                                if val and val ~= 0 then
+                                    magCourse = val
+                                end
+                            end
+                            if not magCourse and P.appcoursetrue then
+                                local val = get(P.appcoursetrue)
+                                if val and val ~= 0 then
+                                    magCourse = val
+                                end
+                            end
+                            if magCourse then
+                                course = helpers.calccourse(magCourse)
+                            end
+                        end
+
                         -- Prefer detected CIFP approach course
                         if loop and loop.detectedApproach and loop.detectedApproach.entry and loop.detectedApproach.entry.course then
                             course = helpers.calccourse(loop.detectedApproach.entry.course)
@@ -3896,33 +3936,61 @@ function M.fillProcedureTable()
                         return not (loop.navdatatableindices and (#loop.navdatatableindices > 1))
                     end,
                     action = function(loop, procData)
+                        local function navRank(navtype)
+                            if navtype == def.NAVTYPEILS then return 1 end
+                            if navtype == def.NAVTYPEGLS then return 2 end
+                            if navtype == def.NAVTYPELPV then return 3 end
+                            if navtype == def.NAVTYPERNAV or navtype == def.NAVTYPELOC or navtype == def.NAVTYPELDA or navtype == def.NAVTYPEIGS then return 4 end
+                            return 99
+                        end
+
+                        local primary = P.navdatatable[loop.navdatatableindex]
+                        local primaryRank = primary and navRank(primary[def.DESTNAVTYPE]) or 99
+
+                        -- Collect alternates that are at least as high-ranked as the primary
+                        local candidates = {}
                         for idx = 2, #loop.navdatatableindices do
                             local navdata = P.navdatatable[loop.navdatatableindices[idx]]
                             if navdata then
-                                local navtype = navdata[def.DESTNAVTYPE] or ""
-                                local ident = navdata[def.DESTNAVID] or ""
-                                local runwayDesignator = navdata[def.DESTRWY] or ""
-                                local freqMsg
-                                if (navtype == def.NAVTYPEILS) then
-                                    freqMsg = "Frequency " .. helpers.addspaces(helpers.formatILSFrequency(navdata[def.DESTFREQ] or 0))
-                                    if navdata[def.DESTNAVDME] then
-                                        freqMsg = freqMsg .. " with DME"
-                                    end
-                                else
-                                    freqMsg = "Channel " .. helpers.addspaces(navdata[def.DESTFREQ] or "")
+                                local rank = navRank(navdata[def.DESTNAVTYPE])
+                                if rank <= primaryRank then
+                                    table.insert(candidates, { data = navdata, rank = rank, idx = idx })
                                 end
-                                local descriptor = helpers.addspaces(navtype) .. " Approach"
-                                local destinationIcao = get(P.desicao)
-                                if destinationIcao and destinationIcao ~= "" then
-                                    local cifpName = helpers.getCIFPApproachName(destinationIcao, navtype, runwayDesignator)
-                                    if cifpName and cifpName ~= "" then
-                                        descriptor = cifpName .. " Approach"
-                                    end
-                                end
-                                local altMessage = "Alternate option: " .. descriptor
-                                    .. " (Ident " .. helpers.addspaces(ident) .. ") " .. freqMsg
-                                P.commandtableentry(def.TEXT, altMessage)
                             end
+                        end
+
+                        if #candidates == 0 then return end
+
+                        table.sort(candidates, function(a, b)
+                            if a.rank ~= b.rank then return a.rank < b.rank end
+                            return a.idx < b.idx
+                        end)
+
+                        for _, entry in ipairs(candidates) do
+                            local navdata = entry.data
+                            local navtype = navdata[def.DESTNAVTYPE] or ""
+                            local ident = navdata[def.DESTNAVID] or ""
+                            local runwayDesignator = navdata[def.DESTRWY] or ""
+                            local freqMsg
+                            if (navtype == def.NAVTYPEILS) then
+                                freqMsg = "Frequency " .. helpers.addspaces(helpers.formatILSFrequency(navdata[def.DESTFREQ] or 0))
+                                if navdata[def.DESTNAVDME] then
+                                    freqMsg = freqMsg .. " with DME"
+                                end
+                            else
+                                freqMsg = "Channel " .. helpers.addspaces(navdata[def.DESTFREQ] or "")
+                            end
+                            local descriptor = helpers.addspaces(navtype) .. " Approach"
+                            local destinationIcao = get(P.desicao)
+                            if destinationIcao and destinationIcao ~= "" then
+                                local cifpName = helpers.getCIFPApproachName(destinationIcao, navtype, runwayDesignator)
+                                if cifpName and cifpName ~= "" then
+                                    descriptor = cifpName .. " Approach"
+                                end
+                            end
+                            local altMessage = "Alternate option: " .. descriptor
+                                .. " (Ident " .. helpers.addspaces(ident) .. ") " .. freqMsg
+                            P.commandtableentry(def.TEXT, altMessage)
                         end
                     end,
                     runActionInAdviceMode = true,

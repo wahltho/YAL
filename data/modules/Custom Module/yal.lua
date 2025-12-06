@@ -541,6 +541,18 @@ function P.initDataref()
     P.desrwyalt = globalProperty("laminar/B738/pfd/des_rwy_altitude")
     P.desrwylen = globalProperty("laminar/B738/fms/dest_runway_len")
     P.desrwy = globalProperty("laminar/B738/fms/dest_runway")
+    local appCourseTrueDr = globalProperty("laminar/B738/fms/app_course_true")
+    if isProperty(appCourseTrueDr) then
+        P.appcoursetrue = appCourseTrueDr
+    else
+        P.appcoursetrue = nil
+    end
+    local appCourseMagDr = globalProperty("laminar/B738/fms/app_course_mag")
+    if isProperty(appCourseMagDr) then
+        P.appcoursemag = appCourseMagDr
+    else
+        P.appcoursemag = nil
+    end
  
     P.nearesticao = globalProperty("laminar/B738/near_apt_icao")
 
