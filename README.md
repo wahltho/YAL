@@ -1,5 +1,5 @@
 # Yet Another Linda (YAL) for Zibo Mod - User Manual
-**Version 4.4** (based on features as of October 2025)
+**Version 4.5b1** (beta channel; based on features as of October 2025)
 
 *(C) WAHLTHO 2023-2025*
 
@@ -15,7 +15,7 @@
 **Optional: Skunkcrafts Beta Channel**
 1.  Copy the included `skunkcrafts_updater_beta.cfg` into the same directory that contains your aircraft (`X-Plane 12/Aircraft/B737-800X/`).
 2.  Start X-Plane, open the Skunkcrafts Updater and refresh – a new entry named **YAL Beta** will appear.
-3.  In the YAL settings window enable **Show beta updates** (Misc section). The update checker will now use the beta feed (`4.4b2` and newer).
+3.  In the YAL settings window enable **Show beta updates** (Misc section). The update checker will now use the beta feed (`4.5b1` and newer).
 4.  Run the Skunkcrafts updater for **YAL Beta** to download beta builds. Leave the original entry untouched for the stable channel.
 5.  To revert to stable builds: disable **Show beta updates**, run the normal Skunkcrafts entry and (optionally) remove the beta `.cfg`.
 
