@@ -473,8 +473,8 @@ function M.fillProcedureTable()
                 ['check_departure_airport_match'] = {
                     runActionInAdviceMode = true,
                     action = function(loop)
-                        local depIcao = get(P.depicao)
-                        local nearestIcao = get(P.nearesticao)
+                        local depIcao = string.upper(helpers.forceCleanString(get(P.depicao) or ""))
+                        local nearestIcao = string.upper((helpers.forceCleanString(get(P.nearesticao) or "")):sub(1, 4))
                         if helpers.isvalidicao(depIcao) and helpers.isvalidicao(nearestIcao) then
                             if depIcao ~= nearestIcao then
                                 if not (loop and loop.nearestAirportWarned) then
@@ -485,12 +485,16 @@ function M.fillProcedureTable()
                         end
                     end,
                     confirm = function()
-                        local depIcao = get(P.depicao)
-                        local nearestIcao = get(P.nearesticao)
-                        if helpers.isvalidicao(depIcao) and helpers.isvalidicao(nearestIcao) and depIcao == nearestIcao then
-                            return "Nearest airport matches departure " .. helpers.addspaces(depIcao)
+                        local depIcao = string.upper(helpers.forceCleanString(get(P.depicao) or ""))
+                        local nearestIcao = string.upper((helpers.forceCleanString(get(P.nearesticao) or "")):sub(1, 4))
+                        if helpers.isvalidicao(depIcao) and helpers.isvalidicao(nearestIcao) then
+                            if depIcao == nearestIcao then
+                                return nil -- silent when values match
+                            else
+                                return "Nearest airport differs from departure " .. helpers.addspaces(depIcao)
+                            end
                         end
-                        return "Departure airport check noted"
+                        return nil
                     end,
                     nextStep = 'check_fmc_route_continuity'
                 },
@@ -2546,7 +2550,7 @@ function M.fillProcedureTable()
                             headingrounded = navrwyheading
                         end
                         if (headingrounded and (get(P.aphdgselstat) == def.OFF) and (headingrounded == get(P.mcpheading))) then
-                            return "M C P Heading checked and " .. helpers.addspaces(helpers.padNumberWithZerosStrict(headingrounded, 3))
+                            return "M C P Heading checked " .. helpers.addspaces(helpers.padNumberWithZerosStrict(headingrounded, 3))
                         end
                         return false
                     end,
@@ -2585,7 +2589,7 @@ function M.fillProcedureTable()
                         if (missedappalttmp > 1000) then
                             local current = get(P.mcpaltitude)
                             if math.abs(current - missedappalttmp) <= 100 then
-                                return "M C P Altitude checked and " .. helpers.addspaces(missedappalttmp)
+                                return "M C P Altitude checked " .. helpers.addspaces(missedappalttmp)
                             end
                             return false
                         end
