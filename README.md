@@ -1,5 +1,5 @@
 # Yet Another Linda (YAL) for Zibo Mod - User Manual
-**Version 4.3** (based on features as of October 2025)
+**Version 4.4** (based on features as of October 2025)
 
 *(C) WAHLTHO 2023-2025*
 
@@ -79,6 +79,7 @@ These checklists can be started at any time via the "Plugins" -> "Yet Another Li
 
 * **Cold and Dark Startup:** A full procedure from a completely powered-down state to a "Turnaround State" (APU running, systems ready for engine start).
 * **Cockpit Initialization:** Prepares the cockpit for a new flight by setting lights, displays, and systems according to your preferences. It also resets the FMC and can trigger a flight plan import if YANSH is installed.
+  * Includes a sanity check: departure airport vs. nearest detected field; it only warns when they differ.
 * **APU Startup:** Starts the APU and configures the electrical and bleed air systems.
 * **Engine Startup:** Performs the full two-engine start sequence. Requires the APU to be running and providing bleed air.
 * **Engine Shutdown:** A flexible procedure that can be used for a quick turnaround (leaving the APU running) or as part of a final shutdown.
@@ -119,6 +120,9 @@ These procedures are triggered automatically based on specific pilot actions or 
 * **After Landing Procedure**
     * **Trigger:** After vacating the runway.
     * **Actions:** Configures the aircraft for taxiing to the gate (lights, transponder, flaps up, etc.).
+* **Taxi Speed Monitor (background)**
+    * **Trigger:** Groundspeed above 45 kts while taxiing off-runway on departure, or after vacating the landing runway on arrival.
+    * **Actions:** Issues a “Monitor Taxi Speed” reminder.
 * **At Parking Position Procedure**
     * **Trigger:** Parking brake is set at the gate.
     * **Actions:** Turns off taxi lights, seatbelt signs, and prepares for engine shutdown.
