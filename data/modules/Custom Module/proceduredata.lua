@@ -7,23 +7,75 @@ local function getNavEntryCourse(entry)
         return nil
     end
 
+    local function getFMSFinalMagCourse()
+        if not (P and P.configvalues and P.configvalues[def.CONFIGZIBOISMODDED] == def.ON) then return nil end
+        if not (P.fmslegs and P.fmslegslat and P.fmslegslon) then return nil end
+        local legsStr = get(P.fmslegs)
+        local latArr = get(P.fmslegslat)
+        local lonArr = get(P.fmslegslon)
+        local waypoints = helpers.buildlegstable(legsStr, latArr, lonArr)
+        if not waypoints or #waypoints < 2 then return nil end
+
+        local destRunway = get(P.desrwy)
+        local selectedCourse = nil
+
+        for i = 1, #waypoints - 1 do
+            local nxt = waypoints[i + 1]
+            if nxt and nxt.name then
+                if matchesDestRunway(nxt.name, destRunway) or isRunwayLeg(nxt.name) then
+                    selectedCourse = waypoints[i].magnetic_course
+                    break
+                end
+            end
+        end
+
+        if not selectedCourse then
+            local penultimate = waypoints[#waypoints - 1]
+            selectedCourse = penultimate and penultimate.magnetic_course or nil
+        end
+
+        if selectedCourse and selectedCourse ~= 0 then
+            return helpers.calccourse(selectedCourse)
+        end
+        return nil
+    end
+
     -- Prefer FMC-provided final-leg course when modded Zibo is enabled
     if P and P.configvalues and P.configvalues[def.CONFIGZIBOISMODDED] == def.ON then
         local magCourse = nil
-        if P.appcoursemag then
-            local val = get(P.appcoursemag)
+        local trueCourse = nil
+        if P.fmsappcoursemag then
+            local val = get(P.fmsappcoursemag)
             if val and val ~= 0 then
                 magCourse = val
             end
         end
-        if not magCourse and P.appcoursetrue then
-            local val = get(P.appcoursetrue)
+        if P.fmsappcoursetrue then
+            local val = get(P.fmsappcoursetrue)
             if val and val ~= 0 then
-                magCourse = val -- app_course_mag falls back to true internally; treat true as mag if that's all we have
+                trueCourse = val
             end
         end
+
+        -- If mag is missing but true is present, convert using local magnetic variation
+        if (not magCourse) and trueCourse then
+            local lat = get(P.desrwylatstartpos)
+            local lon = get(P.desrwylonstartpos)
+            if lat and lon and lat ~= 0 and lon ~= 0 then
+                local magVar = sasl.getMagneticVariation(lat, lon) or 0
+                magCourse = helpers.calccourse(trueCourse - magVar)
+            else
+                magCourse = trueCourse
+            end
+        end
+
         if magCourse then
             return helpers.calccourse(magCourse)
+        end
+
+        local fmsMag = getFMSFinalMagCourse()
+        if fmsMag then
+            return fmsMag
         end
     end
 
@@ -3821,23 +3873,71 @@ function M.fillProcedureTable()
                         local runwayFormatted = helpers.formatRunwayDesignator(runway)
                         local course = nil
 
+                        local function getFMSFinalMagCourse()
+                            if not (P and P.configvalues and P.configvalues[def.CONFIGZIBOISMODDED] == def.ON) then return nil end
+                            if not (P.fmslegs and P.fmslegslat and P.fmslegslon) then return nil end
+                            local legsStr = get(P.fmslegs)
+                            local latArr = get(P.fmslegslat)
+                            local lonArr = get(P.fmslegslon)
+                            local waypoints = helpers.buildlegstable(legsStr, latArr, lonArr)
+                            if not waypoints or #waypoints < 2 then return nil end
+
+                            local destRunway = get(P.desrwy)
+                            local selectedCourse = nil
+
+                            for i = 1, #waypoints - 1 do
+                                local nxt = waypoints[i + 1]
+                                if nxt and nxt.name then
+                                    if matchesDestRunway(nxt.name, destRunway) or isRunwayLeg(nxt.name) then
+                                        selectedCourse = waypoints[i].magnetic_course
+                                        break
+                                    end
+                                end
+                            end
+
+                            if not selectedCourse then
+                                local penultimate = waypoints[#waypoints - 1]
+                                selectedCourse = penultimate and penultimate.magnetic_course or nil
+                            end
+
+                            if selectedCourse and selectedCourse ~= 0 then
+                                return helpers.calccourse(selectedCourse)
+                            end
+                            return nil
+                        end
+
                         -- Prefer FMC-provided final-leg course when modded Zibo is enabled
                         if P.configvalues and P.configvalues[def.CONFIGZIBOISMODDED] == def.ON then
                             local magCourse = nil
-                            if P.appcoursemag then
-                                local val = get(P.appcoursemag)
+                            local trueCourse = nil
+                            if P.fmsappcoursemag then
+                                local val = get(P.fmsappcoursemag)
                                 if val and val ~= 0 then
                                     magCourse = val
                                 end
                             end
-                            if not magCourse and P.appcoursetrue then
-                                local val = get(P.appcoursetrue)
+                            if P.fmsappcoursetrue then
+                                local val = get(P.fmsappcoursetrue)
                                 if val and val ~= 0 then
-                                    magCourse = val
+                                    trueCourse = val
+                                end
+                            end
+                            if (not magCourse) and trueCourse then
+                                local lat = get(P.desrwylatstartpos)
+                                local lon = get(P.desrwylonstartpos)
+                                if lat and lon and lat ~= 0 and lon ~= 0 then
+                                    local magVar = sasl.getMagneticVariation(lat, lon) or 0
+                                    magCourse = helpers.calccourse(trueCourse - magVar)
+                                else
+                                    magCourse = trueCourse
                                 end
                             end
                             if magCourse then
                                 course = helpers.calccourse(magCourse)
+                            end
+
+                            if not course then
+                                course = getFMSFinalMagCourse()
                             end
                         end
 
