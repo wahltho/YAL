@@ -4297,7 +4297,7 @@ function M.fillProcedureTable()
                             if dmeInfo then
                                 local freqValue = dmeInfo[def.DESTDMEFREQ] ~= 0 and dmeInfo[def.DESTDMEFREQ] or dmeInfo[def.DESTFREQ]
                                 local ident = dmeInfo[def.DESTDMEIDENT] or dmeInfo[def.DESTNAVID] or ""
-                                local identText = (ident ~= "" and (" (" .. ident .. ")")) or ""
+                                local identText = (ident ~= "" and (" (" .. helpers.addspaces(ident) .. ")")) or ""
                                 message = "Copilot D M E Frequency checked and " .. helpers.addspaces(helpers.formatILSFrequency(freqValue)) .. identText
                             end
                         else

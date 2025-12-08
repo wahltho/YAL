@@ -1,7 +1,42 @@
-
 local def = require("definitions")
+local settings = require("settings")
 require("helpers")
 require("yal")
+
+local debugOverlay
+local debugOverlayInitialized = false
+
+local function maybeInitDebugOverlay()
+    if debugOverlayInitialized then return end
+    if not settings.appSettings then return end
+
+    local requested = tonumber(settings.appSettings[def.CONFIGDEBUGOVERLAY]) == def.ON
+    if not requested then return end
+    if sasl.getLogLevel() ~= LOG_DEBUG then return end
+
+    local ok, modOrErr = pcall(require, "yal_debug.overlay")
+    if not ok then
+        sasl.logWarning("Debug overlay requested but failed to load: " .. tostring(modOrErr))
+        debugOverlayInitialized = true
+        return
+    end
+
+    local mod = modOrErr
+    if mod and mod.init then
+        local initOk, initErr = pcall(mod.init, { yal = yal, def = def, helpers = helpers })
+        if not initOk then
+            sasl.logWarning("Debug overlay init failed: " .. tostring(initErr))
+            debugOverlayInitialized = true
+            return
+        end
+        debugOverlay = mod
+        yal.debugOverlay = mod
+        debugOverlayInitialized = true
+        sasl.logInfo("Debug overlay enabled (hidden setting + DEBUG log level).")
+    else
+        debugOverlayInitialized = true
+    end
+end
 
 
 sasl.logInfo(string.format("Starting %s v%s on X-Plane v%d", def.APPNAMEPREFIXLONG, def.VERSION, helpers.xpVersion))
@@ -69,6 +104,7 @@ if helpers.isZibo() then
     yal.enableMenus(def.ON)
     sasl.enableMenuItem(yal.menu_main , menu_settings , def.ON)
     yal.initializeScript()
+    maybeInitDebugOverlay()
     sasl.startTimer(oneSecTimer)
     waitstep = def.LONGWAIT
 else
@@ -87,6 +123,7 @@ function onAirportLoaded(flightNumber)
         yal.enableMenus(def.ON)  
         sasl.enableMenuItem(yal.menu_main , menu_settings , def.ON)
         yal.initializeScript()
+        maybeInitDebugOverlay()
         sasl.startTimer(oneSecTimer)
         waitstep = def.LONGWAIT
     else
@@ -100,6 +137,7 @@ end
 
 function update()
     if helpers.isZibo() then
+        maybeInitDebugOverlay()
         local current_elapsed_time = sasl.getElapsedSeconds(oneSecTimer)
 
         if current_elapsed_time >= waitstep then

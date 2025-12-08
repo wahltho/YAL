@@ -3940,6 +3940,23 @@ local my_command_altitudeb10000 = sasl.createCommand(def.APPNAMEPREFIX .. "/alti
 sasl.registerCommandHandler(my_command_altitudeb10000, 0, P.altitudeb10000_)
 
 --------------------------------------------------------------------------------------------------------------
+function P.goaround()
+
+    return P.triggerprocedure(def.GOAROUNDPROCEDURE, def.TRIGGEREDMANUALLY)
+
+end
+
+function P.goaround_(phase)
+    if phase == SASL_COMMAND_BEGIN then
+        P.goaround()
+    end
+    return 0
+end
+
+local my_command_goaround = sasl.createCommand(def.APPNAMEPREFIX .. "/goaround", "Go Around Procedure")
+sasl.registerCommandHandler(my_command_goaround, 0, P.goaround_)
+
+--------------------------------------------------------------------------------------------------------------
 function P.duringclimb()
     local proc_to_check = def.DURINGCLIMBPROCEDURE
     local targetLoopIndex = P.proceduretable[proc_to_check].loop
@@ -5709,8 +5726,9 @@ local menu_eng_stop_ta = sasl.appendMenuItem(P.menu_main, "Turnaround Engine Shu
 local menu_eng_stop_final = sasl.appendMenuItem(P.menu_main, "Final Engine Shutdown", P.finalengineshutdown)
 local menu_shutdown = sasl.appendMenuItem(P.menu_main, "Shutdown", P.shutdown)
 sasl.appendMenuSeparator ( P.menu_main )
-local menu_above1000 = sasl.appendMenuItem(P.menu_main, "Above 10000", P.altitudea10000)
-local menu_below1000 = sasl.appendMenuItem(P.menu_main, "Below 10000", P.altitudeb10000)
+local menu_above1000 = sasl.appendMenuItem(P.menu_main, "Above 10000 Procedure", P.altitudea10000)
+local menu_below1000 = sasl.appendMenuItem(P.menu_main, "Below 10000 Procedure", P.altitudeb10000)
+local menu_goaround = sasl.appendMenuItem(P.menu_main, "Go Around Procedure", P.goaround)
 local menu_ils_freq = sasl.appendMenuItem(P.menu_main, "Set ILS/GLS Freq/Course", P.setilsproc)
 local menu_copy_nav = sasl.appendMenuItem(P.menu_main, "Copy NAV1/MMR1 to NAV2/MMR2", P.copynav)
 local menu_set_vref = sasl.appendMenuItem(P.menu_main, "Set Landing Flaps/VREF", P.setvrefproc)
@@ -5758,6 +5776,7 @@ function P.enableMenus(enableflag)
 
     sasl.enableMenuItem(P.menu_main , menu_above1000 , enableflag)
     sasl.enableMenuItem(P.menu_main , menu_below1000 , enableflag)
+    sasl.enableMenuItem(P.menu_main , menu_goaround , enableflag)
     sasl.enableMenuItem(P.menu_main , menu_ils_freq , enableflag)
     sasl.enableMenuItem(P.menu_main , menu_copy_nav , enableflag)
     sasl.enableMenuItem(P.menu_main , menu_set_vref , enableflag)
