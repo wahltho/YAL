@@ -1487,10 +1487,44 @@ function M.fillProcedureTable()
                     nextStep = 'set_flaps_takeoff'
                 },
                 ['set_flaps_takeoff'] = {
-                    check = function() return (helpers.convflaplevertoflappos(get(P.flapleverpos)) == get(P.toflaps)) end,
-                    action = function() helpers.command_once("laminar/B738/push_button/flaps_" .. get(P.toflaps)) end,
-                    advice = function() return "Set Flap Lever " .. tostring(get(P.toflaps)) end,
-                    confirm = function() return "Flap Lever checked and " .. get(P.toflaps) end,
+                    check = function()
+                        local target = get(P.toflaps)
+                        local current = helpers.convflaplevertoflappos(get(P.flapleverpos))
+                        if target and target > 0 then
+                            return current == target
+                        else
+                            return current > def.FLAPSUP -- any takeoff flap > 0 accepted
+                        end
+                    end,
+                    action = function()
+                        local target = get(P.toflaps)
+                        if target and target > 0 then
+                            helpers.command_once("laminar/B738/push_button/flaps_" .. target)
+                        end
+                    end,
+                    advice = function()
+                        local target = get(P.toflaps)
+                        if target and target > 0 then
+                            return "Set Flap Lever " .. tostring(target)
+                        else
+                            return "Set Takeoff Flaps"
+                        end
+                    end,
+                    confirm = function()
+                        local target = get(P.toflaps)
+                        local current = helpers.convflaplevertoflappos(get(P.flapleverpos))
+                        if target and target > 0 then
+                            if current == target then
+                                return "Flap Lever checked and " .. tostring(target)
+                            end
+                            return false
+                        else
+                            if current > def.FLAPSUP then
+                                return "Takeoff Flaps checked"
+                            end
+                            return false
+                        end
+                    end,
                     nextStep = 'release_parking_brake'
                 },
                 ['release_parking_brake'] = {
