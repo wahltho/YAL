@@ -76,7 +76,10 @@ function P.YalinitGlobal()
         triggeredmanually = false,
         setonabort = false,
         lastStepName = "",
-        skipConfirmForStep = nil
+        skipConfirmForStep = nil,
+        debugPaused = false,
+        debugStepOnce = false,
+        debugBreakpoints = {}
     }
 
     P.procedureloop1 = helpers.shallowcopy(P.procedurelooptemplate)
@@ -738,6 +741,9 @@ function P.resetLoopState(loopTable)
     loopTable.procedurenotpossible = cleanTemplate.procedurenotpossible -- Setzt auf false
     loopTable.triggeredmanually = cleanTemplate.triggeredmanually -- Setzt auf false (Standard)
     loopTable.skipConfirmForStep = nil
+    loopTable.debugPaused = false
+    loopTable.debugStepOnce = false
+    loopTable.debugBreakpoints = {}
 
     P.deleteCustomData(loopTable) -- Entfernt vref, navindex etc.
 
@@ -5227,17 +5233,34 @@ function P.runProcedureLoop(loopIndex)
             -- A5. ENGINE-HAUPTTEIL (Schritte abarbeiten)
             elseif loop.stepindex == 1 then
                 local stepName = loop.currentStepName
-                sasl.logDebug("Engine A - Processing Step: '" .. tostring(stepName) .. "'")
-                local step = procData.steps[stepName]
+            sasl.logDebug("Engine A - Processing Step: '" .. tostring(stepName) .. "'")
+            local step = procData.steps[stepName]
 
-                if not step then
-                    sasl.logDebug("Procedure " .. procData.name .. " failed: Step '" .. tostring(stepName) .. "' is nil! Aborting.")
-                    loop.procedureabort = true
-                else
-                    -- 5a. Step Repeat Logik
-                    if stepName == loop.lastStepName then loop.steprepeat = true else loop.steprepeat = false end
-                    loop.lastStepName = stepName
-                    sasl.logDebug("steprepeat=" .. tostring(loop.steprepeat))
+            if not step then
+                sasl.logDebug("Procedure " .. procData.name .. " failed: Step '" .. tostring(stepName) .. "' is nil! Aborting.")
+                loop.procedureabort = true
+            else
+                -- Debug pause / step-through
+                if loop.debugPaused then
+                    if loop.debugStepOnce then
+                        loop.debugStepOnce = false -- execute this step once
+                    else
+                        sasl.logDebug("Debug pause active, holding on step '" .. tostring(stepName) .. "'")
+                        return true
+                    end
+                end
+                -- Breakpoint hit?
+                if loop.debugBreakpoints and loop.debugBreakpoints[stepName] then
+                    loop.debugPaused = true
+                    loop.debugStepOnce = false
+                    sasl.logInfo("Debug breakpoint hit at step '" .. tostring(stepName) .. "'")
+                    return true
+                end
+
+                -- 5a. Step Repeat Logik
+                if stepName == loop.lastStepName then loop.steprepeat = true else loop.steprepeat = false end
+                loop.lastStepName = stepName
+                sasl.logDebug("steprepeat=" .. tostring(loop.steprepeat))
 
                     -- *** NEUE VIEW-OPTIMIERUNG START ***
 

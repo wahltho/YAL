@@ -42,7 +42,12 @@ local function maybeInitDebugOverlay()
         vrAuto = true,
         noBackground = true,
         noDecore = true,
-        proportional = true,
+        proportional = false,
+        resizeCallback = function(c, rw, rh, _, _)
+            if c and c.position then set(c.position, {0, 0, rw, rh}) end
+            if c and c.size then c.size = {rw, rh} end
+            return 0, 0, rw, rh
+        end,
         components = { comp }
     }
     if comp.setWindow then
@@ -109,17 +114,19 @@ setup_datapanel = contextWindow {
     position = {st_x_org, st_y_org, st_width, st_height},
     saveState = true,
     visible = false,
-    noResize = false,
+    noResize = true,
     minimumSize = {st_width, st_height},
+    maximumSize = {2048, 2048},
     vrAuto = true,
     noBackground = true,
     noDecore = true,
-    proportional = true,
+    proportional = false,
+    -- fixed size; the internal layout is static
     components = {setup_datapanel {
         position = {0, 0, st_width, st_height},
         size = {st_width, st_height}
     }}
-}
+    }
 
 local oneSecTimer = sasl.createTimer()
 local waitstep = def.LONGWAIT

@@ -15,7 +15,7 @@ hSize = size[2]
 local showBetaUpdates = toboolean(settings.appSettings.SHOWBETAUPDATES)
 local YALupdateavailable, YALnewversion = helpers.checkForUpdate(showBetaUpdates)
 
-local wTitle = string.format("%s - " .. messages.translation['SETUP'], def.APPNAMEPREFIXLONG.. " v".. def.VERSION)
+local wTitle = "" -- hidden title when noDecore is true
 if YALupdateavailable then
     wTitle = wTitle .. "   " .. messages.translation['UPDATEAVAILABLE'] .. " v" .. YALnewversion
 end
