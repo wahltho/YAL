@@ -139,8 +139,6 @@ function show_hide_setup()
     end
 end
 
-setup_datapanel:setIsVisible(false)
-
 menu_settings = sasl.appendMenuItem(yal.menu_main, "Settings", show_hide_setup)
 
 if helpers.isZibo() then

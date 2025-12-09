@@ -25,6 +25,44 @@ local x_col2 = x_col1 + wSize / 2 + 90
 local cb_w = 10
 local cb_h = 10
 
+local generalControls = {
+    "USEGROUNDPOWER",
+    "VOICEREADBACK",
+    "AUTOFUNCTIONS",
+    "VOICEADVICEONLY",
+    "BPBINTEGRATION",
+    "YANSHINTEGRATION",
+    "AUTOFUELING",
+    "WAKEOVERRIDE",
+    "AUTOANTIICE",
+    "AUTOWIPER",
+    "AUTOCENTERTANKHANDLING",
+    "AUTOFLAPS",
+    "AUTOBARO",
+    "VIEWCHANGES",
+    "AUTOCHOCKSPB",
+    "SPEEDRESTR250",
+    "VREF30",
+    "CUSTOMAPPROACHCALC",
+    "LOWERDU",
+    "HIDEEFBS",
+}
+
+local generalRowStartY = hSize - 80
+local generalRowStep = def.lineHeight + 4
+local generalHeaderY = generalRowStartY + 20
+local generalBottomY = generalRowStartY - (generalRowStep * (#generalControls - 1))
+local postGeneralStartY = generalBottomY - 40
+local postGeneralGap = def.lineHeight * 1.5 + 10
+local lowerBlockStartY = postGeneralStartY - (2 * postGeneralGap) - 30
+local lowerBlockGap = def.lineHeight + 12
+
+local skipDraw = {}
+for _, key in ipairs(generalControls) do
+    skipDraw[key] = true
+end
+skipDraw.general = true
+
 local current_input_field = nil
 
 local function process_key(char, vkey, shift, ctrl, alt, event)
@@ -105,6 +143,45 @@ function getElementInteractive(element)
     end
 end
 
+local function drawGeneralDynamic()
+    local baseX = x_col1
+    windows.drawText({ t = messages.translation['GENERAL'], x = baseX, y = generalHeaderY, font = def.wFont })
+    local rowY = generalRowStartY
+    for _, key in ipairs(generalControls) do
+        local label = messages.translation[key] or key
+        local box = {
+            t = label,
+            value = toboolean(settings.appSettings[key]),
+            x = baseX + 60,
+            y = rowY,
+            w = cb_w,
+            h = cb_h,
+        }
+        windows.drawCheckBox(box)
+        rowY = rowY - generalRowStep
+    end
+end
+
+local function buildGeneralInteractives()
+    local interactives = {}
+    local baseX = x_col1
+    local rowY = generalRowStartY
+    for _, key in ipairs(generalControls) do
+        local pos = { baseX + 60, rowY, cb_w, cb_h }
+        table.insert(interactives, interactive {
+            position = pos,
+            onMouseDown = function()
+                setFocusOnInput(nil)
+                settings.appSettings[key] = not_(settings.appSettings[key])
+                settings.writeSettings(settings.appSettings)
+                return true
+            end
+        })
+        rowY = rowY - generalRowStep
+    end
+    return interactives
+end
+
 wdef = {
     mainWindow = {
         w = wSize,
@@ -126,139 +203,11 @@ wdef = {
             setup_datapanel:setIsVisible(false)
         end
     },
-    general = {
-        t = messages.translation['GENERAL'],
-        x = x_col1,
-        y = hSize - 60,
-        draw_ = function()
-            windows.drawText(wdef.general)
-        end
-    },
-    USEGROUNDPOWER = {
-        t = messages.translation['USEGROUNDPOWER'],
-        value = toboolean(settings.appSettings.USEGROUNDPOWER),
-        x = x_col1 + 60,
-        y = hSize - 80,
-        w = cb_w,
-        h = cb_h,
-        onMouseDown_ = function()
-            setFocusOnInput(nil)
-            settings.appSettings.USEGROUNDPOWER = not_(settings.appSettings.USEGROUNDPOWER)
-            settings.writeSettings(settings.appSettings)
-            wdef.USEGROUNDPOWER.value = toboolean(settings.appSettings.USEGROUNDPOWER)
-        end,
-        draw_ = function()
-            windows.drawCheckBox(wdef.USEGROUNDPOWER)
-        end
-
-    },
-    VOICEREADBACK = {
-        t = messages.translation['VOICEREADBACK'],
-        value = toboolean(settings.appSettings.VOICEREADBACK),
-        x = x_col1 + 60,
-        y = hSize - 100,
-        w = cb_w,
-        h = cb_h,
-        onMouseDown_ = function()
-            setFocusOnInput(nil)
-            settings.appSettings.VOICEREADBACK = not_(settings.appSettings.VOICEREADBACK)
-            settings.writeSettings(settings.appSettings)
-            wdef.VOICEREADBACK.value = toboolean(settings.appSettings.VOICEREADBACK)
-        end,      
-            draw_ = function()
-            windows.drawCheckBox(wdef.VOICEREADBACK)
-        end
-    },
-    AUTOFUNCTIONS = {
-        t = messages.translation['AUTOFUNCTIONS'],
-        value = toboolean(settings.appSettings.AUTOFUNCTIONS),
-        x = x_col1 + 60,
-        y = hSize - 120,
-        w = cb_w,
-        h = cb_h,
-        onMouseDown_ = function()
-            setFocusOnInput(nil)
-            settings.appSettings.AUTOFUNCTIONS = not_(settings.appSettings.AUTOFUNCTIONS)
-            settings.writeSettings(settings.appSettings)
-            wdef.AUTOFUNCTIONS.value = toboolean(settings.appSettings.AUTOFUNCTIONS)
-        end,
-        draw_ = function()
-            windows.drawCheckBox(wdef.AUTOFUNCTIONS)
-        end
-    },
-    VOICEADVICEONLY = {
-        t = messages.translation['VOICEADVICEONLY'],
-        value = toboolean(settings.appSettings.VOICEADVICEONLY),
-        x = x_col1 + 60,
-        y = hSize - 140,
-        w = cb_w,
-        h = cb_h,
-        onMouseDown_ = function()
-            setFocusOnInput(nil)
-            settings.appSettings.VOICEADVICEONLY = not_(settings.appSettings.VOICEADVICEONLY)
-            settings.writeSettings(settings.appSettings)
-            wdef.VOICEADVICEONLY.value = toboolean(settings.appSettings.VOICEADVICEONLY)
-        end,      
-        draw_ = function()
-            windows.drawCheckBox(wdef.VOICEADVICEONLY)
-        end
-    },
-    BPBINTEGRATION = {
-        t = messages.translation['BPBINTEGRATION'],
-        value = toboolean(settings.appSettings.BPBINTEGRATION),
-        x = x_col1 + 60,
-        y = hSize - 165,
-        w = cb_w,
-        h = cb_h,
-        onMouseDown_ = function()
-            setFocusOnInput(nil)
-            settings.appSettings.BPBINTEGRATION = not_(settings.appSettings.BPBINTEGRATION)
-            settings.writeSettings(settings.appSettings)
-            wdef.BPBINTEGRATION.value = toboolean(settings.appSettings.BPBINTEGRATION)
-        end,
-        draw_ = function()
-            windows.drawCheckBox(wdef.BPBINTEGRATION)
-        end
-    },
-    YANSHINTEGRATION = {
-        t = messages.translation['YANSHINTEGRATION'],
-        value = toboolean(settings.appSettings.YANSHINTEGRATION),
-        x = x_col1 + 60,
-        y = hSize - 190,
-        w = cb_w,
-        h = cb_h,
-        onMouseDown_ = function()
-            setFocusOnInput(nil)
-            settings.appSettings.YANSHINTEGRATION = not_(settings.appSettings.YANSHINTEGRATION)
-            settings.writeSettings(settings.appSettings)
-            wdef.YANSHINTEGRATION.value = toboolean(settings.appSettings.YANSHINTEGRATION)
-        end,
-        draw_ = function()
-            windows.drawCheckBox(wdef.YANSHINTEGRATION)
-        end
-    },
-    AUTOFUELING = {
-        t = messages.translation['AUTOFUELING'],
-        value = toboolean(settings.appSettings.AUTOFUELING),
-        x = x_col1 + 60,
-        y = hSize - 215,
-        w = cb_w,
-        h = cb_h,
-        onMouseDown_ = function()
-            setFocusOnInput(nil)
-            settings.appSettings.AUTOFUELING = not_(settings.appSettings.AUTOFUELING)
-            settings.writeSettings(settings.appSettings)
-            wdef.AUTOFUELING.value = toboolean(settings.appSettings.AUTOFUELING)
-        end,      
-            draw_ = function()
-            windows.drawCheckBox(wdef.AUTOFUELING)
-        end
-    },
     TODPAUSEQUITTIME = {
         t = messages.translation['TODPAUSEQUITTIME'],
         value = tostring(settings.appSettings.TODPAUSEQUITTIME),
         x = x_col1 +20,
-        y = hSize - 245,
+        y = postGeneralStartY,
         w = 50,
         h = def.lineHeight * 1.5,
         isFocused = false,
@@ -280,7 +229,7 @@ wdef = {
         t = messages.translation['SAVETIME'],
         value = tostring(settings.appSettings.SAVETIME),
         x = x_col1 +20,
-        y = hSize - 270,
+        y = postGeneralStartY - postGeneralGap,
         w = 50,
         h = def.lineHeight * 1.5,
         isFocused = false,
@@ -302,7 +251,7 @@ wdef = {
         t = messages.translation['SAVENUMBER'],
         value = tostring(settings.appSettings.SAVENUMBER),
         x = x_col1 +20,
-        y = hSize - 295,
+        y = postGeneralStartY - (2 * postGeneralGap),
         w = 50,
         h = def.lineHeight * 1.5,
         isFocused = false,
@@ -514,7 +463,7 @@ wdef = {
         t = messages.translation['LOWERAIRSPACEALT'],
         value = tostring(settings.appSettings.LOWERAIRSPACEALT),
         x = x_col1 + 20,
-        y = hSize - 545,
+        y = lowerBlockStartY,
         w = 50,
         h = def.lineHeight * 1.5,
         isFocused = false,
@@ -535,7 +484,7 @@ wdef = {
         t = messages.translation['PACKSRESTOREALT'],
         value = tostring(settings.appSettings.PACKSRESTOREALT),
         x = x_col1 + 20,
-        y = hSize - 570,
+        y = lowerBlockStartY - lowerBlockGap,
         w = 60,
         h = def.lineHeight * 1.5,
         isFocused = false,
@@ -557,7 +506,7 @@ wdef = {
         value = tostring(settings.appSettings.BANKANGLEMAX),
         x = x_col1,
         x2 = x_col1 + 50,
-        y = hSize - 595,
+        y = lowerBlockStartY - (2 * lowerBlockGap),
         w = 20,
         h = 20,
         linePadding = 6,
@@ -599,7 +548,7 @@ wdef = {
         t = messages.translation['TRANSPONDERCODE'],
         value = tostring(settings.appSettings.TRANSPONDERCODE),
         x = x_col1 + 20,
-        y = hSize - 650,
+        y = lowerBlockStartY - (3 * lowerBlockGap),
         w = 50,
         h = def.lineHeight * 1.5,
         isFocused = false,
@@ -620,7 +569,7 @@ wdef = {
         t = messages.translation['GEARDOWNFLAPS'],
         value = tostring(settings.appSettings.GEARDOWNFLAPS),
         x = x_col1 + 20,
-        y = hSize - 675,
+        y = lowerBlockStartY - (4 * lowerBlockGap),
         w = 50,
         h = def.lineHeight * 1.5,
         isFocused = false,
@@ -1151,251 +1100,36 @@ wdef = {
     },
 }
 
-components = {
-    interactive {
-        position = getElementInteractive(wdef.SHOWBETAUPDATES)[1],
-        onMouseDown = getElementInteractive(wdef.SHOWBETAUPDATES)[2]
-    }, interactive {
-        position = getElementInteractive(wdef.debugMode)[1],
-        onMouseDown = getElementInteractive(wdef.debugMode)[2]
-    }, interactive {
-    position = getElementInteractive(wdef.closeButton)[1],
-    onMouseDown = getElementInteractive(wdef.closeButton)[2]
-    -- cursor = def.cursor,
-}, interactive {
-    position = getElementInteractive(wdef.VOICEREADBACK)[1],
-    onMouseDown = getElementInteractive(wdef.VOICEREADBACK)[2]
-    -- cursor = def.cursor,
-}, interactive {
-    position = getElementInteractive(wdef.USEGROUNDPOWER)[1],
-    onMouseDown = getElementInteractive(wdef.USEGROUNDPOWER)[2]
-    -- cursor = def.cursor,
-}, interactive {
-    position = getElementInteractive(wdef.AUTOCENTERTANKHANDLING)[1],
-    onMouseDown = getElementInteractive(wdef.AUTOCENTERTANKHANDLING)[2]
-    -- cursor = def.cursor,
-}, interactive {
-    position = getElementInteractive(wdef.IGNOREALLBRIGHTHNESSSETTINGS)[1],
-    onMouseDown = getElementInteractive(wdef.IGNOREALLBRIGHTHNESSSETTINGS)[2]
-    -- cursor = def.cursor,
-}, interactive {
-    --cursor = def.cursor,
-    position = getElementInteractive(wdef.AUTOFUNCTIONS)[1],
-    onMouseDown = getElementInteractive(wdef.AUTOFUNCTIONS)[2]
-}, interactive {
-    --cursor = def.cursor,
-    position = getElementInteractive(wdef.VOICEADVICEONLY)[1],
-    onMouseDown = getElementInteractive(wdef.VOICEADVICEONLY)[2]
-}, interactive {
-    --cursor = def.cursor,
-    position = getElementInteractive(wdef.BPBINTEGRATION)[1],
-    onMouseDown = getElementInteractive(wdef.BPBINTEGRATION)[2]
-}, interactive {
-    --cursor = def.cursor,
-    position = getElementInteractive(wdef.YANSHINTEGRATION)[1],
-    onMouseDown = getElementInteractive(wdef.YANSHINTEGRATION)[2]
-}, interactive {
-    --cursor = def.cursor,
-    position = getElementInteractive(wdef.AUTOFUELING)[1],
-    onMouseDown = getElementInteractive(wdef.AUTOFUELING)[2]
-}, interactive {
-    --cursor = def.cursor,
-    position = getElementInteractive(wdef.AUTOFLAPS)[1],
-    onMouseDown = getElementInteractive(wdef.AUTOFLAPS)[2]
-}, interactive {
-    --cursor = def.cursor,
-    position = getElementInteractive(wdef.HIDEEFBS)[1],
-    onMouseDown = getElementInteractive(wdef.HIDEEFBS)[2]
-}, interactive {
-    --cursor = def.cursor,
-    position = getElementInteractive(wdef.WAKEOVERRIDE)[1],
-    onMouseDown = getElementInteractive(wdef.WAKEOVERRIDE)[2]
-}, interactive {
-    --cursor = def.cursor,
-    position = getElementInteractive(wdef.AUTOANTIICE)[1],
-    onMouseDown = getElementInteractive(wdef.AUTOANTIICE)[2]
-}, interactive {
-    --cursor = def.cursor,
-    position = getElementInteractive(wdef.AUTOWIPER)[1],
-    onMouseDown = getElementInteractive(wdef.AUTOWIPER)[2]
-}, interactive {
-    --cursor = def.cursor,
-    position = getElementInteractive(wdef.AUTOBARO)[1],
-    onMouseDown = getElementInteractive(wdef.AUTOBARO)[2]
-}, interactive {
-    --cursor = def.cursor,
-    position = getElementInteractive(wdef.VIEWCHANGES)[1],
-    onMouseDown = getElementInteractive(wdef.VIEWCHANGES)[2]
-}, interactive {
-    --cursor = def.cursor,
-    position = getElementInteractive(wdef.AUTOCHOCKSPB)[1],
-    onMouseDown = getElementInteractive(wdef.AUTOCHOCKSPB)[2]
-}, interactive {
-    --cursor = def.cursor,
-    position = getElementInteractive(wdef.SPEEDRESTR250)[1],
-    onMouseDown = getElementInteractive(wdef.SPEEDRESTR250)[2]
-}, interactive {
-    --cursor = def.cursor,
-    position = getElementInteractive(wdef.VREF30)[1],
-    onMouseDown = getElementInteractive(wdef.VREF30)[2]
-}, interactive {
-    --cursor = def.cursor,
-    position = getElementInteractive(wdef.CUSTOMAPPROACHCALC)[1],
-    onMouseDown = getElementInteractive(wdef.CUSTOMAPPROACHCALC)[2]
-}, interactive {
-    --cursor = def.cursor,
-    position = getElementInteractive(wdef.LOWERDU)[1],
-    onMouseDown = getElementInteractive(wdef.LOWERDU)[2]
-}, interactive {
-    --cursor = def.cursor,
-    position = getElementInteractive(wdef.BANKANGLEMAX)[1],
-    onMouseDown = getElementInteractive(wdef.BANKANGLEMAX)[2]
-}, interactive {
-    --cursor = def.cursor,
-    position = getElementInteractive(wdef.BANKANGLEMAX)[3],
-    onMouseDown = getElementInteractive(wdef.BANKANGLEMAX)[4]
-}, interactive {
-    --cursor = def.cursor,
-    position = getElementInteractive(wdef.TODPAUSEQUITTIME)[1],
-    onMouseDown = getElementInteractive(wdef.TODPAUSEQUITTIME)[2]
-}, interactive {
-    --cursor = def.cursor,
-    position = getElementInteractive(wdef.SAVETIME)[1],
-    onMouseDown = getElementInteractive(wdef.SAVETIME)[2]
-}, interactive {
-    --cursor = def.cursor,
-    position = getElementInteractive(wdef.SAVENUMBER)[1],
-    onMouseDown = getElementInteractive(wdef.SAVENUMBER)[2]
-}, interactive {
-    --cursor = def.cursor,
-    position = getElementInteractive(wdef.LOWERAIRSPACEALT)[1],
-    onMouseDown = getElementInteractive(wdef.LOWERAIRSPACEALT)[2]
-}, interactive {
-    --cursor = def.cursor,
-    position = getElementInteractive(wdef.PACKSRESTOREALT)[1],
-    onMouseDown = getElementInteractive(wdef.PACKSRESTOREALT)[2]
-}, interactive {
-    --cursor = def.cursor,
-    position = getElementInteractive(wdef.TRANSPONDERCODE)[1],
-    onMouseDown = getElementInteractive(wdef.TRANSPONDERCODE)[2]
-}, interactive {
-    --cursor = def.cursor,
-    position = getElementInteractive(wdef.GEARDOWNFLAPS)[1],
-    onMouseDown = getElementInteractive(wdef.GEARDOWNFLAPS)[2]
-}, interactive {
-    --cursor = def.cursor,
-    position = getElementInteractive(wdef.VIEWMAINPANEL)[1],
-    onMouseDown = getElementInteractive(wdef.VIEWMAINPANEL)[2]
-}, interactive {
-    --cursor = def.cursor,
-    position = getElementInteractive(wdef.VIEWPEDESTAL)[1],
-    onMouseDown = getElementInteractive(wdef.VIEWPEDESTAL)[2]
-}, interactive {
-    --cursor = def.cursor,
-    position = getElementInteractive(wdef.VIEWOVERHEADPANEL)[1],
-    onMouseDown = getElementInteractive(wdef.VIEWOVERHEADPANEL)[2]
-}, interactive {
-    --cursor = def.cursor,
-    position = getElementInteractive(wdef.VIEWFMS)[1],
-    onMouseDown = getElementInteractive(wdef.VIEWFMS)[2]
-}, interactive {
-    --cursor = def.cursor,
-    position = getElementInteractive(wdef.VIEWTHROTTLE)[1],
-    onMouseDown = getElementInteractive(wdef.VIEWTHROTTLE)[2]
-}, interactive {
-    --cursor = def.cursor,
-    position = getElementInteractive(wdef.VIEWUPPEROVERHEADPANEL)[1],
-    onMouseDown = getElementInteractive(wdef.VIEWUPPEROVERHEADPANEL)[2]
-}, interactive {
-    --cursor = def.cursor,
-    position = getElementInteractive(wdef.BRIGHTMAINPANEL)[1],
-    onMouseDown = getElementInteractive(wdef.BRIGHTMAINPANEL)[2]
-}, interactive {
-    --cursor = def.cursor,
-    position = getElementInteractive(wdef.BRIGHTMAINPANEL)[3],
-    onMouseDown = getElementInteractive(wdef.BRIGHTMAINPANEL)[4]
-}, interactive {
-    --cursor = def.cursor,
-    position = getElementInteractive(wdef.BRIGHTOVERHEAD)[1],
-    onMouseDown = getElementInteractive(wdef.BRIGHTOVERHEAD)[2]
-}, interactive {
-    --cursor = def.cursor,
-    position = getElementInteractive(wdef.BRIGHTOVERHEAD)[3],
-    onMouseDown = getElementInteractive(wdef.BRIGHTOVERHEAD)[4]
-}, interactive {
-    --cursor = def.cursor,
-    position = getElementInteractive(wdef.BRIGHTPEDESTRAL)[1],
-    onMouseDown = getElementInteractive(wdef.BRIGHTPEDESTRAL)[2]
-}, interactive {
-    --cursor = def.cursor,
-    position = getElementInteractive(wdef.BRIGHTPEDESTRAL)[3],
-    onMouseDown = getElementInteractive(wdef.BRIGHTPEDESTRAL)[4]
-}, interactive {
-    --cursor = def.cursor,
-    position = getElementInteractive(wdef.GENBRIGHTBACKGROUND)[1],
-    onMouseDown = getElementInteractive(wdef.GENBRIGHTBACKGROUND)[2]
-}, interactive {
-    --cursor = def.cursor,
-    position = getElementInteractive(wdef.GENBRIGHTBACKGROUND)[3],
-    onMouseDown = getElementInteractive(wdef.GENBRIGHTBACKGROUND)[4]
-}, interactive {
-    --cursor = def.cursor,
-    position = getElementInteractive(wdef.GENBRIGHTAFDSFLOOD)[1],
-    onMouseDown = getElementInteractive(wdef.GENBRIGHTAFDSFLOOD)[2]
-}, interactive {
-    --cursor = def.cursor,
-    position = getElementInteractive(wdef.GENBRIGHTAFDSFLOOD)[3],
-    onMouseDown = getElementInteractive(wdef.GENBRIGHTAFDSFLOOD)[4]
-}, interactive {
-    --cursor = def.cursor,
-    position = getElementInteractive(wdef.GENBRIGHTPEDESTRALFLOOD)[1],
-    onMouseDown = getElementInteractive(wdef.GENBRIGHTPEDESTRALFLOOD)[2]
-}, interactive {
-    --cursor = def.cursor,
-    position = getElementInteractive(wdef.GENBRIGHTPEDESTRALFLOOD)[3],
-    onMouseDown = getElementInteractive(wdef.GENBRIGHTPEDESTRALFLOOD)[4]
-}, interactive {
-    --cursor = def.cursor,
-    position = getElementInteractive(wdef.INSTRBRIGHTOUTBDDU)[1],
-    onMouseDown = getElementInteractive(wdef.INSTRBRIGHTOUTBDDU)[2]
-}, interactive {
-    --cursor = def.cursor,
-    position = getElementInteractive(wdef.INSTRBRIGHTOUTBDDU)[3],
-    onMouseDown = getElementInteractive(wdef.INSTRBRIGHTOUTBDDU)[4]
-}, interactive {
-    --cursor = def.cursor,
-    position = getElementInteractive(wdef.INSTRBRIGHTINBDDU)[1],
-    onMouseDown = getElementInteractive(wdef.INSTRBRIGHTINBDDU)[2]
-}, interactive {
-    --cursor = def.cursor,
-    position = getElementInteractive(wdef.INSTRBRIGHTINBDDU)[3],
-    onMouseDown = getElementInteractive(wdef.INSTRBRIGHTINBDDU)[4]
-}, interactive {
-    --cursor = def.cursor,
-    position = getElementInteractive(wdef.INSTRBRIGHTUPPERDU)[1],
-    onMouseDown = getElementInteractive(wdef.INSTRBRIGHTUPPERDU)[2]
-}, interactive {
-    --cursor = def.cursor,
-    position = getElementInteractive(wdef.INSTRBRIGHTUPPERDU)[3],
-    onMouseDown = getElementInteractive(wdef.INSTRBRIGHTUPPERDU)[4]
-}, interactive {
-    --cursor = def.cursor,
-    position = getElementInteractive(wdef.INSTRBRIGHTLOWDU)[1],
-    onMouseDown = getElementInteractive(wdef.INSTRBRIGHTLOWDU)[2]
-}, interactive {
-    --cursor = def.cursor,
-    position = getElementInteractive(wdef.INSTRBRIGHTLOWDU)[3],
-    onMouseDown = getElementInteractive(wdef.INSTRBRIGHTLOWDU)[4]
-}, interactive {
-    --cursor = def.cursor,
-    position = getElementInteractive(wdef.INSTRBRIGHTINBDDUS)[1],
-    onMouseDown = getElementInteractive(wdef.INSTRBRIGHTINBDDUS)[2]
-}, interactive {
-    --cursor = def.cursor,
-    position = getElementInteractive(wdef.INSTRBRIGHTINBDDUS)[3],
-    onMouseDown = getElementInteractive(wdef.INSTRBRIGHTINBDDUS)[4]
-}
-}
+local function addInteractiveAreas(element)
+    if not element then
+        return
+    end
+    local areas = getElementInteractive(element)
+    if areas[1] and areas[2] then
+        table.insert(components, interactive {
+            position = areas[1],
+            onMouseDown = areas[2]
+        })
+    end
+    if areas[3] and areas[4] then
+        table.insert(components, interactive {
+            position = areas[3],
+            onMouseDown = areas[4]
+        })
+    end
+end
+
+components = {}
+
+for _, handler in ipairs(buildGeneralInteractives()) do
+    table.insert(components, handler)
+end
+
+for key, element in pairs(wdef) do
+    if not skipDraw[key] and (element.onMouseDown_ or element.onMouseDown_M_ or element.onMouseDown_P_) then
+        addInteractiveAreas(element)
+    end
+end
 
 
 function not_(value)
@@ -1413,10 +1147,14 @@ function draw()
     windows.drawWindowTemplate(wdef.mainWindow)
 
     for k, v in pairs(wdef) do
-        if wdef[k].draw_ ~= nil then
+        if skipDraw[k] then
+            -- skip, rendered dynamically
+        elseif wdef[k].draw_ ~= nil then
             wdef[k].draw_()
         end
     end
+
+    drawGeneralDynamic()
 
     drawAll(components)
 end
