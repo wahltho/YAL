@@ -114,14 +114,19 @@ setup_datapanel = contextWindow {
     position = {st_x_org, st_y_org, st_width, st_height},
     saveState = true,
     visible = false,
-    noResize = true,
+    noResize = false,
     minimumSize = {st_width, st_height},
     maximumSize = {2048, 2048},
     vrAuto = true,
     noBackground = true,
     noDecore = true,
     proportional = false,
-    -- fixed size; the internal layout is static
+    resizeCallback = function(c, rw, rh, _, _)
+        if c and c.position then set(c.position, {0, 0, rw, rh}) end
+        if c and c.size then c.size = {rw, rh} end
+        if size then set(size, {rw, rh}) end
+        return 0, 0, rw, rh
+    end,
     components = {setup_datapanel {
         position = {0, 0, st_width, st_height},
         size = {st_width, st_height}

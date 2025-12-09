@@ -7,15 +7,15 @@ local def = require("definitions")
 
 defineProperty(size, { 200, 200 })
 
-size = get(size)
-
-wSize = size[1]
-hSize = size[2]
+local sizeProp = size
+local initialSize = get(sizeProp)
+local wSize = initialSize[1]
+local hSize = initialSize[2]
 
 local showBetaUpdates = toboolean(settings.appSettings.SHOWBETAUPDATES)
 local YALupdateavailable, YALnewversion = helpers.checkForUpdate(showBetaUpdates)
 
-local wTitle = "" -- hidden title when noDecore is true
+local wTitle = string.format("%s v%s", def.APPNAMEPREFIXLONG, def.VERSION)
 if YALupdateavailable then
     wTitle = wTitle .. "   " .. messages.translation['UPDATEAVAILABLE'] .. " v" .. YALnewversion
 end
@@ -24,6 +24,9 @@ local x_col1 = 10
 local x_col2 = x_col1 + wSize / 2 + 90
 local cb_w = 10
 local cb_h = 10
+local scrollOffset = 0
+local scrollMax = 0
+local scrollDrag = nil
 
 local generalControls = {
     "USEGROUNDPOWER",
@@ -48,6 +51,29 @@ local generalControls = {
     "HIDEEFBS",
 }
 
+local viewControls = {
+    "VIEWMAINPANEL",
+    "VIEWPEDESTAL",
+    "VIEWOVERHEADPANEL",
+    "VIEWFMS",
+    "VIEWTHROTTLE",
+    "VIEWUPPEROVERHEADPANEL",
+}
+
+local brightnessControls = {
+    "BRIGHTMAINPANEL",
+    "BRIGHTOVERHEAD",
+    "BRIGHTPEDESTRAL",
+    "GENBRIGHTBACKGROUND",
+    "GENBRIGHTAFDSFLOOD",
+    "GENBRIGHTPEDESTRALFLOOD",
+    "INSTRBRIGHTOUTBDDU",
+    "INSTRBRIGHTINBDDU",
+    "INSTRBRIGHTUPPERDU",
+    "INSTRBRIGHTLOWDU",
+    "INSTRBRIGHTINBDDUS",
+}
+
 local generalRowStartY = hSize - 80
 local generalRowStep = def.lineHeight + 4
 local generalHeaderY = generalRowStartY + 20
@@ -56,12 +82,57 @@ local postGeneralStartY = generalBottomY - 40
 local postGeneralGap = def.lineHeight * 1.5 + 10
 local lowerBlockStartY = postGeneralStartY - (2 * postGeneralGap) - 30
 local lowerBlockGap = def.lineHeight + 12
+local generalRowStartYAdj = generalRowStartY
+local generalHeaderYAdj = generalHeaderY
+
+local viewHeaderY = 0
+local viewStartY = 0
+local viewStep = 0
+local brightnessHeaderY = 0
+local brightnessStartY = 0
+local brightnessStep = 0
+local ignoreBrightY = 0
+local miscHeaderY = 0
+local showBetaY = 0
+local debugY = 0
+
+local function updateLayoutConstants()
+    local currentSize = get(size)
+    wSize = currentSize[1]
+    hSize = currentSize[2]
+
+    x_col1 = 10
+    x_col2 = x_col1 + wSize / 2 + 90
+
+    generalRowStartY = hSize - 80
+    generalRowStep = def.lineHeight + 4
+    generalHeaderY = generalRowStartY + 20
+    generalBottomY = generalRowStartY - (generalRowStep * (#generalControls - 1))
+    postGeneralStartY = generalBottomY - 40
+    postGeneralGap = def.lineHeight * 1.5 + 10
+    lowerBlockStartY = postGeneralStartY - (2 * postGeneralGap) - 30
+    lowerBlockGap = def.lineHeight + 12
+
+    viewHeaderY = hSize - 60
+    viewStartY = hSize - 90
+    viewStep = def.lineHeight * 1.8
+
+    brightnessHeaderY = viewStartY - (viewStep * #viewControls) - 4
+    brightnessStartY = brightnessHeaderY - 28
+    brightnessStep = def.lineHeight * 1.8
+
+    ignoreBrightY = brightnessStartY - (brightnessStep * #brightnessControls) - 8
+    miscHeaderY = ignoreBrightY - 24
+    showBetaY = miscHeaderY - 18
+    debugY = showBetaY - 18
+end
 
 local skipDraw = {}
 for _, key in ipairs(generalControls) do
     skipDraw[key] = true
 end
 skipDraw.general = true
+components = {}
 
 local current_input_field = nil
 
@@ -145,8 +216,8 @@ end
 
 local function drawGeneralDynamic()
     local baseX = x_col1
-    windows.drawText({ t = messages.translation['GENERAL'], x = baseX, y = generalHeaderY, font = def.wFont })
-    local rowY = generalRowStartY
+    windows.drawText({ t = messages.translation['GENERAL'], x = baseX, y = generalHeaderYAdj, font = def.wFont })
+    local rowY = generalRowStartYAdj
     for _, key in ipairs(generalControls) do
         local label = messages.translation[key] or key
         local box = {
@@ -165,7 +236,7 @@ end
 local function buildGeneralInteractives()
     local interactives = {}
     local baseX = x_col1
-    local rowY = generalRowStartY
+    local rowY = generalRowStartYAdj
     for _, key in ipairs(generalControls) do
         local pos = { baseX + 60, rowY, cb_w, cb_h }
         table.insert(interactives, interactive {
@@ -1119,18 +1190,129 @@ local function addInteractiveAreas(element)
     end
 end
 
-components = {}
-
-for _, handler in ipairs(buildGeneralInteractives()) do
-    table.insert(components, handler)
-end
-
-for key, element in pairs(wdef) do
-    if not skipDraw[key] and (element.onMouseDown_ or element.onMouseDown_M_ or element.onMouseDown_P_) then
-        addInteractiveAreas(element)
+local function rebuildComponents()
+    components = {}
+    for _, handler in ipairs(buildGeneralInteractives()) do
+        table.insert(components, handler)
+    end
+    for key, element in pairs(wdef) do
+        if not skipDraw[key] and (element.onMouseDown_ or element.onMouseDown_M_ or element.onMouseDown_P_) then
+            addInteractiveAreas(element)
+        end
     end
 end
 
+local function applyLayout()
+    updateLayoutConstants()
+    local contentTop = generalHeaderY
+    local contentBottom = contentTop
+
+    if wdef.mainWindow then
+        wdef.mainWindow.w = wSize
+        wdef.mainWindow.h = hSize
+    end
+    if wdef.closeButton then
+        wdef.closeButton.x = wSize - def.closeXWidth
+        wdef.closeButton.y = hSize - def.closeXHeight
+    end
+
+    if wdef.TODPAUSEQUITTIME then
+        wdef.TODPAUSEQUITTIME.y = postGeneralStartY
+    end
+    if wdef.SAVETIME then
+        wdef.SAVETIME.y = postGeneralStartY - postGeneralGap
+    end
+    if wdef.SAVENUMBER then
+        wdef.SAVENUMBER.y = postGeneralStartY - (2 * postGeneralGap)
+    end
+    if wdef.LOWERAIRSPACEALT then
+        wdef.LOWERAIRSPACEALT.y = lowerBlockStartY
+    end
+    if wdef.PACKSRESTOREALT then
+        wdef.PACKSRESTOREALT.y = lowerBlockStartY - lowerBlockGap
+    end
+    if wdef.BANKANGLEMAX then
+        wdef.BANKANGLEMAX.y = lowerBlockStartY - (2 * lowerBlockGap)
+    end
+    if wdef.TRANSPONDERCODE then
+        wdef.TRANSPONDERCODE.y = lowerBlockStartY - (3 * lowerBlockGap)
+    end
+    if wdef.GEARDOWNFLAPS then
+        wdef.GEARDOWNFLAPS.y = lowerBlockStartY - (4 * lowerBlockGap)
+    end
+
+    if wdef.views then
+        wdef.views.x = x_col2
+        wdef.views.y = viewHeaderY
+    end
+    for idx, key in ipairs(viewControls) do
+        local elem = wdef[key]
+        if elem then
+            elem.x = x_col2 + 10
+            elem.y = viewStartY - ((idx - 1) * viewStep)
+        end
+    end
+
+    if wdef.brightness then
+        wdef.brightness.x = x_col2
+        wdef.brightness.y = brightnessHeaderY
+    end
+    for idx, key in ipairs(brightnessControls) do
+        local elem = wdef[key]
+        if elem then
+            elem.x = x_col2
+            elem.x2 = x_col2 + 65
+            elem.y = brightnessStartY - ((idx - 1) * brightnessStep)
+        end
+    end
+    if wdef.IGNOREALLBRIGHTHNESSSETTINGS then
+        wdef.IGNOREALLBRIGHTHNESSSETTINGS.x = x_col2
+        wdef.IGNOREALLBRIGHTHNESSSETTINGS.y = ignoreBrightY
+    end
+
+    if wdef.misc then
+        wdef.misc.x = x_col2
+        wdef.misc.y = miscHeaderY
+    end
+    if wdef.SHOWBETAUPDATES then
+        wdef.SHOWBETAUPDATES.x = x_col2 + 20
+        wdef.SHOWBETAUPDATES.y = showBetaY
+    end
+    if wdef.debugMode then
+        wdef.debugMode.x = x_col2 + 20
+        wdef.debugMode.y = debugY
+    end
+
+    -- content bounds (before offset)
+    for key, element in pairs(wdef) do
+        if key ~= "mainWindow" and key ~= "closeButton" and element.y then
+            local bottom = element.y
+            if element.h then bottom = element.y - element.h end
+            contentBottom = math.min(contentBottom, bottom)
+        end
+    end
+
+    local contentHeight = contentTop - contentBottom
+    local availableHeight = hSize - def.bannerHeight - 16
+    scrollMax = math.max(0, contentHeight - availableHeight)
+    if scrollOffset > scrollMax then scrollOffset = scrollMax end
+    if scrollOffset < 0 then scrollOffset = 0 end
+
+    generalRowStartYAdj = generalRowStartY - scrollOffset
+    generalHeaderYAdj = generalHeaderY - scrollOffset
+
+    for key, element in pairs(wdef) do
+        if key ~= "mainWindow" and key ~= "closeButton" and element.y then
+            element.y = element.y - scrollOffset
+        end
+    end
+
+    rebuildComponents()
+end
+
+
+-- initial layout
+applyLayout()
 
 function not_(value)
     if value == 0 then
@@ -1144,6 +1326,7 @@ function update()
 end
 
 function draw()
+    applyLayout()
     windows.drawWindowTemplate(wdef.mainWindow)
 
     for k, v in pairs(wdef) do
@@ -1157,4 +1340,68 @@ function draw()
     drawGeneralDynamic()
 
     drawAll(components)
+
+    if scrollMax > 0 then
+        local trackX = wSize - 10
+        local trackW = 6
+        local trackHeight = hSize - def.bannerHeight - 16
+        local trackTop = hSize - def.bannerHeight - 8
+        local travel = trackHeight
+        local thumbHeight = math.max(20, trackHeight * (trackHeight / (trackHeight + scrollMax)))
+        travel = trackHeight - thumbHeight
+        local rel = (scrollMax == 0) and 0 or (scrollOffset / scrollMax)
+        local thumbY = trackTop - (rel * travel) - thumbHeight
+        sasl.gl.drawRectangle(trackX, trackTop - trackHeight, trackW, trackHeight, {0.3, 0.3, 0.3, 0.4})
+        sasl.gl.drawRectangle(trackX, thumbY, trackW, thumbHeight, {0.8, 0.8, 0.8, 0.9})
+    end
+end
+
+function onMouseWheel(_, _, _, clicks)
+    if clicks == nil or type(clicks) ~= "number" or scrollMax == 0 then return false end
+    scrollOffset = scrollOffset + (-clicks * (def.lineHeight * 2))
+    if scrollOffset < 0 then scrollOffset = 0 end
+    if scrollOffset > scrollMax then scrollOffset = scrollMax end
+    return true
+end
+
+function onMouseDown(x, y, button)
+    if type(x) ~= "number" or type(y) ~= "number" then return false end
+    if button == MB_LEFT and scrollMax > 0 then
+        local trackX = wSize - 10
+        local trackW = 6
+        local trackHeight = hSize - def.bannerHeight - 16
+        local trackTop = hSize - def.bannerHeight - 8
+        local trackBottom = trackTop - trackHeight
+        if x >= trackX and x <= (trackX + trackW) and y >= trackBottom and y <= trackTop then
+            local thumbHeight = math.max(20, trackHeight * (trackHeight / (trackHeight + scrollMax)))
+            local travel = trackHeight - thumbHeight
+            local rel = (travel == 0) and 0 or (trackTop - y - (thumbHeight / 2)) / travel
+            rel = math.max(0, math.min(1, rel))
+            scrollOffset = rel * scrollMax
+            scrollDrag = { startY = y, startOffset = scrollOffset, travel = travel }
+            return true
+        end
+    end
+    return false
+end
+
+function onMouseUp(_, _, button)
+    if button == MB_LEFT and scrollDrag then
+        scrollDrag = nil
+        return true
+    end
+    return false
+end
+
+function onMouseMove(_, y)
+    if type(y) ~= "number" then return false end
+    if scrollDrag then
+        local dy = scrollDrag.startY - y
+        local rel = (scrollDrag.travel == 0) and 0 or (dy / scrollDrag.travel)
+        scrollOffset = scrollDrag.startOffset + (rel * scrollMax)
+        if scrollOffset < 0 then scrollOffset = 0 end
+        if scrollOffset > scrollMax then scrollOffset = scrollMax end
+        return true
+    end
+    return false
 end
