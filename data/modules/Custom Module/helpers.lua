@@ -2318,6 +2318,57 @@ function P.calcappflapsvref(totalweightkgs, desrwylen, desrwyheading, baseVref, 
 end
 
 --------------------------------------------------------------------------------------------------------------
+-- Compute recommended approach wind correction (B737-style: 1/2 headwind + gust increment, capped)
+function P.calculateApproachWindCorrection(runwayHeadingMag, metar)
+    local runwayHeading = toNumber(runwayHeadingMag, nil)
+    if not runwayHeading then
+        return nil
+    end
+
+    local weatherData = (metar and metar.decodedmetar) or {}
+    local windInfo = weatherData.wind or {}
+    local rawDir = windInfo.direction
+    local windDir = toNumber(rawDir, nil)
+    if (not windDir) and type(rawDir) == "string" then
+        local dirStr = rawDir:upper()
+        if dirStr ~= "" and dirStr ~= "VRB" then
+            windDir = toNumber(dirStr, nil)
+        end
+    end
+
+    local windSpeed = toNumber(windInfo.speed, 0) or 0
+    if windSpeed < 0 then windSpeed = 0 end
+    local gust = toNumber(windInfo.gust, 0) or 0
+    if gust < 0 then gust = 0 end
+
+    if (not windDir) or windSpeed == 0 then
+        return nil
+    end
+
+    local magVar = 0
+    local metarLat = toNumber(metar and metar.latitude, nil)
+    local metarLon = toNumber(metar and metar.longitude, nil)
+    if metarLat and metarLon then
+        magVar = sasl.getMagneticVariation(metarLat, metarLon) or 0
+    end
+    local magneticWindDirection = (windDir - magVar + 360) % 360
+
+    local headwind = 0
+    headwind = P.calculateWindComponents(magneticWindDirection, runwayHeading, windSpeed)
+
+    local gustIncrement = 0
+    if gust > windSpeed then
+        gustIncrement = gust - windSpeed
+    end
+
+    local additive = math.max(headwind / 2, 0) + gustIncrement
+    additive = math.max(additive, 0)
+    additive = math.min(additive, 20) -- Boeing cap
+
+    return math.floor(additive + 0.5)
+end
+
+--------------------------------------------------------------------------------------------------------------
 function P.determineLandingFlapsSetting(runwayLengthMeters, tailwindKnots, crosswindKnots, isBadWeather, weightKg)
     local LANDING_SHORT_RUNWAY_THRESHOLD = 2000
     local LANDING_HIGH_TAILWIND_THRESHOLD = 5 -- Consider Flaps 40 if tailwind exceeds 5 kts
