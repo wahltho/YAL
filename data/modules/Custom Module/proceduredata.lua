@@ -7,9 +7,18 @@ local function getNavEntryCourse(entry)
         return nil
     end
 
+    local navType = entry[def.DESTNAVTYPE]
+
+    -- GLS: use GLS course if available
+    if navType == def.NAVTYPEGLS then
+        local glsCourse = get(P.glscourse)
+        if glsCourse and glsCourse >= 0 and glsCourse < 360 then
+            return helpers.calccourse(glsCourse)
+        end
+    end
+
     local function getFMSFinalMagCourse()
-        if not (P and P.configvalues and P.configvalues[def.CONFIGZIBOISMODDED] == def.ON) then return nil end
-        if not (P.fmslegs and P.fmslegslat and P.fmslegslon) then return nil end
+        if not (P and P.fmslegs and P.fmslegslat and P.fmslegslon) then return nil end
         local legsStr = get(P.fmslegs)
         local latArr = get(P.fmslegslat)
         local lonArr = get(P.fmslegslon)
@@ -41,42 +50,9 @@ local function getNavEntryCourse(entry)
     end
 
     -- Prefer FMC-provided final-leg course when modded Zibo is enabled
-    if P and P.configvalues and P.configvalues[def.CONFIGZIBOISMODDED] == def.ON then
-        local magCourse = nil
-        local trueCourse = nil
-        if P.fmsappcoursemag then
-            local val = get(P.fmsappcoursemag)
-            if val and val ~= 0 then
-                magCourse = val
-            end
-        end
-        if P.fmsappcoursetrue then
-            local val = get(P.fmsappcoursetrue)
-            if val and val ~= 0 then
-                trueCourse = val
-            end
-        end
-
-        -- If mag is missing but true is present, convert using local magnetic variation
-        if (not magCourse) and trueCourse then
-            local lat = get(P.desrwylatstartpos)
-            local lon = get(P.desrwylonstartpos)
-            if lat and lon and lat ~= 0 and lon ~= 0 then
-                local magVar = sasl.getMagneticVariation(lat, lon) or 0
-                magCourse = helpers.calccourse(trueCourse - magVar)
-            else
-                magCourse = trueCourse
-            end
-        end
-
-        if magCourse then
-            return helpers.calccourse(magCourse)
-        end
-
-        local fmsMag = getFMSFinalMagCourse()
-        if fmsMag then
-            return fmsMag
-        end
+    local fmsMag = getFMSFinalMagCourse()
+    if fmsMag then
+        return fmsMag
     end
 
     local icao = entry[def.DESTICAO]
@@ -2555,7 +2531,8 @@ function M.fillProcedureTable()
                 ['check_mcp_speed_vapp'] = {
                     check = function(loop)
                         local vref = loop and loop.appvrefcalc or get(P.vref) or 0
-                        local windcorr = (loop and loop.appwindcorr) or get(P.vrefapproachwindcorr) or 0
+                        local customCalcOn = P.configvalues[def.CONFIGCUSTOMAPPROACHCALC] == def.ON
+                        local windcorr = customCalcOn and 0 or ((loop and loop.appwindcorr) or get(P.vrefapproachwindcorr) or 0)
                         local target = tonumber(vref) or 0
                         target = target + (tonumber(windcorr) or 0)
                         if target <= 0 then return true end -- nichts bekannt, weiter
@@ -2577,7 +2554,8 @@ function M.fillProcedureTable()
                     end,
                     advice = function(loop)
                         local vref = loop and loop.appvrefcalc or get(P.vref) or 0
-                        local windcorr = (loop and loop.appwindcorr) or get(P.vrefapproachwindcorr) or 0
+                        local customCalcOn = P.configvalues[def.CONFIGCUSTOMAPPROACHCALC] == def.ON
+                        local windcorr = customCalcOn and 0 or ((loop and loop.appwindcorr) or get(P.vrefapproachwindcorr) or 0)
                         local target = tonumber(vref) or 0
                         target = target + (tonumber(windcorr) or 0)
                         if target <= 0 then return "Check M C P Speed" end
@@ -2585,7 +2563,8 @@ function M.fillProcedureTable()
                     end,
                     confirm = function(loop)
                         local vref = loop and loop.appvrefcalc or get(P.vref) or 0
-                        local windcorr = (loop and loop.appwindcorr) or get(P.vrefapproachwindcorr) or 0
+                        local customCalcOn = P.configvalues[def.CONFIGCUSTOMAPPROACHCALC] == def.ON
+                        local windcorr = customCalcOn and 0 or ((loop and loop.appwindcorr) or get(P.vrefapproachwindcorr) or 0)
                         local target = tonumber(vref) or 0
                         target = target + (tonumber(windcorr) or 0)
                         if target <= 0 then return "M C P Speed check skipped" end
@@ -3908,8 +3887,7 @@ function M.fillProcedureTable()
                         local course = nil
 
                         local function getFMSFinalMagCourse()
-                            if not (P and P.configvalues and P.configvalues[def.CONFIGZIBOISMODDED] == def.ON) then return nil end
-                            if not (P.fmslegs and P.fmslegslat and P.fmslegslon) then return nil end
+                            if not (P and P.fmslegs and P.fmslegslat and P.fmslegslon) then return nil end
                             local legsStr = get(P.fmslegs)
                             local latArr = get(P.fmslegslat)
                             local lonArr = get(P.fmslegslon)
@@ -3940,38 +3918,11 @@ function M.fillProcedureTable()
                             return nil
                         end
 
-                        -- Prefer FMC-provided final-leg course when modded Zibo is enabled
-                        if P.configvalues and P.configvalues[def.CONFIGZIBOISMODDED] == def.ON then
-                            local magCourse = nil
-                            local trueCourse = nil
-                            if P.fmsappcoursemag then
-                                local val = get(P.fmsappcoursemag)
-                                if val and val ~= 0 then
-                                    magCourse = val
-                                end
-                            end
-                            if P.fmsappcoursetrue then
-                                local val = get(P.fmsappcoursetrue)
-                                if val and val ~= 0 then
-                                    trueCourse = val
-                                end
-                            end
-                            if (not magCourse) and trueCourse then
-                                local lat = get(P.desrwylatstartpos)
-                                local lon = get(P.desrwylonstartpos)
-                                if lat and lon and lat ~= 0 and lon ~= 0 then
-                                    local magVar = sasl.getMagneticVariation(lat, lon) or 0
-                                    magCourse = helpers.calccourse(trueCourse - magVar)
-                                else
-                                    magCourse = trueCourse
-                                end
-                            end
-                            if magCourse then
-                                course = helpers.calccourse(magCourse)
-                            end
-
-                            if not course then
-                                course = getFMSFinalMagCourse()
+                        -- Attempt to derive final-leg course from FMC
+                        if not course then
+                            course = getFMSFinalMagCourse()
+                            if course then
+                                course = helpers.calccourse(course)
                             end
                         end
 

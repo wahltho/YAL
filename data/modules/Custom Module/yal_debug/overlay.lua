@@ -1,30 +1,24 @@
 local M = {}
 
-local ctx = {}
-local overlayWindow
-local overlayVisible = false
-
 local w = 520
 local h = 160
 local lineHeight = 16
 
-local function getSafeFont()
-    if ctx.def and ctx.def.wFont then
-        return ctx.def.wFont
+local function getSafeFont(def)
+    if def and def.wFont then
+        return def.wFont
     end
     return sasl.gl.loadFont("DejaVuSansMono.ttf")
 end
 
-local function getTextColor()
-    if ctx.def and ctx.def.textColor then
-        return ctx.def.textColor
+local function getTextColor(def)
+    if def and def.textColor then
+        return def.textColor
     end
     return {1, 1, 1, 1}
 end
 
-local function formatLoopLine(i, loop)
-    local def = ctx.def
-    local yal = ctx.yal
+local function formatLoopLine(i, loop, def, yal)
     local lock = loop.lock or def.NOPROCEDURE
     local procName = "NOPROCEDURE"
     if lock ~= def.NOPROCEDURE and yal and yal.proceduretable and yal.proceduretable[lock] then
@@ -35,93 +29,83 @@ local function formatLoopLine(i, loop)
     return string.format("Loop %d | %s | Step: %s (state:%s)", i, tostring(procName), tostring(stepName), tostring(state))
 end
 
-local function gatherLines()
-    local lines = {}
-    local yal = ctx.yal
-    local def = ctx.def
+function M.newComponent(ctx)
+    local comp = {}
+    comp.name = "yal_debug_overlay_component"
+    comp.components = {}
+    comp.position = createProperty({0, 0, w, h})
+    comp.size = {w, h}
+    comp.fbo = createProperty(false)
+    comp.renderTarget = -1
+    comp.fpsLimit = createProperty(-1)
+    comp.frames = 0
+    comp.noRenderSignal = createProperty(false)
+    comp.clip = createProperty(false)
+    comp.clipSize = createProperty({0, 0, 0, 0})
+    comp.visible = createProperty(true)
 
-    table.insert(lines, "YAL Debug Overlay (preview)")
+    function comp:draw()
+        local yal = ctx.yal
+        local def = ctx.def
+        local font = getSafeFont(def)
+        local color = getTextColor(def)
 
-    if yal and yal.loopStateTables then
-        for i = 1, #yal.loopStateTables do
-            local loop = yal.loopStateTables[i]
-            if loop then
-                table.insert(lines, formatLoopLine(i, loop))
+        drawRectangle(0, 0, w, h, {0, 0, 0, 0.7})
+
+        local lines = {}
+        table.insert(lines, "YAL Debug Overlay (preview)")
+
+        if yal and yal.loopStateTables then
+            for i = 1, #yal.loopStateTables do
+                local loop = yal.loopStateTables[i]
+                if loop then
+                    table.insert(lines, formatLoopLine(i, loop, def, yal))
+                    local flags = {}
+                    if loop.steprepeat then table.insert(flags, "repeat") end
+                    if loop.procedureabort then table.insert(flags, "abort") end
+                    if loop.procedureskipstep then table.insert(flags, "skipstep") end
+                    if loop.procedurenotpossible then table.insert(flags, "notpossible") end
+                    if loop.triggeredmanually then table.insert(flags, "manual") end
+                    local flagStr = (#flags > 0) and table.concat(flags, ",") or "—"
+                    local lastActive = loop.lastActiveTime or 0
+                    local ago = ""
+                    if lastActive > 0 then
+                        ago = string.format(" | last %.0fs ago", os.time() - lastActive)
+                    end
+                    table.insert(lines, string.format("   flags: %s%s", flagStr, ago))
+
+                    local vars = {}
+                    table.insert(vars, string.format("lock=%s", tostring(loop.lock)))
+                    table.insert(vars, string.format("stepindex=%s", tostring(loop.stepindex)))
+                    table.insert(vars, string.format("current=%s", tostring(loop.currentStepName or "")))
+                    table.insert(vars, string.format("last=%s", tostring(loop.lastStepName or "")))
+                    table.insert(vars, string.format("skipConfirm=%s", tostring(loop.skipConfirmForStep or "")))
+                    table.insert(lines, "   vars: " .. table.concat(vars, " | "))
+                end
             end
+        else
+            table.insert(lines, "Loop state unavailable")
         end
-    else
-        table.insert(lines, "Loop state unavailable")
-    end
 
-    local ongoing = yal and yal.ongoingtaskstepindex or "-"
-    table.insert(lines, string.format("Ongoing task step index: %s", tostring(ongoing)))
+        local ongoing = yal and yal.ongoingtaskstepindex or "-"
+        table.insert(lines, string.format("Ongoing task step index: %s", tostring(ongoing)))
 
-    return lines
-end
-
-local function drawOverlay()
-    if not overlayWindow or not overlayVisible then return end
-
-    drawRectangle(0, 0, w, h, {0, 0, 0, 0.7})
-    local font = getSafeFont()
-    local color = getTextColor()
-
-    local lines = gatherLines()
-    local y = h - 22
-    for _, line in ipairs(lines) do
-        sasl.gl.drawTextI(font, 12, y, line, TEXT_ALIGN_LEFT, color)
-        y = y - lineHeight
-    end
-end
-
-local function toggleOverlay()
-    overlayVisible = not overlayVisible
-    if overlayWindow then
-        overlayWindow:setIsVisible(overlayVisible)
-    end
-end
-
-function M.init(initCtx)
-    ctx = initCtx or {}
-
-    local xRoot, yRoot, wRoot, hRoot = sasl.windows.getMonitorBoundsOS(0)
-    local posX = xRoot + wRoot - w - 30
-    local posY = yRoot + hRoot - h - 80
-
-    overlayWindow = contextWindow {
-        name = "YAL Debug",
-        position = { posX, posY, w, h },
-        visible = false,
-        noResize = true,
-        vrAuto = true,
-        noBackground = true,
-        noDecore = true,
-        proportional = true,
-        drawCallback = drawOverlay
-    }
-
-    local cmdPath = ctx.def and (ctx.def.APPNAMEPREFIX .. "/toggle_debug_overlay") or "yal/toggle_debug_overlay"
-    local cmd = sasl.createCommand(cmdPath, "Toggle YAL Debug Overlay")
-    sasl.registerCommandHandler(cmd, 0, function(phase)
-        if phase == SASL_COMMAND_BEGIN then
-            toggleOverlay()
+        local y = h - 22
+        for _, line in ipairs(lines) do
+            sasl.gl.drawTextI(font, 12, y, line, TEXT_ALIGN_LEFT, color)
+            y = y - lineHeight
         end
-        return 0
-    end)
-
-    if ctx.yal and ctx.yal.menu_main then
-        M.menu_item = sasl.appendMenuItem(ctx.yal.menu_main, "Toggle Debug Overlay", toggleOverlay)
     end
 
-    M.toggle = toggleOverlay
-    M.show = function()
-        overlayVisible = true
-        if overlayWindow then overlayWindow:setIsVisible(true) end
+    function comp:update()
+        -- no-op
     end
-    M.hide = function()
-        overlayVisible = false
-        if overlayWindow then overlayWindow:setIsVisible(false) end
-    end
+
+    return comp
+end
+
+function M.windowSize()
+    return w, h
 end
 
 return M

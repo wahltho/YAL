@@ -3,7 +3,7 @@ local settings = require("settings")
 require("helpers")
 require("yal")
 
-local debugOverlay
+local debugOverlayWindow
 local debugOverlayInitialized = false
 
 local function maybeInitDebugOverlay()
@@ -12,7 +12,6 @@ local function maybeInitDebugOverlay()
 
     local requested = tonumber(settings.appSettings[def.CONFIGDEBUGOVERLAY]) == def.ON
     if not requested then return end
-    if sasl.getLogLevel() ~= LOG_DEBUG then return end
 
     local ok, modOrErr = pcall(require, "yal_debug.overlay")
     if not ok then
@@ -22,20 +21,52 @@ local function maybeInitDebugOverlay()
     end
 
     local mod = modOrErr
-    if mod and mod.init then
-        local initOk, initErr = pcall(mod.init, { yal = yal, def = def, helpers = helpers })
-        if not initOk then
-            sasl.logWarning("Debug overlay init failed: " .. tostring(initErr))
-            debugOverlayInitialized = true
-            return
-        end
-        debugOverlay = mod
-        yal.debugOverlay = mod
+    if not mod or not mod.newComponent then
         debugOverlayInitialized = true
-        sasl.logInfo("Debug overlay enabled (hidden setting + DEBUG log level).")
-    else
-        debugOverlayInitialized = true
+        sasl.logWarning("Debug overlay module missing newComponent.")
+        return
     end
+
+    local comp = mod.newComponent({ yal = yal, def = def, helpers = helpers })
+    local w, h = mod.windowSize()
+    local xRoot, yRoot, wRoot, hRoot = sasl.windows.getMonitorBoundsOS(0)
+    local posX = xRoot + math.max(0, (wRoot - w) / 2)
+    local posY = yRoot + math.max(0, (hRoot - h) / 2)
+
+    debugOverlayWindow = contextWindow {
+        name = "YAL Debug",
+        position = { posX, posY, w, h },
+        visible = false,
+        noResize = true,
+        vrAuto = true,
+        noBackground = true,
+        noDecore = true,
+        proportional = true,
+        components = { comp }
+    }
+
+    local function toggleDebugOverlay()
+        if debugOverlayWindow then
+            local target = not debugOverlayWindow:isVisible()
+            debugOverlayWindow:setIsVisible(target)
+        end
+    end
+
+    local cmdPath = def.APPNAMEPREFIX .. "/toggle_debug_overlay"
+    local cmd = sasl.createCommand(cmdPath, "Toggle YAL Debug Overlay")
+    sasl.registerCommandHandler(cmd, 0, function(phase)
+        if phase == SASL_COMMAND_BEGIN then
+            toggleDebugOverlay()
+        end
+        return 0
+    end)
+
+    if yal.menu_main then
+        sasl.appendMenuItem(yal.menu_main, "Toggle Debug Overlay", toggleDebugOverlay)
+    end
+
+    debugOverlayInitialized = true
+    sasl.logInfo("Debug overlay enabled")
 end
 
 

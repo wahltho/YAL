@@ -314,7 +314,6 @@ function P.initDataref()
     P.distdest = globalProperty("laminar/B738/FMS/dist_dest")
     P.vnavtocdist = globalProperty("laminar/B738/fms/vnav_tc_dist")
 
-
     P.hidecptefb = globalProperty("laminar/B738/tab/static")
     P.hidefoefb = globalProperty("laminar/B738/tab/fo_static")
 
@@ -604,6 +603,7 @@ function P.initDataref()
     P.runwayslope = globalProperty("laminar/B738/fms/rw_slope")
     P.runwayheadingfmc = globalProperty("laminar/B738/fms/rw_hdg")
     P.fueltemp = globalProperty("laminar/B738/engine/fuel_temp_real")
+    P.glscourse = globalProperty("laminar/B738/nav/gls1_crs")
 
     P.rain = globalProperty("sim/weather/view/rain_ratio")
 
@@ -1153,7 +1153,7 @@ function P.readconfig()
     end
 
     if P.configvalues[def.CONFIGZIBOISMODDED] == def.ON then
-        sasl.logInfo("ZIBOISMODDED active: FMS SID/STAR/APPROACH datarefs enabled")
+        sasl.logInfo("ZIBOISMODDED active: FMS SID/STAR/APPROCH datarefs enabled")
         local fmsSelectedSid = globalProperty("laminar/B738/fms/selected_sid")
         if isProperty(fmsSelectedSid) then
             P.fmsselectedsid = fmsSelectedSid
@@ -1172,24 +1172,10 @@ function P.readconfig()
         else
             P.fmsselectedapp = nil
         end
-        local fmsappCourseTrue = globalProperty("laminar/B738/fms/selected_app_course_true")
-        if isProperty(fmsappCourseTrue) then
-            P.fmsappcoursetrue = fmsappCourseTrue
-        else
-            P.fmsappcoursetrue = nil
-        end
-        local fmsappCourseMag = globalProperty("laminar/B738/fms/selected_app_course_mag")
-        if isProperty(fmsappCourseMag) then
-            P.fmsappcoursemag = fmsappCourseMag
-        else
-            P.fmsappcoursemag = nil
-        end
     else
         P.fmsselectedsid = nil
         P.fmsselectedstar = nil
         P.fmsselectedapp = nil
-        P.fmsappcoursetrue = nil
-        P.fmsappcoursemag = nil
     end
 
     P.needstempinit = true
