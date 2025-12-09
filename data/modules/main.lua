@@ -36,14 +36,18 @@ local function maybeInitDebugOverlay()
     debugOverlayWindow = contextWindow {
         name = "YAL Debug",
         position = { posX, posY, w, h },
+        saveState = true,
         visible = false,
-        noResize = true,
+        noResize = false,
         vrAuto = true,
         noBackground = true,
         noDecore = true,
         proportional = true,
         components = { comp }
     }
+    if comp.setWindow then
+        comp:setWindow(debugOverlayWindow)
+    end
 
     local function toggleDebugOverlay()
         if debugOverlayWindow then
@@ -103,6 +107,7 @@ local st_y_org = yRoot + (hRoot - st_height) / 2
 setup_datapanel = contextWindow {
     name = "setup window",
     position = {st_x_org, st_y_org, st_width, st_height},
+    saveState = true,
     visible = false,
     noResize = true,
     vrAuto = true,

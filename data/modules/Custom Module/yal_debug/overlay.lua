@@ -1,8 +1,9 @@
 local M = {}
 
-local w = 720
-local h = 280
+local defaultW = 720
+local defaultH = 320
 local lineHeight = 16
+local headerH = 22
 
 local function getSafeFont(def)
     if def and def.wFont then
@@ -69,8 +70,8 @@ function M.newComponent(ctx)
     local comp = {}
     comp.name = "yal_debug_overlay_component"
     comp.components = {}
-    comp.position = createProperty({0, 0, w, h})
-    comp.size = {w, h}
+    comp.position = createProperty({0, 0, defaultW, defaultH})
+    comp.size = {defaultW, defaultH}
     comp.fbo = createProperty(false)
     comp.renderTarget = -1
     comp.fpsLimit = createProperty(-1)
@@ -79,23 +80,40 @@ function M.newComponent(ctx)
     comp.clip = createProperty(false)
     comp.clipSize = createProperty({0, 0, 0, 0})
     comp.visible = createProperty(true)
+    comp._window = nil
+    comp.scrollOffset = 0
+    comp.scrollDrag = nil
+
+    function comp:setWindow(win)
+        self._window = win
+    end
+
+    local function getSize()
+        if comp._window and comp._window.getPosition then
+            local _, _, ww, hh = comp._window:getPosition()
+            return ww or defaultW, hh or defaultH
+        end
+        local p = get(comp.position)
+        return p[3] or defaultW, p[4] or defaultH
+    end
 
     function comp:draw()
+        local w, h = getSize()
         local yal = ctx.yal
         local def = ctx.def
         local font = getSafeFont(def)
-        local color = getTextColor(def)
+        local color = {0.9, 0.9, 0.95, 1}
 
-        drawRectangle(0, 0, w, h, {0, 0, 0, 0.7})
+        drawRectangle(0, 0, w, h, {0, 0, 0, 0.75})
+        drawRectangle(0, h - headerH, w, headerH, {0.12, 0.12, 0.12, 0.95})
 
         local lines = {}
-        table.insert(lines, "YAL Debug Overlay (preview)")
+        local activeLoops = 0
 
         if yal and yal.loopStateTables then
             for i = 1, #yal.loopStateTables do
                 local loop = yal.loopStateTables[i]
                 if loop then
-                    table.insert(lines, formatLoopLine(i, loop, def, yal))
                     local flags = {}
                     if loop.steprepeat then table.insert(flags, "repeat") end
                     if loop.procedureabort then table.insert(flags, "abort") end
@@ -103,26 +121,22 @@ function M.newComponent(ctx)
                     if loop.procedurenotpossible then table.insert(flags, "notpossible") end
                     if loop.triggeredmanually then table.insert(flags, "manual") end
                     local flagStr = (#flags > 0) and table.concat(flags, ",") or "—"
-                    local lastActive = loop.lastActiveTime or 0
-                    local ago = ""
-                    if lastActive > 0 then
-                        ago = string.format(" | last %.0fs ago", os.time() - lastActive)
-                    end
-                    table.insert(lines, string.format("   flags: %s%s", flagStr, ago))
-
                     local guardRemaining = firstAvailable(loop, {"guardRemaining", "guardTimer", "guardRest", "guard"})
                     local waitReason = firstAvailable(loop, {"waitReason", "wait_status", "waitReasonText"})
-                    local guardStr = guardRemaining and string.format("Guard: %.1fs", tonumber(guardRemaining) or guardRemaining) or "Guard: —"
-                    local waitStr = waitReason and ("Wait: " .. tostring(waitReason)) or "Wait: —"
-                    table.insert(lines, string.format("   %s | %s", guardStr, waitStr))
+                    local guardStr = guardRemaining and string.format("%.1fs", tonumber(guardRemaining) or guardRemaining) or "—"
+                    local waitStr = waitReason and tostring(waitReason) or "—"
+                    local status = loop.lock ~= def.NOPROCEDURE and "RUN" or "IDLE"
+                    if status == "RUN" then activeLoops = activeLoops + 1 end
+                    table.insert(lines, string.format("Loop %-2d %-5s %-20s Guard:%-7s Wait:%s", i, status, tostring(loop.currentStepName or "-"), guardStr, waitStr))
 
                     local vars = {}
                     table.insert(vars, string.format("lock=%s", tostring(loop.lock)))
-                    table.insert(vars, string.format("stepindex=%s", tostring(loop.stepindex)))
-                    table.insert(vars, string.format("current=%s", tostring(loop.currentStepName or "")))
+                    table.insert(vars, string.format("idx=%s", tostring(loop.stepindex)))
+                    table.insert(vars, string.format("cur=%s", tostring(loop.currentStepName or "")))
                     table.insert(vars, string.format("last=%s", tostring(loop.lastStepName or "")))
-                    table.insert(vars, string.format("skipConfirm=%s", tostring(loop.skipConfirmForStep or "")))
-                    table.insert(lines, "   vars: " .. table.concat(vars, " | "))
+                    table.insert(vars, string.format("skipC=%s", tostring(loop.skipConfirmForStep or "")))
+                    table.insert(vars, string.format("flags=%s", flagStr))
+                    table.insert(lines, "   " .. table.concat(vars, " | "))
 
                     local fromStep = firstAvailable(loop, {"lastTransitionFrom", "lastStepName"})
                     local toStep = firstAvailable(loop, {"lastTransitionTo", "currentStepName"})
@@ -146,11 +160,91 @@ function M.newComponent(ctx)
         local ongoing = yal and yal.ongoingtaskstepindex or "-"
         table.insert(lines, string.format("Ongoing task step index: %s", tostring(ongoing)))
 
-        local y = h - 22
-        for _, line in ipairs(lines) do
-            sasl.gl.drawTextI(font, 12, y, line, TEXT_ALIGN_LEFT, color)
+        -- Header with status and close
+        local headerStatus = string.format("YAL Debug Overlay | Loops RUN:%d", activeLoops)
+        sasl.gl.drawTextI(font, 10, h - headerH + 4, headerStatus, TEXT_ALIGN_LEFT, color)
+        sasl.gl.drawTextI(font, w - 18, h - headerH + 4, "X", TEXT_ALIGN_LEFT, color)
+
+        local availableLines = math.max(1, math.floor((h - headerH - 16) / lineHeight))
+        local maxOffset = math.max(0, #lines - availableLines)
+        comp._lastMaxOffset = maxOffset
+        if comp.scrollOffset > maxOffset then comp.scrollOffset = maxOffset end
+        if comp.scrollOffset < 0 then comp.scrollOffset = 0 end
+
+        local startIdx = 1 + comp.scrollOffset
+        local endIdx = math.min(#lines, startIdx + availableLines - 1)
+        local y = h - headerH - 12
+        for idx = startIdx, endIdx do
+            sasl.gl.drawTextI(font, 12, y, lines[idx], TEXT_ALIGN_LEFT, color)
             y = y - lineHeight
         end
+
+        -- Draw scrollbar if needed
+        if #lines > availableLines then
+            local trackHeight = h - headerH - 12
+            local thumbHeight = math.max(12, trackHeight * (availableLines / #lines))
+            local travel = trackHeight - thumbHeight
+            local rel = (maxOffset == 0) and 0 or (comp.scrollOffset / maxOffset)
+            local thumbY = (h - headerH - 12) - (rel * travel) - thumbHeight
+            local trackX = w - 10
+            drawRectangle(trackX, h - headerH - 12 - trackHeight, 6, trackHeight, {0.3, 0.3, 0.3, 0.5})
+            drawRectangle(trackX, thumbY, 6, thumbHeight, {0.8, 0.8, 0.8, 0.9})
+        end
+    end
+
+    function comp:onMouseDown(x, y, button)
+        local wCur, hCur = getSize()
+        if button == MB_LEFT then
+            if y >= (hCur - headerH) and x >= (wCur - 30) then
+                if self._window then
+                    self._window:setIsVisible(false)
+                end
+                return true
+            end
+            -- scrollbar drag
+            local trackX = wCur - 10
+            local trackHeight = hCur - headerH - 12
+            local availableLines = math.max(1, math.floor((hCur - headerH - 16) / lineHeight))
+            local maxOffset = math.max(0, self._lastMaxOffset or 0)
+            if maxOffset > 0 and x >= trackX and x <= (trackX + 6) and y >= (hCur - headerH - 12 - trackHeight) and y <= (hCur - headerH - 12) then
+                self.scrollDrag = {
+                    startY = y,
+                    startOffset = self.scrollOffset,
+                    trackHeight = trackHeight,
+                    thumbHeight = math.max(12, trackHeight * (availableLines / (availableLines + maxOffset))),
+                    maxOffset = maxOffset
+                }
+                return true
+            end
+        end
+        return false
+    end
+
+    function comp:onMouseWheel(_, _, _, clicks)
+        if clicks == nil then return false end
+        local delta = -clicks -- wheel up should scroll up
+        comp.scrollOffset = comp.scrollOffset + delta
+        return true
+    end
+
+    function comp:onMouseUp(_, _, button)
+        if button == MB_LEFT and self.scrollDrag then
+            self.scrollDrag = nil
+            return true
+        end
+        return false
+    end
+
+    function comp:onMouseMove(_, y)
+        if self.scrollDrag then
+            local drag = self.scrollDrag
+            local dy = drag.startY - y
+            local travel = math.max(1, drag.trackHeight - drag.thumbHeight)
+            local rel = dy / travel
+            self.scrollOffset = math.floor(drag.startOffset + rel * drag.maxOffset + 0.5)
+            return true
+        end
+        return false
     end
 
     function comp:update()
@@ -161,7 +255,7 @@ function M.newComponent(ctx)
 end
 
 function M.windowSize()
-    return w, h
+    return defaultW, defaultH
 end
 
 return M
