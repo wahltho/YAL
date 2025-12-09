@@ -1,7 +1,7 @@
 local M = {}
 
-local w = 520
-local h = 160
+local w = 720
+local h = 280
 local lineHeight = 16
 
 local function getSafeFont(def)
@@ -27,6 +27,42 @@ local function formatLoopLine(i, loop, def, yal)
     local stepName = loop.currentStepName or "-"
     local state = loop.stepindex or 0
     return string.format("Loop %d | %s | Step: %s (state:%s)", i, tostring(procName), tostring(stepName), tostring(state))
+end
+
+local function collectLoopExtras(loop)
+    local reserved = {
+        lock = true,
+        stepindex = true,
+        currentStepName = true,
+        steprepeat = true,
+        lastActiveTime = true,
+        procedureabort = true,
+        procedureskipstep = true,
+        procedurenotpossible = true,
+        triggeredmanually = true,
+        setonabort = true,
+        lastStepName = true,
+        skipConfirmForStep = true
+    }
+    local parts = {}
+    for k, v in pairs(loop) do
+        if not reserved[k] then
+            local t = type(v)
+            if t == "number" or t == "string" or t == "boolean" then
+                parts[#parts + 1] = string.format("%s=%s", tostring(k), tostring(v))
+            end
+        end
+    end
+    table.sort(parts)
+    return parts
+end
+
+local function firstAvailable(loop, keys)
+    for _, k in ipairs(keys) do
+        local v = loop[k]
+        if v ~= nil then return v end
+    end
+    return nil
 end
 
 function M.newComponent(ctx)
@@ -74,6 +110,12 @@ function M.newComponent(ctx)
                     end
                     table.insert(lines, string.format("   flags: %s%s", flagStr, ago))
 
+                    local guardRemaining = firstAvailable(loop, {"guardRemaining", "guardTimer", "guardRest", "guard"})
+                    local waitReason = firstAvailable(loop, {"waitReason", "wait_status", "waitReasonText"})
+                    local guardStr = guardRemaining and string.format("Guard: %.1fs", tonumber(guardRemaining) or guardRemaining) or "Guard: —"
+                    local waitStr = waitReason and ("Wait: " .. tostring(waitReason)) or "Wait: —"
+                    table.insert(lines, string.format("   %s | %s", guardStr, waitStr))
+
                     local vars = {}
                     table.insert(vars, string.format("lock=%s", tostring(loop.lock)))
                     table.insert(vars, string.format("stepindex=%s", tostring(loop.stepindex)))
@@ -81,6 +123,20 @@ function M.newComponent(ctx)
                     table.insert(vars, string.format("last=%s", tostring(loop.lastStepName or "")))
                     table.insert(vars, string.format("skipConfirm=%s", tostring(loop.skipConfirmForStep or "")))
                     table.insert(lines, "   vars: " .. table.concat(vars, " | "))
+
+                    local fromStep = firstAvailable(loop, {"lastTransitionFrom", "lastStepName"})
+                    local toStep = firstAvailable(loop, {"lastTransitionTo", "currentStepName"})
+                    local reason = firstAvailable(loop, {"lastTransitionReason"})
+                    local transitionStr = string.format("   transition: %s -> %s", tostring(fromStep or "?"), tostring(toStep or "?"))
+                    if reason then
+                        transitionStr = transitionStr .. string.format(" (%s)", tostring(reason))
+                    end
+                    table.insert(lines, transitionStr)
+
+                    local extras = collectLoopExtras(loop)
+                    if #extras > 0 then
+                        table.insert(lines, "   data: " .. table.concat(extras, " | "))
+                    end
                 end
             end
         else
