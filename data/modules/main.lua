@@ -71,7 +71,7 @@ local function maybeInitDebugOverlay()
     end)
 
     if yal.menu_main then
-        sasl.appendMenuItem(yal.menu_main, "Toggle Debug Overlay", toggleDebugOverlay)
+        sasl.appendMenuItem(yal.menu_main, "Debug", toggleDebugOverlay)
     end
 
     debugOverlayInitialized = true
@@ -115,8 +115,6 @@ setup_datapanel = contextWindow {
     saveState = true,
     visible = false,
     noResize = false,
-    minimumSize = {st_width, st_height},
-    maximumSize = {2048, 2048},
     vrAuto = true,
     noBackground = true,
     noDecore = true,

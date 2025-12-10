@@ -5,12 +5,9 @@ require("helpers")
 
 local def = require("definitions")
 
-defineProperty(size, { 200, 200 })
-
-local sizeProp = size
-local initialSize = get(sizeProp)
-local wSize = initialSize[1]
-local hSize = initialSize[2]
+-- Fallback size; will be overridden by actual window size if available
+local wSize = 750
+local hSize = 700
 
 local showBetaUpdates = toboolean(settings.appSettings.SHOWBETAUPDATES)
 local YALupdateavailable, YALnewversion = helpers.checkForUpdate(showBetaUpdates)
@@ -97,9 +94,15 @@ local showBetaY = 0
 local debugY = 0
 
 local function updateLayoutConstants()
-    local currentSize = get(size)
-    wSize = currentSize[1]
-    hSize = currentSize[2]
+    -- Prefer the actual window size; fallback to stored values
+    local win = rawget(_G, "setup_datapanel")
+    if win and type(win) == "table" and win.getPosition then
+        local _, _, ww, hh = win:getPosition()
+        if ww and hh then
+            wSize = ww
+            hSize = hh
+        end
+    end
 
     x_col1 = 10
     x_col2 = x_col1 + wSize / 2 + 90
@@ -1283,16 +1286,26 @@ local function applyLayout()
         wdef.debugMode.y = debugY
     end
 
-    -- content bounds (before offset)
+    -- content bounds (before offset): compute overall top/bottom
+    local topMost = -math.huge
+    local bottomMost = math.huge
     for key, element in pairs(wdef) do
         if key ~= "mainWindow" and key ~= "closeButton" and element.y then
-            local bottom = element.y
-            if element.h then bottom = element.y - element.h end
-            contentBottom = math.min(contentBottom, bottom)
+            local elemTop = element.y
+            local elemBottom = element.y
+            if element.h then
+                elemTop = element.y + element.h
+                elemBottom = element.y - element.h
+            end
+            if elemTop > topMost then topMost = elemTop end
+            if elemBottom < bottomMost then bottomMost = elemBottom end
         end
     end
+    -- fallback if nothing found
+    if topMost == -math.huge then topMost = contentTop end
+    if bottomMost == math.huge then bottomMost = contentTop end
 
-    local contentHeight = contentTop - contentBottom
+    local contentHeight = topMost - bottomMost
     local availableHeight = hSize - def.bannerHeight - 16
     scrollMax = math.max(0, contentHeight - availableHeight)
     if scrollOffset > scrollMax then scrollOffset = scrollMax end
@@ -1361,6 +1374,7 @@ function onMouseWheel(_, _, _, clicks)
     scrollOffset = scrollOffset + (-clicks * (def.lineHeight * 2))
     if scrollOffset < 0 then scrollOffset = 0 end
     if scrollOffset > scrollMax then scrollOffset = scrollMax end
+    rebuildComponents()
     return true
 end
 
@@ -1379,6 +1393,7 @@ function onMouseDown(x, y, button)
             rel = math.max(0, math.min(1, rel))
             scrollOffset = rel * scrollMax
             scrollDrag = { startY = y, startOffset = scrollOffset, travel = travel }
+            rebuildComponents()
             return true
         end
     end
@@ -1401,6 +1416,7 @@ function onMouseMove(_, y)
         scrollOffset = scrollDrag.startOffset + (rel * scrollMax)
         if scrollOffset < 0 then scrollOffset = 0 end
         if scrollOffset > scrollMax then scrollOffset = scrollMax end
+        rebuildComponents()
         return true
     end
     return false
