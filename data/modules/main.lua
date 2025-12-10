@@ -13,7 +13,7 @@ local function maybeInitDebugOverlay()
     local requested = tonumber(settings.appSettings[def.CONFIGDEBUGOVERLAY]) == def.ON
     if not requested then return end
 
-    local ok, modOrErr = pcall(require, "yal_debug.overlay")
+    local ok, modOrErr = pcall(require, "windows.debug")
     if not ok then
         sasl.logWarning("Debug overlay requested but failed to load: " .. tostring(modOrErr))
         debugOverlayInitialized = true
