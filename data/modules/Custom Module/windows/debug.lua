@@ -199,7 +199,7 @@ function M.newComponent(ctx)
         table.insert(lines, string.format("Ongoing task step index: %s", tostring(ongoing)))
 
         -- Header with status and close
-        local headerStatus = string.format("YAL Debug Overlay | Loops RUN:%d", activeLoops)
+        local headerStatus = string.format("YAL Debug | Loops RUN:%d", activeLoops)
         sasl.gl.drawTextI(font, 10, h - headerH + 4, headerStatus, TEXT_ALIGN_LEFT, color)
         sasl.gl.drawTextI(font, w - 18, h - headerH + 4, "X", TEXT_ALIGN_LEFT, color)
 
@@ -271,6 +271,9 @@ function M.newComponent(ctx)
         if clicks == nil then return false end
         local delta = -clicks -- wheel up should scroll up
         comp.scrollOffset = comp.scrollOffset + delta
+        local maxOff = comp._lastMaxOffset or 0
+        if comp.scrollOffset < 0 then comp.scrollOffset = 0 end
+        if comp.scrollOffset > maxOff then comp.scrollOffset = maxOff end
         return true
     end
 
