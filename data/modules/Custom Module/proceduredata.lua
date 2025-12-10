@@ -1,4 +1,3 @@
--- date : 28-Oct-2025
 local def = require("definitions")
 local helpers = require("helpers")
 
@@ -2571,7 +2570,7 @@ function M.fillProcedureTable()
                         local mcp = get(P.mcpspeed) or 0
                         local tol = 5
                         if mcp >= target and mcp <= (target + tol) then
-                            return "M C P Speed checked " .. helpers.addspaces(helpers.roundnumber(target))
+                            return "M C P Speed checked " .. helpers.addspaces(helpers.roundnumber(mcp))
                         end
                         return false
                     end,
