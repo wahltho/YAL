@@ -149,6 +149,10 @@ function M.newComponent(ctx)
         local w, h = getSize()
         local font = getSafeFont()
         local color = {0.9, 0.9, 0.95, 1}
+        local leftLabelWidth = 290 -- nudge left column number boxes to the right
+        local rightLabelWidth = 190
+        local numberBoxWidthLeft = 50
+        local numberBoxWidthRight = 30
 
         drawRectangle(0, 0, w, h, {0, 0, 0, 0.75})
         drawRectangle(0, h - headerH, w, headerH, {0.12, 0.12, 0.12, 0.95})
@@ -192,7 +196,13 @@ function M.newComponent(ctx)
                 elseif item.type == "number" then
                     local isFocus = (comp._focus and comp._focus.key == item.key)
                     local val = isFocus and (comp._editText or "") or tostring(settings.appSettings[item.key] or "")
-                    drawTextLine(font, x, yRow, string.format("%s: %s", item.label, val), isFocus and {0.9,0.9,0.2,1} or color)
+                    local labelText = (item.label or "") .. ":"
+                    local boxX = x + leftLabelWidth
+                    local boxW = numberBoxWidthLeft
+                    drawTextLine(font, x, yRow, labelText, color)
+                    drawRectangle(boxX, yRow - 2, boxW, lineHeight, {0.08,0.08,0.08,0.8})
+                    drawFrame(boxX, yRow - 2, boxW, lineHeight, isFocus and {0.95,0.95,0.3,1} or {0.8,0.8,0.8,0.9})
+                    drawTextLine(font, boxX + 4, yRow, val, isFocus and {0.95,0.95,0.3,1} or color)
                 elseif item.type == "slider" then
                     local val = tonumber(settings.appSettings[item.key]) or item.minVal or ""
                     local btnW = 12
@@ -220,7 +230,13 @@ function M.newComponent(ctx)
                 elseif item.type == "number" then
                     local isFocus = (comp._focus and comp._focus.key == item.key)
                     local val = isFocus and (comp._editText or "") or tostring(settings.appSettings[item.key] or "")
-                    drawTextLine(font, x, yRow, string.format("%s: %s", item.label, val), isFocus and {0.9,0.9,0.2,1} or color)
+                    local labelText = (item.label or "") .. ":"
+                    local boxX = x + rightLabelWidth
+                    local boxW = numberBoxWidthRight
+                    drawTextLine(font, x, yRow, labelText, color)
+                    drawRectangle(boxX, yRow - 2, boxW, lineHeight, {0.08,0.08,0.08,0.8})
+                    drawFrame(boxX, yRow - 2, boxW, lineHeight, isFocus and {0.95,0.95,0.3,1} or {0.8,0.8,0.8,0.9})
+                    drawTextLine(font, boxX + 4, yRow, val, isFocus and {0.95,0.95,0.3,1} or color)
                 elseif item.type == "slider" then
                     local val = tonumber(settings.appSettings[item.key]) or item.minVal or ""
                     local btnW = 12
