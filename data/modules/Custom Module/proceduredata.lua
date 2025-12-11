@@ -352,15 +352,15 @@ function M.fillProcedureTable()
             }
         },
         [def.COCKPITINITPROCEDURE] = { 
-            number = 2, 
-            name = "Cockpit Initialization", 
-            cycable = true, 
+            number = 2,
+            name = "Cockpit Initialization",
+            cycable = true,
             speakname = true,
             set = false,
-            loop = 1, 
-            prerequisite = def.COLDANDDARKPROCEDURE, 
-            allowedState = def.GROUNDONLY, 
-            requiredFlightstate = def.FLIGHTSTATEPREFLIGHT, 
+            loop = 1,
+            prerequisite = nil,
+            allowedState = def.GROUNDONLY,
+            requiredFlightstate = def.FLIGHTSTATEPREFLIGHT,
             skipCondition = nil,
             prerequisiteChecks = {
                 { check = function() return (get(P.battery) == def.ON) or (get(P.mainbus) == def.ON) end, 
