@@ -744,6 +744,7 @@ function P.resetLoopState(loopTable)
     loopTable.debugPaused = false
     loopTable.debugStepOnce = false
     loopTable.debugBreakpoints = {}
+    loopTable.debugHistory = nil
 
     P.deleteCustomData(loopTable) -- Entfernt vref, navindex etc.
 
@@ -5076,6 +5077,7 @@ function P.runProcedureLoop(loopIndex)
     loop.lastActiveTime = os.time()
     local timestring = os.date("%H:%M:%S", loop.lastActiveTime)
     sasl.logDebug("Loop " .. loopIndex .. " locked with ProcID: " .. loop.lock .. ", StepName: " .. tostring(loop.currentStepName) .. ", A-State: " .. loop.stepindex)
+    local prevStepName = loop.currentStepName
 
     -- ## 1. GEMEINSAME CHECKS ##
     if not procData then
@@ -5518,7 +5520,26 @@ function P.runProcedureLoop(loopIndex)
     -- Der Fall transition_occurred wird implizit behandelt, da loop.lock bereits NOPROCEDURE ist
     end -- Ende if not loop.procedureabort and not transition_occurred / elseif loop.procedureabort
 
-    -- ## 3. POST-PROCESSING (Speichern) ##
+    -- ## 3. POST-PROCESSING (History + Speichern) ##
+    local function pushDebugHistory(loopTbl, fromStep, toStep, reason)
+        loopTbl.debugHistory = loopTbl.debugHistory or {}
+        loopTbl.debugHistory[#loopTbl.debugHistory + 1] = {
+            from = fromStep,
+            to = toStep,
+            reason = reason
+        }
+        if #loopTbl.debugHistory > 25 then
+            table.remove(loopTbl.debugHistory, 1)
+        end
+    end
+    if loop.lock ~= def.NOPROCEDURE then
+        local fromStep = prevStepName
+        local toStep = loop.currentStepName
+        if fromStep ~= toStep then
+            pushDebugHistory(loop, fromStep, toStep, loop.lastTransitionReason or "")
+        end
+    end
+
     -- Das Speichern läuft jetzt immer am Ende.
     if loop.lock == def.NOPROCEDURE then
         sasl.logDebug("Loop " .. loopIndex .. " was reset or finished. Resetting transient flags and saving clean persistent state.")

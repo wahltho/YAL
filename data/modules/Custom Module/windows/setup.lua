@@ -13,9 +13,14 @@ local messages = require("messages")
 local helpers = require("helpers")
 local showBetaUpdates = toboolean(settings.appSettings.SHOWBETAUPDATES)
 local updateAvailable, newVersion = helpers.checkForUpdate(showBetaUpdates)
+local stableAvailable, stableVersion = helpers.checkForUpdate(false)
 local wTitle = string.format("%s v%s", def.APPNAMEPREFIXLONG, def.VERSION)
 if updateAvailable then
     wTitle = wTitle .. "   " .. (messages.translation['UPDATEAVAILABLE'] or "Update") .. " v" .. (newVersion or "")
+end
+local isBeta = tostring(def.VERSION or ""):lower():find("b") or tostring(def.VERSION or ""):lower():find("beta")
+if isBeta and stableVersion and stableVersion ~= "" then
+    wTitle = wTitle .. "  •  Last Stable v" .. stableVersion
 end
 
 local function getSafeFont()
@@ -155,6 +160,7 @@ function M.newComponent(ctx)
         local numberBoxWidthRight = 30
 
         drawRectangle(0, 0, w, h, {0, 0, 0, 0.75})
+        drawFrame(0.5, 0.5, w - 1, h - 1, {0.6, 0.6, 0.6, 0.8})
         drawRectangle(0, h - headerH, w, headerH, {0.12, 0.12, 0.12, 0.95})
 
         -- Layout: two columns, with a fixed split (leftCount items on the left)

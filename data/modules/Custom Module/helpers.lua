@@ -3716,19 +3716,29 @@ function P.buildnavdatatable(navdatatable)
                     newEntry[def.DESTNAVID] = navdataitems[def.NAVSRC_COL_IDENT]
                     
                     local raw_course_str = navdataitems[def.NAVSRC_COL_BEARING]
-                    local true_course = tonumber(raw_course_str)
-
-                    if true_course then
-                        if true_course >= 1000 then
-                            true_course = true_course % 1000
+                    local raw_course = tonumber(raw_course_str)
+                    if raw_course then
+                        local true_course
+                        if raw_course >= 10000 then
+                            local rem = raw_course % 1000
+                            if rem > 0 and rem < 360 then
+                                true_course = rem
+                            else
+                                true_course = raw_course / 10000
+                            end
+                        elseif raw_course >= 1000 then
+                            true_course = raw_course % 1000
+                            if true_course == 0 then
+                                true_course = raw_course / 100
+                            end
+                        else
+                            true_course = raw_course
                         end
-
                         local trueCourseNormalized = P.calccourse(true_course)
-
                         local mag_variation = sasl.getMagneticVariation(lat_val, lon_val) or 0
                         newEntry.truecourse = trueCourseNormalized
                         newEntry.isTrueCourse = true
-                        newEntry[def.DESTCOURSE] = P.calccourse(trueCourseNormalized - mag_variation)
+                        newEntry[def.DESTCOURSE] = P.calccourse(trueCourseNormalized + mag_variation)
                         newEntry[def.DESTMAGVAR] = mag_variation
                     else
                         sasl.logInfo("Could not read true course for LPV/GLS (column NAVSRC_COL_BEARING): " .. navdatarecord)

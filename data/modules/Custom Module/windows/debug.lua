@@ -112,6 +112,7 @@ function M.newComponent(ctx)
         local color = {0.9, 0.9, 0.95, 1}
 
         drawRectangle(0, 0, w, h, {0, 0, 0, 0.75})
+        drawFrame(0.5, 0.5, w - 1, h - 1, {0.6, 0.6, 0.6, 0.8})
         drawRectangle(0, h - headerH, w, headerH, {0.12, 0.12, 0.12, 0.95})
 
         local lines = {}
@@ -152,6 +153,11 @@ function M.newComponent(ctx)
             for i = 1, #yal.loopStateTables do
                 local loop = yal.loopStateTables[i]
                 if loop then
+                    local lockedProc = loop.lock or def.NOPROCEDURE
+                    if lockedProc == def.NOPROCEDURE then
+                        -- Clean stale debug data on idle loops
+                        loop.debugHistory = nil
+                    end
                     local flags = {}
                     if loop.steprepeat then table.insert(flags, "repeat") end
                     if loop.procedureabort then table.insert(flags, "abort") end
@@ -163,7 +169,7 @@ function M.newComponent(ctx)
                     local waitReason = firstAvailable(loop, {"waitReason", "wait_status", "waitReasonText"})
                     local guardStr = guardRemaining and string.format("%.1fs", tonumber(guardRemaining) or guardRemaining) or "—"
                     local waitStr = waitReason and tostring(waitReason) or "—"
-                    local status = loop.lock ~= def.NOPROCEDURE and "RUN" or "IDLE"
+                    local status = lockedProc ~= def.NOPROCEDURE and "RUN" or "IDLE"
                     if status == "RUN" then activeLoops = activeLoops + 1 end
                     table.insert(lines, string.format("Loop %-2d %-5s %-20s Guard:%-7s Wait:%s%s", i, status, tostring(loop.currentStepName or "-"), guardStr, waitStr, loop.debugPaused and " [PAUSED]" or ""))
 
@@ -176,18 +182,28 @@ function M.newComponent(ctx)
                     table.insert(vars, string.format("flags=%s", flagStr))
                     table.insert(lines, "   " .. table.concat(vars, " | "))
 
-                    local fromStep = firstAvailable(loop, {"lastTransitionFrom", "lastStepName"})
-                    local toStep = firstAvailable(loop, {"lastTransitionTo", "currentStepName"})
-                    local reason = firstAvailable(loop, {"lastTransitionReason"})
-                    local transitionStr = string.format("   transition: %s -> %s", tostring(fromStep or "?"), tostring(toStep or "?"))
-                    if reason then
-                        transitionStr = transitionStr .. string.format(" (%s)", tostring(reason))
-                    end
-                    table.insert(lines, transitionStr)
+                    if lockedProc ~= def.NOPROCEDURE then
+                        local fromStep = firstAvailable(loop, {"lastTransitionFrom", "lastStepName"})
+                        local toStep = firstAvailable(loop, {"lastTransitionTo", "currentStepName"})
+                        local reason = firstAvailable(loop, {"lastTransitionReason"})
+                        local transitionStr = string.format("   transition: %s -> %s", tostring(fromStep or "?"), tostring(toStep or "?"))
+                        if reason then
+                            transitionStr = transitionStr .. string.format(" (%s)", tostring(reason))
+                        end
+                        table.insert(lines, transitionStr)
 
-                    local extras = collectLoopExtras(loop)
-                    if #extras > 0 then
-                        table.insert(lines, "   data: " .. table.concat(extras, " | "))
+                        local extras = collectLoopExtras(loop)
+                        if #extras > 0 then
+                            table.insert(lines, "   data: " .. table.concat(extras, " | "))
+                        end
+                        if loop.debugHistory and #loop.debugHistory > 0 then
+                            local startHist = math.max(1, #loop.debugHistory - 4)
+                            for idx = #loop.debugHistory, startHist, -1 do
+                                local h = loop.debugHistory[idx]
+                                local r = (h.reason and h.reason ~= "" and (" (" .. tostring(h.reason) .. ")")) or ""
+                                table.insert(lines, string.format("   hist: %s -> %s%s", tostring(h.from or "-"), tostring(h.to or "-"), r))
+                            end
+                        end
                     end
                 end
             end

@@ -37,11 +37,6 @@ local function getNavEntryCourse(entry)
             end
         end
 
-        if not selectedCourse then
-            local penultimate = waypoints[#waypoints - 1]
-            selectedCourse = penultimate and penultimate.magnetic_course or nil
-        end
-
         if selectedCourse and selectedCourse ~= 0 then
             return helpers.calccourse(selectedCourse)
         end
@@ -51,7 +46,27 @@ local function getNavEntryCourse(entry)
     -- Prefer FMC-provided final-leg course when modded Zibo is enabled
     local fmsMag = getFMSFinalMagCourse()
     if fmsMag then
-        return fmsMag
+        local icao = entry[def.DESTICAO]
+        local runway = entry[def.DESTRWY]
+        local expected = nil
+        if type(icao) == "string" and type(runway) == "string" then
+            local cifpCourse = helpers.getCIFPApproachCourse(icao, def.NAVTYPELPV, runway)
+            if not cifpCourse then
+                cifpCourse = helpers.getCIFPApproachCourse(icao, def.NAVTYPERNAV, runway)
+            end
+            if cifpCourse then
+                expected = helpers.calccourse(cifpCourse)
+            end
+        end
+        if expected then
+            local diff = math.abs(fmsMag - expected)
+            if diff > 180 then diff = 360 - diff end
+            if diff <= 10 then
+                return fmsMag
+            end
+        else
+            return fmsMag
+        end
     end
 
     local icao = entry[def.DESTICAO]
@@ -72,7 +87,7 @@ local function getNavEntryCourse(entry)
 
     if entry.isTrueCourse and entry.truecourse then
         local magVar = entry[def.DESTMAGVAR] or 0
-        return helpers.calccourse(entry.truecourse - magVar)
+        return helpers.calccourse(entry.truecourse + magVar)
     end
     return entry[def.DESTCOURSE]
 end
