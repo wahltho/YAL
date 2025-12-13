@@ -2415,17 +2415,18 @@ function M.fillProcedureTable()
                 ['set_autobrake'] = {
                     skipIf = function() return P.configvalues[def.CONFIGVREF30SET] ~= def.ON end,
                     check = function()
-                        if get(P.autobrakepos) > def.AUTOBRAKEOFF then return true end
+                        local current = get(P.autobrakepos)
                         if P.configvalues[def.CONFIGCUSTOMAPPROACHCALC] ~= def.ON then
-                            return true
+                            return current > def.AUTOBRAKEOFF
                         end
+                        if current > def.AUTOBRAKEOFF then return true end
                         local autobrake = helpers.calcautobrake(get(P.vref), get(P.totalweightkgs), get(P.desrwylen), P.desmetar, true)
-                        return get(P.autobrakepos) == autobrake
+                        return current == autobrake
                     end,
                     advice = function()
                         if get(P.autobrakepos) > def.AUTOBRAKEOFF then return false end
                         if P.configvalues[def.CONFIGCUSTOMAPPROACHCALC] ~= def.ON then
-                            return false
+                            return "Set Auto Brake"
                         end
                         local autobrake = helpers.calcautobrake(get(P.vref), get(P.totalweightkgs), get(P.desrwylen), P.desmetar, true)
                         if (autobrake < def.AUTOBRAKEMAX) then return "Set Auto Brake " .. tostring(autobrake - 1)
@@ -2440,9 +2441,15 @@ function M.fillProcedureTable()
                         P.setautobrake(autobrake)
                     end,
                     confirm = function()
-                        local autobrake
-                        if get(P.autobrakepos) > def.AUTOBRAKEOFF then autobrake = get(P.autobrakepos)
-                        else autobrake = helpers.calcautobrake(get(P.vref), get(P.totalweightkgs), get(P.desrwylen), P.desmetar, P.configvalues[def.CONFIGCUSTOMAPPROACHCALC] == def.ON) end
+                        local current = get(P.autobrakepos)
+                        local autobrake = current
+                        if current <= def.AUTOBRAKEOFF then
+                            return false
+                        end
+                        if P.configvalues[def.CONFIGCUSTOMAPPROACHCALC] == def.ON then
+                            autobrake = helpers.calcautobrake(get(P.vref), get(P.totalweightkgs), get(P.desrwylen), P.desmetar, true)
+                            if autobrake <= def.AUTOBRAKEOFF then autobrake = current end
+                        end
                         if (autobrake < def.AUTOBRAKEMAX) then return "Auto Brake checked and " .. tostring(autobrake - 1)
                         else return "Auto Brake checked Maximum" end
                     end,
@@ -4456,6 +4463,9 @@ function M.fillProcedureTable()
                     branch = function(loop, procData)
                         if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
                             sasl.logDebug("SetVref: VoiceAdviceOnly mode. Skipping auto-input steps.")
+                            if get(P.vref) == 0 then
+                                return 'advise_vref_voice'
+                            end
                             return 'check_vref_set' 
                         else
                             sasl.logDebug("SetVref: Auto mode. Starting FMC input sequence.")
@@ -4529,6 +4539,31 @@ function M.fillProcedureTable()
                     end,
                     nextStep = 'fmc_press_exec'
                 },
+                ['advise_vref_voice'] = {
+                    skipIf = function(loop)
+                        if P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON then return true end
+                        return get(P.vref) ~= 0
+                    end,
+                    action = function(loop)
+                        local msg = "Set V REF flaps " .. tostring(loop.appflapscalcstring or get(P.appflaps) or "")
+                        msg = msg .. " " .. tostring(loop.appvrefcalcstring or get(P.vref) or "")
+                        if loop and loop.appwindcorrstring then
+                            msg = msg .. " plus Wind Correction +" .. loop.appwindcorrstring
+                        end
+                        P.commandtableentry(def.TEXT, msg)
+                    end,
+                    runActionInAdviceMode = true,
+                    nextStep = 'view_main_panel'
+                },
+                ['announce_windcorr'] = {
+                    skipIf = function(loop) return not (loop and loop.appwindcorrstring) end,
+                    action = function(loop)
+                        local msg = "Set Wind Correction +" .. tostring(loop.appwindcorrstring) .. " in FMC"
+                        P.commandtableentry(def.TEXT, msg)
+                    end,
+                    runActionInAdviceMode = true,
+                    nextStep = 'view_main_panel'
+                },
                 ['fmc_enter_windcorr_1'] = {
                     skipIf = function(loop) return not (loop and loop.appwindcorrstring) end,
                     action = function(loop, procData)
@@ -4591,6 +4626,16 @@ function M.fillProcedureTable()
                         else
                             return false 
                         end
+                    end,
+                    branch = function(loop)
+                        if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
+                            if loop and loop.appwindcorrstring then
+                                return 'announce_windcorr'
+                            else
+                                return 'advise_vref_voice'
+                            end
+                        end
+                        return 'view_main_panel'
                     end,
                     nextStep = 'view_main_panel'
                 },
