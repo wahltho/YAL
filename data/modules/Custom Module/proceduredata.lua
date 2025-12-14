@@ -1,5 +1,6 @@
 local def = require("definitions")
 local helpers = require("helpers")
+local P = yal
 
 local function getNavEntryCourse(entry)
     if not entry then
@@ -4489,7 +4490,7 @@ function M.fillProcedureTable()
                     branch = function(loop, procData)
                         if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
                             sasl.logDebug("SetVref: VoiceAdviceOnly mode. Skipping auto-input steps.")
-                            return 'voice_vref_loop'
+                            return 'voice_vref_advice'
                         else
                             sasl.logDebug("SetVref: Auto mode. Starting FMC input sequence.")
                             return 'fmc_press_del' 
@@ -4562,51 +4563,54 @@ function M.fillProcedureTable()
                     end,
                     nextStep = 'fmc_press_exec'
                 },
-                ['voice_vref_loop'] = {
+                ['voice_vref_advice'] = {
                     skipIf = function() return P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON end,
                     check = function(loop)
-                        return get(P.vref) ~= 0
+                        local target = tonumber(loop and loop.appvrefcalc) or 0
+                        if target <= 0 then return false end
+                        return (get(P.vref) == target)
                     end,
-                    action = function(loop)
-                        local msg = "Set V REF flaps " .. tostring(loop.appflapscalcstring or get(P.appflaps) or "")
-                        msg = msg .. " " .. tostring(loop.appvrefcalcstring or get(P.vref) or "")
-                        P.commandtableentry(def.TEXT, msg)
+                    advice = function(loop)
+                        local flaps = tostring(loop.appflapscalcstring or get(P.appflaps) or "")
+                        local vref = tostring(loop.appvrefcalcstring or get(P.vref) or "")
+                        return "Set V REF flaps " .. flaps .. " " .. vref
+                    end,
+                    confirm = function(loop)
+                        local target = tonumber(loop and loop.appvrefcalc)
+                        if target and target > 0 and get(P.vref) == target then
+                            return "V REF flaps " .. tostring(loop.appflapscalcstring or "") .. " checked and " .. tostring(loop.appvrefcalcstring or target)
+                        end
+                        return false
                     end,
                     runActionInAdviceMode = true,
-                    nextStep = function(loop)
-                        if get(P.vref) ~= 0 then
-                            return 'voice_wind_loop'
-                        end
-                        return 'voice_vref_loop'
-                    end
+                    nextStep = 'voice_wind_advice'
                 },
-                ['voice_wind_loop'] = {
+                ['voice_wind_advice'] = {
                     skipIf = function(loop)
-                        return P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON or not (loop and loop.appwindcorrstring)
+                        return P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON or not (loop and loop.appwindcorr)
                     end,
                     check = function(loop)
-                        if not (loop and loop.appwindcorr) then return false end
-                        if not P.vrefapproachwindcorr then return false end
-                        local target = tonumber(loop.appwindcorr) or tonumber(loop.appwindcorrstring)
-                        local current = tonumber(get(P.vrefapproachwindcorr)) or 0
+                        local target = tonumber(loop and loop.appwindcorr) or tonumber(loop and loop.appwindcorrstring)
                         if not target then return false end
+                        if not P.vrefapproachwindcorr then return false end
+                        local current = tonumber(get(P.vrefapproachwindcorr)) or 0
                         return math.abs(current - target) < 0.5
                     end,
-                    action = function(loop)
-                        local msg = "Set Wind Correction +" .. tostring(loop.appwindcorrstring) .. " in FMC"
-                        P.commandtableentry(def.TEXT, msg)
+                    advice = function(loop)
+                        if not (loop and loop.appwindcorrstring) then return false end
+                        return "Set Wind Correction +" .. tostring(loop.appwindcorrstring) .. " in F M C"
+                    end,
+                    confirm = function(loop)
+                        local target = tonumber(loop and loop.appwindcorr)
+                        if not target then return false end
+                        local current = tonumber(get(P.vrefapproachwindcorr)) or 0
+                        if math.abs(current - target) < 0.5 then
+                            return "Wind Correction checked +" .. tostring(loop.appwindcorrstring or target)
+                        end
+                        return false
                     end,
                     runActionInAdviceMode = true,
-                    nextStep = function(loop)
-                        if loop and loop.appwindcorr and P.vrefapproachwindcorr then
-                            local target = tonumber(loop.appwindcorr) or tonumber(loop.appwindcorrstring)
-                            local current = tonumber(get(P.vrefapproachwindcorr)) or 0
-                            if target and math.abs(current - target) < 0.5 then
-                                return 'view_main_panel'
-                            end
-                        end
-                        return 'voice_wind_loop'
-                    end
+                    nextStep = 'view_main_panel'
                 },
                 ['fmc_enter_windcorr_1'] = {
                     skipIf = function(loop) return not (loop and loop.appwindcorrstring) end,
