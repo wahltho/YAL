@@ -2199,23 +2199,26 @@ function P.saveLoopState(loopTable, loopIndex)
         sasl.logDebug("saveLoopState called with invalid loopTable or loopIndex: " .. tostring(loopIndex))
         return
     end
-
     local handles = P.LoopHandles[loopIndex]
 
     -- Werte ermitteln
-    local lockToSave = loopTable.lock or 0
-    local stateToSave = loopTable.stepindex or 0
+    local lockToSave = tonumber(loopTable.lock) or 0
+    local stateToSave = tonumber(loopTable.stepindex) or 0
 
     -- *** ÄNDERUNG: Platzhalter für leere Strings ***
     local nameToSave = loopTable.currentStepName
     if nameToSave == nil or nameToSave == "" then
         nameToSave = def.STRINGDRNONEVALUE
+    else
+        nameToSave = tostring(nameToSave)
     end
 
     local customDataString = P.serializeCustomData(loopTable)
     local customToSave = customDataString
     if customToSave == nil or customToSave == "" then
         customToSave = def.STRINGDRNONEVALUE
+    else
+        customToSave = tostring(customToSave)
     end
     -- *** ENDE ÄNDERUNG ***
 
@@ -2223,11 +2226,22 @@ function P.saveLoopState(loopTable, loopIndex)
          sasl.logDebug("!!! SAVING LOOP " .. loopIndex .. " with LOCK=0: State=" .. stateToSave .. ", StepName='" .. nameToSave .. "'")
     end
 
+    local function safeSet(handle, value, desc)
+        if not handle then
+            sasl.logWarning("saveLoopState: missing handle for " .. tostring(desc) .. " (loop " .. tostring(loopIndex) .. ")")
+            return
+        end
+        local ok, err = pcall(set, handle, value)
+        if not ok then
+            sasl.logWarning("saveLoopState: failed to set " .. tostring(desc) .. " with value '" .. tostring(value) .. "' (" .. tostring(err) .. ")")
+        end
+    end
+
     -- Speichere die 4 persistenten Werte
-    set(handles.lock, lockToSave)
-    set(handles.state, stateToSave)
-    set(handles.stepname, nameToSave)
-    set(handles.custom, customToSave)
+    safeSet(handles.lock, lockToSave, "lock")
+    safeSet(handles.state, stateToSave, "state")
+    safeSet(handles.stepname, nameToSave, "stepname")
+    safeSet(handles.custom, customToSave, "custom")
 end
 
 --------------------------------------------------------------------------------------------------------------

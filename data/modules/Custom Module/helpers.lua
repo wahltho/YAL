@@ -2980,6 +2980,7 @@ function P.loadCIFP(icao)
                                 local courseField = trimString(parts[21] or "")
                                 local courseValue = tonumber(courseField)
                                 if courseValue then
+                                    -- ARINC: course stored in 1/10 deg. Always divide by 10.
                                     local magneticCourse = P.calccourse(courseValue / 10.0)
                                     entry.course = magneticCourse
                                 end
@@ -3023,8 +3024,9 @@ function P.getCIFPApproach(icao, navType, runway)
         return nil
     end
 
-    runway = string.upper(runway)
-    local candidates = navEntries[runway]
+    local rwy = string.upper(runway)
+    rwy = rwy:gsub("^RW", "")
+    local candidates = navEntries[rwy]
     if not candidates or #candidates == 0 then
         return nil
     end

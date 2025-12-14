@@ -8,10 +8,21 @@ local function getNavEntryCourse(entry)
 
     local navType = entry[def.DESTNAVTYPE]
 
+    local runwayMag = tonumber(get(P.desrwyheading))
+    local function isPlausible(course)
+        if not course then return false end
+        if runwayMag then
+            local diff = math.abs(course - runwayMag)
+            if diff > 180 then diff = 360 - diff end
+            return diff <= 10
+        end
+        return true
+    end
+
     -- GLS: use GLS course if available
     if navType == def.NAVTYPEGLS then
         local glsCourse = get(P.glscourse)
-        if glsCourse and glsCourse >= 0 and glsCourse < 360 then
+        if glsCourse and glsCourse >= 0 and glsCourse < 360 and isPlausible(glsCourse) then
             return helpers.calccourse(glsCourse)
         end
     end
@@ -43,32 +54,6 @@ local function getNavEntryCourse(entry)
         return nil
     end
 
-    -- Prefer FMC-provided final-leg course when modded Zibo is enabled
-    local fmsMag = getFMSFinalMagCourse()
-    if fmsMag then
-        local icao = entry[def.DESTICAO]
-        local runway = entry[def.DESTRWY]
-        local expected = nil
-        if type(icao) == "string" and type(runway) == "string" then
-            local cifpCourse = helpers.getCIFPApproachCourse(icao, def.NAVTYPELPV, runway)
-            if not cifpCourse then
-                cifpCourse = helpers.getCIFPApproachCourse(icao, def.NAVTYPERNAV, runway)
-            end
-            if cifpCourse then
-                expected = helpers.calccourse(cifpCourse)
-            end
-        end
-        if expected then
-            local diff = math.abs(fmsMag - expected)
-            if diff > 180 then diff = 360 - diff end
-            if diff <= 10 then
-                return fmsMag
-            end
-        else
-            return fmsMag
-        end
-    end
-
     local icao = entry[def.DESTICAO]
     local navType = entry[def.DESTNAVTYPE]
     local runway = entry[def.DESTRWY]
@@ -80,16 +65,58 @@ local function getNavEntryCourse(entry)
         for _, candidateType in ipairs(candidateTypes) do
             local cifpCourse = helpers.getCIFPApproachCourse(icao, candidateType, runway)
             if cifpCourse then
-                return helpers.calccourse(cifpCourse)
+                local cMag = helpers.calccourse(cifpCourse)
+                if isPlausible(cMag) then
+                    return cMag
+                end
+            end
+        end
+    end
+
+    -- Prefer FMC-provided final-leg course when modded Zibo is enabled (fallback after CIFP)
+    local fmsMag = getFMSFinalMagCourse()
+    if fmsMag then
+        local expected = nil
+        if type(icao) == "string" and type(runway) == "string" then
+            local cifpCourse = helpers.getCIFPApproachCourse(icao, navType, runway)
+            if not cifpCourse and (navType == def.NAVTYPELPV or navType == def.NAVTYPEGLS) then
+                cifpCourse = helpers.getCIFPApproachCourse(icao, def.NAVTYPERNAV, runway)
+            end
+            if cifpCourse then
+                expected = helpers.calccourse(cifpCourse)
+            end
+        end
+        if expected then
+            local diff = math.abs(fmsMag - expected)
+            if diff > 180 then diff = 360 - diff end
+            if diff <= 10 and isPlausible(fmsMag) then
+                return fmsMag
+            end
+        else
+            if isPlausible(fmsMag) then
+                return fmsMag
             end
         end
     end
 
     if entry.isTrueCourse and entry.truecourse then
         local magVar = entry[def.DESTMAGVAR] or 0
-        return helpers.calccourse(entry.truecourse + magVar)
+        local magCourse = helpers.calccourse(entry.truecourse + magVar)
+        if isPlausible(magCourse) then
+            return magCourse
+        end
     end
-    return entry[def.DESTCOURSE]
+    local navCourse = entry[def.DESTCOURSE]
+    if navCourse and isPlausible(navCourse) then
+        return navCourse
+    end
+
+    -- Fallback: runway heading if available
+    if runwayMag then
+        return helpers.calccourse(runwayMag)
+    end
+
+    return navCourse
 end
 
 local function cleanLegToken(token)
@@ -4444,6 +4471,9 @@ function M.fillProcedureTable()
                         if not customCalcOn then
                             local windcorr = helpers.calculateApproachWindCorrection(get(P.desrwyheading), P.desmetar)
                             if windcorr ~= nil then
+                                if windcorr > 0 and windcorr < 5 then
+                                    windcorr = 5
+                                end
                                 loop.appwindcorr = windcorr
                                 loop.appwindcorrstring = helpers.padNumberWithZerosStrict(math.floor(windcorr + 0.5), 2)
                                 sasl.logInfo(string.format("SetVref: Wind correction %s kts", loop.appwindcorrstring))
@@ -4463,10 +4493,7 @@ function M.fillProcedureTable()
                     branch = function(loop, procData)
                         if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
                             sasl.logDebug("SetVref: VoiceAdviceOnly mode. Skipping auto-input steps.")
-                            if get(P.vref) == 0 then
-                                return 'advise_vref_voice'
-                            end
-                            return 'check_vref_set' 
+                            return 'voice_vref_loop'
                         else
                             sasl.logDebug("SetVref: Auto mode. Starting FMC input sequence.")
                             return 'fmc_press_del' 
@@ -4539,30 +4566,51 @@ function M.fillProcedureTable()
                     end,
                     nextStep = 'fmc_press_exec'
                 },
-                ['advise_vref_voice'] = {
-                    skipIf = function(loop)
-                        if P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON then return true end
+                ['voice_vref_loop'] = {
+                    skipIf = function() return P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON end,
+                    check = function(loop)
                         return get(P.vref) ~= 0
                     end,
                     action = function(loop)
                         local msg = "Set V REF flaps " .. tostring(loop.appflapscalcstring or get(P.appflaps) or "")
                         msg = msg .. " " .. tostring(loop.appvrefcalcstring or get(P.vref) or "")
-                        if loop and loop.appwindcorrstring then
-                            msg = msg .. " plus Wind Correction +" .. loop.appwindcorrstring
-                        end
                         P.commandtableentry(def.TEXT, msg)
                     end,
                     runActionInAdviceMode = true,
-                    nextStep = 'view_main_panel'
+                    nextStep = function(loop)
+                        if get(P.vref) ~= 0 then
+                            return 'voice_wind_loop'
+                        end
+                        return 'voice_vref_loop'
+                    end
                 },
-                ['announce_windcorr'] = {
-                    skipIf = function(loop) return not (loop and loop.appwindcorrstring) end,
+                ['voice_wind_loop'] = {
+                    skipIf = function(loop)
+                        return P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON or not (loop and loop.appwindcorrstring)
+                    end,
+                    check = function(loop)
+                        if not (loop and loop.appwindcorr) then return false end
+                        if not P.vrefapproachwindcorr then return false end
+                        local target = tonumber(loop.appwindcorr) or tonumber(loop.appwindcorrstring)
+                        local current = tonumber(get(P.vrefapproachwindcorr)) or 0
+                        if not target then return false end
+                        return math.abs(current - target) < 0.5
+                    end,
                     action = function(loop)
                         local msg = "Set Wind Correction +" .. tostring(loop.appwindcorrstring) .. " in FMC"
                         P.commandtableentry(def.TEXT, msg)
                     end,
                     runActionInAdviceMode = true,
-                    nextStep = 'view_main_panel'
+                    nextStep = function(loop)
+                        if loop and loop.appwindcorr and P.vrefapproachwindcorr then
+                            local target = tonumber(loop.appwindcorr) or tonumber(loop.appwindcorrstring)
+                            local current = tonumber(get(P.vrefapproachwindcorr)) or 0
+                            if target and math.abs(current - target) < 0.5 then
+                                return 'view_main_panel'
+                            end
+                        end
+                        return 'voice_wind_loop'
+                    end
                 },
                 ['fmc_enter_windcorr_1'] = {
                     skipIf = function(loop) return not (loop and loop.appwindcorrstring) end,
@@ -4610,33 +4658,16 @@ function M.fillProcedureTable()
                         return (get(P.vref) == loop.appvrefcalc)
                     end,
                     advice = function(loop, procData)
-                        local msg = "Set V REF " .. loop.appflapscalcstring .. " " .. loop.appvrefcalcstring
-                        if loop and loop.appwindcorrstring then
-                            msg = msg .. " plus Wind Correction +" .. loop.appwindcorrstring
-                        end
-                        return msg
+                        return "Set V REF " .. loop.appflapscalcstring .. " " .. loop.appvrefcalcstring
                     end,
                     confirm = function(loop, procData)
                         if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                            local msg = "V REF " .. loop.appflapscalcstring .. " checked and " .. loop.appvrefcalcstring
-                            if loop and loop.appwindcorrstring then
-                                msg = msg .. ", Wind Correction +" .. loop.appwindcorrstring
-                            end
-                            return msg
+                            return "V REF " .. loop.appflapscalcstring .. " checked and " .. loop.appvrefcalcstring
                         else
                             return false 
                         end
                     end,
-                    branch = function(loop)
-                        if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                            if loop and loop.appwindcorrstring then
-                                return 'announce_windcorr'
-                            else
-                                return 'advise_vref_voice'
-                            end
-                        end
-                        return 'view_main_panel'
-                    end,
+                    branch = function(loop) return 'view_main_panel' end,
                     nextStep = 'view_main_panel'
                 },
                 ['view_main_panel'] = {
@@ -4698,7 +4729,14 @@ function M.fillProcedureTable()
                                 sasl.logInfo(string.format("SetTOFlaps: using existing flaps %s", tostring(existingFlaps)))
                             end
                         else
-                            loop.toflapscalc = computedFlaps or get(P.toflapsset) or 5
+                            local candidate = computedFlaps
+                            if not candidate or candidate <= 0 then
+                                candidate = get(P.toflapsset)
+                            end
+                            if not candidate or candidate <= 0 then
+                                candidate = 5
+                            end
+                            loop.toflapscalc = candidate
                             loop.flapsPreSet = not useCustomCalc
                             sasl.logInfo(string.format("SetTOFlaps: no FMC flaps, computed=%s -> using %s", tostring(computedFlaps), tostring(loop.toflapscalc)))
                         end
