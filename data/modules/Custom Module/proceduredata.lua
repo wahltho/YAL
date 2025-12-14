@@ -3955,18 +3955,13 @@ function M.fillProcedureTable()
                                 end
                             end
 
-                            if not selectedCourse then
-                                local penultimate = waypoints[#waypoints - 1]
-                                selectedCourse = penultimate and penultimate.magnetic_course or nil
-                            end
-
                             if selectedCourse and selectedCourse ~= 0 then
                                 return helpers.calccourse(selectedCourse)
                             end
                             return nil
                         end
 
-                        -- Attempt to derive final-leg course from FMC
+                        -- Attempt to derive final-leg course from FMC (only if Runway-Leg found)
                         if not course then
                             course = getFMSFinalMagCourse()
                             if course then
@@ -3976,7 +3971,8 @@ function M.fillProcedureTable()
 
                         -- Prefer detected CIFP approach course
                         if loop and loop.detectedApproach and loop.detectedApproach.entry and loop.detectedApproach.entry.course then
-                            course = helpers.calccourse(loop.detectedApproach.entry.course)
+                            local cMag = helpers.calccourse(loop.detectedApproach.entry.course)
+                            course = cMag
                         end
 
                         -- Fall back to navdata-derived runway heading
@@ -4001,7 +3997,7 @@ function M.fillProcedureTable()
                             if latStart and lonStart and latEnd and lonEnd and latStart ~= 0 and lonStart ~= 0 and latEnd ~= 0 and lonEnd ~= 0 then
                                 local trueCourse = helpers.getbearing(latStart, lonStart, latEnd, lonEnd)
                                 local magVar = sasl.getMagneticVariation(latStart, lonStart) or 0
-                                course = helpers.calccourse(trueCourse - magVar)
+                                course = helpers.calccourse(trueCourse + magVar)
                             end
                         end
 

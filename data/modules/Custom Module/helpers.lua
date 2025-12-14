@@ -3719,33 +3719,26 @@ function P.buildnavdatatable(navdatatable)
                     
                     local raw_course_str = navdataitems[def.NAVSRC_COL_BEARING]
                     local raw_course = tonumber(raw_course_str)
-                    if raw_course then
-                        local true_course
-                        if raw_course >= 10000 then
-                            local rem = raw_course % 1000
-                            if rem > 0 and rem < 360 then
-                                true_course = rem
-                            else
+                        if raw_course then
+                            -- LPV/GLS: bearing is true course * 100 or *10000
+                            local true_course
+                            if raw_course >= 10000 then
                                 true_course = raw_course / 10000
-                            end
-                        elseif raw_course >= 1000 then
-                            true_course = raw_course % 1000
-                            if true_course == 0 then
+                            elseif raw_course >= 1000 then
                                 true_course = raw_course / 100
+                            else
+                                true_course = raw_course
                             end
+                            local trueCourseNormalized = P.calccourse(true_course)
+                            local mag_variation = sasl.getMagneticVariation(lat_val, lon_val) or 0
+                            newEntry.truecourse = trueCourseNormalized
+                            newEntry.isTrueCourse = true
+                            newEntry[def.DESTCOURSE] = P.calccourse(trueCourseNormalized + mag_variation)
+                            newEntry[def.DESTMAGVAR] = mag_variation
                         else
-                            true_course = raw_course
+                            sasl.logInfo("Could not read true course for LPV/GLS (column NAVSRC_COL_BEARING): " .. navdatarecord)
+                            newEntry[def.DESTCOURSE] = 0 -- Fallback zu 0
                         end
-                        local trueCourseNormalized = P.calccourse(true_course)
-                        local mag_variation = sasl.getMagneticVariation(lat_val, lon_val) or 0
-                        newEntry.truecourse = trueCourseNormalized
-                        newEntry.isTrueCourse = true
-                        newEntry[def.DESTCOURSE] = P.calccourse(trueCourseNormalized + mag_variation)
-                        newEntry[def.DESTMAGVAR] = mag_variation
-                    else
-                        sasl.logInfo("Could not read true course for LPV/GLS (column NAVSRC_COL_BEARING): " .. navdatarecord)
-                        newEntry[def.DESTCOURSE] = 0 -- Fallback zu 0
-                    end
                     
                     newEntry[def.DESTELEVATION] = tonumber(navdataitems[def.NAVSRC_COL_ELEV_FT]) or 0
                     newEntry[def.DESTRANGE] = tonumber(navdataitems[def.NAVSRC_COL_RANGE_NM]) or 0
