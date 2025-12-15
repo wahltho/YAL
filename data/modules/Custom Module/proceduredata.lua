@@ -1488,9 +1488,29 @@ function M.fillProcedureTable()
                 },
                 ['arm_lnav'] = {
                     skipIf = function() return P.configvalues[def.CONFIGVOICEADVICEONLY] == def.OFF end,
-                    check = function() return get(P.aplnavstat) == def.ON end,
-                    advice = "Arm L NAV",
-                    confirm = "L NAV checked Armed",
+                    check = function()
+                        if get(P.aplnavstat) == def.ON then return true end
+                        -- Accept HDG SEL as an alternative if vectors expected
+                        return get(P.aphdgselstat) ~= def.OFF
+                    end,
+                    advice = function()
+                        if get(P.aplnavstat) == def.ON then
+                            return "L NAV checked Armed"
+                        end
+                        if get(P.aphdgselstat) ~= def.OFF then
+                            return "Heading Select checked Armed"
+                        end
+                        return "Arm L NAV or Heading Select"
+                    end,
+                    confirm = function()
+                        if get(P.aplnavstat) == def.ON then
+                            return "L NAV checked Armed"
+                        end
+                        if get(P.aphdgselstat) ~= def.OFF then
+                            return "Heading Select checked Armed"
+                        end
+                        return false
+                    end,
                     nextStep = 'arm_vnav'
                 },
                 ['arm_vnav'] = {
@@ -1689,9 +1709,29 @@ function M.fillProcedureTable()
                 },
                 ['arm_lnav'] = {
                     skipIf = function() return P.configvalues[def.CONFIGVOICEADVICEONLY] == def.OFF end,
-                    check = function() return get(P.aplnavstat) == def.ON end,
-                    advice = "Arm L NAV",
-                    confirm = "L NAV checked Armed",
+                    check = function()
+                        if get(P.aplnavstat) == def.ON then return true end
+                        -- Allow HDG SEL when vectors after departure are planned
+                        return get(P.aphdgselstat) ~= def.OFF
+                    end,
+                    advice = function()
+                        if get(P.aplnavstat) == def.ON then
+                            return "L NAV checked Armed"
+                        end
+                        if get(P.aphdgselstat) ~= def.OFF then
+                            return "H D G Select checked"
+                        end
+                        return "Arm L NAV or use H D G Select"
+                    end,
+                    confirm = function()
+                        if get(P.aplnavstat) == def.ON then
+                            return "L NAV checked Armed"
+                        end
+                        if get(P.aphdgselstat) ~= def.OFF then
+                            return "H D G Select checked"
+                        end
+                        return false
+                    end,
                     nextStep = 'arm_vnav'
                 },
                 ['arm_vnav'] = {
@@ -4587,25 +4627,24 @@ function M.fillProcedureTable()
                 },
                 ['voice_wind_advice'] = {
                     skipIf = function(loop)
-                        return P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON or not (loop and loop.appwindcorr)
+                        return P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON
                     end,
                     check = function(loop)
-                        local target = tonumber(loop and loop.appwindcorr) or tonumber(loop and loop.appwindcorrstring)
-                        if not target then return false end
-                        if not P.vrefapproachwindcorr then return false end
+                        local target = tonumber(loop and loop.appwindcorr) or tonumber(loop and loop.appwindcorrstring) or 5
                         local current = tonumber(get(P.vrefapproachwindcorr)) or 0
                         return math.abs(current - target) < 0.5
                     end,
                     advice = function(loop)
-                        if not (loop and loop.appwindcorrstring) then return false end
-                        return "Set Wind Correction +" .. tostring(loop.appwindcorrstring) .. " in F M C"
+                        local target = tonumber(loop and loop.appwindcorr) or tonumber(loop and loop.appwindcorrstring) or 5
+                        local targetStr = tostring(loop and loop.appwindcorrstring) or tostring(target)
+                        return "Set Wind Correction +" .. targetStr .. " in F M C"
                     end,
                     confirm = function(loop)
-                        local target = tonumber(loop and loop.appwindcorr)
-                        if not target then return false end
+                        local target = tonumber(loop and loop.appwindcorr) or tonumber(loop and loop.appwindcorrstring) or 5
+                        local targetStr = tostring(loop and loop.appwindcorrstring) or tostring(target)
                         local current = tonumber(get(P.vrefapproachwindcorr)) or 0
                         if math.abs(current - target) < 0.5 then
-                            return "Wind Correction checked +" .. tostring(loop.appwindcorrstring or target)
+                            return "Wind Correction checked +" .. targetStr
                         end
                         return false
                     end,
