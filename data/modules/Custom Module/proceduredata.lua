@@ -2,6 +2,59 @@ local def = require("definitions")
 local helpers = require("helpers")
 local P = yal
 
+-- Build 5-digit LSB->MSB table for MMR standby arrays
+local function mmrBuildDigits(value)
+    local val = tonumber(value) or 0
+    val = math.floor(math.abs(val))
+    local digits = {}
+    for i = 1, 5 do
+        digits[i] = val % 10
+        val = math.floor(val / 10)
+    end
+    return digits
+end
+
+-- Copy active MMR mode/value into the corresponding standby buffers
+local function mmrCopyActToStby(side)
+    if get(P.mmrinstalled) ~= def.ON then return end
+    local actMode, actValue, stbyModeRef
+    local stbyArrILS, stbyArrILS2, stbyArrGLS, stbyArrVOR, stbyArrVOR2, stbyArrGeneric
+    if side == def.MMRCAPTAIN then
+        actMode = get(P.mmrcptactmode)
+        actValue = get(P.mmrcptactvalue)
+        stbyModeRef = P.mmrcptstdbymode
+        stbyArrILS = P.mmrcptilsstbyvalue
+        stbyArrILS2 = P.mmrcptilsstbyvalue2
+        stbyArrGLS = P.mmrcptglsstbyvalue
+        stbyArrVOR = P.mmrcptvorstbyvalue
+        stbyArrVOR2 = P.mmrcptvorstbyvalue2
+        stbyArrGeneric = P.mmrcptstbyvalue
+    else
+        actMode = get(P.mmrfoactmode)
+        actValue = get(P.mmrfoactvalue)
+        stbyModeRef = P.mmrfostdbymode
+        stbyArrILS = P.mmrfoilsstbyvalue
+        stbyArrILS2 = P.mmrfoilsstbyvalue2
+        stbyArrGLS = P.mmrfoglsstbyvalue
+        stbyArrVOR = P.mmrfovorstbyvalue
+        stbyArrVOR2 = P.mmrfovorstbyvalue2
+        stbyArrGeneric = P.mmrfostbyvalue
+    end
+    if not actMode or not stbyModeRef then return end
+    set(stbyModeRef, actMode)
+    local digits = mmrBuildDigits(actValue)
+    if stbyArrGeneric then set(stbyArrGeneric, digits) end
+    if actMode == def.MMRILS then
+        if stbyArrILS then set(stbyArrILS, digits) end
+        if stbyArrILS2 then set(stbyArrILS2, digits) end
+    elseif actMode == def.MMRGLS or actMode == def.MMRLPV then
+        if stbyArrGLS then set(stbyArrGLS, digits) end
+    else
+        if stbyArrVOR then set(stbyArrVOR, digits) end
+        if stbyArrVOR2 then set(stbyArrVOR2, digits) end
+    end
+end
+
 local function getNavEntryCourse(entry)
     if not entry then
         return nil
@@ -4186,15 +4239,26 @@ function M.fillProcedureTable()
                     end,
                     action = function(loop, procData)
                         local navdata = P.navdatatable[loop.navdatatableindex]
-                        if (navdata[def.DESTNAVTYPE] == def.NAVTYPEILS) then
+                        local navType = navdata[def.DESTNAVTYPE]
+                        if navType == def.NAVTYPEILS then
                             if (get(P.mmrinstalled) == def.ON) then
-                                P.setmmrils(def.MMRCAPTAIN, navdata[def.DESTFREQ])
+                                mmrCopyActToStby(def.MMRCAPTAIN)
+                                set(P.mmrcptactmode, def.MMRILS)
+                                set(P.mmrcptactvalue, navdata[def.DESTFREQ])
+                                set(P.nav1stdbyfreq, get(P.nav1freq))
+                                set(P.nav1freq, navdata[def.DESTFREQ])
                             else
                                 set(P.nav1stdbyfreq, get(P.nav1freq))
                                 set(P.nav1freq, navdata[def.DESTFREQ])
                             end
-                        elseif ((navdata[def.DESTNAVTYPE] == def.NAVTYPEGLS) or (navdata[def.DESTNAVTYPE] == def.NAVTYPELPV)) and (get(P.mmrinstalled) == def.ON) then
-                            P.setmmrgls(def.MMRCAPTAIN, navdata[def.DESTFREQ])
+                        elseif (navType == def.NAVTYPEGLS or navType == def.NAVTYPELPV) and (get(P.mmrinstalled) == def.ON) then
+                            mmrCopyActToStby(def.MMRCAPTAIN)
+                            if navType == def.NAVTYPEGLS then
+                                set(P.mmrcptactmode, def.MMRGLS)
+                            else
+                                set(P.mmrcptactmode, def.MMRLPV)
+                            end
+                            set(P.mmrcptactvalue, navdata[def.DESTFREQ])
                         end
                     end,
                     advice = function(loop, procData)
@@ -4283,7 +4347,11 @@ function M.fillProcedureTable()
                         if (navdata[def.DESTNAVTYPE] == def.NAVTYPEILS) then
                             if navdata[def.DESTNAVDME] then
                                 if (get(P.mmrinstalled) == def.ON) then
-                                    P.setmmrils(def.MMRFO, navdata[def.DESTFREQ])
+                                    mmrCopyActToStby(def.MMRFO)
+                                    set(P.mmrfoactmode, def.MMRILS)
+                                    set(P.mmrfoactvalue, navdata[def.DESTFREQ])
+                                    set(P.nav2stdbyfreq, get(P.nav2freq))
+                                    set(P.nav2freq, navdata[def.DESTFREQ])
                                 else
                                     set(P.nav2stdbyfreq, get(P.nav2freq))
                                     set(P.nav2freq, navdata[def.DESTFREQ])
@@ -4306,7 +4374,9 @@ function M.fillProcedureTable()
                                 set(P.nav2freq, freqValue)
                             end
                         elseif (navdata[def.DESTNAVTYPE] == def.NAVTYPEGLS) and (get(P.mmrinstalled) == def.ON) then
-                            P.setmmrgls(def.MMRFO, navdata[def.DESTFREQ])
+                            mmrCopyActToStby(def.MMRFO)
+                            set(P.mmrfoactmode, def.MMRGLS)
+                            set(P.mmrfoactvalue, navdata[def.DESTFREQ])
                         end
                     end,
                     advice = function(loop, procData)
@@ -4630,19 +4700,40 @@ function M.fillProcedureTable()
                         return P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON
                     end,
                     check = function(loop)
-                        local target = tonumber(loop and loop.appwindcorr) or tonumber(loop and loop.appwindcorrstring) or 5
-                        local current = tonumber(get(P.vrefapproachwindcorr)) or 0
+                        local fmcWind = tonumber(get(P.vrefapproachwindcorr))
+                        local target = tonumber(loop and loop.appwindcorr)
+                            or tonumber(loop and loop.appwindcorrstring)
+                            or fmcWind
+                            or 5
+                        local current = fmcWind or 0
+                        sasl.logInfo(string.format("voice_wind_advice.check: fmc=%s target=%s current=%s", tostring(fmcWind), tostring(target), tostring(current)))
                         return math.abs(current - target) < 0.5
                     end,
                     advice = function(loop)
-                        local target = tonumber(loop and loop.appwindcorr) or tonumber(loop and loop.appwindcorrstring) or 5
-                        local targetStr = tostring(loop and loop.appwindcorrstring) or tostring(target)
+                        local fmcWind = tonumber(get(P.vrefapproachwindcorr))
+                        local target = tonumber(loop and loop.appwindcorr)
+                            or tonumber(loop and loop.appwindcorrstring)
+                            or fmcWind
+                            or 5
+                        local targetStr = loop and loop.appwindcorrstring
+                        if not targetStr or targetStr == "" then
+                            targetStr = tostring(target)
+                        end
+                        sasl.logInfo(string.format("voice_wind_advice.advice: fmc=%s target=%s targetStr=%s", tostring(fmcWind), tostring(target), tostring(targetStr)))
                         return "Set Wind Correction +" .. targetStr .. " in F M C"
                     end,
                     confirm = function(loop)
-                        local target = tonumber(loop and loop.appwindcorr) or tonumber(loop and loop.appwindcorrstring) or 5
-                        local targetStr = tostring(loop and loop.appwindcorrstring) or tostring(target)
-                        local current = tonumber(get(P.vrefapproachwindcorr)) or 0
+                        local fmcWind = tonumber(get(P.vrefapproachwindcorr))
+                        local target = tonumber(loop and loop.appwindcorr)
+                            or tonumber(loop and loop.appwindcorrstring)
+                            or fmcWind
+                            or 5
+                        local targetStr = loop and loop.appwindcorrstring
+                        if not targetStr or targetStr == "" then
+                            targetStr = tostring(target)
+                        end
+                        local current = fmcWind or 0
+                        sasl.logInfo(string.format("voice_wind_advice.confirm: fmc=%s target=%s current=%s targetStr=%s", tostring(fmcWind), tostring(target), tostring(current), tostring(targetStr)))
                         if math.abs(current - target) < 0.5 then
                             return "Wind Correction checked +" .. targetStr
                         end
