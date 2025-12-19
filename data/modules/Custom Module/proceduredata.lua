@@ -2500,22 +2500,47 @@ function M.fillProcedureTable()
                 },
                 ['trigger_vref_proc'] = {
                     skipIf = function() return P.configvalues[def.CONFIGVREF30SET] == def.OFF end,
-                    action = function()
-                        if get(P.vref) == 0 then 
-                            P.triggerprocedure(def.SETVREFPROCEDURE, false)
+                    action = function(loop)
+                        if not loop then return end
+                        local procData = P.proceduretable[def.SETVREFPROCEDURE]
+                        if procData and procData.set then
+                            loop.vrefproctriggered = nil
+                            return
+                        end
+
+                        -- Only trigger SetVref if VREF is still empty and we haven't started waiting yet.
+                        if get(P.vref) == 0 and not loop.vrefproctriggered then
+                            local ok = P.triggerprocedure(def.SETVREFPROCEDURE, false)
+                            -- Mark as waiting if we successfully triggered OR if the target loop is now running SetVref.
+                            local loop3 = P.loopStateTables and P.loopStateTables[3]
+                            local running = loop3 and (loop3.lock == def.SETVREFPROCEDURE)
+                            if ok or running then
+                                loop.vrefproctriggered = true
+                            end
                         end
                     end,
-                    check = function()
+                    check = function(loop)
                         local procKey = def.SETVREFPROCEDURE 
                         local procData = P.proceduretable[procKey]
-                        if get(P.vref) ~= 0 then 
-                            return true 
+                        if procData and procData.set then
+                            if loop then loop.vrefproctriggered = nil end
+                            return true
                         end
-                        if procData.set then
-                            return true 
-                        else
-                            return false 
+
+                        -- If we triggered SetVref from this step, wait until it completes.
+                        if loop and loop.vrefproctriggered then
+                            local loop3 = P.loopStateTables and P.loopStateTables[3]
+                            local running = loop3 and (loop3.lock == def.SETVREFPROCEDURE)
+                            -- If SetVref is no longer running but VREF is set, assume it was completed/aborted after manual input and continue.
+                            if not running and get(P.vref) ~= 0 then
+                                loop.vrefproctriggered = nil
+                                return true
+                            end
+                            return false
                         end
+
+                        -- If we didn't trigger SetVref here, treat "VREF already set" as sufficient to proceed.
+                        return get(P.vref) ~= 0
                     end,
                     advice = nil,
                     confirm = function() 
@@ -4299,7 +4324,15 @@ function M.fillProcedureTable()
                         end
 
                         if navtype == def.NAVTYPELPV then
-                            return (prepareApproachDME() == nil)
+                            local dme = prepareApproachDME()
+                            if not dme then
+                                if loop and not loop.noFODmeWarned then
+                                    P.commandtableentry(def.TEXT, "No suitable D M E found for Copilot")
+                                    loop.noFODmeWarned = true
+                                end
+                                return true
+                            end
+                            return false
                         end
 
                         if navtype == def.NAVTYPEILS then
@@ -4307,7 +4340,15 @@ function M.fillProcedureTable()
                                 loop.approachDME = nil
                                 return false
                             end
-                            return (prepareApproachDME() == nil)
+                            local dme = prepareApproachDME()
+                            if not dme then
+                                if loop and not loop.noFODmeWarned then
+                                    P.commandtableentry(def.TEXT, "No suitable D M E found for Copilot")
+                                    loop.noFODmeWarned = true
+                                end
+                                return true
+                            end
+                            return false
                         end
 
                         loop.approachDME = nil
@@ -4578,12 +4619,18 @@ function M.fillProcedureTable()
                         if not customCalcOn then
                             local windcorr = helpers.calculateApproachWindCorrection(get(P.desrwyheading), P.desmetar)
                             if windcorr ~= nil then
-                                if windcorr > 0 and windcorr < 5 then
-                                    windcorr = 5
+                                if windcorr <= 0 then
+                                    -- FMC does not accept 00; keep unset so fallback uses FMC/default
+                                    loop.appwindcorr = nil
+                                    loop.appwindcorrstring = nil
+                                else
+                                    if windcorr < 5 then
+                                        windcorr = 5
+                                    end
+                                    loop.appwindcorr = windcorr
+                                    loop.appwindcorrstring = helpers.padNumberWithZerosStrict(math.floor(windcorr + 0.5), 2)
+                                    sasl.logInfo(string.format("SetVref: Wind correction %s kts", loop.appwindcorrstring))
                                 end
-                                loop.appwindcorr = windcorr
-                                loop.appwindcorrstring = helpers.padNumberWithZerosStrict(math.floor(windcorr + 0.5), 2)
-                                sasl.logInfo(string.format("SetVref: Wind correction %s kts", loop.appwindcorrstring))
                             end
                         end
                     end,
