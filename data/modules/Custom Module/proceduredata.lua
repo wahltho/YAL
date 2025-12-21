@@ -55,6 +55,36 @@ local function mmrCopyActToStby(side)
     end
 end
 
+local function cleanLegToken(token)
+    if type(token) ~= "string" then
+        return ""
+    end
+    return token:gsub("[%(%)]", ""):gsub("%s+", "")
+end
+
+local function isRunwayLeg(token)
+    local clean = cleanLegToken(token)
+    return clean:upper():match("^RW%d%d?[LRC]?") ~= nil
+end
+
+local function matchesDestRunway(token, destRunway)
+    if not token or not destRunway then
+        return false
+    end
+    local cleanToken = cleanLegToken(token):upper():gsub("^RW", "")
+    local cleanDest = cleanLegToken(destRunway):upper():gsub("^RW", "")
+    return cleanToken == cleanDest
+end
+
+local function isMissedApproachLeg(token)
+    local clean = cleanLegToken(token)
+    return clean:upper():match("^MISSED") ~= nil
+end
+
+local function isRunwayToMissedDiscontinuity(prevLeg, nextLeg)
+    return isRunwayLeg(prevLeg) and isMissedApproachLeg(nextLeg)
+end
+
 local function getNavEntryCourse(entry)
     if not entry then
         return nil
@@ -171,36 +201,6 @@ local function getNavEntryCourse(entry)
     end
 
     return navCourse
-end
-
-local function cleanLegToken(token)
-    if type(token) ~= "string" then
-        return ""
-    end
-    return token:gsub("[%(%)]", ""):gsub("%s+", "")
-end
-
-local function isRunwayLeg(token)
-    local clean = cleanLegToken(token)
-    return clean:upper():match("^RW%d%d?[LRC]?") ~= nil
-end
-
-local function matchesDestRunway(token, destRunway)
-    if not token or not destRunway then
-        return false
-    end
-    local cleanToken = cleanLegToken(token):upper():gsub("^RW", "")
-    local cleanDest = cleanLegToken(destRunway):upper():gsub("^RW", "")
-    return cleanToken == cleanDest
-end
-
-local function isMissedApproachLeg(token)
-    local clean = cleanLegToken(token)
-    return clean:upper():match("^MISSED") ~= nil
-end
-
-local function isRunwayToMissedDiscontinuity(prevLeg, nextLeg)
-    return isRunwayLeg(prevLeg) and isMissedApproachLeg(nextLeg)
 end
 
 local M = {}
