@@ -68,6 +68,39 @@ local function firstAvailable(loop, keys)
     return nil
 end
 
+local function safeGet(prop)
+    if prop == nil then return nil end
+    local ok, val = pcall(function() return get(prop) end)
+    if ok then return val end
+    return nil
+end
+
+local function flightStateLabel(def, value)
+    if not def then return tostring(value) end
+    if value == def.FLIGHTSTATEPREFLIGHT then return "PREFLIGHT" end
+    if value == def.FLIGHTSTATEINITIALCLIMB then return "INITIAL CLIMB" end
+    if value == def.FLIGHTSTATECLIMB then return "CLIMB" end
+    if value == def.FLIGHTSTATECRUISE then return "CRUISE" end
+    if value == def.FLIGHTSTATEAPPROACH then return "APPROACH" end
+    if value == def.FLIGHTSTATETAXITOGATE then return "TAXI TO GATE" end
+    if value == def.FLIGHTSTATESHUTDOWN then return "SHUTDOWN" end
+    return tostring(value)
+end
+
+local function fmsPhaseLabel(def, value)
+    if not def then return tostring(value) end
+    if value == def.FMSFLIGHTPHASE_TAKEOFF then return "TAKEOFF" end
+    if value == def.FMSFLIGHTPHASE_CLIMB then return "CLIMB" end
+    if value == def.FMSFLIGHTPHASE_CRUISE then return "CRUISE" end
+    if value == def.FMSFLIGHTPHASE_CRZ_CLB then return "CRZ CLB" end
+    if value == def.FMSFLIGHTPHASE_CRZ_DES then return "CRZ DES" end
+    if value == def.FMSFLIGHTPHASE_DESCENT then return "DESCENT" end
+    if value == def.FMSFLIGHTPHASE_APPROACH then return "APPROACH" end
+    if value == def.FMSFLIGHTPHASE_GO_AROUND_ARMED then return "GO-AROUND ARM" end
+    if value == def.FMSFLIGHTPHASE_GO_AROUND then return "GO-AROUND" end
+    return tostring(value)
+end
+
 function M.newComponent(ctx)
     local comp = {}
     comp.name = "yal_debug_overlay_component"
@@ -213,6 +246,12 @@ function M.newComponent(ctx)
 
         local ongoing = yal and yal.ongoingtaskstepindex or "-"
         table.insert(lines, string.format("Ongoing task step index: %s", tostring(ongoing)))
+
+        local flightState = (yal and yal.flightstate) or safeGet(yal and yal.flightstatedr) or 0
+        local fmsPhase = safeGet(yal and yal.fmsflightphase) or 0
+        table.insert(lines, string.format("Flightstate: %s (%s) | FMC phase: %s (%s)",
+            flightStateLabel(def, flightState), tostring(flightState),
+            fmsPhaseLabel(def, fmsPhase), tostring(fmsPhase)))
 
         -- Header with status and close
         local headerStatus = string.format("YAL Debug | Loops RUN:%d", activeLoops)

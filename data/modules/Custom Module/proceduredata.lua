@@ -2551,7 +2551,51 @@ function M.fillProcedureTable()
                         end
                     end,
                     runActionInAdviceMode = true, 
-                    nextStep = 'set_view_main_2' 
+                    nextStep = 'trigger_windcorr_proc' 
+                },
+                ['trigger_windcorr_proc'] = {
+                    skipIf = function() return P.configvalues[def.CONFIGVREF30SET] == def.OFF end,
+                    action = function(loop)
+                        if not loop then return end
+                        local procData = P.proceduretable[def.SETWINDCORRPROCEDURE]
+                        if procData and procData.set then
+                            loop.windcorrproctriggered = nil
+                            return
+                        end
+
+                        if not loop.windcorrproctriggered then
+                            local ok = P.triggerprocedure(def.SETWINDCORRPROCEDURE, false)
+                            local loop3 = P.loopStateTables and P.loopStateTables[3]
+                            local running = loop3 and (loop3.lock == def.SETWINDCORRPROCEDURE)
+                            if ok or running then
+                                loop.windcorrproctriggered = true
+                            end
+                        end
+                    end,
+                    check = function(loop)
+                        local procKey = def.SETWINDCORRPROCEDURE
+                        local procData = P.proceduretable[procKey]
+                        if procData and procData.set then
+                            if loop then loop.windcorrproctriggered = nil end
+                            return true
+                        end
+
+                        if loop and loop.windcorrproctriggered then
+                            local loop3 = P.loopStateTables and P.loopStateTables[3]
+                            local running = loop3 and (loop3.lock == def.SETWINDCORRPROCEDURE)
+                            if not running then
+                                loop.windcorrproctriggered = nil
+                                return true
+                            end
+                            return false
+                        end
+
+                        return true
+                    end,
+                    advice = nil,
+                    confirm = nil,
+                    runActionInAdviceMode = true,
+                    nextStep = 'set_view_main_2'
                 },
                 ['set_view_main_2'] = {
                     skipIf = function() return P.configvalues[def.CONFIGVIEWCHANGES] ~= def.ON end,
@@ -4557,8 +4601,6 @@ function M.fillProcedureTable()
                 ['calculate_vref'] = {
                     action = function(loop, procData)
                         local customCalcOn = (P.configvalues[def.CONFIGCUSTOMAPPROACHCALC] == def.ON)
-                        loop.appwindcorr = nil
-                        loop.appwindcorrstring = nil
                         if customCalcOn then
                             local baseFlaps = get(P.appflaps)
                             if not baseFlaps or baseFlaps <= 0 then baseFlaps = 30 end
@@ -4613,25 +4655,6 @@ function M.fillProcedureTable()
                             loop.appflapscalcstring = helpers.padNumberWithZerosStrict(math.floor(fallbackFlaps + 0.5), 2)
                             loop.appvrefcalcstring = tostring(math.floor(fallbackVref + 0.5))
                             sasl.logInfo("SetVref: Using existing Flaps " .. loop.appflapscalcstring .. " Vref " .. loop.appvrefcalcstring)
-                        end
-
-                        -- Only apply wind correction when using FMC/Zibo Vref (custom calc already includes wx)
-                        if not customCalcOn then
-                            local windcorr = helpers.calculateApproachWindCorrection(get(P.desrwyheading), P.desmetar)
-                            if windcorr ~= nil then
-                                if windcorr <= 0 then
-                                    -- FMC does not accept 00; keep unset so fallback uses FMC/default
-                                    loop.appwindcorr = nil
-                                    loop.appwindcorrstring = nil
-                                else
-                                    if windcorr < 5 then
-                                        windcorr = 5
-                                    end
-                                    loop.appwindcorr = windcorr
-                                    loop.appwindcorrstring = helpers.padNumberWithZerosStrict(math.floor(windcorr + 0.5), 2)
-                                    sasl.logInfo(string.format("SetVref: Wind correction %s kts", loop.appwindcorrstring))
-                                end
-                            end
                         end
                     end,
                     runActionInAdviceMode = true, 
@@ -4712,12 +4735,6 @@ function M.fillProcedureTable()
                 ['fmc_press_4R'] = {
                     action = function(loop, procData) P.commandtableentry(def.COMMAND, "laminar/B738/button/fmc1_4R") end,
                     runActionInAdviceMode = false,
-                    branch = function(loop)
-                        if loop and loop.appwindcorrstring then
-                            return 'fmc_enter_windcorr_1'
-                        end
-                        return 'fmc_press_exec'
-                    end,
                     nextStep = 'fmc_press_exec'
                 },
                 ['voice_vref_advice'] = {
@@ -4740,7 +4757,195 @@ function M.fillProcedureTable()
                         return false
                     end,
                     runActionInAdviceMode = true,
-                    nextStep = 'voice_wind_advice'
+                    nextStep = 'view_main_panel'
+                },
+                ['fmc_press_exec'] = {
+                    action = function(loop, procData) 
+                        P.commandtableentry(def.COMMAND, "laminar/B738/button/fmc1_exec") 
+                        P.commandtableentry(def.TEXT, "V REF " .. loop.appflapscalcstring .. " " .. loop.appvrefcalcstring .. " Knots set")
+                    end,
+                    runActionInAdviceMode = false,
+                    nextStep = 'check_vref_set'
+                },
+                ['check_vref_set'] = {
+                    check = function(loop, procData)
+                        return (get(P.vref) == loop.appvrefcalc)
+                    end,
+                    advice = function(loop, procData)
+                        return "Set V REF " .. loop.appflapscalcstring .. " " .. loop.appvrefcalcstring
+                    end,
+                    confirm = function(loop, procData)
+                        if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
+                            return "V REF " .. loop.appflapscalcstring .. " checked and " .. loop.appvrefcalcstring
+                        else
+                            return false 
+                        end
+                    end,
+                    branch = function(loop) return 'view_main_panel' end,
+                    nextStep = 'view_main_panel'
+                },
+                ['view_main_panel'] = {
+                    view = function(loop, procData) return P.configvalues[def.CONFIGVIEWMAINPANEL] end,
+                    nextStep = nil 
+                }
+            }
+        },
+        [def.SETWINDCORRPROCEDURE] = {
+            number = 25,
+            name = "Set Wind Correction",
+            cycable = false,
+            speakname = false,
+            set = false,
+            loop = 3,
+            prerequisite = nil,
+            allowedState = nil,
+            requiredFlightstate = { def.FLIGHTSTATECRUISE, def.FLIGHTSTATEAPPROACH, def.FLIGHTSTATEINITIALCLIMB },
+            skipCondition = nil,
+            repeatable = true,
+            startStep = 'view_fms',
+            steps = {
+                ['view_fms'] = {
+                    view = function(loop, procData) return P.configvalues[def.CONFIGVIEWFMS] end,
+                    normalize = true,
+                    nextStep = 'calculate_windcorr'
+                },
+                ['calculate_windcorr'] = {
+                    action = function(loop, procData)
+                        local customCalcOn = (P.configvalues[def.CONFIGCUSTOMAPPROACHCALC] == def.ON)
+                        loop.appwindcorr = nil
+                        loop.appwindcorrstring = nil
+                        if not customCalcOn then
+                            local windcorr = helpers.calculateApproachWindCorrection(get(P.desrwyheading), P.desmetar)
+                            if windcorr ~= nil then
+                                if windcorr <= 0 then
+                                    loop.appwindcorr = nil
+                                    loop.appwindcorrstring = nil
+                                else
+                                    if windcorr < 5 then
+                                        windcorr = 5
+                                    end
+                                    loop.appwindcorr = windcorr
+                                    loop.appwindcorrstring = helpers.padNumberWithZerosStrict(math.floor(windcorr + 0.5), 2)
+                                    sasl.logInfo(string.format("SetWindCorr: Wind correction %s kts", loop.appwindcorrstring))
+                                end
+                            end
+                        end
+                        local fmcWind = tonumber(get(P.vrefapproachwindcorr))
+                        sasl.logInfo(string.format("SetWindCorr: customCalc=%s fmc=%s target=%s",
+                            tostring(customCalcOn), tostring(fmcWind), tostring(loop.appwindcorr)))
+                    end,
+                    runActionInAdviceMode = true,
+                    nextStep = 'check_fms_page'
+                },
+                ['check_fms_page'] = {
+                    check = function(loop, procData)
+                        return helpers.fmcHeaderContains("APPROACH REF")
+                    end,
+                    action = function(loop, procData) helpers.command_once("laminar/B738/button/fmc1_init_ref") end,
+                    advice = "Open F M C Approach Reference Page",
+                    runActionInAdviceMode = true,
+                    branch = function(loop, procData)
+                        if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
+                            sasl.logDebug("SetWindCorr: VoiceAdviceOnly mode.")
+                            return 'voice_wind_advice'
+                        end
+                        if loop and loop.appwindcorrstring then
+                            sasl.logDebug("SetWindCorr: Auto mode. Starting FMC input sequence.")
+                            return 'fmc_press_del'
+                        end
+                        sasl.logDebug("SetWindCorr: Auto mode. No wind correction target.")
+                        return 'check_windcorr_set'
+                    end
+                },
+                ['fmc_press_del'] = {
+                    action = function(loop, procData) P.commandtableentry(def.COMMAND, "laminar/B738/button/fmc1_del") end,
+                    runActionInAdviceMode = false,
+                    nextStep = 'fmc_press_clr'
+                },
+                ['fmc_press_clr'] = {
+                    action = function(loop, procData) P.commandtableentry(def.COMMAND, "laminar/B738/button/fmc1_clr") end,
+                    runActionInAdviceMode = false,
+                    nextStep = 'fmc_enter_windcorr_1'
+                },
+                ['fmc_enter_windcorr_1'] = {
+                    skipIf = function(loop) return not (loop and loop.appwindcorrstring) end,
+                    action = function(loop, procData)
+                        local char = string.sub(loop.appwindcorrstring, 1, 1)
+                        if char and char ~= "" then P.commandtableentry(def.COMMAND, "laminar/B738/button/fmc1_" .. char) end
+                    end,
+                    runActionInAdviceMode = false,
+                    nextStep = 'fmc_enter_windcorr_2'
+                },
+                ['fmc_enter_windcorr_2'] = {
+                    skipIf = function(loop) return not (loop and loop.appwindcorrstring) end,
+                    action = function(loop, procData)
+                        local char = string.sub(loop.appwindcorrstring, 2, 2)
+                        if char and char ~= "" then P.commandtableentry(def.COMMAND, "laminar/B738/button/fmc1_" .. char) end
+                    end,
+                    runActionInAdviceMode = false,
+                    nextStep = 'fmc_enter_windcorr_3'
+                },
+                ['fmc_enter_windcorr_3'] = {
+                    skipIf = function(loop) return not (loop and loop.appwindcorrstring) end,
+                    action = function(loop, procData)
+                        local char = string.sub(loop.appwindcorrstring, 3, 3)
+                        if char and char ~= "" then P.commandtableentry(def.COMMAND, "laminar/B738/button/fmc1_" .. char) end
+                    end,
+                    runActionInAdviceMode = false,
+                    nextStep = 'fmc_press_5R'
+                },
+                ['fmc_press_5R'] = {
+                    skipIf = function(loop) return not (loop and loop.appwindcorrstring) end,
+                    action = function(loop, procData) P.commandtableentry(def.COMMAND, "laminar/B738/button/fmc1_5R") end,
+                    runActionInAdviceMode = false,
+                    nextStep = 'fmc_press_exec'
+                },
+                ['fmc_press_exec'] = {
+                    action = function(loop, procData)
+                        P.commandtableentry(def.COMMAND, "laminar/B738/button/fmc1_exec")
+                    end,
+                    runActionInAdviceMode = false,
+                    nextStep = 'check_windcorr_set'
+                },
+                ['check_windcorr_set'] = {
+                    check = function(loop)
+                        local fmcWind = tonumber(get(P.vrefapproachwindcorr))
+                        local target = tonumber(loop and loop.appwindcorr)
+                            or tonumber(loop and loop.appwindcorrstring)
+                            or fmcWind
+                            or 5
+                        local current = fmcWind or 0
+                        return math.abs(current - target) < 0.5
+                    end,
+                    advice = function(loop)
+                        local fmcWind = tonumber(get(P.vrefapproachwindcorr))
+                        local target = tonumber(loop and loop.appwindcorr)
+                            or tonumber(loop and loop.appwindcorrstring)
+                            or fmcWind
+                            or 5
+                        local targetStr = loop and loop.appwindcorrstring
+                        if not targetStr or targetStr == "" then
+                            targetStr = tostring(target)
+                        end
+                        return "Set Wind Correction +" .. targetStr .. " in F M C"
+                    end,
+                    confirm = function(loop)
+                        local fmcWind = tonumber(get(P.vrefapproachwindcorr))
+                        local target = tonumber(loop and loop.appwindcorr)
+                            or tonumber(loop and loop.appwindcorrstring)
+                            or fmcWind
+                            or 5
+                        local targetStr = loop and loop.appwindcorrstring
+                        if not targetStr or targetStr == "" then
+                            targetStr = tostring(target)
+                        end
+                        local current = fmcWind or 0
+                        if math.abs(current - target) < 0.5 then
+                            return "Wind Correction checked +" .. targetStr
+                        end
+                        return false
+                    end,
+                    nextStep = 'view_main_panel'
                 },
                 ['voice_wind_advice'] = {
                     skipIf = function(loop)
@@ -4789,67 +4994,9 @@ function M.fillProcedureTable()
                     runActionInAdviceMode = true,
                     nextStep = 'view_main_panel'
                 },
-                ['fmc_enter_windcorr_1'] = {
-                    skipIf = function(loop) return not (loop and loop.appwindcorrstring) end,
-                    action = function(loop, procData)
-                        local char = string.sub(loop.appwindcorrstring, 1, 1)
-                        if char and char ~= "" then P.commandtableentry(def.COMMAND, "laminar/B738/button/fmc1_" .. char) end
-                    end,
-                    runActionInAdviceMode = false,
-                    nextStep = 'fmc_enter_windcorr_2'
-                },
-                ['fmc_enter_windcorr_2'] = {
-                    skipIf = function(loop) return not (loop and loop.appwindcorrstring) end,
-                    action = function(loop, procData)
-                        local char = string.sub(loop.appwindcorrstring, 2, 2)
-                        if char and char ~= "" then P.commandtableentry(def.COMMAND, "laminar/B738/button/fmc1_" .. char) end
-                    end,
-                    runActionInAdviceMode = false,
-                    nextStep = 'fmc_enter_windcorr_3'
-                },
-                ['fmc_enter_windcorr_3'] = {
-                    skipIf = function(loop) return not (loop and loop.appwindcorrstring) end,
-                    action = function(loop, procData)
-                        local char = string.sub(loop.appwindcorrstring, 3, 3)
-                        if char and char ~= "" then P.commandtableentry(def.COMMAND, "laminar/B738/button/fmc1_" .. char) end
-                    end,
-                    runActionInAdviceMode = false,
-                    nextStep = 'fmc_press_5R'
-                },
-                ['fmc_press_5R'] = {
-                    skipIf = function(loop) return not (loop and loop.appwindcorrstring) end,
-                    action = function(loop, procData) P.commandtableentry(def.COMMAND, "laminar/B738/button/fmc1_5R") end,
-                    runActionInAdviceMode = false,
-                    nextStep = 'fmc_press_exec'
-                },
-                ['fmc_press_exec'] = {
-                    action = function(loop, procData) 
-                        P.commandtableentry(def.COMMAND, "laminar/B738/button/fmc1_exec") 
-                        P.commandtableentry(def.TEXT, "V REF " .. loop.appflapscalcstring .. " " .. loop.appvrefcalcstring .. " Knots set")
-                    end,
-                    runActionInAdviceMode = false,
-                    nextStep = 'check_vref_set'
-                },
-                ['check_vref_set'] = {
-                    check = function(loop, procData)
-                        return (get(P.vref) == loop.appvrefcalc)
-                    end,
-                    advice = function(loop, procData)
-                        return "Set V REF " .. loop.appflapscalcstring .. " " .. loop.appvrefcalcstring
-                    end,
-                    confirm = function(loop, procData)
-                        if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                            return "V REF " .. loop.appflapscalcstring .. " checked and " .. loop.appvrefcalcstring
-                        else
-                            return false 
-                        end
-                    end,
-                    branch = function(loop) return 'view_main_panel' end,
-                    nextStep = 'view_main_panel'
-                },
                 ['view_main_panel'] = {
                     view = function(loop, procData) return P.configvalues[def.CONFIGVIEWMAINPANEL] end,
-                    nextStep = nil 
+                    nextStep = nil
                 }
             }
         },

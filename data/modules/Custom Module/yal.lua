@@ -1308,7 +1308,7 @@ function P.timewarptotod()
         return true
     end
 
-    if (get(P.fmsflightphase) ~= def.FMSPHASECRUISE) then
+    if (get(P.fmsflightphase) ~= def.FMSFLIGHTPHASE_CRUISE) then
         P.commandtableentry(def.TEXT, "Time Warp only possible during Cruise")
         return true
     end
@@ -4155,9 +4155,9 @@ function P.determineStateFromLastSetProc(lastSetKey)
                     state = def.FLIGHTSTATEAPPROACH
          elseif lastSetKey == def.ALTITUDEA10000PROCEDURE then
              local fmsPhase = get(P.fmsflightphase) or 0
-             if fmsPhase == def.FMSPHASECRUISE then
+             if fmsPhase == def.FMSFLIGHTPHASE_CRUISE then
                  state = def.FLIGHTSTATECRUISE
-             elseif fmsPhase >= def.FMSPHASEDESCENT then
+             elseif fmsPhase >= def.FMSFLIGHTPHASE_DESCENT then
                  state = def.FLIGHTSTATEAPPROACH -- Corrected else case
              else
                  state = def.FLIGHTSTATECLIMB
@@ -4349,11 +4349,11 @@ function P.autofunctions()
         local fmsPhase = get(P.fmsflightphase) or 0
         local targetFlightState = P.flightstate
 
-        if ((fmsPhase >= def.FMSPHASEDESCENT) and (get(P.vnavtoddist) <= 1)) then
+        if ((fmsPhase >= def.FMSFLIGHTPHASE_DESCENT) and (get(P.vnavtoddist) <= 1)) then
             targetFlightState = def.FLIGHTSTATEAPPROACH
-        elseif (fmsPhase == def.FMSPHASECRUISE) then
+        elseif (fmsPhase == def.FMSFLIGHTPHASE_CRUISE) then
             targetFlightState = def.FLIGHTSTATECRUISE
-        elseif (fmsPhase == def.FMSPHASECLIMB) and P.proceduretable[def.AFTERTAKEOFFPROCEDURE].set then
+        elseif (fmsPhase == def.FMSFLIGHTPHASE_CLIMB) and P.proceduretable[def.AFTERTAKEOFFPROCEDURE].set then
             targetFlightState = def.FLIGHTSTATECLIMB
         elseif (P.flightstate == def.FLIGHTSTATEPREFLIGHT) then
             targetFlightState = def.FLIGHTSTATEINITIALCLIMB
@@ -4984,7 +4984,7 @@ function P.ongoingtasks()
             P.routeEndsEarlyWarned = false
         end
 
-        if (P.flightstate == def.FLIGHTSTATECRUISE) and (get(P.fmsflightphase) == def.FMSPHASECRUISE) and not suppressDiscoWarnings then
+        if (P.flightstate == def.FLIGHTSTATECRUISE) and (get(P.fmsflightphase) == def.FMSFLIGHTPHASE_CRUISE) and not suppressDiscoWarnings then
             local fmcCruiseAlt = get(P.fmccruisealt) or 0
             local mcpAlt = get(P.mcpaltitude) or 0
             -- FMC Cruise kann "ungerade" sein (z.B. 39100); MCP ist in 100-ft-Schritten.
@@ -4998,7 +4998,7 @@ function P.ongoingtasks()
     end
 
      if (P.ongoingtaskstepindex == 11) then
-        if (P.flightstate == def.FLIGHTSTATECRUISE) and (get(P.fmsflightphase) == def.FMSPHASECRUISE) and (get(P.totalfuellbs) < 1000) then
+        if (P.flightstate == def.FLIGHTSTATECRUISE) and (get(P.fmsflightphase) == def.FMSFLIGHTPHASE_CRUISE) and (get(P.totalfuellbs) < 1000) then
 
             local reservefuelLbs = 5000
 
