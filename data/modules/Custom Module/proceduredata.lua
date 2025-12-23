@@ -1772,7 +1772,7 @@ function M.fillProcedureTable()
                             return "L NAV checked Armed"
                         end
                         if get(P.aphdgselstat) ~= def.OFF then
-                            return "H D G Select checked"
+                            return "Heading Select checked"
                         end
                         return "Arm L NAV or use H D G Select"
                     end,
