@@ -85,29 +85,113 @@ local function isRunwayToMissedDiscontinuity(prevLeg, nextLeg)
     return isRunwayLeg(prevLeg) and isMissedApproachLeg(nextLeg)
 end
 
+local function logOnce(loop, key, msg)
+    if not loop or not key then
+        return
+    end
+    if loop[key] ~= msg then
+        sasl.logInfo(msg)
+        loop[key] = msg
+    end
+end
+
+local function runwayUsesTrue(runway)
+    if type(runway) ~= "string" then
+        return false
+    end
+    local rwy = runway:upper():gsub("^RW", "")
+    return rwy:sub(-1) == "T"
+end
+
+local function getEntryMagVar(entry)
+    local magVar = entry and entry[def.DESTMAGVAR]
+    if magVar == nil then
+        local lat = entry and entry[def.DESTLATPOS]
+        local lon = entry and entry[def.DESTLONPOS]
+        if lat and lon and lat ~= 0 and lon ~= 0 then
+            magVar = sasl.getMagneticVariation(lat, lon)
+        end
+    end
+    return tonumber(magVar) or 0
+end
+
+local function getRunwayTrueFromEndpoints()
+    local latStart = get(P.desrwylatstartpos)
+    local lonStart = get(P.desrwylonstartpos)
+    local latEnd = get(P.desrwylatendpos)
+    local lonEnd = get(P.desrwylonendpos)
+    if latStart and lonStart and latEnd and lonEnd
+        and latStart ~= 0 and lonStart ~= 0 and latEnd ~= 0 and lonEnd ~= 0 then
+        return helpers.getbearing(latStart, lonStart, latEnd, lonEnd)
+    end
+    return nil
+end
+
 local function getNavEntryCourse(entry)
     if not entry then
         return nil
     end
 
     local navType = entry[def.DESTNAVTYPE]
+    local runway = entry[def.DESTRWY] or get(P.desrwy)
+    local isTrueApproach = (entry.isTrueCourse == true) or runwayUsesTrue(runway)
+    local magVar = getEntryMagVar(entry)
 
     local runwayMag = tonumber(get(P.desrwyheading))
+    local runwayTrue = getRunwayTrueFromEndpoints()
+    if not runwayTrue and runwayMag and isTrueApproach then
+        runwayTrue = helpers.calccourse(runwayMag - magVar)
+    end
+    local runwayRef = nil
+    if isTrueApproach then
+        runwayRef = runwayTrue
+    else
+        runwayRef = runwayMag and helpers.calccourse(runwayMag) or nil
+        if not runwayRef and runwayTrue then
+            runwayRef = helpers.calccourse(runwayTrue + magVar)
+        end
+    end
     local function isPlausible(course)
         if not course then return false end
-        if runwayMag then
-            local diff = math.abs(course - runwayMag)
+        if runwayRef then
+            local diff = math.abs(course - runwayRef)
             if diff > 180 then diff = 360 - diff end
             return diff <= 10
         end
         return true
     end
+    local function normalizeCourse(course, courseIsTrue)
+        if course == nil then
+            return nil
+        end
+        local normalized
+        if isTrueApproach then
+            if courseIsTrue then
+                normalized = helpers.calccourse(course)
+            else
+                normalized = helpers.calccourse(course - magVar)
+            end
+        else
+            if courseIsTrue then
+                normalized = helpers.calccourse(course + magVar)
+            else
+                normalized = helpers.calccourse(course)
+            end
+        end
+        if isPlausible(normalized) then
+            return normalized
+        end
+        return nil
+    end
 
     -- GLS: use GLS course if available
     if navType == def.NAVTYPEGLS then
         local glsCourse = get(P.glscourse)
-        if glsCourse and glsCourse >= 0 and glsCourse < 360 and isPlausible(glsCourse) then
-            return helpers.calccourse(glsCourse)
+        if glsCourse and glsCourse >= 0 and glsCourse < 360 then
+            local normalized = normalizeCourse(glsCourse, entry.isTrueCourse == true)
+            if normalized then
+                return normalized
+            end
         end
     end
 
@@ -140,7 +224,6 @@ local function getNavEntryCourse(entry)
 
     local icao = entry[def.DESTICAO]
     local navType = entry[def.DESTNAVTYPE]
-    local runway = entry[def.DESTRWY]
     if type(icao) == "string" and type(navType) == "string" and type(runway) == "string" then
         local candidateTypes = { navType }
         if navType == def.NAVTYPELPV or navType == def.NAVTYPEGLS then
@@ -149,9 +232,12 @@ local function getNavEntryCourse(entry)
         for _, candidateType in ipairs(candidateTypes) do
             local cifpCourse = helpers.getCIFPApproachCourse(icao, candidateType, runway)
             if cifpCourse then
-                local cMag = helpers.calccourse(cifpCourse)
-                if isPlausible(cMag) then
-                    return cMag
+                local normalized = normalizeCourse(cifpCourse, isTrueApproach)
+                if not normalized and isTrueApproach then
+                    normalized = normalizeCourse(cifpCourse, false)
+                end
+                if normalized then
+                    return normalized
                 end
             end
         end
@@ -170,34 +256,46 @@ local function getNavEntryCourse(entry)
                 expected = helpers.calccourse(cifpCourse)
             end
         end
-        if expected then
-            local diff = math.abs(fmsMag - expected)
-            if diff > 180 then diff = 360 - diff end
-            if diff <= 10 and isPlausible(fmsMag) then
-                return fmsMag
-            end
-        else
-            if isPlausible(fmsMag) then
-                return fmsMag
+        local normalized = normalizeCourse(fmsMag, false)
+        if normalized then
+            if expected and not isTrueApproach then
+                local diff = math.abs(fmsMag - expected)
+                if diff > 180 then diff = 360 - diff end
+                if diff <= 10 then
+                    return normalized
+                end
+            else
+                return normalized
             end
         end
     end
 
     if entry.isTrueCourse and entry.truecourse then
-        local magVar = entry[def.DESTMAGVAR] or 0
-        local magCourse = helpers.calccourse(entry.truecourse + magVar)
-        if isPlausible(magCourse) then
-            return magCourse
+        local normalized = normalizeCourse(entry.truecourse, true)
+        if normalized then
+            return normalized
         end
     end
     local navCourse = entry[def.DESTCOURSE]
-    if navCourse and isPlausible(navCourse) then
-        return navCourse
+    if navCourse then
+        local normalized = normalizeCourse(navCourse, false)
+        if normalized then
+            return normalized
+        end
     end
 
     -- Fallback: runway heading if available
-    if runwayMag then
-        return helpers.calccourse(runwayMag)
+    if isTrueApproach then
+        if runwayTrue then
+            return helpers.calccourse(runwayTrue)
+        end
+        if runwayMag then
+            return helpers.calccourse(runwayMag - magVar)
+        end
+    else
+        if runwayMag then
+            return helpers.calccourse(runwayMag)
+        end
     end
 
     return navCourse
@@ -2554,11 +2652,20 @@ function M.fillProcedureTable()
                     nextStep = 'trigger_windcorr_proc' 
                 },
                 ['trigger_windcorr_proc'] = {
-                    skipIf = function() return P.configvalues[def.CONFIGVREF30SET] == def.OFF end,
+                    skipIf = function(loop)
+                        local skip = P.configvalues[def.CONFIGVREF30SET] == def.OFF
+                        if skip then
+                            logOnce(loop, "windcorr_trigger_skip",
+                                "Below10000: trigger_windcorr_proc skipped (CONFIGVREF30SET OFF)")
+                        end
+                        return skip
+                    end,
                     action = function(loop)
                         if not loop then return end
                         local procData = P.proceduretable[def.SETWINDCORRPROCEDURE]
                         if procData and procData.set then
+                            logOnce(loop, "windcorr_trigger_action",
+                                "Below10000: trigger_windcorr_proc action: SETWINDCORR already set")
                             loop.windcorrproctriggered = nil
                             return
                         end
@@ -2567,9 +2674,19 @@ function M.fillProcedureTable()
                             local ok = P.triggerprocedure(def.SETWINDCORRPROCEDURE, false)
                             local loop3 = P.loopStateTables and P.loopStateTables[3]
                             local running = loop3 and (loop3.lock == def.SETWINDCORRPROCEDURE)
+                            logOnce(loop, "windcorr_trigger_action",
+                                string.format("Below10000: trigger_windcorr_proc action: ok=%s running=%s loop3lock=%s",
+                                    tostring(ok), tostring(running), tostring(loop3 and loop3.lock)))
                             if ok or running then
                                 loop.windcorrproctriggered = true
+                                logOnce(loop, "windcorr_trigger_action",
+                                    "Below10000: trigger_windcorr_proc action: marked windcorrproctriggered=true")
                             end
+                        else
+                            local loop3 = P.loopStateTables and P.loopStateTables[3]
+                            logOnce(loop, "windcorr_trigger_action",
+                                string.format("Below10000: trigger_windcorr_proc action: already triggered, loop3lock=%s",
+                                    tostring(loop3 and loop3.lock)))
                         end
                     end,
                     check = function(loop)
@@ -2577,6 +2694,8 @@ function M.fillProcedureTable()
                         local procData = P.proceduretable[procKey]
                         if procData and procData.set then
                             if loop then loop.windcorrproctriggered = nil end
+                            logOnce(loop, "windcorr_trigger_check",
+                                "Below10000: trigger_windcorr_proc check: SETWINDCORR is set -> continue")
                             return true
                         end
 
@@ -2585,12 +2704,18 @@ function M.fillProcedureTable()
                             local running = loop3 and (loop3.lock == def.SETWINDCORRPROCEDURE)
                             if not running then
                                 loop.windcorrproctriggered = nil
+                                logOnce(loop, "windcorr_trigger_check",
+                                    "Below10000: trigger_windcorr_proc check: not running anymore -> continue")
                                 return true
                             end
+                            logOnce(loop, "windcorr_trigger_check",
+                                "Below10000: trigger_windcorr_proc check: SETWINDCORR still running -> wait")
                             return false
                         end
 
-                        return true
+                        logOnce(loop, "windcorr_trigger_check",
+                            "Below10000: trigger_windcorr_proc check: not triggered -> wait/trigger")
+                        return false
                     end,
                     advice = nil,
                     confirm = nil,
@@ -4097,6 +4222,78 @@ function M.fillProcedureTable()
                         local runwayFormatted = helpers.formatRunwayDesignator(runway)
                         local course = nil
 
+                        local navEntry = nil
+                        if loop and loop.navdatatableindex and P.navdatatable[loop.navdatatableindex] then
+                            navEntry = P.navdatatable[loop.navdatatableindex]
+                        end
+                        local runwayToken = runway
+                        if navEntry and type(navEntry[def.DESTRWY]) == "string" then
+                            runwayToken = navEntry[def.DESTRWY]
+                        end
+                        local isTrueApproach = (navEntry and navEntry.isTrueCourse == true) or runwayUsesTrue(runwayToken) or runwayUsesTrue(runway)
+                        local magVar = nil
+                        if navEntry then
+                            magVar = getEntryMagVar(navEntry)
+                        else
+                            local latVar = get(P.desrwylatstartpos)
+                            local lonVar = get(P.desrwylonstartpos)
+                            if latVar and lonVar and latVar ~= 0 and lonVar ~= 0 then
+                                magVar = sasl.getMagneticVariation(latVar, lonVar)
+                            else
+                                local apt = P.airportdatatable[get(P.desicao)]
+                                if apt and apt.latitude and apt.longitude then
+                                    magVar = sasl.getMagneticVariation(apt.latitude, apt.longitude)
+                                end
+                            end
+                        end
+                        magVar = tonumber(magVar) or 0
+                        local runwayMag = tonumber(get(P.desrwyheading))
+                        local runwayTrue = getRunwayTrueFromEndpoints()
+                        if not runwayTrue and runwayMag and isTrueApproach then
+                            runwayTrue = helpers.calccourse(runwayMag - magVar)
+                        end
+                        local runwayRef = nil
+                        if isTrueApproach then
+                            runwayRef = runwayTrue
+                        else
+                            runwayRef = runwayMag and helpers.calccourse(runwayMag) or nil
+                            if not runwayRef and runwayTrue then
+                                runwayRef = helpers.calccourse(runwayTrue + magVar)
+                            end
+                        end
+                        local function isPlausible(value)
+                            if not value then return false end
+                            if runwayRef then
+                                local diff = math.abs(value - runwayRef)
+                                if diff > 180 then diff = 360 - diff end
+                                return diff <= 10
+                            end
+                            return true
+                        end
+                        local function normalizeCourse(value, valueIsTrue)
+                            if value == nil then
+                                return nil
+                            end
+                            local normalized
+                            if isTrueApproach then
+                                if valueIsTrue then
+                                    normalized = helpers.calccourse(value)
+                                else
+                                    normalized = helpers.calccourse(value - magVar)
+                                end
+                            else
+                                if valueIsTrue then
+                                    normalized = helpers.calccourse(value + magVar)
+                                else
+                                    normalized = helpers.calccourse(value)
+                                end
+                            end
+                            if isPlausible(normalized) then
+                                return normalized
+                            end
+                            return nil
+                        end
+
                         local function getFMSFinalMagCourse()
                             if not (P and P.fmslegs and P.fmslegslat and P.fmslegslon) then return nil end
                             local legsStr = get(P.fmslegs)
@@ -4126,41 +4323,37 @@ function M.fillProcedureTable()
 
                         -- Attempt to derive final-leg course from FMC (only if Runway-Leg found)
                         if not course then
-                            course = getFMSFinalMagCourse()
-                            if course then
-                                course = helpers.calccourse(course)
-                            end
+                            local fmsCourse = getFMSFinalMagCourse()
+                            course = normalizeCourse(fmsCourse, false)
                         end
 
                         -- Prefer detected CIFP approach course
                         if loop and loop.detectedApproach and loop.detectedApproach.entry and loop.detectedApproach.entry.course then
-                            local cMag = helpers.calccourse(loop.detectedApproach.entry.course)
-                            course = cMag
+                            local c = normalizeCourse(loop.detectedApproach.entry.course, isTrueApproach)
+                            if not c and isTrueApproach then
+                                c = normalizeCourse(loop.detectedApproach.entry.course, false)
+                            end
+                            course = c
                         end
 
                         -- Fall back to navdata-derived runway heading
                         if not course then
-                            course = helpers.getrwyheadingfromnavdata(P.navdatatable, get(P.desicao), runway)
-                            if course then
-                                course = helpers.calccourse(course)
+                            local navCourse = helpers.getrwyheadingfromnavdata(P.navdatatable, get(P.desicao), runway)
+                            course = normalizeCourse(navCourse, isTrueApproach)
+                            if not course and isTrueApproach then
+                                course = normalizeCourse(navCourse, false)
                             end
                         end
 
                         -- Fallback to FMC runway heading
                         if not course and tonumber(get(P.desrwyheading)) then
-                            course = helpers.roundnumber(get(P.desrwyheading))
+                            course = normalizeCourse(helpers.roundnumber(get(P.desrwyheading)), false)
                         end
 
                         -- Compute bearing from runway endpoints if available
                         if not course then
-                            local latStart = get(P.desrwylatstartpos)
-                            local lonStart = get(P.desrwylonstartpos)
-                            local latEnd = get(P.desrwylatendpos)
-                            local lonEnd = get(P.desrwylonendpos)
-                            if latStart and lonStart and latEnd and lonEnd and latStart ~= 0 and lonStart ~= 0 and latEnd ~= 0 and lonEnd ~= 0 then
-                                local trueCourse = helpers.getbearing(latStart, lonStart, latEnd, lonEnd)
-                                local magVar = sasl.getMagneticVariation(latStart, lonStart) or 0
-                                course = helpers.calccourse(trueCourse + magVar)
+                            if runwayTrue then
+                                course = normalizeCourse(runwayTrue, true)
                             end
                         end
 
@@ -4811,6 +5004,10 @@ function M.fillProcedureTable()
                 },
                 ['calculate_windcorr'] = {
                     action = function(loop, procData)
+                        sasl.logInfo(string.format("SetWindCorr: start (flightstate=%s fmsphase=%s voice=%s)",
+                            tostring(get(P.flightstate)),
+                            tostring(get(P.fmsflightphase)),
+                            tostring(P.configvalues[def.CONFIGVOICEADVICEONLY])))
                         local customCalcOn = (P.configvalues[def.CONFIGCUSTOMAPPROACHCALC] == def.ON)
                         loop.appwindcorr = nil
                         loop.appwindcorrstring = nil
@@ -4839,21 +5036,25 @@ function M.fillProcedureTable()
                 },
                 ['check_fms_page'] = {
                     check = function(loop, procData)
-                        return helpers.fmcHeaderContains("APPROACH REF")
+                        local ok = helpers.fmcHeaderContains("APPROACH REF")
+                        logOnce(loop, "windcorr_check_fms",
+                            string.format("SetWindCorr: check_fms_page header=%s",
+                                tostring(ok)))
+                        return ok
                     end,
                     action = function(loop, procData) helpers.command_once("laminar/B738/button/fmc1_init_ref") end,
                     advice = "Open F M C Approach Reference Page",
                     runActionInAdviceMode = true,
                     branch = function(loop, procData)
                         if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                            sasl.logDebug("SetWindCorr: VoiceAdviceOnly mode.")
+                            sasl.logInfo("SetWindCorr: branch -> voice_wind_advice (VoiceAdviceOnly)")
                             return 'voice_wind_advice'
                         end
                         if loop and loop.appwindcorrstring then
-                            sasl.logDebug("SetWindCorr: Auto mode. Starting FMC input sequence.")
+                            sasl.logInfo("SetWindCorr: branch -> fmc_press_del (Auto)")
                             return 'fmc_press_del'
                         end
-                        sasl.logDebug("SetWindCorr: Auto mode. No wind correction target.")
+                        sasl.logInfo("SetWindCorr: branch -> check_windcorr_set (Auto, no target)")
                         return 'check_windcorr_set'
                     end
                 },
