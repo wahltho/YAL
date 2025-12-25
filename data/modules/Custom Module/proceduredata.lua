@@ -85,16 +85,6 @@ local function isRunwayToMissedDiscontinuity(prevLeg, nextLeg)
     return isRunwayLeg(prevLeg) and isMissedApproachLeg(nextLeg)
 end
 
-local function logOnce(loop, key, msg)
-    if not loop or not key then
-        return
-    end
-    if loop[key] ~= msg then
-        sasl.logInfo(msg)
-        loop[key] = msg
-    end
-end
-
 local function runwayUsesTrue(runway)
     if type(runway) ~= "string" then
         return false
@@ -2654,18 +2644,12 @@ function M.fillProcedureTable()
                 ['trigger_windcorr_proc'] = {
                     skipIf = function(loop)
                         local skip = P.configvalues[def.CONFIGVREF30SET] == def.OFF
-                        if skip then
-                            logOnce(loop, "windcorr_trigger_skip",
-                                "Below10000: trigger_windcorr_proc skipped (CONFIGVREF30SET OFF)")
-                        end
                         return skip
                     end,
                     action = function(loop)
                         if not loop then return end
                         local procData = P.proceduretable[def.SETWINDCORRPROCEDURE]
                         if procData and procData.set then
-                            logOnce(loop, "windcorr_trigger_action",
-                                "Below10000: trigger_windcorr_proc action: SETWINDCORR already set")
                             loop.windcorrproctriggered = nil
                             return
                         end
@@ -2674,19 +2658,9 @@ function M.fillProcedureTable()
                             local ok = P.triggerprocedure(def.SETWINDCORRPROCEDURE, false)
                             local loop3 = P.loopStateTables and P.loopStateTables[3]
                             local running = loop3 and (loop3.lock == def.SETWINDCORRPROCEDURE)
-                            logOnce(loop, "windcorr_trigger_action",
-                                string.format("Below10000: trigger_windcorr_proc action: ok=%s running=%s loop3lock=%s",
-                                    tostring(ok), tostring(running), tostring(loop3 and loop3.lock)))
                             if ok or running then
                                 loop.windcorrproctriggered = true
-                                logOnce(loop, "windcorr_trigger_action",
-                                    "Below10000: trigger_windcorr_proc action: marked windcorrproctriggered=true")
                             end
-                        else
-                            local loop3 = P.loopStateTables and P.loopStateTables[3]
-                            logOnce(loop, "windcorr_trigger_action",
-                                string.format("Below10000: trigger_windcorr_proc action: already triggered, loop3lock=%s",
-                                    tostring(loop3 and loop3.lock)))
                         end
                     end,
                     check = function(loop)
@@ -2694,8 +2668,6 @@ function M.fillProcedureTable()
                         local procData = P.proceduretable[procKey]
                         if procData and procData.set then
                             if loop then loop.windcorrproctriggered = nil end
-                            logOnce(loop, "windcorr_trigger_check",
-                                "Below10000: trigger_windcorr_proc check: SETWINDCORR is set -> continue")
                             return true
                         end
 
@@ -2704,17 +2676,11 @@ function M.fillProcedureTable()
                             local running = loop3 and (loop3.lock == def.SETWINDCORRPROCEDURE)
                             if not running then
                                 loop.windcorrproctriggered = nil
-                                logOnce(loop, "windcorr_trigger_check",
-                                    "Below10000: trigger_windcorr_proc check: not running anymore -> continue")
                                 return true
                             end
-                            logOnce(loop, "windcorr_trigger_check",
-                                "Below10000: trigger_windcorr_proc check: SETWINDCORR still running -> wait")
                             return false
                         end
 
-                        logOnce(loop, "windcorr_trigger_check",
-                            "Below10000: trigger_windcorr_proc check: not triggered -> wait/trigger")
                         return false
                     end,
                     advice = nil,
@@ -5036,11 +5002,7 @@ function M.fillProcedureTable()
                 },
                 ['check_fms_page'] = {
                     check = function(loop, procData)
-                        local ok = helpers.fmcHeaderContains("APPROACH REF")
-                        logOnce(loop, "windcorr_check_fms",
-                            string.format("SetWindCorr: check_fms_page header=%s",
-                                tostring(ok)))
-                        return ok
+                        return helpers.fmcHeaderContains("APPROACH REF")
                     end,
                     action = function(loop, procData) helpers.command_once("laminar/B738/button/fmc1_init_ref") end,
                     advice = "Open F M C Approach Reference Page",
