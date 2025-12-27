@@ -4472,13 +4472,15 @@ function M.fillProcedureTable()
                         local primary = P.navdatatable[loop.navdatatableindex]
                         local primaryRank = primary and navRank(primary[def.DESTNAVTYPE]) or 99
 
-                        -- Collect alternates that are at least as high-ranked as the primary
+                        local primaryRunway = primary and primary[def.DESTRWY] or nil
+
+                        -- Collect alternates that are strictly better than the primary and on the same runway
                         local candidates = {}
                         for idx = 2, #loop.navdatatableindices do
                             local navdata = P.navdatatable[loop.navdatatableindices[idx]]
                             if navdata then
                                 local rank = navRank(navdata[def.DESTNAVTYPE])
-                                if rank <= primaryRank then
+                                if rank < primaryRank and navdata[def.DESTRWY] == primaryRunway then
                                     table.insert(candidates, { data = navdata, rank = rank, idx = idx })
                                 end
                             end
@@ -5164,7 +5166,7 @@ function M.fillProcedureTable()
                         if not targetStr or targetStr == "" then
                             targetStr = tostring(target)
                         end
-                        return "Set Wind Correction +" .. targetStr .. " in F M C"
+                        return "Set F M C Wind Correction +" .. targetStr .. " in F M C"
                     end,
                     confirm = function(loop)
                         local fmcWind = tonumber(get(P.vrefapproachwindcorr))
@@ -5178,7 +5180,7 @@ function M.fillProcedureTable()
                         end
                         local current = fmcWind or 0
                         if math.abs(current - target) < 0.5 then
-                            return "Wind Correction checked +" .. targetStr
+                            return "F M C Wind Correction checked +" .. targetStr
                         end
                         return false
                     end,
@@ -5209,7 +5211,7 @@ function M.fillProcedureTable()
                             targetStr = tostring(target)
                         end
                         sasl.logInfo(string.format("voice_wind_advice.advice: fmc=%s target=%s targetStr=%s", tostring(fmcWind), tostring(target), tostring(targetStr)))
-                        return "Set Wind Correction +" .. targetStr .. " in F M C"
+                        return "Set F M C Wind Correction +" .. targetStr .. " in F M C"
                     end,
                     confirm = function(loop)
                         local fmcWind = tonumber(get(P.vrefapproachwindcorr))
@@ -5224,7 +5226,7 @@ function M.fillProcedureTable()
                         local current = fmcWind or 0
                         sasl.logInfo(string.format("voice_wind_advice.confirm: fmc=%s target=%s current=%s targetStr=%s", tostring(fmcWind), tostring(target), tostring(current), tostring(targetStr)))
                         if math.abs(current - target) < 0.5 then
-                            return "Wind Correction checked +" .. targetStr
+                            return "F M C Wind Correction checked +" .. targetStr
                         end
                         return false
                     end,
