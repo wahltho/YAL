@@ -3733,7 +3733,7 @@ function P.buildnavdatatable(navdatatable)
                             local mag_variation = sasl.getMagneticVariation(lat_val, lon_val) or 0
                             newEntry.truecourse = trueCourseNormalized
                             newEntry.isTrueCourse = true
-                            newEntry[def.DESTCOURSE] = P.calccourse(trueCourseNormalized + mag_variation)
+                            newEntry[def.DESTCOURSE] = P.calccourse(trueCourseNormalized - mag_variation)
                             newEntry[def.DESTMAGVAR] = mag_variation
                         else
                             sasl.logInfo("Could not read true course for LPV/GLS (column NAVSRC_COL_BEARING): " .. navdatarecord)
@@ -4008,10 +4008,30 @@ function P.getrwyheadingfromnavdata(navdatatable, icao, rwy)
 
     local navTypePriority = { def.NAVTYPEILS, def.NAVTYPEGLS, def.NAVTYPELPV }
 
+    local function runwayUsesTrueLocal(runway)
+        if type(runway) ~= "string" then
+            return false
+        end
+        local clean = string.upper(runway):gsub("^RW", "")
+        return clean:sub(-1) == "T"
+    end
+
     local function getCourseFromNavEntry(entry)
         if not entry then return nil end
         if entry.isTrueCourse and entry.truecourse then
-            return entry.truecourse
+            if runwayUsesTrueLocal(rwy) then
+                return entry.truecourse
+            end
+            local magVar = entry[def.DESTMAGVAR]
+            if magVar == nil then
+                local lat = entry[def.DESTLATPOS]
+                local lon = entry[def.DESTLONPOS]
+                if lat and lon and lat ~= 0 and lon ~= 0 then
+                    magVar = sasl.getMagneticVariation(lat, lon)
+                end
+            end
+            magVar = magVar or 0
+            return P.calccourse(entry.truecourse - magVar)
         end
         return entry[def.DESTCOURSE]
     end

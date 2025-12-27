@@ -124,22 +124,28 @@ local function getNavEntryCourse(entry)
 
     local navType = entry[def.DESTNAVTYPE]
     local runway = entry[def.DESTRWY] or get(P.desrwy)
-    local isTrueApproach = (entry.isTrueCourse == true) or runwayUsesTrue(runway)
+    local announceTrue = runwayUsesTrue(runway) or runwayUsesTrue(get(P.desrwy))
+    local isRnavNav = (navType == def.NAVTYPELPV)
+        or (navType == def.NAVTYPERNAV)
+        or (navType == def.NAVTYPEGLS)
     local magVar = getEntryMagVar(entry)
 
     local runwayMag = tonumber(get(P.desrwyheading))
     local runwayTrue = getRunwayTrueFromEndpoints()
-    if not runwayTrue and runwayMag and isTrueApproach then
-        runwayTrue = helpers.calccourse(runwayMag - magVar)
+    if not runwayTrue and runwayMag and magVar then
+        runwayTrue = helpers.calccourse(runwayMag + magVar)
     end
     local runwayRef = nil
-    if isTrueApproach then
+    if announceTrue then
         runwayRef = runwayTrue
     else
         runwayRef = runwayMag and helpers.calccourse(runwayMag) or nil
         if not runwayRef and runwayTrue then
-            runwayRef = helpers.calccourse(runwayTrue + magVar)
+            runwayRef = helpers.calccourse(runwayTrue - magVar)
         end
+    end
+    if isRnavNav then
+        runwayRef = nil
     end
     local function isPlausible(course)
         if not course then return false end
@@ -154,35 +160,48 @@ local function getNavEntryCourse(entry)
         if course == nil then
             return nil
         end
-        local normalized
-        if isTrueApproach then
-            if courseIsTrue then
-                normalized = helpers.calccourse(course)
-            else
-                normalized = helpers.calccourse(course - magVar)
-            end
-        else
-            if courseIsTrue then
-                normalized = helpers.calccourse(course + magVar)
-            else
-                normalized = helpers.calccourse(course)
-            end
-        end
-        if isPlausible(normalized) then
-            return normalized
-        end
-        return nil
-    end
 
-    -- GLS: use GLS course if available
-    if navType == def.NAVTYPEGLS then
-        local glsCourse = get(P.glscourse)
-        if glsCourse and glsCourse >= 0 and glsCourse < 360 then
-            local normalized = normalizeCourse(glsCourse, entry.isTrueCourse == true)
-            if normalized then
-                return normalized
+        local function normalizeKnown(valueIsTrue)
+            if announceTrue then
+                if valueIsTrue then
+                    return helpers.calccourse(course)
+                end
+                return helpers.calccourse(course + magVar)
             end
+            if valueIsTrue then
+                return helpers.calccourse(course - magVar)
+            end
+            return helpers.calccourse(course)
         end
+
+        local function score(candidate)
+            if not candidate or not runwayRef then
+                return nil
+            end
+            local diff = math.abs(candidate - runwayRef)
+            if diff > 180 then diff = 360 - diff end
+            return diff
+        end
+
+        if courseIsTrue == true then
+            local normalized = normalizeKnown(true)
+            return isPlausible(normalized) and normalized or nil
+        elseif courseIsTrue == false then
+            local normalized = normalizeKnown(false)
+            return isPlausible(normalized) and normalized or nil
+        end
+
+        local candA = normalizeKnown(announceTrue)
+        local candB = normalizeKnown(not announceTrue)
+        local scoreA = score(candA)
+        local scoreB = score(candB)
+        local pick = nil
+        if scoreA and scoreB then
+            pick = (scoreA <= scoreB) and candA or candB
+        else
+            pick = candA or candB
+        end
+        return isPlausible(pick) and pick or nil
     end
 
     local function getFMSFinalMagCourse()
@@ -212,6 +231,26 @@ local function getNavEntryCourse(entry)
         return nil
     end
 
+    -- RNAV/LPV/GLS: prefer FMC final-leg course (mag) for 1:1 Zibo sync
+    local fmsMag = getFMSFinalMagCourse()
+    if isRnavNav and fmsMag then
+        local normalized = normalizeCourse(fmsMag, false)
+        if normalized then
+            return normalized
+        end
+    end
+
+    -- GLS: use GLS course if available
+    if navType == def.NAVTYPEGLS then
+        local glsCourse = get(P.glscourse)
+        if glsCourse and glsCourse >= 0 and glsCourse < 360 then
+            local normalized = normalizeCourse(glsCourse, nil)
+            if normalized then
+                return normalized
+            end
+        end
+    end
+
     local icao = entry[def.DESTICAO]
     local navType = entry[def.DESTNAVTYPE]
     if type(icao) == "string" and type(navType) == "string" and type(runway) == "string" then
@@ -222,10 +261,7 @@ local function getNavEntryCourse(entry)
         for _, candidateType in ipairs(candidateTypes) do
             local cifpCourse = helpers.getCIFPApproachCourse(icao, candidateType, runway)
             if cifpCourse then
-                local normalized = normalizeCourse(cifpCourse, isTrueApproach)
-                if not normalized and isTrueApproach then
-                    normalized = normalizeCourse(cifpCourse, false)
-                end
+                local normalized = normalizeCourse(cifpCourse, nil)
                 if normalized then
                     return normalized
                 end
@@ -234,8 +270,7 @@ local function getNavEntryCourse(entry)
     end
 
     -- Prefer FMC-provided final-leg course when modded Zibo is enabled (fallback after CIFP)
-    local fmsMag = getFMSFinalMagCourse()
-    if fmsMag then
+    if fmsMag and not isRnavNav then
         local expected = nil
         if type(icao) == "string" and type(runway) == "string" then
             local cifpCourse = helpers.getCIFPApproachCourse(icao, navType, runway)
@@ -248,7 +283,7 @@ local function getNavEntryCourse(entry)
         end
         local normalized = normalizeCourse(fmsMag, false)
         if normalized then
-            if expected and not isTrueApproach then
+            if expected and not announceTrue then
                 local diff = math.abs(fmsMag - expected)
                 if diff > 180 then diff = 360 - diff end
                 if diff <= 10 then
@@ -275,12 +310,12 @@ local function getNavEntryCourse(entry)
     end
 
     -- Fallback: runway heading if available
-    if isTrueApproach then
+    if announceTrue then
         if runwayTrue then
             return helpers.calccourse(runwayTrue)
         end
         if runwayMag then
-            return helpers.calccourse(runwayMag - magVar)
+            return helpers.calccourse(runwayMag + magVar)
         end
     else
         if runwayMag then
@@ -4196,7 +4231,7 @@ function M.fillProcedureTable()
                         if navEntry and type(navEntry[def.DESTRWY]) == "string" then
                             runwayToken = navEntry[def.DESTRWY]
                         end
-                        local isTrueApproach = (navEntry and navEntry.isTrueCourse == true) or runwayUsesTrue(runwayToken) or runwayUsesTrue(runway)
+                        local announceTrue = runwayUsesTrue(runwayToken) or runwayUsesTrue(runway)
                         local magVar = nil
                         if navEntry then
                             magVar = getEntryMagVar(navEntry)
@@ -4215,17 +4250,24 @@ function M.fillProcedureTable()
                         magVar = tonumber(magVar) or 0
                         local runwayMag = tonumber(get(P.desrwyheading))
                         local runwayTrue = getRunwayTrueFromEndpoints()
-                        if not runwayTrue and runwayMag and isTrueApproach then
-                            runwayTrue = helpers.calccourse(runwayMag - magVar)
+                        if not runwayTrue and runwayMag then
+                            runwayTrue = helpers.calccourse(runwayMag + magVar)
                         end
                         local runwayRef = nil
-                        if isTrueApproach then
+                        if announceTrue then
                             runwayRef = runwayTrue
                         else
                             runwayRef = runwayMag and helpers.calccourse(runwayMag) or nil
                             if not runwayRef and runwayTrue then
-                                runwayRef = helpers.calccourse(runwayTrue + magVar)
+                                runwayRef = helpers.calccourse(runwayTrue - magVar)
                             end
+                        end
+                        local navType = navEntry and navEntry[def.DESTNAVTYPE]
+                        local isRnavNav = navType == def.NAVTYPELPV
+                            or navType == def.NAVTYPERNAV
+                            or navType == def.NAVTYPEGLS
+                        if isRnavNav then
+                            runwayRef = nil
                         end
                         local function isPlausible(value)
                             if not value then return false end
@@ -4240,24 +4282,48 @@ function M.fillProcedureTable()
                             if value == nil then
                                 return nil
                             end
-                            local normalized
-                            if isTrueApproach then
-                                if valueIsTrue then
-                                    normalized = helpers.calccourse(value)
-                                else
-                                    normalized = helpers.calccourse(value - magVar)
+
+                            local function normalizeKnown(isTrue)
+                                if announceTrue then
+                                    if isTrue then
+                                        return helpers.calccourse(value)
+                                    end
+                                    return helpers.calccourse(value + magVar)
                                 end
+                                if isTrue then
+                                    return helpers.calccourse(value - magVar)
+                                end
+                                return helpers.calccourse(value)
+                            end
+
+                            local function score(candidate)
+                                if not candidate or not runwayRef then
+                                    return nil
+                                end
+                                local diff = math.abs(candidate - runwayRef)
+                                if diff > 180 then diff = 360 - diff end
+                                return diff
+                            end
+
+                            if valueIsTrue == true then
+                                local normalized = normalizeKnown(true)
+                                return isPlausible(normalized) and normalized or nil
+                            elseif valueIsTrue == false then
+                                local normalized = normalizeKnown(false)
+                                return isPlausible(normalized) and normalized or nil
+                            end
+
+                            local candA = normalizeKnown(announceTrue)
+                            local candB = normalizeKnown(not announceTrue)
+                            local scoreA = score(candA)
+                            local scoreB = score(candB)
+                            local pick = nil
+                            if scoreA and scoreB then
+                                pick = (scoreA <= scoreB) and candA or candB
                             else
-                                if valueIsTrue then
-                                    normalized = helpers.calccourse(value + magVar)
-                                else
-                                    normalized = helpers.calccourse(value)
-                                end
+                                pick = candA or candB
                             end
-                            if isPlausible(normalized) then
-                                return normalized
-                            end
-                            return nil
+                            return isPlausible(pick) and pick or nil
                         end
 
                         local function getFMSFinalMagCourse()
@@ -4295,20 +4361,28 @@ function M.fillProcedureTable()
 
                         -- Prefer detected CIFP approach course
                         if loop and loop.detectedApproach and loop.detectedApproach.entry and loop.detectedApproach.entry.course then
-                            local c = normalizeCourse(loop.detectedApproach.entry.course, isTrueApproach)
-                            if not c and isTrueApproach then
-                                c = normalizeCourse(loop.detectedApproach.entry.course, false)
+                            course = normalizeCourse(loop.detectedApproach.entry.course, nil)
+                        end
+
+                        -- Fallback to CIFP course for runway/nav type when no variant detected
+                        if not course and navType then
+                            local candidateTypes = { navType }
+                            if navType == def.NAVTYPELPV or navType == def.NAVTYPEGLS then
+                                table.insert(candidateTypes, def.NAVTYPERNAV)
                             end
-                            course = c
+                            for _, candidate in ipairs(candidateTypes) do
+                                local cifpCourse = helpers.getCIFPApproachCourse(get(P.desicao), candidate, runway)
+                                if cifpCourse then
+                                    course = normalizeCourse(cifpCourse, nil)
+                                    if course then break end
+                                end
+                            end
                         end
 
                         -- Fall back to navdata-derived runway heading
                         if not course then
                             local navCourse = helpers.getrwyheadingfromnavdata(P.navdatatable, get(P.desicao), runway)
-                            course = normalizeCourse(navCourse, isTrueApproach)
-                            if not course and isTrueApproach then
-                                course = normalizeCourse(navCourse, false)
-                            end
+                            course = normalizeCourse(navCourse, nil)
                         end
 
                         -- Fallback to FMC runway heading
