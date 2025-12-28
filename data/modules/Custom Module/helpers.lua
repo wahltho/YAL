@@ -3962,21 +3962,33 @@ function P.getnavdataindices(navdatatable, icao, rwy, navtypes)
         return {}
     end
 
-    local rwy_offsets = {0, 1, -1, 2, -2, 3, -3}
-    local result = {}
+    local exactMatches = {}
+    local offsetMatches = {}
     local seen = {}
+    local rwy_offsets = {1, -1, 2, -2, 3, -3}
 
     for _, navtype in ipairs(navtypeList) do
-        for _, offset in ipairs(rwy_offsets) do
-            local current_rwy = P.adjustrwy(rwy, offset)
-            if current_rwy then
-                for idx, entry in ipairs(navdatatable) do
-                    if entry[def.DESTICAO] == icao
-                    and entry[def.DESTRWY] == current_rwy
-                    and entry[def.DESTNAVTYPE] == navtype then
-                        if not seen[idx] then
-                            table.insert(result, idx)
-                            seen[idx] = true
+        for idx, entry in ipairs(navdatatable) do
+            if entry[def.DESTICAO] == icao
+            and entry[def.DESTNAVTYPE] == navtype then
+                if entry[def.DESTRWY] == rwy then
+                    if not seen[idx] then
+                        table.insert(exactMatches, idx)
+                        seen[idx] = true
+                    end
+                else
+                    -- Offsets are handled only if no exact matches are found.
+                    local current_rwy = entry[def.DESTRWY]
+                    if current_rwy and current_rwy ~= "" then
+                        for _, offset in ipairs(rwy_offsets) do
+                            local current_expected = P.adjustrwy(rwy, offset)
+                            if current_expected and current_rwy == current_expected then
+                                if not seen[idx] then
+                                    table.insert(offsetMatches, idx)
+                                    seen[idx] = true
+                                end
+                                break
+                            end
                         end
                     end
                 end
@@ -3984,7 +3996,13 @@ function P.getnavdataindices(navdatatable, icao, rwy, navtypes)
         end
     end
 
-    return result
+    if #exactMatches > 0 then
+        return exactMatches
+    end
+    if #offsetMatches == 0 then
+        sasl.logInfo(string.format("Navdata: no runway match for %s %s (%s)", tostring(icao), tostring(rwy), table.concat(navtypeList, ",")))
+    end
+    return offsetMatches
 end
 
 function P.getnavdataindex(navdatatable, icao, rwy, navtype)

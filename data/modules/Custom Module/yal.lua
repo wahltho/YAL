@@ -1171,29 +1171,22 @@ function P.readconfig()
         end
     end
 
-    if P.configvalues[def.CONFIGZIBOISMODDED] == def.ON then
-        sasl.logInfo("ZIBOISMODDED active: FMS SID/STAR/APPROCH datarefs enabled")
-        local fmsSelectedSid = globalProperty("laminar/B738/fms/selected_sid")
-        if isProperty(fmsSelectedSid) then
-            P.fmsselectedsid = fmsSelectedSid
-        else
-            P.fmsselectedsid = nil
-        end
-        local fmsSelectedStar = globalProperty("laminar/B738/fms/selected_star")
-        if isProperty(fmsSelectedStar) then
-            P.fmsselectedstar = fmsSelectedStar
-        else
-            P.fmsselectedstar = nil
-        end
-        local fmsSelectedApp = globalProperty("laminar/B738/fms/selected_app")
-        if isProperty(fmsSelectedApp) then
-            P.fmsselectedapp = fmsSelectedApp
-        else
-            P.fmsselectedapp = nil
-        end
+    local fmsSelectedSid = globalProperty("laminar/B738/fms/selected_sid")
+    if isProperty(fmsSelectedSid) then
+        P.fmsselectedsid = fmsSelectedSid
     else
         P.fmsselectedsid = nil
+    end
+    local fmsSelectedStar = globalProperty("laminar/B738/fms/selected_star")
+    if isProperty(fmsSelectedStar) then
+        P.fmsselectedstar = fmsSelectedStar
+    else
         P.fmsselectedstar = nil
+    end
+    local fmsSelectedApp = globalProperty("laminar/B738/fms/selected_app")
+    if isProperty(fmsSelectedApp) then
+        P.fmsselectedapp = fmsSelectedApp
+    else
         P.fmsselectedapp = nil
     end
 
