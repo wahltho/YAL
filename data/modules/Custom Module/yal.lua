@@ -30,6 +30,9 @@ function P.YalinitGlobal()
 
     P.flightstate = 0
 
+    P.approachCourseMag = nil
+    P.approachNavType = nil
+
     P.xluaLoggingEnabled = nil
 
     P.centertankoffset = false
@@ -87,10 +90,10 @@ function P.YalinitGlobal()
     P.procedureloop3 = helpers.shallowcopy(P.procedurelooptemplate)
 
     P.loopenginekeys = {}
-    sasl.logInfo("Building engine key ignore-list from template...")
+    helpers.logInfoTS("Building engine key ignore-list from template...")
     for key, _ in pairs(P.procedurelooptemplate) do
         P.loopenginekeys[key] = true
-        sasl.logInfo("... Added engine key: " .. key)
+        helpers.logInfoTS("... Added engine key: " .. key)
     end
 
     P.lastExecutedLoopIndex = 0
@@ -120,17 +123,17 @@ function P.initDataref()
     end
 
     if not isProperty(handle) then
-        sasl.logInfo("Dataref '" .. debug_dataref_path .. "' not found. Creating it now.")
+        helpers.logInfoTS("Dataref '" .. debug_dataref_path .. "' not found. Creating it now.")
         local default_level = LOG_INFO
         P.debugLevelDataref = createGlobalPropertyi(debug_dataref_path, default_level, false, true, true)
         set(P.debugLevelDataref, default_level)
 
     else
-        sasl.logInfo("Found existing dataref: '" .. debug_dataref_path .. "'")
+        helpers.logInfoTS("Found existing dataref: '" .. debug_dataref_path .. "'")
         P.debugLevelDataref = handle
     end
 
-    sasl.logInfo("Restoring Debug Log Level from dataref...")
+    helpers.logInfoTS("Restoring Debug Log Level from dataref...")
     local stored_level = get(P.debugLevelDataref)
 
     if (stored_level ~= LOG_INFO) and (stored_level ~= LOG_DEBUG) then
@@ -141,7 +144,7 @@ function P.initDataref()
 
     sasl.setLogLevel(stored_level)
     P.lastPolledDebugLevel = stored_level
-    sasl.logInfo("Debug Log Level set to: " .. stored_level)
+    helpers.logInfoTS("Debug Log Level set to: " .. stored_level)
     if P.xluaLoggingEnabled then
         set(P.xluaLoggingEnabled, stored_level == LOG_DEBUG and 1 or 0)
     end
@@ -155,10 +158,10 @@ function P.initDataref()
     local expectedSize = maxId
 
     if not isProperty(handle) then
-        sasl.logInfo("Dataref '" .. dataref_path .. "' not found. Creating it now.")
+        helpers.logInfoTS("Dataref '" .. dataref_path .. "' not found. Creating it now.")
         P.ProcSetStatusarraydr = createGlobalPropertyia(dataref_path, expectedSize, false, true, true)
     else
-        sasl.logInfo("Found existing dataref: '" .. dataref_path .. "'")
+        helpers.logInfoTS("Found existing dataref: '" .. dataref_path .. "'")
         P.ProcSetStatusarraydr = handle
 
         local currentSize = expectedSize
@@ -170,7 +173,7 @@ function P.initDataref()
         end
 
         if currentSize < expectedSize then
-            sasl.logInfo("Expanding '" .. dataref_path .. "' from " .. tostring(currentSize) .. " to " .. tostring(expectedSize) .. " entries.")
+            helpers.logInfoTS("Expanding '" .. dataref_path .. "' from " .. tostring(currentSize) .. " to " .. tostring(expectedSize) .. " entries.")
             local existingValues = {}
             for idx = 1, currentSize do
                 existingValues[idx] = get(P.ProcSetStatusarraydr, idx) or 0
@@ -208,14 +211,14 @@ function P.initDataref()
             end
 
             if resized < expectedSize then
-                sasl.logInfo("Recreating '" .. dataref_path .. "' to ensure expanded size.")
+                helpers.logInfoTS("Recreating '" .. dataref_path .. "' to ensure expanded size.")
                 P.ProcSetStatusarraydr = createGlobalPropertyia(dataref_path, migratedValues, false, true, true)
             end
         elseif currentSize > expectedSize then
             sasl.logWarning("Dataref '" .. dataref_path .. "' has unexpected size " .. tostring(currentSize) .. " (expected " .. tostring(expectedSize) .. "). Extra entries will be ignored.")
         end
     end
-    sasl.logInfo("Restoring procedure '.set' status from dataref array...")
+    helpers.logInfoTS("Restoring procedure '.set' status from dataref array...")
     for id, proc in pairs(P.proceduretable) do
         local status = get(P.ProcSetStatusarraydr, id)
         proc.set = (status == 1)
@@ -239,14 +242,14 @@ function P.initDataref()
             local handle = globalProperty(path)
 
             if not isProperty(handle) then
-                sasl.logInfo("Dataref '" .. path .. "' not found. Creating it now.")
+                helpers.logInfoTS("Dataref '" .. path .. "' not found. Creating it now.")
                 if prop.type == "int" then
                     handle = createGlobalPropertyi(path, prop.default, false, true, true)
                 else -- string
                     handle = createGlobalPropertys(path, prop.default, false, true, true)
                 end
             else
-                sasl.logInfo("Found existing dataref: '" .. path .. "'")
+                helpers.logInfoTS("Found existing dataref: '" .. path .. "'")
             end
 
             P.LoopHandles[i][prop.name] = handle
@@ -258,35 +261,35 @@ function P.initDataref()
     P.procedureloop3 = P.loadLoopState(3)
     P.loopStateTables = { P.procedureloop1, P.procedureloop2, P.procedureloop3 }
 
-    sasl.logInfo("Procedure loop states restored from datarefs.")
+    helpers.logInfoTS("Procedure loop states restored from datarefs.")
 
     local path = def.APPNAMEPREFIX .. "/state/ongoingtaskstepindex"
     local handle = globalProperty(path)
     if not isProperty(handle) then
-        sasl.logInfo("Dataref '" .. path .. "' not found. Creating it now.")
+        helpers.logInfoTS("Dataref '" .. path .. "' not found. Creating it now.")
         P.OngoingTaskIndexdr = createGlobalPropertyi(path, 1, false, true, true)
     else
-        sasl.logInfo("Found existing dataref: '" .. path .. "'")
+        helpers.logInfoTS("Found existing dataref: '" .. path .. "'")
         P.OngoingTaskIndexdr = handle
     end
     P.ongoingtaskstepindex = get(P.OngoingTaskIndexdr)
     if P.ongoingtaskstepindex == 0 then
         P.ongoingtaskstepindex = 1
     end
-    sasl.logInfo("Ongoing task index restored to: " .. P.ongoingtaskstepindex)
+    helpers.logInfoTS("Ongoing task index restored to: " .. P.ongoingtaskstepindex)
 
     local path = def.APPNAMEPREFIX .. "/state/flightstate"
     local handle = globalProperty(path)
     if not isProperty(handle) then
-        sasl.logInfo("Dataref '" .. path .. "' not found. Creating it now.")
+        helpers.logInfoTS("Dataref '" .. path .. "' not found. Creating it now.")
         P.flightstatedr = createGlobalPropertyi(path, 0, false, true, true)
     else
-        sasl.logInfo("Found existing dataref: '" .. path .. "'")
+        helpers.logInfoTS("Found existing dataref: '" .. path .. "'")
         P.flightstatedr = handle
         P.isReloadWithinSession = true
     end
     P.flightstate = get(P.flightstatedr)
-    sasl.logInfo("Flightstate restored to: " .. P.flightstate)
+    helpers.logInfoTS("Flightstate restored to: " .. P.flightstate)
 
     P.simpaused = globalProperty("sim/time/paused")
     P.simfreezed = globalPropertyfae("sim/operation/override/override_planepath", 1)
@@ -691,7 +694,7 @@ end
 --------------------------------------------------------------------------------------------------------------
 function P.initializeSharedVariables()
 
-    sasl.logInfo("Initializing SHARED monitoring variables.")
+    helpers.logInfoTS("Initializing SHARED monitoring variables.")
 
     P.apgoaroundtemp = get(P.apgoaround)
 
@@ -704,7 +707,7 @@ end
 
 --------------------------------------------------------------------------------------------------------------
 function P.buildProcedureLabelMaps()
-    sasl.logInfo("Initializing procedure step access functions (get_index)...") -- Log message slightly adjusted
+    helpers.logInfoTS("Initializing procedure step access functions (get_index)...") -- Log message slightly adjusted
 
     for procKey, procData in pairs(P.proceduretable) do
         -- Only process procedures using the data-driven engine (string keys)
@@ -733,7 +736,7 @@ function P.buildProcedureLabelMaps()
         --    end
         end
     end
-    sasl.logInfo("Procedure step access functions initialized.") -- Log message slightly adjusted
+    helpers.logInfoTS("Procedure step access functions initialized.") -- Log message slightly adjusted
 end
 
 -------------------------------------------------------------------------------------------------------------- 
@@ -770,7 +773,7 @@ function P.XCameraIsInstalled()
 
     if pluginID ~= NO_PLUGIN_ID then
         if P.XCameraPluginID ~= pluginID then
-            sasl.logInfo("X-Camera plugin detected, integration enabled.")
+            helpers.logInfoTS("X-Camera plugin detected, integration enabled.")
         end
         P.XCameraPluginID = pluginID
         P.xcamerastatus = globalProperty("SRS/X-Camera/integration/overall_status")
@@ -787,7 +790,7 @@ function P.YANSHisinstalled()
 
     if pluginID ~= NO_PLUGIN_ID then
         if P.YANSHPluginID ~= pluginID then
-            sasl.logInfo("YANSH plugin detected, integration enabled.")
+            helpers.logInfoTS("YANSH plugin detected, integration enabled.")
         end
         P.YANSHPluginID = pluginID
 
@@ -887,7 +890,7 @@ function P.BPBisinstalled()
 
     if pluginID ~= NO_PLUGIN_ID then
         if P.BPBPluginID ~= pluginID then
-            sasl.logInfo("BetterPushback plugin detected, integration enabled.")
+            helpers.logInfoTS("BetterPushback plugin detected, integration enabled.")
         end
         P.BPBPluginID = pluginID
 
@@ -943,7 +946,7 @@ function P.initializeScript()
     end
 
     P.commandtableentry(def.TEXT, "YAL Initialization done")
-    sasl.logInfo("Initialization and state restored")
+    helpers.logInfoTS("Initialization and state restored")
 
     P.lastLoggedFlightstate = P.flightstate
     P.lastLoggedFmsFlightphase = get(P.fmsflightphase)
@@ -958,7 +961,7 @@ function P.yalresetForNewFlight()
         return true
     end
 
-    sasl.logInfo("Reset for new flight initiated.")
+    helpers.logInfoTS("Reset for new flight initiated.")
 
     P.YalinitGlobal()
 
@@ -1030,7 +1033,7 @@ sasl.registerCommandHandler(my_command_yalresetForNewFlight, 0, P.yalresetForNew
 
 --------------------------------------------------------------------------------------------------------------
 function P.yalreset()
-    sasl.logInfo("Manual YAL Reset initiated")
+    helpers.logInfoTS("Manual YAL Reset initiated")
 
     -- Setzt Speicher zurück, lädt dann Persistenz, liest Config
     P.YalinitGlobal()
@@ -1071,7 +1074,7 @@ function P.yalreset()
     end
 
     if not stateIsPlausible then
-        sasl.logInfo("State from procedures ("..stateFromProcs..") implausible after reset sync. Falling back.")
+        helpers.logInfoTS("State from procedures ("..stateFromProcs..") implausible after reset sync. Falling back.")
         -- Fallback
         if aircraftIsOnGround then
             if get(P.parkingbrakepos) == def.ON then
@@ -1087,14 +1090,14 @@ function P.yalreset()
                 finalState = def.FLIGHTSTATECLIMB
             end
         end
-        sasl.logInfo("State after fallback: " .. finalState)
+        helpers.logInfoTS("State after fallback: " .. finalState)
     else
         sasl.logDebug("State from procedures ("..finalState..") is plausible.")
     end
 
     -- Update und Speichern, falls nötig
     if finalState ~= P.flightstate then
-         sasl.logInfo("Correcting flight state during reset. Old: " .. P.flightstate .. ", New: " .. finalState)
+         helpers.logInfoTS("Correcting flight state during reset. Old: " .. P.flightstate .. ", New: " .. finalState)
          P.flightstate = finalState
          set(P.flightstatedr, P.flightstate) -- Sofort speichern!
     end
@@ -1165,9 +1168,9 @@ function P.readconfig()
         local jitDr = globalProperty("xlua/jit_enabled")
         if isProperty(jitDr) then
             set(jitDr, 1)
-            sasl.logInfo("JITLUAON active: xlua/jit_enabled set to 1")
+            helpers.logInfoTS("JITLUAON active: xlua/jit_enabled set to 1")
         else
-            sasl.logInfo("JITLUAON requested but xlua/jit_enabled not found")
+            helpers.logInfoTS("JITLUAON requested but xlua/jit_enabled not found")
         end
     end
 
@@ -1314,40 +1317,40 @@ function P.timewarptotod()
     local legstable = helpers.buildlegstable(get(P.fmslegs), get(P.fmslegslat), get(P.fmslegslon))
 
     if legstable and #legstable > 0 then
-        sasl.logInfo("WARP: Content of Legs Table:")
+        helpers.logInfoTS("WARP: Content of Legs Table:")
         for i, waypoint in ipairs(legstable) do
-            sasl.logInfo(string.format("WARP: Waypoint %d: %s (Lat: %.4f, Lon: %.4f), Distance to: %.2f NM, T.Heading: %.2f, M.Heading: %.2f", i, waypoint.name, waypoint.latitude, waypoint.longitude, waypoint.distance_to_next, waypoint.true_course, waypoint.magnetic_course))
+            helpers.logInfoTS(string.format("WARP: Waypoint %d: %s (Lat: %.4f, Lon: %.4f), Distance to: %.2f NM, T.Heading: %.2f, M.Heading: %.2f", i, waypoint.name, waypoint.latitude, waypoint.longitude, waypoint.distance_to_next, waypoint.true_course, waypoint.magnetic_course))
         end
     else
-        sasl.logInfo("WARP: Legs table empty")
+        helpers.logInfoTS("WARP: Legs table empty")
         return false
     end
 
-    sasl.logInfo("WARP: Aircraft Lat Pos " .. get(P.aircraftlatpos))
-    sasl.logInfo("WARP: Aircraft Lon Pos " .. get(P.aircraftlonpos))
-    sasl.logInfo("WARP: Distance to TOD " .. get(P.vnavtoddist))
+    helpers.logInfoTS("WARP: Aircraft Lat Pos " .. get(P.aircraftlatpos))
+    helpers.logInfoTS("WARP: Aircraft Lon Pos " .. get(P.aircraftlonpos))
+    helpers.logInfoTS("WARP: Distance to TOD " .. get(P.vnavtoddist))
 
     local warppoint = helpers.getpointonroute(legstable, get(P.aircraftlatpos), get(P.aircraftlonpos), get(P.vnavtoddist))
 
-    sasl.logInfo("WARP: Latitude " .. warppoint.latitude)
-    sasl.logInfo("WARP: Longitude " .. warppoint.longitude)
-    sasl.logInfo("WARP: True Course " .. warppoint.truecourse)
-    sasl.logInfo("WARP: Magnetic Course " .. warppoint.magneticcourse)
-    sasl.logInfo("WARP: Next Waypoint " .. warppoint.nextwaypointname)
-    sasl.logInfo("WARP: Remaining Distance " .. warppoint.remainingdistance)
+    helpers.logInfoTS("WARP: Latitude " .. warppoint.latitude)
+    helpers.logInfoTS("WARP: Longitude " .. warppoint.longitude)
+    helpers.logInfoTS("WARP: True Course " .. warppoint.truecourse)
+    helpers.logInfoTS("WARP: Magnetic Course " .. warppoint.magneticcourse)
+    helpers.logInfoTS("WARP: Next Waypoint " .. warppoint.nextwaypointname)
+    helpers.logInfoTS("WARP: Remaining Distance " .. warppoint.remainingdistance)
 
     local localpositionx, localpositiony, localpositionz = sasl.worldToLocal(warppoint.latitude, warppoint.longitude, get(P.cabincruisealt) / def.FEETTOMETER)
 
-    sasl.logInfo("WARP: Local Position X " .. localpositionx)
-    sasl.logInfo("WARP: Local Position Y " .. localpositiony)
-    sasl.logInfo("WARP: Local Position Z " .. localpositionz)
+    helpers.logInfoTS("WARP: Local Position X " .. localpositionx)
+    helpers.logInfoTS("WARP: Local Position Y " .. localpositiony)
+    helpers.logInfoTS("WARP: Local Position Z " .. localpositionz)
 
     local remainingfuel =  helpers.estimatefuelattod(get(P.lefttanklbs), get(P.righttanklbs), get(P.centertanklbs), get( P.vnavtoddist) - 10)
 
-    sasl.logInfo("WARP: Remaining Fuel Left " .. remainingfuel.left)
-    sasl.logInfo("WARP: Remaining Fuel Right " .. remainingfuel.right)
-    sasl.logInfo("WARP: Remaining Fuel Center " .. remainingfuel.center)
-    sasl.logInfo("WARP: Remaining Fuel Total" .. remainingfuel.total)
+    helpers.logInfoTS("WARP: Remaining Fuel Left " .. remainingfuel.left)
+    helpers.logInfoTS("WARP: Remaining Fuel Right " .. remainingfuel.right)
+    helpers.logInfoTS("WARP: Remaining Fuel Center " .. remainingfuel.center)
+    helpers.logInfoTS("WARP: Remaining Fuel Total" .. remainingfuel.total)
 
 end
 
@@ -1702,7 +1705,7 @@ function P.triggerprocedure(procedureKey, isManual)
     if not isManual and procedureData.set then
         if procedureData.repeatable then
             -- Wenn wiederholbar, Status zurücksetzen und weitermachen
-            sasl.logInfo("'" .. procedureData.name .. "' is repeatable. Resetting .set flag to run again.")
+            helpers.logInfoTS("'" .. procedureData.name .. "' is repeatable. Resetting .set flag to run again.")
             procedureData.set = false
             set(P.ProcSetStatusarraydr, 0, procedureKey) -- 0 für false
             -- Nicht 'return true', damit der Trigger-Vorgang unten fortgesetzt wird
@@ -1725,7 +1728,7 @@ function P.triggerprocedure(procedureKey, isManual)
     sasl.logDebug("triggerprocedure: Checking lock for loop " .. loopIndex .. ". Current lock ID: " .. tostring(targetLoopObject.lock) .. " (NOPROC = "..tostring(def.NOPROCEDURE)..")")
 
     if targetLoopObject.lock == def.NOPROCEDURE then
-        sasl.logInfo("triggerprocedure: Loop " .. loopIndex .. " IS free. Attempting to lock with ProcID: " .. procedureKey .. " ('" .. procedureData.name .. "').")
+        helpers.logInfoTS("triggerprocedure: Loop " .. loopIndex .. " IS free. Attempting to lock with ProcID: " .. procedureKey .. " ('" .. procedureData.name .. "').")
 
         sasl.logDebug("triggerprocedure: Loop " .. loopIndex .. " lock supposedly set to: " .. tostring(procedureKey))
 
@@ -1746,7 +1749,7 @@ function P.triggerprocedure(procedureKey, isManual)
         local currentProcName = (P.proceduretable[currentLockingProcKey] and P.proceduretable[currentLockingProcKey].name) or currentLockingProcKey -- Get its name safely
 
         if currentLockingProcKey ~= procedureKey then
-            sasl.logInfo("triggerprocedure: Loop " .. loopIndex .. " IS NOT free. Current lock: '" .. tostring(currentProcName) .. "' (ID: " .. tostring(currentLockingProcKey) .. "). Cannot trigger '" .. procedureData.name .. "'.")
+            helpers.logInfoTS("triggerprocedure: Loop " .. loopIndex .. " IS NOT free. Current lock: '" .. tostring(currentProcName) .. "' (ID: " .. tostring(currentLockingProcKey) .. "). Cannot trigger '" .. procedureData.name .. "'.")
         else
             -- Optional: Debug-Log, wenn der Trigger dieselbe Prozedur erneut aufruft
             sasl.logDebug("triggerprocedure: Loop " .. loopIndex .. " is already running the requested procedure ('" .. procedureData.name .. "'). Trigger ignored.")
@@ -1755,7 +1758,7 @@ function P.triggerprocedure(procedureKey, isManual)
         if isManual then
              P.commandtableentry(def.TEXT, "Cannot start " .. procedureData.name .. ". Loop " .. loopIndex .. " is busy with " .. tostring(currentProcName) .. ".")
         end
-        -- sasl.logInfo Zeile war schon da, ist jetzt redundant wegen obigem Log
+        -- helpers.logInfoTS Zeile war schon da, ist jetzt redundant wegen obigem Log
         return false -- Loop besetzt
     end -- Ende if targetLoopObject.lock == def.NOPROCEDURE / else
 end -- Ende function P.triggerprocedure
@@ -1816,16 +1819,16 @@ function P.cycleprocedures()
             end
 
             if not shouldSkip and not procedure.data.set then
-                sasl.logInfo("Next Procedure is: " .. procedure.data.name)
+                helpers.logInfoTS("Next Procedure is: " .. procedure.data.name)
                 P.procedureloop1.lock = procedure.originalKey
                 return true
             elseif shouldSkip then
-                sasl.logInfo("Skipping " .. procedure.data.name .. " Procedure as its skip condition is met.")
+                helpers.logInfoTS("Skipping " .. procedure.data.name .. " Procedure as its skip condition is met.")
             end
         end
     end
 
-    sasl.logInfo("All cycable procedures completed")
+    helpers.logInfoTS("All cycable procedures completed")
     return true
 end
 
@@ -1988,7 +1991,7 @@ function P.aircraftonrwy(runwayType, dist, headingLimit)
 end
 --------------------------------------------------------------------------------------------------------------
 function P.syncProceduresOnLoad()
-    sasl.logInfo("SYNC: Resynchronizing procedure states with aircraft status...")
+    helpers.logInfoTS("SYNC: Resynchronizing procedure states with aircraft status...")
 
     for id, proc in pairs(P.proceduretable) do
         proc.set = false
@@ -2006,10 +2009,10 @@ function P.syncProceduresOnLoad()
     for _, proc in ipairs(orderedProcedures) do
         if proc and proc.skipCondition and proc.skipCondition() == true then
             proc.set = true
-            sasl.logInfo("SYNC: Procedure '" .. proc.name .. "' skipped (condition met).")
+            helpers.logInfoTS("SYNC: Procedure '" .. proc.name .. "' skipped (condition met).")
         else
             if proc then
-                sasl.logInfo("SYNC: Stopping sync at procedure '" .. proc.name .. "'.")
+                helpers.logInfoTS("SYNC: Stopping sync at procedure '" .. proc.name .. "'.")
             end
             break
         end
@@ -2152,7 +2155,7 @@ function P.loadLoopState(loopIndex)
                 P.deleteCustomData(loop)
                 needsSave = true
             else
-                 sasl.logInfo("" .. loopIdStr .. " - Successfully restored procedure " .. loop.lock .. " at step '" .. loop.currentStepName .. "'")
+                 helpers.logInfoTS("" .. loopIdStr .. " - Successfully restored procedure " .. loop.lock .. " at step '" .. loop.currentStepName .. "'")
             end
         else
              sasl.logDebug("" .. loopIdStr .. " - Restored procedure " .. loop.lock .. " (pending prerequisites).")
@@ -3030,7 +3033,7 @@ function P.setmmrils(mmr, freq)
         return false
     end
 
-    sasl.logInfo("SETMMRILS: " .. mmr .. freq)
+    helpers.logInfoTS("SETMMRILS: " .. mmr .. freq)
 
     P.setmmrmode(mmr, def.MMRILS)
 
@@ -4111,7 +4114,7 @@ function P.syncProceduresToFlightState()
     end
 
     if changed then
-        sasl.logInfo("Saving updated procedure set status to dataref.")
+        helpers.logInfoTS("Saving updated procedure set status to dataref.")
         local statusArray = {}
         for i = 1, #P.proceduretable do
              if P.proceduretable[i] and P.proceduretable[i].set then
@@ -4280,7 +4283,7 @@ function P.autofunctions()
         end
 
         if not stateIsPlausible then
-            sasl.logInfo("State from procedures ("..stateFromProcs..") is implausible for current ground/air status (" .. (aircraftIsOnGround and "GROUND" or "AIR") .. "). Falling back.")
+            helpers.logInfoTS("State from procedures ("..stateFromProcs..") is implausible for current ground/air status (" .. (aircraftIsOnGround and "GROUND" or "AIR") .. "). Falling back.")
             if aircraftIsOnGround then
                 if get(P.parkingbrakepos) == def.ON then
                     finalState = def.FLIGHTSTATESHUTDOWN
@@ -4295,19 +4298,19 @@ function P.autofunctions()
                     finalState = def.FLIGHTSTATECLIMB
                 end
             end
-            sasl.logInfo("State after fallback: " .. finalState)
+            helpers.logInfoTS("State after fallback: " .. finalState)
         else
             sasl.logDebug("State from procedures ("..finalState..") is plausible.")
         end
 
         if finalState ~= currentFlightState then
-             sasl.logInfo("Correcting flight state after reload. Old: " .. currentFlightState .. ", New: " .. finalState)
+             helpers.logInfoTS("Correcting flight state after reload. Old: " .. currentFlightState .. ", New: " .. finalState)
              P.flightstate = finalState
              flightStateChanged = true
         end
 
         if not aircraftIsOnGround then
-             sasl.logInfo("Performing inflight restore actions after reload.")
+             helpers.logInfoTS("Performing inflight restore actions after reload.")
              P.inflightrestoreactions()
         end
 
@@ -4426,10 +4429,10 @@ function P.ongoingtasks()
             -- Trigger dedicated Go-Around procedure if loop is free
             local gaLoopIndex = P.proceduretable[def.GOAROUNDPROCEDURE].loop
             if P.loopStateTables[gaLoopIndex] and P.loopStateTables[gaLoopIndex].lock == def.NOPROCEDURE then
-                sasl.logInfo("Go Around: triggering Go Around procedure on Loop " .. tostring(gaLoopIndex) .. ".")
+                helpers.logInfoTS("Go Around: triggering Go Around procedure on Loop " .. tostring(gaLoopIndex) .. ".")
                 P.triggerprocedure(def.GOAROUNDPROCEDURE)
             else
-                sasl.logInfo("Go Around: Go Around procedure not triggered (loop busy).")
+                helpers.logInfoTS("Go Around: Go Around procedure not triggered (loop busy).")
             end
         else
             sasl.logDebug("Go Around detected but conditions not met (state/air/alt).")
@@ -5041,7 +5044,7 @@ function P.commandtableloop()
 
         if (P.commandtable[1][1] == def.COMMAND) then
             local command_path = P.commandtable[1][2]
-            sasl.logInfo("COMMAND: " .. tostring(command_path))
+            helpers.logInfoTS("COMMAND: " .. tostring(command_path))
 
             local command_handle = sasl.findCommand(command_path)
             if command_handle then
@@ -5051,7 +5054,7 @@ function P.commandtableloop()
             end
         elseif (P.commandtable[1][1] == def.TEXT) then
             if ((P.configvalues[def.CONFIGVOICEREADBACK] == def.ON) or (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON)) then
-                sasl.logInfo("SpeakString TEXT: " .. P.commandtable[1][2])
+                helpers.logInfoTS("SpeakString TEXT: " .. P.commandtable[1][2])
                 helpers.speak(P.commandtable[1][2])
                 if (string.len(P.commandtable[1][2]) > def.VERYLONGSPEAK) then
                     next_recommended_wait_step = def.LONGWAIT
@@ -5110,7 +5113,7 @@ function P.runProcedureLoop(loopIndex)
         local allowedState = procData.allowedState
         if (allowedState == def.GROUNDONLY and not aircraftIsOnGround) or
            (allowedState == def.AIRONLY and aircraftIsOnGround) then
-            sasl.logInfo("Aborting '" .. procData.name .. "' due to invalid aircraft state.")
+            helpers.logInfoTS("Aborting '" .. procData.name .. "' due to invalid aircraft state.")
             loop.procedureabort = true
             -- Hier KEIN goto/return, der Abbruch wird unten behandelt
 
@@ -5118,7 +5121,7 @@ function P.runProcedureLoop(loopIndex)
         elseif procData.transitionConditions then
             for _, transCond in ipairs(procData.transitionConditions) do
                 if transCond.condition() then
-                    sasl.logInfo("Skipping '" .. procData.name .. "' due to met transition condition.")
+                    helpers.logInfoTS("Skipping '" .. procData.name .. "' due to met transition condition.")
 
                     local transition_message = procData.name .. " Procedure skipped."
                     P.commandtableentry(def.TEXT, transition_message)
@@ -5159,7 +5162,7 @@ function P.runProcedureLoop(loopIndex)
                     if type(proc_name_text) == "string" then P.commandtableentry(def.TEXT, proc_name_text) end
                 end
                  -- *** FIX msg END ***
-                sasl.logInfo(procData.name .. " Procedure (Data-Driven) started at " .. timestring)
+                helpers.logInfoTS(procData.name .. " Procedure (Data-Driven) started at " .. timestring)
 
                 if procData.prerequisiteChecks then
                     for i, prereq in ipairs(procData.prerequisiteChecks) do
@@ -5202,7 +5205,7 @@ function P.runProcedureLoop(loopIndex)
                     end
                      -- *** FIX msg END ***
                 end
-                sasl.logInfo(procData.name .. " " .. msg_abort .. " at " .. timestring)
+                helpers.logInfoTS(procData.name .. " " .. msg_abort .. " at " .. timestring)
 
                 if loop.setonabort then
                     sasl.logDebug("Setting procedure " .. loop.lock .. " as completed due to setonabort flag.")
@@ -5238,7 +5241,7 @@ function P.runProcedureLoop(loopIndex)
                     end
                      -- *** FIX msg END ***
                 end
-                sasl.logInfo(procData.name .. " Procedure completed at " .. timestring)
+                helpers.logInfoTS(procData.name .. " Procedure completed at " .. timestring)
                 P.proceduretable[loop.lock].set = true
                 set(P.ProcSetStatusarraydr, 1, loop.lock)
                 sasl.logDebug("Resetting loop lock.")
@@ -5274,7 +5277,7 @@ function P.runProcedureLoop(loopIndex)
                 if loop.debugBreakpoints and loop.debugBreakpoints[stepName] then
                     loop.debugPaused = true
                     loop.debugStepOnce = false
-                    sasl.logInfo("Debug breakpoint hit at step '" .. tostring(stepName) .. "'")
+                    helpers.logInfoTS("Debug breakpoint hit at step '" .. tostring(stepName) .. "'")
                     return true
                 end
 
@@ -5514,7 +5517,7 @@ function P.runProcedureLoop(loopIndex)
     -- Behandlung für frühe Abbrüche (z.B. durch allowedState ODER manuellen Abort)
     -- ==========================================================
     elseif loop.procedureabort then
-        sasl.logInfo("Procedure aborted (likely manual or state change before engine). Resetting loop lock.") -- Bleibt Info fürs Log
+        helpers.logInfoTS("Procedure aborted (likely manual or state change before engine). Resetting loop lock.") -- Bleibt Info fürs Log
 
         -- *** NEU: Meldung für den Benutzer hinzufügen ***
         if procData and procData.name then -- Sicherstellen, dass wir einen Namen haben
@@ -5579,7 +5582,7 @@ function P.do_yal()
 
     if settings.newSettingsAvailable then
         P.readconfig()
-        sasl.logInfo("Loading new settings")
+        helpers.logInfoTS("Loading new settings")
     end
 
     if P.needstempinit then
@@ -5634,7 +5637,7 @@ function P.do_yal()
                                 tostring(currentLoop.currentStepName),
                                 currentLoop.stepindex))
             else
-                sasl.logInfo("Error accessing loop state table for loop index: " .. i)
+                helpers.logInfoTS("Error accessing loop state table for loop index: " .. i)
             end
         end
         sasl.logDebug("--- CURRENT PROCEDURELOOP VALUES ---")
@@ -5720,23 +5723,22 @@ function P.do_yal()
     next_recommended_wait_step = P.commandtableloop()
 
     local currentFmsPhase = get(P.fmsflightphase)
-    local timestamp = string.format("[%s]", os.date("%H:%M:%S"))
 
     if P.flightstate ~= P.lastLoggedFlightstate then
-        sasl.logInfo(string.format("%s State Change: Flightstate -> Old: %s, New: %s",
-            timestamp, tostring(P.lastLoggedFlightstate), tostring(P.flightstate)))
+        helpers.logInfoTS(string.format("State Change: Flightstate -> Old: %s, New: %s",
+            tostring(P.lastLoggedFlightstate), tostring(P.flightstate)))
         P.lastLoggedFlightstate = P.flightstate
     end
 
     if currentFmsPhase ~= P.lastLoggedFmsFlightphase then
-        sasl.logInfo(string.format("%s State Change: FMS Flightphase -> Old: %s, New: %s",
-            timestamp, tostring(P.lastLoggedFmsFlightphase), tostring(currentFmsPhase)))
+        helpers.logInfoTS(string.format("State Change: FMS Flightphase -> Old: %s, New: %s",
+            tostring(P.lastLoggedFmsFlightphase), tostring(currentFmsPhase)))
         P.lastLoggedFmsFlightphase = currentFmsPhase
     end
 
     if P.aircraftwasonground ~= P.lastLoggedAircraftwasonground then
-        sasl.logInfo(string.format("%s State Change: AircraftWasOnGround -> Old: %s, New: %s",
-            timestamp, tostring(P.lastLoggedAircraftwasonground), tostring(P.aircraftwasonground)))
+        helpers.logInfoTS(string.format("State Change: AircraftWasOnGround -> Old: %s, New: %s",
+            tostring(P.lastLoggedAircraftwasonground), tostring(P.aircraftwasonground)))
         P.lastLoggedAircraftwasonground = P.aircraftwasonground
     end
 

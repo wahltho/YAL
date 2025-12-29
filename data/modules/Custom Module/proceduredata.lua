@@ -128,11 +128,20 @@ local function getFmcApproachRefData()
         return nil
     end
 
-    if #lineX ~= 24 then
+    local upperX = lineX:upper()
+    if not upperX:find("/CRS", 1, true) then
         return nil
     end
-    local navType = string.sub(lineX, 2, 4)
-    if navType ~= def.NAVTYPEILS and navType ~= def.NAVTYPEGLS and navType ~= def.NAVTYPELPV then
+    local navType = nil
+    if upperX:find("ILS", 1, true) then
+        navType = def.NAVTYPEILS
+    elseif upperX:find("GLS", 1, true) then
+        navType = def.NAVTYPEGLS
+    elseif upperX:find("LPV", 1, true) then
+        navType = def.NAVTYPELPV
+    elseif upperX:find("RNAV", 1, true) or upperX:find("RNV", 1, true) or upperX:find("RNP", 1, true) then
+        navType = def.NAVTYPERNAV
+    else
         return nil
     end
 
@@ -443,6 +452,60 @@ local function getNavEntryCourse(entry)
     end
 
     return navCourse
+end
+
+local function cacheApproachCourse(loop, entry, course)
+    if loop then
+        loop.approachCourseMag = course
+        loop.approachNavType = entry and entry[def.DESTNAVTYPE] or nil
+    end
+    P.approachCourseMag = course
+    P.approachNavType = entry and entry[def.DESTNAVTYPE] or nil
+end
+
+local function getCachedApproachCourse(loop)
+    if loop and loop.approachCourseMag then
+        return loop.approachCourseMag
+    end
+    local entry = loop and loop.navdatatableindex and P.navdatatable[loop.navdatatableindex] or nil
+    local course = entry and getNavEntryCourse(entry) or nil
+    cacheApproachCourse(loop, entry, course)
+    return course
+end
+
+local function getCachedApproachCourseForHeading(runwayHeading)
+    local navType = P.approachNavType
+    if navType ~= def.NAVTYPERNAV and navType ~= def.NAVTYPELPV and navType ~= def.NAVTYPEGLS then
+        return nil
+    end
+    local course = P.approachCourseMag
+    if not course then
+        return nil
+    end
+    if runwayHeading then
+        local diff = helpers.headingdiff(course, runwayHeading)
+        if diff <= 10 then
+            return helpers.roundnumber(course)
+        end
+        return nil
+    end
+    return helpers.roundnumber(course)
+end
+
+local function getMcpHeadingTarget()
+    local headingrounded = nil
+    if (helpers.isvalidicao(get(P.desicao)) and helpers.isvalidrwy(get(P.desrwy)) and tonumber(get(P.desrwyheading))) then
+        headingrounded = helpers.roundnumber(get(P.desrwyheading))
+    end
+    local navrwyheading = helpers.getrwyheadingfromnavdata(P.navdatatable, get(P.desicao), get(P.desrwy))
+    if (navrwyheading and ((not headingrounded) or (headingrounded and (math.abs(headingrounded - navrwyheading) <= 3)))) then
+        headingrounded = navrwyheading
+    end
+    local cached = getCachedApproachCourseForHeading(headingrounded)
+    if cached then
+        headingrounded = cached
+    end
+    return headingrounded
 end
 
 local M = {}
@@ -3035,33 +3098,19 @@ function M.fillProcedureTable()
                 },
                 ['set_mcp_heading'] = {
                     check = function()
-                        local headingrounded = nil
-                        if (helpers.isvalidicao(get(P.desicao)) and helpers.isvalidrwy(get(P.desrwy)) and tonumber(get(P.desrwyheading))) then
-                            headingrounded = helpers.roundnumber(get(P.desrwyheading))
-                        end
-                        local navrwyheading = helpers.getrwyheadingfromnavdata(P.navdatatable, get(P.desicao), get(P.desrwy))
-                        if (navrwyheading and ((not headingrounded) or (headingrounded and (math.abs(headingrounded - navrwyheading) <= 3)))) then
-                            headingrounded = navrwyheading
-                        end
+                        local headingrounded = getMcpHeadingTarget()
                         if not headingrounded then
-                            sasl.logInfo("set_mcp_heading: Skipping, no valid runway heading found to check against.")
+                            helpers.logInfoTS("set_mcp_heading: Skipping, no valid runway heading found to check against.")
                             return true
                         end
                         if get(P.aphdgselstat) ~= def.OFF then
-                            sasl.logInfo("set_mcp_heading: Skipping, HDG SEL mode is active.")
+                            helpers.logInfoTS("set_mcp_heading: Skipping, HDG SEL mode is active.")
                             return true
                         end
                         return (headingrounded == get(P.mcpheading))
                     end,
                     advice = function()
-                        local headingrounded = nil
-                        if (helpers.isvalidicao(get(P.desicao)) and helpers.isvalidrwy(get(P.desrwy)) and tonumber(get(P.desrwyheading))) then
-                            headingrounded = helpers.roundnumber(get(P.desrwyheading))
-                        end
-                        local navrwyheading = helpers.getrwyheadingfromnavdata(P.navdatatable, get(P.desicao), get(P.desrwy))
-                        if (navrwyheading and ((not headingrounded) or (headingrounded and (math.abs(headingrounded - navrwyheading) <= 3)))) then
-                            headingrounded = navrwyheading
-                        end
+                        local headingrounded = getMcpHeadingTarget()
                         if headingrounded then
                             return "Set M C P Heading " .. helpers.addspaces(helpers.padNumberWithZerosStrict(headingrounded, 3))
                         else
@@ -3069,27 +3118,13 @@ function M.fillProcedureTable()
                         end
                     end,
                     action = function()
-                        local headingrounded = nil
-                        if (helpers.isvalidicao(get(P.desicao)) and helpers.isvalidrwy(get(P.desrwy)) and tonumber(get(P.desrwyheading))) then
-                            headingrounded = helpers.roundnumber(get(P.desrwyheading))
-                        end
-                        local navrwyheading = helpers.getrwyheadingfromnavdata(P.navdatatable, get(P.desicao), get(P.desrwy))
-                        if (navrwyheading and ((not headingrounded) or (headingrounded and (math.abs(headingrounded - navrwyheading) <= 3)))) then
-                            headingrounded = navrwyheading
-                        end
+                        local headingrounded = getMcpHeadingTarget()
                         if (headingrounded and (get(P.aphdgselstat) == def.OFF)) then
                             set(P.mcpheading, headingrounded)
                         end
                     end,
                     confirm = function()
-                        local headingrounded = nil
-                        if (helpers.isvalidicao(get(P.desicao)) and helpers.isvalidrwy(get(P.desrwy)) and tonumber(get(P.desrwyheading))) then
-                            headingrounded = helpers.roundnumber(get(P.desrwyheading))
-                        end
-                        local navrwyheading = helpers.getrwyheadingfromnavdata(P.navdatatable, get(P.desicao), get(P.desrwy))
-                        if (navrwyheading and ((not headingrounded) or (headingrounded and (math.abs(headingrounded - navrwyheading) <= 3)))) then
-                            headingrounded = navrwyheading
-                        end
+                        local headingrounded = getMcpHeadingTarget()
                         if (headingrounded and (get(P.aphdgselstat) == def.OFF) and (headingrounded == get(P.mcpheading))) then
                             return "M C P Heading checked " .. helpers.addspaces(helpers.padNumberWithZerosStrict(headingrounded, 3))
                         end
@@ -3183,7 +3218,7 @@ function M.fillProcedureTable()
                     action = function()
                         local loop1 = P.loopStateTables and P.loopStateTables[1]
                         if loop1 and loop1.lock ~= def.NOPROCEDURE then
-                            sasl.logInfo("Go Around: aborting active procedure on Loop 1 (ID: " .. tostring(loop1.lock) .. ").")
+                            helpers.logInfoTS("Go Around: aborting active procedure on Loop 1 (ID: " .. tostring(loop1.lock) .. ").")
                             loop1.procedureabort = true
                             loop1.procedureskipstep = false
                             loop1.setonabort = false
@@ -4536,7 +4571,7 @@ function M.fillProcedureTable()
                             return
                         end
                         if (get(P.desrwy) ~= navdata[def.DESTRWY]) then
-                            sasl.logInfo("Destination Runway Diff FMC: " .. tostring(get(P.desrwy)) .. " Navdata: " .. tostring(navdata[def.DESTRWY]))
+                            helpers.logInfoTS("Destination Runway Diff FMC: " .. tostring(get(P.desrwy)) .. " Navdata: " .. tostring(navdata[def.DESTRWY]))
                         end
                         local navtype = navdata[def.DESTNAVTYPE] or ""
                         local ident = navdata[def.DESTNAVID] or ""
@@ -4911,19 +4946,19 @@ function M.fillProcedureTable()
                 },
                 ['set_capt_course'] = {
                     check = function(loop, procData)
-                        local pilotcoursenew = getNavEntryCourse(P.navdatatable[loop.navdatatableindex])
+                        local pilotcoursenew = getCachedApproachCourse(loop)
                         return get(P.mcppilotcourse) == pilotcoursenew
                     end,
                     action = function(loop, procData)
-                        local pilotcoursenew = getNavEntryCourse(P.navdatatable[loop.navdatatableindex])
+                        local pilotcoursenew = getCachedApproachCourse(loop)
                         set(P.mcppilotcourse, pilotcoursenew)
                     end,
                     advice = function(loop, procData)
-                        local pilotcoursenew = getNavEntryCourse(P.navdatatable[loop.navdatatableindex])
+                        local pilotcoursenew = getCachedApproachCourse(loop)
                         return "Set Captain Course " .. helpers.addspaces(helpers.padNumberWithZerosStrict(pilotcoursenew, 3))
                     end,
                     confirm = function(loop, procData)
-                        local pilotcoursenew = getNavEntryCourse(P.navdatatable[loop.navdatatableindex])
+                        local pilotcoursenew = getCachedApproachCourse(loop)
                         return "Captain Course checked and " .. helpers.addspaces(helpers.padNumberWithZerosStrict(pilotcoursenew, 3))
                     end,
                     nextStep = 'set_fo_course'
@@ -4998,7 +5033,7 @@ function M.fillProcedureTable()
                                 )
                             end
                             local vrefInput = ziboVref or baseVref
-                            sasl.logInfo(string.format("SetVref: variant=%s, flaps=%s, weight=%.0f kg (%.0f lbs), ziboVref=%s, fmsVref=%s",
+                            helpers.logInfoTS(string.format("SetVref: variant=%s, flaps=%s, weight=%.0f kg (%.0f lbs), ziboVref=%s, fmsVref=%s",
                                 tostring(variant), tostring(baseFlaps), landingGwKg, landingGwKg / def.LBSTOKG, tostring(ziboVref), tostring(baseVref)))
                             local appflapscalc, appvrefcalc = helpers.calcappflapsvref(
                                 get(P.totalweightkgs),
@@ -5012,7 +5047,7 @@ function M.fillProcedureTable()
                             loop.appvrefcalc = appvrefcalc
                             loop.appflapscalcstring = tostring(appflapscalc)
                             loop.appvrefcalcstring = tostring(appvrefcalc)
-                            sasl.logInfo("SetVref: Calculated Flaps " .. loop.appflapscalcstring .. " Vref " .. loop.appvrefcalcstring)
+                            helpers.logInfoTS("SetVref: Calculated Flaps " .. loop.appflapscalcstring .. " Vref " .. loop.appvrefcalcstring)
                         else
                             local fallbackFlaps = get(P.appflaps)
                             if not fallbackFlaps or fallbackFlaps <= 0 then
@@ -5026,7 +5061,7 @@ function M.fillProcedureTable()
                             loop.appvrefcalc = fallbackVref
                             loop.appflapscalcstring = helpers.padNumberWithZerosStrict(math.floor(fallbackFlaps + 0.5), 2)
                             loop.appvrefcalcstring = tostring(math.floor(fallbackVref + 0.5))
-                            sasl.logInfo("SetVref: Using existing Flaps " .. loop.appflapscalcstring .. " Vref " .. loop.appvrefcalcstring)
+                            helpers.logInfoTS("SetVref: Using existing Flaps " .. loop.appflapscalcstring .. " Vref " .. loop.appvrefcalcstring)
                         end
                     end,
                     runActionInAdviceMode = true, 
@@ -5183,7 +5218,7 @@ function M.fillProcedureTable()
                 },
                 ['calculate_windcorr'] = {
                     action = function(loop, procData)
-                        sasl.logInfo(string.format("SetWindCorr: start (flightstate=%s fmsphase=%s voice=%s)",
+                        helpers.logInfoTS(string.format("SetWindCorr: start (flightstate=%s fmsphase=%s voice=%s)",
                             tostring(get(P.flightstate)),
                             tostring(get(P.fmsflightphase)),
                             tostring(P.configvalues[def.CONFIGVOICEADVICEONLY])))
@@ -5202,12 +5237,12 @@ function M.fillProcedureTable()
                                     end
                                     loop.appwindcorr = windcorr
                                     loop.appwindcorrstring = helpers.padNumberWithZerosStrict(math.floor(windcorr + 0.5), 2)
-                                    sasl.logInfo(string.format("SetWindCorr: Wind correction %s kts", loop.appwindcorrstring))
+                                    helpers.logInfoTS(string.format("SetWindCorr: Wind correction %s kts", loop.appwindcorrstring))
                                 end
                             end
                         end
                         local fmcWind = tonumber(get(P.vrefapproachwindcorr))
-                        sasl.logInfo(string.format("SetWindCorr: customCalc=%s fmc=%s target=%s",
+                        helpers.logInfoTS(string.format("SetWindCorr: customCalc=%s fmc=%s target=%s",
                             tostring(customCalcOn), tostring(fmcWind), tostring(loop.appwindcorr)))
                     end,
                     runActionInAdviceMode = true,
@@ -5222,14 +5257,14 @@ function M.fillProcedureTable()
                     runActionInAdviceMode = true,
                     branch = function(loop, procData)
                         if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                            sasl.logInfo("SetWindCorr: branch -> voice_wind_advice (VoiceAdviceOnly)")
+                            helpers.logInfoTS("SetWindCorr: branch -> voice_wind_advice (VoiceAdviceOnly)")
                             return 'voice_wind_advice'
                         end
                         if loop and loop.appwindcorrstring then
-                            sasl.logInfo("SetWindCorr: branch -> fmc_press_del (Auto)")
+                            helpers.logInfoTS("SetWindCorr: branch -> fmc_press_del (Auto)")
                             return 'fmc_press_del'
                         end
-                        sasl.logInfo("SetWindCorr: branch -> check_windcorr_set (Auto, no target)")
+                        helpers.logInfoTS("SetWindCorr: branch -> check_windcorr_set (Auto, no target)")
                         return 'check_windcorr_set'
                     end
                 },
@@ -5334,7 +5369,7 @@ function M.fillProcedureTable()
                             or fmcWind
                             or 5
                         local current = fmcWind or 0
-                        sasl.logInfo(string.format("voice_wind_advice.check: fmc=%s target=%s current=%s", tostring(fmcWind), tostring(target), tostring(current)))
+                        helpers.logInfoTS(string.format("voice_wind_advice.check: fmc=%s target=%s current=%s", tostring(fmcWind), tostring(target), tostring(current)))
                         return math.abs(current - target) < 0.5
                     end,
                     advice = function(loop)
@@ -5347,7 +5382,7 @@ function M.fillProcedureTable()
                         if not targetStr or targetStr == "" then
                             targetStr = tostring(target)
                         end
-                        sasl.logInfo(string.format("voice_wind_advice.advice: fmc=%s target=%s targetStr=%s", tostring(fmcWind), tostring(target), tostring(targetStr)))
+                        helpers.logInfoTS(string.format("voice_wind_advice.advice: fmc=%s target=%s targetStr=%s", tostring(fmcWind), tostring(target), tostring(targetStr)))
                         return "Set F M C Wind Correction +" .. targetStr .. " in F M C"
                     end,
                     confirm = function(loop)
@@ -5361,7 +5396,7 @@ function M.fillProcedureTable()
                             targetStr = tostring(target)
                         end
                         local current = fmcWind or 0
-                        sasl.logInfo(string.format("voice_wind_advice.confirm: fmc=%s target=%s current=%s targetStr=%s", tostring(fmcWind), tostring(target), tostring(current), tostring(targetStr)))
+                        helpers.logInfoTS(string.format("voice_wind_advice.confirm: fmc=%s target=%s current=%s targetStr=%s", tostring(fmcWind), tostring(target), tostring(current), tostring(targetStr)))
                         if math.abs(current - target) < 0.5 then
                             return "F M C Wind Correction checked +" .. targetStr
                         end
@@ -5422,11 +5457,11 @@ function M.fillProcedureTable()
                             if useCustomCalc and computedFlaps then
                                 loop.toflapscalc = computedFlaps
                                 loop.flapsPreSet = false
-                                sasl.logInfo(string.format("SetTOFlaps (custom): existing=%s, computed=%s", tostring(existingFlaps), tostring(computedFlaps)))
+                                helpers.logInfoTS(string.format("SetTOFlaps (custom): existing=%s, computed=%s", tostring(existingFlaps), tostring(computedFlaps)))
                             else
                                 loop.toflapscalc = existingFlaps
                                 loop.flapsPreSet = true
-                                sasl.logInfo(string.format("SetTOFlaps: using existing flaps %s", tostring(existingFlaps)))
+                                helpers.logInfoTS(string.format("SetTOFlaps: using existing flaps %s", tostring(existingFlaps)))
                             end
                         else
                             local candidate = computedFlaps
@@ -5438,7 +5473,7 @@ function M.fillProcedureTable()
                             end
                             loop.toflapscalc = candidate
                             loop.flapsPreSet = not useCustomCalc
-                            sasl.logInfo(string.format("SetTOFlaps: no FMC flaps, computed=%s -> using %s", tostring(computedFlaps), tostring(loop.toflapscalc)))
+                            helpers.logInfoTS(string.format("SetTOFlaps: no FMC flaps, computed=%s -> using %s", tostring(computedFlaps), tostring(loop.toflapscalc)))
                         end
                         loop.toflapscalcstring = tostring(loop.toflapscalc)
 
@@ -5455,7 +5490,7 @@ function M.fillProcedureTable()
                             loop.cgPreSet = false
                         end
 
-                        sasl.logInfo(string.format("SetTakeoffFlaps: target flaps %s, CG %s",
+                        helpers.logInfoTS(string.format("SetTakeoffFlaps: target flaps %s, CG %s",
                             tostring(loop.toflapscalcstring),
                             tostring(loop.targetCgString)
                         ))

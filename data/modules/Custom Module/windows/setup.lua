@@ -336,7 +336,7 @@ function M.newComponent(ctx)
                                 local nowDebug = sasl.getLogLevel() == LOG_DEBUG
                                 if nowDebug then
                                     sasl.setLogLevel(LOG_INFO)
-                                    sasl.logInfo("log mode set to INFO")
+                                    helpers.logInfoTS("log mode set to INFO")
                                 else
                                     sasl.setLogLevel(LOG_DEBUG)
                                     sasl.logDebug("log mode set to DEBUG")
@@ -382,7 +382,7 @@ function M.newComponent(ctx)
                                 local nowDebug = sasl.getLogLevel() == LOG_DEBUG
                                 if nowDebug then
                                     sasl.setLogLevel(LOG_INFO)
-                                    sasl.logInfo("log mode set to INFO")
+                                    helpers.logInfoTS("log mode set to INFO")
                                 else
                                     sasl.setLogLevel(LOG_DEBUG)
                                     sasl.logDebug("log mode set to DEBUG")

@@ -77,11 +77,11 @@ local function maybeInitDebugOverlay()
     end
 
     debugOverlayInitialized = true
-    sasl.logInfo("Debug overlay enabled")
+    helpers.logInfoTS("Debug overlay enabled")
 end
 
 
-sasl.logInfo(string.format("Starting %s v%s on X-Plane v%d", def.APPNAMEPREFIXLONG, def.VERSION, helpers.xpVersion))
+helpers.logInfoTS(string.format("Starting %s v%s on X-Plane v%d", def.APPNAMEPREFIXLONG, def.VERSION, helpers.xpVersion))
 sasl.setLogLevel(LOG_INFO)
 
 if not helpers.isXp12 then
@@ -185,7 +185,7 @@ local function maybeInitSetupWindow()
     end
 
     setupInitialized = true
-    sasl.logInfo("Settings window initialized")
+    helpers.logInfoTS("Settings window initialized")
 end
 
 -- ensure setup window (and its command/menu) is constructed early
@@ -196,7 +196,7 @@ local waitstep = def.LONGWAIT
 
 function show_hide_setup()
     if not helpers.isZibo() then
-        sasl.logInfo("Setup window is only available for Zibo Mod. Current aircraft is not Zibo.")
+        helpers.logInfoTS("Setup window is only available for Zibo Mod. Current aircraft is not Zibo.")
         return
     end
     maybeInitSetupWindow()
@@ -206,7 +206,7 @@ function show_hide_setup()
 end
 
 if helpers.isZibo() then
-    sasl.logInfo("Zibo Mod detected on initial plugin load")
+    helpers.logInfoTS("Zibo Mod detected on initial plugin load")
     yal.enableMenus(def.ON)
     maybeInitSetupWindow()
     if menu_settings then sasl.enableMenuItem(yal.menu_main , menu_settings , def.ON) end
@@ -215,7 +215,7 @@ if helpers.isZibo() then
     sasl.startTimer(oneSecTimer)
     waitstep = def.LONGWAIT
 else
-    sasl.logInfo("No Zibo Mod detected on initial plugin load. Plugin functionality currently inactive.")
+    helpers.logInfoTS("No Zibo Mod detected on initial plugin load. Plugin functionality currently inactive.")
     if menu_settings then sasl.enableMenuItem(yal.menu_main , menu_settings , def.OFF) end
     yal.enableMenus(def.OFF)
     sasl.stopTimer(oneSecTimer)
@@ -223,10 +223,10 @@ else
 end
 
 function onAirportLoaded(flightNumber)
-    sasl.logInfo(string.format("Airport loaded: Flight #%s, Aircraft: %s", flightNumber, sasl.getAircraft()))
+    helpers.logInfoTS(string.format("Airport loaded: Flight #%s, Aircraft: %s", flightNumber, sasl.getAircraft()))
 
     if helpers.isZibo() then
-        sasl.logInfo("Zibo Mod detected after airport load.")
+        helpers.logInfoTS("Zibo Mod detected after airport load.")
         yal.enableMenus(def.ON)  
         maybeInitSetupWindow()
         if menu_settings then sasl.enableMenuItem(yal.menu_main , menu_settings , def.ON) end
@@ -235,7 +235,7 @@ function onAirportLoaded(flightNumber)
         sasl.startTimer(oneSecTimer)
         waitstep = def.LONGWAIT
     else
-        sasl.logInfo("No Zibo Mod detected after airport load. Plugin functionality will remain inactive.")
+        helpers.logInfoTS("No Zibo Mod detected after airport load. Plugin functionality will remain inactive.")
         if menu_settings then sasl.enableMenuItem(yal.menu_main, menu_settings, def.OFF) end
         sasl.stopTimer(oneSecTimer)
         yal.enableMenus(def.OFF)  
@@ -259,7 +259,7 @@ function update()
                 next_recommended_wait_step ~= def.MEDIUMWAIT and
                 next_recommended_wait_step ~= def.LONGWAIT) then
                 
-                sasl.logInfo(string.format("yal.do_yal() returned an invalid wait step (%.2f). Falling back to STANDARDWAIT.", next_recommended_wait_step or -1))
+                helpers.logInfoTS(string.format("yal.do_yal() returned an invalid wait step (%.2f). Falling back to STANDARDWAIT.", next_recommended_wait_step or -1))
                 next_recommended_wait_step = def.STANDARDWAIT
             end
 

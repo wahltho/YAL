@@ -116,6 +116,12 @@ function P.isZibo()
 end
 
 --------------------------------------------------------------------------------------------------------------
+function P.logInfoTS(message)
+    local timestamp = string.format("[%s]", os.date("%H:%M:%S"))
+    sasl.logInfo(string.format("%s %s", timestamp, tostring(message)))
+end
+
+--------------------------------------------------------------------------------------------------------------
 function P.checkForUpdate(showBeta)
     local url = def.YALGITHUBURL
     if showBeta and def.YALBETAGITHUBURL and def.YALBETAGITHUBURL ~= "" then
@@ -131,12 +137,12 @@ function P.checkForUpdate(showBeta)
         sasl.logDebug(string.format("Current version: %s, available version %s", currentVersion, newVersion))
         if is_version_newer(newVersion, currentVersion) then
             updateAvailable = true
-            sasl.logInfo(string.format("New YAL version available v%s", newVersion))
+            P.logInfoTS(string.format("New YAL version available v%s", newVersion))
         else
-            sasl.logInfo("YAL is up to date, no new version available")
+            P.logInfoTS("YAL is up to date, no new version available")
         end
     else
-        sasl.logInfo("Check for Update FAILED")
+        P.logInfoTS("Check for Update FAILED")
     end
     return updateAvailable, newVersion
 end
@@ -419,7 +425,7 @@ end
 
 function P.check_create_path(path)
     if not P.dir_exists_v2(path) then
-        sasl.logInfo("Folder " .. path .. " does not exist... creating it")
+        P.logInfoTS("Folder " .. path .. " does not exist... creating it")
         P.create_directories({path})
         if not P.dir_exists_v2(path) then
             sasl.logWarning("Failure to create folder " .. path)
@@ -1405,7 +1411,7 @@ function P.decodemetar(metar)
         end
 
         if (not parsed) then
-            sasl.logInfo("METAR Parsing unknown element: " .. part)
+            P.logInfoTS("METAR Parsing unknown element: " .. part)
         end
         i = i + 1
     end
@@ -1425,19 +1431,19 @@ function P.onMetarDownloaded(url, path, isOk, responseCodeOrError, metarTable)
             file:close()
 
             if metarstring and #metarstring > 0 then
-                sasl.logInfo("METAR for " .. metarTable.icaocode .. " successfully downloaded.")
+                P.logInfoTS("METAR for " .. metarTable.icaocode .. " successfully downloaded.")
                 metarTable.metar.raw_text = metarstring
                 metarTable.decodedmetar = helpers.decodemetar(metarstring)
                 metarTable.metarfound = true
             else
-                sasl.logInfo("Downloaded METAR file for " .. metarTable.icaocode .. " was empty.")
+                P.logInfoTS("Downloaded METAR file for " .. metarTable.icaocode .. " was empty.")
             end
         else
-            sasl.logInfo("Could not open temp file for " .. metarTable.icaocode)
+            P.logInfoTS("Could not open temp file for " .. metarTable.icaocode)
         end
         os.remove(path)
     else
-        sasl.logInfo("Download of METAR failed for " .. metarTable.icaocode .. ": " .. tostring(responseCodeOrError))
+        P.logInfoTS("Download of METAR failed for " .. metarTable.icaocode .. ": " .. tostring(responseCodeOrError))
     end
 end
 
@@ -1449,13 +1455,13 @@ function P.getMetar(icaocode, metarTable)
     local metarstring = sasl.weather.getMETARForAirport(icaocode)
 
     if (metarstring and (metarstring ~= "") and (metarstring:sub(1, 4) == icaocode)) then
-        sasl.logInfo("METAR for " .. icaocode .. " successfully loaded from X-Plane.")
+        P.logInfoTS("METAR for " .. icaocode .. " successfully loaded from X-Plane.")
         metarTable.icaocode = icaocode
         metarTable.metar.raw_text = metarstring
         metarTable.decodedmetar = helpers.decodemetar(metarstring)
         metarTable.metarfound = true
     else
-        sasl.logInfo("X-Plane METAR for " .. icaocode .. " not found or invalid. Trying async web download.")
+        P.logInfoTS("X-Plane METAR for " .. icaocode .. " not found or invalid. Trying async web download.")
         
         local metarUrl = def.AVWEATHERFURLCSV .. icaocode
         local tempFilePath = def.YALCACHEPATH .. icaocode .. "_metar.txt"
@@ -1680,18 +1686,18 @@ function P.formatMetarSpeechSummary(metar, runwayName)
                  -- Überprüfung, ob das Ergebnis im gültigen Bereich liegt (eigentlich durch obiges check abgedeckt)
                  if not (derivedHeading and derivedHeading >= 1 and derivedHeading <= 360) then
                       derivedHeading = nil -- Ungültiges Ergebnis
-                      sasl.logInfo("formatMetarSpeechSummary: Ungültiges Heading " .. tostring(derivedHeading or "nil") .. " aus Runway '" .. runwayName .. "' abgeleitet (nach Nummern-Extraktion).") -- Geändert zu logInfo
+                      P.logInfoTS("formatMetarSpeechSummary: Ungültiges Heading " .. tostring(derivedHeading or "nil") .. " aus Runway '" .. runwayName .. "' abgeleitet (nach Nummern-Extraktion).") -- Geändert zu logInfo
                  end
             else
-                 sasl.logInfo("formatMetarSpeechSummary: Konnte Ziffern '" .. rwyNumStr .. "' aus Runway '" .. runwayName .. "' nicht in Zahl umwandeln.") -- Geändert zu logInfo
+                 P.logInfoTS("formatMetarSpeechSummary: Konnte Ziffern '" .. rwyNumStr .. "' aus Runway '" .. runwayName .. "' nicht in Zahl umwandeln.") -- Geändert zu logInfo
             end
         else
-             sasl.logInfo("formatMetarSpeechSummary: Konnte keine Heading-Zahl aus gültiger Runway '" .. runwayName .. "' extrahieren (string.match fehlgeschlagen).") -- Geändert zu logInfo
+             P.logInfoTS("formatMetarSpeechSummary: Konnte keine Heading-Zahl aus gültiger Runway '" .. runwayName .. "' extrahieren (string.match fehlgeschlagen).") -- Geändert zu logInfo
         end
     else
          -- Log optional, wenn ungültige Namen übergeben werden könnten
          if runwayName and runwayName ~= "" then
-              sasl.logInfo("formatMetarSpeechSummary: Übergabener runwayName '".. runwayName .."' ist laut P.isvalidrwy ungültig. Keine Windkomponentenberechnung.") -- Geändert zu logInfo
+              P.logInfoTS("formatMetarSpeechSummary: Übergabener runwayName '".. runwayName .."' ist laut P.isvalidrwy ungültig. Keine Windkomponentenberechnung.") -- Geändert zu logInfo
          end
     end
     -- derivedHeading ist jetzt entweder eine Zahl (10-360) oder nil
@@ -1706,11 +1712,11 @@ function P.formatMetarSpeechSummary(metar, runwayName)
             wind_part = "Wind calm"
         -- GEÄNDERT: Prüfe derivedHeading und numerische Windrichtung
         elseif derivedHeading and type(dir) == "number" then
-            sasl.logInfo(string.format("Calculating wind components: dir=%s, speed=%s, rwyHdg=%s",
+            P.logInfoTS(string.format("Calculating wind components: dir=%s, speed=%s, rwyHdg=%s",
                            tostring(dir), tostring(speed), tostring(derivedHeading)))
             -- Ruft die korrigierte Funktion auf, die vorzeichenbehafteten Crosswind liefert
             local headwind, crosswind = P.calculateWindComponents(dir, derivedHeading, speed)
-            sasl.logInfo(string.format("Calculated components: headwind=%.2f, crosswind=%.2f", headwind, crosswind))
+            P.logInfoTS(string.format("Calculated components: headwind=%.2f, crosswind=%.2f", headwind, crosswind))
 
             -- Gib den Runway-NAMEN aus
             wind_part = string.format("Wind runway %s, ", runwayName)
@@ -2083,11 +2089,11 @@ function P.determineTakeoffFlapsSetting(totalweightkgs, deprwylen, deprwyheading
     local runwayHeading = toNumber(deprwyheading, 0)
     local airportElevationMeters = toNumber(elevation, 0)
 
-    sasl.logInfo(string.format("determineTakeoffFlapsSetting: inputs weight=%.0f kg, rwyLen=%.0f m, rwyHdg=%s, elev=%.0f m, baseFlaps=%s",
+    P.logInfoTS(string.format("determineTakeoffFlapsSetting: inputs weight=%.0f kg, rwyLen=%.0f m, rwyHdg=%s, elev=%.0f m, baseFlaps=%s",
         totalWeightKg, runwayLengthMeters, tostring(runwayHeading), airportElevationMeters, tostring(baseFlaps)))
 
     if totalWeightKg <= 0 or runwayLengthMeters <= 0 then
-        sasl.logInfo("determineTakeoffFlapsSetting: Invalid input parameters (weight, length, elevation, heading), returning default flaps " .. STANDARD_TAKEOFF_FLAPS)
+        P.logInfoTS("determineTakeoffFlapsSetting: Invalid input parameters (weight, length, elevation, heading), returning default flaps " .. STANDARD_TAKEOFF_FLAPS)
         return STANDARD_TAKEOFF_FLAPS
     end
 
@@ -2214,7 +2220,7 @@ function P.determineTakeoffFlapsSetting(totalweightkgs, deprwylen, deprwyheading
          recommendedFlaps = 15 -- Round up between 10 and 15
     end
 
-    sasl.logInfo("determineTakeoffFlapsSetting: Recommended flaps setting: " .. recommendedFlaps)
+    P.logInfoTS("determineTakeoffFlapsSetting: Recommended flaps setting: " .. recommendedFlaps)
     return recommendedFlaps
 end
 
@@ -2233,7 +2239,7 @@ function P.calcappflapsvref(totalweightkgs, desrwylen, desrwyheading, baseVref, 
     end
 
     if totalWeightKg <= 0 or runwayLengthMeters <= 0 then
-        sasl.logInfo("calcappflapsvref: Invalid input parameters, returning base " .. tostring(targetFlaps) .. "/" .. tostring(targetVref))
+        P.logInfoTS("calcappflapsvref: Invalid input parameters, returning base " .. tostring(targetFlaps) .. "/" .. tostring(targetVref))
         return targetFlaps, targetVref
     end
 
@@ -2311,7 +2317,7 @@ function P.calcappflapsvref(totalweightkgs, desrwylen, desrwyheading, baseVref, 
     targetFlaps = math.floor(targetFlaps + 0.5)
     targetVref = math.floor(targetVref + 0.5)
 
-    sasl.logInfo(string.format("calcappflapsvref: Base Flaps/Vref %s/%s -> Custom %d/%d (add %d kts, wx=%s, tail=%.1f, xwind=%.1f)",
+    P.logInfoTS(string.format("calcappflapsvref: Base Flaps/Vref %s/%s -> Custom %d/%d (add %d kts, wx=%s, tail=%.1f, xwind=%.1f)",
         tostring(baseFlaps), tostring(baseVref), targetFlaps, targetVref, vrefAdd, tostring(hasPrecip), tailwindKnots, crosswindKnots))
 
     return targetFlaps, targetVref
@@ -2378,7 +2384,7 @@ function P.determineLandingFlapsSetting(runwayLengthMeters, tailwindKnots, cross
     local crosswindMagnitude = math.abs(crosswindKnots)
     local tailwindMagnitude = math.max(tailwindKnots or 0, 0)
 
-    sasl.logInfo(string.format("determineLandingFlapsSetting: Inputs RwyLen=%.0f m, Tailwind=%.1f kts, XWind=%.1f kts (signed %.1f), BadWx=%s, Weight=%.0f kg",
+    P.logInfoTS(string.format("determineLandingFlapsSetting: Inputs RwyLen=%.0f m, Tailwind=%.1f kts, XWind=%.1f kts (signed %.1f), BadWx=%s, Weight=%.0f kg",
                    runwayLengthMeters, tailwindMagnitude, crosswindMagnitude, crosswindKnots, tostring(isBadWeather), weightKg))
 
     local requiresFlaps40 =
@@ -2388,16 +2394,16 @@ function P.determineLandingFlapsSetting(runwayLengthMeters, tailwindKnots, cross
         (weightKg or 0) > LANDING_HIGH_WEIGHT_THRESHOLD
 
     if crosswindMagnitude > LANDING_HIGH_CROSSWIND_THRESHOLD and not (runwayLengthMeters > 0 and runwayLengthMeters < LANDING_SHORT_RUNWAY_THRESHOLD) then
-        sasl.logInfo("determineLandingFlapsSetting: High crosswind detected - preferring Flaps 30 for controllability.")
+        P.logInfoTS("determineLandingFlapsSetting: High crosswind detected - preferring Flaps 30 for controllability.")
         return 30
     end
 
     if requiresFlaps40 then
-        sasl.logInfo("determineLandingFlapsSetting: Recommending Flaps 40 due to landing distance factors.")
+        P.logInfoTS("determineLandingFlapsSetting: Recommending Flaps 40 due to landing distance factors.")
         return 40
     end
 
-    sasl.logInfo("determineLandingFlapsSetting: Conditions nominal - recommending Flaps 30.")
+    P.logInfoTS("determineLandingFlapsSetting: Conditions nominal - recommending Flaps 30.")
     return 30
 end
 
@@ -2503,7 +2509,7 @@ function P.calcautobrake(landingSpeed, totalweightkgs, desrwylen, metar, customA
         chosenSetting = def.AUTOBRAKEMAX
     end
 
-    sasl.logInfo(string.format(
+    P.logInfoTS(string.format(
         "calcautobrake: vref=%.0f kts, weight=%.0f kg, rwyLen=%.0f m, custom=%s, multiplier=%.2f, reqDecel=%.2f -> AutoBrake %s",
         tonumber(landingSpeed) or 0,
         totalweightkgs or 0,
@@ -2691,7 +2697,7 @@ function P.getpointonroute(detailed_route, currentLat, currentLon, distanceInNM)
     local totalWaypoints = #detailed_route
     
     if totalWaypoints < 2 then
-        sasl.logInfo("Route has not enough waypoints")
+        P.logInfoTS("Route has not enough waypoints")
         return nil
     end
 
@@ -2812,7 +2818,7 @@ function P.findnearestvor(navdatatable, airport_lat, airport_lon)
                 local distance_nm = P.getdistance(airport_lat, airport_lon, vor_lat, vor_lon)
 
                 if (navdata[def.DESTNAVID] == "SH") then
-                    sasl.logInfo(" VOR SH LAT: " .. vor_lat .. " LON: " .. vor_lon .. " gefunden.")
+                    P.logInfoTS(" VOR SH LAT: " .. vor_lat .. " LON: " .. vor_lon .. " gefunden.")
                 end
 
 
@@ -3519,13 +3525,13 @@ function P.buildnavdatatable(navdatatable)
                 sasl.logError("No Navdatabase Source: Could not find earth_nav.dat!")
                 return false
             else
-                sasl.logInfo("Navdatabase Sourse: Resources/default data/earth_nav.dat")
+                P.logInfoTS("Navdatabase Sourse: Resources/default data/earth_nav.dat")
             end
         else
-            sasl.logInfo("Navdatabase Sourse: Custom Scenery/Global Airports/Earth nav data/earth_nav.dat")
+            P.logInfoTS("Navdatabase Sourse: Custom Scenery/Global Airports/Earth nav data/earth_nav.dat")
         end
     else
-        sasl.logInfo("Navdatabase Sourse: Custom Data/earth_nav.dat")
+        P.logInfoTS("Navdatabase Sourse: Custom Data/earth_nav.dat")
     end
 
     for i = 1, 3 do local _ = srcnavdatafile:read() end
@@ -3732,7 +3738,7 @@ function P.buildnavdatatable(navdatatable)
                         newEntry[def.DESTCOURSE] = P.calccourse(trueCourseNormalized - mag_variation)
                         newEntry[def.DESTMAGVAR] = mag_variation
                     else
-                        sasl.logInfo("Could not read true course for LPV/GLS (column NAVSRC_COL_BEARING): " .. navdatarecord)
+                        P.logInfoTS("Could not read true course for LPV/GLS (column NAVSRC_COL_BEARING): " .. navdatarecord)
                         newEntry[def.DESTCOURSE] = 0 -- Fallback zu 0
                     end
                     
@@ -3789,7 +3795,7 @@ function P.buildnavdatatable(navdatatable)
         end
     end
 
-sasl.logInfo("Navdata Table created, " .. #navdatatable .. " entries.")
+P.logInfoTS("Navdata Table created, " .. #navdatatable .. " entries.")
     return true
 end
 --------------------------------------------------------------------------------------------------------------
@@ -3849,7 +3855,7 @@ function P.buildairportdatatable(airport_db)
     -- Datei wieder schließen
     file:close()
     
-    sasl.logInfo("Airport Data Table created, " .. line_count .. " entries.")
+    P.logInfoTS("Airport Data Table created, " .. line_count .. " entries.")
 
     return true
 end
@@ -4000,7 +4006,7 @@ function P.getnavdataindices(navdatatable, icao, rwy, navtypes)
         return exactMatches
     end
     if #offsetMatches == 0 then
-        sasl.logInfo(string.format("Navdata: no runway match for %s %s (%s)", tostring(icao), tostring(rwy), table.concat(navtypeList, ",")))
+        P.logInfoTS(string.format("Navdata: no runway match for %s %s (%s)", tostring(icao), tostring(rwy), table.concat(navtypeList, ",")))
     end
     return offsetMatches
 end
@@ -4187,7 +4193,7 @@ function P.loadZiboReferenceTables()
     for _ in pairs(result.cg) do cgCount = cgCount + 1 end
     for _ in pairs(result.wet) do wetCount = wetCount + 1 end
     for _ in pairs(result.takeoff) do takeoffCount = takeoffCount + 1 end
-    sasl.logInfo(string.format("Loaded Zibo reference tables from %s (flaps=%d, vref=%d idx=%d, cg=%d, wet=%d, takeoff=%d)", path, flapsCount, vrefCount, vrefIdxCount, cgCount, wetCount, takeoffCount))
+    P.logInfoTS(string.format("Loaded Zibo reference tables from %s (flaps=%d, vref=%d idx=%d, cg=%d, wet=%d, takeoff=%d)", path, flapsCount, vrefCount, vrefIdxCount, cgCount, wetCount, takeoffCount))
     return result
 end
 

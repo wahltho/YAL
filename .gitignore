@@ -5,3 +5,4 @@ data/.DS_Store
 .codex.contexts.json
 tools/
 tools/course_test_data/
+Documentation/

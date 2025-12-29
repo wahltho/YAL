@@ -487,7 +487,7 @@ end
 
 --------------------------------------------------------------------------------------------------------------
 function VR.initialize(P)
-    sasl.logInfo("YAL: Initializing all variables for voice readback.")
+    helpers.logInfoTS("YAL: Initializing all variables for voice readback.")
     
     -- Initialize all variables from the config table
     for _, config in ipairs(VR.config) do
