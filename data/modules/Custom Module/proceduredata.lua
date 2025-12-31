@@ -225,6 +225,7 @@ local function getNavEntryCourse(entry)
     end
 
     local navType = entry[def.DESTNAVTYPE]
+    local icao = entry[def.DESTICAO]
     local runway = entry[def.DESTRWY] or get(P.desrwy)
     local announceTrue = runwayUsesTrue(runway) or runwayUsesTrue(get(P.desrwy))
     local isRnavNav = (navType == def.NAVTYPELPV)
@@ -248,6 +249,20 @@ local function getNavEntryCourse(entry)
     end
     if isRnavNav then
         runwayRef = nil
+    end
+    local sanityRunwayRef = nil
+    if announceTrue then
+        if runwayTrue then
+            sanityRunwayRef = helpers.calccourse(runwayTrue)
+        elseif runwayMag then
+            sanityRunwayRef = helpers.calccourse(runwayMag + magVar)
+        end
+    else
+        if runwayMag then
+            sanityRunwayRef = helpers.calccourse(runwayMag)
+        elseif runwayTrue then
+            sanityRunwayRef = helpers.calccourse(runwayTrue - magVar)
+        end
     end
     local function isPlausible(course)
         if not course then return false end
@@ -306,9 +321,55 @@ local function getNavEntryCourse(entry)
         return isPlausible(pick) and pick or nil
     end
 
+    local sanityRefs = nil
+    local function buildSanityRefs()
+        if sanityRefs then return sanityRefs end
+        sanityRefs = {}
+        if sanityRunwayRef then
+            table.insert(sanityRefs, sanityRunwayRef)
+        end
+        if type(icao) == "string" and type(navType) == "string" and type(runway) == "string" then
+            local candidateTypes = { navType }
+            if navType == def.NAVTYPELPV or navType == def.NAVTYPEGLS then
+                table.insert(candidateTypes, def.NAVTYPERNAV)
+            end
+            for _, candidateType in ipairs(candidateTypes) do
+                local cifpCourse = helpers.getCIFPApproachCourse(icao, candidateType, runway)
+                if cifpCourse then
+                    local cifpRef = normalizeCourse(cifpCourse, nil)
+                    if cifpRef then
+                        table.insert(sanityRefs, cifpRef)
+                    end
+                    break
+                end
+            end
+        end
+        return sanityRefs
+    end
+
+    local function sanityCheck(candidate, source)
+        if not candidate then return nil end
+        local refs = buildSanityRefs()
+        if not refs or #refs == 0 then return candidate end
+        local minDiff = 360
+        for _, ref in ipairs(refs) do
+            local diff = math.abs(candidate - ref)
+            if diff > 180 then diff = 360 - diff end
+            if diff < minDiff then minDiff = diff end
+        end
+        if minDiff > 30 then
+            helpers.logInfoTS(string.format(
+                "Approach course sanity check failed (source=%s, course=%s, minDiff=%d, runway=%s).",
+                tostring(source), tostring(candidate), math.floor(minDiff + 0.5), tostring(runway)
+            ))
+            return nil
+        end
+        return candidate
+    end
+
     local fmcCourse = getFmcApproachRefCourse(navType)
     if fmcCourse then
-        local normalized = normalizeCourse(fmcCourse, false)
+        local normalized = sanityCheck(normalizeCourse(fmcCourse, false), "FMC")
         if normalized then
             return normalized
         end
@@ -325,10 +386,18 @@ local function getNavEntryCourse(entry)
         local destRunway = get(P.desrwy)
         local selectedCourse = nil
 
-        for i = 1, #waypoints - 1 do
-            local nxt = waypoints[i + 1]
-            if nxt and nxt.name then
-                if matchesDestRunway(nxt.name, destRunway) or isRunwayLeg(nxt.name) then
+        if helpers.isvalidrwy(destRunway) then
+            for i = #waypoints - 1, 1, -1 do
+                local nxt = waypoints[i + 1]
+                if nxt and nxt.name and matchesDestRunway(nxt.name, destRunway) then
+                    selectedCourse = waypoints[i].magnetic_course
+                    break
+                end
+            end
+        else
+            for i = #waypoints - 1, 1, -1 do
+                local nxt = waypoints[i + 1]
+                if nxt and nxt.name and isRunwayLeg(nxt.name) then
                     selectedCourse = waypoints[i].magnetic_course
                     break
                 end
@@ -341,10 +410,34 @@ local function getNavEntryCourse(entry)
         return nil
     end
 
+    local function getFMSFinalMagCourseForRunway(destRunway)
+        if not (P and P.fmslegs and P.fmslegslat and P.fmslegslon) then return nil end
+        if not helpers.isvalidrwy(destRunway) then return nil end
+        local legsStr = get(P.fmslegs)
+        local latArr = get(P.fmslegslat)
+        local lonArr = get(P.fmslegslon)
+        local waypoints = helpers.buildlegstable(legsStr, latArr, lonArr)
+        if not waypoints or #waypoints < 2 then return nil end
+
+        local selectedCourse = nil
+        for i = #waypoints - 1, 1, -1 do
+            local nxt = waypoints[i + 1]
+            if nxt and nxt.name and matchesDestRunway(nxt.name, destRunway) then
+                selectedCourse = waypoints[i].magnetic_course
+                break
+            end
+        end
+
+        if selectedCourse and selectedCourse ~= 0 then
+            return helpers.calccourse(selectedCourse)
+        end
+        return nil
+    end
+
     -- RNAV/LPV/GLS: prefer FMC final-leg course only when it matches CIFP within tolerance
     local fmsMag = getFMSFinalMagCourse()
     if isRnavNav and fmsMag then
-        local normalized = normalizeCourse(fmsMag, false)
+        local normalized = sanityCheck(normalizeCourse(fmsMag, false), "FMS")
         if normalized then
             local cifpCourse = nil
             if type(icao) == "string" and type(runway) == "string" and type(navType) == "string" then
@@ -372,15 +465,13 @@ local function getNavEntryCourse(entry)
     if navType == def.NAVTYPEGLS then
         local glsCourse = get(P.glscourse)
         if glsCourse and glsCourse >= 0 and glsCourse < 360 then
-            local normalized = normalizeCourse(glsCourse, nil)
+            local normalized = sanityCheck(normalizeCourse(glsCourse, nil), "GLS")
             if normalized then
                 return normalized
             end
         end
     end
 
-    local icao = entry[def.DESTICAO]
-    local navType = entry[def.DESTNAVTYPE]
     if type(icao) == "string" and type(navType) == "string" and type(runway) == "string" then
         local candidateTypes = { navType }
         if navType == def.NAVTYPELPV or navType == def.NAVTYPEGLS then
@@ -389,7 +480,7 @@ local function getNavEntryCourse(entry)
         for _, candidateType in ipairs(candidateTypes) do
             local cifpCourse = helpers.getCIFPApproachCourse(icao, candidateType, runway)
             if cifpCourse then
-                local normalized = normalizeCourse(cifpCourse, nil)
+                local normalized = sanityCheck(normalizeCourse(cifpCourse, nil), "CIFP")
                 if normalized then
                     return normalized
                 end
@@ -410,6 +501,7 @@ local function getNavEntryCourse(entry)
             end
         end
         local normalized = normalizeCourse(fmsMag, false)
+        normalized = sanityCheck(normalized, "FMS")
         if normalized then
             if expected and not announceTrue then
                 local diff = math.abs(fmsMag - expected)
@@ -424,14 +516,14 @@ local function getNavEntryCourse(entry)
     end
 
     if entry.isTrueCourse and entry.truecourse then
-        local normalized = normalizeCourse(entry.truecourse, true)
+        local normalized = sanityCheck(normalizeCourse(entry.truecourse, true), "NAVTRUE")
         if normalized then
             return normalized
         end
     end
     local navCourse = entry[def.DESTCOURSE]
     if navCourse then
-        local normalized = normalizeCourse(navCourse, false)
+        local normalized = sanityCheck(normalizeCourse(navCourse, false), "NAV")
         if normalized then
             return normalized
         end
@@ -506,6 +598,32 @@ local function getMcpHeadingTarget()
         headingrounded = cached
     end
     return headingrounded
+end
+
+local function getTakeoffFlapsTarget(autoMode)
+    local target = get(P.toflaps)
+    if target and target > 0 then
+        return target
+    end
+    if not autoMode then
+        return nil
+    end
+    local computed = helpers.determineTakeoffFlapsSetting(
+        get(P.totalweightkgs),
+        get(P.deprwylen),
+        get(P.deprwyheading),
+        get(P.elevation),
+        P.depmetar,
+        get(P.toflapsset) or target
+    )
+    local candidate = computed
+    if not candidate or candidate <= 0 then
+        candidate = get(P.toflapsset)
+    end
+    if not candidate or candidate <= 0 then
+        candidate = 5
+    end
+    return candidate
 end
 
 local M = {}
@@ -1884,7 +2002,8 @@ function M.fillProcedureTable()
                 },
                 ['set_flaps_takeoff'] = {
                     check = function()
-                        local target = get(P.toflaps)
+                        local autoMode = P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON
+                        local target = getTakeoffFlapsTarget(autoMode)
                         local current = helpers.convflaplevertoflappos(get(P.flapleverpos))
                         if target and target > 0 then
                             return current == target
@@ -1893,7 +2012,9 @@ function M.fillProcedureTable()
                         end
                     end,
                     action = function()
-                        local target = get(P.toflaps)
+                        local autoMode = P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON
+                        if not autoMode then return end
+                        local target = getTakeoffFlapsTarget(true)
                         if target and target > 0 then
                             helpers.command_once("laminar/B738/push_button/flaps_" .. target)
                         end
@@ -1907,7 +2028,8 @@ function M.fillProcedureTable()
                         end
                     end,
                     confirm = function()
-                        local target = get(P.toflaps)
+                        local autoMode = P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON
+                        local target = getTakeoffFlapsTarget(autoMode)
                         local current = helpers.convflaplevertoflappos(get(P.flapleverpos))
                         if target and target > 0 then
                             if current == target then
@@ -1925,8 +2047,17 @@ function M.fillProcedureTable()
                 },
                 ['release_parking_brake'] = {
                     skipIf = function() return P.configvalues[def.CONFIGAUTOCHOCKSPB] == def.OFF end,
-                    check = function() return get(P.parkingbrakepos) == def.OFF end,
-                    action = function() set(P.parkingbrakepos, def.OFF) end,
+                    check = function()
+                        local pbPos = get(P.parkingbrakepos)
+                        local simRatio = P.simparkingbrakeratio and get(P.simparkingbrakeratio) or 0
+                        return (pbPos == def.OFF) and (simRatio <= 0.05)
+                    end,
+                    action = function()
+                        set(P.parkingbrakepos, def.OFF)
+                        if P.simparkingbrakeratio then
+                            set(P.simparkingbrakeratio, 0)
+                        end
+                    end,
                     advice = "Release Parking Brake",
                     confirm = "Parking Brake checked Released",
                     nextStep = 'view_main_panel_final'
@@ -4436,6 +4567,65 @@ function M.fillProcedureTable()
                             end
                             return true
                         end
+                        local sanityRunwayRef = nil
+                        if announceTrue then
+                            if runwayTrue then
+                                sanityRunwayRef = helpers.calccourse(runwayTrue)
+                            elseif runwayMag then
+                                sanityRunwayRef = helpers.calccourse(runwayMag + magVar)
+                            end
+                        else
+                            if runwayMag then
+                                sanityRunwayRef = helpers.calccourse(runwayMag)
+                            elseif runwayTrue then
+                                sanityRunwayRef = helpers.calccourse(runwayTrue - magVar)
+                            end
+                        end
+                        local sanityRefs = nil
+                        local function buildSanityRefs()
+                            if sanityRefs then return sanityRefs end
+                            sanityRefs = {}
+                            if sanityRunwayRef then
+                                table.insert(sanityRefs, sanityRunwayRef)
+                            end
+                            local navTypeForCifp = navType
+                            if type(navTypeForCifp) == "string" and type(runway) == "string" then
+                                local candidateTypes = { navTypeForCifp }
+                                if navTypeForCifp == def.NAVTYPELPV or navTypeForCifp == def.NAVTYPEGLS then
+                                    table.insert(candidateTypes, def.NAVTYPERNAV)
+                                end
+                                for _, candidateType in ipairs(candidateTypes) do
+                                    local cifpCourse = helpers.getCIFPApproachCourse(get(P.desicao), candidateType, runway)
+                                    if cifpCourse then
+                                        local cifpRef = normalizeCourse(cifpCourse, nil)
+                                        if cifpRef then
+                                            table.insert(sanityRefs, cifpRef)
+                                        end
+                                        break
+                                    end
+                                end
+                            end
+                            return sanityRefs
+                        end
+                        local function sanityCheck(candidate, source)
+                            if not candidate then return nil end
+                            local refs = buildSanityRefs()
+                            if not refs or #refs == 0 then return candidate end
+                            local minDiff = 360
+                            for _, ref in ipairs(refs) do
+                                local diff = math.abs(candidate - ref)
+                                if diff > 180 then diff = 360 - diff end
+                                if diff < minDiff then minDiff = diff end
+                            end
+                            if minDiff > 30 then
+                                helpers.logInfoTS(string.format(
+                                    "Runway course sanity check failed (source=%s, course=%s, minDiff=%d, runway=%s).",
+                                    tostring(source), tostring(candidate), math.floor(minDiff + 0.5), tostring(runway)
+                                ))
+                                return nil
+                            end
+                            return candidate
+                        end
                         local function normalizeCourse(value, valueIsTrue)
                             if value == nil then
                                 return nil
@@ -4495,10 +4685,18 @@ function M.fillProcedureTable()
                             local destRunway = get(P.desrwy)
                             local selectedCourse = nil
 
-                            for i = 1, #waypoints - 1 do
-                                local nxt = waypoints[i + 1]
-                                if nxt and nxt.name then
-                                    if matchesDestRunway(nxt.name, destRunway) or isRunwayLeg(nxt.name) then
+                            if helpers.isvalidrwy(destRunway) then
+                                for i = #waypoints - 1, 1, -1 do
+                                    local nxt = waypoints[i + 1]
+                                    if nxt and nxt.name and matchesDestRunway(nxt.name, destRunway) then
+                                        selectedCourse = waypoints[i].magnetic_course
+                                        break
+                                    end
+                                end
+                            else
+                                for i = #waypoints - 1, 1, -1 do
+                                    local nxt = waypoints[i + 1]
+                                    if nxt and nxt.name and isRunwayLeg(nxt.name) then
                                         selectedCourse = waypoints[i].magnetic_course
                                         break
                                     end
@@ -4513,13 +4711,13 @@ function M.fillProcedureTable()
 
                         -- Attempt to derive final-leg course from FMC (only if Runway-Leg found)
                         if not course then
-                            local fmsCourse = getFMSFinalMagCourse()
-                            course = normalizeCourse(fmsCourse, false)
+                            local fmsCourse = getFMSFinalMagCourseForRunway(get(P.desrwy))
+                            course = sanityCheck(normalizeCourse(fmsCourse, false), "FMS")
                         end
 
                         -- Prefer detected CIFP approach course
                         if loop and loop.detectedApproach and loop.detectedApproach.entry and loop.detectedApproach.entry.course then
-                            course = normalizeCourse(loop.detectedApproach.entry.course, nil)
+                            course = sanityCheck(normalizeCourse(loop.detectedApproach.entry.course, nil), "CIFP")
                         end
 
                         -- Fallback to CIFP course for runway/nav type when no variant detected
@@ -4531,7 +4729,7 @@ function M.fillProcedureTable()
                             for _, candidate in ipairs(candidateTypes) do
                                 local cifpCourse = helpers.getCIFPApproachCourse(get(P.desicao), candidate, runway)
                                 if cifpCourse then
-                                    course = normalizeCourse(cifpCourse, nil)
+                                    course = sanityCheck(normalizeCourse(cifpCourse, nil), "CIFP")
                                     if course then break end
                                 end
                             end
@@ -4540,18 +4738,18 @@ function M.fillProcedureTable()
                         -- Fall back to navdata-derived runway heading
                         if not course then
                             local navCourse = helpers.getrwyheadingfromnavdata(P.navdatatable, get(P.desicao), runway)
-                            course = normalizeCourse(navCourse, nil)
+                            course = sanityCheck(normalizeCourse(navCourse, nil), "NAV")
                         end
 
                         -- Fallback to FMC runway heading
                         if not course and tonumber(get(P.desrwyheading)) then
-                            course = normalizeCourse(helpers.roundnumber(get(P.desrwyheading)), false)
+                            course = sanityCheck(normalizeCourse(helpers.roundnumber(get(P.desrwyheading)), false), "RUNWAY")
                         end
 
                         -- Compute bearing from runway endpoints if available
                         if not course then
                             if runwayTrue then
-                                course = normalizeCourse(runwayTrue, true)
+                                course = sanityCheck(normalizeCourse(runwayTrue, true), "RUNWAYTRUE")
                             end
                         end
 

@@ -313,6 +313,7 @@ function P.initDataref()
 
     P.mainbus = globalProperty("laminar/B738/electric/main_bus")
     P.parkingbrakepos = globalProperty("laminar/B738/parking_brake_pos")
+    P.simparkingbrakeratio = globalProperty("sim/cockpit2/controls/parking_brake_ratio")
 
     P.pausetod = globalProperty("laminar/B738/fms/pause_td")
 
