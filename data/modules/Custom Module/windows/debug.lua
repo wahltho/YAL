@@ -149,6 +149,7 @@ function M.newComponent(ctx)
         drawRectangle(0, h - headerH, w, headerH, {0.12, 0.12, 0.12, 0.95})
 
         local lines = {}
+        local loopBlocks = {}
         comp._buttons = {}
         local activeLoops = 0
 
@@ -183,8 +184,20 @@ function M.newComponent(ctx)
                 sasl.gl.drawTextI(font, b.x + 4, b.y + 2, b.label, TEXT_ALIGN_LEFT, color)
             end
 
+            local function lockLabel(lockId)
+                if lockId == nil or lockId == def.NOPROCEDURE then
+                    return "NOPROCEDURE"
+                end
+                local proc = yal and yal.proceduretable and yal.proceduretable[lockId]
+                if proc and proc.name then
+                    return proc.name
+                end
+                return tostring(lockId)
+            end
+
             for i = 1, #yal.loopStateTables do
                 local loop = yal.loopStateTables[i]
+                local block = {}
                 if loop then
                     local lockedProc = loop.lock or def.NOPROCEDURE
                     if lockedProc == def.NOPROCEDURE then
@@ -204,16 +217,16 @@ function M.newComponent(ctx)
                     local waitStr = waitReason and tostring(waitReason) or "—"
                     local status = lockedProc ~= def.NOPROCEDURE and "RUN" or "IDLE"
                     if status == "RUN" then activeLoops = activeLoops + 1 end
-                    table.insert(lines, string.format("Loop %-2d %-5s %-20s Guard:%-7s Wait:%s%s", i, status, tostring(loop.currentStepName or "-"), guardStr, waitStr, loop.debugPaused and " [PAUSED]" or ""))
+                    table.insert(block, string.format("Loop %-2d %-5s %-20s Guard:%-7s Wait:%s%s", i, status, tostring(loop.currentStepName or "-"), guardStr, waitStr, loop.debugPaused and " [PAUSED]" or ""))
 
                     local vars = {}
-                    table.insert(vars, string.format("lock=%s", tostring(loop.lock)))
+                    table.insert(vars, string.format("lock=%s", lockLabel(loop.lock)))
                     table.insert(vars, string.format("idx=%s", tostring(loop.stepindex)))
                     table.insert(vars, string.format("cur=%s", tostring(loop.currentStepName or "")))
                     table.insert(vars, string.format("last=%s", tostring(loop.lastStepName or "")))
                     table.insert(vars, string.format("skipC=%s", tostring(loop.skipConfirmForStep or "")))
                     table.insert(vars, string.format("flags=%s", flagStr))
-                    table.insert(lines, "   " .. table.concat(vars, " | "))
+                    table.insert(block, "   " .. table.concat(vars, " | "))
 
                     if lockedProc ~= def.NOPROCEDURE then
                         local fromStep = firstAvailable(loop, {"lastTransitionFrom", "lastStepName"})
@@ -223,35 +236,43 @@ function M.newComponent(ctx)
                         if reason then
                             transitionStr = transitionStr .. string.format(" (%s)", tostring(reason))
                         end
-                        table.insert(lines, transitionStr)
+                        table.insert(block, transitionStr)
 
                         local extras = collectLoopExtras(loop)
                         if #extras > 0 then
-                            table.insert(lines, "   data: " .. table.concat(extras, " | "))
+                            table.insert(block, "   data: " .. table.concat(extras, " | "))
                         end
                         if loop.debugHistory and #loop.debugHistory > 0 then
                             local startHist = math.max(1, #loop.debugHistory - 4)
                             for idx = #loop.debugHistory, startHist, -1 do
                                 local h = loop.debugHistory[idx]
                                 local r = (h.reason and h.reason ~= "" and (" (" .. tostring(h.reason) .. ")")) or ""
-                                table.insert(lines, string.format("   hist: %s -> %s%s", tostring(h.from or "-"), tostring(h.to or "-"), r))
+                                table.insert(block, string.format("   hist: %s -> %s%s", tostring(h.from or "-"), tostring(h.to or "-"), r))
                             end
                         end
                     end
+                else
+                    table.insert(block, string.format("Loop %-2d unavailable", i))
                 end
+                table.insert(loopBlocks, block)
             end
         else
-            table.insert(lines, "Loop state unavailable")
+            table.insert(loopBlocks, {"Loop state unavailable"})
         end
 
         local ongoing = yal and yal.ongoingtaskstepindex or "-"
-        table.insert(lines, string.format("Ongoing task step index: %s", tostring(ongoing)))
-
         local flightState = (yal and yal.flightstate) or safeGet(yal and yal.flightstatedr) or 0
         local fmsPhase = safeGet(yal and yal.fmsflightphase) or 0
-        table.insert(lines, string.format("Flightstate: %s (%s) | FMC phase: %s (%s)",
+
+        table.insert(lines, string.format("Ongoing step: %s | Flightstate: %s (%s) | FMC phase: %s (%s)",
+            tostring(ongoing),
             flightStateLabel(def, flightState), tostring(flightState),
             fmsPhaseLabel(def, fmsPhase), tostring(fmsPhase)))
+        for _, block in ipairs(loopBlocks) do
+            for _, line in ipairs(block) do
+                table.insert(lines, line)
+            end
+        end
 
         -- Header with status and close
         local headerStatus = string.format("YAL Debug | Loops RUN:%d", activeLoops)

@@ -1712,11 +1712,8 @@ function P.formatMetarSpeechSummary(metar, runwayName)
             wind_part = "Wind calm"
         -- GEÄNDERT: Prüfe derivedHeading und numerische Windrichtung
         elseif derivedHeading and type(dir) == "number" then
-            P.logInfoTS(string.format("Calculating wind components: dir=%s, speed=%s, rwyHdg=%s",
-                           tostring(dir), tostring(speed), tostring(derivedHeading)))
             -- Ruft die korrigierte Funktion auf, die vorzeichenbehafteten Crosswind liefert
             local headwind, crosswind = P.calculateWindComponents(dir, derivedHeading, speed)
-            P.logInfoTS(string.format("Calculated components: headwind=%.2f, crosswind=%.2f", headwind, crosswind))
 
             -- Gib den Runway-NAMEN aus
             wind_part = string.format("Wind runway %s, ", runwayName)

@@ -4711,7 +4711,7 @@ function M.fillProcedureTable()
 
                         -- Attempt to derive final-leg course from FMC (only if Runway-Leg found)
                         if not course then
-                            local fmsCourse = getFMSFinalMagCourseForRunway(get(P.desrwy))
+                            local fmsCourse = getFMSFinalMagCourse()
                             course = sanityCheck(normalizeCourse(fmsCourse, false), "FMS")
                         end
 
@@ -5231,8 +5231,6 @@ function M.fillProcedureTable()
                                 )
                             end
                             local vrefInput = ziboVref or baseVref
-                            helpers.logInfoTS(string.format("SetVref: variant=%s, flaps=%s, weight=%.0f kg (%.0f lbs), ziboVref=%s, fmsVref=%s",
-                                tostring(variant), tostring(baseFlaps), landingGwKg, landingGwKg / def.LBSTOKG, tostring(ziboVref), tostring(baseVref)))
                             local appflapscalc, appvrefcalc = helpers.calcappflapsvref(
                                 get(P.totalweightkgs),
                                 get(P.desrwylen),
@@ -5245,7 +5243,6 @@ function M.fillProcedureTable()
                             loop.appvrefcalc = appvrefcalc
                             loop.appflapscalcstring = tostring(appflapscalc)
                             loop.appvrefcalcstring = tostring(appvrefcalc)
-                            helpers.logInfoTS("SetVref: Calculated Flaps " .. loop.appflapscalcstring .. " Vref " .. loop.appvrefcalcstring)
                         else
                             local fallbackFlaps = get(P.appflaps)
                             if not fallbackFlaps or fallbackFlaps <= 0 then
@@ -5259,7 +5256,6 @@ function M.fillProcedureTable()
                             loop.appvrefcalc = fallbackVref
                             loop.appflapscalcstring = helpers.padNumberWithZerosStrict(math.floor(fallbackFlaps + 0.5), 2)
                             loop.appvrefcalcstring = tostring(math.floor(fallbackVref + 0.5))
-                            helpers.logInfoTS("SetVref: Using existing Flaps " .. loop.appflapscalcstring .. " Vref " .. loop.appvrefcalcstring)
                         end
                     end,
                     runActionInAdviceMode = true, 
@@ -5416,10 +5412,6 @@ function M.fillProcedureTable()
                 },
                 ['calculate_windcorr'] = {
                     action = function(loop, procData)
-                        helpers.logInfoTS(string.format("SetWindCorr: start (flightstate=%s fmsphase=%s voice=%s)",
-                            tostring(get(P.flightstate)),
-                            tostring(get(P.fmsflightphase)),
-                            tostring(P.configvalues[def.CONFIGVOICEADVICEONLY])))
                         local customCalcOn = (P.configvalues[def.CONFIGCUSTOMAPPROACHCALC] == def.ON)
                         loop.appwindcorr = nil
                         loop.appwindcorrstring = nil
@@ -5435,13 +5427,9 @@ function M.fillProcedureTable()
                                     end
                                     loop.appwindcorr = windcorr
                                     loop.appwindcorrstring = helpers.padNumberWithZerosStrict(math.floor(windcorr + 0.5), 2)
-                                    helpers.logInfoTS(string.format("SetWindCorr: Wind correction %s kts", loop.appwindcorrstring))
                                 end
                             end
                         end
-                        local fmcWind = tonumber(get(P.vrefapproachwindcorr))
-                        helpers.logInfoTS(string.format("SetWindCorr: customCalc=%s fmc=%s target=%s",
-                            tostring(customCalcOn), tostring(fmcWind), tostring(loop.appwindcorr)))
                     end,
                     runActionInAdviceMode = true,
                     nextStep = 'check_fms_page'
@@ -5455,14 +5443,11 @@ function M.fillProcedureTable()
                     runActionInAdviceMode = true,
                     branch = function(loop, procData)
                         if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                            helpers.logInfoTS("SetWindCorr: branch -> voice_wind_advice (VoiceAdviceOnly)")
                             return 'voice_wind_advice'
                         end
                         if loop and loop.appwindcorrstring then
-                            helpers.logInfoTS("SetWindCorr: branch -> fmc_press_del (Auto)")
                             return 'fmc_press_del'
                         end
-                        helpers.logInfoTS("SetWindCorr: branch -> check_windcorr_set (Auto, no target)")
                         return 'check_windcorr_set'
                     end
                 },
@@ -5567,7 +5552,6 @@ function M.fillProcedureTable()
                             or fmcWind
                             or 5
                         local current = fmcWind or 0
-                        helpers.logInfoTS(string.format("voice_wind_advice.check: fmc=%s target=%s current=%s", tostring(fmcWind), tostring(target), tostring(current)))
                         return math.abs(current - target) < 0.5
                     end,
                     advice = function(loop)
@@ -5580,7 +5564,6 @@ function M.fillProcedureTable()
                         if not targetStr or targetStr == "" then
                             targetStr = tostring(target)
                         end
-                        helpers.logInfoTS(string.format("voice_wind_advice.advice: fmc=%s target=%s targetStr=%s", tostring(fmcWind), tostring(target), tostring(targetStr)))
                         return "Set F M C Wind Correction +" .. targetStr .. " in F M C"
                     end,
                     confirm = function(loop)
@@ -5594,7 +5577,6 @@ function M.fillProcedureTable()
                             targetStr = tostring(target)
                         end
                         local current = fmcWind or 0
-                        helpers.logInfoTS(string.format("voice_wind_advice.confirm: fmc=%s target=%s current=%s targetStr=%s", tostring(fmcWind), tostring(target), tostring(current), tostring(targetStr)))
                         if math.abs(current - target) < 0.5 then
                             return "F M C Wind Correction checked +" .. targetStr
                         end
@@ -5655,11 +5637,9 @@ function M.fillProcedureTable()
                             if useCustomCalc and computedFlaps then
                                 loop.toflapscalc = computedFlaps
                                 loop.flapsPreSet = false
-                                helpers.logInfoTS(string.format("SetTOFlaps (custom): existing=%s, computed=%s", tostring(existingFlaps), tostring(computedFlaps)))
                             else
                                 loop.toflapscalc = existingFlaps
                                 loop.flapsPreSet = true
-                                helpers.logInfoTS(string.format("SetTOFlaps: using existing flaps %s", tostring(existingFlaps)))
                             end
                         else
                             local candidate = computedFlaps
@@ -5671,7 +5651,6 @@ function M.fillProcedureTable()
                             end
                             loop.toflapscalc = candidate
                             loop.flapsPreSet = not useCustomCalc
-                            helpers.logInfoTS(string.format("SetTOFlaps: no FMC flaps, computed=%s -> using %s", tostring(computedFlaps), tostring(loop.toflapscalc)))
                         end
                         loop.toflapscalcstring = tostring(loop.toflapscalc)
 
@@ -5688,10 +5667,6 @@ function M.fillProcedureTable()
                             loop.cgPreSet = false
                         end
 
-                        helpers.logInfoTS(string.format("SetTakeoffFlaps: target flaps %s, CG %s",
-                            tostring(loop.toflapscalcstring),
-                            tostring(loop.targetCgString)
-                        ))
                     end,
                     runActionInAdviceMode = true, 
                     nextStep = 'check_fms_page'
