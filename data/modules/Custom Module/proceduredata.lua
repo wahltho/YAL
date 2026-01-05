@@ -626,6 +626,20 @@ local function getTakeoffFlapsTarget(autoMode)
     return candidate
 end
 
+local function isQrhOff()
+    local lineL = tostring(helpers.get("laminar/B738/fmc1/Line06_L") or "")
+    local normalized = lineL:gsub("[<>]", ""):upper():gsub("%s+", " ")
+    return normalized:find("QRH OFF", 1, true) ~= nil
+end
+
+local function getCalcSpeedString(value)
+    local num = tonumber(value or 0) or 0
+    if num <= 0 then
+        return nil
+    end
+    return helpers.padNumberWithZerosStrict(math.floor(num + 0.5), 3)
+end
+
 local M = {}
 function M.fillProcedureTable()
     local P = yal 
@@ -5744,11 +5758,10 @@ function M.fillProcedureTable()
                 ['fmc_press_1L'] = {
                     action = function(loop, procData) P.commandtableentry(def.COMMAND, "laminar/B738/button/fmc1_1L") end,
                     runActionInAdviceMode = false,
-                    nextStep = 'fmc_press_exec'
+                    nextStep = 'fmc_flaps_set'
                 },
-                ['fmc_press_exec'] = {
+                ['fmc_flaps_set'] = {
                     action = function(loop, procData) 
-                        P.commandtableentry(def.COMMAND, "laminar/B738/button/fmc1_exec") 
                         P.commandtableentry(def.TEXT, "Takeoff Flaps " .. loop.toflapscalcstring .. " set")
                     end,
                     runActionInAdviceMode = false,
@@ -5808,6 +5821,206 @@ function M.fillProcedureTable()
                         end
                         return "C G checked"
                     end,
+                    nextStep = 'branch_vspeeds'
+                },
+                ['branch_vspeeds'] = {
+                    branch = function(loop, procData)
+                        if not isQrhOff() then
+                            return 'view_main_panel'
+                        end
+                        loop.v1calcstring = getCalcSpeedString(get(P.v1calcspeed))
+                        loop.vrcalcstring = getCalcSpeedString(get(P.vrcalcspeed))
+                        loop.v2calcstring = getCalcSpeedString(get(P.v2calcspeed))
+                        if not loop.v1calcstring or not loop.vrcalcstring or not loop.v2calcstring then
+                            return 'view_main_panel'
+                        end
+                        if (get(P.v1setspeed) or 0) > 0 and (get(P.vrsetspeed) or 0) > 0 and (get(P.v2setspeed) or 0) > 0 then
+                            return 'check_vspeeds_set'
+                        end
+                        if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
+                            return 'voice_v1_advice'
+                        end
+                        return 'v1_press_del'
+                    end
+                },
+                ['voice_v1_advice'] = {
+                    check = function()
+                        return (get(P.v1setspeed) or 0) > 0
+                    end,
+                    advice = function(loop)
+                        local target = loop and loop.v1calcstring or getCalcSpeedString(get(P.v1calcspeed))
+                        if target then
+                            return "Set V 1 " .. helpers.addspaces(target)
+                        end
+                        return "Set V 1"
+                    end,
+                    confirm = function()
+                        local set = get(P.v1setspeed) or 0
+                        if set > 0 then
+                            local setStr = helpers.padNumberWithZerosStrict(math.floor(set + 0.5), 3)
+                            return "V 1 checked " .. helpers.addspaces(setStr)
+                        end
+                        return false
+                    end,
+                    nextStep = 'voice_vr_advice'
+                },
+                ['voice_vr_advice'] = {
+                    check = function()
+                        return (get(P.vrsetspeed) or 0) > 0
+                    end,
+                    advice = function(loop)
+                        local target = loop and loop.vrcalcstring or getCalcSpeedString(get(P.vrcalcspeed))
+                        if target then
+                            return "Set V R " .. helpers.addspaces(target)
+                        end
+                        return "Set V R"
+                    end,
+                    confirm = function()
+                        local set = get(P.vrsetspeed) or 0
+                        if set > 0 then
+                            local setStr = helpers.padNumberWithZerosStrict(math.floor(set + 0.5), 3)
+                            return "V R checked " .. helpers.addspaces(setStr)
+                        end
+                        return false
+                    end,
+                    nextStep = 'voice_v2_advice'
+                },
+                ['voice_v2_advice'] = {
+                    check = function()
+                        return (get(P.v2setspeed) or 0) > 0
+                    end,
+                    advice = function(loop)
+                        local target = loop and loop.v2calcstring or getCalcSpeedString(get(P.v2calcspeed))
+                        if target then
+                            return "Set V 2 " .. helpers.addspaces(target)
+                        end
+                        return "Set V 2"
+                    end,
+                    confirm = function()
+                        local set = get(P.v2setspeed) or 0
+                        if set > 0 then
+                            local setStr = helpers.padNumberWithZerosStrict(math.floor(set + 0.5), 3)
+                            return "V 2 checked " .. helpers.addspaces(setStr)
+                        end
+                        return false
+                    end,
+                    nextStep = 'check_vspeeds_set'
+                },
+                ['v1_press_del'] = {
+                    action = function(loop, procData) P.commandtableentry(def.COMMAND, "laminar/B738/button/fmc1_del") end,
+                    runActionInAdviceMode = false,
+                    nextStep = 'v1_press_clr'
+                },
+                ['v1_press_clr'] = {
+                    action = function(loop, procData) P.commandtableentry(def.COMMAND, "laminar/B738/button/fmc1_clr") end,
+                    runActionInAdviceMode = false,
+                    nextStep = 'v1_enter_1'
+                },
+                ['v1_enter_1'] = {
+                    action = function(loop, procData)
+                        local char = string.sub(loop.v1calcstring or "", 1, 1)
+                        if char and char ~= "" then P.commandtableentry(def.COMMAND, "laminar/B738/button/fmc1_" .. char) end
+                    end,
+                    runActionInAdviceMode = false,
+                    nextStep = 'v1_enter_2'
+                },
+                ['v1_enter_2'] = {
+                    action = function(loop, procData)
+                        local char = string.sub(loop.v1calcstring or "", 2, 2)
+                        if char and char ~= "" then P.commandtableentry(def.COMMAND, "laminar/B738/button/fmc1_" .. char) end
+                    end,
+                    runActionInAdviceMode = false,
+                    nextStep = 'v1_enter_3'
+                },
+                ['v1_enter_3'] = {
+                    action = function(loop, procData)
+                        local char = string.sub(loop.v1calcstring or "", 3, 3)
+                        if char and char ~= "" then P.commandtableentry(def.COMMAND, "laminar/B738/button/fmc1_" .. char) end
+                    end,
+                    runActionInAdviceMode = false,
+                    nextStep = 'v1_press_1R'
+                },
+                ['v1_press_1R'] = {
+                    action = function(loop, procData) P.commandtableentry(def.COMMAND, "laminar/B738/button/fmc1_1R") end,
+                    runActionInAdviceMode = false,
+                    nextStep = 'vr_press_del'
+                },
+                ['vr_press_del'] = {
+                    action = function(loop, procData) P.commandtableentry(def.COMMAND, "laminar/B738/button/fmc1_del") end,
+                    runActionInAdviceMode = false,
+                    nextStep = 'vr_press_clr'
+                },
+                ['vr_press_clr'] = {
+                    action = function(loop, procData) P.commandtableentry(def.COMMAND, "laminar/B738/button/fmc1_clr") end,
+                    runActionInAdviceMode = false,
+                    nextStep = 'vr_enter_1'
+                },
+                ['vr_enter_1'] = {
+                    action = function(loop, procData)
+                        local char = string.sub(loop.vrcalcstring or "", 1, 1)
+                        if char and char ~= "" then P.commandtableentry(def.COMMAND, "laminar/B738/button/fmc1_" .. char) end
+                    end,
+                    runActionInAdviceMode = false,
+                    nextStep = 'vr_enter_2'
+                },
+                ['vr_enter_2'] = {
+                    action = function(loop, procData)
+                        local char = string.sub(loop.vrcalcstring or "", 2, 2)
+                        if char and char ~= "" then P.commandtableentry(def.COMMAND, "laminar/B738/button/fmc1_" .. char) end
+                    end,
+                    runActionInAdviceMode = false,
+                    nextStep = 'vr_enter_3'
+                },
+                ['vr_enter_3'] = {
+                    action = function(loop, procData)
+                        local char = string.sub(loop.vrcalcstring or "", 3, 3)
+                        if char and char ~= "" then P.commandtableentry(def.COMMAND, "laminar/B738/button/fmc1_" .. char) end
+                    end,
+                    runActionInAdviceMode = false,
+                    nextStep = 'vr_press_2R'
+                },
+                ['vr_press_2R'] = {
+                    action = function(loop, procData) P.commandtableentry(def.COMMAND, "laminar/B738/button/fmc1_2R") end,
+                    runActionInAdviceMode = false,
+                    nextStep = 'v2_press_del'
+                },
+                ['v2_press_del'] = {
+                    action = function(loop, procData) P.commandtableentry(def.COMMAND, "laminar/B738/button/fmc1_del") end,
+                    runActionInAdviceMode = false,
+                    nextStep = 'v2_press_clr'
+                },
+                ['v2_press_clr'] = {
+                    action = function(loop, procData) P.commandtableentry(def.COMMAND, "laminar/B738/button/fmc1_clr") end,
+                    runActionInAdviceMode = false,
+                    nextStep = 'v2_enter_1'
+                },
+                ['v2_enter_1'] = {
+                    action = function(loop, procData)
+                        local char = string.sub(loop.v2calcstring or "", 1, 1)
+                        if char and char ~= "" then P.commandtableentry(def.COMMAND, "laminar/B738/button/fmc1_" .. char) end
+                    end,
+                    runActionInAdviceMode = false,
+                    nextStep = 'v2_enter_2'
+                },
+                ['v2_enter_2'] = {
+                    action = function(loop, procData)
+                        local char = string.sub(loop.v2calcstring or "", 2, 2)
+                        if char and char ~= "" then P.commandtableentry(def.COMMAND, "laminar/B738/button/fmc1_" .. char) end
+                    end,
+                    runActionInAdviceMode = false,
+                    nextStep = 'v2_enter_3'
+                },
+                ['v2_enter_3'] = {
+                    action = function(loop, procData)
+                        local char = string.sub(loop.v2calcstring or "", 3, 3)
+                        if char and char ~= "" then P.commandtableentry(def.COMMAND, "laminar/B738/button/fmc1_" .. char) end
+                    end,
+                    runActionInAdviceMode = false,
+                    nextStep = 'v2_press_3R'
+                },
+                ['v2_press_3R'] = {
+                    action = function(loop, procData) P.commandtableentry(def.COMMAND, "laminar/B738/button/fmc1_3R") end,
+                    runActionInAdviceMode = false,
                     nextStep = 'check_vspeeds_set'
                 },
                 ['check_vspeeds_set'] = {

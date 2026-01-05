@@ -596,6 +596,10 @@ function P.initDataref()
     P.v2speed = globalProperty("laminar/B738/FMS/v2")
     P.vrspeed = globalProperty("laminar/B738/FMS/vr")
 
+    P.v1calcspeed = globalProperty("laminar/B738/FMS/v1_calc")
+    P.v2calcspeed = globalProperty("laminar/B738/FMS/v2_calc")
+    P.vrcalcspeed = globalProperty("laminar/B738/FMS/vr_calc")
+
     P.v1setspeed = globalProperty("laminar/B738/FMS/v1_set")
     P.v2setspeed = globalProperty("laminar/B738/FMS/v2_set")
     P.vrsetspeed = globalProperty("laminar/B738/FMS/vr_set")
