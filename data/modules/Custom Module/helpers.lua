@@ -893,6 +893,18 @@ function P.convertpressure(value)
 end
 
 --------------------------------------------------------------------------------------------------------------
+function P.formatQnhValue(value, useHpa)
+    local num = tonumber(value)
+    if not num then
+        return nil
+    end
+    if useHpa then
+        return string.format("%.0f", num)
+    end
+    return string.format("%.2f", num)
+end
+
+--------------------------------------------------------------------------------------------------------------
 function P.gettrim(trimwheel)
 
     local trim = 0
@@ -1844,6 +1856,21 @@ function P.formatMetarSpeechSummary(metar, runwayName)
             end
             if #cloud_reports > 0 then
                 table.insert(parts, table.concat(cloud_reports, ", "))
+            end
+        end
+    end
+
+    if metar_data.pressure and metar_data.pressure.qnh_hpa then
+        local qnhHpa = tonumber(metar_data.pressure.qnh_hpa)
+        if qnhHpa then
+            local qnhText = nil
+            if get(P.baroinhpa) == def.ON then
+                qnhText = P.formatQnhValue(qnhHpa, true)
+            else
+                qnhText = P.formatQnhValue(P.convertpressure(qnhHpa), false)
+            end
+            if qnhText then
+                table.insert(parts, "Q N H " .. P.addspaces(qnhText))
             end
         end
     end

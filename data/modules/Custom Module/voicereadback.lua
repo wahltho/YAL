@@ -243,8 +243,18 @@ local function complex_check(P)
         else
             if ((get(P.barostd) == def.ON) and (get(P.barostd) ~= P.barostdtemp)) then P.commandtableentry(def.TEXT, "Q N H Standard")
             else
-                if (get(P.baroinhpa) == def.ON) then P.commandtableentry(def.TEXT, "Q N H " .. tostring(helpers.convertpressure(get(P.baropilot))))
-                else P.commandtableentry(def.TEXT, "Q N H " .. tostring(get(P.baropilot))) end
+                if (get(P.baroinhpa) == def.ON) then
+                    local qnhValue = helpers.convertpressure(get(P.baropilot))
+                    local qnhText = helpers.formatQnhValue(qnhValue, true)
+                    if qnhText then
+                        P.commandtableentry(def.TEXT, "Q N H " .. helpers.addspaces(qnhText))
+                    end
+                else
+                    local qnhText = helpers.formatQnhValue(get(P.baropilot), false)
+                    if qnhText then
+                        P.commandtableentry(def.TEXT, "Q N H " .. helpers.addspaces(qnhText))
+                    end
+                end
             end
             P.baropilottemp = get(P.baropilot); P.baropilottemp2 = get(P.baropilot); P.barostdtemp = get(P.barostd)
         end

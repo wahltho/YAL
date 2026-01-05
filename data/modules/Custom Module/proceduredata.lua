@@ -958,6 +958,10 @@ function M.fillProcedureTable()
                             P.commandtableentry(def.TEXT, "Instrument Lights set")
                         end
                     end,
+                    nextStep = 'view_overhead_window_heat'
+                },
+                ['view_overhead_window_heat'] = {
+                    view = function() return P.configvalues[def.CONFIGVIEWOVERHEADPANEL] end,
                     nextStep = 'window_heat_on_init'
                 },
                 ['window_heat_on_init'] = {
@@ -979,6 +983,10 @@ function M.fillProcedureTable()
                     action = function() P.setnosmokingsign(def.NOSMOKINGSIGNON) end,
                     advice = "Set No Smoking Signs On",
                     confirm = "No Smoking Signs checked On",
+                    nextStep = 'view_main_before_lower_du'
+                },
+                ['view_main_before_lower_du'] = {
+                    view = function() return P.configvalues[def.CONFIGVIEWMAINPANEL] end,
                     nextStep = 'set_lower_du'
                 },
                 ['set_lower_du'] = { 
@@ -2819,9 +2827,9 @@ function M.fillProcedureTable()
                         if (get(P.altitude) >= tl) then return false end 
                         local baroinchtmp, baropastmp = P.getlocalqnh(def.ARRIVAL)
                         if (get(P.baroinhpa) == def.ON) then
-                            return "Set Q N H " .. helpers.addspaces(baropastmp)
+                            return "Set Q N H " .. helpers.addspaces(helpers.formatQnhValue(baropastmp, true))
                         else
-                            return "Set Q N H " .. helpers.addspaces(baroinchtmp)
+                            return "Set Q N H " .. helpers.addspaces(helpers.formatQnhValue(baroinchtmp, false))
                         end
                     end,
                     action = function()
@@ -2835,9 +2843,9 @@ function M.fillProcedureTable()
                     confirm = function()
                         local baroinchtmp, baropastmp = P.getlocalqnh(def.ARRIVAL)
                         if (get(P.baroinhpa) == def.ON) then
-                            return "Q N H checked and " .. helpers.addspaces(baropastmp)
+                            return "Q N H checked and " .. helpers.addspaces(helpers.formatQnhValue(baropastmp, true))
                         else
-                            return "Q N H checked and " .. helpers.addspaces(baroinchtmp)
+                            return "Q N H checked and " .. helpers.addspaces(helpers.formatQnhValue(baroinchtmp, false))
                         end
                     end,
                     nextStep = nil
