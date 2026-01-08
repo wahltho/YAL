@@ -1019,7 +1019,16 @@ function P.yalresetForNewFlight()
     P.lastLoggedAircraftwasonground = P.aircraftwasonground
 
     if P.YANSHisinstalled() then
-        helpers.command_once("/sasl/reload/yansh")
+        local cmdId = sasl.findCommand("sasl/reload/yansh")
+        if cmdId then
+            sasl.commandOnce(cmdId)
+        end
+    end
+    if P.BPBisinstalled() then
+        local cmdId = sasl.findCommand("BetterPushback/reload")
+        if cmdId then
+            sasl.commandOnce(cmdId)
+        end
     end
 
     return true

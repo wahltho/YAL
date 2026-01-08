@@ -632,6 +632,15 @@ local function isQrhOff()
     return normalized:find("QRH OFF", 1, true) ~= nil
 end
 
+local function isFmcAutomationOn()
+    return P.configvalues and (P.configvalues[def.CONFIGFMCAUTOMATION] == def.ON)
+end
+
+local function shouldSkipFmcSteps()
+    return (P.configvalues and (P.configvalues[def.CONFIGFMCAUTOMATION] ~= def.ON))
+        and (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON)
+end
+
 local function getCalcSpeedString(value)
     local num = tonumber(value or 0) or 0
     if num <= 0 then
@@ -832,14 +841,24 @@ function M.fillProcedureTable()
                 },
                 ['view_fms'] = {
                     view = function() return P.configvalues[def.CONFIGVIEWFMS] end,
-                    nextStep = 'fmc_init_ref'
+                    nextStep = 'branch_fmc_pos_init'
+                },
+                ['branch_fmc_pos_init'] = {
+                    branch = function()
+                        if shouldSkipFmcSteps() then
+                            return 'end_fms_pos_init'
+                        end
+                        return 'fmc_init_ref'
+                    end
                 },
                 ['fmc_init_ref'] = {
                     check = function()
                         return helpers.fmcHeaderContains("POS INIT")
                     end,
                     action = function()
-                        helpers.command_once("laminar/B738/button/fmc1_init_ref")
+                        if isFmcAutomationOn() then
+                            helpers.command_once("laminar/B738/button/fmc1_init_ref")
+                        end
                     end,
                     advice = "Open F M C Position Init Page",
                     runActionInAdviceMode = true,
@@ -1008,7 +1027,7 @@ function M.fillProcedureTable()
                     action = function()
                         if P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON then
                             P.commandtableentry(def.TEXT, "Reset F M C")
-                        else
+                        elseif isFmcAutomationOn() then
                             helpers.command_once("laminar/B738/button/reset_fmc")
                             P.commandtableentry(def.TEXT, "F M C Reset Done")
                         end
@@ -1378,7 +1397,9 @@ function M.fillProcedureTable()
                 ['reset_master_caution'] = { 
                     action = function() 
                         helpers.command_once("laminar/B738/push_button/master_caution1")
-                        helpers.command_once("laminar/B738/button/fmc1_clr")
+                        if isFmcAutomationOn() then
+                            helpers.command_once("laminar/B738/button/fmc1_clr")
+                        end
                     end,
                     nextStep = 'plan_pushback'
                 },
@@ -2655,11 +2676,17 @@ function M.fillProcedureTable()
                     nextStep = 'check_fms_page'
                 },
                 ['check_fms_page'] = {
-                    skipIf = function() return P.configvalues[def.CONFIGSPDRESTR250] ~= def.ON end,                 
+                    skipIf = function()
+                        return P.configvalues[def.CONFIGSPDRESTR250] ~= def.ON or shouldSkipFmcSteps()
+                    end,
                     check = function(loop, procData)
                         return helpers.fmcHeaderContains("DES")
                     end,
-                    action = function(loop, procData) helpers.command_once("laminar/B738/button/fmc1_des") end,
+                    action = function(loop, procData)
+                        if isFmcAutomationOn() then
+                            helpers.command_once("laminar/B738/button/fmc1_des")
+                        end
+                    end,
                     advice = "Open Descent Page",
                     runActionInAdviceMode = true,
                     nextStep = 'set_speed_restriction'
@@ -5281,13 +5308,25 @@ function M.fillProcedureTable()
                         end
                     end,
                     runActionInAdviceMode = true, 
-                    nextStep = 'check_fms_page'
+                    nextStep = 'branch_fmc_vref'
+                },
+                ['branch_fmc_vref'] = {
+                    branch = function()
+                        if shouldSkipFmcSteps() then
+                            return 'view_main_panel'
+                        end
+                        return 'check_fms_page'
+                    end
                 },
                 ['check_fms_page'] = {
                     check = function(loop, procData)
                         return helpers.fmcHeaderContains("APPROACH REF")
                     end,
-                    action = function(loop, procData) helpers.command_once("laminar/B738/button/fmc1_init_ref") end,
+                    action = function(loop, procData)
+                        if isFmcAutomationOn() then
+                            helpers.command_once("laminar/B738/button/fmc1_init_ref")
+                        end
+                    end,
                     advice = "Open F M C Approach Reference Page",
                     runActionInAdviceMode = true,
                     branch = function(loop, procData)
@@ -5454,13 +5493,25 @@ function M.fillProcedureTable()
                         end
                     end,
                     runActionInAdviceMode = true,
-                    nextStep = 'check_fms_page'
+                    nextStep = 'branch_fmc_windcorr'
+                },
+                ['branch_fmc_windcorr'] = {
+                    branch = function()
+                        if shouldSkipFmcSteps() then
+                            return 'view_main_panel'
+                        end
+                        return 'check_fms_page'
+                    end
                 },
                 ['check_fms_page'] = {
                     check = function(loop, procData)
                         return helpers.fmcHeaderContains("APPROACH REF")
                     end,
-                    action = function(loop, procData) helpers.command_once("laminar/B738/button/fmc1_init_ref") end,
+                    action = function(loop, procData)
+                        if isFmcAutomationOn() then
+                            helpers.command_once("laminar/B738/button/fmc1_init_ref")
+                        end
+                    end,
                     advice = "Open F M C Approach Reference Page",
                     runActionInAdviceMode = true,
                     branch = function(loop, procData)
@@ -5691,14 +5742,26 @@ function M.fillProcedureTable()
 
                     end,
                     runActionInAdviceMode = true, 
-                    nextStep = 'check_fms_page'
+                    nextStep = 'branch_fmc_takeoff'
+                },
+                ['branch_fmc_takeoff'] = {
+                    branch = function()
+                        if shouldSkipFmcSteps() then
+                            return 'view_main_panel'
+                        end
+                        return 'check_fms_page'
+                    end
                 },
                 ['check_fms_page'] = {
                     skipIf = function() return helpers.fmcHeaderContains("N1 LIMIT") or helpers.fmcHeaderContains("TAKEOFF REF") end,
                     check = function(loop, procData)
                         return helpers.fmcHeaderContains("PERF INIT")
                     end,
-                    action = function(loop, procData) helpers.command_once("laminar/B738/button/fmc1_init_ref") end,
+                    action = function(loop, procData)
+                        if isFmcAutomationOn() then
+                            helpers.command_once("laminar/B738/button/fmc1_init_ref")
+                        end
+                    end,
                     advice = "Open F M C Init Reference Page",
                     runActionInAdviceMode = true,
                     nextStep = 'ensure_n1_limit_page'
@@ -5708,7 +5771,11 @@ function M.fillProcedureTable()
                     check = function(loop, procData)
                         return helpers.fmcHeaderContains("N1 LIMIT")
                     end,
-                    action = function(loop, procData) helpers.command_once("laminar/B738/button/fmc1_6R") end,
+                    action = function(loop, procData)
+                        if isFmcAutomationOn() then
+                            helpers.command_once("laminar/B738/button/fmc1_6R")
+                        end
+                    end,
                     advice = "Open F M C N 1 Limit Page",
                     runActionInAdviceMode = true,
                     nextStep = 'ensure_takeoff_ref_page'
@@ -5717,7 +5784,11 @@ function M.fillProcedureTable()
                     check = function(loop, procData)
                         return helpers.fmcHeaderContains("TAKEOFF REF")
                     end,
-                    action = function(loop, procData) helpers.command_once("laminar/B738/button/fmc1_6R") end,
+                    action = function(loop, procData)
+                        if isFmcAutomationOn() then
+                            helpers.command_once("laminar/B738/button/fmc1_6R")
+                        end
+                    end,
                     advice = "Open F M C Takeoff Reference Page",
                     runActionInAdviceMode = true,
                     nextStep = 'branch_after_takeoff_ref'
@@ -5842,11 +5913,11 @@ function M.fillProcedureTable()
                         if not loop.v1calcstring or not loop.vrcalcstring or not loop.v2calcstring then
                             return 'view_main_panel'
                         end
-                        if (get(P.v1setspeed) or 0) > 0 and (get(P.vrsetspeed) or 0) > 0 and (get(P.v2setspeed) or 0) > 0 then
-                            return 'check_vspeeds_set'
-                        end
                         if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
                             return 'voice_v1_advice'
+                        end
+                        if (get(P.v1setspeed) or 0) > 0 and (get(P.vrsetspeed) or 0) > 0 and (get(P.v2setspeed) or 0) > 0 then
+                            return 'check_vspeeds_set'
                         end
                         return 'v1_press_del'
                     end

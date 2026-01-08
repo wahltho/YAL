@@ -11,6 +11,7 @@ local english = {
     GENERAL = 'General',
     VOICEREADBACK = 'Command Voice Readback',
     AUTOFUNCTIONS = 'Automatic Functions',
+    FMCAUTOMATION = 'FMC Automation',
     VOICEADVICEONLY = 'Voice Advice Only',
     BPBINTEGRATION = 'BetterPushback Integration',
     YANSHINTEGRATION = 'YANSH Integration',

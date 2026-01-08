@@ -1864,7 +1864,11 @@ function P.formatMetarSpeechSummary(metar, runwayName)
         local qnhHpa = tonumber(metar_data.pressure.qnh_hpa)
         if qnhHpa then
             local qnhText = nil
-            if get(P.baroinhpa) == def.ON then
+            local useHpa = false
+            if yal and yal.baroinhpa then
+                useHpa = (get(yal.baroinhpa) == def.ON)
+            end
+            if useHpa then
                 qnhText = P.formatQnhValue(qnhHpa, true)
             else
                 qnhText = P.formatQnhValue(P.convertpressure(qnhHpa), false)
@@ -4029,9 +4033,7 @@ function P.getnavdataindices(navdatatable, icao, rwy, navtypes)
     if #exactMatches > 0 then
         return exactMatches
     end
-    if #offsetMatches == 0 then
-        P.logInfoTS(string.format("Navdata: no runway match for %s %s (%s)", tostring(icao), tostring(rwy), table.concat(navtypeList, ",")))
-    end
+    
     return offsetMatches
 end
 
