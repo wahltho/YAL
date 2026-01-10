@@ -3303,9 +3303,12 @@ function M.fillProcedureTable()
                             set(P.mcpheading, headingrounded)
                         end
                     end,
-                    confirm = function()
+                    confirm = function(loop)
                         local headingrounded = getMcpHeadingTarget()
                         if (headingrounded and (get(P.aphdgselstat) == def.OFF) and (headingrounded == get(P.mcpheading))) then
+                            if loop then
+                                loop.mcpHeadingSet = true
+                            end
                             return "M C P Heading checked " .. helpers.addspaces(helpers.padNumberWithZerosStrict(headingrounded, 3))
                         end
                         return false
