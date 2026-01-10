@@ -4486,6 +4486,24 @@ function P.ongoingtasks()
         P.savetimer = nil
     end
 
+    local headingSyncInterval = tonumber(P.configvalues[def.CONFIGHEADINGSYNCINTERVAL] or 0) or 0
+    if headingSyncInterval > 0 then
+        if (P.headingsynctimer == nil) then
+            P.headingsynctimer = sasl.createTimer()
+            sasl.startTimer(P.headingsynctimer)
+        elseif (sasl.getElapsedSeconds(P.headingsynctimer) >= headingSyncInterval) then
+            local inAir = (get(P.airgroundsensor) == def.OFF)
+            local apOn = (get(P.aponstat) == def.ON)
+            if inAir and apOn and (get(P.aphdgselstat) == def.OFF) then
+                P.headingsync()
+            end
+            sasl.startTimer(P.headingsynctimer)
+        end
+    elseif (P.headingsynctimer ~= nil) then
+        sasl.stopTimer(P.headingsynctimer)
+        P.headingsynctimer = nil
+    end
+
     local groundspeed = get(P.groundspeed) or 0
     local onDepartureRunway = P.aircraftonrwy and P.aircraftonrwy(def.DEPARTURE, 0.0003, 20)
     local onArrivalRunway = P.aircraftonrwy and P.aircraftonrwy(def.ARRIVAL, 0.0001, 20)

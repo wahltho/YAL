@@ -70,6 +70,7 @@ addCheckbox('VREF30','VREF30')
 addCheckbox('CUSTOMAPPROACHCALC','CUSTOMAPPROACHCALC')
 addCheckbox('LOWERDU','LOWERDU')
 addCheckbox('HIDEEFBS','HIDEEFBS')
+addNumber('HEADINGSYNCINTERVAL','HEADINGSYNCINTERVAL',1,4)
 addNumber('TODPAUSEQUITTIME','TODPAUSEQUITTIME',1,5)
 addNumber('SAVETIME','SAVETIME',1,5)
 addNumber('SAVENUMBER','SAVENUMBER',1,5)
@@ -171,7 +172,7 @@ function M.newComponent(ctx)
         drawRectangle(0, h - headerH, w, headerH, {0.12, 0.12, 0.12, 0.95})
 
         -- Layout: two columns, with a fixed split (leftCount items on the left)
-        local leftCount = 28
+        local leftCount = 29
         local half = leftCount
         local spacing = lineHeight + 6
         local leftX = 16

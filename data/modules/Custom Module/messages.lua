@@ -12,6 +12,7 @@ local english = {
     VOICEREADBACK = 'Command Voice Readback',
     AUTOFUNCTIONS = 'Automatic Functions',
     FMCAUTOMATION = 'FMC Automation',
+    HEADINGSYNCINTERVAL = 'Heading Sync Interval (sec, 0=off)',
     VOICEADVICEONLY = 'Voice Advice Only',
     BPBINTEGRATION = 'BetterPushback Integration',
     YANSHINTEGRATION = 'YANSH Integration',
