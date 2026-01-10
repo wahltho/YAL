@@ -143,6 +143,10 @@ function M.newComponent(ctx)
         local def = ctx.def
         local font = getSafeFont(def)
         local color = {0.9, 0.9, 0.95, 1}
+        local layout = {
+            close = { x = w - 24, y = h - headerH, w = 24, h = headerH },
+            scroll = nil
+        }
 
         drawRectangle(0, 0, w, h, {0, 0, 0, 0.75})
         drawFrame(0.5, 0.5, w - 1, h - 1, {0.6, 0.6, 0.6, 0.8})
@@ -302,13 +306,25 @@ function M.newComponent(ctx)
             local rel = (maxOffset == 0) and 0 or (comp.scrollOffset / maxOffset)
             local thumbY = (h - headerH - controlAreaH - 12) - (rel * travel) - thumbHeight
             local trackX = w - 10
-            drawRectangle(trackX, (h - headerH - controlAreaH - 12) - trackHeight, 6, trackHeight, {0.3, 0.3, 0.3, 0.5})
+            local trackTop = h - headerH - controlAreaH - 12
+            drawRectangle(trackX, trackTop - trackHeight, 6, trackHeight, {0.3, 0.3, 0.3, 0.5})
             drawRectangle(trackX, thumbY, 6, thumbHeight, {0.8, 0.8, 0.8, 0.9})
+            layout.scroll = {
+                x = trackX,
+                w = 6,
+                top = trackTop,
+                bottom = trackTop - trackHeight,
+                trackHeight = trackHeight,
+                thumbHeight = math.max(12, trackHeight * (availableLines / (availableLines + maxOffset))),
+                maxOffset = maxOffset
+            }
         end
+        comp._layout = layout
     end
 
     function comp:onMouseDown(x, y, button)
         local wCur, hCur = getSize()
+        local layout = self._layout
         if button == MB_LEFT then
             -- Buttons
             for _, b in ipairs(self._buttons or {}) do
@@ -318,26 +334,25 @@ function M.newComponent(ctx)
                 end
             end
             -- Close
-            if y >= (hCur - headerH) and x >= (wCur - 30) then
+            if layout and layout.close and x >= layout.close.x and x <= (layout.close.x + layout.close.w) and y >= layout.close.y and y <= (layout.close.y + layout.close.h) then
                 if self._window then
                     self._window:setIsVisible(false)
                 end
                 return true
             end
             -- scrollbar drag
-            local trackX = wCur - 10
-            local trackHeight = hCur - headerH - controlAreaH - 16
-            local availableLines = math.max(1, math.floor(trackHeight / lineHeight))
-            local maxOffset = math.max(0, self._lastMaxOffset or 0)
-            if maxOffset > 0 and x >= trackX and x <= (trackX + 6) and y >= (hCur - headerH - controlAreaH - 12 - trackHeight) and y <= (hCur - headerH - controlAreaH - 12) then
-                self.scrollDrag = {
-                    startY = y,
-                    startOffset = self.scrollOffset,
-                    trackHeight = trackHeight,
-                    thumbHeight = math.max(12, trackHeight * (availableLines / (availableLines + maxOffset))),
-                    maxOffset = maxOffset
-                }
-                return true
+            if layout and layout.scroll and layout.scroll.maxOffset > 0 then
+                local scroll = layout.scroll
+                if x >= scroll.x and x <= (scroll.x + scroll.w) and y >= scroll.bottom and y <= scroll.top then
+                    self.scrollDrag = {
+                        startY = y,
+                        startOffset = self.scrollOffset,
+                        trackHeight = scroll.trackHeight,
+                        thumbHeight = scroll.thumbHeight,
+                        maxOffset = scroll.maxOffset
+                    }
+                    return true
+                end
             end
         end
         return false
