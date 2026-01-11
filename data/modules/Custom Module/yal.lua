@@ -4502,20 +4502,13 @@ function P.ongoingtasks()
             local raProc = P.proceduretable and P.proceduretable[def.RADIOALTITUDEB1000PROCEDURE]
             local raLoopIdx = raProc and raProc.loop
             local raLoop = (raLoopIdx and P.loopStateTables and P.loopStateTables[raLoopIdx]) or nil
-            if raLoop and raLoop.lock == def.RADIOALTITUDEB1000PROCEDURE then
-                headingSetByProc = raLoop.mcpHeadingSet == true
-            elseif raLoop and raLoop.mcpHeadingSet ~= nil then
+            if raLoop and raLoop.mcpHeadingSet == true then
+                headingSetByProc = true
+            end
+            if raLoop and raLoop.mcpHeadingSet ~= nil and (get(P.airgroundsensor) == def.ON) then
                 raLoop.mcpHeadingSet = nil
             end
-            local headingDiffOk = false
-            local approachCourse = P.approachCourseMag
-            if not approachCourse or approachCourse == 0 then
-                approachCourse = tonumber(get(P.desrwyheading))
-            end
-            if approachCourse and approachCourse > 0 then
-                headingDiffOk = helpers.headingdiff(get(P.mcpheading), approachCourse) <= 3
-            end
-            local blockHeadingSync = lateralCaptured and (headingSetByProc or headingDiffOk)
+            local blockHeadingSync = headingSetByProc or lateralCaptured
             if inAir and apOn and (get(P.aphdgselstat) == def.OFF) and (not blockHeadingSync) then
                 P.headingsync()
             end

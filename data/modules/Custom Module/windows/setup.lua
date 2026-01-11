@@ -163,7 +163,7 @@ function M.newComponent(ctx)
         local colHitW = w / 2 - 20
         local layout = {
             hits = {},
-            close = { x = w - 24, y = h - headerH, w = 24, h = headerH },
+            close = { x = w - 80, y = h - headerH - 4, w = 80, h = headerH + 8 },
             scroll = nil
         }
 
@@ -172,7 +172,7 @@ function M.newComponent(ctx)
         drawRectangle(0, h - headerH, w, headerH, {0.12, 0.12, 0.12, 0.95})
 
         -- Layout: two columns, with a fixed split (leftCount items on the left)
-        local leftCount = 29
+        local leftCount = 30
         local half = leftCount
         local spacing = lineHeight + 6
         local leftX = 16

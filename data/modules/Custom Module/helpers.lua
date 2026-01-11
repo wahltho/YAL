@@ -589,9 +589,10 @@ function P.forceCleanString(inputStr)
     if type(inputStr) == "string" then
         for i = 1, #inputStr do
             local byte = string.byte(inputStr, i)
-            if byte ~= 0 then
-                cleanStr = cleanStr .. string.char(byte)
+            if byte == 0 then
+                break
             end
+            cleanStr = cleanStr .. string.char(byte)
         end
         cleanStr = cleanStr:match("^(.-)%s*$") or cleanStr
     end
