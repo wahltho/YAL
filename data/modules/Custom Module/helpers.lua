@@ -102,6 +102,9 @@ ffi.cdef [[
 
 --------------------------------------------------------------------------------------------------------------
 local acf_tailnum = globalProperty("sim/aircraft/view/acf_tailnum")
+local onground_any = globalProperty("sim/flightmodel/failures/onground_any")
+local parking_brake_pos = globalProperty("laminar/B738/parking_brake_pos")
+local parking_brake_ratio = globalProperty("sim/cockpit2/controls/parking_brake_ratio")
 
 
 P.xpVersion = sasl.getXPVersion()
@@ -119,6 +122,25 @@ end
 function P.logInfoTS(message)
     local timestamp = string.format("[%s]", os.date("%H:%M:%S"))
     sasl.logInfo(string.format("%s %s", timestamp, tostring(message)))
+end
+
+local function get_flightstate()
+    if not P._flightstate_dr then
+        local ok, dr = pcall(globalProperty, "YAL/state/flightstate")
+        if ok then
+            P._flightstate_dr = dr
+        else
+            return nil
+        end
+    end
+    return get(P._flightstate_dr)
+end
+
+local function views_change_allowed()
+    local on_ground = get(onground_any) == def.ON
+    local park_set = (get(parking_brake_pos) == def.ON) or (get(parking_brake_ratio) >= 0.9)
+    local state = get_flightstate()
+    return on_ground and park_set and (state == def.FLIGHTSTATEPREFLIGHT)
 end
 
 --------------------------------------------------------------------------------------------------------------
@@ -4644,8 +4666,15 @@ local function rewrite_file(path, line_fn)
     outfile:close()
     local ok, err3 = os.rename(tmp, path)
     if not ok then
-        os.remove(tmp)
-        return false, err3
+        local err_text = tostring(err3 or ""):lower()
+        if err_text:find("exist") then
+            os.remove(path)
+            ok, err3 = os.rename(tmp, path)
+        end
+        if not ok then
+            os.remove(tmp)
+            return false, err3
+        end
     end
     return true
 end
@@ -4704,12 +4733,17 @@ end
 
 function P.adjustQuickViewsForCgChange()
     local settings = require("settings")
+    if not views_change_allowed() then
+        P.logInfoTS("QuickViews CG update blocked (requires preflight, on ground, parking brake set)")
+        return
+    end
     local base = get_zibo_base_path()
     local variants = {
         { name = "4k", acf = "b738_4k.acf", prefs = "b738_4k_prefs.txt", keyY = "CG_BASE_4K_Y", keyZ = "CG_BASE_4K_Z" },
         { name = "2k", acf = "b738.acf", prefs = "b738_prefs.txt", keyY = "CG_BASE_2K_Y", keyZ = "CG_BASE_2K_Z" },
     }
     local cg_map = {}
+    local did_adjust = false
 
     for _, v in ipairs(variants) do
         local acf_path = base .. v.acf
@@ -4739,6 +4773,7 @@ function P.adjustQuickViewsForCgChange()
                     local delta_m = delta_z * 0.3048
                     local ok, err2 = shift_quickviews_z(prefs_path, delta_m)
                     if ok then
+                        did_adjust = true
                         settings.appSettings[v.keyY] = cg.vert
                         settings.appSettings[v.keyZ] = cg.long
                         settings.writeSettings(settings.appSettings)
@@ -4758,9 +4793,18 @@ function P.adjustQuickViewsForCgChange()
             P.logInfoTS(string.format("CG mismatch 4k vs 2k: dZ=%.4f ft, dY=%.4f ft", diff_z, diff_y))
         end
     end
+
+    if did_adjust then
+        P.logInfoTS("QuickViews CG update: reloading aircraft to persist changes")
+        P.command_once("sim/operation/reload_aircraft")
+    end
 end
 
 function P.applyDefaultViewFromQV0()
+    if not views_change_allowed() then
+        P.logInfoTS("Default view update blocked (requires preflight, on ground, parking brake set)")
+        return
+    end
     local base = get_zibo_base_path()
     local variants = {
         { name = "4k", acf = "b738_4k.acf", prefs = "b738_4k_prefs.txt" },
