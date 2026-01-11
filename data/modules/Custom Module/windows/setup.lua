@@ -345,7 +345,7 @@ function M.newComponent(ctx)
         layout.buttons = {
             {
                 id = "apply_qv0",
-                label = "Apply QV0 to Default View (XP restart required)",
+                label = "Apply QV0 to Default View (XP RESTART REQUIRED)",
                 x = btnX,
                 y = btnY + buttonH + 6,
                 w = buttonW,
@@ -353,7 +353,7 @@ function M.newComponent(ctx)
             },
             {
                 id = "adjust_qv_cg",
-                label = "Adjust QVs after CG shift (XP restart required)",
+                label = "Adjust QVs after CG shift (A/C RELOAD REQUIRED)",
                 x = btnX,
                 y = btnY,
                 w = buttonW,
