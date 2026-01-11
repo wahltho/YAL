@@ -44,6 +44,9 @@ function P.YalinitGlobal()
     P.todDiscontinuityWarned10 = false
     P.routeEndsEarlyWarned = false
 
+    P.windshieldIcingStarted = false
+    P.windshieldIcingApplied = false
+
 
     --------------------------------------------------------------------------------------------------------------
 
@@ -297,6 +300,8 @@ function P.initDataref()
     P.batteryswitchcover = globalPropertyfae("laminar/B738/cover", 3)
     P.emergencylights = globalProperty("laminar/B738/toggle_switch/emer_exit_lights")
     P.emergencylightcover = globalPropertyfae("laminar/B738/cover", 10)
+    P.windowiceaddeddelta = globalProperty("sim/flightmodel/failures/window_ice_added_delta")
+    P.windowiceunheated = globalProperty("sim/flightmodel/failures/window_ice_unheated")
 
     P.apgoaround = globalProperty("laminar/B738/autopilot/ap_goaround")
 
@@ -4435,6 +4440,21 @@ function P.ongoingtasks()
     elseif (sasl.getElapsedSeconds(P.updatemetartimer) > 300) then
         P.updatemetar()
         sasl.startTimer(P.updatemetartimer)
+    end
+
+    if (not P.windshieldIcingStarted) then
+        local icyCondition = (get(P.windowiceunheated) > 0)
+        if icyCondition then
+            local coldAndDark = (get(P.battery) == def.OFF) and (get(P.airgroundsensor) == def.ON)
+            if coldAndDark then
+                if not P.windshieldIcingApplied then
+                    set(P.windowiceaddeddelta, def.ZIBOWINDSHIELDICEDELTA)
+                    P.windshieldIcingApplied = true
+                end
+            else
+                P.windshieldIcingStarted = true
+            end
+        end
     end
 
     if ((P.apgoaroundtemp ~= get(P.apgoaround)) and (get(P.apgoaround) == def.ON)) then
