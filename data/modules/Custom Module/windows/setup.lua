@@ -54,9 +54,6 @@ addCheckbox('VOICEREADBACK','VOICEREADBACK')
 addCheckbox('AUTOFUNCTIONS','AUTOFUNCTIONS')
 addCheckbox('FMCAUTOMATION','FMCAUTOMATION')
 addCheckbox('VOICEADVICEONLY','VOICEADVICEONLY')
-addCheckbox('BPBINTEGRATION','BPBINTEGRATION')
-addCheckbox('YANSHINTEGRATION','YANSHINTEGRATION')
-addCheckbox('AUTOFUELING','AUTOFUELING')
 addCheckbox('WAKEOVERRIDE','WAKEOVERRIDE')
 addCheckbox('AUTOANTIICE','AUTOANTIICE')
 addCheckbox('AUTOWIPER','AUTOWIPER')
@@ -99,6 +96,9 @@ addSlider('INSTRBRIGHTUPPERDU','INSTRBRIGHTUPPERDU',0,1,0.1)
 addSlider('INSTRBRIGHTLOWDU','INSTRBRIGHTLOWDU',0,1,0.1)
 addSlider('INSTRBRIGHTINBDDUS','INSTRBRIGHTINBDDUS',0,1,0.1)
 addCheckbox('IGNOREALLBRIGHTHNESSSETTINGS','IGNOREALLBRIGHTHNESSSETTINGS')
+addCheckbox('BPBINTEGRATION','BPBINTEGRATION')
+addCheckbox('YANSHINTEGRATION','YANSHINTEGRATION')
+addCheckbox('AUTOFUELING','AUTOFUELING')
 addCheckbox('SHOWBETAUPDATES','SHOWBETAUPDATES')
 addCheckbox('DEBUGMODE','DEBUGMODE')
 
@@ -172,7 +172,7 @@ function M.newComponent(ctx)
         drawRectangle(0, h - headerH, w, headerH, {0.12, 0.12, 0.12, 0.95})
 
         -- Layout: two columns, with a fixed split (leftCount items on the left)
-        local leftCount = 30
+        local leftCount = 27
         local half = leftCount
         local spacing = lineHeight + 6
         local leftX = 16
