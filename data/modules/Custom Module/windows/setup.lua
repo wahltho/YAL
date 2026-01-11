@@ -161,10 +161,13 @@ function M.newComponent(ctx)
         local numberBoxWidthLeft = 50
         local numberBoxWidthRight = 30
         local colHitW = w / 2 - 20
+        local buttonH = lineHeight + 4
+        local buttonW = colHitW
         local layout = {
             hits = {},
             close = { x = w - 80, y = h - headerH - 4, w = 80, h = headerH + 8 },
-            scroll = nil
+            scroll = nil,
+            buttons = {}
         }
 
         drawRectangle(0, 0, w, h, {0, 0, 0, 0.75})
@@ -336,6 +339,33 @@ function M.newComponent(ctx)
         drawTextLine(font, 10, h - headerH + 4, wTitle, color)
         drawTextLine(font, w - 18, h - headerH + 4, "X", color)
 
+        -- Buttons (anchored bottom-right, do not affect list layout)
+        local btnX = rightX
+        local btnY = 6
+        layout.buttons = {
+            {
+                id = "apply_qv0",
+                label = "Apply QV0 to Default View (XP restart required)",
+                x = btnX,
+                y = btnY + buttonH + 6,
+                w = buttonW,
+                h = buttonH
+            },
+            {
+                id = "adjust_qv_cg",
+                label = "Adjust QVs after CG shift (XP restart required)",
+                x = btnX,
+                y = btnY,
+                w = buttonW,
+                h = buttonH
+            },
+        }
+        for _, btn in ipairs(layout.buttons) do
+            drawRectangle(btn.x, btn.y, btn.w, btn.h, {0.12, 0.12, 0.12, 0.95})
+            drawFrame(btn.x, btn.y, btn.w, btn.h, {0.8, 0.8, 0.8, 0.9})
+            drawTextLine(font, btn.x + 6, btn.y + 2, btn.label, color)
+        end
+
         -- Draw scrollbar if needed
         if maxOffset > 0 then
             local trackHeight = scrollHeight
@@ -387,6 +417,17 @@ function M.newComponent(ctx)
                         maxOffset = scroll.maxOffset
                     }
                     return true
+                end
+            end
+            for _, btn in ipairs(layout.buttons or {}) do
+                if x >= btn.x and x <= (btn.x + btn.w) and y >= btn.y and y <= (btn.y + btn.h) then
+                    if btn.id == "adjust_qv_cg" then
+                        helpers.adjustQuickViewsForCgChange()
+                        return true
+                    elseif btn.id == "apply_qv0" then
+                        helpers.applyDefaultViewFromQV0()
+                        return true
+                    end
                 end
             end
             for _, hit in ipairs(layout.hits or {}) do

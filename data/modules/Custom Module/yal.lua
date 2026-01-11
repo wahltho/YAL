@@ -941,6 +941,8 @@ function P.initializeScript()
 
     P.readconfig()
 
+    helpers.checkCgBaselineAtStartup()
+
     helpers.buildnavdatatable(P.navdatatable)
     helpers.buildairportdatatable(P.airportdatatable)
     P.zibocalctable = helpers.loadZiboReferenceTables() or {}

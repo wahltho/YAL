@@ -4517,4 +4517,301 @@ function P.atmoIasToTas(ias_kt, alt_ft)
     return ias_to_tas(ias_kt or 0, alt_ft or 0)
 end
 
+-- CG / QuickView helpers ------------------------------------------------------
+local function get_zibo_base_path()
+    return sasl.getXPlanePath() .. def.OSSEPARATOR .. "Aircraft" .. def.OSSEPARATOR .. "B737-800X" .. def.OSSEPARATOR
+end
+
+local function read_acf_cg(path)
+    local file, err = io.open(path, "r")
+    if not file then
+        return nil, err
+    end
+    local cg = { lat = 0.0 }
+    for line in file:lines() do
+        local t1, t2, t3 = line:match("^(%S+)%s+(%S+)%s+(%S+)")
+        if t1 == "P" and t2 == "acf/_cgY" then
+            cg.vert = tonumber(t3)
+        elseif t1 == "P" and t2 == "acf/_cgZ" then
+            cg.long = tonumber(t3)
+        end
+    end
+    file:close()
+    if cg.vert == nil or cg.long == nil then
+        return nil, "CG values not found"
+    end
+    return cg
+end
+
+local function read_acf_default_view(path)
+    local file, err = io.open(path, "r")
+    if not file then
+        return nil, err
+    end
+    local view = {}
+    for line in file:lines() do
+        local t1, t2, t3 = line:match("^(%S+)%s+(%S+)%s+(%S+)")
+        if t1 == "P" and t2 == "acf/_pe_xyz/0" then
+            view.lat = tonumber(t3)
+        elseif t1 == "P" and t2 == "acf/_pe_xyz/1" then
+            view.vert = tonumber(t3)
+        elseif t1 == "P" and t2 == "acf/_pe_xyz/2" then
+            view.long = tonumber(t3)
+        elseif t1 == "P" and t2 == "acf/_ang_offset/0,1" then
+            view.pitch = tonumber(t3)
+        end
+    end
+    file:close()
+    if view.lat == nil or view.vert == nil or view.long == nil or view.pitch == nil then
+        return nil, "Default view values not found"
+    end
+    return view
+end
+
+local function read_qv0(path)
+    local file, err = io.open(path, "r")
+    if not file then
+        return nil, err
+    end
+    local qv = {}
+    for line in file:lines() do
+        local key, val = line:match("^(%S+)%s+([-%d%.]+)")
+        if key == "_iql_pe_x_0" then
+            qv.lat = tonumber(val)
+        elseif key == "_iql_pe_y_0" then
+            qv.vert = tonumber(val)
+        elseif key == "_iql_pe_z_0" then
+            qv.long = tonumber(val)
+        elseif key == "_iql_look_os_the_0" then
+            qv.pitch = tonumber(val)
+        end
+    end
+    file:close()
+    if qv.lat == nil or qv.vert == nil or qv.long == nil or qv.pitch == nil then
+        return nil, "QV0 values not found"
+    end
+    return qv
+end
+
+local function approx_equal(a, b, tol)
+    tol = tol or 0.0001
+    if a == nil or b == nil then return false end
+    return math.abs(a - b) <= tol
+end
+
+local function backup_file(path)
+    local stamp = os.date("%Y%m%d-%H%M%S")
+    local backup_path = path .. ".yal_bak_" .. stamp
+    local infile, err = io.open(path, "rb")
+    if not infile then
+        return false, err
+    end
+    local outfile, err2 = io.open(backup_path, "wb")
+    if not outfile then
+        infile:close()
+        return false, err2
+    end
+    while true do
+        local chunk = infile:read(8192)
+        if not chunk then break end
+        outfile:write(chunk)
+    end
+    infile:close()
+    outfile:close()
+    return true, backup_path
+end
+
+local function rewrite_file(path, line_fn)
+    local infile, err = io.open(path, "r")
+    if not infile then
+        return false, err
+    end
+    local ok, backup_or_err = backup_file(path)
+    if not ok then
+        infile:close()
+        return false, backup_or_err
+    end
+    local tmp = path .. ".yal_tmp"
+    local outfile, err2 = io.open(tmp, "w")
+    if not outfile then
+        infile:close()
+        return false, err2
+    end
+    for line in infile:lines() do
+        outfile:write(line_fn(line) .. "\n")
+    end
+    infile:close()
+    outfile:close()
+    local ok, err3 = os.rename(tmp, path)
+    if not ok then
+        os.remove(tmp)
+        return false, err3
+    end
+    return true
+end
+
+local function shift_quickviews_z(prefs_path, delta_m)
+    return rewrite_file(prefs_path, function(line)
+        local prefix, idx, val = line:match("^(_iql_pe_z_)(%d+)%s+([-%d%.]+)")
+        if prefix then
+            local old = tonumber(val)
+            if old then
+                local new_val = old - delta_m
+                return string.format("%s%s %.6f", prefix, idx, new_val)
+            end
+        end
+        return line
+    end)
+end
+
+local function apply_default_view_from_qv0(acf_path, prefs_path)
+    local qv, err = read_qv0(prefs_path)
+    if not qv then
+        return false, err
+    end
+    local cg, err2 = read_acf_cg(acf_path)
+    if not cg then
+        return false, err2
+    end
+    local current_view, err3 = read_acf_default_view(acf_path)
+    if not current_view then
+        return false, err3
+    end
+    local meters_to_feet = 3.28084
+    local new_lat = (cg.lat or 0.0) + (qv.lat * meters_to_feet)
+    local new_vert = cg.vert + (qv.vert * meters_to_feet)
+    local new_long = cg.long + (qv.long * meters_to_feet)
+    local new_pitch = qv.pitch
+
+    if approx_equal(current_view.lat, new_lat) and approx_equal(current_view.vert, new_vert)
+        and approx_equal(current_view.long, new_long) and approx_equal(current_view.pitch, new_pitch) then
+        return true, "no-change"
+    end
+
+    return rewrite_file(acf_path, function(line)
+        if line:match("^P%s+acf/_pe_xyz/0%s+") then
+            return string.format("P acf/_pe_xyz/0 %.6f", new_lat)
+        elseif line:match("^P%s+acf/_pe_xyz/1%s+") then
+            return string.format("P acf/_pe_xyz/1 %.6f", new_vert)
+        elseif line:match("^P%s+acf/_pe_xyz/2%s+") then
+            return string.format("P acf/_pe_xyz/2 %.6f", new_long)
+        elseif line:match("^P%s+acf/_ang_offset/0,1%s+") then
+            return string.format("P acf/_ang_offset/0,1 %.6f", new_pitch)
+        end
+        return line
+    end)
+end
+
+function P.adjustQuickViewsForCgChange()
+    local settings = require("settings")
+    local base = get_zibo_base_path()
+    local variants = {
+        { name = "4k", acf = "b738_4k.acf", prefs = "b738_4k_prefs.txt", keyY = "CG_BASE_4K_Y", keyZ = "CG_BASE_4K_Z" },
+        { name = "2k", acf = "b738.acf", prefs = "b738_prefs.txt", keyY = "CG_BASE_2K_Y", keyZ = "CG_BASE_2K_Z" },
+    }
+    local cg_map = {}
+
+    for _, v in ipairs(variants) do
+        local acf_path = base .. v.acf
+        local prefs_path = base .. v.prefs
+        local cg, err = read_acf_cg(acf_path)
+        if not cg then
+            P.logInfoTS("QuickViews CG update: failed to read " .. v.name .. " CG (" .. tostring(err) .. ")")
+        else
+            cg_map[v.name] = cg
+            local stored_y = tonumber(settings.appSettings[v.keyY])
+            local stored_z = tonumber(settings.appSettings[v.keyZ])
+            if stored_y == nil or stored_z == nil then
+                settings.appSettings[v.keyY] = cg.vert
+                settings.appSettings[v.keyZ] = cg.long
+                settings.writeSettings(settings.appSettings)
+                P.logInfoTS("QuickViews CG update: stored baseline for " .. v.name .. " (no adjustment performed)")
+            else
+                local delta_z = cg.long - stored_z
+                if math.abs(delta_z) < 0.0001 then
+                    if cg.vert ~= stored_y then
+                        settings.appSettings[v.keyY] = cg.vert
+                        settings.appSettings[v.keyZ] = cg.long
+                        settings.writeSettings(settings.appSettings)
+                    end
+                    P.logInfoTS("QuickViews CG update: no CG change for " .. v.name)
+                else
+                    local delta_m = delta_z * 0.3048
+                    local ok, err2 = shift_quickviews_z(prefs_path, delta_m)
+                    if ok then
+                        settings.appSettings[v.keyY] = cg.vert
+                        settings.appSettings[v.keyZ] = cg.long
+                        settings.writeSettings(settings.appSettings)
+                        P.logInfoTS(string.format("QuickViews CG update: %s adjusted (deltaZ %.4f ft)", v.name, delta_z))
+                    else
+                        P.logInfoTS("QuickViews CG update: failed to write " .. v.name .. " prefs (" .. tostring(err2) .. ")")
+                    end
+                end
+            end
+        end
+    end
+
+    if cg_map["4k"] and cg_map["2k"] then
+        local diff_z = math.abs(cg_map["4k"].long - cg_map["2k"].long)
+        local diff_y = math.abs(cg_map["4k"].vert - cg_map["2k"].vert)
+        if diff_z > 0.0001 or diff_y > 0.0001 then
+            P.logInfoTS(string.format("CG mismatch 4k vs 2k: dZ=%.4f ft, dY=%.4f ft", diff_z, diff_y))
+        end
+    end
+end
+
+function P.applyDefaultViewFromQV0()
+    local base = get_zibo_base_path()
+    local variants = {
+        { name = "4k", acf = "b738_4k.acf", prefs = "b738_4k_prefs.txt" },
+        { name = "2k", acf = "b738.acf", prefs = "b738_prefs.txt" },
+    }
+    for _, v in ipairs(variants) do
+        local ok, err = apply_default_view_from_qv0(base .. v.acf, base .. v.prefs)
+        if ok then
+            if err == "no-change" then
+                P.logInfoTS("Default view already matches QV0 (" .. v.name .. ")")
+            else
+                P.logInfoTS("Default view updated from QV0 (" .. v.name .. ")")
+            end
+        else
+            P.logInfoTS("Default view update failed (" .. v.name .. "): " .. tostring(err))
+        end
+    end
+end
+
+function P.checkCgBaselineAtStartup()
+    local settings = require("settings")
+    local base = get_zibo_base_path()
+    local variants = {
+        { name = "4k", acf = "b738_4k.acf", keyY = "CG_BASE_4K_Y", keyZ = "CG_BASE_4K_Z" },
+        { name = "2k", acf = "b738.acf", keyY = "CG_BASE_2K_Y", keyZ = "CG_BASE_2K_Z" },
+    }
+    for _, v in ipairs(variants) do
+        local acf_path = base .. v.acf
+        local cg, err = read_acf_cg(acf_path)
+        if not cg then
+            P.logInfoTS("CG baseline check failed (" .. v.name .. "): " .. tostring(err))
+        else
+            local stored_y = tonumber(settings.appSettings[v.keyY])
+            local stored_z = tonumber(settings.appSettings[v.keyZ])
+            if stored_y == nil or stored_z == nil then
+                settings.appSettings[v.keyY] = cg.vert
+                settings.appSettings[v.keyZ] = cg.long
+                settings.writeSettings(settings.appSettings)
+                P.logInfoTS(string.format("CG baseline stored (%s): Y=%.6f Z=%.6f", v.name, cg.vert, cg.long))
+            else
+                if approx_equal(stored_y, cg.vert) and approx_equal(stored_z, cg.long) then
+                    P.logInfoTS(string.format("CG baseline matches (%s): Y=%.6f Z=%.6f", v.name, stored_y, stored_z))
+                else
+                    P.logInfoTS(string.format(
+                        "CG baseline mismatch (%s): stored Y/Z %.6f/%.6f vs acf %.6f/%.6f",
+                        v.name, stored_y, stored_z, cg.vert, cg.long
+                    ))
+                end
+            end
+        end
+    end
+end
+
 return helpers
