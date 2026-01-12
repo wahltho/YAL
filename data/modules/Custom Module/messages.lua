@@ -17,6 +17,7 @@ local english = {
     BPBINTEGRATION = 'BetterPushback Integration',
     YANSHINTEGRATION = 'YANSH Integration',
     AUTOFUELING = 'YANSH Automatic Fueling',
+    HOPPIEID = 'Hoppie ID',
     DEBUGMODE = 'Debug mode log',
     SHOWBETAUPDATES = 'Show beta updates',
     TODPAUSEQUITTIME = 'Sim exit after Pause at TOD (0-9999 sec)',

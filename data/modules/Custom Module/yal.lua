@@ -698,6 +698,55 @@ function P.initDataref()
     P.fmsselectedstar = nil
     P.fmsselectedapp = nil
 
+    local function ensureHoppieString(path, defaultVal)
+        local handle = globalProperty(path)
+        if not isProperty(handle) then
+            helpers.logInfoTS("Dataref '" .. path .. "' not found. Creating it now.")
+            handle = createGlobalPropertys(path, defaultVal or "", false, true, true)
+        else
+            helpers.logInfoTS("Found existing dataref: '" .. path .. "'")
+        end
+        return handle
+    end
+
+    local function ensureHoppieNumber(path, defaultVal)
+        local handle = globalProperty(path)
+        if not isProperty(handle) then
+            helpers.logInfoTS("Dataref '" .. path .. "' not found. Creating it now.")
+            handle = createGlobalPropertyi(path, defaultVal or 0, false, true, true)
+        else
+            helpers.logInfoTS("Found existing dataref: '" .. path .. "'")
+        end
+        return handle
+    end
+
+    P.hoppie = {}
+    P.hoppie.send_queue = ensureHoppieString("hoppiebridge/send_queue", "")
+    P.hoppie.send_message_to = ensureHoppieString("hoppiebridge/send_message_to", "")
+    P.hoppie.send_message_type = ensureHoppieString("hoppiebridge/send_message_type", "")
+    P.hoppie.send_message_packet = ensureHoppieString("hoppiebridge/send_message_packet", "")
+    P.hoppie.callsign = ensureHoppieString("hoppiebridge/callsign", "")
+    P.hoppie.send_callsign = ensureHoppieString("hoppiebridge/send_callsign", "")
+    P.hoppie.poll_queue = ensureHoppieString("hoppiebridge/poll_queue", "")
+    P.hoppie.poll_message_origin = ensureHoppieString("hoppiebridge/poll_message_origin", "")
+    P.hoppie.poll_message_from = ensureHoppieString("hoppiebridge/poll_message_from", "")
+    P.hoppie.poll_message_type = ensureHoppieString("hoppiebridge/poll_message_type", "")
+    P.hoppie.poll_message_packet = ensureHoppieString("hoppiebridge/poll_message_packet", "")
+    P.hoppie.poll_queue_clear = ensureHoppieNumber("hoppiebridge/poll_queue_clear", 0)
+    P.hoppie.comm_ready = ensureHoppieNumber("hoppiebridge/comm_ready", 0)
+    P.hoppie.logon = ensureHoppieString(def.APPNAMEPREFIX .. "/hoppie/logon", "")
+    P.hoppie.debug_level = ensureHoppieNumber(def.APPNAMEPREFIX .. "/hoppie/debug_level", 1)
+    P.hoppie.status = ensureHoppieString(def.APPNAMEPREFIX .. "/hoppie/status", "")
+    P.hoppie.last_error = ensureHoppieString(def.APPNAMEPREFIX .. "/hoppie/last_error", "")
+    P.hoppie.last_http = ensureHoppieString(def.APPNAMEPREFIX .. "/hoppie/last_http", "")
+    P.hoppie.send_count = ensureHoppieNumber(def.APPNAMEPREFIX .. "/hoppie/send_count", 0)
+    P.hoppie.poll_count = ensureHoppieNumber(def.APPNAMEPREFIX .. "/hoppie/poll_count", 0)
+
+    if P.hoppie.debug_level then
+        local level = sasl.getLogLevel() == LOG_DEBUG and 3 or 1
+        set(P.hoppie.debug_level, level)
+    end
+
     P.needstempinit = true
 end
 
@@ -1175,6 +1224,12 @@ function P.readconfig()
 
     for k, v in pairs(newSettings) do
         P.configvalues[k] = v
+    end
+
+    if P.hoppie and P.hoppie.logon and isProperty(P.hoppie.logon) then
+        local logon = tostring(P.configvalues[def.CONFIGHOPPIEID] or "")
+        logon = logon:gsub("%s+", "")
+        set(P.hoppie.logon, logon)
     end
 
     if P.wakeoverride and isProperty(P.wakeoverride) then
@@ -4428,6 +4483,10 @@ function P.ongoingtasks()
         set(P.debugLevelDataref, current_level)
         if P.xluaLoggingEnabled then
             set(P.xluaLoggingEnabled, current_level == LOG_DEBUG and 1 or 0)
+        end
+        if P.hoppie and P.hoppie.debug_level and isProperty(P.hoppie.debug_level) then
+            local hop_level = current_level == LOG_DEBUG and 3 or 1
+            set(P.hoppie.debug_level, hop_level)
         end
         P.lastPolledDebugLevel = current_level
         sasl.logDebug("Debug level change detected by poll. Saved to dataref: " .. current_level)

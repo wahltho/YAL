@@ -4810,17 +4810,23 @@ function P.applyDefaultViewFromQV0()
         { name = "4k", acf = "b738_4k.acf", prefs = "b738_4k_prefs.txt" },
         { name = "2k", acf = "b738.acf", prefs = "b738_prefs.txt" },
     }
+    local did_adjust = false
     for _, v in ipairs(variants) do
         local ok, err = apply_default_view_from_qv0(base .. v.acf, base .. v.prefs)
         if ok then
             if err == "no-change" then
                 P.logInfoTS("Default view already matches QV0 (" .. v.name .. ")")
             else
+                did_adjust = true
                 P.logInfoTS("Default view updated from QV0 (" .. v.name .. ")")
             end
         else
             P.logInfoTS("Default view update failed (" .. v.name .. "): " .. tostring(err))
         end
+    end
+    if did_adjust then
+        P.logInfoTS("Default view update: reloading aircraft to persist changes")
+        P.command_once("sim/operation/reload_aircraft")
     end
 end
 

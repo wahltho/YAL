@@ -44,6 +44,15 @@ local function addNumber(labelKey, key, minLen, maxLen)
         maxLen = maxLen or 5
     }
 end
+local function addText(labelKey, key, minLen, maxLen)
+    items[#items + 1] = {
+        type = "text",
+        label = messages.translation[labelKey] or labelKey,
+        key = key,
+        minLen = minLen or 0,
+        maxLen = maxLen or 16
+    }
+end
 local function addSlider(labelKey, key, minVal, maxVal, step)
     items[#items + 1] = {type = "slider", label = messages.translation[labelKey] or labelKey, key = key, minVal = minVal, maxVal = maxVal, step = step}
 end
@@ -99,6 +108,7 @@ addCheckbox('IGNOREALLBRIGHTHNESSSETTINGS','IGNOREALLBRIGHTHNESSSETTINGS')
 addCheckbox('BPBINTEGRATION','BPBINTEGRATION')
 addCheckbox('YANSHINTEGRATION','YANSHINTEGRATION')
 addCheckbox('AUTOFUELING','AUTOFUELING')
+addText('HOPPIEID','HOPPIEID',0,16)
 addCheckbox('SHOWBETAUPDATES','SHOWBETAUPDATES')
 addCheckbox('DEBUGMODE','DEBUGMODE')
 
@@ -160,6 +170,8 @@ function M.newComponent(ctx)
         local rightLabelWidth = 190
         local numberBoxWidthLeft = 50
         local numberBoxWidthRight = 30
+        local textBoxWidthLeft = 90
+        local textBoxWidthRight = 90
         local colHitW = w / 2 - 20
         local buttonH = lineHeight + 4
         local buttonW = colHitW
@@ -236,6 +248,24 @@ function M.newComponent(ctx)
                         w = colHitW,
                         h = lineHeight
                     }
+                elseif item.type == "text" then
+                    local isFocus = (comp._focus and comp._focus.key == item.key)
+                    local val = isFocus and (comp._editText or "") or tostring(settings.appSettings[item.key] or "")
+                    local labelText = (item.label or "") .. ":"
+                    local boxX = x + leftLabelWidth
+                    local boxW = textBoxWidthLeft
+                    drawTextLine(font, x, yRow, labelText, color)
+                    drawRectangle(boxX, yRow - 2, boxW, lineHeight, {0.08,0.08,0.08,0.8})
+                    drawFrame(boxX, yRow - 2, boxW, lineHeight, isFocus and {0.95,0.95,0.3,1} or {0.8,0.8,0.8,0.9})
+                    drawTextLine(font, boxX + 4, yRow, val, isFocus and {0.95,0.95,0.3,1} or color)
+                    layout.hits[#layout.hits + 1] = {
+                        kind = "text",
+                        item = item,
+                        x = x,
+                        y = yRow - 2,
+                        w = colHitW,
+                        h = lineHeight
+                    }
                 elseif item.type == "slider" then
                     local val = tonumber(settings.appSettings[item.key]) or item.minVal or ""
                     local btnW = 12
@@ -302,6 +332,24 @@ function M.newComponent(ctx)
                         w = colHitW,
                         h = lineHeight
                     }
+                elseif item.type == "text" then
+                    local isFocus = (comp._focus and comp._focus.key == item.key)
+                    local val = isFocus and (comp._editText or "") or tostring(settings.appSettings[item.key] or "")
+                    local labelText = (item.label or "") .. ":"
+                    local boxX = x + rightLabelWidth
+                    local boxW = textBoxWidthRight
+                    drawTextLine(font, x, yRow, labelText, color)
+                    drawRectangle(boxX, yRow - 2, boxW, lineHeight, {0.08,0.08,0.08,0.8})
+                    drawFrame(boxX, yRow - 2, boxW, lineHeight, isFocus and {0.95,0.95,0.3,1} or {0.8,0.8,0.8,0.9})
+                    drawTextLine(font, boxX + 4, yRow, val, isFocus and {0.95,0.95,0.3,1} or color)
+                    layout.hits[#layout.hits + 1] = {
+                        kind = "text",
+                        item = item,
+                        x = x,
+                        y = yRow - 2,
+                        w = colHitW,
+                        h = lineHeight
+                    }
                 elseif item.type == "slider" then
                     local val = tonumber(settings.appSettings[item.key]) or item.minVal or ""
                     local btnW = 12
@@ -345,7 +393,7 @@ function M.newComponent(ctx)
         layout.buttons = {
             {
                 id = "apply_qv0",
-                label = "Apply QV0 to Default View (XP RESTART REQUIRED)",
+                label = "Apply QV0 to Default View (WILL RELOAD A/C)",
                 x = btnX,
                 y = btnY + buttonH + 6,
                 w = buttonW,
@@ -353,7 +401,7 @@ function M.newComponent(ctx)
             },
             {
                 id = "adjust_qv_cg",
-                label = "Adjust QVs after CG shift (A/C RELOAD REQUIRED)",
+                label = "Adjust QVs after CG shift (WILL RELOAD A/C)",
                 x = btnX,
                 y = btnY,
                 w = buttonW,
@@ -449,7 +497,11 @@ function M.newComponent(ctx)
                         end
                         return true
                     elseif hit.kind == "number" then
-                        self._focus = { key = item.key, minLen = item.minLen or 1, maxLen = item.maxLen or 10 }
+                        self._focus = { key = item.key, minLen = item.minLen or 1, maxLen = item.maxLen or 10, kind = "number" }
+                        self._editText = tostring(settings.appSettings[item.key] or "")
+                        return true
+                    elseif hit.kind == "text" then
+                        self._focus = { key = item.key, minLen = item.minLen or 0, maxLen = item.maxLen or 16, kind = "text" }
                         self._editText = tostring(settings.appSettings[item.key] or "")
                         return true
                     elseif hit.kind == "slider_minus" then
@@ -505,13 +557,14 @@ function M.newComponent(ctx)
 
     function comp:onKeyDown(char, vkey, shift, ctrl, alt)
         if not self._focus then return false end
+        local kind = self._focus.kind or "number"
         if char == SASL_KEY_ESCAPE then
             self._focus = nil
             self._editText = nil
             return true
         elseif char == SASL_KEY_RETURN then
             local txt = self._editText or ""
-            local minL = self._focus.minLen or 1
+            local minL = self._focus.minLen or (kind == "number" and 1 or 0)
             local maxL = self._focus.maxLen or 10
             if #txt >= minL and #txt <= maxL then
                 settings.appSettings[self._focus.key] = txt
@@ -525,13 +578,24 @@ function M.newComponent(ctx)
                 self._editText = string.sub(self._editText, 1, #self._editText - 1)
             end
             return true
-        elseif char and char >= 48 and char <= 57 then
+        elseif kind == "number" and char and char >= 48 and char <= 57 then
             if not self._editText then self._editText = "" end
             local maxL = self._focus.maxLen or 10
             if #self._editText < maxL then
                 self._editText = self._editText .. string.char(char)
             end
             return true
+        elseif kind == "text" and char then
+            local isAlphaNum = (char >= 48 and char <= 57) or (char >= 65 and char <= 90) or (char >= 97 and char <= 122)
+            local isExtra = (char == 45 or char == 95)
+            if isAlphaNum or isExtra then
+                if not self._editText then self._editText = "" end
+                local maxL = self._focus.maxLen or 16
+                if #self._editText < maxL then
+                    self._editText = self._editText .. string.char(char)
+                end
+                return true
+            end
         end
         return false
     end
