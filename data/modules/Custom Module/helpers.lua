@@ -1143,6 +1143,94 @@ function P.decodemetar(metar)
         return false
     end
 
+    local function parse_fraction_value(value_str)
+        if not value_str or value_str == "" then
+            return nil
+        end
+        local slash_pos = string.find(value_str, "/", 1, true)
+        if slash_pos then
+            local num = tonumber(string.sub(value_str, 1, slash_pos - 1))
+            local den = tonumber(string.sub(value_str, slash_pos + 1))
+            if num and den and den ~= 0 then
+                return num / den
+            end
+            return nil
+        end
+        return tonumber(value_str)
+    end
+
+    local function parse_sm_value(sm_text)
+        if not sm_text or sm_text == "" then
+            return nil
+        end
+        local more_than = false
+        local less_than = false
+        local first = string.sub(sm_text, 1, 1)
+        if first == "P" then
+            more_than = true
+            sm_text = string.sub(sm_text, 2)
+        elseif first == "M" then
+            less_than = true
+            sm_text = string.sub(sm_text, 2)
+        end
+
+        local space_pos = string.find(sm_text, " ", 1, true)
+        local total = 0
+        if space_pos then
+            local int_str = string.sub(sm_text, 1, space_pos - 1)
+            local frac_str = string.sub(sm_text, space_pos + 1)
+            if int_str ~= "" then
+                local int_val = tonumber(int_str)
+                if not int_val then
+                    return nil
+                end
+                total = total + int_val
+            end
+            if frac_str ~= "" then
+                local frac_val = parse_fraction_value(frac_str)
+                if not frac_val then
+                    return nil
+                end
+                total = total + frac_val
+            end
+        else
+            local val = parse_fraction_value(sm_text)
+            if not val then
+                return nil
+            end
+            total = total + val
+        end
+
+        return total, more_than, less_than
+    end
+
+    local function apply_visibility_meters(meters, more_than, less_than, vis_index)
+        if type(meters) ~= "number" then
+            return vis_index
+        end
+        result.visibility = { value = math.min(meters, 10000) }
+        if more_than then
+            result.visibility.more_than = true
+        end
+        if less_than then
+            result.visibility.less_than = true
+        end
+        if vis_index and vis_index + 1 <= #parts then
+            local next_part = parts[vis_index + 1]
+            local dir_vis_val, dir_code = string.match(next_part, "^(%d%d%d%d)([NSEW][EW]?)$")
+            if dir_vis_val and dir_code then
+                result.visibility.directional = {
+                    value = tonumber(dir_vis_val),
+                    direction = dir_code
+                }
+                sasl.logDebug(string.format("Parsed directional visibility: %d meters towards %s",
+                              result.visibility.directional.value, result.visibility.directional.direction))
+                return vis_index + 1
+            end
+        end
+        return vis_index
+    end
+
     while (i <= #parts and parsing_main_data) do
         local part = parts[i]
         sasl.logDebug(string.format("Processing part %d: %s", i, part))
@@ -1239,86 +1327,81 @@ function P.decodemetar(metar)
                 parsed = true
             end
 
-        elseif (not result.visibility and string.find(part, "SM$")) then
-            local sm_val_str = string.sub(part, 1, #part - 2)
-            local sm_value
-            local int_part, frac_part = string.match(sm_val_str, "^(%d+)%s+(%d+/%d+)$")
-            if int_part and frac_part then
-                local num, den = string.match(frac_part, "(%d+)/(%d+)")
-                if num and den then
-                    sm_value = tonumber(int_part) + (tonumber(num) / tonumber(den))
-                end
-            else
-                local num, den = string.match(sm_val_str, "^(%d+)/(%d+)$")
-                if num and den then
-                    sm_value = tonumber(num) / tonumber(den)
-                else
-                    sm_value = tonumber(sm_val_str)
-                end
-            end
-
-            if (sm_value) then
-                local meters = math.floor(sm_value * 1609.34 + 0.5)
-                result.visibility = { value = math.min(meters, 10000) }
-                sasl.logDebug(string.format("Parsed visibility: %sSM, converted to %d meters", sm_val_str, result.visibility.value))
-                parsed = true
-
-                -- ## START VISIBILITY CHANGE ##
-                if result.visibility and i + 1 <= #parts then
-                    local next_part = parts[i + 1]
-                    local dir_vis_val, dir_code = string.match(next_part, "^(%d%d%d%d)([NSEW][EW]?)$")
-                    if dir_vis_val and dir_code then
-                        result.visibility.directional = {
-                            value = tonumber(dir_vis_val),
-                            direction = dir_code
-                        }
-                        sasl.logDebug(string.format("Parsed directional visibility: %d meters towards %s",
-                                      result.visibility.directional.value, result.visibility.directional.direction))
-                        i = i + 1
-                    end
-                end
-                -- ## END VISIBILITY CHANGE ##
-            else
-                sasl.logError("Warning: Could not parse SM visibility value from: " .. part)
-            end
         elseif (not result.visibility) then
-            local ndv_value = string.match(part, "^(%d%d%d%d)NDV$")
-            if ndv_value then
-                local numeric_val = tonumber(ndv_value)
-                if ndv_value == "9999" then
-                    result.visibility = { value = 10000 }
-                    sasl.logDebug("Parsed visibility: 10000+ meters (from 9999NDV)")
-                else
-                    result.visibility = { value = numeric_val }
-                    sasl.logDebug(string.format("Parsed visibility: %d meters (NDV)", result.visibility.value))
-                end
-                result.visibility_ndv = true
-                parsed = true
-            elseif #part == 4 and (tonumber(part) or part == "9999") then
-                if (part == "9999") then
-                    result.visibility = { value = 10000 }
-                    sasl.logDebug("Parsed visibility: 10000+ meters (from 9999)")
-                else
-                    result.visibility = { value = tonumber(part) }
-                    sasl.logDebug(string.format("Parsed visibility: %d meters", result.visibility.value))
-                end
-                parsed = true
+            local visibility_parsed = false
 
-                -- ## START VISIBILITY CHANGE ##
-                if result.visibility and i + 1 <= #parts then
-                    local next_part = parts[i + 1]
-                    local dir_vis_val, dir_code = string.match(next_part, "^(%d%d%d%d)([NSEW][EW]?)$")
-                    if dir_vis_val and dir_code then
-                        result.visibility.directional = {
-                            value = tonumber(dir_vis_val),
-                            direction = dir_code
-                        }
-                        sasl.logDebug(string.format("Parsed directional visibility: %d meters towards %s",
-                                      result.visibility.directional.value, result.visibility.directional.direction))
-                        i = i + 1
+            if tonumber(part) and i + 1 <= #parts then
+                local next_part = parts[i + 1]
+                if #next_part > 2 and string.sub(next_part, -2) == "SM" then
+                    local sm_val_str = part .. " " .. string.sub(next_part, 1, #next_part - 2)
+                    local sm_value, more_than, less_than = parse_sm_value(sm_val_str)
+                    if sm_value then
+                        local meters = math.floor(sm_value * 1609.34 + 0.5)
+                        local vis_index = i + 1
+                        i = apply_visibility_meters(meters, more_than, less_than, vis_index)
+                        sasl.logDebug(string.format("Parsed visibility: %sSM, converted to %d meters", sm_val_str, result.visibility.value))
+                        parsed = true
+                        visibility_parsed = true
                     end
                 end
-                -- ## END VISIBILITY CHANGE ##
+            end
+
+            if (not visibility_parsed) and (#part > 2) and (string.sub(part, -2) == "SM") then
+                local sm_val_str = string.sub(part, 1, #part - 2)
+                local sm_value, more_than, less_than = parse_sm_value(sm_val_str)
+                if (sm_value) then
+                    local meters = math.floor(sm_value * 1609.34 + 0.5)
+                    local vis_index = i
+                    i = apply_visibility_meters(meters, more_than, less_than, vis_index)
+                    sasl.logDebug(string.format("Parsed visibility: %sSM, converted to %d meters", sm_val_str, result.visibility.value))
+                    parsed = true
+                    visibility_parsed = true
+                else
+                    sasl.logError("Warning: Could not parse SM visibility value from: " .. part)
+                end
+            end
+
+            if (not visibility_parsed) and (#part > 2) and (string.sub(part, -2) == "KM") and (string.sub(part, -3) ~= "KMH") then
+                local km_val_str = string.sub(part, 1, #part - 2)
+                local km_val = tonumber(km_val_str)
+                if km_val then
+                    local meters = math.floor(km_val * 1000 + 0.5)
+                    local vis_index = i
+                    i = apply_visibility_meters(meters, false, false, vis_index)
+                    sasl.logDebug(string.format("Parsed visibility: %sKM, converted to %d meters", km_val_str, result.visibility.value))
+                    parsed = true
+                    visibility_parsed = true
+                else
+                    sasl.logError("Warning: Could not parse KM visibility value from: " .. part)
+                end
+            end
+
+            if (not visibility_parsed) then
+                local ndv_value = string.match(part, "^(%d%d%d%d)NDV$")
+                if ndv_value then
+                    local numeric_val = tonumber(ndv_value)
+                    local meters = (ndv_value == "9999") and 10000 or numeric_val
+                    local vis_index = i
+                    i = apply_visibility_meters(meters, false, false, vis_index)
+                    if ndv_value == "9999" then
+                        sasl.logDebug("Parsed visibility: 10000+ meters (from 9999NDV)")
+                    else
+                        sasl.logDebug(string.format("Parsed visibility: %d meters (NDV)", result.visibility.value))
+                    end
+                    result.visibility_ndv = true
+                    parsed = true
+                    visibility_parsed = true
+                elseif #part == 4 and (tonumber(part) or part == "9999") then
+                    local meters = (part == "9999") and 10000 or tonumber(part)
+                    local vis_index = i
+                    i = apply_visibility_meters(meters, false, false, vis_index)
+                    if (part == "9999") then
+                        sasl.logDebug("Parsed visibility: 10000+ meters (from 9999)")
+                    else
+                        sasl.logDebug(string.format("Parsed visibility: %d meters", result.visibility.value))
+                    end
+                    parsed = true
+                end
             end
 
         elseif (string.sub(part, 1, 1) == "R" and string.find(part, "/", 1, true) and #part >= 5) then
@@ -1449,6 +1532,50 @@ function P.decodemetar(metar)
             P.logInfoTS("METAR Parsing unknown element: " .. part)
         end
         i = i + 1
+    end
+
+    if not (result.pressure and tonumber(result.pressure.qnh_hpa)) then
+        for _, part in ipairs(parts) do
+            if #part >= 6 and string.sub(part, 1, 3) == "SLP" then
+                local slp_digits = string.sub(part, 4, 6)
+                local slp_val = tonumber(slp_digits)
+                if slp_val then
+                    local base = (slp_val >= 500) and 900 or 1000
+                    local qnh = base + (slp_val / 10)
+                    result.pressure = result.pressure or {}
+                    result.pressure.qnh_hpa = qnh
+                    sasl.logDebug(string.format("Parsed pressure from SLP: %s -> %.1f hPa", slp_digits, qnh))
+                    break
+                end
+            end
+        end
+    end
+
+    local need_temp = not (result.temperature and result.temperature.value ~= nil)
+    local need_dew = not (result.dew_point and result.dew_point.value ~= nil)
+    if need_temp or need_dew then
+        for _, part in ipairs(parts) do
+            if #part == 9 and string.sub(part, 1, 1) == "T" then
+                local temp_sign = string.sub(part, 2, 2)
+                local temp_str = string.sub(part, 3, 5)
+                local dew_sign = string.sub(part, 6, 6)
+                local dew_str = string.sub(part, 7, 9)
+                local temp_val = tonumber(temp_str)
+                local dew_val = tonumber(dew_str)
+                if (temp_sign == "0" or temp_sign == "1") and (dew_sign == "0" or dew_sign == "1") and temp_val and dew_val then
+                    local temp = temp_val / 10
+                    if temp_sign == "1" then temp = -temp end
+                    local dew = dew_val / 10
+                    if dew_sign == "1" then dew = -dew end
+                    result.temperature = result.temperature or {}
+                    result.dew_point = result.dew_point or {}
+                    if need_temp then result.temperature.value = temp end
+                    if need_dew then result.dew_point.value = dew end
+                    sasl.logDebug(string.format("Parsed temp/dew from T-group: %.1f C/%.1f C", temp, dew))
+                    break
+                end
+            end
+        end
     end
 
     sasl.logDebug("METAR parsing complete")
@@ -1794,16 +1921,22 @@ function P.formatMetarSpeechSummary(metar, runwayName)
     if metar_data.visibility then
         local vis_val = metar_data.visibility.value
         local vis_part = "Visibility "
+        local vis_prefix = ""
+        if metar_data.visibility.more_than then
+            vis_prefix = "more than "
+        elseif metar_data.visibility.less_than then
+            vis_prefix = "less than "
+        end
         if metar_data.cavok then
             vis_part = "Visibility 10 kilometers or more"
         elseif vis_val >= 10000 then
             vis_part = vis_part .. "10 kilometers or more"
         elseif vis_val >= 1609 then
-            vis_part = vis_part .. string.format("%d statute miles", math.floor(vis_val / 1609.34 + 0.5))
+            vis_part = vis_part .. vis_prefix .. string.format("%d statute miles", math.floor(vis_val / 1609.34 + 0.5))
         elseif vis_val >= 1000 then
-            vis_part = vis_part .. string.format("%d kilometers", math.floor(vis_val / 1000 + 0.5))
+            vis_part = vis_part .. vis_prefix .. string.format("%d kilometers", math.floor(vis_val / 1000 + 0.5))
         else
-            vis_part = vis_part .. string.format("%d meters", vis_val)
+            vis_part = vis_part .. vis_prefix .. string.format("%d meters", vis_val)
         end
         if metar_data.visibility.directional then
              vis_part = vis_part .. string.format(" specific %d meters to the %s",
