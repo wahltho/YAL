@@ -23,6 +23,7 @@
 * X-Plane 11 or 12 (Windows, Mac/Intel/Arm, Linux)
 * Aircraft: B737-800 by Zibo
 * Optional: X-Camera plugin (will be detected automatically)
+* Optional: YAL_hoppiehelper (CPDLC/Hoppie bridge) – https://github.com/wahltho/YAL-Hoppie-Helper
 
 **Please Note:**
 * YAL has virtually no FPS impact as its main functions run once per second, not every frame.
@@ -162,3 +163,4 @@ The settings window allows detailed customization of all automatic features.
 
 **Misc:**
 * **Debug mode log:** Enables verbose logging to the `Log.txt` file for troubleshooting.
+* **Hoppie ID:** Logon for the optional YAL_hoppiehelper (CPDLC/Hoppie bridge).

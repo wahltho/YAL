@@ -171,8 +171,8 @@ function M.newComponent(ctx)
         local numberBoxWidthLeft = 50
         local numberBoxWidthRight = 30
         local textBoxWidthLeft = 90
-        local textBoxWidthRight = 90
         local colHitW = w / 2 - 20
+        local textBoxWidthRight = math.max(80, colHitW - rightLabelWidth - 12)
         local buttonH = lineHeight + 4
         local buttonW = colHitW
         local layout = {
@@ -555,6 +555,28 @@ function M.newComponent(ctx)
         return false
     end
 
+    local function getClipboardText()
+        if sasl.getClipboardText then
+            return sasl.getClipboardText()
+        end
+        if sasl.getClipboardString then
+            return sasl.getClipboardString()
+        end
+        if sasl.getClipboard then
+            return sasl.getClipboard()
+        end
+        return nil
+    end
+
+    local function filterTextInput(raw, maxLen)
+        if not raw or raw == "" then return "" end
+        local filtered = tostring(raw):gsub("[^%w%-]", "")
+        if maxLen and #filtered > maxLen then
+            filtered = string.sub(filtered, 1, maxLen)
+        end
+        return filtered
+    end
+
     function comp:onKeyDown(char, vkey, shift, ctrl, alt)
         if not self._focus then return false end
         local kind = self._focus.kind or "number"
@@ -576,6 +598,13 @@ function M.newComponent(ctx)
         elseif char == 8 then -- backspace
             if self._editText and #self._editText > 0 then
                 self._editText = string.sub(self._editText, 1, #self._editText - 1)
+            end
+            return true
+        elseif kind == "text" and ctrl and (char == 22 or char == 86 or char == 118 or vkey == 86) then
+            local clip = getClipboardText()
+            if clip then
+                local maxL = self._focus.maxLen or 16
+                self._editText = filterTextInput(clip, maxL)
             end
             return true
         elseif kind == "number" and char and char >= 48 and char <= 57 then
