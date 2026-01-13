@@ -702,7 +702,7 @@ function P.initDataref()
         local handle = globalProperty(path)
         if not isProperty(handle) then
             helpers.logInfoTS("Dataref '" .. path .. "' not found. Creating it now.")
-            handle = createGlobalPropertys(path, defaultVal or "", false, true, true)
+            handle = createGlobalPropertys(path, defaultVal or "", false, true, false)
         else
             helpers.logInfoTS("Found existing dataref: '" .. path .. "'")
         end
@@ -713,7 +713,7 @@ function P.initDataref()
         local handle = globalProperty(path)
         if not isProperty(handle) then
             helpers.logInfoTS("Dataref '" .. path .. "' not found. Creating it now.")
-            handle = createGlobalPropertyi(path, defaultVal or 0, false, true, true)
+            handle = createGlobalPropertyi(path, defaultVal or 0, false, true, false)
         else
             helpers.logInfoTS("Found existing dataref: '" .. path .. "'")
         end
@@ -733,6 +733,7 @@ function P.initDataref()
     P.hoppie.poll_message_type = ensureHoppieString("hoppiebridge/poll_message_type", "")
     P.hoppie.poll_message_packet = ensureHoppieString("hoppiebridge/poll_message_packet", "")
     P.hoppie.poll_queue_clear = ensureHoppieNumber("hoppiebridge/poll_queue_clear", 0)
+    P.hoppie.poll_freq_fast = ensureHoppieNumber("hoppiebridge/poll_frequency_fast", 0)
     P.hoppie.comm_ready = ensureHoppieNumber("hoppiebridge/comm_ready", 0)
     P.hoppie.logon = ensureHoppieString(def.APPNAMEPREFIX .. "/hoppie/logon", "")
     P.hoppie.debug_level = ensureHoppieNumber(def.APPNAMEPREFIX .. "/hoppie/debug_level", 1)

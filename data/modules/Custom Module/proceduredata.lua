@@ -117,6 +117,13 @@ local function getRunwayTrueFromEndpoints()
     return nil
 end
 
+local function isLocalizerNavType(navType)
+    return navType == def.NAVTYPEILS
+        or navType == def.NAVTYPELOC
+        or navType == def.NAVTYPELDA
+        or navType == def.NAVTYPEIGS
+end
+
 local function getFmcApproachRefData()
     if not helpers.fmcHeaderContains("APPROACH REF") then
         return nil
@@ -135,6 +142,12 @@ local function getFmcApproachRefData()
     local navType = nil
     if upperX:find("ILS", 1, true) then
         navType = def.NAVTYPEILS
+    elseif upperX:find("LDA", 1, true) then
+        navType = def.NAVTYPELDA
+    elseif upperX:find("LOC", 1, true) then
+        navType = def.NAVTYPELOC
+    elseif upperX:find("IGS", 1, true) then
+        navType = def.NAVTYPEIGS
     elseif upperX:find("GLS", 1, true) then
         navType = def.NAVTYPEGLS
     elseif upperX:find("LPV", 1, true) then
@@ -158,7 +171,7 @@ local function getFmcApproachRefData()
     if left then
         left = left:gsub("[^%d%.]", "")
         if left ~= "" then
-            if navType == def.NAVTYPEILS then
+            if isLocalizerNavType(navType) then
                 local freqFloat = tonumber(left)
                 if not freqFloat or freqFloat < 108.0 or freqFloat > 117.95 then
                     return nil
@@ -186,8 +199,8 @@ local function getFmcApproachRefCourse(entryNavType)
     if not fmc or not fmc.course then
         return nil
     end
-    if entryNavType == def.NAVTYPEILS then
-        if fmc.navType ~= def.NAVTYPEILS then
+    if isLocalizerNavType(entryNavType) then
+        if not isLocalizerNavType(fmc.navType) then
             return nil
         end
     elseif entryNavType == def.NAVTYPEGLS then
@@ -195,7 +208,7 @@ local function getFmcApproachRefCourse(entryNavType)
             return nil
         end
     elseif entryNavType == def.NAVTYPELPV or entryNavType == def.NAVTYPERNAV then
-        if fmc.navType == def.NAVTYPEILS then
+        if isLocalizerNavType(fmc.navType) then
             return nil
         end
     end
@@ -207,11 +220,11 @@ local function getFmcApproachRefFrequency(entryNavType)
     if not fmc or not fmc.freq then
         return nil
     end
-    if entryNavType == def.NAVTYPEILS then
-        return (fmc.navType == def.NAVTYPEILS) and fmc.freq or nil
+    if isLocalizerNavType(entryNavType) then
+        return isLocalizerNavType(fmc.navType) and fmc.freq or nil
     end
     if entryNavType == def.NAVTYPEGLS or entryNavType == def.NAVTYPELPV then
-        if fmc.navType == def.NAVTYPEILS then
+        if isLocalizerNavType(fmc.navType) then
             return nil
         end
         return fmc.freq
@@ -2726,7 +2739,7 @@ function M.fillProcedureTable()
                 ['check_rwy_suitability'] = {
                     action = function()
                         if P.desmetar.metarfound then
-                            if not helpers.shouldCheckRunwaySuitability(P.desmetar, get(P.desrwy)) then
+                            if not helpers.shouldCheckRunwaySuitability(P.desmetar, get(P.desrwy), P.approachNavType) then
                                 P.commandtableentry(def.TEXT, "Check Destination Runway " .. helpers.addspaces(get(P.desrwy)))
                             end
                         end
@@ -4422,7 +4435,11 @@ function M.fillProcedureTable()
                         local hasLPV = false
                         if ((string.len(FMC1Line04X) == 24) and (string.len(FMC1Line04L) == 24)) then
                             apptype = string.sub(FMC1Line04X, 2, 4)
-                            if ((apptype == def.NAVTYPEILS) or (apptype == def.NAVTYPEGLS)) then
+                            if ((apptype == def.NAVTYPEILS)
+                                or (apptype == def.NAVTYPEGLS)
+                                or (apptype == def.NAVTYPELDA)
+                                or (apptype == def.NAVTYPELOC)
+                                or (apptype == def.NAVTYPEIGS)) then
                                 table.insert(candidateTypes, apptype)
                             else
                                 table.insert(candidateTypes, def.NAVTYPELPV)
@@ -4848,7 +4865,7 @@ function M.fillProcedureTable()
                             end
                         end
                         local freqMsg
-                        if (navtype == def.NAVTYPEILS) then
+                        if isLocalizerNavType(navtype) then
                             freqMsg = "Frequency " .. helpers.addspaces(helpers.formatILSFrequency(navdata[def.DESTFREQ] or 0))
                             if navdata[def.DESTNAVDME] then
                                 freqMsg = freqMsg .. " with DME"
@@ -4907,7 +4924,7 @@ function M.fillProcedureTable()
                             local ident = navdata[def.DESTNAVID] or ""
                             local runwayDesignator = navdata[def.DESTRWY] or ""
                             local freqMsg
-                            if (navtype == def.NAVTYPEILS) then
+                            if isLocalizerNavType(navtype) then
                                 freqMsg = "Frequency " .. helpers.addspaces(helpers.formatILSFrequency(navdata[def.DESTFREQ] or 0))
                                 if navdata[def.DESTNAVDME] then
                                     freqMsg = freqMsg .. " with DME"
@@ -4939,7 +4956,7 @@ function M.fillProcedureTable()
                     check = function(loop, procData)
                         local navdata = P.navdatatable[loop.navdatatableindex]
                         local freqValue = getFmcApproachRefFrequency(navdata[def.DESTNAVTYPE]) or navdata[def.DESTFREQ]
-                        if (navdata[def.DESTNAVTYPE] == def.NAVTYPEILS) then
+                        if isLocalizerNavType(navdata[def.DESTNAVTYPE]) then
                             if (get(P.mmrinstalled) == def.ON) then
                                 return (get(P.mmrcptactvalue) == freqValue) and (get(P.mmrcptactmode) == def.MMRILS)
                             else
@@ -4954,7 +4971,7 @@ function M.fillProcedureTable()
                         local navdata = P.navdatatable[loop.navdatatableindex]
                         local navType = navdata[def.DESTNAVTYPE]
                         local freqValue = getFmcApproachRefFrequency(navType) or navdata[def.DESTFREQ]
-                        if navType == def.NAVTYPEILS then
+                        if isLocalizerNavType(navType) then
                             if (get(P.mmrinstalled) == def.ON) then
                                 mmrCopyActToStby(def.MMRCAPTAIN)
                                 set(P.mmrcptactmode, def.MMRILS)
@@ -4977,7 +4994,7 @@ function M.fillProcedureTable()
                     end,
                     advice = function(loop, procData)
                         local navdata = P.navdatatable[loop.navdatatableindex]
-                        if (navdata[def.DESTNAVTYPE] == def.NAVTYPEILS) then
+                        if isLocalizerNavType(navdata[def.DESTNAVTYPE]) then
                             local freqValue = getFmcApproachRefFrequency(navdata[def.DESTNAVTYPE]) or navdata[def.DESTFREQ]
                             return "Set Captain Frequency " .. helpers.addspaces(helpers.formatILSFrequency(freqValue))
                         else
@@ -4987,7 +5004,7 @@ function M.fillProcedureTable()
                     end,
                     confirm = function(loop, procData)
                         local navdata = P.navdatatable[loop.navdatatableindex]
-                        if (navdata[def.DESTNAVTYPE] == def.NAVTYPEILS) then
+                        if isLocalizerNavType(navdata[def.DESTNAVTYPE]) then
                             local freqValue = getFmcApproachRefFrequency(navdata[def.DESTNAVTYPE]) or navdata[def.DESTFREQ]
                             return "Captain Frequency checked and " .. helpers.addspaces(helpers.formatILSFrequency(freqValue))
                         else
@@ -5028,7 +5045,7 @@ function M.fillProcedureTable()
                             return false
                         end
 
-                        if navtype == def.NAVTYPEILS then
+                        if isLocalizerNavType(navtype) then
                             if navdata[def.DESTNAVDME] then
                                 loop.approachDME = nil
                                 return false
@@ -5050,7 +5067,7 @@ function M.fillProcedureTable()
                     check = function(loop, procData)
                         local navdata = P.navdatatable[loop.navdatatableindex]
                         if not navdata then return true end
-                        if (navdata[def.DESTNAVTYPE] == def.NAVTYPEILS) then 
+                        if isLocalizerNavType(navdata[def.DESTNAVTYPE]) then 
                             if navdata[def.DESTNAVDME] then
                                 local freqValue = getFmcApproachRefFrequency(navdata[def.DESTNAVTYPE]) or navdata[def.DESTFREQ]
                                 if (get(P.mmrinstalled) == def.ON) then
@@ -5080,7 +5097,7 @@ function M.fillProcedureTable()
                     action = function(loop, procData)
                         local navdata = P.navdatatable[loop.navdatatableindex]
                         if not navdata then return end
-                        if (navdata[def.DESTNAVTYPE] == def.NAVTYPEILS) then
+                        if isLocalizerNavType(navdata[def.DESTNAVTYPE]) then
                             if navdata[def.DESTNAVDME] then
                                 local freqValue = getFmcApproachRefFrequency(navdata[def.DESTNAVTYPE]) or navdata[def.DESTFREQ]
                                 if (get(P.mmrinstalled) == def.ON) then
@@ -5120,7 +5137,7 @@ function M.fillProcedureTable()
                     advice = function(loop, procData)
                         local navdata = P.navdatatable[loop.navdatatableindex]
                         if not navdata then return "" end
-                        if (navdata[def.DESTNAVTYPE] == def.NAVTYPEILS) then
+                        if isLocalizerNavType(navdata[def.DESTNAVTYPE]) then
                             if navdata[def.DESTNAVDME] then
                                 local freqValue = getFmcApproachRefFrequency(navdata[def.DESTNAVTYPE]) or navdata[def.DESTFREQ]
                                 return "Set Copilot Frequency " .. helpers.addspaces(helpers.formatILSFrequency(freqValue))
@@ -5158,7 +5175,7 @@ function M.fillProcedureTable()
 
                         local message = ""
 
-                        if (navdata[def.DESTNAVTYPE] == def.NAVTYPEILS) then
+                        if isLocalizerNavType(navdata[def.DESTNAVTYPE]) then
                             if navdata[def.DESTNAVDME] then
                                 local freqValue = getFmcApproachRefFrequency(navdata[def.DESTNAVTYPE]) or navdata[def.DESTFREQ]
                                 message = "Copilot Frequency checked and " .. helpers.addspaces(helpers.formatILSFrequency(freqValue))
@@ -5217,7 +5234,7 @@ function M.fillProcedureTable()
                     skipIf = function(loop, procData)
                         local navdata = P.navdatatable[loop.navdatatableindex]
                         if navdata[def.DESTNAVTYPE] == def.NAVTYPELPV then return true end
-                        if (navdata[def.DESTNAVTYPE] == def.NAVTYPEILS) and not navdata[def.DESTNAVDME] then return true end
+                        if isLocalizerNavType(navdata[def.DESTNAVTYPE]) and not navdata[def.DESTNAVDME] then return true end
                         return false 
                     end,
                     check = function(loop, procData)

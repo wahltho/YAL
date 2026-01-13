@@ -1231,6 +1231,124 @@ function P.decodemetar(metar)
         return vis_index
     end
 
+    local function parse_rvr_value(value_str, unit)
+        if not value_str or value_str == "" then
+            return nil
+        end
+        local more_than = false
+        local less_than = false
+        local first_char = string.sub(value_str, 1, 1)
+        if first_char == "P" then
+            more_than = true
+            value_str = string.sub(value_str, 2)
+        elseif first_char == "M" then
+            less_than = true
+            value_str = string.sub(value_str, 2)
+        end
+        if value_str == "" then
+            return nil
+        end
+        local value = tonumber(value_str)
+        if not value then
+            return nil
+        end
+        local meters = value
+        if unit == "FT" then
+            meters = math.floor(value * 0.3048 + 0.5)
+        end
+        return {
+            value = value,
+            meters = meters,
+            more_than = more_than,
+            less_than = less_than
+        }
+    end
+
+    local function parse_rvr_report(token)
+        if type(token) ~= "string" then
+            return nil
+        end
+        if string.sub(token, 1, 1) ~= "R" then
+            return nil
+        end
+        local slash_pos = string.find(token, "/", 2, true)
+        if not slash_pos then
+            return nil
+        end
+
+        local runway_part = string.sub(token, 2, slash_pos - 1)
+        local rvr_part = string.sub(token, slash_pos + 1)
+        if runway_part == "" or rvr_part == "" then
+            return nil
+        end
+
+        runway_part = string.upper(runway_part)
+
+        local unit = "M"
+        if #rvr_part >= 2 and string.sub(rvr_part, -2) == "FT" then
+            unit = "FT"
+            rvr_part = string.sub(rvr_part, 1, -3)
+        end
+
+        local trend = nil
+        if #rvr_part >= 1 then
+            local trend_char = string.sub(rvr_part, -1)
+            if trend_char == "U" or trend_char == "D" or trend_char == "N" then
+                trend = trend_char
+                rvr_part = string.sub(rvr_part, 1, -2)
+            end
+        end
+
+        if rvr_part == "" then
+            return nil
+        end
+
+        local min_part = rvr_part
+        local max_part = nil
+        local var_pos = string.find(rvr_part, "V", 1, true)
+        if var_pos then
+            min_part = string.sub(rvr_part, 1, var_pos - 1)
+            max_part = string.sub(rvr_part, var_pos + 1)
+        end
+
+        local min_val = parse_rvr_value(min_part, unit)
+        if not min_val then
+            return nil
+        end
+
+        local max_val = nil
+        if max_part and max_part ~= "" then
+            max_val = parse_rvr_value(max_part, unit)
+        end
+
+        local runway_number = nil
+        local runway_side = nil
+        if #runway_part >= 2 then
+            local runway_num_str = string.sub(runway_part, 1, 2)
+            local runway_num = tonumber(runway_num_str)
+            if runway_num then
+                runway_number = runway_num
+            end
+            if #runway_part >= 3 then
+                local side_char = string.sub(runway_part, 3, 3)
+                if side_char == "L" or side_char == "R" or side_char == "C" then
+                    runway_side = side_char
+                end
+            end
+        end
+
+        return {
+            runway = runway_part,
+            number = runway_number,
+            side = runway_side,
+            unit = unit,
+            trend = trend,
+            min = min_val,
+            max = max_val,
+            raw = token
+        }
+    end
+
     while (i <= #parts and parsing_main_data) do
         local part = parts[i]
         sasl.logDebug(string.format("Processing part %d: %s", i, part))
@@ -1407,7 +1525,18 @@ function P.decodemetar(metar)
         elseif (string.sub(part, 1, 1) == "R" and string.find(part, "/", 1, true) and #part >= 5) then
             result.runway_reports = result.runway_reports or {}
             table.insert(result.runway_reports, part)
-            sasl.logDebug("Parsed runway report: "..part)
+            local rvr_entry = parse_rvr_report(part)
+            if rvr_entry then
+                result.rvr = result.rvr or {}
+                table.insert(result.rvr, rvr_entry)
+                sasl.logDebug(string.format("Parsed RVR: RWY %s %s%s%s",
+                    rvr_entry.runway or "?",
+                    rvr_entry.min and rvr_entry.min.value or "?",
+                    rvr_entry.max and ("V" .. rvr_entry.max.value) or "",
+                    rvr_entry.unit or ""))
+            else
+                sasl.logDebug("Parsed runway report: "..part)
+            end
             parsed = true
 
         elseif (is_weather_code(part)) then
@@ -1724,7 +1853,76 @@ function P.getRunwayHeadingFromDesignator(runwayDesignator)
 end
 
 --------------------------------------------------------------------------------------------------------------
-function P.shouldCheckRunwaySuitability(metar, runwayDesignator)
+local function normalizeRunwayIdForRvr(runwayDesignator)
+    if type(runwayDesignator) ~= "string" or runwayDesignator == "" then
+        return nil
+    end
+
+    local num_str, suffix = string.match(runwayDesignator, "^(%d%d?)(%a?)$")
+    if not num_str then
+        return nil
+    end
+
+    local num = tonumber(num_str)
+    if not num or num < 1 or num > 36 then
+        return nil
+    end
+
+    suffix = suffix and string.upper(suffix) or ""
+    if suffix ~= "L" and suffix ~= "R" and suffix ~= "C" then
+        suffix = ""
+    end
+
+    return string.format("%02d", num) .. suffix
+end
+
+local function getRvrEntryForRunway(rvrList, runwayDesignator)
+    if type(rvrList) ~= "table" then
+        return nil
+    end
+
+    local target = normalizeRunwayIdForRvr(runwayDesignator)
+    if not target then
+        return nil
+    end
+
+    local bestEntry = nil
+    local bestMeters = nil
+
+    for _, entry in ipairs(rvrList) do
+        local entryRunway = normalizeRunwayIdForRvr(entry.runway or "")
+        if entryRunway == target then
+            local meters = entry.min and entry.min.meters
+            if meters then
+                local effective = meters
+                if entry.min.less_than then
+                    effective = math.max(0, meters - 1)
+                end
+                if not bestMeters or effective < bestMeters then
+                    bestMeters = effective
+                    bestEntry = entry
+                end
+            end
+        end
+    end
+
+    return bestEntry
+end
+
+local function getRvrMetersForRunway(rvrList, runwayDesignator)
+    local entry = getRvrEntryForRunway(rvrList, runwayDesignator)
+    if not entry or not entry.min or not entry.min.meters then
+        return nil
+    end
+    local meters = entry.min.meters
+    if entry.min.less_than then
+        meters = math.max(0, meters - 1)
+    end
+    return meters, entry
+end
+
+--------------------------------------------------------------------------------------------------------------
+function P.shouldCheckRunwaySuitability(metar, runwayDesignator, navType)
     -- --- Schwellenwerte anpassbar ---
     local MAX_TAILWIND_KN = 10     -- Maximal erlaubter Rueckenwind fuer normale Landung
     local MAX_CROSSWIND_KN = 20    -- Maximal erlaubter Seitenwind (oft Flugzeug-spezifisch)
@@ -1815,7 +2013,35 @@ function P.shouldCheckRunwaySuitability(metar, runwayDesignator)
         return false -- Seitenwind zu stark
     end
 
-    sasl.logDebug(string.format("Runway %s is suitable based on current wind conditions.", runwayDesignator))
+    local rvrMeters = nil
+    if weatherData and weatherData.rvr then
+        rvrMeters = getRvrMetersForRunway(weatherData.rvr, runwayDesignator)
+    end
+
+    if rvrMeters then
+        local rvrThreshold = 1200
+        if navType == def.NAVTYPEILS
+            or navType == def.NAVTYPEGLS
+            or navType == def.NAVTYPELPV then
+            rvrThreshold = 550
+        elseif navType == def.NAVTYPELOC
+            or navType == def.NAVTYPELDA
+            or navType == def.NAVTYPEIGS
+            or navType == def.NAVTYPERNAV then
+            rvrThreshold = 1200
+        end
+
+        if rvrMeters < rvrThreshold then
+            sasl.logDebug(string.format("Runway %s: RVR %d m below threshold %d m for %s. Check recommended.",
+                runwayDesignator,
+                rvrMeters,
+                rvrThreshold,
+                tostring(navType or "unknown")))
+            return false
+        end
+    end
+
+    sasl.logDebug(string.format("Runway %s is suitable based on current conditions.", runwayDesignator))
     return true -- Landebahn ist innerhalb der Schwellenwerte geeignet
 end
 
@@ -1944,6 +2170,46 @@ function P.formatMetarSpeechSummary(metar, runwayName)
                                  metar_data.visibility.directional.direction)
         end
         table.insert(parts, vis_part)
+    end
+
+    if metar_data.rvr then
+        local rvr_entry = getRvrEntryForRunway(metar_data.rvr, runwayName)
+        if rvr_entry and rvr_entry.min and rvr_entry.min.value then
+            local unit_label = (rvr_entry.unit == "FT") and "feet" or "meters"
+            local function format_rvr_value(value)
+                if not value then
+                    return nil
+                end
+                local prefix = ""
+                if value.more_than then
+                    prefix = "more than "
+                elseif value.less_than then
+                    prefix = "less than "
+                end
+                return prefix .. tostring(value.value)
+            end
+
+            local min_str = format_rvr_value(rvr_entry.min)
+            local rvr_part = nil
+            if rvr_entry.max and rvr_entry.max.value then
+                local max_str = format_rvr_value(rvr_entry.max)
+                rvr_part = string.format("RVR runway %s, variable %s to %s %s", runwayName, min_str, max_str, unit_label)
+            else
+                rvr_part = string.format("RVR runway %s, %s %s", runwayName, min_str, unit_label)
+            end
+
+            if rvr_entry.trend == "U" then
+                rvr_part = rvr_part .. ", increasing"
+            elseif rvr_entry.trend == "D" then
+                rvr_part = rvr_part .. ", decreasing"
+            elseif rvr_entry.trend == "N" then
+                rvr_part = rvr_part .. ", no change"
+            end
+
+            if rvr_part then
+                table.insert(parts, rvr_part)
+            end
+        end
     end
 
     if metar_data.weather and #metar_data.weather > 0 then
@@ -3037,9 +3303,85 @@ local function trimString(str)
     return (str:gsub("^%s+", ""):gsub("%s+$", ""))
 end
 
+local function getLocalizerRunwayMap(icao)
+    if type(icao) ~= "string" or icao == "" then
+        return nil
+    end
+
+    icao = string.upper(icao)
+    P.localizerRunwayCache = P.localizerRunwayCache or {}
+
+    if P.localizerRunwayCache[icao] ~= nil then
+        return P.localizerRunwayCache[icao] or nil
+    end
+
+    local srcnavdatafile = io.open("Custom Data/earth_nav.dat", "r")
+    if not srcnavdatafile then
+        srcnavdatafile = io.open("Custom Scenery/Global Airports/Earth nav data/earth_nav.dat", "r")
+        if not srcnavdatafile then
+            srcnavdatafile = io.open("Resources/default data/earth_nav.dat", "r")
+        end
+    end
+
+    if not srcnavdatafile then
+        P.localizerRunwayCache[icao] = false
+        return nil
+    end
+
+    for _ = 1, 3 do
+        srcnavdatafile:read()
+    end
+
+    local runwayMap = {}
+
+    for navdatarecord in srcnavdatafile:lines() do
+        if string.sub(navdatarecord, 1, 2) == "99" then
+            break
+        end
+
+        local navdataitems = {}
+        for navdataitem in navdatarecord:gmatch("%S+") do
+            table.insert(navdataitems, navdataitem)
+        end
+
+        if #navdataitems > def.NAVSRC_COL_NAME then
+            local recordType = navdataitems[def.NAVSRC_COL_TYPE]
+            local region = navdataitems[def.NAVSRC_COL_REGION]
+
+            if (recordType == def.NAVDATARECTYPEILS or recordType == def.NAVDATARECTYPELOC)
+                and region == icao then
+                local name = navdataitems[def.NAVSRC_COL_NAME] or ""
+                local prefix = string.sub(name, 1, 3)
+                if prefix == def.NAVTYPEILS
+                    or prefix == def.NAVTYPELOC
+                    or prefix == def.NAVTYPELDA
+                    or prefix == def.NAVTYPEIGS then
+                    local ident = navdataitems[def.NAVSRC_COL_IDENT]
+                    local runway = navdataitems[def.NAVSRC_COL_RUNWAY]
+                    if ident and ident ~= "" and runway and runway ~= "" then
+                        runwayMap[string.upper(ident)] = string.upper(runway)
+                    end
+                end
+            end
+        end
+    end
+
+    srcnavdatafile:close()
+
+    if next(runwayMap) then
+        P.localizerRunwayCache[icao] = runwayMap
+        return runwayMap
+    end
+
+    P.localizerRunwayCache[icao] = false
+    return nil
+end
+
 local function formatCIFPApproachName(typeChar, runwayPart, suffix)
     local prefix = typeChar
-    if typeChar == "I" then
+    if typeChar == "LDA" then
+        prefix = "LDA"
+    elseif typeChar == "I" then
         prefix = "ILS"
     elseif typeChar == "G" then
         prefix = "GLS"
@@ -3096,6 +3438,58 @@ function P.loadCIFP(icao)
 
     local approaches = {}
     local entryByCode = {}
+    local runwayMap = nil
+
+    local function addEntryToApproaches(entry, navType, runwayPart)
+        if not entry or not navType or not runwayPart or runwayPart == "" then
+            return
+        end
+        local runwayKey = string.upper(runwayPart)
+        approaches[navType] = approaches[navType] or {}
+        approaches[navType][runwayKey] = approaches[navType][runwayKey] or {}
+        entry.runway = runwayKey
+        entry.displayName = formatCIFPApproachName(entry.typeChar, runwayKey, entry.suffix or "")
+        entry.registered = true
+        table.insert(approaches[navType][runwayKey], entry)
+    end
+
+    local function resolveLdaEntry(entry)
+        if not entry or entry.registered or entry.navType ~= def.NAVTYPELDA then
+            return
+        end
+        runwayMap = runwayMap or getLocalizerRunwayMap(icao)
+        if not runwayMap then
+            return
+        end
+
+        local function tryIdent(ident)
+            if not ident or ident == "" then
+                return false
+            end
+            local key = string.upper(ident)
+            local runway = runwayMap[key]
+            if runway and runway ~= "" then
+                entry.localizerIdent = key
+                addEntryToApproaches(entry, entry.navType, runway)
+                return true
+            end
+            return false
+        end
+
+        if tryIdent(entry.localizerIdent) then
+            return
+        end
+        if tryIdent(entry.finalFixIdent) then
+            return
+        end
+        if entry.legFixes then
+            for fixIdent in pairs(entry.legFixes) do
+                if tryIdent(fixIdent) then
+                    return
+                end
+            end
+        end
+    end
 
     for line in file:lines() do
         if string.sub(line, 1, 6) == "APPCH:" then
@@ -3107,43 +3501,68 @@ function P.loadCIFP(icao)
             local code = parts[3]
             if code and code ~= "" then
                 code = string.upper(code)
-                local typeChar = string.sub(code, 1, 1)
+                local typeTag
                 local navType
-                if typeChar == "I" then
-                    navType = def.NAVTYPEILS
-                elseif typeChar == "G" then
-                    navType = def.NAVTYPEGLS
-                elseif typeChar == "L" then
-                    navType = def.NAVTYPELPV
-                elseif typeChar == "R" then
-                    navType = def.NAVTYPERNAV
+                if string.sub(code, 1, 3) == def.NAVTYPELDA then
+                    typeTag = def.NAVTYPELDA
+                    navType = def.NAVTYPELDA
+                else
+                    local typeChar = string.sub(code, 1, 1)
+                    if typeChar == "I" then
+                        typeTag = typeChar
+                        navType = def.NAVTYPEILS
+                    elseif typeChar == "G" then
+                        typeTag = typeChar
+                        navType = def.NAVTYPEGLS
+                    elseif typeChar == "L" then
+                        typeTag = typeChar
+                        navType = def.NAVTYPELPV
+                    elseif typeChar == "R" then
+                        typeTag = typeChar
+                        navType = def.NAVTYPERNAV
+                    end
                 end
 
                 if navType then
                     local entry = entryByCode[code]
                     if not entry then
-                        local rest = string.sub(code, 2)
+                        local prefixLen = typeTag and #typeTag or 1
+                        local rest = string.sub(code, prefixLen + 1)
                         local runwayPart, suffix = rest:match("^(%d%d%a?)(%a*)$")
                         if runwayPart then
                             runwayPart = string.upper(runwayPart)
                             suffix = suffix or ""
-
-                            approaches[navType] = approaches[navType] or {}
-                            approaches[navType][runwayPart] = approaches[navType][runwayPart] or {}
-
                             entry = {
                                 code = code,
-                                typeChar = typeChar,
+                                navType = navType,
+                                typeChar = typeTag,
                                 runway = runwayPart,
                                 suffix = suffix,
-                                displayName = formatCIFPApproachName(typeChar, runwayPart, suffix),
+                                displayName = nil,
                                 course = nil,
                                 finalFixIdent = nil,
-                                legFixes = {}
+                                legFixes = {},
+                                registered = false,
+                                localizerIdent = nil
                             }
-
                             entryByCode[code] = entry
-                            table.insert(approaches[navType][runwayPart], entry)
+                            addEntryToApproaches(entry, navType, runwayPart)
+                        elseif navType == def.NAVTYPELDA then
+                            suffix = suffix or rest or ""
+                            entry = {
+                                code = code,
+                                navType = navType,
+                                typeChar = typeTag,
+                                runway = nil,
+                                suffix = suffix,
+                                displayName = nil,
+                                course = nil,
+                                finalFixIdent = nil,
+                                legFixes = {},
+                                registered = false,
+                                localizerIdent = nil
+                            }
+                            entryByCode[code] = entry
                         end
                     end
 
@@ -3183,6 +3602,13 @@ function P.loadCIFP(icao)
                         else
                             register_fix(parts[14])
                         end
+
+                        if entry.navType == def.NAVTYPELDA and not entry.registered then
+                            local identCandidate = trimString(parts[14] or "")
+                            if identCandidate ~= "" and not entry.localizerIdent then
+                                entry.localizerIdent = string.upper(identCandidate)
+                            end
+                        end
                     end
                 end
             end
@@ -3190,6 +3616,15 @@ function P.loadCIFP(icao)
     end
 
     file:close()
+
+    for _, entry in pairs(entryByCode) do
+        if entry.navType == def.NAVTYPELDA and not entry.registered then
+            resolveLdaEntry(entry)
+            if not entry.registered then
+                sasl.logDebug(string.format("CIFP: LDA approach %s missing runway; skipping.", entry.code or "?"))
+            end
+        end
+    end
 
     P.cifpCache[icao] = approaches
     if approaches and next(approaches) then
@@ -3262,7 +3697,10 @@ function P.findApproachDME(navdatatable, icao, runway, refLat, refLon, refIdent,
             if navType == def.NAVTYPEVOR then
                 return true
             end
-            if includeILS and navType == def.NAVTYPEILS then
+            if includeILS and (navType == def.NAVTYPEILS
+                or navType == def.NAVTYPELOC
+                or navType == def.NAVTYPELDA
+                or navType == def.NAVTYPEIGS) then
                 return true
             end
         end
@@ -3384,18 +3822,29 @@ local function normalizeSelectedApproachId(selectedAppId, expectedRunway)
     local trimmed = trimString(selectedAppId):upper()
     if trimmed == "" or trimmed == "------" then return nil end
 
-    -- Pattern: first char = type, then runway (e.g. 08, 08L), optional suffix (Y/Z/etc.)
-    local typeChar, runwayPart, suffix = trimmed:match("^(%a)(%d%d%a?)(%a*)")
-    if not typeChar or not runwayPart then return nil end
+    local navType = nil
+    local runwayPart = nil
+    local suffix = nil
 
-    local navTypeMap = {
-        I = def.NAVTYPEILS,
-        L = def.NAVTYPELOC,
-        R = def.NAVTYPERNAV,
-        G = def.NAVTYPEGLS
-    }
-    local navType = navTypeMap[typeChar]
-    if not navType then return nil end
+    if string.sub(trimmed, 1, 3) == def.NAVTYPELDA then
+        navType = def.NAVTYPELDA
+        local rest = string.sub(trimmed, 4)
+        runwayPart, suffix = rest:match("^(%d%d%a?)(%a*)")
+    else
+        -- Pattern: first char = type, then runway (e.g. 08, 08L), optional suffix (Y/Z/etc.)
+        local typeChar
+        typeChar, runwayPart, suffix = trimmed:match("^(%a)(%d%d%a?)(%a*)")
+        if not typeChar or not runwayPart then return nil end
+
+        local navTypeMap = {
+            I = def.NAVTYPEILS,
+            L = def.NAVTYPELOC,
+            R = def.NAVTYPERNAV,
+            G = def.NAVTYPEGLS
+        }
+        navType = navTypeMap[typeChar]
+    end
+    if not navType or not runwayPart then return nil end
 
     if expectedRunway and string.upper(expectedRunway) ~= runwayPart then
         -- Different runway, don't apply
@@ -3454,7 +3903,10 @@ function P.detectCIFPApproachVariant(icao, runway, legs_string, lat_array, lon_a
     local navPriority = {
         [def.NAVTYPELPV] = 1,
         [def.NAVTYPEGLS] = 2,
-        [def.NAVTYPEILS] = 3
+        [def.NAVTYPEILS] = 3,
+        [def.NAVTYPELDA] = 4,
+        [def.NAVTYPELOC] = 5,
+        [def.NAVTYPEIGS] = 6
     }
 
     local bestMatch = nil
@@ -3697,6 +4149,20 @@ function P.buildnavdatatable(navdatatable)
         return nil
     end
 
+    local function find_localizer_entry(target_table, icao, navid, runway)
+        local index = find_nav_entry(target_table, icao, navid, def.NAVTYPEILS, runway)
+        if not index then
+            index = find_nav_entry(target_table, icao, navid, def.NAVTYPELDA, runway)
+        end
+        if not index then
+            index = find_nav_entry(target_table, icao, navid, def.NAVTYPELOC, runway)
+        end
+        if not index then
+            index = find_nav_entry(target_table, icao, navid, def.NAVTYPEIGS, runway)
+        end
+        return index
+    end
+
     for i = #navdatatable, 1, -1 do table.remove(navdatatable, i) end
 
     -- ... (Datei-Öffnen-Logik bleibt unverändert) ...
@@ -3734,7 +4200,8 @@ function P.buildnavdatatable(navdatatable)
                 if lat_val and lon_val then
                     local record_type_str = navdataitems[def.NAVSRC_COL_TYPE]
 
-                if (record_type_str == def.NAVDATARECTYPEILS) then
+                if (record_type_str == def.NAVDATARECTYPEILS
+                    or record_type_str == def.NAVDATARECTYPELOC) then
                     local newEntry = {}
                     newEntry[def.DESTICAO] = navdataitems[def.NAVSRC_COL_REGION]
                     newEntry[def.DESTRWY] = navdataitems[def.NAVSRC_COL_RUNWAY]
@@ -3822,14 +4289,14 @@ function P.buildnavdatatable(navdatatable)
                     local ident = navdataitems[def.NAVSRC_COL_IDENT]
                     local runway = navdataitems[def.NAVSRC_COL_RUNWAY]
 
-                    local index = find_nav_entry(navdatatable, icao, ident, def.NAVTYPEILS, runway)
+                    local index = find_localizer_entry(navdatatable, icao, ident, runway)
                     if not index then
                         index = find_nav_entry(navdatatable, icao, ident, def.NAVTYPEVOR, runway)
                     end
                     -- Some DME records carry descriptive text instead of a runway designator.
                     -- If no match was found, retry without forcing the runway to align.
                     if not index then
-                        index = find_nav_entry(navdatatable, icao, ident, def.NAVTYPEILS, nil)
+                        index = find_localizer_entry(navdatatable, icao, ident, nil)
                     end
                     if not index then
                         index = find_nav_entry(navdatatable, icao, ident, def.NAVTYPEVOR, nil)
@@ -4208,7 +4675,14 @@ function P.getrwyheadingfromnavdata(navdatatable, icao, rwy)
         return nil
     end
 
-    local navTypePriority = { def.NAVTYPEILS, def.NAVTYPEGLS, def.NAVTYPELPV }
+    local navTypePriority = {
+        def.NAVTYPEILS,
+        def.NAVTYPEGLS,
+        def.NAVTYPELPV,
+        def.NAVTYPELDA,
+        def.NAVTYPELOC,
+        def.NAVTYPEIGS
+    }
 
     local function runwayUsesTrueLocal(runway)
         if type(runway) ~= "string" then
