@@ -113,9 +113,24 @@ P.isXp12 = (P.xpVersion >= 12000 and P.xpVersion < 13000)
 
 --------------------------------------------------------------------------------------------------------------
 function P.isZibo()
+    local signature = "zibomod.by.Zibo"
+    local pluginID = sasl.findPluginBySignature(signature)
+    if pluginID == NO_PLUGIN_ID then
+        return false
+    end
 
-    return ((string.sub(get(acf_tailnum), 1, 5) == "ZB738") or (string.sub(get(acf_tailnum), 1, 4) == "B736") or (string.sub(get(acf_tailnum), 1, 4) == "B737")  or (string.sub(get(acf_tailnum), 1, 4) == "738") or (string.sub(get(acf_tailnum), 1, 4) == "B739"))
+    local tailnum = get(acf_tailnum)
+    if type(tailnum) == "string" then
+        if (string.sub(tailnum, 1, 5) == "ZB738")
+            or (string.sub(tailnum, 1, 4) == "B736")
+            or (string.sub(tailnum, 1, 4) == "B737")
+            or (string.sub(tailnum, 1, 4) == "738")
+            or (string.sub(tailnum, 1, 4) == "B739") then
+            return true
+        end
+    end
 
+    return false
 end
 
 --------------------------------------------------------------------------------------------------------------
