@@ -1,5 +1,5 @@
 # Yet Another Linda (YAL) for Zibo Mod - User Manual
-**Version 4.5b1** (beta channel; based on features as of October 2025)
+**Version 4.5** (stable channel)
 
 *(C) WAHLTHO 2023-2025*
 
@@ -29,6 +29,14 @@
 * YAL has virtually no FPS impact as its main functions run once per second, not every frame.
 * When flying aircraft other than the Zibo B738, YAL remains idle and all its menus are inactive.
 * All custom commands for key/joystick assignment can be found in the X-Plane keyboard/joystick settings under the `YAL/...` group.
+
+---
+### Release Highlights (4.5)
+
+* Approach course logic is more consistent for true vs mag, with improved RNAV/LPV/GLS prioritization.
+* LDA/LOC/IGS approaches are supported in navdata/CIFP and approach handling.
+* METAR parsing and speech upgrades: SLP/T-group temps, P/M visibility, KM and split SM fractions, runway-specific RVR, QNH unit formatting.
+* New settings: FMC Automation, Heading Sync Interval, and Hoppie ID.
 
 ---
 ### 2. Custom Commands
@@ -137,6 +145,7 @@ The settings window allows detailed customization of all automatic features.
 * **Use Ground Power...:** If available, the plugin will use ground power instead of starting the APU during the Cold & Dark startup.
 * **Command Voice Readback:** Provides voice announcements for most actions performed by the plugin.
 * **Automatic Functions:** A master switch for all automatic procedures and background tasks.
+* **FMC Automation:** Controls automatic FMC page switching and entries during procedures.
 * **Sim exit after Pause at TOD:** If the sim is paused at the Top of Descent, it will automatically save and quit after the specified number of seconds (9999 to disable).
 * **Override Wake Effects:** Suppresses wake turbulence effects from other aircraft.
 * **Automatic Anti Icing:** Automatically enables wing and engine anti-ice when icing is detected.
@@ -153,6 +162,7 @@ The settings window allows detailed customization of all automatic features.
 * **Maximum Bank Angle (1-4):** Sets the bank angle selector during cockpit initialization.
 * **Set Lower Display Unit:** Configures the lower DU to your preferred setting on startup.
 * **Default Transponder Code:** Sets a default squawk code during initialization.
+* **Heading Sync Interval (sec, 0=off):** Periodically syncs MCP heading to ground track when conditions allow.
 
 **Views:**
 * Assigns the corresponding X-Plane Quick Look or X-Camera view numbers for automatic view changes.
