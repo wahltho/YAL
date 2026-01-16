@@ -1,33 +1,58 @@
--- date : 28-Oct-2025
 local def = require("definitions")
 local helpers = require("helpers")
+local P = yal
 
-local function getNavEntryCourse(entry)
-    if not entry then
-        return nil
+-- Build 5-digit LSB->MSB table for MMR standby arrays
+local function mmrBuildDigits(value)
+    local val = tonumber(value) or 0
+    val = math.floor(math.abs(val))
+    local digits = {}
+    for i = 1, 5 do
+        digits[i] = val % 10
+        val = math.floor(val / 10)
     end
+    return digits
+end
 
-    local icao = entry[def.DESTICAO]
-    local navType = entry[def.DESTNAVTYPE]
-    local runway = entry[def.DESTRWY]
-    if type(icao) == "string" and type(navType) == "string" and type(runway) == "string" then
-        local candidateTypes = { navType }
-        if navType == def.NAVTYPELPV or navType == def.NAVTYPEGLS then
-            table.insert(candidateTypes, def.NAVTYPERNAV)
-        end
-        for _, candidateType in ipairs(candidateTypes) do
-            local cifpCourse = helpers.getCIFPApproachCourse(icao, candidateType, runway)
-            if cifpCourse then
-                return helpers.calccourse(cifpCourse)
-            end
-        end
+-- Copy active MMR mode/value into the corresponding standby buffers
+local function mmrCopyActToStby(side)
+    if get(P.mmrinstalled) ~= def.ON then return end
+    local actMode, actValue, stbyModeRef
+    local stbyArrILS, stbyArrILS2, stbyArrGLS, stbyArrVOR, stbyArrVOR2, stbyArrGeneric
+    if side == def.MMRCAPTAIN then
+        actMode = get(P.mmrcptactmode)
+        actValue = get(P.mmrcptactvalue)
+        stbyModeRef = P.mmrcptstdbymode
+        stbyArrILS = P.mmrcptilsstbyvalue
+        stbyArrILS2 = P.mmrcptilsstbyvalue2
+        stbyArrGLS = P.mmrcptglsstbyvalue
+        stbyArrVOR = P.mmrcptvorstbyvalue
+        stbyArrVOR2 = P.mmrcptvorstbyvalue2
+        stbyArrGeneric = P.mmrcptstbyvalue
+    else
+        actMode = get(P.mmrfoactmode)
+        actValue = get(P.mmrfoactvalue)
+        stbyModeRef = P.mmrfostdbymode
+        stbyArrILS = P.mmrfoilsstbyvalue
+        stbyArrILS2 = P.mmrfoilsstbyvalue2
+        stbyArrGLS = P.mmrfoglsstbyvalue
+        stbyArrVOR = P.mmrfovorstbyvalue
+        stbyArrVOR2 = P.mmrfovorstbyvalue2
+        stbyArrGeneric = P.mmrfostbyvalue
     end
-
-    if entry.isTrueCourse and entry.truecourse then
-        local magVar = entry[def.DESTMAGVAR] or 0
-        return helpers.calccourse(entry.truecourse - magVar)
+    if not actMode or not stbyModeRef then return end
+    set(stbyModeRef, actMode)
+    local digits = mmrBuildDigits(actValue)
+    if stbyArrGeneric then set(stbyArrGeneric, digits) end
+    if actMode == def.MMRILS then
+        if stbyArrILS then set(stbyArrILS, digits) end
+        if stbyArrILS2 then set(stbyArrILS2, digits) end
+    elseif actMode == def.MMRGLS or actMode == def.MMRLPV then
+        if stbyArrGLS then set(stbyArrGLS, digits) end
+    else
+        if stbyArrVOR then set(stbyArrVOR, digits) end
+        if stbyArrVOR2 then set(stbyArrVOR2, digits) end
     end
-    return entry[def.DESTCOURSE]
 end
 
 local function cleanLegToken(token)
@@ -58,6 +83,583 @@ end
 
 local function isRunwayToMissedDiscontinuity(prevLeg, nextLeg)
     return isRunwayLeg(prevLeg) and isMissedApproachLeg(nextLeg)
+end
+
+local function runwayUsesTrue(runway)
+    if type(runway) ~= "string" then
+        return false
+    end
+    local rwy = runway:upper():gsub("^RW", "")
+    return rwy:sub(-1) == "T"
+end
+
+local function getEntryMagVar(entry)
+    local magVar = entry and entry[def.DESTMAGVAR]
+    if magVar == nil then
+        local lat = entry and entry[def.DESTLATPOS]
+        local lon = entry and entry[def.DESTLONPOS]
+        if lat and lon and lat ~= 0 and lon ~= 0 then
+            magVar = sasl.getMagneticVariation(lat, lon)
+        end
+    end
+    return tonumber(magVar) or 0
+end
+
+local function getRunwayTrueFromEndpoints()
+    local latStart = get(P.desrwylatstartpos)
+    local lonStart = get(P.desrwylonstartpos)
+    local latEnd = get(P.desrwylatendpos)
+    local lonEnd = get(P.desrwylonendpos)
+    if latStart and lonStart and latEnd and lonEnd
+        and latStart ~= 0 and lonStart ~= 0 and latEnd ~= 0 and lonEnd ~= 0 then
+        return helpers.getbearing(latStart, lonStart, latEnd, lonEnd)
+    end
+    return nil
+end
+
+local function isLocalizerNavType(navType)
+    return navType == def.NAVTYPEILS
+        or navType == def.NAVTYPELOC
+        or navType == def.NAVTYPELDA
+        or navType == def.NAVTYPEIGS
+end
+
+local function getFmcApproachRefData()
+    if not helpers.fmcHeaderContains("APPROACH REF") then
+        return nil
+    end
+
+    local lineX = helpers.get("laminar/B738/fmc1/Line04_X") or ""
+    local lineL = helpers.get("laminar/B738/fmc1/Line04_L") or ""
+    if lineL == "" then
+        return nil
+    end
+
+    local upperX = lineX:upper()
+    if not upperX:find("/CRS", 1, true) then
+        return nil
+    end
+    local navType = nil
+    if upperX:find("ILS", 1, true) then
+        navType = def.NAVTYPEILS
+    elseif upperX:find("LDA", 1, true) then
+        navType = def.NAVTYPELDA
+    elseif upperX:find("LOC", 1, true) then
+        navType = def.NAVTYPELOC
+    elseif upperX:find("IGS", 1, true) then
+        navType = def.NAVTYPEIGS
+    elseif upperX:find("GLS", 1, true) then
+        navType = def.NAVTYPEGLS
+    elseif upperX:find("LPV", 1, true) then
+        navType = def.NAVTYPELPV
+    elseif upperX:find("RNAV", 1, true) or upperX:find("RNV", 1, true) or upperX:find("RNP", 1, true) then
+        navType = def.NAVTYPERNAV
+    else
+        return nil
+    end
+
+    local clean = lineL:gsub("[`]", "")
+    local left, courseStr = clean:match("^(.-)/%s*(%d%d%d)")
+    if not courseStr then
+        return nil
+    end
+    local course = tonumber(courseStr)
+    if not course then
+        return nil
+    end
+    local freqValue = nil
+    if left then
+        left = left:gsub("[^%d%.]", "")
+        if left ~= "" then
+            if isLocalizerNavType(navType) then
+                local freqFloat = tonumber(left)
+                if not freqFloat or freqFloat < 108.0 or freqFloat > 117.95 then
+                    return nil
+                end
+                freqValue = math.floor(freqFloat * 100 + 0.5)
+            else
+                local channel = tonumber(left)
+                if not channel or channel < 1000 then
+                    return nil
+                end
+                freqValue = math.floor(channel + 0.5)
+            end
+        end
+    end
+
+    return {
+        navType = navType,
+        course = course,
+        freq = freqValue
+    }
+end
+
+local function getFmcApproachRefCourse(entryNavType)
+    local fmc = getFmcApproachRefData()
+    if not fmc or not fmc.course then
+        return nil
+    end
+    if isLocalizerNavType(entryNavType) then
+        if not isLocalizerNavType(fmc.navType) then
+            return nil
+        end
+    elseif entryNavType == def.NAVTYPEGLS then
+        if fmc.navType ~= def.NAVTYPEGLS then
+            return nil
+        end
+    elseif entryNavType == def.NAVTYPELPV or entryNavType == def.NAVTYPERNAV then
+        if isLocalizerNavType(fmc.navType) then
+            return nil
+        end
+    end
+    return fmc.course
+end
+
+local function getFmcApproachRefFrequency(entryNavType)
+    local fmc = getFmcApproachRefData()
+    if not fmc or not fmc.freq then
+        return nil
+    end
+    if isLocalizerNavType(entryNavType) then
+        return isLocalizerNavType(fmc.navType) and fmc.freq or nil
+    end
+    if entryNavType == def.NAVTYPEGLS or entryNavType == def.NAVTYPELPV then
+        if isLocalizerNavType(fmc.navType) then
+            return nil
+        end
+        return fmc.freq
+    end
+    return nil
+end
+
+local function getNavEntryCourse(entry)
+    if not entry then
+        return nil
+    end
+
+    local navType = entry[def.DESTNAVTYPE]
+    local icao = entry[def.DESTICAO]
+    local runway = entry[def.DESTRWY] or get(P.desrwy)
+    local announceTrue = runwayUsesTrue(runway) or runwayUsesTrue(get(P.desrwy))
+    local isRnavNav = (navType == def.NAVTYPELPV)
+        or (navType == def.NAVTYPERNAV)
+        or (navType == def.NAVTYPEGLS)
+    local magVar = getEntryMagVar(entry)
+
+    local runwayMag = tonumber(get(P.desrwyheading))
+    local runwayTrue = getRunwayTrueFromEndpoints()
+    if not runwayTrue and runwayMag and magVar then
+        runwayTrue = helpers.calccourse(runwayMag + magVar)
+    end
+    local runwayRef = nil
+    if announceTrue then
+        runwayRef = runwayTrue
+    else
+        runwayRef = runwayMag and helpers.calccourse(runwayMag) or nil
+        if not runwayRef and runwayTrue then
+            runwayRef = helpers.calccourse(runwayTrue - magVar)
+        end
+    end
+    if isRnavNav then
+        runwayRef = nil
+    end
+    local sanityRunwayRef = nil
+    if announceTrue then
+        if runwayTrue then
+            sanityRunwayRef = helpers.calccourse(runwayTrue)
+        elseif runwayMag then
+            sanityRunwayRef = helpers.calccourse(runwayMag + magVar)
+        end
+    else
+        if runwayMag then
+            sanityRunwayRef = helpers.calccourse(runwayMag)
+        elseif runwayTrue then
+            sanityRunwayRef = helpers.calccourse(runwayTrue - magVar)
+        end
+    end
+    local function isPlausible(course)
+        if not course then return false end
+        if runwayRef then
+            local diff = math.abs(course - runwayRef)
+            if diff > 180 then diff = 360 - diff end
+            return diff <= 10
+        end
+        return true
+    end
+    local function normalizeCourse(course, courseIsTrue)
+        if course == nil then
+            return nil
+        end
+
+        local function normalizeKnown(valueIsTrue)
+            if announceTrue then
+                if valueIsTrue then
+                    return helpers.calccourse(course)
+                end
+                return helpers.calccourse(course + magVar)
+            end
+            if valueIsTrue then
+                return helpers.calccourse(course - magVar)
+            end
+            return helpers.calccourse(course)
+        end
+
+        local function score(candidate)
+            if not candidate or not runwayRef then
+                return nil
+            end
+            local diff = math.abs(candidate - runwayRef)
+            if diff > 180 then diff = 360 - diff end
+            return diff
+        end
+
+        if courseIsTrue == true then
+            local normalized = normalizeKnown(true)
+            return isPlausible(normalized) and normalized or nil
+        elseif courseIsTrue == false then
+            local normalized = normalizeKnown(false)
+            return isPlausible(normalized) and normalized or nil
+        end
+
+        local candA = normalizeKnown(announceTrue)
+        local candB = normalizeKnown(not announceTrue)
+        local scoreA = score(candA)
+        local scoreB = score(candB)
+        local pick = nil
+        if scoreA and scoreB then
+            pick = (scoreA <= scoreB) and candA or candB
+        else
+            pick = candA or candB
+        end
+        return isPlausible(pick) and pick or nil
+    end
+
+    local sanityRefs = nil
+    local function buildSanityRefs()
+        if sanityRefs then return sanityRefs end
+        sanityRefs = {}
+        if sanityRunwayRef then
+            table.insert(sanityRefs, sanityRunwayRef)
+        end
+        if type(icao) == "string" and type(navType) == "string" and type(runway) == "string" then
+            local candidateTypes = { navType }
+            if navType == def.NAVTYPELPV or navType == def.NAVTYPEGLS then
+                table.insert(candidateTypes, def.NAVTYPERNAV)
+            end
+            for _, candidateType in ipairs(candidateTypes) do
+                local cifpCourse = helpers.getCIFPApproachCourse(icao, candidateType, runway)
+                if cifpCourse then
+                    local cifpRef = normalizeCourse(cifpCourse, nil)
+                    if cifpRef then
+                        table.insert(sanityRefs, cifpRef)
+                    end
+                    break
+                end
+            end
+        end
+        return sanityRefs
+    end
+
+    local function sanityCheck(candidate, source)
+        if not candidate then return nil end
+        local refs = buildSanityRefs()
+        if not refs or #refs == 0 then return candidate end
+        local minDiff = 360
+        for _, ref in ipairs(refs) do
+            local diff = math.abs(candidate - ref)
+            if diff > 180 then diff = 360 - diff end
+            if diff < minDiff then minDiff = diff end
+        end
+        if minDiff > 30 then
+            helpers.logInfoTS(string.format(
+                "Approach course sanity check failed (source=%s, course=%s, minDiff=%d, runway=%s).",
+                tostring(source), tostring(candidate), math.floor(minDiff + 0.5), tostring(runway)
+            ))
+            return nil
+        end
+        return candidate
+    end
+
+    local fmcCourse = getFmcApproachRefCourse(navType)
+    if fmcCourse then
+        local normalized = sanityCheck(normalizeCourse(fmcCourse, false), "FMC")
+        if normalized then
+            return normalized
+        end
+    end
+
+    local function getFMSFinalMagCourse()
+        if not (P and P.fmslegs and P.fmslegslat and P.fmslegslon) then return nil end
+        local legsStr = get(P.fmslegs)
+        local latArr = get(P.fmslegslat)
+        local lonArr = get(P.fmslegslon)
+        local waypoints = helpers.buildlegstable(legsStr, latArr, lonArr)
+        if not waypoints or #waypoints < 2 then return nil end
+
+        local destRunway = get(P.desrwy)
+        local selectedCourse = nil
+
+        if helpers.isvalidrwy(destRunway) then
+            for i = #waypoints - 1, 1, -1 do
+                local nxt = waypoints[i + 1]
+                if nxt and nxt.name and matchesDestRunway(nxt.name, destRunway) then
+                    selectedCourse = waypoints[i].magnetic_course
+                    break
+                end
+            end
+        else
+            for i = #waypoints - 1, 1, -1 do
+                local nxt = waypoints[i + 1]
+                if nxt and nxt.name and isRunwayLeg(nxt.name) then
+                    selectedCourse = waypoints[i].magnetic_course
+                    break
+                end
+            end
+        end
+
+        if selectedCourse and selectedCourse ~= 0 then
+            return helpers.calccourse(selectedCourse)
+        end
+        return nil
+    end
+
+    local function getFMSFinalMagCourseForRunway(destRunway)
+        if not (P and P.fmslegs and P.fmslegslat and P.fmslegslon) then return nil end
+        if not helpers.isvalidrwy(destRunway) then return nil end
+        local legsStr = get(P.fmslegs)
+        local latArr = get(P.fmslegslat)
+        local lonArr = get(P.fmslegslon)
+        local waypoints = helpers.buildlegstable(legsStr, latArr, lonArr)
+        if not waypoints or #waypoints < 2 then return nil end
+
+        local selectedCourse = nil
+        for i = #waypoints - 1, 1, -1 do
+            local nxt = waypoints[i + 1]
+            if nxt and nxt.name and matchesDestRunway(nxt.name, destRunway) then
+                selectedCourse = waypoints[i].magnetic_course
+                break
+            end
+        end
+
+        if selectedCourse and selectedCourse ~= 0 then
+            return helpers.calccourse(selectedCourse)
+        end
+        return nil
+    end
+
+    -- RNAV/LPV/GLS: prefer FMC final-leg course only when it matches CIFP within tolerance
+    local fmsMag = getFMSFinalMagCourse()
+    if isRnavNav and fmsMag then
+        local normalized = sanityCheck(normalizeCourse(fmsMag, false), "FMS")
+        if normalized then
+            local cifpCourse = nil
+            if type(icao) == "string" and type(runway) == "string" and type(navType) == "string" then
+                local candidateTypes = { navType }
+                if navType == def.NAVTYPELPV or navType == def.NAVTYPEGLS then
+                    table.insert(candidateTypes, def.NAVTYPERNAV)
+                end
+                for _, candidateType in ipairs(candidateTypes) do
+                    cifpCourse = helpers.getCIFPApproachCourse(icao, candidateType, runway)
+                    if cifpCourse then break end
+                end
+            end
+            if cifpCourse then
+                local diff = math.abs(helpers.headingdiff(fmsMag, cifpCourse))
+                if diff <= 10 then
+                    return normalized
+                end
+            else
+                return normalized
+            end
+        end
+    end
+
+    -- GLS: use GLS course if available
+    if navType == def.NAVTYPEGLS then
+        local glsCourse = get(P.glscourse)
+        if glsCourse and glsCourse >= 0 and glsCourse < 360 then
+            local normalized = sanityCheck(normalizeCourse(glsCourse, nil), "GLS")
+            if normalized then
+                return normalized
+            end
+        end
+    end
+
+    if type(icao) == "string" and type(navType) == "string" and type(runway) == "string" then
+        local candidateTypes = { navType }
+        if navType == def.NAVTYPELPV or navType == def.NAVTYPEGLS then
+            table.insert(candidateTypes, def.NAVTYPERNAV)
+        end
+        for _, candidateType in ipairs(candidateTypes) do
+            local cifpCourse = helpers.getCIFPApproachCourse(icao, candidateType, runway)
+            if cifpCourse then
+                local normalized = sanityCheck(normalizeCourse(cifpCourse, nil), "CIFP")
+                if normalized then
+                    return normalized
+                end
+            end
+        end
+    end
+
+    -- Prefer FMC-provided final-leg course when modded Zibo is enabled (fallback after CIFP)
+    if fmsMag and not isRnavNav then
+        local expected = nil
+        if type(icao) == "string" and type(runway) == "string" then
+            local cifpCourse = helpers.getCIFPApproachCourse(icao, navType, runway)
+            if not cifpCourse and (navType == def.NAVTYPELPV or navType == def.NAVTYPEGLS) then
+                cifpCourse = helpers.getCIFPApproachCourse(icao, def.NAVTYPERNAV, runway)
+            end
+            if cifpCourse then
+                expected = helpers.calccourse(cifpCourse)
+            end
+        end
+        local normalized = normalizeCourse(fmsMag, false)
+        normalized = sanityCheck(normalized, "FMS")
+        if normalized then
+            if expected and not announceTrue then
+                local diff = math.abs(fmsMag - expected)
+                if diff > 180 then diff = 360 - diff end
+                if diff <= 10 then
+                    return normalized
+                end
+            else
+                return normalized
+            end
+        end
+    end
+
+    if entry.isTrueCourse and entry.truecourse then
+        local normalized = sanityCheck(normalizeCourse(entry.truecourse, true), "NAVTRUE")
+        if normalized then
+            return normalized
+        end
+    end
+    local navCourse = entry[def.DESTCOURSE]
+    if navCourse then
+        local normalized = sanityCheck(normalizeCourse(navCourse, false), "NAV")
+        if normalized then
+            return normalized
+        end
+    end
+
+    -- Fallback: runway heading if available
+    if announceTrue then
+        if runwayTrue then
+            return helpers.calccourse(runwayTrue)
+        end
+        if runwayMag then
+            return helpers.calccourse(runwayMag + magVar)
+        end
+    else
+        if runwayMag then
+            return helpers.calccourse(runwayMag)
+        end
+    end
+
+    return navCourse
+end
+
+local function cacheApproachCourse(loop, entry, course)
+    if loop then
+        loop.approachCourseMag = course
+        loop.approachNavType = entry and entry[def.DESTNAVTYPE] or nil
+    end
+    P.approachCourseMag = course
+    P.approachNavType = entry and entry[def.DESTNAVTYPE] or nil
+end
+
+local function getCachedApproachCourse(loop)
+    if loop and loop.approachCourseMag then
+        return loop.approachCourseMag
+    end
+    local entry = loop and loop.navdatatableindex and P.navdatatable[loop.navdatatableindex] or nil
+    local course = entry and getNavEntryCourse(entry) or nil
+    cacheApproachCourse(loop, entry, course)
+    return course
+end
+
+local function getCachedApproachCourseForHeading(runwayHeading)
+    local navType = P.approachNavType
+    if navType ~= def.NAVTYPERNAV and navType ~= def.NAVTYPELPV and navType ~= def.NAVTYPEGLS then
+        return nil
+    end
+    local course = P.approachCourseMag
+    if not course then
+        return nil
+    end
+    if runwayHeading then
+        local diff = helpers.headingdiff(course, runwayHeading)
+        if diff <= 10 then
+            return helpers.roundnumber(course)
+        end
+        return nil
+    end
+    return helpers.roundnumber(course)
+end
+
+local function getMcpHeadingTarget()
+    local headingrounded = nil
+    if (helpers.isvalidicao(get(P.desicao)) and helpers.isvalidrwy(get(P.desrwy)) and tonumber(get(P.desrwyheading))) then
+        headingrounded = helpers.roundnumber(get(P.desrwyheading))
+    end
+    local navrwyheading = helpers.getrwyheadingfromnavdata(P.navdatatable, get(P.desicao), get(P.desrwy))
+    if (navrwyheading and ((not headingrounded) or (headingrounded and (math.abs(headingrounded - navrwyheading) <= 3)))) then
+        headingrounded = navrwyheading
+    end
+    local cached = getCachedApproachCourseForHeading(headingrounded)
+    if cached then
+        headingrounded = cached
+    end
+    return headingrounded
+end
+
+local function getTakeoffFlapsTarget(autoMode)
+    local target = get(P.toflaps)
+    if target and target > 0 then
+        return target
+    end
+    if not autoMode then
+        return nil
+    end
+    local computed = helpers.determineTakeoffFlapsSetting(
+        get(P.totalweightkgs),
+        get(P.deprwylen),
+        get(P.deprwyheading),
+        get(P.elevation),
+        P.depmetar,
+        get(P.toflapsset) or target
+    )
+    local candidate = computed
+    if not candidate or candidate <= 0 then
+        candidate = get(P.toflapsset)
+    end
+    if not candidate or candidate <= 0 then
+        candidate = 5
+    end
+    return candidate
+end
+
+local function isQrhOff()
+    local lineL = tostring(helpers.get("laminar/B738/fmc1/Line06_L") or "")
+    local normalized = lineL:gsub("[<>]", ""):upper():gsub("%s+", " ")
+    return normalized:find("QRH OFF", 1, true) ~= nil
+end
+
+local function isFmcAutomationOn()
+    return P.configvalues and (P.configvalues[def.CONFIGFMCAUTOMATION] == def.ON)
+end
+
+local function shouldSkipFmcSteps()
+    return (P.configvalues and (P.configvalues[def.CONFIGFMCAUTOMATION] ~= def.ON))
+        and (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON)
+end
+
+local function getCalcSpeedString(value)
+    local num = tonumber(value or 0) or 0
+    if num <= 0 then
+        return nil
+    end
+    return helpers.padNumberWithZerosStrict(math.floor(num + 0.5), 3)
 end
 
 local M = {}
@@ -252,14 +854,24 @@ function M.fillProcedureTable()
                 },
                 ['view_fms'] = {
                     view = function() return P.configvalues[def.CONFIGVIEWFMS] end,
-                    nextStep = 'fmc_init_ref'
+                    nextStep = 'branch_fmc_pos_init'
+                },
+                ['branch_fmc_pos_init'] = {
+                    branch = function()
+                        if shouldSkipFmcSteps() then
+                            return 'end_fms_pos_init'
+                        end
+                        return 'fmc_init_ref'
+                    end
                 },
                 ['fmc_init_ref'] = {
                     check = function()
                         return helpers.fmcHeaderContains("POS INIT")
                     end,
                     action = function()
-                        helpers.command_once("laminar/B738/button/fmc1_init_ref")
+                        if isFmcAutomationOn() then
+                            helpers.command_once("laminar/B738/button/fmc1_init_ref")
+                        end
                     end,
                     advice = "Open F M C Position Init Page",
                     runActionInAdviceMode = true,
@@ -305,15 +917,15 @@ function M.fillProcedureTable()
             }
         },
         [def.COCKPITINITPROCEDURE] = { 
-            number = 2, 
-            name = "Cockpit Initialization", 
-            cycable = true, 
+            number = 2,
+            name = "Cockpit Initialization",
+            cycable = true,
             speakname = true,
             set = false,
-            loop = 1, 
-            prerequisite = def.COLDANDDARKPROCEDURE, 
-            allowedState = def.GROUNDONLY, 
-            requiredFlightstate = def.FLIGHTSTATEPREFLIGHT, 
+            loop = 1,
+            prerequisite = nil,
+            allowedState = def.GROUNDONLY,
+            requiredFlightstate = def.FLIGHTSTATEPREFLIGHT,
             skipCondition = nil,
             prerequisiteChecks = {
                 { check = function() return (get(P.battery) == def.ON) or (get(P.mainbus) == def.ON) end, 
@@ -378,6 +990,10 @@ function M.fillProcedureTable()
                             P.commandtableentry(def.TEXT, "Instrument Lights set")
                         end
                     end,
+                    nextStep = 'view_overhead_window_heat'
+                },
+                ['view_overhead_window_heat'] = {
+                    view = function() return P.configvalues[def.CONFIGVIEWOVERHEADPANEL] end,
                     nextStep = 'window_heat_on_init'
                 },
                 ['window_heat_on_init'] = {
@@ -399,6 +1015,10 @@ function M.fillProcedureTable()
                     action = function() P.setnosmokingsign(def.NOSMOKINGSIGNON) end,
                     advice = "Set No Smoking Signs On",
                     confirm = "No Smoking Signs checked On",
+                    nextStep = 'view_main_before_lower_du'
+                },
+                ['view_main_before_lower_du'] = {
+                    view = function() return P.configvalues[def.CONFIGVIEWMAINPANEL] end,
                     nextStep = 'set_lower_du'
                 },
                 ['set_lower_du'] = { 
@@ -420,7 +1040,7 @@ function M.fillProcedureTable()
                     action = function()
                         if P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON then
                             P.commandtableentry(def.TEXT, "Reset F M C")
-                        else
+                        elseif isFmcAutomationOn() then
                             helpers.command_once("laminar/B738/button/reset_fmc")
                             P.commandtableentry(def.TEXT, "F M C Reset Done")
                         end
@@ -790,7 +1410,9 @@ function M.fillProcedureTable()
                 ['reset_master_caution'] = { 
                     action = function() 
                         helpers.command_once("laminar/B738/push_button/master_caution1")
-                        helpers.command_once("laminar/B738/button/fmc1_clr")
+                        if isFmcAutomationOn() then
+                            helpers.command_once("laminar/B738/button/fmc1_clr")
+                        end
                     end,
                     nextStep = 'plan_pushback'
                 },
@@ -1398,9 +2020,29 @@ function M.fillProcedureTable()
                 },
                 ['arm_lnav'] = {
                     skipIf = function() return P.configvalues[def.CONFIGVOICEADVICEONLY] == def.OFF end,
-                    check = function() return get(P.aplnavstat) == def.ON end,
-                    advice = "Arm L NAV",
-                    confirm = "L NAV checked Armed",
+                    check = function()
+                        if get(P.aplnavstat) == def.ON then return true end
+                        -- Accept HDG SEL as an alternative if vectors expected
+                        return get(P.aphdgselstat) ~= def.OFF
+                    end,
+                    advice = function()
+                        if get(P.aplnavstat) == def.ON then
+                            return "L NAV checked Armed"
+                        end
+                        if get(P.aphdgselstat) ~= def.OFF then
+                            return "Heading Select checked Armed"
+                        end
+                        return "Arm L NAV or Heading Select"
+                    end,
+                    confirm = function()
+                        if get(P.aplnavstat) == def.ON then
+                            return "L NAV checked Armed"
+                        end
+                        if get(P.aphdgselstat) ~= def.OFF then
+                            return "Heading Select checked Armed"
+                        end
+                        return false
+                    end,
                     nextStep = 'arm_vnav'
                 },
                 ['arm_vnav'] = {
@@ -1415,16 +2057,63 @@ function M.fillProcedureTable()
                     nextStep = 'set_flaps_takeoff'
                 },
                 ['set_flaps_takeoff'] = {
-                    check = function() return (helpers.convflaplevertoflappos(get(P.flapleverpos)) == get(P.toflaps)) end,
-                    action = function() helpers.command_once("laminar/B738/push_button/flaps_" .. get(P.toflaps)) end,
-                    advice = function() return "Set Flap Lever " .. tostring(get(P.toflaps)) end,
-                    confirm = function() return "Flap Lever checked and " .. get(P.toflaps) end,
+                    check = function()
+                        local autoMode = P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON
+                        local target = getTakeoffFlapsTarget(autoMode)
+                        local current = helpers.convflaplevertoflappos(get(P.flapleverpos))
+                        if target and target > 0 then
+                            return current == target
+                        else
+                            return current > def.FLAPSUP -- any takeoff flap > 0 accepted
+                        end
+                    end,
+                    action = function()
+                        local autoMode = P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON
+                        if not autoMode then return end
+                        local target = getTakeoffFlapsTarget(true)
+                        if target and target > 0 then
+                            helpers.command_once("laminar/B738/push_button/flaps_" .. target)
+                        end
+                    end,
+                    advice = function()
+                        local target = get(P.toflaps)
+                        if target and target > 0 then
+                            return "Set Flap Lever " .. tostring(target)
+                        else
+                            return "Set Takeoff Flaps"
+                        end
+                    end,
+                    confirm = function()
+                        local autoMode = P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON
+                        local target = getTakeoffFlapsTarget(autoMode)
+                        local current = helpers.convflaplevertoflappos(get(P.flapleverpos))
+                        if target and target > 0 then
+                            if current == target then
+                                return "Flap Lever checked and " .. tostring(target)
+                            end
+                            return false
+                        else
+                            if current > def.FLAPSUP then
+                                return "Takeoff Flaps checked"
+                            end
+                            return false
+                        end
+                    end,
                     nextStep = 'release_parking_brake'
                 },
                 ['release_parking_brake'] = {
                     skipIf = function() return P.configvalues[def.CONFIGAUTOCHOCKSPB] == def.OFF end,
-                    check = function() return get(P.parkingbrakepos) == def.OFF end,
-                    action = function() set(P.parkingbrakepos, def.OFF) end,
+                    check = function()
+                        local pbPos = get(P.parkingbrakepos)
+                        local simRatio = P.simparkingbrakeratio and get(P.simparkingbrakeratio) or 0
+                        return (pbPos == def.OFF) and (simRatio <= 0.05)
+                    end,
+                    action = function()
+                        set(P.parkingbrakepos, def.OFF)
+                        if P.simparkingbrakeratio then
+                            set(P.simparkingbrakeratio, 0)
+                        end
+                    end,
                     advice = "Release Parking Brake",
                     confirm = "Parking Brake checked Released",
                     nextStep = 'view_main_panel_final'
@@ -1565,9 +2254,29 @@ function M.fillProcedureTable()
                 },
                 ['arm_lnav'] = {
                     skipIf = function() return P.configvalues[def.CONFIGVOICEADVICEONLY] == def.OFF end,
-                    check = function() return get(P.aplnavstat) == def.ON end,
-                    advice = "Arm L NAV",
-                    confirm = "L NAV checked Armed",
+                    check = function()
+                        if get(P.aplnavstat) == def.ON then return true end
+                        -- Allow HDG SEL when vectors after departure are planned
+                        return get(P.aphdgselstat) ~= def.OFF
+                    end,
+                    advice = function()
+                        if get(P.aplnavstat) == def.ON then
+                            return "L NAV checked Armed"
+                        end
+                        if get(P.aphdgselstat) ~= def.OFF then
+                            return "Heading Select checked"
+                        end
+                        return "Arm L NAV or use H D G Select"
+                    end,
+                    confirm = function()
+                        if get(P.aplnavstat) == def.ON then
+                            return "L NAV checked Armed"
+                        end
+                        if get(P.aphdgselstat) ~= def.OFF then
+                            return "H D G Select checked"
+                        end
+                        return false
+                    end,
                     nextStep = 'arm_vnav'
                 },
                 ['arm_vnav'] = {
@@ -1980,11 +2689,17 @@ function M.fillProcedureTable()
                     nextStep = 'check_fms_page'
                 },
                 ['check_fms_page'] = {
-                    skipIf = function() return P.configvalues[def.CONFIGSPDRESTR250] ~= def.ON end,                 
+                    skipIf = function()
+                        return P.configvalues[def.CONFIGSPDRESTR250] ~= def.ON or shouldSkipFmcSteps()
+                    end,
                     check = function(loop, procData)
                         return helpers.fmcHeaderContains("DES")
                     end,
-                    action = function(loop, procData) helpers.command_once("laminar/B738/button/fmc1_des") end,
+                    action = function(loop, procData)
+                        if isFmcAutomationOn() then
+                            helpers.command_once("laminar/B738/button/fmc1_des")
+                        end
+                    end,
                     advice = "Open Descent Page",
                     runActionInAdviceMode = true,
                     nextStep = 'set_speed_restriction'
@@ -2024,7 +2739,7 @@ function M.fillProcedureTable()
                 ['check_rwy_suitability'] = {
                     action = function()
                         if P.desmetar.metarfound then
-                            if not helpers.shouldCheckRunwaySuitability(P.desmetar, get(P.desrwy)) then
+                            if not helpers.shouldCheckRunwaySuitability(P.desmetar, get(P.desrwy), P.approachNavType) then
                                 P.commandtableentry(def.TEXT, "Check Destination Runway " .. helpers.addspaces(get(P.desrwy)))
                             end
                         end
@@ -2152,9 +2867,9 @@ function M.fillProcedureTable()
                         if (get(P.altitude) >= tl) then return false end 
                         local baroinchtmp, baropastmp = P.getlocalqnh(def.ARRIVAL)
                         if (get(P.baroinhpa) == def.ON) then
-                            return "Set Q N H " .. helpers.addspaces(baropastmp)
+                            return "Set Q N H " .. helpers.addspaces(helpers.formatQnhValue(baropastmp, true))
                         else
-                            return "Set Q N H " .. helpers.addspaces(baroinchtmp)
+                            return "Set Q N H " .. helpers.addspaces(helpers.formatQnhValue(baroinchtmp, false))
                         end
                     end,
                     action = function()
@@ -2168,9 +2883,9 @@ function M.fillProcedureTable()
                     confirm = function()
                         local baroinchtmp, baropastmp = P.getlocalqnh(def.ARRIVAL)
                         if (get(P.baroinhpa) == def.ON) then
-                            return "Q N H checked and " .. helpers.addspaces(baropastmp)
+                            return "Q N H checked and " .. helpers.addspaces(helpers.formatQnhValue(baropastmp, true))
                         else
-                            return "Q N H checked and " .. helpers.addspaces(baroinchtmp)
+                            return "Q N H checked and " .. helpers.addspaces(helpers.formatQnhValue(baroinchtmp, false))
                         end
                     end,
                     nextStep = nil
@@ -2283,22 +2998,47 @@ function M.fillProcedureTable()
                 },
                 ['trigger_vref_proc'] = {
                     skipIf = function() return P.configvalues[def.CONFIGVREF30SET] == def.OFF end,
-                    action = function()
-                        if get(P.vref) == 0 then 
-                            P.triggerprocedure(def.SETVREFPROCEDURE, false)
+                    action = function(loop)
+                        if not loop then return end
+                        local procData = P.proceduretable[def.SETVREFPROCEDURE]
+                        if procData and procData.set then
+                            loop.vrefproctriggered = nil
+                            return
+                        end
+
+                        -- Only trigger SetVref if VREF is still empty and we haven't started waiting yet.
+                        if get(P.vref) == 0 and not loop.vrefproctriggered then
+                            local ok = P.triggerprocedure(def.SETVREFPROCEDURE, false)
+                            -- Mark as waiting if we successfully triggered OR if the target loop is now running SetVref.
+                            local loop3 = P.loopStateTables and P.loopStateTables[3]
+                            local running = loop3 and (loop3.lock == def.SETVREFPROCEDURE)
+                            if ok or running then
+                                loop.vrefproctriggered = true
+                            end
                         end
                     end,
-                    check = function()
+                    check = function(loop)
                         local procKey = def.SETVREFPROCEDURE 
                         local procData = P.proceduretable[procKey]
-                        if get(P.vref) ~= 0 then 
-                            return true 
+                        if procData and procData.set then
+                            if loop then loop.vrefproctriggered = nil end
+                            return true
                         end
-                        if procData.set then
-                            return true 
-                        else
-                            return false 
+
+                        -- If we triggered SetVref from this step, wait until it completes.
+                        if loop and loop.vrefproctriggered then
+                            local loop3 = P.loopStateTables and P.loopStateTables[3]
+                            local running = loop3 and (loop3.lock == def.SETVREFPROCEDURE)
+                            -- If SetVref is no longer running but VREF is set, assume it was completed/aborted after manual input and continue.
+                            if not running and get(P.vref) ~= 0 then
+                                loop.vrefproctriggered = nil
+                                return true
+                            end
+                            return false
                         end
+
+                        -- If we didn't trigger SetVref here, treat "VREF already set" as sufficient to proceed.
+                        return get(P.vref) ~= 0
                     end,
                     advice = nil,
                     confirm = function() 
@@ -2309,7 +3049,54 @@ function M.fillProcedureTable()
                         end
                     end,
                     runActionInAdviceMode = true, 
-                    nextStep = 'set_view_main_2' 
+                    nextStep = 'trigger_windcorr_proc' 
+                },
+                ['trigger_windcorr_proc'] = {
+                    skipIf = function(loop)
+                        local skip = P.configvalues[def.CONFIGVREF30SET] == def.OFF
+                        return skip
+                    end,
+                    action = function(loop)
+                        if not loop then return end
+                        local procData = P.proceduretable[def.SETWINDCORRPROCEDURE]
+                        if procData and procData.set then
+                            loop.windcorrproctriggered = nil
+                            return
+                        end
+
+                        if not loop.windcorrproctriggered then
+                            local ok = P.triggerprocedure(def.SETWINDCORRPROCEDURE, false)
+                            local loop3 = P.loopStateTables and P.loopStateTables[3]
+                            local running = loop3 and (loop3.lock == def.SETWINDCORRPROCEDURE)
+                            if ok or running then
+                                loop.windcorrproctriggered = true
+                            end
+                        end
+                    end,
+                    check = function(loop)
+                        local procKey = def.SETWINDCORRPROCEDURE
+                        local procData = P.proceduretable[procKey]
+                        if procData and procData.set then
+                            if loop then loop.windcorrproctriggered = nil end
+                            return true
+                        end
+
+                        if loop and loop.windcorrproctriggered then
+                            local loop3 = P.loopStateTables and P.loopStateTables[3]
+                            local running = loop3 and (loop3.lock == def.SETWINDCORRPROCEDURE)
+                            if not running then
+                                loop.windcorrproctriggered = nil
+                                return true
+                            end
+                            return false
+                        end
+
+                        return false
+                    end,
+                    advice = nil,
+                    confirm = nil,
+                    runActionInAdviceMode = true,
+                    nextStep = 'set_view_main_2'
                 },
                 ['set_view_main_2'] = {
                     skipIf = function() return P.configvalues[def.CONFIGVIEWCHANGES] ~= def.ON end,
@@ -2319,17 +3106,18 @@ function M.fillProcedureTable()
                 ['set_autobrake'] = {
                     skipIf = function() return P.configvalues[def.CONFIGVREF30SET] ~= def.ON end,
                     check = function()
-                        if get(P.autobrakepos) > def.AUTOBRAKEOFF then return true end
+                        local current = get(P.autobrakepos)
                         if P.configvalues[def.CONFIGCUSTOMAPPROACHCALC] ~= def.ON then
-                            return true
+                            return current > def.AUTOBRAKEOFF
                         end
+                        if current > def.AUTOBRAKEOFF then return true end
                         local autobrake = helpers.calcautobrake(get(P.vref), get(P.totalweightkgs), get(P.desrwylen), P.desmetar, true)
-                        return get(P.autobrakepos) == autobrake
+                        return current == autobrake
                     end,
                     advice = function()
                         if get(P.autobrakepos) > def.AUTOBRAKEOFF then return false end
                         if P.configvalues[def.CONFIGCUSTOMAPPROACHCALC] ~= def.ON then
-                            return false
+                            return "Set Auto Brake"
                         end
                         local autobrake = helpers.calcautobrake(get(P.vref), get(P.totalweightkgs), get(P.desrwylen), P.desmetar, true)
                         if (autobrake < def.AUTOBRAKEMAX) then return "Set Auto Brake " .. tostring(autobrake - 1)
@@ -2344,9 +3132,15 @@ function M.fillProcedureTable()
                         P.setautobrake(autobrake)
                     end,
                     confirm = function()
-                        local autobrake
-                        if get(P.autobrakepos) > def.AUTOBRAKEOFF then autobrake = get(P.autobrakepos)
-                        else autobrake = helpers.calcautobrake(get(P.vref), get(P.totalweightkgs), get(P.desrwylen), P.desmetar, P.configvalues[def.CONFIGCUSTOMAPPROACHCALC] == def.ON) end
+                        local current = get(P.autobrakepos)
+                        local autobrake = current
+                        if current <= def.AUTOBRAKEOFF then
+                            return false
+                        end
+                        if P.configvalues[def.CONFIGCUSTOMAPPROACHCALC] == def.ON then
+                            autobrake = helpers.calcautobrake(get(P.vref), get(P.totalweightkgs), get(P.desrwylen), P.desmetar, true)
+                            if autobrake <= def.AUTOBRAKEOFF then autobrake = current end
+                        end
                         if (autobrake < def.AUTOBRAKEMAX) then return "Auto Brake checked and " .. tostring(autobrake - 1)
                         else return "Auto Brake checked Maximum" end
                     end,
@@ -2449,7 +3243,8 @@ function M.fillProcedureTable()
                 ['check_mcp_speed_vapp'] = {
                     check = function(loop)
                         local vref = loop and loop.appvrefcalc or get(P.vref) or 0
-                        local windcorr = (loop and loop.appwindcorr) or get(P.vrefapproachwindcorr) or 0
+                        local customCalcOn = P.configvalues[def.CONFIGCUSTOMAPPROACHCALC] == def.ON
+                        local windcorr = customCalcOn and 0 or ((loop and loop.appwindcorr) or get(P.vrefapproachwindcorr) or 0)
                         local target = tonumber(vref) or 0
                         target = target + (tonumber(windcorr) or 0)
                         if target <= 0 then return true end -- nichts bekannt, weiter
@@ -2471,7 +3266,8 @@ function M.fillProcedureTable()
                     end,
                     advice = function(loop)
                         local vref = loop and loop.appvrefcalc or get(P.vref) or 0
-                        local windcorr = (loop and loop.appwindcorr) or get(P.vrefapproachwindcorr) or 0
+                        local customCalcOn = P.configvalues[def.CONFIGCUSTOMAPPROACHCALC] == def.ON
+                        local windcorr = customCalcOn and 0 or ((loop and loop.appwindcorr) or get(P.vrefapproachwindcorr) or 0)
                         local target = tonumber(vref) or 0
                         target = target + (tonumber(windcorr) or 0)
                         if target <= 0 then return "Check M C P Speed" end
@@ -2479,14 +3275,15 @@ function M.fillProcedureTable()
                     end,
                     confirm = function(loop)
                         local vref = loop and loop.appvrefcalc or get(P.vref) or 0
-                        local windcorr = (loop and loop.appwindcorr) or get(P.vrefapproachwindcorr) or 0
+                        local customCalcOn = P.configvalues[def.CONFIGCUSTOMAPPROACHCALC] == def.ON
+                        local windcorr = customCalcOn and 0 or ((loop and loop.appwindcorr) or get(P.vrefapproachwindcorr) or 0)
                         local target = tonumber(vref) or 0
                         target = target + (tonumber(windcorr) or 0)
                         if target <= 0 then return "M C P Speed check skipped" end
                         local mcp = get(P.mcpspeed) or 0
                         local tol = 5
                         if mcp >= target and mcp <= (target + tol) then
-                            return "M C P Speed checked " .. helpers.addspaces(helpers.roundnumber(target))
+                            return "M C P Speed checked " .. helpers.addspaces(helpers.roundnumber(mcp))
                         end
                         return false
                     end,
@@ -2494,33 +3291,19 @@ function M.fillProcedureTable()
                 },
                 ['set_mcp_heading'] = {
                     check = function()
-                        local headingrounded = nil
-                        if (helpers.isvalidicao(get(P.desicao)) and helpers.isvalidrwy(get(P.desrwy)) and tonumber(get(P.desrwyheading))) then
-                            headingrounded = helpers.roundnumber(get(P.desrwyheading))
-                        end
-                        local navrwyheading = helpers.getrwyheadingfromnavdata(P.navdatatable, get(P.desicao), get(P.desrwy))
-                        if (navrwyheading and ((not headingrounded) or (headingrounded and (math.abs(headingrounded - navrwyheading) <= 3)))) then
-                            headingrounded = navrwyheading
-                        end
+                        local headingrounded = getMcpHeadingTarget()
                         if not headingrounded then
-                            sasl.logInfo("set_mcp_heading: Skipping, no valid runway heading found to check against.")
+                            helpers.logInfoTS("set_mcp_heading: Skipping, no valid runway heading found to check against.")
                             return true
                         end
                         if get(P.aphdgselstat) ~= def.OFF then
-                            sasl.logInfo("set_mcp_heading: Skipping, HDG SEL mode is active.")
+                            helpers.logInfoTS("set_mcp_heading: Skipping, HDG SEL mode is active.")
                             return true
                         end
                         return (headingrounded == get(P.mcpheading))
                     end,
                     advice = function()
-                        local headingrounded = nil
-                        if (helpers.isvalidicao(get(P.desicao)) and helpers.isvalidrwy(get(P.desrwy)) and tonumber(get(P.desrwyheading))) then
-                            headingrounded = helpers.roundnumber(get(P.desrwyheading))
-                        end
-                        local navrwyheading = helpers.getrwyheadingfromnavdata(P.navdatatable, get(P.desicao), get(P.desrwy))
-                        if (navrwyheading and ((not headingrounded) or (headingrounded and (math.abs(headingrounded - navrwyheading) <= 3)))) then
-                            headingrounded = navrwyheading
-                        end
+                        local headingrounded = getMcpHeadingTarget()
                         if headingrounded then
                             return "Set M C P Heading " .. helpers.addspaces(helpers.padNumberWithZerosStrict(headingrounded, 3))
                         else
@@ -2528,28 +3311,17 @@ function M.fillProcedureTable()
                         end
                     end,
                     action = function()
-                        local headingrounded = nil
-                        if (helpers.isvalidicao(get(P.desicao)) and helpers.isvalidrwy(get(P.desrwy)) and tonumber(get(P.desrwyheading))) then
-                            headingrounded = helpers.roundnumber(get(P.desrwyheading))
-                        end
-                        local navrwyheading = helpers.getrwyheadingfromnavdata(P.navdatatable, get(P.desicao), get(P.desrwy))
-                        if (navrwyheading and ((not headingrounded) or (headingrounded and (math.abs(headingrounded - navrwyheading) <= 3)))) then
-                            headingrounded = navrwyheading
-                        end
+                        local headingrounded = getMcpHeadingTarget()
                         if (headingrounded and (get(P.aphdgselstat) == def.OFF)) then
                             set(P.mcpheading, headingrounded)
                         end
                     end,
-                    confirm = function()
-                        local headingrounded = nil
-                        if (helpers.isvalidicao(get(P.desicao)) and helpers.isvalidrwy(get(P.desrwy)) and tonumber(get(P.desrwyheading))) then
-                            headingrounded = helpers.roundnumber(get(P.desrwyheading))
-                        end
-                        local navrwyheading = helpers.getrwyheadingfromnavdata(P.navdatatable, get(P.desicao), get(P.desrwy))
-                        if (navrwyheading and ((not headingrounded) or (headingrounded and (math.abs(headingrounded - navrwyheading) <= 3)))) then
-                            headingrounded = navrwyheading
-                        end
+                    confirm = function(loop)
+                        local headingrounded = getMcpHeadingTarget()
                         if (headingrounded and (get(P.aphdgselstat) == def.OFF) and (headingrounded == get(P.mcpheading))) then
+                            if loop then
+                                loop.mcpHeadingSet = true
+                            end
                             return "M C P Heading checked " .. helpers.addspaces(helpers.padNumberWithZerosStrict(headingrounded, 3))
                         end
                         return false
@@ -2642,7 +3414,7 @@ function M.fillProcedureTable()
                     action = function()
                         local loop1 = P.loopStateTables and P.loopStateTables[1]
                         if loop1 and loop1.lock ~= def.NOPROCEDURE then
-                            sasl.logInfo("Go Around: aborting active procedure on Loop 1 (ID: " .. tostring(loop1.lock) .. ").")
+                            helpers.logInfoTS("Go Around: aborting active procedure on Loop 1 (ID: " .. tostring(loop1.lock) .. ").")
                             loop1.procedureabort = true
                             loop1.procedureskipstep = false
                             loop1.setonabort = false
@@ -3663,7 +4435,11 @@ function M.fillProcedureTable()
                         local hasLPV = false
                         if ((string.len(FMC1Line04X) == 24) and (string.len(FMC1Line04L) == 24)) then
                             apptype = string.sub(FMC1Line04X, 2, 4)
-                            if ((apptype == def.NAVTYPEILS) or (apptype == def.NAVTYPEGLS)) then
+                            if ((apptype == def.NAVTYPEILS)
+                                or (apptype == def.NAVTYPEGLS)
+                                or (apptype == def.NAVTYPELDA)
+                                or (apptype == def.NAVTYPELOC)
+                                or (apptype == def.NAVTYPEIGS)) then
                                 table.insert(candidateTypes, apptype)
                             else
                                 table.insert(candidateTypes, def.NAVTYPELPV)
@@ -3722,7 +4498,11 @@ function M.fillProcedureTable()
                                     if not targetCourse then return math.huge end
                                     local entry = P.navdatatable[idx]
                                     if not entry then return math.huge end
-                                    local entryCourse = entry[def.DESTTRUECOURSE] or entry[def.DESTMAGCOURSE]
+                                    local entryCourse = entry[def.DESTCOURSE]
+                                    if entry.isTrueCourse and entry.truecourse then
+                                        local magVar = getEntryMagVar(entry)
+                                        entryCourse = helpers.calccourse(entry.truecourse - magVar)
+                                    end
                                     if not entryCourse then return math.huge end
                                     return math.abs(helpers.headingdiff(entryCourse, targetCourse))
                                 end
@@ -3801,34 +4581,244 @@ function M.fillProcedureTable()
                         local runwayFormatted = helpers.formatRunwayDesignator(runway)
                         local course = nil
 
+                        local navEntry = nil
+                        if loop and loop.navdatatableindex and P.navdatatable[loop.navdatatableindex] then
+                            navEntry = P.navdatatable[loop.navdatatableindex]
+                        end
+                        local runwayToken = runway
+                        if navEntry and type(navEntry[def.DESTRWY]) == "string" then
+                            runwayToken = navEntry[def.DESTRWY]
+                        end
+                        local announceTrue = runwayUsesTrue(runwayToken) or runwayUsesTrue(runway)
+                        local magVar = nil
+                        if navEntry then
+                            magVar = getEntryMagVar(navEntry)
+                        else
+                            local latVar = get(P.desrwylatstartpos)
+                            local lonVar = get(P.desrwylonstartpos)
+                            if latVar and lonVar and latVar ~= 0 and lonVar ~= 0 then
+                                magVar = sasl.getMagneticVariation(latVar, lonVar)
+                            else
+                                local apt = P.airportdatatable[get(P.desicao)]
+                                if apt and apt.latitude and apt.longitude then
+                                    magVar = sasl.getMagneticVariation(apt.latitude, apt.longitude)
+                                end
+                            end
+                        end
+                        magVar = tonumber(magVar) or 0
+                        local runwayMag = tonumber(get(P.desrwyheading))
+                        local runwayTrue = getRunwayTrueFromEndpoints()
+                        if not runwayTrue and runwayMag then
+                            runwayTrue = helpers.calccourse(runwayMag + magVar)
+                        end
+                        local runwayRef = nil
+                        if announceTrue then
+                            runwayRef = runwayTrue
+                        else
+                            runwayRef = runwayMag and helpers.calccourse(runwayMag) or nil
+                            if not runwayRef and runwayTrue then
+                                runwayRef = helpers.calccourse(runwayTrue - magVar)
+                            end
+                        end
+                        local navType = navEntry and navEntry[def.DESTNAVTYPE]
+                        local isRnavNav = navType == def.NAVTYPELPV
+                            or navType == def.NAVTYPERNAV
+                            or navType == def.NAVTYPEGLS
+                        if isRnavNav then
+                            runwayRef = nil
+                        end
+                        local function isPlausible(value)
+                            if not value then return false end
+                            if runwayRef then
+                                local diff = math.abs(value - runwayRef)
+                                if diff > 180 then diff = 360 - diff end
+                                return diff <= 10
+                            end
+                            return true
+                        end
+                        local sanityRunwayRef = nil
+                        if announceTrue then
+                            if runwayTrue then
+                                sanityRunwayRef = helpers.calccourse(runwayTrue)
+                            elseif runwayMag then
+                                sanityRunwayRef = helpers.calccourse(runwayMag + magVar)
+                            end
+                        else
+                            if runwayMag then
+                                sanityRunwayRef = helpers.calccourse(runwayMag)
+                            elseif runwayTrue then
+                                sanityRunwayRef = helpers.calccourse(runwayTrue - magVar)
+                            end
+                        end
+                        local sanityRefs = nil
+                        local function buildSanityRefs()
+                            if sanityRefs then return sanityRefs end
+                            sanityRefs = {}
+                            if sanityRunwayRef then
+                                table.insert(sanityRefs, sanityRunwayRef)
+                            end
+                            local navTypeForCifp = navType
+                            if type(navTypeForCifp) == "string" and type(runway) == "string" then
+                                local candidateTypes = { navTypeForCifp }
+                                if navTypeForCifp == def.NAVTYPELPV or navTypeForCifp == def.NAVTYPEGLS then
+                                    table.insert(candidateTypes, def.NAVTYPERNAV)
+                                end
+                                for _, candidateType in ipairs(candidateTypes) do
+                                    local cifpCourse = helpers.getCIFPApproachCourse(get(P.desicao), candidateType, runway)
+                                    if cifpCourse then
+                                        local cifpRef = normalizeCourse(cifpCourse, nil)
+                                        if cifpRef then
+                                            table.insert(sanityRefs, cifpRef)
+                                        end
+                                        break
+                                    end
+                                end
+                            end
+                            return sanityRefs
+                        end
+                        local function sanityCheck(candidate, source)
+                            if not candidate then return nil end
+                            local refs = buildSanityRefs()
+                            if not refs or #refs == 0 then return candidate end
+                            local minDiff = 360
+                            for _, ref in ipairs(refs) do
+                                local diff = math.abs(candidate - ref)
+                                if diff > 180 then diff = 360 - diff end
+                                if diff < minDiff then minDiff = diff end
+                            end
+                            if minDiff > 30 then
+                                helpers.logInfoTS(string.format(
+                                    "Runway course sanity check failed (source=%s, course=%s, minDiff=%d, runway=%s).",
+                                    tostring(source), tostring(candidate), math.floor(minDiff + 0.5), tostring(runway)
+                                ))
+                                return nil
+                            end
+                            return candidate
+                        end
+                        local function normalizeCourse(value, valueIsTrue)
+                            if value == nil then
+                                return nil
+                            end
+
+                            local function normalizeKnown(isTrue)
+                                if announceTrue then
+                                    if isTrue then
+                                        return helpers.calccourse(value)
+                                    end
+                                    return helpers.calccourse(value + magVar)
+                                end
+                                if isTrue then
+                                    return helpers.calccourse(value - magVar)
+                                end
+                                return helpers.calccourse(value)
+                            end
+
+                            local function score(candidate)
+                                if not candidate or not runwayRef then
+                                    return nil
+                                end
+                                local diff = math.abs(candidate - runwayRef)
+                                if diff > 180 then diff = 360 - diff end
+                                return diff
+                            end
+
+                            if valueIsTrue == true then
+                                local normalized = normalizeKnown(true)
+                                return isPlausible(normalized) and normalized or nil
+                            elseif valueIsTrue == false then
+                                local normalized = normalizeKnown(false)
+                                return isPlausible(normalized) and normalized or nil
+                            end
+
+                            local candA = normalizeKnown(announceTrue)
+                            local candB = normalizeKnown(not announceTrue)
+                            local scoreA = score(candA)
+                            local scoreB = score(candB)
+                            local pick = nil
+                            if scoreA and scoreB then
+                                pick = (scoreA <= scoreB) and candA or candB
+                            else
+                                pick = candA or candB
+                            end
+                            return isPlausible(pick) and pick or nil
+                        end
+
+                        local function getFMSFinalMagCourse()
+                            if not (P and P.fmslegs and P.fmslegslat and P.fmslegslon) then return nil end
+                            local legsStr = get(P.fmslegs)
+                            local latArr = get(P.fmslegslat)
+                            local lonArr = get(P.fmslegslon)
+                            local waypoints = helpers.buildlegstable(legsStr, latArr, lonArr)
+                            if not waypoints or #waypoints < 2 then return nil end
+
+                            local destRunway = get(P.desrwy)
+                            local selectedCourse = nil
+
+                            if helpers.isvalidrwy(destRunway) then
+                                for i = #waypoints - 1, 1, -1 do
+                                    local nxt = waypoints[i + 1]
+                                    if nxt and nxt.name and matchesDestRunway(nxt.name, destRunway) then
+                                        selectedCourse = waypoints[i].magnetic_course
+                                        break
+                                    end
+                                end
+                            else
+                                for i = #waypoints - 1, 1, -1 do
+                                    local nxt = waypoints[i + 1]
+                                    if nxt and nxt.name and isRunwayLeg(nxt.name) then
+                                        selectedCourse = waypoints[i].magnetic_course
+                                        break
+                                    end
+                                end
+                            end
+
+                            if selectedCourse and selectedCourse ~= 0 then
+                                return helpers.calccourse(selectedCourse)
+                            end
+                            return nil
+                        end
+
+                        -- Attempt to derive final-leg course from FMC (only if Runway-Leg found)
+                        if not course then
+                            local fmsCourse = getFMSFinalMagCourse()
+                            course = sanityCheck(normalizeCourse(fmsCourse, false), "FMS")
+                        end
+
                         -- Prefer detected CIFP approach course
                         if loop and loop.detectedApproach and loop.detectedApproach.entry and loop.detectedApproach.entry.course then
-                            course = helpers.calccourse(loop.detectedApproach.entry.course)
+                            course = sanityCheck(normalizeCourse(loop.detectedApproach.entry.course, nil), "CIFP")
+                        end
+
+                        -- Fallback to CIFP course for runway/nav type when no variant detected
+                        if not course and navType then
+                            local candidateTypes = { navType }
+                            if navType == def.NAVTYPELPV or navType == def.NAVTYPEGLS then
+                                table.insert(candidateTypes, def.NAVTYPERNAV)
+                            end
+                            for _, candidate in ipairs(candidateTypes) do
+                                local cifpCourse = helpers.getCIFPApproachCourse(get(P.desicao), candidate, runway)
+                                if cifpCourse then
+                                    course = sanityCheck(normalizeCourse(cifpCourse, nil), "CIFP")
+                                    if course then break end
+                                end
+                            end
                         end
 
                         -- Fall back to navdata-derived runway heading
                         if not course then
-                            course = helpers.getrwyheadingfromnavdata(P.navdatatable, get(P.desicao), runway)
-                            if course then
-                                course = helpers.calccourse(course)
-                            end
+                            local navCourse = helpers.getrwyheadingfromnavdata(P.navdatatable, get(P.desicao), runway)
+                            course = sanityCheck(normalizeCourse(navCourse, nil), "NAV")
                         end
 
                         -- Fallback to FMC runway heading
                         if not course and tonumber(get(P.desrwyheading)) then
-                            course = helpers.roundnumber(get(P.desrwyheading))
+                            course = sanityCheck(normalizeCourse(helpers.roundnumber(get(P.desrwyheading)), false), "RUNWAY")
                         end
 
                         -- Compute bearing from runway endpoints if available
                         if not course then
-                            local latStart = get(P.desrwylatstartpos)
-                            local lonStart = get(P.desrwylonstartpos)
-                            local latEnd = get(P.desrwylatendpos)
-                            local lonEnd = get(P.desrwylonendpos)
-                            if latStart and lonStart and latEnd and lonEnd and latStart ~= 0 and lonStart ~= 0 and latEnd ~= 0 and lonEnd ~= 0 then
-                                local trueCourse = helpers.getbearing(latStart, lonStart, latEnd, lonEnd)
-                                local magVar = sasl.getMagneticVariation(latStart, lonStart) or 0
-                                course = helpers.calccourse(trueCourse - magVar)
+                            if runwayTrue then
+                                course = sanityCheck(normalizeCourse(runwayTrue, true), "RUNWAYTRUE")
                             end
                         end
 
@@ -3848,7 +4838,7 @@ function M.fillProcedureTable()
                             return
                         end
                         if (get(P.desrwy) ~= navdata[def.DESTRWY]) then
-                            sasl.logInfo("Destination Runway Diff FMC: " .. tostring(get(P.desrwy)) .. " Navdata: " .. tostring(navdata[def.DESTRWY]))
+                            helpers.logInfoTS("Destination Runway Diff FMC: " .. tostring(get(P.desrwy)) .. " Navdata: " .. tostring(navdata[def.DESTRWY]))
                         end
                         local navtype = navdata[def.DESTNAVTYPE] or ""
                         local ident = navdata[def.DESTNAVID] or ""
@@ -3875,7 +4865,7 @@ function M.fillProcedureTable()
                             end
                         end
                         local freqMsg
-                        if (navtype == def.NAVTYPEILS) then
+                        if isLocalizerNavType(navtype) then
                             freqMsg = "Frequency " .. helpers.addspaces(helpers.formatILSFrequency(navdata[def.DESTFREQ] or 0))
                             if navdata[def.DESTNAVDME] then
                                 freqMsg = freqMsg .. " with DME"
@@ -3896,33 +4886,63 @@ function M.fillProcedureTable()
                         return not (loop.navdatatableindices and (#loop.navdatatableindices > 1))
                     end,
                     action = function(loop, procData)
+                        local function navRank(navtype)
+                            if navtype == def.NAVTYPEILS then return 1 end
+                            if navtype == def.NAVTYPEGLS then return 2 end
+                            if navtype == def.NAVTYPELPV then return 3 end
+                            if navtype == def.NAVTYPERNAV or navtype == def.NAVTYPELOC or navtype == def.NAVTYPELDA or navtype == def.NAVTYPEIGS then return 4 end
+                            return 99
+                        end
+
+                        local primary = P.navdatatable[loop.navdatatableindex]
+                        local primaryRank = primary and navRank(primary[def.DESTNAVTYPE]) or 99
+
+                        local primaryRunway = primary and primary[def.DESTRWY] or nil
+
+                        -- Collect alternates that are strictly better than the primary and on the same runway
+                        local candidates = {}
                         for idx = 2, #loop.navdatatableindices do
                             local navdata = P.navdatatable[loop.navdatatableindices[idx]]
                             if navdata then
-                                local navtype = navdata[def.DESTNAVTYPE] or ""
-                                local ident = navdata[def.DESTNAVID] or ""
-                                local runwayDesignator = navdata[def.DESTRWY] or ""
-                                local freqMsg
-                                if (navtype == def.NAVTYPEILS) then
-                                    freqMsg = "Frequency " .. helpers.addspaces(helpers.formatILSFrequency(navdata[def.DESTFREQ] or 0))
-                                    if navdata[def.DESTNAVDME] then
-                                        freqMsg = freqMsg .. " with DME"
-                                    end
-                                else
-                                    freqMsg = "Channel " .. helpers.addspaces(navdata[def.DESTFREQ] or "")
+                                local rank = navRank(navdata[def.DESTNAVTYPE])
+                                if rank < primaryRank and navdata[def.DESTRWY] == primaryRunway then
+                                    table.insert(candidates, { data = navdata, rank = rank, idx = idx })
                                 end
-                                local descriptor = helpers.addspaces(navtype) .. " Approach"
-                                local destinationIcao = get(P.desicao)
-                                if destinationIcao and destinationIcao ~= "" then
-                                    local cifpName = helpers.getCIFPApproachName(destinationIcao, navtype, runwayDesignator)
-                                    if cifpName and cifpName ~= "" then
-                                        descriptor = cifpName .. " Approach"
-                                    end
-                                end
-                                local altMessage = "Alternate option: " .. descriptor
-                                    .. " (Ident " .. helpers.addspaces(ident) .. ") " .. freqMsg
-                                P.commandtableentry(def.TEXT, altMessage)
                             end
+                        end
+
+                        if #candidates == 0 then return end
+
+                        table.sort(candidates, function(a, b)
+                            if a.rank ~= b.rank then return a.rank < b.rank end
+                            return a.idx < b.idx
+                        end)
+
+                        for _, entry in ipairs(candidates) do
+                            local navdata = entry.data
+                            local navtype = navdata[def.DESTNAVTYPE] or ""
+                            local ident = navdata[def.DESTNAVID] or ""
+                            local runwayDesignator = navdata[def.DESTRWY] or ""
+                            local freqMsg
+                            if isLocalizerNavType(navtype) then
+                                freqMsg = "Frequency " .. helpers.addspaces(helpers.formatILSFrequency(navdata[def.DESTFREQ] or 0))
+                                if navdata[def.DESTNAVDME] then
+                                    freqMsg = freqMsg .. " with DME"
+                                end
+                            else
+                                freqMsg = "Channel " .. helpers.addspaces(navdata[def.DESTFREQ] or "")
+                            end
+                            local descriptor = helpers.addspaces(navtype) .. " Approach"
+                            local destinationIcao = get(P.desicao)
+                            if destinationIcao and destinationIcao ~= "" then
+                                local cifpName = helpers.getCIFPApproachName(destinationIcao, navtype, runwayDesignator)
+                                if cifpName and cifpName ~= "" then
+                                    descriptor = cifpName .. " Approach"
+                                end
+                            end
+                            local altMessage = "Alternate option: " .. descriptor
+                                .. " (Ident " .. helpers.addspaces(ident) .. ") " .. freqMsg
+                            P.commandtableentry(def.TEXT, altMessage)
                         end
                     end,
                     runActionInAdviceMode = true,
@@ -3935,44 +4955,61 @@ function M.fillProcedureTable()
                 ['set_capt_freq'] = {
                     check = function(loop, procData)
                         local navdata = P.navdatatable[loop.navdatatableindex]
-                        if (navdata[def.DESTNAVTYPE] == def.NAVTYPEILS) then
+                        local freqValue = getFmcApproachRefFrequency(navdata[def.DESTNAVTYPE]) or navdata[def.DESTFREQ]
+                        if isLocalizerNavType(navdata[def.DESTNAVTYPE]) then
                             if (get(P.mmrinstalled) == def.ON) then
-                                return (get(P.mmrcptactvalue) == navdata[def.DESTFREQ]) and (get(P.mmrcptactmode) == def.MMRILS)
+                                return (get(P.mmrcptactvalue) == freqValue) and (get(P.mmrcptactmode) == def.MMRILS)
                             else
-                                return (get(P.nav1freq) == navdata[def.DESTFREQ])
+                                return (get(P.nav1freq) == freqValue)
                             end
                         elseif ((navdata[def.DESTNAVTYPE] == def.NAVTYPEGLS) or (navdata[def.DESTNAVTYPE] == def.NAVTYPELPV)) and (get(P.mmrinstalled) == def.ON) then
-                            return (get(P.mmrcptactvalue) == navdata[def.DESTFREQ]) and ((get(P.mmrcptactmode) == def.MMRGLS) or (get(P.mmrcptactmode) == def.MMRLPV))
+                            return (get(P.mmrcptactvalue) == freqValue) and ((get(P.mmrcptactmode) == def.MMRGLS) or (get(P.mmrcptactmode) == def.MMRLPV))
                         end
                         return true 
                     end,
                     action = function(loop, procData)
                         local navdata = P.navdatatable[loop.navdatatableindex]
-                        if (navdata[def.DESTNAVTYPE] == def.NAVTYPEILS) then
+                        local navType = navdata[def.DESTNAVTYPE]
+                        local freqValue = getFmcApproachRefFrequency(navType) or navdata[def.DESTFREQ]
+                        if isLocalizerNavType(navType) then
                             if (get(P.mmrinstalled) == def.ON) then
-                                P.setmmrils(def.MMRCAPTAIN, navdata[def.DESTFREQ])
+                                mmrCopyActToStby(def.MMRCAPTAIN)
+                                set(P.mmrcptactmode, def.MMRILS)
+                                set(P.mmrcptactvalue, freqValue)
+                                set(P.nav1stdbyfreq, get(P.nav1freq))
+                                set(P.nav1freq, freqValue)
                             else
                                 set(P.nav1stdbyfreq, get(P.nav1freq))
-                                set(P.nav1freq, navdata[def.DESTFREQ])
+                                set(P.nav1freq, freqValue)
                             end
-                        elseif ((navdata[def.DESTNAVTYPE] == def.NAVTYPEGLS) or (navdata[def.DESTNAVTYPE] == def.NAVTYPELPV)) and (get(P.mmrinstalled) == def.ON) then
-                            P.setmmrgls(def.MMRCAPTAIN, navdata[def.DESTFREQ])
+                        elseif (navType == def.NAVTYPEGLS or navType == def.NAVTYPELPV) and (get(P.mmrinstalled) == def.ON) then
+                            mmrCopyActToStby(def.MMRCAPTAIN)
+                            if navType == def.NAVTYPEGLS then
+                                set(P.mmrcptactmode, def.MMRGLS)
+                            else
+                                set(P.mmrcptactmode, def.MMRLPV)
+                            end
+                            set(P.mmrcptactvalue, freqValue)
                         end
                     end,
                     advice = function(loop, procData)
                         local navdata = P.navdatatable[loop.navdatatableindex]
-                        if (navdata[def.DESTNAVTYPE] == def.NAVTYPEILS) then
-                            return "Set Captain Frequency " .. helpers.addspaces(helpers.formatILSFrequency(navdata[def.DESTFREQ]))
+                        if isLocalizerNavType(navdata[def.DESTNAVTYPE]) then
+                            local freqValue = getFmcApproachRefFrequency(navdata[def.DESTNAVTYPE]) or navdata[def.DESTFREQ]
+                            return "Set Captain Frequency " .. helpers.addspaces(helpers.formatILSFrequency(freqValue))
                         else
-                            return "Set Captain Channel " .. helpers.addspaces(navdata[def.DESTFREQ])
+                            local freqValue = getFmcApproachRefFrequency(navdata[def.DESTNAVTYPE]) or navdata[def.DESTFREQ]
+                            return "Set Captain Channel " .. helpers.addspaces(freqValue)
                         end
                     end,
                     confirm = function(loop, procData)
                         local navdata = P.navdatatable[loop.navdatatableindex]
-                        if (navdata[def.DESTNAVTYPE] == def.NAVTYPEILS) then
-                            return "Captain Frequency checked and " .. helpers.addspaces(helpers.formatILSFrequency(navdata[def.DESTFREQ]))
+                        if isLocalizerNavType(navdata[def.DESTNAVTYPE]) then
+                            local freqValue = getFmcApproachRefFrequency(navdata[def.DESTNAVTYPE]) or navdata[def.DESTFREQ]
+                            return "Captain Frequency checked and " .. helpers.addspaces(helpers.formatILSFrequency(freqValue))
                         else
-                            return "Captain Channel checked and " .. helpers.addspaces(navdata[def.DESTFREQ])
+                            local freqValue = getFmcApproachRefFrequency(navdata[def.DESTNAVTYPE]) or navdata[def.DESTFREQ]
+                            return "Captain Channel checked and " .. helpers.addspaces(freqValue)
                         end
                     end,
                     nextStep = 'set_fo_freq'
@@ -3997,15 +5034,31 @@ function M.fillProcedureTable()
                         end
 
                         if navtype == def.NAVTYPELPV then
-                            return (prepareApproachDME() == nil)
+                            local dme = prepareApproachDME()
+                            if not dme then
+                                if loop and not loop.noFODmeWarned then
+                                    P.commandtableentry(def.TEXT, "No suitable D M E found for Copilot")
+                                    loop.noFODmeWarned = true
+                                end
+                                return true
+                            end
+                            return false
                         end
 
-                        if navtype == def.NAVTYPEILS then
+                        if isLocalizerNavType(navtype) then
                             if navdata[def.DESTNAVDME] then
                                 loop.approachDME = nil
                                 return false
                             end
-                            return (prepareApproachDME() == nil)
+                            local dme = prepareApproachDME()
+                            if not dme then
+                                if loop and not loop.noFODmeWarned then
+                                    P.commandtableentry(def.TEXT, "No suitable D M E found for Copilot")
+                                    loop.noFODmeWarned = true
+                                end
+                                return true
+                            end
+                            return false
                         end
 
                         loop.approachDME = nil
@@ -4014,12 +5067,13 @@ function M.fillProcedureTable()
                     check = function(loop, procData)
                         local navdata = P.navdatatable[loop.navdatatableindex]
                         if not navdata then return true end
-                        if (navdata[def.DESTNAVTYPE] == def.NAVTYPEILS) then 
+                        if isLocalizerNavType(navdata[def.DESTNAVTYPE]) then 
                             if navdata[def.DESTNAVDME] then
+                                local freqValue = getFmcApproachRefFrequency(navdata[def.DESTNAVTYPE]) or navdata[def.DESTFREQ]
                                 if (get(P.mmrinstalled) == def.ON) then
-                                    return (get(P.mmrfoactvalue) == navdata[def.DESTFREQ]) and (get(P.mmrfoactmode) == def.MMRILS)
+                                    return (get(P.mmrfoactvalue) == freqValue) and (get(P.mmrfoactmode) == def.MMRILS)
                                 else
-                                    return (get(P.nav2freq) == navdata[def.DESTFREQ])
+                                    return (get(P.nav2freq) == freqValue)
                                 end
                             else
                                 local dmeInfo = loop.approachDME or helpers.findApproachDME(P.navdatatable, get(P.desicao), get(P.desrwy), navdata[def.DESTLATPOS], navdata[def.DESTLONPOS], navdata[def.DESTNAVID])
@@ -4035,20 +5089,26 @@ function M.fillProcedureTable()
                             local freqValue = dmeInfo[def.DESTDMEFREQ] ~= 0 and dmeInfo[def.DESTDMEFREQ] or dmeInfo[def.DESTFREQ]
                             return (get(P.nav2freq) == freqValue)
                         elseif (navdata[def.DESTNAVTYPE] == def.NAVTYPEGLS) and (get(P.mmrinstalled) == def.ON) then
-                            return (get(P.mmrfoactvalue) == navdata[def.DESTFREQ]) and (get(P.mmrfoactmode) == def.MMRGLS)
+                            local freqValue = getFmcApproachRefFrequency(navdata[def.DESTNAVTYPE]) or navdata[def.DESTFREQ]
+                            return (get(P.mmrfoactvalue) == freqValue) and (get(P.mmrfoactmode) == def.MMRGLS)
                         end
                         return true 
                     end,
                     action = function(loop, procData)
                         local navdata = P.navdatatable[loop.navdatatableindex]
                         if not navdata then return end
-                        if (navdata[def.DESTNAVTYPE] == def.NAVTYPEILS) then
+                        if isLocalizerNavType(navdata[def.DESTNAVTYPE]) then
                             if navdata[def.DESTNAVDME] then
+                                local freqValue = getFmcApproachRefFrequency(navdata[def.DESTNAVTYPE]) or navdata[def.DESTFREQ]
                                 if (get(P.mmrinstalled) == def.ON) then
-                                    P.setmmrils(def.MMRFO, navdata[def.DESTFREQ])
+                                    mmrCopyActToStby(def.MMRFO)
+                                    set(P.mmrfoactmode, def.MMRILS)
+                                    set(P.mmrfoactvalue, freqValue)
+                                    set(P.nav2stdbyfreq, get(P.nav2freq))
+                                    set(P.nav2freq, freqValue)
                                 else
                                     set(P.nav2stdbyfreq, get(P.nav2freq))
-                                    set(P.nav2freq, navdata[def.DESTFREQ])
+                                    set(P.nav2freq, freqValue)
                                 end
                             else
                                 local dmeInfo = loop.approachDME or helpers.findApproachDME(P.navdatatable, get(P.desicao), get(P.desrwy), navdata[def.DESTLATPOS], navdata[def.DESTLONPOS], navdata[def.DESTNAVID])
@@ -4068,15 +5128,19 @@ function M.fillProcedureTable()
                                 set(P.nav2freq, freqValue)
                             end
                         elseif (navdata[def.DESTNAVTYPE] == def.NAVTYPEGLS) and (get(P.mmrinstalled) == def.ON) then
-                            P.setmmrgls(def.MMRFO, navdata[def.DESTFREQ])
+                            mmrCopyActToStby(def.MMRFO)
+                            set(P.mmrfoactmode, def.MMRGLS)
+                            local freqValue = getFmcApproachRefFrequency(navdata[def.DESTNAVTYPE]) or navdata[def.DESTFREQ]
+                            set(P.mmrfoactvalue, freqValue)
                         end
                     end,
                     advice = function(loop, procData)
                         local navdata = P.navdatatable[loop.navdatatableindex]
                         if not navdata then return "" end
-                        if (navdata[def.DESTNAVTYPE] == def.NAVTYPEILS) then
+                        if isLocalizerNavType(navdata[def.DESTNAVTYPE]) then
                             if navdata[def.DESTNAVDME] then
-                                return "Set Copilot Frequency " .. helpers.addspaces(helpers.formatILSFrequency(navdata[def.DESTFREQ]))
+                                local freqValue = getFmcApproachRefFrequency(navdata[def.DESTNAVTYPE]) or navdata[def.DESTFREQ]
+                                return "Set Copilot Frequency " .. helpers.addspaces(helpers.formatILSFrequency(freqValue))
                             else
                                 local dmeInfo = loop.approachDME or helpers.findApproachDME(P.navdatatable, get(P.desicao), get(P.desrwy), navdata[def.DESTLATPOS], navdata[def.DESTLONPOS], navdata[def.DESTNAVID])
                                 loop.approachDME = dmeInfo
@@ -4097,7 +5161,8 @@ function M.fillProcedureTable()
                                 return "Set Copilot D M E Frequency " .. helpers.addspaces(helpers.formatILSFrequency(freqValue)) .. identText
                             end
                         else
-                            return "Set Copilot Channel " .. helpers.addspaces(navdata[def.DESTFREQ])
+                            local freqValue = getFmcApproachRefFrequency(navdata[def.DESTNAVTYPE]) or navdata[def.DESTFREQ]
+                            return "Set Copilot Channel " .. helpers.addspaces(freqValue)
                         end
                         return ""
                     end,
@@ -4110,9 +5175,10 @@ function M.fillProcedureTable()
 
                         local message = ""
 
-                        if (navdata[def.DESTNAVTYPE] == def.NAVTYPEILS) then
+                        if isLocalizerNavType(navdata[def.DESTNAVTYPE]) then
                             if navdata[def.DESTNAVDME] then
-                                message = "Copilot Frequency checked and " .. helpers.addspaces(helpers.formatILSFrequency(navdata[def.DESTFREQ]))
+                                local freqValue = getFmcApproachRefFrequency(navdata[def.DESTNAVTYPE]) or navdata[def.DESTFREQ]
+                                message = "Copilot Frequency checked and " .. helpers.addspaces(helpers.formatILSFrequency(freqValue))
                             else
                                 local dmeInfo = loop.approachDME or helpers.findApproachDME(P.navdatatable, get(P.desicao), get(P.desrwy), navdata[def.DESTLATPOS], navdata[def.DESTLONPOS], navdata[def.DESTNAVID])
                                 loop.approachDME = dmeInfo
@@ -4129,11 +5195,12 @@ function M.fillProcedureTable()
                             if dmeInfo then
                                 local freqValue = dmeInfo[def.DESTDMEFREQ] ~= 0 and dmeInfo[def.DESTDMEFREQ] or dmeInfo[def.DESTFREQ]
                                 local ident = dmeInfo[def.DESTDMEIDENT] or dmeInfo[def.DESTNAVID] or ""
-                                local identText = (ident ~= "" and (" (" .. ident .. ")")) or ""
+                                local identText = (ident ~= "" and (" (" .. helpers.addspaces(ident) .. ")")) or ""
                                 message = "Copilot D M E Frequency checked and " .. helpers.addspaces(helpers.formatILSFrequency(freqValue)) .. identText
                             end
                         else
-                            message = "Copilot Channel checked and " .. helpers.addspaces(navdata[def.DESTFREQ])
+                            local freqValue = getFmcApproachRefFrequency(navdata[def.DESTNAVTYPE]) or navdata[def.DESTFREQ]
+                            message = "Copilot Channel checked and " .. helpers.addspaces(freqValue)
                         end
                         loop.approachDME = nil
                         return message
@@ -4146,19 +5213,19 @@ function M.fillProcedureTable()
                 },
                 ['set_capt_course'] = {
                     check = function(loop, procData)
-                        local pilotcoursenew = getNavEntryCourse(P.navdatatable[loop.navdatatableindex])
+                        local pilotcoursenew = getCachedApproachCourse(loop)
                         return get(P.mcppilotcourse) == pilotcoursenew
                     end,
                     action = function(loop, procData)
-                        local pilotcoursenew = getNavEntryCourse(P.navdatatable[loop.navdatatableindex])
+                        local pilotcoursenew = getCachedApproachCourse(loop)
                         set(P.mcppilotcourse, pilotcoursenew)
                     end,
                     advice = function(loop, procData)
-                        local pilotcoursenew = getNavEntryCourse(P.navdatatable[loop.navdatatableindex])
+                        local pilotcoursenew = getCachedApproachCourse(loop)
                         return "Set Captain Course " .. helpers.addspaces(helpers.padNumberWithZerosStrict(pilotcoursenew, 3))
                     end,
                     confirm = function(loop, procData)
-                        local pilotcoursenew = getNavEntryCourse(P.navdatatable[loop.navdatatableindex])
+                        local pilotcoursenew = getCachedApproachCourse(loop)
                         return "Captain Course checked and " .. helpers.addspaces(helpers.padNumberWithZerosStrict(pilotcoursenew, 3))
                     end,
                     nextStep = 'set_fo_course'
@@ -4167,7 +5234,7 @@ function M.fillProcedureTable()
                     skipIf = function(loop, procData)
                         local navdata = P.navdatatable[loop.navdatatableindex]
                         if navdata[def.DESTNAVTYPE] == def.NAVTYPELPV then return true end
-                        if (navdata[def.DESTNAVTYPE] == def.NAVTYPEILS) and not navdata[def.DESTNAVDME] then return true end
+                        if isLocalizerNavType(navdata[def.DESTNAVTYPE]) and not navdata[def.DESTNAVDME] then return true end
                         return false 
                     end,
                     check = function(loop, procData)
@@ -4207,7 +5274,8 @@ function M.fillProcedureTable()
                 },
                 ['calculate_vref'] = {
                     action = function(loop, procData)
-                        if P.configvalues[def.CONFIGCUSTOMAPPROACHCALC] == def.ON then
+                        local customCalcOn = (P.configvalues[def.CONFIGCUSTOMAPPROACHCALC] == def.ON)
+                        if customCalcOn then
                             local baseFlaps = get(P.appflaps)
                             if not baseFlaps or baseFlaps <= 0 then baseFlaps = 30 end
                             local baseVref = get(P.vref)
@@ -4232,8 +5300,6 @@ function M.fillProcedureTable()
                                 )
                             end
                             local vrefInput = ziboVref or baseVref
-                            sasl.logInfo(string.format("SetVref: variant=%s, flaps=%s, weight=%.0f kg (%.0f lbs), ziboVref=%s, fmsVref=%s",
-                                tostring(variant), tostring(baseFlaps), landingGwKg, landingGwKg / def.LBSTOKG, tostring(ziboVref), tostring(baseVref)))
                             local appflapscalc, appvrefcalc = helpers.calcappflapsvref(
                                 get(P.totalweightkgs),
                                 get(P.desrwylen),
@@ -4246,7 +5312,6 @@ function M.fillProcedureTable()
                             loop.appvrefcalc = appvrefcalc
                             loop.appflapscalcstring = tostring(appflapscalc)
                             loop.appvrefcalcstring = tostring(appvrefcalc)
-                            sasl.logInfo("SetVref: Calculated Flaps " .. loop.appflapscalcstring .. " Vref " .. loop.appvrefcalcstring)
                         else
                             local fallbackFlaps = get(P.appflaps)
                             if not fallbackFlaps or fallbackFlaps <= 0 then
@@ -4260,23 +5325,34 @@ function M.fillProcedureTable()
                             loop.appvrefcalc = fallbackVref
                             loop.appflapscalcstring = helpers.padNumberWithZerosStrict(math.floor(fallbackFlaps + 0.5), 2)
                             loop.appvrefcalcstring = tostring(math.floor(fallbackVref + 0.5))
-                            sasl.logInfo("SetVref: Using existing Flaps " .. loop.appflapscalcstring .. " Vref " .. loop.appvrefcalcstring)
                         end
                     end,
                     runActionInAdviceMode = true, 
-                    nextStep = 'check_fms_page'
+                    nextStep = 'branch_fmc_vref'
+                },
+                ['branch_fmc_vref'] = {
+                    branch = function()
+                        if shouldSkipFmcSteps() then
+                            return 'view_main_panel'
+                        end
+                        return 'check_fms_page'
+                    end
                 },
                 ['check_fms_page'] = {
                     check = function(loop, procData)
                         return helpers.fmcHeaderContains("APPROACH REF")
                     end,
-                    action = function(loop, procData) helpers.command_once("laminar/B738/button/fmc1_init_ref") end,
+                    action = function(loop, procData)
+                        if isFmcAutomationOn() then
+                            helpers.command_once("laminar/B738/button/fmc1_init_ref")
+                        end
+                    end,
                     advice = "Open F M C Approach Reference Page",
                     runActionInAdviceMode = true,
                     branch = function(loop, procData)
                         if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
                             sasl.logDebug("SetVref: VoiceAdviceOnly mode. Skipping auto-input steps.")
-                            return 'check_vref_set' 
+                            return 'voice_vref_advice'
                         else
                             sasl.logDebug("SetVref: Auto mode. Starting FMC input sequence.")
                             return 'fmc_press_del' 
@@ -4343,6 +5419,28 @@ function M.fillProcedureTable()
                     runActionInAdviceMode = false,
                     nextStep = 'fmc_press_exec'
                 },
+                ['voice_vref_advice'] = {
+                    skipIf = function() return P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON end,
+                    check = function(loop)
+                        local target = tonumber(loop and loop.appvrefcalc) or 0
+                        if target <= 0 then return false end
+                        return (get(P.vref) == target)
+                    end,
+                    advice = function(loop)
+                        local flaps = tostring(loop.appflapscalcstring or get(P.appflaps) or "")
+                        local vref = tostring(loop.appvrefcalcstring or get(P.vref) or "")
+                        return "Set V REF flaps " .. flaps .. " " .. vref
+                    end,
+                    confirm = function(loop)
+                        local target = tonumber(loop and loop.appvrefcalc)
+                        if target and target > 0 and get(P.vref) == target then
+                            return "V REF flaps " .. tostring(loop.appflapscalcstring or "") .. " checked and " .. tostring(loop.appvrefcalcstring or target)
+                        end
+                        return false
+                    end,
+                    runActionInAdviceMode = true,
+                    nextStep = 'view_main_panel'
+                },
                 ['fmc_press_exec'] = {
                     action = function(loop, procData) 
                         P.commandtableentry(def.COMMAND, "laminar/B738/button/fmc1_exec") 
@@ -4365,11 +5463,224 @@ function M.fillProcedureTable()
                             return false 
                         end
                     end,
+                    branch = function(loop) return 'view_main_panel' end,
                     nextStep = 'view_main_panel'
                 },
                 ['view_main_panel'] = {
                     view = function(loop, procData) return P.configvalues[def.CONFIGVIEWMAINPANEL] end,
                     nextStep = nil 
+                }
+            }
+        },
+        [def.SETWINDCORRPROCEDURE] = {
+            number = 25,
+            name = "Set Wind Correction",
+            cycable = false,
+            speakname = false,
+            set = false,
+            loop = 3,
+            prerequisite = nil,
+            allowedState = nil,
+            requiredFlightstate = { def.FLIGHTSTATECRUISE, def.FLIGHTSTATEAPPROACH, def.FLIGHTSTATEINITIALCLIMB },
+            skipCondition = nil,
+            repeatable = true,
+            startStep = 'view_fms',
+            steps = {
+                ['view_fms'] = {
+                    view = function(loop, procData) return P.configvalues[def.CONFIGVIEWFMS] end,
+                    normalize = true,
+                    nextStep = 'calculate_windcorr'
+                },
+                ['calculate_windcorr'] = {
+                    action = function(loop, procData)
+                        local customCalcOn = (P.configvalues[def.CONFIGCUSTOMAPPROACHCALC] == def.ON)
+                        loop.appwindcorr = nil
+                        loop.appwindcorrstring = nil
+                        if not customCalcOn then
+                            local windcorr = helpers.calculateApproachWindCorrection(get(P.desrwyheading), P.desmetar)
+                            if windcorr ~= nil then
+                                if windcorr <= 0 then
+                                    loop.appwindcorr = nil
+                                    loop.appwindcorrstring = nil
+                                else
+                                    if windcorr < 5 then
+                                        windcorr = 5
+                                    end
+                                    loop.appwindcorr = windcorr
+                                    loop.appwindcorrstring = helpers.padNumberWithZerosStrict(math.floor(windcorr + 0.5), 2)
+                                end
+                            end
+                        end
+                    end,
+                    runActionInAdviceMode = true,
+                    nextStep = 'branch_fmc_windcorr'
+                },
+                ['branch_fmc_windcorr'] = {
+                    branch = function()
+                        if shouldSkipFmcSteps() then
+                            return 'view_main_panel'
+                        end
+                        return 'check_fms_page'
+                    end
+                },
+                ['check_fms_page'] = {
+                    check = function(loop, procData)
+                        return helpers.fmcHeaderContains("APPROACH REF")
+                    end,
+                    action = function(loop, procData)
+                        if isFmcAutomationOn() then
+                            helpers.command_once("laminar/B738/button/fmc1_init_ref")
+                        end
+                    end,
+                    advice = "Open F M C Approach Reference Page",
+                    runActionInAdviceMode = true,
+                    branch = function(loop, procData)
+                        if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
+                            return 'voice_wind_advice'
+                        end
+                        if loop and loop.appwindcorrstring then
+                            return 'fmc_press_del'
+                        end
+                        return 'check_windcorr_set'
+                    end
+                },
+                ['fmc_press_del'] = {
+                    action = function(loop, procData) P.commandtableentry(def.COMMAND, "laminar/B738/button/fmc1_del") end,
+                    runActionInAdviceMode = false,
+                    nextStep = 'fmc_press_clr'
+                },
+                ['fmc_press_clr'] = {
+                    action = function(loop, procData) P.commandtableentry(def.COMMAND, "laminar/B738/button/fmc1_clr") end,
+                    runActionInAdviceMode = false,
+                    nextStep = 'fmc_enter_windcorr_1'
+                },
+                ['fmc_enter_windcorr_1'] = {
+                    skipIf = function(loop) return not (loop and loop.appwindcorrstring) end,
+                    action = function(loop, procData)
+                        local char = string.sub(loop.appwindcorrstring, 1, 1)
+                        if char and char ~= "" then P.commandtableentry(def.COMMAND, "laminar/B738/button/fmc1_" .. char) end
+                    end,
+                    runActionInAdviceMode = false,
+                    nextStep = 'fmc_enter_windcorr_2'
+                },
+                ['fmc_enter_windcorr_2'] = {
+                    skipIf = function(loop) return not (loop and loop.appwindcorrstring) end,
+                    action = function(loop, procData)
+                        local char = string.sub(loop.appwindcorrstring, 2, 2)
+                        if char and char ~= "" then P.commandtableentry(def.COMMAND, "laminar/B738/button/fmc1_" .. char) end
+                    end,
+                    runActionInAdviceMode = false,
+                    nextStep = 'fmc_enter_windcorr_3'
+                },
+                ['fmc_enter_windcorr_3'] = {
+                    skipIf = function(loop) return not (loop and loop.appwindcorrstring) end,
+                    action = function(loop, procData)
+                        local char = string.sub(loop.appwindcorrstring, 3, 3)
+                        if char and char ~= "" then P.commandtableentry(def.COMMAND, "laminar/B738/button/fmc1_" .. char) end
+                    end,
+                    runActionInAdviceMode = false,
+                    nextStep = 'fmc_press_5R'
+                },
+                ['fmc_press_5R'] = {
+                    skipIf = function(loop) return not (loop and loop.appwindcorrstring) end,
+                    action = function(loop, procData) P.commandtableentry(def.COMMAND, "laminar/B738/button/fmc1_5R") end,
+                    runActionInAdviceMode = false,
+                    nextStep = 'fmc_press_exec'
+                },
+                ['fmc_press_exec'] = {
+                    action = function(loop, procData)
+                        P.commandtableentry(def.COMMAND, "laminar/B738/button/fmc1_exec")
+                    end,
+                    runActionInAdviceMode = false,
+                    nextStep = 'check_windcorr_set'
+                },
+                ['check_windcorr_set'] = {
+                    check = function(loop)
+                        local fmcWind = tonumber(get(P.vrefapproachwindcorr))
+                        local target = tonumber(loop and loop.appwindcorr)
+                            or tonumber(loop and loop.appwindcorrstring)
+                            or fmcWind
+                            or 5
+                        local current = fmcWind or 0
+                        return math.abs(current - target) < 0.5
+                    end,
+                    advice = function(loop)
+                        local fmcWind = tonumber(get(P.vrefapproachwindcorr))
+                        local target = tonumber(loop and loop.appwindcorr)
+                            or tonumber(loop and loop.appwindcorrstring)
+                            or fmcWind
+                            or 5
+                        local targetStr = loop and loop.appwindcorrstring
+                        if not targetStr or targetStr == "" then
+                            targetStr = tostring(target)
+                        end
+                        return "Set F M C Wind Correction +" .. targetStr .. " in F M C"
+                    end,
+                    confirm = function(loop)
+                        local fmcWind = tonumber(get(P.vrefapproachwindcorr))
+                        local target = tonumber(loop and loop.appwindcorr)
+                            or tonumber(loop and loop.appwindcorrstring)
+                            or fmcWind
+                            or 5
+                        local targetStr = loop and loop.appwindcorrstring
+                        if not targetStr or targetStr == "" then
+                            targetStr = tostring(target)
+                        end
+                        local current = fmcWind or 0
+                        if math.abs(current - target) < 0.5 then
+                            return "F M C Wind Correction checked +" .. targetStr
+                        end
+                        return false
+                    end,
+                    nextStep = 'view_main_panel'
+                },
+                ['voice_wind_advice'] = {
+                    skipIf = function(loop)
+                        return P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON
+                    end,
+                    check = function(loop)
+                        local fmcWind = tonumber(get(P.vrefapproachwindcorr))
+                        local target = tonumber(loop and loop.appwindcorr)
+                            or tonumber(loop and loop.appwindcorrstring)
+                            or fmcWind
+                            or 5
+                        local current = fmcWind or 0
+                        return math.abs(current - target) < 0.5
+                    end,
+                    advice = function(loop)
+                        local fmcWind = tonumber(get(P.vrefapproachwindcorr))
+                        local target = tonumber(loop and loop.appwindcorr)
+                            or tonumber(loop and loop.appwindcorrstring)
+                            or fmcWind
+                            or 5
+                        local targetStr = loop and loop.appwindcorrstring
+                        if not targetStr or targetStr == "" then
+                            targetStr = tostring(target)
+                        end
+                        return "Set F M C Wind Correction +" .. targetStr .. " in F M C"
+                    end,
+                    confirm = function(loop)
+                        local fmcWind = tonumber(get(P.vrefapproachwindcorr))
+                        local target = tonumber(loop and loop.appwindcorr)
+                            or tonumber(loop and loop.appwindcorrstring)
+                            or fmcWind
+                            or 5
+                        local targetStr = loop and loop.appwindcorrstring
+                        if not targetStr or targetStr == "" then
+                            targetStr = tostring(target)
+                        end
+                        local current = fmcWind or 0
+                        if math.abs(current - target) < 0.5 then
+                            return "F M C Wind Correction checked +" .. targetStr
+                        end
+                        return false
+                    end,
+                    runActionInAdviceMode = true,
+                    nextStep = 'view_main_panel'
+                },
+                ['view_main_panel'] = {
+                    view = function(loop, procData) return P.configvalues[def.CONFIGVIEWMAINPANEL] end,
+                    nextStep = nil
                 }
             }
         },
@@ -4419,16 +5730,20 @@ function M.fillProcedureTable()
                             if useCustomCalc and computedFlaps then
                                 loop.toflapscalc = computedFlaps
                                 loop.flapsPreSet = false
-                                sasl.logInfo(string.format("SetTOFlaps (custom): existing=%s, computed=%s", tostring(existingFlaps), tostring(computedFlaps)))
                             else
                                 loop.toflapscalc = existingFlaps
                                 loop.flapsPreSet = true
-                                sasl.logInfo(string.format("SetTOFlaps: using existing flaps %s", tostring(existingFlaps)))
                             end
                         else
-                            loop.toflapscalc = computedFlaps or get(P.toflapsset) or 5
+                            local candidate = computedFlaps
+                            if not candidate or candidate <= 0 then
+                                candidate = get(P.toflapsset)
+                            end
+                            if not candidate or candidate <= 0 then
+                                candidate = 5
+                            end
+                            loop.toflapscalc = candidate
                             loop.flapsPreSet = not useCustomCalc
-                            sasl.logInfo(string.format("SetTOFlaps: no FMC flaps, computed=%s -> using %s", tostring(computedFlaps), tostring(loop.toflapscalc)))
                         end
                         loop.toflapscalcstring = tostring(loop.toflapscalc)
 
@@ -4445,20 +5760,28 @@ function M.fillProcedureTable()
                             loop.cgPreSet = false
                         end
 
-                        sasl.logInfo(string.format("SetTakeoffFlaps: target flaps %s, CG %s",
-                            tostring(loop.toflapscalcstring),
-                            tostring(loop.targetCgString)
-                        ))
                     end,
                     runActionInAdviceMode = true, 
-                    nextStep = 'check_fms_page'
+                    nextStep = 'branch_fmc_takeoff'
+                },
+                ['branch_fmc_takeoff'] = {
+                    branch = function()
+                        if shouldSkipFmcSteps() then
+                            return 'view_main_panel'
+                        end
+                        return 'check_fms_page'
+                    end
                 },
                 ['check_fms_page'] = {
                     skipIf = function() return helpers.fmcHeaderContains("N1 LIMIT") or helpers.fmcHeaderContains("TAKEOFF REF") end,
                     check = function(loop, procData)
                         return helpers.fmcHeaderContains("PERF INIT")
                     end,
-                    action = function(loop, procData) helpers.command_once("laminar/B738/button/fmc1_init_ref") end,
+                    action = function(loop, procData)
+                        if isFmcAutomationOn() then
+                            helpers.command_once("laminar/B738/button/fmc1_init_ref")
+                        end
+                    end,
                     advice = "Open F M C Init Reference Page",
                     runActionInAdviceMode = true,
                     nextStep = 'ensure_n1_limit_page'
@@ -4468,7 +5791,11 @@ function M.fillProcedureTable()
                     check = function(loop, procData)
                         return helpers.fmcHeaderContains("N1 LIMIT")
                     end,
-                    action = function(loop, procData) helpers.command_once("laminar/B738/button/fmc1_6R") end,
+                    action = function(loop, procData)
+                        if isFmcAutomationOn() then
+                            helpers.command_once("laminar/B738/button/fmc1_6R")
+                        end
+                    end,
                     advice = "Open F M C N 1 Limit Page",
                     runActionInAdviceMode = true,
                     nextStep = 'ensure_takeoff_ref_page'
@@ -4477,7 +5804,11 @@ function M.fillProcedureTable()
                     check = function(loop, procData)
                         return helpers.fmcHeaderContains("TAKEOFF REF")
                     end,
-                    action = function(loop, procData) helpers.command_once("laminar/B738/button/fmc1_6R") end,
+                    action = function(loop, procData)
+                        if isFmcAutomationOn() then
+                            helpers.command_once("laminar/B738/button/fmc1_6R")
+                        end
+                    end,
                     advice = "Open F M C Takeoff Reference Page",
                     runActionInAdviceMode = true,
                     nextStep = 'branch_after_takeoff_ref'
@@ -4526,11 +5857,10 @@ function M.fillProcedureTable()
                 ['fmc_press_1L'] = {
                     action = function(loop, procData) P.commandtableentry(def.COMMAND, "laminar/B738/button/fmc1_1L") end,
                     runActionInAdviceMode = false,
-                    nextStep = 'fmc_press_exec'
+                    nextStep = 'fmc_flaps_set'
                 },
-                ['fmc_press_exec'] = {
+                ['fmc_flaps_set'] = {
                     action = function(loop, procData) 
-                        P.commandtableentry(def.COMMAND, "laminar/B738/button/fmc1_exec") 
                         P.commandtableentry(def.TEXT, "Takeoff Flaps " .. loop.toflapscalcstring .. " set")
                     end,
                     runActionInAdviceMode = false,
@@ -4590,6 +5920,206 @@ function M.fillProcedureTable()
                         end
                         return "C G checked"
                     end,
+                    nextStep = 'branch_vspeeds'
+                },
+                ['branch_vspeeds'] = {
+                    branch = function(loop, procData)
+                        if not isQrhOff() then
+                            return 'view_main_panel'
+                        end
+                        loop.v1calcstring = getCalcSpeedString(get(P.v1calcspeed))
+                        loop.vrcalcstring = getCalcSpeedString(get(P.vrcalcspeed))
+                        loop.v2calcstring = getCalcSpeedString(get(P.v2calcspeed))
+                        if not loop.v1calcstring or not loop.vrcalcstring or not loop.v2calcstring then
+                            return 'view_main_panel'
+                        end
+                        if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
+                            return 'voice_v1_advice'
+                        end
+                        if (get(P.v1setspeed) or 0) > 0 and (get(P.vrsetspeed) or 0) > 0 and (get(P.v2setspeed) or 0) > 0 then
+                            return 'check_vspeeds_set'
+                        end
+                        return 'v1_press_del'
+                    end
+                },
+                ['voice_v1_advice'] = {
+                    check = function()
+                        return (get(P.v1setspeed) or 0) > 0
+                    end,
+                    advice = function(loop)
+                        local target = loop and loop.v1calcstring or getCalcSpeedString(get(P.v1calcspeed))
+                        if target then
+                            return "Set V 1 " .. helpers.addspaces(target)
+                        end
+                        return "Set V 1"
+                    end,
+                    confirm = function()
+                        local set = get(P.v1setspeed) or 0
+                        if set > 0 then
+                            local setStr = helpers.padNumberWithZerosStrict(math.floor(set + 0.5), 3)
+                            return "V 1 checked " .. helpers.addspaces(setStr)
+                        end
+                        return false
+                    end,
+                    nextStep = 'voice_vr_advice'
+                },
+                ['voice_vr_advice'] = {
+                    check = function()
+                        return (get(P.vrsetspeed) or 0) > 0
+                    end,
+                    advice = function(loop)
+                        local target = loop and loop.vrcalcstring or getCalcSpeedString(get(P.vrcalcspeed))
+                        if target then
+                            return "Set V R " .. helpers.addspaces(target)
+                        end
+                        return "Set V R"
+                    end,
+                    confirm = function()
+                        local set = get(P.vrsetspeed) or 0
+                        if set > 0 then
+                            local setStr = helpers.padNumberWithZerosStrict(math.floor(set + 0.5), 3)
+                            return "V R checked " .. helpers.addspaces(setStr)
+                        end
+                        return false
+                    end,
+                    nextStep = 'voice_v2_advice'
+                },
+                ['voice_v2_advice'] = {
+                    check = function()
+                        return (get(P.v2setspeed) or 0) > 0
+                    end,
+                    advice = function(loop)
+                        local target = loop and loop.v2calcstring or getCalcSpeedString(get(P.v2calcspeed))
+                        if target then
+                            return "Set V 2 " .. helpers.addspaces(target)
+                        end
+                        return "Set V 2"
+                    end,
+                    confirm = function()
+                        local set = get(P.v2setspeed) or 0
+                        if set > 0 then
+                            local setStr = helpers.padNumberWithZerosStrict(math.floor(set + 0.5), 3)
+                            return "V 2 checked " .. helpers.addspaces(setStr)
+                        end
+                        return false
+                    end,
+                    nextStep = 'check_vspeeds_set'
+                },
+                ['v1_press_del'] = {
+                    action = function(loop, procData) P.commandtableentry(def.COMMAND, "laminar/B738/button/fmc1_del") end,
+                    runActionInAdviceMode = false,
+                    nextStep = 'v1_press_clr'
+                },
+                ['v1_press_clr'] = {
+                    action = function(loop, procData) P.commandtableentry(def.COMMAND, "laminar/B738/button/fmc1_clr") end,
+                    runActionInAdviceMode = false,
+                    nextStep = 'v1_enter_1'
+                },
+                ['v1_enter_1'] = {
+                    action = function(loop, procData)
+                        local char = string.sub(loop.v1calcstring or "", 1, 1)
+                        if char and char ~= "" then P.commandtableentry(def.COMMAND, "laminar/B738/button/fmc1_" .. char) end
+                    end,
+                    runActionInAdviceMode = false,
+                    nextStep = 'v1_enter_2'
+                },
+                ['v1_enter_2'] = {
+                    action = function(loop, procData)
+                        local char = string.sub(loop.v1calcstring or "", 2, 2)
+                        if char and char ~= "" then P.commandtableentry(def.COMMAND, "laminar/B738/button/fmc1_" .. char) end
+                    end,
+                    runActionInAdviceMode = false,
+                    nextStep = 'v1_enter_3'
+                },
+                ['v1_enter_3'] = {
+                    action = function(loop, procData)
+                        local char = string.sub(loop.v1calcstring or "", 3, 3)
+                        if char and char ~= "" then P.commandtableentry(def.COMMAND, "laminar/B738/button/fmc1_" .. char) end
+                    end,
+                    runActionInAdviceMode = false,
+                    nextStep = 'v1_press_1R'
+                },
+                ['v1_press_1R'] = {
+                    action = function(loop, procData) P.commandtableentry(def.COMMAND, "laminar/B738/button/fmc1_1R") end,
+                    runActionInAdviceMode = false,
+                    nextStep = 'vr_press_del'
+                },
+                ['vr_press_del'] = {
+                    action = function(loop, procData) P.commandtableentry(def.COMMAND, "laminar/B738/button/fmc1_del") end,
+                    runActionInAdviceMode = false,
+                    nextStep = 'vr_press_clr'
+                },
+                ['vr_press_clr'] = {
+                    action = function(loop, procData) P.commandtableentry(def.COMMAND, "laminar/B738/button/fmc1_clr") end,
+                    runActionInAdviceMode = false,
+                    nextStep = 'vr_enter_1'
+                },
+                ['vr_enter_1'] = {
+                    action = function(loop, procData)
+                        local char = string.sub(loop.vrcalcstring or "", 1, 1)
+                        if char and char ~= "" then P.commandtableentry(def.COMMAND, "laminar/B738/button/fmc1_" .. char) end
+                    end,
+                    runActionInAdviceMode = false,
+                    nextStep = 'vr_enter_2'
+                },
+                ['vr_enter_2'] = {
+                    action = function(loop, procData)
+                        local char = string.sub(loop.vrcalcstring or "", 2, 2)
+                        if char and char ~= "" then P.commandtableentry(def.COMMAND, "laminar/B738/button/fmc1_" .. char) end
+                    end,
+                    runActionInAdviceMode = false,
+                    nextStep = 'vr_enter_3'
+                },
+                ['vr_enter_3'] = {
+                    action = function(loop, procData)
+                        local char = string.sub(loop.vrcalcstring or "", 3, 3)
+                        if char and char ~= "" then P.commandtableentry(def.COMMAND, "laminar/B738/button/fmc1_" .. char) end
+                    end,
+                    runActionInAdviceMode = false,
+                    nextStep = 'vr_press_2R'
+                },
+                ['vr_press_2R'] = {
+                    action = function(loop, procData) P.commandtableentry(def.COMMAND, "laminar/B738/button/fmc1_2R") end,
+                    runActionInAdviceMode = false,
+                    nextStep = 'v2_press_del'
+                },
+                ['v2_press_del'] = {
+                    action = function(loop, procData) P.commandtableentry(def.COMMAND, "laminar/B738/button/fmc1_del") end,
+                    runActionInAdviceMode = false,
+                    nextStep = 'v2_press_clr'
+                },
+                ['v2_press_clr'] = {
+                    action = function(loop, procData) P.commandtableentry(def.COMMAND, "laminar/B738/button/fmc1_clr") end,
+                    runActionInAdviceMode = false,
+                    nextStep = 'v2_enter_1'
+                },
+                ['v2_enter_1'] = {
+                    action = function(loop, procData)
+                        local char = string.sub(loop.v2calcstring or "", 1, 1)
+                        if char and char ~= "" then P.commandtableentry(def.COMMAND, "laminar/B738/button/fmc1_" .. char) end
+                    end,
+                    runActionInAdviceMode = false,
+                    nextStep = 'v2_enter_2'
+                },
+                ['v2_enter_2'] = {
+                    action = function(loop, procData)
+                        local char = string.sub(loop.v2calcstring or "", 2, 2)
+                        if char and char ~= "" then P.commandtableentry(def.COMMAND, "laminar/B738/button/fmc1_" .. char) end
+                    end,
+                    runActionInAdviceMode = false,
+                    nextStep = 'v2_enter_3'
+                },
+                ['v2_enter_3'] = {
+                    action = function(loop, procData)
+                        local char = string.sub(loop.v2calcstring or "", 3, 3)
+                        if char and char ~= "" then P.commandtableentry(def.COMMAND, "laminar/B738/button/fmc1_" .. char) end
+                    end,
+                    runActionInAdviceMode = false,
+                    nextStep = 'v2_press_3R'
+                },
+                ['v2_press_3R'] = {
+                    action = function(loop, procData) P.commandtableentry(def.COMMAND, "laminar/B738/button/fmc1_3R") end,
+                    runActionInAdviceMode = false,
                     nextStep = 'check_vspeeds_set'
                 },
                 ['check_vspeeds_set'] = {

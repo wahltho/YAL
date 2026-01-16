@@ -102,6 +102,9 @@ ffi.cdef [[
 
 --------------------------------------------------------------------------------------------------------------
 local acf_tailnum = globalProperty("sim/aircraft/view/acf_tailnum")
+local onground_any = globalProperty("sim/flightmodel/failures/onground_any")
+local parking_brake_pos = globalProperty("laminar/B738/parking_brake_pos")
+local parking_brake_ratio = globalProperty("sim/cockpit2/controls/parking_brake_ratio")
 
 
 P.xpVersion = sasl.getXPVersion()
@@ -110,9 +113,49 @@ P.isXp12 = (P.xpVersion >= 12000 and P.xpVersion < 13000)
 
 --------------------------------------------------------------------------------------------------------------
 function P.isZibo()
+    local signature = "zibomod.by.Zibo"
+    local pluginID = sasl.findPluginBySignature(signature)
+    if pluginID == NO_PLUGIN_ID then
+        return false
+    end
 
-    return ((string.sub(get(acf_tailnum), 1, 5) == "ZB738") or (string.sub(get(acf_tailnum), 1, 4) == "B736") or (string.sub(get(acf_tailnum), 1, 4) == "B737")  or (string.sub(get(acf_tailnum), 1, 4) == "738") or (string.sub(get(acf_tailnum), 1, 4) == "B739"))
+    local tailnum = get(acf_tailnum)
+    if type(tailnum) == "string" then
+        if (string.sub(tailnum, 1, 5) == "ZB738")
+            or (string.sub(tailnum, 1, 4) == "B736")
+            or (string.sub(tailnum, 1, 4) == "B737")
+            or (string.sub(tailnum, 1, 4) == "738")
+            or (string.sub(tailnum, 1, 4) == "B739") then
+            return true
+        end
+    end
 
+    return false
+end
+
+--------------------------------------------------------------------------------------------------------------
+function P.logInfoTS(message)
+    local timestamp = string.format("[%s]", os.date("%H:%M:%S"))
+    sasl.logInfo(string.format("%s %s", timestamp, tostring(message)))
+end
+
+local function get_flightstate()
+    if not P._flightstate_dr then
+        local ok, dr = pcall(globalProperty, "YAL/state/flightstate")
+        if ok then
+            P._flightstate_dr = dr
+        else
+            return nil
+        end
+    end
+    return get(P._flightstate_dr)
+end
+
+local function views_change_allowed()
+    local on_ground = get(onground_any) == def.ON
+    local park_set = (get(parking_brake_pos) == def.ON) or (get(parking_brake_ratio) >= 0.9)
+    local state = get_flightstate()
+    return on_ground and park_set and (state == def.FLIGHTSTATEPREFLIGHT)
 end
 
 --------------------------------------------------------------------------------------------------------------
@@ -131,12 +174,12 @@ function P.checkForUpdate(showBeta)
         sasl.logDebug(string.format("Current version: %s, available version %s", currentVersion, newVersion))
         if is_version_newer(newVersion, currentVersion) then
             updateAvailable = true
-            sasl.logInfo(string.format("New YAL version available v%s", newVersion))
+            P.logInfoTS(string.format("New YAL version available v%s", newVersion))
         else
-            sasl.logInfo("YAL is up to date, no new version available")
+            P.logInfoTS("YAL is up to date, no new version available")
         end
     else
-        sasl.logInfo("Check for Update FAILED")
+        P.logInfoTS("Check for Update FAILED")
     end
     return updateAvailable, newVersion
 end
@@ -419,7 +462,7 @@ end
 
 function P.check_create_path(path)
     if not P.dir_exists_v2(path) then
-        sasl.logInfo("Folder " .. path .. " does not exist... creating it")
+        P.logInfoTS("Folder " .. path .. " does not exist... creating it")
         P.create_directories({path})
         if not P.dir_exists_v2(path) then
             sasl.logWarning("Failure to create folder " .. path)
@@ -583,9 +626,10 @@ function P.forceCleanString(inputStr)
     if type(inputStr) == "string" then
         for i = 1, #inputStr do
             local byte = string.byte(inputStr, i)
-            if byte ~= 0 then
-                cleanStr = cleanStr .. string.char(byte)
+            if byte == 0 then
+                break
             end
+            cleanStr = cleanStr .. string.char(byte)
         end
         cleanStr = cleanStr:match("^(.-)%s*$") or cleanStr
     end
@@ -887,6 +931,18 @@ function P.convertpressure(value)
 end
 
 --------------------------------------------------------------------------------------------------------------
+function P.formatQnhValue(value, useHpa)
+    local num = tonumber(value)
+    if not num then
+        return nil
+    end
+    if useHpa then
+        return string.format("%.0f", num)
+    end
+    return string.format("%.2f", num)
+end
+
+--------------------------------------------------------------------------------------------------------------
 function P.gettrim(trimwheel)
 
     local trim = 0
@@ -1102,6 +1158,212 @@ function P.decodemetar(metar)
         return false
     end
 
+    local function parse_fraction_value(value_str)
+        if not value_str or value_str == "" then
+            return nil
+        end
+        local slash_pos = string.find(value_str, "/", 1, true)
+        if slash_pos then
+            local num = tonumber(string.sub(value_str, 1, slash_pos - 1))
+            local den = tonumber(string.sub(value_str, slash_pos + 1))
+            if num and den and den ~= 0 then
+                return num / den
+            end
+            return nil
+        end
+        return tonumber(value_str)
+    end
+
+    local function parse_sm_value(sm_text)
+        if not sm_text or sm_text == "" then
+            return nil
+        end
+        local more_than = false
+        local less_than = false
+        local first = string.sub(sm_text, 1, 1)
+        if first == "P" then
+            more_than = true
+            sm_text = string.sub(sm_text, 2)
+        elseif first == "M" then
+            less_than = true
+            sm_text = string.sub(sm_text, 2)
+        end
+
+        local space_pos = string.find(sm_text, " ", 1, true)
+        local total = 0
+        if space_pos then
+            local int_str = string.sub(sm_text, 1, space_pos - 1)
+            local frac_str = string.sub(sm_text, space_pos + 1)
+            if int_str ~= "" then
+                local int_val = tonumber(int_str)
+                if not int_val then
+                    return nil
+                end
+                total = total + int_val
+            end
+            if frac_str ~= "" then
+                local frac_val = parse_fraction_value(frac_str)
+                if not frac_val then
+                    return nil
+                end
+                total = total + frac_val
+            end
+        else
+            local val = parse_fraction_value(sm_text)
+            if not val then
+                return nil
+            end
+            total = total + val
+        end
+
+        return total, more_than, less_than
+    end
+
+    local function apply_visibility_meters(meters, more_than, less_than, vis_index)
+        if type(meters) ~= "number" then
+            return vis_index
+        end
+        result.visibility = { value = math.min(meters, 10000) }
+        if more_than then
+            result.visibility.more_than = true
+        end
+        if less_than then
+            result.visibility.less_than = true
+        end
+        if vis_index and vis_index + 1 <= #parts then
+            local next_part = parts[vis_index + 1]
+            local dir_vis_val, dir_code = string.match(next_part, "^(%d%d%d%d)([NSEW][EW]?)$")
+            if dir_vis_val and dir_code then
+                result.visibility.directional = {
+                    value = tonumber(dir_vis_val),
+                    direction = dir_code
+                }
+                sasl.logDebug(string.format("Parsed directional visibility: %d meters towards %s",
+                              result.visibility.directional.value, result.visibility.directional.direction))
+                return vis_index + 1
+            end
+        end
+        return vis_index
+    end
+
+    local function parse_rvr_value(value_str, unit)
+        if not value_str or value_str == "" then
+            return nil
+        end
+        local more_than = false
+        local less_than = false
+        local first_char = string.sub(value_str, 1, 1)
+        if first_char == "P" then
+            more_than = true
+            value_str = string.sub(value_str, 2)
+        elseif first_char == "M" then
+            less_than = true
+            value_str = string.sub(value_str, 2)
+        end
+        if value_str == "" then
+            return nil
+        end
+        local value = tonumber(value_str)
+        if not value then
+            return nil
+        end
+        local meters = value
+        if unit == "FT" then
+            meters = math.floor(value * 0.3048 + 0.5)
+        end
+        return {
+            value = value,
+            meters = meters,
+            more_than = more_than,
+            less_than = less_than
+        }
+    end
+
+    local function parse_rvr_report(token)
+        if type(token) ~= "string" then
+            return nil
+        end
+        if string.sub(token, 1, 1) ~= "R" then
+            return nil
+        end
+        local slash_pos = string.find(token, "/", 2, true)
+        if not slash_pos then
+            return nil
+        end
+
+        local runway_part = string.sub(token, 2, slash_pos - 1)
+        local rvr_part = string.sub(token, slash_pos + 1)
+        if runway_part == "" or rvr_part == "" then
+            return nil
+        end
+
+        runway_part = string.upper(runway_part)
+
+        local unit = "M"
+        if #rvr_part >= 2 and string.sub(rvr_part, -2) == "FT" then
+            unit = "FT"
+            rvr_part = string.sub(rvr_part, 1, -3)
+        end
+
+        local trend = nil
+        if #rvr_part >= 1 then
+            local trend_char = string.sub(rvr_part, -1)
+            if trend_char == "U" or trend_char == "D" or trend_char == "N" then
+                trend = trend_char
+                rvr_part = string.sub(rvr_part, 1, -2)
+            end
+        end
+
+        if rvr_part == "" then
+            return nil
+        end
+
+        local min_part = rvr_part
+        local max_part = nil
+        local var_pos = string.find(rvr_part, "V", 1, true)
+        if var_pos then
+            min_part = string.sub(rvr_part, 1, var_pos - 1)
+            max_part = string.sub(rvr_part, var_pos + 1)
+        end
+
+        local min_val = parse_rvr_value(min_part, unit)
+        if not min_val then
+            return nil
+        end
+
+        local max_val = nil
+        if max_part and max_part ~= "" then
+            max_val = parse_rvr_value(max_part, unit)
+        end
+
+        local runway_number = nil
+        local runway_side = nil
+        if #runway_part >= 2 then
+            local runway_num_str = string.sub(runway_part, 1, 2)
+            local runway_num = tonumber(runway_num_str)
+            if runway_num then
+                runway_number = runway_num
+            end
+            if #runway_part >= 3 then
+                local side_char = string.sub(runway_part, 3, 3)
+                if side_char == "L" or side_char == "R" or side_char == "C" then
+                    runway_side = side_char
+                end
+            end
+        end
+
+        return {
+            runway = runway_part,
+            number = runway_number,
+            side = runway_side,
+            unit = unit,
+            trend = trend,
+            min = min_val,
+            max = max_val,
+            raw = token
+        }
+    end
+
     while (i <= #parts and parsing_main_data) do
         local part = parts[i]
         sasl.logDebug(string.format("Processing part %d: %s", i, part))
@@ -1198,92 +1460,98 @@ function P.decodemetar(metar)
                 parsed = true
             end
 
-        elseif (not result.visibility and string.find(part, "SM$")) then
-            local sm_val_str = string.sub(part, 1, #part - 2)
-            local sm_value
-            local int_part, frac_part = string.match(sm_val_str, "^(%d+)%s+(%d+/%d+)$")
-            if int_part and frac_part then
-                local num, den = string.match(frac_part, "(%d+)/(%d+)")
-                if num and den then
-                    sm_value = tonumber(int_part) + (tonumber(num) / tonumber(den))
-                end
-            else
-                local num, den = string.match(sm_val_str, "^(%d+)/(%d+)$")
-                if num and den then
-                    sm_value = tonumber(num) / tonumber(den)
-                else
-                    sm_value = tonumber(sm_val_str)
-                end
-            end
-
-            if (sm_value) then
-                local meters = math.floor(sm_value * 1609.34 + 0.5)
-                result.visibility = { value = math.min(meters, 10000) }
-                sasl.logDebug(string.format("Parsed visibility: %sSM, converted to %d meters", sm_val_str, result.visibility.value))
-                parsed = true
-
-                -- ## START VISIBILITY CHANGE ##
-                if result.visibility and i + 1 <= #parts then
-                    local next_part = parts[i + 1]
-                    local dir_vis_val, dir_code = string.match(next_part, "^(%d%d%d%d)([NSEW][EW]?)$")
-                    if dir_vis_val and dir_code then
-                        result.visibility.directional = {
-                            value = tonumber(dir_vis_val),
-                            direction = dir_code
-                        }
-                        sasl.logDebug(string.format("Parsed directional visibility: %d meters towards %s",
-                                      result.visibility.directional.value, result.visibility.directional.direction))
-                        i = i + 1
-                    end
-                end
-                -- ## END VISIBILITY CHANGE ##
-            else
-                sasl.logError("Warning: Could not parse SM visibility value from: " .. part)
-            end
         elseif (not result.visibility) then
-            local ndv_value = string.match(part, "^(%d%d%d%d)NDV$")
-            if ndv_value then
-                local numeric_val = tonumber(ndv_value)
-                if ndv_value == "9999" then
-                    result.visibility = { value = 10000 }
-                    sasl.logDebug("Parsed visibility: 10000+ meters (from 9999NDV)")
-                else
-                    result.visibility = { value = numeric_val }
-                    sasl.logDebug(string.format("Parsed visibility: %d meters (NDV)", result.visibility.value))
-                end
-                result.visibility_ndv = true
-                parsed = true
-            elseif #part == 4 and (tonumber(part) or part == "9999") then
-                if (part == "9999") then
-                    result.visibility = { value = 10000 }
-                    sasl.logDebug("Parsed visibility: 10000+ meters (from 9999)")
-                else
-                    result.visibility = { value = tonumber(part) }
-                    sasl.logDebug(string.format("Parsed visibility: %d meters", result.visibility.value))
-                end
-                parsed = true
+            local visibility_parsed = false
 
-                -- ## START VISIBILITY CHANGE ##
-                if result.visibility and i + 1 <= #parts then
-                    local next_part = parts[i + 1]
-                    local dir_vis_val, dir_code = string.match(next_part, "^(%d%d%d%d)([NSEW][EW]?)$")
-                    if dir_vis_val and dir_code then
-                        result.visibility.directional = {
-                            value = tonumber(dir_vis_val),
-                            direction = dir_code
-                        }
-                        sasl.logDebug(string.format("Parsed directional visibility: %d meters towards %s",
-                                      result.visibility.directional.value, result.visibility.directional.direction))
-                        i = i + 1
+            if tonumber(part) and i + 1 <= #parts then
+                local next_part = parts[i + 1]
+                if #next_part > 2 and string.sub(next_part, -2) == "SM" then
+                    local sm_val_str = part .. " " .. string.sub(next_part, 1, #next_part - 2)
+                    local sm_value, more_than, less_than = parse_sm_value(sm_val_str)
+                    if sm_value then
+                        local meters = math.floor(sm_value * 1609.34 + 0.5)
+                        local vis_index = i + 1
+                        i = apply_visibility_meters(meters, more_than, less_than, vis_index)
+                        sasl.logDebug(string.format("Parsed visibility: %sSM, converted to %d meters", sm_val_str, result.visibility.value))
+                        parsed = true
+                        visibility_parsed = true
                     end
                 end
-                -- ## END VISIBILITY CHANGE ##
+            end
+
+            if (not visibility_parsed) and (#part > 2) and (string.sub(part, -2) == "SM") then
+                local sm_val_str = string.sub(part, 1, #part - 2)
+                local sm_value, more_than, less_than = parse_sm_value(sm_val_str)
+                if (sm_value) then
+                    local meters = math.floor(sm_value * 1609.34 + 0.5)
+                    local vis_index = i
+                    i = apply_visibility_meters(meters, more_than, less_than, vis_index)
+                    sasl.logDebug(string.format("Parsed visibility: %sSM, converted to %d meters", sm_val_str, result.visibility.value))
+                    parsed = true
+                    visibility_parsed = true
+                else
+                    sasl.logError("Warning: Could not parse SM visibility value from: " .. part)
+                end
+            end
+
+            if (not visibility_parsed) and (#part > 2) and (string.sub(part, -2) == "KM") and (string.sub(part, -3) ~= "KMH") then
+                local km_val_str = string.sub(part, 1, #part - 2)
+                local km_val = tonumber(km_val_str)
+                if km_val then
+                    local meters = math.floor(km_val * 1000 + 0.5)
+                    local vis_index = i
+                    i = apply_visibility_meters(meters, false, false, vis_index)
+                    sasl.logDebug(string.format("Parsed visibility: %sKM, converted to %d meters", km_val_str, result.visibility.value))
+                    parsed = true
+                    visibility_parsed = true
+                else
+                    sasl.logError("Warning: Could not parse KM visibility value from: " .. part)
+                end
+            end
+
+            if (not visibility_parsed) then
+                local ndv_value = string.match(part, "^(%d%d%d%d)NDV$")
+                if ndv_value then
+                    local numeric_val = tonumber(ndv_value)
+                    local meters = (ndv_value == "9999") and 10000 or numeric_val
+                    local vis_index = i
+                    i = apply_visibility_meters(meters, false, false, vis_index)
+                    if ndv_value == "9999" then
+                        sasl.logDebug("Parsed visibility: 10000+ meters (from 9999NDV)")
+                    else
+                        sasl.logDebug(string.format("Parsed visibility: %d meters (NDV)", result.visibility.value))
+                    end
+                    result.visibility_ndv = true
+                    parsed = true
+                    visibility_parsed = true
+                elseif #part == 4 and (tonumber(part) or part == "9999") then
+                    local meters = (part == "9999") and 10000 or tonumber(part)
+                    local vis_index = i
+                    i = apply_visibility_meters(meters, false, false, vis_index)
+                    if (part == "9999") then
+                        sasl.logDebug("Parsed visibility: 10000+ meters (from 9999)")
+                    else
+                        sasl.logDebug(string.format("Parsed visibility: %d meters", result.visibility.value))
+                    end
+                    parsed = true
+                end
             end
 
         elseif (string.sub(part, 1, 1) == "R" and string.find(part, "/", 1, true) and #part >= 5) then
             result.runway_reports = result.runway_reports or {}
             table.insert(result.runway_reports, part)
-            sasl.logDebug("Parsed runway report: "..part)
+            local rvr_entry = parse_rvr_report(part)
+            if rvr_entry then
+                result.rvr = result.rvr or {}
+                table.insert(result.rvr, rvr_entry)
+                sasl.logDebug(string.format("Parsed RVR: RWY %s %s%s%s",
+                    rvr_entry.runway or "?",
+                    rvr_entry.min and rvr_entry.min.value or "?",
+                    rvr_entry.max and ("V" .. rvr_entry.max.value) or "",
+                    rvr_entry.unit or ""))
+            else
+                sasl.logDebug("Parsed runway report: "..part)
+            end
             parsed = true
 
         elseif (is_weather_code(part)) then
@@ -1405,9 +1673,53 @@ function P.decodemetar(metar)
         end
 
         if (not parsed) then
-            sasl.logInfo("METAR Parsing unknown element: " .. part)
+            P.logInfoTS("METAR Parsing unknown element: " .. part)
         end
         i = i + 1
+    end
+
+    if not (result.pressure and tonumber(result.pressure.qnh_hpa)) then
+        for _, part in ipairs(parts) do
+            if #part >= 6 and string.sub(part, 1, 3) == "SLP" then
+                local slp_digits = string.sub(part, 4, 6)
+                local slp_val = tonumber(slp_digits)
+                if slp_val then
+                    local base = (slp_val >= 500) and 900 or 1000
+                    local qnh = base + (slp_val / 10)
+                    result.pressure = result.pressure or {}
+                    result.pressure.qnh_hpa = qnh
+                    sasl.logDebug(string.format("Parsed pressure from SLP: %s -> %.1f hPa", slp_digits, qnh))
+                    break
+                end
+            end
+        end
+    end
+
+    local need_temp = not (result.temperature and result.temperature.value ~= nil)
+    local need_dew = not (result.dew_point and result.dew_point.value ~= nil)
+    if need_temp or need_dew then
+        for _, part in ipairs(parts) do
+            if #part == 9 and string.sub(part, 1, 1) == "T" then
+                local temp_sign = string.sub(part, 2, 2)
+                local temp_str = string.sub(part, 3, 5)
+                local dew_sign = string.sub(part, 6, 6)
+                local dew_str = string.sub(part, 7, 9)
+                local temp_val = tonumber(temp_str)
+                local dew_val = tonumber(dew_str)
+                if (temp_sign == "0" or temp_sign == "1") and (dew_sign == "0" or dew_sign == "1") and temp_val and dew_val then
+                    local temp = temp_val / 10
+                    if temp_sign == "1" then temp = -temp end
+                    local dew = dew_val / 10
+                    if dew_sign == "1" then dew = -dew end
+                    result.temperature = result.temperature or {}
+                    result.dew_point = result.dew_point or {}
+                    if need_temp then result.temperature.value = temp end
+                    if need_dew then result.dew_point.value = dew end
+                    sasl.logDebug(string.format("Parsed temp/dew from T-group: %.1f C/%.1f C", temp, dew))
+                    break
+                end
+            end
+        end
     end
 
     sasl.logDebug("METAR parsing complete")
@@ -1425,19 +1737,19 @@ function P.onMetarDownloaded(url, path, isOk, responseCodeOrError, metarTable)
             file:close()
 
             if metarstring and #metarstring > 0 then
-                sasl.logInfo("METAR for " .. metarTable.icaocode .. " successfully downloaded.")
+                P.logInfoTS("METAR for " .. metarTable.icaocode .. " successfully downloaded.")
                 metarTable.metar.raw_text = metarstring
                 metarTable.decodedmetar = helpers.decodemetar(metarstring)
                 metarTable.metarfound = true
             else
-                sasl.logInfo("Downloaded METAR file for " .. metarTable.icaocode .. " was empty.")
+                P.logInfoTS("Downloaded METAR file for " .. metarTable.icaocode .. " was empty.")
             end
         else
-            sasl.logInfo("Could not open temp file for " .. metarTable.icaocode)
+            P.logInfoTS("Could not open temp file for " .. metarTable.icaocode)
         end
         os.remove(path)
     else
-        sasl.logInfo("Download of METAR failed for " .. metarTable.icaocode .. ": " .. tostring(responseCodeOrError))
+        P.logInfoTS("Download of METAR failed for " .. metarTable.icaocode .. ": " .. tostring(responseCodeOrError))
     end
 end
 
@@ -1449,13 +1761,13 @@ function P.getMetar(icaocode, metarTable)
     local metarstring = sasl.weather.getMETARForAirport(icaocode)
 
     if (metarstring and (metarstring ~= "") and (metarstring:sub(1, 4) == icaocode)) then
-        sasl.logInfo("METAR for " .. icaocode .. " successfully loaded from X-Plane.")
+        P.logInfoTS("METAR for " .. icaocode .. " successfully loaded from X-Plane.")
         metarTable.icaocode = icaocode
         metarTable.metar.raw_text = metarstring
         metarTable.decodedmetar = helpers.decodemetar(metarstring)
         metarTable.metarfound = true
     else
-        sasl.logInfo("X-Plane METAR for " .. icaocode .. " not found or invalid. Trying async web download.")
+        P.logInfoTS("X-Plane METAR for " .. icaocode .. " not found or invalid. Trying async web download.")
         
         local metarUrl = def.AVWEATHERFURLCSV .. icaocode
         local tempFilePath = def.YALCACHEPATH .. icaocode .. "_metar.txt"
@@ -1556,7 +1868,76 @@ function P.getRunwayHeadingFromDesignator(runwayDesignator)
 end
 
 --------------------------------------------------------------------------------------------------------------
-function P.shouldCheckRunwaySuitability(metar, runwayDesignator)
+local function normalizeRunwayIdForRvr(runwayDesignator)
+    if type(runwayDesignator) ~= "string" or runwayDesignator == "" then
+        return nil
+    end
+
+    local num_str, suffix = string.match(runwayDesignator, "^(%d%d?)(%a?)$")
+    if not num_str then
+        return nil
+    end
+
+    local num = tonumber(num_str)
+    if not num or num < 1 or num > 36 then
+        return nil
+    end
+
+    suffix = suffix and string.upper(suffix) or ""
+    if suffix ~= "L" and suffix ~= "R" and suffix ~= "C" then
+        suffix = ""
+    end
+
+    return string.format("%02d", num) .. suffix
+end
+
+local function getRvrEntryForRunway(rvrList, runwayDesignator)
+    if type(rvrList) ~= "table" then
+        return nil
+    end
+
+    local target = normalizeRunwayIdForRvr(runwayDesignator)
+    if not target then
+        return nil
+    end
+
+    local bestEntry = nil
+    local bestMeters = nil
+
+    for _, entry in ipairs(rvrList) do
+        local entryRunway = normalizeRunwayIdForRvr(entry.runway or "")
+        if entryRunway == target then
+            local meters = entry.min and entry.min.meters
+            if meters then
+                local effective = meters
+                if entry.min.less_than then
+                    effective = math.max(0, meters - 1)
+                end
+                if not bestMeters or effective < bestMeters then
+                    bestMeters = effective
+                    bestEntry = entry
+                end
+            end
+        end
+    end
+
+    return bestEntry
+end
+
+local function getRvrMetersForRunway(rvrList, runwayDesignator)
+    local entry = getRvrEntryForRunway(rvrList, runwayDesignator)
+    if not entry or not entry.min or not entry.min.meters then
+        return nil
+    end
+    local meters = entry.min.meters
+    if entry.min.less_than then
+        meters = math.max(0, meters - 1)
+    end
+    return meters, entry
+end
+
+--------------------------------------------------------------------------------------------------------------
+function P.shouldCheckRunwaySuitability(metar, runwayDesignator, navType)
     -- --- Schwellenwerte anpassbar ---
     local MAX_TAILWIND_KN = 10     -- Maximal erlaubter Rueckenwind fuer normale Landung
     local MAX_CROSSWIND_KN = 20    -- Maximal erlaubter Seitenwind (oft Flugzeug-spezifisch)
@@ -1647,7 +2028,35 @@ function P.shouldCheckRunwaySuitability(metar, runwayDesignator)
         return false -- Seitenwind zu stark
     end
 
-    sasl.logDebug(string.format("Runway %s is suitable based on current wind conditions.", runwayDesignator))
+    local rvrMeters = nil
+    if weatherData and weatherData.rvr then
+        rvrMeters = getRvrMetersForRunway(weatherData.rvr, runwayDesignator)
+    end
+
+    if rvrMeters then
+        local rvrThreshold = 1200
+        if navType == def.NAVTYPEILS
+            or navType == def.NAVTYPEGLS
+            or navType == def.NAVTYPELPV then
+            rvrThreshold = 550
+        elseif navType == def.NAVTYPELOC
+            or navType == def.NAVTYPELDA
+            or navType == def.NAVTYPEIGS
+            or navType == def.NAVTYPERNAV then
+            rvrThreshold = 1200
+        end
+
+        if rvrMeters < rvrThreshold then
+            sasl.logDebug(string.format("Runway %s: RVR %d m below threshold %d m for %s. Check recommended.",
+                runwayDesignator,
+                rvrMeters,
+                rvrThreshold,
+                tostring(navType or "unknown")))
+            return false
+        end
+    end
+
+    sasl.logDebug(string.format("Runway %s is suitable based on current conditions.", runwayDesignator))
     return true -- Landebahn ist innerhalb der Schwellenwerte geeignet
 end
 
@@ -1680,18 +2089,18 @@ function P.formatMetarSpeechSummary(metar, runwayName)
                  -- Überprüfung, ob das Ergebnis im gültigen Bereich liegt (eigentlich durch obiges check abgedeckt)
                  if not (derivedHeading and derivedHeading >= 1 and derivedHeading <= 360) then
                       derivedHeading = nil -- Ungültiges Ergebnis
-                      sasl.logInfo("formatMetarSpeechSummary: Ungültiges Heading " .. tostring(derivedHeading or "nil") .. " aus Runway '" .. runwayName .. "' abgeleitet (nach Nummern-Extraktion).") -- Geändert zu logInfo
+                      P.logInfoTS("formatMetarSpeechSummary: Ungültiges Heading " .. tostring(derivedHeading or "nil") .. " aus Runway '" .. runwayName .. "' abgeleitet (nach Nummern-Extraktion).") -- Geändert zu logInfo
                  end
             else
-                 sasl.logInfo("formatMetarSpeechSummary: Konnte Ziffern '" .. rwyNumStr .. "' aus Runway '" .. runwayName .. "' nicht in Zahl umwandeln.") -- Geändert zu logInfo
+                 P.logInfoTS("formatMetarSpeechSummary: Konnte Ziffern '" .. rwyNumStr .. "' aus Runway '" .. runwayName .. "' nicht in Zahl umwandeln.") -- Geändert zu logInfo
             end
         else
-             sasl.logInfo("formatMetarSpeechSummary: Konnte keine Heading-Zahl aus gültiger Runway '" .. runwayName .. "' extrahieren (string.match fehlgeschlagen).") -- Geändert zu logInfo
+             P.logInfoTS("formatMetarSpeechSummary: Konnte keine Heading-Zahl aus gültiger Runway '" .. runwayName .. "' extrahieren (string.match fehlgeschlagen).") -- Geändert zu logInfo
         end
     else
          -- Log optional, wenn ungültige Namen übergeben werden könnten
          if runwayName and runwayName ~= "" then
-              sasl.logInfo("formatMetarSpeechSummary: Übergabener runwayName '".. runwayName .."' ist laut P.isvalidrwy ungültig. Keine Windkomponentenberechnung.") -- Geändert zu logInfo
+              P.logInfoTS("formatMetarSpeechSummary: Übergabener runwayName '".. runwayName .."' ist laut P.isvalidrwy ungültig. Keine Windkomponentenberechnung.") -- Geändert zu logInfo
          end
     end
     -- derivedHeading ist jetzt entweder eine Zahl (10-360) oder nil
@@ -1706,11 +2115,8 @@ function P.formatMetarSpeechSummary(metar, runwayName)
             wind_part = "Wind calm"
         -- GEÄNDERT: Prüfe derivedHeading und numerische Windrichtung
         elseif derivedHeading and type(dir) == "number" then
-            sasl.logInfo(string.format("Calculating wind components: dir=%s, speed=%s, rwyHdg=%s",
-                           tostring(dir), tostring(speed), tostring(derivedHeading)))
             -- Ruft die korrigierte Funktion auf, die vorzeichenbehafteten Crosswind liefert
             local headwind, crosswind = P.calculateWindComponents(dir, derivedHeading, speed)
-            sasl.logInfo(string.format("Calculated components: headwind=%.2f, crosswind=%.2f", headwind, crosswind))
 
             -- Gib den Runway-NAMEN aus
             wind_part = string.format("Wind runway %s, ", runwayName)
@@ -1756,16 +2162,22 @@ function P.formatMetarSpeechSummary(metar, runwayName)
     if metar_data.visibility then
         local vis_val = metar_data.visibility.value
         local vis_part = "Visibility "
+        local vis_prefix = ""
+        if metar_data.visibility.more_than then
+            vis_prefix = "more than "
+        elseif metar_data.visibility.less_than then
+            vis_prefix = "less than "
+        end
         if metar_data.cavok then
             vis_part = "Visibility 10 kilometers or more"
         elseif vis_val >= 10000 then
             vis_part = vis_part .. "10 kilometers or more"
         elseif vis_val >= 1609 then
-            vis_part = vis_part .. string.format("%d statute miles", math.floor(vis_val / 1609.34 + 0.5))
+            vis_part = vis_part .. vis_prefix .. string.format("%d statute miles", math.floor(vis_val / 1609.34 + 0.5))
         elseif vis_val >= 1000 then
-            vis_part = vis_part .. string.format("%d kilometers", math.floor(vis_val / 1000 + 0.5))
+            vis_part = vis_part .. vis_prefix .. string.format("%d kilometers", math.floor(vis_val / 1000 + 0.5))
         else
-            vis_part = vis_part .. string.format("%d meters", vis_val)
+            vis_part = vis_part .. vis_prefix .. string.format("%d meters", vis_val)
         end
         if metar_data.visibility.directional then
              vis_part = vis_part .. string.format(" specific %d meters to the %s",
@@ -1773,6 +2185,46 @@ function P.formatMetarSpeechSummary(metar, runwayName)
                                  metar_data.visibility.directional.direction)
         end
         table.insert(parts, vis_part)
+    end
+
+    if metar_data.rvr then
+        local rvr_entry = getRvrEntryForRunway(metar_data.rvr, runwayName)
+        if rvr_entry and rvr_entry.min and rvr_entry.min.value then
+            local unit_label = (rvr_entry.unit == "FT") and "feet" or "meters"
+            local function format_rvr_value(value)
+                if not value then
+                    return nil
+                end
+                local prefix = ""
+                if value.more_than then
+                    prefix = "more than "
+                elseif value.less_than then
+                    prefix = "less than "
+                end
+                return prefix .. tostring(value.value)
+            end
+
+            local min_str = format_rvr_value(rvr_entry.min)
+            local rvr_part = nil
+            if rvr_entry.max and rvr_entry.max.value then
+                local max_str = format_rvr_value(rvr_entry.max)
+                rvr_part = string.format("RVR runway %s, variable %s to %s %s", runwayName, min_str, max_str, unit_label)
+            else
+                rvr_part = string.format("RVR runway %s, %s %s", runwayName, min_str, unit_label)
+            end
+
+            if rvr_entry.trend == "U" then
+                rvr_part = rvr_part .. ", increasing"
+            elseif rvr_entry.trend == "D" then
+                rvr_part = rvr_part .. ", decreasing"
+            elseif rvr_entry.trend == "N" then
+                rvr_part = rvr_part .. ", no change"
+            end
+
+            if rvr_part then
+                table.insert(parts, rvr_part)
+            end
+        end
     end
 
     if metar_data.weather and #metar_data.weather > 0 then
@@ -1841,6 +2293,25 @@ function P.formatMetarSpeechSummary(metar, runwayName)
             end
             if #cloud_reports > 0 then
                 table.insert(parts, table.concat(cloud_reports, ", "))
+            end
+        end
+    end
+
+    if metar_data.pressure and metar_data.pressure.qnh_hpa then
+        local qnhHpa = tonumber(metar_data.pressure.qnh_hpa)
+        if qnhHpa then
+            local qnhText = nil
+            local useHpa = false
+            if yal and yal.baroinhpa then
+                useHpa = (get(yal.baroinhpa) == def.ON)
+            end
+            if useHpa then
+                qnhText = P.formatQnhValue(qnhHpa, true)
+            else
+                qnhText = P.formatQnhValue(P.convertpressure(qnhHpa), false)
+            end
+            if qnhText then
+                table.insert(parts, "Q N H " .. P.addspaces(qnhText))
             end
         end
     end
@@ -2083,11 +2554,11 @@ function P.determineTakeoffFlapsSetting(totalweightkgs, deprwylen, deprwyheading
     local runwayHeading = toNumber(deprwyheading, 0)
     local airportElevationMeters = toNumber(elevation, 0)
 
-    sasl.logInfo(string.format("determineTakeoffFlapsSetting: inputs weight=%.0f kg, rwyLen=%.0f m, rwyHdg=%s, elev=%.0f m, baseFlaps=%s",
+    P.logInfoTS(string.format("determineTakeoffFlapsSetting: inputs weight=%.0f kg, rwyLen=%.0f m, rwyHdg=%s, elev=%.0f m, baseFlaps=%s",
         totalWeightKg, runwayLengthMeters, tostring(runwayHeading), airportElevationMeters, tostring(baseFlaps)))
 
     if totalWeightKg <= 0 or runwayLengthMeters <= 0 then
-        sasl.logInfo("determineTakeoffFlapsSetting: Invalid input parameters (weight, length, elevation, heading), returning default flaps " .. STANDARD_TAKEOFF_FLAPS)
+        P.logInfoTS("determineTakeoffFlapsSetting: Invalid input parameters (weight, length, elevation, heading), returning default flaps " .. STANDARD_TAKEOFF_FLAPS)
         return STANDARD_TAKEOFF_FLAPS
     end
 
@@ -2214,7 +2685,7 @@ function P.determineTakeoffFlapsSetting(totalweightkgs, deprwylen, deprwyheading
          recommendedFlaps = 15 -- Round up between 10 and 15
     end
 
-    sasl.logInfo("determineTakeoffFlapsSetting: Recommended flaps setting: " .. recommendedFlaps)
+    P.logInfoTS("determineTakeoffFlapsSetting: Recommended flaps setting: " .. recommendedFlaps)
     return recommendedFlaps
 end
 
@@ -2233,7 +2704,7 @@ function P.calcappflapsvref(totalweightkgs, desrwylen, desrwyheading, baseVref, 
     end
 
     if totalWeightKg <= 0 or runwayLengthMeters <= 0 then
-        sasl.logInfo("calcappflapsvref: Invalid input parameters, returning base " .. tostring(targetFlaps) .. "/" .. tostring(targetVref))
+        P.logInfoTS("calcappflapsvref: Invalid input parameters, returning base " .. tostring(targetFlaps) .. "/" .. tostring(targetVref))
         return targetFlaps, targetVref
     end
 
@@ -2311,10 +2782,61 @@ function P.calcappflapsvref(totalweightkgs, desrwylen, desrwyheading, baseVref, 
     targetFlaps = math.floor(targetFlaps + 0.5)
     targetVref = math.floor(targetVref + 0.5)
 
-    sasl.logInfo(string.format("calcappflapsvref: Base Flaps/Vref %s/%s -> Custom %d/%d (add %d kts, wx=%s, tail=%.1f, xwind=%.1f)",
+    P.logInfoTS(string.format("calcappflapsvref: Base Flaps/Vref %s/%s -> Custom %d/%d (add %d kts, wx=%s, tail=%.1f, xwind=%.1f)",
         tostring(baseFlaps), tostring(baseVref), targetFlaps, targetVref, vrefAdd, tostring(hasPrecip), tailwindKnots, crosswindKnots))
 
     return targetFlaps, targetVref
+end
+
+--------------------------------------------------------------------------------------------------------------
+-- Compute recommended approach wind correction (B737-style: 1/2 headwind + gust increment, capped)
+function P.calculateApproachWindCorrection(runwayHeadingMag, metar)
+    local runwayHeading = toNumber(runwayHeadingMag, nil)
+    if not runwayHeading then
+        return nil
+    end
+
+    local weatherData = (metar and metar.decodedmetar) or {}
+    local windInfo = weatherData.wind or {}
+    local rawDir = windInfo.direction
+    local windDir = toNumber(rawDir, nil)
+    if (not windDir) and type(rawDir) == "string" then
+        local dirStr = rawDir:upper()
+        if dirStr ~= "" and dirStr ~= "VRB" then
+            windDir = toNumber(dirStr, nil)
+        end
+    end
+
+    local windSpeed = toNumber(windInfo.speed, 0) or 0
+    if windSpeed < 0 then windSpeed = 0 end
+    local gust = toNumber(windInfo.gust, 0) or 0
+    if gust < 0 then gust = 0 end
+
+    if (not windDir) or windSpeed == 0 then
+        return nil
+    end
+
+    local magVar = 0
+    local metarLat = toNumber(metar and metar.latitude, nil)
+    local metarLon = toNumber(metar and metar.longitude, nil)
+    if metarLat and metarLon then
+        magVar = sasl.getMagneticVariation(metarLat, metarLon) or 0
+    end
+    local magneticWindDirection = (windDir - magVar + 360) % 360
+
+    local headwind = 0
+    headwind = P.calculateWindComponents(magneticWindDirection, runwayHeading, windSpeed)
+
+    local gustIncrement = 0
+    if gust > windSpeed then
+        gustIncrement = gust - windSpeed
+    end
+
+    local additive = math.max(headwind / 2, 0) + gustIncrement
+    additive = math.max(additive, 0)
+    additive = math.min(additive, 20) -- Boeing cap
+
+    return math.floor(additive + 0.5)
 end
 
 --------------------------------------------------------------------------------------------------------------
@@ -2327,7 +2849,7 @@ function P.determineLandingFlapsSetting(runwayLengthMeters, tailwindKnots, cross
     local crosswindMagnitude = math.abs(crosswindKnots)
     local tailwindMagnitude = math.max(tailwindKnots or 0, 0)
 
-    sasl.logInfo(string.format("determineLandingFlapsSetting: Inputs RwyLen=%.0f m, Tailwind=%.1f kts, XWind=%.1f kts (signed %.1f), BadWx=%s, Weight=%.0f kg",
+    P.logInfoTS(string.format("determineLandingFlapsSetting: Inputs RwyLen=%.0f m, Tailwind=%.1f kts, XWind=%.1f kts (signed %.1f), BadWx=%s, Weight=%.0f kg",
                    runwayLengthMeters, tailwindMagnitude, crosswindMagnitude, crosswindKnots, tostring(isBadWeather), weightKg))
 
     local requiresFlaps40 =
@@ -2337,16 +2859,16 @@ function P.determineLandingFlapsSetting(runwayLengthMeters, tailwindKnots, cross
         (weightKg or 0) > LANDING_HIGH_WEIGHT_THRESHOLD
 
     if crosswindMagnitude > LANDING_HIGH_CROSSWIND_THRESHOLD and not (runwayLengthMeters > 0 and runwayLengthMeters < LANDING_SHORT_RUNWAY_THRESHOLD) then
-        sasl.logInfo("determineLandingFlapsSetting: High crosswind detected - preferring Flaps 30 for controllability.")
+        P.logInfoTS("determineLandingFlapsSetting: High crosswind detected - preferring Flaps 30 for controllability.")
         return 30
     end
 
     if requiresFlaps40 then
-        sasl.logInfo("determineLandingFlapsSetting: Recommending Flaps 40 due to landing distance factors.")
+        P.logInfoTS("determineLandingFlapsSetting: Recommending Flaps 40 due to landing distance factors.")
         return 40
     end
 
-    sasl.logInfo("determineLandingFlapsSetting: Conditions nominal - recommending Flaps 30.")
+    P.logInfoTS("determineLandingFlapsSetting: Conditions nominal - recommending Flaps 30.")
     return 30
 end
 
@@ -2452,7 +2974,7 @@ function P.calcautobrake(landingSpeed, totalweightkgs, desrwylen, metar, customA
         chosenSetting = def.AUTOBRAKEMAX
     end
 
-    sasl.logInfo(string.format(
+    P.logInfoTS(string.format(
         "calcautobrake: vref=%.0f kts, weight=%.0f kg, rwyLen=%.0f m, custom=%s, multiplier=%.2f, reqDecel=%.2f -> AutoBrake %s",
         tonumber(landingSpeed) or 0,
         totalweightkgs or 0,
@@ -2640,7 +3162,7 @@ function P.getpointonroute(detailed_route, currentLat, currentLon, distanceInNM)
     local totalWaypoints = #detailed_route
     
     if totalWaypoints < 2 then
-        sasl.logInfo("Route has not enough waypoints")
+        P.logInfoTS("Route has not enough waypoints")
         return nil
     end
 
@@ -2761,7 +3283,7 @@ function P.findnearestvor(navdatatable, airport_lat, airport_lon)
                 local distance_nm = P.getdistance(airport_lat, airport_lon, vor_lat, vor_lon)
 
                 if (navdata[def.DESTNAVID] == "SH") then
-                    sasl.logInfo(" VOR SH LAT: " .. vor_lat .. " LON: " .. vor_lon .. " gefunden.")
+                    P.logInfoTS(" VOR SH LAT: " .. vor_lat .. " LON: " .. vor_lon .. " gefunden.")
                 end
 
 
@@ -2796,9 +3318,85 @@ local function trimString(str)
     return (str:gsub("^%s+", ""):gsub("%s+$", ""))
 end
 
+local function getLocalizerRunwayMap(icao)
+    if type(icao) ~= "string" or icao == "" then
+        return nil
+    end
+
+    icao = string.upper(icao)
+    P.localizerRunwayCache = P.localizerRunwayCache or {}
+
+    if P.localizerRunwayCache[icao] ~= nil then
+        return P.localizerRunwayCache[icao] or nil
+    end
+
+    local srcnavdatafile = io.open("Custom Data/earth_nav.dat", "r")
+    if not srcnavdatafile then
+        srcnavdatafile = io.open("Custom Scenery/Global Airports/Earth nav data/earth_nav.dat", "r")
+        if not srcnavdatafile then
+            srcnavdatafile = io.open("Resources/default data/earth_nav.dat", "r")
+        end
+    end
+
+    if not srcnavdatafile then
+        P.localizerRunwayCache[icao] = false
+        return nil
+    end
+
+    for _ = 1, 3 do
+        srcnavdatafile:read()
+    end
+
+    local runwayMap = {}
+
+    for navdatarecord in srcnavdatafile:lines() do
+        if string.sub(navdatarecord, 1, 2) == "99" then
+            break
+        end
+
+        local navdataitems = {}
+        for navdataitem in navdatarecord:gmatch("%S+") do
+            table.insert(navdataitems, navdataitem)
+        end
+
+        if #navdataitems > def.NAVSRC_COL_NAME then
+            local recordType = navdataitems[def.NAVSRC_COL_TYPE]
+            local region = navdataitems[def.NAVSRC_COL_REGION]
+
+            if (recordType == def.NAVDATARECTYPEILS or recordType == def.NAVDATARECTYPELOC)
+                and region == icao then
+                local name = navdataitems[def.NAVSRC_COL_NAME] or ""
+                local prefix = string.sub(name, 1, 3)
+                if prefix == def.NAVTYPEILS
+                    or prefix == def.NAVTYPELOC
+                    or prefix == def.NAVTYPELDA
+                    or prefix == def.NAVTYPEIGS then
+                    local ident = navdataitems[def.NAVSRC_COL_IDENT]
+                    local runway = navdataitems[def.NAVSRC_COL_RUNWAY]
+                    if ident and ident ~= "" and runway and runway ~= "" then
+                        runwayMap[string.upper(ident)] = string.upper(runway)
+                    end
+                end
+            end
+        end
+    end
+
+    srcnavdatafile:close()
+
+    if next(runwayMap) then
+        P.localizerRunwayCache[icao] = runwayMap
+        return runwayMap
+    end
+
+    P.localizerRunwayCache[icao] = false
+    return nil
+end
+
 local function formatCIFPApproachName(typeChar, runwayPart, suffix)
     local prefix = typeChar
-    if typeChar == "I" then
+    if typeChar == "LDA" then
+        prefix = "LDA"
+    elseif typeChar == "I" then
         prefix = "ILS"
     elseif typeChar == "G" then
         prefix = "GLS"
@@ -2855,6 +3453,58 @@ function P.loadCIFP(icao)
 
     local approaches = {}
     local entryByCode = {}
+    local runwayMap = nil
+
+    local function addEntryToApproaches(entry, navType, runwayPart)
+        if not entry or not navType or not runwayPart or runwayPart == "" then
+            return
+        end
+        local runwayKey = string.upper(runwayPart)
+        approaches[navType] = approaches[navType] or {}
+        approaches[navType][runwayKey] = approaches[navType][runwayKey] or {}
+        entry.runway = runwayKey
+        entry.displayName = formatCIFPApproachName(entry.typeChar, runwayKey, entry.suffix or "")
+        entry.registered = true
+        table.insert(approaches[navType][runwayKey], entry)
+    end
+
+    local function resolveLdaEntry(entry)
+        if not entry or entry.registered or entry.navType ~= def.NAVTYPELDA then
+            return
+        end
+        runwayMap = runwayMap or getLocalizerRunwayMap(icao)
+        if not runwayMap then
+            return
+        end
+
+        local function tryIdent(ident)
+            if not ident or ident == "" then
+                return false
+            end
+            local key = string.upper(ident)
+            local runway = runwayMap[key]
+            if runway and runway ~= "" then
+                entry.localizerIdent = key
+                addEntryToApproaches(entry, entry.navType, runway)
+                return true
+            end
+            return false
+        end
+
+        if tryIdent(entry.localizerIdent) then
+            return
+        end
+        if tryIdent(entry.finalFixIdent) then
+            return
+        end
+        if entry.legFixes then
+            for fixIdent in pairs(entry.legFixes) do
+                if tryIdent(fixIdent) then
+                    return
+                end
+            end
+        end
+    end
 
     for line in file:lines() do
         if string.sub(line, 1, 6) == "APPCH:" then
@@ -2866,43 +3516,68 @@ function P.loadCIFP(icao)
             local code = parts[3]
             if code and code ~= "" then
                 code = string.upper(code)
-                local typeChar = string.sub(code, 1, 1)
+                local typeTag
                 local navType
-                if typeChar == "I" then
-                    navType = def.NAVTYPEILS
-                elseif typeChar == "G" then
-                    navType = def.NAVTYPEGLS
-                elseif typeChar == "L" then
-                    navType = def.NAVTYPELPV
-                elseif typeChar == "R" then
-                    navType = def.NAVTYPERNAV
+                if string.sub(code, 1, 3) == def.NAVTYPELDA then
+                    typeTag = def.NAVTYPELDA
+                    navType = def.NAVTYPELDA
+                else
+                    local typeChar = string.sub(code, 1, 1)
+                    if typeChar == "I" then
+                        typeTag = typeChar
+                        navType = def.NAVTYPEILS
+                    elseif typeChar == "G" then
+                        typeTag = typeChar
+                        navType = def.NAVTYPEGLS
+                    elseif typeChar == "L" then
+                        typeTag = typeChar
+                        navType = def.NAVTYPELPV
+                    elseif typeChar == "R" then
+                        typeTag = typeChar
+                        navType = def.NAVTYPERNAV
+                    end
                 end
 
                 if navType then
                     local entry = entryByCode[code]
                     if not entry then
-                        local rest = string.sub(code, 2)
+                        local prefixLen = typeTag and #typeTag or 1
+                        local rest = string.sub(code, prefixLen + 1)
                         local runwayPart, suffix = rest:match("^(%d%d%a?)(%a*)$")
                         if runwayPart then
                             runwayPart = string.upper(runwayPart)
                             suffix = suffix or ""
-
-                            approaches[navType] = approaches[navType] or {}
-                            approaches[navType][runwayPart] = approaches[navType][runwayPart] or {}
-
                             entry = {
                                 code = code,
-                                typeChar = typeChar,
+                                navType = navType,
+                                typeChar = typeTag,
                                 runway = runwayPart,
                                 suffix = suffix,
-                                displayName = formatCIFPApproachName(typeChar, runwayPart, suffix),
+                                displayName = nil,
                                 course = nil,
                                 finalFixIdent = nil,
-                                legFixes = {}
+                                legFixes = {},
+                                registered = false,
+                                localizerIdent = nil
                             }
-
                             entryByCode[code] = entry
-                            table.insert(approaches[navType][runwayPart], entry)
+                            addEntryToApproaches(entry, navType, runwayPart)
+                        elseif navType == def.NAVTYPELDA then
+                            suffix = suffix or rest or ""
+                            entry = {
+                                code = code,
+                                navType = navType,
+                                typeChar = typeTag,
+                                runway = nil,
+                                suffix = suffix,
+                                displayName = nil,
+                                course = nil,
+                                finalFixIdent = nil,
+                                legFixes = {},
+                                registered = false,
+                                localizerIdent = nil
+                            }
+                            entryByCode[code] = entry
                         end
                     end
 
@@ -2929,6 +3604,7 @@ function P.loadCIFP(icao)
                                 local courseField = trimString(parts[21] or "")
                                 local courseValue = tonumber(courseField)
                                 if courseValue then
+                                    -- ARINC: course stored in 1/10 deg. Always divide by 10.
                                     local magneticCourse = P.calccourse(courseValue / 10.0)
                                     entry.course = magneticCourse
                                 end
@@ -2941,6 +3617,13 @@ function P.loadCIFP(icao)
                         else
                             register_fix(parts[14])
                         end
+
+                        if entry.navType == def.NAVTYPELDA and not entry.registered then
+                            local identCandidate = trimString(parts[14] or "")
+                            if identCandidate ~= "" and not entry.localizerIdent then
+                                entry.localizerIdent = string.upper(identCandidate)
+                            end
+                        end
                     end
                 end
             end
@@ -2948,6 +3631,15 @@ function P.loadCIFP(icao)
     end
 
     file:close()
+
+    for _, entry in pairs(entryByCode) do
+        if entry.navType == def.NAVTYPELDA and not entry.registered then
+            resolveLdaEntry(entry)
+            if not entry.registered then
+                sasl.logDebug(string.format("CIFP: LDA approach %s missing runway; skipping.", entry.code or "?"))
+            end
+        end
+    end
 
     P.cifpCache[icao] = approaches
     if approaches and next(approaches) then
@@ -2972,8 +3664,9 @@ function P.getCIFPApproach(icao, navType, runway)
         return nil
     end
 
-    runway = string.upper(runway)
-    local candidates = navEntries[runway]
+    local rwy = string.upper(runway)
+    rwy = rwy:gsub("^RW", "")
+    local candidates = navEntries[rwy]
     if not candidates or #candidates == 0 then
         return nil
     end
@@ -3019,7 +3712,10 @@ function P.findApproachDME(navdatatable, icao, runway, refLat, refLon, refIdent,
             if navType == def.NAVTYPEVOR then
                 return true
             end
-            if includeILS and navType == def.NAVTYPEILS then
+            if includeILS and (navType == def.NAVTYPEILS
+                or navType == def.NAVTYPELOC
+                or navType == def.NAVTYPELDA
+                or navType == def.NAVTYPEIGS) then
                 return true
             end
         end
@@ -3141,18 +3837,29 @@ local function normalizeSelectedApproachId(selectedAppId, expectedRunway)
     local trimmed = trimString(selectedAppId):upper()
     if trimmed == "" or trimmed == "------" then return nil end
 
-    -- Pattern: first char = type, then runway (e.g. 08, 08L), optional suffix (Y/Z/etc.)
-    local typeChar, runwayPart, suffix = trimmed:match("^(%a)(%d%d%a?)(%a*)")
-    if not typeChar or not runwayPart then return nil end
+    local navType = nil
+    local runwayPart = nil
+    local suffix = nil
 
-    local navTypeMap = {
-        I = def.NAVTYPEILS,
-        L = def.NAVTYPELOC,
-        R = def.NAVTYPERNAV,
-        G = def.NAVTYPEGLS
-    }
-    local navType = navTypeMap[typeChar]
-    if not navType then return nil end
+    if string.sub(trimmed, 1, 3) == def.NAVTYPELDA then
+        navType = def.NAVTYPELDA
+        local rest = string.sub(trimmed, 4)
+        runwayPart, suffix = rest:match("^(%d%d%a?)(%a*)")
+    else
+        -- Pattern: first char = type, then runway (e.g. 08, 08L), optional suffix (Y/Z/etc.)
+        local typeChar
+        typeChar, runwayPart, suffix = trimmed:match("^(%a)(%d%d%a?)(%a*)")
+        if not typeChar or not runwayPart then return nil end
+
+        local navTypeMap = {
+            I = def.NAVTYPEILS,
+            L = def.NAVTYPELOC,
+            R = def.NAVTYPERNAV,
+            G = def.NAVTYPEGLS
+        }
+        navType = navTypeMap[typeChar]
+    end
+    if not navType or not runwayPart then return nil end
 
     if expectedRunway and string.upper(expectedRunway) ~= runwayPart then
         -- Different runway, don't apply
@@ -3211,7 +3918,10 @@ function P.detectCIFPApproachVariant(icao, runway, legs_string, lat_array, lon_a
     local navPriority = {
         [def.NAVTYPELPV] = 1,
         [def.NAVTYPEGLS] = 2,
-        [def.NAVTYPEILS] = 3
+        [def.NAVTYPEILS] = 3,
+        [def.NAVTYPELDA] = 4,
+        [def.NAVTYPELOC] = 5,
+        [def.NAVTYPEIGS] = 6
     }
 
     local bestMatch = nil
@@ -3454,6 +4164,20 @@ function P.buildnavdatatable(navdatatable)
         return nil
     end
 
+    local function find_localizer_entry(target_table, icao, navid, runway)
+        local index = find_nav_entry(target_table, icao, navid, def.NAVTYPEILS, runway)
+        if not index then
+            index = find_nav_entry(target_table, icao, navid, def.NAVTYPELDA, runway)
+        end
+        if not index then
+            index = find_nav_entry(target_table, icao, navid, def.NAVTYPELOC, runway)
+        end
+        if not index then
+            index = find_nav_entry(target_table, icao, navid, def.NAVTYPEIGS, runway)
+        end
+        return index
+    end
+
     for i = #navdatatable, 1, -1 do table.remove(navdatatable, i) end
 
     -- ... (Datei-Öffnen-Logik bleibt unverändert) ...
@@ -3466,13 +4190,13 @@ function P.buildnavdatatable(navdatatable)
                 sasl.logError("No Navdatabase Source: Could not find earth_nav.dat!")
                 return false
             else
-                sasl.logInfo("Navdatabase Sourse: Resources/default data/earth_nav.dat")
+                P.logInfoTS("Navdatabase Sourse: Resources/default data/earth_nav.dat")
             end
         else
-            sasl.logInfo("Navdatabase Sourse: Custom Scenery/Global Airports/Earth nav data/earth_nav.dat")
+            P.logInfoTS("Navdatabase Sourse: Custom Scenery/Global Airports/Earth nav data/earth_nav.dat")
         end
     else
-        sasl.logInfo("Navdatabase Sourse: Custom Data/earth_nav.dat")
+        P.logInfoTS("Navdatabase Sourse: Custom Data/earth_nav.dat")
     end
 
     for i = 1, 3 do local _ = srcnavdatafile:read() end
@@ -3491,7 +4215,8 @@ function P.buildnavdatatable(navdatatable)
                 if lat_val and lon_val then
                     local record_type_str = navdataitems[def.NAVSRC_COL_TYPE]
 
-                if (record_type_str == def.NAVDATARECTYPEILS) then
+                if (record_type_str == def.NAVDATARECTYPEILS
+                    or record_type_str == def.NAVDATARECTYPELOC) then
                     local newEntry = {}
                     newEntry[def.DESTICAO] = navdataitems[def.NAVSRC_COL_REGION]
                     newEntry[def.DESTRWY] = navdataitems[def.NAVSRC_COL_RUNWAY]
@@ -3579,14 +4304,14 @@ function P.buildnavdatatable(navdatatable)
                     local ident = navdataitems[def.NAVSRC_COL_IDENT]
                     local runway = navdataitems[def.NAVSRC_COL_RUNWAY]
 
-                    local index = find_nav_entry(navdatatable, icao, ident, def.NAVTYPEILS, runway)
+                    local index = find_localizer_entry(navdatatable, icao, ident, runway)
                     if not index then
                         index = find_nav_entry(navdatatable, icao, ident, def.NAVTYPEVOR, runway)
                     end
                     -- Some DME records carry descriptive text instead of a runway designator.
                     -- If no match was found, retry without forcing the runway to align.
                     if not index then
-                        index = find_nav_entry(navdatatable, icao, ident, def.NAVTYPEILS, nil)
+                        index = find_localizer_entry(navdatatable, icao, ident, nil)
                     end
                     if not index then
                         index = find_nav_entry(navdatatable, icao, ident, def.NAVTYPEVOR, nil)
@@ -3665,22 +4390,21 @@ function P.buildnavdatatable(navdatatable)
                     newEntry[def.DESTNAVID] = navdataitems[def.NAVSRC_COL_IDENT]
                     
                     local raw_course_str = navdataitems[def.NAVSRC_COL_BEARING]
-                    local true_course = tonumber(raw_course_str)
-
-                    if true_course then
-                        if true_course >= 1000 then
-                            true_course = true_course % 1000
+                    local raw_course = tonumber(raw_course_str)
+                    if raw_course then
+                        -- LPV/GLS: bearing encodes true course; values >= 1000 include a prefix.
+                        local true_course = raw_course
+                        if raw_course >= 1000 then
+                            true_course = raw_course % 1000
                         end
-
                         local trueCourseNormalized = P.calccourse(true_course)
-
                         local mag_variation = sasl.getMagneticVariation(lat_val, lon_val) or 0
                         newEntry.truecourse = trueCourseNormalized
                         newEntry.isTrueCourse = true
                         newEntry[def.DESTCOURSE] = P.calccourse(trueCourseNormalized - mag_variation)
                         newEntry[def.DESTMAGVAR] = mag_variation
                     else
-                        sasl.logInfo("Could not read true course for LPV/GLS (column NAVSRC_COL_BEARING): " .. navdatarecord)
+                        P.logInfoTS("Could not read true course for LPV/GLS (column NAVSRC_COL_BEARING): " .. navdatarecord)
                         newEntry[def.DESTCOURSE] = 0 -- Fallback zu 0
                     end
                     
@@ -3737,7 +4461,7 @@ function P.buildnavdatatable(navdatatable)
         end
     end
 
-sasl.logInfo("Navdata Table created, " .. #navdatatable .. " entries.")
+P.logInfoTS("Navdata Table created, " .. #navdatatable .. " entries.")
     return true
 end
 --------------------------------------------------------------------------------------------------------------
@@ -3797,7 +4521,7 @@ function P.buildairportdatatable(airport_db)
     -- Datei wieder schließen
     file:close()
     
-    sasl.logInfo("Airport Data Table created, " .. line_count .. " entries.")
+    P.logInfoTS("Airport Data Table created, " .. line_count .. " entries.")
 
     return true
 end
@@ -3910,21 +4634,33 @@ function P.getnavdataindices(navdatatable, icao, rwy, navtypes)
         return {}
     end
 
-    local rwy_offsets = {0, 1, -1, 2, -2, 3, -3}
-    local result = {}
+    local exactMatches = {}
+    local offsetMatches = {}
     local seen = {}
+    local rwy_offsets = {1, -1, 2, -2, 3, -3}
 
     for _, navtype in ipairs(navtypeList) do
-        for _, offset in ipairs(rwy_offsets) do
-            local current_rwy = P.adjustrwy(rwy, offset)
-            if current_rwy then
-                for idx, entry in ipairs(navdatatable) do
-                    if entry[def.DESTICAO] == icao
-                    and entry[def.DESTRWY] == current_rwy
-                    and entry[def.DESTNAVTYPE] == navtype then
-                        if not seen[idx] then
-                            table.insert(result, idx)
-                            seen[idx] = true
+        for idx, entry in ipairs(navdatatable) do
+            if entry[def.DESTICAO] == icao
+            and entry[def.DESTNAVTYPE] == navtype then
+                if entry[def.DESTRWY] == rwy then
+                    if not seen[idx] then
+                        table.insert(exactMatches, idx)
+                        seen[idx] = true
+                    end
+                else
+                    -- Offsets are handled only if no exact matches are found.
+                    local current_rwy = entry[def.DESTRWY]
+                    if current_rwy and current_rwy ~= "" then
+                        for _, offset in ipairs(rwy_offsets) do
+                            local current_expected = P.adjustrwy(rwy, offset)
+                            if current_expected and current_rwy == current_expected then
+                                if not seen[idx] then
+                                    table.insert(offsetMatches, idx)
+                                    seen[idx] = true
+                                end
+                                break
+                            end
                         end
                     end
                 end
@@ -3932,7 +4668,11 @@ function P.getnavdataindices(navdatatable, icao, rwy, navtypes)
         end
     end
 
-    return result
+    if #exactMatches > 0 then
+        return exactMatches
+    end
+    
+    return offsetMatches
 end
 
 function P.getnavdataindex(navdatatable, icao, rwy, navtype)
@@ -3950,12 +4690,39 @@ function P.getrwyheadingfromnavdata(navdatatable, icao, rwy)
         return nil
     end
 
-    local navTypePriority = { def.NAVTYPEILS, def.NAVTYPEGLS, def.NAVTYPELPV }
+    local navTypePriority = {
+        def.NAVTYPEILS,
+        def.NAVTYPEGLS,
+        def.NAVTYPELPV,
+        def.NAVTYPELDA,
+        def.NAVTYPELOC,
+        def.NAVTYPEIGS
+    }
+
+    local function runwayUsesTrueLocal(runway)
+        if type(runway) ~= "string" then
+            return false
+        end
+        local clean = string.upper(runway):gsub("^RW", "")
+        return clean:sub(-1) == "T"
+    end
 
     local function getCourseFromNavEntry(entry)
         if not entry then return nil end
         if entry.isTrueCourse and entry.truecourse then
-            return entry.truecourse
+            if runwayUsesTrueLocal(rwy) then
+                return entry.truecourse
+            end
+            local magVar = entry[def.DESTMAGVAR]
+            if magVar == nil then
+                local lat = entry[def.DESTLATPOS]
+                local lon = entry[def.DESTLONPOS]
+                if lat and lon and lat ~= 0 and lon ~= 0 then
+                    magVar = sasl.getMagneticVariation(lat, lon)
+                end
+            end
+            magVar = magVar or 0
+            return P.calccourse(entry.truecourse - magVar)
         end
         return entry[def.DESTCOURSE]
     end
@@ -4097,7 +4864,7 @@ function P.loadZiboReferenceTables()
     for _ in pairs(result.cg) do cgCount = cgCount + 1 end
     for _ in pairs(result.wet) do wetCount = wetCount + 1 end
     for _ in pairs(result.takeoff) do takeoffCount = takeoffCount + 1 end
-    sasl.logInfo(string.format("Loaded Zibo reference tables from %s (flaps=%d, vref=%d idx=%d, cg=%d, wet=%d, takeoff=%d)", path, flapsCount, vrefCount, vrefIdxCount, cgCount, wetCount, takeoffCount))
+    P.logInfoTS(string.format("Loaded Zibo reference tables from %s (flaps=%d, vref=%d idx=%d, cg=%d, wet=%d, takeoff=%d)", path, flapsCount, vrefCount, vrefIdxCount, cgCount, wetCount, takeoffCount))
     return result
 end
 
@@ -4392,6 +5159,331 @@ end
 
 function P.atmoIasToTas(ias_kt, alt_ft)
     return ias_to_tas(ias_kt or 0, alt_ft or 0)
+end
+
+-- CG / QuickView helpers ------------------------------------------------------
+local function get_zibo_base_path()
+    return sasl.getXPlanePath() .. def.OSSEPARATOR .. "Aircraft" .. def.OSSEPARATOR .. "B737-800X" .. def.OSSEPARATOR
+end
+
+local function read_acf_cg(path)
+    local file, err = io.open(path, "r")
+    if not file then
+        return nil, err
+    end
+    local cg = { lat = 0.0 }
+    for line in file:lines() do
+        local t1, t2, t3 = line:match("^(%S+)%s+(%S+)%s+(%S+)")
+        if t1 == "P" and t2 == "acf/_cgY" then
+            cg.vert = tonumber(t3)
+        elseif t1 == "P" and t2 == "acf/_cgZ" then
+            cg.long = tonumber(t3)
+        end
+    end
+    file:close()
+    if cg.vert == nil or cg.long == nil then
+        return nil, "CG values not found"
+    end
+    return cg
+end
+
+local function read_acf_default_view(path)
+    local file, err = io.open(path, "r")
+    if not file then
+        return nil, err
+    end
+    local view = {}
+    for line in file:lines() do
+        local t1, t2, t3 = line:match("^(%S+)%s+(%S+)%s+(%S+)")
+        if t1 == "P" and t2 == "acf/_pe_xyz/0" then
+            view.lat = tonumber(t3)
+        elseif t1 == "P" and t2 == "acf/_pe_xyz/1" then
+            view.vert = tonumber(t3)
+        elseif t1 == "P" and t2 == "acf/_pe_xyz/2" then
+            view.long = tonumber(t3)
+        elseif t1 == "P" and t2 == "acf/_ang_offset/0,1" then
+            view.pitch = tonumber(t3)
+        end
+    end
+    file:close()
+    if view.lat == nil or view.vert == nil or view.long == nil or view.pitch == nil then
+        return nil, "Default view values not found"
+    end
+    return view
+end
+
+local function read_qv0(path)
+    local file, err = io.open(path, "r")
+    if not file then
+        return nil, err
+    end
+    local qv = {}
+    for line in file:lines() do
+        local key, val = line:match("^(%S+)%s+([-%d%.]+)")
+        if key == "_iql_pe_x_0" then
+            qv.lat = tonumber(val)
+        elseif key == "_iql_pe_y_0" then
+            qv.vert = tonumber(val)
+        elseif key == "_iql_pe_z_0" then
+            qv.long = tonumber(val)
+        elseif key == "_iql_look_os_the_0" then
+            qv.pitch = tonumber(val)
+        end
+    end
+    file:close()
+    if qv.lat == nil or qv.vert == nil or qv.long == nil or qv.pitch == nil then
+        return nil, "QV0 values not found"
+    end
+    return qv
+end
+
+local function approx_equal(a, b, tol)
+    tol = tol or 0.0001
+    if a == nil or b == nil then return false end
+    return math.abs(a - b) <= tol
+end
+
+local function backup_file(path)
+    local stamp = os.date("%Y%m%d-%H%M%S")
+    local backup_path = path .. ".yal_bak_" .. stamp
+    local infile, err = io.open(path, "rb")
+    if not infile then
+        return false, err
+    end
+    local outfile, err2 = io.open(backup_path, "wb")
+    if not outfile then
+        infile:close()
+        return false, err2
+    end
+    while true do
+        local chunk = infile:read(8192)
+        if not chunk then break end
+        outfile:write(chunk)
+    end
+    infile:close()
+    outfile:close()
+    return true, backup_path
+end
+
+local function rewrite_file(path, line_fn)
+    local infile, err = io.open(path, "r")
+    if not infile then
+        return false, err
+    end
+    local ok, backup_or_err = backup_file(path)
+    if not ok then
+        infile:close()
+        return false, backup_or_err
+    end
+    local tmp = path .. ".yal_tmp"
+    local outfile, err2 = io.open(tmp, "w")
+    if not outfile then
+        infile:close()
+        return false, err2
+    end
+    for line in infile:lines() do
+        outfile:write(line_fn(line) .. "\n")
+    end
+    infile:close()
+    outfile:close()
+    local ok, err3 = os.rename(tmp, path)
+    if not ok then
+        local err_text = tostring(err3 or ""):lower()
+        if err_text:find("exist") then
+            os.remove(path)
+            ok, err3 = os.rename(tmp, path)
+        end
+        if not ok then
+            os.remove(tmp)
+            return false, err3
+        end
+    end
+    return true
+end
+
+local function shift_quickviews_z(prefs_path, delta_m)
+    return rewrite_file(prefs_path, function(line)
+        local prefix, idx, val = line:match("^(_iql_pe_z_)(%d+)%s+([-%d%.]+)")
+        if prefix then
+            local old = tonumber(val)
+            if old then
+                local new_val = old - delta_m
+                return string.format("%s%s %.6f", prefix, idx, new_val)
+            end
+        end
+        return line
+    end)
+end
+
+local function apply_default_view_from_qv0(acf_path, prefs_path)
+    local qv, err = read_qv0(prefs_path)
+    if not qv then
+        return false, err
+    end
+    local cg, err2 = read_acf_cg(acf_path)
+    if not cg then
+        return false, err2
+    end
+    local current_view, err3 = read_acf_default_view(acf_path)
+    if not current_view then
+        return false, err3
+    end
+    local meters_to_feet = 3.28084
+    local new_lat = (cg.lat or 0.0) + (qv.lat * meters_to_feet)
+    local new_vert = cg.vert + (qv.vert * meters_to_feet)
+    local new_long = cg.long + (qv.long * meters_to_feet)
+    local new_pitch = qv.pitch
+
+    if approx_equal(current_view.lat, new_lat) and approx_equal(current_view.vert, new_vert)
+        and approx_equal(current_view.long, new_long) and approx_equal(current_view.pitch, new_pitch) then
+        return true, "no-change"
+    end
+
+    return rewrite_file(acf_path, function(line)
+        if line:match("^P%s+acf/_pe_xyz/0%s+") then
+            return string.format("P acf/_pe_xyz/0 %.6f", new_lat)
+        elseif line:match("^P%s+acf/_pe_xyz/1%s+") then
+            return string.format("P acf/_pe_xyz/1 %.6f", new_vert)
+        elseif line:match("^P%s+acf/_pe_xyz/2%s+") then
+            return string.format("P acf/_pe_xyz/2 %.6f", new_long)
+        elseif line:match("^P%s+acf/_ang_offset/0,1%s+") then
+            return string.format("P acf/_ang_offset/0,1 %.6f", new_pitch)
+        end
+        return line
+    end)
+end
+
+function P.adjustQuickViewsForCgChange()
+    local settings = require("settings")
+    if not views_change_allowed() then
+        P.logInfoTS("QuickViews CG update blocked (requires preflight, on ground, parking brake set)")
+        return
+    end
+    local base = get_zibo_base_path()
+    local variants = {
+        { name = "4k", acf = "b738_4k.acf", prefs = "b738_4k_prefs.txt", keyY = "CG_BASE_4K_Y", keyZ = "CG_BASE_4K_Z" },
+        { name = "2k", acf = "b738.acf", prefs = "b738_prefs.txt", keyY = "CG_BASE_2K_Y", keyZ = "CG_BASE_2K_Z" },
+    }
+    local cg_map = {}
+    local did_adjust = false
+
+    for _, v in ipairs(variants) do
+        local acf_path = base .. v.acf
+        local prefs_path = base .. v.prefs
+        local cg, err = read_acf_cg(acf_path)
+        if not cg then
+            P.logInfoTS("QuickViews CG update: failed to read " .. v.name .. " CG (" .. tostring(err) .. ")")
+        else
+            cg_map[v.name] = cg
+            local stored_y = tonumber(settings.appSettings[v.keyY])
+            local stored_z = tonumber(settings.appSettings[v.keyZ])
+            if stored_y == nil or stored_z == nil then
+                settings.appSettings[v.keyY] = cg.vert
+                settings.appSettings[v.keyZ] = cg.long
+                settings.writeSettings(settings.appSettings)
+                P.logInfoTS("QuickViews CG update: stored baseline for " .. v.name .. " (no adjustment performed)")
+            else
+                local delta_z = cg.long - stored_z
+                if math.abs(delta_z) < 0.0001 then
+                    if cg.vert ~= stored_y then
+                        settings.appSettings[v.keyY] = cg.vert
+                        settings.appSettings[v.keyZ] = cg.long
+                        settings.writeSettings(settings.appSettings)
+                    end
+                    P.logInfoTS("QuickViews CG update: no CG change for " .. v.name)
+                else
+                    local delta_m = delta_z * 0.3048
+                    local ok, err2 = shift_quickviews_z(prefs_path, delta_m)
+                    if ok then
+                        did_adjust = true
+                        settings.appSettings[v.keyY] = cg.vert
+                        settings.appSettings[v.keyZ] = cg.long
+                        settings.writeSettings(settings.appSettings)
+                        P.logInfoTS(string.format("QuickViews CG update: %s adjusted (deltaZ %.4f ft)", v.name, delta_z))
+                    else
+                        P.logInfoTS("QuickViews CG update: failed to write " .. v.name .. " prefs (" .. tostring(err2) .. ")")
+                    end
+                end
+            end
+        end
+    end
+
+    if cg_map["4k"] and cg_map["2k"] then
+        local diff_z = math.abs(cg_map["4k"].long - cg_map["2k"].long)
+        local diff_y = math.abs(cg_map["4k"].vert - cg_map["2k"].vert)
+        if diff_z > 0.0001 or diff_y > 0.0001 then
+            P.logInfoTS(string.format("CG mismatch 4k vs 2k: dZ=%.4f ft, dY=%.4f ft", diff_z, diff_y))
+        end
+    end
+
+    if did_adjust then
+        P.logInfoTS("QuickViews CG update: reloading aircraft to persist changes")
+        P.command_once("sim/operation/reload_aircraft")
+    end
+end
+
+function P.applyDefaultViewFromQV0()
+    if not views_change_allowed() then
+        P.logInfoTS("Default view update blocked (requires preflight, on ground, parking brake set)")
+        return
+    end
+    local base = get_zibo_base_path()
+    local variants = {
+        { name = "4k", acf = "b738_4k.acf", prefs = "b738_4k_prefs.txt" },
+        { name = "2k", acf = "b738.acf", prefs = "b738_prefs.txt" },
+    }
+    local did_adjust = false
+    for _, v in ipairs(variants) do
+        local ok, err = apply_default_view_from_qv0(base .. v.acf, base .. v.prefs)
+        if ok then
+            if err == "no-change" then
+                P.logInfoTS("Default view already matches QV0 (" .. v.name .. ")")
+            else
+                did_adjust = true
+                P.logInfoTS("Default view updated from QV0 (" .. v.name .. ")")
+            end
+        else
+            P.logInfoTS("Default view update failed (" .. v.name .. "): " .. tostring(err))
+        end
+    end
+    if did_adjust then
+        P.logInfoTS("Default view update: reloading aircraft to persist changes")
+        P.command_once("sim/operation/reload_aircraft")
+    end
+end
+
+function P.checkCgBaselineAtStartup()
+    local settings = require("settings")
+    local base = get_zibo_base_path()
+    local variants = {
+        { name = "4k", acf = "b738_4k.acf", keyY = "CG_BASE_4K_Y", keyZ = "CG_BASE_4K_Z" },
+        { name = "2k", acf = "b738.acf", keyY = "CG_BASE_2K_Y", keyZ = "CG_BASE_2K_Z" },
+    }
+    for _, v in ipairs(variants) do
+        local acf_path = base .. v.acf
+        local cg, err = read_acf_cg(acf_path)
+        if not cg then
+            P.logInfoTS("CG baseline check failed (" .. v.name .. "): " .. tostring(err))
+        else
+            local stored_y = tonumber(settings.appSettings[v.keyY])
+            local stored_z = tonumber(settings.appSettings[v.keyZ])
+            if stored_y == nil or stored_z == nil then
+                settings.appSettings[v.keyY] = cg.vert
+                settings.appSettings[v.keyZ] = cg.long
+                settings.writeSettings(settings.appSettings)
+                P.logInfoTS(string.format("CG baseline stored (%s): Y=%.6f Z=%.6f", v.name, cg.vert, cg.long))
+            else
+                if approx_equal(stored_y, cg.vert) and approx_equal(stored_z, cg.long) then
+                    P.logInfoTS(string.format("CG baseline matches (%s): Y=%.6f Z=%.6f", v.name, stored_y, stored_z))
+                else
+                    P.logInfoTS(string.format(
+                        "CG baseline mismatch (%s): stored Y/Z %.6f/%.6f vs acf %.6f/%.6f",
+                        v.name, stored_y, stored_z, cg.vert, cg.long
+                    ))
+                end
+            end
+        end
+    end
 end
 
 return helpers

@@ -243,8 +243,18 @@ local function complex_check(P)
         else
             if ((get(P.barostd) == def.ON) and (get(P.barostd) ~= P.barostdtemp)) then P.commandtableentry(def.TEXT, "Q N H Standard")
             else
-                if (get(P.baroinhpa) == def.ON) then P.commandtableentry(def.TEXT, "Q N H " .. tostring(helpers.convertpressure(get(P.baropilot))))
-                else P.commandtableentry(def.TEXT, "Q N H " .. tostring(get(P.baropilot))) end
+                if (get(P.baroinhpa) == def.ON) then
+                    local qnhValue = helpers.convertpressure(get(P.baropilot))
+                    local qnhText = helpers.formatQnhValue(qnhValue, true)
+                    if qnhText then
+                        P.commandtableentry(def.TEXT, "Q N H " .. helpers.addspaces(qnhText))
+                    end
+                else
+                    local qnhText = helpers.formatQnhValue(get(P.baropilot), false)
+                    if qnhText then
+                        P.commandtableentry(def.TEXT, "Q N H " .. helpers.addspaces(qnhText))
+                    end
+                end
             end
             P.baropilottemp = get(P.baropilot); P.baropilottemp2 = get(P.baropilot); P.barostdtemp = get(P.barostd)
         end
@@ -327,7 +337,68 @@ local function complex_check(P)
 
     -- MMR / NAV Frequency Check
     if (get(P.mmrinstalled) == def.ON) then
-        -- (Komplette MMR-Logik aus Originalfunktion hierher kopiert)
+        local cptMode = get(P.mmrcptactmode)
+        local foMode = get(P.mmrfoactmode)
+        local cptVal = get(P.mmrcptactvalue)
+        local foVal = get(P.mmrfoactvalue)
+
+        local function formatMMR(mode, val)
+            if mode == def.MMRILS or mode == def.MMRLOC or mode == def.MMRVOR then
+                return helpers.addspaces(helpers.formatILSFrequency(val))
+            else
+                return tostring(val)
+            end
+        end
+
+        -- Mode/Freq change announcements
+        if (cptMode ~= P.mmrcptactmodetemp) or (cptVal ~= P.mmrcptactvaluetemp) or
+           (foMode ~= P.mmrfoactmodetemp) or (foVal ~= P.mmrfoactvaluetemp) then
+
+            local sameMode = (cptMode == foMode)
+            local sameVal = (cptVal == foVal)
+
+            if sameMode and sameVal then
+                if cptMode == def.MMRILS then
+                    P.commandtableentry(def.TEXT, "Both M M R I L S " .. formatMMR(cptMode, cptVal))
+                elseif cptMode == def.MMRGLS then
+                    P.commandtableentry(def.TEXT, "Both M M R G L S Channel " .. formatMMR(cptMode, cptVal))
+                elseif cptMode == def.MMRLPV then
+                    P.commandtableentry(def.TEXT, "Both M M R L P V Channel " .. formatMMR(cptMode, cptVal))
+                else
+                    P.commandtableentry(def.TEXT, "Both M M R " .. formatMMR(cptMode, cptVal))
+                end
+            else
+                -- Captain
+                if (cptMode ~= P.mmrcptactmodetemp) or (cptVal ~= P.mmrcptactvaluetemp) then
+                    if cptMode == def.MMRILS then
+                        P.commandtableentry(def.TEXT, "Captain M M R I L S " .. formatMMR(cptMode, cptVal))
+                    elseif cptMode == def.MMRGLS then
+                        P.commandtableentry(def.TEXT, "Captain M M R G L S Channel " .. formatMMR(cptMode, cptVal))
+                    elseif cptMode == def.MMRLPV then
+                        P.commandtableentry(def.TEXT, "Captain M M R L P V Channel " .. formatMMR(cptMode, cptVal))
+                    elseif cptMode == def.MMRVOR then
+                        P.commandtableentry(def.TEXT, "Captain M M R V O R " .. formatMMR(cptMode, cptVal))
+                    end
+                end
+                -- Copilot
+                if (foMode ~= P.mmrfoactmodetemp) or (foVal ~= P.mmrfoactvaluetemp) then
+                    if foMode == def.MMRILS then
+                        P.commandtableentry(def.TEXT, "Copilot M M R I L S " .. formatMMR(foMode, foVal))
+                    elseif foMode == def.MMRGLS then
+                        P.commandtableentry(def.TEXT, "Copilot M M R G L S Channel " .. formatMMR(foMode, foVal))
+                    elseif foMode == def.MMRLPV then
+                        P.commandtableentry(def.TEXT, "Copilot M M R L P V Channel " .. formatMMR(foMode, foVal))
+                    elseif foMode == def.MMRVOR then
+                        P.commandtableentry(def.TEXT, "Copilot M M R V O R " .. formatMMR(foMode, foVal))
+                    end
+                end
+            end
+
+            P.mmrcptactmodetemp = cptMode
+            P.mmrcptactvaluetemp = cptVal
+            P.mmrfoactmodetemp = foMode
+            P.mmrfoactvaluetemp = foVal
+        end
     else
         if ((get(P.nav1freq) ~= P.nav1freqtemp) or (get(P.nav2freq) ~= P.nav2freqtemp)) then
             if (get(P.nav1freq) == get(P.nav2freq)) then
@@ -426,7 +497,7 @@ end
 
 --------------------------------------------------------------------------------------------------------------
 function VR.initialize(P)
-    sasl.logInfo("YAL: Initializing all variables for voice readback.")
+    helpers.logInfoTS("YAL: Initializing all variables for voice readback.")
     
     -- Initialize all variables from the config table
     for _, config in ipairs(VR.config) do

@@ -10,8 +10,11 @@ local settingFormat = 'info'
 local settingsDefinition = {
     [def.CONFIGVOICEREADBACK] = { dvalue = 1 , type = "number", min = 0, max = 1 },
     [def.CONFIGAUTOFUNCTIONS] = { dvalue = 1 , type = "number", min = 0, max = 1 },
+    [def.CONFIGFMCAUTOMATION] = { dvalue = 1 , type = "number", min = 0, max = 1 },
+    [def.CONFIGHEADINGSYNCINTERVAL] = { dvalue = 0 , type = "number", min = 0, max = 9999 },
     [def.CONFIGVOICEADVICEONLY] = { dvalue = 1 , type = "number", min = 0, max = 1 },
     [def.CONFIGAUTOFUELING] = { dvalue = 0 , type = "number", min = 0, max = 1 },
+    [def.CONFIGHOPPIEID] = { dvalue = "" , type = "string", minLen = 0, maxLen = 16 },
     [def.CONFIGCUSTOMAPPROACHCALC] = { dvalue = 0 , type = "number", min = 0, max = 1 },
     [def.CONFIGBPBINTEGRATION] = { dvalue = 0 , type = "number", min = 0, max = 1 },
     [def.CONFIGYANSHINTEGRATION] = { dvalue = 0 , type = "number", min = 0, max = 1 },
@@ -63,6 +66,7 @@ local settingsDefinition = {
     [def.CONFIGSHOWBETAUPDATES] = { dvalue = 0 , type = "number", min = 0, max = 1 },
     [def.CONFIGJITLUAON] = { dvalue = 0 , type = "number", min = 0, max = 1 },
     [def.CONFIGZIBOISMODDED] = { dvalue = 0 , type = "number", min = 0, max = 1 },
+    [def.CONFIGDEBUGOVERLAY] = { dvalue = 0 , type = "number", min = 0, max = 1 },
 
 }   
 
@@ -81,11 +85,28 @@ local function checkSettings(tableTocheck)
     end
     local result = false
     for k, v in pairs(settingsDefinition) do
-        if tableTocheck[k] == nil or tableTocheck[k] < settingsDefinition[k].min 
-            or tableTocheck[k] > settingsDefinition[k].max or type(tableTocheck[k]) ~= settingsDefinition[k].type then
-                 sasl.logDebug("key: " .. k .. " missing or incorrect, setting value to default: " .. settingsDefinition[k].dvalue)
-                 tableTocheck[k] = settingsDefinition[k].dvalue
-                 result = true
+        local defn = settingsDefinition[k]
+        if defn.type == "string" then
+            local val = tableTocheck[k]
+            if type(val) ~= "string" then
+                sasl.logDebug("key: " .. k .. " missing or incorrect, setting value to default: " .. tostring(defn.dvalue))
+                tableTocheck[k] = defn.dvalue
+                result = true
+            else
+                local len = #val
+                if (defn.minLen and len < defn.minLen) or (defn.maxLen and len > defn.maxLen) then
+                    sasl.logDebug("key: " .. k .. " missing or incorrect, setting value to default: " .. tostring(defn.dvalue))
+                    tableTocheck[k] = defn.dvalue
+                    result = true
+                end
+            end
+        else
+            if tableTocheck[k] == nil or type(tableTocheck[k]) ~= defn.type or tableTocheck[k] < defn.min 
+                or tableTocheck[k] > defn.max then
+                     sasl.logDebug("key: " .. k .. " missing or incorrect, setting value to default: " .. tostring(defn.dvalue))
+                     tableTocheck[k] = defn.dvalue
+                     result = true
+            end
         end
     end
     return tableTocheck, result
