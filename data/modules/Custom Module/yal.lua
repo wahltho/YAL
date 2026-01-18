@@ -25,6 +25,9 @@ function P.YalinitGlobal()
     P.altitudetimer = nil
 
     P.pausetodtimer = nil
+    P.pauseTodAutoDisabled = false
+    P.pauseTodMonitorActive = false
+    P.pauseTodMcpAltAtPrompt = nil
 
     P.savetimer = nil
 
@@ -39,6 +42,8 @@ function P.YalinitGlobal()
 
     P.depmetar = {icaocode = "XXXX", metarfound = false, metar = {}, decodedmetar = {}}
     P.desmetar = {icaocode = "XXXX", metarfound = false, metar = {}, decodedmetar = {}}
+    P.lastDepIcao = ""
+    P.lastDesIcao = ""
 
     P.todDiscontinuityWarned30 = false
     P.todDiscontinuityWarned10 = false
@@ -3353,12 +3358,12 @@ function P.updatemetar()
     local desicaotmp = helpers.cleanstring(get(P.desicao))
 
     if P.flightstate <= def.FLIGHTSTATEINITIALCLIMB then
-        if helpers.isvalidicao(depicaotmp) and depicaotmp ~= P.depmetar.icaocode then
+        if helpers.isvalidicao(depicaotmp) then
             helpers.getMetar(depicaotmp, P.depmetar)
         end
     end
 
-    if helpers.isvalidicao(desicaotmp) and desicaotmp ~= P.desmetar.icaocode then
+    if helpers.isvalidicao(desicaotmp) then
         helpers.getMetar(desicaotmp, P.desmetar)
     end
 
@@ -4082,6 +4087,15 @@ end
 --------------------------------------------------------------------------------------------------------------
 function P.duringdescent()
 
+    if P.pauseTodAutoDisabled then
+        if get(P.pausetod) == def.OFF then
+            set(P.pausetod, def.ON)
+        end
+        P.pauseTodAutoDisabled = false
+    end
+    P.pauseTodMonitorActive = false
+    P.pauseTodMcpAltAtPrompt = nil
+
     local proc_to_check = def.DURINGDESCENTPROCEDURE
     local targetLoopIndex = P.proceduretable[proc_to_check].loop
     local isLoopFree = (P.loopStateTables[targetLoopIndex].lock == def.NOPROCEDURE)
@@ -4456,6 +4470,17 @@ end
 
 --------------------------------------------------------------------------------------------------------------
 function P.updateSharedVariables()
+
+    local depIcaoNow = helpers.cleanstring(get(P.depicao))
+    if helpers.isvalidicao(depIcaoNow) and depIcaoNow ~= P.lastDepIcao then
+        P.lastDepIcao = depIcaoNow
+        helpers.getMetar(depIcaoNow, P.depmetar)
+    end
+    local desIcaoNow = helpers.cleanstring(get(P.desicao))
+    if helpers.isvalidicao(desIcaoNow) and desIcaoNow ~= P.lastDesIcao then
+        P.lastDesIcao = desIcaoNow
+        helpers.getMetar(desIcaoNow, P.desmetar)
+    end
 
     if ((get(P.desrwyheading) ~= P.desrwyheadingtemp) and (get(P.desrwyheading) ~= 0)) then
         P.desrwyheadingtemp = get(P.desrwyheading)
@@ -4934,10 +4959,14 @@ function P.ongoingtasks()
                     if ((P.configvalues[def.CONFIGAUTOFUNCTIONS] == def.ON) and (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON)) then
                         set(P.baropilot, baroinchtmp)
                     elseif (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
+                        local qnhText = nil
                         if (get(P.baroinhpa) == def.ON) then
-                            P.commandtableentry(def.TEXT, "Set Q N H " .. helpers.addspaces(baropastmp))
+                            qnhText = helpers.formatQnhValue(baropastmp, true)
                         else
-                            P.commandtableentry(def.TEXT, "Set Q N H " .. helpers.addspaces(baroinchtmp))
+                            qnhText = helpers.formatQnhValue(baroinchtmp, false)
+                        end
+                        if qnhText then
+                            P.commandtableentry(def.TEXT, "Set Q N H " .. helpers.addspaces(qnhText))
                         end
                         P.ongoingtaskstepindex = P.ongoingtaskstepindex - 1
                     end
@@ -4995,6 +5024,19 @@ function P.ongoingtasks()
             (P.flightstate == def.FLIGHTSTATECLIMB) or
             (P.flightstate == def.FLIGHTSTATECRUISE) or
             (P.flightstate == def.FLIGHTSTATEAPPROACH)
+        local mcpAlt = get(P.mcpaltitude) or 0
+
+        if P.pauseTodMonitorActive then
+            if get(P.pausetod) ~= def.ON then
+                P.pauseTodMonitorActive = false
+                P.pauseTodMcpAltAtPrompt = nil
+            elseif (type(P.pauseTodMcpAltAtPrompt) == "number") and (math.abs(mcpAlt - P.pauseTodMcpAltAtPrompt) >= 100) then
+                set(P.pausetod, def.OFF)
+                P.pauseTodAutoDisabled = true
+                P.pauseTodMonitorActive = false
+                P.pauseTodMcpAltAtPrompt = nil
+            end
+        end
 
         if aircraftInAir and flightStateEligible and not suppressDiscoWarnings then
             -- Additional guard: ToD missing but route still long
@@ -5111,12 +5153,15 @@ function P.ongoingtasks()
 
         if (P.flightstate == def.FLIGHTSTATECRUISE) and (get(P.fmsflightphase) == def.FMSFLIGHTPHASE_CRUISE) and not suppressDiscoWarnings then
             local fmcCruiseAlt = get(P.fmccruisealt) or 0
-            local mcpAlt = get(P.mcpaltitude) or 0
             -- FMC Cruise kann "ungerade" sein (z.B. 39100); MCP ist in 100-ft-Schritten.
             local fmcCruiseRounded = helpers.roundnumber(fmcCruiseAlt / 100, 0) * 100
             local withinTolerance = (mcpAlt >= (fmcCruiseRounded - 100))
             if withinTolerance and (get(P.vnavtoddist) < 20) then
                 P.commandtableentry(def.TEXT, "Approaching Top of Descent, Reset M C P Altitude")
+                if (get(P.pausetod) == def.ON) and (not P.pauseTodAutoDisabled) and (not P.pauseTodMonitorActive) then
+                    P.pauseTodMonitorActive = true
+                    P.pauseTodMcpAltAtPrompt = mcpAlt
+                end
                 P.ongoingtaskstepindex = P.ongoingtaskstepindex - 1
             end
         end

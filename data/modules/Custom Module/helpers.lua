@@ -1079,12 +1079,35 @@ function P.decodemetar(metar)
     local parts = {}
 
     sasl.logDebug("Starting METAR parsing")
+    local function push_part(part)
+        if type(part) ~= "string" or part == "" then
+            return
+        end
+        local cleaned = {}
+        for i = 1, #part do
+            local byte = string.byte(part, i)
+            if byte and byte >= 32 and byte <= 126 then
+                cleaned[#cleaned + 1] = string.char(byte)
+            end
+        end
+        part = table.concat(cleaned)
+        part = part:gsub("^%s+", ""):gsub("%s+$", "")
+        if part == "" then
+            return
+        end
+        part = part:gsub("[=%$]+$", "")
+        if part == "" then
+            return
+        end
+        table.insert(parts, part)
+    end
+
     local current_part = ""
     for i = 1, #metar do
         local c = string.sub(metar, i, i)
-        if (c == " ") then
+        if (c == " " or c == "\r" or c == "\n" or c == "\t") then
             if (#current_part > 0) then
-                table.insert(parts, current_part)
+                push_part(current_part)
                 current_part = ""
             end
         else
@@ -1092,7 +1115,7 @@ function P.decodemetar(metar)
         end
     end
     if (#current_part > 0) then
-        table.insert(parts, current_part)
+        push_part(current_part)
     end
 
     sasl.logDebug("METAR parts:")
@@ -2316,7 +2339,14 @@ function P.formatMetarSpeechSummary(metar, runwayName)
         end
     end
 
-    return table.concat(parts, ". ") -- Punkt als Trenner
+    local filtered_parts = {}
+    for _, part in ipairs(parts) do
+        if type(part) == "string" and part:find("%w") then
+            table.insert(filtered_parts, part)
+        end
+    end
+
+    return table.concat(filtered_parts, ". ") -- Punkt als Trenner
 end
 
 --------------------------------------------------------------------------------------------------------------
