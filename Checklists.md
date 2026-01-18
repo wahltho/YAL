@@ -255,6 +255,25 @@ Checklist
 
 <div style="page-break-after: always;"></div>
 
+## Engine In-Flight Restart
+
+Checklist
+- [ ] Preconditions CHECKED (no fire, N1 rotation, no abnormal vibration, start envelope)
+- [ ] Thrust Lever CLOSED (affected engine)
+- [ ] Start Lever CUTOFF (affected engine)
+- [ ] Start Switch FLT (windmill) or PACK OFF + Duct Pressure 30 PSI + Start Switch GRD (crossbleed)
+- [ ] N2 >= 11 percent
+- [ ] Start Lever IDLE (affected engine)
+- [ ] EGT MONITORED (abort if no rise within 30 seconds)
+- [ ] Engine RUNNING
+- [ ] Generator ON (affected engine)
+- [ ] Pack AUTO (affected side)
+- [ ] Start Switch AUTO
+- [ ] APU AS NEEDED
+- [ ] Transponder TA/RA
+
+<div style="page-break-after: always;"></div>
+
 ## After Landing
 
 Checklist

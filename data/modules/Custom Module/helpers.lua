@@ -102,9 +102,16 @@ ffi.cdef [[
 
 --------------------------------------------------------------------------------------------------------------
 local acf_tailnum = globalProperty("sim/aircraft/view/acf_tailnum")
+local acf_relative_path = globalProperty("sim/aircraft/view/acf_relative_path")
 local onground_any = globalProperty("sim/flightmodel/failures/onground_any")
 local parking_brake_pos = globalProperty("laminar/B738/parking_brake_pos")
 local parking_brake_ratio = globalProperty("sim/cockpit2/controls/parking_brake_ratio")
+local pilots_head_x = globalProperty("sim/graphics/view/pilots_head_x")
+local pilots_head_y = globalProperty("sim/graphics/view/pilots_head_y")
+local pilots_head_z = globalProperty("sim/graphics/view/pilots_head_z")
+local pilots_head_psi = globalProperty("sim/graphics/view/pilots_head_psi")
+local pilots_head_the = globalProperty("sim/graphics/view/pilots_head_the")
+local pilots_head_phi = globalProperty("sim/graphics/view/pilots_head_phi")
 
 
 P.xpVersion = sasl.getXPVersion()
@@ -5347,6 +5354,42 @@ local function get_zibo_base_path()
     return sasl.getXPlanePath() .. def.OSSEPARATOR .. "Aircraft" .. def.OSSEPARATOR .. "B737-800X" .. def.OSSEPARATOR
 end
 
+local QV_UPDATE_STAGE_SELECT = 0
+local QV_UPDATE_STAGE_SAVE = 1
+local DEFAULT_VIEW_STAGE_NORMALIZE = 0
+local DEFAULT_VIEW_STAGE_SELECT = 1
+local DEFAULT_VIEW_STAGE_APPLY = 2
+
+P.quickViewCgUpdateJob = P.quickViewCgUpdateJob or nil
+P.defaultViewUpdateJob = P.defaultViewUpdateJob or nil
+
+local function get_current_zibo_variant()
+    local rel = get(acf_relative_path)
+    if type(rel) ~= "string" or rel == "" then
+        return nil, "aircraft path not available"
+    end
+    local rel_lower = string.lower(rel)
+    if string.find(rel_lower, "b738_4k.acf", 1, true) then
+        return {
+            name = "4k",
+            acf = "b738_4k.acf",
+            prefs = "b738_4k_prefs.txt",
+            keyY = "CG_BASE_4K_Y",
+            keyZ = "CG_BASE_4K_Z"
+        }
+    end
+    if string.find(rel_lower, "b738.acf", 1, true) then
+        return {
+            name = "2k",
+            acf = "b738.acf",
+            prefs = "b738_prefs.txt",
+            keyY = "CG_BASE_2K_Y",
+            keyZ = "CG_BASE_2K_Z"
+        }
+    end
+    return nil, "unsupported aircraft: " .. tostring(rel)
+end
+
 local function read_acf_cg(path)
     local file, err = io.open(path, "r")
     if not file then
@@ -5416,6 +5459,54 @@ local function read_qv0(path)
         return nil, "QV0 values not found"
     end
     return qv
+end
+
+local function read_quickview_indices(path)
+    local file, err = io.open(path, "r")
+    if not file then
+        return nil, err
+    end
+    local seen = {}
+    local list = {}
+    for line in file:lines() do
+        local idx = line:match("^_iql_pe_z_(%d+)%s")
+        if idx then
+            local num = tonumber(idx)
+            if num and not seen[num] then
+                seen[num] = true
+                list[#list + 1] = num
+            end
+        end
+    end
+    file:close()
+    table.sort(list)
+    if #list == 0 then
+        return nil, "no quick views found"
+    end
+    return list
+end
+
+local function capture_pilots_head()
+    return {
+        x = get(pilots_head_x),
+        y = get(pilots_head_y),
+        z = get(pilots_head_z),
+        psi = get(pilots_head_psi),
+        the = get(pilots_head_the),
+        phi = get(pilots_head_phi)
+    }
+end
+
+local function restore_pilots_head(state)
+    if not state then
+        return
+    end
+    if state.x ~= nil then set(pilots_head_x, state.x) end
+    if state.y ~= nil then set(pilots_head_y, state.y) end
+    if state.z ~= nil then set(pilots_head_z, state.z) end
+    if state.psi ~= nil then set(pilots_head_psi, state.psi) end
+    if state.the ~= nil then set(pilots_head_the, state.the) end
+    if state.phi ~= nil then set(pilots_head_phi, state.phi) end
 end
 
 local function approx_equal(a, b, tol)
@@ -5496,11 +5587,7 @@ local function shift_quickviews_z(prefs_path, delta_m)
     end)
 end
 
-local function apply_default_view_from_qv0(acf_path, prefs_path)
-    local qv, err = read_qv0(prefs_path)
-    if not qv then
-        return false, err
-    end
+local function apply_default_view_from_qv0_data(acf_path, qv)
     local cg, err2 = read_acf_cg(acf_path)
     if not cg then
         return false, err2
@@ -5540,67 +5627,142 @@ function P.adjustQuickViewsForCgChange()
         P.logInfoTS("QuickViews CG update blocked (requires preflight, on ground, parking brake set)")
         return
     end
+    if P.defaultViewUpdateJob then
+        P.logInfoTS("QuickViews CG update blocked (default view update in progress)")
+        return
+    end
+    if P.quickViewCgUpdateJob then
+        P.logInfoTS("QuickViews CG update already in progress")
+        return
+    end
+    local variant, v_err = get_current_zibo_variant()
+    if not variant then
+        P.logInfoTS("QuickViews CG update: " .. tostring(v_err))
+        return
+    end
+
     local base = get_zibo_base_path()
-    local variants = {
-        { name = "4k", acf = "b738_4k.acf", prefs = "b738_4k_prefs.txt", keyY = "CG_BASE_4K_Y", keyZ = "CG_BASE_4K_Z" },
-        { name = "2k", acf = "b738.acf", prefs = "b738_prefs.txt", keyY = "CG_BASE_2K_Y", keyZ = "CG_BASE_2K_Z" },
+    local acf_path = base .. variant.acf
+    local prefs_path = base .. variant.prefs
+    local cg, err = read_acf_cg(acf_path)
+    if not cg then
+        P.logInfoTS("QuickViews CG update: failed to read " .. variant.name .. " CG (" .. tostring(err) .. ")")
+        return
+    end
+
+    local stored_y = tonumber(settings.appSettings[variant.keyY])
+    local stored_z = tonumber(settings.appSettings[variant.keyZ])
+    if stored_y == nil or stored_z == nil then
+        settings.appSettings[variant.keyY] = cg.vert
+        settings.appSettings[variant.keyZ] = cg.long
+        settings.writeSettings(settings.appSettings)
+        P.logInfoTS("QuickViews CG update: stored baseline for " .. variant.name .. " (no adjustment performed)")
+        return
+    end
+
+    local delta_z = cg.long - stored_z
+    local delta_y = cg.vert - stored_y
+    if math.abs(delta_z) < 0.0001 and math.abs(delta_y) < 0.0001 then
+        P.logInfoTS("QuickViews CG update: no CG change for " .. variant.name)
+        return
+    end
+
+    local indices, err2 = read_quickview_indices(prefs_path)
+    if not indices then
+        P.logInfoTS("QuickViews CG update: failed to read quick views (" .. tostring(err2) .. ")")
+        return
+    end
+
+    local ok_backup, backup_or_err = backup_file(prefs_path)
+    if not ok_backup then
+        P.logInfoTS("QuickViews CG update: backup failed (" .. tostring(backup_or_err) .. ")")
+        return
+    end
+    P.logInfoTS("QuickViews CG update: backup created at " .. tostring(backup_or_err))
+
+    local delta_m_z = delta_z * 0.3048
+    local delta_m_y = delta_y * 0.3048
+    P.quickViewCgUpdateJob = {
+        variant = variant,
+        indices = indices,
+        index_pos = 1,
+        delta_m_z = delta_m_z,
+        delta_m_y = delta_m_y,
+        delta_z = delta_z,
+        delta_y = delta_y,
+        total = #indices,
+        stage = QV_UPDATE_STAGE_SELECT,
+        snapshot = capture_pilots_head(),
+        target_cg_vert = cg.vert,
+        target_cg_long = cg.long
     }
-    local cg_map = {}
-    local did_adjust = false
+    P.logInfoTS(string.format("QuickViews CG update queued: %s (%d views, deltaY %.4f ft, deltaZ %.4f ft)", variant.name, #indices, delta_y, delta_z))
+end
 
-    for _, v in ipairs(variants) do
-        local acf_path = base .. v.acf
-        local prefs_path = base .. v.prefs
-        local cg, err = read_acf_cg(acf_path)
-        if not cg then
-            P.logInfoTS("QuickViews CG update: failed to read " .. v.name .. " CG (" .. tostring(err) .. ")")
-        else
-            cg_map[v.name] = cg
-            local stored_y = tonumber(settings.appSettings[v.keyY])
-            local stored_z = tonumber(settings.appSettings[v.keyZ])
-            if stored_y == nil or stored_z == nil then
-                settings.appSettings[v.keyY] = cg.vert
-                settings.appSettings[v.keyZ] = cg.long
-                settings.writeSettings(settings.appSettings)
-                P.logInfoTS("QuickViews CG update: stored baseline for " .. v.name .. " (no adjustment performed)")
-            else
-                local delta_z = cg.long - stored_z
-                if math.abs(delta_z) < 0.0001 then
-                    if cg.vert ~= stored_y then
-                        settings.appSettings[v.keyY] = cg.vert
-                        settings.appSettings[v.keyZ] = cg.long
-                        settings.writeSettings(settings.appSettings)
-                    end
-                    P.logInfoTS("QuickViews CG update: no CG change for " .. v.name)
-                else
-                    local delta_m = delta_z * 0.3048
-                    local ok, err2 = shift_quickviews_z(prefs_path, delta_m)
-                    if ok then
-                        did_adjust = true
-                        settings.appSettings[v.keyY] = cg.vert
-                        settings.appSettings[v.keyZ] = cg.long
-                        settings.writeSettings(settings.appSettings)
-                        P.logInfoTS(string.format("QuickViews CG update: %s adjusted (deltaZ %.4f ft)", v.name, delta_z))
-                    else
-                        P.logInfoTS("QuickViews CG update: failed to write " .. v.name .. " prefs (" .. tostring(err2) .. ")")
-                    end
-                end
-            end
-        end
+function P.stepQuickViewsCgUpdate()
+    local job = P.quickViewCgUpdateJob
+    if not job then
+        return false
     end
 
-    if cg_map["4k"] and cg_map["2k"] then
-        local diff_z = math.abs(cg_map["4k"].long - cg_map["2k"].long)
-        local diff_y = math.abs(cg_map["4k"].vert - cg_map["2k"].vert)
-        if diff_z > 0.0001 or diff_y > 0.0001 then
-            P.logInfoTS(string.format("CG mismatch 4k vs 2k: dZ=%.4f ft, dY=%.4f ft", diff_z, diff_y))
-        end
+    if not views_change_allowed() then
+        restore_pilots_head(job.snapshot)
+        P.quickViewCgUpdateJob = nil
+        P.logInfoTS("QuickViews CG update aborted (view change no longer allowed)")
+        return false
     end
 
-    if did_adjust then
-        P.logInfoTS("QuickViews CG update: reloading aircraft to persist changes")
-        P.command_once("sim/operation/reload_aircraft")
+    local idx = job.indices[job.index_pos]
+    if not idx then
+        local settings = require("settings")
+        settings.appSettings[job.variant.keyY] = job.target_cg_vert
+        settings.appSettings[job.variant.keyZ] = job.target_cg_long
+        settings.writeSettings(settings.appSettings)
+        restore_pilots_head(job.snapshot)
+        P.quickViewCgUpdateJob = nil
+        P.logInfoTS(string.format("QuickViews CG update completed: %s (%d views, deltaY %.4f ft, deltaZ %.4f ft)", job.variant.name, job.total, job.delta_y, job.delta_z))
+        return false
     end
+
+    if job.stage == QV_UPDATE_STAGE_SELECT then
+        P.command_once("sim/view/quick_look_" .. tostring(idx))
+        job.stage = QV_UPDATE_STAGE_SAVE
+        return true
+    end
+
+    local current_y = get(pilots_head_y)
+    local current_z = get(pilots_head_z)
+    local ok = false
+    if current_y ~= nil then
+        set(pilots_head_y, current_y - job.delta_m_y)
+        ok = true
+    else
+        P.logInfoTS("QuickViews CG update: missing head Y for quick view " .. tostring(idx))
+    end
+    if current_z ~= nil then
+        set(pilots_head_z, current_z - job.delta_m_z)
+        ok = true
+    else
+        P.logInfoTS("QuickViews CG update: missing head Z for quick view " .. tostring(idx))
+    end
+    if ok then
+        P.command_once("sim/view/quick_look_" .. tostring(idx) .. "_mem")
+    end
+
+    job.index_pos = job.index_pos + 1
+    job.stage = QV_UPDATE_STAGE_SELECT
+    if job.index_pos > job.total then
+        local settings = require("settings")
+        settings.appSettings[job.variant.keyY] = job.target_cg_vert
+        settings.appSettings[job.variant.keyZ] = job.target_cg_long
+        settings.writeSettings(settings.appSettings)
+        restore_pilots_head(job.snapshot)
+        P.quickViewCgUpdateJob = nil
+        P.logInfoTS(string.format("QuickViews CG update completed: %s (%d views, deltaY %.4f ft, deltaZ %.4f ft)", job.variant.name, job.total, job.delta_y, job.delta_z))
+        return false
+    end
+
+    return true
 end
 
 function P.applyDefaultViewFromQV0()
@@ -5608,29 +5770,88 @@ function P.applyDefaultViewFromQV0()
         P.logInfoTS("Default view update blocked (requires preflight, on ground, parking brake set)")
         return
     end
-    local base = get_zibo_base_path()
-    local variants = {
-        { name = "4k", acf = "b738_4k.acf", prefs = "b738_4k_prefs.txt" },
-        { name = "2k", acf = "b738.acf", prefs = "b738_prefs.txt" },
+    if P.quickViewCgUpdateJob then
+        P.logInfoTS("Default view update blocked (QuickViews CG update in progress)")
+        return
+    end
+    if P.defaultViewUpdateJob then
+        P.logInfoTS("Default view update already in progress")
+        return
+    end
+    local variant, v_err = get_current_zibo_variant()
+    if not variant then
+        P.logInfoTS("Default view update: " .. tostring(v_err))
+        return
+    end
+    P.defaultViewUpdateJob = {
+        variant = variant,
+        stage = DEFAULT_VIEW_STAGE_NORMALIZE,
+        snapshot = capture_pilots_head()
     }
+    P.logInfoTS("Default view update queued (" .. variant.name .. ")")
+end
+
+function P.stepDefaultViewUpdate()
+    local job = P.defaultViewUpdateJob
+    if not job then
+        return false
+    end
+    if P.quickViewCgUpdateJob then
+        restore_pilots_head(job.snapshot)
+        P.defaultViewUpdateJob = nil
+        P.logInfoTS("Default view update aborted (QuickViews CG update in progress)")
+        return false
+    end
+    if not views_change_allowed() then
+        restore_pilots_head(job.snapshot)
+        P.defaultViewUpdateJob = nil
+        P.logInfoTS("Default view update aborted (view change no longer allowed)")
+        return false
+    end
+
+    if job.stage == DEFAULT_VIEW_STAGE_NORMALIZE then
+        P.command_once("sim/view/default_view")
+        job.stage = DEFAULT_VIEW_STAGE_SELECT
+        return true
+    end
+
+    if job.stage == DEFAULT_VIEW_STAGE_SELECT then
+        P.command_once("sim/view/quick_look_0")
+        job.stage = DEFAULT_VIEW_STAGE_APPLY
+        return true
+    end
+
+    local qv = {
+        lat = get(pilots_head_x),
+        vert = get(pilots_head_y),
+        long = get(pilots_head_z),
+        pitch = get(pilots_head_the)
+    }
+    restore_pilots_head(job.snapshot)
+    if qv.lat == nil or qv.vert == nil or qv.long == nil or qv.pitch == nil then
+        P.defaultViewUpdateJob = nil
+        P.logInfoTS("Default view update failed: current QV0 values not found")
+        return false
+    end
+
+    local base = get_zibo_base_path()
     local did_adjust = false
-    for _, v in ipairs(variants) do
-        local ok, err = apply_default_view_from_qv0(base .. v.acf, base .. v.prefs)
-        if ok then
-            if err == "no-change" then
-                P.logInfoTS("Default view already matches QV0 (" .. v.name .. ")")
-            else
-                did_adjust = true
-                P.logInfoTS("Default view updated from QV0 (" .. v.name .. ")")
-            end
+    local ok, err = apply_default_view_from_qv0_data(base .. job.variant.acf, qv)
+    if ok then
+        if err == "no-change" then
+            P.logInfoTS("Default view already matches QV0 (" .. job.variant.name .. ")")
         else
-            P.logInfoTS("Default view update failed (" .. v.name .. "): " .. tostring(err))
+            did_adjust = true
+            P.logInfoTS("Default view updated from QV0 (" .. job.variant.name .. ")")
         end
+    else
+        P.logInfoTS("Default view update failed (" .. job.variant.name .. "): " .. tostring(err))
     end
+    P.defaultViewUpdateJob = nil
     if did_adjust then
-        P.logInfoTS("Default view update: reloading aircraft to persist changes")
-        P.command_once("sim/operation/reload_aircraft")
+        P.logInfoTS("Default view update: ACF updated (reload not performed)")
     end
+    return false
 end
 
 function P.checkCgBaselineAtStartup()

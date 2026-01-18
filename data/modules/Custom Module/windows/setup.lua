@@ -173,8 +173,8 @@ function M.newComponent(ctx)
         local textBoxWidthLeft = 90
         local colHitW = w / 2 - 20
         local textBoxWidthRight = math.max(80, colHitW - rightLabelWidth - 12)
-        local buttonH = lineHeight + 4
-        local buttonW = colHitW
+        local buttonH = lineHeight + 2
+        local buttonW = math.max(160, colHitW - 120)
         local layout = {
             hits = {},
             close = { x = w - 80, y = h - headerH - 4, w = 80, h = headerH + 8 },
@@ -392,16 +392,16 @@ function M.newComponent(ctx)
         local btnY = 6
         layout.buttons = {
             {
-                id = "apply_qv0",
-                label = "Apply QV0 to Default View (WILL RELOAD A/C)",
+                id = "adjust_qv_cg",
+                label = "Adjust QVs after CG shift",
                 x = btnX,
                 y = btnY + buttonH + 6,
                 w = buttonW,
                 h = buttonH
             },
             {
-                id = "adjust_qv_cg",
-                label = "Adjust QVs after CG shift (WILL RELOAD A/C)",
+                id = "apply_qv0",
+                label = "Apply QV0 to Default View",
                 x = btnX,
                 y = btnY,
                 w = buttonW,

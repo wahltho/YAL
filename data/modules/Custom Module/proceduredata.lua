@@ -76,6 +76,27 @@ local function matchesDestRunway(token, destRunway)
     return cleanToken == cleanDest
 end
 
+local function get_inflight_restart_context(loop)
+    local engine = (loop and loop.engine == def.ENGINE2) and def.ENGINE2 or def.ENGINE1
+    local isEng2 = engine == def.ENGINE2
+    return {
+        engine = engine,
+        engineLabel = isEng2 and "2" or "1",
+        sideLabel = isEng2 and "Right" or "Left",
+        mixturePos = isEng2 and P.mixture2pos or P.mixture1pos,
+        mixtureIdleCmd = isEng2 and "laminar/B738/engine/mixture2_idle" or "laminar/B738/engine/mixture1_idle",
+        mixtureCutoffCmd = isEng2 and "laminar/B738/engine/mixture2_cutoff" or "laminar/B738/engine/mixture1_cutoff",
+        starterPos = isEng2 and P.starter2pos or P.starter1pos,
+        packPos = isEng2 and P.packrpos or P.packlpos,
+        genPos = isEng2 and P.gen2pos or P.gen1pos,
+        n2Percent = isEng2 and P.eng2n2percent or P.eng1n2percent
+    }
+end
+
+local function inflight_restart_auto_enabled()
+    return (P.configvalues[def.CONFIGAUTOFUNCTIONS] == def.ON) and (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON)
+end
+
 local function isMissedApproachLeg(token)
     local clean = cleanLegToken(token)
     return clean:upper():match("^MISSED") ~= nil
@@ -3547,6 +3568,315 @@ function M.fillProcedureTable()
                 ['accelerate_and_cleanup'] = {
                     advice = "Accelerate, retract flaps on schedule, select L N A V/V N A V or Heading/Altitude",
                     confirm = "Go Around profile established",
+                    nextStep = nil
+                }
+            }
+        },
+        [def.ENGINEINFLIGHTRESTARTPROCEDURE] = {
+            number = 26,
+            name = "Engine In-Flight Restart",
+            cycable = false,
+            speakname = true,
+            set = false,
+            loop = 1,
+            prerequisite = nil,
+            allowedState = def.AIRONLY,
+            requiredFlightstate = nil,
+            skipCondition = function() return P.enginesrunning(def.BOTH) end,
+            prerequisiteChecks = {
+                { check = function() return get(P.airgroundsensor) == def.OFF end,
+                  failMsg = "Procedure only available Inflight" },
+                { check = function() return not P.enginesrunning(def.BOTH) end,
+                  failMsg = "Procedure not possible, both engines running" }
+            },
+            startStep = 'preconditions_note',
+            steps = {
+                ['preconditions_note'] = {
+                    confirm = "Verify no engine fire, N 1 rotation, no abnormal vibration. Check In-Flight Start Envelope",
+                    nextStep = 'select_engine'
+                },
+                ['select_engine'] = {
+                    branch = function(loop)
+                        local eng1_running = P.enginesrunning(def.ENGINE1)
+                        local eng2_running = P.enginesrunning(def.ENGINE2)
+                        if (not eng1_running) and eng2_running then
+                            loop.engine = def.ENGINE1
+                            loop.bothEngines = false
+                        elseif (not eng2_running) and eng1_running then
+                            loop.engine = def.ENGINE2
+                            loop.bothEngines = false
+                        elseif (not eng1_running) and (not eng2_running) then
+                            loop.engine = def.ENGINE1
+                            loop.bothEngines = true
+                        else
+                            return nil
+                        end
+                        return 'view_throttle'
+                    end
+                },
+                ['view_throttle'] = {
+                    view = function() return P.configvalues[def.CONFIGVIEWTHROTTLE] end,
+                    nextStep = 'thrust_lever_close'
+                },
+                ['thrust_lever_close'] = {
+                    confirm = function(loop)
+                        local ctx = get_inflight_restart_context(loop)
+                        return "Close Thrust Lever (Engine " .. ctx.engineLabel .. ")"
+                    end,
+                    nextStep = 'start_lever_cutoff'
+                },
+                ['start_lever_cutoff'] = {
+                    check = function(loop)
+                        local ctx = get_inflight_restart_context(loop)
+                        return get(ctx.mixturePos) == def.OFF
+                    end,
+                    advice = function(loop)
+                        local ctx = get_inflight_restart_context(loop)
+                        return "Set Engine Start Lever (Engine " .. ctx.engineLabel .. ") Cutoff"
+                    end,
+                    action = function(loop)
+                        if inflight_restart_auto_enabled() then
+                            local ctx = get_inflight_restart_context(loop)
+                            helpers.command_once(ctx.mixtureCutoffCmd)
+                        end
+                    end,
+                    confirm = function(loop)
+                        local ctx = get_inflight_restart_context(loop)
+                        return "Engine Start Lever " .. ctx.engineLabel .. " checked Cutoff"
+                    end,
+                    nextStep = 'view_overhead'
+                },
+                ['view_overhead'] = {
+                    view = function() return P.configvalues[def.CONFIGVIEWOVERHEADPANEL] end,
+                    nextStep = 'select_start_method'
+                },
+                ['select_start_method'] = {
+                    branch = function(loop)
+                        local ctx = get_inflight_restart_context(loop)
+                        local n2 = get(ctx.n2Percent) or 0
+                        if n2 >= 15 then
+                            return 'start_switch_flt'
+                        end
+                        return 'crossbleed_pack_off'
+                    end
+                },
+                ['start_switch_flt'] = {
+                    check = function(loop)
+                        local ctx = get_inflight_restart_context(loop)
+                        return get(ctx.starterPos) == def.FLIGHT
+                    end,
+                    advice = function(loop)
+                        local ctx = get_inflight_restart_context(loop)
+                        return "Engine Start Switch (Engine " .. ctx.engineLabel .. ") Flight"
+                    end,
+                    action = function(loop)
+                        if inflight_restart_auto_enabled() then
+                            local ctx = get_inflight_restart_context(loop)
+                            P.setstarter(ctx.engine, def.FLIGHT)
+                        end
+                    end,
+                    confirm = function(loop)
+                        local ctx = get_inflight_restart_context(loop)
+                        return "Engine Start Switch " .. ctx.engineLabel .. " checked Flight"
+                    end,
+                    nextStep = 'view_throttle_for_idle'
+                },
+                ['crossbleed_pack_off'] = {
+                    check = function(loop)
+                        local ctx = get_inflight_restart_context(loop)
+                        return get(ctx.packPos) == def.PACKOFF
+                    end,
+                    advice = function(loop)
+                        local ctx = get_inflight_restart_context(loop)
+                        return "Set Pack " .. ctx.sideLabel .. " Off"
+                    end,
+                    action = function(loop)
+                        if inflight_restart_auto_enabled() then
+                            local ctx = get_inflight_restart_context(loop)
+                            set(ctx.packPos, def.PACKOFF)
+                        end
+                    end,
+                    confirm = function(loop)
+                        local ctx = get_inflight_restart_context(loop)
+                        return "Pack " .. ctx.sideLabel .. " checked Off"
+                    end,
+                    nextStep = 'crossbleed_duct_pressure'
+                },
+                ['crossbleed_duct_pressure'] = {
+                    confirm = "Confirm Duct Pressure minimum 30 P S I, advance thrust lever as needed",
+                    nextStep = 'crossbleed_start_switch_grd'
+                },
+                ['crossbleed_start_switch_grd'] = {
+                    check = function(loop)
+                        local ctx = get_inflight_restart_context(loop)
+                        return get(ctx.starterPos) == def.GROUND
+                    end,
+                    advice = function(loop)
+                        local ctx = get_inflight_restart_context(loop)
+                        return "Engine Start Switch (Engine " .. ctx.engineLabel .. ") Ground"
+                    end,
+                    action = function(loop)
+                        if inflight_restart_auto_enabled() then
+                            local ctx = get_inflight_restart_context(loop)
+                            P.setstarter(ctx.engine, def.GROUND)
+                        end
+                    end,
+                    confirm = function(loop)
+                        local ctx = get_inflight_restart_context(loop)
+                        return "Engine Start Switch " .. ctx.engineLabel .. " checked Ground"
+                    end,
+                    nextStep = 'view_throttle_for_idle'
+                },
+                ['view_throttle_for_idle'] = {
+                    view = function() return P.configvalues[def.CONFIGVIEWTHROTTLE] end,
+                    nextStep = 'wait_n2_11'
+                },
+                ['wait_n2_11'] = {
+                    check = function(loop)
+                        local ctx = get_inflight_restart_context(loop)
+                        return (get(ctx.n2Percent) or 0) >= 11
+                    end,
+                    confirm = function(loop)
+                        local ctx = get_inflight_restart_context(loop)
+                        return "Engine " .. ctx.engineLabel .. " N 2 at 11 Percent"
+                    end,
+                    nextStep = 'start_lever_idle'
+                },
+                ['start_lever_idle'] = {
+                    check = function(loop)
+                        local ctx = get_inflight_restart_context(loop)
+                        return get(ctx.mixturePos) == def.ON
+                    end,
+                    advice = function(loop)
+                        local ctx = get_inflight_restart_context(loop)
+                        return "Set Engine Start Lever (Engine " .. ctx.engineLabel .. ") Idle"
+                    end,
+                    action = function(loop)
+                        if inflight_restart_auto_enabled() then
+                            local ctx = get_inflight_restart_context(loop)
+                            helpers.command_once(ctx.mixtureIdleCmd)
+                        end
+                    end,
+                    confirm = function(loop)
+                        local ctx = get_inflight_restart_context(loop)
+                        return "Engine Start Lever " .. ctx.engineLabel .. " checked Idle"
+                    end,
+                    nextStep = 'monitor_egt'
+                },
+                ['monitor_egt'] = {
+                    confirm = "Monitor E G T, abort if no rise within 30 seconds",
+                    nextStep = 'wait_engine_run'
+                },
+                ['wait_engine_run'] = {
+                    check = function(loop)
+                        local ctx = get_inflight_restart_context(loop)
+                        return P.enginesrunning(ctx.engine)
+                    end,
+                    advice = function(loop)
+                        local ctx = get_inflight_restart_context(loop)
+                        return "Waiting for Engine " .. ctx.engineLabel .. " to start"
+                    end,
+                    confirm = function(loop)
+                        local ctx = get_inflight_restart_context(loop)
+                        return "Engine " .. ctx.engineLabel .. " running"
+                    end,
+                    nextStep = 'view_overhead_post'
+                },
+                ['view_overhead_post'] = {
+                    view = function() return P.configvalues[def.CONFIGVIEWOVERHEADPANEL] end,
+                    nextStep = 'set_gen_on'
+                },
+                ['set_gen_on'] = {
+                    check = function(loop)
+                        local ctx = get_inflight_restart_context(loop)
+                        return get(ctx.genPos) == def.ON
+                    end,
+                    advice = function(loop)
+                        local ctx = get_inflight_restart_context(loop)
+                        return "Switch Engine " .. ctx.engineLabel .. " Generator On"
+                    end,
+                    action = function(loop)
+                        if inflight_restart_auto_enabled() then
+                            local ctx = get_inflight_restart_context(loop)
+                            if ctx.engine == def.ENGINE1 and get(P.gen1pos) ~= def.ON then
+                                helpers.command_once("laminar/B738/toggle_switch/gen1_dn")
+                            elseif ctx.engine == def.ENGINE2 and get(P.gen2pos) ~= def.ON then
+                                helpers.command_once("laminar/B738/toggle_switch/gen2_dn")
+                            end
+                        end
+                    end,
+                    confirm = function(loop)
+                        local ctx = get_inflight_restart_context(loop)
+                        return "Engine " .. ctx.engineLabel .. " Generator checked On"
+                    end,
+                    nextStep = 'set_pack_auto'
+                },
+                ['set_pack_auto'] = {
+                    check = function(loop)
+                        local ctx = get_inflight_restart_context(loop)
+                        return get(ctx.packPos) == def.PACKAUTO
+                    end,
+                    advice = function(loop)
+                        local ctx = get_inflight_restart_context(loop)
+                        return "Set Pack " .. ctx.sideLabel .. " Auto"
+                    end,
+                    action = function(loop)
+                        if inflight_restart_auto_enabled() then
+                            local ctx = get_inflight_restart_context(loop)
+                            set(ctx.packPos, def.PACKAUTO)
+                        end
+                    end,
+                    confirm = function(loop)
+                        local ctx = get_inflight_restart_context(loop)
+                        return "Pack " .. ctx.sideLabel .. " checked Auto"
+                    end,
+                    nextStep = 'set_start_switch_auto'
+                },
+                ['set_start_switch_auto'] = {
+                    check = function(loop)
+                        local ctx = get_inflight_restart_context(loop)
+                        return get(ctx.starterPos) == def.AUTO
+                    end,
+                    advice = function(loop)
+                        local ctx = get_inflight_restart_context(loop)
+                        return "Engine Start Switch (Engine " .. ctx.engineLabel .. ") Auto"
+                    end,
+                    action = function(loop)
+                        if inflight_restart_auto_enabled() then
+                            local ctx = get_inflight_restart_context(loop)
+                            P.setstarter(ctx.engine, def.AUTO)
+                        end
+                    end,
+                    confirm = function(loop)
+                        local ctx = get_inflight_restart_context(loop)
+                        return "Engine Start Switch " .. ctx.engineLabel .. " checked Auto"
+                    end,
+                    nextStep = 'apu_as_needed'
+                },
+                ['apu_as_needed'] = {
+                    confirm = "A P U as needed",
+                    nextStep = 'set_transponder_tara'
+                },
+                ['set_transponder_tara'] = {
+                    check = function()
+                        return get(P.transponderpos) == def.TARA
+                    end,
+                    advice = "Set Transponder T A / R A",
+                    action = function()
+                        if inflight_restart_auto_enabled() then
+                            P.toggletransponder(def.TARA)
+                        end
+                    end,
+                    confirm = "Transponder checked T A / R A",
+                    nextStep = 'restart_complete'
+                },
+                ['restart_complete'] = {
+                    confirm = function(loop)
+                        if loop and loop.bothEngines then
+                            return "Engine restart complete. Repeat for the other engine if required"
+                        end
+                        return "Engine restart complete"
+                    end,
                     nextStep = nil
                 }
             }

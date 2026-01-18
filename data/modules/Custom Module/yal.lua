@@ -4054,6 +4054,23 @@ local my_command_goaround = sasl.createCommand(def.APPNAMEPREFIX .. "/goaround",
 sasl.registerCommandHandler(my_command_goaround, 0, P.goaround_)
 
 --------------------------------------------------------------------------------------------------------------
+function P.engineinflightrestart()
+
+    return P.triggerprocedure(def.ENGINEINFLIGHTRESTARTPROCEDURE, def.TRIGGEREDMANUALLY)
+
+end
+
+function P.engineinflightrestart_(phase)
+    if phase == SASL_COMMAND_BEGIN then
+        P.engineinflightrestart()
+    end
+    return 0
+end
+
+local my_command_engineinflightrestart = sasl.createCommand(def.APPNAMEPREFIX .. "/engineinflightrestart", "Engine In-Flight Restart")
+sasl.registerCommandHandler(my_command_engineinflightrestart, 0, P.engineinflightrestart_)
+
+--------------------------------------------------------------------------------------------------------------
 function P.duringclimb()
     local proc_to_check = def.DURINGCLIMBPROCEDURE
     local targetLoopIndex = P.proceduretable[proc_to_check].loop
@@ -5895,6 +5912,11 @@ function P.do_yal()
     end
 
     next_recommended_wait_step = P.commandtableloop()
+    local quickview_step = helpers.stepQuickViewsCgUpdate()
+    local defaultview_step = helpers.stepDefaultViewUpdate()
+    if quickview_step or defaultview_step then
+        next_recommended_wait_step = def.SHORTWAIT
+    end
 
     local currentFmsPhase = get(P.fmsflightphase)
 
@@ -5969,6 +5991,7 @@ sasl.appendMenuSeparator ( menu_regular )
 local menu_test = sasl.appendMenuItem(menu_regular, "Tests", P.test)
 
 local menu_goaround = sasl.appendMenuItem(menu_abnormal, "Go Around Procedure", P.goaround)
+local menu_engine_inflight_restart = sasl.appendMenuItem(menu_abnormal, "Engine In-Flight Restart", P.engineinflightrestart)
 
 local menu_toggle_setcockpitlights = sasl.appendMenuItem(menu_misc, "Set Cockpit Lights", P.setcockpitlights)
 local menu_toggle_auto = sasl.appendMenuItem(menu_misc, "Toggle Auto Functions", P.toggleautofunctions)
@@ -6019,6 +6042,7 @@ function P.enableMenus(enableflag)
 
     sasl.enableMenuItem(menu_regular , menu_test , enableflag)
     sasl.enableMenuItem(menu_abnormal , menu_goaround , enableflag)
+    sasl.enableMenuItem(menu_abnormal , menu_engine_inflight_restart , enableflag)
     sasl.enableMenuItem(menu_misc , menu_toggle_setcockpitlights , enableflag)
     sasl.enableMenuItem(menu_misc , menu_toggle_auto , enableflag)
     sasl.enableMenuItem(menu_misc , menu_toogle_voice , enableflag)
