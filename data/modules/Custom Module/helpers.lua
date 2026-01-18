@@ -134,6 +134,157 @@ function P.isZibo()
 end
 
 --------------------------------------------------------------------------------------------------------------
+local zibo_failure_categories = {
+    "electric",
+    "hydraulic",
+    "system",
+    "pressurisation",
+    "engine"
+}
+
+P.ziboFailureDefs = P.ziboFailureDefs or {
+    electric = {
+        [0] = "AC Transfer Bus 1",
+        [1] = "AC Transfer Bus 2",
+        [2] = "AC Main Bus 1",
+        [3] = "AC Main Bus 2",
+        [4] = "AC Standby Bus",
+        [5] = "AC Ground Service Bus 1",
+        [6] = "AC Ground Service Bus 2",
+        [7] = "DC Hot Battery Bus",
+        [8] = "DC Switched Hot Battery Bus",
+        [9] = "DC Battery Bus",
+        [10] = "DC Bus 1",
+        [11] = "DC Bus 2",
+        [12] = "DC Ground Service Bus",
+        [13] = "DC Standby Bus",
+        [14] = "TR1 unit",
+        [15] = "TR2 unit",
+        [16] = "TR3 unit",
+        [17] = "IDG1 / Engine Generator 1",
+        [18] = "IDG2 / Engine Generator 2",
+        [19] = "APU Generator",
+        [20] = "BPCU",
+        [21] = "Relay BTB1",
+        [22] = "Relay BTB2",
+        [23] = "Relay TRU3"
+    },
+    hydraulic = {
+        [0] = "System A malfunction",
+        [1] = "System B malfunction",
+        [2] = "System Standby malfunction",
+        [3] = "System A leak",
+        [4] = "System B leak"
+    },
+    system = {
+        [0] = "Autoland Land2",
+        [1] = "Autoland Land3",
+        [2] = "GPS signal (jamming)",
+        [3] = "GPS L",
+        [4] = "GPS R"
+    },
+    pressurisation = {
+        [0] = "Rapid depressurization",
+        [1] = "Slow depressurization",
+        [2] = "Outflow valve",
+        [3] = "L Pack valve",
+        [4] = "R Pack valve",
+        [5] = "Isolation valve",
+        [6] = "APU bleed valve",
+        [7] = "Eng1 bleed valve",
+        [8] = "Eng2 bleed valve",
+        [9] = "Primary pressurization unit",
+        [10] = "Alternate pressurization unit",
+        [11] = "Eng1 high stage valve",
+        [12] = "Eng2 high stage valve",
+        [13] = "Eng1 precooler valve",
+        [14] = "Eng2 precooler valve",
+        [15] = "APU pressurization"
+    },
+    engine = {
+        [0] = "L Engine fire",
+        [1] = "R Engine fire",
+        [2] = "L Engine flameout",
+        [3] = "R Engine flameout",
+        [4] = "L Engine damage",
+        [5] = "R Engine damage",
+        [6] = "L Engine separate",
+        [7] = "R Engine separate",
+        [8] = "L Engine generator",
+        [9] = "R Engine generator",
+        [10] = "L Engine oil pump",
+        [11] = "R Engine oil pump",
+        [12] = "L Engine oil qty",
+        [13] = "R Engine oil qty",
+        [14] = "EEC1 Flight data",
+        [15] = "EEC2 Flight data",
+        [16] = "EEC1 Main unit",
+        [17] = "EEC2 Main unit",
+        [18] = "APU fire",
+        [19] = "APU starting/running",
+        [20] = "APU overspeed",
+        [21] = "APU low oil quantity",
+        [22] = "APU low oil pressure"
+    }
+}
+
+local function get_zibo_failure_dr(category, index)
+    if not P.isZibo() then
+        return nil
+    end
+    if type(category) ~= "string" then
+        return nil
+    end
+    if type(index) ~= "number" or index < 0 or index ~= math.floor(index) then
+        return nil
+    end
+
+    P._ziboFailureDr = P._ziboFailureDr or {}
+    local cat = P._ziboFailureDr[category]
+    if not cat then
+        cat = {}
+        P._ziboFailureDr[category] = cat
+    end
+
+    local dr_index = index + 1 -- SASL uses 1-based array element access
+    local dr = cat[dr_index]
+    if not dr then
+        local ok, new_dr = pcall(globalPropertyfae, "laminar/B738/failure/" .. category, dr_index)
+        if not ok then
+            return nil
+        end
+        dr = new_dr
+        cat[dr_index] = dr
+    end
+    return dr
+end
+
+function P.getZiboFailureValue(category, index)
+    local dr = get_zibo_failure_dr(category, index)
+    if not dr then
+        return nil
+    end
+    return get(dr)
+end
+
+function P.isZiboFailureActive(category, index)
+    local value = P.getZiboFailureValue(category, index)
+    return value == 1
+end
+
+function P.getZiboFailureName(category, index)
+    local cat = P.ziboFailureDefs and P.ziboFailureDefs[category]
+    if not cat then
+        return nil
+    end
+    return cat[index]
+end
+
+function P.getZiboFailureCategories()
+    return zibo_failure_categories
+end
+
+--------------------------------------------------------------------------------------------------------------
 function P.logInfoTS(message)
     local timestamp = string.format("[%s]", os.date("%H:%M:%S"))
     sasl.logInfo(string.format("%s %s", timestamp, tostring(message)))
