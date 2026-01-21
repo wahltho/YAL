@@ -58,6 +58,7 @@ local settingsDefinition = {
     [def.CONFIGINSTRBRIGHTLOWDUS] = { dvalue = 0.5 , type = "number", min = 0, max = 1 },
 
     [def.CONFIGWAKEOVERRIDE] = { dvalue = 1 , type = "number", min = 0, max = 1 },
+    [def.CONFIGRUNWAYFRICTIONCLAMP] = { dvalue = 0 , type = "number", min = 0, max = 1 },
     [def.CONFIGTODPAUSEQUITTIME] = { dvalue = 1800 , type = "number", min = 0, max = 9999 },
     [def.CONFIGSAVETIME] = { dvalue = 300 , type = "number", min = 0, max = 9999 },
     [def.CONFIGSAVENUMBER] = { dvalue = 1 , type = "number", min = 1, max = 8 },

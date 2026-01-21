@@ -52,6 +52,9 @@ function P.YalinitGlobal()
     P.windshieldIcingStarted = false
     P.windshieldIcingApplied = false
 
+    P.runwayFrictionAdjusted = nil
+    P.runwayFrictionSeen = nil
+
 
     --------------------------------------------------------------------------------------------------------------
 
@@ -337,6 +340,7 @@ function P.initDataref()
     P.chockstatus = globalProperty("laminar/B738/fms/chock_status")
 
     P.wakeoverride = globalProperty("sim/operation/override/override_wake_turbulence")
+    P.runwayfriction = globalProperty("sim/weather/region/runway_friction")
 
     P.aponstat = globalProperty("laminar/autopilot/ap_on")
     P.apdiscpos = globalProperty("laminar/B738/autopilot/disconnect_pos")
@@ -1331,6 +1335,46 @@ function P.setview(view, normalizeFirst)
     end
 
     return commandIssued
+end
+
+local function map_runway_friction(value)
+    if value <= def.RUNWAY_FRICTION_MAX_WET then
+        return def.RUNWAY_FRICTION_WET
+    elseif value <= def.RUNWAY_FRICTION_MAX_SNOWY then
+        return def.RUNWAY_FRICTION_SNOWY
+    elseif value <= def.RUNWAY_FRICTION_MAX_SNOWY_ICY then
+        return def.RUNWAY_FRICTION_SNOWY_ICY
+    end
+    return def.RUNWAY_FRICTION_HEAVY
+end
+
+function P.applyRunwayFrictionClamp()
+    if not P.runwayfriction or not isProperty(P.runwayfriction) then
+        return
+    end
+    local friction = get(P.runwayfriction)
+    if type(friction) ~= "number" then
+        return
+    end
+    if P.runwayFrictionAdjusted ~= nil and math.abs(friction - P.runwayFrictionAdjusted) <= 0.01 then
+        return
+    end
+    if friction < def.RUNWAY_FRICTION_CLAMP_MIN then
+        if P.runwayFrictionAdjusted ~= nil then
+            P.runwayFrictionAdjusted = nil
+            P.runwayFrictionSeen = nil
+            helpers.logInfoTS("Runway friction clamp released")
+        end
+        return
+    end
+
+    local desired = map_runway_friction(friction)
+    if friction ~= desired then
+        set(P.runwayfriction, desired)
+        P.runwayFrictionAdjusted = desired
+        P.runwayFrictionSeen = friction
+        helpers.logInfoTS(string.format("Runway friction clamped: %.1f -> %d", friction, desired))
+    end
 end
 
 --------------------------------------------------------------------------------------------------------------
@@ -4557,6 +4601,13 @@ function P.ongoingtasks()
                 P.windshieldIcingStarted = true
             end
         end
+    end
+
+    if (P.configvalues[def.CONFIGRUNWAYFRICTIONCLAMP] == def.ON) then
+        P.applyRunwayFrictionClamp()
+    elseif P.runwayFrictionAdjusted ~= nil then
+        P.runwayFrictionAdjusted = nil
+        P.runwayFrictionSeen = nil
     end
 
     if ((P.apgoaroundtemp ~= get(P.apgoaround)) and (get(P.apgoaround) == def.ON)) then

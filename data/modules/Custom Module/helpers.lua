@@ -5374,6 +5374,7 @@ local function get_current_zibo_variant()
             name = "4k",
             acf = "b738_4k.acf",
             prefs = "b738_4k_prefs.txt",
+            xcamera = "X-Camera_b738_4k.csv",
             keyY = "CG_BASE_4K_Y",
             keyZ = "CG_BASE_4K_Z"
         }
@@ -5383,6 +5384,7 @@ local function get_current_zibo_variant()
             name = "2k",
             acf = "b738.acf",
             prefs = "b738_prefs.txt",
+            xcamera = "X-Camera_b738.csv",
             keyY = "CG_BASE_2K_Y",
             keyZ = "CG_BASE_2K_Z"
         }
@@ -5587,6 +5589,133 @@ local function shift_quickviews_z(prefs_path, delta_m)
     end)
 end
 
+local function trim_csv_field(text)
+    return (text or ""):gsub("^%s+", ""):gsub("%s+$", "")
+end
+
+local function split_csv_line(line)
+    local fields = {}
+    local i = 1
+    local len = #line
+    local in_quotes = false
+    local field = ""
+    while i <= len do
+        local ch = string.sub(line, i, i)
+        if ch == '"' then
+            local next_ch = string.sub(line, i + 1, i + 1)
+            if in_quotes and next_ch == '"' then
+                field = field .. '"'
+                i = i + 1
+            else
+                in_quotes = not in_quotes
+            end
+        elseif ch == "," and not in_quotes then
+            fields[#fields + 1] = field
+            field = ""
+        else
+            field = field .. ch
+        end
+        i = i + 1
+    end
+    fields[#fields + 1] = field
+    return fields
+end
+
+local function csv_escape(value)
+    local text = tostring(value or "")
+    if text:find("[,\"]") then
+        text = '"' .. text:gsub("\"", "\"\"") .. '"'
+    end
+    return text
+end
+
+local function join_csv_line(fields)
+    local out = {}
+    for i = 1, #fields do
+        out[i] = csv_escape(fields[i])
+    end
+    return table.concat(out, ",")
+end
+
+local function update_xcamera_cg_offsets(path, delta_m_y, delta_m_z)
+    local infile, err = io.open(path, "r")
+    if not infile then
+        return false, err
+    end
+    local header_line = infile:read("*l")
+    if not header_line then
+        infile:close()
+        return false, "empty file"
+    end
+    local header = split_csv_line(header_line)
+    local idx = {}
+    for i = 1, #header do
+        idx[trim_csv_field(header[i])] = i
+    end
+    local idx_category = idx["Category Name"]
+    if not idx_category then
+        infile:close()
+        return false, "missing Category Name column"
+    end
+    local idx_cgy = idx["CGY Offset"]
+    local idx_cgz = idx["CGZ Offset"]
+    local idx_y = idx["Y"]
+    local idx_z = idx["Z"]
+    local idx_origin = idx["Camera Origin"]
+    local use_offsets = (idx_cgy ~= nil and idx_cgz ~= nil)
+    if not use_offsets and (idx_y == nil or idx_z == nil) then
+        infile:close()
+        return false, "missing Y/Z columns"
+    end
+
+    local rows = {}
+    local updated = 0
+    for line in infile:lines() do
+        local fields = split_csv_line(line)
+        while #fields < #header do
+            fields[#fields + 1] = ""
+        end
+        local category = trim_csv_field(fields[idx_category] or "")
+        local origin = trim_csv_field(fields[idx_origin] or "")
+        local should_update
+        if idx_origin then
+            should_update = (origin == "" or origin == "0")
+        else
+            should_update = (category == "Cockpit")
+        end
+        if should_update then
+            if use_offsets then
+                local old_y = tonumber(fields[idx_cgy]) or 0
+                local old_z = tonumber(fields[idx_cgz]) or 0
+                fields[idx_cgy] = string.format("%.6f", old_y - delta_m_y)
+                fields[idx_cgz] = string.format("%.6f", old_z - delta_m_z)
+                updated = updated + 1
+            else
+                local old_y = tonumber(fields[idx_y])
+                local old_z = tonumber(fields[idx_z])
+                if old_y ~= nil and old_z ~= nil then
+                    fields[idx_y] = string.format("%.6f", old_y - delta_m_y)
+                    fields[idx_z] = string.format("%.6f", old_z - delta_m_z)
+                    updated = updated + 1
+                end
+            end
+        end
+        rows[#rows + 1] = fields
+    end
+    infile:close()
+
+    local outfile, err2 = io.open(path, "w")
+    if not outfile then
+        return false, err2
+    end
+    outfile:write(header_line .. "\n")
+    for i = 1, #rows do
+        outfile:write(join_csv_line(rows[i]) .. "\n")
+    end
+    outfile:close()
+    return true, updated, use_offsets
+end
+
 local function apply_default_view_from_qv0_data(acf_path, qv)
     local cg, err2 = read_acf_cg(acf_path)
     if not cg then
@@ -5619,6 +5748,26 @@ local function apply_default_view_from_qv0_data(acf_path, qv)
         end
         return line
     end)
+end
+
+local function queue_quickview_cg_job(variant, cg, delta_y, delta_z, indices)
+    local delta_m_z = delta_z * 0.3048
+    local delta_m_y = delta_y * 0.3048
+    P.quickViewCgUpdateJob = {
+        variant = variant,
+        indices = indices,
+        index_pos = 1,
+        delta_m_z = delta_m_z,
+        delta_m_y = delta_m_y,
+        delta_z = delta_z,
+        delta_y = delta_y,
+        total = #indices,
+        stage = QV_UPDATE_STAGE_SELECT,
+        snapshot = capture_pilots_head(),
+        target_cg_vert = cg.vert,
+        target_cg_long = cg.long
+    }
+    P.logInfoTS(string.format("QuickViews CG update queued: %s (%d views, deltaY %.4f ft, deltaZ %.4f ft)", variant.name, #indices, delta_y, delta_z))
 end
 
 function P.adjustQuickViewsForCgChange()
@@ -5680,23 +5829,94 @@ function P.adjustQuickViewsForCgChange()
     end
     P.logInfoTS("QuickViews CG update: backup created at " .. tostring(backup_or_err))
 
-    local delta_m_z = delta_z * 0.3048
+    queue_quickview_cg_job(variant, cg, delta_y, delta_z, indices)
+end
+
+function P.adjustQuickViewsAndXCameraForCgChange()
+    local settings = require("settings")
+    if not views_change_allowed() then
+        P.logInfoTS("QuickViews+X-Camera CG update blocked (requires preflight, on ground, parking brake set)")
+        return
+    end
+    if P.defaultViewUpdateJob then
+        P.logInfoTS("QuickViews+X-Camera CG update blocked (default view update in progress)")
+        return
+    end
+    if P.quickViewCgUpdateJob then
+        P.logInfoTS("QuickViews+X-Camera CG update already in progress")
+        return
+    end
+    local variant, v_err = get_current_zibo_variant()
+    if not variant then
+        P.logInfoTS("QuickViews+X-Camera CG update: " .. tostring(v_err))
+        return
+    end
+
+    local base = get_zibo_base_path()
+    local acf_path = base .. variant.acf
+    local prefs_path = base .. variant.prefs
+    local xcamera_path = base .. variant.xcamera
+    local cg, err = read_acf_cg(acf_path)
+    if not cg then
+        P.logInfoTS("QuickViews+X-Camera CG update: failed to read " .. variant.name .. " CG (" .. tostring(err) .. ")")
+        return
+    end
+
+    local stored_y = tonumber(settings.appSettings[variant.keyY])
+    local stored_z = tonumber(settings.appSettings[variant.keyZ])
+    if stored_y == nil or stored_z == nil then
+        settings.appSettings[variant.keyY] = cg.vert
+        settings.appSettings[variant.keyZ] = cg.long
+        settings.writeSettings(settings.appSettings)
+        P.logInfoTS("QuickViews+X-Camera CG update: stored baseline for " .. variant.name .. " (no adjustment performed)")
+        return
+    end
+
+    local delta_z = cg.long - stored_z
+    local delta_y = cg.vert - stored_y
+    if math.abs(delta_z) < 0.0001 and math.abs(delta_y) < 0.0001 then
+        P.logInfoTS("QuickViews+X-Camera CG update: no CG change for " .. variant.name)
+        return
+    end
+
+    local indices, err2 = read_quickview_indices(prefs_path)
+    if not indices then
+        P.logInfoTS("QuickViews+X-Camera CG update: failed to read quick views (" .. tostring(err2) .. ")")
+        return
+    end
+
+    local ok_backup, backup_or_err = backup_file(prefs_path)
+    if not ok_backup then
+        P.logInfoTS("QuickViews+X-Camera CG update: prefs backup failed (" .. tostring(backup_or_err) .. ")")
+        return
+    end
+    P.logInfoTS("QuickViews+X-Camera CG update: prefs backup created at " .. tostring(backup_or_err))
+
+    local xcam_file = io.open(xcamera_path, "r")
+    if not xcam_file then
+        P.logInfoTS("QuickViews+X-Camera CG update: X-Camera file not found (" .. tostring(xcamera_path) .. ")")
+        return
+    end
+    xcam_file:close()
+
+    local ok_xcam_backup, xcam_backup_or_err = backup_file(xcamera_path)
+    if not ok_xcam_backup then
+        P.logInfoTS("QuickViews+X-Camera CG update: X-Camera backup failed (" .. tostring(xcam_backup_or_err) .. ")")
+        return
+    end
+    P.logInfoTS("QuickViews+X-Camera CG update: X-Camera backup created at " .. tostring(xcam_backup_or_err))
+
     local delta_m_y = delta_y * 0.3048
-    P.quickViewCgUpdateJob = {
-        variant = variant,
-        indices = indices,
-        index_pos = 1,
-        delta_m_z = delta_m_z,
-        delta_m_y = delta_m_y,
-        delta_z = delta_z,
-        delta_y = delta_y,
-        total = #indices,
-        stage = QV_UPDATE_STAGE_SELECT,
-        snapshot = capture_pilots_head(),
-        target_cg_vert = cg.vert,
-        target_cg_long = cg.long
-    }
-    P.logInfoTS(string.format("QuickViews CG update queued: %s (%d views, deltaY %.4f ft, deltaZ %.4f ft)", variant.name, #indices, delta_y, delta_z))
+    local delta_m_z = delta_z * 0.3048
+    local ok_xcam, updated, used_offsets = update_xcamera_cg_offsets(xcamera_path, delta_m_y, delta_m_z)
+    if not ok_xcam then
+        P.logInfoTS("QuickViews+X-Camera CG update: X-Camera update failed (" .. tostring(updated) .. ")")
+        return
+    end
+    local mode = used_offsets and "offsets" or "positions"
+    P.logInfoTS(string.format("QuickViews+X-Camera CG update: X-Camera updated (%d views, %s, origin=0 filter)", updated or 0, mode))
+
+    queue_quickview_cg_job(variant, cg, delta_y, delta_z, indices)
 end
 
 function P.stepQuickViewsCgUpdate()

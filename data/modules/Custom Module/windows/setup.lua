@@ -64,6 +64,7 @@ addCheckbox('AUTOFUNCTIONS','AUTOFUNCTIONS')
 addCheckbox('FMCAUTOMATION','FMCAUTOMATION')
 addCheckbox('VOICEADVICEONLY','VOICEADVICEONLY')
 addCheckbox('WAKEOVERRIDE','WAKEOVERRIDE')
+addCheckbox('RUNWAYFRICTIONCLAMP','RUNWAYFRICTIONCLAMP')
 addCheckbox('AUTOANTIICE','AUTOANTIICE')
 addCheckbox('AUTOWIPER','AUTOWIPER')
 addCheckbox('AUTOCENTERTANKHANDLING','AUTOCENTERTANKHANDLING')
@@ -174,7 +175,7 @@ function M.newComponent(ctx)
         local colHitW = w / 2 - 20
         local textBoxWidthRight = math.max(80, colHitW - rightLabelWidth - 12)
         local buttonH = lineHeight + 2
-        local buttonW = math.max(160, colHitW - 120)
+        local buttonW = math.max(240, colHitW - 40)
         local layout = {
             hits = {},
             close = { x = w - 80, y = h - headerH - 4, w = 80, h = headerH + 8 },
@@ -392,8 +393,8 @@ function M.newComponent(ctx)
         local btnY = 6
         layout.buttons = {
             {
-                id = "adjust_qv_cg",
-                label = "Adjust QVs after CG shift",
+                id = "adjust_qv_xcam_cg",
+                label = "Adjust QVs + X-Camera after CG shift",
                 x = btnX,
                 y = btnY + buttonH + 6,
                 w = buttonW,
@@ -469,8 +470,8 @@ function M.newComponent(ctx)
             end
             for _, btn in ipairs(layout.buttons or {}) do
                 if x >= btn.x and x <= (btn.x + btn.w) and y >= btn.y and y <= (btn.y + btn.h) then
-                    if btn.id == "adjust_qv_cg" then
-                        helpers.adjustQuickViewsForCgChange()
+                    if btn.id == "adjust_qv_xcam_cg" then
+                        helpers.adjustQuickViewsAndXCameraForCgChange()
                         return true
                     elseif btn.id == "apply_qv0" then
                         helpers.applyDefaultViewFromQV0()

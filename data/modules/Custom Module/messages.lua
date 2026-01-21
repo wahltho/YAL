@@ -24,6 +24,7 @@ local english = {
     SAVETIME = 'Auto Flight Save Time (0-9999 sec)',
     SAVENUMBER = 'Auto Flight Save EFB Position (1-8)',
     WAKEOVERRIDE = 'Disable XP Wake Effects',
+    RUNWAYFRICTIONCLAMP = 'XP Runway Friction Clamp',
     AUTOANTIICE = 'Automatic Anti Icing',
     AUTOWIPER = 'Automatic Wipers',
     AUTOBARO = 'Automatic Baro Settings',
