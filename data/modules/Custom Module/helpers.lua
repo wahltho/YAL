@@ -5488,6 +5488,70 @@ local function read_quickview_indices(path)
     return list
 end
 
+local function read_quickview_data(path)
+    local file, err = io.open(path, "r")
+    if not file then
+        return nil, err
+    end
+    local data = {}
+    for line in file:lines() do
+        local idx, val = line:match("^_iql_pe_x_(%d+)%s+([-%d%.]+)")
+        if idx then
+            local i = tonumber(idx)
+            data[i] = data[i] or {}
+            data[i].x = tonumber(val)
+        else
+            idx, val = line:match("^_iql_pe_y_(%d+)%s+([-%d%.]+)")
+            if idx then
+                local i = tonumber(idx)
+                data[i] = data[i] or {}
+                data[i].y = tonumber(val)
+            else
+                idx, val = line:match("^_iql_pe_z_(%d+)%s+([-%d%.]+)")
+                if idx then
+                    local i = tonumber(idx)
+                    data[i] = data[i] or {}
+                    data[i].z = tonumber(val)
+                else
+                    idx, val = line:match("^_iql_look_os_psi_(%d+)%s+([-%d%.]+)")
+                    if idx then
+                        local i = tonumber(idx)
+                        data[i] = data[i] or {}
+                        data[i].psi = tonumber(val)
+                    else
+                        idx, val = line:match("^_iql_look_os_the_(%d+)%s+([-%d%.]+)")
+                        if idx then
+                            local i = tonumber(idx)
+                            data[i] = data[i] or {}
+                            data[i].the = tonumber(val)
+                        else
+                            idx, val = line:match("^_iql_look_os_phi_(%d+)%s+([-%d%.]+)")
+                            if idx then
+                                local i = tonumber(idx)
+                                data[i] = data[i] or {}
+                                data[i].phi = tonumber(val)
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+    file:close()
+
+    local list = {}
+    for i, v in pairs(data) do
+        if v and v.x ~= nil and v.y ~= nil and v.z ~= nil then
+            list[#list + 1] = i
+        end
+    end
+    table.sort(list)
+    if #list == 0 then
+        return nil, "no quick views found"
+    end
+    return list, data
+end
+
 local function capture_pilots_head()
     return {
         x = get(pilots_head_x),
@@ -5662,14 +5726,14 @@ local function update_xcamera_cg_offsets(path, delta_m_y, delta_m_z)
     local idx_y = idx["Y"]
     local idx_z = idx["Z"]
     local idx_origin = idx["Camera Origin"]
-    local use_offsets = (idx_cgy ~= nil and idx_cgz ~= nil)
-    if not use_offsets and (idx_y == nil or idx_z == nil) then
+    if idx_y == nil or idx_z == nil then
         infile:close()
         return false, "missing Y/Z columns"
     end
 
     local rows = {}
     local updated = 0
+    local offsets_reset = 0
     for line in infile:lines() do
         local fields = split_csv_line(line)
         while #fields < #header do
@@ -5684,19 +5748,22 @@ local function update_xcamera_cg_offsets(path, delta_m_y, delta_m_z)
             should_update = (category == "Cockpit")
         end
         if should_update then
-            if use_offsets then
-                local old_y = tonumber(fields[idx_cgy]) or 0
-                local old_z = tonumber(fields[idx_cgz]) or 0
-                fields[idx_cgy] = string.format("%.6f", old_y - delta_m_y)
-                fields[idx_cgz] = string.format("%.6f", old_z - delta_m_z)
+            local old_y = tonumber(fields[idx_y])
+            local old_z = tonumber(fields[idx_z])
+            if old_y ~= nil and old_z ~= nil then
+                fields[idx_y] = string.format("%.6f", old_y - delta_m_y)
+                fields[idx_z] = string.format("%.6f", old_z - delta_m_z)
                 updated = updated + 1
-            else
-                local old_y = tonumber(fields[idx_y])
-                local old_z = tonumber(fields[idx_z])
-                if old_y ~= nil and old_z ~= nil then
-                    fields[idx_y] = string.format("%.6f", old_y - delta_m_y)
-                    fields[idx_z] = string.format("%.6f", old_z - delta_m_z)
-                    updated = updated + 1
+            end
+            if idx_cgy ~= nil and idx_cgz ~= nil then
+                local off_y = tonumber(fields[idx_cgy])
+                local off_z = tonumber(fields[idx_cgz])
+                if off_y ~= nil and off_z ~= nil then
+                    if approx_equal(off_y, -delta_m_y) and approx_equal(off_z, -delta_m_z) then
+                        fields[idx_cgy] = "0.000000"
+                        fields[idx_cgz] = "0.000000"
+                        offsets_reset = offsets_reset + 1
+                    end
                 end
             end
         end
@@ -5713,7 +5780,7 @@ local function update_xcamera_cg_offsets(path, delta_m_y, delta_m_z)
         outfile:write(join_csv_line(rows[i]) .. "\n")
     end
     outfile:close()
-    return true, updated, use_offsets
+    return true, updated, false, offsets_reset
 end
 
 local function apply_default_view_from_qv0_data(acf_path, qv)
@@ -5750,13 +5817,14 @@ local function apply_default_view_from_qv0_data(acf_path, qv)
     end)
 end
 
-local function queue_quickview_cg_job(variant, cg, delta_y, delta_z, indices)
+local function queue_quickview_cg_job(variant, cg, delta_y, delta_z, indices, qv_data)
     local delta_m_z = delta_z * 0.3048
     local delta_m_y = delta_y * 0.3048
     P.quickViewCgUpdateJob = {
         variant = variant,
         indices = indices,
         index_pos = 1,
+        qv_data = qv_data,
         delta_m_z = delta_m_z,
         delta_m_y = delta_m_y,
         delta_z = delta_z,
@@ -5816,9 +5884,9 @@ function P.adjustQuickViewsForCgChange()
         return
     end
 
-    local indices, err2 = read_quickview_indices(prefs_path)
+    local indices, qv_data = read_quickview_data(prefs_path)
     if not indices then
-        P.logInfoTS("QuickViews CG update: failed to read quick views (" .. tostring(err2) .. ")")
+        P.logInfoTS("QuickViews CG update: failed to read quick views (" .. tostring(qv_data) .. ")")
         return
     end
 
@@ -5829,7 +5897,7 @@ function P.adjustQuickViewsForCgChange()
     end
     P.logInfoTS("QuickViews CG update: backup created at " .. tostring(backup_or_err))
 
-    queue_quickview_cg_job(variant, cg, delta_y, delta_z, indices)
+    queue_quickview_cg_job(variant, cg, delta_y, delta_z, indices, qv_data)
 end
 
 function P.adjustQuickViewsAndXCameraForCgChange()
@@ -5879,9 +5947,9 @@ function P.adjustQuickViewsAndXCameraForCgChange()
         return
     end
 
-    local indices, err2 = read_quickview_indices(prefs_path)
+    local indices, qv_data = read_quickview_data(prefs_path)
     if not indices then
-        P.logInfoTS("QuickViews+X-Camera CG update: failed to read quick views (" .. tostring(err2) .. ")")
+        P.logInfoTS("QuickViews+X-Camera CG update: failed to read quick views (" .. tostring(qv_data) .. ")")
         return
     end
 
@@ -5908,15 +5976,19 @@ function P.adjustQuickViewsAndXCameraForCgChange()
 
     local delta_m_y = delta_y * 0.3048
     local delta_m_z = delta_z * 0.3048
-    local ok_xcam, updated, used_offsets = update_xcamera_cg_offsets(xcamera_path, delta_m_y, delta_m_z)
+    local ok_xcam, updated, used_offsets, offsets_reset = update_xcamera_cg_offsets(xcamera_path, delta_m_y, delta_m_z)
     if not ok_xcam then
         P.logInfoTS("QuickViews+X-Camera CG update: X-Camera update failed (" .. tostring(updated) .. ")")
         return
     end
     local mode = used_offsets and "offsets" or "positions"
-    P.logInfoTS(string.format("QuickViews+X-Camera CG update: X-Camera updated (%d views, %s, origin=0 filter)", updated or 0, mode))
+    local reset_note = ""
+    if offsets_reset and offsets_reset > 0 then
+        reset_note = string.format(", %d offset resets", offsets_reset)
+    end
+    P.logInfoTS(string.format("QuickViews+X-Camera CG update: X-Camera updated (%d views, %s, origin=0 filter%s)", updated or 0, mode, reset_note))
 
-    queue_quickview_cg_job(variant, cg, delta_y, delta_z, indices)
+    queue_quickview_cg_job(variant, cg, delta_y, delta_z, indices, qv_data)
 end
 
 function P.stepQuickViewsCgUpdate()
@@ -5950,23 +6022,35 @@ function P.stepQuickViewsCgUpdate()
         return true
     end
 
-    local current_y = get(pilots_head_y)
-    local current_z = get(pilots_head_z)
-    local ok = false
-    if current_y ~= nil then
-        set(pilots_head_y, current_y - job.delta_m_y)
-        ok = true
+    local qv = job.qv_data and job.qv_data[idx] or nil
+    if not qv then
+        P.logInfoTS("QuickViews CG update: missing prefs data for quick view " .. tostring(idx))
     else
-        P.logInfoTS("QuickViews CG update: missing head Y for quick view " .. tostring(idx))
-    end
-    if current_z ~= nil then
-        set(pilots_head_z, current_z - job.delta_m_z)
-        ok = true
-    else
-        P.logInfoTS("QuickViews CG update: missing head Z for quick view " .. tostring(idx))
-    end
-    if ok then
-        P.command_once("sim/view/quick_look_" .. tostring(idx) .. "_mem")
+        local ok = false
+        if qv.x ~= nil then
+            set(pilots_head_x, qv.x)
+            ok = true
+        else
+            P.logInfoTS("QuickViews CG update: missing head X for quick view " .. tostring(idx))
+        end
+        if qv.y ~= nil then
+            set(pilots_head_y, qv.y - job.delta_m_y)
+            ok = true
+        else
+            P.logInfoTS("QuickViews CG update: missing head Y for quick view " .. tostring(idx))
+        end
+        if qv.z ~= nil then
+            set(pilots_head_z, qv.z - job.delta_m_z)
+            ok = true
+        else
+            P.logInfoTS("QuickViews CG update: missing head Z for quick view " .. tostring(idx))
+        end
+        if qv.psi ~= nil then set(pilots_head_psi, qv.psi) end
+        if qv.the ~= nil then set(pilots_head_the, qv.the) end
+        if qv.phi ~= nil then set(pilots_head_phi, qv.phi) end
+        if ok then
+            P.command_once("sim/view/quick_look_" .. tostring(idx) .. "_mem")
+        end
     end
 
     job.index_pos = job.index_pos + 1
