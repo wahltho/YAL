@@ -54,6 +54,8 @@ function P.YalinitGlobal()
 
     P.runwayFrictionAdjusted = nil
     P.runwayFrictionSeen = nil
+    P.lastQnhHpaDep = nil
+    P.lastQnhHpaArr = nil
 
 
     --------------------------------------------------------------------------------------------------------------
@@ -1643,10 +1645,33 @@ local my_command_skipprocedurestep = sasl.createCommand(def.APPNAMEPREFIX .. "/s
 sasl.registerCommandHandler(my_command_skipprocedurestep, 0, P.skipprocedurestep_)
 
 --------------------------------------------------------------------------------------------------------------
+local QNH_HYSTERESIS_HPA = 0.3
+
+local function stabilize_qnh_hpa(raw_hpa, last_hpa)
+    local raw = tonumber(raw_hpa)
+    if not raw then
+        return last_hpa
+    end
+    local rounded = helpers.roundnumber(raw, 0)
+    if last_hpa == nil then
+        return rounded
+    end
+    if math.abs(rounded - last_hpa) >= 2 then
+        return rounded
+    end
+    if raw >= (last_hpa + 0.5 + QNH_HYSTERESIS_HPA) then
+        return last_hpa + 1
+    end
+    if raw <= (last_hpa - 0.5 - QNH_HYSTERESIS_HPA) then
+        return last_hpa - 1
+    end
+    return last_hpa
+end
+
 function P.getlocalqnh(deparr)
 
-    local localqnhpas = helpers.roundnumber(get(P.baroregionpas) / 100)
-    local localqnhinch = helpers.convertpressure(localqnhpas)
+    local region_pas = get(P.baroregionpas)
+    local localqnhraw = region_pas and (region_pas / 100) or nil
 
     local metar_altim_in_hpa_val = nil
 
@@ -1661,9 +1686,21 @@ function P.getlocalqnh(deparr)
     end
 
     if metar_altim_in_hpa_val ~= nil then
-        localqnhinch = helpers.convertpressure(metar_altim_in_hpa_val)
-        localqnhpas = metar_altim_in_hpa_val
+        localqnhraw = metar_altim_in_hpa_val
     end
+
+    local localqnhpas = nil
+    if (deparr == def.DEPARTURE) then
+        P.lastQnhHpaDep = stabilize_qnh_hpa(localqnhraw, P.lastQnhHpaDep)
+        localqnhpas = P.lastQnhHpaDep
+    elseif (deparr == def.ARRIVAL) then
+        P.lastQnhHpaArr = stabilize_qnh_hpa(localqnhraw, P.lastQnhHpaArr)
+        localqnhpas = P.lastQnhHpaArr
+    else
+        localqnhpas = helpers.roundnumber(localqnhraw or 0, 0)
+    end
+
+    local localqnhinch = localqnhpas and helpers.convertpressure(localqnhpas) or nil
 
     sasl.logDebug("GETLOCALQNH: INCH " .. tostring(localqnhinch) .. " PAS " .. tostring(localqnhpas))
 

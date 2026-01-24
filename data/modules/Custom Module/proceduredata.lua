@@ -5194,12 +5194,12 @@ function M.fillProcedureTable()
                                 approachDescriptor = cifpName .. " Approach"
                             end
                         end
+                        if isLocalizerNavType(navtype) and navdata[def.DESTNAVDME] then
+                            approachDescriptor = approachDescriptor .. " with DME"
+                        end
                         local freqMsg
                         if isLocalizerNavType(navtype) then
                             freqMsg = "Frequency " .. helpers.addspaces(helpers.formatILSFrequency(navdata[def.DESTFREQ] or 0))
-                            if navdata[def.DESTNAVDME] then
-                                freqMsg = freqMsg .. " with DME"
-                            end
                         else
                             freqMsg = "Channel " .. helpers.addspaces(navdata[def.DESTFREQ] or "")
                         end
@@ -5253,15 +5253,6 @@ function M.fillProcedureTable()
                             local navtype = navdata[def.DESTNAVTYPE] or ""
                             local ident = navdata[def.DESTNAVID] or ""
                             local runwayDesignator = navdata[def.DESTRWY] or ""
-                            local freqMsg
-                            if isLocalizerNavType(navtype) then
-                                freqMsg = "Frequency " .. helpers.addspaces(helpers.formatILSFrequency(navdata[def.DESTFREQ] or 0))
-                                if navdata[def.DESTNAVDME] then
-                                    freqMsg = freqMsg .. " with DME"
-                                end
-                            else
-                                freqMsg = "Channel " .. helpers.addspaces(navdata[def.DESTFREQ] or "")
-                            end
                             local descriptor = helpers.addspaces(navtype) .. " Approach"
                             local destinationIcao = get(P.desicao)
                             if destinationIcao and destinationIcao ~= "" then
@@ -5269,6 +5260,15 @@ function M.fillProcedureTable()
                                 if cifpName and cifpName ~= "" then
                                     descriptor = cifpName .. " Approach"
                                 end
+                            end
+                            if isLocalizerNavType(navtype) and navdata[def.DESTNAVDME] then
+                                descriptor = descriptor .. " with DME"
+                            end
+                            local freqMsg
+                            if isLocalizerNavType(navtype) then
+                                freqMsg = "Frequency " .. helpers.addspaces(helpers.formatILSFrequency(navdata[def.DESTFREQ] or 0))
+                            else
+                                freqMsg = "Channel " .. helpers.addspaces(navdata[def.DESTFREQ] or "")
                             end
                             local altMessage = "Alternate option: " .. descriptor
                                 .. " (Ident " .. helpers.addspaces(ident) .. ") " .. freqMsg
