@@ -87,6 +87,7 @@ function P.YalinitGlobal()
         steprepeat = false,
         lastActiveTime = 0,
         procedureabort = false,
+        procedureskipped = false,
         procedureskipstep = false,
         procedurenotpossible = false,
         triggeredmanually = false,
@@ -819,6 +820,7 @@ function P.resetLoopState(loopTable)
     loopTable.stepindex = cleanTemplate.stepindex          -- Setzt auf 0
     loopTable.steprepeat = cleanTemplate.steprepeat        -- Setzt auf false
     loopTable.procedureabort = cleanTemplate.procedureabort    -- Setzt auf false
+    loopTable.procedureskipped = cleanTemplate.procedureskipped -- Setzt auf false
     loopTable.procedureskipstep = cleanTemplate.procedureskipstep -- Setzt auf false
     loopTable.setonabort = cleanTemplate.setonabort        -- Setzt auf false
     loopTable.lastActiveTime = 0                     -- Setzt auf 0
@@ -1587,6 +1589,7 @@ function P.abortprocedure()
     local loop = P.findMostRecentLoop()
     if loop then
         loop.procedureabort = true
+        loop.procedureskipped = false
         loop.procedureskipstep = false
         loop.setonabort = false -- Explizit sicherstellen, dass sie wiederholbar bleibt
     end
@@ -1608,6 +1611,7 @@ function P.skipprocedure()
     local loop = P.findMostRecentLoop()
     if loop then
         loop.procedureabort = true
+        loop.procedureskipped = true
         loop.setonabort = true -- Das Signal an die Engine, .set = true zu setzen
         loop.procedureskipstep = false
     end
@@ -5474,7 +5478,14 @@ function P.runProcedureLoop(loopIndex)
 
             -- A2. ABBRUCH-HANDLING (für interne Fehler oder Prereqs)
             if loop.procedureabort or loop.procedurenotpossible then
-                local msg_abort = loop.procedureabort and "Procedure Aborted" or "Procedure Not Possible"
+                local msg_abort
+                if loop.procedurenotpossible then
+                    msg_abort = "Procedure Not Possible"
+                elseif loop.procedureskipped then
+                    msg_abort = "Procedure Skipped"
+                else
+                    msg_abort = "Procedure Aborted"
+                end
                 sasl.logDebug("Engine A - Handling Abort/NotPossible. Message: " .. msg_abort)
                 if loop.procedureabort then
                       -- *** FIX msg START ***
@@ -5799,12 +5810,13 @@ function P.runProcedureLoop(loopIndex)
         helpers.logInfoTS("Procedure aborted (likely manual or state change before engine). Resetting loop lock.") -- Bleibt Info fürs Log
 
         -- *** NEU: Meldung für den Benutzer hinzufügen ***
+        local abort_label = loop.procedureskipped and "Procedure Skipped" or "Procedure Aborted"
         if procData and procData.name then -- Sicherstellen, dass wir einen Namen haben
-             local abort_message = procData.name .. " Procedure Aborted"
+             local abort_message = procData.name .. " " .. abort_label
              P.commandtableentry(def.TEXT, abort_message)
         else
              -- Fallback, falls procData aus irgendeinem Grund nil ist
-             P.commandtableentry(def.TEXT, "Procedure Aborted")
+             P.commandtableentry(def.TEXT, abort_label)
         end
         -- *** ENDE NEU ***
 
@@ -5816,6 +5828,7 @@ function P.runProcedureLoop(loopIndex)
         loop.lock = def.NOPROCEDURE
         -- Flags zurücksetzen, da Abbruch behandelt wurde
         loop.procedureabort = false
+        loop.procedureskipped = false
         loop.procedurenotpossible = false
         loop.setonabort = false
     -- Der Fall transition_occurred wird implizit behandelt, da loop.lock bereits NOPROCEDURE ist

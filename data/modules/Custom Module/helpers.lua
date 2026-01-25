@@ -5603,6 +5603,27 @@ local function backup_file(path)
     return true, backup_path
 end
 
+local function backup_yal_prefs(context, job)
+    if job and job.settings_backup_done then
+        return
+    end
+    local prefs_path = def.PREFFILE
+    local infile = io.open(prefs_path, "rb")
+    if not infile then
+        P.logInfoTS((context or "YAL prefs") .. ": YAL prefs not found, skipping backup (" .. tostring(prefs_path) .. ")")
+        if job then job.settings_backup_done = true end
+        return
+    end
+    infile:close()
+    local ok, backup_or_err = backup_file(prefs_path)
+    if ok then
+        P.logInfoTS((context or "YAL prefs") .. ": YAL prefs backup created at " .. tostring(backup_or_err))
+    else
+        P.logInfoTS((context or "YAL prefs") .. ": YAL prefs backup failed (" .. tostring(backup_or_err) .. ")")
+    end
+    if job then job.settings_backup_done = true end
+end
+
 local function rewrite_file(path, line_fn)
     local infile, err = io.open(path, "r")
     if not infile then
@@ -5833,7 +5854,8 @@ local function queue_quickview_cg_job(variant, cg, delta_y, delta_z, indices, qv
         stage = QV_UPDATE_STAGE_SELECT,
         snapshot = capture_pilots_head(),
         target_cg_vert = cg.vert,
-        target_cg_long = cg.long
+        target_cg_long = cg.long,
+        settings_backup_done = false
     }
     P.logInfoTS(string.format("QuickViews CG update queued: %s (%d views, deltaY %.4f ft, deltaZ %.4f ft)", variant.name, #indices, delta_y, delta_z))
 end
@@ -5872,6 +5894,7 @@ function P.adjustQuickViewsForCgChange()
     if stored_y == nil or stored_z == nil then
         settings.appSettings[variant.keyY] = cg.vert
         settings.appSettings[variant.keyZ] = cg.long
+        backup_yal_prefs("QuickViews CG update")
         settings.writeSettings(settings.appSettings)
         P.logInfoTS("QuickViews CG update: stored baseline for " .. variant.name .. " (no adjustment performed)")
         return
@@ -5935,6 +5958,7 @@ function P.adjustQuickViewsAndXCameraForCgChange()
     if stored_y == nil or stored_z == nil then
         settings.appSettings[variant.keyY] = cg.vert
         settings.appSettings[variant.keyZ] = cg.long
+        backup_yal_prefs("QuickViews+X-Camera CG update")
         settings.writeSettings(settings.appSettings)
         P.logInfoTS("QuickViews+X-Camera CG update: stored baseline for " .. variant.name .. " (no adjustment performed)")
         return
@@ -6009,6 +6033,7 @@ function P.stepQuickViewsCgUpdate()
         local settings = require("settings")
         settings.appSettings[job.variant.keyY] = job.target_cg_vert
         settings.appSettings[job.variant.keyZ] = job.target_cg_long
+        backup_yal_prefs("QuickViews CG update", job)
         settings.writeSettings(settings.appSettings)
         restore_pilots_head(job.snapshot)
         P.quickViewCgUpdateJob = nil
@@ -6059,6 +6084,7 @@ function P.stepQuickViewsCgUpdate()
         local settings = require("settings")
         settings.appSettings[job.variant.keyY] = job.target_cg_vert
         settings.appSettings[job.variant.keyZ] = job.target_cg_long
+        backup_yal_prefs("QuickViews CG update", job)
         settings.writeSettings(settings.appSettings)
         restore_pilots_head(job.snapshot)
         P.quickViewCgUpdateJob = nil
