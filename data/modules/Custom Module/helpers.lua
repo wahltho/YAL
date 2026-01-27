@@ -4368,23 +4368,200 @@ function P.buildnavdatatable(navdatatable)
 
     for i = #navdatatable, 1, -1 do table.remove(navdatatable, i) end
 
-    -- ... (Datei-Öffnen-Logik bleibt unverändert) ...
-    local srcnavdatafile = io.open("Custom Data/earth_nav.dat", "r")
-    if not srcnavdatafile then
-        srcnavdatafile = io.open("Custom Scenery/Global Airports/Earth nav data/earth_nav.dat", "r")
-        if not srcnavdatafile then
-            srcnavdatafile = io.open("Resources/default data/earth_nav.dat", "r")
-            if not srcnavdatafile then
-                sasl.logError("No Navdatabase Source: Could not find earth_nav.dat!")
-                return false
-            else
-                P.logInfoTS("Navdatabase Sourse: Resources/default data/earth_nav.dat")
-            end
-        else
-            P.logInfoTS("Navdatabase Sourse: Custom Scenery/Global Airports/Earth nav data/earth_nav.dat")
+    local NAV_IDX_FILE = def.PLUGINOUTPUTPATH .. "nav_global.yalidx"
+
+    local function stat_file_size(path)
+        local f = io.open(path, "r")
+        if not f then
+            return 0
         end
-    else
-        P.logInfoTS("Navdatabase Sourse: Custom Data/earth_nav.dat")
+        local size = 0
+        local ok_seek, end_pos = pcall(function()
+            return f:seek("end")
+        end)
+        if ok_seek and end_pos then
+            size = tonumber(end_pos) or 0
+        end
+        f:close()
+        return size
+    end
+
+    local nav_path = nil
+    local nav_size = 0
+    local nav_label = nil
+    local nav_candidates = {
+        { path = "Custom Data/earth_nav.dat", label = "Custom Data/earth_nav.dat" },
+        { path = "Custom Scenery/Global Airports/Earth nav data/earth_nav.dat", label = "Custom Scenery/Global Airports/Earth nav data/earth_nav.dat" },
+        { path = "Resources/default data/earth_nav.dat", label = "Resources/default data/earth_nav.dat" }
+    }
+    for i = 1, #nav_candidates do
+        local cand = nav_candidates[i]
+        local sz = stat_file_size(cand.path)
+        if sz > 0 then
+            nav_path = cand.path
+            nav_size = sz
+            nav_label = cand.label
+            break
+        end
+    end
+    if not nav_path then
+        sasl.logError("No Navdatabase Source: Could not find earth_nav.dat!")
+        return false
+    end
+
+    P.logInfoTS("Navdatabase Sourse: " .. tostring(nav_label or nav_path))
+
+    local function split_tabs_simple(line, max_parts)
+        local parts = {}
+        if not line then
+            return parts
+        end
+        local start = 1
+        local line_len = string.len(line)
+        while start <= line_len do
+            local tab = string.find(line, "\t", start, true)
+            if not tab then
+                parts[#parts + 1] = string.sub(line, start)
+                break
+            end
+            parts[#parts + 1] = string.sub(line, start, tab - 1)
+            start = tab + 1
+            if max_parts and #parts >= (max_parts - 1) then
+                parts[#parts + 1] = string.sub(line, start)
+                break
+            end
+        end
+        if #parts == 0 then
+            parts[1] = ""
+        end
+        return parts
+    end
+
+    local function load_nav_index(path, size)
+        local f = io.open(NAV_IDX_FILE, "r")
+        if not f then
+            return nil
+        end
+        local idx_path = nil
+        local idx_size = nil
+        local entries = {}
+        for line in f:lines() do
+            if string.sub(line, 1, 5) == "PATH\t" then
+                idx_path = string.sub(line, 6)
+            elseif string.sub(line, 1, 5) == "SIZE\t" then
+                idx_size = tonumber(string.sub(line, 6)) or 0
+            else
+                local parts = split_tabs_simple(line, 30)
+                local icao = parts[1]
+                if icao and icao ~= "" then
+                    local entry = {}
+                    entry[def.DESTICAO] = parts[1] or ""
+                    entry[def.DESTRWY] = parts[2] or ""
+                    entry[def.DESTNAVTYPE] = parts[3] or ""
+                    entry[def.DESTNAVID] = parts[4] or ""
+                    entry[def.DESTFREQ] = tonumber(parts[5]) or 0
+                    entry[def.DESTLATPOS] = tonumber(parts[6]) or 0
+                    entry[def.DESTLONPOS] = tonumber(parts[7]) or 0
+                    entry[def.DESTCOURSE] = tonumber(parts[8]) or 0
+                    entry[def.DESTNAVDME] = (parts[9] == "1")
+                    entry[def.DESTELEVATION] = tonumber(parts[10]) or 0
+                    entry[def.DESTRANGE] = tonumber(parts[11]) or 0
+                    entry[def.DESTRAWBEARING] = tonumber(parts[12]) or 0
+                    entry[def.DESTMAGVAR] = tonumber(parts[13]) or 0
+                    entry[def.DESTFACILITYNAME] = parts[14] or ""
+                    entry[def.DESTSRCRECTYPE] = parts[15] or ""
+                    entry[def.DESTDMELAT] = tonumber(parts[16]) or 0
+                    entry[def.DESTDMELON] = tonumber(parts[17]) or 0
+                    entry[def.DESTDMEELEVATION] = tonumber(parts[18]) or 0
+                    entry[def.DESTDMERANGE] = tonumber(parts[19]) or 0
+                    entry[def.DESTGSLAT] = tonumber(parts[20]) or 0
+                    entry[def.DESTGSLON] = tonumber(parts[21]) or 0
+                    entry[def.DESTGSELEVATION] = tonumber(parts[22]) or 0
+                    entry[def.DESTGSRANGE] = tonumber(parts[23]) or 0
+                    entry[def.DESTGSSLOPE] = tonumber(parts[24]) or 0
+                    entry[def.DESTGSRAWBEARING] = tonumber(parts[25]) or 0
+                    entry[def.DESTDMEIDENT] = parts[26] or ""
+                    entry[def.DESTDMEFREQ] = tonumber(parts[27]) or 0
+                    entry.truecourse = tonumber(parts[28]) or nil
+                    entry.isTrueCourse = (parts[29] == "1")
+                    table.insert(entries, entry)
+                end
+            end
+        end
+        f:close()
+        if idx_path ~= path or (idx_size or 0) ~= (size or 0) then
+            return nil
+        end
+        if #entries == 0 then
+            return nil
+        end
+        return entries
+    end
+
+    local cached = load_nav_index(nav_path, nav_size)
+    if cached then
+        for i = 1, #cached do
+            navdatatable[i] = cached[i]
+        end
+        P.logInfoTS(
+            "Global Airports Navdata Table loaded from cache, "
+                .. tostring(#navdatatable)
+                .. " entries."
+        )
+        return true
+    end
+
+    local function write_nav_index(path, size, entries)
+        local f = io.open(NAV_IDX_FILE, "w")
+        if not f then
+            sasl.logWarning("Navdata: failed to write nav index: " .. tostring(NAV_IDX_FILE))
+            return false
+        end
+        f:write("PATH\t", tostring(path or ""), "\n")
+        f:write("SIZE\t", tostring(size or 0), "\n")
+        for i = 1, #entries do
+            local e = entries[i]
+            local fields = {
+                tostring(e[def.DESTICAO] or ""),
+                tostring(e[def.DESTRWY] or ""),
+                tostring(e[def.DESTNAVTYPE] or ""),
+                tostring(e[def.DESTNAVID] or ""),
+                tostring(tonumber(e[def.DESTFREQ]) or 0),
+                tostring(tonumber(e[def.DESTLATPOS]) or 0),
+                tostring(tonumber(e[def.DESTLONPOS]) or 0),
+                tostring(tonumber(e[def.DESTCOURSE]) or 0),
+                (e[def.DESTNAVDME] and "1" or "0"),
+                tostring(tonumber(e[def.DESTELEVATION]) or 0),
+                tostring(tonumber(e[def.DESTRANGE]) or 0),
+                tostring(tonumber(e[def.DESTRAWBEARING]) or 0),
+                tostring(tonumber(e[def.DESTMAGVAR]) or 0),
+                tostring(e[def.DESTFACILITYNAME] or ""),
+                tostring(e[def.DESTSRCRECTYPE] or ""),
+                tostring(tonumber(e[def.DESTDMELAT]) or 0),
+                tostring(tonumber(e[def.DESTDMELON]) or 0),
+                tostring(tonumber(e[def.DESTDMEELEVATION]) or 0),
+                tostring(tonumber(e[def.DESTDMERANGE]) or 0),
+                tostring(tonumber(e[def.DESTGSLAT]) or 0),
+                tostring(tonumber(e[def.DESTGSLON]) or 0),
+                tostring(tonumber(e[def.DESTGSELEVATION]) or 0),
+                tostring(tonumber(e[def.DESTGSRANGE]) or 0),
+                tostring(tonumber(e[def.DESTGSSLOPE]) or 0),
+                tostring(tonumber(e[def.DESTGSRAWBEARING]) or 0),
+                tostring(e[def.DESTDMEIDENT] or ""),
+                tostring(tonumber(e[def.DESTDMEFREQ]) or 0),
+                tostring(tonumber(e.truecourse) or ""),
+                (e.isTrueCourse and "1" or "0")
+            }
+            f:write(table.concat(fields, "\t"), "\n")
+        end
+        f:close()
+        return true
+    end
+
+    local srcnavdatafile = io.open(nav_path, "r")
+    if not srcnavdatafile then
+        sasl.logError("Could not open " .. tostring(nav_path))
+        return false
     end
 
     for i = 1, 3 do local _ = srcnavdatafile:read() end
@@ -4649,7 +4826,9 @@ function P.buildnavdatatable(navdatatable)
         end
     end
 
-P.logInfoTS("Navdata Table created, " .. #navdatatable .. " entries.")
+    write_nav_index(nav_path, nav_size, navdatatable)
+
+    P.logInfoTS("Global Airports Navdata Table created, " .. #navdatatable .. " entries.")
     return true
 end
 --------------------------------------------------------------------------------------------------------------
@@ -4676,13 +4855,136 @@ function P.writenavdatatable(navdatatable)
 end
 
 --------------------------------------------------------------------------------------------------------------
+local AIRPORT_META_PATH = "Resources/default data/earth_aptmeta.dat"
+local AIRPORT_META_IDX_FILE = def.PLUGINOUTPUTPATH .. "airport_meta.yalidx"
+
 function P.buildairportdatatable(airport_db)
-  
-    local file = io.open("Resources/default data/earth_aptmeta.dat", "r")
+    if not airport_db then
+        return false
+    end
+
+    for k in pairs(airport_db) do
+        airport_db[k] = nil
+    end
+
+    local function stat_file_size(path)
+        local f = io.open(path, "r")
+        if not f then
+            return 0
+        end
+        local size = 0
+        local ok_seek, end_pos = pcall(function()
+            return f:seek("end")
+        end)
+        if ok_seek and end_pos then
+            size = tonumber(end_pos) or 0
+        end
+        f:close()
+        return size
+    end
+
+    local function compute_airport_meta()
+        local size = stat_file_size(AIRPORT_META_PATH)
+        if size <= 0 then
+            return nil
+        end
+        return {
+            path = AIRPORT_META_PATH,
+            size = size
+        }
+    end
+
+    local function write_airport_meta_index(meta, db)
+        if not meta or not db then
+            return false
+        end
+        local file = io.open(AIRPORT_META_IDX_FILE, "w")
+        if not file then
+            sasl.logWarning("Airportdata: failed to write airport meta index: " .. tostring(AIRPORT_META_IDX_FILE))
+            return false
+        end
+        file:write("PATH\t", tostring(meta.path or ""), "\n")
+        file:write("SIZE\t", tostring(meta.size or 0), "\n")
+        for icao, data in pairs(db) do
+            local latitude = tonumber(data.latitude) or 0
+            local longitude = tonumber(data.longitude) or 0
+            local elevation = tonumber(data.elevation_ft) or 0
+            local airport_type = tostring(data.airport_type or "")
+            local max_rwy_ft = tonumber(data.max_rwy_ft) or 0
+            local has_ils = (data.has_ils and 1) or 0
+            file:write(
+                tostring(icao), "\t",
+                string.format("%.6f", latitude), "\t",
+                string.format("%.6f", longitude), "\t",
+                tostring(elevation), "\t",
+                airport_type, "\t",
+                tostring(max_rwy_ft), "\t",
+                tostring(has_ils), "\n"
+            )
+        end
+        file:close()
+        return true
+    end
+
+    local function load_airport_meta_index(meta)
+        local file = io.open(AIRPORT_META_IDX_FILE, "r")
+        if not file then
+            return nil
+        end
+        local idx_path = nil
+        local idx_size = nil
+        local entries = {}
+        for line in file:lines() do
+            if string.sub(line, 1, 5) == "PATH\t" then
+                idx_path = string.sub(line, 6)
+            elseif string.sub(line, 1, 5) == "SIZE\t" then
+                idx_size = tonumber(string.sub(line, 6)) or 0
+            else
+                local icao, lat, lon, elev, atype, rwy, ils =
+                    line:match("^(%S+)\t([-%d%.]+)\t([-%d%.]+)\t([-%d]+)\t([^\t]*)\t([-%d]+)\t([01])$")
+                if icao then
+                    entries[icao] = {
+                        latitude = tonumber(lat),
+                        longitude = tonumber(lon),
+                        elevation_ft = tonumber(elev),
+                        airport_type = atype,
+                        max_rwy_ft = tonumber(rwy),
+                        has_ils = (ils == "1")
+                    }
+                end
+            end
+        end
+        file:close()
+        if not meta or idx_path ~= meta.path or (idx_size or 0) ~= (meta.size or 0) then
+            return nil
+        end
+        return entries
+    end
+
+    local meta = compute_airport_meta()
+    if not meta then
+        sasl.logError("Could not stat " .. tostring(AIRPORT_META_PATH))
+        return false
+    end
+
+    local cached = load_airport_meta_index(meta)
+    if cached and next(cached) ~= nil then
+        for icao, entry in pairs(cached) do
+            airport_db[icao] = entry
+        end
+        P.logInfoTS(
+            "Global Airports Airportdata Table loaded from cache, "
+                .. tostring(P.getTableSize(airport_db))
+                .. " entries."
+        )
+        return true
+    end
+
+    local file = io.open(AIRPORT_META_PATH, "r")
 
 
     if not file then
-        sasl.logError("Could not open Resources/default data/earth_aptmeta.dat")
+        sasl.logError("Could not open " .. tostring(AIRPORT_META_PATH))
         return false
     end
 
@@ -4708,8 +5010,10 @@ function P.buildairportdatatable(airport_db)
 
     -- Datei wieder schließen
     file:close()
-    
-    P.logInfoTS("Airport Data Table created, " .. line_count .. " entries.")
+
+    write_airport_meta_index(meta, airport_db)
+
+    P.logInfoTS("Global Airports Airportdata Table created, " .. line_count .. " entries.")
 
     return true
 end
@@ -4747,6 +5051,1780 @@ function P.writeairportdatatable(airport_db)
     destairportfile:close()
 
     return true
+end
+
+--------------------------------------------------------------------------------------------------------------
+-- Taxi routing: apt.dat locator
+
+local function is_space_byte(byte)
+    return byte == 32 or byte == 9 or byte == 10 or byte == 13
+end
+
+local function trim_ascii(text)
+    if not text then
+        return ""
+    end
+    local start_idx = 1
+    local end_idx = #text
+    while start_idx <= end_idx do
+        local b = string.byte(text, start_idx)
+        if b and not is_space_byte(b) then
+            break
+        end
+        start_idx = start_idx + 1
+    end
+    while end_idx >= start_idx do
+        local b = string.byte(text, end_idx)
+        if b and not is_space_byte(b) then
+            break
+        end
+        end_idx = end_idx - 1
+    end
+    if end_idx < start_idx then
+        return ""
+    end
+    return string.sub(text, start_idx, end_idx)
+end
+
+local function next_token(line, pos)
+    local len = #line
+    local i = pos or 1
+    while i <= len do
+        local b = string.byte(line, i)
+        if b and not is_space_byte(b) then
+            break
+        end
+        i = i + 1
+    end
+    if i > len then
+        return nil, len + 1
+    end
+    local start_idx = i
+    i = i + 1
+    while i <= len do
+        local b = string.byte(line, i)
+        if b and is_space_byte(b) then
+            break
+        end
+        i = i + 1
+    end
+    return string.sub(line, start_idx, i - 1), i
+end
+
+local function split_pipe(line)
+    local parts = {}
+    local start_idx = 1
+    for i = 1, #line do
+        if string.byte(line, i) == 124 then
+            parts[#parts + 1] = string.sub(line, start_idx, i - 1)
+            start_idx = i + 1
+        end
+    end
+    parts[#parts + 1] = string.sub(line, start_idx)
+    return parts
+end
+
+local function tokenize_line(line)
+    local tokens = {}
+    local pos = 1
+    while true do
+        local tok
+        tok, pos = next_token(line, pos)
+        if not tok then
+            break
+        end
+        tokens[#tokens + 1] = tok
+    end
+    return tokens
+end
+
+local function get_file_size(path)
+    local file = io.open(path, "rb")
+    if not file then
+        return nil
+    end
+    local size = file:seek("end")
+    file:close()
+    return size
+end
+
+local lfs_ok, lfs = pcall(require, "lfs")
+
+local function get_file_mtime(path)
+    if not lfs_ok or not lfs or not path then
+        return nil
+    end
+    local ok, attr = pcall(lfs.attributes, path)
+    if not ok or not attr then
+        return nil
+    end
+    local mtime = attr.modification
+    if type(mtime) ~= "number" then
+        return nil
+    end
+    return math.floor(mtime)
+end
+
+local FNV_OFFSET = 2166136261
+local FNV_PRIME = 16777619
+local FNV_MOD = 4294967296
+
+local bit_ok, bit = pcall(require, "bit")
+if not bit_ok then
+    bit = _G.bit
+end
+local bit32_ok, bit32 = pcall(require, "bit32")
+if not bit32_ok then
+    bit32 = _G.bit32
+end
+local bxor = (bit and bit.bxor) or (bit32 and bit32.bxor) or nil
+
+local function xor32(a, b)
+    if bxor then
+        return bxor(a, b)
+    end
+    -- Portable (but slower) XOR fallback for small samples.
+    local res = 0
+    local bitval = 1
+    local aa = math.floor(a or 0)
+    local bb = math.floor(b or 0)
+    for _ = 1, 32 do
+        local abit = aa % 2
+        local bbit = bb % 2
+        if abit ~= bbit then
+            res = res + bitval
+        end
+        aa = (aa - abit) / 2
+        bb = (bb - bbit) / 2
+        bitval = bitval * 2
+    end
+    return res
+end
+
+local function fnv1a_update(hash, chunk)
+    if not chunk or chunk == "" then
+        return hash
+    end
+    local h = hash or FNV_OFFSET
+    for i = 1, #chunk do
+        local b = string.byte(chunk, i)
+        if b then
+            h = xor32(h, b)
+            h = (h * FNV_PRIME) % FNV_MOD
+        end
+    end
+    return h
+end
+
+local function compute_file_fingerprint(path, size, sample_bytes)
+    if not path then
+        return nil
+    end
+    local file = io.open(path, "rb")
+    if not file then
+        return nil
+    end
+    local ok = true
+    local function read_at(offset, bytes)
+        if not ok then
+            return ""
+        end
+        local o = offset or 0
+        if o < 0 then
+            o = 0
+        end
+        ok = file:seek("set", o) ~= nil
+        if not ok then
+            return ""
+        end
+        return file:read(bytes) or ""
+    end
+
+    local sz = size or get_file_size(path) or 0
+    local bytes = math.floor(sample_bytes or 2048)
+    if bytes < 256 then
+        bytes = 256
+    end
+    if sz > 0 and bytes > sz then
+        bytes = sz
+    end
+    if bytes <= 0 then
+        file:close()
+        return nil
+    end
+
+    local max_offset = math.max(0, sz - bytes)
+    local half = math.floor(bytes / 2)
+    local positions = {
+        0,
+        math.max(0, math.floor(sz * 0.25) - half),
+        math.max(0, math.floor(sz * 0.50) - half),
+        math.max(0, math.floor(sz * 0.75) - half),
+        max_offset
+    }
+    local seen = {}
+    local hash = FNV_OFFSET
+    for _, pos in ipairs(positions) do
+        local p = pos
+        if p > max_offset then
+            p = max_offset
+        end
+        if not seen[p] then
+            seen[p] = true
+            local chunk = read_at(p, bytes)
+            hash = fnv1a_update(hash, chunk)
+        end
+    end
+    file:close()
+    local out = math.floor(hash % FNV_MOD)
+    return string.format("%08x", out)
+end
+
+local function global_apt_path()
+    return sasl.getXPlanePath() .. def.OSSEPARATOR .. "Global Scenery" .. def.OSSEPARATOR .. "Global Airports"
+        .. def.OSSEPARATOR .. "Earth nav data" .. def.OSSEPARATOR .. "apt.dat"
+end
+
+local GLOBAL_APT_INDEX_VERSION = 1
+local GLOBAL_APT_INDEX_FILE = def.PLUGINOUTPUTPATH .. "apt_global.yalidx"
+local GLOBAL_APT_META_REFRESH_SEC = 30
+local GLOBAL_APT_INDEX_STEP_LINES = 10000
+local GLOBAL_APT_INDEX_STEP_SEC = 0.0015
+local GLOBAL_APT_FINGERPRINT_BYTES = 2048
+local GLOBAL_APT_INDEX_FAST_LINES = 20000000
+
+local function is_global_apt(path)
+    if not path then
+        return false
+    end
+    return path == global_apt_path()
+end
+
+local function is_absolute_path(path)
+    if not path or path == "" then
+        return false
+    end
+    local first = string.sub(path, 1, 1)
+    if first == "/" or first == "\\" then
+        return true
+    end
+    if #path >= 2 and string.sub(path, 2, 2) == ":" then
+        return true
+    end
+    return false
+end
+
+local function ensure_trailing_sep(path)
+    local last = string.sub(path, -1)
+    if last == "/" or last == "\\" then
+        return path
+    end
+    return path .. def.OSSEPARATOR
+end
+
+local function normalize_pack_path(path)
+    path = trim_ascii(path)
+    if path == "" then
+        return nil
+    end
+    if string.sub(path, 1, 1) == "\"" and string.sub(path, -1) == "\"" then
+        path = string.sub(path, 2, -2)
+    end
+    if not is_absolute_path(path) then
+        path = sasl.getXPlanePath() .. def.OSSEPARATOR .. path
+    end
+    return ensure_trailing_sep(path)
+end
+
+local function get_active_scenery_packs()
+    local packs = {}
+    local ini_path = sasl.getXPlanePath() .. def.OSSEPARATOR .. "Custom Scenery" .. def.OSSEPARATOR .. "scenery_packs.ini"
+    local file = io.open(ini_path, "r")
+    if not file then
+        return packs
+    end
+    for line in file:lines() do
+        local token, pos = next_token(line, 1)
+        if token == "SCENERY_PACK" then
+            local rest = trim_ascii(string.sub(line, pos))
+            if rest ~= "" then
+                local full_path = normalize_pack_path(rest)
+                if full_path then
+                    packs[#packs + 1] = full_path
+                end
+            end
+        end
+    end
+    file:close()
+    return packs
+end
+
+local function build_apt_search_paths(include_global)
+    if include_global == nil then
+        include_global = false
+    end
+    local paths = {}
+    local seen = {}
+    local packs = get_active_scenery_packs()
+    for _, pack_path in ipairs(packs) do
+        local apt_path = pack_path .. "Earth nav data" .. def.OSSEPARATOR .. "apt.dat"
+        if not seen[apt_path] and P.file_exists_v2(apt_path) then
+            seen[apt_path] = true
+            paths[#paths + 1] = apt_path
+        end
+    end
+    if include_global then
+        local global_apt = global_apt_path()
+        if not seen[global_apt] and P.file_exists_v2(global_apt) then
+            seen[global_apt] = true
+            paths[#paths + 1] = global_apt
+        end
+    end
+    return paths
+end
+
+P.addon_apt_cache = P.addon_apt_cache or {}
+
+local function get_addon_apt_paths()
+    local paths = build_apt_search_paths(false)
+    local key = table.concat(paths, "|")
+    if key ~= (P.addon_apt_cache_key or "") then
+        P.addon_apt_cache_key = key
+        P.addon_apt_cache = {}
+    end
+    return paths, key
+end
+
+local function parse_airport_header_icao(line)
+    local token, pos = next_token(line, 1)
+    if token ~= "1" and token ~= "16" and token ~= "17" then
+        return nil
+    end
+    local count = 1
+    while count < 5 do
+        token, pos = next_token(line, pos)
+        if not token then
+            return nil
+        end
+        count = count + 1
+        if count == 5 then
+            return token
+        end
+    end
+    return nil
+end
+
+local function scan_apt_for_icao(apt_path, target_icao)
+    local file = io.open(apt_path, "r")
+    if not file then
+        return nil, "open-failed"
+    end
+    local found_offset = nil
+    local has_routes = false
+    local block_end = nil
+    while true do
+        local line_pos = file:seek()
+        local line = file:read("*l")
+        if not line then
+            break
+        end
+        local header_icao = parse_airport_header_icao(line)
+        if header_icao then
+            header_icao = string.upper(header_icao)
+            if found_offset then
+                block_end = line_pos
+                break
+            end
+            if header_icao == target_icao then
+                found_offset = line_pos
+                has_routes = false
+            end
+        elseif found_offset then
+            local code = next_token(line, 1)
+            if code == "1201" or code == "1202" then
+                has_routes = true
+            end
+        end
+    end
+    local size = file:seek("end")
+    file:close()
+    if not found_offset then
+        return nil, "not-found"
+    end
+    if not block_end then
+        block_end = size or found_offset
+    end
+    return {
+        path = apt_path,
+        offset = found_offset,
+        length = block_end - found_offset,
+        size = size or 0,
+        has_routes = has_routes
+    }
+end
+
+
+local function build_taxi_label(tokens)
+    if #tokens < 5 then
+        return ""
+    end
+    local kind = tokens[5]
+    if not kind then
+        return ""
+    end
+    if kind == "runway" then
+        local rwy = tokens[6] or ""
+        if rwy ~= "" then
+            return "RWY " .. rwy
+        end
+        return "RWY"
+    end
+    if kind:sub(1, 8) == "taxiway" then
+        local name = kind:gsub("^taxiway[_%-]*", "")
+        local suffix = tokens[6] or ""
+        if name == "" then
+            name = suffix
+            suffix = ""
+        end
+        local label = name
+        if suffix ~= "" and suffix ~= name then
+            label = name .. " " .. suffix
+        end
+        return trim_ascii(label)
+    end
+    return trim_ascii(table.concat(tokens, " ", 5))
+end
+
+local function is_runway_label(label)
+    if not label or label == "" then
+        return false
+    end
+    return string.sub(label, 1, 3) == "RWY"
+end
+
+local function project_to_local(lat, lon)
+    local x, _, z = sasl.worldToLocal(lat, lon, 0)
+    return x, z
+end
+
+local function update_bounds(bounds, x, y)
+    if not bounds.minX or x < bounds.minX then bounds.minX = x end
+    if not bounds.maxX or x > bounds.maxX then bounds.maxX = x end
+    if not bounds.minY or y < bounds.minY then bounds.minY = y end
+    if not bounds.maxY or y > bounds.maxY then bounds.maxY = y end
+end
+
+local function parse_taxi_data(entry)
+    if not entry or not entry.path or not entry.offset then
+        return nil, "invalid-entry"
+    end
+    local file = io.open(entry.path, "r")
+    if not file then
+        return nil, "open-failed"
+    end
+    file:seek("set", entry.offset)
+    local limit = entry.offset + (entry.length or 0)
+    local nodes = {}
+    local edges = {}
+    local ramps = {}
+    local runways = {}
+    local polygons = {}
+    local has_routes = false
+    local fallback_polys = {}
+    local current_poly = nil
+    local last_ramp = nil
+
+    local function finalize_poly()
+        if current_poly and #current_poly >= 2 then
+            fallback_polys[#fallback_polys + 1] = current_poly
+        end
+        current_poly = nil
+    end
+
+    local function add_poly_point(poly, lat, lon)
+        if not poly or not lat or not lon then
+            return
+        end
+        local last = poly[#poly]
+        if last and math.abs(last.lat - lat) < 1e-7 and math.abs(last.lon - lon) < 1e-7 then
+            return
+        end
+        poly[#poly + 1] = { lat = lat, lon = lon }
+    end
+
+    local function build_fallback_graph(polys)
+        local f_nodes = {}
+        local f_edges = {}
+        local node_by_key = {}
+        local next_id = 1
+        local function node_key(lat, lon)
+            return string.format("%.6f|%.6f", lat, lon)
+        end
+        local function add_node(lat, lon)
+            local key = node_key(lat, lon)
+            local id = node_by_key[key]
+            if not id then
+                id = next_id
+                next_id = next_id + 1
+                node_by_key[key] = id
+                f_nodes[id] = { id = id, lat = lat, lon = lon }
+            end
+            return id
+        end
+        for _, poly in ipairs(polys) do
+            local first_id = nil
+            local prev_id = nil
+            for _, pt in ipairs(poly) do
+                if pt.lat and pt.lon then
+                    local id = add_node(pt.lat, pt.lon)
+                    if not first_id then
+                        first_id = id
+                    end
+                    if prev_id and prev_id ~= id then
+                        f_edges[#f_edges + 1] = { from = prev_id, to = id, dir = "both", label = "TWY" }
+                    end
+                    prev_id = id
+                end
+            end
+            if first_id and prev_id and first_id ~= prev_id then
+                f_edges[#f_edges + 1] = { from = prev_id, to = first_id, dir = "both", label = "TWY" }
+            end
+        end
+        return f_nodes, f_edges
+    end
+
+    local function add_ramp_links(nodes_tbl, ramps_tbl, runway_nodes_tbl, max_dist, edge_nodes_tbl)
+        local near_links = {}
+        local far_links = {}
+        if not nodes_tbl or not ramps_tbl or max_dist <= 0 then
+            return near_links, far_links
+        end
+        local max_id = 0
+        for id, _ in pairs(nodes_tbl) do
+            if type(id) == "number" and id > max_id then
+                max_id = id
+            end
+        end
+        local next_id = max_id + 1
+        local max_d2 = max_dist * max_dist
+        local has_edge_filter = edge_nodes_tbl and next(edge_nodes_tbl) ~= nil
+        for _, ramp in ipairs(ramps_tbl) do
+            if ramp.x and ramp.z then
+                local function find_best(require_edge)
+                    local best_id = nil
+                    local best_d2 = nil
+                    local best_nr_id = nil
+                    local best_nr_d2 = nil
+                    for id, node in pairs(nodes_tbl) do
+                        if node and not node.is_ramp and node.x and node.z then
+                            if require_edge and (not edge_nodes_tbl or not edge_nodes_tbl[id]) then
+                                goto continue
+                            end
+                            local dx = node.x - ramp.x
+                            local dz = node.z - ramp.z
+                            local d2 = dx * dx + dz * dz
+                            if not best_d2 or d2 < best_d2 then
+                                best_d2 = d2
+                                best_id = id
+                            end
+                            if runway_nodes_tbl and not runway_nodes_tbl[id] then
+                                if not best_nr_d2 or d2 < best_nr_d2 then
+                                    best_nr_d2 = d2
+                                    best_nr_id = id
+                                end
+                            end
+                        end
+                        ::continue::
+                    end
+                    return best_id, best_d2, best_nr_id, best_nr_d2
+                end
+
+                local best_id, best_d2, best_nr_id, best_nr_d2 = find_best(has_edge_filter)
+                if not best_id and not best_nr_id and has_edge_filter then
+                    best_id, best_d2, best_nr_id, best_nr_d2 = find_best(false)
+                end
+                local link_id = best_nr_id or best_id
+                local link_d2 = best_nr_id and best_nr_d2 or best_d2
+                local rid = next_id
+                next_id = next_id + 1
+                nodes_tbl[rid] = {
+                    id = rid,
+                    lat = ramp.lat,
+                    lon = ramp.lon,
+                    x = ramp.x,
+                    z = ramp.z,
+                    east = ramp.east,
+                    north = ramp.north,
+                    is_ramp = true
+                }
+                ramp.node_id = rid
+                if link_id and link_d2 then
+                    far_links[#far_links + 1] = { from = rid, to = link_id }
+                    if link_d2 <= max_d2 then
+                        near_links[#near_links + 1] = { from = rid, to = link_id }
+                    end
+                end
+            end
+        end
+        return near_links, far_links
+    end
+
+    while true do
+        local pos = file:seek()
+        if not pos then break end
+        if limit > entry.offset and pos >= limit then
+            break
+        end
+        local line = file:read("*l")
+        if not line then
+            break
+        end
+        local code = next_token(line, 1)
+        if code == "110" then
+            finalize_poly()
+            current_poly = {}
+        elseif current_poly and (code == "111" or code == "112" or code == "113" or code == "114") then
+            local tokens = tokenize_line(line)
+            local lat = nil
+            local lon = nil
+            if code == "111" or code == "113" then
+                lat = tonumber(tokens[2])
+                lon = tonumber(tokens[3])
+            else
+                lat = tonumber(tokens[4]) or tonumber(tokens[2])
+                lon = tonumber(tokens[5]) or tonumber(tokens[3])
+            end
+            add_poly_point(current_poly, lat, lon)
+        elseif current_poly and code and code ~= "" then
+            finalize_poly()
+        end
+        if code == "100" then
+            last_ramp = nil
+            local tokens = tokenize_line(line)
+            local width = tonumber(tokens[2])
+            local rwy1 = tokens[9]
+            local lat1 = tonumber(tokens[10])
+            local lon1 = tonumber(tokens[11])
+            local rwy2 = tokens[18]
+            local lat2 = tonumber(tokens[19])
+            local lon2 = tonumber(tokens[20])
+            if lat1 and lon1 and lat2 and lon2 then
+                runways[#runways + 1] = {
+                    width = width or 0,
+                    rwy1 = rwy1 or "",
+                    rwy2 = rwy2 or "",
+                    lat1 = lat1,
+                    lon1 = lon1,
+                    lat2 = lat2,
+                    lon2 = lon2
+                }
+            end
+        elseif code == "1201" then
+            last_ramp = nil
+            local tokens = tokenize_line(line)
+            local lat = tonumber(tokens[2])
+            local lon = tonumber(tokens[3])
+            local id = tonumber(tokens[5]) or tonumber(tokens[#tokens])
+            if lat and lon and id then
+                nodes[id] = { id = id, lat = lat, lon = lon }
+                has_routes = true
+            end
+        elseif code == "1202" then
+            last_ramp = nil
+            local tokens = tokenize_line(line)
+            local from_id = tonumber(tokens[2])
+            local to_id = tonumber(tokens[3])
+            local dir = tokens[4] or ""
+            if from_id and to_id then
+                edges[#edges + 1] = {
+                    from = from_id,
+                    to = to_id,
+                    dir = dir,
+                    label = build_taxi_label(tokens)
+                }
+                has_routes = true
+            end
+        elseif code == "1300" then
+            local tokens = tokenize_line(line)
+            local lat = tonumber(tokens[2])
+            local lon = tonumber(tokens[3])
+            if lat and lon then
+                local heading = tonumber(tokens[4]) or 0
+                local ramp_type = tokens[5] or ""
+                local ramp_operation = ""
+                local name_start = 6
+                local op_token = tokens[6]
+                if op_token then
+                    local op = string.lower(op_token)
+                    if op == "airline" or op == "cargo" or op == "general_aviation" or op == "military" or op == "none" then
+                        ramp_operation = op
+                        name_start = 7
+                    end
+                end
+                local name = ""
+                if #tokens >= name_start then
+                    name = table.concat(tokens, " ", name_start)
+                end
+                local ramp = {
+                    lat = lat,
+                    lon = lon,
+                    heading = heading,
+                    ramp_type = ramp_type,
+                    ramp_operation = ramp_operation,
+                    name = name
+                }
+                ramps[#ramps + 1] = ramp
+                last_ramp = ramp
+            end
+        elseif code == "1301" then
+            if last_ramp then
+                local tokens = tokenize_line(line)
+                local size = tokens[2]
+                local op = tokens[3]
+                if size and size ~= "" then
+                    last_ramp.ramp_size = size
+                end
+                if op then
+                    local op_clean = string.lower(op)
+                    if op_clean == "airline" or op_clean == "cargo"
+                        or op_clean == "general_aviation" or op_clean == "military" or op_clean == "none" then
+                        last_ramp.ramp_operation = op_clean
+                    end
+                end
+            end
+        end
+    end
+    file:close()
+    finalize_poly()
+
+    local atc_routes = has_routes
+    local has_fallback = false
+    local route_source = "none"
+    if atc_routes and next(nodes) ~= nil then
+        route_source = "atc"
+    else
+        local f_nodes, f_edges = build_fallback_graph(fallback_polys)
+        if f_nodes and next(f_nodes) ~= nil then
+            nodes = f_nodes
+            edges = f_edges
+            has_fallback = true
+            route_source = "fallback"
+        end
+    end
+
+    local bounds = { minX = nil, maxX = nil, minY = nil, maxY = nil }
+    for _, poly in ipairs(fallback_polys) do
+        local pts = {}
+        for _, pt in ipairs(poly) do
+            if pt.lat and pt.lon then
+                local x, z = project_to_local(pt.lat, pt.lon)
+                pts[#pts + 1] = { east = x, north = -z }
+            end
+        end
+        if #pts >= 2 then
+            polygons[#polygons + 1] = { points = pts }
+        end
+    end
+    for _, node in pairs(nodes) do
+        local x, z = project_to_local(node.lat, node.lon)
+        node.x = x
+        node.z = z
+        node.east = x
+        node.north = -z
+        update_bounds(bounds, node.east, node.north)
+    end
+    for _, ramp in ipairs(ramps) do
+        local x, z = project_to_local(ramp.lat, ramp.lon)
+        ramp.x = x
+        ramp.z = z
+        ramp.east = x
+        ramp.north = -z
+        update_bounds(bounds, ramp.east, ramp.north)
+    end
+    for _, runway in ipairs(runways) do
+        local x1, z1 = project_to_local(runway.lat1, runway.lon1)
+        local x2, z2 = project_to_local(runway.lat2, runway.lon2)
+        runway.x1 = x1
+        runway.z1 = z1
+        runway.east1 = x1
+        runway.north1 = -z1
+        runway.x2 = x2
+        runway.z2 = z2
+        runway.east2 = x2
+        runway.north2 = -z2
+        update_bounds(bounds, runway.east1, runway.north1)
+        update_bounds(bounds, runway.east2, runway.north2)
+    end
+    for _, poly in ipairs(polygons) do
+        for _, pt in ipairs(poly.points or {}) do
+            update_bounds(bounds, pt.east or 0, pt.north or 0)
+        end
+    end
+
+    local runway_nodes = {}
+    for _, edge in ipairs(edges) do
+        if is_runway_label(edge.label) then
+            runway_nodes[edge.from] = true
+            runway_nodes[edge.to] = true
+        end
+    end
+
+    local edge_nodes = {}
+    for _, edge in ipairs(edges) do
+        if edge.from and edge.to then
+            edge_nodes[edge.from] = true
+            edge_nodes[edge.to] = true
+        end
+    end
+
+    local RAMP_LINK_MAX_METERS = 150
+    local ramp_links, ramp_links_far = add_ramp_links(nodes, ramps, runway_nodes, RAMP_LINK_MAX_METERS, edge_nodes)
+
+    local adjacency = {}
+    local adjacency_any = {}
+    for _, edge in ipairs(edges) do
+        local n1 = nodes[edge.from]
+        local n2 = nodes[edge.to]
+        if n1 and n2 then
+            local dx = (n2.x or 0) - (n1.x or 0)
+            local dz = (n2.z or 0) - (n1.z or 0)
+            local dist = math.sqrt(dx * dx + dz * dz)
+            adjacency[edge.from] = adjacency[edge.from] or {}
+            adjacency[edge.from][#adjacency[edge.from] + 1] = { to = edge.to, dist = dist, label = edge.label }
+            if edge.dir ~= "oneway" then
+                adjacency[edge.to] = adjacency[edge.to] or {}
+                adjacency[edge.to][#adjacency[edge.to] + 1] = { to = edge.from, dist = dist, label = edge.label }
+            end
+            adjacency_any[edge.from] = adjacency_any[edge.from] or {}
+            adjacency_any[edge.from][#adjacency_any[edge.from] + 1] = { to = edge.to, dist = dist, label = edge.label }
+            adjacency_any[edge.to] = adjacency_any[edge.to] or {}
+            adjacency_any[edge.to][#adjacency_any[edge.to] + 1] = { to = edge.from, dist = dist, label = edge.label }
+        end
+    end
+    for _, link in ipairs(ramp_links) do
+        local n1 = nodes[link.from]
+        local n2 = nodes[link.to]
+        if n1 and n2 then
+            local dx = (n2.x or 0) - (n1.x or 0)
+            local dz = (n2.z or 0) - (n1.z or 0)
+            local dist = math.sqrt(dx * dx + dz * dz)
+            adjacency[link.from] = adjacency[link.from] or {}
+            adjacency[link.from][#adjacency[link.from] + 1] = { to = link.to, dist = dist, label = "RAMP" }
+            adjacency[link.to] = adjacency[link.to] or {}
+            adjacency[link.to][#adjacency[link.to] + 1] = { to = link.from, dist = dist, label = "RAMP" }
+            adjacency_any[link.from] = adjacency_any[link.from] or {}
+            adjacency_any[link.from][#adjacency_any[link.from] + 1] = { to = link.to, dist = dist, label = "RAMP" }
+            adjacency_any[link.to] = adjacency_any[link.to] or {}
+            adjacency_any[link.to][#adjacency_any[link.to] + 1] = { to = link.from, dist = dist, label = "RAMP" }
+        end
+    end
+
+    local function clone_adjacency(src)
+        local dst = {}
+        for from, list in pairs(src or {}) do
+            local copy = {}
+            for i = 1, #list do
+                copy[i] = list[i]
+            end
+            dst[from] = copy
+        end
+        return dst
+    end
+
+    local adjacency_relaxed = clone_adjacency(adjacency)
+    local adjacency_any_relaxed = clone_adjacency(adjacency_any)
+    if ramp_links_far and #ramp_links_far > 0 then
+        for _, link in ipairs(ramp_links_far) do
+            local n1 = nodes[link.from]
+            local n2 = nodes[link.to]
+            if n1 and n2 then
+                local dx = (n2.x or 0) - (n1.x or 0)
+                local dz = (n2.z or 0) - (n1.z or 0)
+                local dist = math.sqrt(dx * dx + dz * dz)
+                adjacency_relaxed[link.from] = adjacency_relaxed[link.from] or {}
+                adjacency_relaxed[link.from][#adjacency_relaxed[link.from] + 1] = { to = link.to, dist = dist, label = "RAMP" }
+                adjacency_relaxed[link.to] = adjacency_relaxed[link.to] or {}
+                adjacency_relaxed[link.to][#adjacency_relaxed[link.to] + 1] = { to = link.from, dist = dist, label = "RAMP" }
+                adjacency_any_relaxed[link.from] = adjacency_any_relaxed[link.from] or {}
+                adjacency_any_relaxed[link.from][#adjacency_any_relaxed[link.from] + 1] = { to = link.to, dist = dist, label = "RAMP" }
+                adjacency_any_relaxed[link.to] = adjacency_any_relaxed[link.to] or {}
+                adjacency_any_relaxed[link.to][#adjacency_any_relaxed[link.to] + 1] = { to = link.from, dist = dist, label = "RAMP" }
+            end
+        end
+    end
+
+    local function has_links(adj, node_id)
+        local list = adj and adj[node_id]
+        return list and #list > 0
+    end
+
+    local function add_relaxed_link(from_id, to_id)
+        local n1 = nodes[from_id]
+        local n2 = nodes[to_id]
+        if not n1 or not n2 then
+            return
+        end
+        local dx = (n2.x or 0) - (n1.x or 0)
+        local dz = (n2.z or 0) - (n1.z or 0)
+        local dist = math.sqrt(dx * dx + dz * dz)
+        adjacency_relaxed[from_id] = adjacency_relaxed[from_id] or {}
+        adjacency_relaxed[from_id][#adjacency_relaxed[from_id] + 1] = { to = to_id, dist = dist, label = "RAMP" }
+        adjacency_relaxed[to_id] = adjacency_relaxed[to_id] or {}
+        adjacency_relaxed[to_id][#adjacency_relaxed[to_id] + 1] = { to = from_id, dist = dist, label = "RAMP" }
+        adjacency_any_relaxed[from_id] = adjacency_any_relaxed[from_id] or {}
+        adjacency_any_relaxed[from_id][#adjacency_any_relaxed[from_id] + 1] = { to = to_id, dist = dist, label = "RAMP" }
+        adjacency_any_relaxed[to_id] = adjacency_any_relaxed[to_id] or {}
+        adjacency_any_relaxed[to_id][#adjacency_any_relaxed[to_id] + 1] = { to = from_id, dist = dist, label = "RAMP" }
+    end
+
+    local ramp_nodes = {}
+    for id, node in pairs(nodes) do
+        if node and node.is_ramp then
+            ramp_nodes[#ramp_nodes + 1] = id
+        end
+    end
+    if #ramp_nodes > 0 then
+        local connected_nodes = {}
+        for id, _ in pairs(adjacency_relaxed) do
+            if has_links(adjacency_relaxed, id) then
+                connected_nodes[#connected_nodes + 1] = id
+            end
+        end
+        for _, rid in ipairs(ramp_nodes) do
+            if not has_links(adjacency_relaxed, rid) then
+                local rnode = nodes[rid]
+                local best_id = nil
+                local best_d2 = nil
+                if rnode and rnode.x and rnode.z then
+                    for _, cid in ipairs(connected_nodes) do
+                        if cid ~= rid then
+                            local cnode = nodes[cid]
+                            if cnode and cnode.x and cnode.z then
+                                local dx = cnode.x - rnode.x
+                                local dz = cnode.z - rnode.z
+                                local d2 = dx * dx + dz * dz
+                                if not best_d2 or d2 < best_d2 then
+                                    best_d2 = d2
+                                    best_id = cid
+                                end
+                            end
+                        end
+                    end
+                end
+                if best_id then
+                    add_relaxed_link(rid, best_id)
+                end
+            end
+        end
+    end
+
+    return {
+        nodes = nodes,
+        edges = edges,
+        ramps = ramps,
+        runways = runways,
+        polygons = polygons,
+        bounds = bounds,
+        adjacency = adjacency,
+        adjacency_any = adjacency_any,
+        adjacency_relaxed = adjacency_relaxed,
+        adjacency_any_relaxed = adjacency_any_relaxed,
+        runway_nodes = runway_nodes,
+        has_routes = atc_routes,
+        has_fallback = has_fallback,
+        route_source = route_source,
+        can_route = (atc_routes or has_fallback),
+        route_cache = {}
+    }
+end
+
+local function find_nearest_node(data, lat, lon, avoid_runway)
+    if not data or not data.nodes or not lat or not lon then
+        return nil
+    end
+    local x, z = project_to_local(lat, lon)
+    local best_id = nil
+    local best_dist = nil
+    local found_non_runway = false
+    for id, node in pairs(data.nodes) do
+        if avoid_runway and data.runway_nodes and data.runway_nodes[id] then
+            goto continue
+        end
+        if node.x and node.z then
+            local dx = node.x - x
+            local dz = node.z - z
+            local d2 = dx * dx + dz * dz
+            if not best_dist or d2 < best_dist then
+                best_dist = d2
+                best_id = id
+            end
+            found_non_runway = true
+        end
+        ::continue::
+    end
+    if avoid_runway and not best_id and not found_non_runway then
+        return find_nearest_node(data, lat, lon, false)
+    end
+    return best_id
+end
+
+local function ramp_name_has_excluded(text)
+    if not text or text == "" then
+        return false
+    end
+    local cleaned = string.lower(text)
+    cleaned = string.gsub(cleaned, "[^%w]+", " ")
+    if string.find(cleaned, "class b", 1, true) then
+        return true
+    end
+    if string.find(cleaned, "cargo", 1, true) or string.find(cleaned, "freight", 1, true) then
+        return true
+    end
+    for token in string.gmatch(cleaned, "%S+") do
+        if token == "cargo" or token == "freight" or token == "mil" or token == "military"
+            or token == "ga" or token == "hangar" or token == "heli" or token == "helipad" then
+            return true
+        end
+    end
+    return false
+end
+
+function P.isRampSuitableFor738(ramp)
+    if not ramp then
+        return false
+    end
+    local rtype = string.lower(tostring(ramp.ramp_type or ""))
+    if rtype == "tie-down" or rtype == "tiedown" or rtype == "hangar" then
+        return false
+    end
+    if string.find(rtype, "cargo", 1, true) or string.find(rtype, "freight", 1, true) then
+        return false
+    end
+    if rtype ~= "gate" and rtype ~= "misc" then
+        return false
+    end
+    local op = string.lower(tostring(ramp.ramp_operation or ""))
+    if op == "cargo" or op == "general_aviation" or op == "military" then
+        return false
+    end
+    if ramp_name_has_excluded(ramp.name) then
+        return false
+    end
+    return true
+end
+
+local function find_nearest_ramp(data, lat, lon, filter_fn)
+    if not data or not data.ramps or not lat or not lon then
+        return nil
+    end
+    local x, z = project_to_local(lat, lon)
+    local best = nil
+    local best_dist = nil
+    for _, ramp in ipairs(data.ramps) do
+        if ramp.x and ramp.z then
+            if filter_fn and not filter_fn(ramp) then
+                goto continue
+            end
+            local dx = ramp.x - x
+            local dz = ramp.z - z
+            local d2 = dx * dx + dz * dz
+            if not best_dist or d2 < best_dist then
+                best_dist = d2
+                best = ramp
+            end
+        end
+        ::continue::
+    end
+    return best, best_dist
+end
+
+local function astar_route(data, start_id, goal_id, opts)
+    if not data or not data.adjacency then
+        return nil
+    end
+    local adjacency = data.adjacency
+    local runway_nodes = data.runway_nodes
+    if opts and opts.allow_far_ramp and data.adjacency_relaxed then
+        adjacency = data.adjacency_relaxed
+    end
+    if opts and opts.ignore_oneway then
+        if opts.allow_far_ramp and data.adjacency_any_relaxed then
+            adjacency = data.adjacency_any_relaxed
+        elseif data.adjacency_any then
+            adjacency = data.adjacency_any
+        end
+    end
+    if start_id == goal_id then
+        return { start_id }
+    end
+    local nodes = data.nodes
+    local open = { start_id }
+    local open_set = { [start_id] = true }
+    local came = {}
+    local g = { [start_id] = 0 }
+    local f = {}
+
+    local function heuristic(a, b)
+        local na = nodes[a]
+        local nb = nodes[b]
+        if not na or not nb then return 0 end
+        local dx = (na.x or 0) - (nb.x or 0)
+        local dz = (na.z or 0) - (nb.z or 0)
+        return math.sqrt(dx * dx + dz * dz)
+    end
+
+    f[start_id] = heuristic(start_id, goal_id)
+
+    while #open > 0 do
+        local current_idx = 1
+        local current = open[1]
+        local best_f = f[current] or math.huge
+        for i = 2, #open do
+            local node_id = open[i]
+            local score = f[node_id] or math.huge
+            if score < best_f then
+                best_f = score
+                current = node_id
+                current_idx = i
+            end
+        end
+
+        if current == goal_id then
+            local path = { current }
+            while came[current] do
+                current = came[current]
+                table.insert(path, 1, current)
+            end
+            return path
+        end
+
+        table.remove(open, current_idx)
+        open_set[current] = nil
+
+        local neighbors = adjacency[current] or {}
+        for _, edge in ipairs(neighbors) do
+            if opts and opts.disallow_runway_edges and is_runway_label(edge.label) then
+                goto continue
+            end
+            if opts and opts.avoid_runway_nodes and runway_nodes and runway_nodes[edge.to] and edge.to ~= goal_id then
+                goto continue
+            end
+            local edge_cost = edge.dist or 0
+            if opts and opts.runway_penalty and is_runway_label(edge.label) then
+                edge_cost = edge_cost * opts.runway_penalty
+            end
+            local tentative = (g[current] or math.huge) + edge_cost
+            if tentative < (g[edge.to] or math.huge) then
+                came[edge.to] = current
+                g[edge.to] = tentative
+                f[edge.to] = tentative + heuristic(edge.to, goal_id)
+                if not open_set[edge.to] then
+                    open[#open + 1] = edge.to
+                    open_set[edge.to] = true
+                end
+            end
+            ::continue::
+        end
+    end
+    return nil
+end
+
+function P.getTaxiData(icao)
+    local code = trim_ascii(tostring(icao or ""))
+    code = string.upper(code)
+    if code == "" then
+        return nil, "invalid-icao"
+    end
+    local entry, err = P.findAptDatForIcao(code)
+    if not entry then
+        return nil, err or "apt-not-found"
+    end
+    local data, perr = parse_taxi_data(entry)
+    if not data then
+        return nil, perr or "parse-failed"
+    end
+    data.entry = entry
+    return data
+end
+
+function P.getTaxiRoute(icao, start_lat, start_lon, end_lat, end_lon, opts)
+    local data = opts and opts.data or nil
+    local err = nil
+    if not data then
+        data, err = P.getTaxiData(icao)
+    end
+    if not data then
+        return nil, err
+    end
+    if not data.can_route then
+        return nil, "no-routes"
+    end
+    local avoid_start = opts and opts.avoid_runway_start
+    local avoid_end = opts and opts.avoid_runway_end
+    local start_id = opts and opts.start_node_id or nil
+    local end_id = opts and opts.end_node_id or nil
+    if start_id and (not data.nodes or not data.nodes[start_id]) then
+        start_id = nil
+    end
+    if end_id and (not data.nodes or not data.nodes[end_id]) then
+        end_id = nil
+    end
+    if not start_id then
+        start_id = find_nearest_node(data, start_lat, start_lon, avoid_start)
+    end
+    if not end_id then
+        end_id = find_nearest_node(data, end_lat, end_lon, avoid_end)
+    end
+    if not start_id or not end_id then
+        return nil, "no-nodes"
+    end
+    local key = tostring(start_id) .. "->" .. tostring(end_id)
+    if opts and opts.runway_penalty then
+        key = key .. "|rp=" .. tostring(opts.runway_penalty)
+    end
+    if opts and opts.ignore_oneway then
+        key = key .. "|io=1"
+    end
+    if opts and opts.allow_far_ramp then
+        key = key .. "|far=1"
+    end
+    if opts and opts.start_node_id then
+        key = key .. "|sn=" .. tostring(opts.start_node_id)
+    end
+    if opts and opts.end_node_id then
+        key = key .. "|en=" .. tostring(opts.end_node_id)
+    end
+    if data.route_cache[key] then
+        return data.route_cache[key]
+    end
+    local path = astar_route(data, start_id, end_id, opts)
+    if not path then
+        return nil, "no-path"
+    end
+    local bounds = { minX = nil, maxX = nil, minY = nil, maxY = nil }
+    for _, node_id in ipairs(path) do
+        local node = data.nodes[node_id]
+        if node then
+            update_bounds(bounds, node.east or 0, node.north or 0)
+        end
+    end
+    local route = {
+        data = data,
+        start_id = start_id,
+        end_id = end_id,
+        path = path,
+        bounds = bounds
+    }
+    data.route_cache[key] = route
+    return route
+end
+
+function P.getNearestRamp(icao, lat, lon, opts)
+    local data = opts and opts.data or nil
+    local err = nil
+    if not data then
+        data, err = P.getTaxiData(icao)
+    end
+    if not data then
+        return nil, err
+    end
+    local filter_fn = opts and opts.filter
+    return find_nearest_ramp(data, lat, lon, filter_fn)
+end
+
+local function split_kv_tab(line)
+    if not line then
+        return nil, nil
+    end
+    local tab = string.find(line, "\t", 1, true)
+    if not tab then
+        return line, ""
+    end
+    local key = string.sub(line, 1, tab - 1)
+    local value = string.sub(line, tab + 1)
+    return key, value
+end
+
+local function split_tabs(line, max_parts)
+    local parts = {}
+    if not line then
+        return parts
+    end
+    local start = 1
+    local line_len = string.len(line)
+    while start <= line_len do
+        local tab = string.find(line, "\t", start, true)
+        if not tab then
+            parts[#parts + 1] = string.sub(line, start)
+            break
+        end
+        parts[#parts + 1] = string.sub(line, start, tab - 1)
+        start = tab + 1
+        if max_parts and #parts >= (max_parts - 1) then
+            parts[#parts + 1] = string.sub(line, start)
+            break
+        end
+    end
+    if #parts == 0 then
+        parts[1] = ""
+    end
+    return parts
+end
+
+local function global_meta_key(meta)
+    if not meta then
+        return ""
+    end
+    return tostring(meta.path or "") .. "|" .. tostring(meta.size or 0) .. "|" .. tostring(meta.fingerprint or "-")
+end
+
+local function compute_global_meta()
+    local path = global_apt_path()
+    if not P.file_exists_v2(path) then
+        return nil
+    end
+    local size = get_file_size(path) or 0
+    local mtime = get_file_mtime(path)
+    local fingerprint = compute_file_fingerprint(path, size, GLOBAL_APT_FINGERPRINT_BYTES)
+    return {
+        path = path,
+        size = size,
+        mtime = mtime,
+        fingerprint = fingerprint,
+        checked_at = os.time()
+    }
+end
+
+local function get_global_meta(force)
+    local now = os.time()
+    local meta = P.global_apt_meta
+    if not force and P.global_apt_index_job and meta then
+        return meta
+    end
+    if not force and meta and meta.checked_at and (now - meta.checked_at) < GLOBAL_APT_META_REFRESH_SEC then
+        return meta
+    end
+    meta = compute_global_meta()
+    P.global_apt_meta = meta
+    return meta
+end
+
+local function meta_matches(idx_meta, cur_meta)
+    if not idx_meta or not cur_meta then
+        return false
+    end
+    if idx_meta.path ~= cur_meta.path then
+        return false
+    end
+    if (idx_meta.size or 0) ~= (cur_meta.size or 0) then
+        return false
+    end
+    if idx_meta.fingerprint and cur_meta.fingerprint then
+        return idx_meta.fingerprint == cur_meta.fingerprint
+    end
+    if idx_meta.mtime and cur_meta.mtime then
+        return idx_meta.mtime == cur_meta.mtime
+    end
+    return true
+end
+
+local function load_global_index(meta)
+    local file = io.open(GLOBAL_APT_INDEX_FILE, "r")
+    if not file then
+        return nil
+    end
+    local line1 = file:read("*l")
+    local tag, version_str = split_kv_tab(line1)
+    if tag ~= "YALAPTIDX" or tonumber(version_str) ~= GLOBAL_APT_INDEX_VERSION then
+        file:close()
+        return nil
+    end
+
+    local idx_meta = { path = nil, size = nil, mtime = nil, fingerprint = nil }
+    while true do
+        local line = file:read("*l")
+        if not line then
+            file:close()
+            return nil
+        end
+        if line == "DATA" then
+            break
+        end
+        local key, value = split_kv_tab(line)
+        if key == "PATH" then
+            idx_meta.path = value
+        elseif key == "SIZE" then
+            idx_meta.size = tonumber(value) or 0
+        elseif key == "MTIME" then
+            if value ~= "-" and value ~= "" then
+                idx_meta.mtime = tonumber(value)
+            end
+        elseif key == "FINGERPRINT" then
+            if value ~= "" and value ~= "-" then
+                idx_meta.fingerprint = value
+            end
+        end
+    end
+
+    if not meta_matches(idx_meta, meta) then
+        file:close()
+        return nil
+    end
+
+    local entries = {}
+    while true do
+        local line = file:read("*l")
+        if not line then
+            break
+        end
+        local parts = split_tabs(line, 4)
+        local icao = parts[1]
+        if icao and icao ~= "" then
+            entries[icao] = {
+                path = meta.path,
+                offset = tonumber(parts[2]) or 0,
+                length = tonumber(parts[3]) or 0,
+                size = meta.size,
+                has_routes = tonumber(parts[4]) == 1,
+                source = "global-index"
+            }
+        end
+    end
+    file:close()
+    return entries
+end
+
+local function write_global_index(meta, entries)
+    if not meta or not entries then
+        return false
+    end
+    P.check_create_path(def.PLUGINOUTPUTPATH)
+    local file = io.open(GLOBAL_APT_INDEX_FILE, "w")
+    if not file then
+        sasl.logWarning("Taxi: failed to write global apt index: " .. tostring(GLOBAL_APT_INDEX_FILE))
+        return false
+    end
+    file:write("YALAPTIDX\t", tostring(GLOBAL_APT_INDEX_VERSION), "\n")
+    file:write("PATH\t", tostring(meta.path or ""), "\n")
+    file:write("MTIME\t", meta.mtime and tostring(meta.mtime) or "-", "\n")
+    file:write("SIZE\t", tostring(meta.size or 0), "\n")
+    file:write("FINGERPRINT\t", meta.fingerprint and tostring(meta.fingerprint) or "-", "\n")
+    file:write("DATA\n")
+
+    for icao, entry in pairs(entries) do
+        if icao and entry and entry.offset then
+            local has_routes = entry.has_routes and 1 or 0
+            file:write(tostring(icao), "\t", tostring(entry.offset or 0), "\t", tostring(entry.length or 0), "\t", tostring(has_routes), "\n")
+        end
+    end
+    file:close()
+    return true
+end
+
+local function close_global_job(job)
+    if job and job.file then
+        pcall(function()
+            job.file:close()
+        end)
+    end
+end
+
+local function finalize_job_airport(job, block_end)
+    if not job or not job.current_icao or not job.current_offset then
+        return
+    end
+    local length = (block_end or 0) - job.current_offset
+    if length < 0 then
+        length = 0
+    end
+    job.entries[job.current_icao] = {
+        path = job.meta.path,
+        offset = job.current_offset,
+        length = length,
+        size = job.meta.size,
+        has_routes = job.current_has_routes,
+        source = "global-index"
+    }
+end
+
+local function start_global_index_job(meta, reason)
+    close_global_job(P.global_apt_index_job)
+    local file = io.open(meta.path, "r")
+    if not file then
+        sasl.logWarning("Taxi: cannot open global apt.dat for indexing: " .. tostring(meta.path))
+        return false
+    end
+    P.global_apt_index = {}
+    P.global_apt_index_meta = meta
+    P.global_apt_index_key = global_meta_key(meta)
+    P.global_apt_index_ready = false
+    P.global_apt_index_job = {
+        file = file,
+        meta = meta,
+        entries = P.global_apt_index,
+        current_icao = nil,
+        current_offset = nil,
+        current_has_routes = false,
+        lines = 0,
+        last_log_time = os.time(),
+        reason = reason or "startup"
+    }
+    helpers.logInfoTS("Global Airports Taxidata Table build started (" .. tostring(P.global_apt_index_job.reason) .. ")")
+    return true
+end
+
+local function step_global_index_job(job, max_lines, max_sec)
+    if not job or not job.file then
+        return true
+    end
+    local lines_budget = max_lines or GLOBAL_APT_INDEX_STEP_LINES
+    local sec_budget = max_sec or GLOBAL_APT_INDEX_STEP_SEC
+    local size = job.meta and job.meta.size or 0
+    local lines = 0
+    if sec_budget and sec_budget > 0 then
+        if not P.global_index_timer then
+            P.global_index_timer = sasl.createTimer()
+        end
+        sasl.startTimer(P.global_index_timer)
+    end
+
+    while lines < lines_budget do
+        local pos = job.file:seek()
+        if not pos then
+            return true
+        end
+        local line = job.file:read("*l")
+        if not line then
+            local end_size = size
+            if end_size <= 0 then
+                end_size = get_file_size(job.meta.path) or 0
+            end
+            finalize_job_airport(job, end_size)
+            return true
+        end
+        lines = lines + 1
+        job.lines = job.lines + 1
+
+        local header_icao = parse_airport_header_icao(line)
+        if header_icao then
+            header_icao = string.upper(header_icao)
+            if job.current_icao and job.current_offset then
+                finalize_job_airport(job, pos)
+            end
+            job.current_icao = header_icao
+            job.current_offset = pos
+            job.current_has_routes = false
+        elseif job.current_icao then
+            local code = next_token(line, 1)
+            if code == "1201" or code == "1202" then
+                job.current_has_routes = true
+            end
+        end
+
+        if (lines % 50 == 0) then
+            local now_pos = job.file:seek() or pos
+            if job.last_pos and now_pos <= job.last_pos then
+                job.stall_count = (job.stall_count or 0) + 1
+            else
+                job.stall_count = 0
+            end
+            job.last_pos = now_pos
+
+            -- Guard against pathological no-progress loops near EOF.
+            if size > 0 then
+                local near_end = (now_pos / size) >= 0.9995
+                if near_end and (job.stall_count or 0) >= 5 then
+                    finalize_job_airport(job, size)
+                    return true
+                end
+            end
+
+            if sec_budget and sec_budget > 0 then
+                local elapsed = sasl.getElapsedSeconds(P.global_index_timer) or 0
+                if elapsed >= sec_budget then
+                    break
+                end
+            end
+        end
+    end
+
+    local now = os.time()
+    if now and job.last_log_time and (now - job.last_log_time) >= 5 then
+        job.last_log_time = now
+        local bytes = job.file:seek() or 0
+        if size > 0 then
+            local pct = math.floor((bytes / size) * 100)
+            helpers.logInfoTS("Global Airports Taxidata Table indexing " .. tostring(pct) .. "%% (" .. tostring(job.lines) .. " lines)")
+        else
+            helpers.logInfoTS("Global Airports Taxidata Table indexing lines " .. tostring(job.lines))
+        end
+    end
+
+    return false
+end
+
+local function finalize_global_index_job(job)
+    if not job then
+        return
+    end
+    close_global_job(job)
+    P.global_apt_index_job = nil
+    P.global_apt_index_ready = true
+    write_global_index(P.global_apt_index_meta, P.global_apt_index)
+    helpers.logInfoTS(
+        "Global Airports Taxidata Table ready, "
+            .. tostring(P.getTableSize(P.global_apt_index or {}))
+            .. " entries (" .. tostring(job.lines or 0) .. " lines)"
+    )
+end
+
+local function ensure_global_index(reason)
+    local meta = get_global_meta(false)
+    if not meta then
+        return nil, "global-apt-missing"
+    end
+    local key = global_meta_key(meta)
+    if key ~= (P.global_apt_index_key or "") then
+        close_global_job(P.global_apt_index_job)
+        P.global_apt_index_job = nil
+        P.global_apt_index = {}
+        P.global_apt_index_ready = false
+        P.global_apt_index_key = key
+        P.global_apt_index_meta = meta
+    end
+    if P.global_apt_index_ready and P.global_apt_index and next(P.global_apt_index) ~= nil then
+        return meta, nil
+    end
+    if (not P.global_apt_index_job) and (not P.global_apt_index_ready) then
+        local loaded = load_global_index(meta)
+        if loaded and next(loaded) ~= nil then
+            P.global_apt_index = loaded
+            P.global_apt_index_meta = meta
+            P.global_apt_index_ready = true
+            helpers.logInfoTS(
+                "Global Airports Taxidata Table loaded from cache, "
+                    .. tostring(P.getTableSize(P.global_apt_index or {}))
+                    .. " entries"
+            )
+            return meta, nil
+        end
+        local started = start_global_index_job(meta, reason)
+        if not started then
+            return nil, "global-index-start-failed"
+        end
+    end
+    return meta, "global-index-pending"
+end
+
+function P.requestGlobalAptIndex(reason)
+    local _, err = ensure_global_index(reason or "request")
+    return err == nil
+end
+
+function P.updateGlobalAptIndex(step_lines, fast_mode)
+    local job = P.global_apt_index_job
+    if not job then
+        return
+    end
+    local done = false
+    if fast_mode and not job.fast_attempted then
+        job.fast_attempted = true
+        helpers.logInfoTS("Global Airports Taxidata Table fast build started")
+        done = step_global_index_job(job, GLOBAL_APT_INDEX_FAST_LINES, nil)
+    else
+        done = step_global_index_job(job, step_lines, GLOBAL_APT_INDEX_STEP_SEC)
+    end
+    if done then
+        finalize_global_index_job(job)
+    end
+end
+
+function P.isGlobalAptIndexReady()
+    return P.global_apt_index_ready == true and P.global_apt_index and next(P.global_apt_index) ~= nil
+end
+
+function P.isGlobalAptIndexRunning()
+    return P.global_apt_index_job ~= nil
+end
+
+local function get_global_index_entry(icao, reason)
+    local meta, err = ensure_global_index(reason or "demand")
+    if not meta then
+        return nil, err
+    end
+    local entry = P.global_apt_index and P.global_apt_index[icao] or nil
+    if entry then
+        return entry
+    end
+    if err == "global-index-pending" then
+        return nil, err
+    end
+    return nil, "not-found"
+end
+
+local function scan_addon_for_icao(code)
+    local paths, cache_key = get_addon_apt_paths()
+    local cached = P.addon_apt_cache and P.addon_apt_cache[code] or nil
+    if cached and cached.key == cache_key then
+        return cached.entry
+    end
+    local best = nil
+    for _, apt_path in ipairs(paths) do
+        local entry = scan_apt_for_icao(apt_path, code)
+        if entry then
+            if entry.has_routes then
+                best = entry
+                break
+            end
+            if not best then
+                best = entry
+            end
+        end
+    end
+    P.addon_apt_cache[code] = { key = cache_key, entry = best }
+    return best
+end
+
+function P.findAptDatForIcao(icao)
+    local code = trim_ascii(tostring(icao or ""))
+    code = string.upper(code)
+    if code == "" then
+        return nil, "invalid-icao"
+    end
+
+    local addon_entry = scan_addon_for_icao(code)
+    if addon_entry and addon_entry.has_routes then
+        return addon_entry
+    end
+
+    local global_entry, gerr = get_global_index_entry(code, "find-icao")
+    if global_entry and global_entry.has_routes then
+        return global_entry
+    end
+
+    if gerr == "global-index-pending" and (not addon_entry or not addon_entry.has_routes) then
+        return nil, gerr
+    end
+
+    if addon_entry then
+        return addon_entry
+    end
+    if global_entry then
+        return global_entry
+    end
+    return nil, gerr or "not-found"
+end
+
+function P.clearTaxiIndexCache()
+    close_global_job(P.global_apt_index_job)
+    P.global_apt_index_job = nil
+    P.global_apt_index = {}
+    P.global_apt_index_ready = false
+    P.addon_apt_cache = {}
+    if P.global_index_timer then
+        sasl.stopTimer(P.global_index_timer)
+        P.global_index_timer = nil
+    end
 end
 
 --------------------------------------------------------------------------------------------------------------

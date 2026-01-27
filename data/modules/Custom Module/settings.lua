@@ -68,6 +68,10 @@ local settingsDefinition = {
     [def.CONFIGJITLUAON] = { dvalue = 0 , type = "number", min = 0, max = 1 },
     [def.CONFIGZIBOISMODDED] = { dvalue = 0 , type = "number", min = 0, max = 1 },
     [def.CONFIGDEBUGOVERLAY] = { dvalue = 0 , type = "number", min = 0, max = 1 },
+    [def.CONFIGTAXIMAPORIENT] = { dvalue = 0 , type = "number", min = 0, max = 1 },
+    [def.CONFIGTAXIMAPFONTSIZE] = { dvalue = 12 , type = "number", min = 8, max = 24 },
+    [def.CONFIGTAXIMAPZOOM] = { dvalue = 1.0 , type = "number", min = 0.2, max = 5 },
+    [def.CONFIGAUTOTAXIGUIDANCE] = { dvalue = 0 , type = "number", min = 0, max = 1 },
 
 }   
 

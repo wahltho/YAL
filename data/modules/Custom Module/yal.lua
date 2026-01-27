@@ -1013,6 +1013,9 @@ function P.initializeScript()
 
     helpers.buildnavdatatable(P.navdatatable)
     helpers.buildairportdatatable(P.airportdatatable)
+    if P.configvalues[def.CONFIGAUTOTAXIGUIDANCE] == def.ON then
+        helpers.requestGlobalAptIndex("startup")
+    end
     P.zibocalctable = helpers.loadZiboReferenceTables() or {}
     if (sasl.getLogLevel() == LOG_DEBUG) then
         helpers.writenavdatatable(P.navdatatable)

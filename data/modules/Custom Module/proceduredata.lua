@@ -3154,15 +3154,10 @@ function M.fillProcedureTable()
                     end,
                     confirm = function()
                         local current = get(P.autobrakepos)
-                        local autobrake = current
                         if current <= def.AUTOBRAKEOFF then
                             return false
                         end
-                        if P.configvalues[def.CONFIGCUSTOMAPPROACHCALC] == def.ON then
-                            autobrake = helpers.calcautobrake(get(P.vref), get(P.totalweightkgs), get(P.desrwylen), P.desmetar, true)
-                            if autobrake <= def.AUTOBRAKEOFF then autobrake = current end
-                        end
-                        if (autobrake < def.AUTOBRAKEMAX) then return "Auto Brake checked and " .. tostring(autobrake - 1)
+                        if (current < def.AUTOBRAKEMAX) then return "Auto Brake checked " .. tostring(current - 1)
                         else return "Auto Brake checked Maximum" end
                     end,
                     nextStep = 'speak_des_metar_2'

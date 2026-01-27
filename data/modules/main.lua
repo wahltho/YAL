@@ -7,6 +7,10 @@ local debugOverlayWindow
 local debugOverlayInitialized = false
 local setupWindow
 local setupInitialized = false
+local taxiWindow
+local taxiInitialized = false
+local menu_taxi = nil
+local taxiGateLastLogTime = 0
 
 local function maybeInitDebugOverlay()
     if debugOverlayInitialized then return end
@@ -106,6 +110,28 @@ end
 include "keyboard_handler"
 local menu_settings = nil
 
+local function taxi_map_allowed()
+    local cfg = yal and yal.configvalues or nil
+    if not cfg or cfg[def.CONFIGAUTOTAXIGUIDANCE] ~= def.ON then
+        local now = os.time()
+        if now and (now - (taxiGateLastLogTime or 0)) >= 3 then
+            taxiGateLastLogTime = now
+            helpers.logInfoTS("Taxi map locked: enable Auto Taxi Guidance first.")
+        end
+        return false
+    end
+    if not helpers.isGlobalAptIndexReady() then
+        helpers.requestGlobalAptIndex("taxi-gate")
+        local now = os.time()
+        if now and (now - (taxiGateLastLogTime or 0)) >= 3 then
+            taxiGateLastLogTime = now
+            helpers.logInfoTS("Taxi map locked: indexing global apt.dat...")
+        end
+        return false
+    end
+    return true
+end
+
 local function maybeInitSetupWindow()
     -- If already initialized but menu not added yet, try to add it now.
     if setupInitialized then
@@ -188,6 +214,92 @@ local function maybeInitSetupWindow()
     helpers.logInfoTS("Settings window initialized")
 end
 
+local function maybeInitTaxiWindow()
+    if taxiInitialized then
+        if not menu_taxi and yal.menu_main then
+            local function toggleTaxi()
+                if taxiWindow then
+                    local target = not taxiWindow:isVisible()
+                    if target and not taxi_map_allowed() then
+                        return
+                    end
+                    taxiWindow:setIsVisible(target)
+                end
+            end
+            menu_taxi = sasl.appendMenuItem(yal.menu_main, "Taxi Map", toggleTaxi)
+        end
+        return
+    end
+
+    local ok, modOrErr = pcall(require, "windows.taxi")
+    if not ok then
+        sasl.logWarning("Taxi map window failed to load: " .. tostring(modOrErr))
+        taxiInitialized = true
+        return
+    end
+
+    local mod = modOrErr
+    if not mod or not mod.newComponent then
+        taxiInitialized = true
+        sasl.logWarning("Taxi map module missing newComponent.")
+        return
+    end
+
+    local comp = mod.newComponent({ yal = yal, def = def, helpers = helpers })
+    local w, h = mod.windowSize()
+    local xRoot, yRoot, wRoot, hRoot = sasl.windows.getMonitorBoundsOS(0)
+    local posX = xRoot + math.max(0, (wRoot - w) / 2)
+    local posY = yRoot + math.max(0, (hRoot - h) / 2)
+
+    taxiWindow = contextWindow {
+        name = "YAL Taxi Map",
+        position = { posX, posY, w, h },
+        saveState = true,
+        visible = false,
+        noResize = false,
+        vrAuto = true,
+        noBackground = true,
+        noDecore = true,
+        proportional = false,
+        resizeCallback = function(c, rw, rh, _, _)
+            if c and c.position then set(c.position, {0, 0, rw, rh}) end
+            if c and c.size then c.size = {rw, rh} end
+            return 0, 0, rw, rh
+        end,
+        components = { comp }
+    }
+
+    if comp.setWindow then
+        comp:setWindow(taxiWindow)
+    end
+
+    local function toggleTaxi()
+        if taxiWindow then
+            local target = not taxiWindow:isVisible()
+            if target and not taxi_map_allowed() then
+                return
+            end
+            taxiWindow:setIsVisible(target)
+        end
+    end
+
+    local cmdPath = def.APPNAMEPREFIX .. "/toggle_taxi_map"
+    local cmd = sasl.createCommand(cmdPath, "Toggle YAL Taxi Map")
+    sasl.registerCommandHandler(cmd, 0, function(phase)
+        if phase == SASL_COMMAND_BEGIN then
+            toggleTaxi()
+        end
+        return 0
+    end)
+
+    if yal.menu_main and not menu_taxi then
+        menu_taxi = sasl.appendMenuItem(yal.menu_main, "Taxi Map", toggleTaxi)
+    end
+
+    taxiInitialized = true
+    helpers.logInfoTS("Taxi map window initialized")
+end
+
 -- ensure setup window (and its command/menu) is constructed early
 maybeInitSetupWindow()
 
@@ -205,10 +317,26 @@ function show_hide_setup()
     end
 end
 
+function show_hide_taxi_map()
+    if not helpers.isZibo() then
+        helpers.logInfoTS("Taxi map is only available for Zibo Mod. Current aircraft is not Zibo.")
+        return
+    end
+    maybeInitTaxiWindow()
+    if taxiWindow then
+        local target = not taxiWindow:isVisible()
+        if target and not taxi_map_allowed() then
+            return
+        end
+        taxiWindow:setIsVisible(target)
+    end
+end
+
 if helpers.isZibo() then
     helpers.logInfoTS("Zibo Mod detected on initial plugin load")
     yal.enableMenus(def.ON)
     maybeInitSetupWindow()
+    maybeInitTaxiWindow()
     if menu_settings then sasl.enableMenuItem(yal.menu_main , menu_settings , def.ON) end
     yal.initializeScript()
     maybeInitDebugOverlay()
@@ -220,6 +348,7 @@ else
     yal.enableMenus(def.OFF)
     sasl.stopTimer(oneSecTimer)
     if setupWindow then setupWindow:setIsVisible(false) end
+    if taxiWindow then taxiWindow:setIsVisible(false) end
 end
 
 function onAirportLoaded(flightNumber)
@@ -229,6 +358,7 @@ function onAirportLoaded(flightNumber)
         helpers.logInfoTS("Zibo Mod detected after airport load.")
         yal.enableMenus(def.ON)  
         maybeInitSetupWindow()
+        maybeInitTaxiWindow()
         if menu_settings then sasl.enableMenuItem(yal.menu_main , menu_settings , def.ON) end
         yal.initializeScript()
         maybeInitDebugOverlay()
@@ -240,12 +370,21 @@ function onAirportLoaded(flightNumber)
         sasl.stopTimer(oneSecTimer)
         yal.enableMenus(def.OFF)  
         if setupWindow then setupWindow:setIsVisible(false) end
+        if taxiWindow then taxiWindow:setIsVisible(false) end
     end
 end
 
 function update()
     if helpers.isZibo() then
         maybeInitDebugOverlay()
+        local canIndexTaxi = false
+        if yal and yal.flightstate ~= nil and yal.airgroundsensor then
+            local onGround = (get(yal.airgroundsensor) == def.ON)
+            canIndexTaxi = (yal.flightstate == def.FLIGHTSTATEPREFLIGHT) and onGround
+        end
+        if canIndexTaxi then
+            helpers.updateGlobalAptIndex(nil, false)
+        end
         local current_elapsed_time = sasl.getElapsedSeconds(oneSecTimer)
 
         if current_elapsed_time >= waitstep then
