@@ -836,7 +836,10 @@ function P.cleanstring(str)
     local result = ""
     for i = 1, #str do
         local char = string.sub(str, i, i)
-        if string.match(char, "%a") or string.match(char, "%d") then
+        local b = string.byte(char, 1)
+        local is_digit = (b and b >= 48 and b <= 57)
+        local is_alpha = (b and ((b >= 65 and b <= 90) or (b >= 97 and b <= 122)))
+        if is_alpha or is_digit then
             result = result .. char
         end
     end
@@ -922,10 +925,26 @@ function P.isvalidrwy(runway)
         return false
     end
 
-    local pattern = "^(%d?%d)([LRCT]?)$"
-
-    local number, suffix = string.match(runway, pattern)
-
+    local len = #runway
+    local i = 1
+    while i <= len do
+        local b = string.byte(runway, i)
+        if not b or b < 48 or b > 57 then
+            break
+        end
+        i = i + 1
+    end
+    local number = nil
+    local suffix = ""
+    if i > 1 then
+        number = string.sub(runway, 1, i - 1)
+        if i <= len then
+            local b = string.byte(runway, i)
+            if b and (b == 76 or b == 82 or b == 67 or b == 84) then -- L R C T
+                suffix = string.sub(runway, i, i)
+            end
+        end
+    end
     if not number then
         return false
     end
@@ -945,9 +964,23 @@ function P.adjustrwy(runway, increment)
         return nil
     end
 
-    local number, suffix = string.match(runway, "^(%d+)(%a*)$")
-
-    number = tonumber(number)
+    local len = #runway
+    local i = 1
+    while i <= len do
+        local b = string.byte(runway, i)
+        if not b or b < 48 or b > 57 then
+            break
+        end
+        i = i + 1
+    end
+    if i == 1 then
+        return nil
+    end
+    local number = tonumber(string.sub(runway, 1, i - 1))
+    local suffix = ""
+    if i <= len then
+        suffix = string.sub(runway, i, len)
+    end
 
     increment = increment or 1
     number = number + increment
@@ -996,8 +1029,30 @@ end
 
 --------------------------------------------------------------------------------------------------------------
 function P.getoppositerwy(runway)
-    local number = tonumber(string.match(runway, "%d+"))
-    local letter = string.match(runway, "%a") or ""
+    local len = #runway
+    local i = 1
+    while i <= len do
+        local b = string.byte(runway, i)
+        if not b or b < 48 or b > 57 then
+            break
+        end
+        i = i + 1
+    end
+    local number = nil
+    if i > 1 then
+        number = tonumber(string.sub(runway, 1, i - 1))
+    end
+    local letter = ""
+    local j = i
+    while j <= len do
+        local b = string.byte(runway, j)
+        local is_alpha = (b and ((b >= 65 and b <= 90) or (b >= 97 and b <= 122)))
+        if is_alpha then
+            letter = string.sub(runway, j, j)
+            break
+        end
+        j = j + 1
+    end
 
     local oppositeNumber = (number + 18) % 36
     if (oppositeNumber == 0) then
@@ -1413,7 +1468,36 @@ function P.decodemetar(metar)
         end
         if vis_index and vis_index + 1 <= #parts then
             local next_part = parts[vis_index + 1]
-            local dir_vis_val, dir_code = string.match(next_part, "^(%d%d%d%d)([NSEW][EW]?)$")
+            local dir_vis_val, dir_code = nil, nil
+            local len = #next_part
+            if len >= 5 then
+                local is_digits = true
+                for i = 1, 4 do
+                    local b = string.byte(next_part, i)
+                    if not b or b < 48 or b > 57 then
+                        is_digits = false
+                        break
+                    end
+                end
+                if is_digits then
+                    local code = string.sub(next_part, 5, len)
+                    if code ~= "" then
+                        local ok = true
+                        for i = 1, #code do
+                            local b = string.byte(code, i)
+                            local is_card = (b == 78 or b == 83 or b == 69 or b == 87) -- N S E W
+                            if not is_card then
+                                ok = false
+                                break
+                            end
+                        end
+                        if ok then
+                            dir_vis_val = string.sub(next_part, 1, 4)
+                            dir_code = code
+                        end
+                    end
+                end
+            end
             if dir_vis_val and dir_code then
                 result.visibility.directional = {
                     value = tonumber(dir_vis_val),
@@ -1691,7 +1775,24 @@ function P.decodemetar(metar)
             end
 
             if (not visibility_parsed) then
-                local ndv_value = string.match(part, "^(%d%d%d%d)NDV$")
+                local ndv_value = nil
+                local len = #part
+                if len >= 7 then
+                    local suffix = string.sub(part, len - 2, len)
+                    if suffix == "NDV" then
+                        local ok = true
+                        for i = 1, len - 3 do
+                            local b = string.byte(part, i)
+                            if not b or b < 48 or b > 57 then
+                                ok = false
+                                break
+                            end
+                        end
+                        if ok then
+                            ndv_value = string.sub(part, 1, len - 3)
+                        end
+                    end
+                end
                 if ndv_value then
                     local numeric_val = tonumber(ndv_value)
                     local meters = (ndv_value == "9999") and 10000 or numeric_val
@@ -2054,7 +2155,26 @@ local function normalizeRunwayIdForRvr(runwayDesignator)
         return nil
     end
 
-    local num_str, suffix = string.match(runwayDesignator, "^(%d%d?)(%a?)$")
+    local num_str, suffix = nil, ""
+    local len = #runwayDesignator
+    local i = 1
+    while i <= len do
+        local b = string.byte(runwayDesignator, i)
+        if not b or b < 48 or b > 57 then
+            break
+        end
+        i = i + 1
+    end
+    if i > 1 and i <= 3 then
+        num_str = string.sub(runwayDesignator, 1, i - 1)
+        if i <= len then
+            local b = string.byte(runwayDesignator, i)
+            local is_alpha = (b and ((b >= 65 and b <= 90) or (b >= 97 and b <= 122)))
+            if is_alpha then
+                suffix = string.sub(runwayDesignator, i, i)
+            end
+        end
+    end
     if not num_str then
         return nil
     end
@@ -2258,7 +2378,14 @@ function P.formatMetarSpeechSummary(metar, runwayName)
     -- *** VERBESSERUNG: Prüfe mit P.isvalidrwy ***
     if P.isvalidrwy(runwayName) then
         -- Versuche, die ersten zwei Ziffern zu extrahieren
-        local rwyNumStr = string.match(runwayName, "^(%d%d)")
+        local rwyNumStr = nil
+        if #runwayName >= 2 then
+            local b1 = string.byte(runwayName, 1)
+            local b2 = string.byte(runwayName, 2)
+            if b1 and b2 and b1 >= 48 and b1 <= 57 and b2 >= 48 and b2 <= 57 then
+                rwyNumStr = string.sub(runwayName, 1, 2)
+            end
+        end
         if rwyNumStr then
             local rwyNum = tonumber(rwyNumStr)
             if rwyNum then
@@ -2276,7 +2403,7 @@ function P.formatMetarSpeechSummary(metar, runwayName)
                  P.logInfoTS("formatMetarSpeechSummary: Konnte Ziffern '" .. rwyNumStr .. "' aus Runway '" .. runwayName .. "' nicht in Zahl umwandeln.") -- Geändert zu logInfo
             end
         else
-             P.logInfoTS("formatMetarSpeechSummary: Konnte keine Heading-Zahl aus gültiger Runway '" .. runwayName .. "' extrahieren (string.match fehlgeschlagen).") -- Geändert zu logInfo
+             P.logInfoTS("formatMetarSpeechSummary: Konnte keine Heading-Zahl aus gültiger Runway '" .. runwayName .. "' extrahieren (Parsing fehlgeschlagen).") -- Geändert zu logInfo
         end
     else
          -- Log optional, wenn ungültige Namen übergeben werden könnten
@@ -3518,11 +3645,11 @@ local function getLocalizerRunwayMap(icao)
         return P.localizerRunwayCache[icao] or nil
     end
 
-    local srcnavdatafile = io.open("Custom Data/earth_nav.dat", "r")
+    local srcnavdatafile = io.open("Custom Data/earth_nav.dat", "rb")
     if not srcnavdatafile then
-        srcnavdatafile = io.open("Custom Scenery/Global Airports/Earth nav data/earth_nav.dat", "r")
+        srcnavdatafile = io.open("Custom Scenery/Global Airports/Earth nav data/earth_nav.dat", "rb")
         if not srcnavdatafile then
-            srcnavdatafile = io.open("Resources/default data/earth_nav.dat", "r")
+            srcnavdatafile = io.open("Resources/default data/earth_nav.dat", "rb")
         end
     end
 
@@ -4371,7 +4498,7 @@ function P.buildnavdatatable(navdatatable)
     local NAV_IDX_FILE = def.PLUGINOUTPUTPATH .. "nav_global.yalidx"
 
     local function stat_file_size(path)
-        local f = io.open(path, "r")
+        local f = io.open(path, "rb")
         if not f then
             return 0
         end
@@ -4437,8 +4564,19 @@ function P.buildnavdatatable(navdatatable)
         return parts
     end
 
+    local function strip_cr(line)
+        if not line then
+            return line
+        end
+        local len = #line
+        if len > 0 and string.byte(line, len) == 13 then
+            return string.sub(line, 1, len - 1)
+        end
+        return line
+    end
+
     local function load_nav_index(path, size)
-        local f = io.open(NAV_IDX_FILE, "r")
+        local f = io.open(NAV_IDX_FILE, "rb")
         if not f then
             return nil
         end
@@ -4446,6 +4584,7 @@ function P.buildnavdatatable(navdatatable)
         local idx_size = nil
         local entries = {}
         for line in f:lines() do
+            line = strip_cr(line)
             if string.sub(line, 1, 5) == "PATH\t" then
                 idx_path = string.sub(line, 6)
             elseif string.sub(line, 1, 5) == "SIZE\t" then
@@ -4558,7 +4697,7 @@ function P.buildnavdatatable(navdatatable)
         return true
     end
 
-    local srcnavdatafile = io.open(nav_path, "r")
+    local srcnavdatafile = io.open(nav_path, "rb")
     if not srcnavdatafile then
         sasl.logError("Could not open " .. tostring(nav_path))
         return false
@@ -4868,7 +5007,7 @@ function P.buildairportdatatable(airport_db)
     end
 
     local function stat_file_size(path)
-        local f = io.open(path, "r")
+        local f = io.open(path, "rb")
         if not f then
             return 0
         end
@@ -4927,7 +5066,7 @@ function P.buildairportdatatable(airport_db)
     end
 
     local function load_airport_meta_index(meta)
-        local file = io.open(AIRPORT_META_IDX_FILE, "r")
+        local file = io.open(AIRPORT_META_IDX_FILE, "rb")
         if not file then
             return nil
         end
@@ -4935,6 +5074,10 @@ function P.buildairportdatatable(airport_db)
         local idx_size = nil
         local entries = {}
         for line in file:lines() do
+            local len = #line
+            if len > 0 and string.byte(line, len) == 13 then
+                line = string.sub(line, 1, len - 1)
+            end
             if string.sub(line, 1, 5) == "PATH\t" then
                 idx_path = string.sub(line, 6)
             elseif string.sub(line, 1, 5) == "SIZE\t" then
@@ -4980,7 +5123,7 @@ function P.buildairportdatatable(airport_db)
         return true
     end
 
-    local file = io.open(AIRPORT_META_PATH, "r")
+    local file = io.open(AIRPORT_META_PATH, "rb")
 
 
     if not file then
@@ -5285,7 +5428,7 @@ local function global_apt_path()
         .. def.OSSEPARATOR .. "Earth nav data" .. def.OSSEPARATOR .. "apt.dat"
 end
 
-local GLOBAL_APT_INDEX_VERSION = 1
+local GLOBAL_APT_INDEX_VERSION = 8
 local GLOBAL_APT_INDEX_FILE = def.PLUGINOUTPUTPATH .. "apt_global.yalidx"
 local GLOBAL_APT_META_REFRESH_SEC = 30
 local GLOBAL_APT_INDEX_STEP_LINES = 10000
@@ -5395,27 +5538,75 @@ local function get_addon_apt_paths()
     return paths, key
 end
 
+local function is_int_token(token)
+    if not token or token == "" then
+        return false
+    end
+    local len = #token
+    local i = 1
+    if string.byte(token, 1) == 45 then
+        if len == 1 then
+            return false
+        end
+        i = 2
+    end
+    while i <= len do
+        local b = string.byte(token, i)
+        if not b or b < 48 or b > 57 then
+            return false
+        end
+        i = i + 1
+    end
+    return true
+end
+
+local function is_icao_token(token)
+    if not token or token == "" then
+        return false
+    end
+    local t = string.upper(token)
+    local len = #t
+    if len < 3 or len > 4 then
+        return false
+    end
+    for i = 1, len do
+        local b = string.byte(t, i)
+        if not b then
+            return false
+        end
+        local is_digit = (b >= 48 and b <= 57)
+        local is_alpha = (b >= 65 and b <= 90)
+        if not is_digit and not is_alpha then
+            return false
+        end
+    end
+    return true
+end
+
 local function parse_airport_header_icao(line)
     local token, pos = next_token(line, 1)
     if token ~= "1" and token ~= "16" and token ~= "17" then
         return nil
     end
-    local count = 1
-    while count < 5 do
-        token, pos = next_token(line, pos)
-        if not token then
-            return nil
-        end
-        count = count + 1
-        if count == 5 then
-            return token
-        end
+    local t2, t3, t4, t5 = nil, nil, nil, nil
+    t2, pos = next_token(line, pos)
+    t3, pos = next_token(line, pos)
+    t4, pos = next_token(line, pos)
+    t5, pos = next_token(line, pos)
+    if not (t2 and t3 and t4 and t5) then
+        return nil
     end
-    return nil
+    if not (is_int_token(t2) and is_int_token(t3) and is_int_token(t4)) then
+        return nil
+    end
+    if not is_icao_token(t5) then
+        return nil
+    end
+    return t5
 end
 
 local function scan_apt_for_icao(apt_path, target_icao)
-    local file = io.open(apt_path, "r")
+    local file = io.open(apt_path, "rb")
     if not file then
         return nil, "open-failed"
     end
@@ -5441,7 +5632,7 @@ local function scan_apt_for_icao(apt_path, target_icao)
             end
         elseif found_offset then
             local code = next_token(line, 1)
-            if code == "1201" or code == "1202" then
+            if code == "1201" or code == "1202" or code == "1206" then
                 has_routes = true
             end
         end
@@ -5455,6 +5646,7 @@ local function scan_apt_for_icao(apt_path, target_icao)
         block_end = size or found_offset
     end
     return {
+        icao = target_icao,
         path = apt_path,
         offset = found_offset,
         length = block_end - found_offset,
@@ -5518,12 +5710,20 @@ local function parse_taxi_data(entry)
     if not entry or not entry.path or not entry.offset then
         return nil, "invalid-entry"
     end
-    local file = io.open(entry.path, "r")
+    local file = io.open(entry.path, "rb")
     if not file then
         return nil, "open-failed"
     end
     file:seek("set", entry.offset)
     local limit = entry.offset + (entry.length or 0)
+    local strict_limit = limit > entry.offset
+    local allow_extend = entry.source == "global-index"
+    local extended = false
+    local target_icao = entry.icao
+    if allow_extend and entry.has_routes == false then
+        strict_limit = false
+        extended = true
+    end
     local nodes = {}
     local edges = {}
     local ramps = {}
@@ -5586,9 +5786,8 @@ local function parse_taxi_data(entry)
                     prev_id = id
                 end
             end
-            if first_id and prev_id and first_id ~= prev_id then
-                f_edges[#f_edges + 1] = { from = prev_id, to = first_id, dir = "both", label = "TWY" }
-            end
+            -- Do not close the polygon loop (last -> first). For taxiway polygons
+            -- this creates artificial long edges and spaghetti routes.
         end
         return f_nodes, f_edges
     end
@@ -5669,17 +5868,65 @@ local function parse_taxi_data(entry)
         return near_links, far_links
     end
 
+    local debug_icao = (target_icao == "KCAE")
+    if debug_icao and not (P.taxi_debug_once and P.taxi_debug_once[target_icao]) then
+        P.taxi_debug_once = P.taxi_debug_once or {}
+        P.taxi_debug_once[target_icao] = true
+        helpers.logInfoTS(
+            "TaxiParse: " .. tostring(target_icao)
+                .. " path=" .. tostring(entry.path)
+                .. " offset=" .. tostring(entry.offset)
+                .. " length=" .. tostring(entry.length)
+                .. " has_routes=" .. tostring(entry.has_routes)
+                .. " strict_limit=" .. tostring(strict_limit)
+                .. " extended=" .. tostring(extended)
+        )
+    end
+    local debug_1201 = 0
     while true do
         local pos = file:seek()
         if not pos then break end
-        if limit > entry.offset and pos >= limit then
-            break
+        if strict_limit and pos >= limit then
+            if allow_extend and not has_routes then
+                strict_limit = false
+                extended = true
+            else
+                break
+            end
         end
         local line = file:read("*l")
         if not line then
             break
         end
+        if extended then
+            local header_icao = parse_airport_header_icao(line)
+            if header_icao then
+                header_icao = string.upper(header_icao)
+                if not target_icao then
+                    target_icao = header_icao
+                elseif header_icao ~= target_icao then
+                    break
+                end
+            end
+        end
         local code = next_token(line, 1)
+        if code ~= "1201" and code ~= "1202" and code ~= "1206" then
+            local i = 1
+            local len = #line
+            while i <= len do
+                local b = string.byte(line, i)
+                if b and not is_space_byte(b) then
+                    break
+                end
+                i = i + 1
+            end
+            if i <= len then
+                local prefix = string.sub(line, i, i + 3)
+                if prefix == "1201" or prefix == "1202" or prefix == "1206" then
+                    code = prefix
+                end
+            end
+        end
         if code == "110" then
             finalize_poly()
             current_poly = {}
@@ -5728,6 +5975,10 @@ local function parse_taxi_data(entry)
             if lat and lon and id then
                 nodes[id] = { id = id, lat = lat, lon = lon }
                 has_routes = true
+                if debug_icao and debug_1201 < 3 then
+                    debug_1201 = debug_1201 + 1
+                    helpers.logInfoTS("TaxiParse: " .. tostring(target_icao) .. " saw 1201 node id=" .. tostring(id))
+                end
             end
         elseif code == "1202" then
             last_ramp = nil
@@ -5744,6 +5995,8 @@ local function parse_taxi_data(entry)
                 }
                 has_routes = true
             end
+        elseif code == "1206" then
+            has_routes = true
         elseif code == "1300" then
             local tokens = tokenize_line(line)
             local lat = tonumber(tokens[2])
@@ -6436,6 +6689,9 @@ local function load_global_index(meta)
     local line1 = file:read("*l")
     local tag, version_str = split_kv_tab(line1)
     if tag ~= "YALAPTIDX" or tonumber(version_str) ~= GLOBAL_APT_INDEX_VERSION then
+        if tag == "YALAPTIDX" then
+            helpers.logInfoTS("Global Airports Taxidata Table cache invalid (version " .. tostring(version_str) .. " != " .. tostring(GLOBAL_APT_INDEX_VERSION) .. ")")
+        end
         file:close()
         return nil
     end
@@ -6481,6 +6737,7 @@ local function load_global_index(meta)
         local icao = parts[1]
         if icao and icao ~= "" then
             entries[icao] = {
+                icao = icao,
                 path = meta.path,
                 offset = tonumber(parts[2]) or 0,
                 length = tonumber(parts[3]) or 0,
@@ -6549,7 +6806,7 @@ end
 
 local function start_global_index_job(meta, reason)
     close_global_job(P.global_apt_index_job)
-    local file = io.open(meta.path, "r")
+    local file = io.open(meta.path, "rb")
     if not file then
         sasl.logWarning("Taxi: cannot open global apt.dat for indexing: " .. tostring(meta.path))
         return false
@@ -6569,7 +6826,9 @@ local function start_global_index_job(meta, reason)
         last_log_time = os.time(),
         reason = reason or "startup"
     }
-    helpers.logInfoTS("Global Airports Taxidata Table build started (" .. tostring(P.global_apt_index_job.reason) .. ")")
+    helpers.logInfoTS(
+        "Global Airports Taxidata Table build started (" .. tostring(P.global_apt_index_job.reason) .. ")"
+    )
     return true
 end
 
@@ -6616,8 +6875,25 @@ local function step_global_index_job(job, max_lines, max_sec)
             job.current_has_routes = false
         elseif job.current_icao then
             local code = next_token(line, 1)
-            if code == "1201" or code == "1202" then
+            if code == "1201" or code == "1202" or code == "1206" then
                 job.current_has_routes = true
+            else
+                -- Fallback: guard against odd whitespace or token parsing issues.
+                local i = 1
+                local len = #line
+                while i <= len do
+                    local b = string.byte(line, i)
+                    if b and not is_space_byte(b) then
+                        break
+                    end
+                    i = i + 1
+                end
+                if i <= len then
+                    local prefix = string.sub(line, i, i + 3)
+                    if prefix == "1201" or prefix == "1202" or prefix == "1206" then
+                        job.current_has_routes = true
+                    end
+                end
             end
         end
 
@@ -6806,11 +7082,13 @@ function P.findAptDatForIcao(icao)
         return nil, gerr
     end
 
-    if addon_entry then
-        return addon_entry
-    end
+    -- Prefer global apt.dat for taxi routing when addon has no ATC routes,
+    -- because global data often carries the ATC taxi graph.
     if global_entry then
         return global_entry
+    end
+    if addon_entry then
+        return addon_entry
     end
     return nil, gerr or "not-found"
 end

@@ -9,6 +9,7 @@ local setupWindow
 local setupInitialized = false
 local taxiWindow
 local taxiInitialized = false
+local taxiComponent
 local menu_taxi = nil
 local taxiGateLastLogTime = 0
 
@@ -246,6 +247,7 @@ local function maybeInitTaxiWindow()
     end
 
     local comp = mod.newComponent({ yal = yal, def = def, helpers = helpers })
+    taxiComponent = comp
     local w, h = mod.windowSize()
     local xRoot, yRoot, wRoot, hRoot = sasl.windows.getMonitorBoundsOS(0)
     local posX = xRoot + math.max(0, (wRoot - w) / 2)
@@ -377,13 +379,19 @@ end
 function update()
     if helpers.isZibo() then
         maybeInitDebugOverlay()
-        local canIndexTaxi = false
-        if yal and yal.flightstate ~= nil and yal.airgroundsensor then
-            local onGround = (get(yal.airgroundsensor) == def.ON)
-            canIndexTaxi = (yal.flightstate == def.FLIGHTSTATEPREFLIGHT) and onGround
+        local autoTaxiEnabled = false
+        if settings and settings.appSettings then
+            autoTaxiEnabled = (settings.appSettings[def.CONFIGAUTOTAXIGUIDANCE] == def.ON)
         end
-        if canIndexTaxi then
+        if helpers.isGlobalAptIndexRunning() then
             helpers.updateGlobalAptIndex(nil, false)
+        elseif autoTaxiEnabled and not helpers.isGlobalAptIndexReady() then
+            helpers.requestGlobalAptIndex("update-loop")
+            helpers.updateGlobalAptIndex(nil, false)
+        end
+        local taxiVisible = taxiWindow and taxiWindow.isVisible and taxiWindow:isVisible()
+        if taxiComponent and (autoTaxiEnabled or taxiVisible) then
+            taxiComponent:tick()
         end
         local current_elapsed_time = sasl.getElapsedSeconds(oneSecTimer)
 

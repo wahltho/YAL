@@ -86,8 +86,16 @@ local function basename(path)
     if not path or path == "" then
         return ""
     end
-    local name = string.match(path, "([^/\\]+)$")
-    return name or path
+    local len = #path
+    local i = len
+    while i > 0 do
+        local b = string.byte(path, i)
+        if b == 47 or b == 92 then
+            return string.sub(path, i + 1)
+        end
+        i = i - 1
+    end
+    return path
 end
 
 local function nearest_node_info(data, lat, lon)
@@ -201,10 +209,31 @@ local function parse_runway_parts(name)
     if clean == "" then
         return nil, ""
     end
-    local num = string.match(clean, "^%d+")
-    local suffix = string.match(clean, "%a+$") or ""
-    if not num then
+    local len = #clean
+    local i = 1
+    while i <= len do
+        local b = string.byte(clean, i)
+        if not b or b < 48 or b > 57 then
+            break
+        end
+        i = i + 1
+    end
+    if i == 1 then
         return nil, ""
+    end
+    local num = string.sub(clean, 1, i - 1)
+    local suffix = ""
+    local j = len
+    while j >= 1 do
+        local b = string.byte(clean, j)
+        local is_alpha = (b and ((b >= 65 and b <= 90) or (b >= 97 and b <= 122)))
+        if not is_alpha then
+            break
+        end
+        j = j - 1
+    end
+    if j < len then
+        suffix = string.sub(clean, j + 1, len)
     end
     return tonumber(num), suffix
 end
@@ -655,9 +684,32 @@ local function short_ramp_label(ramp)
     local name = trim_spaces(tostring(ramp.name or ""))
     name = normalize_words(name)
     local lower = string.lower(name)
-    local class = string.match(lower, "class%s+([a-z0-9]+)")
-    if class then
-        return "Class " .. string.upper(class)
+    local idx = string.find(lower, "class", 1, true)
+    if idx then
+        local i = idx + 5
+        local len = #lower
+        while i <= len do
+            local b = string.byte(lower, i)
+            if not b or b > 32 then
+                break
+            end
+            i = i + 1
+        end
+        if i <= len then
+            local j = i
+            while j <= len do
+                local b = string.byte(lower, j)
+                local is_digit = (b >= 48 and b <= 57)
+                local is_alpha = (b >= 97 and b <= 122)
+                if not is_digit and not is_alpha then
+                    break
+                end
+                j = j + 1
+            end
+            if j > i then
+                return "Class " .. string.upper(string.sub(lower, i, j - 1))
+            end
+        end
     end
     if string.find(lower, "cargo", 1, true) then
         return "Cargo"
@@ -807,41 +859,67 @@ local function maybe_speak_guidance(comp, now, aircraft)
     if not is_auto_taxi_guidance_enabled() then
         return
     end
+    local function diag(reason, extra)
+        local t = now or 0
+        local last = comp._lastGuidanceDiagTime or 0
+        if (t - last) < 10 then
+            return
+        end
+        comp._lastGuidanceDiagTime = t
+        local msg = "TaxiGuidance: " .. tostring(reason)
+        if extra and extra ~= "" then
+            msg = msg .. " | " .. tostring(extra)
+        end
+        helpers.logInfoTS(msg)
+    end
     if not is_voice_enabled() then
+        diag("voice-disabled")
         return
     end
     if not comp._route or not comp._route.path then
+        diag("no-route")
         return
     end
     if not aircraft or aircraft.east == nil or aircraft.north == nil then
+        diag("no-aircraft-pos")
         return
     end
     local yal = comp.yal or _G.yal
     if not (yal and yal.airgroundsensor and get(yal.airgroundsensor) == def.ON) then
+        diag("not-on-ground")
         return
     end
-    local groundspeed = yal and yal.groundspeed and (get(yal.groundspeed) or 0) or 0
-    if groundspeed < guidanceMinSpeed then
+    local tirespeed = yal and yal.tirespeed and (get(yal.tirespeed) or 0) or 0
+    if tirespeed <= 0 then
+        diag("non-forward-speed", "ts=" .. tostring(tirespeed))
+        return
+    end
+    if tirespeed < guidanceMinSpeed then
+        diag("too-slow", "ts=" .. tostring(tirespeed))
         return
     end
     local data = comp._route.data or comp._data
     local path = comp._route.path
     local seg_idx = find_nearest_segment(data, path, aircraft.east, aircraft.north)
     if not seg_idx or seg_idx >= (#path - 1) then
+        diag("no-segment", "seg=" .. tostring(seg_idx or "nil") .. " path=" .. tostring(#path))
         return
     end
     local n1 = data.nodes[path[seg_idx]]
     local n2 = data.nodes[path[seg_idx + 1]]
     local n3 = data.nodes[path[seg_idx + 2]]
     if not (n1 and n2 and n3) then
+        diag("segment-nodes-missing")
         return
     end
     local curr_label = normalize_taxiway_label(get_edge_label(data, path[seg_idx], path[seg_idx + 1]))
     local next_label = normalize_taxiway_label(get_edge_label(data, path[seg_idx + 1], path[seg_idx + 2]))
     if next_label == "" then
+        diag("next-label-empty")
         return
     end
     if next_label == curr_label then
+        diag("same-label", "label=" .. tostring(next_label))
         return
     end
     local v1x = n2.east - n1.east
@@ -858,20 +936,24 @@ local function maybe_speak_guidance(comp, now, aircraft)
     if dot < -1 then dot = -1 end
     local angle = math.deg(math.acos(dot))
     if angle < guidanceTurnAngle then
+        diag("angle-too-small", string.format("angle=%.1f", angle))
         return
     end
     local ahead_dot = (aircraft.east - n2.east) * v1x + (aircraft.north - n2.north) * v1y
     if ahead_dot > 0 then
+        diag("already-passed-turn")
         return
     end
     local dist_to_node = math.sqrt(distance_sq(aircraft.east, aircraft.north, n2.east, n2.north))
     if dist_to_node > guidanceTurnDistance then
+        diag("too-far", string.format("dist=%.1f", dist_to_node))
         return
     end
     local last_time = comp._lastGuidanceTime or 0
     if comp._lastGuidanceNodeId == path[seg_idx + 1]
         and comp._lastGuidanceLabel == next_label
         and (now - last_time) < guidanceCooldown then
+        diag("cooldown")
         return
     end
     local cross = v1x * v2y - v1y * v2x
@@ -973,6 +1055,10 @@ function M.newComponent(ctx)
                 if comp.size then
                     comp.size = {ww, hh}
                 end
+                if comp._data and comp._data.bounds then
+                    comp._fitBounds = comp._data.bounds
+                end
+                comp._needsCenter = true
                 w = ww
                 h = hh
             end
@@ -2287,8 +2373,8 @@ function M.newComponent(ctx)
         if comp._route and aircraft and aircraft.east and aircraft.north then
             local yal = comp.yal or _G.yal
             local onGround = yal and yal.airgroundsensor and (get(yal.airgroundsensor) == def.ON)
-            local groundspeed = yal and yal.groundspeed and (get(yal.groundspeed) or 0) or 0
-            if onGround and groundspeed > 1 then
+            local tirespeed = yal and yal.tirespeed and (get(yal.tirespeed) or 0) or 0
+            if onGround and tirespeed > 1 then
                 local routeData = comp._route.data
                 local dist = distance_to_route(routeData, comp._route.path, aircraft.east, aircraft.north)
                 if comp._routeExtraSegments then
@@ -2329,6 +2415,33 @@ function M.newComponent(ctx)
             set_center(cx, cy)
             comp._needsCenter = false
         end
+    end
+
+    function comp:tick()
+        local ww = defaultW
+        local hh = defaultH
+        if comp._window and comp._window.getPosition then
+            local _, _, wpos, hpos = comp._window:getPosition()
+            ww = tonumber(wpos) or ww
+            hh = tonumber(hpos) or hh
+        end
+        local vis = comp._window and comp._window.isVisible and comp._window:isVisible() or false
+        if vis and not comp._lastVisible then
+            if comp._data and comp._data.bounds then
+                comp._fitBounds = comp._data.bounds
+            end
+            comp._needsCenter = true
+        end
+        comp._lastVisible = vis
+        local mapW = math.max(120, ww - mapPadding * 2)
+        local mapH = math.max(120, hh - headerH - toolbarH - mapPadding * 2)
+        local map = {
+            x = mapPadding,
+            y = mapPadding,
+            w = mapW,
+            h = mapH
+        }
+        self:updateTaxiState(map)
     end
 
     return comp
