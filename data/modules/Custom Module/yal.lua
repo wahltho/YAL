@@ -1021,6 +1021,7 @@ function P.initializeScript()
         helpers.writenavdatatable(P.navdatatable)
         helpers.writeairportdatatable(P.airportdatatable)
         helpers.writeZiboCalcTable(P.zibocalctable)
+        helpers.writetaxidatatable()
     end
 
     P.commandtableentry(def.TEXT, "YAL Initialization done")
@@ -2112,6 +2113,15 @@ function P.aircraftonrwy(runwayType, dist, headingLimit)
         return true
     end
 
+    if (rwystartlat == nil) or (rwystartlon == nil) or (rwyendlat == nil) or (rwyendlon == nil) then
+        if runwayType == def.DEPARTURE then return false end
+        if runwayType == def.ARRIVAL then return false end
+        return false
+    end
+    if (aircraftlat == nil) or (aircraftlon == nil) then
+        return false
+    end
+
     local rwystartlatrad = math.rad(rwystartlat)
     local rwystartlonrad = math.rad(rwystartlon)
     local rwyendlatrad = math.rad(rwyendlat)
@@ -2502,6 +2512,16 @@ function P.toggletaxilights_(phase)
         P.toggletaxilights(nil)
     end
     return 0
+end
+
+function P.getTaxiPushbackHint()
+    if not P.taxiComponent or not P.taxiComponent.getPushbackHint then
+        return nil
+    end
+    if P.taxiComponent.updateTaxiState then
+        P.taxiComponent:updateTaxiState()
+    end
+    return P.taxiComponent:getPushbackHint()
 end
 
 local my_command_toggletaxilights = sasl.createCommand(def.APPNAMEPREFIX .. "/toggletaxilights", "Toggle Taxi Lights")
@@ -4736,6 +4756,15 @@ function P.ongoingtasks()
     elseif (P.headingsynctimer ~= nil) then
         sasl.stopTimer(P.headingsynctimer)
         P.headingsynctimer = nil
+    end
+
+    -- Taxi routing update (runs in ongoingtasks so it is independent of the taxi window)
+    if P.taxiComponent and P.taxiComponent.updateTaxiState then
+        local onGround = (get(P.airgroundsensor) == def.ON)
+        local taxiPhase = (P.flightstate == def.FLIGHTSTATEPREFLIGHT) or (P.flightstate == def.FLIGHTSTATETAXITOGATE)
+        if onGround and taxiPhase then
+            P.taxiComponent:updateTaxiState()
+        end
     end
 
     local groundspeed = get(P.groundspeed) or 0

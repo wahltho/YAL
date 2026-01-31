@@ -5197,6 +5197,153 @@ function P.writeairportdatatable(airport_db)
 end
 
 --------------------------------------------------------------------------------------------------------------
+function P.writetaxidatatable()
+    if not (P.global_apt_index_ready == true and P.global_apt_index and next(P.global_apt_index) ~= nil) then
+        P.logInfoTS("Global Airports Taxidata Table dump skipped (index not ready).")
+        return false
+    end
+
+    local basePath = def.PLUGINOUTPUTPATH
+    local destfile = io.open(basePath .. "yal_taxi.dat", "w")
+    if not destfile then
+        sasl.logError("Could not open " .. basePath .. "yal_taxi.dat")
+        return false
+    end
+
+    local function write_line(text)
+        destfile:write(tostring(text or "") .. "\n")
+    end
+
+    local keys = {}
+    for icao, _ in pairs(P.global_apt_index) do
+        keys[#keys + 1] = icao
+    end
+    table.sort(keys)
+
+    write_line("YAL Taxidata Dump")
+    write_line("Entries: " .. tostring(#keys))
+
+    local function sorted_node_ids(nodes)
+        local ids = {}
+        for id, _ in pairs(nodes or {}) do
+            ids[#ids + 1] = id
+        end
+        table.sort(ids, function(a, b)
+            return (tonumber(a) or 0) < (tonumber(b) or 0)
+        end)
+        return ids
+    end
+
+    for _, icao in ipairs(keys) do
+        local entry = P.global_apt_index[icao]
+        if entry then
+            entry.icao = icao
+            write_line("")
+            write_line("ICAO " .. tostring(icao))
+            write_line(
+                "ENTRY path=" .. tostring(entry.path)
+                    .. " offset=" .. tostring(entry.offset)
+                    .. " length=" .. tostring(entry.length)
+                    .. " has_routes=" .. tostring(entry.has_routes)
+                    .. " source=" .. tostring(entry.source)
+            )
+            local data, err = parse_taxi_data(entry)
+            if not data then
+                write_line("ERROR " .. tostring(err))
+            else
+                write_line(
+                    "META route_source=" .. tostring(data.route_source)
+                        .. " has_routes=" .. tostring(data.has_routes)
+                        .. " has_fallback=" .. tostring(data.has_fallback)
+                )
+                write_line("NODES " .. tostring(P.getTableSize(data.nodes or {})))
+                for _, id in ipairs(sorted_node_ids(data.nodes)) do
+                    local node = data.nodes[id]
+                    if node then
+                        write_line(
+                            string.format(
+                                "NODE %s %.6f %.6f %.2f %.2f ramp=%s",
+                                tostring(id),
+                                tonumber(node.lat) or 0,
+                                tonumber(node.lon) or 0,
+                                tonumber(node.east) or 0,
+                                tonumber(node.north) or 0,
+                                node.is_ramp and "1" or "0"
+                            )
+                        )
+                    end
+                end
+
+                write_line("EDGES " .. tostring(#(data.edges or {})))
+                for _, edge in ipairs(data.edges or {}) do
+                    write_line(
+                        string.format(
+                            "EDGE %s %s %s %s",
+                            tostring(edge.from),
+                            tostring(edge.to),
+                            tostring(edge.dir or ""),
+                            tostring(edge.label or "")
+                        )
+                    )
+                end
+
+                write_line("RAMPS " .. tostring(#(data.ramps or {})))
+                for _, ramp in ipairs(data.ramps or {}) do
+                    write_line(
+                        string.format(
+                            "RAMP %.6f %.6f heading=%.1f type=%s size=%s op=%s name=%s node=%s",
+                            tonumber(ramp.lat) or 0,
+                            tonumber(ramp.lon) or 0,
+                            tonumber(ramp.heading) or 0,
+                            tostring(ramp.ramp_type or ""),
+                            tostring(ramp.ramp_size or ""),
+                            tostring(ramp.ramp_operation or ""),
+                            tostring(ramp.name or ""),
+                            tostring(ramp.node_id or "")
+                        )
+                    )
+                end
+
+                write_line("RUNWAYS " .. tostring(#(data.runways or {})))
+                for _, rwy in ipairs(data.runways or {}) do
+                    write_line(
+                        string.format(
+                            "RWY %s %.6f %.6f %s %.6f %.6f width=%.1f",
+                            tostring(rwy.rwy1 or ""),
+                            tonumber(rwy.lat1) or 0,
+                            tonumber(rwy.lon1) or 0,
+                            tostring(rwy.rwy2 or ""),
+                            tonumber(rwy.lat2) or 0,
+                            tonumber(rwy.lon2) or 0,
+                            tonumber(rwy.width) or 0
+                        )
+                    )
+                end
+
+                write_line("POLYGONS " .. tostring(#(data.polygons or {})))
+                for i, poly in ipairs(data.polygons or {}) do
+                    local pts = poly.points or {}
+                    write_line("POLY " .. tostring(i) .. " points=" .. tostring(#pts))
+                    for _, pt in ipairs(pts) do
+                        write_line(
+                            string.format(
+                                "PT %.2f %.2f",
+                                tonumber(pt.east) or 0,
+                                tonumber(pt.north) or 0
+                            )
+                        )
+                    end
+                end
+            end
+        end
+    end
+
+    destfile:close()
+    P.logInfoTS("Global Airports Taxidata Table dump created.")
+    return true
+end
+
+--------------------------------------------------------------------------------------------------------------
 -- Taxi routing: apt.dat locator
 
 local function is_space_byte(byte)
@@ -5680,7 +5827,13 @@ local function build_taxi_label(tokens)
         end
         local label = name
         if suffix ~= "" and suffix ~= name then
-            label = name .. " " .. suffix
+            local name_trim = trim_ascii(name)
+            local suffix_trim = trim_ascii(suffix)
+            if #name_trim == 1 and suffix_trim ~= "" then
+                label = suffix_trim
+            else
+                label = name_trim .. " " .. suffix_trim
+            end
         end
         return trim_ascii(label)
     end
@@ -6952,6 +7105,9 @@ local function finalize_global_index_job(job)
             .. tostring(P.getTableSize(P.global_apt_index or {}))
             .. " entries (" .. tostring(job.lines or 0) .. " lines)"
     )
+    if (sasl.getLogLevel() == LOG_DEBUG) then
+        P.writetaxidatatable()
+    end
 end
 
 local function ensure_global_index(reason)

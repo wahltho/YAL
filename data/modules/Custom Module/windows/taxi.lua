@@ -10,8 +10,11 @@ local guidanceCooldown = 8
 local rerouteCooldown = 6
 local rerouteDriftMeters = 40
 local guidanceMinSpeed = 2
-local guidanceTurnDistance = 70
+local guidanceTurnDistance = 60
 local guidanceTurnAngle = 30
+local guidanceLeadTimeSec = 8
+local guidanceMaxDistance = 180
+local guidanceStraightAngle = 15
 local startRampMaxMeters = 80
 
 local minZoom = 0.2
@@ -23,9 +26,6 @@ local maxFont = 24
 local def = require("definitions")
 local settings = require("settings")
 local helpers = require("helpers")
-
--- Forward declaration: used by nearest_node_info before definition below.
-local latlon_to_local
 
 local function is_valid_latlon(lat, lon)
     if lat == nil or lon == nil then
@@ -42,6 +42,29 @@ local function compute_bounds_center(bounds)
         return 0, 0
     end
     return (bounds.minX + bounds.maxX) * 0.5, (bounds.minY + bounds.maxY) * 0.5
+end
+
+local function update_bounds(bounds, x, y)
+    if not bounds then
+        return
+    end
+    if not bounds.minX or x < bounds.minX then
+        bounds.minX = x
+    end
+    if not bounds.maxX or x > bounds.maxX then
+        bounds.maxX = x
+    end
+    if not bounds.minY or y < bounds.minY then
+        bounds.minY = y
+    end
+    if not bounds.maxY or y > bounds.maxY then
+        bounds.maxY = y
+    end
+end
+
+local function estimate_text_width(text, size)
+    local len = string.len(text or "")
+    return len * (size * 0.6)
 end
 
 local function compute_bounds_scale(bounds, mapW, mapH)
@@ -82,6 +105,11 @@ local function distance_meters_latlon(lat1, lon1, lat2, lon2)
     return r * c
 end
 
+local function latlon_to_local(lat, lon)
+    local x, _, z = sasl.worldToLocal(lat, lon, 0)
+    return x, -z
+end
+
 local function basename(path)
     if not path or path == "" then
         return ""
@@ -98,28 +126,69 @@ local function basename(path)
     return path
 end
 
-local function nearest_node_info(data, lat, lon)
+local function trim_spaces(text)
+    if not text then
+        return ""
+    end
+    text = string.gsub(text, "^%s+", "")
+    text = string.gsub(text, "%s+$", "")
+    text = string.gsub(text, "%s+", " ")
+    return text
+end
+
+local function normalize_taxiway_label(label)
+    if not label or label == "" then
+        return ""
+    end
+    local clean = helpers.forceCleanString(label)
+    clean = helpers.cleanstring(clean)
+    clean = string.upper(clean)
+    if string.sub(clean, 1, 3) == "RWY" then
+        return ""
+    end
+    if clean == "RAMP" then
+        return ""
+    end
+    clean = string.gsub(clean, "^TAXIWAY[%s_-]*", "")
+    clean = string.gsub(clean, "^TWY[%s_-]*", "")
+    clean = trim_spaces(clean)
+    return clean
+end
+
+local function is_runway_label(label)
+    if not label or label == "" then
+        return false
+    end
+    return string.sub(label, 1, 3) == "RWY"
+end
+
+local function nearest_node_info(data, lat, lon, avoid_runway)
     if not data or not data.nodes or not is_valid_latlon(lat, lon) then
         return nil, nil
     end
-    local x, y = latlon_to_local(lat, lon)
     local best_id = nil
-    local best_d2 = nil
+    local best_dist = nil
     for id, node in pairs(data.nodes) do
-        if node and node.east and node.north then
-            local dx = node.east - x
-            local dy = node.north - y
-            local d2 = dx * dx + dy * dy
-            if not best_d2 or d2 < best_d2 then
-                best_d2 = d2
+        if avoid_runway and data.runway_nodes and data.runway_nodes[id] then
+            goto continue
+        end
+        if node and node.lat and node.lon then
+            local d = distance_meters_latlon(lat, lon, node.lat, node.lon)
+            if d and (not best_dist or d < best_dist) then
+                best_dist = d
                 best_id = id
             end
         end
+        ::continue::
     end
-    if not best_id or not best_d2 then
+    if not best_id or not best_dist then
         return nil, nil
     end
-    return best_id, math.sqrt(best_d2)
+    return best_id, best_dist
+end
+
+local function nearest_non_runway_node(data, lat, lon)
+    return nearest_node_info(data, lat, lon, true)
 end
 
 local function distance_sq(ax, ay, bx, by)
@@ -145,6 +214,247 @@ local function point_segment_distance_sq(px, py, x1, y1, x2, y2)
     local bx = x1 + b * vx
     local by = y1 + b * vy
     return distance_sq(px, py, bx, by)
+end
+
+local function project_point_to_segment(px, py, x1, y1, x2, y2)
+    local vx = x2 - x1
+    local vy = y2 - y1
+    local len2 = vx * vx + vy * vy
+    if len2 <= 0 then
+        return x1, y1, 0
+    end
+    local t = ((px - x1) * vx + (py - y1) * vy) / len2
+    if t < 0 then
+        t = 0
+    elseif t > 1 then
+        t = 1
+    end
+    local bx = x1 + vx * t
+    local by = y1 + vy * t
+    return bx, by, t
+end
+
+local function clone_adjacency(src)
+    local dst = {}
+    for from, list in pairs(src or {}) do
+        local copy = {}
+        for i = 1, #list do
+            copy[i] = list[i]
+        end
+        dst[from] = copy
+    end
+    return dst
+end
+
+local function adjacency_has_edge(adj, from_id, to_id)
+    local list = adj and adj[from_id]
+    if not list then
+        return false
+    end
+    for _, edge in ipairs(list) do
+        if edge.to == to_id then
+            return true
+        end
+    end
+    return false
+end
+
+local function add_adj_edge(adj, from_id, to_id, dist, label)
+    if not adj then
+        return
+    end
+    adj[from_id] = adj[from_id] or {}
+    adj[from_id][#adj[from_id] + 1] = { to = to_id, dist = dist, label = label }
+end
+
+local function find_nearest_edge_projection(data, east, north, opts)
+    if not data or not data.edges or not data.nodes then
+        return nil
+    end
+    local disallow_runway = opts and opts.disallow_runway_edges
+    local best = nil
+    for _, edge in ipairs(data.edges) do
+        local n1 = data.nodes[edge.from]
+        local n2 = data.nodes[edge.to]
+        if n1 and n2 then
+            if disallow_runway and edge.label and string.sub(edge.label, 1, 3) == "RWY" then
+                goto continue
+            end
+            local px, py, t = project_point_to_segment(east, north, n1.east, n1.north, n2.east, n2.north)
+            local d2 = distance_sq(east, north, px, py)
+            if not best or d2 < best.d2 then
+                best = {
+                    edge = edge,
+                    proj_east = px,
+                    proj_north = py,
+                    t = t,
+                    d2 = d2
+                }
+            end
+        end
+        ::continue::
+    end
+    return best
+end
+
+local function find_preferred_edge_projection(data, east, north, opts)
+    if not data or not data.edges or not data.nodes then
+        return nil
+    end
+    local disallow_runway = opts and opts.disallow_runway_edges
+    local radius = (opts and opts.radius_m) or 140
+    local radius2 = radius * radius
+    local label_len = {}
+    local best_by_label = {}
+    for _, edge in ipairs(data.edges) do
+        local n1 = data.nodes[edge.from]
+        local n2 = data.nodes[edge.to]
+        if n1 and n2 then
+            if disallow_runway and edge.label and string.sub(edge.label, 1, 3) == "RWY" then
+                goto continue
+            end
+            local px, py, t = project_point_to_segment(east, north, n1.east, n1.north, n2.east, n2.north)
+            local d2 = distance_sq(east, north, px, py)
+            if d2 <= radius2 then
+                local lbl = normalize_taxiway_label(edge.label or "")
+                if lbl ~= "" then
+                    local dx = n2.east - n1.east
+                    local dy = n2.north - n1.north
+                    local len = math.sqrt(dx * dx + dy * dy)
+                    label_len[lbl] = (label_len[lbl] or 0) + len
+                    local best = best_by_label[lbl]
+                    if not best or d2 < best.d2 then
+                        best_by_label[lbl] = {
+                            edge = edge,
+                            proj_east = px,
+                            proj_north = py,
+                            t = t,
+                            d2 = d2
+                        }
+                    end
+                end
+            end
+        end
+        ::continue::
+    end
+    local best_label = nil
+    local best_len = nil
+    for lbl, len in pairs(label_len) do
+        if not best_len or len > best_len then
+            best_len = len
+            best_label = lbl
+        end
+    end
+    if best_label and best_by_label[best_label] then
+        return best_by_label[best_label]
+    end
+    return nil
+end
+
+local function build_projected_data(data, start_proj, end_proj, waypoint_projs)
+    if not start_proj and not end_proj and (not waypoint_projs or #waypoint_projs == 0) then
+        return data, nil, nil, {}
+    end
+    local nodes = {}
+    for id, node in pairs(data.nodes or {}) do
+        nodes[id] = node
+    end
+    local adjacency = clone_adjacency(data.adjacency)
+    local adjacency_any = clone_adjacency(data.adjacency_any)
+    local adjacency_relaxed = clone_adjacency(data.adjacency_relaxed)
+    local adjacency_any_relaxed = clone_adjacency(data.adjacency_any_relaxed)
+    local runway_nodes = {}
+    for k, v in pairs(data.runway_nodes or {}) do
+        runway_nodes[k] = v
+    end
+
+    local function add_projection(proj, id)
+        if not proj or not proj.edge then
+            return
+        end
+        local edge = proj.edge
+        local n1 = data.nodes[edge.from]
+        local n2 = data.nodes[edge.to]
+        if not (n1 and n2) then
+            return
+        end
+        local ex = proj.proj_east
+        local ny = proj.proj_north
+        local lat, lon = sasl.localToWorld(ex, 0, -ny)
+        nodes[id] = { east = ex, north = ny, x = ex, z = -ny, lat = lat, lon = lon }
+        if edge.label and string.sub(edge.label, 1, 3) == "RWY" then
+            runway_nodes[id] = true
+        end
+        local d1 = math.sqrt(distance_sq(n1.east, n1.north, ex, ny))
+        local d2 = math.sqrt(distance_sq(n2.east, n2.north, ex, ny))
+        local label = edge.label
+
+        local fwd = adjacency_has_edge(data.adjacency, edge.from, edge.to)
+        local rev = adjacency_has_edge(data.adjacency, edge.to, edge.from)
+        if fwd then
+            add_adj_edge(adjacency, edge.from, id, d1, label)
+            add_adj_edge(adjacency, id, edge.to, d2, label)
+        end
+        if rev then
+            add_adj_edge(adjacency, edge.to, id, d2, label)
+            add_adj_edge(adjacency, id, edge.from, d1, label)
+        end
+        add_adj_edge(adjacency_any, edge.from, id, d1, label)
+        add_adj_edge(adjacency_any, id, edge.to, d2, label)
+        add_adj_edge(adjacency_any, edge.to, id, d2, label)
+        add_adj_edge(adjacency_any, id, edge.from, d1, label)
+
+        local rfwd = adjacency_has_edge(data.adjacency_relaxed, edge.from, edge.to)
+        local rrev = adjacency_has_edge(data.adjacency_relaxed, edge.to, edge.from)
+        if rfwd then
+            add_adj_edge(adjacency_relaxed, edge.from, id, d1, label)
+            add_adj_edge(adjacency_relaxed, id, edge.to, d2, label)
+        end
+        if rrev then
+            add_adj_edge(adjacency_relaxed, edge.to, id, d2, label)
+            add_adj_edge(adjacency_relaxed, id, edge.from, d1, label)
+        end
+        add_adj_edge(adjacency_any_relaxed, edge.from, id, d1, label)
+        add_adj_edge(adjacency_any_relaxed, id, edge.to, d2, label)
+        add_adj_edge(adjacency_any_relaxed, edge.to, id, d2, label)
+        add_adj_edge(adjacency_any_relaxed, id, edge.from, d1, label)
+    end
+
+    local start_id = start_proj and "__taxi_start_proj" or nil
+    local end_id = end_proj and "__taxi_end_proj" or nil
+    if start_id and end_id and start_id == end_id then
+        end_id = "__taxi_end_proj2"
+    end
+    add_projection(start_proj, start_id)
+    add_projection(end_proj, end_id)
+
+    local waypoint_ids = {}
+    if waypoint_projs and #waypoint_projs > 0 then
+        for i, proj in ipairs(waypoint_projs) do
+            local wp_id = "__taxi_wp_" .. tostring(i)
+            add_projection(proj, wp_id)
+            waypoint_ids[i] = wp_id
+        end
+    end
+
+    return {
+        nodes = nodes,
+        edges = data.edges,
+        ramps = data.ramps,
+        runways = data.runways,
+        polygons = data.polygons,
+        bounds = data.bounds,
+        adjacency = adjacency,
+        adjacency_any = adjacency_any,
+        adjacency_relaxed = adjacency_relaxed,
+        adjacency_any_relaxed = adjacency_any_relaxed,
+        runway_nodes = runway_nodes,
+        has_routes = data.has_routes,
+        has_fallback = data.has_fallback,
+        route_source = data.route_source,
+        can_route = data.can_route,
+        route_cache = {}
+    }, start_id, end_id, waypoint_ids
 end
 
 local function distance_to_route(data, path, east, north)
@@ -187,11 +497,6 @@ local function distance_to_segments(segments, east, north)
         return nil
     end
     return math.sqrt(best)
-end
-
-latlon_to_local = function(lat, lon)
-    local x, _, z = sasl.worldToLocal(lat, lon, 0)
-    return x, -z
 end
 
 local function normalize_runway_name(name)
@@ -462,6 +767,50 @@ local function select_runway_exit_node(data, profile)
     if not data or not profile or not profile.touchdown or not profile.axis then
         return nil, false
     end
+    local function exit_turn_ok(node_id)
+        if not data.nodes or not data.adjacency_any then
+            return true
+        end
+        local node = data.nodes[node_id]
+        if not node or not node.east or not node.north then
+            return true
+        end
+        local max_turn = 120
+        local axis = profile.axis
+        local best_angle = nil
+        local neighbors = data.adjacency_any[node_id] or {}
+        for _, edge in ipairs(neighbors) do
+            local to_id = edge.to
+            if to_id and data.nodes[to_id] then
+                if data.runway_nodes and data.runway_nodes[to_id] then
+                    goto continue
+                end
+                if edge.label and is_runway_label(edge.label) then
+                    goto continue
+                end
+                local n2 = data.nodes[to_id]
+                if n2.east and n2.north then
+                    local vx = n2.east - node.east
+                    local vy = n2.north - node.north
+                    local vlen = math.sqrt(vx * vx + vy * vy)
+                    if vlen > 0.1 then
+                        local dot = (axis.x * vx + axis.y * vy) / vlen
+                        if dot > 1 then dot = 1 elseif dot < -1 then dot = -1 end
+                        local angle = math.deg(math.acos(dot))
+                        if not best_angle or angle < best_angle then
+                            best_angle = angle
+                        end
+                    end
+                end
+            end
+            ::continue::
+        end
+        if best_angle and best_angle > max_turn then
+            return false
+        end
+        return true
+    end
+
     local td = profile.touchdown
     local candidates = collect_runway_exit_candidates(data, td.east, td.north, 32)
     if #candidates == 0 then
@@ -484,6 +833,9 @@ local function select_runway_exit_node(data, profile)
             local along = dx * profile.axis.x + dy * profile.axis.y
             local cross = dx * profile.axis.y - dy * profile.axis.x
             local perp = math.abs(cross)
+            if not exit_turn_ok(cand.id) then
+                goto continue
+            end
             -- Only consider exits that are plausibly on/near the selected runway.
             if length > 0 then
                 if along < -100 or along > (length + 150) then
@@ -551,11 +903,90 @@ collect_runway_exit_candidates = function(data, ref_east, ref_north, max_candida
     return candidates
 end
 
-local function try_route_from_candidates(icao, data, end_lat, end_lon, candidates, opts)
+local function copy_opts(opts)
+    if not opts then
+        return nil
+    end
+    local out = {}
+    for k, v in pairs(opts) do
+        out[k] = v
+    end
+    return out
+end
+
+local function route_with_waypoints(icao, start_lat, start_lon, end_lat, end_lon, opts, waypoint_ids, waypoints)
+    if not waypoint_ids or #waypoint_ids == 0 then
+        return helpers.getTaxiRoute(icao, start_lat, start_lon, end_lat, end_lon, opts)
+    end
+    local data = opts and opts.data or nil
+    if not data then
+        return helpers.getTaxiRoute(icao, start_lat, start_lon, end_lat, end_lon, opts)
+    end
+    local full_path = {}
+    local bounds = { minX = nil, maxX = nil, minY = nil, maxY = nil }
+    local function append_path(path)
+        for i = 1, #path do
+            local node_id = path[i]
+            if #full_path == 0 or full_path[#full_path] ~= node_id then
+                full_path[#full_path + 1] = node_id
+            end
+        end
+    end
+    local function update_bounds_for_path(path)
+        for _, node_id in ipairs(path) do
+            local node = data.nodes and data.nodes[node_id]
+            if node and node.east and node.north then
+                update_bounds(bounds, node.east, node.north)
+            end
+        end
+    end
+    local prev_end_id = nil
+    local total_legs = #waypoint_ids + 1
+    for leg = 1, total_legs do
+        local leg_opts = copy_opts(opts) or {}
+        leg_opts.data = data
+        if prev_end_id then
+            leg_opts.start_node_id = prev_end_id
+        end
+        if leg <= #waypoint_ids then
+            leg_opts.end_node_id = waypoint_ids[leg]
+        end
+        local leg_end_lat = end_lat
+        local leg_end_lon = end_lon
+        if leg <= #waypoint_ids then
+            local wp = waypoints and waypoints[leg]
+            if wp and is_valid_latlon(wp.lat, wp.lon) then
+                leg_end_lat = wp.lat
+                leg_end_lon = wp.lon
+            end
+        end
+        local route, rerr = helpers.getTaxiRoute(icao, start_lat, start_lon, leg_end_lat, leg_end_lon, leg_opts)
+        if not route then
+            return nil, rerr
+        end
+        append_path(route.path or {})
+        update_bounds_for_path(route.path or {})
+        prev_end_id = route.end_id
+    end
+    if #full_path == 0 then
+        return nil, "no-path"
+    end
+    return {
+        data = data,
+        start_id = full_path[1],
+        end_id = full_path[#full_path],
+        path = full_path,
+        bounds = bounds
+    }
+end
+
+local function try_route_from_candidates(icao, data, end_lat, end_lon, candidates, opts, waypoint_ids, waypoints)
     for _, cand in ipairs(candidates or {}) do
         local node = data.nodes[cand.id]
         if node and is_valid_latlon(node.lat, node.lon) then
-            local route, rerr = helpers.getTaxiRoute(icao, node.lat, node.lon, end_lat, end_lon, opts)
+            local local_opts = copy_opts(opts) or {}
+            local_opts.start_node_id = cand.id
+            local route, rerr = route_with_waypoints(icao, node.lat, node.lon, end_lat, end_lon, local_opts, waypoint_ids, waypoints)
             if route then
                 return route, nil, node.lat, node.lon
             end
@@ -564,11 +995,13 @@ local function try_route_from_candidates(icao, data, end_lat, end_lon, candidate
     return nil, "no-path"
 end
 
-local function try_route_to_candidates(icao, data, start_lat, start_lon, candidates, opts)
+local function try_route_to_candidates(icao, data, start_lat, start_lon, candidates, opts, waypoint_ids, waypoints)
     for _, cand in ipairs(candidates or {}) do
         local node = data.nodes[cand.id]
         if node and is_valid_latlon(node.lat, node.lon) then
-            local route, rerr = helpers.getTaxiRoute(icao, start_lat, start_lon, node.lat, node.lon, opts)
+            local local_opts = copy_opts(opts) or {}
+            local_opts.end_node_id = cand.id
+            local route, rerr = route_with_waypoints(icao, start_lat, start_lon, node.lat, node.lon, local_opts, waypoint_ids, waypoints)
             if route then
                 return route, nil, node.lat, node.lon
             end
@@ -658,14 +1091,119 @@ local function drawText(font, x, y, text, size, align, color)
     sasl.gl.drawText(font, x, y, tostring(text or ""), size or 12, false, false, align or TEXT_ALIGN_LEFT, color or {1, 1, 1, 1})
 end
 
-local function trim_spaces(text)
-    if not text then
-        return ""
+local function log_full_route_state(comp, data, mode, icao, vals)
+    local function fmt_latlon(latv, lonv)
+        if not latv or not lonv then
+            return "nil/nil"
+        end
+        return string.format("%.6f/%.6f", tonumber(latv) or 0, tonumber(lonv) or 0)
     end
-    text = string.gsub(text, "^%s+", "")
-    text = string.gsub(text, "%s+$", "")
-    text = string.gsub(text, "%s+", " ")
-    return text
+    local function fmt_local(x, y)
+        if x == nil or y == nil then
+            return "nil/nil"
+        end
+        return string.format("%.1f/%.1f", tonumber(x) or 0, tonumber(y) or 0)
+    end
+    local function fmt_node_latlon(node_id)
+        if not node_id or not data or not data.nodes then
+            return "nil"
+        end
+        local n = data.nodes[node_id]
+        if not n then
+            return tostring(node_id) .. ":?"
+        end
+        return tostring(node_id) .. ":" .. fmt_latlon(n.lat, n.lon)
+    end
+
+    local modeLabel = (mode == 1) and "ARR" or "DEP"
+    helpers.logInfoTS("TaxiFull: ---- " .. tostring(icao) .. " " .. modeLabel .. " ----")
+    helpers.logInfoTS("TaxiFull: runway raw=" .. tostring(vals.raw_dep or vals.raw_arr or "") .. " resolved=" .. tostring(vals.runway_name))
+    helpers.logInfoTS("TaxiFull: runwayLatLon=" .. fmt_latlon(vals.runway_lat, vals.runway_lon) .. " chosen=" .. fmt_latlon(vals.chosen_lat, vals.chosen_lon))
+    if vals.rwy1 or vals.rwy2 then
+        helpers.logInfoTS("TaxiFull: rwy entry rwy1=" .. tostring(vals.rwy1) .. " rwy2=" .. tostring(vals.rwy2) .. " side=" .. tostring(vals.rwy_side))
+    end
+    if vals.rwy_entry_lat and vals.rwy_entry_lon then
+        helpers.logInfoTS("TaxiFull: rwy entry latlon=" .. fmt_latlon(vals.rwy_entry_lat, vals.rwy_entry_lon) .. " d_to_ref_m=" .. tostring(vals.rwy_entry_dist_m or "?"))
+    end
+    helpers.logInfoTS("TaxiFull: aircraft latlon=" .. fmt_latlon(vals.aircraft_lat, vals.aircraft_lon))
+    helpers.logInfoTS("TaxiFull: aircraft local=" .. fmt_local(vals.aircraft_east, vals.aircraft_north) .. " worldToLocal=" .. fmt_local(vals.aircraft_wtl_e, vals.aircraft_wtl_n))
+    helpers.logInfoTS("TaxiFull: start=" .. fmt_latlon(vals.start_lat, vals.start_lon) .. " end=" .. fmt_latlon(vals.end_lat, vals.end_lon))
+    helpers.logInfoTS("TaxiFull: nodes start=" .. fmt_node_latlon(vals.start_node_id) .. " d=" .. tostring(vals.start_node_dist or "?") ..
+        " end=" .. fmt_node_latlon(vals.end_node_id) .. " d=" .. tostring(vals.end_node_dist or "?"))
+    if vals.start_non_runway_node_id then
+        helpers.logInfoTS("TaxiFull: start non-rwy=" .. fmt_node_latlon(vals.start_non_runway_node_id) .. " d=" .. tostring(vals.start_non_runway_node_dist or "?"))
+    end
+    if vals.dep_holdshort_id then
+        helpers.logInfoTS("TaxiFull: dep holdshort=" .. fmt_node_latlon(vals.dep_holdshort_id) .. " d_rwy_m=" .. tostring(vals.dep_holdshort_dist_m or "?"))
+    end
+    if vals.arr_exit_id then
+        helpers.logInfoTS("TaxiFull: arr exit=" .. fmt_node_latlon(vals.arr_exit_id))
+    end
+    helpers.logInfoTS("TaxiFull: reroute=" .. fmt_latlon(vals.reroute_lat, vals.reroute_lon))
+    helpers.logInfoTS("TaxiFull: onGround=" .. tostring(vals.onGround) .. " gs=" .. tostring(vals.groundspeed or "?") .. " ts=" .. tostring(vals.tirespeed or "?"))
+end
+
+local function draw_route_L(project, n1, n2, shadowColor, mainColor)
+    if not (n1 and n2 and n1.east and n1.north and n2.east and n2.north) then
+        return
+    end
+    local mid1 = { east = n1.east, north = n2.north }
+    local mid2 = { east = n2.east, north = n1.north }
+    local d1 = (mid1.east - n1.east) * (mid1.east - n1.east) + (mid1.north - n1.north) * (mid1.north - n1.north)
+             + (n2.east - mid1.east) * (n2.east - mid1.east) + (n2.north - mid1.north) * (n2.north - mid1.north)
+    local d2 = (mid2.east - n1.east) * (mid2.east - n1.east) + (mid2.north - n1.north) * (mid2.north - n1.north)
+             + (n2.east - mid2.east) * (n2.east - mid2.east) + (n2.north - mid2.north) * (n2.north - mid2.north)
+    local mid = (d1 <= d2) and mid1 or mid2
+    local x1, y1 = project(n1.east, n1.north)
+    local xm, ym = project(mid.east, mid.north)
+    local x2, y2 = project(n2.east, n2.north)
+    sasl.gl.drawLine(x1, y1, xm, ym, shadowColor)
+    sasl.gl.drawLine(x1 + 1, y1 + 1, xm + 1, ym + 1, mainColor)
+    sasl.gl.drawLine(xm, ym, x2, y2, shadowColor)
+    sasl.gl.drawLine(xm + 1, ym + 1, x2 + 1, y2 + 1, mainColor)
+end
+
+local function drawLineThick(x1, y1, x2, y2, color, width)
+    local w = math.max(1, math.floor(width or 1))
+    if w <= 1 then
+        sasl.gl.drawLine(x1, y1, x2, y2, color)
+        return
+    end
+    local offsets = { {0, 0} }
+    if w >= 2 then
+        offsets[#offsets + 1] = {1, 0}
+        offsets[#offsets + 1] = {-1, 0}
+        offsets[#offsets + 1] = {0, 1}
+        offsets[#offsets + 1] = {0, -1}
+    end
+    if w >= 3 then
+        offsets[#offsets + 1] = {1, 1}
+        offsets[#offsets + 1] = {-1, 1}
+        offsets[#offsets + 1] = {1, -1}
+        offsets[#offsets + 1] = {-1, -1}
+    end
+    for _, off in ipairs(offsets) do
+        sasl.gl.drawLine(x1 + off[1], y1 + off[2], x2 + off[1], y2 + off[2], color)
+    end
+end
+
+local function try_polygon_fill(coords, color, map)
+    if not coords or #coords < 6 then
+        return false
+    end
+    if sasl.gl.drawPolygon then
+        local ok = pcall(sasl.gl.drawPolygon, coords, true, 0, color)
+        if ok then
+            return true
+        end
+    end
+    if sasl.gl.drawConvexPolygon then
+        local ok = pcall(sasl.gl.drawConvexPolygon, coords, true, 0, color)
+        if ok then
+            return true
+        end
+    end
+    return false
 end
 
 local function normalize_words(text)
@@ -781,23 +1319,22 @@ local function is_auto_taxi_guidance_enabled()
     return settingsTable[def.CONFIGAUTOTAXIGUIDANCE] == def.ON
 end
 
-local function normalize_taxiway_label(label)
-    if not label or label == "" then
+local function find_runway_entry_label(data, node_id)
+    if not data or not data.adjacency_any or not data.runway_nodes or not node_id then
         return ""
     end
-    local clean = helpers.forceCleanString(label)
-    clean = helpers.cleanstring(clean)
-    clean = string.upper(clean)
-    if string.sub(clean, 1, 3) == "RWY" then
+    local edges = data.adjacency_any[node_id]
+    if not edges then
         return ""
     end
-    if clean == "RAMP" then
-        return ""
+    for _, edge in ipairs(edges) do
+        if edge and edge.to and data.runway_nodes[edge.to] then
+            if edge.label and edge.label ~= "" then
+                return normalize_taxiway_label(edge.label)
+            end
+        end
     end
-    clean = string.gsub(clean, "^TAXIWAY[%s_-]*", "")
-    clean = string.gsub(clean, "^TWY[%s_-]*", "")
-    clean = trim_spaces(clean)
-    return clean
+    return ""
 end
 
 local function get_edge_label(data, from_id, to_id)
@@ -846,6 +1383,32 @@ local function find_nearest_segment(data, path, east, north)
     return best_idx, math.sqrt(best_d2 or 0)
 end
 
+local function get_node_degree(data, node_id)
+    if not data or not node_id then
+        return 0
+    end
+    local edges = data.adjacency_any and data.adjacency_any[node_id]
+    if not edges then
+        return 0
+    end
+    return #edges
+end
+
+local function guidance_distance_for_speed(tirespeed)
+    local speed = tonumber(tirespeed) or 0
+    if speed <= 0 then
+        return guidanceTurnDistance
+    end
+    local dist = speed * guidanceLeadTimeSec
+    if dist < guidanceTurnDistance then
+        dist = guidanceTurnDistance
+    end
+    if dist > guidanceMaxDistance then
+        dist = guidanceMaxDistance
+    end
+    return dist
+end
+
 local function speak_guidance_text(comp, text)
     local yal = comp.yal or _G.yal
     if yal and yal.commandtableentry then
@@ -859,7 +1422,12 @@ local function maybe_speak_guidance(comp, now, aircraft)
     if not is_auto_taxi_guidance_enabled() then
         return
     end
+    local yal = comp.yal or _G.yal
+    local on_ground = (yal and yal.airgroundsensor and get(yal.airgroundsensor) == def.ON) or false
     local function diag(reason, extra)
+        if not on_ground then
+            return
+        end
         local t = now or 0
         local last = comp._lastGuidanceDiagTime or 0
         if (t - last) < 10 then
@@ -884,8 +1452,7 @@ local function maybe_speak_guidance(comp, now, aircraft)
         diag("no-aircraft-pos")
         return
     end
-    local yal = comp.yal or _G.yal
-    if not (yal and yal.airgroundsensor and get(yal.airgroundsensor) == def.ON) then
+    if not on_ground then
         diag("not-on-ground")
         return
     end
@@ -918,10 +1485,6 @@ local function maybe_speak_guidance(comp, now, aircraft)
         diag("next-label-empty")
         return
     end
-    if next_label == curr_label then
-        diag("same-label", "label=" .. tostring(next_label))
-        return
-    end
     local v1x = n2.east - n1.east
     local v1y = n2.north - n1.north
     local v2x = n3.east - n2.east
@@ -935,17 +1498,14 @@ local function maybe_speak_guidance(comp, now, aircraft)
     if dot > 1 then dot = 1 end
     if dot < -1 then dot = -1 end
     local angle = math.deg(math.acos(dot))
-    if angle < guidanceTurnAngle then
-        diag("angle-too-small", string.format("angle=%.1f", angle))
-        return
-    end
     local ahead_dot = (aircraft.east - n2.east) * v1x + (aircraft.north - n2.north) * v1y
     if ahead_dot > 0 then
         diag("already-passed-turn")
         return
     end
     local dist_to_node = math.sqrt(distance_sq(aircraft.east, aircraft.north, n2.east, n2.north))
-    if dist_to_node > guidanceTurnDistance then
+    local guidance_dist = guidance_distance_for_speed(tirespeed)
+    if dist_to_node > guidance_dist then
         diag("too-far", string.format("dist=%.1f", dist_to_node))
         return
     end
@@ -957,8 +1517,26 @@ local function maybe_speak_guidance(comp, now, aircraft)
         return
     end
     local cross = v1x * v2y - v1y * v2x
-    local turn = (cross >= 0) and "left" or "right"
-    local text = "Turn " .. turn .. " on Taxiway " .. helpers.addspaces(next_label)
+    local text = ""
+    if angle < guidanceTurnAngle then
+        local degree = get_node_degree(data, path[seg_idx + 1])
+        if degree < 3 or angle < guidanceStraightAngle then
+            diag("angle-too-small", string.format("angle=%.1f", angle))
+            return
+        end
+        local label = next_label
+        if label == "" then
+            label = curr_label or ""
+        end
+        if label ~= "" then
+            text = "Continue straight on Taxiway " .. helpers.addspaces(label)
+        else
+            text = "Continue straight"
+        end
+    else
+        local turn = (cross >= 0) and "left" or "right"
+        text = "Turn " .. turn .. " on Taxiway " .. helpers.addspaces(next_label)
+    end
     speak_guidance_text(comp, text)
     comp._lastGuidanceNodeId = path[seg_idx + 1]
     comp._lastGuidanceLabel = next_label
@@ -1018,6 +1596,7 @@ function M.newComponent(ctx)
     comp._endRamp = nil
     comp._startIsAircraft = false
     comp._selectedEndRampKey = nil
+    comp._selectedDepEntryId = nil
     comp._runwayName = nil
     comp._fitBounds = nil
     comp._lastUpdate = nil
@@ -1030,12 +1609,18 @@ function M.newComponent(ctx)
     comp._lastArrivalRunwayName = nil
     comp._lastArrivalRunwayLat = nil
     comp._lastArrivalRunwayLon = nil
+    comp._lastDepRunwayName = nil
     comp._needsCenter = true
     comp._lastGuidanceNodeId = nil
     comp._lastGuidanceLabel = nil
     comp._lastGuidanceTime = nil
     comp._lastRerouteTime = nil
     comp._rerouteOverride = nil
+    comp._aircraftPoint = nil
+    comp._editRoute = false
+    comp._drawRoute = false
+    comp._routeWaypoints = {}
+    comp._autoEndRampKey = nil
     comp.yal = ctx and ctx.yal or _G.yal
     comp._timer = sasl.createTimer()
     sasl.startTimer(comp._timer)
@@ -1085,15 +1670,19 @@ function M.newComponent(ctx)
 
     local function center_on_aircraft()
         local yal = comp.yal or _G.yal
-        if not yal or not yal.localpositionx or not yal.localpositionz then
+        if not yal or not yal.aircraftlatpos or not yal.aircraftlonpos then
             return false
         end
-        local x = get(yal.localpositionx)
-        local z = get(yal.localpositionz)
-        if x == nil or z == nil then
+        local lat = get(yal.aircraftlatpos)
+        local lon = get(yal.aircraftlonpos)
+        if not is_valid_latlon(lat, lon) then
             return false
         end
-        set_center(x, -z)
+        local x, y = latlon_to_local(lat, lon)
+        if x == nil or y == nil then
+            return false
+        end
+        set_center(x, y)
         return true
     end
 
@@ -1131,6 +1720,8 @@ function M.newComponent(ctx)
             close = { x = w - 24, y = h - headerH, w = 24, h = headerH },
             buttons = {},
             ramps = {},
+            dep_entries = {},
+            waypoints = {},
             map = {
                 x = mapPadding,
                 y = mapPadding,
@@ -1171,6 +1762,14 @@ function M.newComponent(ctx)
         addButton(layout.buttons, x, y, btnW, btnH, "FIT", "fit")
         x = x + btnW + 6
         addButton(layout.buttons, x, y, btnW, btnH, "CENTER", "center")
+        x = x + btnW + 6
+        local editLabel = comp._editRoute and "EDIT ON" or "EDIT"
+        addButton(layout.buttons, x, y, btnW, btnH, editLabel, "toggle_edit")
+        x = x + btnW + 10
+        local drawLabel = comp._drawRoute and "DRAW ON" or "DRAW"
+        addButton(layout.buttons, x, y, btnW, btnH, drawLabel, "toggle_draw")
+        x = x + btnW + 10
+        addButton(layout.buttons, x, y, btnW, btnH, "CLEAR", "clear_route")
         x = x + btnW + 10
         addButton(layout.buttons, x, y, btnW, btnH, "A -", "font_down")
         x = x + btnW + 6
@@ -1178,12 +1777,17 @@ function M.newComponent(ctx)
 
         for _, b in ipairs(layout.buttons) do
             local active = (b.action == "toggle_orient") and (comp.orientation == 1)
+            if b.action == "toggle_edit" then
+                active = comp._editRoute == true
+            elseif b.action == "toggle_draw" then
+                active = comp._drawRoute == true
+            end
             drawButton(font, b, active, uiFontSize)
         end
         comp._buttons = layout.buttons
 
         local map = layout.map
-        drawRectangle(map.x, map.y, map.w, map.h, {0.05, 0.05, 0.07, 0.95})
+        drawRectangle(map.x, map.y, map.w, map.h, {0.78, 0.86, 0.67, 0.98})
         sasl.gl.drawFrame(map.x, map.y, map.w, map.h, {0.4, 0.4, 0.4, 0.8})
         comp._baseScale = compute_bounds_scale((comp._data and comp._data.bounds), map.w, map.h)
 
@@ -1223,12 +1827,28 @@ function M.newComponent(ctx)
             local sy = map.y + map.h * 0.5 + dy * scale + comp.panY
             return sx, sy
         end
+        comp._mapTransform = {
+            centerEast = centerEast,
+            centerNorth = centerNorth,
+            rot = rot,
+            scale = scale,
+            mapX = map.x,
+            mapY = map.y,
+            mapW = map.w,
+            mapH = map.h,
+            panX = comp.panX,
+            panY = comp.panY
+        }
 
-        local edgeColor = {0.35, 0.35, 0.42, 0.9}
-        local polyColor = {0.2, 0.22, 0.28, 0.5}
-        local runwayColor = {0.75, 0.75, 0.8, 1}
-        local routeColor = {0.2, 0.8, 0.35, 1}
-        local routeShadow = {0.05, 0.2, 0.08, 0.9}
+        local taxiEdgeColor = {0.95, 0.85, 0.15, 0.95}
+        local taxiFillColor = {0.62, 0.62, 0.62, 0.95}
+        local apronFillColor = {0.58, 0.58, 0.58, 0.95}
+        local runwayFillColor = {0.2, 0.2, 0.2, 1}
+        local runwayEdgeColor = {0.05, 0.05, 0.05, 1}
+        local runwayShoulderColor = {0.38, 0.38, 0.38, 1}
+        local holdShortColor = {0.95, 0.6, 0.1, 1}
+        local routeColor = {0.9, 0.15, 0.15, 1}
+        local routeShadow = {0.2, 0.05, 0.05, 0.9}
         local rampColor = {0.85, 0.75, 0.25, 0.9}
         local rampGateColor = {0.35, 0.7, 1, 0.95}
         local startColor = {0.2, 0.85, 0.35, 1}
@@ -1238,23 +1858,26 @@ function M.newComponent(ctx)
         if comp._data and comp._data.polygons then
             for _, poly in ipairs(comp._data.polygons) do
                 local pts = poly.points or {}
-                for i = 1, #pts - 1 do
-                    local p1 = pts[i]
-                    local p2 = pts[i + 1]
-                    local x1, y1 = project(p1.east, p1.north)
-                    local x2, y2 = project(p2.east, p2.north)
-                    sasl.gl.drawLine(x1, y1, x2, y2, polyColor)
-                end
-                if #pts > 2 then
-                    local p1 = pts[#pts]
-                    local p2 = pts[1]
-                    local x1, y1 = project(p1.east, p1.north)
-                    local x2, y2 = project(p2.east, p2.north)
-                    sasl.gl.drawLine(x1, y1, x2, y2, polyColor)
+                if #pts >= 3 then
+                    local coords = {}
+                    for _, pt in ipairs(pts) do
+                        local sx, sy = project(pt.east, pt.north)
+                        coords[#coords + 1] = sx
+                        coords[#coords + 1] = sy
+                    end
+                    local fill = taxiFillColor
+                    if poly.kind == "apron" then
+                        fill = apronFillColor
+                    end
+                    try_polygon_fill(coords, fill, map)
                 end
             end
         end
 
+        local taxi_labels = {}
+        local taxi_label_positions = {}
+        local taxi_label_min_px = 90
+        local holdshort_marks = {}
         if comp._data and comp._data.edges then
             for _, edge in ipairs(comp._data.edges) do
                 local n1 = comp._data.nodes[edge.from]
@@ -1262,12 +1885,69 @@ function M.newComponent(ctx)
                 if n1 and n2 then
                     local x1, y1 = project(n1.east, n1.north)
                     local x2, y2 = project(n2.east, n2.north)
-                    local color = edgeColor
+                    local color = taxiEdgeColor
                     if edge.label and string.sub(edge.label, 1, 3) == "RWY" then
-                        color = runwayColor
+                        color = runwayEdgeColor
+                        if comp._data.runway_nodes and comp._data.runway_nodes[edge.from] ~= comp._data.runway_nodes[edge.to] then
+                            local from_is_runway = comp._data.runway_nodes[edge.from] == true
+                            local non = from_is_runway and n2 or n1
+                            local run = from_is_runway and n1 or n2
+                            local dx = run.east - non.east
+                            local dy = run.north - non.north
+                            local len = math.sqrt(dx * dx + dy * dy)
+                            if len > 0.5 then
+                                local ux = dx / len
+                                local uy = dy / len
+                                local px = -uy
+                                local py = ux
+                                local offset = 10
+                                local half = 14
+                                local bx = non.east + ux * offset
+                                local by = non.north + uy * offset
+                                local key = string.format("%.3f|%.3f|%.3f|%.3f", bx, by, px, py)
+                                if not holdshort_marks[key] then
+                                    holdshort_marks[key] = { bx = bx, by = by, px = px, py = py, half = half }
+                                end
+                            end
+                        end
                     end
-                    sasl.gl.drawLine(x1, y1, x2, y2, color)
+                    drawLineThick(x1, y1, x2, y2, color, 2)
+                    if edge.label and string.sub(edge.label, 1, 3) ~= "RWY" then
+                        local lbl = normalize_taxiway_label(edge.label)
+                        if lbl and lbl ~= "" then
+                            local mx = (x1 + x2) * 0.5
+                            local my = (y1 + y2) * 0.5
+                            if mx >= map.x and mx <= (map.x + map.w) and my >= map.y and my <= (map.y + map.h) then
+                                local positions = taxi_label_positions[lbl]
+                                if not positions then
+                                    positions = {}
+                                    taxi_label_positions[lbl] = positions
+                                end
+                                local too_close = false
+                                for _, pos in ipairs(positions) do
+                                    local dx = mx - pos.x
+                                    local dy = my - pos.y
+                                    if (dx * dx + dy * dy) < (taxi_label_min_px * taxi_label_min_px) then
+                                        too_close = true
+                                        break
+                                    end
+                                end
+                                if not too_close then
+                                    positions[#positions + 1] = { x = mx, y = my }
+                                    taxi_labels[#taxi_labels + 1] = { x = mx, y = my, text = lbl }
+                                end
+                            end
+                        end
+                    end
                 end
+            end
+        end
+
+        if next(holdshort_marks) ~= nil then
+            for _, mark in pairs(holdshort_marks) do
+                local p1x, p1y = project(mark.bx + mark.px * mark.half, mark.by + mark.py * mark.half)
+                local p2x, p2y = project(mark.bx - mark.px * mark.half, mark.by - mark.py * mark.half)
+                drawLineThick(p1x, p1y, p2x, p2y, holdShortColor, 3)
             end
         end
 
@@ -1286,6 +1966,11 @@ function M.newComponent(ctx)
                     local ux = -dy / len
                     local uy = dx / len
                     local halfW = (rwy.width or 0) * 0.5
+                    local shoulderW = halfW + 10
+                    if halfW <= 0 then
+                        halfW = 20
+                        shoulderW = halfW + 10
+                    end
                     local left1x = ex1 + ux * halfW
                     local left1y = ny1 + uy * halfW
                     local left2x = ex2 + ux * halfW
@@ -1294,19 +1979,35 @@ function M.newComponent(ctx)
                     local right1y = ny1 - uy * halfW
                     local right2x = ex2 - ux * halfW
                     local right2y = ny2 - uy * halfW
+                    local sh_left1x = ex1 + ux * shoulderW
+                    local sh_left1y = ny1 + uy * shoulderW
+                    local sh_left2x = ex2 + ux * shoulderW
+                    local sh_left2y = ny2 + uy * shoulderW
+                    local sh_right1x = ex1 - ux * shoulderW
+                    local sh_right1y = ny1 - uy * shoulderW
+                    local sh_right2x = ex2 - ux * shoulderW
+                    local sh_right2y = ny2 - uy * shoulderW
                     local x1, y1 = project(left1x, left1y)
                     local x2, y2 = project(left2x, left2y)
                     local x3, y3 = project(right1x, right1y)
                     local x4, y4 = project(right2x, right2y)
-                    sasl.gl.drawLine(x1, y1, x2, y2, runwayColor)
-                    sasl.gl.drawLine(x3, y3, x4, y4, runwayColor)
+                    local sh1x, sh1y = project(sh_left1x, sh_left1y)
+                    local sh2x, sh2y = project(sh_left2x, sh_left2y)
+                    local sh3x, sh3y = project(sh_right1x, sh_right1y)
+                    local sh4x, sh4y = project(sh_right2x, sh_right2y)
+                    try_polygon_fill({sh1x, sh1y, sh2x, sh2y, sh4x, sh4y, sh3x, sh3y}, runwayShoulderColor, map)
+                    try_polygon_fill({x1, y1, x2, y2, x4, y4, x3, y3}, runwayFillColor, map)
+                    drawLineThick(sh1x, sh1y, sh2x, sh2y, runwayShoulderColor, 3)
+                    drawLineThick(sh3x, sh3y, sh4x, sh4y, runwayShoulderColor, 3)
+                    drawLineThick(x1, y1, x2, y2, runwayEdgeColor, 2)
+                    drawLineThick(x3, y3, x4, y4, runwayEdgeColor, 2)
                     local mx = (left1x + right1x) * 0.5
                     local my = (left1y + right1y) * 0.5
                     local mx2 = (left2x + right2x) * 0.5
                     local my2 = (left2y + right2y) * 0.5
                     local cx1, cy1 = project(mx, my)
                     local cx2, cy2 = project(mx2, my2)
-                    sasl.gl.drawLine(cx1, cy1, cx2, cy2, runwayColor)
+                    drawLineThick(cx1, cy1, cx2, cy2, runwayFillColor, 2)
 
                     local labelOff = halfW + 12
                     local headOff = 18
@@ -1317,22 +2018,37 @@ function M.newComponent(ctx)
                     local sx1, sy1 = project(l1x, l1y)
                     local sx2, sy2 = project(l2x, l2y)
                     if rwy.rwy1 and rwy.rwy1 ~= "" then
-                        drawText(font, sx1 + 2, sy1 + 2, rwy.rwy1, mapFontSize, TEXT_ALIGN_LEFT, {0.85, 0.85, 0.92, 0.95})
+                        drawText(font, sx1 + 2, sy1 + 2, rwy.rwy1, mapFontSize, TEXT_ALIGN_LEFT, {0, 0, 0, 1})
                     end
                     if rwy.rwy2 and rwy.rwy2 ~= "" then
-                        drawText(font, sx2 + 2, sy2 + 2, rwy.rwy2, mapFontSize, TEXT_ALIGN_LEFT, {0.85, 0.85, 0.92, 0.95})
+                        drawText(font, sx2 + 2, sy2 + 2, rwy.rwy2, mapFontSize, TEXT_ALIGN_LEFT, {0, 0, 0, 1})
                     end
                 else
                     local x1, y1 = project(ex1, ny1)
                     local x2, y2 = project(ex2, ny2)
-                    sasl.gl.drawLine(x1, y1, x2, y2, runwayColor)
+                    drawLineThick(x1, y1, x2, y2, runwayEdgeColor, 2)
                     if rwy.rwy1 and rwy.rwy1 ~= "" then
-                        drawText(font, x1 + 2, y1 + 2, rwy.rwy1, mapFontSize, TEXT_ALIGN_LEFT, {0.85, 0.85, 0.92, 0.95})
+                        drawText(font, x1 + 2, y1 + 2, rwy.rwy1, mapFontSize, TEXT_ALIGN_LEFT, {0, 0, 0, 1})
                     end
                     if rwy.rwy2 and rwy.rwy2 ~= "" then
-                        drawText(font, x2 + 2, y2 + 2, rwy.rwy2, mapFontSize, TEXT_ALIGN_LEFT, {0.85, 0.85, 0.92, 0.95})
+                        drawText(font, x2 + 2, y2 + 2, rwy.rwy2, mapFontSize, TEXT_ALIGN_LEFT, {0, 0, 0, 1})
                     end
                 end
+            end
+        end
+
+        if #taxi_labels > 0 then
+            local labelColor = {0.1, 0.1, 0.1, 1}
+            local boxFill = {0.95, 0.95, 0.95, 0.85}
+            local boxFrame = {0.4, 0.4, 0.4, 0.9}
+            for _, lbl in ipairs(taxi_labels) do
+                local tw = estimate_text_width(lbl.text, mapFontSize)
+                local th = mapFontSize + 4
+                local bx = lbl.x + 2
+                local by = lbl.y + 1
+                drawRectangle(bx, by, tw + 6, th, boxFill)
+                sasl.gl.drawFrame(bx, by, tw + 6, th, boxFrame)
+                drawText(font, bx + 3, by + 2, lbl.text, mapFontSize, TEXT_ALIGN_LEFT, labelColor)
             end
         end
 
@@ -1346,8 +2062,14 @@ function M.newComponent(ctx)
                 if n1 and n2 then
                     local x1, y1 = project(n1.east, n1.north)
                     local x2, y2 = project(n2.east, n2.north)
-                    sasl.gl.drawLine(x1, y1, x2, y2, routeShadow)
-                    sasl.gl.drawLine(x1 + 1, y1 + 1, x2 + 1, y2 + 1, routeColor)
+                    local isRamp1 = n1.is_ramp == true
+                    local isRamp2 = n2.is_ramp == true
+                    if isRamp1 ~= isRamp2 then
+                        draw_route_L(project, n1, n2, routeShadow, routeColor)
+                    else
+                        sasl.gl.drawLine(x1, y1, x2, y2, routeShadow)
+                        sasl.gl.drawLine(x1 + 1, y1 + 1, x2 + 1, y2 + 1, routeColor)
+                    end
                 end
             end
         end
@@ -1359,22 +2081,18 @@ function M.newComponent(ctx)
                 sasl.gl.drawLine(x1 + 1, y1 + 1, x2 + 1, y2 + 1, routeColor)
             end
         end
-        if comp._selectedEndRampKey and routeData and routeData.nodes then
-            for _, ramp in ipairs(routeData.ramps or {}) do
-                if helpers.isRampSuitableFor738(ramp) and ramp_key(ramp) == comp._selectedEndRampKey then
-                    local rx, ry = project(ramp.east, ramp.north)
-                    local endNode = nil
-                    if comp._route and comp._route.path then
-                        local last_id = comp._route.path[#comp._route.path]
-                        endNode = routeData.nodes[last_id]
-                    end
-                    if endNode and endNode.east and endNode.north then
-                        local nx, ny = project(endNode.east, endNode.north)
-                        sasl.gl.drawLine(nx, ny, rx, ry, routeShadow)
-                        sasl.gl.drawLine(nx + 1, ny + 1, rx + 1, ry + 1, {1.0, 0.6, 0.25, 1})
-                    end
-                    break
+        if routeData and routeData.nodes and comp._endRamp and comp._endRamp.east and comp._endRamp.north then
+            local endNode = nil
+            if comp._route and comp._route.path then
+                local last_id = comp._route.path[#comp._route.path]
+                endNode = routeData.nodes[last_id]
+            end
+            if endNode and endNode.east and endNode.north then
+                local linkColor = routeColor
+                if comp._selectedEndRampKey then
+                    linkColor = {1.0, 0.6, 0.25, 1}
                 end
+                draw_route_L(project, endNode, comp._endRamp, routeShadow, linkColor)
             end
         end
 
@@ -1385,12 +2103,57 @@ function M.newComponent(ctx)
                 if ramp_filter and not ramp_filter(ramp) then
                     goto continue
                 end
+                local rtype = string.lower(ramp.ramp_type or "")
+                if rtype == "gate" and ramp.east and ramp.north then
+                    if ramp._draw_link_east == nil then
+                        local link_east = nil
+                        local link_north = nil
+                        if ramp.node_id and comp._data and comp._data.adjacency_any and comp._data.nodes then
+                            local best_d2 = nil
+                            local edges = comp._data.adjacency_any[ramp.node_id]
+                            if edges then
+                                for _, edge in ipairs(edges) do
+                                    local other_id = edge.to
+                                    local other = comp._data.nodes[other_id]
+                                    if other and not other.is_ramp and not (comp._data.runway_nodes and comp._data.runway_nodes[other_id]) then
+                                        local dx = other.east - ramp.east
+                                        local dy = other.north - ramp.north
+                                        local d2 = dx * dx + dy * dy
+                                        if not best_d2 or d2 < best_d2 then
+                                            best_d2 = d2
+                                            link_east = other.east
+                                            link_north = other.north
+                                        end
+                                    end
+                                end
+                            end
+                        end
+                        if not link_east or not link_north then
+                            local proj = find_nearest_edge_projection(comp._data, ramp.east, ramp.north, { disallow_runway_edges = true })
+                            if proj and proj.edge then
+                                link_east = proj.proj_east
+                                link_north = proj.proj_north
+                            end
+                        end
+                        if link_east and link_north then
+                            ramp._draw_link_east = link_east
+                            ramp._draw_link_north = link_north
+                        else
+                            ramp._draw_link_east = false
+                            ramp._draw_link_north = false
+                        end
+                    end
+                    if ramp._draw_link_east and ramp._draw_link_north then
+                        local x1, y1 = project(ramp.east, ramp.north)
+                        local x2, y2 = project(ramp._draw_link_east, ramp._draw_link_north)
+                        sasl.gl.drawLine(x1, y1, x2, y2, {0.9, 0.82, 0.2, 0.6})
+                    end
+                end
                 local key = ramp_key(ramp)
                 local isSelected = (comp._selectedEndRampKey ~= nil) and (key == comp._selectedEndRampKey)
                 local x, y = project(ramp.east, ramp.north)
                 local color = rampColor
                 local size = 4
-                local rtype = string.lower(ramp.ramp_type or "")
                 if rtype == "gate" then
                     color = rampGateColor
                 end
@@ -1402,7 +2165,7 @@ function M.newComponent(ctx)
                 if showLabels and ramp.name and ramp.name ~= "" then
                     local label = short_ramp_label(ramp)
                     if label ~= "" then
-                        drawText(font, x + 4, y + 2, label, mapFontSize, TEXT_ALIGN_LEFT, {0.75, 0.75, 0.8, 1})
+                        drawText(font, x + 4, y + 2, label, mapFontSize, TEXT_ALIGN_LEFT, {0, 0, 0, 0.9})
                     end
                 end
                 if comp.mode == 1 then
@@ -1412,113 +2175,112 @@ function M.newComponent(ctx)
             end
         end
 
+        if comp.mode == 0 and comp._depEntryCandidates and comp._data and comp._data.nodes then
+            local showLabels = (comp.zoom or 1) >= 1.5
+            for idx, cand in ipairs(comp._depEntryCandidates) do
+                local node = comp._data.nodes[cand.id]
+                if node and node.east and node.north then
+                    local x, y = project(node.east, node.north)
+                    local isSelected = (comp._selectedDepEntryId == cand.id)
+                    local color = isSelected and endColor or {0.85, 0.65, 0.2, 1}
+                    local size = isSelected and 7 or 5
+                    drawRectangle(x - size * 0.5, y - size * 0.5, size, size, color)
+                    if showLabels then
+                        local label = (comp._depEntryLabels and comp._depEntryLabels[cand.id]) or ""
+                        if label == "" then
+                            label = "E" .. tostring(idx)
+                        end
+                        drawText(font, x + 5, y + 2, label, mapFontSize, TEXT_ALIGN_LEFT, {0, 0, 0, 0.9})
+                    end
+                    layout.dep_entries[#layout.dep_entries + 1] = { x = x, y = y, id = cand.id }
+                end
+            end
+        end
+
         if comp._startPoint then
             local sx, sy = project(comp._startPoint.east, comp._startPoint.north)
             drawRectangle(sx - 3, sy - 3, 6, 6, startColor)
-            drawText(font, sx + 5, sy + 2, "S", mapFontSize, TEXT_ALIGN_LEFT, startColor)
+            drawText(font, sx + 5, sy + 2, "S", mapFontSize, TEXT_ALIGN_LEFT, {0, 0, 0, 0.9})
+        end
+        if comp._routeWaypoints and #comp._routeWaypoints > 0 then
+            for i, wp in ipairs(comp._routeWaypoints) do
+                if wp and wp.east and wp.north then
+                    local wx, wy = project(wp.east, wp.north)
+                    drawRectangle(wx - 3, wy - 3, 6, 6, {0.7, 0.9, 0.3, 1})
+                    drawText(font, wx + 5, wy + 2, "V" .. tostring(i), mapFontSize, TEXT_ALIGN_LEFT, {0, 0, 0, 0.9})
+                    layout.waypoints[#layout.waypoints + 1] = { x = wx, y = wy, idx = i }
+                end
+            end
         end
         if comp._selectedEndRampKey and comp._endRamp and comp._endRamp.east and comp._endRamp.north then
             local ex, ey = project(comp._endRamp.east, comp._endRamp.north)
             drawRectangle(ex - 4, ey - 4, 8, 8, endColor)
-            drawText(font, ex + 6, ey + 2, "E", mapFontSize, TEXT_ALIGN_LEFT, endColor)
+            drawText(font, ex + 6, ey + 2, "E", mapFontSize, TEXT_ALIGN_LEFT, {0, 0, 0, 0.9})
         elseif comp._endPoint then
             local ex, ey = project(comp._endPoint.east, comp._endPoint.north)
             drawRectangle(ex - 3, ey - 3, 6, 6, endColor)
-            drawText(font, ex + 5, ey + 2, "E", mapFontSize, TEXT_ALIGN_LEFT, endColor)
+            drawText(font, ex + 5, ey + 2, "E", mapFontSize, TEXT_ALIGN_LEFT, {0, 0, 0, 0.9})
         end
 
-        local yal = comp.yal or _G.yal
-        if yal and yal.localpositionx and yal.localpositionz then
-            local ax = get(yal.localpositionx)
-            local az = get(yal.localpositionz)
-            if ax and az then
-                local axp, ayp = project(ax, -az)
-                sasl.gl.drawLine(axp - 5, ayp, axp + 5, ayp, aircraftColor)
-                sasl.gl.drawLine(axp, ayp - 5, axp, ayp + 5, aircraftColor)
+        if comp._aircraftPoint then
+            local axp, ayp = project(comp._aircraftPoint.east, comp._aircraftPoint.north)
+            sasl.gl.drawLine(axp - 5, ayp, axp + 5, ayp, aircraftColor)
+            sasl.gl.drawLine(axp, ayp - 5, axp, ayp + 5, aircraftColor)
+        else
+            local yal = comp.yal or _G.yal
+            if yal and yal.aircraftlatpos and yal.aircraftlonpos then
+                local lat = get(yal.aircraftlatpos)
+                local lon = get(yal.aircraftlonpos)
+                if is_valid_latlon(lat, lon) then
+                    local ax, az = latlon_to_local(lat, lon)
+                    if ax and az then
+                        local axp, ayp = project(ax, az)
+                        sasl.gl.drawLine(axp - 5, ayp, axp + 5, ayp, aircraftColor)
+                        sasl.gl.drawLine(axp, ayp - 5, axp, ayp + 5, aircraftColor)
+                    end
+                end
             end
         end
 
         local lineHeight = math.floor((mapFontSize or 12) * 1.25)
         local lineY = map.y + map.h - lineHeight - 2
         local lines = {}
-        local modeLabelText = (comp.mode == 1) and "ARRIVAL" or "DEPARTURE"
-        if comp._lastIcao then
-            lines[#lines + 1] = comp._lastIcao .. " | " .. modeLabelText
-        else
-            lines[#lines + 1] = "ICAO not available"
-        end
-        if comp._dataErr then
-            if comp._dataErr == "global-index-pending" then
-                lines[#lines + 1] = "Taxi data: indexing global apt.dat..."
-            else
-                lines[#lines + 1] = "Taxi data: " .. tostring(comp._dataErr)
-            end
-        elseif comp._data then
-            local hasNodes = (comp._data.nodes and next(comp._data.nodes) ~= nil) or false
-            if comp._data.route_source == "fallback" then
-                lines[#lines + 1] = "Fallback taxiway graph in use"
-            elseif (not comp._data.has_routes) or (not hasNodes) then
-                lines[#lines + 1] = "Taxi routes missing in apt.dat"
-            end
-            if comp._data.entry and comp._data.entry.path then
-                local src = basename(comp._data.entry.path)
-                local label = "APT: " .. src
-                if comp._data.route_source and comp._data.route_source ~= "" then
-                    label = label .. " (" .. comp._data.route_source .. ")"
-                end
-                lines[#lines + 1] = label
-            end
-        end
-        if comp._runwayName and comp._runwayName ~= "" then
-            lines[#lines + 1] = "Runway " .. comp._runwayName
-        end
-        if comp._data and comp._data.runways then
-            lines[#lines + 1] = "Runways " .. tostring(#comp._data.runways)
-        end
-        if comp._startRamp and comp._startRamp.name and comp._startRamp.name ~= "" then
-            local label = short_ramp_label(comp._startRamp)
-            if label ~= "" then
-                lines[#lines + 1] = "Start " .. label
-            end
-        elseif comp._startIsAircraft then
-            lines[#lines + 1] = "Start Aircraft"
-        end
-        if comp._endRamp and comp._endRamp.name and comp._endRamp.name ~= "" then
-            local label = short_ramp_label(comp._endRamp)
-            if label ~= "" then
-                lines[#lines + 1] = "End " .. label
-            end
-        end
-        if comp._route then
-            lines[#lines + 1] = "Route OK"
-        elseif comp._routeErr then
-            lines[#lines + 1] = "Route: " .. tostring(comp._routeErr)
-        else
-            lines[#lines + 1] = "Route: n/a"
-        end
-        if (comp._routeErr or comp._dataErr) and comp._routeDebug then
-            local dbg = comp._routeDebug
-            if dbg.start_lat and dbg.start_lon then
-                lines[#lines + 1] = string.format("Start LL %.5f %.5f", dbg.start_lat, dbg.start_lon)
-            end
-            if dbg.start_node_id then
-                lines[#lines + 1] = string.format("Start node %s (%.0fm)", tostring(dbg.start_node_id), dbg.start_node_dist or 0)
-            end
-            if dbg.end_lat and dbg.end_lon then
-                lines[#lines + 1] = string.format("End LL %.5f %.5f", dbg.end_lat, dbg.end_lon)
-            end
-            if dbg.end_node_id then
-                lines[#lines + 1] = string.format("End node %s (%.0fm)", tostring(dbg.end_node_id), dbg.end_node_dist or 0)
-            end
-        end
         local info = string.format("Zoom %.2fx | Font %d | %s",
             comp.zoom or 1.0,
             math.floor(comp.fontSize + 0.5),
             (comp.orientation == 1) and "Heading Up" or "North Up")
         lines[#lines + 1] = info
+        if comp._lastIcao then
+            local modeLabel = (comp.mode == 1) and "ARR" or "DEP"
+            lines[#lines + 1] = "ICAO " .. comp._lastIcao .. " | " .. modeLabel
+        else
+            lines[#lines + 1] = "ICAO n/a"
+        end
+        if comp._runwayName and comp._runwayName ~= "" then
+            lines[#lines + 1] = "Runway " .. comp._runwayName
+        else
+            lines[#lines + 1] = "Runway n/a"
+        end
+        local gateLabel = ""
+        if comp.mode == 1 then
+            if comp._endRamp and comp._endRamp.name and comp._endRamp.name ~= "" then
+                gateLabel = short_ramp_label(comp._endRamp)
+            end
+        else
+            if comp._startRamp and comp._startRamp.name and comp._startRamp.name ~= "" then
+                gateLabel = short_ramp_label(comp._startRamp)
+            elseif comp._startIsAircraft then
+                gateLabel = "Aircraft"
+            end
+        end
+        if gateLabel ~= "" then
+            lines[#lines + 1] = "Gate " .. gateLabel
+        else
+            lines[#lines + 1] = "Gate n/a"
+        end
 
         for i = 1, #lines do
-            drawText(font, map.x + 8, lineY - (i - 1) * lineHeight, lines[i], mapFontSize, TEXT_ALIGN_LEFT, {0.7, 0.7, 0.8, 1})
+            drawText(font, map.x + 8, lineY - (i - 1) * lineHeight, lines[i], mapFontSize, TEXT_ALIGN_LEFT, {0, 0, 0, 0.9})
         end
 
         comp._layout = layout
@@ -1577,6 +2339,25 @@ function M.newComponent(ctx)
                     comp.fontSize = clamp(comp.fontSize + 1, minFont, maxFont)
                     comp._fontHandle = nil
                     commitSettings()
+                elseif b.action == "toggle_edit" then
+                    comp._editRoute = not comp._editRoute
+                    if not comp._editRoute then
+                        comp._drawRoute = false
+                    end
+                elseif b.action == "toggle_draw" then
+                    comp._drawRoute = not comp._drawRoute
+                    if comp._drawRoute then
+                        comp._editRoute = true
+                    end
+                elseif b.action == "clear_route" then
+                    comp._routeWaypoints = {}
+                    comp._selectedEndRampKey = nil
+                    comp._autoEndRampKey = nil
+                    comp._lastStartKey = nil
+                    comp._lastEndKey = nil
+                    comp._route = nil
+                    comp._routeErr = nil
+                    comp._lastUpdate = nil
                 end
                 return true
             end
@@ -1598,8 +2379,61 @@ function M.newComponent(ctx)
             if best then
                 if comp._selectedEndRampKey == best.key then
                     comp._selectedEndRampKey = nil
+                    comp._autoEndRampKey = nil
                 else
                     comp._selectedEndRampKey = best.key
+                    comp._autoEndRampKey = nil
+                end
+                comp._lastEndKey = nil
+                comp._route = nil
+                comp._routeErr = nil
+                comp._lastUpdate = nil
+                return true
+            end
+        end
+        if layout.waypoints and comp._editRoute then
+            local hitRadius = 8
+            local hitD2 = hitRadius * hitRadius
+            local best = nil
+            local bestDist = nil
+            for _, hit in ipairs(layout.waypoints) do
+                local dx = x - hit.x
+                local dy = y - hit.y
+                local d2 = dx * dx + dy * dy
+                if d2 <= hitD2 and (not bestDist or d2 < bestDist) then
+                    best = hit
+                    bestDist = d2
+                end
+            end
+            if best then
+                table.remove(comp._routeWaypoints, best.idx)
+                comp._lastStartKey = nil
+                comp._lastEndKey = nil
+                comp._route = nil
+                comp._routeErr = nil
+                comp._lastUpdate = nil
+                return true
+            end
+        end
+        if layout.dep_entries and comp.mode == 0 then
+            local hitRadius = 8
+            local hitD2 = hitRadius * hitRadius
+            local best = nil
+            local bestDist = nil
+            for _, hit in ipairs(layout.dep_entries) do
+                local dx = x - hit.x
+                local dy = y - hit.y
+                local d2 = dx * dx + dy * dy
+                if d2 <= hitD2 and (not bestDist or d2 < bestDist) then
+                    best = hit
+                    bestDist = d2
+                end
+            end
+            if best then
+                if comp._selectedDepEntryId == best.id then
+                    comp._selectedDepEntryId = nil
+                else
+                    comp._selectedDepEntryId = best.id
                 end
                 comp._lastEndKey = nil
                 comp._route = nil
@@ -1611,6 +2445,97 @@ function M.newComponent(ctx)
         if layout.map then
             local m = layout.map
             if x >= m.x and x <= (m.x + m.w) and y >= m.y and y <= (m.y + m.h) then
+                if comp._editRoute and comp._mapTransform then
+                    local t = comp._mapTransform
+                    local function project(east, north)
+                        local dx = (east or 0) - t.centerEast
+                        local dy = (north or 0) - t.centerNorth
+                        dx, dy = rotate_point(dx, dy, t.rot)
+                        local sx = t.mapX + t.mapW * 0.5 + dx * t.scale + (t.panX or 0)
+                        local sy = t.mapY + t.mapH * 0.5 + dy * t.scale + (t.panY or 0)
+                        return sx, sy
+                    end
+                    local function screen_to_world(sx, sy)
+                        local dx = (sx - (t.mapX + t.mapW * 0.5) - (t.panX or 0)) / (t.scale or 1)
+                        local dy = (sy - (t.mapY + t.mapH * 0.5) - (t.panY or 0)) / (t.scale or 1)
+                        dx, dy = rotate_point(dx, dy, -t.rot)
+                        return t.centerEast + dx, t.centerNorth + dy
+                    end
+                    if comp._drawRoute and (not comp._route or not comp._route.path or not comp._route.data) then
+                        local we, wn = screen_to_world(x, y)
+                        local proj = find_nearest_edge_projection(comp._data, we, wn, { disallow_runway_edges = false })
+                        if proj and proj.edge then
+                            local wlat, wlon = sasl.localToWorld(proj.proj_east, 0, -proj.proj_north)
+                            if is_valid_latlon(wlat, wlon) then
+                                table.insert(comp._routeWaypoints, {
+                                    lat = wlat,
+                                    lon = wlon,
+                                    east = proj.proj_east,
+                                    north = proj.proj_north,
+                                    segment_idx = nil
+                                })
+                                comp._lastStartKey = nil
+                                comp._lastEndKey = nil
+                                comp._route = nil
+                                comp._routeErr = nil
+                                comp._lastUpdate = nil
+                                return true
+                            end
+                        end
+                    elseif comp._route and comp._route.path and comp._route.data then
+                        local routeData = comp._route.data
+                        local path = comp._route.path
+                        local best_idx = nil
+                        local best_d2 = nil
+                        local best_t = 0
+                        for i = 1, #path - 1 do
+                            local n1 = routeData.nodes[path[i]]
+                            local n2 = routeData.nodes[path[i + 1]]
+                            if n1 and n2 then
+                                local x1, y1 = project(n1.east, n1.north)
+                                local x2, y2 = project(n2.east, n2.north)
+                                local px, py, tt = project_point_to_segment(x, y, x1, y1, x2, y2)
+                                local d2 = distance_sq(x, y, px, py)
+                                if not best_d2 or d2 < best_d2 then
+                                    best_d2 = d2
+                                    best_idx = i
+                                    best_t = tt
+                                end
+                            end
+                        end
+                        if best_idx and best_d2 and best_d2 <= 100 then
+                            local n1 = routeData.nodes[path[best_idx]]
+                            local n2 = routeData.nodes[path[best_idx + 1]]
+                            if n1 and n2 then
+                                local we = n1.east + (n2.east - n1.east) * best_t
+                                local wn = n1.north + (n2.north - n1.north) * best_t
+                                local wlat, wlon = sasl.localToWorld(we, 0, -wn)
+                                if is_valid_latlon(wlat, wlon) then
+                                    local insert_at = #comp._routeWaypoints + 1
+                                    for idx, wp in ipairs(comp._routeWaypoints) do
+                                        if wp.segment_idx and wp.segment_idx > best_idx then
+                                            insert_at = idx
+                                            break
+                                        end
+                                    end
+                                    table.insert(comp._routeWaypoints, insert_at, {
+                                        lat = wlat,
+                                        lon = wlon,
+                                        east = we,
+                                        north = wn,
+                                        segment_idx = best_idx
+                                    })
+                                    comp._lastStartKey = nil
+                                    comp._lastEndKey = nil
+                                    comp._route = nil
+                                    comp._routeErr = nil
+                                    comp._lastUpdate = nil
+                                    return true
+                                end
+                            end
+                        end
+                    end
+                end
                 local resizeMargin = 12
                 local dragX1 = m.x + resizeMargin
                 local dragY1 = m.y + resizeMargin
@@ -1801,8 +2726,14 @@ function M.newComponent(ctx)
             comp._lastGuidanceNodeId = nil
             comp._lastGuidanceLabel = nil
             comp._lastGuidanceTime = nil
+            comp._routeWaypoints = {}
+            comp._rerouteOverride = nil
+            if icao_changed or mode_changed then
+                comp._autoEndRampKey = nil
+            end
             if icao_changed then
                 comp._selectedEndRampKey = nil
+                comp._selectedDepEntryId = nil
                 comp._data = nil
                 comp._dataErr = nil
             end
@@ -1828,9 +2759,28 @@ function M.newComponent(ctx)
         end
         comp._data = data
         comp._dataErr = nil
+        if comp._rampLinkCacheReset ~= data then
+            if data.ramps then
+                for _, ramp in ipairs(data.ramps) do
+                    ramp._draw_link_east = nil
+                    ramp._draw_link_north = nil
+                end
+            end
+            comp._rampLinkCacheReset = data
+        end
         comp._fitBounds = data.bounds
         local hasNodes = (data.nodes and next(data.nodes) ~= nil) or false
-        local canRoute = data.can_route and hasNodes
+        local hasArrivalRunway = (mode == 0) or (raw_desrwy ~= "")
+        local canRoute = data.can_route and hasNodes and hasArrivalRunway
+        if not canRoute then
+            helpers.logInfoTS(
+                "TaxiDiag: canRoute=false icao=" .. tostring(icao) ..
+                " mode=" .. tostring(mode) ..
+                " data.can_route=" .. tostring(data.can_route) ..
+                " hasNodes=" .. tostring(hasNodes) ..
+                " hasArrivalRunway=" .. tostring(hasArrivalRunway)
+            )
+        end
 
         local aircraft = nil
         local lat = yal.aircraftlatpos and get(yal.aircraftlatpos) or nil
@@ -1841,6 +2791,12 @@ function M.newComponent(ctx)
                 aircraft = { lat = lat, lon = lon, east = east, north = north }
             end
         end
+        if comp._rerouteOverride and aircraft and is_valid_latlon(comp._rerouteOverride.lat, comp._rerouteOverride.lon) then
+            local d_override = distance_meters_latlon(comp._rerouteOverride.lat, comp._rerouteOverride.lon, aircraft.lat, aircraft.lon)
+            if d_override and d_override > 1000 then
+                comp._rerouteOverride = nil
+            end
+        end
 
         local start_lat = nil
         local start_lon = nil
@@ -1849,10 +2805,13 @@ function M.newComponent(ctx)
         local runway_lat = nil
         local runway_lon = nil
         local runway_name = ""
+        local raw_desrwy = ""
         local touchdown = nil
         local landing_profile = nil
         local backtrack_required = false
         local dep_holdshort_id = nil
+        local dep_end_node_id = nil
+        local dep_end_node_dist = nil
         local arr_exit_id = nil
 
         if mode == 0 then
@@ -1867,6 +2826,10 @@ function M.newComponent(ctx)
                 runway_lon = yal.deprwylonendpos and get(yal.deprwylonendpos) or nil
             end
             runway_name = yal.deprwy and helpers.forceCleanString(get(yal.deprwy) or "") or ""
+            if comp._lastDepRunwayName and comp._lastDepRunwayName ~= runway_name then
+                comp._selectedDepEntryId = nil
+            end
+            comp._lastDepRunwayName = runway_name
             comp._runwayName = runway_name
             if data and comp._runwayName and comp._runwayName ~= "" then
                 local rwy, side = find_runway_entry(data, comp._runwayName, runway_lat, runway_lon)
@@ -1877,8 +2840,23 @@ function M.newComponent(ctx)
                     if dep_holdshort_id and data.nodes and data.nodes[dep_holdshort_id] then
                         local hs = data.nodes[dep_holdshort_id]
                         if is_valid_latlon(hs.lat, hs.lon) then
-                            end_lat = hs.lat
-                            end_lon = hs.lon
+                            local d_hs = distance_meters_latlon(runway_lat, runway_lon, hs.lat, hs.lon)
+                            if d_hs and d_hs > 2000 then
+                                dep_holdshort_id = nil
+                            else
+                                end_lat = hs.lat
+                                end_lon = hs.lon
+                            end
+                        end
+                    end
+                    if not dep_holdshort_id and is_valid_latlon(runway_lat, runway_lon) then
+                        dep_end_node_id, dep_end_node_dist = nearest_non_runway_node(data, runway_lat, runway_lon)
+                        if dep_end_node_id and data.nodes and data.nodes[dep_end_node_id] then
+                            local dn = data.nodes[dep_end_node_id]
+                            if is_valid_latlon(dn.lat, dn.lon) then
+                                end_lat = dn.lat
+                                end_lon = dn.lon
+                            end
                         end
                     end
                 end
@@ -1901,14 +2879,14 @@ function M.newComponent(ctx)
                 runway_lat = comp._lastArrivalRunwayLat
                 runway_lon = comp._lastArrivalRunwayLon
             end
-            runway_name = yal.desrwy and helpers.forceCleanString(get(yal.desrwy) or "") or ""
+            raw_desrwy = yal.desrwy and helpers.forceCleanString(get(yal.desrwy) or "") or ""
+            runway_name = raw_desrwy
             if runway_name ~= "" then
                 comp._lastArrivalRunwayName = runway_name
             elseif comp._lastArrivalRunwayName then
                 runway_name = comp._lastArrivalRunwayName
             end
             comp._runwayName = runway_name
-            local raw_desrwy = yal.desrwy and helpers.forceCleanString(get(yal.desrwy) or "") or ""
             if data and comp._runwayName and comp._runwayName ~= "" then
                 local ref_lat = runway_lat
                 local ref_lon = runway_lon
@@ -2019,8 +2997,22 @@ function M.newComponent(ctx)
                     end
                 end
             end
+            if not end_ramp and comp._autoEndRampKey and data and data.ramps then
+                for _, ramp in ipairs(data.ramps) do
+                    if helpers.isRampSuitableFor738(ramp) and ramp_key(ramp) == comp._autoEndRampKey then
+                        end_ramp = ramp
+                        break
+                    end
+                end
+                if not end_ramp then
+                    comp._autoEndRampKey = nil
+                end
+            end
             if not end_ramp then
                 end_ramp = helpers.getNearestRamp(icao, ramp_ref_lat, ramp_ref_lon, { filter = helpers.isRampSuitableFor738, data = data })
+                if end_ramp then
+                    comp._autoEndRampKey = ramp_key(end_ramp)
+                end
             end
             if end_ramp and is_valid_latlon(end_ramp.lat, end_ramp.lon) then
                 end_lat = end_ramp.lat
@@ -2049,9 +3041,39 @@ function M.newComponent(ctx)
         comp._startIsAircraft = (start_is_aircraft and not start_ramp) or false
         comp._endRamp = end_ramp
         comp._depHoldshortNodeId = dep_holdshort_id
+        comp._depEntryCandidates = nil
+        comp._depEntryLabels = nil
+        if mode == 0 and data and is_valid_latlon(runway_lat, runway_lon) then
+            local re, rn = latlon_to_local(runway_lat, runway_lon)
+            local candidates = collect_runway_exit_candidates(data, re, rn, 40)
+            if candidates and #candidates > 0 then
+                comp._depEntryCandidates = candidates
+                comp._depEntryLabels = {}
+                for _, cand in ipairs(candidates) do
+                    if cand.id then
+                        comp._depEntryLabels[cand.id] = find_runway_entry_label(data, cand.id)
+                    end
+                end
+            end
+        end
 
-        local start_node_id, start_node_dist = nearest_node_info(data, start_lat, start_lon)
-        local end_node_id, end_node_dist = nearest_node_info(data, end_lat, end_lon)
+        local start_node_id, start_node_dist = nearest_node_info(data, start_lat, start_lon, false)
+        local start_non_runway_node_id = nil
+        local start_non_runway_node_dist = nil
+        if mode == 0 and start_is_aircraft and data and data.runway_nodes then
+            start_non_runway_node_id, start_non_runway_node_dist = nearest_non_runway_node(data, start_lat, start_lon)
+        end
+        local end_node_id, end_node_dist = nearest_node_info(data, end_lat, end_lon, false)
+        if mode == 0 and data and data.runway_nodes then
+            dep_end_node_id, dep_end_node_dist = nearest_non_runway_node(data, end_lat, end_lon)
+        end
+        if mode == 0 and comp._selectedDepEntryId and data and data.nodes and data.nodes[comp._selectedDepEntryId] then
+            local sel = data.nodes[comp._selectedDepEntryId]
+            end_lat = sel.lat
+            end_lon = sel.lon
+            end_node_id = comp._selectedDepEntryId
+            end_node_dist = 0
+        end
         comp._routeDebug = {
             start_lat = start_lat,
             start_lon = start_lon,
@@ -2059,13 +3081,59 @@ function M.newComponent(ctx)
             end_lon = end_lon,
             start_node_id = start_node_id,
             start_node_dist = start_node_dist,
+            start_non_runway_node_id = start_non_runway_node_id,
+            start_non_runway_node_dist = start_non_runway_node_dist,
             end_node_id = end_node_id,
-            end_node_dist = end_node_dist
+            end_node_dist = end_node_dist,
+            dep_end_node_id = dep_end_node_id,
+            dep_end_node_dist = dep_end_node_dist
         }
 
         if comp._rerouteOverride and is_valid_latlon(comp._rerouteOverride.lat, comp._rerouteOverride.lon) then
             start_lat = comp._rerouteOverride.lat
             start_lon = comp._rerouteOverride.lon
+        end
+
+        if mode == 1 and not hasArrivalRunway then
+            comp._route = nil
+            comp._routeErr = "no-arrival-runway"
+            comp._routeExtraSegments = nil
+            comp._lastStartKey = nil
+            comp._lastEndKey = nil
+            return
+        end
+
+        if comp.yal and comp.yal.aircraftonrwy and is_valid_latlon(runway_lat, runway_lon) then
+            if mode == 1 then
+                local offRunway = comp.yal.aircraftonrwy(def.ARRIVAL, 0.0001, 20)
+                if not offRunway then
+                    comp._route = nil
+                    comp._routeErr = "on-runway"
+                    comp._routeExtraSegments = nil
+                    comp._lastStartKey = nil
+                    comp._lastEndKey = nil
+                    return
+                end
+            elseif mode == 0 then
+                local onRunway = comp.yal.aircraftonrwy(def.DEPARTURE, 0.0001, 20)
+                if onRunway then
+                    comp._route = nil
+                    comp._routeErr = "on-runway"
+                    comp._routeExtraSegments = nil
+                    comp._lastStartKey = nil
+                    comp._lastEndKey = nil
+                    return
+                end
+            end
+        end
+
+        if comp._drawRoute and (not comp._routeWaypoints or #comp._routeWaypoints == 0) then
+            comp._route = nil
+            comp._routeErr = "draw-route-empty"
+            comp._routeExtraSegments = nil
+            comp._lastStartKey = nil
+            comp._lastEndKey = nil
+            return
         end
 
         local start_key = string.format("%.6f|%.6f", start_lat or 0, start_lon or 0)
@@ -2119,56 +3187,280 @@ function M.newComponent(ctx)
                     " aircraft=" .. (aircraft and fmt_latlon(aircraft.lat, aircraft.lon) or "nil/nil") ..
                     " reroute=" .. (comp._rerouteOverride and fmt_latlon(comp._rerouteOverride.lat, comp._rerouteOverride.lon) or "nil/nil")
                 )
+                local dep_end_dbg = ""
+                if dep_end_node_id then
+                    dep_end_dbg = " depEnd=" .. fmt_node_latlon(dep_end_node_id) .. " d=" .. tostring(dep_end_node_dist or "?")
+                end
                 helpers.logInfoTS(
                     "TaxiDiag: nodes start=" .. fmt_node_latlon(start_node_id) .. " d=" .. tostring(start_node_dist or "?") ..
                     " end=" .. fmt_node_latlon(end_node_id) .. " d=" .. tostring(end_node_dist or "?") ..
+                    dep_end_dbg ..
                     " depHS=" .. fmt_node_latlon(dep_holdshort_id) ..
                     " arrExit=" .. fmt_node_latlon(arr_exit_id)
                 )
                 helpers.logInfoTS(
                     "TaxiDiag: onGround=" .. tostring(onGround) .. " gs=" .. tostring(groundspeed)
                 )
-                local opts = { data = data }
+                local tirespeed = yalref and yalref.tirespeed and (get(yalref.tirespeed) or 0) or 0
+                local now = 0
+                if comp._timer then
+                    now = sasl.getElapsedSeconds(comp._timer) or 0
+                end
+                local log_key = string.format("%d|%s|%s|%s|%.4f|%.4f|%.4f|%.4f",
+                    mode or -1,
+                    tostring(icao),
+                    tostring(comp._runwayName or ""),
+                    tostring(raw_dep or raw_arr or ""),
+                    tonumber(start_lat or 0),
+                    tonumber(start_lon or 0),
+                    tonumber(end_lat or 0),
+                    tonumber(end_lon or 0)
+                )
+                local should_log = (comp._lastRouteLogKey ~= log_key)
+                if not should_log and comp._lastRouteLogTime then
+                    should_log = (now - comp._lastRouteLogTime) > 8
+                end
+                if should_log then
+                    comp._lastRouteLogKey = log_key
+                    comp._lastRouteLogTime = now
+                    local wtl_e, wtl_n = nil, nil
+                    if aircraft and aircraft.lat and aircraft.lon then
+                        wtl_e, wtl_n = latlon_to_local(aircraft.lat, aircraft.lon)
+                    end
+                    local rwy_entry_lat = nil
+                    local rwy_entry_lon = nil
+                    local rwy_entry_dist_m = nil
+                    local rwy1, rwy2, rwy_side = nil, nil, nil
+                    if data and comp._runwayName and comp._runwayName ~= "" then
+                        local rwy, side = find_runway_entry(data, comp._runwayName, runway_lat, runway_lon)
+                        if rwy then
+                            rwy1 = rwy.rwy1
+                            rwy2 = rwy.rwy2
+                            rwy_side = side
+                            rwy_entry_lat = (side == 1) and rwy.lat1 or rwy.lat2
+                            rwy_entry_lon = (side == 1) and rwy.lon1 or rwy.lon2
+                            if is_valid_latlon(runway_lat, runway_lon) and is_valid_latlon(rwy_entry_lat, rwy_entry_lon) then
+                                rwy_entry_dist_m = distance_meters_latlon(runway_lat, runway_lon, rwy_entry_lat, rwy_entry_lon)
+                            end
+                        end
+                    end
+                    local dep_hs_dist = nil
+                    if dep_holdshort_id and data and data.nodes then
+                        local hs = data.nodes[dep_holdshort_id]
+                        if hs and is_valid_latlon(hs.lat, hs.lon) and is_valid_latlon(runway_lat, runway_lon) then
+                            dep_hs_dist = distance_meters_latlon(runway_lat, runway_lon, hs.lat, hs.lon)
+                        end
+                    end
+                    log_full_route_state(comp, data, mode, icao, {
+                        raw_dep = raw_dep,
+                        raw_arr = raw_arr,
+                        runway_name = comp._runwayName,
+                        runway_lat = runway_lat,
+                        runway_lon = runway_lon,
+                        chosen_lat = runway_lat,
+                        chosen_lon = runway_lon,
+                        rwy1 = rwy1,
+                        rwy2 = rwy2,
+                        rwy_side = rwy_side,
+                        rwy_entry_lat = rwy_entry_lat,
+                        rwy_entry_lon = rwy_entry_lon,
+                        rwy_entry_dist_m = rwy_entry_dist_m,
+                        aircraft_lat = aircraft and aircraft.lat or nil,
+                        aircraft_lon = aircraft and aircraft.lon or nil,
+                        aircraft_east = aircraft and aircraft.east or nil,
+                        aircraft_north = aircraft and aircraft.north or nil,
+                        aircraft_wtl_e = wtl_e,
+                        aircraft_wtl_n = wtl_n,
+                        start_lat = start_lat,
+                        start_lon = start_lon,
+                        end_lat = end_lat,
+                        end_lon = end_lon,
+                        start_node_id = start_node_id,
+                        start_node_dist = start_node_dist,
+                        end_node_id = end_node_id,
+                        end_node_dist = end_node_dist,
+                        start_non_runway_node_id = start_non_runway_node_id,
+                        start_non_runway_node_dist = start_non_runway_node_dist,
+                        dep_holdshort_id = dep_holdshort_id,
+                        dep_holdshort_dist_m = dep_hs_dist,
+                        arr_exit_id = arr_exit_id,
+                        reroute_lat = comp._rerouteOverride and comp._rerouteOverride.lat or nil,
+                        reroute_lon = comp._rerouteOverride and comp._rerouteOverride.lon or nil,
+                        onGround = onGround,
+                        groundspeed = groundspeed,
+                        tirespeed = tirespeed
+                    })
+                end
+                local proj_data = nil
+                local proj_start_id = nil
+                local proj_end_id = nil
+                local proj_waypoint_ids = nil
+                local function compute_projection(opts)
+                    if proj_data then
+                        return
+                    end
+                    local start_proj = nil
+                    local end_proj = nil
+                    local waypoint_projs = nil
+                    if not opts.start_node_id and is_valid_latlon(start_lat, start_lon) then
+                        local sx, sy = latlon_to_local(start_lat, start_lon)
+                        if sx and sy then
+                            if start_ramp and start_ramp.east and start_ramp.north then
+                                start_proj = find_preferred_edge_projection(data, start_ramp.east, start_ramp.north, { disallow_runway_edges = opts.disallow_runway_edges })
+                            end
+                            if not start_proj then
+                                start_proj = find_nearest_edge_projection(data, sx, sy, { disallow_runway_edges = opts.disallow_runway_edges })
+                            end
+                        end
+                    end
+                    if not opts.end_node_id and is_valid_latlon(end_lat, end_lon) then
+                        local ex, ey = latlon_to_local(end_lat, end_lon)
+                        if ex and ey then
+                            if end_ramp and end_ramp.east and end_ramp.north then
+                                end_proj = find_preferred_edge_projection(data, end_ramp.east, end_ramp.north, { disallow_runway_edges = opts.disallow_runway_edges })
+                            end
+                            if not end_proj then
+                                end_proj = find_nearest_edge_projection(data, ex, ey, { disallow_runway_edges = opts.disallow_runway_edges })
+                            end
+                        end
+                    end
+                    if comp._routeWaypoints and #comp._routeWaypoints > 0 then
+                        waypoint_projs = {}
+                        for _, wp in ipairs(comp._routeWaypoints) do
+                            if is_valid_latlon(wp.lat, wp.lon) then
+                                local wx, wy = latlon_to_local(wp.lat, wp.lon)
+                                if wx and wy then
+                                    waypoint_projs[#waypoint_projs + 1] = find_nearest_edge_projection(
+                                        data,
+                                        wx,
+                                        wy,
+                                        { disallow_runway_edges = opts.disallow_runway_edges }
+                                    )
+                                end
+                            end
+                        end
+                    end
+                    if start_proj or end_proj or (waypoint_projs and #waypoint_projs > 0) then
+                        proj_data, proj_start_id, proj_end_id, proj_waypoint_ids =
+                            build_projected_data(data, start_proj, end_proj, waypoint_projs)
+                    end
+                end
+                local function apply_projection(opts)
+                    if proj_data then
+                        opts.data = proj_data
+                        if proj_start_id and not opts.start_node_id then
+                            opts.start_node_id = proj_start_id
+                        end
+                        if proj_end_id and not opts.end_node_id then
+                            opts.end_node_id = proj_end_id
+                        end
+                    else
+                        opts.data = data
+                    end
+                    if not opts.start_node_id and opts._fallback_start_node_id then
+                        opts.start_node_id = opts._fallback_start_node_id
+                    end
+                    if not opts.end_node_id and opts._fallback_end_node_id then
+                        opts.end_node_id = opts._fallback_end_node_id
+                    end
+                end
+
+                local function node_has_non_runway_edge(node_id)
+                    if not node_id or not data or not data.adjacency_any or not data.nodes then
+                        return false
+                    end
+                    local edges = data.adjacency_any[node_id]
+                    if not edges then
+                        return false
+                    end
+                    for _, edge in ipairs(edges) do
+                        local other = data.nodes[edge.to]
+                        if other and not other.is_ramp and not (data.runway_nodes and data.runway_nodes[edge.to]) then
+                            return true
+                        end
+                    end
+                    return false
+                end
+
+                local function set_start_ramp_fallback(opts)
+                    if start_ramp and start_ramp.node_id and node_has_non_runway_edge(start_ramp.node_id) then
+                        opts._fallback_start_node_id = start_ramp.node_id
+                        opts.allow_far_ramp = true
+                    end
+                end
+
+                local function set_end_ramp_fallback(opts)
+                    if user_selected_end and end_ramp and end_ramp.node_id and node_has_non_runway_edge(end_ramp.node_id) then
+                        opts._fallback_end_node_id = end_ramp.node_id
+                        opts.allow_far_ramp = true
+                    end
+                end
+
+                local opts = {}
                 if mode == 0 then
                     opts.avoid_runway_end = true
                     opts.runway_penalty = 500
                     opts.disallow_runway_edges = true
                     opts.avoid_runway_nodes = true
-                    if dep_holdshort_id and data.nodes and data.nodes[dep_holdshort_id] then
+                    if comp._selectedDepEntryId and data.nodes and data.nodes[comp._selectedDepEntryId] then
+                        opts.end_node_id = comp._selectedDepEntryId
+                    elseif dep_holdshort_id and data.nodes and data.nodes[dep_holdshort_id] then
                         opts.end_node_id = dep_holdshort_id
+                    elseif dep_end_node_id and data.nodes and data.nodes[dep_end_node_id] then
+                        opts.end_node_id = dep_end_node_id
                     end
-                    if start_ramp and start_ramp.node_id then
-                        opts.start_node_id = start_ramp.node_id
-                        opts.allow_far_ramp = true
-                    end
+                    set_start_ramp_fallback(opts)
                 elseif mode == 1 then
-                    if arr_exit_id and data.nodes and data.nodes[arr_exit_id] then
+                    if (not comp._rerouteOverride) and arr_exit_id and data.nodes and data.nodes[arr_exit_id] then
                         opts.start_node_id = arr_exit_id
                     elseif not backtrack_required then
                         opts.avoid_runway_start = true
                     end
                     opts.runway_penalty = 500
-                    if user_selected_end and end_ramp and end_ramp.node_id then
-                        opts.end_node_id = end_ramp.node_id
-                        opts.allow_far_ramp = true
-                    end
+                    set_end_ramp_fallback(opts)
                 end
-                local route, rerr = helpers.getTaxiRoute(icao, start_lat, start_lon, end_lat, end_lon, opts)
+                if not opts.start_node_id and start_node_id and data.nodes and data.nodes[start_node_id] then
+                    opts.start_node_id = start_node_id
+                end
+                if not opts.end_node_id and end_node_id and data.nodes and data.nodes[end_node_id] then
+                    opts.end_node_id = end_node_id
+                end
+                compute_projection(opts)
+                apply_projection(opts)
+                local route, rerr = route_with_waypoints(
+                    icao,
+                    start_lat,
+                    start_lon,
+                    end_lat,
+                    end_lon,
+                    opts,
+                    proj_waypoint_ids,
+                    comp._routeWaypoints
+                )
                 if (not route) and rerr == "no-path" and mode == 0 then
                     opts = {
                         ignore_oneway = true,
                         allow_far_ramp = true,
                         disallow_runway_edges = true,
-                        avoid_runway_nodes = true,
-                        data = data
+                        avoid_runway_nodes = true
                     }
-                    if dep_holdshort_id and data.nodes and data.nodes[dep_holdshort_id] then
+                    if comp._selectedDepEntryId and data.nodes and data.nodes[comp._selectedDepEntryId] then
+                        opts.end_node_id = comp._selectedDepEntryId
+                    elseif dep_holdshort_id and data.nodes and data.nodes[dep_holdshort_id] then
                         opts.end_node_id = dep_holdshort_id
                     end
-                    if start_ramp and start_ramp.node_id then
-                        opts.start_node_id = start_ramp.node_id
-                    end
-                    route, rerr = helpers.getTaxiRoute(icao, start_lat, start_lon, end_lat, end_lon, opts)
+                    set_start_ramp_fallback(opts)
+                    apply_projection(opts)
+                    route, rerr = route_with_waypoints(
+                        icao,
+                        start_lat,
+                        start_lon,
+                        end_lat,
+                        end_lon,
+                        opts,
+                        proj_waypoint_ids,
+                        comp._routeWaypoints
+                    )
                 end
                 if (not route) and rerr == "no-path" and mode == 0 and is_valid_latlon(start_lat, start_lon) then
                     local sx, sy = latlon_to_local(start_lat, start_lon)
@@ -2178,13 +3470,25 @@ function M.newComponent(ctx)
                             ignore_oneway = true,
                             allow_far_ramp = true,
                             disallow_runway_edges = true,
-                            avoid_runway_nodes = true,
-                            data = data
+                            avoid_runway_nodes = true
                         }
-                        if dep_holdshort_id and data.nodes and data.nodes[dep_holdshort_id] then
+                        if comp._selectedDepEntryId and data.nodes and data.nodes[comp._selectedDepEntryId] then
+                            opts.end_node_id = comp._selectedDepEntryId
+                        elseif dep_holdshort_id and data.nodes and data.nodes[dep_holdshort_id] then
                             opts.end_node_id = dep_holdshort_id
                         end
-                        local alt_route = try_route_from_candidates(icao, data, end_lat, end_lon, candidates, opts)
+                        set_start_ramp_fallback(opts)
+                        apply_projection(opts)
+                        local alt_route = try_route_from_candidates(
+                            icao,
+                            data,
+                            end_lat,
+                            end_lon,
+                            candidates,
+                            opts,
+                            proj_waypoint_ids,
+                            comp._routeWaypoints
+                        )
                         if alt_route then
                             route = alt_route
                             rerr = nil
@@ -2199,13 +3503,25 @@ function M.newComponent(ctx)
                             ignore_oneway = true,
                             allow_far_ramp = true,
                             disallow_runway_edges = true,
-                            avoid_runway_nodes = true,
-                            data = data
+                            avoid_runway_nodes = true
                         }
-                        if dep_holdshort_id and data.nodes and data.nodes[dep_holdshort_id] then
+                        if comp._selectedDepEntryId and data.nodes and data.nodes[comp._selectedDepEntryId] then
+                            opts.end_node_id = comp._selectedDepEntryId
+                        elseif dep_holdshort_id and data.nodes and data.nodes[dep_holdshort_id] then
                             opts.end_node_id = dep_holdshort_id
                         end
-                        local alt_route = try_route_to_candidates(icao, data, start_lat, start_lon, candidates, opts)
+                        set_start_ramp_fallback(opts)
+                        apply_projection(opts)
+                        local alt_route = try_route_to_candidates(
+                            icao,
+                            data,
+                            start_lat,
+                            start_lon,
+                            candidates,
+                            opts,
+                            proj_waypoint_ids,
+                            comp._routeWaypoints
+                        )
                         if alt_route then
                             route = alt_route
                             rerr = nil
@@ -2213,63 +3529,107 @@ function M.newComponent(ctx)
                     end
                 end
                 if (not route) and rerr == "no-path" and mode == 1 then
-                    opts = { data = data }
+                    opts = {}
                     if not backtrack_required then
                         opts.avoid_runway_start = true
                     end
-                    if user_selected_end and end_ramp and end_ramp.node_id then
-                        opts.end_node_id = end_ramp.node_id
-                        opts.allow_far_ramp = true
-                    end
-                    route, rerr = helpers.getTaxiRoute(icao, start_lat, start_lon, end_lat, end_lon, opts)
+                    set_end_ramp_fallback(opts)
+                    apply_projection(opts)
+                    route, rerr = route_with_waypoints(
+                        icao,
+                        start_lat,
+                        start_lon,
+                        end_lat,
+                        end_lon,
+                        opts,
+                        proj_waypoint_ids,
+                        comp._routeWaypoints
+                    )
                 end
                 if (not route) and rerr == "no-path" and mode == 1 then
-                    opts = { ignore_oneway = true, data = data }
+                    opts = { ignore_oneway = true }
                     if not backtrack_required then
                         opts.avoid_runway_start = true
                     end
-                    if user_selected_end and end_ramp and end_ramp.node_id then
-                        opts.end_node_id = end_ramp.node_id
-                        opts.allow_far_ramp = true
-                    end
-                    route, rerr = helpers.getTaxiRoute(icao, start_lat, start_lon, end_lat, end_lon, opts)
+                    set_end_ramp_fallback(opts)
+                    apply_projection(opts)
+                    route, rerr = route_with_waypoints(
+                        icao,
+                        start_lat,
+                        start_lon,
+                        end_lat,
+                        end_lon,
+                        opts,
+                        proj_waypoint_ids,
+                        comp._routeWaypoints
+                    )
                 end
                 if (not route) and rerr == "no-path" and mode == 1 then
-                    opts = { data = data }
+                    opts = {}
                     if not backtrack_required then
                         opts.runway_penalty = 500
                     end
-                    if user_selected_end and end_ramp and end_ramp.node_id then
-                        opts.end_node_id = end_ramp.node_id
-                        opts.allow_far_ramp = true
-                    end
-                    route, rerr = helpers.getTaxiRoute(icao, start_lat, start_lon, end_lat, end_lon, opts)
+                    set_end_ramp_fallback(opts)
+                    apply_projection(opts)
+                    route, rerr = route_with_waypoints(
+                        icao,
+                        start_lat,
+                        start_lon,
+                        end_lat,
+                        end_lon,
+                        opts,
+                        proj_waypoint_ids,
+                        comp._routeWaypoints
+                    )
                 end
                 if (not route) and rerr == "no-path" and mode == 1 then
-                    opts = { ignore_oneway = true, data = data }
-                    if user_selected_end and end_ramp and end_ramp.node_id then
-                        opts.end_node_id = end_ramp.node_id
-                        opts.allow_far_ramp = true
-                    end
-                    route, rerr = helpers.getTaxiRoute(icao, start_lat, start_lon, end_lat, end_lon, opts)
+                    opts = { ignore_oneway = true }
+                    set_end_ramp_fallback(opts)
+                    apply_projection(opts)
+                    route, rerr = route_with_waypoints(
+                        icao,
+                        start_lat,
+                        start_lon,
+                        end_lat,
+                        end_lon,
+                        opts,
+                        proj_waypoint_ids,
+                        comp._routeWaypoints
+                    )
                 end
                 if (not route) and rerr == "no-path" and mode == 1 then
-                    opts = { allow_far_ramp = true, data = data }
+                    opts = { allow_far_ramp = true }
                     if not backtrack_required then
                         opts.avoid_runway_start = true
                         opts.runway_penalty = 500
                     end
-                    if user_selected_end and end_ramp and end_ramp.node_id then
-                        opts.end_node_id = end_ramp.node_id
-                    end
-                    route, rerr = helpers.getTaxiRoute(icao, start_lat, start_lon, end_lat, end_lon, opts)
+                    set_end_ramp_fallback(opts)
+                    apply_projection(opts)
+                    route, rerr = route_with_waypoints(
+                        icao,
+                        start_lat,
+                        start_lon,
+                        end_lat,
+                        end_lon,
+                        opts,
+                        proj_waypoint_ids,
+                        comp._routeWaypoints
+                    )
                 end
                 if (not route) and rerr == "no-path" and mode == 1 then
-                    opts = { allow_far_ramp = true, ignore_oneway = true, data = data }
-                    if user_selected_end and end_ramp and end_ramp.node_id then
-                        opts.end_node_id = end_ramp.node_id
-                    end
-                    route, rerr = helpers.getTaxiRoute(icao, start_lat, start_lon, end_lat, end_lon, opts)
+                    opts = { allow_far_ramp = true, ignore_oneway = true }
+                    set_end_ramp_fallback(opts)
+                    apply_projection(opts)
+                    route, rerr = route_with_waypoints(
+                        icao,
+                        start_lat,
+                        start_lon,
+                        end_lat,
+                        end_lon,
+                        opts,
+                        proj_waypoint_ids,
+                        comp._routeWaypoints
+                    )
                 end
                 if (not route) and rerr == "no-path" and mode == 1 then
                     local ref = touchdown
@@ -2280,11 +3640,21 @@ function M.newComponent(ctx)
                     if ref and ref.east and ref.north and data then
                         local candidates = collect_runway_exit_candidates(data, ref.east, ref.north, 12)
                         if #candidates > 0 then
-                            opts = { allow_far_ramp = true, ignore_oneway = true, data = data }
+                            opts = { allow_far_ramp = true, ignore_oneway = true }
                             if not backtrack_required then
                                 opts.runway_penalty = 500
                             end
-                            local alt_route, alt_err, alt_lat, alt_lon = try_route_from_candidates(icao, data, end_lat, end_lon, candidates, opts)
+                            apply_projection(opts)
+                            local alt_route, alt_err, alt_lat, alt_lon = try_route_from_candidates(
+                                icao,
+                                data,
+                                end_lat,
+                                end_lon,
+                                candidates,
+                                opts,
+                                proj_waypoint_ids,
+                                comp._routeWaypoints
+                            )
                             if alt_route then
                                 route = alt_route
                                 rerr = alt_err
@@ -2298,11 +3668,21 @@ function M.newComponent(ctx)
                     local ee, en = latlon_to_local(end_lat, end_lon)
                     local candidates = collect_nearest_nodes(data, ee, en, 18)
                     if #candidates > 0 then
-                        opts = { allow_far_ramp = true, ignore_oneway = true, data = data }
+                        opts = { allow_far_ramp = true, ignore_oneway = true }
                         if not backtrack_required then
                             opts.runway_penalty = 500
                         end
-                        local alt_route, alt_err, alt_lat, alt_lon = try_route_to_candidates(icao, data, start_lat, start_lon, candidates, opts)
+                        apply_projection(opts)
+                        local alt_route, alt_err, alt_lat, alt_lon = try_route_to_candidates(
+                            icao,
+                            data,
+                            start_lat,
+                            start_lon,
+                            candidates,
+                            opts,
+                            proj_waypoint_ids,
+                            comp._routeWaypoints
+                        )
                         if alt_route then
                             route = alt_route
                             rerr = alt_err
@@ -2315,11 +3695,21 @@ function M.newComponent(ctx)
                     local ee, en = latlon_to_local(end_lat, end_lon)
                     local candidates = collect_nearest_nodes(data, ee, en, 18)
                     if #candidates > 0 then
-                        opts = { allow_far_ramp = true, ignore_oneway = true, data = data }
+                        opts = { allow_far_ramp = true, ignore_oneway = true }
                         if not backtrack_required then
                             opts.runway_penalty = 500
                         end
-                        local alt_route, alt_err, alt_lat, alt_lon = try_route_to_candidates(icao, data, start_lat, start_lon, candidates, opts)
+                        apply_projection(opts)
+                        local alt_route, alt_err, alt_lat, alt_lon = try_route_to_candidates(
+                            icao,
+                            data,
+                            start_lat,
+                            start_lon,
+                            candidates,
+                            opts,
+                            proj_waypoint_ids,
+                            comp._routeWaypoints
+                        )
                         if alt_route then
                             route = alt_route
                             rerr = alt_err
@@ -2364,6 +3754,13 @@ function M.newComponent(ctx)
                 comp._lastGuidanceLabel = nil
                 comp._lastGuidanceTime = nil
             else
+                helpers.logInfoTS(
+                    "TaxiDiag: route-skip icao=" .. tostring(icao) ..
+                    " mode=" .. tostring(mode) ..
+                    " canRoute=" .. tostring(canRoute) ..
+                    " start_valid=" .. tostring(is_valid_latlon(start_lat, start_lon)) ..
+                    " end_valid=" .. tostring(is_valid_latlon(end_lat, end_lon))
+                )
                 comp._route = nil
                 comp._routeErr = canRoute and "route-endpoints-missing" or "no-routes"
                 comp._routeLabels = nil
@@ -2375,6 +3772,18 @@ function M.newComponent(ctx)
             local onGround = yal and yal.airgroundsensor and (get(yal.airgroundsensor) == def.ON)
             local tirespeed = yal and yal.tirespeed and (get(yal.tirespeed) or 0) or 0
             if onGround and tirespeed > 1 then
+                if mode == 1 and comp.yal and comp.yal.aircraftonrwy and is_valid_latlon(runway_lat, runway_lon) then
+                    local offRunway = comp.yal.aircraftonrwy(def.ARRIVAL, 0.0001, 20)
+                    if offRunway and not comp._rerouteOverride then
+                        comp._rerouteOverride = { lat = aircraft.lat, lon = aircraft.lon }
+                        comp._lastRerouteTime = now
+                        comp._lastStartKey = nil
+                        comp._route = nil
+                        comp._routeErr = nil
+                        comp._routeLabels = nil
+                        return
+                    end
+                end
                 local routeData = comp._route.data
                 local dist = distance_to_route(routeData, comp._route.path, aircraft.east, aircraft.north)
                 if comp._routeExtraSegments then
@@ -2399,6 +3808,11 @@ function M.newComponent(ctx)
             maybe_speak_guidance(comp, now, aircraft)
         end
 
+        comp._aircraftPoint = nil
+        if aircraft and aircraft.east ~= nil and aircraft.north ~= nil then
+            comp._aircraftPoint = { east = aircraft.east, north = aircraft.north }
+        end
+
         comp._startPoint = nil
         if is_valid_latlon(start_lat, start_lon) then
             local sx, sy = latlon_to_local(start_lat, start_lon)
@@ -2417,6 +3831,40 @@ function M.newComponent(ctx)
         end
     end
 
+    function comp:getPushbackHint()
+        if comp.mode ~= 0 then
+            return nil
+        end
+        if not comp._route or not comp._route.path or not comp._route.data then
+            return nil
+        end
+        local path = comp._route.path
+        if #path < 2 then
+            return nil
+        end
+        local data = comp._route.data
+        local n1 = data.nodes and data.nodes[path[1]] or nil
+        local n2 = data.nodes and data.nodes[path[2]] or nil
+        if not n1 or not n2 or n1.east == nil or n1.north == nil or n2.east == nil or n2.north == nil then
+            return nil
+        end
+        local dx = n2.east - n1.east
+        local dy = n2.north - n1.north
+        if dx == 0 and dy == 0 then
+            return nil
+        end
+        local heading = math.deg(math.atan2(dx, dy))
+        if heading < 0 then
+            heading = heading + 360
+        end
+        heading = helpers.roundnumber(heading, 0)
+        local label = normalize_taxiway_label(get_edge_label(data, path[1], path[2]))
+        if label and label ~= "" then
+            return "nose toward Taxiway " .. helpers.addspaces(label) .. " heading " .. tostring(heading)
+        end
+        return "nose toward heading " .. tostring(heading)
+    end
+
     function comp:tick()
         local ww = defaultW
         local hh = defaultH
@@ -2433,15 +3881,6 @@ function M.newComponent(ctx)
             comp._needsCenter = true
         end
         comp._lastVisible = vis
-        local mapW = math.max(120, ww - mapPadding * 2)
-        local mapH = math.max(120, hh - headerH - toolbarH - mapPadding * 2)
-        local map = {
-            x = mapPadding,
-            y = mapPadding,
-            w = mapW,
-            h = mapH
-        }
-        self:updateTaxiState(map)
     end
 
     return comp

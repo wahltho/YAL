@@ -76,6 +76,14 @@ local function maybeInitDebugOverlay()
         end
         return 0
     end)
+    local cmdPathAlias = def.APPNAMEPREFIX .. "/toggle_debug_window"
+    local cmdAlias = sasl.createCommand(cmdPathAlias, "Toggle YAL Debug Window")
+    sasl.registerCommandHandler(cmdAlias, 0, function(phase)
+        if phase == SASL_COMMAND_BEGIN then
+            toggleDebugOverlay()
+        end
+        return 0
+    end)
 
     if yal.menu_main then
         sasl.appendMenuItem(yal.menu_main, "Debug", toggleDebugOverlay)
@@ -206,6 +214,14 @@ local function maybeInitSetupWindow()
         end
         return 0
     end)
+    local cmdPathAlias = def.APPNAMEPREFIX .. "/toggle_settings_window"
+    local cmdAlias = sasl.createCommand(cmdPathAlias, "Toggle YAL Settings Window")
+    sasl.registerCommandHandler(cmdAlias, 0, function(phase)
+        if phase == SASL_COMMAND_BEGIN then
+            toggleSetup()
+        end
+        return 0
+    end)
 
     if yal.menu_main and not menu_settings then
         menu_settings = sasl.appendMenuItem(yal.menu_main, "Settings", toggleSetup)
@@ -248,6 +264,7 @@ local function maybeInitTaxiWindow()
 
     local comp = mod.newComponent({ yal = yal, def = def, helpers = helpers })
     taxiComponent = comp
+    yal.taxiComponent = comp
     local w, h = mod.windowSize()
     local xRoot, yRoot, wRoot, hRoot = sasl.windows.getMonitorBoundsOS(0)
     local posX = xRoot + math.max(0, (wRoot - w) / 2)
@@ -274,6 +291,7 @@ local function maybeInitTaxiWindow()
     if comp.setWindow then
         comp:setWindow(taxiWindow)
     end
+    yal.taxiWindow = taxiWindow
 
     local function toggleTaxi()
         if taxiWindow then

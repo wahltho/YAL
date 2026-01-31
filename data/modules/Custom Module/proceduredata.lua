@@ -1465,7 +1465,13 @@ function M.fillProcedureTable()
                         return false
                     end,
                     runActionInAdviceMode = true,
-                    advice = "Plan Pushback",
+                    advice = function()
+                        local hint = P.getTaxiPushbackHint and P.getTaxiPushbackHint() or nil
+                        if hint and hint ~= "" then
+                            return "Plan Pushback (" .. hint .. ")"
+                        end
+                        return "Plan Pushback"
+                    end,
                     confirm = "Plan Pushback",
                     nextStep = 'wait_for_pushback_planner'
                 },
