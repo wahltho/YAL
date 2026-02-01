@@ -140,18 +140,25 @@ local function normalize_taxiway_label(label)
     if not label or label == "" then
         return ""
     end
-    local clean = helpers.forceCleanString(label)
-    clean = helpers.cleanstring(clean)
-    clean = string.upper(clean)
+    local clean = string.upper(tostring(label))
     if string.sub(clean, 1, 3) == "RWY" then
         return ""
     end
     if clean == "RAMP" then
         return ""
     end
-    clean = string.gsub(clean, "^TAXIWAY[%s_-]*", "")
-    clean = string.gsub(clean, "^TWY[%s_-]*", "")
+    clean = string.gsub(clean, "^TAXIWAY[%s_%-/]*", "")
+    clean = string.gsub(clean, "^TWY[%s_%-/]*", "")
+    clean = string.gsub(clean, "[_%-/]+", " ")
+    clean = string.gsub(clean, "[^%w%s]+", "")
     clean = trim_spaces(clean)
+    local parts = {}
+    for part in clean:gmatch("%S+") do
+        parts[#parts + 1] = part
+    end
+    if #parts == 2 and #parts[1] == 1 and #parts[2] >= 1 then
+        clean = parts[2]
+    end
     return clean
 end
 
