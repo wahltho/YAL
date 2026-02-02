@@ -16,6 +16,7 @@ local guidanceLeadTimeSec = 8
 local guidanceMaxDistance = 180
 local guidanceStraightAngle = 15
 local startRampMaxMeters = 80
+local projectionShiftThreshold = 500
 
 local minZoom = 0.2
 local maxZoom = 5
@@ -110,6 +111,134 @@ local function latlon_to_local(lat, lon)
     return x, -z
 end
 
+local function find_projection_ref(data)
+    if not data then
+        return nil, nil, nil
+    end
+    if data.nodes then
+        for _, node in pairs(data.nodes) do
+            if node and is_valid_latlon(node.lat, node.lon) and node.east ~= nil and node.north ~= nil then
+                return node, node.east, node.north
+            end
+        end
+    end
+    if data.ramps then
+        for _, ramp in ipairs(data.ramps) do
+            if ramp and is_valid_latlon(ramp.lat, ramp.lon) and ramp.east ~= nil and ramp.north ~= nil then
+                return ramp, ramp.east, ramp.north
+            end
+        end
+    end
+    if data.runways then
+        for _, rwy in ipairs(data.runways) do
+            if rwy and is_valid_latlon(rwy.lat1, rwy.lon1) and rwy.east1 ~= nil and rwy.north1 ~= nil then
+                return { lat = rwy.lat1, lon = rwy.lon1 }, rwy.east1, rwy.north1
+            end
+        end
+    end
+    return nil, nil, nil
+end
+
+local function shift_bounds(bounds, dx, dy)
+    if not bounds then
+        return
+    end
+    if bounds.minX ~= nil then bounds.minX = bounds.minX + dx end
+    if bounds.maxX ~= nil then bounds.maxX = bounds.maxX + dx end
+    if bounds.minY ~= nil then bounds.minY = bounds.minY + dy end
+    if bounds.maxY ~= nil then bounds.maxY = bounds.maxY + dy end
+end
+
+local function apply_projection_shift(data, dx, dy)
+    if not data or (dx == 0 and dy == 0) then
+        return
+    end
+    if data.nodes then
+        for _, node in pairs(data.nodes) do
+            if node.east ~= nil then
+                node.east = node.east + dx
+                node.x = node.east
+            end
+            if node.north ~= nil then
+                node.north = node.north + dy
+                node.z = -node.north
+            end
+        end
+    end
+    if data.ramps then
+        for _, ramp in ipairs(data.ramps) do
+            if ramp.east ~= nil then
+                ramp.east = ramp.east + dx
+                ramp.x = ramp.east
+            end
+            if ramp.north ~= nil then
+                ramp.north = ramp.north + dy
+                ramp.z = -ramp.north
+            end
+            ramp._draw_link_east = nil
+            ramp._draw_link_north = nil
+        end
+    end
+    if data.runways then
+        for _, rwy in ipairs(data.runways) do
+            if rwy.east1 ~= nil then
+                rwy.east1 = rwy.east1 + dx
+                rwy.x1 = rwy.east1
+            end
+            if rwy.north1 ~= nil then
+                rwy.north1 = rwy.north1 + dy
+                rwy.z1 = -rwy.north1
+            end
+            if rwy.east2 ~= nil then
+                rwy.east2 = rwy.east2 + dx
+                rwy.x2 = rwy.east2
+            end
+            if rwy.north2 ~= nil then
+                rwy.north2 = rwy.north2 + dy
+                rwy.z2 = -rwy.north2
+            end
+        end
+    end
+    if data.polygons then
+        for _, poly in ipairs(data.polygons) do
+            for _, pt in ipairs(poly.points or {}) do
+                if pt.east ~= nil then
+                    pt.east = pt.east + dx
+                end
+                if pt.north ~= nil then
+                    pt.north = pt.north + dy
+                end
+            end
+        end
+    end
+    shift_bounds(data.bounds, dx, dy)
+    if data.route_cache then
+        for _, route in pairs(data.route_cache) do
+            if route and route.bounds then
+                shift_bounds(route.bounds, dx, dy)
+            end
+        end
+    end
+end
+
+local function align_taxi_data_projection(data)
+    local ref, ref_east, ref_north = find_projection_ref(data)
+    if not ref then
+        return false, 0, 0
+    end
+    local cur_east, cur_north = latlon_to_local(ref.lat, ref.lon)
+    if cur_east == nil or cur_north == nil then
+        return false, 0, 0
+    end
+    local dx = cur_east - (ref_east or 0)
+    local dy = cur_north - (ref_north or 0)
+    if math.abs(dx) < projectionShiftThreshold and math.abs(dy) < projectionShiftThreshold then
+        return false, dx, dy
+    end
+    apply_projection_shift(data, dx, dy)
+    return true, dx, dy
+end
+
 local function basename(path)
     if not path or path == "" then
         return ""
@@ -160,6 +289,61 @@ local function normalize_taxiway_label(label)
         clean = parts[2]
     end
     return clean
+end
+
+local function taxiway_label_voice(label)
+    if not label or label == "" then
+        return ""
+    end
+    local clean = tostring(label)
+    clean = string.upper(clean)
+    clean = trim_spaces(clean)
+    if clean == "" then
+        return ""
+    end
+    local all_alpha = true
+    local len = #clean
+    local i = 1
+    while i <= len do
+        local b = string.byte(clean, i)
+        if b then
+            local is_alpha = (b >= 65 and b <= 90)
+            local is_digit = (b >= 48 and b <= 57)
+            if not is_alpha and not is_digit then
+                -- ignore separators
+            elseif not is_alpha then
+                all_alpha = false
+            end
+        end
+        i = i + 1
+    end
+    if all_alpha and len > 2 then
+        -- Speak full word (e.g. MAIN) instead of spelling.
+        return clean
+    end
+    local nato = {
+        A = "Alpha", B = "Bravo", C = "Charlie", D = "Delta", E = "Echo", F = "Foxtrot",
+        G = "Golf", H = "Hotel", I = "India", J = "Juliet", K = "Kilo", L = "Lima",
+        M = "Mike", N = "November", O = "Oscar", P = "Papa", Q = "Quebec", R = "Romeo",
+        S = "Sierra", T = "Tango", U = "Uniform", V = "Victor", W = "Whiskey", X = "X-ray",
+        Y = "Yankee", Z = "Zulu"
+    }
+    local words = {}
+    i = 1
+    while i <= len do
+        local b = string.byte(clean, i)
+        if b then
+            if b >= 65 and b <= 90 then
+                local ch = string.sub(clean, i, i)
+                local w = nato[ch] or ch
+                words[#words + 1] = w
+            elseif b >= 48 and b <= 57 then
+                words[#words + 1] = string.sub(clean, i, i)
+            end
+        end
+        i = i + 1
+    end
+    return table.concat(words, " ")
 end
 
 local function is_runway_label(label)
@@ -1536,13 +1720,13 @@ local function maybe_speak_guidance(comp, now, aircraft)
             label = curr_label or ""
         end
         if label ~= "" then
-            text = "Continue straight on Taxiway " .. helpers.addspaces(label)
+            text = "Continue straight on Taxiway " .. taxiway_label_voice(label)
         else
             text = "Continue straight"
         end
     else
         local turn = (cross >= 0) and "left" or "right"
-        text = "Turn " .. turn .. " on Taxiway " .. helpers.addspaces(next_label)
+        text = "Turn " .. turn .. " on Taxiway " .. taxiway_label_voice(next_label)
     end
     speak_guidance_text(comp, text)
     comp._lastGuidanceNodeId = path[seg_idx + 1]
@@ -1558,11 +1742,185 @@ local function getSettingNumber(key, fallback)
     return val
 end
 
+local C = {
+    defaultW = defaultW,
+    defaultH = defaultH,
+    headerH = headerH,
+    toolbarH = toolbarH,
+    mapPadding = mapPadding,
+    updateInterval = updateInterval,
+    guidanceCooldown = guidanceCooldown,
+    rerouteCooldown = rerouteCooldown,
+    rerouteDriftMeters = rerouteDriftMeters,
+    guidanceMinSpeed = guidanceMinSpeed,
+    guidanceTurnDistance = guidanceTurnDistance,
+    guidanceTurnAngle = guidanceTurnAngle,
+    guidanceLeadTimeSec = guidanceLeadTimeSec,
+    guidanceMaxDistance = guidanceMaxDistance,
+    guidanceStraightAngle = guidanceStraightAngle,
+    startRampMaxMeters = startRampMaxMeters,
+    minZoom = minZoom,
+    maxZoom = maxZoom,
+    zoomStep = zoomStep,
+    minFont = minFont,
+    maxFont = maxFont
+}
+
+local U = {
+    is_valid_latlon = is_valid_latlon,
+    compute_bounds_center = compute_bounds_center,
+    update_bounds = update_bounds,
+    estimate_text_width = estimate_text_width,
+    compute_bounds_scale = compute_bounds_scale,
+    rotate_point = rotate_point,
+    distance_meters_latlon = distance_meters_latlon,
+    latlon_to_local = latlon_to_local,
+    basename = basename,
+    trim_spaces = trim_spaces,
+    normalize_taxiway_label = normalize_taxiway_label,
+    taxiway_label_voice = taxiway_label_voice,
+    is_runway_label = is_runway_label,
+    nearest_node_info = nearest_node_info,
+    nearest_non_runway_node = nearest_non_runway_node,
+    distance_sq = distance_sq,
+    point_segment_distance_sq = point_segment_distance_sq,
+    project_point_to_segment = project_point_to_segment,
+    clone_adjacency = clone_adjacency,
+    adjacency_has_edge = adjacency_has_edge,
+    add_adj_edge = add_adj_edge,
+    find_nearest_edge_projection = find_nearest_edge_projection,
+    find_preferred_edge_projection = find_preferred_edge_projection,
+    build_projected_data = build_projected_data,
+    distance_to_route = distance_to_route,
+    distance_to_segments = distance_to_segments,
+    normalize_runway_name = normalize_runway_name,
+    parse_runway_parts = parse_runway_parts,
+    find_runway_entry = find_runway_entry,
+    compute_runway_landing_profile = compute_runway_landing_profile,
+    find_nearest_runway_node = find_nearest_runway_node,
+    find_holdshort_node_near = find_holdshort_node_near,
+    build_runway_backtrack_segments = build_runway_backtrack_segments,
+    compute_along_perp = compute_along_perp,
+    select_runway_exit_node = select_runway_exit_node,
+    copy_opts = copy_opts,
+    route_with_waypoints = route_with_waypoints,
+    try_route_from_candidates = try_route_from_candidates,
+    try_route_to_candidates = try_route_to_candidates,
+    collect_nearest_nodes = collect_nearest_nodes,
+    normalize_icao = normalize_icao,
+    build_route_labels = build_route_labels,
+    clamp = clamp,
+    getFont = getFont,
+    drawText = drawText,
+    log_full_route_state = log_full_route_state,
+    draw_route_L = draw_route_L,
+    drawLineThick = drawLineThick,
+    try_polygon_fill = try_polygon_fill,
+    normalize_words = normalize_words,
+    short_ramp_label = short_ramp_label,
+    ramp_key = ramp_key,
+    is_voice_enabled = is_voice_enabled,
+    is_auto_taxi_guidance_enabled = is_auto_taxi_guidance_enabled,
+    find_runway_entry_label = find_runway_entry_label,
+    get_edge_label = get_edge_label,
+    find_nearest_segment = find_nearest_segment,
+    get_node_degree = get_node_degree,
+    guidance_distance_for_speed = guidance_distance_for_speed,
+    speak_guidance_text = speak_guidance_text,
+    maybe_speak_guidance = maybe_speak_guidance,
+    getSettingNumber = getSettingNumber
+}
+
 function M.windowSize()
     return defaultW, defaultH
 end
 
-function M.newComponent(ctx)
+local function newComponentImpl(ctx, def, settings, helpers, C, U)
+    local defaultW = C.defaultW
+    local defaultH = C.defaultH
+    local headerH = C.headerH
+    local toolbarH = C.toolbarH
+    local mapPadding = C.mapPadding
+    local updateInterval = C.updateInterval
+    local guidanceCooldown = C.guidanceCooldown
+    local rerouteCooldown = C.rerouteCooldown
+    local rerouteDriftMeters = C.rerouteDriftMeters
+    local guidanceMinSpeed = C.guidanceMinSpeed
+    local guidanceTurnDistance = C.guidanceTurnDistance
+    local guidanceTurnAngle = C.guidanceTurnAngle
+    local guidanceLeadTimeSec = C.guidanceLeadTimeSec
+    local guidanceMaxDistance = C.guidanceMaxDistance
+    local guidanceStraightAngle = C.guidanceStraightAngle
+    local startRampMaxMeters = C.startRampMaxMeters
+    local minZoom = C.minZoom
+    local maxZoom = C.maxZoom
+    local zoomStep = C.zoomStep
+    local minFont = C.minFont
+    local maxFont = C.maxFont
+
+    local is_valid_latlon = U.is_valid_latlon
+    local compute_bounds_center = U.compute_bounds_center
+    local update_bounds = U.update_bounds
+    local estimate_text_width = U.estimate_text_width
+    local compute_bounds_scale = U.compute_bounds_scale
+    local rotate_point = U.rotate_point
+    local distance_meters_latlon = U.distance_meters_latlon
+    local latlon_to_local = U.latlon_to_local
+    local basename = U.basename
+    local trim_spaces = U.trim_spaces
+    local normalize_taxiway_label = U.normalize_taxiway_label
+    local taxiway_label_voice = U.taxiway_label_voice
+    local is_runway_label = U.is_runway_label
+    local nearest_node_info = U.nearest_node_info
+    local nearest_non_runway_node = U.nearest_non_runway_node
+    local distance_sq = U.distance_sq
+    local point_segment_distance_sq = U.point_segment_distance_sq
+    local project_point_to_segment = U.project_point_to_segment
+    local clone_adjacency = U.clone_adjacency
+    local adjacency_has_edge = U.adjacency_has_edge
+    local add_adj_edge = U.add_adj_edge
+    local find_nearest_edge_projection = U.find_nearest_edge_projection
+    local find_preferred_edge_projection = U.find_preferred_edge_projection
+    local build_projected_data = U.build_projected_data
+    local distance_to_route = U.distance_to_route
+    local distance_to_segments = U.distance_to_segments
+    local normalize_runway_name = U.normalize_runway_name
+    local parse_runway_parts = U.parse_runway_parts
+    local find_runway_entry = U.find_runway_entry
+    local compute_runway_landing_profile = U.compute_runway_landing_profile
+    local find_nearest_runway_node = U.find_nearest_runway_node
+    local find_holdshort_node_near = U.find_holdshort_node_near
+    local build_runway_backtrack_segments = U.build_runway_backtrack_segments
+    local compute_along_perp = U.compute_along_perp
+    local select_runway_exit_node = U.select_runway_exit_node
+    local copy_opts = U.copy_opts
+    local route_with_waypoints = U.route_with_waypoints
+    local try_route_from_candidates = U.try_route_from_candidates
+    local try_route_to_candidates = U.try_route_to_candidates
+    local collect_nearest_nodes = U.collect_nearest_nodes
+    local normalize_icao = U.normalize_icao
+    local build_route_labels = U.build_route_labels
+    local clamp = U.clamp
+    local getFont = U.getFont
+    local drawText = U.drawText
+    local log_full_route_state = U.log_full_route_state
+    local draw_route_L = U.draw_route_L
+    local drawLineThick = U.drawLineThick
+    local try_polygon_fill = U.try_polygon_fill
+    local normalize_words = U.normalize_words
+    local short_ramp_label = U.short_ramp_label
+    local ramp_key = U.ramp_key
+    local is_voice_enabled = U.is_voice_enabled
+    local is_auto_taxi_guidance_enabled = U.is_auto_taxi_guidance_enabled
+    local find_runway_entry_label = U.find_runway_entry_label
+    local get_edge_label = U.get_edge_label
+    local find_nearest_segment = U.find_nearest_segment
+    local get_node_degree = U.get_node_degree
+    local guidance_distance_for_speed = U.guidance_distance_for_speed
+    local speak_guidance_text = U.speak_guidance_text
+    local maybe_speak_guidance = U.maybe_speak_guidance
+    local getSettingNumber = U.getSettingNumber
+
     local comp = {}
     comp.name = "yal_taxi_map_component"
     comp.components = {}
@@ -1860,7 +2218,7 @@ function M.newComponent(ctx)
         local rampGateColor = {0.35, 0.7, 1, 0.95}
         local startColor = {0.2, 0.85, 0.35, 1}
         local endColor = {1, 0.6, 0.2, 1}
-        local aircraftColor = {0.95, 0.95, 0.98, 1}
+        local aircraftColor = {0.1, 0.2, 0.95, 1}
 
         if comp._data and comp._data.polygons then
             for _, poly in ipairs(comp._data.polygons) do
@@ -2229,10 +2587,17 @@ function M.newComponent(ctx)
             drawText(font, ex + 5, ey + 2, "E", mapFontSize, TEXT_ALIGN_LEFT, {0, 0, 0, 0.9})
         end
 
+        local function draw_aircraft_marker(axp, ayp)
+            local outer = 10
+            local inner = 6
+            drawRectangle(axp - outer * 0.5, ayp - outer * 0.5, outer, outer, {0, 0, 0, 0.9})
+            drawRectangle(axp - inner * 0.5, ayp - inner * 0.5, inner, inner, aircraftColor)
+            drawText(font, axp + 7, ayp + 4, "AC", mapFontSize, TEXT_ALIGN_LEFT, {0, 0, 0, 0.9})
+        end
+
         if comp._aircraftPoint then
             local axp, ayp = project(comp._aircraftPoint.east, comp._aircraftPoint.north)
-            sasl.gl.drawLine(axp - 5, ayp, axp + 5, ayp, aircraftColor)
-            sasl.gl.drawLine(axp, ayp - 5, axp, ayp + 5, aircraftColor)
+            draw_aircraft_marker(axp, ayp)
         else
             local yal = comp.yal or _G.yal
             if yal and yal.aircraftlatpos and yal.aircraftlonpos then
@@ -2242,8 +2607,7 @@ function M.newComponent(ctx)
                     local ax, az = latlon_to_local(lat, lon)
                     if ax and az then
                         local axp, ayp = project(ax, az)
-                        sasl.gl.drawLine(axp - 5, ayp, axp + 5, ayp, aircraftColor)
-                        sasl.gl.drawLine(axp, ayp - 5, axp, ayp + 5, aircraftColor)
+                        draw_aircraft_marker(axp, ayp)
                     end
                 end
             end
@@ -2330,6 +2694,21 @@ function M.newComponent(ctx)
                     commitSettings()
                 elseif b.action == "fit" then
                     fit_to_bounds(comp._fitBounds, layout.map)
+                    if comp._fitBounds and comp._aircraftPoint then
+                        helpers.logInfoTS(
+                            string.format(
+                                "TaxiFit: mode=%s icao=%s bounds=[%.1f..%.1f, %.1f..%.1f] aircraft=%.1f/%.1f",
+                                tostring(comp.mode),
+                                tostring(comp._lastIcao or ""),
+                                comp._fitBounds.minX or 0,
+                                comp._fitBounds.maxX or 0,
+                                comp._fitBounds.minY or 0,
+                                comp._fitBounds.maxY or 0,
+                                comp._aircraftPoint.east or 0,
+                                comp._aircraftPoint.north or 0
+                            )
+                        )
+                    end
                 elseif b.action == "center" then
                     if not center_on_aircraft() then
                         if comp._fitBounds then
@@ -2351,10 +2730,19 @@ function M.newComponent(ctx)
                     if not comp._editRoute then
                         comp._drawRoute = false
                     end
+                    -- Entering edit: freeze auto-routing so only manual points are used.
+                    if comp._editRoute then
+                        comp._route = nil
+                        comp._routeErr = nil
+                        comp._lastUpdate = nil
+                    end
                 elseif b.action == "toggle_draw" then
                     comp._drawRoute = not comp._drawRoute
                     if comp._drawRoute then
                         comp._editRoute = true
+                        comp._route = nil
+                        comp._routeErr = nil
+                        comp._lastUpdate = nil
                     end
                 elseif b.action == "clear_route" then
                     comp._routeWaypoints = {}
@@ -2625,7 +3013,24 @@ function M.newComponent(ctx)
         end
         comp._lastUpdate = now
 
+        -- Always refresh aircraft position for display, even in edit/draw mode.
         local yal = comp.yal or _G.yal
+        if yal and yal.aircraftlatpos and yal.aircraftlonpos then
+            local alat = get(yal.aircraftlatpos)
+            local alon = get(yal.aircraftlonpos)
+            if is_valid_latlon(alat, alon) then
+                local ae, an = latlon_to_local(alat, alon)
+                if ae and an then
+                    comp._aircraftPoint = { east = ae, north = an }
+                end
+            end
+        end
+
+        -- Manual editing: do not auto-recompute routes while edit/draw is active.
+        if comp._editRoute or comp._drawRoute then
+            return
+        end
+
         if not yal then
             comp._dataErr = "yal-not-ready"
             return
@@ -2766,6 +3171,24 @@ function M.newComponent(ctx)
         end
         comp._data = data
         comp._dataErr = nil
+        local shifted, shift_dx, shift_dy = align_taxi_data_projection(data)
+        if shifted then
+            helpers.logInfoTS(
+                string.format(
+                    "TaxiProj: icao=%s shift=%.1f/%.1f refAlign=true",
+                    tostring(icao),
+                    shift_dx or 0,
+                    shift_dy or 0
+                )
+            )
+            comp._route = nil
+            comp._routeErr = nil
+            comp._routeLabels = nil
+            comp._routeExtraSegments = nil
+            comp._lastStartKey = nil
+            comp._lastEndKey = nil
+            comp._needsCenter = true
+        end
         if comp._rampLinkCacheReset ~= data then
             if data.ramps then
                 for _, ramp in ipairs(data.ramps) do
@@ -3064,6 +3487,11 @@ function M.newComponent(ctx)
             end
         end
 
+        if comp._rerouteOverride and is_valid_latlon(comp._rerouteOverride.lat, comp._rerouteOverride.lon) then
+            start_lat = comp._rerouteOverride.lat
+            start_lon = comp._rerouteOverride.lon
+        end
+
         local start_node_id, start_node_dist = nearest_node_info(data, start_lat, start_lon, false)
         local start_non_runway_node_id = nil
         local start_non_runway_node_dist = nil
@@ -3095,11 +3523,6 @@ function M.newComponent(ctx)
             dep_end_node_id = dep_end_node_id,
             dep_end_node_dist = dep_end_node_dist
         }
-
-        if comp._rerouteOverride and is_valid_latlon(comp._rerouteOverride.lat, comp._rerouteOverride.lon) then
-            start_lat = comp._rerouteOverride.lat
-            start_lon = comp._rerouteOverride.lon
-        end
 
         if mode == 1 and not hasArrivalRunway then
             comp._route = nil
@@ -3820,6 +4243,33 @@ function M.newComponent(ctx)
             comp._aircraftPoint = { east = aircraft.east, north = aircraft.north }
         end
 
+        if comp._fitBounds and comp._aircraftPoint then
+            local b = comp._fitBounds
+            local outside = false
+            if b.minX and b.maxX and b.minY and b.maxY then
+                outside = (comp._aircraftPoint.east < b.minX) or (comp._aircraftPoint.east > b.maxX)
+                    or (comp._aircraftPoint.north < b.minY) or (comp._aircraftPoint.north > b.maxY)
+            end
+            local log_key = tostring(comp._lastIcao or "") .. "|" .. tostring(comp.mode or "") .. "|" .. tostring(outside)
+            if comp._lastBoundsLogKey ~= log_key then
+                comp._lastBoundsLogKey = log_key
+                helpers.logInfoTS(
+                    string.format(
+                        "TaxiBounds: mode=%s icao=%s outside=%s bounds=[%.1f..%.1f, %.1f..%.1f] aircraft=%.1f/%.1f",
+                        tostring(comp.mode),
+                        tostring(comp._lastIcao or ""),
+                        tostring(outside),
+                        b.minX or 0,
+                        b.maxX or 0,
+                        b.minY or 0,
+                        b.maxY or 0,
+                        comp._aircraftPoint.east or 0,
+                        comp._aircraftPoint.north or 0
+                    )
+                )
+            end
+        end
+
         comp._startPoint = nil
         if is_valid_latlon(start_lat, start_lon) then
             local sx, sy = latlon_to_local(start_lat, start_lon)
@@ -3867,7 +4317,7 @@ function M.newComponent(ctx)
         heading = helpers.roundnumber(heading, 0)
         local label = normalize_taxiway_label(get_edge_label(data, path[1], path[2]))
         if label and label ~= "" then
-            return "nose toward Taxiway " .. helpers.addspaces(label) .. " heading " .. tostring(heading)
+            return "nose toward Taxiway " .. taxiway_label_voice(label) .. " heading " .. tostring(heading)
         end
         return "nose toward heading " .. tostring(heading)
     end
@@ -3893,4 +4343,7 @@ function M.newComponent(ctx)
     return comp
 end
 
+function M.newComponent(ctx)
+    return newComponentImpl(ctx, def, settings, helpers, C, U)
+end
 return M
