@@ -3514,44 +3514,82 @@ function P.getpointonroute(detailed_route, currentLat, currentLon, distanceInNM)
 end
 
 --------------------------------------------------------------------------------------------------------------
-function P.estimatefuelattod(currentLeftLbs, currentRightLbs, currentCenterLbs, distanceToTODNM)
-    -- ANGENOMMENE WERTE
-    local assumed_cruise_speed_knots = 450      -- Durchschnittliche Geschwindigkeit im Reiseflug (NM/h)
-    local assumed_cruise_fuel_flow_lbs_hr = 5000 -- Treibstofffluss im Reiseflug (lbs/h)
+function P.estimatefuelattod(currentLeftLbs, currentRightLbs, currentCenterLbs, distanceToTODNM, opts)
+    local assumed_cruise_speed_knots = 450
+    local assumed_cruise_fuel_flow_lbs_hr = 5000
 
-    -- Geschätzter Treibstoffverbrauch von der aktuellen Position bis zum T/D
-    local estimated_flight_time_hours = distanceToTODNM / assumed_cruise_speed_knots
-    local estimated_fuel_burn_lbs = estimated_flight_time_hours * assumed_cruise_fuel_flow_lbs_hr
-    
-    -- Kopien der aktuellen Tankstände, um mit der Berechnung zu beginnen
+    local dist_nm = tonumber(distanceToTODNM) or 0
+    if dist_nm < 0 then
+        dist_nm = 0
+    end
+
+    local finalLeftLbs = tonumber(currentLeftLbs) or 0
+    local finalRightLbs = tonumber(currentRightLbs) or 0
+    local finalCenterLbs = tonumber(currentCenterLbs) or 0
+
+    local fuel_flow_lbs_hr = nil
+    local speed_kt = nil
+    local phase = 1
+    local alt_ft = nil
+    local ias_kt = nil
+    local tas_kt = nil
+    local gs_kt = nil
+    local wc_speed = 0
+    local isa_dev_c = 0
+
+    if type(opts) == "table" then
+        fuel_flow_lbs_hr = tonumber(opts.fuel_flow_lbs_hr)
+        phase = tonumber(opts.phase) or phase
+        alt_ft = tonumber(opts.alt_ft)
+        ias_kt = tonumber(opts.ias_kt)
+        tas_kt = tonumber(opts.tas_kt)
+        gs_kt = tonumber(opts.gs_kt)
+        wc_speed = tonumber(opts.wc_speed) or 0
+        isa_dev_c = tonumber(opts.isa_dev_c) or 0
+    end
+
+    if not fuel_flow_lbs_hr or fuel_flow_lbs_hr <= 0 then
+        if alt_ft and ias_kt and ias_kt > 0 then
+            fuel_flow_lbs_hr = P.estimateFuelFlow(phase, alt_ft, alt_ft, ias_kt, wc_speed, isa_dev_c)
+        else
+            fuel_flow_lbs_hr = assumed_cruise_fuel_flow_lbs_hr
+        end
+    end
+
+    if gs_kt and gs_kt > 0 then
+        speed_kt = gs_kt
+    elseif tas_kt and tas_kt > 0 then
+        speed_kt = tas_kt
+    elseif ias_kt and ias_kt > 0 and alt_ft then
+        speed_kt = P.atmoIasToTas(ias_kt, alt_ft)
+    end
+    if not speed_kt or speed_kt <= 0 then
+        speed_kt = assumed_cruise_speed_knots
+    end
+
+    local estimated_flight_time_hours = dist_nm / speed_kt
+    local estimated_fuel_burn_lbs = estimated_flight_time_hours * fuel_flow_lbs_hr
+
     local remainingBurn = estimated_fuel_burn_lbs
-    local finalLeftLbs = currentLeftLbs
-    local finalRightLbs = currentRightLbs
-    local finalCenterLbs = currentCenterLbs
-    
-    -- Verbrauchslogik simulieren (Center-Tank zuerst)
+
     if finalCenterLbs > 1000 and remainingBurn > 0 then
         local centerToBurn = finalCenterLbs - 1000
-        
+
         if remainingBurn >= centerToBurn then
-            -- Den gesamten verfügbaren Treibstoff aus dem Center-Tank verbrauchen
             finalCenterLbs = 1000
             remainingBurn = remainingBurn - centerToBurn
         else
-            -- Nur den benötigten Treibstoff aus dem Center-Tank verbrauchen
             finalCenterLbs = finalCenterLbs - remainingBurn
             remainingBurn = 0
         end
     end
-    
-    -- Restlichen Verbrauch auf die Wing-Tanks aufteilen
+
     if remainingBurn > 0 then
         local wingBurn = remainingBurn / 2
         finalLeftLbs = finalLeftLbs - wingBurn
         finalRightLbs = finalRightLbs - wingBurn
     end
-    
-    -- Ergebnis-Tabelle mit den geschätzten finalen Tankinhalten
+
     return {
         left = finalLeftLbs,
         right = finalRightLbs,
@@ -6444,6 +6482,320 @@ local function parse_taxi_data(entry)
     }
 end
 
+local function taxi_label_trim(label)
+    return trim_ascii(tostring(label or ""))
+end
+
+local function distance_sq(x1, y1, x2, y2)
+    local dx = (x2 or 0) - (x1 or 0)
+    local dy = (y2 or 0) - (y1 or 0)
+    return dx * dx + dy * dy
+end
+
+local function taxi_label_missing(label)
+    local s = taxi_label_trim(label)
+    if s == "" then
+        return true
+    end
+    local u = string.upper(s)
+    return u == "NONE"
+end
+
+local function taxi_label_usable(label)
+    if taxi_label_missing(label) then
+        return false
+    end
+    local s = taxi_label_trim(label)
+    if s == "" then
+        return false
+    end
+    local u = string.upper(s)
+    if u == "RAMP" then
+        return false
+    end
+    return not is_runway_label(u)
+end
+
+local function segment_heading_deg(x1, y1, x2, y2)
+    local dx = (x2 or 0) - (x1 or 0)
+    local dy = (y2 or 0) - (y1 or 0)
+    if dx == 0 and dy == 0 then
+        return nil
+    end
+    local h = math.deg(math.atan2(dx, dy))
+    if h < 0 then
+        h = h + 360
+    end
+    return h
+end
+
+local function heading_diff_deg(h1, h2)
+    if not h1 or not h2 then
+        return 180
+    end
+    local diff = math.abs(((h1 - h2 + 180) % 360) - 180)
+    if diff > 90 then
+        diff = 180 - diff
+    end
+    return diff
+end
+
+local function build_global_edge_index(data, cell_size)
+    local grid = {}
+    local list = {}
+    if not data or not data.edges or not data.nodes then
+        return { grid = grid, cell = cell_size, list = list }
+    end
+    for _, edge in ipairs(data.edges) do
+        if edge and edge.from and edge.to and taxi_label_usable(edge.label) then
+            local n1 = data.nodes[edge.from]
+            local n2 = data.nodes[edge.to]
+            if n1 and n2 and n1.east and n1.north and n2.east and n2.north then
+                local x1 = n1.east
+                local y1 = n1.north
+                local x2 = n2.east
+                local y2 = n2.north
+                local dx = x2 - x1
+                local dy = y2 - y1
+                local len = math.sqrt(dx * dx + dy * dy)
+                if len > 0 then
+                    local mx = (x1 + x2) * 0.5
+                    local my = (y1 + y2) * 0.5
+                    local h = segment_heading_deg(x1, y1, x2, y2)
+                    local entry = {
+                        x1 = x1,
+                        y1 = y1,
+                        x2 = x2,
+                        y2 = y2,
+                        len = len,
+                        heading = h,
+                        label = edge.label
+                    }
+                    list[#list + 1] = entry
+                    local cx = math.floor(mx / cell_size)
+                    local cy = math.floor(my / cell_size)
+                    local key = tostring(cx) .. ":" .. tostring(cy)
+                    grid[key] = grid[key] or {}
+                    grid[key][#grid[key] + 1] = entry
+                end
+            end
+        end
+    end
+    return { grid = grid, cell = cell_size, list = list }
+end
+
+local function normalize_runway_name(name)
+    local n = taxi_label_trim(name)
+    n = string.upper(n)
+    n = n:gsub("^RWY", "")
+    n = trim_ascii(n)
+    return n
+end
+
+local function build_runway_end_map(runways)
+    local map = {}
+    for _, rwy in ipairs(runways or {}) do
+        if rwy and rwy.lat1 and rwy.lon1 and rwy.lat2 and rwy.lon2 then
+            local n1 = normalize_runway_name(rwy.rwy1 or "")
+            local n2 = normalize_runway_name(rwy.rwy2 or "")
+            if n1 ~= "" and not map[n1] then
+                map[n1] = { lat = rwy.lat1, lon = rwy.lon1 }
+            end
+            if n2 ~= "" and not map[n2] then
+                map[n2] = { lat = rwy.lat2, lon = rwy.lon2 }
+            end
+        end
+    end
+    return map
+end
+
+local function runways_compatible(addonData, globalData, max_dist_m)
+    if not addonData or not globalData or not addonData.runways or not globalData.runways then
+        return false
+    end
+    local addon_map = build_runway_end_map(addonData.runways)
+    local global_map = build_runway_end_map(globalData.runways)
+    local max_d = max_dist_m or 150
+    for name, aend in pairs(addon_map) do
+        local gend = global_map[name]
+        if gend and aend.lat and aend.lon and gend.lat and gend.lon then
+            local d = P.getdistance(aend.lat, aend.lon, gend.lat, gend.lon)
+            if d and d * 1852 <= max_d then
+                return true
+            end
+        end
+    end
+    return false
+end
+
+local function update_adj_label(adj, from_id, to_id, new_label, old_label)
+    local list = adj and adj[from_id]
+    if not list then
+        return
+    end
+    for _, edge in ipairs(list) do
+        if edge.to == to_id then
+            if not old_label or edge.label == old_label or taxi_label_missing(edge.label) then
+                edge.label = new_label
+            end
+        end
+    end
+end
+
+local function patch_addon_labels(addonData, globalIndex, opts)
+    local patched = 0
+    local edges = addonData.edges or {}
+    local nodes = addonData.nodes or {}
+    for idx, edge in ipairs(edges) do
+        if edge and edge.from and edge.to and taxi_label_missing(edge.label) then
+            local n1 = nodes[edge.from]
+            local n2 = nodes[edge.to]
+            if n1 and n2 and n1.east and n1.north and n2.east and n2.north then
+                local ax1 = n1.east
+                local ay1 = n1.north
+                local ax2 = n2.east
+                local ay2 = n2.north
+                local dx = ax2 - ax1
+                local dy = ay2 - ay1
+                local len_a = math.sqrt(dx * dx + dy * dy)
+                if len_a > 0 then
+                    local a_heading = segment_heading_deg(ax1, ay1, ax2, ay2)
+                    local mx = (ax1 + ax2) * 0.5
+                    local my = (ay1 + ay2) * 0.5
+                    local cell = globalIndex.cell
+                    local cx = math.floor(mx / cell)
+                    local cy = math.floor(my / cell)
+                    local best_label = nil
+                    local best_dist = nil
+                    for ox = -1, 1 do
+                        for oy = -1, 1 do
+                            local key = tostring(cx + ox) .. ":" .. tostring(cy + oy)
+                            local bucket = globalIndex.grid[key]
+                            if bucket then
+                                for _, cand in ipairs(bucket) do
+                                    local len_ratio = cand.len > 0 and (len_a / cand.len) or 0
+                                    if len_ratio >= opts.len_ratio_min and len_ratio <= opts.len_ratio_max then
+                                        local hdiff = heading_diff_deg(a_heading, cand.heading)
+                                        if hdiff <= opts.heading_max_deg then
+                                            local d11 = distance_sq(ax1, ay1, cand.x1, cand.y1)
+                                            local d22 = distance_sq(ax2, ay2, cand.x2, cand.y2)
+                                            local d12 = distance_sq(ax1, ay1, cand.x2, cand.y2)
+                                            local d21 = distance_sq(ax2, ay2, cand.x1, cand.y1)
+                                            local max_d2 = nil
+                                            if (d11 + d22) <= (d12 + d21) then
+                                                max_d2 = math.max(d11, d22)
+                                            else
+                                                max_d2 = math.max(d12, d21)
+                                            end
+                                            local max_d = math.sqrt(max_d2 or 0)
+                                            if max_d <= opts.endpoint_max_m then
+                                                if not best_dist or max_d < best_dist then
+                                                    best_dist = max_d
+                                                    best_label = cand.label
+                                                end
+                                            end
+                                        end
+                                    end
+                                end
+                            end
+                        end
+                    end
+                    if best_label then
+                        addonData._labelBackup = addonData._labelBackup or {}
+                        if addonData._labelBackup[idx] == nil then
+                            addonData._labelBackup[idx] = edge.label
+                        end
+                        local old_label = edge.label
+                        edge.label = best_label
+                        update_adj_label(addonData.adjacency, edge.from, edge.to, best_label, old_label)
+                        update_adj_label(addonData.adjacency_relaxed, edge.from, edge.to, best_label, old_label)
+                        update_adj_label(addonData.adjacency_any, edge.from, edge.to, best_label, old_label)
+                        update_adj_label(addonData.adjacency_any, edge.to, edge.from, best_label, old_label)
+                        update_adj_label(addonData.adjacency_any_relaxed, edge.from, edge.to, best_label, old_label)
+                        update_adj_label(addonData.adjacency_any_relaxed, edge.to, edge.from, best_label, old_label)
+                        patched = patched + 1
+                    end
+                end
+            end
+        end
+    end
+    return patched
+end
+
+function P.patchTaxiLabelsFromGlobal(addonData, globalData, opts)
+    if not addonData or not globalData then
+        return 0, "invalid-data"
+    end
+    if addonData._labelsPatched then
+        return 0, "already-patched"
+    end
+    if addonData.entry and addonData.entry.source == "global-index" then
+        return 0, "global-source"
+    end
+    if not addonData.has_routes or not globalData.has_routes then
+        return 0, "no-routes"
+    end
+    local options = opts or {}
+    local endpoint_max_m = tonumber(options.endpoint_max_m) or 30
+    local heading_max_deg = tonumber(options.heading_max_deg) or 25
+    local len_ratio_min = tonumber(options.len_ratio_min) or 0.6
+    local len_ratio_max = tonumber(options.len_ratio_max) or 1.6
+    local cell_size = tonumber(options.cell_size_m) or 50
+    local runway_max_m = tonumber(options.runway_max_m) or 150
+
+    if not runways_compatible(addonData, globalData, runway_max_m) then
+        return 0, "runway-mismatch"
+    end
+
+    local index = build_global_edge_index(globalData, cell_size)
+    local patched = patch_addon_labels(addonData, index, {
+        endpoint_max_m = endpoint_max_m,
+        heading_max_deg = heading_max_deg,
+        len_ratio_min = len_ratio_min,
+        len_ratio_max = len_ratio_max
+    })
+    addonData._labelsPatched = true
+    addonData._labelsPatchedCount = patched
+    addonData._labelPatchSource = globalData.entry and globalData.entry.source or "global"
+    if options.log then
+        P.logInfoTS(
+            "TaxiPatch: labels patched=" .. tostring(patched) ..
+            " src=" .. tostring(addonData._labelPatchSource) ..
+            " icao=" .. tostring(addonData.entry and addonData.entry.icao or "?")
+        )
+    end
+    return patched, nil
+end
+
+function P.patchTaxiLabelsFromGlobalForIcao(addonData, icao, opts)
+    if not addonData or not icao then
+        return 0, "invalid-data"
+    end
+    if addonData._labelsPatched then
+        return 0, "already-patched"
+    end
+    if not addonData.entry or addonData.entry.source ~= "addon" then
+        return 0, "not-addon"
+    end
+    local gentry, gerr = P.findAptDatForIcaoWithPolicy(icao, "global")
+    if not gentry then
+        if gerr == "global-index-pending" then
+            addonData._labelsPatchPending = true
+            P.requestGlobalAptIndex("label-patch")
+            return 0, "global-index-pending"
+        end
+        return 0, gerr or "global-not-found"
+    end
+    local gdata, gperr = parse_taxi_data(gentry)
+    if not gdata then
+        return 0, gperr or "global-parse-failed"
+    end
+    gdata.entry = gentry
+    local patched, perr = P.patchTaxiLabelsFromGlobal(addonData, gdata, opts)
+    addonData._labelsPatchPending = nil
+    return patched, perr
+end
+
 local function find_nearest_node(data, lat, lon, avoid_runway)
     if not data or not data.nodes or not lat or not lon then
         return nil
@@ -7204,6 +7556,9 @@ local function scan_addon_for_icao(code)
     for _, apt_path in ipairs(paths) do
         local entry = scan_apt_for_icao(apt_path, code)
         if entry then
+            if not entry.source then
+                entry.source = "addon"
+            end
             if entry.has_routes then
                 best = entry
                 break
@@ -7247,6 +7602,63 @@ function P.findAptDatForIcao(icao)
         return addon_entry
     end
     return nil, gerr or "not-found"
+end
+
+function P.findAptDatForIcaoWithPolicy(icao, policy)
+    local code = trim_ascii(tostring(icao or ""))
+    code = string.upper(code)
+    if code == "" then
+        return nil, "invalid-icao"
+    end
+
+    local pref = tostring(policy or "auto")
+    local addon_entry = scan_addon_for_icao(code)
+    local global_entry, gerr = get_global_index_entry(code, "find-icao")
+
+    if pref == "addon" then
+        if addon_entry then
+            return addon_entry
+        end
+        if global_entry then
+            return global_entry
+        end
+        return nil, gerr or "not-found"
+    end
+
+    if pref == "global" then
+        if global_entry then
+            return global_entry
+        end
+        if addon_entry then
+            return addon_entry
+        end
+        return nil, gerr or "not-found"
+    end
+
+    return P.findAptDatForIcao(code)
+end
+
+function P.getTaxiDataWithPolicy(icao, policy)
+    local entry, err = P.findAptDatForIcaoWithPolicy(icao, policy)
+    if not entry then
+        return nil, err or "apt-not-found"
+    end
+    local data, perr = parse_taxi_data(entry)
+    if not data then
+        return nil, perr or "parse-failed"
+    end
+    data.entry = entry
+    if entry.source == "addon" then
+        local patched, perr_patch = P.patchTaxiLabelsFromGlobalForIcao(data, entry.icao or icao, { log = true })
+        if perr_patch == "global-index-pending" then
+            data._labelsPatchPending = true
+        elseif perr_patch and perr_patch ~= "already-patched" and perr_patch ~= "no-routes" and perr_patch ~= "runway-mismatch" then
+            P.logInfoTS("TaxiPatch: label patch skipped (" .. tostring(perr_patch) .. ")")
+        elseif patched and patched > 0 then
+            -- labels patched; keep data in memory only
+        end
+    end
+    return data
 end
 
 function P.clearTaxiIndexCache()

@@ -415,6 +415,7 @@ function P.initDataref()
     P.rgeardeployed = globalPropertyfae("sim/aircraft/parts/acf_gear_deploy", 3)
 
     P.altitude = globalProperty("laminar/B738/autopilot/altitude")
+    P.altitude_ft = globalProperty("sim/cockpit2/gauges/indicators/altitude_ft_pilot")
     P.fmccruisealt = globalProperty("laminar/B738/autopilot/fmc_cruise_alt")
     P.radioaltitude = globalProperty("sim/cockpit2/gauges/indicators/radio_altimeter_height_ft_pilot")
 
@@ -485,6 +486,8 @@ function P.initDataref()
     P.eng2n1percent = globalPropertyfae("sim/flightmodel2/engines/N1_percent", 2)
     P.eng1n2percent = globalPropertyfae("sim/flightmodel2/engines/N2_percent", 1)
     P.eng2n2percent = globalPropertyfae("sim/flightmodel2/engines/N2_percent", 2)
+    P.fuel_flow_kg_sec_1 = globalPropertyfae("laminar/B738/engine/fuel_flow_kg_sec", 1)
+    P.fuel_flow_kg_sec_2 = globalPropertyfae("laminar/B738/engine/fuel_flow_kg_sec", 2)
 
     P.eng1heatpos = globalProperty("laminar/B738/ice/eng1_heat_pos")
     P.eng2heatpos = globalProperty("laminar/B738/ice/eng2_heat_pos")
@@ -605,6 +608,8 @@ function P.initDataref()
     P.appflapsset = globalProperty("laminar/B738/FMS/approach_flaps_set")
 
     P.airspeed = globalProperty("laminar/B738/autopilot/airspeed")
+    P.ias_kts = globalProperty("sim/cockpit2/gauges/indicators/airspeed_kts_pilot")
+    P.tas_kts = globalProperty("sim/cockpit2/gauges/indicators/true_airspeed_kts")
     P.groundspeed = globalProperty("laminar/b738/fmodpack/real_groundspeed")
     P.tirespeed = globalProperty("laminar/B738/systems/tire_speed0")
     P.verticalspeed = globalPropertyfae("sim/cockpit2/tcas/targets/position/vertical_speed", 1)
@@ -1479,7 +1484,40 @@ function P.timewarptotod()
     helpers.logInfoTS("WARP: Local Position Y " .. localpositiony)
     helpers.logInfoTS("WARP: Local Position Z " .. localpositionz)
 
-    local remainingfuel =  helpers.estimatefuelattod(get(P.lefttanklbs), get(P.righttanklbs), get(P.centertanklbs), get( P.vnavtoddist) - 10)
+    local distToTod = (get(P.vnavtoddist) or 0) - 10
+    local fmsPhase = get(P.fmsflightphase) or 0
+    local ffPhase = 1
+    if fmsPhase == def.FMSFLIGHTPHASE_TAKEOFF or fmsPhase == def.FMSFLIGHTPHASE_CLIMB or fmsPhase == def.FMSFLIGHTPHASE_CRZ_CLB then
+        ffPhase = 0
+    elseif fmsPhase == def.FMSFLIGHTPHASE_DESCENT or fmsPhase == def.FMSFLIGHTPHASE_APPROACH or fmsPhase == def.FMSFLIGHTPHASE_CRZ_DES then
+        ffPhase = 2
+    end
+    local fuel_flow_lbs_hr = nil
+    do
+        local ff1 = get(P.fuel_flow_kg_sec_1) or 0
+        local ff2 = get(P.fuel_flow_kg_sec_2) or 0
+        local total_kg_sec = ff1 + ff2
+        if total_kg_sec > 0 then
+            fuel_flow_lbs_hr = total_kg_sec * def.KGTOLBS * 3600
+        end
+    end
+    local fuel_opts = {
+        phase = ffPhase,
+        alt_ft = get(P.altitude_ft) or get(P.altitude),
+        ias_kt = get(P.ias_kts),
+        tas_kt = get(P.tas_kts),
+        gs_kt = get(P.groundspeed)
+    }
+    if fuel_flow_lbs_hr and fuel_flow_lbs_hr > 0 then
+        fuel_opts.fuel_flow_lbs_hr = fuel_flow_lbs_hr
+    end
+    local remainingfuel = helpers.estimatefuelattod(
+        get(P.lefttanklbs),
+        get(P.righttanklbs),
+        get(P.centertanklbs),
+        distToTod,
+        fuel_opts
+    )
 
     helpers.logInfoTS("WARP: Remaining Fuel Left " .. remainingfuel.left)
     helpers.logInfoTS("WARP: Remaining Fuel Right " .. remainingfuel.right)

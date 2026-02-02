@@ -10,13 +10,30 @@ local guidanceCooldown = 8
 local rerouteCooldown = 6
 local rerouteDriftMeters = 40
 local guidanceMinSpeed = 2
-local guidanceTurnDistance = 60
+local initialGuidanceMinSpeed = 0.2
+local guidanceTurnDistance = 80
 local guidanceTurnAngle = 30
-local guidanceLeadTimeSec = 8
+local guidanceLeadTimeSec = 12
 local guidanceMaxDistance = 180
 local guidanceStraightAngle = 15
 local startRampMaxMeters = 80
 local projectionShiftThreshold = 500
+local runwayRouteMaxSpeed = 45
+local depThresholdGateMeters = 60
+local depThresholdHeadingLimit = 25
+local depRunwayCorridorMin = 25
+local depRunwayCorridorMax = 80
+local depRunwayCorridorBuffer = 10
+local qualityDistanceMeters = 150
+local qualityDistanceSeconds = 6
+local qualityRerouteWindowSec = 60
+local qualityRerouteLimit = 6
+local qualityBadLabelRatio = 0.3
+local qualityNoneLabelRatio = 0.1
+local qualityMinLabelEdges = 6
+local qualityBadHoldSec = 8
+local qualityArrGraceSec = 45
+local arrStartNodeMaxMeters = 180
 
 local minZoom = 0.2
 local maxZoom = 5
@@ -88,6 +105,26 @@ local function rotate_point(dx, dy, radians)
     local cosA = math.cos(radians)
     local sinA = math.sin(radians)
     return dx * cosA - dy * sinA, dx * sinA + dy * cosA
+end
+
+local function heading_to_compass(heading)
+    local h = tonumber(heading) or 0
+    h = h % 360
+    local dirs = {
+        "north",
+        "north east",
+        "east",
+        "south east",
+        "south",
+        "south west",
+        "west",
+        "north west"
+    }
+    local idx = math.floor((h + 22.5) / 45) + 1
+    if idx > #dirs then
+        idx = 1
+    end
+    return dirs[idx]
 end
 
 local function distance_meters_latlon(lat1, lon1, lat2, lon2)
@@ -344,6 +381,20 @@ local function taxiway_label_voice(label)
         i = i + 1
     end
     return table.concat(words, " ")
+end
+
+local function runway_label_voice(label)
+    if not label or label == "" then
+        return "Runway"
+    end
+    local clean = string.upper(tostring(label))
+    if string.sub(clean, 1, 3) == "RWY" then
+        clean = trim_spaces(string.gsub(clean, "^RWY[%s_%-/]*", ""))
+    end
+    if clean == "" then
+        return "Runway"
+    end
+    return "Runway " .. taxiway_label_voice(clean)
 end
 
 local function is_runway_label(label)
@@ -889,7 +940,7 @@ local function find_holdshort_node_near(data, runway_lat, runway_lon)
     return best_id
 end
 
-local function build_runway_backtrack_segments(data, profile, node_id)
+local function build_runway_backtrack_segments(data, profile, node_id, target_point)
     if not data or not profile or not node_id then
         return nil
     end
@@ -899,8 +950,12 @@ local function build_runway_backtrack_segments(data, profile, node_id)
     end
     local axis = profile.axis
     local threshold = profile.threshold
+    local target = target_point or threshold
     if not axis or not threshold then
         return nil
+    end
+    if not target or target.east == nil or target.north == nil then
+        target = threshold
     end
     local dx = node.east - threshold.east
     local dy = node.north - threshold.north
@@ -934,8 +989,8 @@ local function build_runway_backtrack_segments(data, profile, node_id)
     segments[#segments + 1] = {
         east1 = entry_east,
         north1 = entry_north,
-        east2 = threshold.east,
-        north2 = threshold.north
+        east2 = target.east,
+        north2 = target.north
     }
     return segments
 end
@@ -953,6 +1008,69 @@ local function compute_along_perp(profile, node)
     local perp = math.abs(cross)
     return along, perp
 end
+
+local function runway_corridor_half_width(profile)
+    local width = tonumber(profile and profile.width) or 0
+    local half = 0
+    if width > 0 then
+        half = (width * 0.5) + depRunwayCorridorBuffer
+    else
+        half = 35
+    end
+    if half < depRunwayCorridorMin then
+        half = depRunwayCorridorMin
+    end
+    if depRunwayCorridorMax and half > depRunwayCorridorMax then
+        half = depRunwayCorridorMax
+    end
+    return half
+end
+
+local function compute_dep_threshold_state(comp, profile, runway_lat, runway_lon, aircraft)
+    if not profile or not profile.threshold or not profile.axis then
+        return nil
+    end
+    if not aircraft or aircraft.east == nil or aircraft.north == nil then
+        return nil
+    end
+    local along, perp = compute_along_perp(profile, aircraft)
+    if not along or not perp then
+        return nil
+    end
+    local corridor = runway_corridor_half_width(profile)
+    local dist = math.sqrt(distance_sq(aircraft.east, aircraft.north, profile.threshold.east, profile.threshold.north))
+    local axis_heading_true = math.deg(math.atan2(profile.axis.x, profile.axis.y))
+    if axis_heading_true < 0 then
+        axis_heading_true = axis_heading_true + 360
+    end
+    local mag_var = nil
+    if aircraft.lat and aircraft.lon then
+        mag_var = sasl.getMagneticVariation(aircraft.lat, aircraft.lon)
+    end
+    if (mag_var == nil) and runway_lat and runway_lon then
+        mag_var = sasl.getMagneticVariation(runway_lat, runway_lon)
+    end
+    mag_var = mag_var or 0
+    local axis_heading_mag = (axis_heading_true - mag_var + 360) % 360
+    local yal = comp and (comp.yal or _G.yal) or nil
+    local track_mag = yal and yal.groundtrackmag and get(yal.groundtrackmag) or nil
+    local heading_diff = nil
+    local heading_ok = false
+    if track_mag ~= nil then
+        heading_diff = helpers.headingdiff(track_mag, axis_heading_mag)
+        heading_ok = heading_diff <= depThresholdHeadingLimit
+    end
+    local reached = (perp <= corridor) and heading_ok and (dist <= depThresholdGateMeters)
+    return {
+        reached = reached,
+        dist = dist,
+        perp = perp,
+        corridor = corridor,
+        heading_diff = heading_diff,
+        axis_heading_mag = axis_heading_mag
+    }
+end
+
 
 local function select_runway_exit_node(data, profile)
     if not data or not profile or not profile.touchdown or not profile.axis then
@@ -1551,6 +1669,209 @@ local function get_edge_label(data, from_id, to_id)
     return ""
 end
 
+local function compute_route_label_stats(data, path)
+    local stats = { taxi_edges = 0, missing = 0, none = 0 }
+    if not data or not path or #path < 2 then
+        return stats
+    end
+    for i = 1, #path - 1 do
+        local raw = get_edge_label(data, path[i], path[i + 1])
+        if raw == "" then
+            stats.taxi_edges = stats.taxi_edges + 1
+            stats.missing = stats.missing + 1
+        elseif raw == "RAMP" or is_runway_label(raw) then
+            -- ignore
+        else
+            stats.taxi_edges = stats.taxi_edges + 1
+            local norm = normalize_taxiway_label(raw)
+            if norm == "" then
+                stats.missing = stats.missing + 1
+            elseif norm == "NONE" then
+                stats.none = stats.none + 1
+            end
+        end
+    end
+    local denom = stats.taxi_edges > 0 and stats.taxi_edges or 1
+    stats.bad = stats.missing + stats.none
+    stats.bad_ratio = stats.bad / denom
+    stats.none_ratio = stats.none / denom
+    return stats
+end
+
+local function arrival_grace_active(comp, now)
+    if not comp or not now then
+        return false
+    end
+    local t0 = comp._arrOnGroundSince
+    return t0 ~= nil and (now - t0) < qualityArrGraceSec
+end
+
+local function record_reroute_event(comp, now)
+    if not comp then
+        return
+    end
+    comp._quality = comp._quality or {}
+    local events = comp._quality.rerouteEvents or {}
+    events[#events + 1] = now
+    local cutoff = now - qualityRerouteWindowSec
+    local i = 1
+    while i <= #events do
+        if events[i] < cutoff then
+            table.remove(events, i)
+        else
+            i = i + 1
+        end
+    end
+    comp._quality.rerouteEvents = events
+end
+
+local function assess_route_quality(comp, now, dist)
+    local reasons = {}
+    if not comp or not now then
+        return false, reasons
+    end
+    comp._quality = comp._quality or {}
+    local quality = comp._quality
+    if dist and dist > qualityDistanceMeters then
+        if not quality.distBadSince then
+            quality.distBadSince = now
+        end
+        if (now - quality.distBadSince) >= qualityDistanceSeconds then
+            reasons[#reasons + 1] = "dist"
+        end
+    else
+        quality.distBadSince = nil
+    end
+    local events = quality.rerouteEvents or {}
+    if #events >= qualityRerouteLimit then
+        reasons[#reasons + 1] = "reroute"
+    end
+    local stats = comp._routeLabelStats
+    if stats and (stats.taxi_edges or 0) >= qualityMinLabelEdges then
+        if (stats.bad_ratio or 0) >= qualityBadLabelRatio then
+            reasons[#reasons + 1] = "labels"
+        elseif (stats.none_ratio or 0) >= qualityNoneLabelRatio then
+            reasons[#reasons + 1] = "label-none"
+        end
+    end
+    return #reasons > 0, reasons
+end
+
+local function build_quality_log(comp, data, icao, mode, reasons)
+    local stats = comp and comp._routeLabelStats or nil
+    local reroutes = comp and comp._quality and comp._quality.rerouteEvents and #comp._quality.rerouteEvents or 0
+    local dist = comp and comp._lastRouteDist or nil
+    local label_info = ""
+    if stats and (stats.taxi_edges or 0) > 0 then
+        label_info = string.format(
+            " labels=%d/%d none=%d badRatio=%.2f noneRatio=%.2f",
+            stats.bad or 0,
+            stats.taxi_edges or 0,
+            stats.none or 0,
+            stats.bad_ratio or 0,
+            stats.none_ratio or 0
+        )
+    end
+    return string.format(
+        "icao=%s mode=%s src=%s routeSrc=%s reasons=%s dist=%.1f reroutes=%d%s",
+        tostring(icao),
+        tostring(mode),
+        tostring(data and data.entry and data.entry.source or "?"),
+        tostring(data and data.route_source or "?"),
+        table.concat(reasons or {}, ","),
+        dist or -1,
+        reroutes,
+        label_info
+    )
+end
+
+local function maybe_force_global_for_quality(comp, now, icao, mode, data, helpers)
+    if not comp or not data or not icao or not now then
+        return false
+    end
+    if mode == 1 and arrival_grace_active(comp, now) then
+        return false
+    end
+    if not comp._route or not comp._route.path then
+        return false
+    end
+    if data.entry and data.entry.source == "global-index" then
+        if comp._quality then
+            comp._quality.badSince = nil
+        end
+        return false
+    end
+    if mode == 0 and comp._depThresholdLatched then
+        return false
+    end
+    if comp._taxiGlobalPending and comp._taxiGlobalPending[icao] then
+        return false
+    end
+
+    local bad, reasons = assess_route_quality(comp, now, comp._lastRouteDist)
+    if not bad then
+        if comp._quality then
+            comp._quality.badSince = nil
+        end
+        return false
+    end
+
+    comp._quality = comp._quality or {}
+    if not comp._quality.badSince then
+        comp._quality.badSince = now
+        comp._quality.badReasons = reasons
+        return false
+    end
+    comp._quality.badReasons = reasons
+    if (now - comp._quality.badSince) < qualityBadHoldSec then
+        return false
+    end
+
+    local log_info = build_quality_log(comp, data, icao, mode, reasons)
+    if helpers and helpers.isGlobalAptIndexReady and helpers.isGlobalAptIndexReady() then
+        comp._taxiSourceByIcao = comp._taxiSourceByIcao or {}
+        comp._taxiSourceByIcao[icao] = "global"
+        if comp._taxiGlobalPending then
+            comp._taxiGlobalPending[icao] = nil
+        end
+        comp._data = nil
+        comp._dataErr = nil
+        comp._route = nil
+        comp._routeErr = nil
+        comp._routeLabels = nil
+        comp._routeLabelStats = nil
+        comp._routeExtraSegments = nil
+        comp._lastStartKey = nil
+        comp._lastEndKey = nil
+        comp._lastGuidanceNodeId = nil
+        comp._lastGuidanceLabel = nil
+        comp._lastGuidanceTime = nil
+        comp._rerouteOverride = nil
+        comp._needsCenter = true
+        if comp._quality then
+            comp._quality.badSince = nil
+            comp._quality.distBadSince = nil
+            comp._quality.rerouteEvents = {}
+        end
+        if helpers and helpers.logInfoTS then
+            helpers.logInfoTS("TaxiQuality: forcing global " .. log_info)
+        end
+        return true
+    end
+
+    comp._taxiGlobalPending = comp._taxiGlobalPending or {}
+    comp._taxiGlobalPending[icao] = true
+    comp._taxiSourceByIcao = comp._taxiSourceByIcao or {}
+    comp._taxiSourceByIcao[icao] = "global"
+    if helpers and helpers.requestGlobalAptIndex then
+        helpers.requestGlobalAptIndex("quality-fallback")
+    end
+    if helpers and helpers.logInfoTS then
+        helpers.logInfoTS("TaxiQuality: global pending " .. log_info)
+    end
+    return false
+end
+
 local function find_nearest_segment(data, path, east, north)
     if not data or not data.nodes or not path or #path < 2 then
         return nil, nil
@@ -1647,7 +1968,54 @@ local function maybe_speak_guidance(comp, now, aircraft)
         diag("not-on-ground")
         return
     end
+    if comp._depThresholdLatched and (comp.mode == 0) then
+        diag("dep-threshold")
+        return
+    end
+    local data = comp._route.data or comp._data
+    local path = comp._route.path
+    local function guidance_label_info(from_id, to_id, fallback_label, ramp_hint)
+        local raw_label = get_edge_label(data, from_id, to_id)
+        if raw_label and is_runway_label(raw_label) then
+            return { kind = "runway", text = runway_label_voice(raw_label) }
+        end
+        if raw_label == "RAMP" then
+            local ramp_label = ramp_hint and short_ramp_label(ramp_hint) or ""
+            if ramp_label == "" then
+                ramp_label = "Ramp"
+            end
+            return { kind = "ramp", text = ramp_label }
+        end
+        local label = normalize_taxiway_label(raw_label)
+        if label == "" and fallback_label and fallback_label ~= "" then
+            label = fallback_label
+        end
+        if label ~= "" then
+            return { kind = "taxiway", text = taxiway_label_voice(label) }
+        end
+        return nil
+    end
     local tirespeed = yal and yal.tirespeed and (get(yal.tirespeed) or 0) or 0
+    if not comp._initialGuidanceDone and path and #path >= 2 then
+        if tirespeed >= initialGuidanceMinSpeed then
+            local info = guidance_label_info(path[1], path[2], nil, comp._startRamp)
+            if info then
+                local text = ""
+                if info.kind == "taxiway" then
+                    text = "Taxi via Taxiway " .. info.text
+                elseif info.kind == "runway" then
+                    text = "Taxi via " .. info.text
+                elseif info.kind == "ramp" then
+                    text = "Taxi from " .. info.text
+                end
+                if text ~= "" then
+                    speak_guidance_text(comp, text)
+                    comp._initialGuidanceDone = true
+                    return
+                end
+            end
+        end
+    end
     if tirespeed <= 0 then
         diag("non-forward-speed", "ts=" .. tostring(tirespeed))
         return
@@ -1656,8 +2024,6 @@ local function maybe_speak_guidance(comp, now, aircraft)
         diag("too-slow", "ts=" .. tostring(tirespeed))
         return
     end
-    local data = comp._route.data or comp._data
-    local path = comp._route.path
     local seg_idx = find_nearest_segment(data, path, aircraft.east, aircraft.north)
     if not seg_idx or seg_idx >= (#path - 1) then
         diag("no-segment", "seg=" .. tostring(seg_idx or "nil") .. " path=" .. tostring(#path))
@@ -1671,8 +2037,8 @@ local function maybe_speak_guidance(comp, now, aircraft)
         return
     end
     local curr_label = normalize_taxiway_label(get_edge_label(data, path[seg_idx], path[seg_idx + 1]))
-    local next_label = normalize_taxiway_label(get_edge_label(data, path[seg_idx + 1], path[seg_idx + 2]))
-    if next_label == "" then
+    local next_info = guidance_label_info(path[seg_idx + 1], path[seg_idx + 2], curr_label, comp._endRamp)
+    if not next_info or next_info.text == "" then
         diag("next-label-empty")
         return
     end
@@ -1701,8 +2067,9 @@ local function maybe_speak_guidance(comp, now, aircraft)
         return
     end
     local last_time = comp._lastGuidanceTime or 0
+    local label_key = next_info.kind .. ":" .. next_info.text
     if comp._lastGuidanceNodeId == path[seg_idx + 1]
-        and comp._lastGuidanceLabel == next_label
+        and comp._lastGuidanceLabel == label_key
         and (now - last_time) < guidanceCooldown then
         diag("cooldown")
         return
@@ -1710,27 +2077,31 @@ local function maybe_speak_guidance(comp, now, aircraft)
     local cross = v1x * v2y - v1y * v2x
     local text = ""
     if angle < guidanceTurnAngle then
-        local degree = get_node_degree(data, path[seg_idx + 1])
-        if degree < 3 or angle < guidanceStraightAngle then
-            diag("angle-too-small", string.format("angle=%.1f", angle))
-            return
-        end
-        local label = next_label
-        if label == "" then
-            label = curr_label or ""
-        end
-        if label ~= "" then
-            text = "Continue straight on Taxiway " .. taxiway_label_voice(label)
-        else
-            text = "Continue straight"
+        if next_info.kind == "taxiway" then
+            local degree = get_node_degree(data, path[seg_idx + 1])
+            if degree < 3 or angle < guidanceStraightAngle then
+                diag("angle-too-small", string.format("angle=%.1f", angle))
+                return
+            end
+            text = "Continue straight on Taxiway " .. next_info.text
+        elseif next_info.kind == "runway" then
+            text = "Continue straight on " .. next_info.text
+        elseif next_info.kind == "ramp" then
+            text = "Continue straight to " .. next_info.text
         end
     else
         local turn = (cross >= 0) and "left" or "right"
-        text = "Turn " .. turn .. " on Taxiway " .. taxiway_label_voice(next_label)
+        if next_info.kind == "taxiway" then
+            text = "Turn " .. turn .. " on Taxiway " .. next_info.text
+        elseif next_info.kind == "runway" then
+            text = "Turn " .. turn .. " on " .. next_info.text
+        elseif next_info.kind == "ramp" then
+            text = "Turn " .. turn .. " to " .. next_info.text
+        end
     end
     speak_guidance_text(comp, text)
     comp._lastGuidanceNodeId = path[seg_idx + 1]
-    comp._lastGuidanceLabel = next_label
+    comp._lastGuidanceLabel = label_key
     comp._lastGuidanceTime = now
 end
 
@@ -1828,6 +2199,7 @@ local U = {
     guidance_distance_for_speed = guidance_distance_for_speed,
     speak_guidance_text = speak_guidance_text,
     maybe_speak_guidance = maybe_speak_guidance,
+    maybe_force_global_for_quality = maybe_force_global_for_quality,
     getSettingNumber = getSettingNumber
 }
 
@@ -1919,6 +2291,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
     local guidance_distance_for_speed = U.guidance_distance_for_speed
     local speak_guidance_text = U.speak_guidance_text
     local maybe_speak_guidance = U.maybe_speak_guidance
+    local maybe_force_global_for_quality = U.maybe_force_global_for_quality
     local getSettingNumber = U.getSettingNumber
 
     local comp = {}
@@ -1969,6 +2342,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
     comp._lastMode = nil
     comp._lastStartKey = nil
     comp._lastEndKey = nil
+    comp._routeStartAnchor = nil
     comp._routeExtraSegments = nil
     comp._lastArrivalIcao = nil
     comp._lastArrivalRunwayName = nil
@@ -1979,13 +2353,18 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
     comp._lastGuidanceNodeId = nil
     comp._lastGuidanceLabel = nil
     comp._lastGuidanceTime = nil
+    comp._initialGuidanceDone = false
     comp._lastRerouteTime = nil
     comp._rerouteOverride = nil
+    comp._depThresholdLatched = false
     comp._aircraftPoint = nil
     comp._editRoute = false
     comp._drawRoute = false
     comp._routeWaypoints = {}
     comp._autoEndRampKey = nil
+    comp._quality = { rerouteEvents = {} }
+    comp._taxiSourceByIcao = {}
+    comp._taxiGlobalPending = {}
     comp.yal = ctx and ctx.yal or _G.yal
     comp._timer = sasl.createTimer()
     sasl.startTimer(comp._timer)
@@ -3094,6 +3473,18 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
         end
 
         local mode = comp.mode or autoMode
+        if mode == 1 and onGroundSensor then
+            if not comp._arrOnGroundSince then
+                comp._arrOnGroundSince = now
+                if comp._quality then
+                    comp._quality.rerouteEvents = {}
+                    comp._quality.badSince = nil
+                    comp._quality.distBadSince = nil
+                end
+            end
+        else
+            comp._arrOnGroundSince = nil
+        end
         local icao = nil
         if mode == 0 then
             icao = depIcao
@@ -3128,18 +3519,27 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
             comp._route = nil
             comp._routeErr = nil
             comp._routeLabels = nil
+            comp._routeLabelStats = nil
+            comp._lastRouteDist = nil
             comp._startPoint = nil
             comp._endPoint = nil
             comp._startRamp = nil
             comp._endRamp = nil
             comp._lastStartKey = nil
             comp._lastEndKey = nil
+            comp._routeStartAnchor = nil
             comp._routeExtraSegments = nil
             comp._lastGuidanceNodeId = nil
             comp._lastGuidanceLabel = nil
             comp._lastGuidanceTime = nil
+            if comp._quality then
+                comp._quality.distBadSince = nil
+                comp._quality.badSince = nil
+                comp._quality.rerouteEvents = {}
+            end
             comp._routeWaypoints = {}
             comp._rerouteOverride = nil
+            comp._depThresholdLatched = false
             if icao_changed or mode_changed then
                 comp._autoEndRampKey = nil
             end
@@ -3157,8 +3557,46 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
         local data = comp._data
         local derr = comp._dataErr
         local pending = (derr == "global-index-pending")
+        if data and comp._taxiGlobalPending and comp._taxiGlobalPending[icao]
+            and helpers.isGlobalAptIndexReady and helpers.isGlobalAptIndexReady() then
+            comp._taxiSourceByIcao = comp._taxiSourceByIcao or {}
+            comp._taxiSourceByIcao[icao] = "global"
+            comp._taxiGlobalPending[icao] = nil
+            comp._data = nil
+            comp._dataErr = nil
+            data = nil
+            comp._route = nil
+            comp._routeErr = nil
+            comp._routeLabels = nil
+            comp._routeLabelStats = nil
+            comp._routeExtraSegments = nil
+            comp._lastStartKey = nil
+            comp._lastEndKey = nil
+            comp._lastGuidanceNodeId = nil
+            comp._lastGuidanceLabel = nil
+            comp._lastGuidanceTime = nil
+            comp._needsCenter = true
+            comp._rerouteOverride = nil
+            if comp._quality then
+                comp._quality.badSince = nil
+                comp._quality.distBadSince = nil
+                comp._quality.rerouteEvents = {}
+            end
+        end
+        derr = comp._dataErr
+        pending = (derr == "global-index-pending")
         if icao_changed or (not data and (not derr or pending)) then
-            data, derr = helpers.getTaxiData(icao)
+            local policy = comp._taxiSourceByIcao and comp._taxiSourceByIcao[icao] or nil
+            if comp._taxiGlobalPending and comp._taxiGlobalPending[icao] and helpers.isGlobalAptIndexReady and helpers.isGlobalAptIndexReady() then
+                policy = "global"
+                comp._taxiSourceByIcao[icao] = "global"
+                comp._taxiGlobalPending[icao] = nil
+            end
+            if helpers.getTaxiDataWithPolicy then
+                data, derr = helpers.getTaxiDataWithPolicy(icao, policy)
+            else
+                data, derr = helpers.getTaxiData(icao)
+            end
             pending = (derr == "global-index-pending")
         end
         if not data then
@@ -3171,6 +3609,24 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
         end
         comp._data = data
         comp._dataErr = nil
+        if data and data.entry and data.entry.source == "addon"
+            and data._labelsPatchPending
+            and helpers.patchTaxiLabelsFromGlobalForIcao
+            and helpers.isGlobalAptIndexReady
+            and helpers.isGlobalAptIndexReady() then
+            local patched = helpers.patchTaxiLabelsFromGlobalForIcao(data, icao, { log = true })
+            if patched and patched > 0 then
+                comp._routeLabels = nil
+                comp._routeLabelStats = nil
+                if comp._route and comp._route.path and comp._route.data == data then
+                    comp._routeLabels = build_route_labels(data, comp._route.path)
+                    comp._routeLabelStats = compute_route_label_stats(data, comp._route.path)
+                end
+                if comp._quality then
+                    comp._quality.badSince = nil
+                end
+            end
+        end
         local shifted, shift_dx, shift_dy = align_taxi_data_projection(data)
         if shifted then
             helpers.logInfoTS(
@@ -3200,7 +3656,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
         end
         comp._fitBounds = data.bounds
         local hasNodes = (data.nodes and next(data.nodes) ~= nil) or false
-        local hasArrivalRunway = (mode == 0) or (raw_desrwy ~= "")
+        local hasArrivalRunway = (mode == 0) or (runway_name ~= "")
         local canRoute = data.can_route and hasNodes and hasArrivalRunway
         if not canRoute then
             helpers.logInfoTS(
@@ -3238,11 +3694,13 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
         local raw_desrwy = ""
         local touchdown = nil
         local landing_profile = nil
+        local dep_profile = nil
         local backtrack_required = false
         local dep_holdshort_id = nil
         local dep_end_node_id = nil
         local dep_end_node_dist = nil
         local arr_exit_id = nil
+        local allow_runway_route = false
 
         if mode == 0 then
             if aircraft then
@@ -3397,6 +3855,22 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
             end
         end
 
+        if mode == 1 and aircraft and comp.yal and comp.yal.aircraftonrwy and is_valid_latlon(runway_lat, runway_lon) then
+            local offRunway = comp.yal.aircraftonrwy(def.ARRIVAL, 0.0001, 20)
+            if not offRunway then
+                local gs = yal and yal.groundspeed and (get(yal.groundspeed) or 0) or 0
+                if gs <= runwayRouteMaxSpeed then
+                    allow_runway_route = true
+                    start_lat = aircraft.lat
+                    start_lon = aircraft.lon
+                end
+            end
+        end
+
+        if mode == 0 and data and comp._runwayName and comp._runwayName ~= "" and is_valid_latlon(runway_lat, runway_lon) then
+            dep_profile = compute_runway_landing_profile(data, comp._runwayName, runway_lat, runway_lon)
+        end
+
         local ref_lat = nil
         local ref_lon = nil
         if yal.airportdatatable and yal.airportdatatable[icao] then
@@ -3502,6 +3976,18 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
         if mode == 0 and data and data.runway_nodes then
             dep_end_node_id, dep_end_node_dist = nearest_non_runway_node(data, end_lat, end_lon)
         end
+        if mode == 1 and arr_exit_id and start_node_dist and start_node_dist > arrStartNodeMaxMeters
+            and arrival_grace_active(comp, now)
+            and data and data.nodes and data.nodes[arr_exit_id] then
+            local exit_node = data.nodes[arr_exit_id]
+            if exit_node and is_valid_latlon(exit_node.lat, exit_node.lon) then
+                start_lat = exit_node.lat
+                start_lon = exit_node.lon
+                start_node_id = arr_exit_id
+                start_node_dist = 0
+                comp._rerouteOverride = nil
+            end
+        end
         if mode == 0 and comp._selectedDepEntryId and data and data.nodes and data.nodes[comp._selectedDepEntryId] then
             local sel = data.nodes[comp._selectedDepEntryId]
             end_lat = sel.lat
@@ -3536,17 +4022,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
         if comp.yal and comp.yal.aircraftonrwy and is_valid_latlon(runway_lat, runway_lon) then
             if mode == 1 then
                 local offRunway = comp.yal.aircraftonrwy(def.ARRIVAL, 0.0001, 20)
-                if not offRunway then
-                    comp._route = nil
-                    comp._routeErr = "on-runway"
-                    comp._routeExtraSegments = nil
-                    comp._lastStartKey = nil
-                    comp._lastEndKey = nil
-                    return
-                end
-            elseif mode == 0 then
-                local onRunway = comp.yal.aircraftonrwy(def.DEPARTURE, 0.0001, 20)
-                if onRunway then
+                if not offRunway and not allow_runway_route then
                     comp._route = nil
                     comp._routeErr = "on-runway"
                     comp._routeExtraSegments = nil
@@ -3566,11 +4042,22 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
             return
         end
 
-        local start_key = string.format("%.6f|%.6f", start_lat or 0, start_lon or 0)
+        local anchor_lat = start_lat
+        local anchor_lon = start_lon
+        if comp._rerouteOverride and is_valid_latlon(comp._rerouteOverride.lat, comp._rerouteOverride.lon) then
+            anchor_lat = comp._rerouteOverride.lat
+            anchor_lon = comp._rerouteOverride.lon
+        elseif comp._route and comp._routeStartAnchor
+            and is_valid_latlon(comp._routeStartAnchor.lat, comp._routeStartAnchor.lon) then
+            anchor_lat = comp._routeStartAnchor.lat
+            anchor_lon = comp._routeStartAnchor.lon
+        end
+        local start_key = string.format("%.6f|%.6f", anchor_lat or 0, anchor_lon or 0)
         local end_key = string.format("%.6f|%.6f", end_lat or 0, end_lon or 0)
         if comp._lastStartKey ~= start_key or comp._lastEndKey ~= end_key or comp._route == nil then
             comp._lastStartKey = start_key
             comp._lastEndKey = end_key
+            comp._initialGuidanceDone = false
             if canRoute and is_valid_latlon(start_lat, start_lon) and is_valid_latlon(end_lat, end_lon) then
                 local function fmt_latlon(latv, lonv)
                     if not latv or not lonv then
@@ -3841,12 +4328,14 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                     end
                     set_start_ramp_fallback(opts)
                 elseif mode == 1 then
-                    if (not comp._rerouteOverride) and arr_exit_id and data.nodes and data.nodes[arr_exit_id] then
-                        opts.start_node_id = arr_exit_id
-                    elseif not backtrack_required then
-                        opts.avoid_runway_start = true
+                    if not allow_runway_route then
+                        if (not comp._rerouteOverride) and arr_exit_id and data.nodes and data.nodes[arr_exit_id] then
+                            opts.start_node_id = arr_exit_id
+                        elseif not backtrack_required then
+                            opts.avoid_runway_start = true
+                        end
                     end
-                    opts.runway_penalty = 500
+                    opts.runway_penalty = allow_runway_route and 1 or 500
                     set_end_ramp_fallback(opts)
                 end
                 if not opts.start_node_id and start_node_id and data.nodes and data.nodes[start_node_id] then
@@ -3956,6 +4445,63 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                             route = alt_route
                             rerr = nil
                         end
+                    end
+                end
+                if (not route) and rerr == "no-path" and mode == 0 then
+                    opts = {
+                        ignore_oneway = true,
+                        allow_far_ramp = true,
+                        disallow_runway_edges = true,
+                        avoid_runway_nodes = false
+                    }
+                    if comp._selectedDepEntryId and data.nodes and data.nodes[comp._selectedDepEntryId] then
+                        opts.end_node_id = comp._selectedDepEntryId
+                    elseif dep_holdshort_id and data.nodes and data.nodes[dep_holdshort_id] then
+                        opts.end_node_id = dep_holdshort_id
+                    end
+                    set_start_ramp_fallback(opts)
+                    apply_projection(opts)
+                    route, rerr = route_with_waypoints(
+                        icao,
+                        start_lat,
+                        start_lon,
+                        end_lat,
+                        end_lon,
+                        opts,
+                        proj_waypoint_ids,
+                        comp._routeWaypoints
+                    )
+                    if route and helpers and helpers.logInfoTS then
+                        helpers.logInfoTS("Taxi: DEP fallback allow runway nodes")
+                    end
+                end
+                if (not route) and rerr == "no-path" and mode == 0 then
+                    opts = {
+                        ignore_oneway = true,
+                        allow_far_ramp = true,
+                        disallow_runway_edges = false,
+                        avoid_runway_nodes = false,
+                        runway_penalty = 50
+                    }
+                    if comp._selectedDepEntryId and data.nodes and data.nodes[comp._selectedDepEntryId] then
+                        opts.end_node_id = comp._selectedDepEntryId
+                    elseif dep_holdshort_id and data.nodes and data.nodes[dep_holdshort_id] then
+                        opts.end_node_id = dep_holdshort_id
+                    end
+                    set_start_ramp_fallback(opts)
+                    apply_projection(opts)
+                    route, rerr = route_with_waypoints(
+                        icao,
+                        start_lat,
+                        start_lon,
+                        end_lat,
+                        end_lon,
+                        opts,
+                        proj_waypoint_ids,
+                        comp._routeWaypoints
+                    )
+                    if route and helpers and helpers.logInfoTS then
+                        helpers.logInfoTS("Taxi: DEP fallback allow runway crossing")
                     end
                 end
                 if (not route) and rerr == "no-path" and mode == 1 then
@@ -4149,6 +4695,13 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                 comp._route = route
                 comp._routeErr = rerr
                 comp._routeLabels = route and build_route_labels(route.data, route.path) or nil
+                comp._routeLabelStats = route and compute_route_label_stats(route.data, route.path) or nil
+                if route and is_valid_latlon(start_lat, start_lon) then
+                    comp._routeStartAnchor = { lat = start_lat, lon = start_lon }
+                    if comp._rerouteOverride then
+                        comp._rerouteOverride = nil
+                    end
+                end
                 if route and route.path then
                     local rlen = #route.path
                     local src = (route.data and route.data.route_source) or "?"
@@ -4174,9 +4727,14 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                 if route and route.path and data and comp._runwayName and comp._runwayName ~= "" then
                     local profile = compute_runway_landing_profile(data, comp._runwayName, runway_lat, runway_lon)
                     if profile then
-                        local end_node = route.path[#route.path]
-                        if end_node then
-                            comp._routeExtraSegments = build_runway_backtrack_segments(data, profile, end_node)
+                        local backtrack_node = nil
+                        local backtrack_target = nil
+                        if mode == 1 and backtrack_required then
+                            backtrack_node = arr_exit_id or route.path[1]
+                            backtrack_target = profile.touchdown or profile.threshold
+                        end
+                        if backtrack_node then
+                            comp._routeExtraSegments = build_runway_backtrack_segments(data, profile, backtrack_node, backtrack_target)
                         end
                     end
                 end
@@ -4197,20 +4755,67 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
             end
         end
 
+        comp._depThresholdState = nil
+        comp._depThresholdReached = false
+        if mode == 0 and dep_profile and aircraft and aircraft.east ~= nil and aircraft.north ~= nil then
+            local state = compute_dep_threshold_state(comp, dep_profile, runway_lat, runway_lon, aircraft)
+            comp._depThresholdState = state
+            comp._depThresholdReached = state and state.reached or false
+            if comp._depThresholdReached then
+                comp._depThresholdLatched = true
+            end
+            if comp._lastDepThresholdReached ~= comp._depThresholdReached then
+                comp._lastDepThresholdReached = comp._depThresholdReached
+                helpers.logInfoTS(
+                    string.format(
+                        "TaxiDepThreshold: reached=%s dist=%.1f perp=%.1f hdgDiff=%s corridor=%.1f",
+                        tostring(comp._depThresholdReached),
+                        state and state.dist or -1,
+                        state and state.perp or -1,
+                        state and state.heading_diff and string.format("%.1f", state.heading_diff) or "nil",
+                        state and state.corridor or -1
+                    )
+                )
+            end
+        else
+            comp._lastDepThresholdReached = nil
+            comp._depThresholdLatched = false
+        end
+
+        if mode ~= 0 then
+            comp._depThresholdLatched = false
+        elseif comp._depThresholdLatched then
+            local yal = comp.yal or _G.yal
+            local onGround = yal and yal.airgroundsensor and (get(yal.airgroundsensor) == def.ON)
+            if not onGround then
+                comp._depThresholdLatched = false
+            elseif comp.yal and comp.yal.aircraftonrwy and is_valid_latlon(runway_lat, runway_lon) then
+                local onRunway = comp.yal.aircraftonrwy(def.DEPARTURE, 0.0003, 20)
+                local gs = yal and yal.groundspeed and (get(yal.groundspeed) or 0) or 0
+                if (not onRunway) and gs < 5 then
+                    comp._depThresholdLatched = false
+                end
+            end
+        end
+
         if comp._route and aircraft and aircraft.east and aircraft.north then
             local yal = comp.yal or _G.yal
             local onGround = yal and yal.airgroundsensor and (get(yal.airgroundsensor) == def.ON)
             local tirespeed = yal and yal.tirespeed and (get(yal.tirespeed) or 0) or 0
-            if onGround and tirespeed > 1 then
+            if onGround and tirespeed > 1 and not (mode == 0 and comp._depThresholdLatched) then
                 if mode == 1 and comp.yal and comp.yal.aircraftonrwy and is_valid_latlon(runway_lat, runway_lon) then
                     local offRunway = comp.yal.aircraftonrwy(def.ARRIVAL, 0.0001, 20)
                     if offRunway and not comp._rerouteOverride then
                         comp._rerouteOverride = { lat = aircraft.lat, lon = aircraft.lon }
+                        if not arrival_grace_active(comp, now) then
+                            record_reroute_event(comp, now)
+                        end
                         comp._lastRerouteTime = now
                         comp._lastStartKey = nil
                         comp._route = nil
                         comp._routeErr = nil
                         comp._routeLabels = nil
+                        comp._routeLabelStats = nil
                         return
                     end
                 end
@@ -4222,19 +4827,27 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                         dist = extra
                     end
                 end
+                comp._lastRouteDist = dist
                 local lastReroute = comp._lastRerouteTime or 0
                 if dist and dist > rerouteDriftMeters and (now - lastReroute) > rerouteCooldown then
                     comp._rerouteOverride = { lat = aircraft.lat, lon = aircraft.lon }
+                    if not arrival_grace_active(comp, now) then
+                        record_reroute_event(comp, now)
+                    end
                     comp._lastRerouteTime = now
                     comp._lastStartKey = nil
                     comp._route = nil
                     comp._routeErr = nil
                     comp._routeLabels = nil
+                    comp._routeLabelStats = nil
                 end
             end
         end
 
         if comp._route then
+            if maybe_force_global_for_quality(comp, now, icao, mode, data, helpers) then
+                return
+            end
             maybe_speak_guidance(comp, now, aircraft)
         end
 
@@ -4315,11 +4928,12 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
             heading = heading + 360
         end
         heading = helpers.roundnumber(heading, 0)
+        local compass = heading_to_compass(heading)
         local label = normalize_taxiway_label(get_edge_label(data, path[1], path[2]))
         if label and label ~= "" then
-            return "nose toward Taxiway " .. taxiway_label_voice(label) .. " heading " .. tostring(heading)
+            return "nose toward Taxiway " .. taxiway_label_voice(label) .. " heading " .. tostring(compass)
         end
-        return "nose toward heading " .. tostring(heading)
+        return "nose toward heading " .. tostring(compass)
     end
 
     function comp:tick()
