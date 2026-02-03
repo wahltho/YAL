@@ -1512,20 +1512,10 @@ local function draw_route_L(project, n1, n2, shadowColor, mainColor)
     if not (n1 and n2 and n1.east and n1.north and n2.east and n2.north) then
         return
     end
-    local mid1 = { east = n1.east, north = n2.north }
-    local mid2 = { east = n2.east, north = n1.north }
-    local d1 = (mid1.east - n1.east) * (mid1.east - n1.east) + (mid1.north - n1.north) * (mid1.north - n1.north)
-             + (n2.east - mid1.east) * (n2.east - mid1.east) + (n2.north - mid1.north) * (n2.north - mid1.north)
-    local d2 = (mid2.east - n1.east) * (mid2.east - n1.east) + (mid2.north - n1.north) * (mid2.north - n1.north)
-             + (n2.east - mid2.east) * (n2.east - mid2.east) + (n2.north - mid2.north) * (n2.north - mid2.north)
-    local mid = (d1 <= d2) and mid1 or mid2
     local x1, y1 = project(n1.east, n1.north)
-    local xm, ym = project(mid.east, mid.north)
     local x2, y2 = project(n2.east, n2.north)
-    sasl.gl.drawLine(x1, y1, xm, ym, shadowColor)
-    sasl.gl.drawLine(x1 + 1, y1 + 1, xm + 1, ym + 1, mainColor)
-    sasl.gl.drawLine(xm, ym, x2, y2, shadowColor)
-    sasl.gl.drawLine(xm + 1, ym + 1, x2 + 1, y2 + 1, mainColor)
+    sasl.gl.drawLine(x1, y1, x2, y2, shadowColor)
+    sasl.gl.drawLine(x1 + 1, y1 + 1, x2 + 1, y2 + 1, mainColor)
 end
 
 local function drawLineThick(x1, y1, x2, y2, color, width)
