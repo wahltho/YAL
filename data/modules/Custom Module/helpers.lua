@@ -6087,8 +6087,12 @@ local function parse_taxi_data(entry)
 
         local EDGE_PROJ_REUSE_M = 8
         local EDGE_PROJ_ENDPOINT_SNAP_M = 3
+        local HEADING_RADIUS_M = 150
+        local HEADING_ANGLE_DEG = 60
         local reuse_d2 = EDGE_PROJ_REUSE_M * EDGE_PROJ_REUSE_M
         local endpoint_d2 = EDGE_PROJ_ENDPOINT_SNAP_M * EDGE_PROJ_ENDPOINT_SNAP_M
+        local heading_radius2 = HEADING_RADIUS_M * HEADING_RADIUS_M
+        local heading_cos = math.cos(math.rad(HEADING_ANGLE_DEG))
 
         local edge_projections = {}
 
@@ -6114,6 +6118,15 @@ local function parse_taxi_data(entry)
             end
             local best = nil
             local best_any = nil
+            local best_heading = nil
+            local heading = tonumber(ramp.heading)
+            local dir_e = nil
+            local dir_n = nil
+            if heading then
+                local rad = math.rad(heading % 360)
+                dir_e = math.sin(rad)
+                dir_n = math.cos(rad)
+            end
             for idx, edge in ipairs(edges_tbl) do
                 local n1 = nodes_tbl[edge.from]
                 local n2 = nodes_tbl[edge.to]
@@ -6138,10 +6151,26 @@ local function parse_taxi_data(entry)
                         if not best or d2 < best.d2 then
                             best = entry
                         end
+                        if dir_e and d2 <= heading_radius2 then
+                            local vx = px - ramp.east
+                            local vy = py - ramp.north
+                            local v2 = vx * vx + vy * vy
+                            local ok = false
+                            if v2 <= 1e-6 then
+                                ok = true
+                            else
+                                local inv_len = 1 / math.sqrt(v2)
+                                local dot = math.abs((vx * dir_e + vy * dir_n) * inv_len)
+                                ok = (dot >= heading_cos)
+                            end
+                            if ok and (not best_heading or d2 < best_heading.d2) then
+                                best_heading = entry
+                            end
+                        end
                     end
                 end
             end
-            return best or best_any
+            return best_heading or best or best_any
         end
 
         local function get_or_create_proj_node(best_edge)

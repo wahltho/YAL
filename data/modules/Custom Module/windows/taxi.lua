@@ -541,6 +541,60 @@ local function find_nearest_edge_projection(data, east, north, opts)
     return best
 end
 
+local function find_heading_edge_projection(data, east, north, heading_deg, opts)
+    if not data or not data.edges or not data.nodes then
+        return nil
+    end
+    local heading = tonumber(heading_deg)
+    if not heading then
+        return nil
+    end
+    local disallow_runway = opts and opts.disallow_runway_edges
+    local radius = (opts and opts.radius_m) or 150
+    local angle_deg = (opts and opts.angle_deg) or 60
+    local radius2 = radius * radius
+    local cos_tol = math.cos(math.rad(angle_deg))
+    local rad = math.rad(heading % 360)
+    local dir_e = math.sin(rad)
+    local dir_n = math.cos(rad)
+    local best = nil
+    for _, edge in ipairs(data.edges) do
+        local n1 = data.nodes[edge.from]
+        local n2 = data.nodes[edge.to]
+        if n1 and n2 then
+            if disallow_runway and edge.label and string.sub(edge.label, 1, 3) == "RWY" then
+                goto continue
+            end
+            local px, py, t = project_point_to_segment(east, north, n1.east, n1.north, n2.east, n2.north)
+            local d2 = distance_sq(east, north, px, py)
+            if d2 <= radius2 then
+                local vx = px - east
+                local vy = py - north
+                local v2 = vx * vx + vy * vy
+                local ok = false
+                if v2 <= 1e-6 then
+                    ok = true
+                else
+                    local inv_len = 1 / math.sqrt(v2)
+                    local dot = math.abs((vx * dir_e + vy * dir_n) * inv_len)
+                    ok = (dot >= cos_tol)
+                end
+                if ok and (not best or d2 < best.d2) then
+                    best = {
+                        edge = edge,
+                        proj_east = px,
+                        proj_north = py,
+                        t = t,
+                        d2 = d2
+                    }
+                end
+            end
+        end
+        ::continue::
+    end
+    return best
+end
+
 local function find_preferred_edge_projection(data, east, north, opts)
     if not data or not data.edges or not data.nodes then
         return nil
@@ -2162,6 +2216,7 @@ local U = {
     adjacency_has_edge = adjacency_has_edge,
     add_adj_edge = add_adj_edge,
     find_nearest_edge_projection = find_nearest_edge_projection,
+    find_heading_edge_projection = find_heading_edge_projection,
     find_preferred_edge_projection = find_preferred_edge_projection,
     build_projected_data = build_projected_data,
     distance_to_route = distance_to_route,
@@ -2254,6 +2309,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
     local adjacency_has_edge = U.adjacency_has_edge
     local add_adj_edge = U.add_adj_edge
     local find_nearest_edge_projection = U.find_nearest_edge_projection
+    local find_heading_edge_projection = U.find_heading_edge_projection
     local find_preferred_edge_projection = U.find_preferred_edge_projection
     local build_projected_data = U.build_projected_data
     local distance_to_route = U.distance_to_route
@@ -2853,12 +2909,24 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                 local rtype = string.lower(ramp.ramp_type or "")
                 if rtype == "gate" and ramp.east and ramp.north then
                     if ramp._draw_link_east == nil then
-                        local proj = find_nearest_edge_projection(
-                            comp._data,
-                            ramp.east,
-                            ramp.north,
-                            { disallow_runway_edges = true }
-                        )
+                        local proj = nil
+                        if ramp.heading ~= nil then
+                            proj = find_heading_edge_projection(
+                                comp._data,
+                                ramp.east,
+                                ramp.north,
+                                ramp.heading,
+                                { disallow_runway_edges = true, radius_m = 150, angle_deg = 60 }
+                            )
+                        end
+                        if not proj then
+                            proj = find_nearest_edge_projection(
+                                comp._data,
+                                ramp.east,
+                                ramp.north,
+                                { disallow_runway_edges = true }
+                            )
+                        end
                         if proj and proj.edge then
                             ramp._draw_link_east = proj.proj_east
                             ramp._draw_link_north = proj.proj_north
@@ -4204,7 +4272,23 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                         local sx, sy = latlon_to_local(start_lat, start_lon)
                         if sx and sy then
                             if start_ramp and start_ramp.east and start_ramp.north then
-                                start_proj = find_preferred_edge_projection(data, start_ramp.east, start_ramp.north, { disallow_runway_edges = opts.disallow_runway_edges })
+                                if start_ramp.heading ~= nil then
+                                    start_proj = find_heading_edge_projection(
+                                        data,
+                                        start_ramp.east,
+                                        start_ramp.north,
+                                        start_ramp.heading,
+                                        { disallow_runway_edges = opts.disallow_runway_edges, radius_m = 150, angle_deg = 60 }
+                                    )
+                                end
+                                if not start_proj then
+                                    start_proj = find_preferred_edge_projection(
+                                        data,
+                                        start_ramp.east,
+                                        start_ramp.north,
+                                        { disallow_runway_edges = opts.disallow_runway_edges }
+                                    )
+                                end
                             end
                             if not start_proj then
                                 start_proj = find_nearest_edge_projection(data, sx, sy, { disallow_runway_edges = opts.disallow_runway_edges })
@@ -4215,7 +4299,23 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                         local ex, ey = latlon_to_local(end_lat, end_lon)
                         if ex and ey then
                             if end_ramp and end_ramp.east and end_ramp.north then
-                                end_proj = find_preferred_edge_projection(data, end_ramp.east, end_ramp.north, { disallow_runway_edges = opts.disallow_runway_edges })
+                                if end_ramp.heading ~= nil then
+                                    end_proj = find_heading_edge_projection(
+                                        data,
+                                        end_ramp.east,
+                                        end_ramp.north,
+                                        end_ramp.heading,
+                                        { disallow_runway_edges = opts.disallow_runway_edges, radius_m = 150, angle_deg = 60 }
+                                    )
+                                end
+                                if not end_proj then
+                                    end_proj = find_preferred_edge_projection(
+                                        data,
+                                        end_ramp.east,
+                                        end_ramp.north,
+                                        { disallow_runway_edges = opts.disallow_runway_edges }
+                                    )
+                                end
                             end
                             if not end_proj then
                                 end_proj = find_nearest_edge_projection(data, ex, ey, { disallow_runway_edges = opts.disallow_runway_edges })
