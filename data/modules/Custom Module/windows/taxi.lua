@@ -4788,6 +4788,40 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                             tostring(src)
                         )
                     )
+                    local path = route.path
+                    local path_parts = {}
+                    for i = 1, #path do
+                        path_parts[#path_parts + 1] = tostring(path[i])
+                    end
+                    local path_key = table.concat(path_parts, ",")
+                    if comp._lastRoutePathKey ~= path_key then
+                        comp._lastRoutePathKey = path_key
+                        local max_chunk = 30
+                        local idx = 1
+                        while idx <= #path_parts do
+                            local last = math.min(idx + max_chunk - 1, #path_parts)
+                            local chunk = table.concat(path_parts, ",", idx, last)
+                            helpers.logInfoTS(
+                                string.format(
+                                    "TaxiPath: %s %s %d/%d %s",
+                                    tostring(icao),
+                                    tostring(comp._runwayName or ""),
+                                    idx,
+                                    #path_parts,
+                                    chunk
+                                )
+                            )
+                            idx = last + 1
+                        end
+                        local labels = comp._routeLabels or build_route_labels(route.data, route.path)
+                        if labels and #labels > 0 then
+                            helpers.logInfoTS(
+                                "TaxiLabels: " .. tostring(icao) .. " " .. tostring(comp._runwayName or "") .. " " .. table.concat(labels, " ")
+                            )
+                        else
+                            helpers.logInfoTS("TaxiLabels: " .. tostring(icao) .. " " .. tostring(comp._runwayName or "") .. " <none>")
+                        end
+                    end
                 elseif rerr then
                     helpers.logInfoTS("Taxi: route error " .. tostring(icao) .. " mode=" .. tostring(mode) .. " err=" .. tostring(rerr))
                 end
