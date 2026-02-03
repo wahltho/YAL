@@ -2,59 +2,6 @@ local def = require("definitions")
 local helpers = require("helpers")
 local P = yal
 
--- Build 5-digit LSB->MSB table for MMR standby arrays
-local function mmrBuildDigits(value)
-    local val = tonumber(value) or 0
-    val = math.floor(math.abs(val))
-    local digits = {}
-    for i = 1, 5 do
-        digits[i] = val % 10
-        val = math.floor(val / 10)
-    end
-    return digits
-end
-
--- Copy active MMR mode/value into the corresponding standby buffers
-local function mmrCopyActToStby(side)
-    if get(P.mmrinstalled) ~= def.ON then return end
-    local actMode, actValue, stbyModeRef
-    local stbyArrILS, stbyArrILS2, stbyArrGLS, stbyArrVOR, stbyArrVOR2, stbyArrGeneric
-    if side == def.MMRCAPTAIN then
-        actMode = get(P.mmrcptactmode)
-        actValue = get(P.mmrcptactvalue)
-        stbyModeRef = P.mmrcptstdbymode
-        stbyArrILS = P.mmrcptilsstbyvalue
-        stbyArrILS2 = P.mmrcptilsstbyvalue2
-        stbyArrGLS = P.mmrcptglsstbyvalue
-        stbyArrVOR = P.mmrcptvorstbyvalue
-        stbyArrVOR2 = P.mmrcptvorstbyvalue2
-        stbyArrGeneric = P.mmrcptstbyvalue
-    else
-        actMode = get(P.mmrfoactmode)
-        actValue = get(P.mmrfoactvalue)
-        stbyModeRef = P.mmrfostdbymode
-        stbyArrILS = P.mmrfoilsstbyvalue
-        stbyArrILS2 = P.mmrfoilsstbyvalue2
-        stbyArrGLS = P.mmrfoglsstbyvalue
-        stbyArrVOR = P.mmrfovorstbyvalue
-        stbyArrVOR2 = P.mmrfovorstbyvalue2
-        stbyArrGeneric = P.mmrfostbyvalue
-    end
-    if not actMode or not stbyModeRef then return end
-    set(stbyModeRef, actMode)
-    local digits = mmrBuildDigits(actValue)
-    if stbyArrGeneric then set(stbyArrGeneric, digits) end
-    if actMode == def.MMRILS then
-        if stbyArrILS then set(stbyArrILS, digits) end
-        if stbyArrILS2 then set(stbyArrILS2, digits) end
-    elseif actMode == def.MMRGLS or actMode == def.MMRLPV then
-        if stbyArrGLS then set(stbyArrGLS, digits) end
-    else
-        if stbyArrVOR then set(stbyArrVOR, digits) end
-        if stbyArrVOR2 then set(stbyArrVOR2, digits) end
-    end
-end
-
 local function cleanLegToken(token)
     if type(token) ~= "string" then
         return ""
@@ -5325,7 +5272,7 @@ function M.fillProcedureTable()
                         local freqValue = getFmcApproachRefFrequency(navType) or navdata[def.DESTFREQ]
                         if isLocalizerNavType(navType) then
                             if (get(P.mmrinstalled) == def.ON) then
-                                mmrCopyActToStby(def.MMRCAPTAIN)
+                                helpers.mmrCopyActToStby(def.MMRCAPTAIN)
                                 set(P.mmrcptactmode, def.MMRILS)
                                 set(P.mmrcptactvalue, freqValue)
                                 set(P.nav1stdbyfreq, get(P.nav1freq))
@@ -5335,7 +5282,7 @@ function M.fillProcedureTable()
                                 set(P.nav1freq, freqValue)
                             end
                         elseif (navType == def.NAVTYPEGLS or navType == def.NAVTYPELPV) and (get(P.mmrinstalled) == def.ON) then
-                            mmrCopyActToStby(def.MMRCAPTAIN)
+                            helpers.mmrCopyActToStby(def.MMRCAPTAIN)
                             if navType == def.NAVTYPEGLS then
                                 set(P.mmrcptactmode, def.MMRGLS)
                             else
@@ -5453,7 +5400,7 @@ function M.fillProcedureTable()
                             if navdata[def.DESTNAVDME] then
                                 local freqValue = getFmcApproachRefFrequency(navdata[def.DESTNAVTYPE]) or navdata[def.DESTFREQ]
                                 if (get(P.mmrinstalled) == def.ON) then
-                                    mmrCopyActToStby(def.MMRFO)
+                                    helpers.mmrCopyActToStby(def.MMRFO)
                                     set(P.mmrfoactmode, def.MMRILS)
                                     set(P.mmrfoactvalue, freqValue)
                                     set(P.nav2stdbyfreq, get(P.nav2freq))
@@ -5480,7 +5427,7 @@ function M.fillProcedureTable()
                                 set(P.nav2freq, freqValue)
                             end
                         elseif (navdata[def.DESTNAVTYPE] == def.NAVTYPEGLS) and (get(P.mmrinstalled) == def.ON) then
-                            mmrCopyActToStby(def.MMRFO)
+                            helpers.mmrCopyActToStby(def.MMRFO)
                             set(P.mmrfoactmode, def.MMRGLS)
                             local freqValue = getFmcApproachRefFrequency(navdata[def.DESTNAVTYPE]) or navdata[def.DESTFREQ]
                             set(P.mmrfoactvalue, freqValue)

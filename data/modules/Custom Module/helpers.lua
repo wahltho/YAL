@@ -3,6 +3,62 @@ helpers = P -- package name
 
 local def = require("definitions")
 
+function P.mmrBuildDigits(value)
+    local val = tonumber(value) or 0
+    val = math.floor(math.abs(val))
+    local digits = {}
+    for i = 1, 5 do
+        digits[i] = val % 10
+        val = math.floor(val / 10)
+    end
+    return digits
+end
+
+function P.mmrCopyActToStby(side)
+    local yal = _G.yal
+    if not yal or not yal.mmrinstalled or get(yal.mmrinstalled) ~= def.ON then
+        return
+    end
+    local actMode, actValue, stbyModeRef
+    local stbyArrILS, stbyArrILS2, stbyArrGLS, stbyArrVOR, stbyArrVOR2, stbyArrGeneric
+    if side == def.MMRCAPTAIN then
+        actMode = get(yal.mmrcptactmode)
+        actValue = get(yal.mmrcptactvalue)
+        stbyModeRef = yal.mmrcptstdbymode
+        stbyArrILS = yal.mmrcptilsstbyvalue
+        stbyArrILS2 = yal.mmrcptilsstbyvalue2
+        stbyArrGLS = yal.mmrcptglsstbyvalue
+        stbyArrVOR = yal.mmrcptvorstbyvalue
+        stbyArrVOR2 = yal.mmrcptvorstbyvalue2
+        stbyArrGeneric = yal.mmrcptstbyvalue
+    else
+        actMode = get(yal.mmrfoactmode)
+        actValue = get(yal.mmrfoactvalue)
+        stbyModeRef = yal.mmrfostdbymode
+        stbyArrILS = yal.mmrfoilsstbyvalue
+        stbyArrILS2 = yal.mmrfoilsstbyvalue2
+        stbyArrGLS = yal.mmrfoglsstbyvalue
+        stbyArrVOR = yal.mmrfovorstbyvalue
+        stbyArrVOR2 = yal.mmrfovorstbyvalue2
+        stbyArrGeneric = yal.mmrfostbyvalue
+    end
+    if not actMode or not stbyModeRef then
+        return
+    end
+    set(stbyModeRef, actMode)
+    local digits = P.mmrBuildDigits(actValue)
+    if stbyArrGeneric then set(stbyArrGeneric, digits) end
+    if actMode == def.MMRILS or actMode == def.MMRLOC then
+        if stbyArrILS then set(stbyArrILS, digits) end
+        if stbyArrILS2 then set(stbyArrILS2, digits) end
+    elseif actMode == def.MMRGLS or actMode == def.MMRLPV then
+        if stbyArrGLS then set(stbyArrGLS, digits) end
+    else
+        if stbyArrVOR then set(stbyArrVOR, digits) end
+        if stbyArrVOR2 then set(stbyArrVOR2, digits) end
+    end
+end
+
 local function parse_version_string(str)
     str = tostring(str or "")
     str = str:match("^%s*(.-)%s*$") or ""

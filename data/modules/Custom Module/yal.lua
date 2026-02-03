@@ -3274,74 +3274,6 @@ function P.flapsdownhandling()
 end
 
 --------------------------------------------------------------------------------------------------------------
-function P.setmmrils(mmr, freq)
-
-    local ilsfreq = tostring(freq)
-
-    if (get(P.mmrinstalled) == def.OFF) then
-        return false
-    end
-
-    helpers.logInfoTS("SETMMRILS: " .. mmr .. freq)
-
-    P.setmmrmode(mmr, def.MMRILS)
-
-    if ((mmr == def.MMRBOTH) or (mmr == def.MMRCAPTAIN)) then
-        P.commandtableentry(def.COMMAND, "laminar/B738/push_button/mmr1_" .. string.sub(ilsfreq, 1, 1))
-        P.commandtableentry(def.COMMAND, "laminar/B738/push_button/mmr1_" .. string.sub(ilsfreq, 2, 2))
-        P.commandtableentry(def.COMMAND, "laminar/B738/push_button/mmr1_" .. string.sub(ilsfreq, 3, 3))
-        P.commandtableentry(def.COMMAND, "laminar/B738/push_button/mmr1_" .. string.sub(ilsfreq, 4, 4))
-        P.commandtableentry(def.COMMAND, "laminar/B738/push_button/mmr1_" .. string.sub(ilsfreq, 5, 5))
-        P.commandtableentry(def.COMMAND, "laminar/B738/push_button/mmr1_act_stby")
-    end
-
-    if ((mmr == def.MMRBOTH) or (mmr == def.MMRFO)) then
-        P.commandtableentry(def.COMMAND, "laminar/B738/push_button/mmr2_" .. string.sub(ilsfreq, 1, 1))
-        P.commandtableentry(def.COMMAND, "laminar/B738/push_button/mmr2_" .. string.sub(ilsfreq, 2, 2))
-        P.commandtableentry(def.COMMAND, "laminar/B738/push_button/mmr2_" .. string.sub(ilsfreq, 3, 3))
-        P.commandtableentry(def.COMMAND, "laminar/B738/push_button/mmr2_" .. string.sub(ilsfreq, 4, 4))
-        P.commandtableentry(def.COMMAND, "laminar/B738/push_button/mmr2_" .. string.sub(ilsfreq, 5, 5))
-        P.commandtableentry(def.COMMAND, "laminar/B738/push_button/mmr2_act_stby")
-    end
-
-    return true
-
-end
-
---------------------------------------------------------------------------------------------------------------
-function P.setmmrgls(mmr, freq)
-
-    local glsfreq = tostring(freq)
-
-    if (get(P.mmrinstalled) == def.OFF) then
-        return false
-    end
-
-    P.setmmrmode(mmr, def.MMRGLS)
-
-    if ((mmr == def.MMRBOTH) or (mmr == def.MMRCAPTAIN)) then
-        P.commandtableentry(def.COMMAND, "laminar/B738/push_button/mmr1_" .. string.sub(glsfreq, 1, 1))
-        P.commandtableentry(def.COMMAND, "laminar/B738/push_button/mmr1_" .. string.sub(glsfreq, 2, 2))
-        P.commandtableentry(def.COMMAND, "laminar/B738/push_button/mmr1_" .. string.sub(glsfreq, 3, 3))
-        P.commandtableentry(def.COMMAND, "laminar/B738/push_button/mmr1_" .. string.sub(glsfreq, 4, 4))
-        P.commandtableentry(def.COMMAND, "laminar/B738/push_button/mmr1_" .. string.sub(glsfreq, 5, 5))
-        P.commandtableentry(def.COMMAND, "laminar/B738/push_button/mmr1_act_stby")
-    end
-
-    if ((mmr == def.MMRBOTH) or (mmr == def.MMRFO)) then
-        P.commandtableentry(def.COMMAND, "laminar/B738/push_button/mmr2_" .. string.sub(glsfreq, 1, 1))
-        P.commandtableentry(def.COMMAND, "laminar/B738/push_button/mmr2_" .. string.sub(glsfreq, 2, 2))
-        P.commandtableentry(def.COMMAND, "laminar/B738/push_button/mmr2_" .. string.sub(glsfreq, 3, 3))
-        P.commandtableentry(def.COMMAND, "laminar/B738/push_button/mmr2_" .. string.sub(glsfreq, 4, 4))
-        P.commandtableentry(def.COMMAND, "laminar/B738/push_button/mmr2_" .. string.sub(glsfreq, 5, 5))
-        P.commandtableentry(def.COMMAND, "laminar/B738/push_button/mmr2_act_stby")
-    end
-
-    return true
-
-end
-
---------------------------------------------------------------------------------------------------------------
 function P.copynav()
 
     local setnav = false
@@ -3356,20 +3288,28 @@ function P.copynav()
             set(P.nav2freq, get(P.nav1freq))
             setnav = true
         end
-    elseif (get(P.mmrcptactvalue) ~= get(P.mmrfoactvalue)) then
-        if (get(P.mmrcptactmode) ~= get(P.mmrfostdbymode)) then
-            P.setmmrmode(def.MMRFO, get(P.mmrcptactmode))
+    elseif (get(P.mmrinstalled) == def.ON) then
+        local cptMode = get(P.mmrcptactmode)
+        local cptValue = get(P.mmrcptactvalue)
+        local foMode = get(P.mmrfoactmode)
+        local foValue = get(P.mmrfoactvalue)
+        local mmrChanged = (cptMode ~= foMode) or (cptValue ~= foValue)
+        local navChanged = false
+        if cptMode == def.MMRILS or cptMode == def.MMRLOC then
+            navChanged = (get(P.nav2freq) ~= get(P.nav1freq))
         end
-
-        local mmrvalue = tostring(get(P.mmrcptactvalue))
-        P.commandtableentry(def.COMMAND, "laminar/B738/push_button/mmr2_" .. string.sub(mmrvalue, 1, 1))
-        P.commandtableentry(def.COMMAND, "laminar/B738/push_button/mmr2_" .. string.sub(mmrvalue, 2, 2))
-        P.commandtableentry(def.COMMAND, "laminar/B738/push_button/mmr2_" .. string.sub(mmrvalue, 3, 3))
-        P.commandtableentry(def.COMMAND, "laminar/B738/push_button/mmr2_" .. string.sub(mmrvalue, 4, 4))
-        P.commandtableentry(def.COMMAND, "laminar/B738/push_button/mmr2_" .. string.sub(mmrvalue, 5, 5))
-        P.commandtableentry(def.COMMAND, "laminar/B738/push_button/mmr2_act_stby")
-
-        setnav = true
+        if mmrChanged or navChanged then
+            if helpers and helpers.mmrCopyActToStby then
+                helpers.mmrCopyActToStby(def.MMRFO)
+            end
+            set(P.mmrfoactmode, cptMode)
+            set(P.mmrfoactvalue, cptValue)
+            if cptMode == def.MMRILS or cptMode == def.MMRLOC then
+                set(P.nav2stdbyfreq, get(P.nav2freq))
+                set(P.nav2freq, get(P.nav1freq))
+            end
+            setnav = true
+        end
     end
 
     if setnav then
@@ -3654,65 +3594,6 @@ function P.setstarter(starter, state)
                     helpers.command_once("laminar/B738/knob/eng2_start_left")
                     starter2posdiff = starter2posdiff - 1
                 end
-            end
-        end
-    end
-
-    return true
-end
-
---------------------------------------------------------------------------------------------------------------
-
-function P.setmmrmode(mmr, state)
-
-    if ((mmr == nil) or (state == nil)) then
-        return false
-    end
-
-    if ((get(P.mmrinstalled) == def.OFF) or ((get(P.lpvinstalled) == def.OFF) and ((state == def.MMRLPV) or (state == def.MMRGLS)))) then
-        return false
-    end
-
-    if ((mmr == def.MMRCAPTAIN) or (mmr == def.MMRBOTH)) then
-        local mmrcptstdbymodediff = math.abs(get(P.mmrcptstdbymode) - state)
-
-        if ((state == def.MMRLPV) or (get(P.mmrcptstdbymode) == def.MMRLPV)) then
-            mmrcptstdbymodediff = mmrcptstdbymodediff - 1
-        end
-
-        if (state >= get(P.mmrcptstdbymode)) then
-            while (mmrcptstdbymodediff > 0) do
-                sasl.logDebug("while loop mmr1 up")
-                helpers.command_once("laminar/B738/push_button/mmr1_mode_up")
-                mmrcptstdbymodediff = mmrcptstdbymodediff - 1
-            end
-        elseif (state < get(P.mmrcptstdbymode)) then
-            while (mmrcptstdbymodediff > 0) do
-                sasl.logDebug("while loop mmr1 dn")
-                helpers.command_once("laminar/B738/push_button/mmr1_mode_dn")
-                mmrcptstdbymodediff = mmrcptstdbymodediff - 1
-            end
-        end
-    end
-
-    if ((mmr == def.MMRFO) or (mmr == def.MMRBOTH)) then
-        local mmrfostdbymodediff = math.abs(get(P.mmrfostdbymode) - state)
-
-        if ((state == def.MMRLPV) or (get(P.mmrfostdbymode) == def.MMRLPV)) then
-            mmrfostdbymodediff = mmrfostdbymodediff - 1
-        end
-
-        if (state >= get(P.mmrfostdbymode)) then
-            while (mmrfostdbymodediff > 0) do
-                sasl.logDebug("while loop mmr2 up")
-                helpers.command_once("laminar/B738/push_button/mmr2_mode_up")
-                mmrfostdbymodediff = mmrfostdbymodediff - 1
-            end
-        elseif (state < get(P.mmrfostdbymode)) then
-            while (mmrfostdbymodediff > 0) do
-                sasl.logDebug("while loop mmr2 dn")
-                helpers.command_once("laminar/B738/push_button/mmr2_mode_dn")
-                mmrfostdbymodediff = mmrfostdbymodediff - 1
             end
         end
     end
