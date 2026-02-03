@@ -9,18 +9,20 @@ local updateInterval = 1.0
 local guidanceCooldown = 8
 local rerouteCooldown = 6
 local rerouteDriftMeters = 40
-local guidanceMinSpeed = 2
+local guidanceMinSpeed = 1
 local initialGuidanceMinSpeed = 0.2
 local guidanceTurnDistance = 80
 local guidanceTurnAngle = 30
 local guidanceLeadTimeSec = 12
 local guidanceMaxDistance = 180
-local guidanceStraightAngle = 15
+local guidanceStraightAngle = 10
 local startRampMaxMeters = 80
 local projectionShiftThreshold = 500
 local runwayRouteMaxSpeed = 45
 local depThresholdGateMeters = 60
 local depThresholdHeadingLimit = 25
+local depTakeoffLatchSpeed = 25
+local depTakeoffLatchHoldSec = 2.0
 local depRunwayCorridorMin = 25
 local depRunwayCorridorMax = 80
 local depRunwayCorridorBuffer = 10
@@ -2357,6 +2359,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
     comp._lastRerouteTime = nil
     comp._rerouteOverride = nil
     comp._depThresholdLatched = false
+    comp._takeoffLatchSince = nil
     comp._aircraftPoint = nil
     comp._editRoute = false
     comp._drawRoute = false
@@ -3540,6 +3543,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
             comp._routeWaypoints = {}
             comp._rerouteOverride = nil
             comp._depThresholdLatched = false
+            comp._takeoffLatchSince = nil
             if icao_changed or mode_changed then
                 comp._autoEndRampKey = nil
             end
@@ -3856,7 +3860,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
         end
 
         if mode == 1 and aircraft and comp.yal and comp.yal.aircraftonrwy and is_valid_latlon(runway_lat, runway_lon) then
-            local offRunway = comp.yal.aircraftonrwy(def.ARRIVAL, 0.0001, 20)
+            local offRunway = comp.yal.aircraftonrwy(def.ARRIVAL, 40, 20)
             if not offRunway then
                 local gs = yal and yal.groundspeed and (get(yal.groundspeed) or 0) or 0
                 if gs <= runwayRouteMaxSpeed then
@@ -4021,7 +4025,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
 
         if comp.yal and comp.yal.aircraftonrwy and is_valid_latlon(runway_lat, runway_lon) then
             if mode == 1 then
-                local offRunway = comp.yal.aircraftonrwy(def.ARRIVAL, 0.0001, 20)
+                local offRunway = comp.yal.aircraftonrwy(def.ARRIVAL, 40, 20)
                 if not offRunway and not allow_runway_route then
                     comp._route = nil
                     comp._routeErr = "on-runway"
@@ -4782,6 +4786,32 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
             comp._depThresholdLatched = false
         end
 
+        if mode == 0 and not comp._depThresholdLatched then
+            local yal = comp.yal or _G.yal
+            local onGround = yal and yal.airgroundsensor and (get(yal.airgroundsensor) == def.ON)
+            local gs = yal and yal.groundspeed and (get(yal.groundspeed) or 0) or 0
+            local onRunway = false
+            if onGround and comp.yal and comp.yal.aircraftonrwy then
+                onRunway = comp.yal.aircraftonrwy(def.DEPARTURE, 40, depThresholdHeadingLimit)
+            end
+            if onGround and onRunway and gs >= depTakeoffLatchSpeed then
+                if not comp._takeoffLatchSince then
+                    comp._takeoffLatchSince = now
+                end
+                if (now - comp._takeoffLatchSince) >= depTakeoffLatchHoldSec then
+                    comp._depThresholdLatched = true
+                    comp._takeoffLatchSince = nil
+                    helpers.logInfoTS(
+                        string.format("TaxiDepThreshold: latched=takeoff-roll gs=%.1f", gs)
+                    )
+                end
+            else
+                comp._takeoffLatchSince = nil
+            end
+        else
+            comp._takeoffLatchSince = nil
+        end
+
         if mode ~= 0 then
             comp._depThresholdLatched = false
         elseif comp._depThresholdLatched then
@@ -4790,7 +4820,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
             if not onGround then
                 comp._depThresholdLatched = false
             elseif comp.yal and comp.yal.aircraftonrwy and is_valid_latlon(runway_lat, runway_lon) then
-                local onRunway = comp.yal.aircraftonrwy(def.DEPARTURE, 0.0003, 20)
+                local onRunway = comp.yal.aircraftonrwy(def.DEPARTURE, 40, 20)
                 local gs = yal and yal.groundspeed and (get(yal.groundspeed) or 0) or 0
                 if (not onRunway) and gs < 5 then
                     comp._depThresholdLatched = false
@@ -4804,7 +4834,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
             local tirespeed = yal and yal.tirespeed and (get(yal.tirespeed) or 0) or 0
             if onGround and tirespeed > 1 and not (mode == 0 and comp._depThresholdLatched) then
                 if mode == 1 and comp.yal and comp.yal.aircraftonrwy and is_valid_latlon(runway_lat, runway_lon) then
-                    local offRunway = comp.yal.aircraftonrwy(def.ARRIVAL, 0.0001, 20)
+                    local offRunway = comp.yal.aircraftonrwy(def.ARRIVAL, 40, 20)
                     if offRunway and not comp._rerouteOverride then
                         comp._rerouteOverride = { lat = aircraft.lat, lon = aircraft.lon }
                         if not arrival_grace_active(comp, now) then

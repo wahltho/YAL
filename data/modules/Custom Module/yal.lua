@@ -586,8 +586,8 @@ function P.initDataref()
     P.fmslegslat = globalProperty("laminar/B738/fms/legs_lat")
     P.fmslegslon = globalProperty("laminar/B738/fms/legs_lon")
 
-    P.aircraftlatpos = globalPropertyfae("laminar/B738/latlon", 23)
-    P.aircraftlonpos = globalPropertyfae("laminar/B738/latlon", 24)
+    P.aircraftlatpos = globalProperty("sim/flightmodel/position/latitude")
+    P.aircraftlonpos = globalProperty("sim/flightmodel/position/longitude")
 
     P.sunpitchdegrees = globalProperty("sim/graphics/scenery/sun_pitch_degrees")
 
@@ -2119,9 +2119,12 @@ function P.refuelAircraft(totalFuelLbs)
 end
 
 --------------------------------------------------------------------------------------------------------------
-function P.aircraftonrwy(runwayType, dist, headingLimit)
+function P.aircraftonrwy(runwayType, distMeters, headingLimit)
 
     headingLimit = headingLimit or 20 -- Standard-Limit von 20 Grad
+    -- distMeters is a lateral distance from runway centerline in meters.
+    local dist_m = tonumber(distMeters) or 0
+    local dist_rad = dist_m / 6371000
 
     local aircraftlat = get(P.aircraftlatpos)
     local aircraftlon = get(P.aircraftlonpos)
@@ -2175,7 +2178,7 @@ function P.aircraftonrwy(runwayType, dist, headingLimit)
     local v_mag_sq = v1*v1 + v2*v2
     if v_mag_sq == 0 then return false end
 
-    local s = (d1 * v1 + d2 * v2) / v_mag_sq
+    local s = (d2 * v1 + d1 * v2) / v_mag_sq
 
     local disttorwy_sq
 
@@ -2191,21 +2194,39 @@ function P.aircraftonrwy(runwayType, dist, headingLimit)
         disttorwy_sq = (d1 - nearest_y)^2 + (d2 - nearest_x)^2
     end
 
-    local isOnRunwayProximity = (disttorwy_sq < (dist*dist))
+    local isOnRunwayProximity = (disttorwy_sq < (dist_rad * dist_rad))
 
     local aircraftTrack = get(P.groundtrackmag)
     local headingDiff = helpers.headingdiff(aircraftTrack, runwayHeading)
     local isHeadingAligned = (headingDiff < headingLimit) -- True wenn < 20 Grad
 
+    local result
     if runwayType == def.DEPARTURE then
-        return isOnRunwayProximity and isHeadingAligned
-
+        result = isOnRunwayProximity and isHeadingAligned
     elseif runwayType == def.ARRIVAL then
-        return (not isOnRunwayProximity) or (not isHeadingAligned)
-
+        result = (not isOnRunwayProximity) or (not isHeadingAligned)
     else
-        return isOnRunwayProximity
+        result = isOnRunwayProximity
     end
+
+    P._aircraftonrwy_state = P._aircraftonrwy_state or {}
+    local key = (runwayType == def.DEPARTURE) and "dep" or ((runwayType == def.ARRIVAL) and "arr" or tostring(runwayType))
+    if P._aircraftonrwy_state[key] ~= result then
+        P._aircraftonrwy_state[key] = result
+        local dist_m = math.sqrt(disttorwy_sq) * 6371000
+        helpers.logInfoTS(
+            string.format(
+                "AircraftOnRwy: type=%s result=%s dist=%.1f hdgDiff=%.1f prox=%s aligned=%s",
+                tostring(key),
+                tostring(result),
+                tonumber(dist_m or 0),
+                tonumber(headingDiff or -1),
+                tostring(isOnRunwayProximity),
+                tostring(isHeadingAligned)
+            )
+        )
+    end
+    return result
 end
 --------------------------------------------------------------------------------------------------------------
 function P.syncProceduresOnLoad()
@@ -4579,12 +4600,12 @@ function P.autofunctions()
             P.triggerprocedure(def.BEFORETAXIPROCEDURE)
         end
 
-        local triggerConditionsMet_BTO = (((((P.aircraftonrwy(def.DEPARTURE, 0.0003, 20) and (helpers.roundnumber(get(P.groundspeed)) == 0)) and (get(P.transponderpos) == def.TARA))) or (get(P.positionlights) == def.POSLIGHTSSTROBE)) and P.flightstate == def.FLIGHTSTATEPREFLIGHT)
+        local triggerConditionsMet_BTO = (((((P.aircraftonrwy(def.DEPARTURE, 40, 20) and (helpers.roundnumber(get(P.groundspeed)) == 0)) and (get(P.transponderpos) == def.TARA))) or (get(P.positionlights) == def.POSLIGHTSSTROBE)) and P.flightstate == def.FLIGHTSTATEPREFLIGHT)
         if triggerConditionsMet_BTO then
             P.triggerprocedure(def.BEFORETAKEOFFPROCEDURE)
         end
     
-        local triggerConditionsMet_AL = (((get(P.groundspeed) < 45) and (P.aircraftonrwy(def.ARRIVAL, 0.0001, 20) or (helpers.roundnumber(get(P.groundspeed)) == 0))) or (get(P.positionlights) == def.POSLIGHTSSTEADY))
+        local triggerConditionsMet_AL = (((get(P.groundspeed) < 45) and (P.aircraftonrwy(def.ARRIVAL, 40, 20) or (helpers.roundnumber(get(P.groundspeed)) == 0))) or (get(P.positionlights) == def.POSLIGHTSSTEADY))
         if triggerConditionsMet_AL and currentFlightState >= def.FLIGHTSTATEAPPROACH then
             P.triggerprocedure(def.AFTERLANDINGPROCEDURE)
         end
@@ -4806,8 +4827,8 @@ function P.ongoingtasks()
     end
 
     local groundspeed = get(P.groundspeed) or 0
-    local onDepartureRunway = P.aircraftonrwy and P.aircraftonrwy(def.DEPARTURE, 0.0003, 20)
-    local onArrivalRunway = P.aircraftonrwy and P.aircraftonrwy(def.ARRIVAL, 0.0001, 20)
+    local onDepartureRunway = P.aircraftonrwy and P.aircraftonrwy(def.DEPARTURE, 40, 20)
+    local onArrivalRunway = P.aircraftonrwy and P.aircraftonrwy(def.ARRIVAL, 40, 20)
     if (get(P.airgroundsensor) == def.ON) and (groundspeed > 45) then
         -- Departure taxi: warn if fast while not yet on the departure runway.
         if (P.flightstate == def.FLIGHTSTATEPREFLIGHT) and (not onDepartureRunway) then

@@ -3948,9 +3948,19 @@ function P.loadCIFP(icao)
                         register_fix(parts[5])
 
                         local pathTerminator = trimString(parts[12] or "")
+                        local segmentType = trimString(parts[9] or "")
                         local fixIdent = trimString(parts[5] or "")
                         local isRunwayLeg = fixIdent ~= "" and string.sub(fixIdent, 1, 2) == "RW"
                         local isFinalLeg = (pathTerminator == "CF") or (pathTerminator == "TF")
+
+                        if segmentType == "M" and (pathTerminator == "CA" or pathTerminator == "VA") then
+                            local alt1 = tonumber(trimString(parts[24] or "")) or 0
+                            local alt2 = tonumber(trimString(parts[25] or "")) or 0
+                            local missAlt = (alt1 > 0) and alt1 or ((alt2 > 0) and alt2 or nil)
+                            if missAlt and not entry.missedAlt then
+                                entry.missedAlt = missAlt
+                            end
+                        end
 
                         if isRunwayLeg and isFinalLeg then
                             if not entry.course then
@@ -4035,6 +4045,26 @@ end
 function P.getCIFPApproachCourse(icao, navType, runway)
     local entry = P.getCIFPApproach(icao, navType, runway)
     return entry and entry.course or nil
+end
+
+function P.getCIFPMissedApproachAltitude(icao, navType, runway, detectedApproach)
+    if detectedApproach and detectedApproach.entry and detectedApproach.entry.missedAlt and detectedApproach.entry.missedAlt > 0 then
+        return detectedApproach.entry.missedAlt
+    end
+    if type(navType) ~= "string" and detectedApproach and type(detectedApproach.navType) == "string" then
+        navType = detectedApproach.navType
+    end
+    if type(icao) ~= "string" or type(runway) ~= "string" or type(navType) ~= "string" then
+        return nil
+    end
+    if navType == def.NAVTYPELOC or navType == def.NAVTYPEIGS then
+        navType = def.NAVTYPEILS
+    end
+    local entry = P.getCIFPApproach(icao, navType, runway)
+    if not entry and (navType == def.NAVTYPELPV or navType == def.NAVTYPEGLS) then
+        entry = P.getCIFPApproach(icao, def.NAVTYPERNAV, runway)
+    end
+    return entry and entry.missedAlt or nil
 end
 
 function P.findApproachDME(navdatatable, icao, runway, refLat, refLon, refIdent, options)

@@ -634,6 +634,27 @@ local function getMcpHeadingTarget()
     return headingrounded
 end
 
+local function getMissedApproachAlt(loop)
+    local raw = get(P.missedappalt) or 0
+    local alt = helpers.roundnumber((raw / 100)) * 100
+    if alt > 1000 then
+        return alt
+    end
+    local cifpAlt = helpers.getCIFPMissedApproachAltitude(
+        get(P.desicao),
+        P.approachNavType,
+        get(P.desrwy),
+        loop and loop.detectedApproach or nil
+    )
+    if cifpAlt and cifpAlt > 0 then
+        local rounded = helpers.roundnumber((cifpAlt / 100)) * 100
+        if rounded > 0 then
+            return rounded
+        end
+    end
+    return alt
+end
+
 local function getTakeoffFlapsTarget(autoMode)
     local target = get(P.toflaps)
     if target and target > 0 then
@@ -3352,7 +3373,7 @@ function M.fillProcedureTable()
                 },
                 ['set_mcp_altitude'] = {
                     check = function(loop)
-                        local missedappalttmp = helpers.roundnumber((get(P.missedappalt) / 100)) * 100
+                        local missedappalttmp = getMissedApproachAlt(loop)
                         if (missedappalttmp > 1000) then
                             local current = get(P.mcpaltitude)
                             return math.abs(current - missedappalttmp) <= 100
@@ -3364,22 +3385,22 @@ function M.fillProcedureTable()
                             return true
                         end
                     end,
-                    advice = function()
-                        local missedappalttmp = helpers.roundnumber((get(P.missedappalt) / 100)) * 100
+                    advice = function(loop)
+                        local missedappalttmp = getMissedApproachAlt(loop)
                         if (missedappalttmp > 1000) then
                             return "Set M C P Altitude " .. helpers.addspaces(missedappalttmp)
                         else
                             return "Set Missed Approach Altitude"
                         end
                     end,
-                    action = function()
-                        local missedappalttmp = helpers.roundnumber((get(P.missedappalt) / 100)) * 100
+                    action = function(loop)
+                        local missedappalttmp = getMissedApproachAlt(loop)
                         if (missedappalttmp > 1000) then
                             set(P.mcpaltitude, missedappalttmp)
                         end
                     end,
                     confirm = function(loop)
-                        local missedappalttmp = helpers.roundnumber((get(P.missedappalt) / 100)) * 100
+                        local missedappalttmp = getMissedApproachAlt(loop)
                         if (missedappalttmp > 1000) then
                             local current = get(P.mcpaltitude)
                             if math.abs(current - missedappalttmp) <= 100 then
@@ -3488,7 +3509,7 @@ function M.fillProcedureTable()
                 },
                 ['set_missed_altitude'] = {
                     check = function(loop)
-                        local missedappalttmp = helpers.roundnumber((get(P.missedappalt) / 100)) * 100
+                        local missedappalttmp = getMissedApproachAlt(loop)
                         if (missedappalttmp > 1000) then
                             local current = get(P.mcpaltitude)
                             return math.abs(current - missedappalttmp) <= 100
@@ -3500,22 +3521,22 @@ function M.fillProcedureTable()
                             return true
                         end
                     end,
-                    advice = function()
-                        local missedappalttmp = helpers.roundnumber((get(P.missedappalt) / 100)) * 100
+                    advice = function(loop)
+                        local missedappalttmp = getMissedApproachAlt(loop)
                         if (missedappalttmp > 1000) then
                             return "Set M C P Altitude " .. helpers.addspaces(missedappalttmp)
                         else
                             return "Set Missed Approach Altitude"
                         end
                     end,
-                    action = function()
-                        local missedappalttmp = helpers.roundnumber((get(P.missedappalt) / 100)) * 100
+                    action = function(loop)
+                        local missedappalttmp = getMissedApproachAlt(loop)
                         if (missedappalttmp > 1000) then
                             set(P.mcpaltitude, missedappalttmp)
                         end
                     end,
                     confirm = function(loop)
-                        local missedappalttmp = helpers.roundnumber((get(P.missedappalt) / 100)) * 100
+                        local missedappalttmp = getMissedApproachAlt(loop)
                         if (missedappalttmp > 1000) then
                             local current = get(P.mcpaltitude)
                             if math.abs(current - missedappalttmp) <= 100 then
