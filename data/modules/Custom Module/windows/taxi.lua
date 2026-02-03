@@ -2853,38 +2853,15 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                 local rtype = string.lower(ramp.ramp_type or "")
                 if rtype == "gate" and ramp.east and ramp.north then
                     if ramp._draw_link_east == nil then
-                        local link_east = nil
-                        local link_north = nil
-                        if ramp.node_id and comp._data and comp._data.adjacency_any and comp._data.nodes then
-                            local best_d2 = nil
-                            local edges = comp._data.adjacency_any[ramp.node_id]
-                            if edges then
-                                for _, edge in ipairs(edges) do
-                                    local other_id = edge.to
-                                    local other = comp._data.nodes[other_id]
-                                    if other and not other.is_ramp and not (comp._data.runway_nodes and comp._data.runway_nodes[other_id]) then
-                                        local dx = other.east - ramp.east
-                                        local dy = other.north - ramp.north
-                                        local d2 = dx * dx + dy * dy
-                                        if not best_d2 or d2 < best_d2 then
-                                            best_d2 = d2
-                                            link_east = other.east
-                                            link_north = other.north
-                                        end
-                                    end
-                                end
-                            end
-                        end
-                        if not link_east or not link_north then
-                            local proj = find_nearest_edge_projection(comp._data, ramp.east, ramp.north, { disallow_runway_edges = true })
-                            if proj and proj.edge then
-                                link_east = proj.proj_east
-                                link_north = proj.proj_north
-                            end
-                        end
-                        if link_east and link_north then
-                            ramp._draw_link_east = link_east
-                            ramp._draw_link_north = link_north
+                        local proj = find_nearest_edge_projection(
+                            comp._data,
+                            ramp.east,
+                            ramp.north,
+                            { disallow_runway_edges = true }
+                        )
+                        if proj and proj.edge then
+                            ramp._draw_link_east = proj.proj_east
+                            ramp._draw_link_north = proj.proj_north
                         else
                             ramp._draw_link_east = false
                             ramp._draw_link_north = false

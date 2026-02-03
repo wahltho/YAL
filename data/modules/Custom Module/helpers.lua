@@ -6069,11 +6069,11 @@ local function parse_taxi_data(entry)
         return f_nodes, f_edges
     end
 
-    local function add_ramp_links(nodes_tbl, ramps_tbl, runway_nodes_tbl, max_dist, edge_nodes_tbl)
+    local function add_ramp_links(nodes_tbl, ramps_tbl, runway_nodes_tbl, max_dist, edge_nodes_tbl, edges_tbl)
         local near_links = {}
         local far_links = {}
         if not nodes_tbl or not ramps_tbl or max_dist <= 0 then
-            return near_links, far_links
+            return near_links, far_links, edges_tbl
         end
         local max_id = 0
         for id, _ in pairs(nodes_tbl) do
@@ -6084,43 +6084,128 @@ local function parse_taxi_data(entry)
         local next_id = max_id + 1
         local max_d2 = max_dist * max_dist
         local has_edge_filter = edge_nodes_tbl and next(edge_nodes_tbl) ~= nil
-        for _, ramp in ipairs(ramps_tbl) do
-            if ramp.x and ramp.z then
-                local function find_best(require_edge)
-                    local best_id = nil
-                    local best_d2 = nil
-                    local best_nr_id = nil
-                    local best_nr_d2 = nil
-                    for id, node in pairs(nodes_tbl) do
-                        if node and not node.is_ramp and node.x and node.z then
-                            if require_edge and (not edge_nodes_tbl or not edge_nodes_tbl[id]) then
-                                goto continue
-                            end
-                            local dx = node.x - ramp.x
-                            local dz = node.z - ramp.z
-                            local d2 = dx * dx + dz * dz
-                            if not best_d2 or d2 < best_d2 then
-                                best_d2 = d2
-                                best_id = id
-                            end
-                            if runway_nodes_tbl and not runway_nodes_tbl[id] then
-                                if not best_nr_d2 or d2 < best_nr_d2 then
-                                    best_nr_d2 = d2
-                                    best_nr_id = id
-                                end
-                            end
-                        end
-                        ::continue::
-                    end
-                    return best_id, best_d2, best_nr_id, best_nr_d2
-                end
 
-                local best_id, best_d2, best_nr_id, best_nr_d2 = find_best(has_edge_filter)
-                if not best_id and not best_nr_id and has_edge_filter then
-                    best_id, best_d2, best_nr_id, best_nr_d2 = find_best(false)
+        local EDGE_PROJ_REUSE_M = 8
+        local EDGE_PROJ_ENDPOINT_SNAP_M = 3
+        local reuse_d2 = EDGE_PROJ_REUSE_M * EDGE_PROJ_REUSE_M
+        local endpoint_d2 = EDGE_PROJ_ENDPOINT_SNAP_M * EDGE_PROJ_ENDPOINT_SNAP_M
+
+        local edge_projections = {}
+
+        local function project_point_to_segment(px, py, x1, y1, x2, y2)
+            local dx = x2 - x1
+            local dy = y2 - y1
+            local len2 = dx * dx + dy * dy
+            if len2 <= 1e-6 then
+                return x1, y1, 0
+            end
+            local t = ((px - x1) * dx + (py - y1) * dy) / len2
+            if t < 0 then
+                t = 0
+            elseif t > 1 then
+                t = 1
+            end
+            return x1 + dx * t, y1 + dy * t, t
+        end
+
+        local function find_best_edge(ramp)
+            if not edges_tbl then
+                return nil
+            end
+            local best = nil
+            local best_any = nil
+            for idx, edge in ipairs(edges_tbl) do
+                local n1 = nodes_tbl[edge.from]
+                local n2 = nodes_tbl[edge.to]
+                if n1 and n2 and n1.east and n1.north and n2.east and n2.north then
+                    local px, py, t = project_point_to_segment(ramp.east, ramp.north, n1.east, n1.north, n2.east, n2.north)
+                    local dx = ramp.east - px
+                    local dy = ramp.north - py
+                    local d2 = dx * dx + dy * dy
+                    local is_runway = is_runway_label(edge.label or "")
+                    local entry = {
+                        edge = edge,
+                        edge_index = idx,
+                        proj_east = px,
+                        proj_north = py,
+                        t = t,
+                        d2 = d2
+                    }
+                    if not best_any or d2 < best_any.d2 then
+                        best_any = entry
+                    end
+                    if not is_runway then
+                        if not best or d2 < best.d2 then
+                            best = entry
+                        end
+                    end
                 end
-                local link_id = best_nr_id or best_id
-                local link_d2 = best_nr_id and best_nr_d2 or best_d2
+            end
+            return best or best_any
+        end
+
+        local function get_or_create_proj_node(best_edge)
+            if not best_edge or not best_edge.edge then
+                return nil
+            end
+            local edge = best_edge.edge
+            local idx = best_edge.edge_index
+            local n1 = nodes_tbl[edge.from]
+            local n2 = nodes_tbl[edge.to]
+            if not (n1 and n2 and n1.east and n1.north and n2.east and n2.north) then
+                return nil
+            end
+            local px = best_edge.proj_east
+            local py = best_edge.proj_north
+            local t = best_edge.t or 0
+
+            local dx1 = px - n1.east
+            local dy1 = py - n1.north
+            if (dx1 * dx1 + dy1 * dy1) <= endpoint_d2 then
+                return edge.from
+            end
+            local dx2 = px - n2.east
+            local dy2 = py - n2.north
+            if (dx2 * dx2 + dy2 * dy2) <= endpoint_d2 then
+                return edge.to
+            end
+
+            local list = edge_projections[idx]
+            if list then
+                for _, proj in ipairs(list) do
+                    local dx = proj.east - px
+                    local dy = proj.north - py
+                    if (dx * dx + dy * dy) <= reuse_d2 then
+                        return proj.node_id
+                    end
+                end
+            end
+
+            local proj_id = next_id
+            next_id = next_id + 1
+            local lat = nil
+            local lon = nil
+            if n1.lat and n1.lon and n2.lat and n2.lon then
+                lat = n1.lat + (n2.lat - n1.lat) * t
+                lon = n1.lon + (n2.lon - n1.lon) * t
+            end
+            nodes_tbl[proj_id] = {
+                id = proj_id,
+                lat = lat,
+                lon = lon,
+                x = px,
+                z = -py,
+                east = px,
+                north = py,
+                is_ramp_link = true
+            }
+            edge_projections[idx] = edge_projections[idx] or {}
+            edge_projections[idx][#edge_projections[idx] + 1] = { node_id = proj_id, t = t, east = px, north = py }
+            return proj_id
+        end
+
+        for _, ramp in ipairs(ramps_tbl) do
+            if ramp.x and ramp.z and ramp.east and ramp.north then
                 local rid = next_id
                 next_id = next_id + 1
                 nodes_tbl[rid] = {
@@ -6134,15 +6219,93 @@ local function parse_taxi_data(entry)
                     is_ramp = true
                 }
                 ramp.node_id = rid
-                if link_id and link_d2 then
-                    far_links[#far_links + 1] = { from = rid, to = link_id }
-                    if link_d2 <= max_d2 then
-                        near_links[#near_links + 1] = { from = rid, to = link_id }
+
+                local linked = false
+                local best_edge = find_best_edge(ramp)
+                if best_edge and best_edge.d2 then
+                    local proj_id = get_or_create_proj_node(best_edge)
+                    if proj_id then
+                        far_links[#far_links + 1] = { from = rid, to = proj_id }
+                        if best_edge.d2 <= max_d2 then
+                            near_links[#near_links + 1] = { from = rid, to = proj_id }
+                        end
+                        linked = true
+                    end
+                end
+
+                if not linked then
+                    local function find_best(require_edge)
+                        local best_id = nil
+                        local best_d2 = nil
+                        local best_nr_id = nil
+                        local best_nr_d2 = nil
+                        for id, node in pairs(nodes_tbl) do
+                            if node and not node.is_ramp and not node.is_ramp_link and node.x and node.z then
+                                if require_edge and (not edge_nodes_tbl or not edge_nodes_tbl[id]) then
+                                    goto continue
+                                end
+                                local dx = node.x - ramp.x
+                                local dz = node.z - ramp.z
+                                local d2 = dx * dx + dz * dz
+                                if not best_d2 or d2 < best_d2 then
+                                    best_d2 = d2
+                                    best_id = id
+                                end
+                                if runway_nodes_tbl and not runway_nodes_tbl[id] then
+                                    if not best_nr_d2 or d2 < best_nr_d2 then
+                                        best_nr_d2 = d2
+                                        best_nr_id = id
+                                    end
+                                end
+                            end
+                            ::continue::
+                        end
+                        return best_id, best_d2, best_nr_id, best_nr_d2
+                    end
+
+                    local best_id, best_d2, best_nr_id, best_nr_d2 = find_best(has_edge_filter)
+                    if not best_id and not best_nr_id and has_edge_filter then
+                        best_id, best_d2, best_nr_id, best_nr_d2 = find_best(false)
+                    end
+                    local link_id = best_nr_id or best_id
+                    local link_d2 = best_nr_id and best_nr_d2 or best_d2
+                    if link_id and link_d2 then
+                        far_links[#far_links + 1] = { from = rid, to = link_id }
+                        if link_d2 <= max_d2 then
+                            near_links[#near_links + 1] = { from = rid, to = link_id }
+                        end
                     end
                 end
             end
         end
-        return near_links, far_links
+
+        local edges_out = edges_tbl
+        if edges_tbl and next(edge_projections) ~= nil then
+            local new_edges = {}
+            for idx, edge in ipairs(edges_tbl) do
+                local projs = edge_projections[idx]
+                if projs and #projs > 0 then
+                    table.sort(projs, function(a, b)
+                        return (a.t or 0) < (b.t or 0)
+                    end)
+                    local prev = edge.from
+                    for _, proj in ipairs(projs) do
+                        if proj.node_id and proj.node_id ~= prev then
+                            new_edges[#new_edges + 1] = { from = prev, to = proj.node_id, dir = edge.dir, label = edge.label }
+                            prev = proj.node_id
+                        end
+                    end
+                    if prev ~= edge.to then
+                        new_edges[#new_edges + 1] = { from = prev, to = edge.to, dir = edge.dir, label = edge.label }
+                    end
+                else
+                    new_edges[#new_edges + 1] = edge
+                end
+            end
+            edges_out = new_edges
+        end
+
+        return near_links, far_links, edges_out
     end
 
     local debug_icao = (target_icao == "KCAE")
@@ -6408,7 +6571,17 @@ local function parse_taxi_data(entry)
     end
 
     local RAMP_LINK_MAX_METERS = 150
-    local ramp_links, ramp_links_far = add_ramp_links(nodes, ramps, runway_nodes, RAMP_LINK_MAX_METERS, edge_nodes)
+    local ramp_links, ramp_links_far, edges_after_ramps = add_ramp_links(
+        nodes,
+        ramps,
+        runway_nodes,
+        RAMP_LINK_MAX_METERS,
+        edge_nodes,
+        edges
+    )
+    if edges_after_ramps then
+        edges = edges_after_ramps
+    end
 
     local adjacency = {}
     local adjacency_any = {}
