@@ -4794,6 +4794,13 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                         path_parts[#path_parts + 1] = tostring(path[i])
                     end
                     local path_key = table.concat(path_parts, ",")
+                    local fwd_key = path_key
+                    if aircraft and aircraft.east and aircraft.north then
+                        local seg_idx = find_nearest_segment(route.data, path, aircraft.east, aircraft.north)
+                        if seg_idx and seg_idx >= 1 and seg_idx < #path_parts then
+                            fwd_key = table.concat(path_parts, ",", seg_idx + 1, #path_parts)
+                        end
+                    end
                     if comp._lastRoutePathKey ~= path_key then
                         comp._lastRoutePathKey = path_key
                         local max_chunk = 30
@@ -4822,8 +4829,16 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                             helpers.logInfoTS("TaxiLabels: " .. tostring(icao) .. " " .. tostring(comp._runwayName or "") .. " <none>")
                         end
                     end
+                    if comp._pendingRerouteEvent then
+                        if comp._lastForwardPathKey ~= fwd_key then
+                            record_reroute_event(comp, now)
+                            comp._lastForwardPathKey = fwd_key
+                        end
+                        comp._pendingRerouteEvent = nil
+                    end
                 elseif rerr then
                     helpers.logInfoTS("Taxi: route error " .. tostring(icao) .. " mode=" .. tostring(mode) .. " err=" .. tostring(rerr))
+                    comp._pendingRerouteEvent = nil
                 end
                 if route and route.bounds then
                     comp._fitBounds = route.bounds
@@ -4939,7 +4954,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                     if offRunway and not comp._rerouteOverride then
                         comp._rerouteOverride = { lat = aircraft.lat, lon = aircraft.lon }
                         if not arrival_grace_active(comp, now) then
-                            record_reroute_event(comp, now)
+                            comp._pendingRerouteEvent = true
                         end
                         comp._lastRerouteTime = now
                         comp._lastStartKey = nil
@@ -4963,7 +4978,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                 if dist and dist > rerouteDriftMeters and (now - lastReroute) > rerouteCooldown then
                     comp._rerouteOverride = { lat = aircraft.lat, lon = aircraft.lon }
                     if not arrival_grace_active(comp, now) then
-                        record_reroute_event(comp, now)
+                        comp._pendingRerouteEvent = true
                     end
                     comp._lastRerouteTime = now
                     comp._lastStartKey = nil
