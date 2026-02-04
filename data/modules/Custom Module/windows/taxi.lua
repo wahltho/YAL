@@ -18,6 +18,7 @@ local guidanceMaxDistance = 180
 local guidanceStraightAngle = 10
 local visualGuidanceDuration = 7
 local visualGuidanceMinShow = 1.0
+local visualGuidanceSyncDelay = 0.5
 local startRampMaxMeters = 80
 local projectionShiftThreshold = 500
 local runwayRouteMaxSpeed = 45
@@ -2012,10 +2013,6 @@ local function set_visual_guidance(comp, info)
         return
     end
     comp._visualGuidance = info
-    local popup = get_visual_popup(comp)
-    if popup and popup.setInstruction then
-        popup:setInstruction(info)
-    end
 end
 
 local function clear_visual_guidance(comp, reason)
@@ -2038,6 +2035,13 @@ local function update_visual_guidance(comp, now, aircraft)
         return
     end
     local info = comp._visualGuidance
+    if info.showAt and now and now < info.showAt then
+        local popup = get_visual_popup(comp)
+        if popup and popup.clearInstruction then
+            popup:clearInstruction("pending")
+        end
+        return
+    end
     if info.expiresAt and now and now >= info.expiresAt then
         clear_visual_guidance(comp, "expired")
         return
@@ -2052,6 +2056,22 @@ local function update_visual_guidance(comp, now, aircraft)
         if seg_idx and seg_idx >= targetSegIdx and (not info.minShowUntil or (now and now >= info.minShowUntil)) then
             clear_visual_guidance(comp, "fulfilled")
         end
+    end
+end
+
+local function emit_guidance(comp, now, info, allow_voice)
+    if not comp or not info or not info.text or info.text == "" then
+        return
+    end
+    if allow_voice and is_voice_enabled() then
+        speak_guidance_text(comp, info.text)
+    end
+    if is_visual_taxi_guidance_enabled() then
+        info.issuedAt = now
+        info.showAt = now + visualGuidanceSyncDelay
+        info.expiresAt = now + visualGuidanceSyncDelay + visualGuidanceDuration
+        info.minShowUntil = now + visualGuidanceSyncDelay + visualGuidanceMinShow
+        set_visual_guidance(comp, info)
     end
 end
 
@@ -2130,19 +2150,8 @@ local function maybe_speak_guidance(comp, now, aircraft)
         end
         return nil
     end
-    local function emit_guidance(info)
-        if not info or info.text == "" then
-            return
-        end
-        if voice_enabled then
-            speak_guidance_text(comp, info.text)
-        end
-        if visual_enabled then
-            info.issuedAt = now
-            info.expiresAt = now + visualGuidanceDuration
-            info.minShowUntil = now + visualGuidanceMinShow
-            set_visual_guidance(comp, info)
-        end
+    local function emit(info)
+        emit_guidance(comp, now, info, auto_voice)
     end
     local tirespeed = yal and yal.tirespeed and (get(yal.tirespeed) or 0) or 0
     if not comp._initialGuidanceDone and path and #path >= 2 then
@@ -2165,7 +2174,7 @@ local function maybe_speak_guidance(comp, now, aircraft)
                         action = "TAXI VIA"
                     end
                     local label = build_visual_label(info.kind, info.display)
-                    emit_guidance({
+                    emit({
                         text = text,
                         direction = "straight",
                         action = action,
@@ -2241,13 +2250,16 @@ local function maybe_speak_guidance(comp, now, aircraft)
     local text = ""
     local direction = "straight"
     local action = ""
+    local dep_mode = (comp.mode == 0)
+    local entering_runway = next_info.kind == "runway" and (not curr_raw_label or not is_runway_label(curr_raw_label))
+    local label_changed = curr_label ~= "" and next_info.display ~= "" and curr_label ~= next_info.display
     local force_turn = curr_raw_label and is_runway_label(curr_raw_label) and next_info.kind ~= "runway"
     if angle < guidanceTurnAngle and not force_turn then
         direction = "straight"
         action = "STRAIGHT"
         if next_info.kind == "taxiway" then
             local degree = get_node_degree(data, path[seg_idx + 1])
-            if degree < 3 or angle < guidanceStraightAngle then
+            if degree < 3 and not label_changed and angle < guidanceStraightAngle then
                 diag("angle-too-small", string.format("angle=%.1f", angle))
                 return
             end
@@ -2257,7 +2269,13 @@ local function maybe_speak_guidance(comp, now, aircraft)
                 text = "Continue straight on Taxiway " .. next_info.text
             end
         elseif next_info.kind == "runway" then
-            text = "Continue straight on " .. next_info.text
+            if dep_mode and entering_runway then
+                local rwy_phrase = runway_label_voice(next_info.display ~= "" and next_info.display or next_info.text)
+                text = "Enter departure " .. rwy_phrase
+                action = "ENTER RWY"
+            else
+                text = "Continue straight on " .. next_info.text
+            end
         elseif next_info.kind == "ramp" then
             text = "Continue straight to " .. next_info.text
         end
@@ -2272,7 +2290,12 @@ local function maybe_speak_guidance(comp, now, aircraft)
                 text = "Turn " .. turn .. " on Taxiway " .. next_info.text
             end
         elseif next_info.kind == "runway" then
-            text = "Turn " .. turn .. " on " .. next_info.text
+            if dep_mode and entering_runway then
+                local rwy_phrase = runway_label_voice(next_info.display ~= "" and next_info.display or next_info.text)
+                text = "Turn " .. turn .. " on departure " .. rwy_phrase
+            else
+                text = "Turn " .. turn .. " on " .. next_info.text
+            end
         elseif next_info.kind == "ramp" then
             text = "Turn " .. turn .. " to " .. next_info.text
         end
@@ -2281,7 +2304,7 @@ local function maybe_speak_guidance(comp, now, aircraft)
         return
     end
     local label = build_visual_label(next_info.kind, next_info.display)
-    emit_guidance({
+    emit({
         text = text,
         direction = direction,
         action = action,
@@ -2549,6 +2572,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
     comp._lastGuidanceLabel = nil
     comp._lastGuidanceTime = nil
     comp._visualGuidance = nil
+    comp._depTaxiCompleteAnnounced = false
     comp._initialGuidanceDone = false
     comp._lastRerouteTime = nil
     comp._rerouteOverride = nil
@@ -3721,6 +3745,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
             comp._lastGuidanceLabel = nil
             comp._lastGuidanceTime = nil
             clear_visual_guidance(comp, "reset")
+            comp._depTaxiCompleteAnnounced = false
             if comp._quality then
                 comp._quality.distBadSince = nil
                 comp._quality.badSince = nil
@@ -5156,6 +5181,24 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                 return
             end
             maybe_speak_guidance(comp, now, aircraft)
+        end
+        if comp.mode == 0 and not comp._depTaxiCompleteAnnounced and comp._runwayName and comp._runwayName ~= "" then
+            local yal = comp.yal or _G.yal
+            local onGround = yal and yal.airgroundsensor and (get(yal.airgroundsensor) == def.ON)
+            if onGround and comp.yal and comp.yal.aircraftonrwy then
+                local onRunway = comp.yal.aircraftonrwy(def.DEPARTURE, 40, depThresholdHeadingLimit)
+                if onRunway then
+                    local rwy_phrase = runway_label_voice(comp._runwayName)
+                    emit_guidance(comp, now, {
+                        text = "On departure " .. rwy_phrase .. ", taxi complete",
+                        direction = "straight",
+                        action = "TAXI COMPLETE",
+                        label = build_visual_label("runway", normalize_runway_name(comp._runwayName)),
+                        kind = "runway"
+                    }, is_auto_taxi_guidance_enabled())
+                    comp._depTaxiCompleteAnnounced = true
+                end
+            end
         end
         update_visual_guidance(comp, now, aircraft)
 
