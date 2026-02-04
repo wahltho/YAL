@@ -15,6 +15,7 @@ local english = {
     HEADINGSYNCINTERVAL = 'Heading Sync Interval (sec, 0=off)',
     VOICEADVICEONLY = 'Voice Advice Only',
     AUTOTAXIGUIDANCE = 'Auto Taxi Guidance (voice)',
+    VISUALTAXIGUIDANCE = 'Visual Taxi Guidance (popup)',
     BPBINTEGRATION = 'BetterPushback Integration',
     YANSHINTEGRATION = 'YANSH Integration',
     AUTOFUELING = 'YANSH Automatic Fueling',

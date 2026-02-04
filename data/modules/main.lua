@@ -10,6 +10,9 @@ local setupInitialized = false
 local taxiWindow
 local taxiInitialized = false
 local taxiComponent
+local taxiPopupWindow
+local taxiPopupInitialized = false
+local taxiPopupComponent
 local menu_taxi = nil
 local taxiGateLastLogTime = 0
 
@@ -306,6 +309,54 @@ local function maybeInitTaxiWindow()
     helpers.logInfoTS("Taxi map window initialized")
 end
 
+local function maybeInitTaxiPopupWindow()
+    if taxiPopupInitialized then
+        return
+    end
+
+    local ok, modOrErr = pcall(require, "windows.taxi_popup")
+    if not ok then
+        sasl.logWarning("Taxi guidance popup failed to load: " .. tostring(modOrErr))
+        taxiPopupInitialized = true
+        return
+    end
+
+    local mod = modOrErr
+    if not mod or not mod.newComponent then
+        taxiPopupInitialized = true
+        sasl.logWarning("Taxi guidance popup module missing newComponent.")
+        return
+    end
+
+    local comp = mod.newComponent({ yal = yal, def = def, helpers = helpers })
+    taxiPopupComponent = comp
+    yal.taxiPopup = comp
+    local w, h = mod.windowSize()
+    local xRoot, yRoot, wRoot, hRoot = sasl.windows.getMonitorBoundsOS(0)
+    local posX = xRoot + math.max(0, (wRoot - w) / 2)
+    local posY = yRoot + math.max(0, (hRoot - h) * 0.18)
+
+    taxiPopupWindow = contextWindow {
+        name = "YAL Taxi Guidance",
+        position = { posX, posY, w, h },
+        saveState = true,
+        visible = false,
+        noResize = true,
+        vrAuto = true,
+        noBackground = true,
+        noDecore = true,
+        proportional = false,
+        components = { comp }
+    }
+
+    if comp.setWindow then
+        comp:setWindow(taxiPopupWindow)
+    end
+
+    taxiPopupInitialized = true
+    helpers.logInfoTS("Taxi guidance popup initialized")
+end
+
 -- ensure setup window (and its command/menu) is constructed early
 maybeInitSetupWindow()
 
@@ -353,6 +404,7 @@ else
     sasl.stopTimer(oneSecTimer)
     if setupWindow then setupWindow:setIsVisible(false) end
     if taxiWindow then taxiWindow:setIsVisible(false) end
+    if taxiPopupWindow then taxiPopupWindow:setIsVisible(false) end
 end
 
 function onAirportLoaded(flightNumber)
@@ -375,6 +427,7 @@ function onAirportLoaded(flightNumber)
         yal.enableMenus(def.OFF)  
         if setupWindow then setupWindow:setIsVisible(false) end
         if taxiWindow then taxiWindow:setIsVisible(false) end
+        if taxiPopupWindow then taxiPopupWindow:setIsVisible(false) end
     end
 end
 
@@ -382,8 +435,23 @@ function update()
     if helpers.isZibo() then
         maybeInitDebugOverlay()
         local autoTaxiEnabled = false
+        local visualTaxiEnabled = false
         if settings and settings.appSettings then
             autoTaxiEnabled = (settings.appSettings[def.CONFIGAUTOTAXIGUIDANCE] == def.ON)
+            visualTaxiEnabled = (settings.appSettings[def.CONFIGVISUALTAXIGUIDANCE] == def.ON)
+        end
+        if visualTaxiEnabled then
+            maybeInitTaxiPopupWindow()
+        else
+            if taxiComponent and taxiComponent.clearVisualGuidance then
+                taxiComponent:clearVisualGuidance()
+            end
+            if taxiPopupWindow and taxiPopupWindow.isVisible and taxiPopupWindow:isVisible() then
+                taxiPopupWindow:setIsVisible(false)
+                if taxiPopupComponent and taxiPopupComponent.clearInstruction then
+                    taxiPopupComponent:clearInstruction()
+                end
+            end
         end
         local taxiVisible = taxiWindow and taxiWindow.isVisible and taxiWindow:isVisible()
         if helpers.isGlobalAptIndexRunning() then
