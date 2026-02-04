@@ -32,6 +32,7 @@ end
 
 -- Build items list (flattened) ------------------------------------------------
 local items = {}
+local leftColumnCount = 0
 local function addCheckbox(labelKey, key)
     items[#items + 1] = {type = "checkbox", label = messages.translation[labelKey] or labelKey, key = key}
 end
@@ -88,6 +89,7 @@ addNumber('PACKSRESTOREALT','PACKSRESTOREALT',1,5)
 addNumber('TRANSPONDERCODE','TRANSPONDERCODE',4,4)
 addNumber('GEARDOWNFLAPS','GEARDOWNFLAPS',1,2)
 addSlider('BANKANGLEMAX','BANKANGLEMAX',1,4,1)
+leftColumnCount = #items
 
 -- Right column (views, brightness, misc)
 addNumber('VIEWMAINPANEL','VIEWMAINPANEL')
@@ -190,7 +192,7 @@ function M.newComponent(ctx)
         drawRectangle(0, h - headerH, w, headerH, {0.12, 0.12, 0.12, 0.95})
 
         -- Layout: two columns, with a fixed split (leftCount items on the left)
-        local leftCount = 27
+        local leftCount = leftColumnCount
         local half = leftCount
         local spacing = lineHeight + 6
         local leftX = 16
