@@ -2198,9 +2198,7 @@ function P.aircraftonrwy(runwayType, distMeters, headingLimit)
 
     local aircraftTrack = get(P.groundtrackmag)
     local headingDiff = helpers.headingdiff(aircraftTrack, runwayHeading)
-    local groundspeed = get(P.groundspeed) or 0
-    local skipHeadingCheck = (groundspeed < 1)
-    local isHeadingAligned = skipHeadingCheck or (headingDiff < headingLimit)
+    local isHeadingAligned = (headingDiff < headingLimit) -- True wenn < 20 Grad
 
     local result
     if runwayType == def.DEPARTURE then
