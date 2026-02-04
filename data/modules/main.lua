@@ -388,7 +388,7 @@ function update()
         local taxiVisible = taxiWindow and taxiWindow.isVisible and taxiWindow:isVisible()
         if helpers.isGlobalAptIndexRunning() then
             helpers.updateGlobalAptIndex(nil, false)
-        elseif (autoTaxiEnabled or taxiVisible) and not helpers.isGlobalAptIndexReady() then
+        elseif not helpers.isGlobalAptIndexReady() then
             helpers.requestGlobalAptIndex("update-loop")
             helpers.updateGlobalAptIndex(nil, false)
         end
