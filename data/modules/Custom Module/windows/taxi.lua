@@ -45,6 +45,7 @@ local maxZoom = 5
 local zoomStep = 1.2
 local minFont = 8
 local maxFont = 24
+local waypointDragPixels = 4
 
 local def = require("definitions")
 local settings = require("settings")
@@ -2582,6 +2583,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
     comp._editRoute = false
     comp._drawRoute = false
     comp._routeWaypoints = {}
+    comp._wpDrag = nil
     comp._autoEndRampKey = nil
     comp._quality = { rerouteEvents = {} }
     comp._taxiSourceByIcao = {}
@@ -3318,12 +3320,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                     comp._editRoute = not comp._editRoute
                     if not comp._editRoute then
                         comp._drawRoute = false
-                    end
-                    -- Entering edit: freeze auto-routing so only manual points are used.
-                    if comp._editRoute then
-                        comp._route = nil
-                        comp._routeErr = nil
-                        comp._lastUpdate = nil
+                        comp._wpDrag = nil
                     end
                 elseif b.action == "toggle_draw" then
                     comp._drawRoute = not comp._drawRoute
@@ -3390,12 +3387,13 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                 end
             end
             if best then
-                table.remove(comp._routeWaypoints, best.idx)
-                comp._lastStartKey = nil
-                comp._lastEndKey = nil
-                comp._route = nil
-                comp._routeErr = nil
-                comp._lastUpdate = nil
+                comp._wpDrag = {
+                    idx = best.idx,
+                    startX = x,
+                    startY = y,
+                    moved = false,
+                    cleared = false
+                }
                 return true
             end
         end
@@ -3542,6 +3540,45 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
     end
 
     function comp:onMouseMove(x, y, _, _, _)
+        if comp._wpDrag then
+            local drag = comp._wpDrag
+            local dx = x - drag.startX
+            local dy = y - drag.startY
+            if (dx * dx + dy * dy) >= (waypointDragPixels * waypointDragPixels) then
+                drag.moved = true
+            end
+            local wp = comp._routeWaypoints and comp._routeWaypoints[drag.idx] or nil
+            if wp and comp._mapTransform and comp._data then
+                local t = comp._mapTransform
+                local function screen_to_world(sx, sy)
+                    local ddx = (sx - (t.mapX + t.mapW * 0.5) - (t.panX or 0)) / (t.scale or 1)
+                    local ddy = (sy - (t.mapY + t.mapH * 0.5) - (t.panY or 0)) / (t.scale or 1)
+                    ddx, ddy = rotate_point(ddx, ddy, -t.rot)
+                    return t.centerEast + ddx, t.centerNorth + ddy
+                end
+                local we, wn = screen_to_world(x, y)
+                local proj = find_nearest_edge_projection(comp._data, we, wn, { disallow_runway_edges = false })
+                if proj and proj.edge then
+                    local wlat, wlon = sasl.localToWorld(proj.proj_east, 0, -proj.proj_north)
+                    if is_valid_latlon(wlat, wlon) then
+                        wp.lat = wlat
+                        wp.lon = wlon
+                        wp.east = proj.proj_east
+                        wp.north = proj.proj_north
+                        wp.segment_idx = nil
+                        if drag.moved and not drag.cleared then
+                            comp._lastStartKey = nil
+                            comp._lastEndKey = nil
+                            comp._route = nil
+                            comp._routeErr = nil
+                            comp._lastUpdate = nil
+                            drag.cleared = true
+                        end
+                    end
+                end
+            end
+            return true
+        end
         if comp.drag then
             local dx = x - comp.drag.startX
             local dy = y - comp.drag.startY
@@ -3553,6 +3590,29 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
     end
 
     function comp:onMouseUp(_, _, button, _, _)
+        if (button == MB_LEFT or button == 1) and comp._wpDrag then
+            local drag = comp._wpDrag
+            comp._wpDrag = nil
+            if drag.moved then
+                if not drag.cleared then
+                    comp._lastStartKey = nil
+                    comp._lastEndKey = nil
+                    comp._route = nil
+                    comp._routeErr = nil
+                    comp._lastUpdate = nil
+                end
+            else
+                if comp._routeWaypoints and comp._routeWaypoints[drag.idx] then
+                    table.remove(comp._routeWaypoints, drag.idx)
+                    comp._lastStartKey = nil
+                    comp._lastEndKey = nil
+                    comp._route = nil
+                    comp._routeErr = nil
+                    comp._lastUpdate = nil
+                end
+            end
+            return true
+        end
         if (button == MB_LEFT or button == 1) and comp.drag then
             comp.drag = nil
             return true
