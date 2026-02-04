@@ -3792,6 +3792,12 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                 end_lat = runway_lat
                 end_lon = runway_lon
             end
+            if aircraft and comp.yal and comp.yal.aircraftonrwy and is_valid_latlon(runway_lat, runway_lon) then
+                local onRunway = comp.yal.aircraftonrwy(def.DEPARTURE, 40, depThresholdHeadingLimit)
+                if onRunway then
+                    allow_runway_route = true
+                end
+            end
         else
             runway_lat = yal.desrwylatstartpos and get(yal.desrwylatstartpos) or nil
             runway_lon = yal.desrwylonstartpos and get(yal.desrwylonstartpos) or nil
@@ -4386,10 +4392,10 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
 
                 local opts = {}
                 if mode == 0 then
-                    opts.avoid_runway_end = true
-                    opts.runway_penalty = 500
-                    opts.disallow_runway_edges = true
-                    opts.avoid_runway_nodes = true
+                    opts.avoid_runway_end = not allow_runway_route
+                    opts.runway_penalty = allow_runway_route and 1 or 500
+                    opts.disallow_runway_edges = not allow_runway_route
+                    opts.avoid_runway_nodes = not allow_runway_route
                     if comp._selectedDepEntryId and data.nodes and data.nodes[comp._selectedDepEntryId] then
                         opts.end_node_id = comp._selectedDepEntryId
                     elseif dep_holdshort_id and data.nodes and data.nodes[dep_holdshort_id] then
