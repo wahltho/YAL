@@ -5563,6 +5563,7 @@ function P.runProcedureLoop(loopIndex)
                             sasl.logDebug("View changes OFF. Skipping pure view step to: " .. tostring(step.nextStep))
                             loop.currentStepName = step.nextStep
                             loop.lastStepName = nil -- Wichtig für den nächsten Schritt
+                            P.viewSkipRequested = true
 
                         else -- Muss isViewBranchStep sein
                             -- Fall 2: View + Branch Step (view + branch)
@@ -5585,6 +5586,7 @@ function P.runProcedureLoop(loopIndex)
                                 sasl.logDebug("Branch returned unexpected value, proceeding to default nextStep (nil).")
                             end
                             loop.lastStepName = nil -- Wichtig für den nächsten Schritt
+                            P.viewSkipRequested = true
                         end
                         -- Ende der Optimierungslogik für diesen Zyklus
 
@@ -5989,6 +5991,12 @@ function P.do_yal()
     local defaultview_step = helpers.stepDefaultViewUpdate()
     if quickview_step or defaultview_step then
         next_recommended_wait_step = def.SHORTWAIT
+    end
+    if P.viewSkipRequested then
+        if next_recommended_wait_step == def.STANDARDWAIT then
+            next_recommended_wait_step = def.VERYSHORTWAIT
+        end
+        P.viewSkipRequested = nil
     end
 
     local currentFmsPhase = get(P.fmsflightphase)

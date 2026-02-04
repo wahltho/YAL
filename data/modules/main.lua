@@ -421,6 +421,7 @@ function update()
             if type(next_recommended_wait_step) ~= "number" or
                (next_recommended_wait_step ~= def.STANDARDWAIT and
                 next_recommended_wait_step ~= def.SHORTWAIT and
+                next_recommended_wait_step ~= def.VERYSHORTWAIT and
                 next_recommended_wait_step ~= def.MEDIUMWAIT and
                 next_recommended_wait_step ~= def.LONGWAIT) then
                 
