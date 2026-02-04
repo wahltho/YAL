@@ -12,7 +12,7 @@ local rerouteDriftMeters = 40
 local guidanceMinSpeed = 1
 local initialGuidanceMinSpeed = 0.2
 local guidanceTurnDistance = 80
-local guidanceTurnAngle = 30
+local guidanceTurnAngle = 20
 local guidanceLeadTimeSec = 12
 local guidanceMaxDistance = 180
 local guidanceStraightAngle = 10
@@ -2102,7 +2102,7 @@ local function maybe_speak_guidance(comp, now, aircraft)
     end
     local data = comp._route.data or comp._data
     local path = comp._route.path
-    local function guidance_label_info(from_id, to_id, fallback_label, ramp_hint)
+    local function guidance_label_info(from_id, to_id, fallback_label, ramp_hint, allow_missing)
         local raw_label = get_edge_label(data, from_id, to_id)
         if raw_label and is_runway_label(raw_label) then
             local display = normalize_runway_name(raw_label)
@@ -2125,6 +2125,9 @@ local function maybe_speak_guidance(comp, now, aircraft)
         if label ~= "" then
             return { kind = "taxiway", text = taxiway_label_voice(label), display = label }
         end
+        if allow_missing then
+            return { kind = "taxiway", text = "", display = "", missingLabel = true }
+        end
         return nil
     end
     local function emit_guidance(info)
@@ -2144,7 +2147,7 @@ local function maybe_speak_guidance(comp, now, aircraft)
     local tirespeed = yal and yal.tirespeed and (get(yal.tirespeed) or 0) or 0
     if not comp._initialGuidanceDone and path and #path >= 2 then
         if tirespeed >= initialGuidanceMinSpeed then
-            local info = guidance_label_info(path[1], path[2], nil, comp._startRamp)
+            local info = guidance_label_info(path[1], path[2], nil, comp._startRamp, false)
             if info then
                 local text = ""
                 if info.kind == "taxiway" then
@@ -2195,9 +2198,10 @@ local function maybe_speak_guidance(comp, now, aircraft)
         diag("segment-nodes-missing")
         return
     end
-    local curr_label = normalize_taxiway_label(get_edge_label(data, path[seg_idx], path[seg_idx + 1]))
-    local next_info = guidance_label_info(path[seg_idx + 1], path[seg_idx + 2], curr_label, comp._endRamp)
-    if not next_info or next_info.text == "" then
+    local curr_raw_label = get_edge_label(data, path[seg_idx], path[seg_idx + 1])
+    local curr_label = normalize_taxiway_label(curr_raw_label)
+    local next_info = guidance_label_info(path[seg_idx + 1], path[seg_idx + 2], curr_label, comp._endRamp, true)
+    if not next_info or (next_info.text == "" and not next_info.missingLabel) then
         diag("next-label-empty")
         return
     end
@@ -2237,7 +2241,8 @@ local function maybe_speak_guidance(comp, now, aircraft)
     local text = ""
     local direction = "straight"
     local action = ""
-    if angle < guidanceTurnAngle then
+    local force_turn = curr_raw_label and is_runway_label(curr_raw_label) and next_info.kind ~= "runway"
+    if angle < guidanceTurnAngle and not force_turn then
         direction = "straight"
         action = "STRAIGHT"
         if next_info.kind == "taxiway" then
@@ -2246,7 +2251,11 @@ local function maybe_speak_guidance(comp, now, aircraft)
                 diag("angle-too-small", string.format("angle=%.1f", angle))
                 return
             end
-            text = "Continue straight on Taxiway " .. next_info.text
+            if next_info.missingLabel then
+                text = "Continue straight"
+            else
+                text = "Continue straight on Taxiway " .. next_info.text
+            end
         elseif next_info.kind == "runway" then
             text = "Continue straight on " .. next_info.text
         elseif next_info.kind == "ramp" then
@@ -2257,7 +2266,11 @@ local function maybe_speak_guidance(comp, now, aircraft)
         direction = turn
         action = (turn == "left") and "TURN LEFT" or "TURN RIGHT"
         if next_info.kind == "taxiway" then
-            text = "Turn " .. turn .. " on Taxiway " .. next_info.text
+            if next_info.missingLabel then
+                text = "Turn " .. turn .. " at next taxiway"
+            else
+                text = "Turn " .. turn .. " on Taxiway " .. next_info.text
+            end
         elseif next_info.kind == "runway" then
             text = "Turn " .. turn .. " on " .. next_info.text
         elseif next_info.kind == "ramp" then
