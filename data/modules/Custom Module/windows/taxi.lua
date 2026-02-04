@@ -3595,10 +3595,26 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
         end
         if layout.waypoints and comp._editRoute then
             local hitRadius = 8
-            local hitD2 = hitRadius * hitRadius
+            local hitRadiusAuto = 12
+            local hitRadiusManual = 10
+            local hitRadiusSE = 12
             local best = nil
             local bestDist = nil
             for _, hit in ipairs(layout.waypoints) do
+                local radius = hitRadius
+                if hit.handle_idx and comp._editHandles and comp._editHandles[hit.handle_idx] then
+                    local h = comp._editHandles[hit.handle_idx]
+                    if h then
+                        if h.kind == "auto" then
+                            radius = hitRadiusAuto
+                        elseif h.kind == "start" or h.kind == "end" then
+                            radius = hitRadiusSE
+                        elseif h.kind == "manual" then
+                            radius = hitRadiusManual
+                        end
+                    end
+                end
+                local hitD2 = radius * radius
                 local dx = x - hit.x
                 local dy = y - hit.y
                 local d2 = dx * dx + dy * dy
@@ -3610,16 +3626,52 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
             if best then
                 if best.handle_idx and comp._editHandles and comp._editHandles[best.handle_idx] then
                     local handle = comp._editHandles[best.handle_idx]
-                    comp._wpDrag = {
-                        handle_idx = best.handle_idx,
-                        kind = handle.kind,
-                        wp_idx = handle.wp_idx,
-                        segment_idx = handle.segment_idx,
-                        node_id = handle.node_id,
-                        startX = x,
-                        startY = y,
-                        moved = false
-                    }
+                    if handle and handle.kind == "auto" then
+                        local auto_node_id = handle.node_id
+                        if not comp._routeWaypoints then
+                            comp._routeWaypoints = {}
+                        end
+                        local wlat = handle.lat
+                        local wlon = handle.lon
+                        if not is_valid_latlon(wlat, wlon) and handle.east ~= nil and handle.north ~= nil then
+                            wlat, wlon = sasl.localToWorld(handle.east, 0, -handle.north)
+                        end
+                        if is_valid_latlon(wlat, wlon) then
+                            local wp = {
+                                lat = wlat,
+                                lon = wlon,
+                                east = handle.east,
+                                north = handle.north,
+                                segment_idx = handle.segment_idx
+                            }
+                            local new_idx = insert_waypoint_sorted(comp._routeWaypoints, wp)
+                            handle.kind = "manual"
+                            handle.wp_idx = new_idx
+                            handle.node_id = nil
+                            comp._wpDrag = {
+                                handle_idx = best.handle_idx,
+                                kind = "manual",
+                                wp_idx = new_idx,
+                                segment_idx = handle.segment_idx,
+                                startX = x,
+                                startY = y,
+                                moved = false,
+                                from_auto = true,
+                                auto_node_id = auto_node_id
+                            }
+                        end
+                    else
+                        comp._wpDrag = {
+                            handle_idx = best.handle_idx,
+                            kind = handle.kind,
+                            wp_idx = handle.wp_idx,
+                            segment_idx = handle.segment_idx,
+                            node_id = handle.node_id,
+                            startX = x,
+                            startY = y,
+                            moved = false
+                        }
+                    end
                 else
                     comp._wpDrag = {
                         kind = "manual",
@@ -3832,6 +3884,11 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                             end
                         end
                         mark_edit_dirty(comp)
+                        if drag.from_auto and drag.auto_node_id and not drag.suppressed then
+                            comp._editSuppressedNodes = comp._editSuppressedNodes or {}
+                            comp._editSuppressedNodes[drag.auto_node_id] = true
+                            drag.suppressed = true
+                        end
                     end
                 end
             end
@@ -3851,11 +3908,22 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
         if (button == MB_LEFT or button == 1) and comp._wpDrag then
             local drag = comp._wpDrag
             comp._wpDrag = nil
-            if (not drag.moved) and drag.kind == "manual" and drag.wp_idx then
-                if comp._routeWaypoints and comp._routeWaypoints[drag.wp_idx] then
-                    table.remove(comp._routeWaypoints, drag.wp_idx)
-                    mark_edit_dirty(comp)
+            if not drag.moved then
+                if drag.from_auto and drag.auto_node_id then
+                    if drag.wp_idx and comp._routeWaypoints and comp._routeWaypoints[drag.wp_idx] then
+                        table.remove(comp._routeWaypoints, drag.wp_idx)
+                    end
+                    comp._editSuppressedNodes = comp._editSuppressedNodes or {}
+                    comp._editSuppressedNodes[drag.auto_node_id] = true
+                elseif drag.kind == "manual" and drag.wp_idx then
+                    if comp._routeWaypoints and comp._routeWaypoints[drag.wp_idx] then
+                        table.remove(comp._routeWaypoints, drag.wp_idx)
+                        mark_edit_dirty(comp)
+                    end
                 end
+            elseif drag.from_auto and drag.auto_node_id then
+                comp._editSuppressedNodes = comp._editSuppressedNodes or {}
+                comp._editSuppressedNodes[drag.auto_node_id] = true
             end
             return true
         end
