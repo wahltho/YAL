@@ -53,6 +53,12 @@ local def = require("definitions")
 local settings = require("settings")
 local helpers = require("helpers")
 
+local function log_taxi(message)
+    if helpers and helpers.logInfoTS then
+        helpers.logInfoTS(message)
+    end
+end
+
 local function is_valid_latlon(lat, lon)
     if lat == nil or lon == nil then
         return false
@@ -1596,13 +1602,64 @@ local function build_edit_handles(comp, start_lat, start_lon, end_lat, end_lon)
             end
         end
     end
+
+    local total = #handles
+    local auto_count = 0
+    local manual_count = 0
+    local start_count = 0
+    local end_count = 0
+    for _, h in ipairs(handles) do
+        if h.kind == "auto" then
+            auto_count = auto_count + 1
+        elseif h.kind == "manual" then
+            manual_count = manual_count + 1
+        elseif h.kind == "start" then
+            start_count = start_count + 1
+        elseif h.kind == "end" then
+            end_count = end_count + 1
+        end
+    end
+    local suppressed = 0
+    if comp._editSuppressedNodes then
+        for _ in pairs(comp._editSuppressedNodes) do
+            suppressed = suppressed + 1
+        end
+    end
+    local key = string.format(
+        "%d|%d|%d|%d|%d|%d",
+        #path,
+        total,
+        auto_count,
+        manual_count,
+        start_count + end_count,
+        suppressed
+    )
+    if comp._lastEditHandleKey ~= key then
+        comp._lastEditHandleKey = key
+        log_taxi(
+            string.format(
+                "TaxiEdit: handles path=%d total=%d auto=%d manual=%d start=%d end=%d suppressed=%d",
+                #path,
+                total,
+                auto_count,
+                manual_count,
+                start_count,
+                end_count,
+                suppressed
+            )
+        )
+    end
 end
 
 local function mark_edit_dirty(comp)
+    local was_dirty = comp._editDirty
     comp._editDirty = true
     comp._lastStartKey = nil
     comp._lastEndKey = nil
     comp._lastUpdate = nil
+    if not was_dirty then
+        log_taxi("TaxiEdit: dirty")
+    end
 end
 
 local function getFont(comp)
@@ -2739,6 +2796,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
     comp._visualGuidance = nil
     comp._depTaxiCompleteAnnounced = false
     comp._initialGuidanceDone = false
+    comp._lastRecomputeKey = nil
     comp._lastRerouteTime = nil
     comp._rerouteOverride = nil
     comp._depThresholdLatched = false
@@ -2753,6 +2811,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
     comp._editDirty = false
     comp._editStartOverride = nil
     comp._editEndOverride = nil
+    comp._lastRouteStateKey = nil
     comp._autoEndRampKey = nil
     comp._quality = { rerouteEvents = {} }
     comp._taxiSourceByIcao = {}
@@ -2763,6 +2822,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
 
     function comp:setWindow(win)
         self._window = win
+        log_taxi("TaxiWindow: setWindow")
     end
 
     local function getSize()
@@ -3467,6 +3527,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                 else
                     set(self.visible, false)
                 end
+                log_taxi("TaxiWindow: close")
                 return true
             end
         end
@@ -3533,6 +3594,16 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                         comp._editHandles = nil
                         clear_visual_guidance(comp, "edit-toggle")
                     end
+                    log_taxi(
+                        string.format(
+                            "TaxiEdit: toggle edit=%s draw=%s route=%s waypoints=%d dirty=%s",
+                            tostring(comp._editRoute),
+                            tostring(comp._drawRoute),
+                            tostring(comp._route ~= nil),
+                            (comp._routeWaypoints and #comp._routeWaypoints) or 0,
+                            tostring(comp._editDirty)
+                        )
+                    )
                 elseif b.action == "toggle_draw" then
                     comp._drawRoute = not comp._drawRoute
                     if comp._drawRoute then
@@ -3546,6 +3617,14 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                         comp._editStartOverride = nil
                         comp._editEndOverride = nil
                     end
+                    log_taxi(
+                        string.format(
+                            "TaxiDraw: toggle draw=%s edit=%s waypoints=%d",
+                            tostring(comp._drawRoute),
+                            tostring(comp._editRoute),
+                            (comp._routeWaypoints and #comp._routeWaypoints) or 0
+                        )
+                    )
                 elseif b.action == "clear_route" then
                     comp._routeWaypoints = {}
                     comp._selectedEndRampKey = nil
@@ -3560,6 +3639,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                     comp._route = nil
                     comp._routeErr = nil
                     comp._lastUpdate = nil
+                    log_taxi("TaxiEdit: clear-route")
                 end
                 return true
             end
@@ -3582,9 +3662,11 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                 if comp._selectedEndRampKey == best.key then
                     comp._selectedEndRampKey = nil
                     comp._autoEndRampKey = nil
+                    log_taxi("TaxiEdit: end-ramp cleared")
                 else
                     comp._selectedEndRampKey = best.key
                     comp._autoEndRampKey = nil
+                    log_taxi("TaxiEdit: end-ramp selected key=" .. tostring(best.key))
                 end
                 comp._lastEndKey = nil
                 comp._route = nil
@@ -3627,6 +3709,13 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                 if best.handle_idx and comp._editHandles and comp._editHandles[best.handle_idx] then
                     local handle = comp._editHandles[best.handle_idx]
                     if handle and handle.kind == "auto" then
+                        log_taxi(
+                            string.format(
+                                "TaxiEdit: handle-down kind=auto seg=%s node=%s",
+                                tostring(handle.segment_idx),
+                                tostring(handle.node_id)
+                            )
+                        )
                         local auto_node_id = handle.node_id
                         if not comp._routeWaypoints then
                             comp._routeWaypoints = {}
@@ -3648,6 +3737,13 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                             handle.kind = "manual"
                             handle.wp_idx = new_idx
                             handle.node_id = nil
+                            log_taxi(
+                                string.format(
+                                    "TaxiEdit: auto->manual wp=%d seg=%s",
+                                    tonumber(new_idx or -1),
+                                    tostring(handle.segment_idx)
+                                )
+                            )
                             comp._wpDrag = {
                                 handle_idx = best.handle_idx,
                                 kind = "manual",
@@ -3661,6 +3757,15 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                             }
                         end
                     else
+                        log_taxi(
+                            string.format(
+                                "TaxiEdit: handle-down kind=%s wp=%s seg=%s node=%s",
+                                tostring(handle and handle.kind or "nil"),
+                                tostring(handle and handle.wp_idx or "nil"),
+                                tostring(handle and handle.segment_idx or "nil"),
+                                tostring(handle and handle.node_id or "nil")
+                            )
+                        )
                         comp._wpDrag = {
                             handle_idx = best.handle_idx,
                             kind = handle.kind,
@@ -3673,6 +3778,12 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                         }
                     end
                 else
+                    log_taxi(
+                        string.format(
+                            "TaxiEdit: handle-down kind=manual wp=%s",
+                            tostring(best.idx)
+                        )
+                    )
                     comp._wpDrag = {
                         kind = "manual",
                         wp_idx = best.idx,
@@ -3701,8 +3812,10 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
             if best then
                 if comp._selectedDepEntryId == best.id then
                     comp._selectedDepEntryId = nil
+                    log_taxi("TaxiEdit: dep-entry cleared")
                 else
                     comp._selectedDepEntryId = best.id
+                    log_taxi("TaxiEdit: dep-entry selected id=" .. tostring(best.id))
                 end
                 comp._lastEndKey = nil
                 comp._route = nil
@@ -3747,6 +3860,14 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                                     segment_idx = nil
                                 })
                                 mark_edit_dirty(comp)
+                                log_taxi(
+                                    string.format(
+                                        "TaxiDraw: add-waypoint lat=%.6f lon=%.6f total=%d",
+                                        wlat,
+                                        wlon,
+                                        #comp._routeWaypoints
+                                    )
+                                )
                                 return true
                             end
                         end
@@ -3790,6 +3911,15 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                                         segment_idx = best_idx
                                     })
                                     mark_edit_dirty(comp)
+                                    log_taxi(
+                                        string.format(
+                                            "TaxiEdit: insert-waypoint seg=%s lat=%.6f lon=%.6f total=%d",
+                                            tostring(best_idx),
+                                            wlat,
+                                            wlon,
+                                            #comp._routeWaypoints
+                                        )
+                                    )
                                     return true
                                 end
                             end
@@ -3838,6 +3968,10 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                 if proj and proj.edge then
                     local wlat, wlon = sasl.localToWorld(proj.proj_east, 0, -proj.proj_north)
                     if is_valid_latlon(wlat, wlon) then
+                        drag.lastLat = wlat
+                        drag.lastLon = wlon
+                        drag.lastEast = proj.proj_east
+                        drag.lastNorth = proj.proj_north
                         local handle = (drag.handle_idx and comp._editHandles) and comp._editHandles[drag.handle_idx] or nil
                         if handle then
                             handle.east = proj.proj_east
@@ -3886,6 +4020,9 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                         mark_edit_dirty(comp)
                         if drag.from_auto and drag.auto_node_id and not drag.suppressed then
                             comp._editSuppressedNodes = comp._editSuppressedNodes or {}
+                            if not comp._editSuppressedNodes[drag.auto_node_id] then
+                                log_taxi("TaxiEdit: suppress-auto node=" .. tostring(drag.auto_node_id))
+                            end
                             comp._editSuppressedNodes[drag.auto_node_id] = true
                             drag.suppressed = true
                         end
@@ -3915,15 +4052,60 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                     end
                     comp._editSuppressedNodes = comp._editSuppressedNodes or {}
                     comp._editSuppressedNodes[drag.auto_node_id] = true
+                    mark_edit_dirty(comp)
+                    log_taxi(
+                        string.format(
+                            "TaxiEdit: auto-handle suppressed node=%s",
+                            tostring(drag.auto_node_id)
+                        )
+                    )
                 elseif drag.kind == "manual" and drag.wp_idx then
                     if comp._routeWaypoints and comp._routeWaypoints[drag.wp_idx] then
                         table.remove(comp._routeWaypoints, drag.wp_idx)
                         mark_edit_dirty(comp)
+                        log_taxi(
+                            string.format(
+                                "TaxiEdit: waypoint deleted wp=%s",
+                                tostring(drag.wp_idx)
+                            )
+                        )
                     end
                 end
-            elseif drag.from_auto and drag.auto_node_id then
-                comp._editSuppressedNodes = comp._editSuppressedNodes or {}
-                comp._editSuppressedNodes[drag.auto_node_id] = true
+            else
+                if drag.from_auto and drag.auto_node_id then
+                    comp._editSuppressedNodes = comp._editSuppressedNodes or {}
+                    if not comp._editSuppressedNodes[drag.auto_node_id] then
+                        log_taxi("TaxiEdit: suppress-auto node=" .. tostring(drag.auto_node_id))
+                    end
+                    comp._editSuppressedNodes[drag.auto_node_id] = true
+                end
+                if drag.kind == "start" then
+                    log_taxi(
+                        string.format(
+                            "TaxiEdit: start-move lat=%.6f lon=%.6f",
+                            tonumber(drag.lastLat or 0),
+                            tonumber(drag.lastLon or 0)
+                        )
+                    )
+                elseif drag.kind == "end" then
+                    log_taxi(
+                        string.format(
+                            "TaxiEdit: end-move lat=%.6f lon=%.6f",
+                            tonumber(drag.lastLat or 0),
+                            tonumber(drag.lastLon or 0)
+                        )
+                    )
+                else
+                    log_taxi(
+                        string.format(
+                            "TaxiEdit: waypoint moved kind=%s wp=%s lat=%.6f lon=%.6f",
+                            tostring(drag.kind),
+                            tostring(drag.wp_idx),
+                            tonumber(drag.lastLat or 0),
+                            tonumber(drag.lastLon or 0)
+                        )
+                    )
+                end
             end
             return true
         end
@@ -4094,6 +4276,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
             comp._fitBounds = nil
             comp._runwayName = nil
             clear_visual_guidance(comp, "invalid-icao")
+            log_taxi("TaxiRoute: abort invalid-icao")
             return
         end
 
@@ -4124,6 +4307,13 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
             comp._editStartOverride = nil
             comp._editEndOverride = nil
             comp._depTaxiCompleteAnnounced = false
+            log_taxi(
+                string.format(
+                    "TaxiRoute: reset icao_changed=%s mode_changed=%s",
+                    tostring(icao_changed),
+                    tostring(mode_changed)
+                )
+            )
             if comp._quality then
                 comp._quality.distBadSince = nil
                 comp._quality.badSince = nil
@@ -4635,6 +4825,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
             comp._routeExtraSegments = nil
             comp._lastStartKey = nil
             comp._lastEndKey = nil
+            log_taxi("TaxiRoute: abort no-arrival-runway")
             return
         end
 
@@ -4647,6 +4838,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                     comp._routeExtraSegments = nil
                     comp._lastStartKey = nil
                     comp._lastEndKey = nil
+                    log_taxi("TaxiRoute: abort on-runway")
                     return
                 end
             end
@@ -4658,6 +4850,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
             comp._routeExtraSegments = nil
             comp._lastStartKey = nil
             comp._lastEndKey = nil
+            log_taxi("TaxiDraw: abort draw-route-empty")
             return
         end
 
@@ -4675,6 +4868,37 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
         end
         local start_key = string.format("%.6f|%.6f", anchor_lat or 0, anchor_lon or 0)
         local end_key = string.format("%.6f|%.6f", end_lat or 0, end_lon or 0)
+        local recompute_reason = nil
+        if comp._editDirty then
+            recompute_reason = "edit-dirty"
+        elseif comp._route == nil then
+            recompute_reason = "route-nil"
+        elseif comp._lastStartKey ~= start_key or comp._lastEndKey ~= end_key then
+            recompute_reason = "start-end-change"
+        end
+        if recompute_reason then
+            local recompute_key = string.format(
+                "%s|%s|%s|%d|%s|%s",
+                tostring(recompute_reason),
+                tostring(start_key),
+                tostring(end_key),
+                (comp._routeWaypoints and #comp._routeWaypoints) or 0,
+                tostring(in_edit),
+                tostring(comp._drawRoute)
+            )
+            if comp._lastRecomputeKey ~= recompute_key then
+                comp._lastRecomputeKey = recompute_key
+                log_taxi(
+                    string.format(
+                        "TaxiRoute: recompute reason=%s edit=%s draw=%s wps=%d",
+                        tostring(recompute_reason),
+                        tostring(in_edit),
+                        tostring(comp._drawRoute),
+                        (comp._routeWaypoints and #comp._routeWaypoints) or 0
+                    )
+                )
+            end
+        end
         if comp._editDirty or comp._lastStartKey ~= start_key or comp._lastEndKey ~= end_key or comp._route == nil then
             comp._lastStartKey = start_key
             comp._lastEndKey = end_key
@@ -5350,6 +5574,9 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                 comp._routeLabels = route and build_route_labels(route.data, route.path) or nil
                 comp._routeLabelStats = route and compute_route_label_stats(route.data, route.path) or nil
                 if in_edit and route then
+                    if comp._editDirty then
+                        log_taxi("TaxiEdit: clean")
+                    end
                     comp._editDirty = false
                 end
                 if route and is_valid_latlon(start_lat, start_lon) then
@@ -5427,6 +5654,14 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                     end
                 elseif rerr then
                     helpers.logInfoTS("Taxi: route error " .. tostring(icao) .. " mode=" .. tostring(mode) .. " err=" .. tostring(rerr))
+                    log_taxi(
+                        string.format(
+                            "TaxiRoute: error=%s edit=%s draw=%s",
+                            tostring(rerr),
+                            tostring(in_edit),
+                            tostring(comp._drawRoute)
+                        )
+                    )
                     comp._pendingRerouteEvent = nil
                 end
                 if route and route.bounds then
@@ -5464,6 +5699,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                 comp._route = nil
                 comp._routeErr = canRoute and "route-endpoints-missing" or "no-routes"
                 comp._routeLabels = nil
+                log_taxi("TaxiRoute: skip err=" .. tostring(comp._routeErr))
             end
         end
 
@@ -5663,6 +5899,20 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
             comp._editHandles = nil
         end
 
+        local route_state_key = string.format("%s|%s", tostring(comp._route ~= nil), tostring(comp._routeErr or ""))
+        if comp._lastRouteStateKey ~= route_state_key then
+            comp._lastRouteStateKey = route_state_key
+            log_taxi(
+                string.format(
+                    "TaxiRoute: state route=%s err=%s edit=%s draw=%s",
+                    tostring(comp._route ~= nil),
+                    tostring(comp._routeErr),
+                    tostring(in_edit),
+                    tostring(comp._drawRoute)
+                )
+            )
+        end
+
         if comp._needsCenter and comp._fitBounds then
             local cx, cy = compute_bounds_center(comp._fitBounds)
             set_center(cx, cy)
@@ -5723,6 +5973,18 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                 comp._fitBounds = comp._data.bounds
             end
             comp._needsCenter = true
+        end
+        if vis ~= comp._lastVisible then
+            log_taxi(
+                string.format(
+                    "TaxiWindow: visible=%s route=%s err=%s edit=%s draw=%s",
+                    tostring(vis),
+                    tostring(comp._route ~= nil),
+                    tostring(comp._routeErr),
+                    tostring(comp._editRoute),
+                    tostring(comp._drawRoute)
+                )
+            )
         end
         comp._lastVisible = vis
     end
