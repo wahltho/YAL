@@ -46,6 +46,8 @@ local zoomStep = 1.2
 local minFont = 8
 local maxFont = 24
 local waypointDragPixels = 4
+local editDecisionAngle = 10
+local editHandleMergeMeters = 4
 
 local def = require("definitions")
 local settings = require("settings")
@@ -1441,6 +1443,168 @@ local function clamp(value, minVal, maxVal)
     return value
 end
 
+local function heading_deg_from_to(e1, n1, e2, n2)
+    if e1 == nil or n1 == nil or e2 == nil or n2 == nil then
+        return nil
+    end
+    local dx = e2 - e1
+    local dy = n2 - n1
+    if dx == 0 and dy == 0 then
+        return nil
+    end
+    local h = math.deg(math.atan2(dx, dy))
+    if h < 0 then
+        h = h + 360
+    end
+    return h
+end
+
+local function heading_diff_deg(h1, h2)
+    if h1 == nil or h2 == nil then
+        return 0
+    end
+    local d = math.abs(h1 - h2) % 360
+    if d > 180 then
+        d = 360 - d
+    end
+    return d
+end
+
+local function node_degree(data, node_id)
+    if not data or not node_id then
+        return 0
+    end
+    local adj = data.adjacency_any or data.adjacency
+    local edges = adj and adj[node_id] or nil
+    return edges and #edges or 0
+end
+
+local function insert_waypoint_sorted(route_waypoints, wp)
+    if not route_waypoints then
+        return 1
+    end
+    local insert_at = #route_waypoints + 1
+    if wp.segment_idx then
+        for idx, existing in ipairs(route_waypoints) do
+            if existing.segment_idx and existing.segment_idx > wp.segment_idx then
+                insert_at = idx
+                break
+            end
+        end
+    end
+    table.insert(route_waypoints, insert_at, wp)
+    return insert_at
+end
+
+local function build_edit_handles(comp, start_lat, start_lon, end_lat, end_lon)
+    comp._editHandles = {}
+    local handles = comp._editHandles
+    local route = comp._route
+    if not route or not route.path or not route.data then
+        return
+    end
+    local data = route.data
+    local path = route.path
+    local suppressed = comp._editSuppressedNodes or {}
+    local merge_d2 = editHandleMergeMeters * editHandleMergeMeters
+
+    local function find_near_handle(east, north)
+        for idx, handle in ipairs(handles) do
+            if handle and handle.east ~= nil and handle.north ~= nil then
+                local dx = handle.east - east
+                local dy = handle.north - north
+                if (dx * dx + dy * dy) <= merge_d2 then
+                    return idx
+                end
+            end
+        end
+        return nil
+    end
+
+    local function add_handle(kind, east, north, lat, lon, segment_idx, node_id, wp_idx)
+        if east == nil or north == nil then
+            return nil
+        end
+        local existing = find_near_handle(east, north)
+        if existing then
+            local handle = handles[existing]
+            if kind == "manual" and handle.kind ~= "start" and handle.kind ~= "end" then
+                handle.kind = "manual"
+                handle.wp_idx = wp_idx
+                handle.segment_idx = segment_idx or handle.segment_idx
+            end
+            return existing
+        end
+        handles[#handles + 1] = {
+            kind = kind,
+            east = east,
+            north = north,
+            lat = lat,
+            lon = lon,
+            segment_idx = segment_idx,
+            node_id = node_id,
+            wp_idx = wp_idx
+        }
+        return #handles
+    end
+
+    if is_valid_latlon(start_lat, start_lon) then
+        local sx, sy = latlon_to_local(start_lat, start_lon)
+        add_handle("start", sx, sy, start_lat, start_lon, 1, path[1], nil)
+    end
+    if is_valid_latlon(end_lat, end_lon) then
+        local ex, ey = latlon_to_local(end_lat, end_lon)
+        add_handle("end", ex, ey, end_lat, end_lon, #path, path[#path], nil)
+    end
+
+    if #path >= 3 then
+        for i = 2, #path - 1 do
+            local node_id = path[i]
+            if node_id and not suppressed[node_id] then
+                local cur = data.nodes and data.nodes[node_id]
+                if cur and cur.east ~= nil and cur.north ~= nil then
+                    local add = false
+                    if node_degree(data, node_id) >= 3 then
+                        add = true
+                    end
+                    local prev = data.nodes[path[i - 1]]
+                    local nxt = data.nodes[path[i + 1]]
+                    if prev and nxt and prev.east ~= nil and prev.north ~= nil and nxt.east ~= nil and nxt.north ~= nil then
+                        local h1 = heading_deg_from_to(prev.east, prev.north, cur.east, cur.north)
+                        local h2 = heading_deg_from_to(cur.east, cur.north, nxt.east, nxt.north)
+                        if heading_diff_deg(h1, h2) >= editDecisionAngle then
+                            add = true
+                        end
+                    end
+                    if add then
+                        add_handle("auto", cur.east, cur.north, cur.lat, cur.lon, i, node_id, nil)
+                    end
+                end
+            end
+        end
+    end
+
+    if comp._routeWaypoints and #comp._routeWaypoints > 0 then
+        for idx, wp in ipairs(comp._routeWaypoints) do
+            local we = wp.east
+            local wn = wp.north
+            if (we == nil or wn == nil) and is_valid_latlon(wp.lat, wp.lon) then
+                we, wn = latlon_to_local(wp.lat, wp.lon)
+            end
+            if we ~= nil and wn ~= nil then
+                add_handle("manual", we, wn, wp.lat, wp.lon, wp.segment_idx, nil, idx)
+            end
+        end
+    end
+end
+
+local function mark_edit_dirty(comp)
+    comp._editDirty = true
+    comp._lastStartKey = nil
+    comp._lastEndKey = nil
+    comp._lastUpdate = nil
+end
+
 local function getFont(comp)
     if comp._fontHandle then
         return comp._fontHandle
@@ -2584,6 +2748,11 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
     comp._drawRoute = false
     comp._routeWaypoints = {}
     comp._wpDrag = nil
+    comp._editHandles = nil
+    comp._editSuppressedNodes = nil
+    comp._editDirty = false
+    comp._editStartOverride = nil
+    comp._editEndOverride = nil
     comp._autoEndRampKey = nil
     comp._quality = { rerouteEvents = {} }
     comp._taxiSourceByIcao = {}
@@ -3153,12 +3322,44 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
             end
         end
 
-        if comp._startPoint then
+        local show_edit_handles = comp._editRoute and comp._editHandles and #comp._editHandles > 0
+        if comp._startPoint and not show_edit_handles then
             local sx, sy = project(comp._startPoint.east, comp._startPoint.north)
             drawRectangle(sx - 3, sy - 3, 6, 6, startColor)
             drawText(font, sx + 5, sy + 2, "S", mapFontSize, TEXT_ALIGN_LEFT, {0, 0, 0, 0.9})
         end
-        if comp._routeWaypoints and #comp._routeWaypoints > 0 then
+        if show_edit_handles then
+            for i, handle in ipairs(comp._editHandles) do
+                if handle and handle.east ~= nil and handle.north ~= nil then
+                    local wx, wy = project(handle.east, handle.north)
+                    local size = 5
+                    local color = {0.7, 0.9, 0.3, 1}
+                    local label = nil
+                    if handle.kind == "start" then
+                        size = 8
+                        color = startColor
+                        label = "S"
+                    elseif handle.kind == "end" then
+                        size = 8
+                        color = endColor
+                        label = "E"
+                    elseif handle.kind == "manual" then
+                        size = 7
+                        color = {0.3, 0.8, 0.9, 1}
+                        if handle.wp_idx then
+                            label = "V" .. tostring(handle.wp_idx)
+                        else
+                            label = "V"
+                        end
+                    end
+                    drawRectangle(wx - size * 0.5, wy - size * 0.5, size, size, color)
+                    if label then
+                        drawText(font, wx + size * 0.6, wy + 2, label, mapFontSize, TEXT_ALIGN_LEFT, {0, 0, 0, 0.9})
+                    end
+                    layout.waypoints[#layout.waypoints + 1] = { x = wx, y = wy, handle_idx = i }
+                end
+            end
+        elseif comp._routeWaypoints and #comp._routeWaypoints > 0 then
             for i, wp in ipairs(comp._routeWaypoints) do
                 if wp and wp.east and wp.north then
                     local wx, wy = project(wp.east, wp.north)
@@ -3168,14 +3369,16 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                 end
             end
         end
-        if comp._selectedEndRampKey and comp._endRamp and comp._endRamp.east and comp._endRamp.north then
-            local ex, ey = project(comp._endRamp.east, comp._endRamp.north)
-            drawRectangle(ex - 4, ey - 4, 8, 8, endColor)
-            drawText(font, ex + 6, ey + 2, "E", mapFontSize, TEXT_ALIGN_LEFT, {0, 0, 0, 0.9})
-        elseif comp._endPoint then
-            local ex, ey = project(comp._endPoint.east, comp._endPoint.north)
-            drawRectangle(ex - 3, ey - 3, 6, 6, endColor)
-            drawText(font, ex + 5, ey + 2, "E", mapFontSize, TEXT_ALIGN_LEFT, {0, 0, 0, 0.9})
+        if not show_edit_handles then
+            if comp._selectedEndRampKey and comp._endRamp and comp._endRamp.east and comp._endRamp.north then
+                local ex, ey = project(comp._endRamp.east, comp._endRamp.north)
+                drawRectangle(ex - 4, ey - 4, 8, 8, endColor)
+                drawText(font, ex + 6, ey + 2, "E", mapFontSize, TEXT_ALIGN_LEFT, {0, 0, 0, 0.9})
+            elseif comp._endPoint then
+                local ex, ey = project(comp._endPoint.east, comp._endPoint.north)
+                drawRectangle(ex - 3, ey - 3, 6, 6, endColor)
+                drawText(font, ex + 5, ey + 2, "E", mapFontSize, TEXT_ALIGN_LEFT, {0, 0, 0, 0.9})
+            end
         end
 
         local function draw_aircraft_marker(axp, ayp)
@@ -3321,6 +3524,14 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                     if not comp._editRoute then
                         comp._drawRoute = false
                         comp._wpDrag = nil
+                        comp._editHandles = nil
+                        comp._editSuppressedNodes = nil
+                    end
+                    if comp._editRoute then
+                        comp._editDirty = false
+                        comp._editSuppressedNodes = {}
+                        comp._editHandles = nil
+                        clear_visual_guidance(comp, "edit-toggle")
                     end
                 elseif b.action == "toggle_draw" then
                     comp._drawRoute = not comp._drawRoute
@@ -3329,11 +3540,21 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                         comp._route = nil
                         comp._routeErr = nil
                         comp._lastUpdate = nil
+                        comp._editDirty = false
+                        comp._editSuppressedNodes = {}
+                        comp._editHandles = nil
+                        comp._editStartOverride = nil
+                        comp._editEndOverride = nil
                     end
                 elseif b.action == "clear_route" then
                     comp._routeWaypoints = {}
                     comp._selectedEndRampKey = nil
                     comp._autoEndRampKey = nil
+                    comp._editStartOverride = nil
+                    comp._editEndOverride = nil
+                    comp._editDirty = false
+                    comp._editHandles = nil
+                    comp._editSuppressedNodes = nil
                     comp._lastStartKey = nil
                     comp._lastEndKey = nil
                     comp._route = nil
@@ -3387,13 +3608,27 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                 end
             end
             if best then
-                comp._wpDrag = {
-                    idx = best.idx,
-                    startX = x,
-                    startY = y,
-                    moved = false,
-                    cleared = false
-                }
+                if best.handle_idx and comp._editHandles and comp._editHandles[best.handle_idx] then
+                    local handle = comp._editHandles[best.handle_idx]
+                    comp._wpDrag = {
+                        handle_idx = best.handle_idx,
+                        kind = handle.kind,
+                        wp_idx = handle.wp_idx,
+                        segment_idx = handle.segment_idx,
+                        node_id = handle.node_id,
+                        startX = x,
+                        startY = y,
+                        moved = false
+                    }
+                else
+                    comp._wpDrag = {
+                        kind = "manual",
+                        wp_idx = best.idx,
+                        startX = x,
+                        startY = y,
+                        moved = false
+                    }
+                end
                 return true
             end
         end
@@ -3449,6 +3684,9 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                         if proj and proj.edge then
                             local wlat, wlon = sasl.localToWorld(proj.proj_east, 0, -proj.proj_north)
                             if is_valid_latlon(wlat, wlon) then
+                                if not comp._routeWaypoints then
+                                    comp._routeWaypoints = {}
+                                end
                                 table.insert(comp._routeWaypoints, {
                                     lat = wlat,
                                     lon = wlon,
@@ -3456,11 +3694,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                                     north = proj.proj_north,
                                     segment_idx = nil
                                 })
-                                comp._lastStartKey = nil
-                                comp._lastEndKey = nil
-                                comp._route = nil
-                                comp._routeErr = nil
-                                comp._lastUpdate = nil
+                                mark_edit_dirty(comp)
                                 return true
                             end
                         end
@@ -3493,25 +3727,17 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                                 local wn = n1.north + (n2.north - n1.north) * best_t
                                 local wlat, wlon = sasl.localToWorld(we, 0, -wn)
                                 if is_valid_latlon(wlat, wlon) then
-                                    local insert_at = #comp._routeWaypoints + 1
-                                    for idx, wp in ipairs(comp._routeWaypoints) do
-                                        if wp.segment_idx and wp.segment_idx > best_idx then
-                                            insert_at = idx
-                                            break
-                                        end
+                                    if not comp._routeWaypoints then
+                                        comp._routeWaypoints = {}
                                     end
-                                    table.insert(comp._routeWaypoints, insert_at, {
+                                    insert_waypoint_sorted(comp._routeWaypoints, {
                                         lat = wlat,
                                         lon = wlon,
                                         east = we,
                                         north = wn,
                                         segment_idx = best_idx
                                     })
-                                    comp._lastStartKey = nil
-                                    comp._lastEndKey = nil
-                                    comp._route = nil
-                                    comp._routeErr = nil
-                                    comp._lastUpdate = nil
+                                    mark_edit_dirty(comp)
                                     return true
                                 end
                             end
@@ -3547,8 +3773,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
             if (dx * dx + dy * dy) >= (waypointDragPixels * waypointDragPixels) then
                 drag.moved = true
             end
-            local wp = comp._routeWaypoints and comp._routeWaypoints[drag.idx] or nil
-            if wp and comp._mapTransform and comp._data then
+            if drag.moved and comp._mapTransform and comp._data then
                 local t = comp._mapTransform
                 local function screen_to_world(sx, sy)
                     local ddx = (sx - (t.mapX + t.mapW * 0.5) - (t.panX or 0)) / (t.scale or 1)
@@ -3561,19 +3786,52 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                 if proj and proj.edge then
                     local wlat, wlon = sasl.localToWorld(proj.proj_east, 0, -proj.proj_north)
                     if is_valid_latlon(wlat, wlon) then
-                        wp.lat = wlat
-                        wp.lon = wlon
-                        wp.east = proj.proj_east
-                        wp.north = proj.proj_north
-                        wp.segment_idx = nil
-                        if drag.moved and not drag.cleared then
-                            comp._lastStartKey = nil
-                            comp._lastEndKey = nil
-                            comp._route = nil
-                            comp._routeErr = nil
-                            comp._lastUpdate = nil
-                            drag.cleared = true
+                        local handle = (drag.handle_idx and comp._editHandles) and comp._editHandles[drag.handle_idx] or nil
+                        if handle then
+                            handle.east = proj.proj_east
+                            handle.north = proj.proj_north
+                            handle.lat = wlat
+                            handle.lon = wlon
                         end
+                        if drag.kind == "start" then
+                            comp._editStartOverride = { lat = wlat, lon = wlon, mode = comp.mode, icao = comp._lastIcao }
+                        elseif drag.kind == "end" then
+                            comp._editEndOverride = { lat = wlat, lon = wlon, mode = comp.mode, icao = comp._lastIcao }
+                        else
+                            if drag.kind == "auto" and not drag.wp_idx then
+                                if not comp._routeWaypoints then
+                                    comp._routeWaypoints = {}
+                                end
+                                local wp = {
+                                    lat = wlat,
+                                    lon = wlon,
+                                    east = proj.proj_east,
+                                    north = proj.proj_north,
+                                    segment_idx = drag.segment_idx
+                                }
+                                local new_idx = insert_waypoint_sorted(comp._routeWaypoints, wp)
+                                drag.wp_idx = new_idx
+                                drag.kind = "manual"
+                                if handle then
+                                    handle.kind = "manual"
+                                    handle.wp_idx = new_idx
+                                    handle.node_id = nil
+                                end
+                                if drag.node_id then
+                                    comp._editSuppressedNodes = comp._editSuppressedNodes or {}
+                                    comp._editSuppressedNodes[drag.node_id] = true
+                                end
+                            end
+                            if drag.wp_idx and comp._routeWaypoints and comp._routeWaypoints[drag.wp_idx] then
+                                local wp = comp._routeWaypoints[drag.wp_idx]
+                                wp.lat = wlat
+                                wp.lon = wlon
+                                wp.east = proj.proj_east
+                                wp.north = proj.proj_north
+                                wp.segment_idx = nil
+                            end
+                        end
+                        mark_edit_dirty(comp)
                     end
                 end
             end
@@ -3593,22 +3851,10 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
         if (button == MB_LEFT or button == 1) and comp._wpDrag then
             local drag = comp._wpDrag
             comp._wpDrag = nil
-            if drag.moved then
-                if not drag.cleared then
-                    comp._lastStartKey = nil
-                    comp._lastEndKey = nil
-                    comp._route = nil
-                    comp._routeErr = nil
-                    comp._lastUpdate = nil
-                end
-            else
-                if comp._routeWaypoints and comp._routeWaypoints[drag.idx] then
-                    table.remove(comp._routeWaypoints, drag.idx)
-                    comp._lastStartKey = nil
-                    comp._lastEndKey = nil
-                    comp._route = nil
-                    comp._routeErr = nil
-                    comp._lastUpdate = nil
+            if (not drag.moved) and drag.kind == "manual" and drag.wp_idx then
+                if comp._routeWaypoints and comp._routeWaypoints[drag.wp_idx] then
+                    table.remove(comp._routeWaypoints, drag.wp_idx)
+                    mark_edit_dirty(comp)
                 end
             end
             return true
@@ -3657,6 +3903,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
         if comp._timer then
             now = sasl.getElapsedSeconds(comp._timer) or 0
         end
+        local in_edit = comp._editRoute or comp._drawRoute
         if comp._lastUpdate and (now - comp._lastUpdate) < updateInterval then
             return
         end
@@ -3675,10 +3922,8 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
             end
         end
 
-        -- Manual editing: do not auto-recompute routes while edit/draw is active.
-        if comp._editRoute or comp._drawRoute then
+        if in_edit then
             clear_visual_guidance(comp, "edit")
-            return
         end
 
         if not yal then
@@ -3805,6 +4050,11 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
             comp._lastGuidanceLabel = nil
             comp._lastGuidanceTime = nil
             clear_visual_guidance(comp, "reset")
+            comp._editHandles = nil
+            comp._editSuppressedNodes = nil
+            comp._editDirty = false
+            comp._editStartOverride = nil
+            comp._editEndOverride = nil
             comp._depTaxiCompleteAnnounced = false
             if comp._quality then
                 comp._quality.distBadSince = nil
@@ -4243,9 +4493,28 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
             end
         end
 
-        if comp._rerouteOverride and is_valid_latlon(comp._rerouteOverride.lat, comp._rerouteOverride.lon) then
+        if (not in_edit) and comp._rerouteOverride and is_valid_latlon(comp._rerouteOverride.lat, comp._rerouteOverride.lon) then
             start_lat = comp._rerouteOverride.lat
             start_lon = comp._rerouteOverride.lon
+        end
+
+        local start_override = comp._editStartOverride
+        local has_start_override = start_override
+            and start_override.mode == mode
+            and start_override.icao == icao
+            and is_valid_latlon(start_override.lat, start_override.lon)
+        if has_start_override then
+            start_lat = start_override.lat
+            start_lon = start_override.lon
+        end
+        local end_override = comp._editEndOverride
+        local has_end_override = end_override
+            and end_override.mode == mode
+            and end_override.icao == icao
+            and is_valid_latlon(end_override.lat, end_override.lon)
+        if has_end_override then
+            end_lat = end_override.lat
+            end_lon = end_override.lon
         end
 
         local start_node_id, start_node_dist = nearest_node_info(data, start_lat, start_lon, false)
@@ -4258,7 +4527,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
         if mode == 0 and data and data.runway_nodes then
             dep_end_node_id, dep_end_node_dist = nearest_non_runway_node(data, end_lat, end_lon)
         end
-        if mode == 1 and arr_exit_id and start_node_dist and start_node_dist > arrStartNodeMaxMeters
+        if mode == 1 and arr_exit_id and (not has_start_override) and start_node_dist and start_node_dist > arrStartNodeMaxMeters
             and arrival_grace_active(comp, now)
             and data and data.nodes and data.nodes[arr_exit_id] then
             local exit_node = data.nodes[arr_exit_id]
@@ -4270,7 +4539,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                 comp._rerouteOverride = nil
             end
         end
-        if mode == 0 and comp._selectedDepEntryId and data and data.nodes and data.nodes[comp._selectedDepEntryId] then
+        if mode == 0 and (not has_end_override) and comp._selectedDepEntryId and data and data.nodes and data.nodes[comp._selectedDepEntryId] then
             local sel = data.nodes[comp._selectedDepEntryId]
             end_lat = sel.lat
             end_lon = sel.lon
@@ -4326,17 +4595,19 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
 
         local anchor_lat = start_lat
         local anchor_lon = start_lon
-        if comp._rerouteOverride and is_valid_latlon(comp._rerouteOverride.lat, comp._rerouteOverride.lon) then
-            anchor_lat = comp._rerouteOverride.lat
-            anchor_lon = comp._rerouteOverride.lon
-        elseif comp._route and comp._routeStartAnchor
-            and is_valid_latlon(comp._routeStartAnchor.lat, comp._routeStartAnchor.lon) then
-            anchor_lat = comp._routeStartAnchor.lat
-            anchor_lon = comp._routeStartAnchor.lon
+        if not in_edit then
+            if comp._rerouteOverride and is_valid_latlon(comp._rerouteOverride.lat, comp._rerouteOverride.lon) then
+                anchor_lat = comp._rerouteOverride.lat
+                anchor_lon = comp._rerouteOverride.lon
+            elseif comp._route and comp._routeStartAnchor
+                and is_valid_latlon(comp._routeStartAnchor.lat, comp._routeStartAnchor.lon) then
+                anchor_lat = comp._routeStartAnchor.lat
+                anchor_lon = comp._routeStartAnchor.lon
+            end
         end
         local start_key = string.format("%.6f|%.6f", anchor_lat or 0, anchor_lon or 0)
         local end_key = string.format("%.6f|%.6f", end_lat or 0, end_lon or 0)
-        if comp._lastStartKey ~= start_key or comp._lastEndKey ~= end_key or comp._route == nil then
+        if comp._editDirty or comp._lastStartKey ~= start_key or comp._lastEndKey ~= end_key or comp._route == nil then
             comp._lastStartKey = start_key
             comp._lastEndKey = end_key
             comp._initialGuidanceDone = false
@@ -5010,10 +5281,17 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                 comp._routeErr = rerr
                 comp._routeLabels = route and build_route_labels(route.data, route.path) or nil
                 comp._routeLabelStats = route and compute_route_label_stats(route.data, route.path) or nil
+                if in_edit and route then
+                    comp._editDirty = false
+                end
                 if route and is_valid_latlon(start_lat, start_lon) then
-                    comp._routeStartAnchor = { lat = start_lat, lon = start_lon }
-                    if comp._rerouteOverride then
-                        comp._rerouteOverride = nil
+                    if not in_edit then
+                        comp._routeStartAnchor = { lat = start_lat, lon = start_lon }
+                        if comp._rerouteOverride then
+                            comp._rerouteOverride = nil
+                        end
+                    else
+                        comp._routeStartAnchor = nil
                     end
                 end
                 if route and route.path then
@@ -5190,14 +5468,39 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
             end
         end
 
-        if comp._route and aircraft and aircraft.east and aircraft.north then
-            local yal = comp.yal or _G.yal
-            local onGround = yal and yal.airgroundsensor and (get(yal.airgroundsensor) == def.ON)
-            local tirespeed = yal and yal.tirespeed and (get(yal.tirespeed) or 0) or 0
-            if onGround and tirespeed > 1 and not (mode == 0 and comp._depThresholdLatched) then
-                if mode == 1 and comp.yal and comp.yal.aircraftonrwy and is_valid_latlon(runway_lat, runway_lon) then
-                    local offRunway = comp.yal.aircraftonrwy(def.ARRIVAL, 40, 20)
-                    if offRunway and not comp._rerouteOverride then
+        if not in_edit then
+            if comp._route and aircraft and aircraft.east and aircraft.north then
+                local yal = comp.yal or _G.yal
+                local onGround = yal and yal.airgroundsensor and (get(yal.airgroundsensor) == def.ON)
+                local tirespeed = yal and yal.tirespeed and (get(yal.tirespeed) or 0) or 0
+                if onGround and tirespeed > 1 and not (mode == 0 and comp._depThresholdLatched) then
+                    if mode == 1 and comp.yal and comp.yal.aircraftonrwy and is_valid_latlon(runway_lat, runway_lon) then
+                        local offRunway = comp.yal.aircraftonrwy(def.ARRIVAL, 40, 20)
+                        if offRunway and not comp._rerouteOverride then
+                            comp._rerouteOverride = { lat = aircraft.lat, lon = aircraft.lon }
+                            if not arrival_grace_active(comp, now) then
+                                comp._pendingRerouteEvent = true
+                            end
+                            comp._lastRerouteTime = now
+                            comp._lastStartKey = nil
+                            comp._route = nil
+                            comp._routeErr = nil
+                            comp._routeLabels = nil
+                            comp._routeLabelStats = nil
+                            return
+                        end
+                    end
+                    local routeData = comp._route.data
+                    local dist = distance_to_route(routeData, comp._route.path, aircraft.east, aircraft.north)
+                    if comp._routeExtraSegments then
+                        local extra = distance_to_segments(comp._routeExtraSegments, aircraft.east, aircraft.north)
+                        if extra and (not dist or extra < dist) then
+                            dist = extra
+                        end
+                    end
+                    comp._lastRouteDist = dist
+                    local lastReroute = comp._lastRerouteTime or 0
+                    if dist and dist > rerouteDriftMeters and (now - lastReroute) > rerouteCooldown then
                         comp._rerouteOverride = { lat = aircraft.lat, lon = aircraft.lon }
                         if not arrival_grace_active(comp, now) then
                             comp._pendingRerouteEvent = true
@@ -5208,59 +5511,36 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                         comp._routeErr = nil
                         comp._routeLabels = nil
                         comp._routeLabelStats = nil
-                        return
                     end
-                end
-                local routeData = comp._route.data
-                local dist = distance_to_route(routeData, comp._route.path, aircraft.east, aircraft.north)
-                if comp._routeExtraSegments then
-                    local extra = distance_to_segments(comp._routeExtraSegments, aircraft.east, aircraft.north)
-                    if extra and (not dist or extra < dist) then
-                        dist = extra
-                    end
-                end
-                comp._lastRouteDist = dist
-                local lastReroute = comp._lastRerouteTime or 0
-                if dist and dist > rerouteDriftMeters and (now - lastReroute) > rerouteCooldown then
-                    comp._rerouteOverride = { lat = aircraft.lat, lon = aircraft.lon }
-                    if not arrival_grace_active(comp, now) then
-                        comp._pendingRerouteEvent = true
-                    end
-                    comp._lastRerouteTime = now
-                    comp._lastStartKey = nil
-                    comp._route = nil
-                    comp._routeErr = nil
-                    comp._routeLabels = nil
-                    comp._routeLabelStats = nil
                 end
             end
-        end
 
-        if comp._route then
-            if maybe_force_global_for_quality(comp, now, icao, mode, data, helpers) then
-                return
+            if comp._route then
+                if maybe_force_global_for_quality(comp, now, icao, mode, data, helpers) then
+                    return
+                end
+                maybe_speak_guidance(comp, now, aircraft)
             end
-            maybe_speak_guidance(comp, now, aircraft)
-        end
-        if comp.mode == 0 and not comp._depTaxiCompleteAnnounced and comp._runwayName and comp._runwayName ~= "" then
-            local yal = comp.yal or _G.yal
-            local onGround = yal and yal.airgroundsensor and (get(yal.airgroundsensor) == def.ON)
-            if onGround and comp.yal and comp.yal.aircraftonrwy then
-                local onRunway = comp.yal.aircraftonrwy(def.DEPARTURE, 40, depThresholdHeadingLimit)
-                if onRunway then
-                    local rwy_phrase = runway_label_voice(comp._runwayName)
-                    emit_guidance(comp, now, {
-                        text = "On departure " .. rwy_phrase .. ", taxi complete",
-                        direction = "straight",
-                        action = "TAXI COMPLETE",
-                        label = build_visual_label("runway", normalize_runway_name(comp._runwayName)),
-                        kind = "runway"
-                    }, is_auto_taxi_guidance_enabled())
-                    comp._depTaxiCompleteAnnounced = true
+            if comp.mode == 0 and not comp._depTaxiCompleteAnnounced and comp._runwayName and comp._runwayName ~= "" then
+                local yal = comp.yal or _G.yal
+                local onGround = yal and yal.airgroundsensor and (get(yal.airgroundsensor) == def.ON)
+                if onGround and comp.yal and comp.yal.aircraftonrwy then
+                    local onRunway = comp.yal.aircraftonrwy(def.DEPARTURE, 40, depThresholdHeadingLimit)
+                    if onRunway then
+                        local rwy_phrase = runway_label_voice(comp._runwayName)
+                        emit_guidance(comp, now, {
+                            text = "On departure " .. rwy_phrase .. ", taxi complete",
+                            direction = "straight",
+                            action = "TAXI COMPLETE",
+                            label = build_visual_label("runway", normalize_runway_name(comp._runwayName)),
+                            kind = "runway"
+                        }, is_auto_taxi_guidance_enabled())
+                        comp._depTaxiCompleteAnnounced = true
+                    end
                 end
             end
+            update_visual_guidance(comp, now, aircraft)
         end
-        update_visual_guidance(comp, now, aircraft)
 
         comp._aircraftPoint = nil
         if aircraft and aircraft.east ~= nil and aircraft.north ~= nil then
@@ -5303,6 +5583,16 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
         if is_valid_latlon(end_lat, end_lon) then
             local ex, ey = latlon_to_local(end_lat, end_lon)
             comp._endPoint = { east = ex, north = ey }
+        end
+
+        if in_edit then
+            if comp._route and comp._route.path and comp._route.data then
+                build_edit_handles(comp, start_lat, start_lon, end_lat, end_lon)
+            else
+                comp._editHandles = nil
+            end
+        else
+            comp._editHandles = nil
         end
 
         if comp._needsCenter and comp._fitBounds then
