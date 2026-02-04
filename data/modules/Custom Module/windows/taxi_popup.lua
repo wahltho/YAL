@@ -161,6 +161,10 @@ function M.newComponent(ctx)
         return false
     end
 
+    function comp:update()
+        -- no-op to satisfy SASL updateAll()
+    end
+
     return comp
 end
 
