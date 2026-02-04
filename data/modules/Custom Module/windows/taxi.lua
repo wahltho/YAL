@@ -4858,6 +4858,9 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                         if mode == 1 and backtrack_required then
                             backtrack_node = arr_exit_id or route.path[1]
                             backtrack_target = profile.touchdown or profile.threshold
+                        elseif mode == 0 and not allow_runway_route then
+                            backtrack_node = comp._selectedDepEntryId or dep_holdshort_id or dep_end_node_id or route.end_id or route.path[#route.path]
+                            backtrack_target = profile.threshold
                         end
                         if backtrack_node then
                             comp._routeExtraSegments = build_runway_backtrack_segments(data, profile, backtrack_node, backtrack_target)
