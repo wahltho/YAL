@@ -2056,7 +2056,9 @@ local function update_visual_guidance(comp, now, aircraft)
 end
 
 local function maybe_speak_guidance(comp, now, aircraft)
-    if not is_auto_taxi_guidance_enabled() then
+    local auto_voice = is_auto_taxi_guidance_enabled()
+    local visual_enabled = is_visual_taxi_guidance_enabled()
+    if not auto_voice and not visual_enabled then
         return
     end
     local yal = comp.yal or _G.yal
@@ -2077,10 +2079,9 @@ local function maybe_speak_guidance(comp, now, aircraft)
         end
         helpers.logInfoTS(msg)
     end
-    local voice_enabled = is_voice_enabled()
-    local visual_enabled = is_visual_taxi_guidance_enabled()
+    local voice_enabled = auto_voice and is_voice_enabled()
     if not voice_enabled and not visual_enabled then
-        diag("guidance-disabled")
+        diag("voice-disabled")
         return
     end
     if not comp._route or not comp._route.path then
