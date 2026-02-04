@@ -120,23 +120,13 @@ include "keyboard_handler"
 local menu_settings = nil
 
 local function taxi_map_allowed()
-    local cfg = yal and yal.configvalues or nil
-    if not cfg or cfg[def.CONFIGAUTOTAXIGUIDANCE] ~= def.ON then
-        local now = os.time()
-        if now and (now - (taxiGateLastLogTime or 0)) >= 3 then
-            taxiGateLastLogTime = now
-            helpers.logInfoTS("Taxi map locked: enable Auto Taxi Guidance first.")
-        end
-        return false
-    end
     if not helpers.isGlobalAptIndexReady() then
-        helpers.requestGlobalAptIndex("taxi-gate")
+        helpers.requestGlobalAptIndex("taxi-map")
         local now = os.time()
         if now and (now - (taxiGateLastLogTime or 0)) >= 3 then
             taxiGateLastLogTime = now
-            helpers.logInfoTS("Taxi map locked: indexing global apt.dat...")
+            helpers.logInfoTS("Taxi map indexing global apt.dat...")
         end
-        return false
     end
     return true
 end
@@ -237,9 +227,7 @@ local function maybeInitTaxiWindow()
             local function toggleTaxi()
                 if taxiWindow then
                     local target = not taxiWindow:isVisible()
-                    if target and not taxi_map_allowed() then
-                        return
-                    end
+                    if target then taxi_map_allowed() end
                     taxiWindow:setIsVisible(target)
                 end
             end
@@ -296,9 +284,7 @@ local function maybeInitTaxiWindow()
     local function toggleTaxi()
         if taxiWindow then
             local target = not taxiWindow:isVisible()
-            if target and not taxi_map_allowed() then
-                return
-            end
+            if target then taxi_map_allowed() end
             taxiWindow:setIsVisible(target)
         end
     end
@@ -345,9 +331,7 @@ function show_hide_taxi_map()
     maybeInitTaxiWindow()
     if taxiWindow then
         local target = not taxiWindow:isVisible()
-        if target and not taxi_map_allowed() then
-            return
-        end
+        if target then taxi_map_allowed() end
         taxiWindow:setIsVisible(target)
     end
 end
@@ -401,13 +385,13 @@ function update()
         if settings and settings.appSettings then
             autoTaxiEnabled = (settings.appSettings[def.CONFIGAUTOTAXIGUIDANCE] == def.ON)
         end
+        local taxiVisible = taxiWindow and taxiWindow.isVisible and taxiWindow:isVisible()
         if helpers.isGlobalAptIndexRunning() then
             helpers.updateGlobalAptIndex(nil, false)
-        elseif autoTaxiEnabled and not helpers.isGlobalAptIndexReady() then
+        elseif (autoTaxiEnabled or taxiVisible) and not helpers.isGlobalAptIndexReady() then
             helpers.requestGlobalAptIndex("update-loop")
             helpers.updateGlobalAptIndex(nil, false)
         end
-        local taxiVisible = taxiWindow and taxiWindow.isVisible and taxiWindow:isVisible()
         if taxiComponent and (autoTaxiEnabled or taxiVisible) then
             taxiComponent:tick()
         end
