@@ -2354,6 +2354,34 @@ local function clear_visual_guidance(comp, reason)
     end
 end
 
+local function before_takeoff_active_or_set(comp)
+    local yal = comp and (comp.yal or _G.yal) or nil
+    if not yal then
+        return false
+    end
+    local proc = yal.proceduretable and yal.proceduretable[def.BEFORETAKEOFFPROCEDURE]
+    if proc and proc.set then
+        return true
+    end
+    if yal.loopStateTables then
+        for _, loop in ipairs(yal.loopStateTables) do
+            if loop and loop.lock == def.BEFORETAKEOFFPROCEDURE then
+                return true
+            end
+        end
+    else
+        local l1 = yal.procedureloop1
+        local l2 = yal.procedureloop2
+        local l3 = yal.procedureloop3
+        if (l1 and l1.lock == def.BEFORETAKEOFFPROCEDURE)
+            or (l2 and l2.lock == def.BEFORETAKEOFFPROCEDURE)
+            or (l3 and l3.lock == def.BEFORETAKEOFFPROCEDURE) then
+            return true
+        end
+    end
+    return false
+end
+
 local function update_visual_guidance(comp, now, aircraft)
     if not comp or not comp._visualGuidance then
         return
@@ -2442,6 +2470,11 @@ local function maybe_speak_guidance(comp, now, aircraft)
     end
     if not on_ground then
         diag("not-on-ground")
+        return
+    end
+    if comp.mode == 0 and before_takeoff_active_or_set(comp) then
+        clear_visual_guidance(comp, "before-takeoff")
+        diag("before-takeoff")
         return
     end
     if comp._depThresholdLatched and (comp.mode == 0) then
