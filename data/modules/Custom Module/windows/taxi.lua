@@ -4559,6 +4559,10 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
             return
         end
 
+        local prev_icao_valid = helpers.isvalidicao(comp._lastIcao or "")
+        local prev_start_override = comp._editStartOverride
+        local prev_end_override = comp._editEndOverride
+        local prev_waypoints = comp._routeWaypoints
         local icao_changed = (comp._lastIcao ~= icao)
         local mode_changed = (comp._lastMode ~= mode)
         if icao_changed or mode_changed then
@@ -4610,6 +4614,11 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                 comp._selectedDepEntryId = nil
                 comp._data = nil
                 comp._dataErr = nil
+            end
+            if icao_changed and (not prev_icao_valid) and (not mode_changed) then
+                comp._editStartOverride = prev_start_override
+                comp._editEndOverride = prev_end_override
+                comp._routeWaypoints = prev_waypoints or {}
             end
         end
 
@@ -5048,19 +5057,25 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
         end
 
         local start_override = comp._editStartOverride
-        local has_start_override = start_override
-            and start_override.mode == mode
-            and start_override.icao == icao
-            and is_valid_latlon(start_override.lat, start_override.lon)
+        local has_start_override = false
+        if start_override and start_override.mode == mode and is_valid_latlon(start_override.lat, start_override.lon) then
+            if not start_override.icao or start_override.icao == "" then
+                start_override.icao = icao
+            end
+            has_start_override = (start_override.icao == icao)
+        end
         if has_start_override then
             start_lat = start_override.lat
             start_lon = start_override.lon
         end
         local end_override = comp._editEndOverride
-        local has_end_override = end_override
-            and end_override.mode == mode
-            and end_override.icao == icao
-            and is_valid_latlon(end_override.lat, end_override.lon)
+        local has_end_override = false
+        if end_override and end_override.mode == mode and is_valid_latlon(end_override.lat, end_override.lon) then
+            if not end_override.icao or end_override.icao == "" then
+                end_override.icao = icao
+            end
+            has_end_override = (end_override.icao == icao)
+        end
         if has_end_override then
             end_lat = end_override.lat
             end_lon = end_override.lon
