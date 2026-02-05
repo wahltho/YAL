@@ -3032,6 +3032,8 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
         x = x + btnW + 6
         addButton(layout.buttons, x, y, btnW, btnH, "CENTER", "center")
         x = x + btnW + 6
+        addButton(layout.buttons, x, y, btnW, btnH, "AUTO", "auto_route")
+        x = x + btnW + 10
         local editLabel = comp._editRoute and "EDIT ON" or "EDIT"
         addButton(layout.buttons, x, y, btnW, btnH, editLabel, "toggle_edit")
         x = x + btnW + 10
@@ -3039,8 +3041,6 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
         addButton(layout.buttons, x, y, btnW, btnH, drawLabel, "toggle_draw")
         x = x + btnW + 10
         addButton(layout.buttons, x, y, btnW, btnH, "UNDO", "undo_edit")
-        x = x + btnW + 10
-        addButton(layout.buttons, x, y, btnW, btnH, "CLEAR", "clear_route")
         x = x + btnW + 10
         addButton(layout.buttons, x, y, btnW, btnH, "A -", "font_down")
         x = x + btnW + 6
@@ -3647,6 +3647,21 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                         end
                     end
                     commitSettings()
+                elseif b.action == "auto_route" then
+                    comp._editRoute = false
+                    comp._drawRoute = false
+                    comp._wpDrag = nil
+                    comp._editHandles = nil
+                    comp._editSuppressedNodes = nil
+                    comp._editStartOverride = nil
+                    comp._editEndOverride = nil
+                    comp._routeWaypoints = {}
+                    comp._route = nil
+                    comp._routeErr = nil
+                    comp._lastStartKey = nil
+                    comp._lastEndKey = nil
+                    comp._lastUpdate = nil
+                    log_taxi("TaxiRoute: auto-reset")
                 elseif b.action == "font_down" then
                     comp.fontSize = clamp(comp.fontSize - 1, minFont, maxFont)
                     comp._fontHandle = nil
