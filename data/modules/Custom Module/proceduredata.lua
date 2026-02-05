@@ -857,6 +857,7 @@ function M.fillProcedureTable()
                     check = function()
                         return helpers.fmcHeaderContains("POS INIT")
                     end,
+                    fmcPage = true,
                     action = function()
                         if isFmcAutomationOn() then
                             helpers.command_once("laminar/B738/button/fmc1_init_ref")
@@ -2690,6 +2691,7 @@ function M.fillProcedureTable()
                     check = function(loop, procData)
                         return helpers.fmcHeaderContains("DES")
                     end,
+                    fmcPage = true,
                     action = function(loop, procData)
                         if isFmcAutomationOn() then
                             helpers.command_once("laminar/B738/button/fmc1_des")
@@ -5641,6 +5643,7 @@ function M.fillProcedureTable()
                     check = function(loop, procData)
                         return helpers.fmcHeaderContains("APPROACH REF")
                     end,
+                    fmcPage = true,
                     action = function(loop, procData)
                         if isFmcAutomationOn() then
                             helpers.command_once("laminar/B738/button/fmc1_init_ref")
@@ -5826,6 +5829,7 @@ function M.fillProcedureTable()
                     check = function(loop, procData)
                         return helpers.fmcHeaderContains("APPROACH REF")
                     end,
+                    fmcPage = true,
                     action = function(loop, procData)
                         if isFmcAutomationOn() then
                             helpers.command_once("laminar/B738/button/fmc1_init_ref")
@@ -6076,6 +6080,7 @@ function M.fillProcedureTable()
                     check = function(loop, procData)
                         return helpers.fmcHeaderContains("PERF INIT")
                     end,
+                    fmcPage = true,
                     action = function(loop, procData)
                         if isFmcAutomationOn() then
                             helpers.command_once("laminar/B738/button/fmc1_init_ref")
@@ -6090,6 +6095,7 @@ function M.fillProcedureTable()
                     check = function(loop, procData)
                         return helpers.fmcHeaderContains("N1 LIMIT")
                     end,
+                    fmcPage = true,
                     action = function(loop, procData)
                         if isFmcAutomationOn() then
                             helpers.command_once("laminar/B738/button/fmc1_6R")
@@ -6103,6 +6109,7 @@ function M.fillProcedureTable()
                     check = function(loop, procData)
                         return helpers.fmcHeaderContains("TAKEOFF REF")
                     end,
+                    fmcPage = true,
                     action = function(loop, procData)
                         if isFmcAutomationOn() then
                             helpers.command_once("laminar/B738/button/fmc1_6R")

@@ -5550,13 +5550,53 @@ function P.runProcedureLoop(loopIndex)
                 loop.lastStepName = stepName
                 sasl.logDebug("steprepeat=" .. tostring(loop.steprepeat))
 
+                    -- *** FMC PAGE GRACE-SKIP (FMCAUTOMATION OFF) ***
+                    if loop.fmcPageSkipStep and loop.fmcPageSkipStep ~= stepName then
+                        loop.fmcPageSkipStep = nil
+                        loop.fmcPageSkipAt = nil
+                    end
+                    local fmcAutomationOn = (P.configvalues[def.CONFIGFMCAUTOMATION] == def.ON)
+                    local didFmcSkip = false
+                    if step.fmcPage and not fmcAutomationOn then
+                        local now = os.time()
+                        if loop.fmcPageSkipStep ~= stepName then
+                            loop.fmcPageSkipStep = stepName
+                            loop.fmcPageSkipAt = now
+                        end
+                        local elapsed = now - (loop.fmcPageSkipAt or now)
+                        if elapsed >= 2 then
+                            sasl.logDebug("FMC automation OFF. Skipping FMC page step after grace: " .. tostring(stepName))
+                            if step.branch then
+                                local nextStepNameFromBranch = step.branch(loop, procData)
+                                if type(nextStepNameFromBranch) == "string" then
+                                    loop.currentStepName = nextStepNameFromBranch
+                                elseif nextStepNameFromBranch == true then
+                                    sasl.logDebug("Branch handled progression itself during FMC skip.")
+                                elseif nextStepNameFromBranch == nil then
+                                    loop.procedurenotpossible = true
+                                    loop.currentStepName = nil
+                                else
+                                    loop.currentStepName = step.nextStep
+                                end
+                            else
+                                loop.currentStepName = step.nextStep
+                            end
+                            loop.lastStepName = nil
+                            loop.fmcPageSkipStep = nil
+                            loop.fmcPageSkipAt = nil
+                            didFmcSkip = true
+                        end
+                    end
+
                     -- *** NEUE VIEW-OPTIMIERUNG START ***
 
                     -- Definiere die Step-Typen
                     local isPureViewStep = step.view and not step.check and not step.action and not step.branch and step.nextStep
                     local isViewBranchStep = step.view and not step.check and not step.action and step.branch
 
-                    if not useViewChanges and (isPureViewStep or isViewBranchStep) then
+                    if didFmcSkip then
+                        -- FMC skip handled progression; do nothing else this cycle.
+                    elseif not useViewChanges and (isPureViewStep or isViewBranchStep) then
                         -- OPTIMIERUNG AKTIV (Views sind AUS und es ist ein reiner View-Step)
 
                         if isPureViewStep then
