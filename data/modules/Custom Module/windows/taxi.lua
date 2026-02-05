@@ -3661,6 +3661,8 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                     comp._lastStartKey = nil
                     comp._lastEndKey = nil
                     comp._lastUpdate = nil
+                    comp._undoState = nil
+                    comp._undoReason = nil
                     log_taxi("TaxiRoute: auto-reset")
                 elseif b.action == "font_down" then
                     comp.fontSize = clamp(comp.fontSize - 1, minFont, maxFont)
