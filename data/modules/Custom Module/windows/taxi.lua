@@ -21,7 +21,6 @@ local visualGuidanceMinShow = 1.0
 local visualGuidanceSyncDelay = 0.0
 local startRampMaxMeters = 80
 local startEndSnapMeters = 20
-local startEndOverrideMaxMeters = 1000
 local projectionShiftThreshold = 500
 local runwayRouteMaxSpeed = 45
 local depThresholdGateMeters = 60
@@ -656,37 +655,6 @@ local function find_nearest_edge_projection(data, east, north, opts)
     return best
 end
 
-local function snap_latlon_to_network(data, lat, lon, max_dist_m)
-    if not data or not data.edges or not data.nodes then
-        return nil, "no-data"
-    end
-    if not is_valid_latlon(lat, lon) then
-        return nil, "invalid"
-    end
-    local east, north = latlon_to_local(lat, lon)
-    if east == nil or north == nil then
-        return nil, "no-local"
-    end
-    local proj = find_nearest_edge_projection(data, east, north, { disallow_runway_edges = false })
-    if not proj or not proj.d2 then
-        return nil, "no-proj"
-    end
-    local dist = math.sqrt(proj.d2)
-    if max_dist_m and dist > max_dist_m then
-        return nil, "too-far", dist
-    end
-    local wlat, wlon = sasl.localToWorld(proj.proj_east, 0, -proj.proj_north)
-    if not is_valid_latlon(wlat, wlon) then
-        return nil, "invalid-proj", dist
-    end
-    return {
-        lat = wlat,
-        lon = wlon,
-        east = proj.proj_east,
-        north = proj.proj_north,
-        dist = dist
-    }
-end
 
 local function find_heading_edge_projection(data, east, north, heading_deg, opts)
     if not data or not data.edges or not data.nodes then
@@ -5088,6 +5056,36 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
         comp._startRamp = start_ramp
         comp._startIsAircraft = (start_is_aircraft and not start_ramp) or false
         comp._endRamp = end_ramp
+
+        local override_snap_max_m = 1000
+        local function snap_override(lat, lon)
+            if not data or not is_valid_latlon(lat, lon) then
+                return nil, "invalid"
+            end
+            local east, north = latlon_to_local(lat, lon)
+            if east == nil or north == nil then
+                return nil, "no-local"
+            end
+            local proj = find_nearest_edge_projection(data, east, north, { disallow_runway_edges = false })
+            if not proj or not proj.d2 then
+                return nil, "no-proj"
+            end
+            local dist = math.sqrt(proj.d2)
+            if dist > override_snap_max_m then
+                return nil, "too-far", dist
+            end
+            local wlat, wlon = sasl.localToWorld(proj.proj_east, 0, -proj.proj_north)
+            if not is_valid_latlon(wlat, wlon) then
+                return nil, "invalid-proj", dist
+            end
+            return {
+                lat = wlat,
+                lon = wlon,
+                east = proj.proj_east,
+                north = proj.proj_north,
+                dist = dist
+            }
+        end
         if comp._drawRoute and comp._routeWaypoints and #comp._routeWaypoints > 0 and data then
             local guard = 0
             local changed = true
@@ -5096,7 +5094,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                 changed = false
                 local first = comp._routeWaypoints[1]
                 if first then
-                    local snapped, reason, dist = snap_latlon_to_network(data, first.lat, first.lon, startEndOverrideMaxMeters)
+                    local snapped, reason, dist = snap_override(first.lat, first.lon)
                     if not snapped and reason == "too-far" then
                         log_taxi(
                             string.format(
@@ -5125,7 +5123,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                 if count > 0 then
                     local last = comp._routeWaypoints[count]
                     if last then
-                        local snapped, reason, dist = snap_latlon_to_network(data, last.lat, last.lon, startEndOverrideMaxMeters)
+                        local snapped, reason, dist = snap_override(last.lat, last.lon)
                         if not snapped and reason == "too-far" then
                             log_taxi(
                                 string.format(
@@ -5205,7 +5203,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
             start_lon = start_override.lon
         end
         if has_start_override and data then
-            local snapped, reason, dist = snap_latlon_to_network(data, start_override.lat, start_override.lon, startEndOverrideMaxMeters)
+            local snapped, reason, dist = snap_override(start_override.lat, start_override.lon)
             if not snapped and reason == "too-far" then
                 log_taxi(
                     string.format(
@@ -5245,7 +5243,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
             end_lon = end_override.lon
         end
         if has_end_override and data then
-            local snapped, reason, dist = snap_latlon_to_network(data, end_override.lat, end_override.lon, startEndOverrideMaxMeters)
+            local snapped, reason, dist = snap_override(end_override.lat, end_override.lon)
             if not snapped and reason == "too-far" then
                 log_taxi(
                     string.format(
