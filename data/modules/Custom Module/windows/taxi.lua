@@ -20,6 +20,7 @@ local visualGuidanceDuration = 7
 local visualGuidanceMinShow = 1.0
 local visualGuidanceSyncDelay = 0.0
 local startRampMaxMeters = 80
+local startEndSnapMeters = 20
 local projectionShiftThreshold = 500
 local runwayRouteMaxSpeed = 45
 local depThresholdGateMeters = 60
@@ -4189,17 +4190,41 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                 end
                 local we, wn = screen_to_world(x, y)
                 local proj = find_nearest_edge_projection(comp._data, we, wn, { disallow_runway_edges = false })
-                if proj and proj.edge then
-                    local wlat, wlon = sasl.localToWorld(proj.proj_east, 0, -proj.proj_north)
+                local is_start_end = (drag.kind == "start" or drag.kind == "end")
+                local target_east = nil
+                local target_north = nil
+                if is_start_end then
+                    local snap_ok = (proj and proj.edge and proj.d2 and proj.d2 <= (startEndSnapMeters * startEndSnapMeters))
+                    if snap_ok then
+                        target_east = proj.proj_east
+                        target_north = proj.proj_north
+                    else
+                        target_east = we
+                        target_north = wn
+                    end
+                else
+                    if not (proj and proj.edge) then
+                        return true
+                    end
+                    target_east = proj.proj_east
+                    target_north = proj.proj_north
+                end
+                if target_east ~= nil and target_north ~= nil then
+                    local wlat, wlon = sasl.localToWorld(target_east, 0, -target_north)
+                    if (not is_valid_latlon(wlat, wlon)) and proj and proj.edge then
+                        target_east = proj.proj_east
+                        target_north = proj.proj_north
+                        wlat, wlon = sasl.localToWorld(target_east, 0, -target_north)
+                    end
                     if is_valid_latlon(wlat, wlon) then
                         drag.lastLat = wlat
                         drag.lastLon = wlon
-                        drag.lastEast = proj.proj_east
-                        drag.lastNorth = proj.proj_north
+                        drag.lastEast = target_east
+                        drag.lastNorth = target_north
                         local handle = (drag.handle_idx and comp._editHandles) and comp._editHandles[drag.handle_idx] or nil
                         if handle then
-                            handle.east = proj.proj_east
-                            handle.north = proj.proj_north
+                            handle.east = target_east
+                            handle.north = target_north
                             handle.lat = wlat
                             handle.lon = wlon
                         end
