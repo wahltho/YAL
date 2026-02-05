@@ -5517,17 +5517,19 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                     opts.runway_penalty = allow_runway_route and 1 or 500
                     opts.disallow_runway_edges = not allow_runway_route
                     opts.avoid_runway_nodes = not allow_runway_route
-                    if comp._selectedDepEntryId and data.nodes and data.nodes[comp._selectedDepEntryId] then
-                        opts.end_node_id = comp._selectedDepEntryId
-                    elseif dep_holdshort_id and data.nodes and data.nodes[dep_holdshort_id] then
-                        opts.end_node_id = dep_holdshort_id
-                    elseif dep_end_node_id and data.nodes and data.nodes[dep_end_node_id] then
-                        opts.end_node_id = dep_end_node_id
+                    if not has_end_override then
+                        if comp._selectedDepEntryId and data.nodes and data.nodes[comp._selectedDepEntryId] then
+                            opts.end_node_id = comp._selectedDepEntryId
+                        elseif dep_holdshort_id and data.nodes and data.nodes[dep_holdshort_id] then
+                            opts.end_node_id = dep_holdshort_id
+                        elseif dep_end_node_id and data.nodes and data.nodes[dep_end_node_id] then
+                            opts.end_node_id = dep_end_node_id
+                        end
                     end
                     set_start_ramp_fallback(opts)
                 elseif mode == 1 then
                     if not allow_runway_route then
-                        if (not comp._rerouteOverride) and arr_exit_id and data.nodes and data.nodes[arr_exit_id] then
+                        if (not comp._rerouteOverride) and (not has_start_override) and arr_exit_id and data.nodes and data.nodes[arr_exit_id] then
                             opts.start_node_id = arr_exit_id
                         elseif not backtrack_required then
                             opts.avoid_runway_start = true
@@ -5561,10 +5563,12 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                         disallow_runway_edges = true,
                         avoid_runway_nodes = true
                     }
-                    if comp._selectedDepEntryId and data.nodes and data.nodes[comp._selectedDepEntryId] then
-                        opts.end_node_id = comp._selectedDepEntryId
-                    elseif dep_holdshort_id and data.nodes and data.nodes[dep_holdshort_id] then
-                        opts.end_node_id = dep_holdshort_id
+                    if not has_end_override then
+                        if comp._selectedDepEntryId and data.nodes and data.nodes[comp._selectedDepEntryId] then
+                            opts.end_node_id = comp._selectedDepEntryId
+                        elseif dep_holdshort_id and data.nodes and data.nodes[dep_holdshort_id] then
+                            opts.end_node_id = dep_holdshort_id
+                        end
                     end
                     set_start_ramp_fallback(opts)
                     apply_projection(opts)
@@ -5589,10 +5593,12 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                             disallow_runway_edges = true,
                             avoid_runway_nodes = true
                         }
-                        if comp._selectedDepEntryId and data.nodes and data.nodes[comp._selectedDepEntryId] then
-                            opts.end_node_id = comp._selectedDepEntryId
-                        elseif dep_holdshort_id and data.nodes and data.nodes[dep_holdshort_id] then
-                            opts.end_node_id = dep_holdshort_id
+                        if not has_end_override then
+                            if comp._selectedDepEntryId and data.nodes and data.nodes[comp._selectedDepEntryId] then
+                                opts.end_node_id = comp._selectedDepEntryId
+                            elseif dep_holdshort_id and data.nodes and data.nodes[dep_holdshort_id] then
+                                opts.end_node_id = dep_holdshort_id
+                            end
                         end
                         set_start_ramp_fallback(opts)
                         apply_projection(opts)
@@ -5622,10 +5628,12 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                             disallow_runway_edges = true,
                             avoid_runway_nodes = true
                         }
-                        if comp._selectedDepEntryId and data.nodes and data.nodes[comp._selectedDepEntryId] then
-                            opts.end_node_id = comp._selectedDepEntryId
-                        elseif dep_holdshort_id and data.nodes and data.nodes[dep_holdshort_id] then
-                            opts.end_node_id = dep_holdshort_id
+                        if not has_end_override then
+                            if comp._selectedDepEntryId and data.nodes and data.nodes[comp._selectedDepEntryId] then
+                                opts.end_node_id = comp._selectedDepEntryId
+                            elseif dep_holdshort_id and data.nodes and data.nodes[dep_holdshort_id] then
+                                opts.end_node_id = dep_holdshort_id
+                            end
                         end
                         set_start_ramp_fallback(opts)
                         apply_projection(opts)
@@ -5652,10 +5660,12 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                         disallow_runway_edges = true,
                         avoid_runway_nodes = false
                     }
-                    if comp._selectedDepEntryId and data.nodes and data.nodes[comp._selectedDepEntryId] then
-                        opts.end_node_id = comp._selectedDepEntryId
-                    elseif dep_holdshort_id and data.nodes and data.nodes[dep_holdshort_id] then
-                        opts.end_node_id = dep_holdshort_id
+                    if not has_end_override then
+                        if comp._selectedDepEntryId and data.nodes and data.nodes[comp._selectedDepEntryId] then
+                            opts.end_node_id = comp._selectedDepEntryId
+                        elseif dep_holdshort_id and data.nodes and data.nodes[dep_holdshort_id] then
+                            opts.end_node_id = dep_holdshort_id
+                        end
                     end
                     set_start_ramp_fallback(opts)
                     apply_projection(opts)
@@ -5681,10 +5691,12 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                         avoid_runway_nodes = false,
                         runway_penalty = 50
                     }
-                    if comp._selectedDepEntryId and data.nodes and data.nodes[comp._selectedDepEntryId] then
-                        opts.end_node_id = comp._selectedDepEntryId
-                    elseif dep_holdshort_id and data.nodes and data.nodes[dep_holdshort_id] then
-                        opts.end_node_id = dep_holdshort_id
+                    if not has_end_override then
+                        if comp._selectedDepEntryId and data.nodes and data.nodes[comp._selectedDepEntryId] then
+                            opts.end_node_id = comp._selectedDepEntryId
+                        elseif dep_holdshort_id and data.nodes and data.nodes[dep_holdshort_id] then
+                            opts.end_node_id = dep_holdshort_id
+                        end
                     end
                     set_start_ramp_fallback(opts)
                     apply_projection(opts)
@@ -5704,7 +5716,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                 end
                 if (not route) and rerr == "no-path" and mode == 1 then
                     opts = {}
-                    if not backtrack_required then
+                    if (not has_start_override) and (not backtrack_required) then
                         opts.avoid_runway_start = true
                     end
                     set_end_ramp_fallback(opts)
@@ -5722,7 +5734,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                 end
                 if (not route) and rerr == "no-path" and mode == 1 then
                     opts = { ignore_oneway = true }
-                    if not backtrack_required then
+                    if (not has_start_override) and (not backtrack_required) then
                         opts.avoid_runway_start = true
                     end
                     set_end_ramp_fallback(opts)
@@ -5740,7 +5752,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                 end
                 if (not route) and rerr == "no-path" and mode == 1 then
                     opts = {}
-                    if not backtrack_required then
+                    if (not has_start_override) and (not backtrack_required) then
                         opts.runway_penalty = 500
                     end
                     set_end_ramp_fallback(opts)
@@ -5773,7 +5785,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                 end
                 if (not route) and rerr == "no-path" and mode == 1 then
                     opts = { allow_far_ramp = true }
-                    if not backtrack_required then
+                    if (not has_start_override) and (not backtrack_required) then
                         opts.avoid_runway_start = true
                         opts.runway_penalty = 500
                     end
@@ -5815,7 +5827,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                         local candidates = collect_runway_exit_candidates(data, ref.east, ref.north, 12)
                         if #candidates > 0 then
                             opts = { allow_far_ramp = true, ignore_oneway = true }
-                            if not backtrack_required then
+                            if (not has_start_override) and (not backtrack_required) then
                                 opts.runway_penalty = 500
                             end
                             apply_projection(opts)
@@ -5843,7 +5855,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                     local candidates = collect_nearest_nodes(data, ee, en, 18)
                     if #candidates > 0 then
                         opts = { allow_far_ramp = true, ignore_oneway = true }
-                        if not backtrack_required then
+                        if (not has_start_override) and (not backtrack_required) then
                             opts.runway_penalty = 500
                         end
                         apply_projection(opts)
