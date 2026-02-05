@@ -21,6 +21,7 @@ local visualGuidanceMinShow = 1.0
 local visualGuidanceSyncDelay = 0.0
 local startRampMaxMeters = 80
 local startEndSnapMeters = 20
+local startEndOverrideMaxMeters = 1000
 local projectionShiftThreshold = 500
 local runwayRouteMaxSpeed = 45
 local depThresholdGateMeters = 60
@@ -653,6 +654,38 @@ local function find_nearest_edge_projection(data, east, north, opts)
         ::continue::
     end
     return best
+end
+
+local function snap_latlon_to_network(data, lat, lon, max_dist_m)
+    if not data or not data.edges or not data.nodes then
+        return nil, "no-data"
+    end
+    if not is_valid_latlon(lat, lon) then
+        return nil, "invalid"
+    end
+    local east, north = latlon_to_local(lat, lon)
+    if east == nil or north == nil then
+        return nil, "no-local"
+    end
+    local proj = find_nearest_edge_projection(data, east, north, { disallow_runway_edges = false })
+    if not proj or not proj.d2 then
+        return nil, "no-proj"
+    end
+    local dist = math.sqrt(proj.d2)
+    if max_dist_m and dist > max_dist_m then
+        return nil, "too-far", dist
+    end
+    local wlat, wlon = sasl.localToWorld(proj.proj_east, 0, -proj.proj_north)
+    if not is_valid_latlon(wlat, wlon) then
+        return nil, "invalid-proj", dist
+    end
+    return {
+        lat = wlat,
+        lon = wlon,
+        east = proj.proj_east,
+        north = proj.proj_north,
+        dist = dist
+    }
 end
 
 local function find_heading_edge_projection(data, east, north, heading_deg, opts)
@@ -5055,6 +5088,71 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
         comp._startRamp = start_ramp
         comp._startIsAircraft = (start_is_aircraft and not start_ramp) or false
         comp._endRamp = end_ramp
+        if comp._drawRoute and comp._routeWaypoints and #comp._routeWaypoints > 0 and data then
+            local guard = 0
+            local changed = true
+            while changed and comp._routeWaypoints and #comp._routeWaypoints > 0 and guard < 4 do
+                guard = guard + 1
+                changed = false
+                local first = comp._routeWaypoints[1]
+                if first then
+                    local snapped, reason, dist = snap_latlon_to_network(data, first.lat, first.lon, startEndOverrideMaxMeters)
+                    if not snapped and reason == "too-far" then
+                        log_taxi(
+                            string.format(
+                                "TaxiDraw: drop start waypoint off-network dist=%.1f",
+                                dist or -1
+                            )
+                        )
+                        table.remove(comp._routeWaypoints, 1)
+                        changed = true
+                    elseif snapped then
+                        if first.lat ~= snapped.lat or first.lon ~= snapped.lon then
+                            log_taxi(
+                                string.format(
+                                    "TaxiDraw: snap start waypoint dist=%.1f",
+                                    snapped.dist or 0
+                                )
+                            )
+                        end
+                        first.lat = snapped.lat
+                        first.lon = snapped.lon
+                        first.east = snapped.east
+                        first.north = snapped.north
+                    end
+                end
+                local count = comp._routeWaypoints and #comp._routeWaypoints or 0
+                if count > 0 then
+                    local last = comp._routeWaypoints[count]
+                    if last then
+                        local snapped, reason, dist = snap_latlon_to_network(data, last.lat, last.lon, startEndOverrideMaxMeters)
+                        if not snapped and reason == "too-far" then
+                            log_taxi(
+                                string.format(
+                                    "TaxiDraw: drop end waypoint off-network dist=%.1f",
+                                    dist or -1
+                                )
+                            )
+                            table.remove(comp._routeWaypoints, count)
+                            changed = true
+                        elseif snapped then
+                            if last.lat ~= snapped.lat or last.lon ~= snapped.lon then
+                                log_taxi(
+                                    string.format(
+                                        "TaxiDraw: snap end waypoint dist=%.1f",
+                                        snapped.dist or 0
+                                    )
+                                )
+                            end
+                            last.lat = snapped.lat
+                            last.lon = snapped.lon
+                            last.east = snapped.east
+                            last.north = snapped.north
+                        end
+                    end
+                end
+            end
+        end
         if comp._drawRoute and comp._routeWaypoints and #comp._routeWaypoints > 0 then
             local first_wp = comp._routeWaypoints[1]
             local last_wp = comp._routeWaypoints[#comp._routeWaypoints]
@@ -5089,6 +5187,11 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
             start_lon = comp._rerouteOverride.lon
         end
 
+        local base_start_lat = start_lat
+        local base_start_lon = start_lon
+        local base_end_lat = end_lat
+        local base_end_lon = end_lon
+
         local start_override = comp._editStartOverride
         local has_start_override = false
         if start_override and start_override.mode == mode and is_valid_latlon(start_override.lat, start_override.lon) then
@@ -5101,6 +5204,34 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
             start_lat = start_override.lat
             start_lon = start_override.lon
         end
+        if has_start_override and data then
+            local snapped, reason, dist = snap_latlon_to_network(data, start_override.lat, start_override.lon, startEndOverrideMaxMeters)
+            if not snapped and reason == "too-far" then
+                log_taxi(
+                    string.format(
+                        "TaxiEdit: clear start override off-network dist=%.1f",
+                        dist or -1
+                    )
+                )
+                comp._editStartOverride = nil
+                has_start_override = false
+                start_lat = base_start_lat
+                start_lon = base_start_lon
+            elseif snapped then
+                if start_override.lat ~= snapped.lat or start_override.lon ~= snapped.lon then
+                    log_taxi(
+                        string.format(
+                            "TaxiEdit: snap start override dist=%.1f",
+                            snapped.dist or 0
+                        )
+                    )
+                end
+                start_override.lat = snapped.lat
+                start_override.lon = snapped.lon
+                start_lat = start_override.lat
+                start_lon = start_override.lon
+            end
+        end
         local end_override = comp._editEndOverride
         local has_end_override = false
         if end_override and end_override.mode == mode and is_valid_latlon(end_override.lat, end_override.lon) then
@@ -5112,6 +5243,34 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
         if has_end_override then
             end_lat = end_override.lat
             end_lon = end_override.lon
+        end
+        if has_end_override and data then
+            local snapped, reason, dist = snap_latlon_to_network(data, end_override.lat, end_override.lon, startEndOverrideMaxMeters)
+            if not snapped and reason == "too-far" then
+                log_taxi(
+                    string.format(
+                        "TaxiEdit: clear end override off-network dist=%.1f",
+                        dist or -1
+                    )
+                )
+                comp._editEndOverride = nil
+                has_end_override = false
+                end_lat = base_end_lat
+                end_lon = base_end_lon
+            elseif snapped then
+                if end_override.lat ~= snapped.lat or end_override.lon ~= snapped.lon then
+                    log_taxi(
+                        string.format(
+                            "TaxiEdit: snap end override dist=%.1f",
+                            snapped.dist or 0
+                        )
+                    )
+                end
+                end_override.lat = snapped.lat
+                end_override.lon = snapped.lon
+                end_lat = end_override.lat
+                end_lon = end_override.lon
+            end
         end
 
         local start_node_id, start_node_dist = nearest_node_info(data, start_lat, start_lon, false)
