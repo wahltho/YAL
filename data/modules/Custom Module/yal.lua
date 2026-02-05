@@ -5294,6 +5294,7 @@ function P.commandtableloop()
     local next_recommended_wait_step = def.STANDARDWAIT
 
     local processedentry = false
+    P.lastCommandWasSpeech = false
 
     while ((#P.commandtable > 0) and (processedentry == false)) do
 
@@ -5311,6 +5312,7 @@ function P.commandtableloop()
             if ((P.configvalues[def.CONFIGVOICEREADBACK] == def.ON) or (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON)) then
                 helpers.logInfoTS("SpeakString TEXT: " .. P.commandtable[1][2])
                 helpers.speak(P.commandtable[1][2])
+                P.lastCommandWasSpeech = true
                 if (string.len(P.commandtable[1][2]) > def.VERYLONGSPEAK) then
                     next_recommended_wait_step = def.LONGWAIT
                 elseif (string.len(P.commandtable[1][2]) > def.LONGSPEAK) then
@@ -5993,11 +5995,17 @@ function P.do_yal()
         next_recommended_wait_step = def.SHORTWAIT
     end
     if P.viewSkipRequested then
-        if next_recommended_wait_step == def.STANDARDWAIT then
+        if P.lastCommandWasSpeech then
+            -- Keep at least standard wait so speech isn't cut off.
+            if next_recommended_wait_step < def.STANDARDWAIT then
+                next_recommended_wait_step = def.STANDARDWAIT
+            end
+        elseif next_recommended_wait_step == def.STANDARDWAIT then
             next_recommended_wait_step = def.VERYSHORTWAIT
         end
         P.viewSkipRequested = nil
     end
+    P.lastCommandWasSpeech = false
 
     local currentFmsPhase = get(P.fmsflightphase)
 
