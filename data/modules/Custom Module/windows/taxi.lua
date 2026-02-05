@@ -3002,8 +3002,8 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
 
         drawRectangle(0, 0, w, h, {0, 0, 0, 0.78})
         drawFrame(0.5, 0.5, w - 1, h - 1, {0.6, 0.6, 0.6, 0.8})
-        drawRectangle(0, h - headerH, w, headerH, {0.12, 0.12, 0.12, 0.95})
-        drawRectangle(0, h - headerH - toolbarH, w, toolbarH, {0.08, 0.08, 0.08, 0.92})
+        drawRectangle(0, h - headerH, w, headerH, {0.12, 0.12, 0.12, 1})
+        drawRectangle(0, h - headerH - toolbarH, w, toolbarH, {0.08, 0.08, 0.08, 1})
 
         local uiFontSize = def and def.wFontSize or 12
         local mapFontSize = comp.fontSize or 12
@@ -3584,8 +3584,8 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
         end
 
         -- Redraw header/toolbar and buttons on top to avoid map overdraw when zoomed.
-        drawRectangle(0, h - headerH, w, headerH, {0.12, 0.12, 0.12, 0.95})
-        drawRectangle(0, h - headerH - toolbarH, w, toolbarH, {0.08, 0.08, 0.08, 0.92})
+        drawRectangle(0, h - headerH, w, headerH, {0.12, 0.12, 0.12, 1})
+        drawRectangle(0, h - headerH - toolbarH, w, toolbarH, {0.08, 0.08, 0.08, 1})
         drawText(font, 8, h - headerH + 4, "Taxi Map", uiFontSize, TEXT_ALIGN_LEFT, {0.9, 0.9, 0.95, 1})
         drawText(font, w - 18, h - headerH + 4, "X", uiFontSize, TEXT_ALIGN_LEFT, {0.9, 0.5, 0.5, 1})
         for _, b in ipairs(layout.buttons) do
