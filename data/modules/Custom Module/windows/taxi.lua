@@ -3583,6 +3583,21 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
             drawText(font, map.x + 8, lineY - (i - 1) * lineHeight, lines[i], mapFontSize, TEXT_ALIGN_LEFT, {0, 0, 0, 0.9})
         end
 
+        -- Redraw header/toolbar and buttons on top to avoid map overdraw when zoomed.
+        drawRectangle(0, h - headerH, w, headerH, {0.12, 0.12, 0.12, 0.95})
+        drawRectangle(0, h - headerH - toolbarH, w, toolbarH, {0.08, 0.08, 0.08, 0.92})
+        drawText(font, 8, h - headerH + 4, "Taxi Map", uiFontSize, TEXT_ALIGN_LEFT, {0.9, 0.9, 0.95, 1})
+        drawText(font, w - 18, h - headerH + 4, "X", uiFontSize, TEXT_ALIGN_LEFT, {0.9, 0.5, 0.5, 1})
+        for _, b in ipairs(layout.buttons) do
+            local active = (b.action == "toggle_orient") and (comp.orientation == 1)
+            if b.action == "toggle_edit" then
+                active = comp._editRoute == true
+            elseif b.action == "toggle_draw" then
+                active = comp._drawRoute == true
+            end
+            drawButton(font, b, active, uiFontSize)
+        end
+
         comp._layout = layout
     end
 
