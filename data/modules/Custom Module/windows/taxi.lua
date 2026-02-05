@@ -59,6 +59,77 @@ local function log_taxi(message)
     end
 end
 
+local function copy_waypoints(src)
+    local out = {}
+    if not src then
+        return out
+    end
+    for i, wp in ipairs(src) do
+        if wp then
+            out[i] = {
+                lat = wp.lat,
+                lon = wp.lon,
+                east = wp.east,
+                north = wp.north,
+                segment_idx = wp.segment_idx
+            }
+        end
+    end
+    return out
+end
+
+local function copy_set(src)
+    local out = {}
+    if not src then
+        return out
+    end
+    for k, v in pairs(src) do
+        if v then
+            out[k] = true
+        end
+    end
+    return out
+end
+
+local function snapshot_edit_state(comp)
+    return {
+        routeWaypoints = copy_waypoints(comp._routeWaypoints),
+        editStartOverride = comp._editStartOverride and {
+            lat = comp._editStartOverride.lat,
+            lon = comp._editStartOverride.lon,
+            mode = comp._editStartOverride.mode,
+            icao = comp._editStartOverride.icao
+        } or nil,
+        editEndOverride = comp._editEndOverride and {
+            lat = comp._editEndOverride.lat,
+            lon = comp._editEndOverride.lon,
+            mode = comp._editEndOverride.mode,
+            icao = comp._editEndOverride.icao
+        } or nil,
+        editSuppressedNodes = copy_set(comp._editSuppressedNodes),
+        selectedEndRampKey = comp._selectedEndRampKey,
+        selectedDepEntryId = comp._selectedDepEntryId
+    }
+end
+
+local function restore_edit_state(comp, state)
+    if not state then
+        return
+    end
+    comp._routeWaypoints = copy_waypoints(state.routeWaypoints)
+    comp._editStartOverride = state.editStartOverride
+    comp._editEndOverride = state.editEndOverride
+    comp._editSuppressedNodes = copy_set(state.editSuppressedNodes)
+    comp._selectedEndRampKey = state.selectedEndRampKey
+    comp._selectedDepEntryId = state.selectedDepEntryId
+end
+
+local function push_undo(comp, reason)
+    comp._undoState = snapshot_edit_state(comp)
+    comp._undoReason = reason or "edit"
+    log_taxi("TaxiEdit: undo-push reason=" .. tostring(comp._undoReason))
+end
+
 local function is_valid_latlon(lat, lon)
     if lat == nil or lon == nil then
         return false
@@ -2812,6 +2883,8 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
     comp._editStartOverride = nil
     comp._editEndOverride = nil
     comp._lastRouteStateKey = nil
+    comp._undoState = nil
+    comp._undoReason = nil
     comp._autoEndRampKey = nil
     comp._quality = { rerouteEvents = {} }
     comp._taxiSourceByIcao = {}
@@ -2962,8 +3035,10 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
         local editLabel = comp._editRoute and "EDIT ON" or "EDIT"
         addButton(layout.buttons, x, y, btnW, btnH, editLabel, "toggle_edit")
         x = x + btnW + 10
-        local drawLabel = comp._drawRoute and "DRAW ON" or "DRAW"
+        local drawLabel = comp._drawRoute and "DRAWING" or "DRAW NEW"
         addButton(layout.buttons, x, y, btnW, btnH, drawLabel, "toggle_draw")
+        x = x + btnW + 10
+        addButton(layout.buttons, x, y, btnW, btnH, "UNDO", "undo_edit")
         x = x + btnW + 10
         addButton(layout.buttons, x, y, btnW, btnH, "CLEAR", "clear_route")
         x = x + btnW + 10
@@ -3608,6 +3683,8 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                     comp._drawRoute = not comp._drawRoute
                     if comp._drawRoute then
                         comp._editRoute = true
+                        push_undo(comp, "draw-start")
+                        comp._routeWaypoints = {}
                         comp._route = nil
                         comp._routeErr = nil
                         comp._lastUpdate = nil
@@ -3625,7 +3702,16 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                             (comp._routeWaypoints and #comp._routeWaypoints) or 0
                         )
                     )
+                elseif b.action == "undo_edit" then
+                    if comp._undoState then
+                        restore_edit_state(comp, comp._undoState)
+                        mark_edit_dirty(comp)
+                        log_taxi("TaxiEdit: undo reason=" .. tostring(comp._undoReason))
+                    else
+                        log_taxi("TaxiEdit: undo empty")
+                    end
                 elseif b.action == "clear_route" then
+                    push_undo(comp, "clear-route")
                     comp._routeWaypoints = {}
                     comp._selectedEndRampKey = nil
                     comp._autoEndRampKey = nil
@@ -3709,6 +3795,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                 if best.handle_idx and comp._editHandles and comp._editHandles[best.handle_idx] then
                     local handle = comp._editHandles[best.handle_idx]
                     if handle and handle.kind == "auto" then
+                        push_undo(comp, "auto-handle")
                         log_taxi(
                             string.format(
                                 "TaxiEdit: handle-down kind=auto seg=%s node=%s",
@@ -3757,6 +3844,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                             }
                         end
                     else
+                        push_undo(comp, "handle-down")
                         log_taxi(
                             string.format(
                                 "TaxiEdit: handle-down kind=%s wp=%s seg=%s node=%s",
@@ -3778,6 +3866,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                         }
                     end
                 else
+                    push_undo(comp, "handle-down")
                     log_taxi(
                         string.format(
                             "TaxiEdit: handle-down kind=manual wp=%s",
@@ -3853,6 +3942,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                                     if not comp._routeWaypoints then
                                         comp._routeWaypoints = {}
                                     end
+                                    push_undo(comp, "draw-add")
                                     table.insert(comp._routeWaypoints, {
                                         lat = wlat,
                                         lon = wlon,
@@ -3907,6 +3997,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                                         if not comp._routeWaypoints then
                                             comp._routeWaypoints = {}
                                         end
+                                        push_undo(comp, "draw-insert")
                                         insert_waypoint_sorted(comp._routeWaypoints, {
                                             lat = wlat,
                                             lon = wlon,
@@ -3962,6 +4053,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                                     if not comp._routeWaypoints then
                                         comp._routeWaypoints = {}
                                     end
+                                    push_undo(comp, "edit-insert")
                                     insert_waypoint_sorted(comp._routeWaypoints, {
                                         lat = wlat,
                                         lon = wlon,
