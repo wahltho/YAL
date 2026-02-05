@@ -3061,6 +3061,9 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
         drawRectangle(map.x, map.y, map.w, map.h, {0.78, 0.86, 0.67, 0.98})
         sasl.gl.drawFrame(map.x, map.y, map.w, map.h, {0.4, 0.4, 0.4, 0.8})
         comp._baseScale = compute_bounds_scale((comp._data and comp._data.bounds), map.w, map.h)
+        if sasl.gl.setClipArea then
+            sasl.gl.setClipArea(map.x, map.y, map.w, map.h)
+        end
 
         local centerEast = comp.centerEast
         local centerNorth = comp.centerNorth
@@ -3581,6 +3584,10 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
 
         for i = 1, #lines do
             drawText(font, map.x + 8, lineY - (i - 1) * lineHeight, lines[i], mapFontSize, TEXT_ALIGN_LEFT, {0, 0, 0, 0.9})
+        end
+
+        if sasl.gl.resetClipArea then
+            sasl.gl.resetClipArea()
         end
 
         -- Redraw header/toolbar and buttons on top to avoid map overdraw when zoomed.
