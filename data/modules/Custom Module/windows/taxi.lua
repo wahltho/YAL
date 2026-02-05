@@ -385,7 +385,12 @@ local function align_taxi_data_projection(data)
     end
     local dx = cur_east - (ref_east or 0)
     local dy = cur_north - (ref_north or 0)
-    if math.abs(dx) < projectionShiftThreshold and math.abs(dy) < projectionShiftThreshold then
+    local ax = math.abs(dx)
+    local ay = math.abs(dy)
+    if ax < 1 and ay < 1 then
+        return false, dx, dy
+    end
+    if ax > projectionShiftThreshold or ay > projectionShiftThreshold then
         return false, dx, dy
     end
     apply_projection_shift(data, dx, dy)
