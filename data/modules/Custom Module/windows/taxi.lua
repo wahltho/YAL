@@ -233,6 +233,36 @@ local function latlon_to_local(lat, lon)
     return x, -z
 end
 
+local function ensure_waypoint_latlon(wp)
+    if not wp then
+        return nil, nil
+    end
+    if is_valid_latlon(wp.lat, wp.lon) then
+        return wp.lat, wp.lon
+    end
+    if wp.east ~= nil and wp.north ~= nil then
+        local lat, lon = sasl.localToWorld(wp.east, 0, -wp.north)
+        if is_valid_latlon(lat, lon) then
+            wp.lat = lat
+            wp.lon = lon
+            return lat, lon
+        end
+    end
+    return nil, nil
+end
+
+local function waypoint_matches_override(wp, override)
+    if not wp or not override or not is_valid_latlon(override.lat, override.lon) then
+        return false
+    end
+    local wlat, wlon = ensure_waypoint_latlon(wp)
+    if not is_valid_latlon(wlat, wlon) then
+        return false
+    end
+    local d = distance_meters_latlon(wlat, wlon, override.lat, override.lon)
+    return d ~= nil and d <= 1.5
+end
+
 local function find_projection_ref(data)
     if not data then
         return nil, nil, nil
@@ -1663,13 +1693,17 @@ local function build_edit_handles(comp, start_lat, start_lon, end_lat, end_lon)
 
     if comp._routeWaypoints and #comp._routeWaypoints > 0 then
         for idx, wp in ipairs(comp._routeWaypoints) do
-            local we = wp.east
-            local wn = wp.north
-            if (we == nil or wn == nil) and is_valid_latlon(wp.lat, wp.lon) then
-                we, wn = latlon_to_local(wp.lat, wp.lon)
-            end
-            if we ~= nil and wn ~= nil then
-                add_handle("manual", we, wn, wp.lat, wp.lon, wp.segment_idx, nil, idx)
+            local skip = waypoint_matches_override(wp, comp._editStartOverride)
+                or waypoint_matches_override(wp, comp._editEndOverride)
+            if not skip then
+                local we = wp.east
+                local wn = wp.north
+                if (we == nil or wn == nil) and is_valid_latlon(wp.lat, wp.lon) then
+                    we, wn = latlon_to_local(wp.lat, wp.lon)
+                end
+                if we ~= nil and wn ~= nil then
+                    add_handle("manual", we, wn, wp.lat, wp.lon, wp.segment_idx, nil, idx)
+                end
             end
         end
     end
@@ -4037,12 +4071,12 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                                             comp._routeWaypoints = {}
                                         end
                                         push_undo(comp, "draw-insert")
-                                        insert_waypoint_sorted(comp._routeWaypoints, {
+                                        table.insert(comp._routeWaypoints, {
                                             lat = wlat,
                                             lon = wlon,
                                             east = we,
                                             north = wn,
-                                            segment_idx = best_idx
+                                            segment_idx = nil
                                         })
                                         mark_edit_dirty(comp)
                                         log_taxi(
@@ -4170,9 +4204,39 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                             handle.lon = wlon
                         end
                         if drag.kind == "start" then
+                            local prev_start = comp._editStartOverride
                             comp._editStartOverride = { lat = wlat, lon = wlon, mode = comp.mode, icao = comp._lastIcao }
+                            local sync_start = comp._drawRoute
+                            if not sync_start and prev_start and comp._routeWaypoints and #comp._routeWaypoints > 0 then
+                                sync_start = waypoint_matches_override(comp._routeWaypoints[1], prev_start)
+                            end
+                            if sync_start and comp._routeWaypoints and #comp._routeWaypoints > 0 then
+                                local wp = comp._routeWaypoints[1]
+                                if wp then
+                                    wp.lat = wlat
+                                    wp.lon = wlon
+                                    wp.east = proj.proj_east
+                                    wp.north = proj.proj_north
+                                    wp.segment_idx = nil
+                                end
+                            end
                         elseif drag.kind == "end" then
+                            local prev_end = comp._editEndOverride
                             comp._editEndOverride = { lat = wlat, lon = wlon, mode = comp.mode, icao = comp._lastIcao }
+                            local sync_end = comp._drawRoute
+                            if not sync_end and prev_end and comp._routeWaypoints and #comp._routeWaypoints > 0 then
+                                sync_end = waypoint_matches_override(comp._routeWaypoints[#comp._routeWaypoints], prev_end)
+                            end
+                            if sync_end and comp._routeWaypoints and #comp._routeWaypoints > 0 then
+                                local wp = comp._routeWaypoints[#comp._routeWaypoints]
+                                if wp then
+                                    wp.lat = wlat
+                                    wp.lon = wlon
+                                    wp.east = proj.proj_east
+                                    wp.north = proj.proj_north
+                                    wp.segment_idx = nil
+                                end
+                            end
                         else
                             if drag.kind == "auto" and not drag.wp_idx then
                                 if not comp._routeWaypoints then
@@ -4924,6 +4988,18 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
         comp._startRamp = start_ramp
         comp._startIsAircraft = (start_is_aircraft and not start_ramp) or false
         comp._endRamp = end_ramp
+        if comp._drawRoute and comp._routeWaypoints and #comp._routeWaypoints > 0 then
+            local first_wp = comp._routeWaypoints[1]
+            local last_wp = comp._routeWaypoints[#comp._routeWaypoints]
+            local slat, slon = ensure_waypoint_latlon(first_wp)
+            local elat, elon = ensure_waypoint_latlon(last_wp)
+            if slat and slon then
+                comp._editStartOverride = { lat = slat, lon = slon, mode = mode, icao = icao }
+            end
+            if elat and elon then
+                comp._editEndOverride = { lat = elat, lon = elon, mode = mode, icao = icao }
+            end
+        end
         comp._depHoldshortNodeId = dep_holdshort_id
         comp._depEntryCandidates = nil
         comp._depEntryLabels = nil
@@ -5042,6 +5118,21 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
             comp._lastEndKey = nil
             log_taxi("TaxiDraw: abort draw-route-empty")
             return
+        end
+
+        local route_waypoints = comp._routeWaypoints
+        if route_waypoints and #route_waypoints > 0 then
+            local drop_first = waypoint_matches_override(route_waypoints[1], comp._editStartOverride)
+            local drop_last = waypoint_matches_override(route_waypoints[#route_waypoints], comp._editEndOverride)
+            if drop_first or drop_last then
+                local trimmed = {}
+                local s = drop_first and 2 or 1
+                local e = drop_last and (#route_waypoints - 1) or #route_waypoints
+                for i = s, e do
+                    trimmed[#trimmed + 1] = route_waypoints[i]
+                end
+                route_waypoints = trimmed
+            end
         end
 
         local anchor_lat = start_lat
@@ -5308,9 +5399,9 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                             end
                         end
                     end
-                    if comp._routeWaypoints and #comp._routeWaypoints > 0 then
+                    if route_waypoints and #route_waypoints > 0 then
                         waypoint_projs = {}
-                        for _, wp in ipairs(comp._routeWaypoints) do
+                        for _, wp in ipairs(route_waypoints) do
                             if is_valid_latlon(wp.lat, wp.lon) then
                                 local wx, wy = latlon_to_local(wp.lat, wp.lon)
                                 if wx and wy then
@@ -5421,7 +5512,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                     end_lon,
                     opts,
                     proj_waypoint_ids,
-                    comp._routeWaypoints
+                    route_waypoints
                 )
                 if (not route) and rerr == "no-path" and mode == 0 then
                     opts = {
@@ -5445,7 +5536,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                         end_lon,
                         opts,
                         proj_waypoint_ids,
-                        comp._routeWaypoints
+                        route_waypoints
                     )
                 end
                 if (not route) and rerr == "no-path" and mode == 0 and is_valid_latlon(start_lat, start_lon) then
@@ -5473,7 +5564,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                             candidates,
                             opts,
                             proj_waypoint_ids,
-                            comp._routeWaypoints
+                            route_waypoints
                         )
                         if alt_route then
                             route = alt_route
@@ -5506,7 +5597,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                             candidates,
                             opts,
                             proj_waypoint_ids,
-                            comp._routeWaypoints
+                            route_waypoints
                         )
                         if alt_route then
                             route = alt_route
@@ -5536,7 +5627,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                         end_lon,
                         opts,
                         proj_waypoint_ids,
-                        comp._routeWaypoints
+                        route_waypoints
                     )
                     if route and helpers and helpers.logInfoTS then
                         helpers.logInfoTS("Taxi: DEP fallback allow runway nodes")
@@ -5565,7 +5656,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                         end_lon,
                         opts,
                         proj_waypoint_ids,
-                        comp._routeWaypoints
+                        route_waypoints
                     )
                     if route and helpers and helpers.logInfoTS then
                         helpers.logInfoTS("Taxi: DEP fallback allow runway crossing")
@@ -5586,7 +5677,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                         end_lon,
                         opts,
                         proj_waypoint_ids,
-                        comp._routeWaypoints
+                        route_waypoints
                     )
                 end
                 if (not route) and rerr == "no-path" and mode == 1 then
@@ -5604,7 +5695,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                         end_lon,
                         opts,
                         proj_waypoint_ids,
-                        comp._routeWaypoints
+                        route_waypoints
                     )
                 end
                 if (not route) and rerr == "no-path" and mode == 1 then
@@ -5622,7 +5713,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                         end_lon,
                         opts,
                         proj_waypoint_ids,
-                        comp._routeWaypoints
+                        route_waypoints
                     )
                 end
                 if (not route) and rerr == "no-path" and mode == 1 then
@@ -5637,7 +5728,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                         end_lon,
                         opts,
                         proj_waypoint_ids,
-                        comp._routeWaypoints
+                        route_waypoints
                     )
                 end
                 if (not route) and rerr == "no-path" and mode == 1 then
@@ -5656,7 +5747,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                         end_lon,
                         opts,
                         proj_waypoint_ids,
-                        comp._routeWaypoints
+                        route_waypoints
                     )
                 end
                 if (not route) and rerr == "no-path" and mode == 1 then
@@ -5671,7 +5762,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                         end_lon,
                         opts,
                         proj_waypoint_ids,
-                        comp._routeWaypoints
+                        route_waypoints
                     )
                 end
                 if (not route) and rerr == "no-path" and mode == 1 then
@@ -5696,7 +5787,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                                 candidates,
                                 opts,
                                 proj_waypoint_ids,
-                                comp._routeWaypoints
+                                route_waypoints
                             )
                             if alt_route then
                                 route = alt_route
@@ -5724,7 +5815,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                             candidates,
                             opts,
                             proj_waypoint_ids,
-                            comp._routeWaypoints
+                            route_waypoints
                         )
                         if alt_route then
                             route = alt_route
@@ -5751,7 +5842,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                             candidates,
                             opts,
                             proj_waypoint_ids,
-                            comp._routeWaypoints
+                            route_waypoints
                         )
                         if alt_route then
                             route = alt_route
