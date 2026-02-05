@@ -3843,34 +3843,93 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                         dx, dy = rotate_point(dx, dy, -t.rot)
                         return t.centerEast + dx, t.centerNorth + dy
                     end
-                    if comp._drawRoute and (not comp._route or not comp._route.path or not comp._route.data) then
-                        local we, wn = screen_to_world(x, y)
-                        local proj = find_nearest_edge_projection(comp._data, we, wn, { disallow_runway_edges = false })
-                        if proj and proj.edge then
-                            local wlat, wlon = sasl.localToWorld(proj.proj_east, 0, -proj.proj_north)
-                            if is_valid_latlon(wlat, wlon) then
-                                if not comp._routeWaypoints then
-                                    comp._routeWaypoints = {}
-                                end
-                                table.insert(comp._routeWaypoints, {
-                                    lat = wlat,
-                                    lon = wlon,
-                                    east = proj.proj_east,
-                                    north = proj.proj_north,
-                                    segment_idx = nil
-                                })
-                                mark_edit_dirty(comp)
-                                log_taxi(
-                                    string.format(
-                                        "TaxiDraw: add-waypoint lat=%.6f lon=%.6f total=%d",
-                                        wlat,
-                                        wlon,
-                                        #comp._routeWaypoints
+                    if comp._drawRoute then
+                        local function add_waypoint_nearest_edge()
+                            local we, wn = screen_to_world(x, y)
+                            local proj = find_nearest_edge_projection(comp._data, we, wn, { disallow_runway_edges = false })
+                            if proj and proj.edge then
+                                local wlat, wlon = sasl.localToWorld(proj.proj_east, 0, -proj.proj_north)
+                                if is_valid_latlon(wlat, wlon) then
+                                    if not comp._routeWaypoints then
+                                        comp._routeWaypoints = {}
+                                    end
+                                    table.insert(comp._routeWaypoints, {
+                                        lat = wlat,
+                                        lon = wlon,
+                                        east = proj.proj_east,
+                                        north = proj.proj_north,
+                                        segment_idx = nil
+                                    })
+                                    mark_edit_dirty(comp)
+                                    log_taxi(
+                                        string.format(
+                                            "TaxiDraw: add-waypoint lat=%.6f lon=%.6f total=%d",
+                                            wlat,
+                                            wlon,
+                                            #comp._routeWaypoints
+                                        )
                                     )
-                                )
-                                return true
+                                    return true
+                                end
+                            end
+                            return false
+                        end
+
+                        if comp._route and comp._route.path and comp._route.data then
+                            local routeData = comp._route.data
+                            local path = comp._route.path
+                            local best_idx = nil
+                            local best_d2 = nil
+                            local best_t = 0
+                            for i = 1, #path - 1 do
+                                local n1 = routeData.nodes[path[i]]
+                                local n2 = routeData.nodes[path[i + 1]]
+                                if n1 and n2 then
+                                    local x1, y1 = project(n1.east, n1.north)
+                                    local x2, y2 = project(n2.east, n2.north)
+                                    local px, py, tt = project_point_to_segment(x, y, x1, y1, x2, y2)
+                                    local d2 = distance_sq(x, y, px, py)
+                                    if not best_d2 or d2 < best_d2 then
+                                        best_d2 = d2
+                                        best_idx = i
+                                        best_t = tt
+                                    end
+                                end
+                            end
+                            if best_idx and best_d2 and best_d2 <= 100 then
+                                local n1 = routeData.nodes[path[best_idx]]
+                                local n2 = routeData.nodes[path[best_idx + 1]]
+                                if n1 and n2 then
+                                    local we = n1.east + (n2.east - n1.east) * best_t
+                                    local wn = n1.north + (n2.north - n1.north) * best_t
+                                    local wlat, wlon = sasl.localToWorld(we, 0, -wn)
+                                    if is_valid_latlon(wlat, wlon) then
+                                        if not comp._routeWaypoints then
+                                            comp._routeWaypoints = {}
+                                        end
+                                        insert_waypoint_sorted(comp._routeWaypoints, {
+                                            lat = wlat,
+                                            lon = wlon,
+                                            east = we,
+                                            north = wn,
+                                            segment_idx = best_idx
+                                        })
+                                        mark_edit_dirty(comp)
+                                        log_taxi(
+                                            string.format(
+                                                "TaxiDraw: insert-waypoint seg=%s lat=%.6f lon=%.6f total=%d",
+                                                tostring(best_idx),
+                                                wlat,
+                                                wlon,
+                                                #comp._routeWaypoints
+                                            )
+                                        )
+                                        return true
+                                    end
+                                end
                             end
                         end
+                        return add_waypoint_nearest_edge()
                     elseif comp._route and comp._route.path and comp._route.data then
                         local routeData = comp._route.data
                         local path = comp._route.path
