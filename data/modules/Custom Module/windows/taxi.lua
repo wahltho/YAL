@@ -4616,19 +4616,26 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
         else
             comp._arrOnGroundSince = nil
         end
+        local nearestIcao = nil
+        if yal.nearesticao then
+            local nearest = normalize_icao(get(yal.nearesticao) or "")
+            if helpers.isvalidicao(nearest) then
+                nearestIcao = nearest
+            end
+        end
         local icao = nil
         if mode == 0 then
             icao = depIcao
-            if not helpers.isvalidicao(icao or "") and yal.nearesticao then
-                local nearest = normalize_icao(get(yal.nearesticao) or "")
-                if helpers.isvalidicao(nearest) then
-                    icao = nearest
-                end
+            if not helpers.isvalidicao(icao or "") and nearestIcao then
+                icao = nearestIcao
             end
         else
             icao = desIcao
             if not helpers.isvalidicao(icao or "") and comp._lastArrivalIcao then
                 icao = comp._lastArrivalIcao
+            end
+            if not helpers.isvalidicao(icao or "") and onGroundSensor and nearestIcao then
+                icao = nearestIcao
             end
         end
 
