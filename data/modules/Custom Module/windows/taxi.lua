@@ -2670,6 +2670,9 @@ local function maybe_speak_guidance(comp, now, aircraft)
     if text == "" then
         return
     end
+    if dep_mode and entering_runway and next_info.kind == "runway" then
+        comp._depRunwayEntryAnnounced = true
+    end
     local label = build_visual_label(next_info.kind, next_info.display)
     emit({
         text = text,
@@ -2939,6 +2942,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
     comp._lastGuidanceLabel = nil
     comp._lastGuidanceTime = nil
     comp._visualGuidance = nil
+    comp._depRunwayEntryAnnounced = false
     comp._depTaxiCompleteAnnounced = false
     comp._initialGuidanceDone = false
     comp._lastRecomputeKey = nil
@@ -4628,6 +4632,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
             comp._editDirty = false
             comp._editStartOverride = nil
             comp._editEndOverride = nil
+            comp._depRunwayEntryAnnounced = false
             comp._depTaxiCompleteAnnounced = false
             log_taxi(
                 string.format(
@@ -6359,6 +6364,51 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                 if onGround and comp.yal and comp.yal.aircraftonrwy then
                     local onRunway = comp.yal.aircraftonrwy(def.DEPARTURE, 40, depThresholdHeadingLimit)
                     if onRunway then
+                        if not comp._depRunwayEntryAnnounced then
+                            local rwy_phrase = runway_label_voice(comp._runwayName)
+                            local entry_text = "Enter departure " .. rwy_phrase
+                            local entry_action = "ENTER RWY"
+                            local entry_direction = "straight"
+                            local entry_label = build_visual_label("runway", normalize_runway_name(comp._runwayName))
+                            local turn_threshold = 15
+                            if comp._route and comp._route.path and comp._route.data and dep_profile and dep_profile.axis then
+                                local path = comp._route.path
+                                local data = comp._route.data
+                                if #path >= 2 then
+                                    local n1 = data.nodes and data.nodes[path[#path - 1]] or nil
+                                    local n2 = data.nodes and data.nodes[path[#path]] or nil
+                                    if n1 and n2 and n1.east and n1.north and n2.east and n2.north then
+                                        local v1x = n2.east - n1.east
+                                        local v1y = n2.north - n1.north
+                                        local len1 = math.sqrt(v1x * v1x + v1y * v1y)
+                                        local v2x = dep_profile.axis.x or 0
+                                        local v2y = dep_profile.axis.y or 0
+                                        local len2 = math.sqrt(v2x * v2x + v2y * v2y)
+                                        if len1 > 0.1 and len2 > 0.1 then
+                                            local dot = (v1x * v2x + v1y * v2y) / (len1 * len2)
+                                            if dot > 1 then dot = 1 end
+                                            if dot < -1 then dot = -1 end
+                                            local angle = math.deg(math.acos(dot))
+                                            if angle >= turn_threshold then
+                                                local cross = v1x * v2y - v1y * v2x
+                                                local turn = (cross >= 0) and "left" or "right"
+                                                entry_text = "Turn " .. turn .. " on departure " .. rwy_phrase
+                                                entry_action = (turn == "left") and "TURN LEFT" or "TURN RIGHT"
+                                                entry_direction = turn
+                                            end
+                                        end
+                                    end
+                                end
+                            end
+                            emit_guidance(comp, now, {
+                                text = entry_text,
+                                direction = entry_direction,
+                                action = entry_action,
+                                label = entry_label,
+                                kind = "runway"
+                            }, is_auto_taxi_guidance_enabled())
+                            comp._depRunwayEntryAnnounced = true
+                        end
                         local rwy_phrase = runway_label_voice(comp._runwayName)
                         emit_guidance(comp, now, {
                             text = "On departure " .. rwy_phrase .. ", taxi complete",
