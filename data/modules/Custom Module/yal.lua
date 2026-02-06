@@ -5564,7 +5564,7 @@ function P.runProcedureLoop(loopIndex)
                             loop.fmcPageSkipAt = now
                         end
                         local elapsed = now - (loop.fmcPageSkipAt or now)
-                        if elapsed >= 2 then
+                        if elapsed >= 1 then
                             sasl.logDebug("FMC automation OFF. Skipping FMC page step after grace: " .. tostring(stepName))
                             if step.branch then
                                 local nextStepNameFromBranch = step.branch(loop, procData)
