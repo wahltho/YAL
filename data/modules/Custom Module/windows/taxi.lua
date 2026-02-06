@@ -6388,11 +6388,42 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                                 local path = comp._route.path
                                 local data = comp._route.data
                                 if #path >= 2 then
-                                    local n1 = data.nodes and data.nodes[path[#path - 1]] or nil
-                                    local n2 = data.nodes and data.nodes[path[#path]] or nil
-                                    if n1 and n2 and n1.east and n1.north and n2.east and n2.north then
-                                        local v1x = n2.east - n1.east
-                                        local v1y = n2.north - n1.north
+                                    local v1x, v1y = nil, nil
+                                    local found = false
+                                    local runway_nodes = data.runway_nodes
+                                    if runway_nodes then
+                                        for i = #path - 1, 1, -1 do
+                                            local id1 = path[i]
+                                            local id2 = path[i + 1]
+                                            local is1 = runway_nodes[id1] and true or false
+                                            local is2 = runway_nodes[id2] and true or false
+                                            if is1 ~= is2 then
+                                                local n1 = data.nodes and data.nodes[id1] or nil
+                                                local n2 = data.nodes and data.nodes[id2] or nil
+                                                if n1 and n2 and n1.east and n1.north and n2.east and n2.north then
+                                                    if is1 and (not is2) then
+                                                        v1x = n1.east - n2.east
+                                                        v1y = n1.north - n2.north
+                                                    else
+                                                        v1x = n2.east - n1.east
+                                                        v1y = n2.north - n1.north
+                                                    end
+                                                    found = true
+                                                end
+                                                break
+                                            end
+                                        end
+                                    end
+                                    if not found then
+                                        local n1 = data.nodes and data.nodes[path[#path - 1]] or nil
+                                        local n2 = data.nodes and data.nodes[path[#path]] or nil
+                                        if n1 and n2 and n1.east and n1.north and n2.east and n2.north then
+                                            v1x = n2.east - n1.east
+                                            v1y = n2.north - n1.north
+                                            found = true
+                                        end
+                                    end
+                                    if found then
                                         local len1 = math.sqrt(v1x * v1x + v1y * v1y)
                                         local v2x = dep_profile.axis.x or 0
                                         local v2y = dep_profile.axis.y or 0

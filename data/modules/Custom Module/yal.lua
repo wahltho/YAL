@@ -4481,7 +4481,7 @@ function P.autofunctions()
             P.triggerprocedure(def.BEFORETAXIPROCEDURE)
         end
 
-        local triggerConditionsMet_BTO = (((((P.aircraftonrwy(def.DEPARTURE, 40, 20) and (helpers.roundnumber(get(P.groundspeed)) == 0)) and (get(P.transponderpos) == def.TARA))) or (get(P.positionlights) == def.POSLIGHTSSTROBE)) and P.flightstate == def.FLIGHTSTATEPREFLIGHT)
+        local triggerConditionsMet_BTO = ((((P.aircraftonrwy(def.DEPARTURE, 40, 20) and (helpers.roundnumber(get(P.groundspeed)) == 0))) or (get(P.positionlights) == def.POSLIGHTSSTROBE)) and P.flightstate == def.FLIGHTSTATEPREFLIGHT)
         if triggerConditionsMet_BTO then
             P.triggerprocedure(def.BEFORETAKEOFFPROCEDURE)
         end
