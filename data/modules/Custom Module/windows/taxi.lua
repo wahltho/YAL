@@ -391,7 +391,50 @@ local function align_taxi_data_projection(data)
         return false, dx, dy
     end
     if ax > projectionShiftThreshold or ay > projectionShiftThreshold then
-        return false, dx, dy
+        local function dist2_to_bounds(x, y, bounds)
+            if not bounds or bounds.minX == nil or bounds.maxX == nil or bounds.minY == nil or bounds.maxY == nil then
+                return nil
+            end
+            local ddx = 0
+            if x < bounds.minX then
+                ddx = bounds.minX - x
+            elseif x > bounds.maxX then
+                ddx = x - bounds.maxX
+            end
+            local ddy = 0
+            if y < bounds.minY then
+                ddy = bounds.minY - y
+            elseif y > bounds.maxY then
+                ddy = y - bounds.maxY
+            end
+            return ddx * ddx + ddy * ddy
+        end
+        local bounds = data and data.bounds or nil
+        local d2_before = dist2_to_bounds(cur_east, cur_north, bounds)
+        local d2_after = dist2_to_bounds(cur_east - dx, cur_north - dy, bounds)
+        local allow = false
+        if d2_before ~= nil and d2_after ~= nil then
+            local before_far = d2_before > (projectionShiftThreshold * projectionShiftThreshold)
+            local after_inside = (d2_after == 0)
+            local after_much_closer = (d2_before > 0) and (d2_after <= d2_before * 0.05)
+            if before_far and (after_inside or after_much_closer) then
+                allow = true
+            end
+        end
+        if not allow then
+            if helpers and helpers.logInfoTS then
+                helpers.logInfoTS(
+                    string.format(
+                        "TaxiProj: skip large shift dx=%.1f dy=%.1f d2_before=%s d2_after=%s",
+                        dx,
+                        dy,
+                        d2_before ~= nil and string.format("%.1f", d2_before) or "nil",
+                        d2_after ~= nil and string.format("%.1f", d2_after) or "nil"
+                    )
+                )
+            end
+            return false, dx, dy
+        end
     end
     apply_projection_shift(data, dx, dy)
     return true, dx, dy
