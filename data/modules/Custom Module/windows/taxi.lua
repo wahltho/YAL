@@ -4771,18 +4771,6 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
             comp._rampLinkCacheReset = data
         end
         comp._fitBounds = data.bounds
-        local hasNodes = (data.nodes and next(data.nodes) ~= nil) or false
-        local hasArrivalRunway = (mode == 0) or (runway_name ~= "")
-        local canRoute = data.can_route and hasNodes and hasArrivalRunway
-        if not canRoute then
-            helpers.logInfoTS(
-                "TaxiDiag: canRoute=false icao=" .. tostring(icao) ..
-                " mode=" .. tostring(mode) ..
-                " data.can_route=" .. tostring(data.can_route) ..
-                " hasNodes=" .. tostring(hasNodes) ..
-                " hasArrivalRunway=" .. tostring(hasArrivalRunway)
-            )
-        end
 
         local aircraft = nil
         local lat = yal.aircraftlatpos and get(yal.aircraftlatpos) or nil
@@ -4987,6 +4975,18 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                     start_lon = aircraft.lon
                 end
             end
+        end
+
+        local hasRunwayName = (runway_name ~= nil and runway_name ~= "")
+        local hasArrivalRunway = (mode == 1 and hasRunwayName) or false
+        local canRoute = data and data.can_route and (mode == 1 or hasRunwayName) or false
+        if not canRoute then
+            helpers.logInfoTS(
+                "TaxiDiag: canRoute=false icao=" .. tostring(icao) ..
+                " mode=" .. tostring(mode) ..
+                " data.can_route=" .. tostring(data and data.can_route) ..
+                " hasRunwayName=" .. tostring(hasRunwayName)
+            )
         end
 
         if mode == 0 and data and comp._runwayName and comp._runwayName ~= "" and is_valid_latlon(runway_lat, runway_lon) then
@@ -5325,7 +5325,8 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
             dep_end_node_dist = dep_end_node_dist
         }
 
-        if mode == 1 and not hasArrivalRunway then
+        if mode == 1 and (not hasArrivalRunway)
+            and ((not is_valid_latlon(start_lat, start_lon)) or (not is_valid_latlon(end_lat, end_lon))) then
             comp._route = nil
             comp._routeErr = "no-arrival-runway"
             comp._routeExtraSegments = nil
@@ -6103,6 +6104,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                     end
                 end
                 comp._route = route
+                comp._lastRouteComputeTime = now
                 comp._routeErr = rerr
                 comp._routeLabels = route and build_route_labels(route.data, route.path) or nil
                 comp._routeLabelStats = route and compute_route_label_stats(route.data, route.path) or nil
@@ -6337,7 +6339,17 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                     end
                     comp._lastRouteDist = dist
                     local lastReroute = comp._lastRerouteTime or 0
-                    if dist and dist > rerouteDriftMeters and (now - lastReroute) > rerouteCooldown then
+                    local skipReroute = false
+                    if mode == 1 then
+                        local lastCompute = comp._lastRouteComputeTime or 0
+                        if lastCompute > 0 and (now - lastCompute) < 2 then
+                            local gs = yal and yal.groundspeed and (get(yal.groundspeed) or 0) or 0
+                            if dist and dist <= (rerouteDriftMeters * 3) and gs < 25 then
+                                skipReroute = true
+                            end
+                        end
+                    end
+                    if (not skipReroute) and dist and dist > rerouteDriftMeters and (now - lastReroute) > rerouteCooldown then
                         comp._rerouteOverride = { lat = aircraft.lat, lon = aircraft.lon }
                         if not arrival_grace_active(comp, now) then
                             comp._pendingRerouteEvent = true
@@ -6354,6 +6366,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
 
             if comp._route then
                 if maybe_force_global_for_quality(comp, now, icao, mode, data, helpers) then
+                    update_visual_guidance(comp, now, aircraft)
                     return
                 end
                 maybe_speak_guidance(comp, now, aircraft)
