@@ -2471,7 +2471,7 @@ local function emit_guidance(comp, now, info, allow_voice)
     if allow_voice and is_voice_enabled() then
         speak_guidance_text(comp, info.text)
     end
-    if is_visual_taxi_guidance_enabled() then
+    if is_visual_taxi_guidance_enabled() and info.visual ~= false then
         info.issuedAt = now
         info.showAt = now + visualGuidanceSyncDelay
         info.expiresAt = now + visualGuidanceSyncDelay + visualGuidanceDuration
@@ -6509,7 +6509,8 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                             direction = "straight",
                             action = "TAXI COMPLETE",
                             label = build_visual_label("runway", normalize_runway_name(comp._runwayName)),
-                            kind = "runway"
+                            kind = "runway",
+                            visual = false
                         }, is_auto_taxi_guidance_enabled())
                         comp._depTaxiCompleteAnnounced = true
                     end

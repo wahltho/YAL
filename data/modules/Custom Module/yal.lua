@@ -5249,6 +5249,7 @@ function P.ongoingtasks()
     end
 
      if (P.ongoingtaskstepindex == 11) then
+        local skipReason = nil
         if (P.flightstate == def.FLIGHTSTATECRUISE) and (get(P.fmsflightphase) == def.FMSFLIGHTPHASE_CRUISE) and (get(P.totalfuellbs) < 1000) then
 
             local reservefuelLbs = 5000
@@ -5267,9 +5268,35 @@ function P.ongoingtasks()
             end
 
             local distanceToTODNM = get(P.vnavtoddist)
-            local requiredfuellbs = P.calculateRequiredFuelNow(distanceToTODNM, reservefuelLbs)
+            if type(distanceToTODNM) ~= "number" or distanceToTODNM <= 0 then
+                local distDest = get(P.distdest)
+                if type(distDest) == "number" and distDest > 0 then
+                    distanceToTODNM = distDest
+                else
+                    skipReason = "skip (no ToD or destination distance)"
+                end
+            end
 
-            P.refuelAircraft(requiredfuellbs)
+            if not skipReason then
+                local requiredfuellbs = P.calculateRequiredFuelNow(distanceToTODNM, reservefuelLbs)
+                local currentTotal = get(P.totalfuellbs) or 0
+                if type(requiredfuellbs) ~= "number" or requiredfuellbs <= 0 then
+                    skipReason = "skip (invalid required fuel)"
+                elseif requiredfuellbs <= currentTotal then
+                    skipReason = "skip (required <= current)"
+                else
+                    P.refuelAircraft(requiredfuellbs)
+                end
+            end
+        end
+
+        if skipReason then
+            if P.refuelFailsafeReason ~= skipReason then
+                helpers.logInfoTS("Refuel failsafe: " .. tostring(skipReason))
+                P.refuelFailsafeReason = skipReason
+            end
+        else
+            P.refuelFailsafeReason = nil
         end
     end
 
