@@ -4725,6 +4725,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
             clear_visual_guidance(comp, "invalid-icao")
             comp._visualGuidanceQueue = {}
             comp._drawFreehand = false
+            comp._arrOffRunwayHandled = false
             log_taxi("TaxiRoute: abort invalid-icao")
             return
         end
@@ -4762,6 +4763,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
             comp._editStartOverride = nil
             comp._editEndOverride = nil
             comp._drawFreehand = false
+            comp._arrOffRunwayHandled = false
             comp._depRunwayEntryAnnounced = false
             comp._depTaxiCompleteAnnounced = false
             log_taxi(
@@ -5434,7 +5436,8 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
         if mode == 0 and data and data.runway_nodes then
             dep_end_node_id, dep_end_node_dist = nearest_non_runway_node(data, end_lat, end_lon)
         end
-        if mode == 1 and arr_exit_id and (not has_start_override) and start_node_dist and start_node_dist > arrStartNodeMaxMeters
+        if mode == 1 and arr_exit_id and (not has_start_override) and (not comp._arrOffRunwayHandled)
+            and start_node_dist and start_node_dist > arrStartNodeMaxMeters
             and arrival_grace_active(comp, now)
             and data and data.nodes and data.nodes[arr_exit_id] then
             local exit_node = data.nodes[arr_exit_id]
@@ -5873,7 +5876,8 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                     set_start_ramp_fallback(opts)
                 elseif mode == 1 then
                     if not allow_runway_route then
-                        if (not comp._rerouteOverride) and (not has_start_override) and arr_exit_id and data.nodes and data.nodes[arr_exit_id] then
+                        if (not comp._rerouteOverride) and (not has_start_override) and (not comp._arrOffRunwayHandled)
+                            and arr_exit_id and data.nodes and data.nodes[arr_exit_id] then
                             opts.start_node_id = arr_exit_id
                         elseif not backtrack_required then
                             opts.avoid_runway_start = true
@@ -6351,7 +6355,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                     if profile then
                         local backtrack_node = nil
                         local backtrack_target = nil
-                        if mode == 1 and backtrack_required then
+                        if mode == 1 and backtrack_required and (not comp._arrOffRunwayHandled) then
                             backtrack_node = arr_exit_id or route.path[1]
                             backtrack_target = profile.touchdown or profile.threshold
                         elseif mode == 0 and not allow_runway_route then
@@ -6468,17 +6472,21 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                     end
                     if mode == 1 and comp.yal and comp.yal.aircraftonrwy and is_valid_latlon(runway_lat, runway_lon) then
                         local offRunway = comp.yal.aircraftonrwy(def.ARRIVAL, 40, 20)
-                        if offRunway and not comp._rerouteOverride then
-                            comp._rerouteOverride = { lat = aircraft.lat, lon = aircraft.lon }
-                            if not arrival_grace_active(comp, now) then
-                                comp._pendingRerouteEvent = true
+                        if offRunway and not comp._arrOffRunwayHandled then
+                            comp._arrOffRunwayHandled = true
+                            if not comp._rerouteOverride then
+                                comp._rerouteOverride = { lat = aircraft.lat, lon = aircraft.lon }
+                                if not arrival_grace_active(comp, now) then
+                                    comp._pendingRerouteEvent = true
+                                end
+                                comp._lastRerouteTime = now
+                                comp._lastStartKey = nil
+                                comp._route = nil
+                                comp._routeErr = nil
+                                comp._routeLabels = nil
+                                comp._routeLabelStats = nil
                             end
-                            comp._lastRerouteTime = now
-                            comp._lastStartKey = nil
-                            comp._route = nil
-                            comp._routeErr = nil
-                            comp._routeLabels = nil
-                            comp._routeLabelStats = nil
+                            log_taxi("TaxiRoute: off-runway reroute latch")
                             return
                         end
                     end
