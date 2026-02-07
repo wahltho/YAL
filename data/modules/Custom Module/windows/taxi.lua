@@ -2392,6 +2392,14 @@ local function set_visual_guidance(comp, info)
     comp._visualGuidance = info
 end
 
+local function queue_visual_guidance(comp, info)
+    if not comp or not info then
+        return
+    end
+    comp._visualGuidanceQueue = comp._visualGuidanceQueue or {}
+    comp._visualGuidanceQueue[#comp._visualGuidanceQueue + 1] = info
+end
+
 local function clear_visual_guidance(comp, reason)
     if not comp then
         return
@@ -2400,6 +2408,16 @@ local function clear_visual_guidance(comp, reason)
     local popup = get_visual_popup(comp)
     if popup and popup.clearInstruction then
         popup:clearInstruction(reason)
+    end
+    if reason == "expired" or reason == "fulfilled" then
+        if comp._visualGuidanceQueue and #comp._visualGuidanceQueue > 0 then
+            local next = table.remove(comp._visualGuidanceQueue, 1)
+            if next then
+                set_visual_guidance(comp, next)
+            end
+        end
+    elseif reason == "before-takeoff" or reason == "disabled" or reason == "manual-clear" then
+        comp._visualGuidanceQueue = {}
     end
 end
 
@@ -2476,7 +2494,11 @@ local function emit_guidance(comp, now, info, allow_voice)
         info.showAt = now + visualGuidanceSyncDelay
         info.expiresAt = now + visualGuidanceSyncDelay + visualGuidanceDuration
         info.minShowUntil = now + visualGuidanceSyncDelay + visualGuidanceMinShow
-        set_visual_guidance(comp, info)
+        if info.queue and comp._visualGuidance then
+            queue_visual_guidance(comp, info)
+        else
+            set_visual_guidance(comp, info)
+        end
     end
 end
 
@@ -2509,10 +2531,10 @@ local function maybe_speak_guidance(comp, now, aircraft)
         diag("voice-disabled")
         return
     end
-    if not comp._route or not comp._route.path then
-        diag("no-route")
-        return
-    end
+            if not comp._route or not comp._route.path then
+                diag("no-route")
+                return
+            end
     if not aircraft or aircraft.east == nil or aircraft.north == nil then
         diag("no-aircraft-pos")
         return
@@ -4539,6 +4561,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
 
         if in_edit then
             clear_visual_guidance(comp, "edit")
+            comp._visualGuidanceQueue = {}
         end
 
         if not yal then
@@ -4648,6 +4671,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
             comp._fitBounds = nil
             comp._runwayName = nil
             clear_visual_guidance(comp, "invalid-icao")
+            comp._visualGuidanceQueue = {}
             log_taxi("TaxiRoute: abort invalid-icao")
             return
         end
@@ -4677,6 +4701,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
             comp._lastGuidanceLabel = nil
             comp._lastGuidanceTime = nil
             clear_visual_guidance(comp, "reset")
+            comp._visualGuidanceQueue = {}
             comp._editHandles = nil
             comp._editSuppressedNodes = nil
             comp._editDirty = false
@@ -4771,6 +4796,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
             comp._runwayName = nil
             comp._routeExtraSegments = nil
             clear_visual_guidance(comp, "no-data")
+            comp._visualGuidanceQueue = {}
             return
         end
         comp._data = data
@@ -6526,7 +6552,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                             action = "TAXI COMPLETE",
                             label = build_visual_label("runway", normalize_runway_name(comp._runwayName)),
                             kind = "runway",
-                            visual = false
+                            queue = true
                         }, is_auto_taxi_guidance_enabled())
                         comp._depTaxiCompleteAnnounced = true
                     end
@@ -6676,6 +6702,10 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
 
     function comp:clearVisualGuidance()
         clear_visual_guidance(comp, "manual-clear")
+    end
+
+    function comp:clearVisualGuidanceQueue()
+        comp._visualGuidanceQueue = {}
     end
 
     function comp:tick()
