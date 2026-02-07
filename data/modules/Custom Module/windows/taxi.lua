@@ -6455,7 +6455,11 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                 local yal = comp.yal or _G.yal
                 local onGround = yal and yal.airgroundsensor and (get(yal.airgroundsensor) == def.ON)
                 local tirespeed = yal and yal.tirespeed and (get(yal.tirespeed) or 0) or 0
-                if onGround and tirespeed > 1 and not (mode == 0 and comp._depThresholdLatched) then
+                local skip_reroute = false
+                if comp._drawFreehand and comp._routeWaypoints and #comp._routeWaypoints > 0 then
+                    skip_reroute = true
+                end
+                if onGround and tirespeed > 1 and not (mode == 0 and comp._depThresholdLatched) and (not skip_reroute) then
                     if mode == 1 and comp.yal and comp.yal.aircraftonrwy and is_valid_latlon(runway_lat, runway_lon) then
                         local offRunway = comp.yal.aircraftonrwy(def.ARRIVAL, 40, 20)
                         if not offRunway then
@@ -6498,7 +6502,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                             end
                         end
                     end
-                    if (not skipReroute) and dist and dist > rerouteDriftMeters and (now - lastReroute) > rerouteCooldown then
+                    if dist and dist > rerouteDriftMeters and (now - lastReroute) > rerouteCooldown then
                         comp._rerouteOverride = { lat = aircraft.lat, lon = aircraft.lon }
                         if not arrival_grace_active(comp, now) then
                             comp._pendingRerouteEvent = true
