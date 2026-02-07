@@ -5337,6 +5337,16 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
         if mode == 0 and start_is_aircraft and data and data.runway_nodes then
             start_non_runway_node_id, start_non_runway_node_dist = nearest_non_runway_node(data, start_lat, start_lon)
         end
+        if mode == 1 and start_node_dist and start_node_dist > rerouteDriftMeters then
+            log_taxi(
+                string.format(
+                    "TaxiRoute: clear start node dist=%.1f",
+                    start_node_dist or -1
+                )
+            )
+            start_node_id = nil
+            start_node_dist = nil
+        end
         local end_node_id, end_node_dist = nearest_node_info(data, end_lat, end_lon, false)
         if mode == 0 and data and data.runway_nodes then
             dep_end_node_id, dep_end_node_dist = nearest_non_runway_node(data, end_lat, end_lon)
@@ -6363,6 +6373,12 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                 local onGround = yal and yal.airgroundsensor and (get(yal.airgroundsensor) == def.ON)
                 local tirespeed = yal and yal.tirespeed and (get(yal.tirespeed) or 0) or 0
                 if onGround and tirespeed > 1 and not (mode == 0 and comp._depThresholdLatched) then
+                    if mode == 1 and comp.yal and comp.yal.aircraftonrwy and is_valid_latlon(runway_lat, runway_lon) then
+                        local offRunway = comp.yal.aircraftonrwy(def.ARRIVAL, 40, 20)
+                        if not offRunway then
+                            return
+                        end
+                    end
                     if mode == 1 and comp.yal and comp.yal.aircraftonrwy and is_valid_latlon(runway_lat, runway_lon) then
                         local offRunway = comp.yal.aircraftonrwy(def.ARRIVAL, 40, 20)
                         if offRunway and not comp._rerouteOverride then
