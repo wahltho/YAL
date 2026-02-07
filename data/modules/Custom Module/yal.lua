@@ -341,6 +341,7 @@ function P.initDataref()
     P.hidefoefb = globalProperty("laminar/B738/tab/fo_static")
 
     P.chockstatus = globalProperty("laminar/B738/fms/chock_status")
+    P.enginenorunningstate = globalProperty("laminar/B738/fms/engine_no_running_state")
 
     P.wakeoverride = globalProperty("sim/operation/override/override_wake_turbulence")
     P.runwayfriction = globalProperty("sim/weather/region/runway_friction")

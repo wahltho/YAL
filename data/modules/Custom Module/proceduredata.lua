@@ -1508,7 +1508,21 @@ function M.fillProcedureTable()
             speakname = true,
             set = false, 
             loop = 1, 
-            prerequisite = def.COLDANDDARKPROCEDURE, 
+            prerequisite = function()
+                local state = def.ENG_NO_RUN_COLD_DARK
+                if P.enginenorunningstate then
+                    local raw = get(P.enginenorunningstate)
+                    if raw ~= nil then
+                        state = raw
+                    end
+                end
+                if state == def.ENG_NO_RUN_TURNAROUND then
+                    return P.proceduretable[def.COCKPITINITPROCEDURE]
+                        and P.proceduretable[def.COCKPITINITPROCEDURE].set
+                end
+                return P.proceduretable[def.COLDANDDARKPROCEDURE]
+                    and P.proceduretable[def.COLDANDDARKPROCEDURE].set
+            end,
             allowedState = def.GROUNDONLY, 
             requiredFlightstate = def.FLIGHTSTATEPREFLIGHT, 
             skipCondition = function() return (P.apurunning() == def.APUONBUS) or P.enginesrunning(def.BOTH) end,
