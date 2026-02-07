@@ -3503,7 +3503,8 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                 sasl.gl.drawLine(x1 + 1, y1 + 1, x2 + 1, y2 + 1, routeColor)
             end
         end
-        if routeData and routeData.nodes and comp._endRamp and comp._endRamp.east and comp._endRamp.north then
+        if (not comp._drawFreehand) and routeData and routeData.nodes
+            and comp._endRamp and comp._endRamp.east and comp._endRamp.north then
             local endNode = nil
             if comp._route and comp._route.path then
                 local last_id = comp._route.path[#comp._route.path]
@@ -3656,7 +3657,8 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
             end
         end
         if not show_edit_handles then
-            if comp._selectedEndRampKey and comp._endRamp and comp._endRamp.east and comp._endRamp.north then
+            if (not comp._drawFreehand) and comp._selectedEndRampKey
+                and comp._endRamp and comp._endRamp.east and comp._endRamp.north then
                 local ex, ey = project(comp._endRamp.east, comp._endRamp.north)
                 drawRectangle(ex - 4, ey - 4, 8, 8, endColor)
                 drawText(font, ex + 6, ey + 2, "E", mapFontSize, TEXT_ALIGN_LEFT, {0, 0, 0, 0.9})
@@ -5143,7 +5145,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
 
         local end_ramp = nil
         local user_selected_end = false
-        if mode == 1 and is_valid_latlon(ramp_ref_lat, ramp_ref_lon) then
+        if mode == 1 and (not comp._drawFreehand) and is_valid_latlon(ramp_ref_lat, ramp_ref_lon) then
             if comp._selectedEndRampKey and data and data.ramps then
                 for _, ramp in ipairs(data.ramps) do
                     if helpers.isRampSuitableFor738(ramp) and ramp_key(ramp) == comp._selectedEndRampKey then
@@ -5175,7 +5177,8 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                 end_lon = end_ramp.lon
             end
         end
-        if mode == 1 and (not is_valid_latlon(end_lat, end_lon)) and is_valid_latlon(ramp_ref_lat, ramp_ref_lon) then
+        if mode == 1 and (not comp._drawFreehand)
+            and (not is_valid_latlon(end_lat, end_lon)) and is_valid_latlon(ramp_ref_lat, ramp_ref_lon) then
             end_lat = ramp_ref_lat
             end_lon = ramp_ref_lon
         end
