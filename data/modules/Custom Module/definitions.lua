@@ -113,6 +113,10 @@ P.OFF = 0
 P.OPEN = 1
 P.CLOSED = 0
 
+-- Zibo Tablet: laminar/B738/fms/engine_no_running_state
+P.ENG_NO_RUN_COLD_DARK = 0
+P.ENG_NO_RUN_TURNAROUND = 1
+
 -- Nachrichtentypen
 P.COMMAND = 1
 P.TEXT = 2
