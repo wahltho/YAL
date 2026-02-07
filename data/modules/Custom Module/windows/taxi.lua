@@ -107,6 +107,7 @@ local function snapshot_edit_state(comp)
             mode = comp._editEndOverride.mode,
             icao = comp._editEndOverride.icao
         } or nil,
+        drawFreehand = comp._drawFreehand,
         editSuppressedNodes = copy_set(comp._editSuppressedNodes),
         selectedEndRampKey = comp._selectedEndRampKey,
         selectedDepEntryId = comp._selectedDepEntryId
@@ -120,6 +121,9 @@ local function restore_edit_state(comp, state)
     comp._routeWaypoints = copy_waypoints(state.routeWaypoints)
     comp._editStartOverride = state.editStartOverride
     comp._editEndOverride = state.editEndOverride
+    if state.drawFreehand ~= nil then
+        comp._drawFreehand = state.drawFreehand
+    end
     comp._editSuppressedNodes = copy_set(state.editSuppressedNodes)
     comp._selectedEndRampKey = state.selectedEndRampKey
     comp._selectedDepEntryId = state.selectedDepEntryId
@@ -3018,6 +3022,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
     comp._aircraftPoint = nil
     comp._editRoute = false
     comp._drawRoute = false
+    comp._drawFreehand = false
     comp._routeWaypoints = {}
     comp._wpDrag = nil
     comp._editHandles = nil
@@ -3815,6 +3820,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                 elseif b.action == "auto_route" then
                     comp._editRoute = false
                     comp._drawRoute = false
+                    comp._drawFreehand = false
                     comp._wpDrag = nil
                     comp._editHandles = nil
                     comp._editSuppressedNodes = nil
@@ -3866,6 +3872,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                     if comp._drawRoute then
                         comp._editRoute = true
                         push_undo(comp, "draw-start")
+                        comp._drawFreehand = true
                         comp._routeWaypoints = {}
                         comp._route = nil
                         comp._routeErr = nil
@@ -3875,6 +3882,8 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                         comp._editHandles = nil
                         comp._editStartOverride = nil
                         comp._editEndOverride = nil
+                    elseif not comp._routeWaypoints or #comp._routeWaypoints == 0 then
+                        comp._drawFreehand = false
                     end
                     log_taxi(
                         string.format(
@@ -3899,6 +3908,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                     comp._autoEndRampKey = nil
                     comp._editStartOverride = nil
                     comp._editEndOverride = nil
+                    comp._drawFreehand = false
                     comp._editDirty = false
                     comp._editHandles = nil
                     comp._editSuppressedNodes = nil
@@ -4114,11 +4124,40 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                         dx, dy = rotate_point(dx, dy, -t.rot)
                         return t.centerEast + dx, t.centerNorth + dy
                     end
-                    if comp._drawRoute then
-                        local function add_waypoint_nearest_edge()
-                            local we, wn = screen_to_world(x, y)
-                            local proj = find_nearest_edge_projection(comp._data, we, wn, { disallow_runway_edges = false })
-                            if proj and proj.edge then
+                if comp._drawRoute then
+                    local function add_waypoint_freehand()
+                        local we, wn = screen_to_world(x, y)
+                        local wlat, wlon = sasl.localToWorld(we, 0, -wn)
+                        if is_valid_latlon(wlat, wlon) then
+                            if not comp._routeWaypoints then
+                                comp._routeWaypoints = {}
+                            end
+                            push_undo(comp, "draw-add")
+                            table.insert(comp._routeWaypoints, {
+                                lat = wlat,
+                                lon = wlon,
+                                east = we,
+                                north = wn,
+                                segment_idx = nil
+                            })
+                            mark_edit_dirty(comp)
+                            log_taxi(
+                                string.format(
+                                    "TaxiDraw: add-waypoint-free lat=%.6f lon=%.6f total=%d",
+                                    wlat,
+                                    wlon,
+                                    #comp._routeWaypoints
+                                )
+                            )
+                            return true
+                        end
+                        return false
+                    end
+
+                    local function add_waypoint_nearest_edge()
+                        local we, wn = screen_to_world(x, y)
+                        local proj = find_nearest_edge_projection(comp._data, we, wn, { disallow_runway_edges = false })
+                        if proj and proj.edge then
                                 local wlat, wlon = sasl.localToWorld(proj.proj_east, 0, -proj.proj_north)
                                 if is_valid_latlon(wlat, wlon) then
                                     if not comp._routeWaypoints then
@@ -4143,13 +4182,17 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                                     )
                                     return true
                                 end
-                            end
-                            return false
                         end
+                        return false
+                    end
 
-                        if comp._route and comp._route.path and comp._route.data then
-                            local routeData = comp._route.data
-                            local path = comp._route.path
+                    if comp._drawFreehand then
+                        return add_waypoint_freehand()
+                    end
+
+                    if comp._route and comp._route.path and comp._route.data then
+                        local routeData = comp._route.data
+                        local path = comp._route.path
                             local best_idx = nil
                             local best_d2 = nil
                             local best_t = 0
@@ -4297,11 +4340,18 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                     return t.centerEast + ddx, t.centerNorth + ddy
                 end
                 local we, wn = screen_to_world(x, y)
-                local proj = find_nearest_edge_projection(comp._data, we, wn, { disallow_runway_edges = false })
                 local is_start_end = (drag.kind == "start" or drag.kind == "end")
+                local use_freehand = (comp._drawFreehand == true)
+                local proj = nil
+                if not use_freehand then
+                    proj = find_nearest_edge_projection(comp._data, we, wn, { disallow_runway_edges = false })
+                end
                 local target_east = nil
                 local target_north = nil
-                if is_start_end then
+                if use_freehand then
+                    target_east = we
+                    target_north = wn
+                elseif is_start_end then
                     local snap_ok = (proj and proj.edge and proj.d2 and proj.d2 <= (startEndSnapMeters * startEndSnapMeters))
                     if snap_ok then
                         target_east = proj.proj_east
@@ -4319,7 +4369,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                 end
                 if target_east ~= nil and target_north ~= nil then
                     local wlat, wlon = sasl.localToWorld(target_east, 0, -target_north)
-                    if (not is_valid_latlon(wlat, wlon)) and proj and proj.edge then
+                    if (not is_valid_latlon(wlat, wlon)) and (not use_freehand) and proj and proj.edge then
                         target_east = proj.proj_east
                         target_north = proj.proj_north
                         wlat, wlon = sasl.localToWorld(target_east, 0, -target_north)
@@ -4348,8 +4398,8 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                                 if wp then
                                     wp.lat = wlat
                                     wp.lon = wlon
-                                    wp.east = proj.proj_east
-                                    wp.north = proj.proj_north
+                                    wp.east = target_east
+                                    wp.north = target_north
                                     wp.segment_idx = nil
                                 end
                             end
@@ -4365,8 +4415,8 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                                 if wp then
                                     wp.lat = wlat
                                     wp.lon = wlon
-                                    wp.east = proj.proj_east
-                                    wp.north = proj.proj_north
+                                    wp.east = target_east
+                                    wp.north = target_north
                                     wp.segment_idx = nil
                                 end
                             end
@@ -4378,8 +4428,8 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                                 local wp = {
                                     lat = wlat,
                                     lon = wlon,
-                                    east = proj.proj_east,
-                                    north = proj.proj_north,
+                                    east = target_east,
+                                    north = target_north,
                                     segment_idx = drag.segment_idx
                                 }
                                 local new_idx = insert_waypoint_sorted(comp._routeWaypoints, wp)
@@ -4399,8 +4449,8 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                                 local wp = comp._routeWaypoints[drag.wp_idx]
                                 wp.lat = wlat
                                 wp.lon = wlon
-                                wp.east = proj.proj_east
-                                wp.north = proj.proj_north
+                                wp.east = target_east
+                                wp.north = target_north
                                 wp.segment_idx = nil
                             end
                         end
@@ -4672,6 +4722,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
             comp._runwayName = nil
             clear_visual_guidance(comp, "invalid-icao")
             comp._visualGuidanceQueue = {}
+            comp._drawFreehand = false
             log_taxi("TaxiRoute: abort invalid-icao")
             return
         end
@@ -4680,6 +4731,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
         local prev_start_override = comp._editStartOverride
         local prev_end_override = comp._editEndOverride
         local prev_waypoints = comp._routeWaypoints
+        local prev_draw_freehand = comp._drawFreehand
         local icao_changed = (comp._lastIcao ~= icao)
         local mode_changed = (comp._lastMode ~= mode)
         if icao_changed or mode_changed then
@@ -4707,6 +4759,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
             comp._editDirty = false
             comp._editStartOverride = nil
             comp._editEndOverride = nil
+            comp._drawFreehand = false
             comp._depRunwayEntryAnnounced = false
             comp._depTaxiCompleteAnnounced = false
             log_taxi(
@@ -4738,6 +4791,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                 comp._editStartOverride = prev_start_override
                 comp._editEndOverride = prev_end_override
                 comp._routeWaypoints = prev_waypoints or {}
+                comp._drawFreehand = prev_draw_freehand
             end
         end
 
@@ -5172,7 +5226,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                 dist = dist
             }
         end
-        if comp._drawRoute and comp._routeWaypoints and #comp._routeWaypoints > 0 and data then
+        if comp._drawRoute and comp._routeWaypoints and #comp._routeWaypoints > 0 and data and (not comp._drawFreehand) then
             local guard = 0
             local changed = true
             while changed and comp._routeWaypoints and #comp._routeWaypoints > 0 and guard < 4 do
@@ -5288,7 +5342,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
             start_lat = start_override.lat
             start_lon = start_override.lon
         end
-        if has_start_override and data then
+        if has_start_override and data and (not comp._drawFreehand) then
             local snapped, reason, dist = snap_override(start_override.lat, start_override.lon)
             if not snapped and reason == "too-far" then
                 log_taxi(
@@ -5328,7 +5382,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
             end_lat = end_override.lat
             end_lon = end_override.lon
         end
-        if has_end_override and data then
+        if has_end_override and data and (not comp._drawFreehand) then
             local snapped, reason, dist = snap_override(end_override.lat, end_override.lon)
             if not snapped and reason == "too-far" then
                 log_taxi(
