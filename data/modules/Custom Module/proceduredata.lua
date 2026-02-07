@@ -4333,13 +4333,13 @@ function M.fillProcedureTable()
                     end,
                     advice = function(loop)
                         if (loop and loop.power_source == 'apu') and (P.apurunning() == def.APUONBUS) then
-                            return "Leave Left Fwd Pump On, switch remaining Wing Pumps Off"
+                            return "Leave Left After Fuel Pump On, switch remaining Wing Pumps Off"
                         end
                         return "Set Wing Tank Fuel Pumps Off"
                     end,
                     confirm = function(loop)
                         if (loop and loop.power_source == 'apu') and (P.apurunning() == def.APUONBUS) then
-                            return "Left Fwd Pump On, remaining Wing Pumps Off"
+                            return "Left After Fuel Pump On, remaining Wing Pumps Off"
                         end
                         return "Wing Tank Fuel Pumps checked Off"
                     end,
