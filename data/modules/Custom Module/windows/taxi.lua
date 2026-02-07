@@ -6613,16 +6613,46 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
         if comp.mode ~= 0 then
             return nil
         end
-        if not comp._route or not comp._route.path or not comp._route.data then
-            return nil
+        local path = comp._route and comp._route.path or nil
+        local data = comp._route and comp._route.data or nil
+        local n1 = nil
+        local n2 = nil
+        local label = ""
+        if path and data and #path >= 2 then
+            for i = 1, #path - 1 do
+                local a = data.nodes and data.nodes[path[i]] or nil
+                local b = data.nodes and data.nodes[path[i + 1]] or nil
+                if a and b and a.east and a.north and b.east and b.north then
+                    local dx = b.east - a.east
+                    local dy = b.north - a.north
+                    if dx ~= 0 or dy ~= 0 then
+                        n1 = a
+                        n2 = b
+                        label = get_edge_label(data, path[i], path[i + 1])
+                        break
+                    end
+                end
+            end
         end
-        local path = comp._route.path
-        if #path < 2 then
-            return nil
+        if not n1 or not n2 then
+            if comp._aircraftPoint and comp._data then
+                local proj = find_nearest_edge_projection(
+                    comp._data,
+                    comp._aircraftPoint.east,
+                    comp._aircraftPoint.north,
+                    { disallow_runway_edges = true }
+                )
+                if proj and proj.edge and proj.edge.a and proj.edge.b then
+                    local a = comp._data.nodes and comp._data.nodes[proj.edge.a] or nil
+                    local b = comp._data.nodes and comp._data.nodes[proj.edge.b] or nil
+                    if a and b and a.east and a.north and b.east and b.north then
+                        n1 = a
+                        n2 = b
+                        label = proj.edge.label or ""
+                    end
+                end
+            end
         end
-        local data = comp._route.data
-        local n1 = data.nodes and data.nodes[path[1]] or nil
-        local n2 = data.nodes and data.nodes[path[2]] or nil
         if not n1 or not n2 or n1.east == nil or n1.north == nil or n2.east == nil or n2.north == nil then
             return nil
         end
@@ -6637,7 +6667,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
         end
         heading = helpers.roundnumber(heading, 0)
         local compass = heading_to_compass(heading)
-        local label = normalize_taxiway_label(get_edge_label(data, path[1], path[2]))
+        label = normalize_taxiway_label(label)
         if label and label ~= "" then
             return "nose toward Taxiway " .. taxiway_label_voice(label) .. " heading " .. tostring(compass)
         end
