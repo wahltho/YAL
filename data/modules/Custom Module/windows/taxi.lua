@@ -2389,6 +2389,15 @@ local function build_visual_label(kind, display)
     return display
 end
 
+local function is_taxi_complete_info(info)
+    if not info then
+        return false
+    end
+    local action = tostring(info.action or ""):lower()
+    local text = tostring(info.text or ""):lower()
+    return action == "taxi complete" or (text:find("taxi complete", 1, true) ~= nil)
+end
+
 local function set_visual_guidance(comp, info)
     if not comp or not info then
         return
@@ -2548,7 +2557,25 @@ local function maybe_speak_guidance(comp, now, aircraft)
         return
     end
     if comp.mode == 0 and before_takeoff_active_or_set(comp) then
-        clear_visual_guidance(comp, "before-takeoff")
+        local kept = false
+        if is_taxi_complete_info(comp._visualGuidance) then
+            kept = true
+            comp._visualGuidanceQueue = {}
+        elseif comp._visualGuidanceQueue and #comp._visualGuidanceQueue > 0 then
+            for i = 1, #comp._visualGuidanceQueue do
+                local queued = comp._visualGuidanceQueue[i]
+                if is_taxi_complete_info(queued) then
+                    set_visual_guidance(comp, queued)
+                    table.remove(comp._visualGuidanceQueue, i)
+                    comp._visualGuidanceQueue = {}
+                    kept = true
+                    break
+                end
+            end
+        end
+        if not kept then
+            clear_visual_guidance(comp, "before-takeoff")
+        end
         diag("before-takeoff")
         return
     end
