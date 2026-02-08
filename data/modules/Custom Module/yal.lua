@@ -1540,12 +1540,21 @@ sasl.registerCommandHandler(my_command_timewarptotod, 0, P.timewarptotod_)
 --------------------------------------------------------------------------------------------------------------
 function P.toggleautofunctions()
 
+    local newValue = def.ON
     if (P.configvalues[def.CONFIGAUTOFUNCTIONS] == def.ON) then
-        P.configvalues[def.CONFIGAUTOFUNCTIONS] = def.OFF
-        P.commandtableentry(def.TEXT, "Auto Functions Off")
-    else
-        P.configvalues[def.CONFIGAUTOFUNCTIONS] = def.ON
+        newValue = def.OFF
+    end
+    P.configvalues[def.CONFIGAUTOFUNCTIONS] = newValue
+    if settings and settings.appSettings then
+        settings.appSettings[def.CONFIGAUTOFUNCTIONS] = newValue
+        if settings.writeSettings then
+            settings.writeSettings(settings.appSettings)
+        end
+    end
+    if newValue == def.ON then
         P.commandtableentry(def.TEXT, "Auto Functions On")
+    else
+        P.commandtableentry(def.TEXT, "Auto Functions Off")
     end
 
     return true
@@ -1565,12 +1574,21 @@ sasl.registerCommandHandler(my_command_toggleautofunctions, 0, P.toggleautofunct
 --------------------------------------------------------------------------------------------------------------
 function P.toggleviewchanges()
 
+    local newValue = def.ON
     if (P.configvalues[def.CONFIGVIEWCHANGES] == def.ON) then
-        P.configvalues[def.CONFIGVIEWCHANGES] = def.OFF
-        P.commandtableentry(def.TEXT, "View Changes Off")
-    else
-        P.configvalues[def.CONFIGVIEWCHANGES] = def.ON
+        newValue = def.OFF
+    end
+    P.configvalues[def.CONFIGVIEWCHANGES] = newValue
+    if settings and settings.appSettings then
+        settings.appSettings[def.CONFIGVIEWCHANGES] = newValue
+        if settings.writeSettings then
+            settings.writeSettings(settings.appSettings)
+        end
+    end
+    if newValue == def.ON then
         P.commandtableentry(def.TEXT, "View Changes On")
+    else
+        P.commandtableentry(def.TEXT, "View Changes Off")
     end
 
     return true
@@ -3153,13 +3171,22 @@ sasl.registerCommandHandler(my_command_setcockpitlights, 0, P.setcockpitlights_)
 --------------------------------------------------------------------------------------------------------------
 function P.togglevoicereadback()
 
+    local newValue = def.ON
     if (P.configvalues[def.CONFIGVOICEREADBACK] == def.ON) then
-        P.configvalues[def.CONFIGVOICEREADBACK] = def.OFF
-        P.commandtableentry(def.TEXT, "Voice Readback Off")
-    else
-        P.configvalues[def.CONFIGVOICEREADBACK] = def.ON
+        newValue = def.OFF
+    end
+    P.configvalues[def.CONFIGVOICEREADBACK] = newValue
+    if settings and settings.appSettings then
+        settings.appSettings[def.CONFIGVOICEREADBACK] = newValue
+        if settings.writeSettings then
+            settings.writeSettings(settings.appSettings)
+        end
+    end
+    if newValue == def.ON then
         P.initDataref()
         P.commandtableentry(def.TEXT, "Voice Readback On")
+    else
+        P.commandtableentry(def.TEXT, "Voice Readback Off")
     end
 
     return true
