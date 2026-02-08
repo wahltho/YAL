@@ -2895,7 +2895,11 @@ local U = {
     clear_visual_guidance = clear_visual_guidance,
     update_visual_guidance = update_visual_guidance,
     maybe_force_global_for_quality = maybe_force_global_for_quality,
-    getSettingNumber = getSettingNumber
+    getSettingNumber = getSettingNumber,
+    emit_guidance = emit_guidance,
+    arrival_grace_active = arrival_grace_active,
+    runway_label_voice = runway_label_voice,
+    build_visual_label = build_visual_label
 }
 
 function M.windowSize()
@@ -3086,6 +3090,11 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
         autoGateSwitchCooldownSec = C.autoGateSwitchCooldownSec,
         parkingBrakeCompleteDist = C.parkingBrakeCompleteDist
     }
+    comp._U = U
+    comp._C = C
+    comp._def = def
+    comp._helpers = helpers
+    comp._logTaxi = log_taxi
     comp._autoEndRampKey = nil
     comp._quality = { rerouteEvents = {} }
     comp._taxiSourceByIcao = {}
@@ -4641,11 +4650,80 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
     end
 
     function comp:updateTaxiState(map)
+        local comp = self
+        local U = comp._U or {}
+        local C = comp._C or {}
+        local def = comp._def
+        local helpers = comp._helpers
+        local log_taxi = comp._logTaxi
+        local normalize_icao = U.normalize_icao
+        local is_valid_latlon = U.is_valid_latlon
+        local latlon_to_local = U.latlon_to_local
+        local distance_meters_latlon = U.distance_meters_latlon
+        local ramp_key = U.ramp_key
+        local short_ramp_label = U.short_ramp_label
+        local compute_runway_landing_profile = U.compute_runway_landing_profile
+        local find_runway_entry = U.find_runway_entry
+        local find_holdshort_node_near = U.find_holdshort_node_near
+        local nearest_node_info = U.nearest_node_info
+        local nearest_non_runway_node = U.nearest_non_runway_node
+        local find_nearest_edge_projection = U.find_nearest_edge_projection
+        local find_heading_edge_projection = U.find_heading_edge_projection
+        local find_preferred_edge_projection = U.find_preferred_edge_projection
+        local build_projected_data = U.build_projected_data
+        local distance_to_route = U.distance_to_route
+        local distance_to_segments = U.distance_to_segments
+        local build_runway_backtrack_segments = U.build_runway_backtrack_segments
+        local select_runway_exit_node = U.select_runway_exit_node
+        local route_with_waypoints = U.route_with_waypoints
+        local try_route_from_candidates = U.try_route_from_candidates
+        local try_route_to_candidates = U.try_route_to_candidates
+        local collect_nearest_nodes = U.collect_nearest_nodes
+        local compute_along_perp = U.compute_along_perp
+        local build_route_labels = U.build_route_labels
+        local find_runway_entry_label = U.find_runway_entry_label
+        local get_edge_label = U.get_edge_label
+        local find_nearest_segment = U.find_nearest_segment
+        local normalize_runway_name = U.normalize_runway_name
+        local parse_runway_parts = U.parse_runway_parts
+        local copy_opts = U.copy_opts
+        local log_full_route_state = U.log_full_route_state
+        local normalize_words = U.normalize_words
+        local guidance_distance_for_speed = U.guidance_distance_for_speed
+        local get_node_degree = U.get_node_degree
+        local emit_guidance = U.emit_guidance
+        local arrival_grace_active = U.arrival_grace_active
+        local runway_label_voice = U.runway_label_voice
+        local build_visual_label = U.build_visual_label
+        local is_auto_taxi_guidance_enabled = U.is_auto_taxi_guidance_enabled
+        local clear_visual_guidance = U.clear_visual_guidance
+        local update_visual_guidance = U.update_visual_guidance
+        local maybe_force_global_for_quality = U.maybe_force_global_for_quality
+        local maybe_speak_guidance = U.maybe_speak_guidance
+        local updateInterval = C.updateInterval or 1.0
+        local startRampMaxMeters = C.startRampMaxMeters or 80
+        local rerouteCooldown = C.rerouteCooldown or 6
+        local rerouteDriftMeters = C.rerouteDriftMeters or 40
+        local guidanceMinSpeed = C.guidanceMinSpeed or 1
+        local guidanceTurnDistance = C.guidanceTurnDistance or 80
+        local guidanceTurnAngle = C.guidanceTurnAngle or 20
+        local guidanceLeadTimeSec = C.guidanceLeadTimeSec or 12
+        local guidanceMaxDistance = C.guidanceMaxDistance or 180
+        local guidanceStraightAngle = C.guidanceStraightAngle or 10
+        local runwayRouteMaxSpeed = 45
+        local depThresholdGateMeters = 60
+        local depThresholdHeadingLimit = 25
+        local depTakeoffLatchSpeed = 25
+        local depTakeoffLatchHoldSec = 2.0
+        local depRunwayCorridorMin = 25
+        local depRunwayCorridorMax = 80
+        local depRunwayCorridorBuffer = 10
+        local arrStartNodeMaxMeters = 180
+        local tuning = comp._tuning or {}
         local now = 0
         if comp._timer then
             now = sasl.getElapsedSeconds(comp._timer) or 0
         end
-        local tuning = comp._tuning or {}
         local in_edit = comp._editRoute or comp._drawRoute
         if comp._lastUpdate and (now - comp._lastUpdate) < updateInterval then
             return
