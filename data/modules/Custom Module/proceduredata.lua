@@ -1504,9 +1504,12 @@ function M.fillProcedureTable()
                         if (get(P.fadec1on) > 0.5) and (get(P.fadec2on) > 0.5) then
                             return true
                         end
-                        return P.configvalues[def.CONFIGVIEWOVERHEADPANEL] == def.OFF
+                        if P.configvalues[def.CONFIGVIEWCHANGES] == def.OFF then
+                            return true
+                        end
+                        return P.configvalues[def.CONFIGVIEWUPPEROVERHEADPANEL] == def.OFF
                     end,
-                    view = function() return P.configvalues[def.CONFIGVIEWOVERHEADPANEL] end,
+                    view = function() return P.configvalues[def.CONFIGVIEWUPPEROVERHEADPANEL] end,
                     nextStep = 'check_eec_on'
                 },
                 ['check_eec_on'] = {
@@ -1514,7 +1517,30 @@ function M.fillProcedureTable()
                     check = function()
                         return (get(P.fadec1on) > 0.5) and (get(P.fadec2on) > 0.5)
                     end,
+                    branch = function(loop)
+                        local eec_ok = (get(P.fadec1on) > 0.5) and (get(P.fadec2on) > 0.5)
+                        if not eec_ok then
+                            if (P.configvalues[def.CONFIGVIEWCHANGES] == def.ON)
+                                and (P.configvalues[def.CONFIGVIEWUPPEROVERHEADPANEL] ~= def.OFF) then
+                                if loop then
+                                    loop.eecOverheadShown = true
+                                end
+                            end
+                            return false
+                        end
+                        return 'view_main_panel_after_eec'
+                    end,
                     advice = "Check E E C Switches On",
+                    nextStep = 'view_main_panel_after_eec'
+                },
+                ['view_main_panel_after_eec'] = {
+                    skipIf = function(loop)
+                        if not (loop and loop.eecOverheadShown) then
+                            return true
+                        end
+                        return P.configvalues[def.CONFIGVIEWMAINPANEL] == def.OFF
+                    end,
+                    view = function() return P.configvalues[def.CONFIGVIEWMAINPANEL] end,
                     nextStep = nil
                 }
             }
@@ -1882,15 +1908,31 @@ function M.fillProcedureTable()
                         if (get(P.fadec1on) > 0.5) and (get(P.fadec2on) > 0.5) then
                             return true
                         end
-                        return P.configvalues[def.CONFIGVIEWOVERHEADPANEL] == def.OFF
+                        if P.configvalues[def.CONFIGVIEWCHANGES] == def.OFF then
+                            return true
+                        end
+                        return P.configvalues[def.CONFIGVIEWUPPEROVERHEADPANEL] == def.OFF
                     end,
-                    view = function() return P.configvalues[def.CONFIGVIEWOVERHEADPANEL] end,
+                    view = function() return P.configvalues[def.CONFIGVIEWUPPEROVERHEADPANEL] end,
                     nextStep = 'check_eec_on'
                 },
                 ['check_eec_on'] = {
                     skipIf = function() return not P.enginesrunning(def.BOTH) end,
                     check = function()
                         return (get(P.fadec1on) > 0.5) and (get(P.fadec2on) > 0.5)
+                    end,
+                    branch = function(loop)
+                        local eec_ok = (get(P.fadec1on) > 0.5) and (get(P.fadec2on) > 0.5)
+                        if not eec_ok then
+                            if (P.configvalues[def.CONFIGVIEWCHANGES] == def.ON)
+                                and (P.configvalues[def.CONFIGVIEWUPPEROVERHEADPANEL] ~= def.OFF) then
+                                if loop then
+                                    loop.eecOverheadShown = true
+                                end
+                            end
+                            return false
+                        end
+                        return 'view_main_panel_final'
                     end,
                     advice = "Check E E C Switches On",
                     nextStep = 'view_main_panel_final'
