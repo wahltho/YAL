@@ -2919,13 +2919,6 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
     local guidanceMaxDistance = C.guidanceMaxDistance
     local guidanceStraightAngle = C.guidanceStraightAngle
     local startRampMaxMeters = C.startRampMaxMeters
-    local autoGateSwitchDist = C.autoGateSwitchDist
-    local autoGateSwitchDelta = C.autoGateSwitchDelta
-    local autoGateSwitchRatio = C.autoGateSwitchRatio
-    local autoGateSwitchSpeed = C.autoGateSwitchSpeed
-    local autoGateSwitchHoldSec = C.autoGateSwitchHoldSec
-    local autoGateSwitchCooldownSec = C.autoGateSwitchCooldownSec
-    local parkingBrakeCompleteDist = C.parkingBrakeCompleteDist
     local minZoom = C.minZoom
     local maxZoom = C.maxZoom
     local zoomStep = C.zoomStep
@@ -3084,6 +3077,15 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
     comp._lastRouteStateKey = nil
     comp._undoState = nil
     comp._undoReason = nil
+    comp._tuning = {
+        autoGateSwitchDist = C.autoGateSwitchDist,
+        autoGateSwitchDelta = C.autoGateSwitchDelta,
+        autoGateSwitchRatio = C.autoGateSwitchRatio,
+        autoGateSwitchSpeed = C.autoGateSwitchSpeed,
+        autoGateSwitchHoldSec = C.autoGateSwitchHoldSec,
+        autoGateSwitchCooldownSec = C.autoGateSwitchCooldownSec,
+        parkingBrakeCompleteDist = C.parkingBrakeCompleteDist
+    }
     comp._autoEndRampKey = nil
     comp._quality = { rerouteEvents = {} }
     comp._taxiSourceByIcao = {}
@@ -4643,6 +4645,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
         if comp._timer then
             now = sasl.getElapsedSeconds(comp._timer) or 0
         end
+        local tuning = comp._tuning or {}
         local in_edit = comp._editRoute or comp._drawRoute
         if comp._lastUpdate and (now - comp._lastUpdate) < updateInterval then
             return
@@ -5240,11 +5243,17 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
             local yalref = comp.yal or _G.yal
             local onGround = yalref and yalref.airgroundsensor and (get(yalref.airgroundsensor) == def.ON)
             local gs = yalref and yalref.groundspeed and (get(yalref.groundspeed) or 0) or 0
-            if onGround and gs < autoGateSwitchSpeed then
+            local gate_speed = tuning.autoGateSwitchSpeed or 5
+            local gate_hold = tuning.autoGateSwitchHoldSec or 2.0
+            local gate_cooldown = tuning.autoGateSwitchCooldownSec or 10.0
+            local gate_dist = tuning.autoGateSwitchDist or 35
+            local gate_delta = tuning.autoGateSwitchDelta or 20
+            local gate_ratio = tuning.autoGateSwitchRatio or 0.6
+            if onGround and gs < gate_speed then
                 if not comp._autoEndRampLowSpeedSince then
                     comp._autoEndRampLowSpeedSince = now
                 end
-                if (now - comp._autoEndRampLowSpeedSince) >= autoGateSwitchHoldSec then
+                if (now - comp._autoEndRampLowSpeedSince) >= gate_hold then
                     if not nearest_ramp then
                         nearest_ramp = helpers.getNearestRamp(
                             icao,
@@ -5273,11 +5282,11 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                                 aircraft.lon
                             )
                             local cooldown_ok = (not comp._autoEndRampSwitchTime)
-                                or ((now - comp._autoEndRampSwitchTime) >= autoGateSwitchCooldownSec)
+                                or ((now - comp._autoEndRampSwitchTime) >= gate_cooldown)
                             if d_cand and d_plan and cooldown_ok then
-                                local close_enough = d_cand <= autoGateSwitchDist
-                                local clearly_closer = (d_plan - d_cand >= autoGateSwitchDelta)
-                                    or (d_cand <= (d_plan * autoGateSwitchRatio))
+                                local close_enough = d_cand <= gate_dist
+                                local clearly_closer = (d_plan - d_cand >= gate_delta)
+                                    or (d_cand <= (d_plan * gate_ratio))
                                 if close_enough and clearly_closer then
                                     comp._autoEndRampKey = cand_key
                                     comp._autoEndRampSwitchTime = now
@@ -6779,7 +6788,8 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                             )
                         end
                     end
-                    if nearest_ramp and nearest_ramp_dist and nearest_ramp_dist <= parkingBrakeCompleteDist then
+                    local pb_dist = tuning.parkingBrakeCompleteDist or 35
+                    if nearest_ramp and nearest_ramp_dist and nearest_ramp_dist <= pb_dist then
                         local ramp_label = short_ramp_label(nearest_ramp)
                         emit_guidance(comp, now, {
                             text = "Taxi complete",
