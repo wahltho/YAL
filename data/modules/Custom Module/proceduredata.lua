@@ -1497,6 +1497,14 @@ function M.fillProcedureTable()
                     end,
                     action = function() helpers.command_once("BetterPushback/start") end,
                     runActionInAdviceMode = true,
+                    nextStep = 'check_eec_on'
+                },
+                ['check_eec_on'] = {
+                    skipIf = function() return not P.enginesrunning(def.BOTH) end,
+                    check = function()
+                        return (get(P.fadec1on) > 0.5) and (get(P.fadec2on) > 0.5)
+                    end,
+                    advice = "Check E E C Switches On",
                     nextStep = nil
                 }
             }
@@ -1857,6 +1865,14 @@ function M.fillProcedureTable()
                     action = function() set(P.yawdamperswitch, def.ON) end,
                     advice = "Set Yaw Damper On",
                     confirm = "Yaw Damper checked On",
+                    nextStep = 'check_eec_on'
+                },
+                ['check_eec_on'] = {
+                    skipIf = function() return not P.enginesrunning(def.BOTH) end,
+                    check = function()
+                        return (get(P.fadec1on) > 0.5) and (get(P.fadec2on) > 0.5)
+                    end,
+                    advice = "Check E E C Switches On",
                     nextStep = 'view_main_panel_final'
                 },
                 ['view_main_panel_final'] = {

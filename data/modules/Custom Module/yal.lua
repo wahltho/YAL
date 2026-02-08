@@ -487,6 +487,8 @@ function P.initDataref()
     P.eng2n1percent = globalPropertyfae("sim/flightmodel2/engines/N1_percent", 2)
     P.eng1n2percent = globalPropertyfae("sim/flightmodel2/engines/N2_percent", 1)
     P.eng2n2percent = globalPropertyfae("sim/flightmodel2/engines/N2_percent", 2)
+    P.fadec1on = globalPropertyfae("sim/cockpit2/engine/actuators/fadec_on", 1)
+    P.fadec2on = globalPropertyfae("sim/cockpit2/engine/actuators/fadec_on", 2)
     P.fuel_flow_kg_sec_1 = globalPropertyfae("laminar/B738/engine/fuel_flow_kg_sec", 1)
     P.fuel_flow_kg_sec_2 = globalPropertyfae("laminar/B738/engine/fuel_flow_kg_sec", 2)
 
