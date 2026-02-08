@@ -1590,12 +1590,21 @@ sasl.registerCommandHandler(my_command_toggleviewchanges, 0, P.toggleviewchanges
 --------------------------------------------------------------------------------------------------------------
 function P.toggleadviceonly()
 
+    local newValue = def.ON
     if (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-        P.configvalues[def.CONFIGVOICEADVICEONLY] = def.OFF
-        P.commandtableentry(def.TEXT, "def.TEXT Only Off")
+        newValue = def.OFF
+    end
+    P.configvalues[def.CONFIGVOICEADVICEONLY] = newValue
+    if settings and settings.appSettings then
+        settings.appSettings[def.CONFIGVOICEADVICEONLY] = newValue
+        if settings.writeSettings then
+            settings.writeSettings(settings.appSettings)
+        end
+    end
+    if newValue == def.ON then
+        P.commandtableentry(def.TEXT, "Voice Advice Only On")
     else
-        P.configvalues[def.CONFIGVOICEADVICEONLY] = def.ON
-        P.commandtableentry(def.TEXT, "def.TEXT Only On")
+        P.commandtableentry(def.TEXT, "Voice Advice Only Off")
     end
 
     return true
@@ -1609,7 +1618,7 @@ function P.toggleadviceonly_(phase)
     return 0
 end
 
-local my_command_toggleadviceonly = sasl.createCommand(def.APPNAMEPREFIX .. "/toggleadviceonly", "Toggle def.TEXT Only")
+local my_command_toggleadviceonly = sasl.createCommand(def.APPNAMEPREFIX .. "/toggleadviceonly", "Toggle Voice Advice Only")
 sasl.registerCommandHandler(my_command_toggleadviceonly, 0, P.toggleadviceonly_)
 
 --------------------------------------------------------------------------------------------------------------
