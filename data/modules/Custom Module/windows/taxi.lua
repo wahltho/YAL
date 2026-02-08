@@ -40,6 +40,13 @@ local qualityMinLabelEdges = 6
 local qualityBadHoldSec = 8
 local qualityArrGraceSec = 45
 local arrStartNodeMaxMeters = 180
+local autoGateSwitchDist = 35
+local autoGateSwitchDelta = 20
+local autoGateSwitchRatio = 0.6
+local autoGateSwitchSpeed = 5
+local autoGateSwitchHoldSec = 2.0
+local autoGateSwitchCooldownSec = 10.0
+local parkingBrakeCompleteDist = 35
 
 local minZoom = 0.2
 local maxZoom = 5
@@ -2808,6 +2815,13 @@ local C = {
     guidanceMaxDistance = guidanceMaxDistance,
     guidanceStraightAngle = guidanceStraightAngle,
     startRampMaxMeters = startRampMaxMeters,
+    autoGateSwitchDist = autoGateSwitchDist,
+    autoGateSwitchDelta = autoGateSwitchDelta,
+    autoGateSwitchRatio = autoGateSwitchRatio,
+    autoGateSwitchSpeed = autoGateSwitchSpeed,
+    autoGateSwitchHoldSec = autoGateSwitchHoldSec,
+    autoGateSwitchCooldownSec = autoGateSwitchCooldownSec,
+    parkingBrakeCompleteDist = parkingBrakeCompleteDist,
     minZoom = minZoom,
     maxZoom = maxZoom,
     zoomStep = zoomStep,
@@ -2905,6 +2919,13 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
     local guidanceMaxDistance = C.guidanceMaxDistance
     local guidanceStraightAngle = C.guidanceStraightAngle
     local startRampMaxMeters = C.startRampMaxMeters
+    local autoGateSwitchDist = C.autoGateSwitchDist
+    local autoGateSwitchDelta = C.autoGateSwitchDelta
+    local autoGateSwitchRatio = C.autoGateSwitchRatio
+    local autoGateSwitchSpeed = C.autoGateSwitchSpeed
+    local autoGateSwitchHoldSec = C.autoGateSwitchHoldSec
+    local autoGateSwitchCooldownSec = C.autoGateSwitchCooldownSec
+    local parkingBrakeCompleteDist = C.parkingBrakeCompleteDist
     local minZoom = C.minZoom
     local maxZoom = C.maxZoom
     local zoomStep = C.zoomStep
@@ -3040,6 +3061,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
     comp._visualGuidance = nil
     comp._depRunwayEntryAnnounced = false
     comp._depTaxiCompleteAnnounced = false
+    comp._arrTaxiCompleteAnnounced = false
     comp._initialGuidanceDone = false
     comp._lastRecomputeKey = nil
     comp._lastRerouteTime = nil
@@ -3047,6 +3069,8 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
     comp._depThresholdLatched = false
     comp._takeoffLatchSince = nil
     comp._aircraftPoint = nil
+    comp._autoEndRampLowSpeedSince = nil
+    comp._autoEndRampSwitchTime = nil
     comp._editRoute = false
     comp._drawRoute = false
     comp._drawFreehand = false
@@ -4793,6 +4817,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
             comp._arrOffRunwayHandled = false
             comp._depRunwayEntryAnnounced = false
             comp._depTaxiCompleteAnnounced = false
+            comp._arrTaxiCompleteAnnounced = false
             log_taxi(
                 string.format(
                     "TaxiRoute: reset icao_changed=%s mode_changed=%s",
@@ -4809,6 +4834,8 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
             comp._rerouteOverride = nil
             comp._depThresholdLatched = false
             comp._takeoffLatchSince = nil
+            comp._autoEndRampLowSpeedSince = nil
+            comp._autoEndRampSwitchTime = nil
             if icao_changed or mode_changed then
                 comp._autoEndRampKey = nil
             end
@@ -4942,6 +4969,8 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                 aircraft = { lat = lat, lon = lon, east = east, north = north }
             end
         end
+        local nearest_ramp = nil
+        local nearest_ramp_dist = nil
         if comp._rerouteOverride and aircraft and is_valid_latlon(comp._rerouteOverride.lat, comp._rerouteOverride.lon) then
             local d_override = distance_meters_latlon(comp._rerouteOverride.lat, comp._rerouteOverride.lon, aircraft.lat, aircraft.lon)
             if d_override and d_override > 1000 then
@@ -5205,6 +5234,80 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                 end_lat = end_ramp.lat
                 end_lon = end_ramp.lon
             end
+        end
+        if mode == 1 and (not comp._drawFreehand) and (not user_selected_end)
+            and data and aircraft and is_valid_latlon(aircraft.lat, aircraft.lon) then
+            local yalref = comp.yal or _G.yal
+            local onGround = yalref and yalref.airgroundsensor and (get(yalref.airgroundsensor) == def.ON)
+            local gs = yalref and yalref.groundspeed and (get(yalref.groundspeed) or 0) or 0
+            if onGround and gs < autoGateSwitchSpeed then
+                if not comp._autoEndRampLowSpeedSince then
+                    comp._autoEndRampLowSpeedSince = now
+                end
+                if (now - comp._autoEndRampLowSpeedSince) >= autoGateSwitchHoldSec then
+                    if not nearest_ramp then
+                        nearest_ramp = helpers.getNearestRamp(
+                            icao,
+                            aircraft.lat,
+                            aircraft.lon,
+                            { filter = helpers.isRampSuitableFor738, data = data }
+                        )
+                        if nearest_ramp and is_valid_latlon(nearest_ramp.lat, nearest_ramp.lon) then
+                            nearest_ramp_dist = distance_meters_latlon(
+                                nearest_ramp.lat,
+                                nearest_ramp.lon,
+                                aircraft.lat,
+                                aircraft.lon
+                            )
+                        end
+                    end
+                    if nearest_ramp and end_ramp and is_valid_latlon(end_ramp.lat, end_ramp.lon) then
+                        local cand_key = ramp_key(nearest_ramp)
+                        local planned_key = ramp_key(end_ramp)
+                        if cand_key ~= planned_key then
+                            local d_cand = nearest_ramp_dist
+                            local d_plan = distance_meters_latlon(
+                                end_ramp.lat,
+                                end_ramp.lon,
+                                aircraft.lat,
+                                aircraft.lon
+                            )
+                            local cooldown_ok = (not comp._autoEndRampSwitchTime)
+                                or ((now - comp._autoEndRampSwitchTime) >= autoGateSwitchCooldownSec)
+                            if d_cand and d_plan and cooldown_ok then
+                                local close_enough = d_cand <= autoGateSwitchDist
+                                local clearly_closer = (d_plan - d_cand >= autoGateSwitchDelta)
+                                    or (d_cand <= (d_plan * autoGateSwitchRatio))
+                                if close_enough and clearly_closer then
+                                    comp._autoEndRampKey = cand_key
+                                    comp._autoEndRampSwitchTime = now
+                                    end_ramp = nearest_ramp
+                                    end_lat = end_ramp.lat
+                                    end_lon = end_ramp.lon
+                                    comp._route = nil
+                                    comp._routeErr = nil
+                                    comp._routeLabels = nil
+                                    comp._routeLabelStats = nil
+                                    comp._lastEndKey = nil
+                                    comp._lastStartKey = nil
+                                    log_taxi(
+                                        string.format(
+                                            "TaxiRoute: auto end-ramp switch key=%s dist=%.1f plan=%.1f",
+                                            tostring(cand_key),
+                                            d_cand or -1,
+                                            d_plan or -1
+                                        )
+                                    )
+                                end
+                            end
+                        end
+                    end
+                end
+            else
+                comp._autoEndRampLowSpeedSince = nil
+            end
+        else
+            comp._autoEndRampLowSpeedSince = nil
         end
         if mode == 1 and (not comp._drawFreehand)
             and (not is_valid_latlon(end_lat, end_lon)) and is_valid_latlon(ramp_ref_lat, ramp_ref_lon) then
@@ -6651,6 +6754,50 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                             queue = true
                         }, is_auto_taxi_guidance_enabled())
                         comp._depTaxiCompleteAnnounced = true
+                    end
+                end
+            end
+            if comp.mode == 1 and not comp._arrTaxiCompleteAnnounced then
+                local yalref = comp.yal or _G.yal
+                local onGround = yalref and yalref.airgroundsensor and (get(yalref.airgroundsensor) == def.ON)
+                local gs = yalref and yalref.groundspeed and (get(yalref.groundspeed) or 0) or 0
+                local park = yalref and yalref.parkingbrakepos and get(yalref.parkingbrakepos) or nil
+                if onGround and park == def.ON and gs < 1 and aircraft and is_valid_latlon(aircraft.lat, aircraft.lon) then
+                    if not nearest_ramp then
+                        nearest_ramp = helpers.getNearestRamp(
+                            icao,
+                            aircraft.lat,
+                            aircraft.lon,
+                            { filter = helpers.isRampSuitableFor738, data = comp._data }
+                        )
+                        if nearest_ramp and is_valid_latlon(nearest_ramp.lat, nearest_ramp.lon) then
+                            nearest_ramp_dist = distance_meters_latlon(
+                                nearest_ramp.lat,
+                                nearest_ramp.lon,
+                                aircraft.lat,
+                                aircraft.lon
+                            )
+                        end
+                    end
+                    if nearest_ramp and nearest_ramp_dist and nearest_ramp_dist <= parkingBrakeCompleteDist then
+                        local ramp_label = short_ramp_label(nearest_ramp)
+                        emit_guidance(comp, now, {
+                            text = "Taxi complete",
+                            direction = "straight",
+                            action = "TAXI COMPLETE",
+                            label = ramp_label,
+                            kind = "ramp"
+                        }, is_auto_taxi_guidance_enabled())
+                        comp._arrTaxiCompleteAnnounced = true
+                        comp._route = nil
+                        comp._routeErr = "taxi-complete"
+                        comp._routeLabels = nil
+                        comp._routeLabelStats = nil
+                        comp._routeExtraSegments = nil
+                        comp._lastStartKey = nil
+                        comp._lastEndKey = nil
+                        comp._visualGuidanceQueue = {}
+                        log_taxi("TaxiRoute: taxi complete parking brake")
                     end
                 end
             end
