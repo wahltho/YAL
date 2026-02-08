@@ -1531,6 +1531,20 @@ function M.fillProcedureTable()
                     check = function()
                         return (get(P.fadec1on) > 0.5) and (get(P.fadec2on) > 0.5)
                     end,
+                    action = function(loop)
+                        if loop and loop.eecAutoCommandIssued then
+                            return
+                        end
+                        if get(P.fadec1on) <= 0.5 then
+                            helpers.command_once("sim/fadec/fadec_1_on")
+                        end
+                        if get(P.fadec2on) <= 0.5 then
+                            helpers.command_once("sim/fadec/fadec_2_on")
+                        end
+                        if loop then
+                            loop.eecAutoCommandIssued = true
+                        end
+                    end,
                     branch = function(loop)
                         local eec_ok = (get(P.fadec1on) > 0.5) and (get(P.fadec2on) > 0.5)
                         if not eec_ok then
@@ -1957,6 +1971,20 @@ function M.fillProcedureTable()
                     skipIf = function() return not P.enginesrunning(def.BOTH) end,
                     check = function()
                         return (get(P.fadec1on) > 0.5) and (get(P.fadec2on) > 0.5)
+                    end,
+                    action = function(loop)
+                        if loop and loop.eecAutoCommandIssued then
+                            return
+                        end
+                        if get(P.fadec1on) <= 0.5 then
+                            helpers.command_once("sim/fadec/fadec_1_on")
+                        end
+                        if get(P.fadec2on) <= 0.5 then
+                            helpers.command_once("sim/fadec/fadec_2_on")
+                        end
+                        if loop then
+                            loop.eecAutoCommandIssued = true
+                        end
                     end,
                     branch = function(loop)
                         local eec_ok = (get(P.fadec1on) > 0.5) and (get(P.fadec2on) > 0.5)
