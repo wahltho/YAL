@@ -210,6 +210,13 @@ VR.config = {
           elseif type=="one"then if v1==def.ON then P.commandtableentry(def.TEXT,"Pilot Terrain Radar On")elseif get(P.efiswxpilotpos)==def.OFF then P.commandtableentry(def.TEXT,"Pilot Terrain Radar Off")end
           elseif type=="two"then if v2==def.ON then P.commandtableentry(def.TEXT,"Copilot Terrain Radar On")elseif get(P.efiswxfopos)==def.OFF then P.commandtableentry(def.TEXT,"Copilot Terrain Radar Off")end end
       end },
+    { dr1 = "fadec1on", t1 = "fadec1ontemp", dr2 = "fadec2on", t2 = "fadec2ontemp", check = paired_check,
+      format = function(type, v1, v2)
+          local function state(v) return (v == def.ON) and "On" or "Off" end
+          if type=="both"then return "Both E E C " .. state(v1)
+          elseif type=="one"then return "Engine 1 E E C " .. state(v1)
+          elseif type=="two"then return "Engine 2 E E C " .. state(v2) end
+      end },
 
     -- ## Paired Switch Checks (Debounced) ##
     { dr1 = "irsleftpos", t1 = "irsleftpostemp", dr2 = "irsrightpos", t2 = "irsrightpostemp", check = paired_check, isDebounced = true,
