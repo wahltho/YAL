@@ -7047,6 +7047,10 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
             ww = tonumber(wpos) or ww
             hh = tonumber(hpos) or hh
         end
+        local now = 0
+        if comp._timer then
+            now = sasl.getElapsedSeconds(comp._timer) or 0
+        end
         local vis = comp._window and comp._window.isVisible and comp._window:isVisible() or false
         if vis and not comp._lastVisible then
             if comp._data and comp._data.bounds then
@@ -7067,6 +7071,26 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
             )
         end
         comp._lastVisible = vis
+
+        if comp._visualGuidance then
+            local U = comp._U or {}
+            local update_visual_guidance = U.update_visual_guidance
+            if update_visual_guidance then
+                local aircraft = nil
+                local yal = comp.yal or _G.yal
+                if yal and yal.aircraftlatpos and yal.aircraftlonpos and U.is_valid_latlon and U.latlon_to_local then
+                    local lat = get(yal.aircraftlatpos)
+                    local lon = get(yal.aircraftlonpos)
+                    if U.is_valid_latlon(lat, lon) then
+                        local ae, an = U.latlon_to_local(lat, lon)
+                        if ae and an then
+                            aircraft = { east = ae, north = an, lat = lat, lon = lon }
+                        end
+                    end
+                end
+                update_visual_guidance(comp, now, aircraft)
+            end
+        end
     end
 
     return comp

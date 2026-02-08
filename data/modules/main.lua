@@ -460,7 +460,7 @@ function update()
             helpers.requestGlobalAptIndex("update-loop")
             helpers.updateGlobalAptIndex(nil, false)
         end
-        if taxiComponent and (autoTaxiEnabled or taxiVisible) then
+        if taxiComponent and (autoTaxiEnabled or taxiVisible or visualTaxiEnabled) then
             taxiComponent:tick()
         end
         local current_elapsed_time = sasl.getElapsedSeconds(oneSecTimer)
