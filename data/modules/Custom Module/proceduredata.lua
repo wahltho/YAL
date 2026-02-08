@@ -1497,6 +1497,16 @@ function M.fillProcedureTable()
                     end,
                     action = function() helpers.command_once("BetterPushback/start") end,
                     runActionInAdviceMode = true,
+                    nextStep = 'view_overhead_eec'
+                },
+                ['view_overhead_eec'] = {
+                    skipIf = function()
+                        if (get(P.fadec1on) > 0.5) and (get(P.fadec2on) > 0.5) then
+                            return true
+                        end
+                        return P.configvalues[def.CONFIGVIEWOVERHEADPANEL] == def.OFF
+                    end,
+                    view = function() return P.configvalues[def.CONFIGVIEWOVERHEADPANEL] end,
                     nextStep = 'check_eec_on'
                 },
                 ['check_eec_on'] = {
@@ -1865,6 +1875,16 @@ function M.fillProcedureTable()
                     action = function() set(P.yawdamperswitch, def.ON) end,
                     advice = "Set Yaw Damper On",
                     confirm = "Yaw Damper checked On",
+                    nextStep = 'view_overhead_eec'
+                },
+                ['view_overhead_eec'] = {
+                    skipIf = function()
+                        if (get(P.fadec1on) > 0.5) and (get(P.fadec2on) > 0.5) then
+                            return true
+                        end
+                        return P.configvalues[def.CONFIGVIEWOVERHEADPANEL] == def.OFF
+                    end,
+                    view = function() return P.configvalues[def.CONFIGVIEWOVERHEADPANEL] end,
                     nextStep = 'check_eec_on'
                 },
                 ['check_eec_on'] = {
