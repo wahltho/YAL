@@ -5998,13 +5998,20 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                     })
                 end
                 local proj_data = nil
+                local proj_disallow_runway_edges = nil
                 local proj_start_id = nil
                 local proj_end_id = nil
                 local proj_waypoint_ids = nil
                 local function compute_projection(opts)
-                    if proj_data then
+                    local disallow = opts and opts.disallow_runway_edges or nil
+                    if proj_data and proj_disallow_runway_edges == disallow then
                         return
                     end
+                    proj_data = nil
+                    proj_start_id = nil
+                    proj_end_id = nil
+                    proj_waypoint_ids = nil
+                    proj_disallow_runway_edges = disallow
                     local start_proj = nil
                     local end_proj = nil
                     local waypoint_projs = nil
