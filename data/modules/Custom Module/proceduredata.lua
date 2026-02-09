@@ -1404,7 +1404,7 @@ function M.fillProcedureTable()
                             helpers.command_once("laminar/B738/button/fmc1_clr")
                         end
                     end,
-                    branch = function(loop)
+                    branch = function()
                         if not P.enginesrunning(def.BOTH) then
                             return 'plan_pushback'
                         end
@@ -1412,14 +1412,82 @@ function M.fillProcedureTable()
                         if eec_ok then
                             return 'plan_pushback'
                         end
-                        if (P.configvalues[def.CONFIGVIEWCHANGES] == def.ON)
-                            and (P.configvalues[def.CONFIGVIEWUPPEROVERHEADPANEL] ~= def.OFF) then
-                            if loop then
-                                loop.eecReturnStep = 'plan_pushback'
-                            end
-                            return 'view_overhead_eec'
-                        end
                         return 'check_eec_on'
+                    end,
+                    nextStep = 'check_eec_on'
+                },
+                ['check_eec_on'] = {
+                    skipIf = function() return not P.enginesrunning(def.BOTH) end,
+                    check = function()
+                        return (get(P.fadec1on) > 0.5) and (get(P.fadec2on) > 0.5)
+                    end,
+                    action = function(loop)
+                        if loop and loop.eecAutoCommandIssued then
+                            return
+                        end
+                        if get(P.fadec1on) <= 0.5 then
+                            helpers.command_once("sim/fadec/fadec_1_on")
+                        end
+                        if get(P.fadec2on) <= 0.5 then
+                            helpers.command_once("sim/fadec/fadec_2_on")
+                        end
+                        if loop then
+                            loop.eecAutoCommandIssued = true
+                        end
+                    end,
+                    branch = function(loop)
+                        local eec_ok = (get(P.fadec1on) > 0.5) and (get(P.fadec2on) > 0.5)
+                        if not eec_ok then
+                            if (P.configvalues[def.CONFIGVIEWCHANGES] == def.ON)
+                                and (P.configvalues[def.CONFIGVIEWUPPEROVERHEADPANEL] ~= def.OFF)
+                                and (not loop or not loop.eecOverheadShown) then
+                                if loop then
+                                    loop.eecOverheadShown = true
+                                    loop.eecReturnStep = 'plan_pushback'
+                                end
+                                return 'view_overhead_eec'
+                            end
+                            return false
+                        end
+                        local returnStep = loop and loop.eecReturnStep or nil
+                        if loop then
+                            loop.eecReturnStep = nil
+                            loop.eecOverheadShown = nil
+                        end
+                        if returnStep and (P.configvalues[def.CONFIGVIEWCHANGES] == def.ON)
+                            and (P.configvalues[def.CONFIGVIEWMAINPANEL] ~= def.OFF) then
+                            if loop then
+                                loop.eecReturnStep = returnStep
+                            end
+                            return 'view_main_panel_after_eec'
+                        end
+                        return returnStep or 'plan_pushback'
+                    end,
+                    advice = "Check E E C Switches On",
+                    nextStep = 'plan_pushback'
+                },
+                ['view_overhead_eec'] = {
+                    skipIf = function()
+                        if P.configvalues[def.CONFIGVIEWCHANGES] == def.OFF then
+                            return true
+                        end
+                        return P.configvalues[def.CONFIGVIEWUPPEROVERHEADPANEL] == def.OFF
+                    end,
+                    view = function() return P.configvalues[def.CONFIGVIEWUPPEROVERHEADPANEL] end,
+                    nextStep = 'check_eec_on'
+                },
+                ['view_main_panel_after_eec'] = {
+                    skipIf = function(loop)
+                        return P.configvalues[def.CONFIGVIEWMAINPANEL] == def.OFF
+                    end,
+                    view = function() return P.configvalues[def.CONFIGVIEWMAINPANEL] end,
+                    branch = function(loop)
+                        local returnStep = loop and loop.eecReturnStep or nil
+                        if loop then
+                            loop.eecReturnStep = nil
+                            loop.eecOverheadShown = nil
+                        end
+                        return returnStep or 'plan_pushback'
                     end,
                     nextStep = 'plan_pushback'
                 },
@@ -1516,70 +1584,6 @@ function M.fillProcedureTable()
                     runActionInAdviceMode = true,
                     nextStep = nil
                 },
-                ['view_overhead_eec'] = {
-                    skipIf = function()
-                        if P.configvalues[def.CONFIGVIEWCHANGES] == def.OFF then
-                            return true
-                        end
-                        return P.configvalues[def.CONFIGVIEWUPPEROVERHEADPANEL] == def.OFF
-                    end,
-                    view = function() return P.configvalues[def.CONFIGVIEWUPPEROVERHEADPANEL] end,
-                    nextStep = 'check_eec_on'
-                },
-                ['check_eec_on'] = {
-                    skipIf = function() return not P.enginesrunning(def.BOTH) end,
-                    check = function()
-                        return (get(P.fadec1on) > 0.5) and (get(P.fadec2on) > 0.5)
-                    end,
-                    action = function(loop)
-                        if loop and loop.eecAutoCommandIssued then
-                            return
-                        end
-                        if get(P.fadec1on) <= 0.5 then
-                            helpers.command_once("sim/fadec/fadec_1_on")
-                        end
-                        if get(P.fadec2on) <= 0.5 then
-                            helpers.command_once("sim/fadec/fadec_2_on")
-                        end
-                        if loop then
-                            loop.eecAutoCommandIssued = true
-                        end
-                    end,
-                    branch = function(loop)
-                        local eec_ok = (get(P.fadec1on) > 0.5) and (get(P.fadec2on) > 0.5)
-                        if not eec_ok then
-                            return false
-                        end
-                        local returnStep = loop and loop.eecReturnStep or nil
-                        if loop then
-                            loop.eecReturnStep = nil
-                        end
-                        if returnStep and (P.configvalues[def.CONFIGVIEWCHANGES] == def.ON)
-                            and (P.configvalues[def.CONFIGVIEWMAINPANEL] ~= def.OFF) then
-                            if loop then
-                                loop.eecReturnStep = returnStep
-                            end
-                            return 'view_main_panel_after_eec'
-                        end
-                        return returnStep or 'plan_pushback'
-                    end,
-                    advice = "Check E E C Switches On",
-                    nextStep = 'plan_pushback'
-                },
-                ['view_main_panel_after_eec'] = {
-                    skipIf = function(loop)
-                        return P.configvalues[def.CONFIGVIEWMAINPANEL] == def.OFF
-                    end,
-                    view = function() return P.configvalues[def.CONFIGVIEWMAINPANEL] end,
-                    branch = function(loop)
-                        local returnStep = loop and loop.eecReturnStep or nil
-                        if loop then
-                            loop.eecReturnStep = nil
-                        end
-                        return returnStep or 'plan_pushback'
-                    end,
-                    nextStep = 'plan_pushback'
-                }
             }
         },
         [def.APUSTARTUPPROCEDURE] = { 
