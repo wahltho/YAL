@@ -2724,7 +2724,23 @@ local function maybe_speak_guidance(comp, now, aircraft)
     local entering_runway = next_info.kind == "runway" and (not curr_raw_label or not is_runway_label(curr_raw_label))
     local label_changed = curr_label ~= "" and next_info.display ~= "" and curr_label ~= next_info.display
     local force_turn = curr_raw_label and is_runway_label(curr_raw_label) and next_info.kind ~= "runway"
-    if angle < guidanceTurnAngle and not force_turn then
+    local leaving_runway = (not dep_mode) and curr_raw_label and is_runway_label(curr_raw_label)
+        and (next_info.kind == "taxiway" or next_info.kind == "ramp")
+    if leaving_runway then
+        local turn = (cross >= 0) and "left" or "right"
+        local rwy_phrase = runway_label_voice(curr_raw_label)
+        direction = turn
+        action = "EXIT RWY"
+        if next_info.kind == "taxiway" then
+            if next_info.missingLabel then
+                text = "Leave " .. rwy_phrase .. " to the " .. turn .. " at next taxiway"
+            else
+                text = "Leave " .. rwy_phrase .. " to the " .. turn .. " on Taxiway " .. next_info.text
+            end
+        else
+            text = "Leave " .. rwy_phrase .. " to the " .. turn .. " to " .. next_info.text
+        end
+    elseif angle < guidanceTurnAngle and not force_turn then
         direction = "straight"
         action = "STRAIGHT"
         if next_info.kind == "taxiway" then
