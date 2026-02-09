@@ -5675,7 +5675,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
         if mode == 0 and start_is_aircraft and data and data.runway_nodes then
             start_non_runway_node_id, start_non_runway_node_dist = nearest_non_runway_node(data, start_lat, start_lon)
         end
-        if mode == 1 and start_node_dist and start_node_dist > rerouteDriftMeters then
+        if mode == 1 and (not allow_runway_route) and start_node_dist and start_node_dist > rerouteDriftMeters then
             log_taxi(
                 string.format(
                     "TaxiRoute: clear start node dist=%.1f",
