@@ -120,6 +120,7 @@ P.ENG_NO_RUN_TURNAROUND = 1
 -- Nachrichtentypen
 P.COMMAND = 1
 P.TEXT = 2
+P.TAXI = 3
 
 P.DEFAULTVIEW = 99
 

@@ -2369,7 +2369,7 @@ end
 local function speak_guidance_text(comp, text)
     local yal = comp.yal or _G.yal
     if yal and yal.commandtableentry then
-        yal.commandtableentry(def.TEXT, text)
+        yal.commandtableentry(def.TAXI, text)
         return
     end
     helpers.speak(text)

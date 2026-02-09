@@ -5361,6 +5361,7 @@ function P.commandtableloop()
 
     local processedentry = false
     P.lastCommandWasSpeech = false
+    local voice_enabled = ((P.configvalues[def.CONFIGVOICEREADBACK] == def.ON) or (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON))
 
     while ((#P.commandtable > 0) and (processedentry == false)) do
 
@@ -5374,21 +5375,38 @@ function P.commandtableloop()
             else
                 sasl.logWarning("Command not found: " .. tostring(command_path))
             end
-        elseif (P.commandtable[1][1] == def.TEXT) then
-            if ((P.configvalues[def.CONFIGVOICEREADBACK] == def.ON) or (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON)) then
-                helpers.logInfoTS("SpeakString TEXT: " .. P.commandtable[1][2])
-                helpers.speak(P.commandtable[1][2])
-                P.lastCommandWasSpeech = true
-                if (string.len(P.commandtable[1][2]) > def.VERYLONGSPEAK) then
-                    next_recommended_wait_step = def.LONGWAIT
-                elseif (string.len(P.commandtable[1][2]) > def.LONGSPEAK) then
-                    next_recommended_wait_step = def.MEDIUMWAIT
+            table.remove(P.commandtable, 1)
+        else
+            local entry_index = 1
+            if voice_enabled then
+                for i = 1, #P.commandtable do
+                    if P.commandtable[i][1] == def.TAXI then
+                        entry_index = i
+                        break
+                    end
                 end
-                processedentry = true
             end
+            local entry_type = P.commandtable[entry_index][1]
+            local entry_text = P.commandtable[entry_index][2]
+            if (entry_type == def.TEXT) or (entry_type == def.TAXI) then
+                if voice_enabled then
+                    if entry_type == def.TAXI then
+                        helpers.logInfoTS("SpeakString TAXI: " .. tostring(entry_text))
+                    else
+                        helpers.logInfoTS("SpeakString TEXT: " .. tostring(entry_text))
+                    end
+                    helpers.speak(entry_text)
+                    P.lastCommandWasSpeech = true
+                    if (string.len(entry_text) > def.VERYLONGSPEAK) then
+                        next_recommended_wait_step = def.LONGWAIT
+                    elseif (string.len(entry_text) > def.LONGSPEAK) then
+                        next_recommended_wait_step = def.MEDIUMWAIT
+                    end
+                    processedentry = true
+                end
+            end
+            table.remove(P.commandtable, entry_index)
         end
-
-        table.remove(P.commandtable, 1)
 
     end
 
