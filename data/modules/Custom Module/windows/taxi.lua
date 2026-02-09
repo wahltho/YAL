@@ -533,29 +533,7 @@ local function taxiway_label_voice(label)
         -- Speak full word (e.g. MAIN) instead of spelling.
         return clean
     end
-    local nato = {
-        A = "Alpha", B = "Bravo", C = "Charlie", D = "Delta", E = "Echo", F = "Foxtrot",
-        G = "Golf", H = "Hotel", I = "India", J = "Juliet", K = "Kilo", L = "Lima",
-        M = "Mike", N = "November", O = "Oscar", P = "Papa", Q = "Quebec", R = "Romeo",
-        S = "Sierra", T = "Tango", U = "Uniform", V = "Victor", W = "Whiskey", X = "X-ray",
-        Y = "Yankee", Z = "Zulu"
-    }
-    local words = {}
-    i = 1
-    while i <= len do
-        local b = string.byte(clean, i)
-        if b then
-            if b >= 65 and b <= 90 then
-                local ch = string.sub(clean, i, i)
-                local w = nato[ch] or ch
-                words[#words + 1] = w
-            elseif b >= 48 and b <= 57 then
-                words[#words + 1] = string.sub(clean, i, i)
-            end
-        end
-        i = i + 1
-    end
-    return table.concat(words, " ")
+    return helpers.spellNato(clean)
 end
 
 local function runway_label_voice(label)

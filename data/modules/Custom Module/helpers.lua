@@ -864,6 +864,42 @@ function P.addspaces(input)
 end
 
 --------------------------------------------------------------------------------------------------------------
+function P.spellNato(input)
+    if input == nil then
+        return ""
+    end
+    local nato = {
+        A = "Alpha", B = "Bravo", C = "Charlie", D = "Delta", E = "Echo", F = "Foxtrot",
+        G = "Golf", H = "Hotel", I = "India", J = "Juliet", K = "Kilo", L = "Lima",
+        M = "Mike", N = "November", O = "Oscar", P = "Papa", Q = "Quebec", R = "Romeo",
+        S = "Sierra", T = "Tango", U = "Uniform", V = "Victor", W = "Whiskey", X = "X-ray",
+        Y = "Yankee", Z = "Zulu"
+    }
+    local text = tostring(input)
+    local words = {}
+    local len = #text
+    local i = 1
+    while i <= len do
+        local b = string.byte(text, i)
+        if b then
+            if b >= 65 and b <= 90 then
+                local ch = string.sub(text, i, i)
+                local w = nato[ch] or ch
+                words[#words + 1] = w
+            elseif b >= 97 and b <= 122 then
+                local ch = string.upper(string.sub(text, i, i))
+                local w = nato[ch] or ch
+                words[#words + 1] = w
+            elseif b >= 48 and b <= 57 then
+                words[#words + 1] = string.sub(text, i, i)
+            end
+        end
+        i = i + 1
+    end
+    return table.concat(words, " ")
+end
+
+--------------------------------------------------------------------------------------------------------------
 function P.replaceRunwayPrefix(input)
     if type(input) ~= "string" then
         return input
@@ -2426,7 +2462,7 @@ function P.formatMetarSpeechSummary(metar, runwayName)
     local metar_data = metar.decodedmetar
 
     if icaocode and #icaocode > 0 then
-        table.insert(parts, P.addspaces(icaocode))
+        table.insert(parts, P.spellNato(icaocode))
     end
 
     -- NEU: Heading aus Runway-Namen ableiten, nur wenn gültig
@@ -3818,7 +3854,7 @@ local function formatCIFPApproachName(typeChar, runwayPart, suffix)
     local formattedRunway = P.formatRunwayDesignator(runwayPart)
     local suffixPart = ""
     if suffix and suffix ~= "" then
-        suffixPart = " " .. P.addspaces(suffix)
+        suffixPart = " " .. P.spellNato(suffix)
     end
 
     return string.format("%s %s%s", prefix, formattedRunway, suffixPart)

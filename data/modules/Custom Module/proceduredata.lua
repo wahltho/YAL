@@ -1088,7 +1088,7 @@ function M.fillProcedureTable()
                         if helpers.isvalidicao(depIcao) and helpers.isvalidicao(nearestIcao) then
                             if depIcao ~= nearestIcao then
                                 if not (loop and loop.nearestAirportWarned) then
-                                    P.commandtableentry(def.TEXT, "Nearest airport " .. helpers.addspaces(nearestIcao) .. " differs from departure " .. helpers.addspaces(depIcao))
+                                    P.commandtableentry(def.TEXT, "Nearest airport " .. helpers.spellNato(nearestIcao) .. " differs from departure " .. helpers.spellNato(depIcao))
                                     if loop then loop.nearestAirportWarned = true end
                                 end
                             end
@@ -1101,7 +1101,7 @@ function M.fillProcedureTable()
                             if depIcao == nearestIcao then
                                 return nil -- silent when values match
                             else
-                                return "Nearest airport differs from departure " .. helpers.addspaces(depIcao)
+                                return "Nearest airport differs from departure " .. helpers.spellNato(depIcao)
                             end
                         end
                         return nil
@@ -2907,7 +2907,7 @@ function M.fillProcedureTable()
                     end,
                     advice = function()
                         if helpers.isvalidicao(get(P.desicao)) then
-                            return "Set Destination Runway for " .. helpers.addspaces(get(P.desicao))
+                            return "Set Destination Runway for " .. helpers.spellNato(get(P.desicao))
                         end
                         return "Set Destination Airport and Runway in F M C"
                     end,
@@ -2952,7 +2952,7 @@ function M.fillProcedureTable()
                         if not runwayValid and not hasRunwayLeg then
                             if loop and not loop.approachReminderIssued then
                                 local runwayDisplay = helpers.addspaces(destRunway)
-                                P.commandtableentry(def.TEXT, "Select Approach for Runway " .. runwayDisplay .. " at " .. helpers.addspaces(destIcao))
+                                P.commandtableentry(def.TEXT, "Select Approach for Runway " .. runwayDisplay .. " at " .. helpers.spellNato(destIcao))
                                 loop.approachReminderIssued = true
                             end
                             return false
@@ -5051,9 +5051,9 @@ function M.fillProcedureTable()
                             nearestvor = helpers.findnearestvor(P.navdatatable, get(P.desrwylatstartpos), get(P.desrwylonstartpos))
                         end       
                         if (nearestvor == nil) then
-                            P.commandtableentry(def.TEXT, "No V O R near " .. helpers.addspaces(get(P.desicao)) .. " found")
+                            P.commandtableentry(def.TEXT, "No V O R near " .. helpers.spellNato(get(P.desicao)) .. " found")
                         else
-                            P.commandtableentry(def.TEXT, "Nearest V O R for " .. helpers.addspaces(get(P.desicao)) .. " is " .. helpers.addspaces(nearestvor.navid) .. " with frequency " .. helpers.addspaces(helpers.formatILSFrequency(nearestvor.frequency)))
+                            P.commandtableentry(def.TEXT, "Nearest V O R for " .. helpers.spellNato(get(P.desicao)) .. " is " .. helpers.spellNato(nearestvor.navid) .. " with frequency " .. helpers.addspaces(helpers.formatILSFrequency(nearestvor.frequency)))
                         end
                     end,
                     runActionInAdviceMode = true, 
@@ -5358,7 +5358,7 @@ function M.fillProcedureTable()
                             freqMsg = "Channel " .. helpers.addspaces(navdata[def.DESTFREQ] or "")
                         end
                         local message = "Runway " .. helpers.formatRunwayDesignator(navdata[def.DESTRWY])
-                            .. " has " .. approachDescriptor .. " (Ident " .. helpers.addspaces(ident) .. ") "
+                            .. " has " .. approachDescriptor .. " (Ident " .. helpers.spellNato(ident) .. ") "
                             .. freqMsg
                         P.commandtableentry(def.TEXT, message)
                     end,
@@ -5425,7 +5425,7 @@ function M.fillProcedureTable()
                                 freqMsg = "Channel " .. helpers.addspaces(navdata[def.DESTFREQ] or "")
                             end
                             local altMessage = "Alternate option: " .. descriptor
-                                .. " (Ident " .. helpers.addspaces(ident) .. ") " .. freqMsg
+                                .. " (Ident " .. helpers.spellNato(ident) .. ") " .. freqMsg
                             P.commandtableentry(def.TEXT, altMessage)
                         end
                     end,
@@ -5631,7 +5631,7 @@ function M.fillProcedureTable()
                                 if dmeInfo then
                                     local freqValue = dmeInfo[def.DESTDMEFREQ] ~= 0 and dmeInfo[def.DESTDMEFREQ] or dmeInfo[def.DESTFREQ]
                                     local ident = dmeInfo[def.DESTDMEIDENT] or dmeInfo[def.DESTNAVID] or ""
-                                    local identText = (ident ~= "" and (" (" .. helpers.addspaces(ident) .. ")")) or ""
+                                    local identText = (ident ~= "" and (" (" .. helpers.spellNato(ident) .. ")")) or ""
                                     return "Set Copilot D M E Frequency " .. helpers.addspaces(helpers.formatILSFrequency(freqValue)) .. identText
                                 end
                             end
@@ -5641,7 +5641,7 @@ function M.fillProcedureTable()
                             if dmeInfo then
                                 local freqValue = dmeInfo[def.DESTDMEFREQ] ~= 0 and dmeInfo[def.DESTDMEFREQ] or dmeInfo[def.DESTFREQ]
                                 local ident = dmeInfo[def.DESTDMEIDENT] or dmeInfo[def.DESTNAVID] or ""
-                                local identText = (ident ~= "" and (" (" .. helpers.addspaces(ident) .. ")")) or ""
+                                local identText = (ident ~= "" and (" (" .. helpers.spellNato(ident) .. ")")) or ""
                                 return "Set Copilot D M E Frequency " .. helpers.addspaces(helpers.formatILSFrequency(freqValue)) .. identText
                             end
                         else
@@ -5669,7 +5669,7 @@ function M.fillProcedureTable()
                                 if dmeInfo then
                                     local freqValue = dmeInfo[def.DESTDMEFREQ] ~= 0 and dmeInfo[def.DESTDMEFREQ] or dmeInfo[def.DESTFREQ]
                                     local ident = dmeInfo[def.DESTDMEIDENT] or dmeInfo[def.DESTNAVID] or ""
-                                    local identText = (ident ~= "" and (" (" .. ident .. ")")) or ""
+                                    local identText = (ident ~= "" and (" (" .. helpers.spellNato(ident) .. ")")) or ""
                                     message = "Copilot D M E Frequency checked and " .. helpers.addspaces(helpers.formatILSFrequency(freqValue)) .. identText
                                 end
                             end
@@ -5679,7 +5679,7 @@ function M.fillProcedureTable()
                             if dmeInfo then
                                 local freqValue = dmeInfo[def.DESTDMEFREQ] ~= 0 and dmeInfo[def.DESTDMEFREQ] or dmeInfo[def.DESTFREQ]
                                 local ident = dmeInfo[def.DESTDMEIDENT] or dmeInfo[def.DESTNAVID] or ""
-                                local identText = (ident ~= "" and (" (" .. helpers.addspaces(ident) .. ")")) or ""
+                                local identText = (ident ~= "" and (" (" .. helpers.spellNato(ident) .. ")")) or ""
                                 message = "Copilot D M E Frequency checked and " .. helpers.addspaces(helpers.formatILSFrequency(freqValue)) .. identText
                             end
                         else

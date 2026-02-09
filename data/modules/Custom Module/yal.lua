@@ -1819,7 +1819,7 @@ function P.speakdesmetar()
     if P.desmetar.metarfound then
             P.commandtableentry(def.TEXT, helpers.formatMetarSpeechSummary(P.desmetar, get(P.desrwy)))
         else
-            P.commandtableentry(def.TEXT, "No Metar found for " .. helpers.addspaces(get(P.desicao)))
+            P.commandtableentry(def.TEXT, "No Metar found for " .. helpers.spellNato(get(P.desicao)))
     end
 
     return true
@@ -1841,7 +1841,7 @@ function P.speakdepmetar()
     if P.depmetar.metarfound then
             P.commandtableentry(def.TEXT, helpers.formatMetarSpeechSummary(P.depmetar,get(P.deprwy)))
         else
-            P.commandtableentry(def.TEXT, "No Metar found for " .. helpers.addspaces(get(P.depicao)))
+            P.commandtableentry(def.TEXT, "No Metar found for " .. helpers.spellNato(get(P.depicao)))
     end
 
     return true
