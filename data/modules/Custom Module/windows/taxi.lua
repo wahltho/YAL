@@ -2739,12 +2739,30 @@ local function maybe_speak_guidance(comp, now, aircraft)
                 text = "Continue straight on Taxiway " .. next_info.text
             end
         elseif next_info.kind == "runway" then
+            local rwy_phrase = runway_label_voice(next_info.display ~= "" and next_info.display or next_info.text)
             if dep_mode and entering_runway then
-                local rwy_phrase = runway_label_voice(next_info.display ~= "" and next_info.display or next_info.text)
                 text = "Enter departure " .. rwy_phrase
                 action = "ENTER RWY"
             else
-                text = "Continue straight on " .. next_info.text
+                local backtrack = false
+                if dep_mode then
+                    local profile = comp._depProfile
+                    if profile and profile.axis then
+                        local len = math.sqrt(v1x * v1x + v1y * v1y)
+                        if len > 0.1 then
+                            local dot = (v1x * profile.axis.x + v1y * profile.axis.y) / len
+                            if dot < -0.2 then
+                                backtrack = true
+                            end
+                        end
+                    end
+                end
+                if backtrack then
+                    text = "Backtrack on " .. rwy_phrase
+                    action = "BACKTRACK"
+                else
+                    text = "Continue straight on " .. rwy_phrase
+                end
             end
         elseif next_info.kind == "ramp" then
             text = "Continue straight to " .. next_info.text
@@ -5070,6 +5088,9 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
         local touchdown = nil
         local landing_profile = nil
         local dep_profile = nil
+        local dep_runway_end_id = nil
+        local dep_runway_end_lat = nil
+        local dep_runway_end_lon = nil
         local backtrack_required = false
         local dep_holdshort_id = nil
         local dep_end_node_id = nil
@@ -5262,6 +5283,27 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
 
         if mode == 0 and data and comp._runwayName and comp._runwayName ~= "" and is_valid_latlon(runway_lat, runway_lon) then
             dep_profile = compute_runway_landing_profile(data, comp._runwayName, runway_lat, runway_lon)
+            if dep_profile and dep_profile.threshold and dep_profile.threshold.east and dep_profile.threshold.north then
+                dep_runway_end_id = find_nearest_runway_node(
+                    data,
+                    dep_profile.threshold.east,
+                    dep_profile.threshold.north
+                )
+                local tlat, tlon = sasl.localToWorld(dep_profile.threshold.east, 0, -dep_profile.threshold.north)
+                if is_valid_latlon(tlat, tlon) then
+                    dep_runway_end_lat = tlat
+                    dep_runway_end_lon = tlon
+                end
+            end
+        end
+        if mode == 0 then
+            comp._depProfile = dep_profile
+        else
+            comp._depProfile = nil
+        end
+        if mode == 0 and allow_runway_route and dep_runway_end_lat and dep_runway_end_lon then
+            end_lat = dep_runway_end_lat
+            end_lon = dep_runway_end_lon
         end
 
         local ref_lat = nil
@@ -5666,7 +5708,8 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                 comp._rerouteOverride = nil
             end
         end
-        if mode == 0 and (not has_end_override) and comp._selectedDepEntryId and data and data.nodes and data.nodes[comp._selectedDepEntryId] then
+        if mode == 0 and (not has_end_override) and (not allow_runway_route)
+            and comp._selectedDepEntryId and data and data.nodes and data.nodes[comp._selectedDepEntryId] then
             local sel = data.nodes[comp._selectedDepEntryId]
             end_lat = sel.lat
             end_lon = sel.lon
@@ -6082,7 +6125,9 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                     opts.disallow_runway_edges = not allow_runway_route
                     opts.avoid_runway_nodes = not allow_runway_route
                     if not has_end_override then
-                        if comp._selectedDepEntryId and data.nodes and data.nodes[comp._selectedDepEntryId] then
+                        if allow_runway_route and dep_runway_end_id and data.nodes and data.nodes[dep_runway_end_id] then
+                            opts.end_node_id = dep_runway_end_id
+                        elseif comp._selectedDepEntryId and data.nodes and data.nodes[comp._selectedDepEntryId] then
                             opts.end_node_id = comp._selectedDepEntryId
                         elseif dep_holdshort_id and data.nodes and data.nodes[dep_holdshort_id] then
                             opts.end_node_id = dep_holdshort_id
@@ -6129,7 +6174,9 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                         avoid_runway_nodes = true
                     }
                     if not has_end_override then
-                        if comp._selectedDepEntryId and data.nodes and data.nodes[comp._selectedDepEntryId] then
+                        if allow_runway_route and dep_runway_end_id and data.nodes and data.nodes[dep_runway_end_id] then
+                            opts.end_node_id = dep_runway_end_id
+                        elseif comp._selectedDepEntryId and data.nodes and data.nodes[comp._selectedDepEntryId] then
                             opts.end_node_id = comp._selectedDepEntryId
                         elseif dep_holdshort_id and data.nodes and data.nodes[dep_holdshort_id] then
                             opts.end_node_id = dep_holdshort_id
@@ -6159,7 +6206,9 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                             avoid_runway_nodes = true
                         }
                         if not has_end_override then
-                            if comp._selectedDepEntryId and data.nodes and data.nodes[comp._selectedDepEntryId] then
+                            if allow_runway_route and dep_runway_end_id and data.nodes and data.nodes[dep_runway_end_id] then
+                                opts.end_node_id = dep_runway_end_id
+                            elseif comp._selectedDepEntryId and data.nodes and data.nodes[comp._selectedDepEntryId] then
                                 opts.end_node_id = comp._selectedDepEntryId
                             elseif dep_holdshort_id and data.nodes and data.nodes[dep_holdshort_id] then
                                 opts.end_node_id = dep_holdshort_id
@@ -6194,7 +6243,9 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                             avoid_runway_nodes = true
                         }
                         if not has_end_override then
-                            if comp._selectedDepEntryId and data.nodes and data.nodes[comp._selectedDepEntryId] then
+                            if allow_runway_route and dep_runway_end_id and data.nodes and data.nodes[dep_runway_end_id] then
+                                opts.end_node_id = dep_runway_end_id
+                            elseif comp._selectedDepEntryId and data.nodes and data.nodes[comp._selectedDepEntryId] then
                                 opts.end_node_id = comp._selectedDepEntryId
                             elseif dep_holdshort_id and data.nodes and data.nodes[dep_holdshort_id] then
                                 opts.end_node_id = dep_holdshort_id
@@ -6226,7 +6277,9 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                         avoid_runway_nodes = false
                     }
                     if not has_end_override then
-                        if comp._selectedDepEntryId and data.nodes and data.nodes[comp._selectedDepEntryId] then
+                        if allow_runway_route and dep_runway_end_id and data.nodes and data.nodes[dep_runway_end_id] then
+                            opts.end_node_id = dep_runway_end_id
+                        elseif comp._selectedDepEntryId and data.nodes and data.nodes[comp._selectedDepEntryId] then
                             opts.end_node_id = comp._selectedDepEntryId
                         elseif dep_holdshort_id and data.nodes and data.nodes[dep_holdshort_id] then
                             opts.end_node_id = dep_holdshort_id
@@ -6257,7 +6310,9 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                         runway_penalty = 50
                     }
                     if not has_end_override then
-                        if comp._selectedDepEntryId and data.nodes and data.nodes[comp._selectedDepEntryId] then
+                        if allow_runway_route and dep_runway_end_id and data.nodes and data.nodes[dep_runway_end_id] then
+                            opts.end_node_id = dep_runway_end_id
+                        elseif comp._selectedDepEntryId and data.nodes and data.nodes[comp._selectedDepEntryId] then
                             opts.end_node_id = comp._selectedDepEntryId
                         elseif dep_holdshort_id and data.nodes and data.nodes[dep_holdshort_id] then
                             opts.end_node_id = dep_holdshort_id
@@ -6831,16 +6886,18 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                             }, is_auto_taxi_guidance_enabled())
                             comp._depRunwayEntryAnnounced = true
                         end
-                        local rwy_phrase = runway_label_voice(comp._runwayName)
-                        emit_guidance(comp, now, {
-                            text = "On departure " .. rwy_phrase .. ", taxi complete",
-                            direction = "straight",
-                            action = "TAXI COMPLETE",
-                            label = build_visual_label("runway", normalize_runway_name(comp._runwayName)),
-                            kind = "runway",
-                            queue = true
-                        }, is_auto_taxi_guidance_enabled())
-                        comp._depTaxiCompleteAnnounced = true
+                        if comp._depThresholdLatched or comp._depThresholdReached then
+                            local rwy_phrase = runway_label_voice(comp._runwayName)
+                            emit_guidance(comp, now, {
+                                text = "On departure " .. rwy_phrase .. ", taxi complete",
+                                direction = "straight",
+                                action = "TAXI COMPLETE",
+                                label = build_visual_label("runway", normalize_runway_name(comp._runwayName)),
+                                kind = "runway",
+                                queue = true
+                            }, is_auto_taxi_guidance_enabled())
+                            comp._depTaxiCompleteAnnounced = true
+                        end
                     end
                 end
             end
@@ -6980,15 +7037,23 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                 local a = data.nodes and data.nodes[path[i]] or nil
                 local b = data.nodes and data.nodes[path[i + 1]] or nil
                 if a and b and a.east and a.north and b.east and b.north then
+                    if a.is_ramp or b.is_ramp then
+                        goto continue
+                    end
+                    local raw_label = get_edge_label(data, path[i], path[i + 1])
+                    if raw_label == "RAMP" or (raw_label and is_runway_label(raw_label)) then
+                        goto continue
+                    end
                     local dx = b.east - a.east
                     local dy = b.north - a.north
                     if dx ~= 0 or dy ~= 0 then
                         n1 = a
                         n2 = b
-                        label = get_edge_label(data, path[i], path[i + 1])
+                        label = raw_label or ""
                         break
                     end
                 end
+                ::continue::
             end
         end
         if not n1 or not n2 then
