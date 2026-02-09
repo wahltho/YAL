@@ -6255,43 +6255,6 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                         end
                     end
                 end
-                if (not route) and rerr == "no-path" and mode == 0 and is_valid_latlon(end_lat, end_lon) then
-                    local ex, ey = latlon_to_local(end_lat, end_lon)
-                    local candidates = collect_nearest_nodes(data, ex, ey, 18)
-                    if #candidates > 0 then
-                        opts = {
-                            ignore_oneway = true,
-                            allow_far_ramp = true,
-                            disallow_runway_edges = true,
-                            avoid_runway_nodes = true
-                        }
-                        if not has_end_override then
-                            if allow_runway_route and dep_runway_end_id and data.nodes and data.nodes[dep_runway_end_id] then
-                                opts.end_node_id = dep_runway_end_id
-                            elseif comp._selectedDepEntryId and data.nodes and data.nodes[comp._selectedDepEntryId] then
-                                opts.end_node_id = comp._selectedDepEntryId
-                            elseif dep_holdshort_id and data.nodes and data.nodes[dep_holdshort_id] then
-                                opts.end_node_id = dep_holdshort_id
-                            end
-                        end
-                        set_start_ramp_fallback(opts)
-                        apply_projection(opts)
-                        local alt_route = try_route_to_candidates(
-                            icao,
-                            data,
-                            start_lat,
-                            start_lon,
-                            candidates,
-                            opts,
-                            proj_waypoint_ids,
-                            route_waypoints
-                        )
-                        if alt_route then
-                            route = alt_route
-                            rerr = nil
-                        end
-                    end
-                end
                 if (not route) and rerr == "no-path" and mode == 0 then
                     opts = {
                         ignore_oneway = true,
@@ -6355,6 +6318,43 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                     )
                     if route and helpers and helpers.logInfoTS then
                         helpers.logInfoTS("Taxi: DEP fallback allow runway crossing")
+                    end
+                end
+                if (not route) and rerr == "no-path" and mode == 0 and is_valid_latlon(end_lat, end_lon) then
+                    local ex, ey = latlon_to_local(end_lat, end_lon)
+                    local candidates = collect_nearest_nodes(data, ex, ey, 18)
+                    if #candidates > 0 then
+                        opts = {
+                            ignore_oneway = true,
+                            allow_far_ramp = true,
+                            disallow_runway_edges = true,
+                            avoid_runway_nodes = true
+                        }
+                        if not has_end_override then
+                            if allow_runway_route and dep_runway_end_id and data.nodes and data.nodes[dep_runway_end_id] then
+                                opts.end_node_id = dep_runway_end_id
+                            elseif comp._selectedDepEntryId and data.nodes and data.nodes[comp._selectedDepEntryId] then
+                                opts.end_node_id = comp._selectedDepEntryId
+                            elseif dep_holdshort_id and data.nodes and data.nodes[dep_holdshort_id] then
+                                opts.end_node_id = dep_holdshort_id
+                            end
+                        end
+                        set_start_ramp_fallback(opts)
+                        apply_projection(opts)
+                        local alt_route = try_route_to_candidates(
+                            icao,
+                            data,
+                            start_lat,
+                            start_lon,
+                            candidates,
+                            opts,
+                            proj_waypoint_ids,
+                            route_waypoints
+                        )
+                        if alt_route then
+                            route = alt_route
+                            rerr = nil
+                        end
                     end
                 end
                 if (not route) and rerr == "no-path" and mode == 1 then
