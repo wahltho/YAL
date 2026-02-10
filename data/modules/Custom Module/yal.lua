@@ -5379,10 +5379,19 @@ function P.commandtableloop()
         else
             local entry_index = 1
             if voice_enabled then
+                local last_taxi_index = nil
                 for i = 1, #P.commandtable do
                     if P.commandtable[i][1] == def.TAXI then
-                        entry_index = i
-                        break
+                        last_taxi_index = i
+                    end
+                end
+                if last_taxi_index then
+                    entry_index = last_taxi_index
+                    for i = last_taxi_index - 1, 1, -1 do
+                        if P.commandtable[i][1] == def.TAXI then
+                            table.remove(P.commandtable, i)
+                            entry_index = entry_index - 1
+                        end
                     end
                 end
             end
