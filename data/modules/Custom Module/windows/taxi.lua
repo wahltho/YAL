@@ -12,6 +12,10 @@ local rerouteDriftMeters = 40
 local arrRerouteDriftMeters = 90
 local guidanceMinSpeed = 1
 local initialGuidanceMinSpeed = 0.2
+local initialGuidanceMinGs = 1.0
+local initialGuidanceMinForwardMeters = 5
+local initialGuidanceMinForwardSeconds = 2.0
+local initialGuidanceReverseResetMeters = 2
 local guidanceTurnDistance = 80
 local guidanceTurnAngle = 20
 local guidanceLeadTimeSec = 12
@@ -1257,6 +1261,85 @@ local function compute_along_perp(profile, node)
     local cross = dx * profile.axis.y - dy * profile.axis.x
     local perp = math.abs(cross)
     return along, perp
+end
+
+local function runway_pair_label(rwy)
+    if not rwy then
+        return ""
+    end
+    local a = normalize_runway_name(rwy.rwy1 or "")
+    local b = normalize_runway_name(rwy.rwy2 or "")
+    if a ~= "" and b ~= "" then
+        return a .. "/" .. b
+    end
+    return a ~= "" and a or b
+end
+
+local function segment_crosses_runway(rwy, x1, y1, x2, y2)
+    if not rwy or not rwy.east1 or not rwy.north1 or not rwy.east2 or not rwy.north2 then
+        return false
+    end
+    local rx1, ry1 = rwy.east1, rwy.north1
+    local rx2, ry2 = rwy.east2, rwy.north2
+    local dx = rx2 - rx1
+    local dy = ry2 - ry1
+    local len = math.sqrt(dx * dx + dy * dy)
+    if len <= 1 then
+        return false
+    end
+    local ux = dx / len
+    local uy = dy / len
+    local px = -uy
+    local py = ux
+    local function along_cross(x, y)
+        local vx = x - rx1
+        local vy = y - ry1
+        local along = vx * ux + vy * uy
+        local cross = vx * px + vy * py
+        return along, cross
+    end
+    local a1, c1 = along_cross(x1, y1)
+    local a2, c2 = along_cross(x2, y2)
+    local pad = 5
+    if math.max(a1, a2) < -pad or math.min(a1, a2) > (len + pad) then
+        return false
+    end
+    local width = tonumber(rwy.width) or 0
+    if width <= 0 then
+        width = 45
+    end
+    local half = (width * 0.5) + 3
+    if math.abs(c1) <= half and math.abs(c2) <= half then
+        local minA = math.min(a1, a2)
+        local maxA = math.max(a1, a2)
+        return maxA >= 0 and minA <= len
+    end
+    local denom = (c1 - c2)
+    if denom ~= 0 then
+        local t = c1 / denom
+        if t >= 0 and t <= 1 then
+            local along = a1 + (a2 - a1) * t
+            if along >= 0 and along <= len then
+                return true
+            end
+        end
+    end
+    return false
+end
+
+local function find_runway_crossing(data, n1, n2)
+    if not data or not data.runways or not n1 or not n2 then
+        return nil, ""
+    end
+    if n1.east == nil or n1.north == nil or n2.east == nil or n2.north == nil then
+        return nil, ""
+    end
+    for _, rwy in ipairs(data.runways) do
+        if segment_crosses_runway(rwy, n1.east, n1.north, n2.east, n2.north) then
+            return rwy, runway_pair_label(rwy)
+        end
+    end
+    return nil, ""
 end
 
 local function runway_corridor_half_width(profile)
@@ -2680,6 +2763,7 @@ local function maybe_speak_guidance(comp, now, aircraft)
         emit_guidance(comp, now, info, auto_voice)
     end
     local tirespeed = yal and yal.tirespeed and (get(yal.tirespeed) or 0) or 0
+    local groundspeed = yal and yal.groundspeed and (get(yal.groundspeed) or 0) or 0
     if comp.mode == 1 and comp._arrExitId and comp._arrProfile
         and comp._runwayName and comp._runwayName ~= ""
         and (not comp._arrBacktrackRequired)
@@ -2719,36 +2803,69 @@ local function maybe_speak_guidance(comp, now, aircraft)
         end
     end
     if not comp._initialGuidanceDone and path and #path >= 2 then
-        if tirespeed >= initialGuidanceMinSpeed then
-            local info = guidance_label_info(path[1], path[2], nil, comp._startRamp, false)
-            if info then
-                local text = ""
-                if info.kind == "taxiway" then
-                    text = "Taxi via Taxiway " .. info.text
-                elseif info.kind == "runway" then
-                    text = "Taxi via " .. info.text
-                elseif info.kind == "ramp" then
-                    text = "Taxi from " .. info.text
-                end
-                if text ~= "" then
-                    local action = ""
-                    if info.kind == "ramp" then
-                        action = "TAXI FROM"
-                    else
-                        action = "TAXI VIA"
-                    end
-                    local label = build_visual_label(info.kind, info.display)
-                    emit({
-                        text = text,
-                        direction = "straight",
-                        action = action,
-                        label = label,
-                        kind = info.kind
-                    })
-                    comp._initialGuidanceDone = true
-                    return
+        if tirespeed >= initialGuidanceMinSpeed and groundspeed >= initialGuidanceMinGs then
+            local n1 = data and data.nodes and data.nodes[path[1]] or nil
+            local n2 = data and data.nodes and data.nodes[path[2]] or nil
+            local dirx, diry = nil, nil
+            if n1 and n2 and n1.east and n1.north and n2.east and n2.north then
+                local dx = n2.east - n1.east
+                local dy = n2.north - n1.north
+                local len = math.sqrt(dx * dx + dy * dy)
+                if len > 0.1 then
+                    dirx = dx / len
+                    diry = dy / len
                 end
             end
+            local anchor = comp._initialMoveAnchor
+            if not anchor then
+                comp._initialMoveAnchor = { east = aircraft.east, north = aircraft.north, time = now }
+            else
+                local mx = aircraft.east - anchor.east
+                local my = aircraft.north - anchor.north
+                local along = math.sqrt(mx * mx + my * my)
+                if dirx and diry then
+                    along = mx * dirx + my * diry
+                    if along < -initialGuidanceReverseResetMeters then
+                        comp._initialMoveAnchor = { east = aircraft.east, north = aircraft.north, time = now }
+                        along = 0
+                    end
+                end
+                if along >= initialGuidanceMinForwardMeters
+                    and (now - (anchor.time or now)) >= initialGuidanceMinForwardSeconds then
+                    local info = guidance_label_info(path[1], path[2], nil, comp._startRamp, false)
+                    if info then
+                        local text = ""
+                        if info.kind == "taxiway" then
+                            text = "Taxi via Taxiway " .. info.text
+                        elseif info.kind == "runway" then
+                            text = "Taxi via " .. info.text
+                        elseif info.kind == "ramp" then
+                            text = "Taxi from " .. info.text
+                        end
+                        if text ~= "" then
+                            local action = ""
+                            if info.kind == "ramp" then
+                                action = "TAXI FROM"
+                            else
+                                action = "TAXI VIA"
+                            end
+                            local label = build_visual_label(info.kind, info.display)
+                            emit({
+                                text = text,
+                                direction = "straight",
+                                action = action,
+                                label = label,
+                                kind = info.kind
+                            })
+                            comp._initialGuidanceDone = true
+                            comp._initialMoveAnchor = nil
+                            return
+                        end
+                    end
+                end
+            end
+        else
+            comp._initialMoveAnchor = nil
         end
     end
     if tirespeed <= 0 then
@@ -2814,23 +2931,44 @@ local function maybe_speak_guidance(comp, now, aircraft)
     end
     local last_time = comp._lastGuidanceTime or 0
     local label_key = next_info.kind .. ":" .. next_info.text
-    local entering_label = next_info.display ~= "" and next_info.display or next_info.text
-    local entering_norm = normalize_runway_name(entering_label)
-    local dep_norm = normalize_runway_name(comp._runwayName or "")
-    local is_departure_entry = dep_mode and entering_norm ~= "" and dep_norm ~= "" and entering_norm == dep_norm
-    if entering_runway and (not is_departure_entry) then
-        local warn_id = path[seg_idx + 1]
-        if comp._arrRunwayCrossWarned ~= warn_id then
-            local rwy_phrase = runway_label_voice(entering_label)
-            emit({
-                text = "Caution, crossing " .. rwy_phrase,
-                direction = "straight",
-                action = "CROSS RWY",
-                label = build_visual_label("runway", normalize_runway_name(entering_label)),
-                kind = "runway"
-            })
-            comp._arrRunwayCrossWarned = warn_id
-            return
+    local raw_next_label = get_edge_label(data, path[seg_idx + 1], path[seg_idx + 2])
+    local next_is_runway = next_info.kind == "runway" or (raw_next_label and is_runway_label(raw_next_label))
+    if next_is_runway and entering_runway then
+        local entering_label = next_info.display ~= "" and next_info.display or next_info.text
+        local entering_norm = normalize_runway_name(entering_label)
+        local dep_norm = normalize_runway_name(comp._runwayName or "")
+        local is_departure_entry = dep_mode and entering_norm ~= "" and dep_norm ~= "" and entering_norm == dep_norm
+        if not is_departure_entry then
+            local warn_key = tostring(path[seg_idx + 1]) .. "|" .. tostring(entering_norm)
+            if comp._runwayCrossWarnedKey ~= warn_key then
+                local rwy_phrase = runway_label_voice(entering_label)
+                emit({
+                    text = "Caution, crossing " .. rwy_phrase,
+                    direction = "straight",
+                    action = "CROSS RWY",
+                    label = build_visual_label("runway", entering_norm),
+                    kind = "runway"
+                })
+                comp._runwayCrossWarnedKey = warn_key
+                return
+            end
+        end
+    elseif not next_is_runway then
+        local rwy, cross_label = find_runway_crossing(data, n2, n3)
+        if rwy and cross_label ~= "" then
+            local warn_key = tostring(path[seg_idx + 1]) .. "|" .. tostring(cross_label)
+            if comp._runwayCrossWarnedKey ~= warn_key then
+                local rwy_phrase = runway_label_voice(cross_label)
+                emit({
+                    text = "Caution, crossing " .. rwy_phrase,
+                    direction = "straight",
+                    action = "CROSS RWY",
+                    label = build_visual_label("runway", normalize_runway_name(cross_label)),
+                    kind = "runway"
+                })
+                comp._runwayCrossWarnedKey = warn_key
+                return
+            end
         end
     end
     if comp._lastGuidanceNodeId == path[seg_idx + 1]
@@ -3211,6 +3349,9 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
     comp._depTaxiCompleteAnnounced = false
     comp._arrTaxiCompleteAnnounced = false
     comp._initialGuidanceDone = false
+    comp._initialMoveAnchor = nil
+    comp._runwayCrossWarnedKey = nil
+    comp._depEntryIssuedAt = nil
     comp._lastRecomputeKey = nil
     comp._lastRerouteTime = nil
     comp._rerouteOverride = nil
@@ -5000,6 +5141,9 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
             comp._arrBacktrackRequired = nil
             comp._arrRunwayExitAnnounced = false
             comp._arrRunwayCrossWarned = nil
+            comp._runwayCrossWarnedKey = nil
+            comp._initialMoveAnchor = nil
+            comp._depEntryIssuedAt = nil
             comp._editTailSegments = nil
             set_taxi_ref(nil)
             log_taxi("TaxiRoute: abort invalid-icao")
@@ -5052,6 +5196,10 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
             comp._depRunwayEntryAnnounced = false
             comp._depTaxiCompleteAnnounced = false
             comp._arrTaxiCompleteAnnounced = false
+            comp._initialGuidanceDone = false
+            comp._initialMoveAnchor = nil
+            comp._runwayCrossWarnedKey = nil
+            comp._depEntryIssuedAt = nil
             log_taxi(
                 string.format(
                     "TaxiRoute: reset icao_changed=%s mode_changed=%s",
@@ -6161,6 +6309,9 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
             comp._lastStartKey = start_key
             comp._lastEndKey = end_key
             comp._initialGuidanceDone = false
+            comp._initialMoveAnchor = nil
+            comp._runwayCrossWarnedKey = nil
+            comp._depEntryIssuedAt = nil
             if canRoute and is_valid_latlon(start_lat, start_lon) and is_valid_latlon(end_lat, end_lon) then
                 local function fmt_latlon(latv, lonv)
                     if not latv or not lonv then
@@ -7243,18 +7394,22 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                                 kind = "runway"
                             }, is_auto_taxi_guidance_enabled())
                             comp._depRunwayEntryAnnounced = true
+                            comp._depEntryIssuedAt = now
                         end
                         if comp._depThresholdLatched or comp._depThresholdReached then
-                            local rwy_phrase = runway_label_voice(comp._runwayName)
-                            emit_guidance(comp, now, {
-                                text = "On departure " .. rwy_phrase .. ", taxi complete",
-                                direction = "straight",
-                                action = "TAXI COMPLETE",
-                                label = build_visual_label("runway", normalize_runway_name(comp._runwayName)),
-                                kind = "runway",
-                                queue = true
-                            }, is_auto_taxi_guidance_enabled())
-                            comp._depTaxiCompleteAnnounced = true
+                            local entryIssuedAt = comp._depEntryIssuedAt or 0
+                            if (not entryIssuedAt) or (not now) or (now - entryIssuedAt) >= 2 then
+                                local rwy_phrase = runway_label_voice(comp._runwayName)
+                                emit_guidance(comp, now, {
+                                    text = "On departure " .. rwy_phrase .. ", taxi complete",
+                                    direction = "straight",
+                                    action = "TAXI COMPLETE",
+                                    label = build_visual_label("runway", normalize_runway_name(comp._runwayName)),
+                                    kind = "runway",
+                                    queue = true
+                                }, is_auto_taxi_guidance_enabled())
+                                comp._depTaxiCompleteAnnounced = true
+                            end
                         end
                     end
                 end
