@@ -2680,6 +2680,44 @@ local function maybe_speak_guidance(comp, now, aircraft)
         emit_guidance(comp, now, info, auto_voice)
     end
     local tirespeed = yal and yal.tirespeed and (get(yal.tirespeed) or 0) or 0
+    if comp.mode == 1 and comp._arrExitId and comp._arrProfile
+        and comp._runwayName and comp._runwayName ~= ""
+        and (not comp._arrBacktrackRequired)
+        and comp.yal and comp.yal.aircraftonrwy then
+        local offRunway = comp.yal.aircraftonrwy(def.ARRIVAL, 40, 20)
+        if (not offRunway) and (not comp._arrRunwayExitAnnounced) and path and #path >= 2 then
+            local exit_id = comp._arrExitId
+            local exit_node = data and data.nodes and data.nodes[exit_id] or nil
+            local profile = comp._arrProfile
+            if exit_node and profile and profile.axis and profile.threshold
+                and exit_node.east ~= nil and exit_node.north ~= nil then
+                local dx = exit_node.east - profile.threshold.east
+                local dy = exit_node.north - profile.threshold.north
+                local cross = dx * profile.axis.y - dy * profile.axis.x
+                local turn = (cross >= 0) and "left" or "right"
+                local rwy_phrase = runway_label_voice(comp._runwayName)
+                local info = nil
+                if path[1] == exit_id then
+                    info = guidance_label_info(path[1], path[2], nil, comp._endRamp, true)
+                end
+                local text = nil
+                if info and info.kind == "taxiway" and (not info.missingLabel) and info.text ~= "" then
+                    text = "Leave " .. rwy_phrase .. " to " .. turn .. " on Taxiway " .. info.text
+                else
+                    text = "Leave " .. rwy_phrase .. " to " .. turn .. " at next taxiway"
+                end
+                emit({
+                    text = text,
+                    direction = turn,
+                    action = "EXIT RWY",
+                    label = build_visual_label("runway", comp._runwayName),
+                    kind = "runway"
+                })
+                comp._arrRunwayExitAnnounced = true
+                return
+            end
+        end
+    end
     if not comp._initialGuidanceDone and path and #path >= 2 then
         if tirespeed >= initialGuidanceMinSpeed then
             local info = guidance_label_info(path[1], path[2], nil, comp._startRamp, false)
@@ -2740,6 +2778,12 @@ local function maybe_speak_guidance(comp, now, aircraft)
         diag("next-label-empty")
         return
     end
+    local dep_mode = (comp.mode == 0)
+    local entering_runway = next_info.kind == "runway" and (not curr_raw_label or not is_runway_label(curr_raw_label))
+    local label_changed = curr_label ~= "" and next_info.display ~= "" and curr_label ~= next_info.display
+    local force_turn = curr_raw_label and is_runway_label(curr_raw_label) and next_info.kind ~= "runway"
+    local leaving_runway = (not dep_mode) and curr_raw_label and is_runway_label(curr_raw_label)
+        and (next_info.kind == "taxiway" or next_info.kind == "ramp")
     local v1x = n2.east - n1.east
     local v1y = n2.north - n1.north
     local v2x = n3.east - n2.east
@@ -2760,12 +2804,35 @@ local function maybe_speak_guidance(comp, now, aircraft)
     end
     local dist_to_node = math.sqrt(distance_sq(aircraft.east, aircraft.north, n2.east, n2.north))
     local guidance_dist = guidance_distance_for_speed(tirespeed)
+    local would_turn = (angle >= guidanceTurnAngle) or leaving_runway or entering_runway or force_turn
+    if would_turn then
+        guidance_dist = math.min(guidanceMaxDistance, guidance_dist * 1.6)
+    end
     if dist_to_node > guidance_dist then
         diag("too-far", string.format("dist=%.1f", dist_to_node))
         return
     end
     local last_time = comp._lastGuidanceTime or 0
     local label_key = next_info.kind .. ":" .. next_info.text
+    local entering_label = next_info.display ~= "" and next_info.display or next_info.text
+    local entering_norm = normalize_runway_name(entering_label)
+    local dep_norm = normalize_runway_name(comp._runwayName or "")
+    local is_departure_entry = dep_mode and entering_norm ~= "" and dep_norm ~= "" and entering_norm == dep_norm
+    if entering_runway and (not is_departure_entry) then
+        local warn_id = path[seg_idx + 1]
+        if comp._arrRunwayCrossWarned ~= warn_id then
+            local rwy_phrase = runway_label_voice(entering_label)
+            emit({
+                text = "Caution, crossing " .. rwy_phrase,
+                direction = "straight",
+                action = "CROSS RWY",
+                label = build_visual_label("runway", normalize_runway_name(entering_label)),
+                kind = "runway"
+            })
+            comp._arrRunwayCrossWarned = warn_id
+            return
+        end
+    end
     if comp._lastGuidanceNodeId == path[seg_idx + 1]
         and comp._lastGuidanceLabel == label_key
         and (now - last_time) < guidanceCooldown then
@@ -2776,12 +2843,6 @@ local function maybe_speak_guidance(comp, now, aircraft)
     local text = ""
     local direction = "straight"
     local action = ""
-    local dep_mode = (comp.mode == 0)
-    local entering_runway = next_info.kind == "runway" and (not curr_raw_label or not is_runway_label(curr_raw_label))
-    local label_changed = curr_label ~= "" and next_info.display ~= "" and curr_label ~= next_info.display
-    local force_turn = curr_raw_label and is_runway_label(curr_raw_label) and next_info.kind ~= "runway"
-    local leaving_runway = (not dep_mode) and curr_raw_label and is_runway_label(curr_raw_label)
-        and (next_info.kind == "taxiway" or next_info.kind == "ramp")
     if leaving_runway then
         local turn = (cross >= 0) and "left" or "right"
         local rwy_phrase = runway_label_voice(curr_raw_label)
@@ -2789,12 +2850,12 @@ local function maybe_speak_guidance(comp, now, aircraft)
         action = "EXIT RWY"
         if next_info.kind == "taxiway" then
             if next_info.missingLabel then
-                text = "Leave " .. rwy_phrase .. " to the " .. turn .. " at next taxiway"
+                text = "Leave " .. rwy_phrase .. " to " .. turn .. " at next taxiway"
             else
-                text = "Leave " .. rwy_phrase .. " to the " .. turn .. " on Taxiway " .. next_info.text
+                text = "Leave " .. rwy_phrase .. " to " .. turn .. " on Taxiway " .. next_info.text
             end
         else
-            text = "Leave " .. rwy_phrase .. " to the " .. turn .. " to " .. next_info.text
+            text = "Leave " .. rwy_phrase .. " to " .. turn .. " to " .. next_info.text
         end
     elseif angle < guidanceTurnAngle and not force_turn then
         direction = "straight"
@@ -4934,6 +4995,11 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
             comp._visualGuidanceQueue = {}
             comp._drawFreehand = false
             comp._arrOffRunwayHandled = false
+            comp._arrExitId = nil
+            comp._arrProfile = nil
+            comp._arrBacktrackRequired = nil
+            comp._arrRunwayExitAnnounced = false
+            comp._arrRunwayCrossWarned = nil
             comp._editTailSegments = nil
             set_taxi_ref(nil)
             log_taxi("TaxiRoute: abort invalid-icao")
@@ -4978,6 +5044,11 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
             comp._lastAutoRouteLogKey = nil
             comp._drawFreehand = false
             comp._arrOffRunwayHandled = false
+            comp._arrExitId = nil
+            comp._arrProfile = nil
+            comp._arrBacktrackRequired = nil
+            comp._arrRunwayExitAnnounced = false
+            comp._arrRunwayCrossWarned = nil
             comp._depRunwayEntryAnnounced = false
             comp._depTaxiCompleteAnnounced = false
             comp._arrTaxiCompleteAnnounced = false
@@ -5071,6 +5142,11 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
             comp._runwayName = nil
             comp._routeExtraSegments = nil
             comp._editTailSegments = nil
+            comp._arrExitId = nil
+            comp._arrProfile = nil
+            comp._arrBacktrackRequired = nil
+            comp._arrRunwayExitAnnounced = false
+            comp._arrRunwayCrossWarned = nil
             clear_visual_guidance(comp, "no-data")
             comp._visualGuidanceQueue = {}
             set_taxi_ref(nil)
@@ -5546,6 +5622,21 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                     end
                 end
             end
+        end
+        if mode == 1 then
+            comp._arrProfile = landing_profile
+            comp._arrBacktrackRequired = backtrack_required
+            if comp._arrExitId ~= arr_exit_id then
+                comp._arrExitId = arr_exit_id
+                comp._arrRunwayExitAnnounced = false
+                comp._arrRunwayCrossWarned = nil
+            end
+        else
+            comp._arrProfile = nil
+            comp._arrBacktrackRequired = nil
+            comp._arrExitId = nil
+            comp._arrRunwayExitAnnounced = false
+            comp._arrRunwayCrossWarned = nil
         end
         if mode == 1 and (not comp._drawFreehand)
             and (not is_valid_latlon(end_lat, end_lon)) and is_valid_latlon(ramp_ref_lat, ramp_ref_lon) then
