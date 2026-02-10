@@ -3619,6 +3619,14 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                 sasl.gl.drawLine(x1 + 1, y1 + 1, x2 + 1, y2 + 1, routeColor)
             end
         end
+        if comp._editTailSegments then
+            for _, seg in ipairs(comp._editTailSegments) do
+                local x1, y1 = project(seg.east1, seg.north1)
+                local x2, y2 = project(seg.east2, seg.north2)
+                sasl.gl.drawLine(x1, y1, x2, y2, routeShadow)
+                sasl.gl.drawLine(x1 + 1, y1 + 1, x2 + 1, y2 + 1, routeColor)
+            end
+        end
         if (not comp._drawFreehand) and routeData and routeData.nodes
             and comp._endRamp and comp._endRamp.east and comp._endRamp.north then
             local endNode = nil
@@ -4078,7 +4086,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
             local hitRadiusSE = 12
             local best = nil
             local bestDist = nil
-            for _, hit in ipairs(layout.waypoints) do
+            local function radius_for_hit(hit)
                 local radius = hitRadius
                 if hit.handle_idx and comp._editHandles and comp._editHandles[hit.handle_idx] then
                     local h = comp._editHandles[hit.handle_idx]
@@ -4092,6 +4100,11 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                         end
                     end
                 end
+                return radius
+            end
+
+            local function consider_hit(hit, radius_override)
+                local radius = radius_override or radius_for_hit(hit)
                 local hitD2 = radius * radius
                 local dx = x - hit.x
                 local dy = y - hit.y
@@ -4099,6 +4112,23 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                 if d2 <= hitD2 and (not bestDist or d2 < bestDist) then
                     best = hit
                     bestDist = d2
+                end
+            end
+
+            -- Pass 1: prefer start/end handles to avoid grabbing nearby manual handles.
+            for _, hit in ipairs(layout.waypoints) do
+                if hit.handle_idx and comp._editHandles and comp._editHandles[hit.handle_idx] then
+                    local h = comp._editHandles[hit.handle_idx]
+                    if h and (h.kind == "start" or h.kind == "end") then
+                        consider_hit(hit, hitRadiusSE)
+                    end
+                end
+            end
+
+            -- Pass 2: fallback to the closest handle of any kind.
+            if not best then
+                for _, hit in ipairs(layout.waypoints) do
+                    consider_hit(hit, nil)
                 end
             end
             if best then
@@ -4912,6 +4942,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
             comp._visualGuidanceQueue = {}
             comp._drawFreehand = false
             comp._arrOffRunwayHandled = false
+            comp._editTailSegments = nil
             set_taxi_ref(nil)
             log_taxi("TaxiRoute: abort invalid-icao")
             return
@@ -4939,6 +4970,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
             comp._lastEndKey = nil
             comp._routeStartAnchor = nil
             comp._routeExtraSegments = nil
+            comp._editTailSegments = nil
             comp._lastGuidanceNodeId = nil
             comp._lastGuidanceLabel = nil
             comp._lastGuidanceTime = nil
@@ -5046,6 +5078,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
             comp._fitBounds = nil
             comp._runwayName = nil
             comp._routeExtraSegments = nil
+            comp._editTailSegments = nil
             clear_visual_guidance(comp, "no-data")
             comp._visualGuidanceQueue = {}
             set_taxi_ref(nil)
@@ -5635,6 +5668,10 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
         local base_start_lon = start_lon
         local base_end_lat = end_lat
         local base_end_lon = end_lon
+        local start_vis_lat = start_lat
+        local start_vis_lon = start_lon
+        local end_vis_lat = end_lat
+        local end_vis_lon = end_lon
 
         local yalref = comp.yal or _G.yal
         local onGround = yalref and yalref.airgroundsensor and (get(yalref.airgroundsensor) == def.ON)
@@ -5650,6 +5687,8 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
         if has_start_override then
             start_lat = start_override.lat
             start_lon = start_override.lon
+            start_vis_lat = start_override.lat
+            start_vis_lon = start_override.lon
         end
         if has_start_override and data and (not comp._drawFreehand) then
             local snapped, reason, dist = snap_override(start_override.lat, start_override.lon)
@@ -5665,6 +5704,8 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                     has_start_override = false
                     start_lat = base_start_lat
                     start_lon = base_start_lon
+                    start_vis_lat = start_lat
+                    start_vis_lon = start_lon
                 else
                     local key = tostring(icao) .. "|" .. tostring(mode) .. "|start"
                     if comp._lastOffNetworkStartKey ~= key then
@@ -5678,19 +5719,43 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                     end
                 end
             elseif snapped then
-                if start_override.lat ~= snapped.lat or start_override.lon ~= snapped.lon then
-                    log_taxi(
-                        string.format(
-                            "TaxiEdit: snap start override dist=%.1f",
-                            snapped.dist or 0
-                        )
+                if in_edit then
+                    local snap_key = string.format(
+                        "%s|%s|%.6f|%.6f",
+                        tostring(icao),
+                        tostring(mode),
+                        tonumber(snapped.lat or 0),
+                        tonumber(snapped.lon or 0)
                     )
+                    if comp._lastSnapStartKey ~= snap_key then
+                        comp._lastSnapStartKey = snap_key
+                        log_taxi(
+                            string.format(
+                                "TaxiEdit: snap start override dist=%.1f",
+                                snapped.dist or 0
+                            )
+                        )
+                    end
+                    start_lat = snapped.lat
+                    start_lon = snapped.lon
+                else
+                    comp._lastSnapStartKey = nil
+                    if start_override.lat ~= snapped.lat or start_override.lon ~= snapped.lon then
+                        log_taxi(
+                            string.format(
+                                "TaxiEdit: snap start override dist=%.1f",
+                                snapped.dist or 0
+                            )
+                        )
+                    end
+                    start_override.lat = snapped.lat
+                    start_override.lon = snapped.lon
+                    start_lat = start_override.lat
+                    start_lon = start_override.lon
                 end
-                start_override.lat = snapped.lat
-                start_override.lon = snapped.lon
-                start_lat = start_override.lat
-                start_lon = start_override.lon
             end
+        else
+            comp._lastSnapStartKey = nil
         end
         local end_override = comp._editEndOverride
         local has_end_override = false
@@ -5703,6 +5768,8 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
         if has_end_override then
             end_lat = end_override.lat
             end_lon = end_override.lon
+            end_vis_lat = end_override.lat
+            end_vis_lon = end_override.lon
         end
         if has_end_override and data and (not comp._drawFreehand) then
             local snapped, reason, dist = snap_override(end_override.lat, end_override.lon)
@@ -5718,6 +5785,8 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                     has_end_override = false
                     end_lat = base_end_lat
                     end_lon = base_end_lon
+                    end_vis_lat = end_lat
+                    end_vis_lon = end_lon
                 else
                     local key = tostring(icao) .. "|" .. tostring(mode) .. "|end"
                     if comp._lastOffNetworkEndKey ~= key then
@@ -5731,19 +5800,43 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                     end
                 end
             elseif snapped then
-                if end_override.lat ~= snapped.lat or end_override.lon ~= snapped.lon then
-                    log_taxi(
-                        string.format(
-                            "TaxiEdit: snap end override dist=%.1f",
-                            snapped.dist or 0
-                        )
+                if in_edit then
+                    local snap_key = string.format(
+                        "%s|%s|%.6f|%.6f",
+                        tostring(icao),
+                        tostring(mode),
+                        tonumber(snapped.lat or 0),
+                        tonumber(snapped.lon or 0)
                     )
+                    if comp._lastSnapEndKey ~= snap_key then
+                        comp._lastSnapEndKey = snap_key
+                        log_taxi(
+                            string.format(
+                                "TaxiEdit: snap end override dist=%.1f",
+                                snapped.dist or 0
+                            )
+                        )
+                    end
+                    end_lat = snapped.lat
+                    end_lon = snapped.lon
+                else
+                    comp._lastSnapEndKey = nil
+                    if end_override.lat ~= snapped.lat or end_override.lon ~= snapped.lon then
+                        log_taxi(
+                            string.format(
+                                "TaxiEdit: snap end override dist=%.1f",
+                                snapped.dist or 0
+                            )
+                        )
+                    end
+                    end_override.lat = snapped.lat
+                    end_override.lon = snapped.lon
+                    end_lat = end_override.lat
+                    end_lon = end_override.lon
                 end
-                end_override.lat = snapped.lat
-                end_override.lon = snapped.lon
-                end_lat = end_override.lat
-                end_lon = end_override.lon
             end
+        else
+            comp._lastSnapEndKey = nil
         end
 
         local start_node_id, start_node_dist = nearest_node_info(data, start_lat, start_lon, false)
@@ -5845,6 +5938,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
             comp._route = nil
             comp._routeErr = "no-arrival-runway"
             comp._routeExtraSegments = nil
+            comp._editTailSegments = nil
             comp._lastStartKey = nil
             comp._lastEndKey = nil
             log_taxi("TaxiRoute: abort no-arrival-runway")
@@ -5858,6 +5952,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                     comp._route = nil
                     comp._routeErr = "on-runway"
                     comp._routeExtraSegments = nil
+                    comp._editTailSegments = nil
                     comp._lastStartKey = nil
                     comp._lastEndKey = nil
                     log_taxi("TaxiRoute: abort on-runway")
@@ -5870,6 +5965,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
             comp._route = nil
             comp._routeErr = "draw-route-empty"
             comp._routeExtraSegments = nil
+            comp._editTailSegments = nil
             comp._lastStartKey = nil
             comp._lastEndKey = nil
             log_taxi("TaxiDraw: abort draw-route-empty")
@@ -7066,6 +7162,55 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
             update_visual_guidance(comp, now, aircraft)
         end
 
+        comp._editTailSegments = nil
+        if in_edit and comp._route and comp._route.path and (not comp._drawFreehand) then
+            local routeData = comp._route.data or comp._data
+            if routeData and routeData.nodes then
+                local segs = {}
+                local first_id = comp._route.path[1]
+                local last_id = comp._route.path[#comp._route.path]
+                if has_start_override and is_valid_latlon(start_vis_lat, start_vis_lon) and first_id then
+                    local n1 = routeData.nodes[first_id]
+                    if n1 and n1.east and n1.north then
+                        local se, sn = latlon_to_local(start_vis_lat, start_vis_lon)
+                        if se and sn then
+                            local dx = n1.east - se
+                            local dy = n1.north - sn
+                            if (dx * dx + dy * dy) > 1 then
+                                segs[#segs + 1] = {
+                                    east1 = se,
+                                    north1 = sn,
+                                    east2 = n1.east,
+                                    north2 = n1.north
+                                }
+                            end
+                        end
+                    end
+                end
+                if has_end_override and is_valid_latlon(end_vis_lat, end_vis_lon) and last_id then
+                    local n2 = routeData.nodes[last_id]
+                    if n2 and n2.east and n2.north then
+                        local ee, en = latlon_to_local(end_vis_lat, end_vis_lon)
+                        if ee and en then
+                            local dx = n2.east - ee
+                            local dy = n2.north - en
+                            if (dx * dx + dy * dy) > 1 then
+                                segs[#segs + 1] = {
+                                    east1 = n2.east,
+                                    north1 = n2.north,
+                                    east2 = ee,
+                                    north2 = en
+                                }
+                            end
+                        end
+                    end
+                end
+                if #segs > 0 then
+                    comp._editTailSegments = segs
+                end
+            end
+        end
+
         comp._aircraftPoint = nil
         if aircraft and aircraft.east ~= nil and aircraft.north ~= nil then
             comp._aircraftPoint = { east = aircraft.east, north = aircraft.north }
@@ -7099,19 +7244,23 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
         end
 
         comp._startPoint = nil
-        if is_valid_latlon(start_lat, start_lon) then
-            local sx, sy = latlon_to_local(start_lat, start_lon)
+        local sp_lat = (in_edit and start_vis_lat) or start_lat
+        local sp_lon = (in_edit and start_vis_lon) or start_lon
+        if is_valid_latlon(sp_lat, sp_lon) then
+            local sx, sy = latlon_to_local(sp_lat, sp_lon)
             comp._startPoint = { east = sx, north = sy }
         end
         comp._endPoint = nil
-        if is_valid_latlon(end_lat, end_lon) then
-            local ex, ey = latlon_to_local(end_lat, end_lon)
+        local ep_lat = (in_edit and end_vis_lat) or end_lat
+        local ep_lon = (in_edit and end_vis_lon) or end_lon
+        if is_valid_latlon(ep_lat, ep_lon) then
+            local ex, ey = latlon_to_local(ep_lat, ep_lon)
             comp._endPoint = { east = ex, north = ey }
         end
 
         if in_edit then
             if comp._route and comp._route.path and comp._route.data then
-                build_edit_handles(comp, start_lat, start_lon, end_lat, end_lon)
+                build_edit_handles(comp, start_vis_lat, start_vis_lon, end_vis_lat, end_vis_lon)
             else
                 comp._editHandles = nil
             end
