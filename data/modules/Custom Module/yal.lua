@@ -1787,10 +1787,6 @@ end
 
 function P.mastercaution()
 
-    if (((P.procedureloop1.lock ~= def.NOPROCEDURE) or (P.procedureloop2.lock ~= def.NOPROCEDURE) or (P.procedureloop3.lock ~= def.NOPROCEDURE)) and (get(P.mastercautionannunc) == def.OFF)) then
-        P.skipprocedurestep()
-    end
-
     helpers.command_once("laminar/B738/push_button/master_caution1")
     helpers.command_once("laminar/B738/button/fmc1_clr")
     helpers.command_once("laminar/B738/button/fmc2_clr")
