@@ -4907,6 +4907,9 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
             comp._editDirty = false
             comp._editStartOverride = nil
             comp._editEndOverride = nil
+            comp._lastOffNetworkStartKey = nil
+            comp._lastOffNetworkEndKey = nil
+            comp._lastAutoRouteLogKey = nil
             comp._drawFreehand = false
             comp._arrOffRunwayHandled = false
             comp._depRunwayEntryAnnounced = false
@@ -5589,6 +5592,9 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
         local base_end_lat = end_lat
         local base_end_lon = end_lon
 
+        local yalref = comp.yal or _G.yal
+        local onGround = yalref and yalref.airgroundsensor and (get(yalref.airgroundsensor) == def.ON)
+
         local start_override = comp._editStartOverride
         local has_start_override = false
         if start_override and start_override.mode == mode and is_valid_latlon(start_override.lat, start_override.lon) then
@@ -5604,16 +5610,29 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
         if has_start_override and data and (not comp._drawFreehand) then
             local snapped, reason, dist = snap_override(start_override.lat, start_override.lon)
             if not snapped and reason == "too-far" then
-                log_taxi(
-                    string.format(
-                        "TaxiEdit: clear start override off-network dist=%.1f",
-                        dist or -1
+                if onGround then
+                    log_taxi(
+                        string.format(
+                            "TaxiEdit: clear start override off-network dist=%.1f",
+                            dist or -1
+                        )
                     )
-                )
-                comp._editStartOverride = nil
-                has_start_override = false
-                start_lat = base_start_lat
-                start_lon = base_start_lon
+                    comp._editStartOverride = nil
+                    has_start_override = false
+                    start_lat = base_start_lat
+                    start_lon = base_start_lon
+                else
+                    local key = tostring(icao) .. "|" .. tostring(mode) .. "|start"
+                    if comp._lastOffNetworkStartKey ~= key then
+                        comp._lastOffNetworkStartKey = key
+                        log_taxi(
+                            string.format(
+                                "TaxiEdit: keep start override off-network (air) dist=%.1f",
+                                dist or -1
+                            )
+                        )
+                    end
+                end
             elseif snapped then
                 if start_override.lat ~= snapped.lat or start_override.lon ~= snapped.lon then
                     log_taxi(
@@ -5644,16 +5663,29 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
         if has_end_override and data and (not comp._drawFreehand) then
             local snapped, reason, dist = snap_override(end_override.lat, end_override.lon)
             if not snapped and reason == "too-far" then
-                log_taxi(
-                    string.format(
-                        "TaxiEdit: clear end override off-network dist=%.1f",
-                        dist or -1
+                if onGround then
+                    log_taxi(
+                        string.format(
+                            "TaxiEdit: clear end override off-network dist=%.1f",
+                            dist or -1
+                        )
                     )
-                )
-                comp._editEndOverride = nil
-                has_end_override = false
-                end_lat = base_end_lat
-                end_lon = base_end_lon
+                    comp._editEndOverride = nil
+                    has_end_override = false
+                    end_lat = base_end_lat
+                    end_lon = base_end_lon
+                else
+                    local key = tostring(icao) .. "|" .. tostring(mode) .. "|end"
+                    if comp._lastOffNetworkEndKey ~= key then
+                        comp._lastOffNetworkEndKey = key
+                        log_taxi(
+                            string.format(
+                                "TaxiEdit: keep end override off-network (air) dist=%.1f",
+                                dist or -1
+                            )
+                        )
+                    end
+                end
             elseif snapped then
                 if end_override.lat ~= snapped.lat or end_override.lon ~= snapped.lon then
                     log_taxi(
@@ -7055,6 +7087,33 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                     tostring(comp._drawRoute)
                 )
             )
+        end
+        if comp._route and comp._route.path and (not in_edit) and (not comp._drawRoute) then
+            local rlen = #comp._route.path
+            local src = (comp._route.data and comp._route.data.route_source) or "?"
+            local auto_key = table.concat({
+                tostring(comp._lastIcao or ""),
+                tostring(comp._runwayName or ""),
+                tostring(rlen),
+                tostring(comp._route.start_id or ""),
+                tostring(comp._route.end_id or ""),
+                tostring(src)
+            }, "|")
+            if comp._lastAutoRouteLogKey ~= auto_key then
+                comp._lastAutoRouteLogKey = auto_key
+                helpers.logInfoTS(
+                    string.format(
+                        "TaxiAuto: route %s %s mode=%d len=%d start=%s end=%s src=%s",
+                        tostring(comp._lastIcao or ""),
+                        tostring(comp._runwayName or ""),
+                        tonumber(comp.mode or -1),
+                        tonumber(rlen or 0),
+                        tostring(comp._route.start_id or "?"),
+                        tostring(comp._route.end_id or "?"),
+                        tostring(src)
+                    )
+                )
+            end
         end
 
         if comp._needsCenter and comp._fitBounds then
