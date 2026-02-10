@@ -9,6 +9,7 @@ local updateInterval = 1.0
 local guidanceCooldown = 8
 local rerouteCooldown = 6
 local rerouteDriftMeters = 40
+local arrRerouteDriftMeters = 90
 local guidanceMinSpeed = 1
 local initialGuidanceMinSpeed = 0.2
 local guidanceTurnDistance = 80
@@ -5675,7 +5676,45 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
         if mode == 0 and start_is_aircraft and data and data.runway_nodes then
             start_non_runway_node_id, start_non_runway_node_dist = nearest_non_runway_node(data, start_lat, start_lon)
         end
-        if mode == 1 and (not allow_runway_route) and start_node_dist and start_node_dist > rerouteDriftMeters then
+        local driftMeters = (mode == 1 and arrRerouteDriftMeters) or rerouteDriftMeters
+        if mode == 1 and allow_runway_route and start_node_id and start_node_dist and data and data.runway_nodes then
+            if not data.runway_nodes[start_node_id] then
+                local sx, sy = latlon_to_local(start_lat, start_lon)
+                if sx and sy then
+                    local rwy_id = find_nearest_runway_node(data, sx, sy)
+                    local rwy_dist = nil
+                    if rwy_id and data.nodes and data.nodes[rwy_id] then
+                        local rn = data.nodes[rwy_id]
+                        if rn.east and rn.north then
+                            local dx = rn.east - sx
+                            local dy = rn.north - sy
+                            rwy_dist = math.sqrt(dx * dx + dy * dy)
+                        end
+                    end
+                    if rwy_id and rwy_dist and rwy_dist <= driftMeters then
+                        log_taxi(
+                            string.format(
+                                "TaxiRoute: on-runway start node swap dist=%.1f rwy_dist=%.1f",
+                                start_node_dist or -1,
+                                rwy_dist or -1
+                            )
+                        )
+                        start_node_id = rwy_id
+                        start_node_dist = rwy_dist
+                    elseif start_node_dist > driftMeters then
+                        log_taxi(
+                            string.format(
+                                "TaxiRoute: on-runway start node drop dist=%.1f",
+                                start_node_dist or -1
+                            )
+                        )
+                        start_node_id = nil
+                        start_node_dist = nil
+                    end
+                end
+            end
+        end
+        if mode == 1 and (not allow_runway_route) and start_node_dist and start_node_dist > driftMeters then
             log_taxi(
                 string.format(
                     "TaxiRoute: clear start node dist=%.1f",
@@ -6773,17 +6812,18 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                     end
                     comp._lastRouteDist = dist
                     local lastReroute = comp._lastRerouteTime or 0
+                    local driftMeters = (mode == 1 and arrRerouteDriftMeters) or rerouteDriftMeters
                     local skipReroute = false
                     if mode == 1 then
                         local lastCompute = comp._lastRouteComputeTime or 0
                         if lastCompute > 0 and (now - lastCompute) < 2 then
                             local gs = yal and yal.groundspeed and (get(yal.groundspeed) or 0) or 0
-                            if dist and dist <= (rerouteDriftMeters * 3) and gs < 25 then
+                            if dist and dist <= (driftMeters * 3) and gs < 25 then
                                 skipReroute = true
                             end
                         end
                     end
-                    if dist and dist > rerouteDriftMeters and (now - lastReroute) > rerouteCooldown then
+                    if dist and dist > driftMeters and (now - lastReroute) > rerouteCooldown then
                         comp._rerouteOverride = { lat = aircraft.lat, lon = aircraft.lon }
                         if not arrival_grace_active(comp, now) then
                             comp._pendingRerouteEvent = true
