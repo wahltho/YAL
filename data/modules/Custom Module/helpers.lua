@@ -6007,7 +6007,64 @@ local function is_runway_label(label)
     return string.sub(label, 1, 3) == "RWY"
 end
 
-local function project_to_local(lat, lon)
+local function geo_scale(ref_lat)
+    if not ref_lat then
+        return nil, nil
+    end
+    local lat_rad = math.rad(ref_lat)
+    local m_per_deg_lat = 111132.92 - 559.82 * math.cos(2 * lat_rad) + 1.175 * math.cos(4 * lat_rad) - 0.0023 * math.cos(6 * lat_rad)
+    local m_per_deg_lon = 111412.84 * math.cos(lat_rad) - 93.5 * math.cos(3 * lat_rad) + 0.118 * math.cos(5 * lat_rad)
+    return m_per_deg_lat, m_per_deg_lon
+end
+
+function P.geoScale(ref_lat)
+    return geo_scale(ref_lat)
+end
+
+function P.projectLatLon(lat, lon, ref_lat, ref_lon, mlat, mlon)
+    if not (ref_lat and ref_lon and lat and lon) then
+        return nil, nil
+    end
+    if not (mlat and mlon) then
+        mlat, mlon = geo_scale(ref_lat)
+    end
+    if not (mlat and mlon) then
+        return nil, nil
+    end
+    local east = (lon - ref_lon) * mlon
+    local north = (lat - ref_lat) * mlat
+    return east, north
+end
+
+function P.localToLatLon(east, north, ref_lat, ref_lon, mlat, mlon)
+    if not (ref_lat and ref_lon and east ~= nil and north ~= nil) then
+        return nil, nil
+    end
+    if not (mlat and mlon) then
+        mlat, mlon = geo_scale(ref_lat)
+    end
+    if not (mlat and mlon) then
+        return nil, nil
+    end
+    local lat = ref_lat + (north / mlat)
+    local lon = ref_lon + (east / mlon)
+    return lat, lon
+end
+
+local function project_to_local(lat, lon, ref_lat, ref_lon, mlat, mlon)
+    if type(ref_lat) == "table" then
+        local ref = ref_lat
+        ref_lat = ref.ref_lat
+        ref_lon = ref.ref_lon
+        mlat = ref.ref_mlat
+        mlon = ref.ref_mlon
+    end
+    if ref_lat and ref_lon then
+        local east, north = P.projectLatLon(lat, lon, ref_lat, ref_lon, mlat, mlon)
+        if east ~= nil and north ~= nil then
+            return east, -north
+        end
+    end
     local x, _, z = sasl.worldToLocal(lat, lon, 0)
     return x, z
 end
@@ -6570,12 +6627,71 @@ local function parse_taxi_data(entry)
         end
     end
 
+    local function is_valid_latlon(lat, lon)
+        return lat ~= nil and lon ~= nil and lat >= -90 and lat <= 90 and lon >= -180 and lon <= 180
+    end
+
+    local function compute_ref_latlon(nodes_tbl, ramps_tbl, runways_tbl, polys_tbl)
+        local sum_lat = 0
+        local sum_lon = 0
+        local count = 0
+        if runways_tbl and #runways_tbl > 0 then
+            for _, rwy in ipairs(runways_tbl) do
+                if is_valid_latlon(rwy.lat1, rwy.lon1) and is_valid_latlon(rwy.lat2, rwy.lon2) then
+                    sum_lat = sum_lat + (rwy.lat1 + rwy.lat2) * 0.5
+                    sum_lon = sum_lon + (rwy.lon1 + rwy.lon2) * 0.5
+                    count = count + 1
+                end
+            end
+        end
+        if count == 0 and ramps_tbl and #ramps_tbl > 0 then
+            for _, ramp in ipairs(ramps_tbl) do
+                if is_valid_latlon(ramp.lat, ramp.lon) then
+                    sum_lat = sum_lat + ramp.lat
+                    sum_lon = sum_lon + ramp.lon
+                    count = count + 1
+                end
+            end
+        end
+        if count == 0 and nodes_tbl and next(nodes_tbl) ~= nil then
+            for _, node in pairs(nodes_tbl) do
+                if is_valid_latlon(node.lat, node.lon) then
+                    sum_lat = sum_lat + node.lat
+                    sum_lon = sum_lon + node.lon
+                    count = count + 1
+                end
+            end
+        end
+        if count == 0 and polys_tbl and #polys_tbl > 0 then
+            for _, poly in ipairs(polys_tbl) do
+                for _, pt in ipairs(poly) do
+                    if is_valid_latlon(pt.lat, pt.lon) then
+                        sum_lat = sum_lat + pt.lat
+                        sum_lon = sum_lon + pt.lon
+                        count = count + 1
+                    end
+                end
+            end
+        end
+        if count > 0 then
+            return sum_lat / count, sum_lon / count
+        end
+        return nil, nil
+    end
+
+    local ref_lat, ref_lon = compute_ref_latlon(nodes, ramps, runways, fallback_polys)
+    local ref_mlat, ref_mlon = nil, nil
+    if ref_lat and ref_lon then
+        ref_mlat, ref_mlon = geo_scale(ref_lat)
+    end
+    local ref = { ref_lat = ref_lat, ref_lon = ref_lon, ref_mlat = ref_mlat, ref_mlon = ref_mlon }
+
     local bounds = { minX = nil, maxX = nil, minY = nil, maxY = nil }
     for _, poly in ipairs(fallback_polys) do
         local pts = {}
         for _, pt in ipairs(poly) do
             if pt.lat and pt.lon then
-                local x, z = project_to_local(pt.lat, pt.lon)
+                local x, z = project_to_local(pt.lat, pt.lon, ref)
                 pts[#pts + 1] = { east = x, north = -z }
             end
         end
@@ -6584,7 +6700,7 @@ local function parse_taxi_data(entry)
         end
     end
     for _, node in pairs(nodes) do
-        local x, z = project_to_local(node.lat, node.lon)
+        local x, z = project_to_local(node.lat, node.lon, ref)
         node.x = x
         node.z = z
         node.east = x
@@ -6592,7 +6708,7 @@ local function parse_taxi_data(entry)
         update_bounds(bounds, node.east, node.north)
     end
     for _, ramp in ipairs(ramps) do
-        local x, z = project_to_local(ramp.lat, ramp.lon)
+        local x, z = project_to_local(ramp.lat, ramp.lon, ref)
         ramp.x = x
         ramp.z = z
         ramp.east = x
@@ -6600,8 +6716,8 @@ local function parse_taxi_data(entry)
         update_bounds(bounds, ramp.east, ramp.north)
     end
     for _, runway in ipairs(runways) do
-        local x1, z1 = project_to_local(runway.lat1, runway.lon1)
-        local x2, z2 = project_to_local(runway.lat2, runway.lon2)
+        local x1, z1 = project_to_local(runway.lat1, runway.lon1, ref)
+        local x2, z2 = project_to_local(runway.lat2, runway.lon2, ref)
         runway.x1 = x1
         runway.z1 = z1
         runway.east1 = x1
@@ -6793,6 +6909,10 @@ local function parse_taxi_data(entry)
         runways = runways,
         polygons = polygons,
         bounds = bounds,
+        ref_lat = ref_lat,
+        ref_lon = ref_lon,
+        ref_mlat = ref_mlat,
+        ref_mlon = ref_mlon,
         adjacency = adjacency,
         adjacency_any = adjacency_any,
         adjacency_relaxed = adjacency_relaxed,
@@ -7124,7 +7244,7 @@ local function find_nearest_node(data, lat, lon, avoid_runway)
     if not data or not data.nodes or not lat or not lon then
         return nil
     end
-    local x, z = project_to_local(lat, lon)
+    local x, z = project_to_local(lat, lon, data)
     local best_id = nil
     local best_dist = nil
     local found_non_runway = false
@@ -7199,7 +7319,7 @@ local function find_nearest_ramp(data, lat, lon, filter_fn)
     if not data or not data.ramps or not lat or not lon then
         return nil
     end
-    local x, z = project_to_local(lat, lon)
+    local x, z = project_to_local(lat, lon, data)
     local best = nil
     local best_dist = nil
     for _, ramp in ipairs(data.ramps) do

@@ -241,9 +241,50 @@ local function distance_meters_latlon(lat1, lon1, lat2, lon2)
     return r * c
 end
 
+local taxi_ref_lat = nil
+local taxi_ref_lon = nil
+local taxi_ref_mlat = nil
+local taxi_ref_mlon = nil
+
+local function set_taxi_ref(data)
+    taxi_ref_lat = data and data.ref_lat or nil
+    taxi_ref_lon = data and data.ref_lon or nil
+    taxi_ref_mlat = data and data.ref_mlat or nil
+    taxi_ref_mlon = data and data.ref_mlon or nil
+end
+
+local function ensure_ref_scale()
+    if taxi_ref_lat and (not taxi_ref_mlat or not taxi_ref_mlon) then
+        if helpers and helpers.geoScale then
+            taxi_ref_mlat, taxi_ref_mlon = helpers.geoScale(taxi_ref_lat)
+        end
+    end
+end
+
 local function latlon_to_local(lat, lon)
+    if taxi_ref_lat and taxi_ref_lon and lat and lon then
+        ensure_ref_scale()
+        if taxi_ref_mlat and taxi_ref_mlon then
+            local east = (lon - taxi_ref_lon) * taxi_ref_mlon
+            local north = (lat - taxi_ref_lat) * taxi_ref_mlat
+            return east, north
+        end
+    end
     local x, _, z = sasl.worldToLocal(lat, lon, 0)
     return x, -z
+end
+
+local function local_to_latlon(east, north)
+    if taxi_ref_lat and taxi_ref_lon and east ~= nil and north ~= nil then
+        ensure_ref_scale()
+        if taxi_ref_mlat and taxi_ref_mlon then
+            local lat = taxi_ref_lat + (north / taxi_ref_mlat)
+            local lon = taxi_ref_lon + (east / taxi_ref_mlon)
+            return lat, lon
+        end
+    end
+    local lat, lon = sasl.localToWorld(east or 0, 0, -(north or 0))
+    return lat, lon
 end
 
 local function ensure_waypoint_latlon(wp)
@@ -254,7 +295,7 @@ local function ensure_waypoint_latlon(wp)
         return wp.lat, wp.lon
     end
     if wp.east ~= nil and wp.north ~= nil then
-        local lat, lon = sasl.localToWorld(wp.east, 0, -wp.north)
+        local lat, lon = local_to_latlon(wp.east, wp.north)
         if is_valid_latlon(lat, lon) then
             wp.lat = lat
             wp.lon = lon
@@ -831,7 +872,7 @@ local function build_projected_data(data, start_proj, end_proj, waypoint_projs)
         end
         local ex = proj.proj_east
         local ny = proj.proj_north
-        local lat, lon = sasl.localToWorld(ex, 0, -ny)
+        local lat, lon = local_to_latlon(ex, ny)
         nodes[id] = { east = ex, north = ny, x = ex, z = -ny, lat = lat, lon = lon }
         if edge.label and string.sub(edge.label, 1, 3) == "RWY" then
             runway_nodes[id] = true
@@ -4079,7 +4120,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                         local wlat = handle.lat
                         local wlon = handle.lon
                         if not is_valid_latlon(wlat, wlon) and handle.east ~= nil and handle.north ~= nil then
-                            wlat, wlon = sasl.localToWorld(handle.east, 0, -handle.north)
+                            wlat, wlon = local_to_latlon(handle.east, handle.north)
                         end
                         if is_valid_latlon(wlat, wlon) then
                             local wp = {
@@ -4204,7 +4245,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                 if comp._drawRoute then
                     local function add_waypoint_freehand()
                         local we, wn = screen_to_world(x, y)
-                        local wlat, wlon = sasl.localToWorld(we, 0, -wn)
+                        local wlat, wlon = local_to_latlon(we, wn)
                         if is_valid_latlon(wlat, wlon) then
                             if not comp._routeWaypoints then
                                 comp._routeWaypoints = {}
@@ -4235,7 +4276,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                         local we, wn = screen_to_world(x, y)
                         local proj = find_nearest_edge_projection(comp._data, we, wn, { disallow_runway_edges = false })
                         if proj and proj.edge then
-                                local wlat, wlon = sasl.localToWorld(proj.proj_east, 0, -proj.proj_north)
+                                local wlat, wlon = local_to_latlon(proj.proj_east, proj.proj_north)
                                 if is_valid_latlon(wlat, wlon) then
                                     if not comp._routeWaypoints then
                                         comp._routeWaypoints = {}
@@ -4294,7 +4335,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                                 if n1 and n2 then
                                     local we = n1.east + (n2.east - n1.east) * best_t
                                     local wn = n1.north + (n2.north - n1.north) * best_t
-                                    local wlat, wlon = sasl.localToWorld(we, 0, -wn)
+                                    local wlat, wlon = local_to_latlon(we, wn)
                                     if is_valid_latlon(wlat, wlon) then
                                         if not comp._routeWaypoints then
                                             comp._routeWaypoints = {}
@@ -4350,7 +4391,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                             if n1 and n2 then
                                 local we = n1.east + (n2.east - n1.east) * best_t
                                 local wn = n1.north + (n2.north - n1.north) * best_t
-                                local wlat, wlon = sasl.localToWorld(we, 0, -wn)
+                                local wlat, wlon = local_to_latlon(we, wn)
                                 if is_valid_latlon(wlat, wlon) then
                                     if not comp._routeWaypoints then
                                         comp._routeWaypoints = {}
@@ -4445,11 +4486,11 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                     target_north = proj.proj_north
                 end
                 if target_east ~= nil and target_north ~= nil then
-                    local wlat, wlon = sasl.localToWorld(target_east, 0, -target_north)
+                    local wlat, wlon = local_to_latlon(target_east, target_north)
                     if (not is_valid_latlon(wlat, wlon)) and (not use_freehand) and proj and proj.edge then
                         target_east = proj.proj_east
                         target_north = proj.proj_north
-                        wlat, wlon = sasl.localToWorld(target_east, 0, -target_north)
+                        wlat, wlon = local_to_latlon(target_east, target_north)
                     end
                     if is_valid_latlon(wlat, wlon) then
                         drag.lastLat = wlat
@@ -4871,6 +4912,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
             comp._visualGuidanceQueue = {}
             comp._drawFreehand = false
             comp._arrOffRunwayHandled = false
+            set_taxi_ref(nil)
             log_taxi("TaxiRoute: abort invalid-icao")
             return
         end
@@ -5006,9 +5048,11 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
             comp._routeExtraSegments = nil
             clear_visual_guidance(comp, "no-data")
             comp._visualGuidanceQueue = {}
+            set_taxi_ref(nil)
             return
         end
         comp._data = data
+        set_taxi_ref(data)
         comp._dataErr = nil
         if data and data.entry and data.entry.source == "addon"
             and data._labelsPatchPending
@@ -5239,7 +5283,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                         end
                     end
                     if not is_valid_latlon(start_lat, start_lon) then
-                        local tlat, tlon = sasl.localToWorld(touchdown.east, 0, -touchdown.north)
+                        local tlat, tlon = local_to_latlon(touchdown.east, touchdown.north)
                         if is_valid_latlon(tlat, tlon) then
                             start_lat = tlat
                             start_lon = tlon
@@ -5287,7 +5331,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                     dep_profile.threshold.east,
                     dep_profile.threshold.north
                 )
-                local tlat, tlon = sasl.localToWorld(dep_profile.threshold.east, 0, -dep_profile.threshold.north)
+                local tlat, tlon = local_to_latlon(dep_profile.threshold.east, dep_profile.threshold.north)
                 if is_valid_latlon(tlat, tlon) then
                     dep_runway_end_lat = tlat
                     dep_runway_end_lon = tlon
@@ -5476,7 +5520,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
             if dist > override_snap_max_m then
                 return nil, "too-far", dist
             end
-            local wlat, wlon = sasl.localToWorld(proj.proj_east, 0, -proj.proj_north)
+            local wlat, wlon = local_to_latlon(proj.proj_east, proj.proj_north)
             if not is_valid_latlon(wlat, wlon) then
                 return nil, "invalid-proj", dist
             end
