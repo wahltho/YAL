@@ -1322,9 +1322,24 @@ local function compute_dep_threshold_state(comp, profile, runway_lat, runway_lon
 end
 
 
-local function select_runway_exit_node(data, profile)
+local function select_runway_exit_node(data, profile, preferred_side)
     if not data or not profile or not profile.touchdown or not profile.axis then
         return nil, false
+    end
+    local function side_sign(node)
+        if not node or node.east == nil or node.north == nil then
+            return nil
+        end
+        if not profile.threshold or profile.threshold.east == nil or profile.threshold.north == nil then
+            return nil
+        end
+        local dx = node.east - profile.threshold.east
+        local dy = node.north - profile.threshold.north
+        local cross = dx * profile.axis.y - dy * profile.axis.x
+        if math.abs(cross) < 1 then
+            return 0
+        end
+        return (cross >= 0) and 1 or -1
     end
     local function exit_turn_ok(node_id)
         if not data.nodes or not data.adjacency_any then
@@ -1380,50 +1395,71 @@ local function select_runway_exit_node(data, profile)
     local length = profile.length or 0
     local width = profile.width or 0
     local perp_limit = math.max(180, width * 4)
-    local best_forward = nil
-    local best_forward_cost = nil
-    local best_back = nil
-    local best_back_along = nil
-    for _, cand in ipairs(candidates) do
-        local node = data.nodes[cand.id]
-        if node and node.east and node.north then
-            local dx = node.east - profile.threshold.east
-            local dy = node.north - profile.threshold.north
-            local along = dx * profile.axis.x + dy * profile.axis.y
-            local cross = dx * profile.axis.y - dy * profile.axis.x
-            local perp = math.abs(cross)
-            if not exit_turn_ok(cand.id) then
-                goto continue
-            end
-            -- Only consider exits that are plausibly on/near the selected runway.
-            if length > 0 then
-                if along < -100 or along > (length + 150) then
+    local function pick(require_side)
+        local best_forward = nil
+        local best_forward_cost = nil
+        local best_back = nil
+        local best_back_along = nil
+        for _, cand in ipairs(candidates) do
+            local node = data.nodes[cand.id]
+            if node and node.east and node.north then
+                local dx = node.east - profile.threshold.east
+                local dy = node.north - profile.threshold.north
+                local along = dx * profile.axis.x + dy * profile.axis.y
+                local cross = dx * profile.axis.y - dy * profile.axis.x
+                local perp = math.abs(cross)
+                if not exit_turn_ok(cand.id) then
                     goto continue
                 end
-            end
-            if perp > perp_limit then
-                goto continue
-            end
-            if along >= (rollout - tol) then
-                local cost = math.abs(along - rollout)
-                if not best_forward_cost or cost < best_forward_cost then
-                    best_forward_cost = cost
-                    best_forward = cand.id
+                if require_side and preferred_side and preferred_side ~= 0 then
+                    local side = side_sign(node)
+                    if side and side ~= 0 and side ~= preferred_side then
+                        goto continue
+                    end
                 end
-            else
-                if not best_back_along or along > best_back_along then
-                    best_back_along = along
-                    best_back = cand.id
+                -- Only consider exits that are plausibly on/near the selected runway.
+                if length > 0 then
+                    if along < -100 or along > (length + 150) then
+                        goto continue
+                    end
+                end
+                if perp > perp_limit then
+                    goto continue
+                end
+                if along >= (rollout - tol) then
+                    local cost = math.abs(along - rollout)
+                    if not best_forward_cost or cost < best_forward_cost then
+                        best_forward_cost = cost
+                        best_forward = cand.id
+                    end
+                else
+                    if not best_back_along or along > best_back_along then
+                        best_back_along = along
+                        best_back = cand.id
+                    end
                 end
             end
+            ::continue::
         end
-        ::continue::
+        return best_forward, best_back
     end
-    if best_forward then
-        return best_forward, false
+
+    if preferred_side and preferred_side ~= 0 then
+        local bf, bb = pick(true)
+        if bf then
+            return bf, false
+        end
+        if bb then
+            return bb, true
+        end
     end
-    if best_back then
-        return best_back, true
+
+    local bf, bb = pick(false)
+    if bf then
+        return bf, false
+    end
+    if bb then
+        return bb, true
     end
     return find_nearest_runway_node(data, td.east, td.north), true
 end
@@ -5469,6 +5505,48 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
         else
             comp._autoEndRampLowSpeedSince = nil
         end
+
+        if mode == 1 and landing_profile and end_ramp and is_valid_latlon(end_ramp.lat, end_ramp.lon) then
+            local pref_east = end_ramp.east
+            local pref_north = end_ramp.north
+            if (pref_east == nil or pref_north == nil) and is_valid_latlon(end_ramp.lat, end_ramp.lon) then
+                pref_east, pref_north = latlon_to_local(end_ramp.lat, end_ramp.lon)
+            end
+            if pref_east ~= nil and pref_north ~= nil
+                and landing_profile.threshold and landing_profile.threshold.east ~= nil and landing_profile.threshold.north ~= nil
+                and landing_profile.axis then
+                local dx = pref_east - landing_profile.threshold.east
+                local dy = pref_north - landing_profile.threshold.north
+                local cross = dx * landing_profile.axis.y - dy * landing_profile.axis.x
+                if math.abs(cross) > 1 then
+                    local pref_side = (cross >= 0) and 1 or -1
+                    local exit_id, backtrack = select_runway_exit_node(data, landing_profile, pref_side)
+                    if exit_id and (exit_id ~= arr_exit_id or backtrack ~= backtrack_required) then
+                        arr_exit_id = exit_id
+                        backtrack_required = backtrack
+                        comp._lastArrExitLogKey = nil
+                        if backtrack_required then
+                            if is_valid_latlon(runway_lat, runway_lon) then
+                                start_lat = runway_lat
+                                start_lon = runway_lon
+                            elseif touchdown and touchdown.east and touchdown.north then
+                                local tlat, tlon = local_to_latlon(touchdown.east, touchdown.north)
+                                if is_valid_latlon(tlat, tlon) then
+                                    start_lat = tlat
+                                    start_lon = tlon
+                                end
+                            end
+                        elseif exit_id and data.nodes and data.nodes[exit_id] then
+                            local exit_node = data.nodes[exit_id]
+                            if is_valid_latlon(exit_node.lat, exit_node.lon) then
+                                start_lat = exit_node.lat
+                                start_lon = exit_node.lon
+                            end
+                        end
+                    end
+                end
+            end
+        end
         if mode == 1 and (not comp._drawFreehand)
             and (not is_valid_latlon(end_lat, end_lon)) and is_valid_latlon(ramp_ref_lat, ramp_ref_lon) then
             end_lat = ramp_ref_lat
@@ -6313,6 +6391,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                             opts.avoid_runway_start = true
                         end
                     end
+                    opts.disallow_runway_edges = (not allow_runway_route) and (not backtrack_required)
                     opts.runway_penalty = allow_runway_route and 1 or 500
                     set_end_ramp_fallback(opts)
                 end
@@ -6334,6 +6413,25 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                     proj_waypoint_ids,
                     route_waypoints
                 )
+                if (not route) and rerr == "no-path" and mode == 1 and opts and opts.disallow_runway_edges then
+                    opts = copy_opts(opts) or {}
+                    opts.disallow_runway_edges = false
+                    if (not has_start_override) and (not backtrack_required) then
+                        opts.runway_penalty = 500
+                    end
+                    set_end_ramp_fallback(opts)
+                    apply_projection(opts)
+                    route, rerr = route_with_waypoints(
+                        icao,
+                        start_lat,
+                        start_lon,
+                        end_lat,
+                        end_lon,
+                        opts,
+                        proj_waypoint_ids,
+                        route_waypoints
+                    )
+                end
                 if (not route) and rerr == "no-path" and mode == 0 then
                     opts = {
                         ignore_oneway = true,
