@@ -16,6 +16,10 @@ local initialGuidanceMinGs = 1.0
 local initialGuidanceMinForwardMeters = 5
 local initialGuidanceMinForwardSeconds = 2.0
 local initialGuidanceReverseResetMeters = 2
+local guidanceRouteGraceSec = 1.0
+local guidanceFirstTurnMinSeconds = 1.2
+local guidanceFirstTurnMinMeters = 8
+local guidanceSameTaxiwayTurnAngle = 25
 local guidanceTurnDistance = 90
 local guidanceTurnAngle = 15
 local guidanceLeadTimeSec = 14
@@ -3193,7 +3197,11 @@ local function maybe_speak_guidance(comp, now, aircraft)
     end
     local dist_to_node = math.sqrt(distance_sq(aircraft.east, aircraft.north, n2.east, n2.north))
     local guidance_dist = guidance_distance_for_speed(tirespeed)
-    local would_turn = (angle >= guidanceTurnAngle) or leaving_runway or entering_runway or force_turn
+    local turn_angle = guidanceTurnAngle
+    if next_info.kind == "taxiway" and (not next_info.missingLabel) and (not label_changed) then
+        turn_angle = guidanceSameTaxiwayTurnAngle
+    end
+    local would_turn = (angle >= turn_angle) or leaving_runway or entering_runway or force_turn
     if would_turn then
         guidance_dist = math.min(guidanceMaxDistance, guidance_dist * 1.9)
     end
@@ -3243,6 +3251,38 @@ local function maybe_speak_guidance(comp, now, aircraft)
             end
         end
     end
+    local first_guidance = (comp._lastGuidanceNodeId == nil and comp._lastGuidanceLabel == nil)
+    if first_guidance then
+        local last_compute = comp._lastRouteComputeTime or 0
+        if (now - last_compute) < guidanceRouteGraceSec then
+            diag("route-grace", string.format("dt=%.2f", now - last_compute))
+            return
+        end
+        local anchor = comp._guidanceMoveAnchor
+        if not anchor then
+            comp._guidanceMoveAnchor = { east = aircraft.east, north = aircraft.north, time = now }
+            diag("forward-wait")
+            return
+        end
+        local mx = aircraft.east - anchor.east
+        local my = aircraft.north - anchor.north
+        local along = mx * v1x + my * v1y
+        if len1 > 0.1 then
+            along = along / len1
+        end
+        if along < -initialGuidanceReverseResetMeters then
+            comp._guidanceMoveAnchor = { east = aircraft.east, north = aircraft.north, time = now }
+            diag("forward-reset")
+            return
+        end
+        if along < guidanceFirstTurnMinMeters
+            or (now - (anchor.time or now)) < guidanceFirstTurnMinSeconds then
+            diag("forward-stabilizing")
+            return
+        end
+    else
+        comp._guidanceMoveAnchor = nil
+    end
     if comp._lastGuidanceNodeId == path[seg_idx + 1]
         and comp._lastGuidanceLabel == label_key
         and (now - last_time) < guidanceCooldown then
@@ -3267,7 +3307,7 @@ local function maybe_speak_guidance(comp, now, aircraft)
         else
             text = "Leave " .. rwy_phrase .. " to " .. turn .. " to " .. next_info.text
         end
-    elseif angle < guidanceTurnAngle and not force_turn then
+    elseif angle < turn_angle and not force_turn then
         direction = "straight"
         action = "STRAIGHT"
         if next_info.kind == "taxiway" then
@@ -3627,6 +3667,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
     comp._arrTaxiCompleteAnnounced = false
     comp._initialGuidanceDone = false
     comp._initialMoveAnchor = nil
+    comp._guidanceMoveAnchor = nil
     comp._runwayCrossWarnedKey = nil
     comp._depEntryIssuedAt = nil
     comp._lastRecomputeKey = nil
@@ -5535,6 +5576,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
             comp._arrRunwayCrossWarned = nil
             comp._runwayCrossWarnedKey = nil
             comp._initialMoveAnchor = nil
+            comp._guidanceMoveAnchor = nil
             comp._depEntryIssuedAt = nil
             comp._editTailSegments = nil
             set_taxi_ref(nil)
@@ -5590,6 +5632,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
             comp._arrTaxiCompleteAnnounced = false
             comp._initialGuidanceDone = false
             comp._initialMoveAnchor = nil
+            comp._guidanceMoveAnchor = nil
             comp._runwayCrossWarnedKey = nil
             comp._depEntryIssuedAt = nil
             log_taxi(
@@ -6730,6 +6773,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
             comp._lastEndKey = end_key
             comp._initialGuidanceDone = false
             comp._initialMoveAnchor = nil
+            comp._guidanceMoveAnchor = nil
             comp._runwayCrossWarnedKey = nil
             comp._depEntryIssuedAt = nil
             if (canRoute or freehand_active)
