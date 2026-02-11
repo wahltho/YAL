@@ -282,6 +282,16 @@ local function latlon_to_local(lat, lon)
     return x, -z
 end
 
+local function screen_to_world_from_transform(t, sx, sy)
+    if not t or not sx or not sy then
+        return nil, nil
+    end
+    local dx = (sx - (t.mapX + t.mapW * 0.5) - (t.panX or 0)) / (t.scale or 1)
+    local dy = (sy - (t.mapY + t.mapH * 0.5) - (t.panY or 0)) / (t.scale or 1)
+    dx, dy = rotate_point(dx, dy, -t.rot)
+    return t.centerEast + dx, t.centerNorth + dy
+end
+
 local function local_to_latlon(east, north)
     if taxi_ref_lat and taxi_ref_lon and east ~= nil and north ~= nil then
         ensure_ref_scale()
@@ -3607,6 +3617,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
     comp._lastGuidanceLabel = nil
     comp._lastGuidanceTime = nil
     comp._visualGuidance = nil
+    comp._manualRouteActive = false
     comp._gateNote = nil
     comp._gateCalloutKey = nil
     comp._gateCalloutStage = 0
@@ -4131,6 +4142,24 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                 sasl.gl.drawLine(x1 + 1, y1 + 1, x2 + 1, y2 + 1, routeColor)
             end
         end
+        if comp._drawRoute and comp._drawFreehand
+            and comp._mouseInMap
+            and comp._routeWaypoints and #comp._routeWaypoints > 0
+            and comp._mouseX and comp._mouseY then
+            local last = comp._routeWaypoints[#comp._routeWaypoints]
+            local le = last and last.east or nil
+            local ln = last and last.north or nil
+            if (le == nil or ln == nil) and last and is_valid_latlon(last.lat, last.lon) then
+                le, ln = latlon_to_local(last.lat, last.lon)
+            end
+            local we, wn = screen_to_world_from_transform(comp._mapTransform, comp._mouseX, comp._mouseY)
+            if le ~= nil and ln ~= nil and we ~= nil and wn ~= nil then
+                local x1, y1 = project(le, ln)
+                local x2, y2 = project(we, wn)
+                sasl.gl.drawLine(x1, y1, x2, y2, {0.0, 0.0, 0.0, 0.35})
+                sasl.gl.drawLine(x1 + 1, y1 + 1, x2 + 1, y2 + 1, {1.0, 1.0, 1.0, 0.35})
+            end
+        end
         if (not comp._drawFreehand) and routeData and routeData.nodes
             and comp._endRamp and comp._endRamp.east and comp._endRamp.north then
             local endNode = nil
@@ -4386,17 +4415,28 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
         comp._layout = layout
     end
 
-    function comp:onMouseDown(x, y, button, _, _)
+    function comp:onMouseDown(x, y, button, shift, _, _)
         local layout = self._layout
         if not layout then
             return false
         end
-        if not (button == MB_LEFT or button == 1) then
+        local is_left = (button == MB_LEFT or button == 1)
+        local is_right = (button == MB_RIGHT or button == 2 or button == 3)
+        if not (is_left or is_right) then
             return false
+        end
+        if comp._mapTransform then
+            local t = comp._mapTransform
+            comp._mouseX = x
+            comp._mouseY = y
+            comp._mouseInMap = (x >= t.mapX and x <= (t.mapX + t.mapW) and y >= t.mapY and y <= (t.mapY + t.mapH))
         end
         if layout.close then
             local c = layout.close
             if x >= c.x and x <= (c.x + c.w) and y >= c.y and y <= (c.y + c.h) then
+                if not is_left then
+                    return false
+                end
                 if self._window then
                     self._window:setIsVisible(false)
                 else
@@ -4408,6 +4448,9 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
         end
         for _, b in ipairs(self._buttons or layout.buttons or {}) do
             if x >= b.x and x <= (b.x + b.w) and y >= b.y and y <= (b.y + b.h) then
+                if not is_left then
+                    return false
+                end
                 if b.action == "toggle_mode" then
                     comp.mode = (comp.mode == 1) and 0 or 1
                     comp.modeOverride = true
@@ -4464,6 +4507,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                     comp._lastUpdate = nil
                     comp._undoState = nil
                     comp._undoReason = nil
+                    comp._manualRouteActive = false
                     log_taxi("TaxiRoute: auto-reset")
                 elseif b.action == "font_down" then
                     comp.fontSize = clamp(comp.fontSize - 1, minFont, maxFont)
@@ -4503,6 +4547,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                         comp._editRoute = true
                         push_undo(comp, "draw-start")
                         comp._drawFreehand = true
+                        comp._manualRouteActive = true
                         comp._routeWaypoints = {}
                         comp._route = nil
                         comp._routeErr = nil
@@ -4514,6 +4559,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                         comp._editEndOverride = nil
                     elseif not comp._routeWaypoints or #comp._routeWaypoints == 0 then
                         comp._drawFreehand = false
+                        comp._manualRouteActive = false
                     end
                     log_taxi(
                         string.format(
@@ -4547,6 +4593,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                     comp._route = nil
                     comp._routeErr = nil
                     comp._lastUpdate = nil
+                    comp._manualRouteActive = false
                     log_taxi("TaxiEdit: clear-route")
                 end
                 return true
@@ -4660,6 +4707,31 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
             if best then
                 if best.handle_idx and comp._editHandles and comp._editHandles[best.handle_idx] then
                     local handle = comp._editHandles[best.handle_idx]
+                    if is_right and handle then
+                        if handle.kind == "manual" and handle.wp_idx then
+                            push_undo(comp, "manual-delete")
+                            if comp._routeWaypoints and comp._routeWaypoints[handle.wp_idx] then
+                                table.remove(comp._routeWaypoints, handle.wp_idx)
+                            end
+                            mark_edit_dirty(comp)
+                            log_taxi("TaxiEdit: waypoint deleted wp=" .. tostring(handle.wp_idx))
+                            return true
+                        end
+                        if comp._drawFreehand and (handle.kind == "start" or handle.kind == "end") then
+                            push_undo(comp, "endpoint-delete")
+                            if comp._routeWaypoints and #comp._routeWaypoints > 0 then
+                                if handle.kind == "start" then
+                                    table.remove(comp._routeWaypoints, 1)
+                                else
+                                    table.remove(comp._routeWaypoints, #comp._routeWaypoints)
+                                end
+                                mark_edit_dirty(comp)
+                                log_taxi("TaxiEdit: endpoint deleted kind=" .. tostring(handle.kind))
+                            end
+                            return true
+                        end
+                        return false
+                    end
                     if handle and handle.kind == "auto" then
                         push_undo(comp, "auto-handle")
                         log_taxi(
@@ -4798,7 +4870,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                         dx, dy = rotate_point(dx, dy, -t.rot)
                         return t.centerEast + dx, t.centerNorth + dy
                     end
-                if comp._drawRoute then
+                if comp._drawRoute and is_left then
                     local function add_waypoint_freehand()
                         local we, wn = screen_to_world(x, y)
                         local wlat, wlon = local_to_latlon(we, wn)
@@ -4813,6 +4885,9 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                                 if seg_idx and seg_dist and seg_dist <= freehandInsertMaxMeters then
                                     insert_idx = seg_idx + 1
                                 end
+                            end
+                            if shift then
+                                insert_idx = insert_idx or (#comp._routeWaypoints + 1)
                             end
                             local wp = {
                                 lat = wlat,
@@ -5008,7 +5083,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                     dragX2 = m.x + m.w
                     dragY2 = m.y + m.h
                 end
-                if x >= dragX1 and x <= dragX2 and y >= dragY1 and y <= dragY2 then
+                if is_left and x >= dragX1 and x <= dragX2 and y >= dragY1 and y <= dragY2 then
                     comp.drag = { startX = x, startY = y, panX = comp.panX, panY = comp.panY }
                     return true
                 end
@@ -5019,6 +5094,14 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
     end
 
     function comp:onMouseMove(x, y, _, _, _)
+        comp._mouseX = x
+        comp._mouseY = y
+        if comp._mapTransform then
+            local t = comp._mapTransform
+            comp._mouseInMap = (x >= t.mapX and x <= (t.mapX + t.mapW) and y >= t.mapY and y <= (t.mapY + t.mapH))
+        else
+            comp._mouseInMap = false
+        end
         if comp._wpDrag then
             local drag = comp._wpDrag
             local dx = x - drag.startX
@@ -5697,6 +5780,11 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
         local dep_end_node_dist = nil
         local arr_exit_id = nil
         local allow_runway_route = false
+        local manual_active = (comp._routeWaypoints and #comp._routeWaypoints > 0) or comp._drawRoute
+        if comp._manualRouteActive ~= manual_active then
+            comp._manualRouteActive = manual_active
+            log_taxi("TaxiEdit: manual-route=" .. tostring(manual_active))
+        end
 
         if mode == 0 then
             if aircraft then
@@ -5964,7 +6052,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                 end_lon = end_ramp.lon
             end
         end
-        if mode == 1 and (not comp._drawFreehand) and (not user_selected_end)
+        if mode == 1 and (not comp._drawFreehand) and (not user_selected_end) and (not comp._manualRouteActive)
             and data and aircraft and is_valid_latlon(aircraft.lat, aircraft.lon) then
             local yalref = comp.yal or _G.yal
             local onGround = yalref and yalref.airgroundsensor and (get(yalref.airgroundsensor) == def.ON)
