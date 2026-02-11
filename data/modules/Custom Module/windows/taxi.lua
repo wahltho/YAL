@@ -2273,6 +2273,39 @@ local function get_edge_label(data, from_id, to_id)
     return ""
 end
 
+local function infer_arrival_exit_from_route(route, data)
+    if not route or not route.path or not data then
+        return nil
+    end
+    local path = route.path
+    if #path == 0 then
+        return nil
+    end
+    local saw_runway = false
+    for i = 1, (#path - 1) do
+        local label = get_edge_label(data, path[i], path[i + 1])
+        local is_rwy = label and is_runway_label(label)
+        if is_rwy then
+            saw_runway = true
+            if i + 1 <= (#path - 1) then
+                local next_label = get_edge_label(data, path[i + 1], path[i + 2])
+                local next_is_rwy = next_label and is_runway_label(next_label)
+                if not next_is_rwy then
+                    return path[i + 1]
+                end
+            else
+                return path[i + 1]
+            end
+        elseif saw_runway then
+            return path[i]
+        end
+    end
+    if not saw_runway then
+        return path[1]
+    end
+    return nil
+end
+
 local function compute_route_label_stats(data, path)
     local stats = { taxi_edges = 0, missing = 0, none = 0 }
     if not data or not path or #path < 2 then
@@ -7184,6 +7217,14 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                         if backtrack_node then
                             comp._routeExtraSegments = build_runway_backtrack_segments(data, profile, backtrack_node, backtrack_target)
                         end
+                    end
+                end
+                if mode == 1 and route and route.path and route.data and route.data ~= nil then
+                    local exit_id = infer_arrival_exit_from_route(route, route.data)
+                    if exit_id and exit_id ~= comp._arrExitId then
+                        comp._arrExitId = exit_id
+                        comp._arrRunwayExitAnnounced = false
+                        comp._arrRunwayCrossWarned = nil
                     end
                 end
                 comp._lastGuidanceNodeId = nil
