@@ -9464,10 +9464,6 @@ function P.stepQuickViewsCgUpdate()
 end
 
 function P.applyDefaultViewFromQV0()
-    if not views_change_allowed() then
-        P.logInfoTS("Default view update blocked (requires preflight, on ground, parking brake set)")
-        return
-    end
     if P.quickViewCgUpdateJob then
         P.logInfoTS("Default view update blocked (QuickViews CG update in progress)")
         return
