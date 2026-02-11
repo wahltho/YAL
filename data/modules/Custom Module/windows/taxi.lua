@@ -4921,16 +4921,16 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                             end
                             push_undo(comp, "draw-add")
                             local insert_idx = nil
-                            if shift and comp._route and comp._route.path and comp._route.data and #comp._route.path >= 2 then
+                            if (not shift) and comp._route and comp._route.path and comp._route.data and #comp._route.path >= 2 then
                                 local seg_idx, seg_dist = find_nearest_segment(comp._route.data, comp._route.path, we, wn)
                                 if seg_idx and seg_dist and seg_dist <= freehandInsertMaxMeters then
                                     insert_idx = seg_idx + 1
                                 end
                             end
                             if shift then
-                                insert_idx = insert_idx or (#comp._routeWaypoints + 1)
-                            else
                                 insert_idx = #comp._routeWaypoints + 1
+                            else
+                                insert_idx = insert_idx or (#comp._routeWaypoints + 1)
                             end
                             local wp = {
                                 lat = wlat,
@@ -7120,7 +7120,12 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                 apply_projection(opts)
                 local route, rerr = nil, nil
                 if comp._drawFreehand and route_waypoints and #route_waypoints > 0 then
-                    route, rerr = build_freehand_route(route_waypoints, data)
+                    if #route_waypoints < 2 then
+                        route = nil
+                        rerr = nil
+                    else
+                        route, rerr = build_freehand_route(route_waypoints, data)
+                    end
                 else
                     route, rerr = route_with_waypoints(
                         icao,
