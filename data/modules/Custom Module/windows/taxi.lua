@@ -22,6 +22,7 @@ local guidanceFirstTurnMinMeters = 8
 local guidanceSameTaxiwayTurnAngle = 25
 local guidanceTurnDistance = 90
 local guidanceTurnAngle = 15
+local freehandFirstGuidanceMaxDistance = 600
 local guidanceLeadTimeSec = 14
 local guidanceMaxDistance = 180
 local guidanceStraightAngle = 10
@@ -2945,6 +2946,7 @@ local function maybe_speak_guidance(comp, now, aircraft)
     end
     local route = comp._route
     local data = (route and route.data) or comp._data
+    local is_freehand = (route and route.data and route.data.route_source == "freehand") or false
     if comp.mode == 1 then
         local gate_key = gate_target_key(comp, route)
         if gate_key ~= comp._gateCalloutKey then
@@ -3003,6 +3005,7 @@ local function maybe_speak_guidance(comp, now, aircraft)
     end
     local data = comp._route.data or comp._data
     local path = comp._route.path
+    local first_guidance = (comp._lastGuidanceNodeId == nil and comp._lastGuidanceLabel == nil)
     local function guidance_label_info(from_id, to_id, fallback_label, ramp_hint, allow_missing)
         local raw_label = get_edge_label(data, from_id, to_id)
         if raw_label and is_runway_label(raw_label) then
@@ -3109,10 +3112,12 @@ local function maybe_speak_guidance(comp, now, aircraft)
                 end
                 if along >= initialGuidanceMinForwardMeters
                     and (now - (anchor.time or now)) >= initialGuidanceMinForwardSeconds then
-                    local info = guidance_label_info(path[1], path[2], nil, comp._startRamp, false)
+                    local info = guidance_label_info(path[1], path[2], nil, comp._startRamp, is_freehand)
                     if info then
                         local text = ""
-                        if info.kind == "taxiway" then
+                        if is_freehand and (info.missingLabel or info.text == "") then
+                            text = "Taxi via drawn route"
+                        elseif info.kind == "taxiway" then
                             text = "Taxi via Taxiway " .. info.text
                         elseif info.kind == "runway" then
                             text = "Taxi via " .. info.text
@@ -3121,12 +3126,15 @@ local function maybe_speak_guidance(comp, now, aircraft)
                         end
                         if text ~= "" then
                             local action = ""
-                            if info.kind == "ramp" then
+                            if info.kind == "ramp" and not (is_freehand and (info.missingLabel or info.text == "")) then
                                 action = "TAXI FROM"
                             else
                                 action = "TAXI VIA"
                             end
                             local label = build_visual_label(info.kind, info.display)
+                            if is_freehand and (info.missingLabel or info.text == "") then
+                                label = build_visual_label("route", "ROUTE")
+                            end
                             emit({
                                 text = text,
                                 direction = "straight",
@@ -3206,6 +3214,9 @@ local function maybe_speak_guidance(comp, now, aircraft)
     if would_turn then
         guidance_dist = math.min(guidanceMaxDistance, guidance_dist * 1.9)
     end
+    if is_freehand and first_guidance then
+        guidance_dist = math.max(guidance_dist, freehandFirstGuidanceMaxDistance)
+    end
     if dist_to_node > guidance_dist then
         diag("too-far", string.format("dist=%.1f", dist_to_node))
         return
@@ -3252,7 +3263,6 @@ local function maybe_speak_guidance(comp, now, aircraft)
             end
         end
     end
-    local first_guidance = (comp._lastGuidanceNodeId == nil and comp._lastGuidanceLabel == nil)
     if first_guidance then
         local last_compute = comp._lastRouteComputeTime or 0
         if (now - last_compute) < guidanceRouteGraceSec then
