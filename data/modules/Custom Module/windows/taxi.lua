@@ -1678,6 +1678,79 @@ local function route_with_waypoints(icao, start_lat, start_lon, end_lat, end_lon
     }
 end
 
+local function build_freehand_route(waypoints, data)
+    if not waypoints or #waypoints == 0 then
+        return nil, "no-waypoints"
+    end
+    local nodes = {}
+    local path = {}
+    local minX, maxX, minY, maxY = nil, nil, nil, nil
+    for i = 1, #waypoints do
+        local wp = waypoints[i]
+        local lat, lon = ensure_waypoint_latlon(wp)
+        if is_valid_latlon(lat, lon) then
+            local east = wp.east
+            local north = wp.north
+            if east == nil or north == nil then
+                east, north = latlon_to_local(lat, lon)
+            end
+            if east ~= nil and north ~= nil then
+                nodes[i] = {
+                    id = i,
+                    lat = lat,
+                    lon = lon,
+                    east = east,
+                    north = north
+                }
+                path[#path + 1] = i
+                minX = (minX == nil or east < minX) and east or minX
+                maxX = (maxX == nil or east > maxX) and east or maxX
+                minY = (minY == nil or north < minY) and north or minY
+                maxY = (maxY == nil or north > maxY) and north or maxY
+            end
+        end
+    end
+    if #path == 0 then
+        return nil, "no-waypoints"
+    end
+    local adjacency = {}
+    local adjacency_any = {}
+    for i = 1, #path - 1 do
+        local a = path[i]
+        local b = path[i + 1]
+        adjacency[a] = adjacency[a] or {}
+        adjacency_any[a] = adjacency_any[a] or {}
+        table.insert(adjacency[a], { to = b, label = "" })
+        table.insert(adjacency_any[a], { to = b, label = "" })
+        -- bidirectional for label lookup/segment traversal
+        adjacency[b] = adjacency[b] or {}
+        adjacency_any[b] = adjacency_any[b] or {}
+        table.insert(adjacency[b], { to = a, label = "" })
+        table.insert(adjacency_any[b], { to = a, label = "" })
+    end
+    local bounds = nil
+    if minX ~= nil and maxX ~= nil and minY ~= nil and maxY ~= nil then
+        bounds = { minX = minX, maxX = maxX, minY = minY, maxY = maxY }
+    end
+    local route_data = {
+        nodes = nodes,
+        adjacency = adjacency,
+        adjacency_any = adjacency_any,
+        bounds = (data and data.bounds) or bounds,
+        runways = data and data.runways or nil,
+        ramps = data and data.ramps or nil,
+        can_route = true,
+        route_source = "freehand"
+    }
+    return {
+        data = route_data,
+        path = path,
+        start_id = path[1],
+        end_id = path[#path],
+        bounds = route_data.bounds
+    }, nil
+end
+
 local function try_route_from_candidates(icao, data, end_lat, end_lon, candidates, opts, waypoint_ids, waypoints)
     for _, cand in ipairs(candidates or {}) do
         local node = data.nodes[cand.id]
@@ -4411,20 +4484,22 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                 end
             end
 
-            -- Pass 1: prefer start/end handles to avoid grabbing nearby manual handles.
-            for _, hit in ipairs(layout.waypoints) do
-                if hit.handle_idx and comp._editHandles and comp._editHandles[hit.handle_idx] then
-                    local h = comp._editHandles[hit.handle_idx]
-                    if h and (h.kind == "start" or h.kind == "end") then
-                        consider_hit(hit, hitRadiusSE)
+            if not (comp._drawRoute and comp._drawFreehand) then
+                -- Pass 1: prefer start/end handles to avoid grabbing nearby manual handles.
+                for _, hit in ipairs(layout.waypoints) do
+                    if hit.handle_idx and comp._editHandles and comp._editHandles[hit.handle_idx] then
+                        local h = comp._editHandles[hit.handle_idx]
+                        if h and (h.kind == "start" or h.kind == "end") then
+                            consider_hit(hit, hitRadiusSE)
+                        end
                     end
                 end
-            end
 
-            -- Pass 2: fallback to the closest handle of any kind.
-            if not best then
-                for _, hit in ipairs(layout.waypoints) do
-                    consider_hit(hit, nil)
+                -- Pass 2: fallback to the closest handle of any kind.
+                if not best then
+                    for _, hit in ipairs(layout.waypoints) do
+                        consider_hit(hit, nil)
+                    end
                 end
             end
             if best then
@@ -6713,16 +6788,21 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                 end
                 compute_projection(opts)
                 apply_projection(opts)
-                local route, rerr = route_with_waypoints(
-                    icao,
-                    start_lat,
-                    start_lon,
-                    end_lat,
-                    end_lon,
-                    opts,
-                    proj_waypoint_ids,
-                    route_waypoints
-                )
+                local route, rerr = nil, nil
+                if comp._drawFreehand and route_waypoints and #route_waypoints > 0 then
+                    route, rerr = build_freehand_route(route_waypoints, data)
+                else
+                    route, rerr = route_with_waypoints(
+                        icao,
+                        start_lat,
+                        start_lon,
+                        end_lat,
+                        end_lon,
+                        opts,
+                        proj_waypoint_ids,
+                        route_waypoints
+                    )
+                end
                 if (not route) and rerr == "no-path" and mode == 1 and opts and opts.disallow_runway_edges then
                     opts = copy_opts(opts) or {}
                     opts.disallow_runway_edges = false
