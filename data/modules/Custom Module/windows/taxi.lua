@@ -55,6 +55,7 @@ local parkingBrakeCompleteDist = 35
 local gateNoteMaxDistance = 80
 local gateStopDistance = 2
 local gateVoiceDistances = { 30, 10, 5 }
+local freehandInsertMaxMeters = 25
 
 local minZoom = 0.2
 local maxZoom = 5
@@ -4618,7 +4619,27 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                 end
             end
 
-            if not (comp._drawRoute and comp._drawFreehand) then
+            if comp._drawRoute and comp._drawFreehand then
+                -- In freehand draw, only allow start/end/manual handles.
+                for _, hit in ipairs(layout.waypoints) do
+                    if hit.handle_idx and comp._editHandles and comp._editHandles[hit.handle_idx] then
+                        local h = comp._editHandles[hit.handle_idx]
+                        if h and (h.kind == "start" or h.kind == "end") then
+                            consider_hit(hit, hitRadiusSE)
+                        end
+                    end
+                end
+                if not best then
+                    for _, hit in ipairs(layout.waypoints) do
+                        if hit.handle_idx and comp._editHandles and comp._editHandles[hit.handle_idx] then
+                            local h = comp._editHandles[hit.handle_idx]
+                            if h and h.kind == "manual" then
+                                consider_hit(hit, hitRadiusManual)
+                            end
+                        end
+                    end
+                end
+            else
                 -- Pass 1: prefer start/end handles to avoid grabbing nearby manual handles.
                 for _, hit in ipairs(layout.waypoints) do
                     if hit.handle_idx and comp._editHandles and comp._editHandles[hit.handle_idx] then
@@ -4786,22 +4807,43 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                                 comp._routeWaypoints = {}
                             end
                             push_undo(comp, "draw-add")
-                            table.insert(comp._routeWaypoints, {
+                            local insert_idx = nil
+                            if comp._route and comp._route.path and comp._route.data and #comp._route.path >= 2 then
+                                local seg_idx, seg_dist = find_nearest_segment(comp._route.data, comp._route.path, we, wn)
+                                if seg_idx and seg_dist and seg_dist <= freehandInsertMaxMeters then
+                                    insert_idx = seg_idx + 1
+                                end
+                            end
+                            local wp = {
                                 lat = wlat,
                                 lon = wlon,
                                 east = we,
                                 north = wn,
                                 segment_idx = nil
-                            })
-                            mark_edit_dirty(comp)
-                            log_taxi(
-                                string.format(
-                                    "TaxiDraw: add-waypoint-free lat=%.6f lon=%.6f total=%d",
-                                    wlat,
-                                    wlon,
-                                    #comp._routeWaypoints
+                            }
+                            if insert_idx and insert_idx >= 1 and insert_idx <= (#comp._routeWaypoints + 1) then
+                                table.insert(comp._routeWaypoints, insert_idx, wp)
+                                log_taxi(
+                                    string.format(
+                                        "TaxiDraw: insert-waypoint-free idx=%d lat=%.6f lon=%.6f total=%d",
+                                        insert_idx,
+                                        wlat,
+                                        wlon,
+                                        #comp._routeWaypoints
+                                    )
                                 )
-                            )
+                            else
+                                table.insert(comp._routeWaypoints, wp)
+                                log_taxi(
+                                    string.format(
+                                        "TaxiDraw: add-waypoint-free lat=%.6f lon=%.6f total=%d",
+                                        wlat,
+                                        wlon,
+                                        #comp._routeWaypoints
+                                    )
+                                )
+                            end
+                            mark_edit_dirty(comp)
                             return true
                         end
                         return false
@@ -5834,8 +5876,9 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
 
         local hasRunwayName = (runway_name ~= nil and runway_name ~= "")
         local hasArrivalRunway = (mode == 1 and hasRunwayName) or false
-        local canRoute = data and data.can_route and (mode == 1 or hasRunwayName) or false
-        if not canRoute then
+        local freehand_active = comp._drawFreehand and comp._routeWaypoints and (#comp._routeWaypoints > 0)
+        local canRoute = data and data.can_route and (mode == 1 or hasRunwayName or freehand_active) or false
+        if not canRoute and not freehand_active then
             helpers.logInfoTS(
                 "TaxiDiag: canRoute=false icao=" .. tostring(icao) ..
                 " mode=" .. tostring(mode) ..
@@ -6536,6 +6579,18 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                 route_waypoints = trimmed
             end
         end
+        if freehand_active and route_waypoints and #route_waypoints > 0 then
+            local first = route_waypoints[1]
+            local last = route_waypoints[#route_waypoints]
+            if (not is_valid_latlon(start_lat, start_lon)) and first and is_valid_latlon(first.lat, first.lon) then
+                start_lat = first.lat
+                start_lon = first.lon
+            end
+            if (not is_valid_latlon(end_lat, end_lon)) and last and is_valid_latlon(last.lat, last.lon) then
+                end_lat = last.lat
+                end_lon = last.lon
+            end
+        end
 
         local anchor_lat = start_lat
         local anchor_lon = start_lon
@@ -6589,7 +6644,8 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
             comp._initialMoveAnchor = nil
             comp._runwayCrossWarnedKey = nil
             comp._depEntryIssuedAt = nil
-            if canRoute and is_valid_latlon(start_lat, start_lon) and is_valid_latlon(end_lat, end_lon) then
+            if (canRoute or freehand_active)
+                and (freehand_active or (is_valid_latlon(start_lat, start_lon) and is_valid_latlon(end_lat, end_lon))) then
                 local function fmt_latlon(latv, lonv)
                     if not latv or not lonv then
                         return "nil/nil"
