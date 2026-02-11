@@ -7,6 +7,7 @@ local padding = 10
 local arrowSize = 52
 local actionFont = 14
 local labelFont = 12
+local noteFont = 11
 
 local def = require("definitions")
 
@@ -120,14 +121,25 @@ function M.newComponent(ctx)
 
         local action = tostring(self._instruction.action or "")
         local label = tostring(self._instruction.label or "")
+        local note = tostring(self._instruction.note or "")
         action = string.upper(action)
         label = string.upper(label)
+        note = string.upper(note)
 
         if label == "" then
-            drawText(font, w * 0.5, padding + 12, action, actionFont, TEXT_ALIGN_CENTER, {1, 1, 1, 0.95})
+            local actionY = (note ~= "") and (padding + 30) or (padding + 12)
+            drawText(font, w * 0.5, actionY, action, actionFont, TEXT_ALIGN_CENTER, {1, 1, 1, 0.95})
+            if note ~= "" then
+                drawText(font, w * 0.5, padding + 12, note, noteFont, TEXT_ALIGN_CENTER, {0.85, 0.85, 0.85, 0.95})
+            end
         else
-            drawText(font, w * 0.5, padding + 28, action, actionFont, TEXT_ALIGN_CENTER, {1, 1, 1, 0.95})
-            drawText(font, w * 0.5, padding + 10, label, labelFont, TEXT_ALIGN_CENTER, {0.85, 0.85, 0.85, 0.95})
+            local actionY = (note ~= "") and (padding + 42) or (padding + 28)
+            local labelY = (note ~= "") and (padding + 24) or (padding + 10)
+            drawText(font, w * 0.5, actionY, action, actionFont, TEXT_ALIGN_CENTER, {1, 1, 1, 0.95})
+            drawText(font, w * 0.5, labelY, label, labelFont, TEXT_ALIGN_CENTER, {0.85, 0.85, 0.85, 0.95})
+            if note ~= "" then
+                drawText(font, w * 0.5, padding + 8, note, noteFont, TEXT_ALIGN_CENTER, {0.85, 0.85, 0.85, 0.95})
+            end
         end
     end
 

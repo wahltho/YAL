@@ -52,6 +52,9 @@ local autoGateSwitchSpeed = 5
 local autoGateSwitchHoldSec = 2.0
 local autoGateSwitchCooldownSec = 10.0
 local parkingBrakeCompleteDist = 35
+local gateNoteMaxDistance = 80
+local gateStopDistance = 2
+local gateVoiceDistances = { 30, 10, 5 }
 
 local minZoom = 0.2
 local maxZoom = 5
@@ -2631,7 +2634,102 @@ local function guidance_distance_for_speed(tirespeed)
     return dist
 end
 
-local function speak_guidance_text(comp, text)
+local speak_guidance_text
+
+local function gate_target_key(comp, route)
+    if not comp then
+        return nil
+    end
+    if comp._endRamp then
+        local key = ramp_key(comp._endRamp)
+        if key and key ~= "" then
+            return "ramp:" .. tostring(key)
+        end
+    end
+    if route and route.path and #route.path > 0 then
+        return "node:" .. tostring(route.path[#route.path])
+    end
+    return nil
+end
+
+local function gate_target_position(comp, route, data)
+    if comp and comp._endRamp then
+        local ramp = comp._endRamp
+        local east = ramp.east
+        local north = ramp.north
+        if (east == nil or north == nil) and is_valid_latlon(ramp.lat, ramp.lon) then
+            east, north = latlon_to_local(ramp.lat, ramp.lon)
+        end
+        if east ~= nil and north ~= nil then
+            return east, north
+        end
+    end
+    if route and data and route.path and #route.path > 0 and data.nodes then
+        local node = data.nodes[route.path[#route.path]]
+        if node and node.east ~= nil and node.north ~= nil then
+            return node.east, node.north
+        end
+    end
+    return nil
+end
+
+local function gate_distance_meters(comp, aircraft, route, data)
+    if not comp or not aircraft or aircraft.east == nil or aircraft.north == nil then
+        return nil
+    end
+    local east, north = gate_target_position(comp, route, data)
+    if east == nil or north == nil then
+        return nil
+    end
+    return math.sqrt(distance_sq(aircraft.east, aircraft.north, east, north))
+end
+
+local function gate_note_text(dist)
+    if not dist then
+        return nil
+    end
+    if dist <= gateStopDistance then
+        return "Stop"
+    end
+    if dist <= gateNoteMaxDistance then
+        return string.format("Gate in %d m", math.floor(dist + 0.5))
+    end
+    return nil
+end
+
+local function reset_gate_callouts(comp, key)
+    if not comp then
+        return
+    end
+    comp._gateCalloutKey = key
+    comp._gateCalloutStage = 0
+    comp._gateCalloutStop = false
+end
+
+local function maybe_gate_voice_callouts(comp, dist, allow_voice)
+    if not comp or not dist then
+        return
+    end
+    if not allow_voice or not is_voice_enabled() then
+        return
+    end
+    if dist <= gateStopDistance then
+        if not comp._gateCalloutStop then
+            speak_guidance_text(comp, "Stop")
+            comp._gateCalloutStop = true
+        end
+        return
+    end
+    local stage = comp._gateCalloutStage or 0
+    for i, threshold in ipairs(gateVoiceDistances) do
+        if dist <= threshold and stage < i then
+            speak_guidance_text(comp, "Gate in " .. tostring(threshold) .. " meters")
+            comp._gateCalloutStage = i
+        end
+    end
+end
+
+speak_guidance_text = function(comp, text)
     local yal = comp.yal or _G.yal
     if yal and yal.commandtableentry then
         yal.commandtableentry(def.TAXI, text)
@@ -2754,6 +2852,11 @@ local function update_visual_guidance(comp, now, aircraft)
         clear_visual_guidance(comp, "expired")
         return
     end
+    if comp._gateNote and comp._gateNote ~= "" then
+        info.note = comp._gateNote
+    else
+        info.note = nil
+    end
     local popup = get_visual_popup(comp)
     if popup and popup.setInstruction then
         popup:setInstruction(info)
@@ -2816,16 +2919,43 @@ local function maybe_speak_guidance(comp, now, aircraft)
         diag("voice-disabled")
         return
     end
-            if not comp._route or not comp._route.path then
-                diag("no-route")
-                return
-            end
     if not aircraft or aircraft.east == nil or aircraft.north == nil then
         diag("no-aircraft-pos")
         return
     end
     if not on_ground then
         diag("not-on-ground")
+        return
+    end
+    local route = comp._route
+    local data = (route and route.data) or comp._data
+    if comp.mode == 1 then
+        local gate_key = gate_target_key(comp, route)
+        if gate_key ~= comp._gateCalloutKey then
+            reset_gate_callouts(comp, gate_key)
+        end
+        if gate_key then
+            local dist = gate_distance_meters(comp, aircraft, route, data)
+            comp._gateNote = gate_note_text(dist)
+            if dist then
+                local gs = yal and yal.groundspeed and (get(yal.groundspeed) or 0) or 0
+                if gs > 0.2 or dist <= gateStopDistance then
+                    if not comp._arrTaxiCompleteAnnounced then
+                        maybe_gate_voice_callouts(comp, dist, auto_voice)
+                    end
+                end
+            end
+        else
+            comp._gateNote = nil
+        end
+    else
+        comp._gateNote = nil
+        if comp._gateCalloutKey ~= nil then
+            reset_gate_callouts(comp, nil)
+        end
+    end
+    if not comp._route or not comp._route.path then
+        diag("no-route")
         return
     end
     if comp.mode == 0 and before_takeoff_active_or_set(comp) then
@@ -3476,6 +3606,10 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
     comp._lastGuidanceLabel = nil
     comp._lastGuidanceTime = nil
     comp._visualGuidance = nil
+    comp._gateNote = nil
+    comp._gateCalloutKey = nil
+    comp._gateCalloutStage = 0
+    comp._gateCalloutStop = false
     comp._depRunwayEntryAnnounced = false
     comp._depTaxiCompleteAnnounced = false
     comp._arrTaxiCompleteAnnounced = false
