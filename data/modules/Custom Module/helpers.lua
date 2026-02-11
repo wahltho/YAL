@@ -9552,6 +9552,42 @@ function P.stepDefaultViewUpdate()
     return false
 end
 
+local function check_default_view_matches_qv0(variant, base)
+    local acf_path = base .. variant.acf
+    local prefs_path = base .. variant.prefs
+    local qv, qv_err = read_qv0(prefs_path)
+    if not qv then
+        P.logInfoTS("Default view check failed (" .. variant.name .. "): " .. tostring(qv_err))
+        return
+    end
+    local cg, cg_err = read_acf_cg(acf_path)
+    if not cg then
+        P.logInfoTS("Default view check failed (" .. variant.name .. "): " .. tostring(cg_err))
+        return
+    end
+    local current_view, view_err = read_acf_default_view(acf_path)
+    if not current_view then
+        P.logInfoTS("Default view check failed (" .. variant.name .. "): " .. tostring(view_err))
+        return
+    end
+    local meters_to_feet = 3.28084
+    local new_lat = (cg.lat or 0.0) + (qv.lat * meters_to_feet)
+    local new_vert = cg.vert + (qv.vert * meters_to_feet)
+    local new_long = cg.long + (qv.long * meters_to_feet)
+    local new_pitch = qv.pitch
+    if approx_equal(current_view.lat, new_lat) and approx_equal(current_view.vert, new_vert)
+        and approx_equal(current_view.long, new_long) and approx_equal(current_view.pitch, new_pitch) then
+        P.logInfoTS("Default view matches QV0 (" .. variant.name .. ")")
+    else
+        P.logInfoTS(string.format(
+            "Default view mismatch vs QV0 (%s): def %.6f/%.6f/%.6f/%.6f vs qv0 %.6f/%.6f/%.6f/%.6f",
+            variant.name,
+            current_view.lat, current_view.vert, current_view.long, current_view.pitch,
+            new_lat, new_vert, new_long, new_pitch
+        ))
+    end
+end
+
 function P.checkCgBaselineAtStartup()
     local settings = require("settings")
     local base = get_zibo_base_path()
@@ -9583,6 +9619,17 @@ function P.checkCgBaselineAtStartup()
                 end
             end
         end
+    end
+end
+
+function P.checkDefaultViewAtStartup()
+    local base = get_zibo_base_path()
+    local variants = {
+        { name = "4k", acf = "b738_4k.acf", prefs = "b738_4k_prefs.txt" },
+        { name = "2k", acf = "b738.acf", prefs = "b738_prefs.txt" },
+    }
+    for _, v in ipairs(variants) do
+        check_default_view_matches_qv0(v, base)
     end
 end
 

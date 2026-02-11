@@ -1018,6 +1018,7 @@ function P.initializeScript()
     P.readconfig()
 
     helpers.checkCgBaselineAtStartup()
+    helpers.checkDefaultViewAtStartup()
 
     helpers.buildnavdatatable(P.navdatatable)
     helpers.buildairportdatatable(P.airportdatatable)
