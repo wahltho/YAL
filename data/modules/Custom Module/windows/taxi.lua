@@ -6603,14 +6603,16 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
             end
         end
         if mode == 1 and (not allow_runway_route) and start_node_dist and start_node_dist > driftMeters then
-            log_taxi(
-                string.format(
-                    "TaxiRoute: clear start node dist=%.1f",
-                    start_node_dist or -1
+            if onGround and (not has_start_override) and (not in_edit) and (not manual_active) then
+                log_taxi(
+                    string.format(
+                        "TaxiRoute: clear start node dist=%.1f",
+                        start_node_dist or -1
+                    )
                 )
-            )
-            start_node_id = nil
-            start_node_dist = nil
+                start_node_id = nil
+                start_node_dist = nil
+            end
         end
         local end_node_id, end_node_dist = nearest_node_info(data, end_lat, end_lon, false)
         if mode == 0 and data and data.runway_nodes then
