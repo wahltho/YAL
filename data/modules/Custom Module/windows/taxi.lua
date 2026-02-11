@@ -6706,13 +6706,19 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
         if freehand_active and route_waypoints and #route_waypoints > 0 then
             local first = route_waypoints[1]
             local last = route_waypoints[#route_waypoints]
-            if (not is_valid_latlon(start_lat, start_lon)) and first and is_valid_latlon(first.lat, first.lon) then
-                start_lat = first.lat
-                start_lon = first.lon
+            if first then
+                ensure_waypoint_latlon(first)
+                if is_valid_latlon(first.lat, first.lon) then
+                    start_lat = first.lat
+                    start_lon = first.lon
+                end
             end
-            if (not is_valid_latlon(end_lat, end_lon)) and last and is_valid_latlon(last.lat, last.lon) then
-                end_lat = last.lat
-                end_lon = last.lon
+            if last then
+                ensure_waypoint_latlon(last)
+                if is_valid_latlon(last.lat, last.lon) then
+                    end_lat = last.lat
+                    end_lon = last.lon
+                end
             end
         end
 
@@ -7598,7 +7604,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                     comp._fitBounds = route.bounds
                 end
                 comp._routeExtraSegments = nil
-                if route and route.path and data and comp._runwayName and comp._runwayName ~= "" then
+                if (not comp._drawFreehand) and route and route.path and data and comp._runwayName and comp._runwayName ~= "" then
                     local profile = compute_runway_landing_profile(data, comp._runwayName, runway_lat, runway_lon)
                     if profile then
                         local backtrack_node = nil
