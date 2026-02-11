@@ -4308,11 +4308,6 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
         end
 
         local show_edit_handles = comp._editRoute and comp._editHandles and #comp._editHandles > 0
-        if comp._startPoint and not show_edit_handles then
-            local sx, sy = project(comp._startPoint.east, comp._startPoint.north)
-            drawRectangle(sx - 3, sy - 3, 6, 6, startColor)
-            drawText(font, sx + 5, sy + 2, "S", mapFontSize, TEXT_ALIGN_LEFT, {0, 0, 0, 0.9})
-        end
         if show_edit_handles then
             for i, handle in ipairs(comp._editHandles) do
                 if handle and handle.east ~= nil and handle.north ~= nil then
@@ -4364,6 +4359,11 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                 local ex, ey = project(comp._endPoint.east, comp._endPoint.north)
                 drawRectangle(ex - 3, ey - 3, 6, 6, endColor)
                 drawText(font, ex + 5, ey + 2, "E", mapFontSize, TEXT_ALIGN_LEFT, {0, 0, 0, 0.9})
+            end
+            if comp._startPoint then
+                local sx, sy = project(comp._startPoint.east, comp._startPoint.north)
+                drawRectangle(sx - 3, sy - 3, 6, 6, startColor)
+                drawText(font, sx + 5, sy + 2, "S", mapFontSize, TEXT_ALIGN_LEFT, {0, 0, 0, 0.9})
             end
         end
 
