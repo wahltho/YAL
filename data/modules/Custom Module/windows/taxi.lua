@@ -4724,6 +4724,8 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                             if h and h.kind == "manual" then
                                 consider_hit(hit, hitRadiusManual)
                             end
+                        elseif hit.idx then
+                            consider_hit(hit, hitRadiusManual)
                         end
                     end
                 end
@@ -4746,6 +4748,13 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                 end
             end
             if best then
+                if is_right and best.idx and comp._routeWaypoints and comp._routeWaypoints[best.idx] then
+                    push_undo(comp, "manual-delete")
+                    table.remove(comp._routeWaypoints, best.idx)
+                    mark_edit_dirty(comp)
+                    log_taxi("TaxiEdit: waypoint deleted wp=" .. tostring(best.idx))
+                    return true
+                end
                 if best.handle_idx and comp._editHandles and comp._editHandles[best.handle_idx] then
                     local handle = comp._editHandles[best.handle_idx]
                     if is_right and handle then
@@ -4920,18 +4929,6 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                                 comp._routeWaypoints = {}
                             end
                             push_undo(comp, "draw-add")
-                            local insert_idx = nil
-                            if (not shift) and comp._route and comp._route.path and comp._route.data and #comp._route.path >= 2 then
-                                local seg_idx, seg_dist = find_nearest_segment(comp._route.data, comp._route.path, we, wn)
-                                if seg_idx and seg_dist and seg_dist <= freehandInsertMaxMeters then
-                                    insert_idx = seg_idx + 1
-                                end
-                            end
-                            if shift then
-                                insert_idx = #comp._routeWaypoints + 1
-                            else
-                                insert_idx = insert_idx or (#comp._routeWaypoints + 1)
-                            end
                             local wp = {
                                 lat = wlat,
                                 lon = wlon,
@@ -4939,28 +4936,16 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                                 north = wn,
                                 segment_idx = nil
                             }
-                            if insert_idx and insert_idx >= 1 and insert_idx <= (#comp._routeWaypoints + 1) then
-                                table.insert(comp._routeWaypoints, insert_idx, wp)
-                                log_taxi(
-                                    string.format(
-                                        "TaxiDraw: insert-waypoint-free idx=%d lat=%.6f lon=%.6f total=%d",
-                                        insert_idx,
-                                        wlat,
-                                        wlon,
-                                        #comp._routeWaypoints
-                                    )
+                            table.insert(comp._routeWaypoints, wp)
+                            log_taxi(
+                                string.format(
+                                    "TaxiDraw: add-waypoint-free idx=%d lat=%.6f lon=%.6f total=%d",
+                                    #comp._routeWaypoints,
+                                    wlat,
+                                    wlon,
+                                    #comp._routeWaypoints
                                 )
-                            else
-                                table.insert(comp._routeWaypoints, wp)
-                                log_taxi(
-                                    string.format(
-                                        "TaxiDraw: add-waypoint-free lat=%.6f lon=%.6f total=%d",
-                                        wlat,
-                                        wlon,
-                                        #comp._routeWaypoints
-                                    )
-                                )
-                            end
+                            )
                             mark_edit_dirty(comp)
                             return true
                         end
