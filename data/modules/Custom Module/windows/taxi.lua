@@ -60,6 +60,7 @@ local gateNoteMaxDistance = 80
 local gateStopDistance = 2
 local gateVoiceDistances = { 30, 10, 5 }
 local freehandInsertMaxMeters = 25
+local freehandInsertMaxPixels = 14
 
 local minZoom = 0.2
 local maxZoom = 5
@@ -4929,6 +4930,37 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                                 comp._routeWaypoints = {}
                             end
                             push_undo(comp, "draw-add")
+                            local insert_idx = nil
+                            if shift and comp._routeWaypoints and #comp._routeWaypoints >= 2 then
+                                local best_idx = nil
+                                local best_d2 = nil
+                                local max_d2 = freehandInsertMaxPixels * freehandInsertMaxPixels
+                                for i = 1, #comp._routeWaypoints - 1 do
+                                    local wp1 = comp._routeWaypoints[i]
+                                    local wp2 = comp._routeWaypoints[i + 1]
+                                    local e1, n1 = wp1 and wp1.east, wp1 and wp1.north
+                                    if (e1 == nil or n1 == nil) and wp1 and is_valid_latlon(wp1.lat, wp1.lon) then
+                                        e1, n1 = latlon_to_local(wp1.lat, wp1.lon)
+                                    end
+                                    local e2, n2 = wp2 and wp2.east, wp2 and wp2.north
+                                    if (e2 == nil or n2 == nil) and wp2 and is_valid_latlon(wp2.lat, wp2.lon) then
+                                        e2, n2 = latlon_to_local(wp2.lat, wp2.lon)
+                                    end
+                                    if e1 ~= nil and n1 ~= nil and e2 ~= nil and n2 ~= nil then
+                                        local x1, y1 = project(e1, n1)
+                                        local x2, y2 = project(e2, n2)
+                                        local px, py = project_point_to_segment(x, y, x1, y1, x2, y2)
+                                        local d2 = distance_sq(x, y, px, py)
+                                        if not best_d2 or d2 < best_d2 then
+                                            best_d2 = d2
+                                            best_idx = i
+                                        end
+                                    end
+                                end
+                                if best_idx and best_d2 and best_d2 <= max_d2 then
+                                    insert_idx = best_idx + 1
+                                end
+                            end
                             local wp = {
                                 lat = wlat,
                                 lon = wlon,
@@ -4936,16 +4968,29 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                                 north = wn,
                                 segment_idx = nil
                             }
-                            table.insert(comp._routeWaypoints, wp)
-                            log_taxi(
-                                string.format(
-                                    "TaxiDraw: add-waypoint-free idx=%d lat=%.6f lon=%.6f total=%d",
-                                    #comp._routeWaypoints,
-                                    wlat,
-                                    wlon,
-                                    #comp._routeWaypoints
+                            if insert_idx and insert_idx >= 1 and insert_idx <= (#comp._routeWaypoints + 1) then
+                                table.insert(comp._routeWaypoints, insert_idx, wp)
+                                log_taxi(
+                                    string.format(
+                                        "TaxiDraw: insert-waypoint-free idx=%d lat=%.6f lon=%.6f total=%d",
+                                        insert_idx,
+                                        wlat,
+                                        wlon,
+                                        #comp._routeWaypoints
+                                    )
                                 )
-                            )
+                            else
+                                table.insert(comp._routeWaypoints, wp)
+                                log_taxi(
+                                    string.format(
+                                        "TaxiDraw: add-waypoint-free idx=%d lat=%.6f lon=%.6f total=%d",
+                                        #comp._routeWaypoints,
+                                        wlat,
+                                        wlon,
+                                        #comp._routeWaypoints
+                                    )
+                                )
+                            end
                             mark_edit_dirty(comp)
                             return true
                         end
