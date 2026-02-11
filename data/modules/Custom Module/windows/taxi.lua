@@ -1359,6 +1359,26 @@ local function runway_corridor_half_width(profile)
     return half
 end
 
+local function is_on_runway_profile(profile, aircraft, along_pad, perp_pad)
+    if not profile or not aircraft or aircraft.east == nil or aircraft.north == nil then
+        return false
+    end
+    local along, perp = compute_along_perp(profile, aircraft)
+    if along == nil or perp == nil then
+        return false
+    end
+    local len = tonumber(profile.length) or 0
+    local pad = tonumber(along_pad) or 50
+    if along < -pad or along > (len + pad) then
+        return false
+    end
+    local half = runway_corridor_half_width(profile)
+    if perp_pad then
+        half = half + tonumber(perp_pad)
+    end
+    return perp <= half
+end
+
 local function compute_dep_threshold_state(comp, profile, runway_lat, runway_lon, aircraft)
     if not profile or not profile.threshold or not profile.axis then
         return nil
@@ -2768,8 +2788,13 @@ local function maybe_speak_guidance(comp, now, aircraft)
         and comp._runwayName and comp._runwayName ~= ""
         and (not comp._arrBacktrackRequired)
         and comp.yal and comp.yal.aircraftonrwy then
-        local offRunway = comp.yal.aircraftonrwy(def.ARRIVAL, 40, 20)
-        if (not offRunway) and (not comp._arrRunwayExitAnnounced) and path and #path >= 2 then
+        local offRunway = nil
+        if comp._arrProfile and aircraft then
+            offRunway = not is_on_runway_profile(comp._arrProfile, aircraft, 60, 5)
+        elseif comp.yal and comp.yal.aircraftonrwy then
+            offRunway = comp.yal.aircraftonrwy(def.ARRIVAL, 40, 20)
+        end
+        if (offRunway == false) and (not comp._arrRunwayExitAnnounced) and path and #path >= 2 then
             local exit_id = comp._arrExitId
             local exit_node = data and data.nodes and data.nodes[exit_id] or nil
             local profile = comp._arrProfile
@@ -5548,9 +5573,14 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
             end
         end
 
-        if mode == 1 and aircraft and comp.yal and comp.yal.aircraftonrwy and is_valid_latlon(runway_lat, runway_lon) then
-            local offRunway = comp.yal.aircraftonrwy(def.ARRIVAL, 40, 20)
-            if not offRunway then
+        if mode == 1 and aircraft and is_valid_latlon(runway_lat, runway_lon) then
+            local offRunway = nil
+            if landing_profile then
+                offRunway = not is_on_runway_profile(landing_profile, aircraft, 60, 5)
+            elseif comp.yal and comp.yal.aircraftonrwy then
+                offRunway = comp.yal.aircraftonrwy(def.ARRIVAL, 40, 20)
+            end
+            if offRunway == false then
                 local gs = yal and yal.groundspeed and (get(yal.groundspeed) or 0) or 0
                 if gs <= runwayRouteMaxSpeed then
                     allow_runway_route = true
@@ -6218,10 +6248,15 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
             return
         end
 
-        if comp.yal and comp.yal.aircraftonrwy and is_valid_latlon(runway_lat, runway_lon) then
+        if is_valid_latlon(runway_lat, runway_lon) then
             if mode == 1 then
-                local offRunway = comp.yal.aircraftonrwy(def.ARRIVAL, 40, 20)
-                if not offRunway and not allow_runway_route then
+                local offRunway = nil
+                if landing_profile and aircraft then
+                    offRunway = not is_on_runway_profile(landing_profile, aircraft, 60, 5)
+                elseif comp.yal and comp.yal.aircraftonrwy then
+                    offRunway = comp.yal.aircraftonrwy(def.ARRIVAL, 40, 20)
+                end
+                if offRunway == false and not allow_runway_route then
                     comp._route = nil
                     comp._routeErr = "on-runway"
                     comp._routeExtraSegments = nil
@@ -7137,7 +7172,11 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                         local backtrack_target = nil
                         if mode == 1 and backtrack_required and (not comp._arrOffRunwayHandled) then
                             backtrack_node = arr_exit_id or route.path[1]
-                            backtrack_target = profile.touchdown or profile.threshold
+                            if aircraft and is_on_runway_profile(profile, aircraft, 60, 5) then
+                                backtrack_target = { east = aircraft.east, north = aircraft.north }
+                            else
+                                backtrack_target = profile.touchdown or profile.threshold
+                            end
                         elseif mode == 0 and not allow_runway_route then
                             backtrack_node = comp._selectedDepEntryId or dep_holdshort_id or dep_end_node_id or route.end_id or route.path[#route.path]
                             backtrack_target = profile.threshold
@@ -7244,31 +7283,33 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                     skip_reroute = true
                 end
                 if onGround and tirespeed > 1 and not (mode == 0 and comp._depThresholdLatched) and (not skip_reroute) then
-                    if mode == 1 and comp.yal and comp.yal.aircraftonrwy and is_valid_latlon(runway_lat, runway_lon) then
-                        local offRunway = comp.yal.aircraftonrwy(def.ARRIVAL, 40, 20)
-                        if not offRunway then
-                            return
+                    local offRunway = nil
+                    if mode == 1 and is_valid_latlon(runway_lat, runway_lon) then
+                        if landing_profile and aircraft then
+                            offRunway = not is_on_runway_profile(landing_profile, aircraft, 60, 5)
+                        elseif comp.yal and comp.yal.aircraftonrwy then
+                            offRunway = comp.yal.aircraftonrwy(def.ARRIVAL, 40, 20)
                         end
                     end
-                    if mode == 1 and comp.yal and comp.yal.aircraftonrwy and is_valid_latlon(runway_lat, runway_lon) then
-                        local offRunway = comp.yal.aircraftonrwy(def.ARRIVAL, 40, 20)
-                        if offRunway and not comp._arrOffRunwayHandled then
-                            comp._arrOffRunwayHandled = true
-                            if not comp._rerouteOverride then
-                                comp._rerouteOverride = { lat = aircraft.lat, lon = aircraft.lon }
-                                if not arrival_grace_active(comp, now) then
-                                    comp._pendingRerouteEvent = true
-                                end
-                                comp._lastRerouteTime = now
-                                comp._lastStartKey = nil
-                                comp._route = nil
-                                comp._routeErr = nil
-                                comp._routeLabels = nil
-                                comp._routeLabelStats = nil
+                    if mode == 1 and offRunway == false then
+                        return
+                    end
+                    if mode == 1 and offRunway and not comp._arrOffRunwayHandled then
+                        comp._arrOffRunwayHandled = true
+                        if not comp._rerouteOverride then
+                            comp._rerouteOverride = { lat = aircraft.lat, lon = aircraft.lon }
+                            if not arrival_grace_active(comp, now) then
+                                comp._pendingRerouteEvent = true
                             end
-                            log_taxi("TaxiRoute: off-runway reroute latch")
-                            return
+                            comp._lastRerouteTime = now
+                            comp._lastStartKey = nil
+                            comp._route = nil
+                            comp._routeErr = nil
+                            comp._routeLabels = nil
+                            comp._routeLabelStats = nil
                         end
+                        log_taxi("TaxiRoute: off-runway reroute latch")
+                        return
                     end
                     local routeData = comp._route.data
                     local dist = distance_to_route(routeData, comp._route.path, aircraft.east, aircraft.north)
