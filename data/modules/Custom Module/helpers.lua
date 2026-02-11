@@ -9472,21 +9472,28 @@ function P.applyDefaultViewFromQV0()
         P.logInfoTS("Default view update blocked (QuickViews CG update in progress)")
         return
     end
-    if P.defaultViewUpdateJob then
-        P.logInfoTS("Default view update already in progress")
-        return
-    end
     local variant, v_err = get_current_zibo_variant()
     if not variant then
         P.logInfoTS("Default view update: " .. tostring(v_err))
         return
     end
-    P.defaultViewUpdateJob = {
-        variant = variant,
-        stage = DEFAULT_VIEW_STAGE_NORMALIZE,
-        snapshot = capture_pilots_head()
-    }
-    P.logInfoTS("Default view update queued (" .. variant.name .. ")")
+    local base = get_zibo_base_path()
+    local qv, qv_err = read_qv0(base .. variant.prefs)
+    if not qv then
+        P.logInfoTS("Default view update failed: " .. tostring(qv_err))
+        return
+    end
+    local ok, err = apply_default_view_from_qv0_data(base .. variant.acf, qv)
+    if ok then
+        if err == "no-change" then
+            P.logInfoTS("Default view already matches QV0 (" .. variant.name .. ")")
+        else
+            P.logInfoTS("Default view updated from QV0 (" .. variant.name .. ")")
+            P.logInfoTS("Default view update: ACF updated (reload not performed)")
+        end
+    else
+        P.logInfoTS("Default view update failed (" .. variant.name .. "): " .. tostring(err))
+    end
 end
 
 function P.stepDefaultViewUpdate()
