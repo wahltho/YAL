@@ -6702,6 +6702,10 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
         if route_waypoints and #route_waypoints > 0 then
             local drop_first = waypoint_matches_override(route_waypoints[1], comp._editStartOverride)
             local drop_last = waypoint_matches_override(route_waypoints[#route_waypoints], comp._editEndOverride)
+            if comp._drawFreehand then
+                drop_first = false
+                drop_last = false
+            end
             if drop_first or drop_last then
                 local trimmed = {}
                 local s = drop_first and 2 or 1
