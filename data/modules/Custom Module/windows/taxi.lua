@@ -3195,7 +3195,7 @@ local function maybe_speak_guidance(comp, now, aircraft)
     local guidance_dist = guidance_distance_for_speed(tirespeed)
     local would_turn = (angle >= guidanceTurnAngle) or leaving_runway or entering_runway or force_turn
     if would_turn then
-        guidance_dist = math.min(guidanceMaxDistance, guidance_dist * 1.6)
+        guidance_dist = math.min(guidanceMaxDistance, guidance_dist * 1.9)
     end
     if dist_to_node > guidance_dist then
         diag("too-far", string.format("dist=%.1f", dist_to_node))
