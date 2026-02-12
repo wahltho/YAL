@@ -3364,10 +3364,6 @@ local function maybe_speak_guidance(comp, now, aircraft)
         diag("non-forward-speed")
         return
     end
-    if tirespeed < guidanceMinSpeed then
-        diag("too-slow")
-        return
-    end
     local seg_idx = find_nearest_segment(data, path, aircraft.east, aircraft.north)
     if not seg_idx then
         diag("no-segment", "seg=nil path=" .. tostring(#path))
@@ -3488,6 +3484,12 @@ local function maybe_speak_guidance(comp, now, aircraft)
     if dist_to_node > guidance_dist then
         diag("too-far", string.format("dist=%.1f", dist_to_node))
         return
+    end
+    if tirespeed < guidanceMinSpeed then
+        if dist_to_node > (guidance_dist * 0.5) then
+            diag("too-slow", string.format("dist=%.1f", dist_to_node))
+            return
+        end
     end
     local last_time = comp._lastGuidanceTime or 0
     local label_key = next_info.kind .. ":" .. next_info.text
