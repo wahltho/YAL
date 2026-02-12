@@ -1904,11 +1904,24 @@ local function insert_waypoint_sorted(route_waypoints, wp)
     end
     local insert_at = #route_waypoints + 1
     if wp.segment_idx then
+        local has_segment = false
         for idx, existing in ipairs(route_waypoints) do
-            if existing.segment_idx and existing.segment_idx > wp.segment_idx then
-                insert_at = idx
-                break
+            if existing.segment_idx ~= nil then
+                has_segment = true
+                if existing.segment_idx > wp.segment_idx then
+                    insert_at = idx
+                    break
+                end
             end
+        end
+        if not has_segment then
+            local fallback_idx = wp.segment_idx + 1
+            if fallback_idx < 1 then
+                fallback_idx = 1
+            elseif fallback_idx > (#route_waypoints + 1) then
+                fallback_idx = #route_waypoints + 1
+            end
+            insert_at = fallback_idx
         end
     end
     table.insert(route_waypoints, insert_at, wp)
@@ -6255,9 +6268,10 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
         end
 
         local hasRunwayName = (runway_name ~= nil and runway_name ~= "")
+        local hasRunwayLatLon = is_valid_latlon(runway_lat, runway_lon)
         local hasArrivalRunway = (mode == 1 and hasRunwayName) or false
         local freehand_active = comp._drawFreehand and comp._routeWaypoints and (#comp._routeWaypoints > 0)
-        local canRoute = data and data.can_route and (mode == 1 or hasRunwayName or freehand_active) or false
+        local canRoute = data and data.can_route and (mode == 1 or hasRunwayName or freehand_active or (mode == 0 and hasRunwayLatLon)) or false
         if not canRoute and not freehand_active then
             helpers.logInfoTS(
                 "TaxiDiag: canRoute=false icao=" .. tostring(icao) ..
@@ -7421,6 +7435,36 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                         allow_far_ramp = true,
                         disallow_runway_edges = true,
                         avoid_runway_nodes = true
+                    }
+                    if not has_end_override then
+                        if allow_runway_route and dep_runway_end_id and data.nodes and data.nodes[dep_runway_end_id] then
+                            opts.end_node_id = dep_runway_end_id
+                        elseif comp._selectedDepEntryId and data.nodes and data.nodes[comp._selectedDepEntryId] then
+                            opts.end_node_id = comp._selectedDepEntryId
+                        elseif dep_holdshort_id and data.nodes and data.nodes[dep_holdshort_id] then
+                            opts.end_node_id = dep_holdshort_id
+                        end
+                    end
+                    set_start_ramp_fallback(opts)
+                    apply_projection(opts)
+                    route, rerr = route_with_waypoints(
+                        icao,
+                        start_lat,
+                        start_lon,
+                        end_lat,
+                        end_lon,
+                        opts,
+                        proj_waypoint_ids,
+                        route_waypoints
+                    )
+                end
+                if (not route) and rerr == "no-path" and mode == 0 then
+                    opts = {
+                        ignore_oneway = true,
+                        allow_far_ramp = true,
+                        disallow_runway_edges = false,
+                        avoid_runway_nodes = false,
+                        runway_penalty = 500
                     }
                     if not has_end_override then
                         if allow_runway_route and dep_runway_end_id and data.nodes and data.nodes[dep_runway_end_id] then
