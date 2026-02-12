@@ -506,6 +506,7 @@ function P.initDataref()
     P.autobrakedisarm = globalProperty("laminar/B738/autobrake/autobrake_disarm")
 
     P.fmsflightphase = globalProperty("laminar/B738/FMS/flight_phase")
+    P.tobiiEyetracker = globalProperty("sim/graphics/view/eq_tobii_eyetracker")
 
     P.fmctransalt = globalProperty("laminar/B738/FMS/fmc_trans_alt")
     P.fmctranslvl = globalProperty("laminar/B738/FMS/fmc_trans_lvl")
@@ -1318,8 +1319,20 @@ function P.setview(view, normalizeFirst)
     normalizeFirst = normalizeFirst or false
 
     local commandIssued = false
+    local viewChangesOn = (P.configvalues[def.CONFIGVIEWCHANGES] == def.ON)
+    if viewChangesOn and P.tobiiEyetracker and isProperty(P.tobiiEyetracker) then
+        if get(P.tobiiEyetracker) == 1 then
+            if not P.tobiiViewSuppressLogged then
+                helpers.logInfoTS("View change skipped: Tobii active")
+                P.tobiiViewSuppressLogged = true
+            end
+            return false
+        elseif P.tobiiViewSuppressLogged then
+            P.tobiiViewSuppressLogged = nil
+        end
+    end
 
-    if ((P.configvalues[def.CONFIGVIEWCHANGES] == def.ON) and ((get(P.tirespeed) < 1) or (get(P.airgroundsensor) == def.OFF))) then
+    if (viewChangesOn and ((get(P.tirespeed) < 1) or (get(P.airgroundsensor) == def.OFF))) then
         if ((view == nil) or (type(view) ~= "number") or (view ~= math.floor(view))) then
             sasl.logDebug("Invalid input to setview")
             return false
