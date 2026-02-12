@@ -2445,7 +2445,7 @@ function M.fillProcedureTable()
                         if get(P.aphdgselstat) ~= def.OFF then
                             return "Heading Select checked Armed"
                         end
-                        return "Arm L NAV or use Heading Select"
+                        return "Arm L NAV or Heading Select"
                     end,
                     confirm = function()
                         if get(P.aplnavstat) == def.ON then
