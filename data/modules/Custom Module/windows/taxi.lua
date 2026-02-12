@@ -453,10 +453,16 @@ end
 local function align_taxi_data_projection(data)
     local ref, ref_east, ref_north = find_projection_ref(data)
     if not ref then
+        if helpers and helpers.logInfoTS then
+            helpers.logInfoTS("TaxiProj: skip no-ref")
+        end
         return false, 0, 0
     end
     local cur_east, cur_north = latlon_to_local(ref.lat, ref.lon)
     if cur_east == nil or cur_north == nil then
+        if helpers and helpers.logInfoTS then
+            helpers.logInfoTS("TaxiProj: skip ref->local failed")
+        end
         return false, 0, 0
     end
     local dx = cur_east - (ref_east or 0)
@@ -464,6 +470,9 @@ local function align_taxi_data_projection(data)
     local ax = math.abs(dx)
     local ay = math.abs(dy)
     if ax < 1 and ay < 1 then
+        if helpers and helpers.logInfoTS then
+            helpers.logInfoTS(string.format("TaxiProj: skip tiny shift dx=%.2f dy=%.2f", dx, dy))
+        end
         return false, dx, dy
     end
     if ax > projectionShiftThreshold or ay > projectionShiftThreshold then
@@ -497,16 +506,16 @@ local function align_taxi_data_projection(data)
                 allow = true
             end
         end
-        if not allow then
-            if helpers and helpers.logInfoTS then
-                helpers.logInfoTS(
-                    string.format(
-                        "TaxiProj: skip large shift dx=%.1f dy=%.1f d2_before=%s d2_after=%s",
-                        dx,
-                        dy,
-                        d2_before ~= nil and string.format("%.1f", d2_before) or "nil",
-                        d2_after ~= nil and string.format("%.1f", d2_after) or "nil"
-                    )
+            if not allow then
+                if helpers and helpers.logInfoTS then
+                    helpers.logInfoTS(
+                        string.format(
+                            "TaxiProj: skip large shift reason=large dx=%.1f dy=%.1f d2_before=%s d2_after=%s",
+                            dx,
+                            dy,
+                            d2_before ~= nil and string.format("%.1f", d2_before) or "nil",
+                            d2_after ~= nil and string.format("%.1f", d2_after) or "nil"
+                        )
                 )
             end
             return false, dx, dy
@@ -1928,6 +1937,25 @@ local function insert_waypoint_sorted(route_waypoints, wp)
     return insert_at
 end
 
+local function log_draw_endpoints(comp, tag)
+    if not comp or not comp._routeWaypoints or #comp._routeWaypoints == 0 then
+        return
+    end
+    local first = comp._routeWaypoints[1]
+    local last = comp._routeWaypoints[#comp._routeWaypoints]
+    log_taxi(
+        string.format(
+            "TaxiDraw: endpoints %s first=%s/%s last=%s/%s count=%d",
+            tag or "",
+            tostring(first and first.lat),
+            tostring(first and first.lon),
+            tostring(last and last.lat),
+            tostring(last and last.lon),
+            #comp._routeWaypoints
+        )
+    )
+end
+
 local function build_edit_handles(comp, start_lat, start_lon, end_lat, end_lon)
     comp._editHandles = {}
     local handles = comp._editHandles
@@ -2970,6 +2998,24 @@ local function maybe_speak_guidance(comp, now, aircraft)
         if extra and extra ~= "" then
             msg = msg .. " | " .. tostring(extra)
         end
+        if groundspeed ~= nil or tirespeed ~= nil then
+            msg = msg .. " | gs=" .. tostring(groundspeed) .. " ts=" .. tostring(tirespeed)
+        end
+        local route = comp._route
+        local pdata = (route and route.data) or comp._data
+        local ppath = route and route.path or nil
+        if aircraft and aircraft.east ~= nil and aircraft.north ~= nil and pdata and ppath and #ppath >= 2 then
+            local seg = find_nearest_segment(pdata, ppath, aircraft.east, aircraft.north)
+            if seg and (seg + 1) <= #ppath and pdata.nodes then
+                local n2 = pdata.nodes[ppath[seg + 1]]
+                if n2 and n2.east ~= nil and n2.north ~= nil then
+                    local dx = n2.east - aircraft.east
+                    local dy = n2.north - aircraft.north
+                    local dist = math.sqrt(dx * dx + dy * dy)
+                    msg = msg .. " dist=" .. string.format("%.1f", dist)
+                end
+            end
+        end
         helpers.logInfoTS(msg)
     end
     local voice_enabled = auto_voice and is_voice_enabled()
@@ -3313,11 +3359,11 @@ local function maybe_speak_guidance(comp, now, aircraft)
         end
     end
     if tirespeed <= 0 then
-        diag("non-forward-speed", "ts=" .. tostring(tirespeed))
+        diag("non-forward-speed")
         return
     end
     if tirespeed < guidanceMinSpeed then
-        diag("too-slow", "ts=" .. tostring(tirespeed))
+        diag("too-slow")
         return
     end
     local seg_idx = find_nearest_segment(data, path, aircraft.east, aircraft.north)
@@ -5007,6 +5053,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                                     table.remove(comp._routeWaypoints, #comp._routeWaypoints)
                                 end
                                 mark_edit_dirty(comp)
+                                log_draw_endpoints(comp, "endpoint-delete")
                                 log_taxi("TaxiEdit: endpoint deleted kind=" .. tostring(handle.kind))
                             end
                             return true
@@ -5152,18 +5199,18 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                         return t.centerEast + dx, t.centerNorth + dy
                     end
                 if comp._drawRoute and is_left then
-                    local function add_waypoint_freehand()
-                        local we, wn = screen_to_world(x, y)
-                        local wlat, wlon = local_to_latlon(we, wn)
-                        if is_valid_latlon(wlat, wlon) then
-                            if not comp._routeWaypoints then
-                                comp._routeWaypoints = {}
-                            end
-                            push_undo(comp, "draw-add")
+                        local function add_waypoint_freehand()
+                            local we, wn = screen_to_world(x, y)
+                            local wlat, wlon = local_to_latlon(we, wn)
+                            if is_valid_latlon(wlat, wlon) then
+                                if not comp._routeWaypoints then
+                                    comp._routeWaypoints = {}
+                                end
+                                push_undo(comp, "draw-add")
                             local insert_idx = nil
+                            local best_idx = nil
+                            local best_d2 = nil
                             if shift and comp._routeWaypoints and #comp._routeWaypoints >= 2 then
-                                local best_idx = nil
-                                local best_d2 = nil
                                 local max_d2 = freehandInsertMaxPixels * freehandInsertMaxPixels
                                 for i = 1, #comp._routeWaypoints - 1 do
                                     local wp1 = comp._routeWaypoints[i]
@@ -5202,8 +5249,10 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                                 table.insert(comp._routeWaypoints, insert_idx, wp)
                                 log_taxi(
                                     string.format(
-                                        "TaxiDraw: insert-waypoint-free idx=%d lat=%.6f lon=%.6f total=%d",
+                                        "TaxiDraw: insert-waypoint-free idx=%d after=%s d=%.1fpx lat=%.6f lon=%.6f total=%d",
                                         insert_idx,
+                                        tostring(best_idx),
+                                        best_d2 and math.sqrt(best_d2) or -1,
                                         wlat,
                                         wlon,
                                         #comp._routeWaypoints
@@ -5222,6 +5271,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                                 )
                             end
                             mark_edit_dirty(comp)
+                            log_draw_endpoints(comp, "freehand")
                             return true
                         end
                         return false
@@ -5245,6 +5295,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                                         segment_idx = nil
                                     })
                                     mark_edit_dirty(comp)
+                                    log_draw_endpoints(comp, "edge")
                                     log_taxi(
                                         string.format(
                                             "TaxiDraw: add-waypoint lat=%.6f lon=%.6f total=%d",
@@ -5304,10 +5355,12 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                                             segment_idx = nil
                                         })
                                         mark_edit_dirty(comp)
+                                        log_draw_endpoints(comp, "route")
                                         log_taxi(
                                             string.format(
-                                                "TaxiDraw: insert-waypoint seg=%s lat=%.6f lon=%.6f total=%d",
+                                                "TaxiDraw: insert-waypoint seg=%s d=%.1fpx lat=%.6f lon=%.6f total=%d",
                                                 tostring(best_idx),
+                                                best_d2 and math.sqrt(best_d2) or -1,
                                                 wlat,
                                                 wlon,
                                                 #comp._routeWaypoints
@@ -5352,7 +5405,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                                         comp._routeWaypoints = {}
                                     end
                                     push_undo(comp, "edit-insert")
-                                    insert_waypoint_sorted(comp._routeWaypoints, {
+                                    local new_idx = insert_waypoint_sorted(comp._routeWaypoints, {
                                         lat = wlat,
                                         lon = wlon,
                                         east = we,
@@ -5362,8 +5415,10 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                                     mark_edit_dirty(comp)
                                     log_taxi(
                                         string.format(
-                                            "TaxiEdit: insert-waypoint seg=%s lat=%.6f lon=%.6f total=%d",
+                                            "TaxiEdit: insert-waypoint seg=%s idx=%s d=%.1fpx lat=%.6f lon=%.6f total=%d",
                                             tostring(best_idx),
+                                            tostring(new_idx),
+                                            best_d2 and math.sqrt(best_d2) or -1,
                                             wlat,
                                             wlon,
                                             #comp._routeWaypoints
@@ -7901,6 +7956,19 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                     end
                 elseif rerr then
                     helpers.logInfoTS("Taxi: route error " .. tostring(icao) .. " mode=" .. tostring(mode) .. " err=" .. tostring(rerr))
+                    helpers.logInfoTS(
+                        string.format(
+                            "TaxiRoute: fail-details err=%s start=%s end=%s allow_runway=%s disallow_runway_edges=%s ignore_oneway=%s avoid_runway_nodes=%s runway_penalty=%s",
+                            tostring(rerr),
+                            tostring((opts and opts.start_node_id) or start_node_id),
+                            tostring((opts and opts.end_node_id) or end_node_id),
+                            tostring(allow_runway_route),
+                            tostring(opts and opts.disallow_runway_edges),
+                            tostring(opts and opts.ignore_oneway),
+                            tostring(opts and opts.avoid_runway_nodes),
+                            tostring(opts and opts.runway_penalty)
+                        )
+                    )
                     log_taxi(
                         string.format(
                             "TaxiRoute: error=%s edit=%s draw=%s",
@@ -7957,6 +8025,18 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                     " canRoute=" .. tostring(canRoute) ..
                     " start_valid=" .. tostring(is_valid_latlon(start_lat, start_lon)) ..
                     " end_valid=" .. tostring(is_valid_latlon(end_lat, end_lon))
+                )
+                helpers.logInfoTS(
+                    string.format(
+                        "TaxiRoute: skip-details start=%s end=%s allow_runway=%s disallow_runway_edges=%s ignore_oneway=%s avoid_runway_nodes=%s runway_penalty=%s",
+                        tostring(start_node_id),
+                        tostring(end_node_id),
+                        tostring(allow_runway_route),
+                        tostring((mode == 0 and (not allow_runway_route)) or (mode == 1 and (not allow_runway_route) and (not backtrack_required))),
+                        tostring(false),
+                        tostring(mode == 0 and (not allow_runway_route) or nil),
+                        tostring((allow_runway_route and 1) or 500)
+                    )
                 )
                 comp._route = nil
                 comp._routeErr = canRoute and "route-endpoints-missing" or "no-routes"
