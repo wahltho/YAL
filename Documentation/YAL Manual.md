@@ -1,6 +1,6 @@
 # Yet Another Linda (YAL) for Zibo Mod - User Manual
-Version 4.3 (based on features as of October 2025)
-(C) WAHLTHO 2023-2025
+Version 4.6b4 (based on features as of February 2026)
+(C) WAHLTHO 2023-2026
 VIRTUAL COPILOT PLUGIN FOR ZIBO MOD 738
 
 ## 1. Installation & Requirements
@@ -56,6 +56,7 @@ These commands can be assigned to keyboard keys or joystick buttons in the X-Pla
 - Toggle Auto Functions: A master switch to enable or disable all automatic functions of YAL.
 - Toggle Voice Readback: Enables or disables voice confirmations for actions.
 - Toggle Voice Advice Only: Switches YAL between executing actions automatically and only giving verbal advice.
+- Toggle View Changes: Enables/disables automatic cockpit view changes during procedures.
 
 ## 3. Procedures
 ### Manually Triggered Procedures
@@ -77,7 +78,7 @@ Trigger: Taxi lights are switched ON and both engines are running.
 Actions: Sets probe/window heat, starters to CONT, FDs on, etc.
 
 #### Before Takeoff Procedure
-Trigger: Aircraft is on the runway, aligned with the correct heading, speed is zero, AND the transponder is set to TA/RA.
+Trigger: Aircraft is on the runway and aligned; speed is zero (TA/RA is no longer required).
 Actions: Sets position lights to STROBE, landing lights ON, autobrake to RTO.
 
 #### After Takeoff Procedure
@@ -116,6 +117,9 @@ Actions: Configures the aircraft for taxiing to the gate (lights, transponder, f
 Trigger: Parking brake is set at the gate.
 Actions: Turns off taxi lights, seatbelt signs, and prepares for engine shutdown.
 
+#### EEC/FADEC Check (Cockpit Init + Engine Start)
+If EEC/FADEC is OFF while engines are running, YAL prompts a check (voice‑only unless Auto Functions are enabled). In Auto mode YAL sets both EECs ON. If EECs are already ON, the step is skipped (no delay).
+
 ## 4. Settings
 The settings window allows detailed customization of all automatic features.
 
@@ -123,6 +127,9 @@ The settings window allows detailed customization of all automatic features.
 - Use Ground Power...: If available, the plugin will use ground power instead of starting the APU during the Cold & Dark startup.
 - Command Voice Readback: Provides voice announcements for most actions performed by the plugin.
 - Automatic Functions: A master switch for all automatic procedures and background tasks.
+- FMC Automation: Allows YAL to automate FMC page changes and FMC data entries.
+- Heading Sync Interval: Repeats MCP heading sync at the given interval (seconds). Set 0 to disable.
+- Hoppie ID: Sets the Hoppie logon used by the in‑sim Hoppie integration.
 - Sim exit after Pause at TOD: If the sim is paused at the Top of Descent, it will automatically save and quit after the specified number of seconds (9999 to disable).
 - Override Wake Effects: Suppresses wake turbulence effects from other aircraft.
 - Automatic Anti Icing: Automatically enables wing and engine anti-ice when icing is detected.
@@ -131,6 +138,8 @@ The settings window allows detailed customization of all automatic features.
 - Automatic Baro Settings: Sets the altimeter to Standard or local QNH when passing transition altitude/level.
 - Automatic Fueling (requires YANSH): When Automatic Functions are enabled, this automatically refuels the aircraft to match the Simbrief flight plan's ramp fuel during the Cockpit Initialization Procedure.
 - View Changes during Procedures: Allows YAL to automatically switch to relevant cockpit views during procedures.
+- Auto Taxi Guidance (Voice): Enables spoken taxi callouts.
+- Auto Taxi Guidance (Visual): Enables the taxi guidance popup (independent of the taxi map window).
 
 ### Customising
 - Set Speed Restriction 250: Automatically sets the FMC speed restriction below 10,000 ft to 250 knots.
@@ -142,6 +151,7 @@ The settings window allows detailed customization of all automatic features.
 
 ### Views
 - Assigns the corresponding X-Plane Quick Look or X-Camera view numbers for automatic view changes.
+- Apply QV0 to Default View: Updates the aircraft default view to match Quick View 0.
 
 ### Instrument Panel Brightness
 - Allows you to pre-configure all panel and display brightness levels, which will be applied during the Cockpit Initialization procedure.
@@ -195,8 +205,19 @@ Typical callouts include:
 - Runway crossing warnings
 - Turn left/right on RWY ...
 - Taxi complete
+- Gate proximity callouts (e.g., "Gate in 30 meters", "Gate in 10 meters", "Stop")
 
 ### Tips and Notes
 - While EDIT or DRAW is active, guidance may be suppressed to avoid conflicting callouts. Disable EDIT/DRAW to resume guidance.
 - If the map is blank after reloads, ensure a valid DEP/DES ICAO is set or use the nearest airport on the ground.
 - For arrival planning in-flight, use DRAW or EDIT to build a custom route before landing.
+- When Tobii eye tracking is active, view changes are suppressed to avoid view‑control conflicts.
+
+## 6. Navigation & Weather Enhancements (since 4.3)
+- Approach course handling: consistent true vs mag logic, with RNAV/LPV/GLS prioritizing FMS final‑leg course; LDA/LOC/IGS approaches supported.
+- METAR parsing upgrades: SLP and T‑group temps, KM and mixed SM visibility, structured RVR; speech uses active‑runway RVR and respects QNH units.
+
+## 7. Taxi Guidance Enhancements (since 4.3)
+- Runway‑exit callouts include left/right ("Leave RWY ... to left/right") and runway‑crossing warnings.
+- Departure runway entry callouts ("Turn left/right on departure RWY ...") with queueing so they are not overwritten by "Taxi complete".
+- Freehand routes can infer taxiway labels from nearby navdata edges for guidance.
