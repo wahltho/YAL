@@ -802,7 +802,7 @@ local function find_heading_edge_projection(data, east, north, heading_deg, opts
                     ok = true
                 else
                     local inv_len = 1 / math.sqrt(v2)
-                    local dot = math.abs((vx * dir_e + vy * dir_n) * inv_len)
+                    local dot = (vx * dir_e + vy * dir_n) * inv_len
                     ok = (dot >= cos_tol)
                 end
                 if ok and (not best or d2 < best.d2) then
@@ -7396,6 +7396,13 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                     return false
                 end
 
+                local function ramp_node_ok(ramp)
+                    if not ramp or not ramp.node_id then
+                        return false
+                    end
+                    return node_has_non_runway_edge(ramp.node_id)
+                end
+
                 local function set_start_ramp_fallback(opts)
                     if start_ramp and start_ramp.node_id and node_has_non_runway_edge(start_ramp.node_id) then
                         opts._fallback_start_node_id = start_ramp.node_id
@@ -7416,6 +7423,11 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                     opts.runway_penalty = allow_runway_route and 1 or 500
                     opts.disallow_runway_edges = not allow_runway_route
                     opts.avoid_runway_nodes = not allow_runway_route
+                    if not has_start_override and ramp_node_ok(start_ramp) then
+                        opts.start_node_id = start_ramp.node_id
+                        opts.allow_far_ramp = true
+                        log_taxi("TaxiRoute: start from ramp node id=" .. tostring(start_ramp.node_id))
+                    end
                     if not has_end_override then
                         if allow_runway_route and dep_runway_end_id and data.nodes and data.nodes[dep_runway_end_id] then
                             opts.end_node_id = dep_runway_end_id
@@ -7439,6 +7451,11 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                     end
                     opts.disallow_runway_edges = (not allow_runway_route) and (not backtrack_required)
                     opts.runway_penalty = allow_runway_route and 1 or 500
+                    if not has_end_override and ramp_node_ok(end_ramp) then
+                        opts.end_node_id = end_ramp.node_id
+                        opts.allow_far_ramp = true
+                        log_taxi("TaxiRoute: end at ramp node id=" .. tostring(end_ramp.node_id))
+                    end
                     set_end_ramp_fallback(opts)
                 end
                 if not opts.start_node_id and start_node_id and data.nodes and data.nodes[start_node_id] then

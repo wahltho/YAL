@@ -6254,7 +6254,7 @@ local function parse_taxi_data(entry)
                                 ok = true
                             else
                                 local inv_len = 1 / math.sqrt(v2)
-                                local dot = math.abs((vx * dir_e + vy * dir_n) * inv_len)
+                                local dot = (vx * dir_e + vy * dir_n) * inv_len
                                 ok = (dot >= heading_cos)
                             end
                             if ok and (not best_heading or d2 < best_heading.d2) then
