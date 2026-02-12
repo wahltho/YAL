@@ -22,7 +22,6 @@ local guidanceFirstTurnMinMeters = 8
 local guidanceSameTaxiwayTurnAngle = 25
 local guidanceTurnDistance = 90
 local guidanceTurnAngle = 15
-local freehandFirstGuidanceMaxDistance = 600
 local freehandLabelMaxMeters = 20
 local freehandLabelMaxAngle = 35
 local freehandRunwayLabelMaxAngle = 20
@@ -60,10 +59,7 @@ local autoGateSwitchSpeed = 5
 local autoGateSwitchHoldSec = 2.0
 local autoGateSwitchCooldownSec = 10.0
 local parkingBrakeCompleteDist = 35
-local gateNoteMaxDistance = 80
 local gateStopDistance = 2
-local gateVoiceDistances = { 30, 10, 5 }
-local freehandInsertMaxMeters = 25
 local freehandInsertMaxPixels = 14
 
 local minZoom = 0.2
@@ -2711,7 +2707,7 @@ local function gate_note_text(dist)
     if dist <= gateStopDistance then
         return "Stop"
     end
-    if dist <= gateNoteMaxDistance then
+    if dist <= 80 then
         return string.format("Gate in %d m", math.floor(dist + 0.5))
     end
     return nil
@@ -2741,7 +2737,8 @@ local function maybe_gate_voice_callouts(comp, dist, allow_voice)
         return
     end
     local stage = comp._gateCalloutStage or 0
-    for i, threshold in ipairs(gateVoiceDistances) do
+    local thresholds = { 30, 10, 5 }
+    for i, threshold in ipairs(thresholds) do
         if dist <= threshold and stage < i then
             speak_guidance_text(comp, "Gate in " .. tostring(threshold) .. " meters")
             comp._gateCalloutStage = i
@@ -3319,7 +3316,7 @@ local function maybe_speak_guidance(comp, now, aircraft)
         guidance_dist = math.min(guidanceMaxDistance, guidance_dist * 1.9)
     end
     if is_freehand and first_guidance then
-        guidance_dist = math.max(guidance_dist, freehandFirstGuidanceMaxDistance)
+        guidance_dist = math.max(guidance_dist, 600)
     end
     if dist_to_node > guidance_dist then
         diag("too-far", string.format("dist=%.1f", dist_to_node))
