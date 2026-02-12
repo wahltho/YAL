@@ -3263,8 +3263,56 @@ local function maybe_speak_guidance(comp, now, aircraft)
         return
     end
     local seg_idx = find_nearest_segment(data, path, aircraft.east, aircraft.north)
-    if not seg_idx or seg_idx >= (#path - 1) then
-        diag("no-segment", "seg=" .. tostring(seg_idx or "nil") .. " path=" .. tostring(#path))
+    if not seg_idx then
+        diag("no-segment", "seg=nil path=" .. tostring(#path))
+        return
+    end
+    if seg_idx >= (#path - 1) then
+        local n1 = data.nodes[path[seg_idx]]
+        local n2 = data.nodes[path[seg_idx + 1]]
+        if not (n1 and n2) then
+            diag("segment-nodes-missing")
+            return
+        end
+        local curr_raw_label = get_edge_label(data, path[seg_idx], path[seg_idx + 1])
+        local curr_label = normalize_taxiway_label(curr_raw_label)
+        if (curr_raw_label and is_runway_label(curr_raw_label)) or curr_label ~= "" then
+            local label_key = "last:" .. tostring(curr_label ~= "" and curr_label or curr_raw_label or "")
+            local last_time = comp._lastGuidanceTime or 0
+            if comp._lastGuidanceNodeId == path[seg_idx + 1]
+                and comp._lastGuidanceLabel == label_key
+                and (now - last_time) < guidanceCooldown then
+                diag("cooldown")
+                return
+            end
+            local text = ""
+            local label = ""
+            local kind = "taxiway"
+            if curr_raw_label and is_runway_label(curr_raw_label) then
+                local rwy_phrase = runway_label_voice(curr_raw_label)
+                text = "Continue straight on " .. rwy_phrase
+                label = build_visual_label("runway", normalize_runway_name(curr_raw_label))
+                kind = "runway"
+            elseif curr_label ~= "" then
+                text = "Continue straight on Taxiway " .. curr_label
+                label = build_visual_label("taxiway", curr_label)
+            end
+            if text ~= "" then
+                emit({
+                    text = text,
+                    direction = "straight",
+                    action = "CONTINUE",
+                    label = label,
+                    kind = kind,
+                    targetSegIdx = seg_idx + 1
+                })
+                comp._lastGuidanceNodeId = path[seg_idx + 1]
+                comp._lastGuidanceLabel = label_key
+                comp._lastGuidanceTime = now
+            end
+            return
+        end
+        diag("no-segment", "seg=" .. tostring(seg_idx) .. " path=" .. tostring(#path))
         return
     end
     local n1 = data.nodes[path[seg_idx]]
@@ -6898,7 +6946,12 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
         elseif comp._route == nil then
             recompute_reason = "route-nil"
         elseif comp._lastStartKey ~= start_key or comp._lastEndKey ~= end_key then
-            recompute_reason = "start-end-change"
+            if not (mode == 0 and comp._depThresholdLatched and comp._route and (not in_edit) and (not comp._drawRoute)) then
+                recompute_reason = "start-end-change"
+            else
+                comp._lastStartKey = start_key
+                comp._lastEndKey = end_key
+            end
         end
         if recompute_reason then
             local recompute_key = string.format(
@@ -7886,6 +7939,9 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                 local tirespeed = yal and yal.tirespeed and (get(yal.tirespeed) or 0) or 0
                 local skip_reroute = false
                 if comp._drawFreehand and comp._routeWaypoints and #comp._routeWaypoints > 0 then
+                    skip_reroute = true
+                end
+                if mode == 0 and (comp._depThresholdReached or comp._depThresholdLatched) then
                     skip_reroute = true
                 end
                 if onGround and tirespeed > 1 and not (mode == 0 and comp._depThresholdLatched) and (not skip_reroute) then
