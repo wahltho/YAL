@@ -14,6 +14,55 @@ P.menu_main = sasl.createMenu("", PLUGINS_MENU_ID, menu_master)
 --------------------------------------------------------------------------------------------------------------
 -- Flags & Global Variables
 
+local function anyProcedureRunning()
+    if not P.loopStateTables then
+        return false
+    end
+    for _, loop in pairs(P.loopStateTables) do
+        if loop and loop.lock and loop.lock ~= def.NOPROCEDURE then
+            return true
+        end
+    end
+    return false
+end
+
+local function autoRestartEnabled()
+    if not P.configvalues then
+        return false
+    end
+    return (tonumber(P.configvalues[def.CONFIGAUTORESTARTDEV] or 0) == def.ON)
+end
+
+local function checkAutoRestart()
+    if not autoRestartEnabled() then
+        return
+    end
+    local semPath = P.autoRestartSemaphorePath or (def.PLUGINOUTPUTPATH .. "yal_autorestart.sem")
+    if not helpers.file_exists_v2(semPath) then
+        P.autoRestartDeferred = false
+        return
+    end
+    if anyProcedureRunning() then
+        if not P.autoRestartDeferred then
+            helpers.logInfoTS("AutoRestart: deferred (procedure running)")
+            P.autoRestartDeferred = true
+        end
+        return
+    end
+    P.autoRestartDeferred = false
+    os.remove(semPath)
+    local cmdId = sasl.findCommand("sasl/reload/" .. tostring(def.APPNAMEPREFIX))
+    if not cmdId then
+        cmdId = sasl.findCommand("sasl/reload/yal")
+    end
+    if cmdId then
+        helpers.logInfoTS("AutoRestart: reloading YAL (semaphore)")
+        sasl.commandOnce(cmdId)
+    else
+        helpers.logInfoTS("AutoRestart: reload command not found (semaphore removed)")
+    end
+end
+
 function P.YalinitGlobal()
 
     P.needstempinit = true
@@ -28,6 +77,8 @@ function P.YalinitGlobal()
     P.pauseTodAutoDisabled = false
     P.pauseTodMonitorActive = false
     P.pauseTodMcpAltAtPrompt = nil
+    P.autoRestartDeferred = false
+    P.autoRestartSemaphorePath = def.PLUGINOUTPUTPATH .. "yal_autorestart.sem"
 
     P.savetimer = nil
 
@@ -4631,6 +4682,8 @@ function P.ongoingtasks()
         P.lastPolledDebugLevel = current_level
         sasl.logDebug("Debug level change detected by poll. Saved to dataref: " .. current_level)
     end
+
+    checkAutoRestart()
 
     if (P.updatemetartimer == nil) then
         P.updatemetartimer = sasl.createTimer()

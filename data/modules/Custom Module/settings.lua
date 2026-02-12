@@ -73,6 +73,7 @@ local settingsDefinition = {
     [def.CONFIGTAXIMAPZOOM] = { dvalue = 1.0 , type = "number", min = 0.2, max = 5 },
     [def.CONFIGAUTOTAXIGUIDANCE] = { dvalue = 0 , type = "number", min = 0, max = 1 },
     [def.CONFIGVISUALTAXIGUIDANCE] = { dvalue = 0 , type = "number", min = 0, max = 1 },
+    [def.CONFIGAUTORESTARTDEV] = { dvalue = 0 , type = "number", min = 0, max = 1 },
 
 }   
 
