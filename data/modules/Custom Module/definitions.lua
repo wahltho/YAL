@@ -397,6 +397,7 @@ if sasl.getOS() == 'Windows' then
 end
 
 P.APPNAMEPREFIX = sasl.getProjectName()
+P.YALRELOADDATAREF = P.APPNAMEPREFIX .. "/command/reload"
 
 P.XPRESSOURCESPATH = sasl.getXPlanePath() .. P.OSSEPARATOR .. "Resources" .. P.OSSEPARATOR
 P.XPOUTPUTPATH = sasl.getXPlanePath() .. P.OSSEPARATOR .. "Output" .. P.OSSEPARATOR

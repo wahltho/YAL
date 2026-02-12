@@ -33,6 +33,16 @@ local function autoRestartEnabled()
     return (tonumber(P.configvalues[def.CONFIGAUTORESTARTDEV] or 0) == def.ON)
 end
 
+local function signalReloadDataref(reason)
+    if not P.reloadRequestDr or not isProperty(P.reloadRequestDr) then
+        helpers.logInfoTS("AutoRestart: reload dataref not available")
+        return false
+    end
+    set(P.reloadRequestDr, 1)
+    helpers.logInfoTS("AutoRestart: signaled reload via dataref" .. (reason and (" (" .. reason .. ")") or ""))
+    return true
+end
+
 local function checkAutoRestart()
     if not autoRestartEnabled() then
         return
@@ -51,15 +61,8 @@ local function checkAutoRestart()
     end
     P.autoRestartDeferred = false
     os.remove(semPath)
-    local cmdId = sasl.findCommand("sasl/reload/" .. tostring(def.APPNAMEPREFIX))
-    if not cmdId then
-        cmdId = sasl.findCommand("sasl/reload/yal")
-    end
-    if cmdId then
-        helpers.logInfoTS("AutoRestart: reloading YAL (semaphore)")
-        sasl.commandOnce(cmdId)
-    else
-        helpers.logInfoTS("AutoRestart: reload command not found (semaphore removed)")
+    if not signalReloadDataref("semaphore") then
+        helpers.logInfoTS("AutoRestart: reload request skipped (no dataref)")
     end
 end
 
@@ -212,6 +215,19 @@ function P.initDataref()
     helpers.logInfoTS("Debug Log Level set to: " .. stored_level)
     if P.xluaLoggingEnabled then
         set(P.xluaLoggingEnabled, stored_level == LOG_DEBUG and 1 or 0)
+    end
+
+    local reload_dataref_path = def.YALRELOADDATAREF or (def.APPNAMEPREFIX .. "/command/reload")
+    local reload_handle = globalProperty(reload_dataref_path)
+    if not isProperty(reload_handle) then
+        helpers.logInfoTS("Dataref '" .. reload_dataref_path .. "' not found. Creating it now.")
+        P.reloadRequestDr = createGlobalPropertyi(reload_dataref_path, 0, false, true, true)
+    else
+        helpers.logInfoTS("Found existing dataref: '" .. reload_dataref_path .. "'")
+        P.reloadRequestDr = reload_handle
+    end
+    if P.reloadRequestDr then
+        set(P.reloadRequestDr, 0)
     end
 
     local dataref_path = def.APPNAMEPREFIX .. "/state/procedureset"
