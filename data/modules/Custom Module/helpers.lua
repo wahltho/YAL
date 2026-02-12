@@ -168,6 +168,7 @@ local pilots_head_z = globalProperty("sim/graphics/view/pilots_head_z")
 local pilots_head_psi = globalProperty("sim/graphics/view/pilots_head_psi")
 local pilots_head_the = globalProperty("sim/graphics/view/pilots_head_the")
 local pilots_head_phi = globalProperty("sim/graphics/view/pilots_head_phi")
+local tobii_eq = globalProperty("sim/graphics/view/eq_tobii_eyetracker")
 
 
 P.xpVersion = sasl.getXPVersion()
@@ -9391,9 +9392,30 @@ function P.stepQuickViewsCgUpdate()
 
     if not views_change_allowed() then
         restore_pilots_head(job.snapshot)
+        if job.tobiiWasOn and tobii_eq then
+            local tobii_now = get(tobii_eq)
+            if tobii_now == 0 then
+                P.command_once("sim/view/tobii_eyetracker_toggle")
+            end
+        end
         P.quickViewCgUpdateJob = nil
         P.logInfoTS("QuickViews CG update aborted (view change no longer allowed)")
         return false
+    end
+
+    if tobii_eq then
+        local tobii_on = (get(tobii_eq) == 1)
+        if job.tobiiWasOn == nil then
+            job.tobiiWasOn = tobii_on
+        end
+        if job.tobiiWasOn and tobii_on then
+            if not job.tobiiDisableRequested then
+                P.command_once("sim/view/tobii_eyetracker_toggle")
+                job.tobiiDisableRequested = true
+                P.logInfoTS("QuickViews CG update: Tobii active, disabling")
+            end
+            return true
+        end
     end
 
     local idx = job.indices[job.index_pos]
@@ -9404,6 +9426,13 @@ function P.stepQuickViewsCgUpdate()
         backup_yal_prefs("QuickViews CG update", job)
         settings.writeSettings(settings.appSettings)
         restore_pilots_head(job.snapshot)
+        if job.tobiiWasOn and tobii_eq then
+            local tobii_now = get(tobii_eq)
+            if tobii_now == 0 then
+                P.command_once("sim/view/tobii_eyetracker_toggle")
+                P.logInfoTS("QuickViews CG update: Tobii restored")
+            end
+        end
         P.quickViewCgUpdateJob = nil
         P.logInfoTS(string.format("QuickViews CG update completed: %s (%d views, deltaY %.4f ft, deltaZ %.4f ft)", job.variant.name, job.total, job.delta_y, job.delta_z))
         return false
