@@ -23,6 +23,9 @@ local guidanceSameTaxiwayTurnAngle = 25
 local guidanceTurnDistance = 90
 local guidanceTurnAngle = 15
 local freehandFirstGuidanceMaxDistance = 600
+local freehandLabelMaxMeters = 20
+local freehandLabelMaxAngle = 35
+local freehandRunwayLabelMaxAngle = 20
 local guidanceLeadTimeSec = 14
 local guidanceMaxDistance = 180
 local guidanceStraightAngle = 10
@@ -3006,8 +3009,109 @@ local function maybe_speak_guidance(comp, now, aircraft)
     local data = comp._route.data or comp._data
     local path = comp._route.path
     local first_guidance = (comp._lastGuidanceNodeId == nil and comp._lastGuidanceLabel == nil)
+    local function freehand_segment_label(from_id, to_id)
+        local route = comp._route
+        local rdata = route and route.data or nil
+        local base = comp._data
+        if not rdata or not rdata.nodes or not base or not base.edges or not base.nodes then
+            return nil
+        end
+        local n1 = rdata.nodes[from_id]
+        local n2 = rdata.nodes[to_id]
+        if not (n1 and n2 and n1.east and n1.north and n2.east and n2.north) then
+            return nil
+        end
+        local seg_heading = heading_deg_from_to(n1.east, n1.north, n2.east, n2.north)
+        if not seg_heading then
+            return nil
+        end
+        local mid_e = (n1.east + n2.east) * 0.5
+        local mid_n = (n1.north + n2.north) * 0.5
+        local max_d2 = freehandLabelMaxMeters * freehandLabelMaxMeters
+
+        local function search(allow_runway, max_angle)
+            local best_label = nil
+            local best_is_runway = false
+            local best_d2 = nil
+            for _, edge in ipairs(base.edges) do
+                local label = edge.label or ""
+                if label == "" then
+                    goto continue
+                end
+                local is_rwy = is_runway_label(label)
+                if is_rwy and not allow_runway then
+                    goto continue
+                end
+                local e1 = base.nodes[edge.from]
+                local e2 = base.nodes[edge.to]
+                if not (e1 and e2 and e1.east and e1.north and e2.east and e2.north) then
+                    goto continue
+                end
+                local px, py = project_point_to_segment(mid_e, mid_n, e1.east, e1.north, e2.east, e2.north)
+                local d2 = distance_sq(mid_e, mid_n, px, py)
+                if d2 > max_d2 then
+                    goto continue
+                end
+                local edge_heading = heading_deg_from_to(e1.east, e1.north, e2.east, e2.north)
+                if not edge_heading then
+                    goto continue
+                end
+                local diff = heading_diff_deg(seg_heading, edge_heading)
+                local diff_rev = heading_diff_deg(seg_heading, (edge_heading + 180) % 360)
+                local ang = math.min(diff, diff_rev)
+                if ang > max_angle then
+                    goto continue
+                end
+                if not best_d2 or d2 < best_d2 then
+                    best_d2 = d2
+                    best_label = label
+                    best_is_runway = is_rwy
+                end
+                ::continue::
+            end
+            if best_label then
+                return best_label, best_is_runway
+            end
+            return nil
+        end
+
+        local key = string.format("%s|%s", tostring(from_id), tostring(to_id))
+        comp._freehandLabelCache = comp._freehandLabelCache or {}
+        if comp._freehandLabelCache[key] ~= nil then
+            return comp._freehandLabelCache[key]
+        end
+
+        local label, is_rwy = search(false, freehandLabelMaxAngle)
+        if not label then
+            label, is_rwy = search(true, freehandRunwayLabelMaxAngle)
+        end
+        local result = nil
+        if label then
+            result = { label = label, is_runway = is_rwy }
+        end
+        comp._freehandLabelCache[key] = result
+        return result
+    end
+
     local function guidance_label_info(from_id, to_id, fallback_label, ramp_hint, allow_missing)
         local raw_label = get_edge_label(data, from_id, to_id)
+        if (not raw_label or raw_label == "") and is_freehand then
+            local fh = freehand_segment_label(from_id, to_id)
+            if fh and fh.label and fh.label ~= "" then
+                if fh.is_runway then
+                    local display = normalize_runway_name(fh.label)
+                    if display == "" then
+                        display = tostring(fh.label)
+                    end
+                    return { kind = "runway", text = runway_label_voice(fh.label), display = display }
+                else
+                    local label = normalize_taxiway_label(fh.label)
+                    if label ~= "" then
+                        return { kind = "taxiway", text = taxiway_label_voice(label), display = label }
+                    end
+                end
+            end
+        end
         if raw_label and is_runway_label(raw_label) then
             local display = normalize_runway_name(raw_label)
             if display == "" then
@@ -7687,6 +7791,9 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                         comp._arrRunwayExitAnnounced = false
                         comp._arrRunwayCrossWarned = nil
                     end
+                end
+                if route and route.data and route.data.route_source == "freehand" then
+                    comp._freehandLabelCache = nil
                 end
                 comp._lastGuidanceNodeId = nil
                 comp._lastGuidanceLabel = nil
