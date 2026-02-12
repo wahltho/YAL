@@ -1303,6 +1303,49 @@ local function runway_pair_label(rwy)
     return a ~= "" and a or b
 end
 
+local function runway_end_label(rwy, prefer_side)
+    if not rwy then
+        return ""
+    end
+    local a = normalize_runway_name(rwy.rwy1 or "")
+    local b = normalize_runway_name(rwy.rwy2 or "")
+    if prefer_side == 1 then
+        return a ~= "" and a or b
+    end
+    if prefer_side == 2 then
+        return b ~= "" and b or a
+    end
+    return a ~= "" and a or b
+end
+
+local function runway_crossing_label(rwy, x1, y1, x2, y2)
+    if not rwy or not rwy.east1 or not rwy.north1 or not rwy.east2 or not rwy.north2 then
+        return runway_pair_label(rwy)
+    end
+    local rx1, ry1 = rwy.east1, rwy.north1
+    local rx2, ry2 = rwy.east2, rwy.north2
+    local dx = rx2 - rx1
+    local dy = ry2 - ry1
+    local len = math.sqrt(dx * dx + dy * dy)
+    if len <= 1 then
+        return runway_pair_label(rwy)
+    end
+    local ux = dx / len
+    local uy = dy / len
+    local mx = (x1 + x2) * 0.5
+    local my = (y1 + y2) * 0.5
+    local along = (mx - rx1) * ux + (my - ry1) * uy
+    local side = 1
+    if along >= len * 0.5 then
+        side = 2
+    end
+    local label = runway_end_label(rwy, side)
+    if label == "" then
+        label = runway_pair_label(rwy)
+    end
+    return label
+end
+
 local function segment_crosses_runway(rwy, x1, y1, x2, y2)
     if not rwy or not rwy.east1 or not rwy.north1 or not rwy.east2 or not rwy.north2 then
         return false
@@ -1364,7 +1407,7 @@ local function find_runway_crossing(data, n1, n2)
     end
     for _, rwy in ipairs(data.runways) do
         if segment_crosses_runway(rwy, n1.east, n1.north, n2.east, n2.north) then
-            return rwy, runway_pair_label(rwy)
+            return rwy, runway_crossing_label(rwy, n1.east, n1.north, n2.east, n2.north)
         end
     end
     return nil, ""
