@@ -4683,7 +4683,14 @@ function P.ongoingtasks()
         P.apgoaroundtemp = get(P.apgoaround)
     end
 
-    if ((get(P.pausetod) == def.ON) and (P.configvalues[def.CONFIGTODPAUSEQUITTIME] ~= 9999)) then
+    local todDistanceQuit = get(P.vnavtoddist)
+    local todEligibleQuit =
+        (P.pauseTodMonitorActive == true) and
+        (get(P.airgroundsensor) == def.OFF) and
+        (type(todDistanceQuit) == "number") and
+        (todDistanceQuit > 0) and
+        (todDistanceQuit <= 5)
+    if ((get(P.pausetod) == def.ON) and (P.configvalues[def.CONFIGTODPAUSEQUITTIME] ~= 9999) and todEligibleQuit) then
         if (get(P.simpaused) == def.ON) then
             if (P.pausetodtimer == nil) then
                 P.pausetodtimer = sasl.createTimer()
