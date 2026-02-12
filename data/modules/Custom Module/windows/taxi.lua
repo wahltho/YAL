@@ -1,4 +1,6 @@
 local M = {}
+local C
+local U
 
 local defaultW = 860
 local defaultH = 520
@@ -60,11 +62,6 @@ local autoGateSwitchHoldSec = 2.0
 local autoGateSwitchCooldownSec = 10.0
 local parkingBrakeCompleteDist = 35
 local gateStopDistance = 2
-local gateSelectRadius = 120
-local gateGuidanceRadius = 60
-local gateGuidanceDeadzone = 0.8
-local gateGuidanceBehindLimit = -5
-local gateGuidanceCooldownSec = 4
 local freehandInsertMaxPixels = 14
 
 local minZoom = 0.2
@@ -86,80 +83,6 @@ local function log_taxi(message)
     end
 end
 
-local function copy_waypoints(src)
-    local out = {}
-    if not src then
-        return out
-    end
-    for i, wp in ipairs(src) do
-        if wp then
-            out[i] = {
-                lat = wp.lat,
-                lon = wp.lon,
-                east = wp.east,
-                north = wp.north,
-                segment_idx = wp.segment_idx
-            }
-        end
-    end
-    return out
-end
-
-local function copy_set(src)
-    local out = {}
-    if not src then
-        return out
-    end
-    for k, v in pairs(src) do
-        if v then
-            out[k] = true
-        end
-    end
-    return out
-end
-
-local function snapshot_edit_state(comp)
-    return {
-        routeWaypoints = copy_waypoints(comp._routeWaypoints),
-        editStartOverride = comp._editStartOverride and {
-            lat = comp._editStartOverride.lat,
-            lon = comp._editStartOverride.lon,
-            mode = comp._editStartOverride.mode,
-            icao = comp._editStartOverride.icao
-        } or nil,
-        editEndOverride = comp._editEndOverride and {
-            lat = comp._editEndOverride.lat,
-            lon = comp._editEndOverride.lon,
-            mode = comp._editEndOverride.mode,
-            icao = comp._editEndOverride.icao
-        } or nil,
-        drawFreehand = comp._drawFreehand,
-        editSuppressedNodes = copy_set(comp._editSuppressedNodes),
-        selectedEndRampKey = comp._selectedEndRampKey,
-        selectedDepEntryId = comp._selectedDepEntryId
-    }
-end
-
-local function restore_edit_state(comp, state)
-    if not state then
-        return
-    end
-    comp._routeWaypoints = copy_waypoints(state.routeWaypoints)
-    comp._editStartOverride = state.editStartOverride
-    comp._editEndOverride = state.editEndOverride
-    if state.drawFreehand ~= nil then
-        comp._drawFreehand = state.drawFreehand
-    end
-    comp._editSuppressedNodes = copy_set(state.editSuppressedNodes)
-    comp._selectedEndRampKey = state.selectedEndRampKey
-    comp._selectedDepEntryId = state.selectedDepEntryId
-end
-
-local function push_undo(comp, reason)
-    comp._undoState = snapshot_edit_state(comp)
-    comp._undoReason = reason or "edit"
-    log_taxi("TaxiEdit: undo-push reason=" .. tostring(comp._undoReason))
-end
 
 local function is_valid_latlon(lat, lon)
     if lat == nil or lon == nil then
@@ -2801,199 +2724,6 @@ local function gate_target_position(comp, route, data)
     return nil
 end
 
-local function gate_distance_meters(comp, aircraft, route, data)
-    if not comp or not aircraft or aircraft.east == nil or aircraft.north == nil then
-        return nil
-    end
-    local best = nil
-    if comp._endRamp then
-        local ramp = comp._endRamp
-        local east = ramp.east
-        local north = ramp.north
-        if (east == nil or north == nil) and is_valid_latlon(ramp.lat, ramp.lon) then
-            east, north = latlon_to_local(ramp.lat, ramp.lon)
-        end
-        if east ~= nil and north ~= nil then
-            local d = math.sqrt(distance_sq(aircraft.east, aircraft.north, east, north))
-            best = d
-        end
-    end
-    if route and data and route.path and #route.path > 0 and data.nodes then
-        local node = data.nodes[route.path[#route.path]]
-        if node and node.east ~= nil and node.north ~= nil then
-            local d = math.sqrt(distance_sq(aircraft.east, aircraft.north, node.east, node.north))
-            if best == nil or d < best then
-                best = d
-            end
-        end
-    end
-    return best
-end
-
-local function ramp_frame_values(ramp, aircraft)
-    if not ramp or not aircraft or aircraft.east == nil or aircraft.north == nil then
-        return nil
-    end
-    local east = ramp.east
-    local north = ramp.north
-    if (east == nil or north == nil) and is_valid_latlon(ramp.lat, ramp.lon) then
-        east, north = latlon_to_local(ramp.lat, ramp.lon)
-    end
-    if east == nil or north == nil then
-        return nil
-    end
-    local dx = aircraft.east - east
-    local dy = aircraft.north - north
-    local dist = math.sqrt(dx * dx + dy * dy)
-    local hdg = tonumber(ramp.heading)
-    if not hdg then
-        return dx, dy, nil, dist
-    end
-    local rad = math.rad(hdg % 360)
-    local sin_h = math.sin(rad)
-    local cos_h = math.cos(rad)
-    local local_x = cos_h * dx - sin_h * dy
-    local local_z = sin_h * dx + cos_h * dy
-    return local_x, local_z, hdg, dist
-end
-
-local function select_best_ramp_for_aircraft(data, aircraft, opts)
-    if not data or not data.ramps or not aircraft or aircraft.east == nil or aircraft.north == nil then
-        return nil, nil
-    end
-    local filter = opts and opts.filter or nil
-    local radius = (opts and opts.radius_m) or gateSelectRadius
-    local radius2 = radius * radius
-    local heading = opts and opts.heading_deg or nil
-    local best_heading = nil
-    local best_any = nil
-    for _, ramp in ipairs(data.ramps) do
-        if filter and not filter(ramp) then
-            goto continue
-        end
-        local local_x, local_z, ramp_hdg, dist = ramp_frame_values(ramp, aircraft)
-        if not local_x or not local_z or not dist then
-            goto continue
-        end
-        if dist * dist > radius2 then
-            goto continue
-        end
-        local score_any = dist
-        if (not best_any) or score_any < best_any.score then
-            best_any = { ramp = ramp, dist = dist, score = score_any }
-        end
-        if ramp_hdg and heading then
-            local hdg_diff = helpers.headingdiff(heading, ramp_hdg)
-            if hdg_diff then
-                hdg_diff = math.abs(hdg_diff)
-                if hdg_diff <= 90 and local_z >= gateGuidanceBehindLimit then
-                    local score = math.sqrt((local_x * 4) * (local_x * 4) + (local_z * local_z)) + hdg_diff
-                    if (not best_heading) or score < best_heading.score then
-                        best_heading = { ramp = ramp, dist = dist, score = score }
-                    end
-                end
-            end
-        end
-        ::continue::
-    end
-    if best_heading then
-        return best_heading.ramp, best_heading.dist
-    end
-    if best_any then
-        return best_any.ramp, best_any.dist
-    end
-    return nil, nil
-end
-
-local function gate_alignment_info(comp, aircraft)
-    if not comp or not aircraft or not comp._endRamp then
-        return nil
-    end
-    local tuning = comp._tuning or {}
-    local radius = tuning.gateGuidanceRadius or gateGuidanceRadius
-    local deadzone = tuning.gateGuidanceDeadzone or gateGuidanceDeadzone
-    local behind_limit = tuning.gateGuidanceBehindLimit or gateGuidanceBehindLimit
-    local ramp = comp._endRamp
-    local local_x, local_z, ramp_hdg, dist = ramp_frame_values(ramp, aircraft)
-    if not local_x or not local_z or not dist then
-        return nil
-    end
-    if dist > radius then
-        return nil
-    end
-    if ramp_hdg and local_z < behind_limit then
-        return nil
-    end
-    local direction = "straight"
-    local action = "ALIGN"
-    local text = "Continue straight"
-    if local_z <= gateStopDistance then
-        action = "STOP"
-        text = "Stop"
-    else
-        if math.abs(local_x) > deadzone then
-            direction = (local_x > 0) and "left" or "right"
-            text = (direction == "left") and "Slight left" or "Slight right"
-        end
-    end
-    local ramp_label = short_ramp_label(ramp)
-    if ramp_label == "" then
-        ramp_label = "Ramp"
-    end
-    return {
-        text = text,
-        direction = direction,
-        action = action,
-        label = build_visual_label("ramp", ramp_label),
-        kind = "ramp"
-    }
-end
-
-local function gate_note_text(dist)
-    if not dist then
-        return nil
-    end
-    if dist <= gateStopDistance then
-        return "Stop"
-    end
-    if dist <= 80 then
-        return string.format("Gate in %d m", math.floor(dist + 0.5))
-    end
-    return nil
-end
-
-local function reset_gate_callouts(comp, key)
-    if not comp then
-        return
-    end
-    comp._gateCalloutKey = key
-    comp._gateCalloutStage = 0
-    comp._gateCalloutStop = false
-end
-
-local function maybe_gate_voice_callouts(comp, dist, allow_voice)
-    if not comp or not dist then
-        return
-    end
-    if not allow_voice or not is_voice_enabled() then
-        return
-    end
-    if dist <= gateStopDistance then
-        if not comp._gateCalloutStop then
-            speak_guidance_text(comp, "Stop")
-            comp._gateCalloutStop = true
-        end
-        return
-    end
-    local stage = comp._gateCalloutStage or 0
-    local thresholds = { 30, 10, 5 }
-    for i, threshold in ipairs(thresholds) do
-        if dist <= threshold and stage < i then
-            speak_guidance_text(comp, "Gate in " .. tostring(threshold) .. " meters")
-            comp._gateCalloutStage = i
-        end
-    end
-end
 
 speak_guidance_text = function(comp, text)
     local yal = comp.yal or _G.yal
@@ -3235,16 +2965,16 @@ local function maybe_speak_guidance(comp, now, aircraft)
     if comp.mode == 1 then
         local gate_key = gate_target_key(comp, route)
         if gate_key ~= comp._gateCalloutKey then
-            reset_gate_callouts(comp, gate_key)
+            U.reset_gate_callouts(comp, gate_key)
         end
         if gate_key then
-            local dist = gate_distance_meters(comp, aircraft, route, data)
-            comp._gateNote = gate_note_text(dist)
+            local dist = U.gate_distance_meters(comp, aircraft, route, data)
+            comp._gateNote = U.gate_note_text(dist)
             if dist then
                 local gs = yal and yal.groundspeed and (get(yal.groundspeed) or 0) or 0
                 if gs > 0.2 or dist <= gateStopDistance then
                     if not comp._arrTaxiCompleteAnnounced then
-                        maybe_gate_voice_callouts(comp, dist, auto_voice)
+                        U.maybe_gate_voice_callouts(comp, dist, auto_voice)
                     end
                 end
             end
@@ -3254,13 +2984,13 @@ local function maybe_speak_guidance(comp, now, aircraft)
     else
         comp._gateNote = nil
         if comp._gateCalloutKey ~= nil then
-            reset_gate_callouts(comp, nil)
+            U.reset_gate_callouts(comp, nil)
         end
     end
     if comp.mode == 1 then
-        local gate_info = gate_alignment_info(comp, aircraft)
+        local gate_info = (U and U.gate_alignment_info) and U.gate_alignment_info(comp, aircraft) or nil
         if gate_info then
-            local cooldown = (comp._tuning and comp._tuning.gateGuidanceCooldownSec) or gateGuidanceCooldownSec
+            local cooldown = (comp._tuning and comp._tuning.gateGuidanceCooldownSec) or (C and C.gateGuidanceCooldownSec) or 4
             local last_time = comp._gateGuidanceLastTime or 0
             local same = (gate_info.direction == comp._gateGuidanceLastDir) and (gate_info.action == comp._gateGuidanceLastAction)
             if gate_info.action == "STOP" then
@@ -3910,7 +3640,7 @@ local function getSettingNumber(key, fallback)
     return val
 end
 
-local C = {
+C = {
     defaultW = defaultW,
     defaultH = defaultH,
     headerH = headerH,
@@ -3934,11 +3664,11 @@ local C = {
     autoGateSwitchHoldSec = autoGateSwitchHoldSec,
     autoGateSwitchCooldownSec = autoGateSwitchCooldownSec,
     parkingBrakeCompleteDist = parkingBrakeCompleteDist,
-    gateSelectRadius = gateSelectRadius,
-    gateGuidanceRadius = gateGuidanceRadius,
-    gateGuidanceDeadzone = gateGuidanceDeadzone,
-    gateGuidanceBehindLimit = gateGuidanceBehindLimit,
-    gateGuidanceCooldownSec = gateGuidanceCooldownSec,
+    gateSelectRadius = 120,
+    gateGuidanceRadius = 60,
+    gateGuidanceDeadzone = 0.8,
+    gateGuidanceBehindLimit = -5,
+    gateGuidanceCooldownSec = 4,
     minZoom = minZoom,
     maxZoom = maxZoom,
     zoomStep = zoomStep,
@@ -3946,7 +3676,7 @@ local C = {
     maxFont = maxFont
 }
 
-local U = {
+U = {
     is_valid_latlon = is_valid_latlon,
     compute_bounds_center = compute_bounds_center,
     update_bounds = update_bounds,
@@ -4018,6 +3748,276 @@ local U = {
     runway_label_voice = runway_label_voice,
     build_visual_label = build_visual_label
 }
+
+U.ramp_frame_values = function(ramp, aircraft)
+    if not ramp or not aircraft or aircraft.east == nil or aircraft.north == nil then
+        return nil
+    end
+    local east = ramp.east
+    local north = ramp.north
+    if (east == nil or north == nil) and is_valid_latlon(ramp.lat, ramp.lon) then
+        east, north = latlon_to_local(ramp.lat, ramp.lon)
+    end
+    if east == nil or north == nil then
+        return nil
+    end
+    local dx = aircraft.east - east
+    local dy = aircraft.north - north
+    local dist = math.sqrt(dx * dx + dy * dy)
+    local hdg = tonumber(ramp.heading)
+    if not hdg then
+        return dx, dy, nil, dist
+    end
+    local rad = math.rad(hdg % 360)
+    local sin_h = math.sin(rad)
+    local cos_h = math.cos(rad)
+    local local_x = cos_h * dx - sin_h * dy
+    local local_z = sin_h * dx + cos_h * dy
+    return local_x, local_z, hdg, dist
+end
+
+U.select_best_ramp_for_aircraft = function(data, aircraft, opts)
+    if not data or not data.ramps or not aircraft or aircraft.east == nil or aircraft.north == nil then
+        return nil, nil
+    end
+    local filter = opts and opts.filter or nil
+    local radius = (opts and opts.radius_m) or (C and C.gateSelectRadius) or 120
+    local radius2 = radius * radius
+    local heading = opts and opts.heading_deg or nil
+    local best_heading = nil
+    local best_any = nil
+    for _, ramp in ipairs(data.ramps) do
+        if filter and not filter(ramp) then
+            goto continue
+        end
+        local local_x, local_z, ramp_hdg, dist = U.ramp_frame_values(ramp, aircraft)
+        if not local_x or not local_z or not dist then
+            goto continue
+        end
+        if dist * dist > radius2 then
+            goto continue
+        end
+        local score_any = dist
+        if (not best_any) or score_any < best_any.score then
+            best_any = { ramp = ramp, dist = dist, score = score_any }
+        end
+        if ramp_hdg and heading then
+            local hdg_diff = helpers.headingdiff(heading, ramp_hdg)
+            if hdg_diff then
+                hdg_diff = math.abs(hdg_diff)
+                local behind_limit = (opts and opts.behind_limit) or (C and C.gateGuidanceBehindLimit) or -5
+                if hdg_diff <= 90 and local_z >= behind_limit then
+                    local score = math.sqrt((local_x * 4) * (local_x * 4) + (local_z * local_z)) + hdg_diff
+                    if (not best_heading) or score < best_heading.score then
+                        best_heading = { ramp = ramp, dist = dist, score = score }
+                    end
+                end
+            end
+        end
+        ::continue::
+    end
+    if best_heading then
+        return best_heading.ramp, best_heading.dist
+    end
+    if best_any then
+        return best_any.ramp, best_any.dist
+    end
+    return nil, nil
+end
+
+U.gate_alignment_info = function(comp, aircraft)
+    if not comp or not aircraft or not comp._endRamp then
+        return nil
+    end
+    local tuning = comp._tuning or {}
+    local radius = tuning.gateGuidanceRadius or (C and C.gateGuidanceRadius) or 60
+    local deadzone = tuning.gateGuidanceDeadzone or (C and C.gateGuidanceDeadzone) or 0.8
+    local behind_limit = tuning.gateGuidanceBehindLimit or (C and C.gateGuidanceBehindLimit) or -5
+    local ramp = comp._endRamp
+    local local_x, local_z, ramp_hdg, dist = U.ramp_frame_values(ramp, aircraft)
+    if not local_x or not local_z or not dist then
+        return nil
+    end
+    if dist > radius then
+        return nil
+    end
+    if ramp_hdg and local_z < behind_limit then
+        return nil
+    end
+    local direction = "straight"
+    local action = "ALIGN"
+    local text = "Continue straight"
+    if local_z <= gateStopDistance then
+        action = "STOP"
+        text = "Stop"
+    else
+        if math.abs(local_x) > deadzone then
+            direction = (local_x > 0) and "left" or "right"
+            text = (direction == "left") and "Slight left" or "Slight right"
+        end
+    end
+    local ramp_label = short_ramp_label(ramp)
+    if ramp_label == "" then
+        ramp_label = "Ramp"
+    end
+    return {
+        text = text,
+        direction = direction,
+        action = action,
+        label = build_visual_label("ramp", ramp_label),
+        kind = "ramp"
+    }
+end
+
+U.copy_waypoints = function(src)
+    local out = {}
+    if not src then
+        return out
+    end
+    for i, wp in ipairs(src) do
+        if wp then
+            out[i] = {
+                lat = wp.lat,
+                lon = wp.lon,
+                east = wp.east,
+                north = wp.north,
+                segment_idx = wp.segment_idx
+            }
+        end
+    end
+    return out
+end
+
+U.copy_set = function(src)
+    local out = {}
+    if not src then
+        return out
+    end
+    for k, v in pairs(src) do
+        if v then
+            out[k] = true
+        end
+    end
+    return out
+end
+
+U.snapshot_edit_state = function(comp)
+    return {
+        routeWaypoints = U.copy_waypoints(comp._routeWaypoints),
+        editStartOverride = comp._editStartOverride and {
+            lat = comp._editStartOverride.lat,
+            lon = comp._editStartOverride.lon,
+            mode = comp._editStartOverride.mode,
+            icao = comp._editStartOverride.icao
+        } or nil,
+        editEndOverride = comp._editEndOverride and {
+            lat = comp._editEndOverride.lat,
+            lon = comp._editEndOverride.lon,
+            mode = comp._editEndOverride.mode,
+            icao = comp._editEndOverride.icao
+        } or nil,
+        drawFreehand = comp._drawFreehand,
+        editSuppressedNodes = U.copy_set(comp._editSuppressedNodes),
+        selectedEndRampKey = comp._selectedEndRampKey,
+        selectedDepEntryId = comp._selectedDepEntryId
+    }
+end
+
+U.restore_edit_state = function(comp, state)
+    if not state then
+        return
+    end
+    comp._routeWaypoints = U.copy_waypoints(state.routeWaypoints)
+    comp._editStartOverride = state.editStartOverride
+    comp._editEndOverride = state.editEndOverride
+    if state.drawFreehand ~= nil then
+        comp._drawFreehand = state.drawFreehand
+    end
+    comp._editSuppressedNodes = U.copy_set(state.editSuppressedNodes)
+    comp._selectedEndRampKey = state.selectedEndRampKey
+    comp._selectedDepEntryId = state.selectedDepEntryId
+end
+
+U.push_undo = function(comp, reason)
+    comp._undoState = U.snapshot_edit_state(comp)
+    comp._undoReason = reason or "edit"
+    log_taxi("TaxiEdit: undo-push reason=" .. tostring(comp._undoReason))
+end
+
+U.gate_distance_meters = function(comp, aircraft, route, data)
+    if not comp or not aircraft or aircraft.east == nil or aircraft.north == nil then
+        return nil
+    end
+    local best = nil
+    if comp._endRamp then
+        local ramp = comp._endRamp
+        local east = ramp.east
+        local north = ramp.north
+        if (east == nil or north == nil) and is_valid_latlon(ramp.lat, ramp.lon) then
+            east, north = latlon_to_local(ramp.lat, ramp.lon)
+        end
+        if east ~= nil and north ~= nil then
+            local d = math.sqrt(distance_sq(aircraft.east, aircraft.north, east, north))
+            best = d
+        end
+    end
+    if route and data and route.path and #route.path > 0 and data.nodes then
+        local node = data.nodes[route.path[#route.path]]
+        if node and node.east ~= nil and node.north ~= nil then
+            local d = math.sqrt(distance_sq(aircraft.east, aircraft.north, node.east, node.north))
+            if best == nil or d < best then
+                best = d
+            end
+        end
+    end
+    return best
+end
+
+U.gate_note_text = function(dist)
+    if not dist then
+        return nil
+    end
+    if dist <= gateStopDistance then
+        return "Stop"
+    end
+    if dist <= 80 then
+        return string.format("Gate in %d m", math.floor(dist + 0.5))
+    end
+    return nil
+end
+
+U.reset_gate_callouts = function(comp, key)
+    if not comp then
+        return
+    end
+    comp._gateCalloutKey = key
+    comp._gateCalloutStage = 0
+    comp._gateCalloutStop = false
+end
+
+U.maybe_gate_voice_callouts = function(comp, dist, allow_voice)
+    if not comp or not dist then
+        return
+    end
+    if not allow_voice or not is_voice_enabled() then
+        return
+    end
+    if dist <= gateStopDistance then
+        if not comp._gateCalloutStop then
+            speak_guidance_text(comp, "Stop")
+            comp._gateCalloutStop = true
+        end
+        return
+    end
+    local stage = comp._gateCalloutStage or 0
+    local thresholds = { 30, 10, 5 }
+    for i, threshold in ipairs(thresholds) do
+        if dist <= threshold and stage < i then
+            speak_guidance_text(comp, "Gate in " .. tostring(threshold) .. " meters")
+            comp._gateCalloutStage = i
+        end
+    end
+end
 
 function M.windowSize()
     return defaultW, defaultH
@@ -5111,7 +5111,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                     comp._drawRoute = not comp._drawRoute
                     if comp._drawRoute then
                         comp._editRoute = true
-                        push_undo(comp, "draw-start")
+                        U.push_undo(comp, "draw-start")
                         comp._drawFreehand = true
                         comp._manualRouteActive = true
                         comp._routeWaypoints = {}
@@ -5137,14 +5137,14 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                     )
                 elseif b.action == "undo_edit" then
                     if comp._undoState then
-                        restore_edit_state(comp, comp._undoState)
+                        U.restore_edit_state(comp, comp._undoState)
                         mark_edit_dirty(comp)
                         log_taxi("TaxiEdit: undo reason=" .. tostring(comp._undoReason))
                     else
                         log_taxi("TaxiEdit: undo empty")
                     end
                 elseif b.action == "clear_route" then
-                    push_undo(comp, "clear-route")
+                    U.push_undo(comp, "clear-route")
                     comp._routeWaypoints = {}
                     comp._selectedEndRampKey = nil
                     comp._autoEndRampKey = nil
@@ -5274,7 +5274,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
             end
             if best then
                 if is_right and best.idx and comp._routeWaypoints and comp._routeWaypoints[best.idx] then
-                    push_undo(comp, "manual-delete")
+                    U.push_undo(comp, "manual-delete")
                     table.remove(comp._routeWaypoints, best.idx)
                     mark_edit_dirty(comp)
                     log_taxi("TaxiEdit: waypoint deleted wp=" .. tostring(best.idx))
@@ -5284,7 +5284,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                     local handle = comp._editHandles[best.handle_idx]
                     if is_right and handle then
                         if handle.kind == "manual" and handle.wp_idx then
-                            push_undo(comp, "manual-delete")
+                            U.push_undo(comp, "manual-delete")
                             if comp._routeWaypoints and comp._routeWaypoints[handle.wp_idx] then
                                 table.remove(comp._routeWaypoints, handle.wp_idx)
                             end
@@ -5293,7 +5293,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                             return true
                         end
                         if comp._drawFreehand and (handle.kind == "start" or handle.kind == "end") then
-                            push_undo(comp, "endpoint-delete")
+                            U.push_undo(comp, "endpoint-delete")
                             if comp._routeWaypoints and #comp._routeWaypoints > 0 then
                                 if handle.kind == "start" then
                                     table.remove(comp._routeWaypoints, 1)
@@ -5309,7 +5309,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                         return false
                     end
                     if handle and handle.kind == "auto" then
-                        push_undo(comp, "auto-handle")
+                        U.push_undo(comp, "auto-handle")
                         log_taxi(
                             string.format(
                                 "TaxiEdit: handle-down kind=auto seg=%s node=%s",
@@ -5358,7 +5358,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                             }
                         end
                     else
-                        push_undo(comp, "handle-down")
+                        U.push_undo(comp, "handle-down")
                         log_taxi(
                             string.format(
                                 "TaxiEdit: handle-down kind=%s wp=%s seg=%s node=%s",
@@ -5380,7 +5380,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                         }
                     end
                 else
-                    push_undo(comp, "handle-down")
+                    U.push_undo(comp, "handle-down")
                     log_taxi(
                         string.format(
                             "TaxiEdit: handle-down kind=manual wp=%s",
@@ -5454,7 +5454,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                                 if not comp._routeWaypoints then
                                     comp._routeWaypoints = {}
                                 end
-                                push_undo(comp, "draw-add")
+                                U.push_undo(comp, "draw-add")
                             local insert_idx = nil
                             local best_idx = nil
                             local best_d2 = nil
@@ -5534,7 +5534,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                                     if not comp._routeWaypoints then
                                         comp._routeWaypoints = {}
                                     end
-                                    push_undo(comp, "draw-add")
+                                    U.push_undo(comp, "draw-add")
                                     table.insert(comp._routeWaypoints, {
                                         lat = wlat,
                                         lon = wlon,
@@ -5594,7 +5594,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                                         if not comp._routeWaypoints then
                                             comp._routeWaypoints = {}
                                         end
-                                        push_undo(comp, "draw-insert")
+                                        U.push_undo(comp, "draw-insert")
                                         table.insert(comp._routeWaypoints, {
                                             lat = wlat,
                                             lon = wlon,
@@ -5652,7 +5652,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                                     if not comp._routeWaypoints then
                                         comp._routeWaypoints = {}
                                     end
-                                    push_undo(comp, "edit-insert")
+                                    U.push_undo(comp, "edit-insert")
                                     local new_idx = insert_waypoint_sorted(comp._routeWaypoints, {
                                         lat = wlat,
                                         lon = wlon,
@@ -6652,8 +6652,8 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
             end
             if not end_ramp and onGroundSensor and aircraft then
                 local gate_heading = yal and yal.groundtrackmag and get(yal.groundtrackmag) or nil
-                local gate_radius = tuning.gateSelectRadius or gateSelectRadius
-                end_ramp = select_best_ramp_for_aircraft(
+                local gate_radius = tuning.gateSelectRadius or (C and C.gateSelectRadius) or 120
+                end_ramp = U.select_best_ramp_for_aircraft(
                     data,
                     aircraft,
                     { filter = helpers.isRampSuitableFor738, heading_deg = gate_heading, radius_m = gate_radius }
@@ -6691,8 +6691,8 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                 if (now - comp._autoEndRampLowSpeedSince) >= gate_hold then
                     if not nearest_ramp then
                         local gate_heading = yalref and yalref.groundtrackmag and get(yalref.groundtrackmag) or nil
-                        local gate_radius = tuning.gateSelectRadius or gateSelectRadius
-                        nearest_ramp, nearest_ramp_dist = select_best_ramp_for_aircraft(
+                        local gate_radius = tuning.gateSelectRadius or (C and C.gateSelectRadius) or 120
+                        nearest_ramp, nearest_ramp_dist = U.select_best_ramp_for_aircraft(
                             data,
                             aircraft,
                             { filter = helpers.isRampSuitableFor738, heading_deg = gate_heading, radius_m = gate_radius }
