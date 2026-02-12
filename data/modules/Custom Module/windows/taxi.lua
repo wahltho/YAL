@@ -3248,7 +3248,9 @@ local function maybe_speak_guidance(comp, now, aircraft)
                 local cross = dx * profile.axis.y - dy * profile.axis.x
                 local turn = (cross >= 0) and "left" or "right"
                 local track_mag = yal and yal.groundtrackmag and get(yal.groundtrackmag) or nil
-                if track_mag ~= nil then
+                local gs = yal and yal.groundspeed and (get(yal.groundspeed) or 0) or 0
+                local ts = yal and yal.tirespeed and (get(yal.tirespeed) or 0) or 0
+                if track_mag ~= nil and (gs > 5 or ts > 5) then
                     local axis_heading_true = math.deg(math.atan2(profile.axis.x, profile.axis.y))
                     if axis_heading_true < 0 then
                         axis_heading_true = axis_heading_true + 360
@@ -8008,7 +8010,15 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                     local exit_id = infer_arrival_exit_from_route(route, route.data)
                     if exit_id and exit_id ~= comp._arrExitId then
                         comp._arrExitId = exit_id
-                        comp._arrRunwayExitAnnounced = false
+                        local on_runway_now = false
+                        if comp._arrProfile and aircraft then
+                            on_runway_now = is_on_runway_profile(comp._arrProfile, aircraft, 60, 5)
+                        elseif comp.yal and comp.yal.aircraftonrwy then
+                            on_runway_now = (comp.yal.aircraftonrwy(def.ARRIVAL, 40, 20) == false)
+                        end
+                        if not on_runway_now or (not comp._arrRunwayExitAnnounced) then
+                            comp._arrRunwayExitAnnounced = false
+                        end
                         comp._arrRunwayCrossWarned = nil
                     end
                 end
