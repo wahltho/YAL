@@ -2820,7 +2820,7 @@ function P.calculateWindComponents(windDirectionDegrees, runwayHeadingDegrees, w
     end
 
     -- 1. Calculate relative angle (wind relative to runway)
-    local relativeAngle = windDirectionDegrees - runwayHeadingDegrees
+    local relativeAngle = runwayHeadingDegrees - windDirectionDegrees
 
     -- 2. Normalize angle to +/- 180 degrees
     --    Ensures the angle represents the shortest way around the compass
