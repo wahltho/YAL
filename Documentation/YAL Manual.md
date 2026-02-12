@@ -13,6 +13,12 @@ VIRTUAL COPILOT PLUGIN FOR ZIBO MOD 738
 - Aircraft: B737-800 by Zibo
 - Optional: X-Camera plugin (will be detected automatically)
 
+**Optional Integrations**
+- YANSH (SimBrief import and auto-fueling).
+- BetterPushback (pushback planning and plan hints). Full plan detection requires a BPB build exposing `bp/plan_complete`.
+- X-Camera (view switching).
+- Tobii eye tracker (supported; view changes are suppressed while active to avoid conflicts).
+
 **Please Note**
 - YAL has virtually no FPS impact as its main functions run once per second, not every frame.
 - When flying aircraft other than the Zibo B738, YAL remains idle and all its menus are inactive.
@@ -93,6 +99,10 @@ Actions: Sets Baro to Standard above transition altitude, handles flap retractio
 Trigger: Climbing through the "Lower Airspace Altitude" (default 10,000 ft).
 Actions: Retracts landing lights, turns off seatbelt sign, sets engine starters to AUTO.
 
+#### SETWINDCORR Procedure
+Trigger: After ALTITUDEB10000, following SETVREF.
+Actions: Computes wind correction and provides wind-correction advice if enabled.
+
 #### During Descent Procedure
 Trigger: During the descent phase.
 Actions: Sets speed restrictions in the FMC, sets local QNH below transition level, handles flap extension.
@@ -118,7 +128,7 @@ Trigger: Parking brake is set at the gate.
 Actions: Turns off taxi lights, seatbelt signs, and prepares for engine shutdown.
 
 #### EEC/FADEC Check (Cockpit Init + Engine Start)
-If EEC/FADEC is OFF while engines are running, YAL prompts a check (voice‑only unless Auto Functions are enabled). In Auto mode YAL sets both EECs ON. If EECs are already ON, the step is skipped (no delay).
+If EEC/FADEC is OFF while engines are running, YAL prompts a check (voice-only unless Auto Functions are enabled). In Auto mode YAL sets both EECs ON. If EECs are already ON, the step is skipped (no delay).
 
 ## 4. Settings
 The settings window allows detailed customization of all automatic features.
@@ -127,9 +137,10 @@ The settings window allows detailed customization of all automatic features.
 - Use Ground Power...: If available, the plugin will use ground power instead of starting the APU during the Cold & Dark startup.
 - Command Voice Readback: Provides voice announcements for most actions performed by the plugin.
 - Automatic Functions: A master switch for all automatic procedures and background tasks.
+- Voice Advice Only: When enabled, YAL only provides spoken guidance and does not perform actions.
 - FMC Automation: Allows YAL to automate FMC page changes and FMC data entries.
 - Heading Sync Interval: Repeats MCP heading sync at the given interval (seconds). Set 0 to disable.
-- Hoppie ID: Sets the Hoppie logon used by the in‑sim Hoppie integration.
+- Hoppie ID: Sets the Hoppie logon used by the in-sim Hoppie integration.
 - Sim exit after Pause at TOD: If the sim is paused at the Top of Descent, it will automatically save and quit after the specified number of seconds (9999 to disable).
 - Override Wake Effects: Suppresses wake turbulence effects from other aircraft.
 - Automatic Anti Icing: Automatically enables wing and engine anti-ice when icing is detected.
@@ -152,6 +163,9 @@ The settings window allows detailed customization of all automatic features.
 ### Views
 - Assigns the corresponding X-Plane Quick Look or X-Camera view numbers for automatic view changes.
 - Apply QV0 to Default View: Updates the aircraft default view to match Quick View 0.
+- Adjust QVs + X-Camera after CG shift: Updates Quick Views (and X-Camera offsets, if installed) to reflect a changed CG.
+- When Tobii eye tracking is active, view changes are suppressed to avoid view-control conflicts.
+- During QuickViews CG updates, Tobii is temporarily disabled and restored afterward (if active).
 
 ### Instrument Panel Brightness
 - Allows you to pre-configure all panel and display brightness levels, which will be applied during the Cockpit Initialization procedure.
@@ -206,18 +220,24 @@ Typical callouts include:
 - Turn left/right on RWY ...
 - Taxi complete
 - Gate proximity callouts (e.g., "Gate in 30 meters", "Gate in 10 meters", "Stop")
+- Taxiway labels are spoken using the NATO alphabet where appropriate.
+
+### Gate Guidance (Arrival)
+When taxiing to the gate, YAL provides distance callouts and shows a distance note in the popup. Taxiing is considered complete when the parking brake is set near a ramp.
 
 ### Tips and Notes
 - While EDIT or DRAW is active, guidance may be suppressed to avoid conflicting callouts. Disable EDIT/DRAW to resume guidance.
 - If the map is blank after reloads, ensure a valid DEP/DES ICAO is set or use the nearest airport on the ground.
 - For arrival planning in-flight, use DRAW or EDIT to build a custom route before landing.
-- When Tobii eye tracking is active, view changes are suppressed to avoid view‑control conflicts.
+- The taxi guidance popup can be moved and its position is saved.
+- When Tobii eye tracking is active, view changes are suppressed to avoid view-control conflicts.
+- If BetterPushback is installed but no plan is detected, update to a BPB build that exposes `bp/plan_complete`.
 
 ## 6. Navigation & Weather Enhancements (since 4.3)
-- Approach course handling: consistent true vs mag logic, with RNAV/LPV/GLS prioritizing FMS final‑leg course; LDA/LOC/IGS approaches supported.
-- METAR parsing upgrades: SLP and T‑group temps, KM and mixed SM visibility, structured RVR; speech uses active‑runway RVR and respects QNH units.
+- Approach course handling: consistent true vs mag logic, with RNAV/LPV/GLS prioritizing FMS final-leg course; LDA/LOC/IGS approaches supported.
+- METAR parsing upgrades: SLP and T-group temps, KM and mixed SM visibility, structured RVR; speech uses active-runway RVR and respects QNH units.
 
 ## 7. Taxi Guidance Enhancements (since 4.3)
-- Runway‑exit callouts include left/right ("Leave RWY ... to left/right") and runway‑crossing warnings.
+- Runway-exit callouts include left/right ("Leave RWY ... to left/right") and runway-crossing warnings.
 - Departure runway entry callouts ("Turn left/right on departure RWY ...") with queueing so they are not overwritten by "Taxi complete".
 - Freehand routes can infer taxiway labels from nearby navdata edges for guidance.
