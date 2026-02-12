@@ -19,7 +19,7 @@ local initialGuidanceReverseResetMeters = 2
 local guidanceRouteGraceSec = 1.0
 local guidanceFirstTurnMinSeconds = 1.2
 local guidanceFirstTurnMinMeters = 8
-local guidanceSameTaxiwayTurnAngle = 25
+local guidanceSameTaxiwayTurnAngle = 20
 local guidanceTurnDistance = 90
 local guidanceTurnAngle = 15
 local freehandLabelMaxMeters = 20
@@ -2908,6 +2908,16 @@ end
 local function emit_guidance(comp, now, info, allow_voice)
     if not comp or not info or not info.text or info.text == "" then
         return
+    end
+    if helpers and helpers.logInfoTS then
+        local msg = "TaxiGuide: " .. tostring(info.text)
+        if info.action or info.direction or info.kind then
+            msg = msg
+                .. " | action=" .. tostring(info.action or "")
+                .. " dir=" .. tostring(info.direction or "")
+                .. " kind=" .. tostring(info.kind or "")
+        end
+        helpers.logInfoTS(msg)
     end
     if allow_voice and is_voice_enabled() then
         speak_guidance_text(comp, info.text)
