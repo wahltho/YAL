@@ -2693,11 +2693,29 @@ local function gate_distance_meters(comp, aircraft, route, data)
     if not comp or not aircraft or aircraft.east == nil or aircraft.north == nil then
         return nil
     end
-    local east, north = gate_target_position(comp, route, data)
-    if east == nil or north == nil then
-        return nil
+    local best = nil
+    if comp._endRamp then
+        local ramp = comp._endRamp
+        local east = ramp.east
+        local north = ramp.north
+        if (east == nil or north == nil) and is_valid_latlon(ramp.lat, ramp.lon) then
+            east, north = latlon_to_local(ramp.lat, ramp.lon)
+        end
+        if east ~= nil and north ~= nil then
+            local d = math.sqrt(distance_sq(aircraft.east, aircraft.north, east, north))
+            best = d
+        end
     end
-    return math.sqrt(distance_sq(aircraft.east, aircraft.north, east, north))
+    if route and data and route.path and #route.path > 0 and data.nodes then
+        local node = data.nodes[route.path[#route.path]]
+        if node and node.east ~= nil and node.north ~= nil then
+            local d = math.sqrt(distance_sq(aircraft.east, aircraft.north, node.east, node.north))
+            if best == nil or d < best then
+                best = d
+            end
+        end
+    end
+    return best
 end
 
 local function gate_note_text(dist)
@@ -3160,6 +3178,23 @@ local function maybe_speak_guidance(comp, now, aircraft)
                 local dy = exit_node.north - profile.threshold.north
                 local cross = dx * profile.axis.y - dy * profile.axis.x
                 local turn = (cross >= 0) and "left" or "right"
+                local track_mag = yal and yal.groundtrackmag and get(yal.groundtrackmag) or nil
+                if track_mag ~= nil then
+                    local axis_heading_true = math.deg(math.atan2(profile.axis.x, profile.axis.y))
+                    if axis_heading_true < 0 then
+                        axis_heading_true = axis_heading_true + 360
+                    end
+                    local mag_var = nil
+                    if aircraft and aircraft.lat and aircraft.lon then
+                        mag_var = sasl.getMagneticVariation(aircraft.lat, aircraft.lon)
+                    end
+                    mag_var = mag_var or 0
+                    local axis_heading_mag = (axis_heading_true - mag_var + 360) % 360
+                    local diff = helpers.headingdiff(track_mag, axis_heading_mag)
+                    if diff and diff > 90 then
+                        turn = (turn == "left") and "right" or "left"
+                    end
+                end
                 local rwy_phrase = runway_label_voice(comp._runwayName)
                 local info = nil
                 if path[1] == exit_id then
@@ -3276,7 +3311,8 @@ local function maybe_speak_guidance(comp, now, aircraft)
         end
         local curr_raw_label = get_edge_label(data, path[seg_idx], path[seg_idx + 1])
         local curr_label = normalize_taxiway_label(curr_raw_label)
-        if (curr_raw_label and is_runway_label(curr_raw_label)) or curr_label ~= "" then
+        local is_ramp = (curr_raw_label == "RAMP")
+        if (curr_raw_label and is_runway_label(curr_raw_label)) or curr_label ~= "" or is_ramp then
             local label_key = "last:" .. tostring(curr_label ~= "" and curr_label or curr_raw_label or "")
             local last_time = comp._lastGuidanceTime or 0
             if comp._lastGuidanceNodeId == path[seg_idx + 1]
@@ -3293,6 +3329,14 @@ local function maybe_speak_guidance(comp, now, aircraft)
                 text = "Continue straight on " .. rwy_phrase
                 label = build_visual_label("runway", normalize_runway_name(curr_raw_label))
                 kind = "runway"
+            elseif is_ramp then
+                local ramp_label = comp._endRamp and short_ramp_label(comp._endRamp) or ""
+                if ramp_label == "" then
+                    ramp_label = "Ramp"
+                end
+                text = "Continue to " .. ramp_label
+                label = build_visual_label("ramp", ramp_label)
+                kind = "ramp"
             elseif curr_label ~= "" then
                 text = "Continue straight on Taxiway " .. curr_label
                 label = build_visual_label("taxiway", curr_label)
@@ -3361,7 +3405,11 @@ local function maybe_speak_guidance(comp, now, aircraft)
     end
     local would_turn = (angle >= turn_angle) or leaving_runway or entering_runway or force_turn
     if would_turn then
-        guidance_dist = math.min(guidanceMaxDistance, guidance_dist * 1.9)
+        guidance_dist = math.min(guidanceMaxDistance, guidance_dist * 2.2)
+        local min_turn_dist = guidanceTurnDistance * 1.3
+        if guidance_dist < min_turn_dist then
+            guidance_dist = min_turn_dist
+        end
     end
     if is_freehand and first_guidance then
         guidance_dist = math.max(guidance_dist, 600)
