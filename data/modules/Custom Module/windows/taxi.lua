@@ -60,6 +60,11 @@ local autoGateSwitchHoldSec = 2.0
 local autoGateSwitchCooldownSec = 10.0
 local parkingBrakeCompleteDist = 35
 local gateStopDistance = 2
+local gateSelectRadius = 120
+local gateGuidanceRadius = 60
+local gateGuidanceDeadzone = 0.8
+local gateGuidanceBehindLimit = -5
+local gateGuidanceCooldownSec = 4
 local freehandInsertMaxPixels = 14
 
 local minZoom = 0.2
@@ -2825,6 +2830,125 @@ local function gate_distance_meters(comp, aircraft, route, data)
     return best
 end
 
+local function ramp_frame_values(ramp, aircraft)
+    if not ramp or not aircraft or aircraft.east == nil or aircraft.north == nil then
+        return nil
+    end
+    local east = ramp.east
+    local north = ramp.north
+    if (east == nil or north == nil) and is_valid_latlon(ramp.lat, ramp.lon) then
+        east, north = latlon_to_local(ramp.lat, ramp.lon)
+    end
+    if east == nil or north == nil then
+        return nil
+    end
+    local dx = aircraft.east - east
+    local dy = aircraft.north - north
+    local dist = math.sqrt(dx * dx + dy * dy)
+    local hdg = tonumber(ramp.heading)
+    if not hdg then
+        return dx, dy, nil, dist
+    end
+    local rad = math.rad(hdg % 360)
+    local sin_h = math.sin(rad)
+    local cos_h = math.cos(rad)
+    local local_x = cos_h * dx - sin_h * dy
+    local local_z = sin_h * dx + cos_h * dy
+    return local_x, local_z, hdg, dist
+end
+
+local function select_best_ramp_for_aircraft(data, aircraft, opts)
+    if not data or not data.ramps or not aircraft or aircraft.east == nil or aircraft.north == nil then
+        return nil, nil
+    end
+    local filter = opts and opts.filter or nil
+    local radius = (opts and opts.radius_m) or gateSelectRadius
+    local radius2 = radius * radius
+    local heading = opts and opts.heading_deg or nil
+    local best_heading = nil
+    local best_any = nil
+    for _, ramp in ipairs(data.ramps) do
+        if filter and not filter(ramp) then
+            goto continue
+        end
+        local local_x, local_z, ramp_hdg, dist = ramp_frame_values(ramp, aircraft)
+        if not local_x or not local_z or not dist then
+            goto continue
+        end
+        if dist * dist > radius2 then
+            goto continue
+        end
+        local score_any = dist
+        if (not best_any) or score_any < best_any.score then
+            best_any = { ramp = ramp, dist = dist, score = score_any }
+        end
+        if ramp_hdg and heading then
+            local hdg_diff = helpers.headingdiff(heading, ramp_hdg)
+            if hdg_diff then
+                hdg_diff = math.abs(hdg_diff)
+                if hdg_diff <= 90 and local_z >= gateGuidanceBehindLimit then
+                    local score = math.sqrt((local_x * 4) * (local_x * 4) + (local_z * local_z)) + hdg_diff
+                    if (not best_heading) or score < best_heading.score then
+                        best_heading = { ramp = ramp, dist = dist, score = score }
+                    end
+                end
+            end
+        end
+        ::continue::
+    end
+    if best_heading then
+        return best_heading.ramp, best_heading.dist
+    end
+    if best_any then
+        return best_any.ramp, best_any.dist
+    end
+    return nil, nil
+end
+
+local function gate_alignment_info(comp, aircraft)
+    if not comp or not aircraft or not comp._endRamp then
+        return nil
+    end
+    local tuning = comp._tuning or {}
+    local radius = tuning.gateGuidanceRadius or gateGuidanceRadius
+    local deadzone = tuning.gateGuidanceDeadzone or gateGuidanceDeadzone
+    local behind_limit = tuning.gateGuidanceBehindLimit or gateGuidanceBehindLimit
+    local ramp = comp._endRamp
+    local local_x, local_z, ramp_hdg, dist = ramp_frame_values(ramp, aircraft)
+    if not local_x or not local_z or not dist then
+        return nil
+    end
+    if dist > radius then
+        return nil
+    end
+    if ramp_hdg and local_z < behind_limit then
+        return nil
+    end
+    local direction = "straight"
+    local action = "ALIGN"
+    local text = "Continue straight"
+    if local_z <= gateStopDistance then
+        action = "STOP"
+        text = "Stop"
+    else
+        if math.abs(local_x) > deadzone then
+            direction = (local_x > 0) and "left" or "right"
+            text = (direction == "left") and "Slight left" or "Slight right"
+        end
+    end
+    local ramp_label = short_ramp_label(ramp)
+    if ramp_label == "" then
+        ramp_label = "Ramp"
+    end
+    return {
+        text = text,
+        direction = direction,
+        action = action,
+        label = build_visual_label("ramp", ramp_label),
+        kind = "ramp"
+    }
+end
+
 local function gate_note_text(dist)
     if not dist then
         return nil
@@ -3131,6 +3255,38 @@ local function maybe_speak_guidance(comp, now, aircraft)
         comp._gateNote = nil
         if comp._gateCalloutKey ~= nil then
             reset_gate_callouts(comp, nil)
+        end
+    end
+    if comp.mode == 1 then
+        local gate_info = gate_alignment_info(comp, aircraft)
+        if gate_info then
+            local cooldown = (comp._tuning and comp._tuning.gateGuidanceCooldownSec) or gateGuidanceCooldownSec
+            local last_time = comp._gateGuidanceLastTime or 0
+            local same = (gate_info.direction == comp._gateGuidanceLastDir) and (gate_info.action == comp._gateGuidanceLastAction)
+            if gate_info.action == "STOP" then
+                if not comp._gateGuidanceStop then
+                    local allow_voice = auto_voice
+                    if comp._gateCalloutStop then
+                        allow_voice = false
+                    end
+                    emit_guidance(comp, now, gate_info, allow_voice)
+                    comp._gateGuidanceStop = true
+                    comp._gateGuidanceLastDir = gate_info.direction
+                    comp._gateGuidanceLastAction = gate_info.action
+                    comp._gateGuidanceLastTime = now
+                end
+                return
+            end
+            comp._gateGuidanceStop = false
+            if (not same) or ((now - last_time) >= cooldown) then
+                emit_guidance(comp, now, gate_info, auto_voice)
+                comp._gateGuidanceLastDir = gate_info.direction
+                comp._gateGuidanceLastAction = gate_info.action
+                comp._gateGuidanceLastTime = now
+                return
+            end
+        else
+            comp._gateGuidanceStop = false
         end
     end
     if not comp._route or not comp._route.path then
@@ -3778,6 +3934,11 @@ local C = {
     autoGateSwitchHoldSec = autoGateSwitchHoldSec,
     autoGateSwitchCooldownSec = autoGateSwitchCooldownSec,
     parkingBrakeCompleteDist = parkingBrakeCompleteDist,
+    gateSelectRadius = gateSelectRadius,
+    gateGuidanceRadius = gateGuidanceRadius,
+    gateGuidanceDeadzone = gateGuidanceDeadzone,
+    gateGuidanceBehindLimit = gateGuidanceBehindLimit,
+    gateGuidanceCooldownSec = gateGuidanceCooldownSec,
     minZoom = minZoom,
     maxZoom = maxZoom,
     zoomStep = zoomStep,
@@ -4017,6 +4178,10 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
     comp._gateCalloutKey = nil
     comp._gateCalloutStage = 0
     comp._gateCalloutStop = false
+    comp._gateGuidanceLastDir = nil
+    comp._gateGuidanceLastAction = nil
+    comp._gateGuidanceLastTime = nil
+    comp._gateGuidanceStop = false
     comp._depRunwayEntryAnnounced = false
     comp._depTaxiCompleteAnnounced = false
     comp._arrTaxiCompleteAnnounced = false
@@ -4053,7 +4218,12 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
         autoGateSwitchSpeed = C.autoGateSwitchSpeed,
         autoGateSwitchHoldSec = C.autoGateSwitchHoldSec,
         autoGateSwitchCooldownSec = C.autoGateSwitchCooldownSec,
-        parkingBrakeCompleteDist = C.parkingBrakeCompleteDist
+        parkingBrakeCompleteDist = C.parkingBrakeCompleteDist,
+        gateSelectRadius = C.gateSelectRadius,
+        gateGuidanceRadius = C.gateGuidanceRadius,
+        gateGuidanceDeadzone = C.gateGuidanceDeadzone,
+        gateGuidanceBehindLimit = C.gateGuidanceBehindLimit,
+        gateGuidanceCooldownSec = C.gateGuidanceCooldownSec
     }
     comp._U = U
     comp._C = C
@@ -6480,6 +6650,18 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                     comp._autoEndRampKey = nil
                 end
             end
+            if not end_ramp and onGroundSensor and aircraft then
+                local gate_heading = yal and yal.groundtrackmag and get(yal.groundtrackmag) or nil
+                local gate_radius = tuning.gateSelectRadius or gateSelectRadius
+                end_ramp = select_best_ramp_for_aircraft(
+                    data,
+                    aircraft,
+                    { filter = helpers.isRampSuitableFor738, heading_deg = gate_heading, radius_m = gate_radius }
+                )
+                if end_ramp then
+                    comp._autoEndRampKey = ramp_key(end_ramp)
+                end
+            end
             if not end_ramp then
                 end_ramp = helpers.getNearestRamp(icao, ramp_ref_lat, ramp_ref_lon, { filter = helpers.isRampSuitableFor738, data = data })
                 if end_ramp then
@@ -6508,13 +6690,14 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                 end
                 if (now - comp._autoEndRampLowSpeedSince) >= gate_hold then
                     if not nearest_ramp then
-                        nearest_ramp = helpers.getNearestRamp(
-                            icao,
-                            aircraft.lat,
-                            aircraft.lon,
-                            { filter = helpers.isRampSuitableFor738, data = data }
+                        local gate_heading = yalref and yalref.groundtrackmag and get(yalref.groundtrackmag) or nil
+                        local gate_radius = tuning.gateSelectRadius or gateSelectRadius
+                        nearest_ramp, nearest_ramp_dist = select_best_ramp_for_aircraft(
+                            data,
+                            aircraft,
+                            { filter = helpers.isRampSuitableFor738, heading_deg = gate_heading, radius_m = gate_radius }
                         )
-                        if nearest_ramp and is_valid_latlon(nearest_ramp.lat, nearest_ramp.lon) then
+                        if nearest_ramp_dist == nil and nearest_ramp and is_valid_latlon(nearest_ramp.lat, nearest_ramp.lon) then
                             nearest_ramp_dist = distance_meters_latlon(
                                 nearest_ramp.lat,
                                 nearest_ramp.lon,
