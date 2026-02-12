@@ -2827,10 +2827,18 @@ local function build_visual_label(kind, display)
         return ""
     end
     if kind == "taxiway" then
-        return "TAXIWAY " .. display
+        local spoken = taxiway_label_voice(display)
+        if spoken == "" then
+            return ""
+        end
+        return "TAXIWAY " .. spoken
     end
     if kind == "runway" then
-        return "RWY " .. display
+        local spoken = taxiway_label_voice(display)
+        if spoken == "" then
+            return ""
+        end
+        return "RWY " .. spoken
     end
     return display
 end
