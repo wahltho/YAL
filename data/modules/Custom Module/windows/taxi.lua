@@ -610,18 +610,41 @@ local function taxiway_label_voice(label)
     return helpers.spellNato(clean)
 end
 
-local function runway_label_voice(label)
+local function format_runway_designator_text(label)
     if not label or label == "" then
-        return "Runway"
+        return ""
     end
     local clean = string.upper(tostring(label))
     if string.sub(clean, 1, 3) == "RWY" then
         clean = trim_spaces(string.gsub(clean, "^RWY[%s_%-/]*", ""))
     end
+    clean = string.gsub(clean, "%s+", "")
     if clean == "" then
+        return ""
+    end
+    local parts = {}
+    for part in string.gmatch(clean, "[^/]+") do
+        part = trim_spaces(part)
+        if part ~= "" then
+            local formatted = part
+            if helpers and helpers.formatRunwayDesignator then
+                formatted = helpers.formatRunwayDesignator(part)
+            end
+            parts[#parts + 1] = formatted
+        end
+    end
+    return table.concat(parts, " / ")
+end
+
+local function runway_label_voice(label)
+    if not label or label == "" then
         return "Runway"
     end
-    return "Runway " .. taxiway_label_voice(clean)
+    local formatted = format_runway_designator_text(label)
+    if formatted == "" then
+        return "Runway"
+    end
+    return "Runway " .. formatted
 end
 
 local function is_runway_label(label)
@@ -2877,11 +2900,11 @@ local function build_visual_label(kind, display)
         return "TAXIWAY " .. spoken
     end
     if kind == "runway" then
-        local spoken = taxiway_label_voice(display)
-        if spoken == "" then
+        local formatted = format_runway_designator_text(display)
+        if formatted == "" then
             return ""
         end
-        return "RWY " .. spoken
+        return "RWY " .. string.upper(formatted)
     end
     return display
 end
