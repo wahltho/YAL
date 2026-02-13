@@ -2551,7 +2551,7 @@ local function build_quality_log(comp, data, icao, mode, reasons)
     )
 end
 
-local function maybe_force_global_for_quality(comp, now, icao, mode, data, helpers)
+local function maybe_force_global_for_quality(comp, now, icao, mode, data, helpers, aircraft)
     if not comp or not data or not icao or not now then
         return false
     end
@@ -2591,6 +2591,79 @@ local function maybe_force_global_for_quality(comp, now, icao, mode, data, helpe
     comp._quality.badReasons = reasons
     if (now - comp._quality.badSince) < qualityBadHoldSec then
         return false
+    end
+
+    if mode == 1 and reasons and #reasons == 1 and reasons[1] == "dist"
+        and aircraft and is_valid_latlon(aircraft.lat, aircraft.lon)
+        and not comp._editRoute and not comp._drawRoute then
+        local gate_radius = (comp._tuning and comp._tuning.gateSelectRadius) or (C and C.gateSelectRadius) or 120
+        local nearest_ramp = helpers.getNearestRamp(
+            icao,
+            aircraft.lat,
+            aircraft.lon,
+            { filter = helpers.isRampSuitableFor738, data = data }
+        )
+        if nearest_ramp and is_valid_latlon(nearest_ramp.lat, nearest_ramp.lon) then
+            local d = distance_meters_latlon(nearest_ramp.lat, nearest_ramp.lon, aircraft.lat, aircraft.lon)
+            if d and d <= gate_radius then
+                local cand_key = ramp_key(nearest_ramp)
+                local planned_key = comp._autoEndRampKey or (comp._endRamp and ramp_key(comp._endRamp)) or nil
+                if cand_key and planned_key and cand_key == planned_key then
+                    if comp._quality then
+                        comp._quality.badSince = nil
+                        comp._quality.distBadSince = nil
+                        comp._quality.rerouteEvents = {}
+                    end
+                    if helpers and helpers.logInfoTS then
+                        helpers.logInfoTS(
+                            string.format(
+                                "TaxiQuality: dist-only near ramp keep key=%s dist=%.1f",
+                                tostring(cand_key),
+                                d or -1
+                            )
+                        )
+                    end
+                    return false
+                end
+                if cand_key then
+                    comp._autoEndRampKey = cand_key
+                    comp._autoEndRampSwitchTime = now
+                    comp._endRamp = nearest_ramp
+                    comp._route = nil
+                    comp._routeErr = nil
+                    comp._routeLabels = nil
+                    comp._routeLabelStats = nil
+                    comp._lastEndKey = nil
+                    comp._lastStartKey = nil
+                    comp._lastGuidanceNodeId = nil
+                    comp._lastGuidanceLabel = nil
+                    comp._lastGuidanceTime = nil
+                    comp._sCurveSkipNodeId = nil
+                    clear_visual_guidance(comp, "end-ramp-switch-quality")
+                    comp._visualGuidanceQueue = {}
+                    comp._gateGuidanceLastDir = nil
+                    comp._gateGuidanceLastAction = nil
+                    comp._gateGuidanceLastTime = nil
+                    comp._gateGuidanceStop = false
+                    U.reset_gate_callouts(comp, cand_key)
+                    if comp._quality then
+                        comp._quality.badSince = nil
+                        comp._quality.distBadSince = nil
+                        comp._quality.rerouteEvents = {}
+                    end
+                    if helpers and helpers.logInfoTS then
+                        helpers.logInfoTS(
+                            string.format(
+                                "TaxiQuality: dist-only retarget end-ramp key=%s dist=%.1f",
+                                tostring(cand_key),
+                                d or -1
+                            )
+                        )
+                    end
+                    return false
+                end
+            end
+        end
     end
 
     local log_info = build_quality_log(comp, data, icao, mode, reasons)
@@ -8626,7 +8699,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
             end
 
             if comp._route then
-                if maybe_force_global_for_quality(comp, now, icao, mode, data, helpers) then
+                if maybe_force_global_for_quality(comp, now, icao, mode, data, helpers, aircraft) then
                     update_visual_guidance(comp, now, aircraft)
                     return
                 end
