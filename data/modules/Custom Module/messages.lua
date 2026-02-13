@@ -16,6 +16,7 @@ local english = {
     VOICEADVICEONLY = 'Voice Advice Only',
     AUTOTAXIGUIDANCE = 'Auto Taxi Guidance (voice)',
     VISUALTAXIGUIDANCE = 'Auto Taxi Guidance (Visual)',
+    HOPPIEVOICE = 'ATIS/CPDLC to Voice',
     BPBINTEGRATION = 'BetterPushback Integration',
     YANSHINTEGRATION = 'YANSH Integration',
     AUTOFUELING = 'YANSH Automatic Fueling',

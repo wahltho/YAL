@@ -33,6 +33,84 @@ local function autoRestartEnabled()
     return (tonumber(P.configvalues[def.CONFIGAUTORESTARTDEV] or 0) == def.ON)
 end
 
+local function hoppieVoiceEnabled()
+    if not P.configvalues then
+        return false
+    end
+    return (tonumber(P.configvalues[def.CONFIGHOPPIEVOICE] or 0) == def.ON)
+end
+
+local function normalizeHoppieVoiceText(text)
+    if type(text) ~= "string" then
+        return ""
+    end
+    local cleaned = text:gsub("[\r\n]+", ". ")
+    cleaned = cleaned:gsub("[{}%[%]\"]", " ")
+    cleaned = cleaned:gsub("%s+", " ")
+    cleaned = cleaned:gsub("^%s+", ""):gsub("%s+$", "")
+    cleaned = cleaned:gsub("RWY%s*([0-9][0-9]?[LRC]?)", function(code)
+        return "runway " .. helpers.addspaces(code)
+    end)
+    cleaned = cleaned:gsub("FL%s*(%d%d%d)", function(code)
+        return "flight level " .. helpers.addspaces(code)
+    end)
+    cleaned = cleaned:gsub("QNH%s*(%d%d%d%d?)", function(code)
+        return "Q N H " .. helpers.addspaces(code)
+    end)
+    return cleaned
+end
+
+local function buildHoppieVoiceMessage(from, msg_type, packet)
+    local parts = {}
+    if msg_type and msg_type ~= "" then
+        parts[#parts + 1] = helpers.addspaces(msg_type) .. " message"
+    end
+    if from and from ~= "" then
+        parts[#parts + 1] = "from " .. tostring(from)
+    end
+    if packet and packet ~= "" then
+        parts[#parts + 1] = normalizeHoppieVoiceText(packet)
+    end
+    local text = table.concat(parts, ". ")
+    return normalizeHoppieVoiceText(text)
+end
+
+local function checkHoppieVoiceMessages()
+    if not hoppieVoiceEnabled() then
+        return
+    end
+    local voice_enabled = ((P.configvalues[def.CONFIGVOICEREADBACK] == def.ON) or (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON))
+    if not voice_enabled then
+        return
+    end
+    if not (P.hoppie and P.hoppie.poll_count and isProperty(P.hoppie.poll_count)) then
+        return
+    end
+    local count = get(P.hoppie.poll_count) or 0
+    if P.lastHoppiePollCount == nil then
+        P.lastHoppiePollCount = count
+        return
+    end
+    if count == P.lastHoppiePollCount then
+        return
+    end
+    P.lastHoppiePollCount = count
+    local from = P.hoppie.poll_message_from and helpers.forceCleanString(get(P.hoppie.poll_message_from) or "") or ""
+    local msg_type = P.hoppie.poll_message_type and helpers.forceCleanString(get(P.hoppie.poll_message_type) or "") or ""
+    local packet = P.hoppie.poll_message_packet and helpers.forceCleanString(get(P.hoppie.poll_message_packet) or "") or ""
+    local text = buildHoppieVoiceMessage(from, msg_type, packet)
+    if text == "" then
+        return
+    end
+    local now = os.time()
+    if P.lastHoppieVoiceMsg == text and P.lastHoppieVoiceTime and (now - P.lastHoppieVoiceTime) < 30 then
+        return
+    end
+    P.lastHoppieVoiceMsg = text
+    P.lastHoppieVoiceTime = now
+    P.commandtableentry(def.TEXT, text)
+end
+
 local function signalReloadDataref(reason)
     if not P.reloadRequestDr or not isProperty(P.reloadRequestDr) then
         helpers.logInfoTS("AutoRestart: reload dataref not available")
@@ -82,6 +160,9 @@ function P.YalinitGlobal()
     P.pauseTodMcpAltAtPrompt = nil
     P.autoRestartDeferred = false
     P.autoRestartSemaphorePath = def.PLUGINOUTPUTPATH .. "yal_autorestart.sem"
+    P.lastHoppiePollCount = nil
+    P.lastHoppieVoiceMsg = nil
+    P.lastHoppieVoiceTime = nil
 
     P.savetimer = nil
 
@@ -4702,6 +4783,7 @@ function P.ongoingtasks()
     end
 
     checkAutoRestart()
+    checkHoppieVoiceMessages()
 
     if (P.updatemetartimer == nil) then
         P.updatemetartimer = sasl.createTimer()
