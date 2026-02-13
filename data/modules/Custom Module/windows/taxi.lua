@@ -6805,6 +6805,16 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                                     comp._routeLabelStats = nil
                                     comp._lastEndKey = nil
                                     comp._lastStartKey = nil
+                                    comp._lastGuidanceNodeId = nil
+                                    comp._lastGuidanceLabel = nil
+                                    comp._lastGuidanceTime = nil
+                                    clear_visual_guidance(comp, "end-ramp-switch")
+                                    comp._visualGuidanceQueue = {}
+                                    comp._gateGuidanceLastDir = nil
+                                    comp._gateGuidanceLastAction = nil
+                                    comp._gateGuidanceLastTime = nil
+                                    comp._gateGuidanceStop = false
+                                    U.reset_gate_callouts(comp, cand_key)
                                     log_taxi(
                                         string.format(
                                             "TaxiRoute: auto end-ramp switch key=%s dist=%.1f plan=%.1f",
