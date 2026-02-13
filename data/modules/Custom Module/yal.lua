@@ -217,8 +217,21 @@ local function checkHoppieVoiceMessages()
     if P.lastHoppieVoiceMsg == text and P.lastHoppieVoiceTime and (now - P.lastHoppieVoiceTime) < 30 then
         return
     end
+    if packet ~= "" then
+        local packet_key = string.lower(packet)
+        if P.lastHoppiePacket == packet_key and P.lastHoppiePacketTime and (now - P.lastHoppiePacketTime) < 30 then
+            if helpers and helpers.logInfoTS then
+                helpers.logInfoTS("HoppieVoice: suppress dup packet")
+            end
+            return
+        end
+    end
     P.lastHoppieVoiceMsg = text
     P.lastHoppieVoiceTime = now
+    if packet ~= "" then
+        P.lastHoppiePacket = string.lower(packet)
+        P.lastHoppiePacketTime = now
+    end
     P.commandtableentry(def.TEXT, text)
 end
 
