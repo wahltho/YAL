@@ -2755,7 +2755,36 @@ local function build_visual_label(kind, display)
         return "TAXIWAY " .. spoken
     end
     if kind == "runway" then
-        local formatted = format_runway_designator_text(display)
+        local normalized = tostring(display)
+        if not normalized:find("/") then
+            local raw = normalize_runway_name(normalized)
+            local len = #raw
+            if len >= 4 then
+                local parts = {}
+                local i = 1
+                while i <= len do
+                    local num = raw:sub(i, i + 1)
+                    if #num < 2 then
+                        break
+                    end
+                    local suffix = ""
+                    local j = i + 2
+                    if j <= len then
+                        local ch = raw:sub(j, j)
+                        if ch:match("%a") then
+                            suffix = ch
+                            j = j + 1
+                        end
+                    end
+                    parts[#parts + 1] = num .. suffix
+                    i = j
+                end
+                if #parts >= 2 then
+                    normalized = table.concat(parts, "/")
+                end
+            end
+        end
+        local formatted = format_runway_designator_text(normalized)
         if formatted == "" then
             return ""
         end
