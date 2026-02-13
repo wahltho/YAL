@@ -186,6 +186,12 @@ local function checkHoppieVoiceMessages()
     if packet == "" then
         packet = P.hoppie.poll_message_packet and helpers.forceCleanString(get(P.hoppie.poll_message_packet) or "") or ""
     end
+    if packet ~= "" and (from == "" and msg_type == "") then
+        local lower = string.lower(packet)
+        if lower == "ok" then
+            return
+        end
+    end
     local text = buildHoppieVoiceMessage(from, msg_type, packet)
     if text == "" then
         return
