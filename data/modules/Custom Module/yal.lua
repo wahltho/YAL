@@ -44,7 +44,10 @@ local function normalizeHoppieVoiceText(text)
     if type(text) ~= "string" then
         return ""
     end
-    local cleaned = text:gsub("[\r\n]+", ". ")
+    local cleaned = text:gsub("\r\n", "\n")
+    cleaned = cleaned:gsub("\r", "\n")
+    cleaned = cleaned:gsub("\n\n+", ". ")
+    cleaned = cleaned:gsub("\n", " ")
     cleaned = cleaned:gsub("[{}%[%]\"]", " ")
     cleaned = cleaned:gsub("%s+", " ")
     cleaned = cleaned:gsub("^%s+", ""):gsub("%s+$", "")
