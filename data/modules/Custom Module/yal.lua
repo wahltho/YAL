@@ -83,21 +83,44 @@ local function checkHoppieVoiceMessages()
     if not voice_enabled then
         return
     end
-    if not (P.hoppie and P.hoppie.poll_count and isProperty(P.hoppie.poll_count)) then
+    if not P.hoppie then
         return
     end
-    local count = get(P.hoppie.poll_count) or 0
-    if P.lastHoppiePollCount == nil then
+    local seq_ref = P.hoppie.voice_seq
+    local use_seq = (seq_ref and isProperty(seq_ref))
+    local count_ref = use_seq and seq_ref or P.hoppie.poll_count
+    if not (count_ref and isProperty(count_ref)) then
+        return
+    end
+    local count = get(count_ref) or 0
+    if use_seq then
+        if P.lastHoppieVoiceSeq == nil then
+            P.lastHoppieVoiceSeq = count
+            return
+        end
+        if count == P.lastHoppieVoiceSeq then
+            return
+        end
+        P.lastHoppieVoiceSeq = count
+    else
+        if P.lastHoppiePollCount == nil then
+            P.lastHoppiePollCount = count
+            return
+        end
+        if count == P.lastHoppiePollCount then
+            return
+        end
         P.lastHoppiePollCount = count
-        return
     end
-    if count == P.lastHoppiePollCount then
-        return
-    end
-    P.lastHoppiePollCount = count
     local from = P.hoppie.poll_message_from and helpers.forceCleanString(get(P.hoppie.poll_message_from) or "") or ""
     local msg_type = P.hoppie.poll_message_type and helpers.forceCleanString(get(P.hoppie.poll_message_type) or "") or ""
-    local packet = P.hoppie.poll_message_packet and helpers.forceCleanString(get(P.hoppie.poll_message_packet) or "") or ""
+    local packet = ""
+    if use_seq and P.hoppie.voice_text and isProperty(P.hoppie.voice_text) then
+        packet = helpers.forceCleanString(get(P.hoppie.voice_text) or "")
+    end
+    if packet == "" then
+        packet = P.hoppie.poll_message_packet and helpers.forceCleanString(get(P.hoppie.poll_message_packet) or "") or ""
+    end
     local text = buildHoppieVoiceMessage(from, msg_type, packet)
     if text == "" then
         return
@@ -890,6 +913,15 @@ function P.initDataref()
         end
         return handle
     end
+    local function findHoppieOptional(path)
+        local handle = globalProperty(path)
+        if not isProperty(handle) then
+            helpers.logInfoTS("Optional dataref '" .. path .. "' not found.")
+            return nil
+        end
+        helpers.logInfoTS("Found existing dataref: '" .. path .. "'")
+        return handle
+    end
 
     P.hoppie = {}
     P.hoppie.send_queue = ensureHoppieString("hoppiebridge/send_queue", "")
@@ -913,6 +945,8 @@ function P.initDataref()
     P.hoppie.last_http = ensureHoppieString(def.APPNAMEPREFIX .. "/hoppie/last_http", "")
     P.hoppie.send_count = ensureHoppieNumber(def.APPNAMEPREFIX .. "/hoppie/send_count", 0)
     P.hoppie.poll_count = ensureHoppieNumber(def.APPNAMEPREFIX .. "/hoppie/poll_count", 0)
+    P.hoppie.voice_seq = findHoppieOptional(def.APPNAMEPREFIX .. "/hoppie/voice_seq")
+    P.hoppie.voice_text = findHoppieOptional(def.APPNAMEPREFIX .. "/hoppie/voice_text")
 
     if P.hoppie.debug_level then
         local level = sasl.getLogLevel() == LOG_DEBUG and 3 or 1
