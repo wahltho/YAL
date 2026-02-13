@@ -2198,11 +2198,28 @@ function M.fillProcedureTable()
                     nextStep = 'arm_lnav'
                 },
                 ['arm_lnav'] = {
-                    skipIf = function() return P.configvalues[def.CONFIGVOICEADVICEONLY] == def.OFF end,
                     check = function()
                         if get(P.aplnavstat) == def.ON then return true end
                         -- Accept HDG SEL as an alternative if vectors expected
                         return get(P.aphdgselstat) ~= def.OFF
+                    end,
+                    branch = function(loop, procData)
+                        local autoMode = P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON
+                        if not autoMode then return false end
+                        if (get(P.aplnavstat) == def.ON) or (get(P.aphdgselstat) ~= def.OFF) then
+                            loop.lnavAutoCycle = nil
+                            return false
+                        end
+                        if not loop.lnavAutoCycle then
+                            loop.lnavAutoCycle = 1
+                            helpers.command_once("laminar/B738/autopilot/lnav_press")
+                            return true
+                        end
+                        loop.lnavAutoCycle = nil
+                        if get(P.aphdgselstat) == def.OFF then
+                            helpers.command_once("laminar/B738/autopilot/hdg_sel_press")
+                        end
+                        return (procData.steps and procData.steps['arm_lnav'] and procData.steps['arm_lnav'].nextStep) or 'arm_vnav'
                     end,
                     advice = function()
                         if get(P.aplnavstat) == def.ON then
@@ -2225,8 +2242,22 @@ function M.fillProcedureTable()
                     nextStep = 'arm_vnav'
                 },
                 ['arm_vnav'] = {
-                    skipIf = function() return P.configvalues[def.CONFIGVOICEADVICEONLY] == def.OFF end,
                     check = function() return get(P.apvnavstat) == def.ON end,
+                    branch = function(loop, procData)
+                        local autoMode = P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON
+                        if not autoMode then return false end
+                        if get(P.apvnavstat) == def.ON then
+                            loop.vnavAutoCycle = nil
+                            return false
+                        end
+                        if not loop.vnavAutoCycle then
+                            loop.vnavAutoCycle = 1
+                            helpers.command_once("laminar/B738/autopilot/vnav_press")
+                            return true
+                        end
+                        loop.vnavAutoCycle = nil
+                        return (procData.steps and procData.steps['arm_vnav'] and procData.steps['arm_vnav'].nextStep) or 'view_throttle'
+                    end,
                     advice = "Arm V NAV",
                     confirm = "V NAV checked Armed",
                     nextStep = 'view_throttle'
@@ -2437,11 +2468,28 @@ function M.fillProcedureTable()
                     nextStep = 'arm_lnav'
                 },
                 ['arm_lnav'] = {
-                    skipIf = function() return P.configvalues[def.CONFIGVOICEADVICEONLY] == def.OFF end,
                     check = function()
                         if get(P.aplnavstat) == def.ON then return true end
                         -- Allow HDG SEL when vectors after departure are planned
                         return get(P.aphdgselstat) ~= def.OFF
+                    end,
+                    branch = function(loop, procData)
+                        local autoMode = P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON
+                        if not autoMode then return false end
+                        if (get(P.aplnavstat) == def.ON) or (get(P.aphdgselstat) ~= def.OFF) then
+                            loop.lnavAutoCycle = nil
+                            return false
+                        end
+                        if not loop.lnavAutoCycle then
+                            loop.lnavAutoCycle = 1
+                            helpers.command_once("laminar/B738/autopilot/lnav_press")
+                            return true
+                        end
+                        loop.lnavAutoCycle = nil
+                        if get(P.aphdgselstat) == def.OFF then
+                            helpers.command_once("laminar/B738/autopilot/hdg_sel_press")
+                        end
+                        return (procData.steps and procData.steps['arm_lnav'] and procData.steps['arm_lnav'].nextStep) or 'arm_vnav'
                     end,
                     advice = function()
                         if get(P.aplnavstat) == def.ON then
@@ -2464,8 +2512,22 @@ function M.fillProcedureTable()
                     nextStep = 'arm_vnav'
                 },
                 ['arm_vnav'] = {
-                    skipIf = function() return P.configvalues[def.CONFIGVOICEADVICEONLY] == def.OFF end,
                     check = function() return get(P.apvnavstat) == def.ON end,
+                    branch = function(loop, procData)
+                        local autoMode = P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON
+                        if not autoMode then return false end
+                        if get(P.apvnavstat) == def.ON then
+                            loop.vnavAutoCycle = nil
+                            return false
+                        end
+                        if not loop.vnavAutoCycle then
+                            loop.vnavAutoCycle = 1
+                            helpers.command_once("laminar/B738/autopilot/vnav_press")
+                            return true
+                        end
+                        loop.vnavAutoCycle = nil
+                        return (procData.steps and procData.steps['arm_vnav'] and procData.steps['arm_vnav'].nextStep) or 'arm_at'
+                    end,
                     advice = "Arm V NAV",
                     confirm = "V NAV checked Armed",
                     nextStep = 'arm_at'
