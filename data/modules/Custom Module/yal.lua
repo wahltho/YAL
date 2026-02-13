@@ -186,9 +186,26 @@ local function checkHoppieVoiceMessages()
     if packet == "" then
         packet = P.hoppie.poll_message_packet and helpers.forceCleanString(get(P.hoppie.poll_message_packet) or "") or ""
     end
+    if helpers and helpers.logInfoTS then
+        local log_packet = packet
+        if type(log_packet) == "string" then
+            log_packet = log_packet:gsub("[\r\n]+", " ")
+            if #log_packet > 160 then
+                log_packet = string.sub(log_packet, 1, 160) .. "..."
+            end
+        end
+        local source = use_seq and "seq" or "poll"
+        helpers.logInfoTS("HoppieVoice: " .. source .. "=" .. tostring(count)
+            .. " from=" .. tostring(from)
+            .. " type=" .. tostring(msg_type)
+            .. " packet=" .. tostring(log_packet))
+    end
     if packet ~= "" and (from == "" and msg_type == "") then
         local lower = string.lower(packet)
         if lower == "ok" then
+            if helpers and helpers.logInfoTS then
+                helpers.logInfoTS("HoppieVoice: suppress ok")
+            end
             return
         end
     end
