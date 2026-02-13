@@ -557,7 +557,7 @@ function P.initDataref()
     P.localpositionz = globalProperty("sim/flightmodel/position/local_z")
     P.localpositionpsi = globalProperty("sim/flightmodel/position/psi")
     P.acf_cg_z = globalProperty("sim/aircraft/weight/acf_cgZ_original")
-    P.gear_znose = globalPropertyfae("sim/aircraft/parts/acf_gear_znodef", 0)
+    P.gear_znose = globalPropertyfae("sim/aircraft/parts/acf_gear_znodef", 1)
 
     P.fueltank1 = globalProperty("sim/flightmodel/weight/m_fuel1")
     P.fueltank2 = globalProperty("sim/flightmodel/weight/m_fuel2")
