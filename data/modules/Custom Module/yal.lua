@@ -51,11 +51,76 @@ local function normalizeHoppieVoiceText(text)
     cleaned = cleaned:gsub("RWY%s*([0-9][0-9]?[LRC]?)", function(code)
         return "runway " .. helpers.addspaces(code)
     end)
-    cleaned = cleaned:gsub("FL%s*(%d%d%d)", function(code)
+    cleaned = cleaned:gsub("FL%s*(%d%d%d?)", function(code)
         return "flight level " .. helpers.addspaces(code)
     end)
     cleaned = cleaned:gsub("QNH%s*(%d%d%d%d?)", function(code)
         return "Q N H " .. helpers.addspaces(code)
+    end)
+    cleaned = cleaned:gsub("QFE%s*(%d%d%d%d?)", function(code)
+        return "Q F E " .. helpers.addspaces(code)
+    end)
+    cleaned = cleaned:gsub("SQUAWK%s*(%d%d%d%d)", function(code)
+        return "squawk " .. helpers.addspaces(code)
+    end)
+    cleaned = cleaned:gsub("%f[%a][Hh][Dd][Gg]%s*(%d%d%d)", function(code)
+        return "heading " .. helpers.addspaces(code)
+    end)
+    cleaned = cleaned:gsub("%f[%a][Tt][Rr][Kk]%s*(%d%d%d)", function(code)
+        return "track " .. helpers.addspaces(code)
+    end)
+    cleaned = cleaned:gsub("%f[%a][Ss][Pp][Dd]%s*(%d%d%d)", function(code)
+        return "speed " .. helpers.addspaces(code)
+    end)
+    cleaned = cleaned:gsub("(%d%d+)%s*[Kk][Tt][Ss]?", function(code)
+        return helpers.addspaces(code) .. " knots"
+    end)
+    cleaned = cleaned:gsub("(%d%d+)%s*[Ff][Tt]", function(code)
+        return helpers.addspaces(code) .. " feet"
+    end)
+    local wordMap = {
+        ATIS = "A T I S",
+        CPDLC = "C P D L C",
+        PDC = "P D C",
+        ACARS = "A C A R S",
+        METAR = "M E T A R",
+        TAF = "T A F",
+        ATC = "A T C",
+        AOC = "A O C",
+        RVR = "R V R",
+        SID = "S I D",
+        STAR = "S T A R",
+        ILS = "I L S",
+        RNAV = "R N A V",
+        GLS = "G L S",
+        LPV = "L P V",
+        LOC = "L O C",
+        VOR = "V O R",
+        NDB = "N D B",
+        DME = "D M E",
+        APPR = "approach",
+        APP = "approach",
+        APCH = "approach",
+        DEP = "departure",
+        ARR = "arrival",
+        CLB = "climb",
+        DESC = "descend",
+        DES = "descend",
+        MAINT = "maintain",
+        MAINTAIN = "maintain",
+        WX = "weather",
+        VIS = "visibility",
+        TEMPO = "tempo",
+        BECMG = "becoming",
+        VRB = "variable",
+        NOSIG = "no significant change"
+    }
+    cleaned = cleaned:gsub("%f[%a]([A-Za-z]+)%f[%A]", function(word)
+        local repl = wordMap[string.upper(word)]
+        if repl then
+            return repl
+        end
+        return word
     end)
     return cleaned
 end
