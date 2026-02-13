@@ -62,6 +62,7 @@ local autoGateSwitchHoldSec = 2.0
 local autoGateSwitchCooldownSec = 10.0
 local parkingBrakeCompleteDist = 35
 local gateStopDistance = 2
+local gateStopOffsetMeters = 11
 local freehandInsertMaxPixels = 14
 
 local minZoom = 0.2
@@ -3205,7 +3206,7 @@ local function maybe_speak_guidance(comp, now, aircraft)
                 and exit_node.east ~= nil and exit_node.north ~= nil then
                 local dx = exit_node.east - profile.threshold.east
                 local dy = exit_node.north - profile.threshold.north
-                local cross = dx * profile.axis.y - dy * profile.axis.x
+                local cross = profile.axis.x * dy - profile.axis.y * dx
                 local turn = (cross >= 0) and "left" or "right"
                 local track_mag = yal and yal.groundtrackmag and get(yal.groundtrackmag) or nil
                 local gs = yal and yal.groundspeed and (get(yal.groundspeed) or 0) or 0
@@ -3664,6 +3665,7 @@ C = {
     autoGateSwitchHoldSec = autoGateSwitchHoldSec,
     autoGateSwitchCooldownSec = autoGateSwitchCooldownSec,
     parkingBrakeCompleteDist = parkingBrakeCompleteDist,
+    gateStopOffsetMeters = gateStopOffsetMeters,
     gateSelectRadius = 120,
     gateGuidanceRadius = 60,
     gateGuidanceDeadzone = 0.8,
@@ -3763,6 +3765,11 @@ U.ramp_frame_values = function(ramp, aircraft)
     end
     local dx = aircraft.east - east
     local dy = aircraft.north - north
+    if aircraft.heading and type(aircraft.heading) == "number" then
+        local rad = math.rad(aircraft.heading % 360)
+        dx = dx + math.sin(rad) * (C and C.gateStopOffsetMeters or 10)
+        dy = dy + math.cos(rad) * (C and C.gateStopOffsetMeters or 10)
+    end
     local dist = math.sqrt(dx * dx + dy * dy)
     local hdg = tonumber(ramp.heading)
     if not hdg then
@@ -6356,7 +6363,8 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
         if is_valid_latlon(lat, lon) then
             local east, north = latlon_to_local(lat, lon)
             if east and north then
-                aircraft = { lat = lat, lon = lon, east = east, north = north }
+                local heading = yal and yal.groundtrackmag and get(yal.groundtrackmag) or nil
+                aircraft = { lat = lat, lon = lon, east = east, north = north, heading = heading }
             end
         end
         local nearest_ramp = nil
