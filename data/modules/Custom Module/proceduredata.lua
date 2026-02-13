@@ -2287,11 +2287,16 @@ function M.fillProcedureTable()
                         local simRatio = P.simparkingbrakeratio and get(P.simparkingbrakeratio) or 0
                         return (pbPos == def.OFF) and (simRatio <= 0.05)
                     end,
-                    action = function()
-                        set(P.parkingbrakepos, def.OFF)
-                        if P.simparkingbrakeratio then
-                            set(P.simparkingbrakeratio, 0)
-                        end
+                    action = function(loop)
+                        local pbPos = get(P.parkingbrakepos)
+                        local simRatio = P.simparkingbrakeratio and get(P.simparkingbrakeratio) or 0
+                        if (pbPos == def.OFF) and (simRatio <= 0.05) then return end
+
+                        local now = os.time()
+                        if loop.pbReleaseLast and (now - loop.pbReleaseLast) < 1 then return end
+                        loop.pbReleaseLast = now
+
+                        helpers.command_once("laminar/B738/push_button/park_brake_on_off")
                     end,
                     advice = "Release Parking Brake",
                     confirm = "Parking Brake checked Released",
