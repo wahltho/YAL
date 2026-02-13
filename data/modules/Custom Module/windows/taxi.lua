@@ -3366,7 +3366,11 @@ local function maybe_speak_guidance(comp, now, aircraft)
                 label = build_visual_label("ramp", ramp_label)
                 kind = "ramp"
             elseif curr_label ~= "" then
-                text = "Continue straight on Taxiway " .. curr_label
+                local spoken_label = taxiway_label_voice(curr_label)
+                if spoken_label == "" then
+                    spoken_label = curr_label
+                end
+                text = "Continue straight on Taxiway " .. spoken_label
                 label = build_visual_label("taxiway", curr_label)
             end
             if text ~= "" then
