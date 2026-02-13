@@ -220,11 +220,15 @@ end
 
 local function buildHoppieVoiceMessage(from, msg_type, packet)
     local parts = {}
-    if msg_type and msg_type ~= "" then
-        parts[#parts + 1] = helpers.addspaces(msg_type) .. " message"
-    end
-    if from and from ~= "" then
-        parts[#parts + 1] = "from " .. tostring(from)
+    local from_norm = string.lower(tostring(from or ""))
+    local is_acars = (from_norm == "acars")
+    if not is_acars then
+        if msg_type and msg_type ~= "" then
+            parts[#parts + 1] = helpers.addspaces(msg_type) .. " message"
+        end
+        if from and from ~= "" then
+            parts[#parts + 1] = "from " .. tostring(from)
+        end
     end
     if packet and packet ~= "" then
         parts[#parts + 1] = normalizeHoppieVoiceText(packet)
