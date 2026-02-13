@@ -30,6 +30,7 @@ local freehandRunwayLabelMaxAngle = 20
 local guidanceLeadTimeSec = 14
 local guidanceMaxDistance = 180
 local guidanceStraightAngle = 10
+local guidanceSCurveMaxSeg = 50
 local visualGuidanceDuration = 7
 local visualGuidanceMinShow = 1.0
 local visualGuidanceSyncDelay = 0.0
@@ -2608,9 +2609,11 @@ local function maybe_force_global_for_quality(comp, now, icao, mode, data, helpe
         comp._routeExtraSegments = nil
         comp._lastStartKey = nil
         comp._lastEndKey = nil
+        comp._startRampLabel = nil
         comp._lastGuidanceNodeId = nil
         comp._lastGuidanceLabel = nil
         comp._lastGuidanceTime = nil
+        comp._sCurveSkipNodeId = nil
         comp._rerouteOverride = nil
         comp._needsCenter = true
         if comp._quality then
@@ -3309,7 +3312,8 @@ local function maybe_speak_guidance(comp, now, aircraft)
                 end
                 if along >= initialGuidanceMinForwardMeters
                     and (now - (anchor.time or now)) >= initialGuidanceMinForwardSeconds then
-                    local info = guidance_label_info(path[1], path[2], nil, comp._startRamp, is_freehand)
+                    local ramp_hint = comp._startRampLabel or comp._startRamp
+                    local info = guidance_label_info(path[1], path[2], nil, ramp_hint, is_freehand)
                     if info then
                         local text = ""
                         if is_freehand and (info.missingLabel or info.text == "") then
@@ -3357,6 +3361,11 @@ local function maybe_speak_guidance(comp, now, aircraft)
     local seg_idx = find_nearest_segment(data, path, aircraft.east, aircraft.north)
     if not seg_idx then
         diag("no-segment", "seg=nil path=" .. tostring(#path))
+        return
+    end
+    if comp._sCurveSkipNodeId and comp._sCurveSkipNodeId == path[seg_idx + 1] then
+        comp._sCurveSkipNodeId = nil
+        diag("s-curve-skip")
         return
     end
     if seg_idx >= (#path - 1) then
@@ -3565,6 +3574,49 @@ local function maybe_speak_guidance(comp, now, aircraft)
         return
     end
     local cross = v1x * v2y - v1y * v2x
+    if would_turn
+        and (not force_turn)
+        and next_info.kind == "taxiway"
+        and (not label_changed)
+        and (not entering_runway)
+        and (not leaving_runway) then
+        if (seg_idx + 3) <= #path then
+            local n4 = data.nodes[path[seg_idx + 3]]
+            if n4 and n4.east ~= nil and n4.north ~= nil then
+                local v3x = n4.east - n3.east
+                local v3y = n4.north - n3.north
+                local len3 = math.sqrt(v3x * v3x + v3y * v3y)
+                if len3 > 0.1 then
+                    local cross2 = v2x * v3y - v2y * v3x
+                    if cross ~= 0 and cross2 ~= 0 and (cross * cross2) < 0 and len2 <= guidanceSCurveMaxSeg then
+                        local dot2 = (v2x * v3x + v2y * v3y) / (len2 * len3)
+                        if dot2 > 1 then dot2 = 1 end
+                        if dot2 < -1 then dot2 = -1 end
+                        local angle2 = math.deg(math.acos(dot2))
+                        if angle2 >= guidanceSameTaxiwayTurnAngle then
+                            local text = "Continue straight"
+                            if not next_info.missingLabel then
+                                text = "Continue straight on Taxiway " .. next_info.text
+                            end
+                            emit({
+                                text = text,
+                                direction = "straight",
+                                action = "STRAIGHT",
+                                label = build_visual_label(next_info.kind, next_info.display),
+                                kind = next_info.kind,
+                                targetSegIdx = seg_idx + 1
+                            })
+                            comp._lastGuidanceNodeId = path[seg_idx + 1]
+                            comp._lastGuidanceLabel = label_key
+                            comp._lastGuidanceTime = now
+                            comp._sCurveSkipNodeId = path[seg_idx + 2]
+                            return
+                        end
+                    end
+                end
+            end
+        end
+    end
     local text = ""
     local direction = "straight"
     local action = ""
@@ -4199,6 +4251,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
     comp._startPoint = nil
     comp._endPoint = nil
     comp._startRamp = nil
+    comp._startRampLabel = nil
     comp._endRamp = nil
     comp._startIsAircraft = false
     comp._selectedEndRampKey = nil
@@ -4221,6 +4274,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
     comp._lastGuidanceNodeId = nil
     comp._lastGuidanceLabel = nil
     comp._lastGuidanceTime = nil
+    comp._sCurveSkipNodeId = nil
     comp._visualGuidance = nil
     comp._manualRouteActive = false
     comp._gateNote = nil
@@ -4992,8 +5046,9 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                 gateLabel = short_ramp_label(comp._endRamp)
             end
         else
-            if comp._startRamp and comp._startRamp.name and comp._startRamp.name ~= "" then
-                gateLabel = short_ramp_label(comp._startRamp)
+            local ramp = comp._startRampLabel or comp._startRamp
+            if ramp and ramp.name and ramp.name ~= "" then
+                gateLabel = short_ramp_label(ramp)
             elseif comp._startIsAircraft then
                 gateLabel = "Aircraft"
             end
@@ -6215,6 +6270,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
             comp._startPoint = nil
             comp._endPoint = nil
             comp._startRamp = nil
+            comp._startRampLabel = nil
             comp._endRamp = nil
             comp._lastStartKey = nil
             comp._lastEndKey = nil
@@ -6224,6 +6280,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
             comp._lastGuidanceNodeId = nil
             comp._lastGuidanceLabel = nil
             comp._lastGuidanceTime = nil
+            comp._sCurveSkipNodeId = nil
             clear_visual_guidance(comp, "reset")
             comp._visualGuidanceQueue = {}
             comp._editHandles = nil
@@ -6308,6 +6365,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
             comp._lastGuidanceNodeId = nil
             comp._lastGuidanceLabel = nil
             comp._lastGuidanceTime = nil
+            comp._sCurveSkipNodeId = nil
             comp._needsCenter = true
             comp._rerouteOverride = nil
             if comp._quality then
@@ -6808,6 +6866,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                                     comp._lastGuidanceNodeId = nil
                                     comp._lastGuidanceLabel = nil
                                     comp._lastGuidanceTime = nil
+                                    comp._sCurveSkipNodeId = nil
                                     clear_visual_guidance(comp, "end-ramp-switch")
                                     comp._visualGuidanceQueue = {}
                                     comp._gateGuidanceLastDir = nil
@@ -6908,6 +6967,14 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                     start_ramp = nil
                 end
             end
+        end
+
+        if mode == 0 then
+            if start_ramp and not comp._startRampLabel then
+                comp._startRampLabel = start_ramp
+            end
+        else
+            comp._startRampLabel = nil
         end
 
         comp._startRamp = start_ramp
@@ -8384,6 +8451,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                 comp._lastGuidanceNodeId = nil
                 comp._lastGuidanceLabel = nil
                 comp._lastGuidanceTime = nil
+                comp._sCurveSkipNodeId = nil
             else
                 helpers.logInfoTS(
                     "TaxiDiag: route-skip icao=" .. tostring(icao) ..
