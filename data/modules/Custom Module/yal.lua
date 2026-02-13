@@ -128,6 +128,96 @@ local function normalizeHoppieVoiceText(text)
     return cleaned
 end
 
+local function tryDecodeHoppieMetar(packet)
+    if type(packet) ~= "string" then
+        return nil
+    end
+    local tokens = helpers.splitstring(packet)
+    if not tokens or #tokens < 2 then
+        return nil
+    end
+    local function is_icao(token)
+        if type(token) ~= "string" or #token ~= 4 then
+            return false
+        end
+        for i = 1, 4 do
+            local b = string.byte(token, i)
+            if not (b and ((b >= 65 and b <= 90) or (b >= 97 and b <= 122))) then
+                return false
+            end
+        end
+        return true
+    end
+    local function is_metar_time(token)
+        if type(token) ~= "string" or #token ~= 7 then
+            return false
+        end
+        if string.sub(token, 7, 7) ~= "Z" then
+            return false
+        end
+        for i = 1, 6 do
+            local b = string.byte(token, i)
+            if not (b and b >= 48 and b <= 57) then
+                return false
+            end
+        end
+        return true
+    end
+    local idx = 1
+    local first = tokens[1] or ""
+    local first_up = string.upper(first)
+    if first_up == "METAR" or first_up == "SPECI" then
+        idx = 2
+    end
+    if #tokens < (idx + 1) then
+        return nil
+    end
+    local station = tokens[idx]
+    local dt = tokens[idx + 1]
+    if not (is_icao(station) and is_metar_time(dt)) then
+        return nil
+    end
+    local metar_parts = {}
+    for i = idx, #tokens do
+        metar_parts[#metar_parts + 1] = tokens[i]
+    end
+    local metar_text = table.concat(metar_parts, " ")
+    if metar_text == "" then
+        return nil
+    end
+    local decoded = helpers.decodemetar(metar_text)
+    if not decoded or type(decoded) ~= "table" then
+        return nil
+    end
+    local station_upper = string.upper(station)
+    local metar = { icaocode = station_upper, decodedmetar = decoded }
+    if decoded.station and decoded.station ~= "" then
+        metar.icaocode = decoded.station
+        station_upper = string.upper(decoded.station)
+    end
+    local runway_name = ""
+    if P.depicao and isProperty(P.depicao) and P.deprwy and isProperty(P.deprwy) then
+        local dep_icao = helpers.cleanstring(get(P.depicao))
+        if dep_icao ~= "" and string.upper(dep_icao) == station_upper then
+            runway_name = get(P.deprwy) or ""
+        end
+    end
+    if runway_name == "" and P.desicao and isProperty(P.desicao) and P.desrwy and isProperty(P.desrwy) then
+        local des_icao = helpers.cleanstring(get(P.desicao))
+        if des_icao ~= "" and string.upper(des_icao) == station_upper then
+            runway_name = get(P.desrwy) or ""
+        end
+    end
+    local spoken = helpers.formatMetarSpeechSummary(metar, runway_name)
+    if spoken and spoken ~= "" then
+        if helpers and helpers.logInfoTS then
+            helpers.logInfoTS("HoppieVoice: decoded METAR " .. station_upper)
+        end
+        return spoken
+    end
+    return nil
+end
+
 local function buildHoppieVoiceMessage(from, msg_type, packet)
     local parts = {}
     if msg_type and msg_type ~= "" then
@@ -212,7 +302,13 @@ local function checkHoppieVoiceMessages()
             return
         end
     end
-    local text = buildHoppieVoiceMessage(from, msg_type, packet)
+    local text = nil
+    if packet ~= "" then
+        text = tryDecodeHoppieMetar(packet)
+    end
+    if not text or text == "" then
+        text = buildHoppieVoiceMessage(from, msg_type, packet)
+    end
     if text == "" then
         return
     end
