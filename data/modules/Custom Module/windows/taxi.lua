@@ -3766,9 +3766,10 @@ U.ramp_frame_values = function(ramp, aircraft)
     local dx = aircraft.east - east
     local dy = aircraft.north - north
     if aircraft.heading and type(aircraft.heading) == "number" then
+        local offset = aircraft.nose_offset or (C and C.gateStopOffsetMeters or 10)
         local rad = math.rad(aircraft.heading % 360)
-        dx = dx + math.sin(rad) * (C and C.gateStopOffsetMeters or 10)
-        dy = dy + math.cos(rad) * (C and C.gateStopOffsetMeters or 10)
+        dx = dx + math.sin(rad) * offset
+        dy = dy + math.cos(rad) * offset
     end
     local dist = math.sqrt(dx * dx + dy * dy)
     local hdg = tonumber(ramp.heading)
@@ -3956,6 +3957,14 @@ U.gate_distance_meters = function(comp, aircraft, route, data)
         return nil
     end
     local best = nil
+    local ax = aircraft.east
+    local ay = aircraft.north
+    if aircraft.heading and type(aircraft.heading) == "number" then
+        local offset = aircraft.nose_offset or (C and C.gateStopOffsetMeters or 10)
+        local rad = math.rad(aircraft.heading % 360)
+        ax = ax + math.sin(rad) * offset
+        ay = ay + math.cos(rad) * offset
+    end
     if comp._endRamp then
         local ramp = comp._endRamp
         local east = ramp.east
@@ -3964,14 +3973,14 @@ U.gate_distance_meters = function(comp, aircraft, route, data)
             east, north = latlon_to_local(ramp.lat, ramp.lon)
         end
         if east ~= nil and north ~= nil then
-            local d = math.sqrt(distance_sq(aircraft.east, aircraft.north, east, north))
+            local d = math.sqrt(distance_sq(ax, ay, east, north))
             best = d
         end
     end
     if route and data and route.path and #route.path > 0 and data.nodes then
         local node = data.nodes[route.path[#route.path]]
         if node and node.east ~= nil and node.north ~= nil then
-            local d = math.sqrt(distance_sq(aircraft.east, aircraft.north, node.east, node.north))
+            local d = math.sqrt(distance_sq(ax, ay, node.east, node.north))
             if best == nil or d < best then
                 best = d
             end
@@ -6364,7 +6373,27 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
             local east, north = latlon_to_local(lat, lon)
             if east and north then
                 local heading = yal and yal.groundtrackmag and get(yal.groundtrackmag) or nil
-                aircraft = { lat = lat, lon = lon, east = east, north = north, heading = heading }
+                local nose_offset = nil
+                if yal and yal.gear_znose then
+                    local gear_z = get(yal.gear_znose)
+                    if type(gear_z) == "number" and gear_z ~= 0 then
+                        nose_offset = -gear_z
+                    end
+                end
+                if (nose_offset == nil or nose_offset == 0) and yal and yal.acf_cg_z then
+                    local cg_z = get(yal.acf_cg_z)
+                    if type(cg_z) == "number" and cg_z ~= 0 then
+                        nose_offset = math.abs(cg_z) * 0.3048
+                    end
+                end
+                aircraft = {
+                    lat = lat,
+                    lon = lon,
+                    east = east,
+                    north = north,
+                    heading = heading,
+                    nose_offset = nose_offset
+                }
             end
         end
         local nearest_ramp = nil
