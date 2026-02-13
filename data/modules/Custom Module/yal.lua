@@ -284,6 +284,10 @@ function P.YalinitGlobal()
     P.pauseTodMcpAltAtPrompt = nil
     P.autoRestartDeferred = false
     P.autoRestartSemaphorePath = def.PLUGINOUTPUTPATH .. "yal_autorestart.sem"
+    if helpers and helpers.file_exists_v2 and helpers.file_exists_v2(P.autoRestartSemaphorePath) then
+        os.remove(P.autoRestartSemaphorePath)
+        helpers.logInfoTS("AutoRestart: removed stale semaphore on startup")
+    end
     P.lastHoppiePollCount = nil
     P.lastHoppieVoiceMsg = nil
     P.lastHoppieVoiceTime = nil
