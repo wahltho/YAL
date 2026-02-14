@@ -3074,6 +3074,25 @@ local function maybe_speak_guidance(comp, now, aircraft)
     local route = comp._route
     local data = (route and route.data) or comp._data
     local is_freehand = (route and route.data and route.data.route_source == "freehand") or false
+    local function maybe_keep_gate_popup(info)
+        if not info or info.kind ~= "ramp" then
+            return
+        end
+        if info.keepOpen then
+            return
+        end
+        local hold_dist = (comp._tuning and comp._tuning.gatePopupHoldDist) or (C and C.gatePopupHoldDist) or gatePopupHoldDist
+        if not hold_dist then
+            return
+        end
+        local dist = info.dist
+        if dist == nil and aircraft then
+            dist = U.gate_distance_meters(comp, aircraft, comp._route, data)
+        end
+        if dist and dist <= hold_dist then
+            info.keepOpen = true
+        end
+    end
     if comp.mode == 1 then
         local gate_key = gate_target_key(comp, route)
         if gate_key ~= comp._gateCalloutKey then
@@ -3306,25 +3325,6 @@ local function maybe_speak_guidance(comp, now, aircraft)
     end
     local function emit(info)
         emit_guidance(comp, now, info, auto_voice)
-    end
-    local function maybe_keep_gate_popup(info)
-        if not info or info.kind ~= "ramp" then
-            return
-        end
-        if info.keepOpen then
-            return
-        end
-        local hold_dist = (comp._tuning and comp._tuning.gatePopupHoldDist) or (C and C.gatePopupHoldDist) or gatePopupHoldDist
-        if not hold_dist then
-            return
-        end
-        local dist = info.dist
-        if dist == nil and aircraft then
-            dist = U.gate_distance_meters(comp, aircraft, comp._route, data)
-        end
-        if dist and dist <= hold_dist then
-            info.keepOpen = true
-        end
     end
     local tirespeed = yal and yal.tirespeed and (get(yal.tirespeed) or 0) or 0
     local groundspeed = yal and yal.groundspeed and (get(yal.groundspeed) or 0) or 0
