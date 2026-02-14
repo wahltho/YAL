@@ -3305,7 +3305,6 @@ local function maybe_speak_guidance(comp, now, aircraft)
         return nil
     end
     local function emit(info)
-        maybe_keep_gate_popup(info)
         emit_guidance(comp, now, info, auto_voice)
     end
     local function maybe_keep_gate_popup(info)
