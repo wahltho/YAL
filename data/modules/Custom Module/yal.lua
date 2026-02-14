@@ -1538,6 +1538,14 @@ function P.BPBisinstalled()
         if not P.BPBStarted then
             P.BPBStarted = globalProperty("bp/started")
         end
+        if not P.BPBConnected then
+            local connectedRef = globalProperty("bp/connected")
+            if isProperty(connectedRef) then
+                P.BPBConnected = connectedRef
+            else
+                P.BPBConnected = nil
+            end
+        end
 
         local plannerref = globalProperty("bp/planner_open")
         if isProperty(plannerref) then
@@ -1555,6 +1563,7 @@ function P.BPBisinstalled()
     P.BPBOpComplete = nil
     P.BPBStarted = nil
     P.BPBPlannerOpen = nil
+    P.BPBConnected = nil
     return false
 end
 
