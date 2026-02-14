@@ -1091,10 +1091,10 @@ function M.fillProcedureTable()
                             return 'check_departure_airport_match'
                         end
 
-                        local planPresent = (get(planRef) == 1)
+                        local planPresent = (get(planRef) == def.ON)
                         local onlineRef = P.IVAOOnline
                         local onlineKnown = (onlineRef and isProperty(onlineRef))
-                        local online = onlineKnown and (get(onlineRef) == 1) or false
+                        local online = onlineKnown and (get(onlineRef) == def.ON) or false
 
                         if not planPresent then
                             if onlineKnown and online then
