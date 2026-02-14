@@ -4467,6 +4467,26 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
         log_taxi("TaxiWindow: setWindow")
     end
 
+    function comp:isWindowVisible()
+        if self._window and self._window.isVisible then
+            return self._window:isVisible()
+        end
+        return false
+    end
+
+    function comp:hasActiveGuidance()
+        if self._route or self._visualGuidance then
+            return true
+        end
+        if self._visualGuidanceQueue and #self._visualGuidanceQueue > 0 then
+            return true
+        end
+        if self._routeErr == "taxi-complete" then
+            return true
+        end
+        return false
+    end
+
     local function getSize()
         local p = get(comp.position)
         local w = (p and p[3] and p[3] > 0) and p[3] or defaultW
@@ -4579,7 +4599,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
         drawText(font, 8, h - headerH + 4, "Taxi Map", uiFontSize, TEXT_ALIGN_LEFT, {0.9, 0.9, 0.95, 1})
         drawText(font, w - 18, h - headerH + 4, "X", uiFontSize, TEXT_ALIGN_LEFT, {0.9, 0.5, 0.5, 1})
 
-        self:updateTaxiState(layout.map)
+        -- taxi state updates run in component update / background loop
 
         local btnW = 78
         local btnH = toolbarH - 6
@@ -6183,6 +6203,9 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
     end
 
     function comp:update()
+        if self:isWindowVisible() then
+            self:updateTaxiState()
+        end
         return
     end
 

@@ -5368,7 +5368,9 @@ function P.ongoingtasks()
         local taxiPhase = (P.flightstate == def.FLIGHTSTATEPREFLIGHT)
             or (P.flightstate == def.FLIGHTSTATETAXITOGATE)
             or (P.flightstate == def.FLIGHTSTATESHUTDOWN)
-        if onGround and taxiPhase then
+        local taxiActive = (P.taxiComponent.hasActiveGuidance and P.taxiComponent:hasActiveGuidance()) or false
+        local winVisible = (P.taxiComponent.isWindowVisible and P.taxiComponent:isWindowVisible()) or false
+        if onGround and (taxiPhase or taxiActive) and (not winVisible) then
             P.taxiComponent:updateTaxiState()
         end
     end
