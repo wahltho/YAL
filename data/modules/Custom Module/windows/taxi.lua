@@ -3081,6 +3081,9 @@ local function maybe_speak_guidance(comp, now, aircraft)
         if info.keepOpen then
             return
         end
+        if comp._arrTaxiCompleteAnnounced or comp._routeErr == "taxi-complete" then
+            return
+        end
         local hold_dist = (comp._tuning and comp._tuning.gatePopupHoldDist) or (C and C.gatePopupHoldDist) or gatePopupHoldDist
         if not hold_dist then
             return
@@ -3121,6 +3124,11 @@ local function maybe_speak_guidance(comp, now, aircraft)
     if comp.mode == 1 then
         local gate_info = (U and U.gate_alignment_info) and U.gate_alignment_info(comp, aircraft) or nil
         if gate_info then
+            if comp._arrTaxiCompleteAnnounced or comp._routeErr == "taxi-complete" then
+                clear_visual_guidance(comp, "taxi-complete")
+                comp._visualGuidanceQueue = {}
+                return
+            end
             local cooldown = (comp._tuning and comp._tuning.gateGuidanceCooldownSec) or (C and C.gateGuidanceCooldownSec) or 4
             local last_time = comp._gateGuidanceLastTime or 0
             local same = (gate_info.direction == comp._gateGuidanceLastDir) and (gate_info.action == comp._gateGuidanceLastAction)
@@ -8960,6 +8968,8 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                     local pb_dist = tuning.parkingBrakeCompleteDist or 35
                     if nearest_ramp and nearest_ramp_dist and nearest_ramp_dist <= pb_dist then
                         local ramp_label = short_ramp_label(nearest_ramp)
+                        clear_visual_guidance(comp, "taxi-complete")
+                        comp._visualGuidanceQueue = {}
                         emit_guidance(comp, now, {
                             text = "Taxi complete",
                             direction = "straight",
