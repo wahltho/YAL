@@ -1078,7 +1078,75 @@ function M.fillProcedureTable()
                     end,
                     advice = "Activate Flight Plan in F M C",
                     confirm = "Flight Plan in F M C Checked Activated",
-                    nextStep = 'check_departure_airport_match'
+                    nextStep = 'check_ivao_flightplan'
+                },
+                ['check_ivao_flightplan'] = {
+                    branch = function(loop)
+                        if not P.IVAOMonitorIsInstalled() then
+                            return 'check_departure_airport_match'
+                        end
+
+                        local planRef = P.IVAOFlightplanPresent
+                        if not (planRef and isProperty(planRef)) then
+                            return 'check_departure_airport_match'
+                        end
+
+                        local planPresent = (get(planRef) == 1)
+                        local onlineRef = P.IVAOOnline
+                        local onlineKnown = (onlineRef and isProperty(onlineRef))
+                        local online = onlineKnown and (get(onlineRef) == 1) or false
+
+                        if not planPresent then
+                            if onlineKnown and online then
+                                P.commandtableentry(def.TEXT, "Online but no IVAO flightplan filed")
+                            end
+                            if not onlineKnown or not online then
+                                return 'check_departure_airport_match'
+                            end
+                            return 'check_departure_airport_match'
+                        end
+
+                        if onlineKnown and not online then
+                            P.commandtableentry(def.TEXT, "IVAO flightplan filed but you are offline")
+                        end
+
+                        local ivaoDep = ""
+                        if P.IVAOFlightplanDep and isProperty(P.IVAOFlightplanDep) then
+                            ivaoDep = string.upper(helpers.forceCleanString(get(P.IVAOFlightplanDep) or "")):sub(1, 4)
+                        end
+                        local ivaoArr = ""
+                        if P.IVAOFlightplanArr and isProperty(P.IVAOFlightplanArr) then
+                            ivaoArr = string.upper(helpers.forceCleanString(get(P.IVAOFlightplanArr) or "")):sub(1, 4)
+                        end
+                        local depIcao = string.upper(helpers.forceCleanString(get(P.depicao) or "")):sub(1, 4)
+                        local desIcao = string.upper(helpers.forceCleanString(get(P.desicao) or "")):sub(1, 4)
+
+                        if helpers.isvalidicao(ivaoDep) and helpers.isvalidicao(depIcao) and ivaoDep ~= depIcao then
+                            P.commandtableentry(def.TEXT, "IVAO flightplan departure " .. helpers.spellNato(ivaoDep) .. " differs from FMC departure " .. helpers.spellNato(depIcao))
+                        end
+                        if helpers.isvalidicao(ivaoArr) and helpers.isvalidicao(desIcao) and ivaoArr ~= desIcao then
+                            P.commandtableentry(def.TEXT, "IVAO flightplan destination " .. helpers.spellNato(ivaoArr) .. " differs from FMC destination " .. helpers.spellNato(desIcao))
+                        end
+
+                        local nearestIcao = string.upper((helpers.forceCleanString(get(P.nearesticao) or "")):sub(1, 4))
+                        if helpers.isvalidicao(ivaoDep) and helpers.isvalidicao(nearestIcao) and ivaoDep ~= nearestIcao then
+                            P.commandtableentry(def.TEXT, "Nearest airport " .. helpers.spellNato(nearestIcao) .. " differs from IVAO departure " .. helpers.spellNato(ivaoDep))
+                        end
+
+                        local ivaoNumber = ""
+                        if P.IVAOFlightplanNumber and isProperty(P.IVAOFlightplanNumber) then
+                            ivaoNumber = string.upper(helpers.forceCleanString(get(P.IVAOFlightplanNumber) or ""))
+                        end
+                        local fmcCallsign = ""
+                        if P.hoppie and P.hoppie.callsign and isProperty(P.hoppie.callsign) then
+                            fmcCallsign = string.upper(helpers.forceCleanString(get(P.hoppie.callsign) or ""))
+                        end
+                        if ivaoNumber ~= "" and fmcCallsign ~= "" and ivaoNumber ~= fmcCallsign then
+                            P.commandtableentry(def.TEXT, "IVAO flightplan number " .. ivaoNumber .. " differs from FMC callsign " .. fmcCallsign)
+                        end
+
+                        return 'check_departure_airport_match'
+                    end
                 },
                 ['check_departure_airport_match'] = {
                     runActionInAdviceMode = true,

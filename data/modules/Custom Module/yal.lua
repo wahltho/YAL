@@ -487,6 +487,7 @@ function P.YalinitGlobal()
     P.XCameraIsInstalled()
     P.YANSHisinstalled()
     P.BPBisinstalled()
+    P.IVAOMonitorIsInstalled()
 
 end
 
@@ -1396,6 +1397,54 @@ function P.BPBisinstalled()
     P.BPBOpComplete = nil
     P.BPBStarted = nil
     P.BPBPlannerOpen = nil
+    return false
+end
+
+--------------------------------------------------------------------------------------------------------------
+function P.IVAOMonitorIsInstalled()
+    local signature = "wahltho.ivao.monitor"
+    local pluginID = sasl.findPluginBySignature(signature)
+
+    if pluginID ~= NO_PLUGIN_ID then
+        if P.IVAOMonitorPluginID ~= pluginID then
+            helpers.logInfoTS("IVAO monitor plugin detected, integration enabled.")
+        end
+        P.IVAOMonitorPluginID = pluginID
+
+        if not P.IVAOFlightplanPresent then
+            P.IVAOFlightplanPresent = globalProperty("ivao_monitor/flightplan_present")
+        end
+        if not P.IVAOFlightplanDep then
+            P.IVAOFlightplanDep = globalProperty("ivao_monitor/flightplan_dep")
+        end
+        if not P.IVAOFlightplanArr then
+            P.IVAOFlightplanArr = globalProperty("ivao_monitor/flightplan_arr")
+        end
+        if not P.IVAOFlightplanId then
+            P.IVAOFlightplanId = globalProperty("ivao_monitor/flightplan_id")
+        end
+        if not P.IVAOFlightplanNumber then
+            P.IVAOFlightplanNumber = globalProperty("ivao_monitor/flightplan_number")
+        end
+        if not P.IVAOOnline or not isProperty(P.IVAOOnline) then
+            local onlineRef = globalProperty("ivaopilot/online")
+            if isProperty(onlineRef) then
+                P.IVAOOnline = onlineRef
+            else
+                P.IVAOOnline = nil
+            end
+        end
+
+        return true
+    end
+
+    P.IVAOMonitorPluginID = NO_PLUGIN_ID
+    P.IVAOFlightplanPresent = nil
+    P.IVAOFlightplanDep = nil
+    P.IVAOFlightplanArr = nil
+    P.IVAOFlightplanId = nil
+    P.IVAOFlightplanNumber = nil
+    P.IVAOOnline = nil
     return false
 end
 
