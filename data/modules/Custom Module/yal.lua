@@ -311,12 +311,58 @@ local function checkHoppieVoiceMessages()
     if packet ~= "" then
         local lower_packet = string.lower(packet)
         if string.find(lower_packet, "atis is not available", 1, true) then
-            local first_token = packet:match("^%s*([%w_]+)")
-            local icao = ""
-            if first_token then
-                icao = string.upper(first_token:sub(1, 4))
+            local function extractIcao(text)
+                if type(text) ~= "string" then
+                    return ""
+                end
+                local ignore = {
+                    ATIS = true,
+                    METAR = true,
+                    INFO = true,
+                    ACARS = true,
+                    CPDLC = true,
+                    MSG = true,
+                    MESSAGE = true
+                }
+                local run = {}
+                local run_len = 0
+                local function flush_run()
+                    if run_len >= 4 then
+                        local candidate = string.upper(table.concat(run, "", 1, 4))
+                        if not ignore[candidate] then
+                            return candidate
+                        end
+                    end
+                    return ""
+                end
+                local text_len = #text
+                for i = 1, text_len do
+                    local b = string.byte(text, i)
+                    local is_alpha = (b >= 65 and b <= 90) or (b >= 97 and b <= 122)
+                    if is_alpha then
+                        run_len = run_len + 1
+                        run[run_len] = string.char(b)
+                    else
+                        if run_len > 0 then
+                            local found = flush_run()
+                            if found ~= "" then
+                                return found
+                            end
+                            run = {}
+                            run_len = 0
+                        end
+                    end
+                end
+                if run_len > 0 then
+                    local found = flush_run()
+                    if found ~= "" then
+                        return found
+                    end
+                end
+                return ""
             end
-            if helpers.isvalidicao(icao) then
+            local icao = extractIcao(packet)
+            if icao ~= "" then
                 local now = os.time()
                 if P.lastAtisUnavailableIcao == icao and P.lastAtisUnavailableTime and (now - P.lastAtisUnavailableTime) < 30 then
                     if helpers and helpers.logInfoTS then
