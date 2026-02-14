@@ -1128,11 +1128,6 @@ function M.fillProcedureTable()
                             P.commandtableentry(def.TEXT, "IVAO flightplan destination " .. helpers.spellNato(ivaoArr) .. " differs from FMC destination " .. helpers.spellNato(desIcao))
                         end
 
-                        local nearestIcao = string.upper((helpers.forceCleanString(get(P.nearesticao) or "")):sub(1, 4))
-                        if helpers.isvalidicao(ivaoDep) and helpers.isvalidicao(nearestIcao) and ivaoDep ~= nearestIcao then
-                            P.commandtableentry(def.TEXT, "Nearest airport " .. helpers.spellNato(nearestIcao) .. " differs from IVAO departure " .. helpers.spellNato(ivaoDep))
-                        end
-
                         local ivaoNumber = ""
                         if P.IVAOFlightplanNumber and isProperty(P.IVAOFlightplanNumber) then
                             ivaoNumber = string.upper(helpers.forceCleanString(get(P.IVAOFlightplanNumber) or ""))
