@@ -65,6 +65,7 @@ local autoGateSwitchCooldownSec = 10.0
 local parkingBrakeCompleteDist = 35
 local gateStopDistance = 2
 local gateStopOffsetMeters = 11
+local gatePopupHoldDist = 30
 local freehandInsertMaxPixels = 14
 
 local minZoom = 0.2
@@ -3001,7 +3002,11 @@ local function emit_guidance(comp, now, info, allow_voice)
     if is_visual_taxi_guidance_enabled() and info.visual ~= false then
         info.issuedAt = now
         info.showAt = now + visualGuidanceSyncDelay
-        info.expiresAt = now + visualGuidanceSyncDelay + visualGuidanceDuration
+        if info.keepOpen then
+            info.expiresAt = nil
+        else
+            info.expiresAt = now + visualGuidanceSyncDelay + visualGuidanceDuration
+        end
         info.minShowUntil = now + visualGuidanceSyncDelay + visualGuidanceMinShow
         if info.queue and comp._visualGuidance then
             queue_visual_guidance(comp, info)
@@ -3106,6 +3111,7 @@ local function maybe_speak_guidance(comp, now, aircraft)
                     if comp._gateCalloutStop then
                         allow_voice = false
                     end
+                    maybe_keep_gate_popup(gate_info)
                     emit_guidance(comp, now, gate_info, allow_voice)
                     comp._gateGuidanceStop = true
                     comp._gateGuidanceLastDir = gate_info.direction
@@ -3116,6 +3122,7 @@ local function maybe_speak_guidance(comp, now, aircraft)
             end
             comp._gateGuidanceStop = false
             if (not same) or ((now - last_time) >= cooldown) then
+                maybe_keep_gate_popup(gate_info)
                 emit_guidance(comp, now, gate_info, auto_voice)
                 comp._gateGuidanceLastDir = gate_info.direction
                 comp._gateGuidanceLastAction = gate_info.action
@@ -3124,6 +3131,14 @@ local function maybe_speak_guidance(comp, now, aircraft)
             end
         else
             comp._gateGuidanceStop = false
+        end
+    end
+    if comp.mode == 1 and comp._endRamp then
+        local gate_radius = (comp._tuning and comp._tuning.gateGuidanceRadius) or (C and C.gateGuidanceRadius) or 60
+        local gate_dist = U.gate_distance_meters(comp, aircraft, comp._route, data)
+        if gate_dist and gate_dist <= gate_radius then
+            diag("gate-approach-hold", string.format("dist=%.1f", gate_dist))
+            return
         end
     end
     if not comp._route or not comp._route.path then
@@ -3290,7 +3305,27 @@ local function maybe_speak_guidance(comp, now, aircraft)
         return nil
     end
     local function emit(info)
+        maybe_keep_gate_popup(info)
         emit_guidance(comp, now, info, auto_voice)
+    end
+    local function maybe_keep_gate_popup(info)
+        if not info or info.kind ~= "ramp" then
+            return
+        end
+        if info.keepOpen then
+            return
+        end
+        local hold_dist = (comp._tuning and comp._tuning.gatePopupHoldDist) or (C and C.gatePopupHoldDist) or gatePopupHoldDist
+        if not hold_dist then
+            return
+        end
+        local dist = info.dist
+        if dist == nil and aircraft then
+            dist = U.gate_distance_meters(comp, aircraft, comp._route, data)
+        end
+        if dist and dist <= hold_dist then
+            info.keepOpen = true
+        end
     end
     local tirespeed = yal and yal.tirespeed and (get(yal.tirespeed) or 0) or 0
     local groundspeed = yal and yal.groundspeed and (get(yal.groundspeed) or 0) or 0
@@ -3825,6 +3860,7 @@ C = {
     autoGateSwitchCooldownSec = autoGateSwitchCooldownSec,
     parkingBrakeCompleteDist = parkingBrakeCompleteDist,
     gateStopOffsetMeters = gateStopOffsetMeters,
+    gatePopupHoldDist = gatePopupHoldDist,
     gateSelectRadius = 120,
     gateGuidanceRadius = 60,
     gateGuidanceDeadzone = 0.8,
@@ -4008,13 +4044,13 @@ U.gate_alignment_info = function(comp, aircraft)
     if dist > radius then
         return nil
     end
-    if ramp_hdg and local_z < behind_limit then
-        return nil
-    end
     local direction = "straight"
     local action = "ALIGN"
     local text = "Continue straight"
-    if local_z <= gateStopDistance then
+    if ramp_hdg and local_z < behind_limit then
+        action = "STOP"
+        text = "Stop"
+    elseif local_z <= gateStopDistance then
         action = "STOP"
         text = "Stop"
     else
@@ -4027,12 +4063,15 @@ U.gate_alignment_info = function(comp, aircraft)
     if ramp_label == "" then
         ramp_label = "Ramp"
     end
+    local hold_dist = tuning.gatePopupHoldDist or (C and C.gatePopupHoldDist) or gatePopupHoldDist
     return {
         text = text,
         direction = direction,
         action = action,
         label = build_visual_label("ramp", ramp_label),
-        kind = "ramp"
+        kind = "ramp",
+        dist = dist,
+        keepOpen = (hold_dist and dist <= hold_dist) or false
     }
 end
 
@@ -4400,7 +4439,8 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
         gateGuidanceRadius = C.gateGuidanceRadius,
         gateGuidanceDeadzone = C.gateGuidanceDeadzone,
         gateGuidanceBehindLimit = C.gateGuidanceBehindLimit,
-        gateGuidanceCooldownSec = C.gateGuidanceCooldownSec
+        gateGuidanceCooldownSec = C.gateGuidanceCooldownSec,
+        gatePopupHoldDist = C.gatePopupHoldDist
     }
     comp._U = U
     comp._C = C
