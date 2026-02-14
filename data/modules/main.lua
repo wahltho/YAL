@@ -435,10 +435,12 @@ function update()
     if helpers.isZibo() then
         maybeInitDebugOverlay()
         local autoTaxiEnabled = false
+        local autoTaxiingEnabled = false
         local visualTaxiEnabled = false
         if settings and settings.appSettings then
             autoTaxiEnabled = (settings.appSettings[def.CONFIGAUTOTAXIGUIDANCE] == def.ON)
             visualTaxiEnabled = (settings.appSettings[def.CONFIGVISUALTAXIGUIDANCE] == def.ON)
+            autoTaxiingEnabled = (settings.appSettings[def.CONFIGAUTOTAXIING] == def.ON)
         end
         if visualTaxiEnabled then
             maybeInitTaxiPopupWindow()
@@ -462,6 +464,9 @@ function update()
         end
         if taxiComponent and (autoTaxiEnabled or taxiVisible or visualTaxiEnabled) then
             taxiComponent:tick()
+        end
+        if taxiComponent and autoTaxiEnabled and autoTaxiingEnabled and taxiComponent.autoTaxiTick then
+            taxiComponent:autoTaxiTick()
         end
         local current_elapsed_time = sasl.getElapsedSeconds(oneSecTimer)
 

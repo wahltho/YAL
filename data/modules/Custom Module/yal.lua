@@ -2270,6 +2270,40 @@ local my_command_toggleadviceonly = sasl.createCommand(def.APPNAMEPREFIX .. "/to
 sasl.registerCommandHandler(my_command_toggleadviceonly, 0, P.toggleadviceonly_)
 
 --------------------------------------------------------------------------------------------------------------
+function P.toggleautotaxiing()
+
+    local newValue = def.ON
+    if (P.configvalues[def.CONFIGAUTOTAXIING] == def.ON) then
+        newValue = def.OFF
+    end
+    P.configvalues[def.CONFIGAUTOTAXIING] = newValue
+    if settings and settings.appSettings then
+        settings.appSettings[def.CONFIGAUTOTAXIING] = newValue
+        if settings.writeSettings then
+            settings.writeSettings(settings.appSettings)
+        end
+    end
+    if newValue == def.ON then
+        P.commandtableentry(def.TEXT, "Auto Taxiing On")
+    else
+        P.commandtableentry(def.TEXT, "Auto Taxiing Off")
+    end
+
+    return true
+
+end
+
+function P.toggleautotaxiing_(phase)
+    if phase == SASL_COMMAND_BEGIN then
+        P.toggleautotaxiing()
+    end
+    return 0
+end
+
+local my_command_toggleautotaxiing = sasl.createCommand(def.APPNAMEPREFIX .. "/toggleautotaxiing", "Toggle Auto Taxiing")
+sasl.registerCommandHandler(my_command_toggleautotaxiing, 0, P.toggleautotaxiing_)
+
+--------------------------------------------------------------------------------------------------------------
 function P.findMostRecentLoop()
     local mostRecentLoop = nil
     local latestTime = 0
@@ -6857,6 +6891,7 @@ local menu_toggle_setcockpitlights = sasl.appendMenuItem(menu_misc, "Set Cockpit
 local menu_toggle_auto = sasl.appendMenuItem(menu_misc, "Toggle Auto Functions", P.toggleautofunctions)
 local menu_toogle_voice = sasl.appendMenuItem(menu_misc, "Toggle Voice Readback", P.togglevoicereadback)
 local menu_toogle_adviceonly = sasl.appendMenuItem(menu_misc, "Toggle Voice Advice Only", P.toggleadviceonly)
+local menu_toggle_autotaxi = sasl.appendMenuItem(menu_misc, "Toggle Auto Taxiing", P.toggleautotaxiing)
 local menu_toogle_freeze = sasl.appendMenuItem(menu_misc, "Toggle Sim Freeze", P.togglesimfreeze)
 local menu_toggle_view = sasl.appendMenuItem(menu_misc, "Toggle View Changes", P.toggleviewchanges)
 local menu_timewarptotod = sasl.appendMenuItem(menu_misc, "Time Warp to TOD", P.timewarptotod)
@@ -6907,6 +6942,7 @@ function P.enableMenus(enableflag)
     sasl.enableMenuItem(menu_misc , menu_toggle_auto , enableflag)
     sasl.enableMenuItem(menu_misc , menu_toogle_voice , enableflag)
     sasl.enableMenuItem(menu_misc , menu_toogle_adviceonly , enableflag)
+    sasl.enableMenuItem(menu_misc , menu_toggle_autotaxi , enableflag)
     sasl.enableMenuItem(menu_misc , menu_toogle_freeze , enableflag)
     sasl.enableMenuItem(menu_misc , menu_toggle_view , enableflag)
     sasl.enableMenuItem(menu_misc , menu_timewarptotod , enableflag)

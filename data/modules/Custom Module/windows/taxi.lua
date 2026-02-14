@@ -3946,6 +3946,7 @@ C = {
     pushbackReleaseSpeed = 1.0,
     pushbackReleaseSeconds = 2.0,
     pushbackReleaseMeters = 5,
+    autoTaxiTickSec = 0.05,
     gateSelectRadius = 120,
     gateGuidanceRadius = 60,
     gateGuidanceDeadzone = 0.8,
@@ -4118,6 +4119,86 @@ U.update_pushback_state = function(comp, now, yal, aircraft)
 
     comp._pushbackReleaseAnchor = nil
     return false
+end
+
+U.auto_taxi_tick = function(comp, now)
+    if not comp then
+        return
+    end
+    if comp.mode ~= 0 and comp.mode ~= 1 then
+        comp._autoTaxiReady = false
+        return
+    end
+    local settingsTable = settings and settings.appSettings or nil
+    if not settingsTable then
+        return
+    end
+    if settingsTable[def.CONFIGAUTOTAXIING] ~= def.ON then
+        comp._autoTaxiReady = false
+        return
+    end
+    if settingsTable[def.CONFIGAUTOTAXIGUIDANCE] ~= def.ON then
+        comp._autoTaxiReady = false
+        return
+    end
+    local tick_sec = (C and C.autoTaxiTickSec) or 0.05
+    local next_tick = comp._autoTaxiNext or 0
+    if now < next_tick then
+        return
+    end
+    comp._autoTaxiNext = now + tick_sec
+
+    local yal = comp.yal or _G.yal
+    if not yal then
+        comp._autoTaxiReady = false
+        return
+    end
+    if not (yal.airgroundsensor and get(yal.airgroundsensor) == def.ON) then
+        comp._autoTaxiReady = false
+        return
+    end
+    local flightstate = yal.flightstate
+    if comp.mode == 0 then
+        if flightstate ~= def.FLIGHTSTATEPREFLIGHT then
+            comp._autoTaxiReady = false
+            return
+        end
+    elseif comp.mode == 1 then
+        if flightstate ~= def.FLIGHTSTATETAXITOGATE then
+            comp._autoTaxiReady = false
+            return
+        end
+        local proc = yal.proceduretable and yal.proceduretable[def.AFTERLANDINGPROCEDURE]
+        if not (proc and proc.set) then
+            comp._autoTaxiReady = false
+            return
+        end
+    end
+    if yal.parkingbrakepos and get(yal.parkingbrakepos) == def.ON then
+        comp._autoTaxiReady = false
+        return
+    end
+    if comp.mode == 0 then
+        local proc = yal.proceduretable and yal.proceduretable[def.BEFORETAXIPROCEDURE]
+        if not (proc and proc.set) then
+            comp._autoTaxiReady = false
+            return
+        end
+    end
+    if not comp._route or not comp._route.path or #comp._route.path < 2 then
+        comp._autoTaxiReady = false
+        return
+    end
+    local aircraft = comp._aircraftPoint
+    if comp.mode == 0 then
+        if U.update_pushback_state and U.update_pushback_state(comp, now, yal, aircraft) then
+            comp._autoTaxiReady = false
+            return
+        end
+    end
+
+    -- placeholder: manual input detection + control loop will be added later
+    comp._autoTaxiReady = true
 end
 
 U.ramp_frame_values = function(ramp, aircraft)
@@ -4587,6 +4668,8 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
     comp._pushbackCompleted = false
     comp._pushbackPlanSeen = false
     comp._pushbackReleaseAnchor = nil
+    comp._autoTaxiNext = nil
+    comp._autoTaxiReady = false
     comp._lastRecomputeKey = nil
     comp._lastRerouteTime = nil
     comp._rerouteOverride = nil
@@ -9424,6 +9507,19 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
 
     function comp:clearVisualGuidanceQueue()
         comp._visualGuidanceQueue = {}
+    end
+
+    function comp:autoTaxiTick()
+        local U = comp._U or {}
+        local auto_tick = U.auto_taxi_tick
+        if not auto_tick then
+            return
+        end
+        local now = 0
+        if comp._timer then
+            now = sasl.getElapsedSeconds(comp._timer) or 0
+        end
+        auto_tick(comp, now)
     end
 
     function comp:tick()
