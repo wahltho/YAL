@@ -308,6 +308,27 @@ local function checkHoppieVoiceMessages()
             return
         end
     end
+    if packet ~= "" then
+        local lower_packet = string.lower(packet)
+        if string.find(lower_packet, "atis is not available", 1, true) then
+            local first_token = packet:match("^%s*([%w_]+)")
+            local icao = ""
+            if first_token then
+                icao = string.upper(first_token:sub(1, 4))
+            end
+            if helpers.isvalidicao(icao) then
+                local now = os.time()
+                if P.lastAtisUnavailableIcao == icao and P.lastAtisUnavailableTime and (now - P.lastAtisUnavailableTime) < 30 then
+                    if helpers and helpers.logInfoTS then
+                        helpers.logInfoTS("HoppieVoice: suppress dup ATIS not available " .. icao)
+                    end
+                    return
+                end
+                P.lastAtisUnavailableIcao = icao
+                P.lastAtisUnavailableTime = now
+            end
+        end
+    end
     local text = nil
     if packet ~= "" then
         text = tryDecodeHoppieMetar(packet)
@@ -997,7 +1018,8 @@ function P.initDataref()
 
     P.airspeed = globalProperty("laminar/B738/autopilot/airspeed")
     P.ias_kts = globalProperty("sim/cockpit2/gauges/indicators/airspeed_kts_pilot")
-    P.tas_kts = globalProperty("sim/cockpit2/gauges/indicators/true_airspeed_kts")
+    P.tas_kts = globalProperty("sim/flightmodel/position/true_airspeed")
+    P.tas_kts_is_ms = true
     P.groundspeed = globalProperty("laminar/b738/fmodpack/real_groundspeed")
     P.tirespeed = globalProperty("laminar/B738/systems/tire_speed0")
     P.verticalspeed = globalPropertyfae("sim/cockpit2/tcas/targets/position/vertical_speed", 1)
@@ -1961,11 +1983,15 @@ function P.timewarptotod()
             fuel_flow_lbs_hr = total_kg_sec * def.KGTOLBS * 3600
         end
     end
+    local tas_kt = get(P.tas_kts)
+    if P.tas_kts_is_ms and type(tas_kt) == "number" then
+        tas_kt = tas_kt * 1.94384449
+    end
     local fuel_opts = {
         phase = ffPhase,
         alt_ft = get(P.altitude_ft) or get(P.altitude),
         ias_kt = get(P.ias_kts),
-        tas_kt = get(P.tas_kts),
+        tas_kt = tas_kt,
         gs_kt = get(P.groundspeed)
     }
     if fuel_flow_lbs_hr and fuel_flow_lbs_hr > 0 then
