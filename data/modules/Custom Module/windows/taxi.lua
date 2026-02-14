@@ -67,9 +67,6 @@ local gateStopDistance = 2
 local gateStopOffsetMeters = 11
 local gatePopupHoldDist = 30
 local freehandInsertMaxPixels = 14
-local pushbackReleaseSpeed = 1.0
-local pushbackReleaseSeconds = 2.0
-local pushbackReleaseMeters = 5
 
 local minZoom = 0.2
 local maxZoom = 5
@@ -90,92 +87,6 @@ local function log_taxi(message)
     end
 end
 
-local function update_pushback_state(comp, now, yal, aircraft)
-    if not comp or not yal or comp.mode ~= 0 then
-        if comp then
-            comp._pushbackStartedEver = false
-            comp._pushbackActive = false
-            comp._pushbackCompleted = false
-            comp._pushbackPlanSeen = false
-            comp._pushbackReleaseAnchor = nil
-        end
-        return false
-    end
-
-    local planRef = yal.BPBPlanComplete
-    local startedRef = yal.BPBStarted
-    local connectedRef = yal.BPBConnected
-    local plannerRef = yal.BPBPlannerOpen
-    if not ((planRef and isProperty(planRef)) or (startedRef and isProperty(startedRef))) then
-        comp._pushbackStartedEver = false
-        comp._pushbackActive = false
-        comp._pushbackCompleted = false
-        comp._pushbackPlanSeen = false
-        comp._pushbackReleaseAnchor = nil
-        return false
-    end
-
-    local planOn = (planRef and isProperty(planRef) and get(planRef) == def.ON) or false
-    local startedOn = (startedRef and isProperty(startedRef) and get(startedRef) == def.ON) or false
-    local connectedOn = (connectedRef and isProperty(connectedRef) and get(connectedRef) == def.ON) or false
-    local plannerOpen = (plannerRef and isProperty(plannerRef) and get(plannerRef) == def.ON) or false
-
-    if startedOn then
-        comp._pushbackStartedEver = true
-        comp._pushbackActive = true
-        comp._pushbackCompleted = false
-        comp._pushbackPlanSeen = planOn or comp._pushbackPlanSeen
-        comp._pushbackReleaseAnchor = nil
-        return true
-    end
-
-    if comp._pushbackStartedEver then
-        if connectedRef and isProperty(connectedRef) and connectedOn then
-            comp._pushbackActive = true
-            comp._pushbackCompleted = false
-            return true
-        end
-        comp._pushbackActive = false
-        comp._pushbackCompleted = true
-        return false
-    end
-
-    comp._pushbackActive = false
-    comp._pushbackCompleted = false
-    comp._pushbackPlanSeen = planOn or comp._pushbackPlanSeen
-    if planOn then
-        if plannerOpen then
-            comp._pushbackReleaseAnchor = nil
-            return true
-        end
-        local gs = (yal.groundspeed and (get(yal.groundspeed) or 0)) or 0
-        local ts = (yal.tirespeed and (get(yal.tirespeed) or 0)) or 0
-        local moving = (gs >= pushbackReleaseSpeed or ts >= pushbackReleaseSpeed)
-        if moving and aircraft and aircraft.east ~= nil and aircraft.north ~= nil then
-            local anchor = comp._pushbackReleaseAnchor
-            if not anchor then
-                comp._pushbackReleaseAnchor = { east = aircraft.east, north = aircraft.north, time = now }
-                return true
-            end
-            local dx = aircraft.east - anchor.east
-            local dy = aircraft.north - anchor.north
-            local dist = math.sqrt(dx * dx + dy * dy)
-            if dist >= pushbackReleaseMeters
-                and (now - (anchor.time or now)) >= pushbackReleaseSeconds then
-                comp._pushbackCompleted = true
-                comp._pushbackPlanSeen = false
-                comp._pushbackReleaseAnchor = nil
-                return false
-            end
-            return true
-        end
-        comp._pushbackReleaseAnchor = nil
-        return true
-    end
-
-    comp._pushbackReleaseAnchor = nil
-    return false
-end
 
 
 local function is_valid_latlon(lat, lon)
@@ -3164,7 +3075,7 @@ local function maybe_speak_guidance(comp, now, aircraft)
         return
     end
     if comp.mode == 0 then
-        local block = update_pushback_state(comp, now, yal, aircraft)
+        local block = U.update_pushback_state and U.update_pushback_state(comp, now, yal, aircraft) or false
         if block then
             comp._initialMoveAnchor = nil
             comp._guidanceMoveAnchor = nil
@@ -4032,6 +3943,9 @@ C = {
     parkingBrakeCompleteDist = parkingBrakeCompleteDist,
     gateStopOffsetMeters = gateStopOffsetMeters,
     gatePopupHoldDist = gatePopupHoldDist,
+    pushbackReleaseSpeed = 1.0,
+    pushbackReleaseSeconds = 2.0,
+    pushbackReleaseMeters = 5,
     gateSelectRadius = 120,
     gateGuidanceRadius = 60,
     gateGuidanceDeadzone = 0.8,
@@ -4116,6 +4030,95 @@ U = {
     runway_label_voice = runway_label_voice,
     build_visual_label = build_visual_label
 }
+
+U.update_pushback_state = function(comp, now, yal, aircraft)
+    if not comp or not yal or comp.mode ~= 0 then
+        if comp then
+            comp._pushbackStartedEver = false
+            comp._pushbackActive = false
+            comp._pushbackCompleted = false
+            comp._pushbackPlanSeen = false
+            comp._pushbackReleaseAnchor = nil
+        end
+        return false
+    end
+
+    local planRef = yal.BPBPlanComplete
+    local startedRef = yal.BPBStarted
+    local connectedRef = yal.BPBConnected
+    local plannerRef = yal.BPBPlannerOpen
+    if not ((planRef and isProperty(planRef)) or (startedRef and isProperty(startedRef))) then
+        comp._pushbackStartedEver = false
+        comp._pushbackActive = false
+        comp._pushbackCompleted = false
+        comp._pushbackPlanSeen = false
+        comp._pushbackReleaseAnchor = nil
+        return false
+    end
+
+    local planOn = (planRef and isProperty(planRef) and get(planRef) == def.ON) or false
+    local startedOn = (startedRef and isProperty(startedRef) and get(startedRef) == def.ON) or false
+    local connectedOn = (connectedRef and isProperty(connectedRef) and get(connectedRef) == def.ON) or false
+    local plannerOpen = (plannerRef and isProperty(plannerRef) and get(plannerRef) == def.ON) or false
+
+    if startedOn then
+        comp._pushbackStartedEver = true
+        comp._pushbackActive = true
+        comp._pushbackCompleted = false
+        comp._pushbackPlanSeen = planOn or comp._pushbackPlanSeen
+        comp._pushbackReleaseAnchor = nil
+        return true
+    end
+
+    if comp._pushbackStartedEver then
+        if connectedRef and isProperty(connectedRef) and connectedOn then
+            comp._pushbackActive = true
+            comp._pushbackCompleted = false
+            return true
+        end
+        comp._pushbackActive = false
+        comp._pushbackCompleted = true
+        return false
+    end
+
+    comp._pushbackActive = false
+    comp._pushbackCompleted = false
+    comp._pushbackPlanSeen = planOn or comp._pushbackPlanSeen
+    if planOn then
+        if plannerOpen then
+            comp._pushbackReleaseAnchor = nil
+            return true
+        end
+        local speed_thresh = (C and C.pushbackReleaseSpeed) or 1.0
+        local secs_thresh = (C and C.pushbackReleaseSeconds) or 2.0
+        local meters_thresh = (C and C.pushbackReleaseMeters) or 5
+        local gs = (yal.groundspeed and (get(yal.groundspeed) or 0)) or 0
+        local ts = (yal.tirespeed and (get(yal.tirespeed) or 0)) or 0
+        local moving = (gs >= speed_thresh or ts >= speed_thresh)
+        if moving and aircraft and aircraft.east ~= nil and aircraft.north ~= nil then
+            local anchor = comp._pushbackReleaseAnchor
+            if not anchor then
+                comp._pushbackReleaseAnchor = { east = aircraft.east, north = aircraft.north, time = now }
+                return true
+            end
+            local dx = aircraft.east - anchor.east
+            local dy = aircraft.north - anchor.north
+            local dist = math.sqrt(dx * dx + dy * dy)
+            if dist >= meters_thresh and (now - (anchor.time or now)) >= secs_thresh then
+                comp._pushbackCompleted = true
+                comp._pushbackPlanSeen = false
+                comp._pushbackReleaseAnchor = nil
+                return false
+            end
+            return true
+        end
+        comp._pushbackReleaseAnchor = nil
+        return true
+    end
+
+    comp._pushbackReleaseAnchor = nil
+    return false
+end
 
 U.ramp_frame_values = function(ramp, aircraft)
     if not ramp or not aircraft or aircraft.east == nil or aircraft.north == nil then
