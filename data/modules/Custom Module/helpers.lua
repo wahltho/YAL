@@ -1429,6 +1429,13 @@ function P.decodemetar(metar)
         sasl.logDebug(string.format("   [%d] = %s", idx, part_val))
     end
 
+    if #parts >= 1 then
+        local first = parts[1]
+        if first == "METAR" or first == "SPECI" or first == "TAF" then
+            table.remove(parts, 1)
+        end
+    end
+
     if (#parts >= 1) then
         result.station = parts[1]
         sasl.logDebug("Parsed station: "..result.station)
