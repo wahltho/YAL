@@ -3103,6 +3103,33 @@ local function maybe_speak_guidance(comp, now, aircraft)
         local prev = comp._guidanceState or "idle"
         if prev ~= state then
             comp._guidanceState = state
+            if prev == "gate" and state ~= "gate" then
+                comp._gateGuidanceActive = false
+                comp._gateGuidanceStop = false
+                comp._gateGuidanceLastDir = nil
+                comp._gateGuidanceLastAction = nil
+                comp._gateGuidanceLastTime = nil
+                comp._gateNote = nil
+                if comp._gateCalloutKey ~= nil then
+                    U.reset_gate_callouts(comp, nil)
+                end
+                if comp._visualGuidance and not is_taxi_complete_info(comp._visualGuidance) then
+                    clear_visual_guidance(comp, "gate-exit")
+                    comp._visualGuidanceQueue = {}
+                end
+            end
+            if state == "complete" then
+                comp._gateGuidanceActive = false
+                comp._gateGuidanceStop = false
+                comp._gateNote = nil
+                if comp._gateCalloutKey ~= nil then
+                    U.reset_gate_callouts(comp, nil)
+                end
+                if comp._visualGuidance and not is_taxi_complete_info(comp._visualGuidance) then
+                    clear_visual_guidance(comp, "taxi-complete")
+                end
+                comp._visualGuidanceQueue = {}
+            end
             if log_taxi then
                 if reason and reason ~= "" then
                     log_taxi("TaxiGuideState: " .. tostring(prev) .. " -> " .. tostring(state) .. " | " .. tostring(reason))
@@ -9041,8 +9068,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                             kind = "ramp"
                         }, is_auto_taxi_guidance_enabled())
                         comp._arrTaxiCompleteAnnounced = true
-                        comp._gateGuidanceActive = false
-                        comp._guidanceState = "complete"
+                        set_guidance_state("complete", "taxi-complete")
                         comp._route = nil
                         comp._routeErr = "taxi-complete"
                         comp._routeLabels = nil
