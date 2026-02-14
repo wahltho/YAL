@@ -3076,6 +3076,7 @@ local function maybe_speak_guidance(comp, now, aircraft)
     local route = comp._route
     local data = (route and route.data) or comp._data
     local is_freehand = (route and route.data and route.data.route_source == "freehand") or false
+    local log_taxi = comp._logTaxi or (helpers and helpers.logInfoTS)
     local function maybe_keep_gate_popup(info)
         if not info or info.kind ~= "ramp" then
             return
@@ -3096,6 +3097,21 @@ local function maybe_speak_guidance(comp, now, aircraft)
         end
         if dist and dist <= hold_dist then
             info.keepOpen = true
+        end
+    end
+    local function set_guidance_state(state, reason)
+        local prev = comp._guidanceState or "idle"
+        if prev ~= state then
+            comp._guidanceState = state
+            if log_taxi then
+                if reason and reason ~= "" then
+                    log_taxi("TaxiGuideState: " .. tostring(prev) .. " -> " .. tostring(state) .. " | " .. tostring(reason))
+                else
+                    log_taxi("TaxiGuideState: " .. tostring(prev) .. " -> " .. tostring(state))
+                end
+            end
+        else
+            comp._guidanceState = state
         end
     end
     local guidance_state = comp._guidanceState or "idle"
@@ -3127,7 +3143,7 @@ local function maybe_speak_guidance(comp, now, aircraft)
             guidance_state = "idle"
         end
     end
-    comp._guidanceState = guidance_state
+    set_guidance_state(guidance_state, "resolve")
     if guidance_state == "complete" then
         return
     end
