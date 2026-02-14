@@ -5365,7 +5365,9 @@ function P.ongoingtasks()
     -- Taxi routing update (runs in ongoingtasks so it is independent of the taxi window)
     if P.taxiComponent and P.taxiComponent.updateTaxiState then
         local onGround = (get(P.airgroundsensor) == def.ON)
-        local taxiPhase = (P.flightstate == def.FLIGHTSTATEPREFLIGHT) or (P.flightstate == def.FLIGHTSTATETAXITOGATE)
+        local taxiPhase = (P.flightstate == def.FLIGHTSTATEPREFLIGHT)
+            or (P.flightstate == def.FLIGHTSTATETAXITOGATE)
+            or (P.flightstate == def.FLIGHTSTATESHUTDOWN)
         if onGround and taxiPhase then
             P.taxiComponent:updateTaxiState()
         end
