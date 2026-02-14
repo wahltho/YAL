@@ -2919,6 +2919,53 @@ local function clear_visual_guidance(comp, reason)
     end
 end
 
+local function set_guidance_state(comp, state, reason, log_taxi)
+    if not comp then
+        return
+    end
+    local prev = comp._guidanceState or "idle"
+    if prev ~= state then
+        comp._guidanceState = state
+        if prev == "gate" and state ~= "gate" then
+            comp._gateGuidanceActive = false
+            comp._gateGuidanceStop = false
+            comp._gateGuidanceLastDir = nil
+            comp._gateGuidanceLastAction = nil
+            comp._gateGuidanceLastTime = nil
+            comp._gateNote = nil
+            if comp._gateCalloutKey ~= nil then
+                U.reset_gate_callouts(comp, nil)
+            end
+            if comp._visualGuidance and not is_taxi_complete_info(comp._visualGuidance) then
+                clear_visual_guidance(comp, "gate-exit")
+                comp._visualGuidanceQueue = {}
+            end
+        end
+        if state == "complete" then
+            comp._gateGuidanceActive = false
+            comp._gateGuidanceStop = false
+            comp._gateNote = nil
+            if comp._gateCalloutKey ~= nil then
+                U.reset_gate_callouts(comp, nil)
+            end
+            if comp._visualGuidance and not is_taxi_complete_info(comp._visualGuidance) then
+                clear_visual_guidance(comp, "taxi-complete")
+            end
+            comp._visualGuidanceQueue = {}
+        end
+        local logger = log_taxi or comp._logTaxi or (comp._helpers and comp._helpers.logInfoTS)
+        if logger then
+            if reason and reason ~= "" then
+                logger("TaxiGuideState: " .. tostring(prev) .. " -> " .. tostring(state) .. " | " .. tostring(reason))
+            else
+                logger("TaxiGuideState: " .. tostring(prev) .. " -> " .. tostring(state))
+            end
+        end
+    else
+        comp._guidanceState = state
+    end
+end
+
 local function before_takeoff_active_or_set(comp)
     local yal = comp and (comp.yal or _G.yal) or nil
     if not yal then
@@ -3109,48 +3156,6 @@ local function maybe_speak_guidance(comp, now, aircraft)
             info.keepOpen = true
         end
     end
-    local function set_guidance_state(state, reason)
-        local prev = comp._guidanceState or "idle"
-        if prev ~= state then
-            comp._guidanceState = state
-            if prev == "gate" and state ~= "gate" then
-                comp._gateGuidanceActive = false
-                comp._gateGuidanceStop = false
-                comp._gateGuidanceLastDir = nil
-                comp._gateGuidanceLastAction = nil
-                comp._gateGuidanceLastTime = nil
-                comp._gateNote = nil
-                if comp._gateCalloutKey ~= nil then
-                    U.reset_gate_callouts(comp, nil)
-                end
-                if comp._visualGuidance and not is_taxi_complete_info(comp._visualGuidance) then
-                    clear_visual_guidance(comp, "gate-exit")
-                    comp._visualGuidanceQueue = {}
-                end
-            end
-            if state == "complete" then
-                comp._gateGuidanceActive = false
-                comp._gateGuidanceStop = false
-                comp._gateNote = nil
-                if comp._gateCalloutKey ~= nil then
-                    U.reset_gate_callouts(comp, nil)
-                end
-                if comp._visualGuidance and not is_taxi_complete_info(comp._visualGuidance) then
-                    clear_visual_guidance(comp, "taxi-complete")
-                end
-                comp._visualGuidanceQueue = {}
-            end
-            if log_taxi then
-                if reason and reason ~= "" then
-                    log_taxi("TaxiGuideState: " .. tostring(prev) .. " -> " .. tostring(state) .. " | " .. tostring(reason))
-                else
-                    log_taxi("TaxiGuideState: " .. tostring(prev) .. " -> " .. tostring(state))
-                end
-            end
-        else
-            comp._guidanceState = state
-        end
-    end
     local guidance_state = comp._guidanceState or "idle"
     local gate_dist = nil
     if comp._routeErr == "taxi-complete" or comp._arrTaxiCompleteAnnounced or comp._depTaxiCompleteAnnounced then
@@ -3180,7 +3185,7 @@ local function maybe_speak_guidance(comp, now, aircraft)
             guidance_state = "idle"
         end
     end
-    set_guidance_state(guidance_state, "resolve")
+    set_guidance_state(comp, guidance_state, "resolve", log_taxi)
     if guidance_state == "complete" then
         return
     end
@@ -9258,7 +9263,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                             kind = "ramp"
                         }, is_auto_taxi_guidance_enabled())
                         comp._arrTaxiCompleteAnnounced = true
-                        set_guidance_state("complete", "taxi-complete")
+                        set_guidance_state(comp, "complete", "taxi-complete", log_taxi)
                         comp._route = nil
                         comp._routeErr = "taxi-complete"
                         comp._routeLabels = nil
