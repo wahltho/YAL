@@ -45,6 +45,7 @@ local depTakeoffLatchHoldSec = 2.0
 local depRunwayCorridorMin = 25
 local depRunwayCorridorMax = 80
 local depRunwayCorridorBuffer = 10
+local depEntryFallbackMaxDist = 200
 local qualityDistanceMeters = 150
 local qualityDistanceSeconds = 6
 local qualityRerouteWindowSec = 60
@@ -6637,6 +6638,49 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                             if is_valid_latlon(dn.lat, dn.lon) then
                                 end_lat = dn.lat
                                 end_lon = dn.lon
+                            end
+                        end
+                    end
+                    if not dep_holdshort_id
+                        and not manual_active
+                        and not comp._selectedDepEntryId
+                        and dep_end_node_dist and dep_end_node_dist > depEntryFallbackMaxDist
+                        and data and data.nodes
+                        and aircraft and aircraft.east ~= nil and aircraft.north ~= nil then
+                        local re, rn = latlon_to_local(runway_lat, runway_lon)
+                        if re and rn then
+                            local candidates = collect_runway_exit_candidates(data, re, rn, 18)
+                            if candidates and #candidates > 0 then
+                                local best_id = nil
+                                local best_d2 = nil
+                                for _, cand in ipairs(candidates) do
+                                    local node = data.nodes[cand.id]
+                                    if node and node.east and node.north then
+                                        local dx = node.east - aircraft.east
+                                        local dy = node.north - aircraft.north
+                                        local d2 = dx * dx + dy * dy
+                                        if not best_d2 or d2 < best_d2 then
+                                            best_d2 = d2
+                                            best_id = cand.id
+                                        end
+                                    end
+                                end
+                                if best_id then
+                                    local dn = data.nodes[best_id]
+                                    if dn and is_valid_latlon(dn.lat, dn.lon) then
+                                        dep_end_node_id = best_id
+                                        dep_end_node_dist = math.sqrt(best_d2 or 0)
+                                        end_lat = dn.lat
+                                        end_lon = dn.lon
+                                        log_taxi(
+                                            string.format(
+                                                "TaxiRoute: dep entry auto-select id=%s dist=%.1f",
+                                                tostring(best_id),
+                                                dep_end_node_dist or -1
+                                            )
+                                        )
+                                    end
+                                end
                             end
                         end
                     end
