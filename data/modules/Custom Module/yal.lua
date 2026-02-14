@@ -250,6 +250,33 @@ local function checkHoppieVoiceMessages()
     if not P.hoppie then
         return
     end
+    local function flushPendingAtisUnavailable()
+        local pending = P.pendingAtisUnavailable
+        if not pending then
+            return
+        end
+        local now = os.time()
+        if (now - (pending.time or now)) < 8 then
+            return
+        end
+        P.pendingAtisUnavailable = nil
+        local packet = pending.packet or ""
+        if packet == "" then
+            return
+        end
+        local text = tryDecodeHoppieMetar(packet)
+        if not text or text == "" then
+            text = buildHoppieVoiceMessage(pending.from or "", pending.msg_type or "", packet)
+        end
+        if text == "" then
+            return
+        end
+        if pending.icao and pending.icao ~= "" then
+            P.lastAtisUnavailableIcao = pending.icao
+            P.lastAtisUnavailableTime = now
+        end
+        P.commandtableentry(def.TEXT, text)
+    end
     local seq_ref = P.hoppie.voice_seq
     local use_seq = (seq_ref and isProperty(seq_ref))
     local count_ref = use_seq and seq_ref or P.hoppie.poll_count
@@ -260,18 +287,22 @@ local function checkHoppieVoiceMessages()
     if use_seq then
         if P.lastHoppieVoiceSeq == nil then
             P.lastHoppieVoiceSeq = count
+            flushPendingAtisUnavailable()
             return
         end
         if count == P.lastHoppieVoiceSeq then
+            flushPendingAtisUnavailable()
             return
         end
         P.lastHoppieVoiceSeq = count
     else
         if P.lastHoppiePollCount == nil then
             P.lastHoppiePollCount = count
+            flushPendingAtisUnavailable()
             return
         end
         if count == P.lastHoppiePollCount then
+            flushPendingAtisUnavailable()
             return
         end
         P.lastHoppiePollCount = count
@@ -353,6 +384,7 @@ local function checkHoppieVoiceMessages()
         end
         if isAtisUnavailable then
             local ignore = {
+                VATATIS = true,
                 ATIS = true,
                 METAR = true,
                 INFO = true,
@@ -362,17 +394,64 @@ local function checkHoppieVoiceMessages()
                 MESSAGE = true,
                 NOT = true,
                 AVAILABLE = true,
-                IS = true
+                IS = true,
+                THIS = true
             }
-            local icao = ""
+            local function findAtisIcao(list)
+                for i = 1, #list do
+                    if list[i] == "VATATIS" then
+                        local nextWord = list[i + 1]
+                        if nextWord and #nextWord == 4 and not ignore[nextWord] then
+                            return nextWord, i + 1
+                        end
+                    end
+                end
+                for i = 1, #list do
+                    local w = list[i]
+                    if #w == 4 and not ignore[w] then
+                        return w, i
+                    end
+                end
+                return "", nil
+            end
+            local icao, icaoIndex = findAtisIcao(words)
+            local hasSecondary = false
             for i = 1, #words do
                 local w = words[i]
-                if #w >= 4 and not ignore[w] then
-                    icao = w:sub(1, 4)
+                if w == "GND" or w == "GROUND" or w == "DEP" or w == "DEPARTURE" then
+                    hasSecondary = true
                     break
                 end
             end
+            if not hasSecondary and icaoIndex then
+                local suffix = words[icaoIndex + 1]
+                if suffix and #suffix == 1 and (suffix == "A" or suffix == "D" or suffix == "G") then
+                    hasSecondary = true
+                end
+            end
+            if icao ~= "" and hasSecondary then
+                local now = os.time()
+                local pending = P.pendingAtisUnavailable
+                if pending and pending.icao == icao then
+                    pending.time = now
+                    return
+                end
+                P.pendingAtisUnavailable = {
+                    icao = icao,
+                    packet = packet,
+                    from = from,
+                    msg_type = msg_type,
+                    time = now
+                }
+                if helpers and helpers.logInfoTS then
+                    helpers.logInfoTS("HoppieVoice: defer secondary ATIS not available " .. icao)
+                end
+                return
+            end
             if icao ~= "" then
+                if P.pendingAtisUnavailable and P.pendingAtisUnavailable.icao == icao then
+                    P.pendingAtisUnavailable = nil
+                end
                 local now = os.time()
                 if P.lastAtisUnavailableIcao == icao and P.lastAtisUnavailableTime and (now - P.lastAtisUnavailableTime) < 30 then
                     if helpers and helpers.logInfoTS then
