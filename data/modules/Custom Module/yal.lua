@@ -384,6 +384,7 @@ local function checkHoppieVoiceMessages()
         end
         if isAtisUnavailable then
             local ignore = {
+                IVAOATIS = true,
                 VATATIS = true,
                 ATIS = true,
                 METAR = true,
@@ -399,7 +400,7 @@ local function checkHoppieVoiceMessages()
             }
             local function findAtisIcao(list)
                 for i = 1, #list do
-                    if list[i] == "VATATIS" then
+                    if list[i] == "IVAOATIS" or list[i] == "VATATIS" then
                         local nextWord = list[i + 1]
                         if nextWord and #nextWord == 4 and not ignore[nextWord] then
                             return nextWord, i + 1
@@ -418,7 +419,7 @@ local function checkHoppieVoiceMessages()
             local hasSecondary = false
             for i = 1, #words do
                 local w = words[i]
-                if w == "GND" or w == "GROUND" or w == "DEP" or w == "DEPARTURE" then
+                if w == "GND" or w == "GROUND" or w == "DEP" or w == "DEPARTURE" or w == "TWR" or w == "TOWER" then
                     hasSecondary = true
                     break
                 end
