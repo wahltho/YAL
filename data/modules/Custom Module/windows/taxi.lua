@@ -6588,6 +6588,11 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
         local dep_holdshort_id = nil
         local dep_end_node_id = nil
         local dep_end_node_dist = nil
+        local dep_entry_candidate_id = nil
+        local dep_entry_candidate_dist = nil
+        local dep_entry_candidate_lat = nil
+        local dep_entry_candidate_lon = nil
+        local dep_backtrack_required = false
         local arr_exit_id = nil
         local allow_runway_route = false
         local manual_active = (comp._routeWaypoints and #comp._routeWaypoints > 0) or comp._drawRoute
@@ -6668,15 +6673,15 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                                 if best_id then
                                     local dn = data.nodes[best_id]
                                     if dn and is_valid_latlon(dn.lat, dn.lon) then
-                                        dep_end_node_id = best_id
-                                        dep_end_node_dist = math.sqrt(best_d2 or 0)
-                                        end_lat = dn.lat
-                                        end_lon = dn.lon
+                                        dep_entry_candidate_id = best_id
+                                        dep_entry_candidate_dist = math.sqrt(best_d2 or 0)
+                                        dep_entry_candidate_lat = dn.lat
+                                        dep_entry_candidate_lon = dn.lon
                                         log_taxi(
                                             string.format(
-                                                "TaxiRoute: dep entry auto-select id=%s dist=%.1f",
+                                                "TaxiRoute: dep entry candidate id=%s dist=%.1f",
                                                 tostring(best_id),
-                                                dep_end_node_dist or -1
+                                                dep_entry_candidate_dist or -1
                                             )
                                         )
                                     end
@@ -6841,6 +6846,26 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                 if is_valid_latlon(tlat, tlon) then
                     dep_runway_end_lat = tlat
                     dep_runway_end_lon = tlon
+                end
+            end
+        end
+        if mode == 0 and dep_profile and (not dep_holdshort_id)
+            and dep_end_node_dist and dep_end_node_dist > depEntryFallbackMaxDist then
+            dep_backtrack_required = true
+            if not manual_active then
+                allow_runway_route = true
+            end
+        end
+        if mode == 0 then
+            if comp._depBacktrackRequired ~= dep_backtrack_required then
+                comp._depBacktrackRequired = dep_backtrack_required
+                if dep_backtrack_required then
+                    log_taxi(
+                        string.format(
+                            "TaxiRoute: dep backtrack required dist=%.1f",
+                            dep_end_node_dist or -1
+                        )
+                    )
                 end
             end
         end
@@ -8027,6 +8052,27 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                     )
                 end
                 if (not route) and rerr == "no-path" and mode == 0 then
+                    if (not comp._selectedDepEntryId)
+                        and (not has_end_override)
+                        and (not manual_active)
+                        and dep_entry_candidate_id
+                        and data and data.nodes and data.nodes[dep_entry_candidate_id] then
+                        comp._selectedDepEntryId = dep_entry_candidate_id
+                        local dn = data.nodes[dep_entry_candidate_id]
+                        if dn and is_valid_latlon(dn.lat, dn.lon) then
+                            end_lat = dn.lat
+                            end_lon = dn.lon
+                            end_node_id = dep_entry_candidate_id
+                            end_node_dist = 0
+                        end
+                        log_taxi(
+                            string.format(
+                                "TaxiRoute: dep entry fallback id=%s dist=%.1f",
+                                tostring(dep_entry_candidate_id),
+                                dep_entry_candidate_dist or -1
+                            )
+                        )
+                    end
                     opts = {
                         ignore_oneway = true,
                         allow_far_ramp = true,
