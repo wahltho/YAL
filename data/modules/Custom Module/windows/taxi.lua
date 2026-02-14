@@ -2643,10 +2643,12 @@ local function maybe_force_global_for_quality(comp, now, icao, mode, data, helpe
                     comp._sCurveSkipNodeId = nil
                     clear_visual_guidance(comp, "end-ramp-switch-quality")
                     comp._visualGuidanceQueue = {}
-                    comp._gateGuidanceLastDir = nil
-                    comp._gateGuidanceLastAction = nil
-                    comp._gateGuidanceLastTime = nil
-                    comp._gateGuidanceStop = false
+            comp._gateGuidanceLastDir = nil
+            comp._gateGuidanceLastAction = nil
+            comp._gateGuidanceLastTime = nil
+            comp._gateGuidanceStop = false
+            comp._gateGuidanceActive = false
+            comp._guidanceState = "idle"
                     U.reset_gate_callouts(comp, cand_key)
                     if comp._quality then
                         comp._quality.badSince = nil
@@ -3096,13 +3098,47 @@ local function maybe_speak_guidance(comp, now, aircraft)
             info.keepOpen = true
         end
     end
-    if comp.mode == 1 then
+    local guidance_state = comp._guidanceState or "idle"
+    local gate_dist = nil
+    if comp._routeErr == "taxi-complete" or comp._arrTaxiCompleteAnnounced or comp._depTaxiCompleteAnnounced then
+        guidance_state = "complete"
+        comp._gateGuidanceActive = false
+    else
+        if comp.mode == 1 and comp._endRamp then
+            gate_dist = U.gate_distance_meters(comp, aircraft, route, data)
+            local gate_radius = (comp._tuning and comp._tuning.gateGuidanceRadius) or (C and C.gateGuidanceRadius) or 60
+            local gate_keep = gate_radius * 1.6
+            if gate_dist and gate_dist <= gate_radius then
+                comp._gateGuidanceActive = true
+            elseif comp._gateGuidanceActive and gate_dist and gate_dist <= gate_keep then
+                -- keep latch
+            else
+                comp._gateGuidanceActive = false
+            end
+            if comp._gateGuidanceActive then
+                guidance_state = "gate"
+            end
+        else
+            comp._gateGuidanceActive = false
+        end
+        if guidance_state ~= "gate" and comp._route and comp._route.path then
+            guidance_state = "route"
+        elseif guidance_state ~= "gate" then
+            guidance_state = "idle"
+        end
+    end
+    comp._guidanceState = guidance_state
+    if guidance_state == "complete" then
+        return
+    end
+
+    if guidance_state == "gate" then
         local gate_key = gate_target_key(comp, route)
         if gate_key ~= comp._gateCalloutKey then
             U.reset_gate_callouts(comp, gate_key)
         end
         if gate_key then
-            local dist = U.gate_distance_meters(comp, aircraft, route, data)
+            local dist = gate_dist or U.gate_distance_meters(comp, aircraft, route, data)
             comp._gateNote = U.gate_note_text(dist)
             if dist then
                 local gs = yal and yal.groundspeed and (get(yal.groundspeed) or 0) or 0
@@ -3115,20 +3151,8 @@ local function maybe_speak_guidance(comp, now, aircraft)
         else
             comp._gateNote = nil
         end
-    else
-        comp._gateNote = nil
-        if comp._gateCalloutKey ~= nil then
-            U.reset_gate_callouts(comp, nil)
-        end
-    end
-    if comp.mode == 1 then
         local gate_info = (U and U.gate_alignment_info) and U.gate_alignment_info(comp, aircraft) or nil
         if gate_info then
-            if comp._arrTaxiCompleteAnnounced or comp._routeErr == "taxi-complete" then
-                clear_visual_guidance(comp, "taxi-complete")
-                comp._visualGuidanceQueue = {}
-                return
-            end
             local cooldown = (comp._tuning and comp._tuning.gateGuidanceCooldownSec) or (C and C.gateGuidanceCooldownSec) or 4
             local last_time = comp._gateGuidanceLastTime or 0
             local same = (gate_info.direction == comp._gateGuidanceLastDir) and (gate_info.action == comp._gateGuidanceLastAction)
@@ -3159,13 +3183,11 @@ local function maybe_speak_guidance(comp, now, aircraft)
         else
             comp._gateGuidanceStop = false
         end
-    end
-    if comp.mode == 1 and comp._endRamp then
-        local gate_radius = (comp._tuning and comp._tuning.gateGuidanceRadius) or (C and C.gateGuidanceRadius) or 60
-        local gate_dist = U.gate_distance_meters(comp, aircraft, comp._route, data)
-        if gate_dist and gate_dist <= gate_radius then
-            diag("gate-approach-hold", string.format("dist=%.1f", gate_dist))
-            return
+        return
+    else
+        comp._gateNote = nil
+        if comp._gateCalloutKey ~= nil then
+            U.reset_gate_callouts(comp, nil)
         end
     end
     if not comp._route or not comp._route.path then
@@ -4405,6 +4427,8 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
     comp._gateGuidanceLastAction = nil
     comp._gateGuidanceLastTime = nil
     comp._gateGuidanceStop = false
+    comp._gateGuidanceActive = false
+    comp._guidanceState = "idle"
     comp._depRunwayEntryAnnounced = false
     comp._depTaxiCompleteAnnounced = false
     comp._arrTaxiCompleteAnnounced = false
@@ -9001,6 +9025,8 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                             kind = "ramp"
                         }, is_auto_taxi_guidance_enabled())
                         comp._arrTaxiCompleteAnnounced = true
+                        comp._gateGuidanceActive = false
+                        comp._guidanceState = "complete"
                         comp._route = nil
                         comp._routeErr = "taxi-complete"
                         comp._routeLabels = nil
