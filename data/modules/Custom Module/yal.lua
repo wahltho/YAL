@@ -33,6 +33,19 @@ local function autoRestartEnabled()
     return (tonumber(P.configvalues[def.CONFIGAUTORESTARTDEV] or 0) == def.ON)
 end
 
+local function devReloadEnabled()
+    if not P.configvalues then
+        return false
+    end
+    if tonumber(P.configvalues[def.CONFIGDEBUGOVERLAY] or 0) ~= def.ON then
+        return false
+    end
+    if P.HoppieHelperIsInstalled then
+        return P.HoppieHelperIsInstalled()
+    end
+    return false
+end
+
 local function hoppieVoiceEnabled()
     if not P.configvalues then
         return false
@@ -638,6 +651,43 @@ local function checkAutoRestart()
     end
 end
 
+function P.devreload()
+    if not devReloadEnabled() then
+        helpers.logInfoTS("DevReload: unavailable (missing hoppiehelper or debug overlay off)")
+        return false
+    end
+    backupSaslLog()
+    if not signalReloadDataref("command") then
+        helpers.logInfoTS("DevReload: reload request skipped (no dataref)")
+        return false
+    end
+    return true
+end
+
+function P.devreload_(phase)
+    if phase == SASL_COMMAND_BEGIN then
+        P.devreload()
+    end
+    return 0
+end
+
+function P.initDevReloadControls()
+    if P.devReloadInitialized then
+        return
+    end
+    if not devReloadEnabled() then
+        return
+    end
+    if not P.devReloadCommand then
+        P.devReloadCommand = sasl.createCommand(def.APPNAMEPREFIX .. "/reload/force", "Force YAL Reload (Dev)")
+        sasl.registerCommandHandler(P.devReloadCommand, 0, P.devreload_)
+    end
+    if not P.menu_dev_reload then
+        P.menu_dev_reload = sasl.appendMenuItem(P.menu_main, "Force Reload (Dev)", P.devreload)
+    end
+    P.devReloadInitialized = true
+end
+
 function P.YalinitGlobal()
 
     P.needstempinit = true
@@ -753,6 +803,7 @@ function P.YalinitGlobal()
     P.YANSHisinstalled()
     P.BPBisinstalled()
     P.IVAOMonitorIsInstalled()
+    P.HoppieHelperIsInstalled()
 
 end
 
@@ -1739,6 +1790,23 @@ function P.IVAOMonitorIsInstalled()
 end
 
 --------------------------------------------------------------------------------------------------------------
+function P.HoppieHelperIsInstalled()
+    local signature = "yal.hoppiehelper"
+    local pluginID = sasl.findPluginBySignature(signature)
+
+    if pluginID ~= NO_PLUGIN_ID then
+        if P.HoppieHelperPluginID ~= pluginID then
+            helpers.logInfoTS("HoppieHelper plugin detected, integration enabled.")
+        end
+        P.HoppieHelperPluginID = pluginID
+        return true
+    end
+
+    P.HoppieHelperPluginID = NO_PLUGIN_ID
+    return false
+end
+
+--------------------------------------------------------------------------------------------------------------
 function P.initializeScript()
 
     P.YalinitGlobal()
@@ -2029,6 +2097,8 @@ function P.readconfig()
     else
         P.fmsselectedapp = nil
     end
+
+    P.initDevReloadControls()
 
     P.needstempinit = true
 
@@ -7097,6 +7167,9 @@ function P.enableMenus(enableflag)
     sasl.enableMenuItem(menu_misc , menu_timewarptotod , enableflag)
     sasl.enableMenuItem(menu_misc , menu_yalreset , enableflag)
     sasl.enableMenuItem(menu_misc , menu_yalresetfornewflight , enableflag)
+    if P.menu_dev_reload then
+        sasl.enableMenuItem(P.menu_main, P.menu_dev_reload, enableflag)
+    end
 
 
 end
