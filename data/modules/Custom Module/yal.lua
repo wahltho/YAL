@@ -40,6 +40,8 @@ local function hoppieVoiceEnabled()
     return (tonumber(P.configvalues[def.CONFIGHOPPIEVOICE] or 0) == def.ON)
 end
 
+P.autotaxipause = false
+
 local function normalizeHoppieVoiceText(text)
     if type(text) ~= "string" then
         return ""
@@ -861,6 +863,7 @@ function P.initDataref()
     P.localpositionpsi = globalProperty("sim/flightmodel/position/psi")
     P.acf_cg_z = globalProperty("sim/aircraft/weight/acf_cgZ_original")
     P.gear_znose = globalPropertyfae("sim/aircraft/parts/acf_gear_znodef", 1)
+    P.gear_zmain = globalPropertyfae("sim/aircraft/parts/acf_gear_znodef", 2)
 
     P.fueltank1 = globalProperty("sim/flightmodel/weight/m_fuel1")
     P.fueltank2 = globalProperty("sim/flightmodel/weight/m_fuel2")
@@ -2313,6 +2316,30 @@ end
 
 local my_command_toggleautotaxiing = sasl.createCommand(def.APPNAMEPREFIX .. "/toggleautotaxiing", "Toggle Auto Taxiing")
 sasl.registerCommandHandler(my_command_toggleautotaxiing, 0, P.toggleautotaxiing_)
+
+--------------------------------------------------------------------------------------------------------------
+function P.toggleautotaxipause()
+
+    P.autotaxipause = not P.autotaxipause
+    if P.autotaxipause then
+        P.commandtableentry(def.TEXT, "Auto Taxi Pause On")
+    else
+        P.commandtableentry(def.TEXT, "Auto Taxi Pause Off")
+    end
+
+    return true
+
+end
+
+function P.toggleautotaxipause_(phase)
+    if phase == SASL_COMMAND_BEGIN then
+        P.toggleautotaxipause()
+    end
+    return 0
+end
+
+local my_command_toggleautotaxipause = sasl.createCommand(def.APPNAMEPREFIX .. "/toggleautotaxipause", "Toggle Auto Taxi Pause")
+sasl.registerCommandHandler(my_command_toggleautotaxipause, 0, P.toggleautotaxipause_)
 
 --------------------------------------------------------------------------------------------------------------
 function P.findMostRecentLoop()
@@ -6903,6 +6930,7 @@ local menu_toggle_auto = sasl.appendMenuItem(menu_misc, "Toggle Auto Functions",
 local menu_toogle_voice = sasl.appendMenuItem(menu_misc, "Toggle Voice Readback", P.togglevoicereadback)
 local menu_toogle_adviceonly = sasl.appendMenuItem(menu_misc, "Toggle Voice Advice Only", P.toggleadviceonly)
 local menu_toggle_autotaxi = sasl.appendMenuItem(menu_misc, "Toggle Auto Taxiing", P.toggleautotaxiing)
+local menu_toggle_autotaxi_pause = sasl.appendMenuItem(menu_misc, "Toggle Auto Taxi Pause", P.toggleautotaxipause)
 local menu_toogle_freeze = sasl.appendMenuItem(menu_misc, "Toggle Sim Freeze", P.togglesimfreeze)
 local menu_toggle_view = sasl.appendMenuItem(menu_misc, "Toggle View Changes", P.toggleviewchanges)
 local menu_timewarptotod = sasl.appendMenuItem(menu_misc, "Time Warp to TOD", P.timewarptotod)
@@ -6954,6 +6982,7 @@ function P.enableMenus(enableflag)
     sasl.enableMenuItem(menu_misc , menu_toogle_voice , enableflag)
     sasl.enableMenuItem(menu_misc , menu_toogle_adviceonly , enableflag)
     sasl.enableMenuItem(menu_misc , menu_toggle_autotaxi , enableflag)
+    sasl.enableMenuItem(menu_misc , menu_toggle_autotaxi_pause , enableflag)
     sasl.enableMenuItem(menu_misc , menu_toogle_freeze , enableflag)
     sasl.enableMenuItem(menu_misc , menu_toggle_view , enableflag)
     sasl.enableMenuItem(menu_misc , menu_timewarptotod , enableflag)

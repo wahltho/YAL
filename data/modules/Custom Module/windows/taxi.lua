@@ -56,16 +56,7 @@ local qualityMinLabelEdges = 6
 local qualityBadHoldSec = 8
 local qualityArrGraceSec = 45
 local arrStartNodeMaxMeters = 180
-local autoGateSwitchDist = 35
-local autoGateSwitchDelta = 20
-local autoGateSwitchRatio = 0.6
-local autoGateSwitchSpeed = 5
-local autoGateSwitchHoldSec = 2.0
-local autoGateSwitchCooldownSec = 10.0
-local parkingBrakeCompleteDist = 35
 local gateStopDistance = 2
-local gateStopOffsetMeters = 11
-local gatePopupHoldDist = 30
 local freehandInsertMaxPixels = 14
 
 local minZoom = 0.2
@@ -3152,7 +3143,7 @@ local function maybe_speak_guidance(comp, now, aircraft)
         if comp._arrTaxiCompleteAnnounced or comp._routeErr == "taxi-complete" then
             return
         end
-        local hold_dist = (comp._tuning and comp._tuning.gatePopupHoldDist) or (C and C.gatePopupHoldDist) or gatePopupHoldDist
+        local hold_dist = (comp._tuning and comp._tuning.gatePopupHoldDist) or (C and C.gatePopupHoldDist) or 30
         if not hold_dist then
             return
         end
@@ -3205,12 +3196,13 @@ local function maybe_speak_guidance(comp, now, aircraft)
         end
         if gate_key then
             local dist = gate_dist or U.gate_distance_meters(comp, aircraft, route, data)
-            comp._gateNote = U.gate_note_text(dist)
+            comp._gateNote = U.gate_note_text(dist, comp._gateUseDgs)
             if dist then
                 local gs = yal and yal.groundspeed and (get(yal.groundspeed) or 0) or 0
-                if gs > 0.2 or dist <= gateStopDistance then
+                local stop_dist = (comp._gateUseDgs and ((C and C.gateDgsGoodZPos) or 0.2)) or gateStopDistance
+                if gs > 0.2 or dist <= stop_dist then
                     if not comp._arrTaxiCompleteAnnounced then
-                        U.maybe_gate_voice_callouts(comp, dist, auto_voice)
+                        U.maybe_gate_voice_callouts(comp, dist, auto_voice, comp._gateUseDgs)
                     end
                 end
             end
@@ -3947,15 +3939,23 @@ C = {
     guidanceMaxDistance = guidanceMaxDistance,
     guidanceStraightAngle = guidanceStraightAngle,
     startRampMaxMeters = startRampMaxMeters,
-    autoGateSwitchDist = autoGateSwitchDist,
-    autoGateSwitchDelta = autoGateSwitchDelta,
-    autoGateSwitchRatio = autoGateSwitchRatio,
-    autoGateSwitchSpeed = autoGateSwitchSpeed,
-    autoGateSwitchHoldSec = autoGateSwitchHoldSec,
-    autoGateSwitchCooldownSec = autoGateSwitchCooldownSec,
-    parkingBrakeCompleteDist = parkingBrakeCompleteDist,
-    gateStopOffsetMeters = gateStopOffsetMeters,
-    gatePopupHoldDist = gatePopupHoldDist,
+    autoGateSwitchDist = 35,
+    autoGateSwitchDelta = 20,
+    autoGateSwitchRatio = 0.6,
+    autoGateSwitchSpeed = 5,
+    autoGateSwitchHoldSec = 2.0,
+    autoGateSwitchCooldownSec = 10.0,
+    parkingBrakeCompleteDist = 35,
+    gateStopOffsetMeters = 11,
+    gatePopupHoldDist = 30,
+    gateDgsGoodX = 2.0,
+    gateDgsGoodZPos = 0.2,
+    gateDgsGoodZNeg = -0.5,
+    gateDgsAziCrossover = 6,
+    gateDgsRefBlendSpan = 20,
+    gateDgsAziScale = 0.3,
+    gateDgsTurnThreshold = 1.5,
+    gateDgsXtrackThreshold = 0.25,
     pushbackReleaseSpeed = 1.0,
     pushbackReleaseSeconds = 2.0,
     pushbackReleaseMeters = 5,
@@ -4149,529 +4149,6 @@ U.update_pushback_state = function(comp, now, yal, aircraft)
     return false
 end
 
-local function auto_taxi_log(comp, msg)
-    local logger = (comp and comp._logTaxi) or (helpers and helpers.logInfoTS)
-    if logger then
-        logger("AutoTaxi: " .. tostring(msg))
-    end
-end
-
-local function auto_taxi_apply_overrides(comp, yal)
-    if not comp or not yal or comp._autoTaxiOverrideActive then
-        return
-    end
-    comp._autoTaxiOverrideActive = true
-    if yal.override_throttles and isProperty(yal.override_throttles) then
-        comp._autoTaxiPrevOverrideThrottles = get(yal.override_throttles)
-        set(yal.override_throttles, def.ON)
-    end
-    if yal.override_wheel_steer and isProperty(yal.override_wheel_steer) then
-        comp._autoTaxiPrevOverrideSteer = get(yal.override_wheel_steer)
-        set(yal.override_wheel_steer, def.ON)
-    end
-    if yal.override_toe_brakes and isProperty(yal.override_toe_brakes) then
-        comp._autoTaxiPrevOverrideBrakes = get(yal.override_toe_brakes)
-        set(yal.override_toe_brakes, def.ON)
-    end
-    if yal.throttle_use_1 and isProperty(yal.throttle_use_1) then
-        comp._autoTaxiPrevThrottle1 = get(yal.throttle_use_1)
-    end
-    if yal.throttle_use_2 and isProperty(yal.throttle_use_2) then
-        comp._autoTaxiPrevThrottle2 = get(yal.throttle_use_2)
-    end
-    if yal.left_brake_ratio and isProperty(yal.left_brake_ratio) then
-        comp._autoTaxiPrevBrakeL = get(yal.left_brake_ratio)
-    end
-    if yal.right_brake_ratio and isProperty(yal.right_brake_ratio) then
-        comp._autoTaxiPrevBrakeR = get(yal.right_brake_ratio)
-    end
-    if yal.tire_steer_cmd and isProperty(yal.tire_steer_cmd) then
-        comp._autoTaxiPrevSteer = get(yal.tire_steer_cmd)
-    end
-end
-
-local function auto_taxi_release_controls(comp, yal, reason)
-    if not comp then
-        return
-    end
-    if comp._autoTaxiActive or comp._autoTaxiOverrideActive then
-        auto_taxi_log(comp, "release " .. tostring(reason or ""))
-    end
-    if yal then
-        if comp._autoTaxiOverrideActive then
-            if yal.override_throttles and isProperty(yal.override_throttles) then
-                set(yal.override_throttles, comp._autoTaxiPrevOverrideThrottles or def.OFF)
-            end
-            if yal.override_wheel_steer and isProperty(yal.override_wheel_steer) then
-                set(yal.override_wheel_steer, comp._autoTaxiPrevOverrideSteer or def.OFF)
-            end
-            if yal.override_toe_brakes and isProperty(yal.override_toe_brakes) then
-                set(yal.override_toe_brakes, comp._autoTaxiPrevOverrideBrakes or def.OFF)
-            end
-        end
-        if yal.throttle_use_1 and isProperty(yal.throttle_use_1) then
-            if comp._autoTaxiPrevThrottle1 ~= nil then
-                set(yal.throttle_use_1, comp._autoTaxiPrevThrottle1)
-            else
-                set(yal.throttle_use_1, 0)
-            end
-        end
-        if yal.throttle_use_2 and isProperty(yal.throttle_use_2) then
-            if comp._autoTaxiPrevThrottle2 ~= nil then
-                set(yal.throttle_use_2, comp._autoTaxiPrevThrottle2)
-            else
-                set(yal.throttle_use_2, 0)
-            end
-        end
-        if yal.left_brake_ratio and isProperty(yal.left_brake_ratio) then
-            if comp._autoTaxiPrevBrakeL ~= nil then
-                set(yal.left_brake_ratio, comp._autoTaxiPrevBrakeL)
-            else
-                set(yal.left_brake_ratio, 0)
-            end
-        end
-        if yal.right_brake_ratio and isProperty(yal.right_brake_ratio) then
-            if comp._autoTaxiPrevBrakeR ~= nil then
-                set(yal.right_brake_ratio, comp._autoTaxiPrevBrakeR)
-            else
-                set(yal.right_brake_ratio, 0)
-            end
-        end
-        if yal.tire_steer_cmd and isProperty(yal.tire_steer_cmd) then
-            if comp._autoTaxiPrevSteer ~= nil then
-                set(yal.tire_steer_cmd, comp._autoTaxiPrevSteer)
-            else
-                set(yal.tire_steer_cmd, 0)
-            end
-        end
-    end
-    comp._autoTaxiOverrideActive = false
-    comp._autoTaxiPrevOverrideThrottles = nil
-    comp._autoTaxiPrevOverrideSteer = nil
-    comp._autoTaxiPrevOverrideBrakes = nil
-    comp._autoTaxiPrevThrottle1 = nil
-    comp._autoTaxiPrevThrottle2 = nil
-    comp._autoTaxiPrevBrakeL = nil
-    comp._autoTaxiPrevBrakeR = nil
-    comp._autoTaxiPrevSteer = nil
-    comp._autoTaxiActive = false
-end
-
-local function auto_taxi_manual_input(comp, yal)
-    if not yal then
-        return nil
-    end
-    local thr1 = (yal.hardware_throttle_1 and get(yal.hardware_throttle_1)) or 0
-    local thr2 = (yal.hardware_throttle_2 and get(yal.hardware_throttle_2)) or 0
-    if thr1 > 0.05 or thr2 > 0.05 then
-        return "throttle"
-    end
-    local yaw = (yal.yoke_heading_ratio and get(yal.yoke_heading_ratio)) or 0
-    if math.abs(yaw) > 0.2 then
-        return "steer"
-    end
-    if yal.parkingbrakepos and get(yal.parkingbrakepos) == def.ON then
-        return "parking-brake"
-    end
-    return nil
-end
-
-local function auto_taxi_apply_controls(comp, now, yal, aircraft)
-    if not comp or not yal or not aircraft then
-        return false
-    end
-    local route = comp._route
-    if not route or not route.path or not route.data or not route.data.nodes then
-        return false
-    end
-    local path = route.path
-    if #path < 2 then
-        return false
-    end
-    local data = route.data
-    local seg_idx = find_nearest_segment(data, path, aircraft.east, aircraft.north)
-    if not seg_idx or seg_idx >= #path then
-        return false
-    end
-    local n1 = data.nodes[path[seg_idx]]
-    local n2 = data.nodes[path[seg_idx + 1]]
-    if not n1 or not n2 then
-        return false
-    end
-    local dx = n2.east - n1.east
-    local dy = n2.north - n1.north
-    local seg_len = math.sqrt(dx * dx + dy * dy)
-    local lookahead_m = (C and C.autoTaxiLookaheadMeters) or 25
-    local look_t = 0.5
-    if seg_len > 0 then
-        local px, py, t = project_point_to_segment(
-            aircraft.east, aircraft.north,
-            n1.east, n1.north,
-            n2.east, n2.north
-        )
-        if t then
-            look_t = clamp(t + (lookahead_m / seg_len), 0, 1)
-        end
-    end
-    local lx = n1.east + dx * look_t
-    local ly = n1.north + dy * look_t
-    local desired_true = heading_deg_from_to(aircraft.east, aircraft.north, lx, ly)
-    if not desired_true then
-        return false
-    end
-    local mag_var = 0
-    if aircraft.lat and aircraft.lon then
-        mag_var = sasl.getMagneticVariation(aircraft.lat, aircraft.lon) or 0
-    end
-    local desired_mag = (desired_true - mag_var + 360) % 360
-    local track_mag = (yal.groundtrackmag and get(yal.groundtrackmag)) or desired_mag
-    local diff = heading_diff_signed(desired_mag, track_mag)
-    local max_err = (C and C.autoTaxiSteerMaxErrDeg) or 35
-    local max_steer = (C and C.autoTaxiSteerMaxDeg) or 25
-    local steer_deg = clamp(diff / max_err, -1, 1) * max_steer
-
-    local gs_ms = (yal.groundspeed and (get(yal.groundspeed) or 0)) or 0
-    local gs_kts = gs_ms * 1.94384
-    local target_kts = (C and C.autoTaxiSpeedKts) or 8
-    local slow_kts = (C and C.autoTaxiTurnSpeedKts) or 5
-    local gate_kts = (C and C.autoTaxiGateSpeedKts) or 3
-    local stop_dist = (C and C.autoTaxiStopDistMeters) or 8
-    local turn_angle = (C and C.autoTaxiTurnAngleDeg) or 25
-    local turn_lead = (C and C.autoTaxiTurnLeadMeters) or 20
-    local dist_to_seg_end = math.sqrt(
-        (n2.east - aircraft.east) * (n2.east - aircraft.east)
-        + (n2.north - aircraft.north) * (n2.north - aircraft.north)
-    )
-    if seg_idx + 2 <= #path then
-        local n3 = data.nodes[path[seg_idx + 2]]
-        if n3 then
-            local h1 = heading_deg_from_to(n1.east, n1.north, n2.east, n2.north)
-            local h2 = heading_deg_from_to(n2.east, n2.north, n3.east, n3.north)
-            if h1 and h2 and heading_diff_deg(h1, h2) >= turn_angle and dist_to_seg_end <= turn_lead then
-                target_kts = slow_kts
-            end
-        end
-    end
-    if comp._guidanceState == "gate" then
-        target_kts = math.min(target_kts, gate_kts)
-    end
-    local last_id = path[#path]
-    local last_node = last_id and data.nodes[last_id] or nil
-    if last_node and last_node.east and last_node.north then
-        local dx_end = last_node.east - aircraft.east
-        local dy_end = last_node.north - aircraft.north
-        local dist_end = math.sqrt(dx_end * dx_end + dy_end * dy_end)
-        if dist_end <= stop_dist then
-            target_kts = 0
-        end
-    end
-    local throttle_base = (C and C.autoTaxiThrottleBase) or 0.05
-    local throttle_kp = (C and C.autoTaxiThrottleKp) or 0.03
-    local throttle_max = (C and C.autoTaxiThrottleMax) or 0.25
-    local brake_kp = (C and C.autoTaxiBrakeKp) or 0.12
-    local brake_max = (C and C.autoTaxiBrakeMax) or 0.6
-    local speed_err = target_kts - gs_kts
-    local throttle = clamp(throttle_base + speed_err * throttle_kp, 0, throttle_max)
-    local brake = 0
-    if target_kts <= 0.5 then
-        throttle = 0
-        brake = brake_max
-    elseif speed_err < -1 then
-        brake = clamp((-speed_err) * brake_kp, 0, brake_max)
-    end
-
-    auto_taxi_apply_overrides(comp, yal)
-    if yal.tire_steer_cmd and isProperty(yal.tire_steer_cmd) then
-        set(yal.tire_steer_cmd, steer_deg)
-    end
-    if yal.throttle_use_1 and isProperty(yal.throttle_use_1) then
-        set(yal.throttle_use_1, throttle)
-    end
-    if yal.throttle_use_2 and isProperty(yal.throttle_use_2) then
-        set(yal.throttle_use_2, throttle)
-    end
-    if yal.left_brake_ratio and isProperty(yal.left_brake_ratio) then
-        set(yal.left_brake_ratio, brake)
-    end
-    if yal.right_brake_ratio and isProperty(yal.right_brake_ratio) then
-        set(yal.right_brake_ratio, brake)
-    end
-    comp._autoTaxiActive = true
-    return true
-end
-
-U.auto_taxi_tick = function(comp, now)
-    if not comp then
-        return
-    end
-    if comp.mode ~= 0 and comp.mode ~= 1 then
-        comp._autoTaxiReady = false
-        return
-    end
-    local settingsTable = settings and settings.appSettings or nil
-    if not settingsTable then
-        return
-    end
-    if settingsTable[def.CONFIGAUTOFUNCTIONS] ~= def.ON then
-        comp._autoTaxiReady = false
-        auto_taxi_release_controls(comp, comp.yal or _G.yal, "auto-functions-off")
-        return
-    end
-    if settingsTable[def.CONFIGVOICEADVICEONLY] == def.ON then
-        comp._autoTaxiReady = false
-        auto_taxi_release_controls(comp, comp.yal or _G.yal, "voice-advice-only")
-        return
-    end
-    if settingsTable[def.CONFIGAUTOTAXIING] ~= def.ON then
-        comp._autoTaxiReady = false
-        auto_taxi_release_controls(comp, comp.yal or _G.yal, "setting-off")
-        return
-    end
-    if settingsTable[def.CONFIGAUTOTAXIGUIDANCE] ~= def.ON then
-        comp._autoTaxiReady = false
-        auto_taxi_release_controls(comp, comp.yal or _G.yal, "guidance-off")
-        return
-    end
-    local tick_sec = (C and C.autoTaxiTickSec) or 0.05
-    local next_tick = comp._autoTaxiNext or 0
-    if now < next_tick then
-        return
-    end
-    comp._autoTaxiNext = now + tick_sec
-
-    local yal = comp.yal or _G.yal
-    if not yal then
-        comp._autoTaxiReady = false
-        return
-    end
-    if comp._editRoute or comp._drawRoute then
-        comp._autoTaxiReady = false
-        auto_taxi_release_controls(comp, yal, "edit-draw")
-        return
-    end
-    if not (yal.airgroundsensor and get(yal.airgroundsensor) == def.ON) then
-        comp._autoTaxiReady = false
-        auto_taxi_release_controls(comp, yal, "airborne")
-        return
-    end
-    local flightstate = yal.flightstate
-    if comp.mode == 0 then
-        if flightstate ~= def.FLIGHTSTATEPREFLIGHT then
-            comp._autoTaxiReady = false
-            auto_taxi_release_controls(comp, yal, "flightstate")
-            return
-        end
-    elseif comp.mode == 1 then
-        if flightstate ~= def.FLIGHTSTATETAXITOGATE then
-            comp._autoTaxiReady = false
-            auto_taxi_release_controls(comp, yal, "flightstate")
-            return
-        end
-        local proc = yal.proceduretable and yal.proceduretable[def.AFTERLANDINGPROCEDURE]
-        if not (proc and proc.set) then
-            comp._autoTaxiReady = false
-            auto_taxi_release_controls(comp, yal, "after-landing")
-            return
-        end
-    end
-    if yal.parkingbrakepos and get(yal.parkingbrakepos) == def.ON then
-        comp._autoTaxiReady = false
-        auto_taxi_release_controls(comp, yal, "parking-brake")
-        return
-    end
-    if comp.mode == 0 then
-        local proc = yal.proceduretable and yal.proceduretable[def.BEFORETAXIPROCEDURE]
-        if not (proc and proc.set) then
-            comp._autoTaxiReady = false
-            auto_taxi_release_controls(comp, yal, "before-taxi")
-            return
-        end
-    end
-    if not comp._route or not comp._route.path or #comp._route.path < 2 then
-        comp._autoTaxiReady = false
-        auto_taxi_release_controls(comp, yal, "route")
-        return
-    end
-    if comp._routeErr == "taxi-complete" then
-        comp._autoTaxiReady = false
-        auto_taxi_release_controls(comp, yal, "taxi-complete")
-        return
-    end
-    local aircraft = comp._aircraftPoint
-    if comp.mode == 0 then
-        if U.update_pushback_state and U.update_pushback_state(comp, now, yal, aircraft) then
-            comp._autoTaxiReady = false
-            auto_taxi_release_controls(comp, yal, "pushback")
-            return
-        end
-    end
-    local hold_until = comp._autoTaxiHoldUntil or 0
-    if now < hold_until then
-        comp._autoTaxiReady = false
-        return
-    end
-    local manual = auto_taxi_manual_input(comp, yal)
-    if manual then
-        local hold_sec = (C and C.autoTaxiManualHoldSec) or 3
-        comp._autoTaxiHoldUntil = now + hold_sec
-        comp._autoTaxiReady = false
-        auto_taxi_release_controls(comp, yal, "manual-" .. tostring(manual))
-        return
-    end
-    comp._autoTaxiReady = true
-    local lat = yal.aircraftlatpos and get(yal.aircraftlatpos) or nil
-    local lon = yal.aircraftlonpos and get(yal.aircraftlonpos) or nil
-    if (not aircraft) or aircraft.east == nil or aircraft.north == nil then
-        if is_valid_latlon(lat, lon) then
-            local ae, an = latlon_to_local(lat, lon)
-            if ae and an then
-                aircraft = { east = ae, north = an }
-            end
-        end
-    end
-    if aircraft and is_valid_latlon(lat, lon) then
-        aircraft.lat = lat
-        aircraft.lon = lon
-    end
-    if not aircraft or aircraft.east == nil or aircraft.north == nil then
-        auto_taxi_release_controls(comp, yal, "no-aircraft")
-        return
-    end
-    if not auto_taxi_apply_controls(comp, now, yal, aircraft) then
-        auto_taxi_release_controls(comp, yal, "apply-failed")
-        comp._autoTaxiReady = false
-    end
-end
-
-U.ramp_frame_values = function(ramp, aircraft)
-    if not ramp or not aircraft or aircraft.east == nil or aircraft.north == nil then
-        return nil
-    end
-    local east = ramp.east
-    local north = ramp.north
-    if (east == nil or north == nil) and is_valid_latlon(ramp.lat, ramp.lon) then
-        east, north = latlon_to_local(ramp.lat, ramp.lon)
-    end
-    if east == nil or north == nil then
-        return nil
-    end
-    local dx = aircraft.east - east
-    local dy = aircraft.north - north
-    if aircraft.heading and type(aircraft.heading) == "number" then
-        local offset = aircraft.nose_offset or (C and C.gateStopOffsetMeters or 10)
-        local rad = math.rad(aircraft.heading % 360)
-        dx = dx + math.sin(rad) * offset
-        dy = dy + math.cos(rad) * offset
-    end
-    local dist = math.sqrt(dx * dx + dy * dy)
-    local hdg = tonumber(ramp.heading)
-    if not hdg then
-        return dx, dy, nil, dist
-    end
-    local rad = math.rad(hdg % 360)
-    local sin_h = math.sin(rad)
-    local cos_h = math.cos(rad)
-    local local_x = cos_h * dx - sin_h * dy
-    local local_z = sin_h * dx + cos_h * dy
-    return local_x, local_z, hdg, dist
-end
-
-U.select_best_ramp_for_aircraft = function(data, aircraft, opts)
-    if not data or not data.ramps or not aircraft or aircraft.east == nil or aircraft.north == nil then
-        return nil, nil
-    end
-    local filter = opts and opts.filter or nil
-    local radius = (opts and opts.radius_m) or (C and C.gateSelectRadius) or 120
-    local radius2 = radius * radius
-    local heading = opts and opts.heading_deg or nil
-    local best_heading = nil
-    local best_any = nil
-    for _, ramp in ipairs(data.ramps) do
-        if filter and not filter(ramp) then
-            goto continue
-        end
-        local local_x, local_z, ramp_hdg, dist = U.ramp_frame_values(ramp, aircraft)
-        if not local_x or not local_z or not dist then
-            goto continue
-        end
-        if dist * dist > radius2 then
-            goto continue
-        end
-        local score_any = dist
-        if (not best_any) or score_any < best_any.score then
-            best_any = { ramp = ramp, dist = dist, score = score_any }
-        end
-        if ramp_hdg and heading then
-            local hdg_diff = helpers.headingdiff(heading, ramp_hdg)
-            if hdg_diff then
-                hdg_diff = math.abs(hdg_diff)
-                local behind_limit = (opts and opts.behind_limit) or (C and C.gateGuidanceBehindLimit) or -5
-                if hdg_diff <= 90 and local_z >= behind_limit then
-                    local score = math.sqrt((local_x * 4) * (local_x * 4) + (local_z * local_z)) + hdg_diff
-                    if (not best_heading) or score < best_heading.score then
-                        best_heading = { ramp = ramp, dist = dist, score = score }
-                    end
-                end
-            end
-        end
-        ::continue::
-    end
-    if best_heading then
-        return best_heading.ramp, best_heading.dist
-    end
-    if best_any then
-        return best_any.ramp, best_any.dist
-    end
-    return nil, nil
-end
-
-U.gate_alignment_info = function(comp, aircraft)
-    if not comp or not aircraft or not comp._endRamp then
-        return nil
-    end
-    local tuning = comp._tuning or {}
-    local radius = tuning.gateGuidanceRadius or (C and C.gateGuidanceRadius) or 60
-    local deadzone = tuning.gateGuidanceDeadzone or (C and C.gateGuidanceDeadzone) or 0.8
-    local behind_limit = tuning.gateGuidanceBehindLimit or (C and C.gateGuidanceBehindLimit) or -5
-    local ramp = comp._endRamp
-    local local_x, local_z, ramp_hdg, dist = U.ramp_frame_values(ramp, aircraft)
-    if not local_x or not local_z or not dist then
-        return nil
-    end
-    if dist > radius then
-        return nil
-    end
-    local direction = "straight"
-    local action = "ALIGN"
-    local text = "Continue straight"
-    if ramp_hdg and local_z < behind_limit then
-        action = "STOP"
-        text = "Stop"
-    elseif local_z <= gateStopDistance then
-        action = "STOP"
-        text = "Stop"
-    else
-        if math.abs(local_x) > deadzone then
-            direction = (local_x > 0) and "left" or "right"
-            text = (direction == "left") and "Slight left" or "Slight right"
-        end
-    end
-    local ramp_label = short_ramp_label(ramp)
-    if ramp_label == "" then
-        ramp_label = "Ramp"
-    end
-    local hold_dist = tuning.gatePopupHoldDist or (C and C.gatePopupHoldDist) or gatePopupHoldDist
-    return {
-        text = text,
-        direction = direction,
-        action = action,
-        label = build_visual_label("ramp", ramp_label),
-        kind = "ramp",
-        dist = dist,
-        keepOpen = (hold_dist and dist <= hold_dist) or false
-    }
-end
-
 U.copy_waypoints = function(src)
     local out = {}
     if not src then
@@ -4762,15 +4239,41 @@ U.gate_distance_meters = function(comp, aircraft, route, data)
     end
     if comp._endRamp then
         local ramp = comp._endRamp
-        local east = ramp.east
-        local north = ramp.north
-        if (east == nil or north == nil) and is_valid_latlon(ramp.lat, ramp.lon) then
-            east, north = latlon_to_local(ramp.lat, ramp.lon)
+        local dgs = U.ramp_dgs_values(ramp, aircraft)
+        comp._gateUseDgs = dgs ~= nil
+        if dgs and dgs.nw_z ~= nil then
+            local good_x = dgs.dgs_good_x or ((C and C.gateDgsGoodX) or 2.0)
+            local good_z_pos = dgs.dgs_good_z_pos or ((C and C.gateDgsGoodZPos) or 0.2)
+            local good_z_neg = dgs.dgs_good_z_neg or ((C and C.gateDgsGoodZNeg) or -0.5)
+            local locgood = (math.abs(dgs.mw_x or 0) <= good_x)
+                and dgs.nw_z >= good_z_neg
+                and dgs.nw_z <= good_z_pos
+            if locgood or dgs.nw_z < good_z_neg then
+                best = 0
+            else
+                best = dgs.nw_z
+            end
+        else
+            local ax = aircraft.east
+            local ay = aircraft.north
+            if aircraft.heading and type(aircraft.heading) == "number" then
+                local offset = aircraft.nose_offset or (C and C.gateStopOffsetMeters or 10)
+                local rad = math.rad(aircraft.heading % 360)
+                ax = ax + math.sin(rad) * offset
+                ay = ay + math.cos(rad) * offset
+            end
+            local east = ramp.east
+            local north = ramp.north
+            if (east == nil or north == nil) and is_valid_latlon(ramp.lat, ramp.lon) then
+                east, north = latlon_to_local(ramp.lat, ramp.lon)
+            end
+            if east ~= nil and north ~= nil then
+                local d = math.sqrt(distance_sq(ax, ay, east, north))
+                best = d
+            end
         end
-        if east ~= nil and north ~= nil then
-            local d = math.sqrt(distance_sq(ax, ay, east, north))
-            best = d
-        end
+    else
+        comp._gateUseDgs = false
     end
     if route and data and route.path and #route.path > 0 and data.nodes then
         local node = data.nodes[route.path[#route.path]]
@@ -4784,11 +4287,12 @@ U.gate_distance_meters = function(comp, aircraft, route, data)
     return best
 end
 
-U.gate_note_text = function(dist)
+U.gate_note_text = function(dist, use_dgs)
     if not dist then
         return nil
     end
-    if dist <= gateStopDistance then
+    local stop_dist = use_dgs and ((C and C.gateDgsGoodZPos) or 0.2) or gateStopDistance
+    if dist <= stop_dist then
         return "Stop"
     end
     if dist <= 80 then
@@ -4806,14 +4310,15 @@ U.reset_gate_callouts = function(comp, key)
     comp._gateCalloutStop = false
 end
 
-U.maybe_gate_voice_callouts = function(comp, dist, allow_voice)
+U.maybe_gate_voice_callouts = function(comp, dist, allow_voice, use_dgs)
     if not comp or not dist then
         return
     end
     if not allow_voice or not is_voice_enabled() then
         return
     end
-    if dist <= gateStopDistance then
+    local stop_dist = use_dgs and ((C and C.gateDgsGoodZPos) or 0.2) or gateStopDistance
+    if dist <= stop_dist then
         if not comp._gateCalloutStop then
             speak_guidance_text(comp, "Stop")
             comp._gateCalloutStop = true
@@ -7208,10 +6713,17 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
             if east and north then
                 local heading = yal and yal.groundtrackmag and get(yal.groundtrackmag) or nil
                 local nose_offset = nil
+                local main_offset = nil
                 if yal and yal.gear_znose then
                     local gear_z = get(yal.gear_znose)
                     if type(gear_z) == "number" and gear_z ~= 0 then
                         nose_offset = -gear_z
+                    end
+                end
+                if yal and yal.gear_zmain then
+                    local gear_z = get(yal.gear_zmain)
+                    if type(gear_z) == "number" and gear_z ~= 0 then
+                        main_offset = -gear_z
                     end
                 end
                 if (nose_offset == nil or nose_offset == 0) and yal and yal.acf_cg_z then
@@ -7220,13 +6732,17 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                         nose_offset = math.abs(cg_z) * 0.3048
                     end
                 end
+                if main_offset == nil or main_offset == 0 then
+                    main_offset = nose_offset
+                end
                 aircraft = {
                     lat = lat,
                     lon = lon,
                     east = east,
                     north = north,
                     heading = heading,
-                    nose_offset = nose_offset
+                    nose_offset = nose_offset,
+                    main_offset = main_offset
                 }
             end
         end
