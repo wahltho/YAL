@@ -446,13 +446,6 @@ function M.attach(U, C, def, helpers, settings)
         if not settingsTable then
             return
         end
-        if settingsTable[def.CONFIGVOICEADVICEONLY] == def.ON then
-            comp._autoTaxiReady = false
-            auto_taxi_release_controls(comp, comp.yal or _G.yal, "voice-advice-only")
-            auto_taxi_log_once(comp, now, "gate:voice-advice-only", "blocked: voice advice only")
-            auto_taxi_log_snapshot_once(comp, now, "gate:voice-advice-only", comp.yal or _G.yal, "gate:voice-advice-only")
-            return
-        end
         if settingsTable[def.CONFIGAUTOTAXIING] ~= def.ON then
             comp._autoTaxiReady = false
             auto_taxi_release_controls(comp, comp.yal or _G.yal, "setting-off")
