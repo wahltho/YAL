@@ -2925,6 +2925,11 @@ local function set_guidance_state(comp, state, reason, log_taxi)
     local prev = comp._guidanceState or "idle"
     if prev ~= state then
         comp._guidanceState = state
+        if state ~= "route" then
+            comp._autoTaxiTargetSegIdx = nil
+            comp._autoTaxiTargetTime = nil
+            comp._autoTaxiTargetAction = nil
+        end
         if prev == "gate" and state ~= "gate" then
             comp._gateGuidanceActive = false
             comp._gateGuidanceStop = false
@@ -3047,6 +3052,19 @@ local function emit_guidance(comp, now, info, allow_voice)
     end
     if allow_voice and is_voice_enabled() then
         speak_guidance_text(comp, info.text)
+    end
+    if info.targetSegIdx then
+        if comp._autoTaxiTargetSegIdx ~= info.targetSegIdx then
+            comp._autoTaxiTargetSegIdx = info.targetSegIdx
+            comp._autoTaxiTargetTime = now
+            comp._autoTaxiTargetAction = info.action
+            if helpers and helpers.logInfoTS then
+                helpers.logInfoTS("AutoTaxiTarget: seg=" .. tostring(info.targetSegIdx) .. " action=" .. tostring(info.action or ""))
+            end
+        else
+            comp._autoTaxiTargetTime = now
+            comp._autoTaxiTargetAction = info.action
+        end
     end
     if is_visual_taxi_guidance_enabled() and info.visual ~= false then
         info.issuedAt = now
@@ -3976,6 +3994,9 @@ C = {
     autoTaxiSteerMaxDeg = 25,
     autoTaxiSteerMaxErrDeg = 35,
     autoTaxiManualHoldSec = 3,
+    autoTaxiGuidanceLeadMeters = 20,
+    autoTaxiSCurveMaxSeg = guidanceSCurveMaxSeg,
+    autoTaxiMaxActiveSpeedKts = 40,
     gateSelectRadius = 120,
     gateGuidanceRadius = 60,
     gateGuidanceDeadzone = 0.8,

@@ -16,11 +16,31 @@ function M.attach(U, C, def, helpers, settings)
             logger("AutoTaxi: " .. tostring(msg))
         end
     end
+    local function auto_taxi_log_once(comp, now, key, msg, interval)
+        if not comp then
+            return
+        end
+        local t = now or 0
+        local last = comp._autoTaxiLogTimes and comp._autoTaxiLogTimes[key] or nil
+        local min_dt = interval or 4
+        if last and (t - last) < min_dt then
+            return
+        end
+        if not comp._autoTaxiLogTimes then
+            comp._autoTaxiLogTimes = {}
+        end
+        comp._autoTaxiLogTimes[key] = t
+        auto_taxi_log(comp, msg)
+    end
 
     local function auto_taxi_apply_overrides(comp, yal)
         if not comp or not yal or comp._autoTaxiOverrideActive then
             return
         end
+        if comp._autoTaxiAllowOverride == false then
+            return
+        end
+        auto_taxi_log(comp, "overrides on")
         comp._autoTaxiOverrideActive = true
         if yal.override_throttles and isProperty(yal.override_throttles) then
             comp._autoTaxiPrevOverrideThrottles = get(yal.override_throttles)
@@ -116,6 +136,7 @@ function M.attach(U, C, def, helpers, settings)
         comp._autoTaxiPrevBrakeR = nil
         comp._autoTaxiPrevSteer = nil
         comp._autoTaxiActive = false
+        comp._autoTaxiAllowOverride = false
     end
 
     local function auto_taxi_manual_input(comp, yal)
@@ -141,6 +162,9 @@ function M.attach(U, C, def, helpers, settings)
         if not comp or not yal or not aircraft then
             return false
         end
+        if comp._autoTaxiAllowOverride == false then
+            return false
+        end
         local route = comp._route
         if not route or not route.path or not route.data or not route.data.nodes then
             return false
@@ -153,6 +177,11 @@ function M.attach(U, C, def, helpers, settings)
         local seg_idx = find_nearest_segment(data, path, aircraft.east, aircraft.north)
         if not seg_idx or seg_idx >= #path then
             return false
+        end
+        if comp._autoTaxiTargetSegIdx and comp._autoTaxiTargetSegIdx <= seg_idx then
+            comp._autoTaxiTargetSegIdx = nil
+            comp._autoTaxiTargetTime = nil
+            comp._autoTaxiTargetAction = nil
         end
         local n1 = data.nodes[path[seg_idx]]
         local n2 = data.nodes[path[seg_idx + 1]]
@@ -176,9 +205,89 @@ function M.attach(U, C, def, helpers, settings)
         end
         local lx = n1.east + dx * look_t
         local ly = n1.north + dy * look_t
+        local dist_to_node = math.sqrt(
+            (n2.east - aircraft.east) * (n2.east - aircraft.east)
+            + (n2.north - aircraft.north) * (n2.north - aircraft.north)
+        )
+        local lead_m = (C and C.autoTaxiGuidanceLeadMeters) or (C and C.autoTaxiTurnLeadMeters) or 20
+        local target_idx = nil
+        local gidx = comp._autoTaxiTargetSegIdx
+        if gidx and gidx > seg_idx and gidx <= (#path - 1) and dist_to_node <= lead_m then
+            local h_curr = heading_deg_from_to(n1.east, n1.north, n2.east, n2.north)
+            local tn1 = data.nodes[path[gidx]]
+            local tn2 = data.nodes[path[gidx + 1]]
+            if h_curr and tn1 and tn2 and tn1.east and tn1.north and tn2.east and tn2.north then
+                local h_tgt = heading_deg_from_to(tn1.east, tn1.north, tn2.east, tn2.north)
+                if h_tgt and heading_diff_deg(h_curr, h_tgt) >= ((C and C.autoTaxiTurnAngleDeg) or 25) * 0.5 then
+                    target_idx = gidx
+                end
+            end
+        end
+        if not target_idx and (seg_idx + 3) <= #path and dist_to_node <= lead_m then
+            local n3 = data.nodes[path[seg_idx + 2]]
+            local n4 = data.nodes[path[seg_idx + 3]]
+            if n3 and n4 and n3.east and n3.north and n4.east and n4.north then
+                local v2x = n3.east - n2.east
+                local v2y = n3.north - n2.north
+                local v3x = n4.east - n3.east
+                local v3y = n4.north - n3.north
+                local len2 = math.sqrt(v2x * v2x + v2y * v2y)
+                local max_seg = (C and C.autoTaxiSCurveMaxSeg) or 50
+                if len2 > 0.1 and len2 <= max_seg then
+                    local cross1 = dx * v2y - dy * v2x
+                    local cross2 = v2x * v3y - v2y * v3x
+                    if cross1 ~= 0 and cross2 ~= 0 and (cross1 * cross2) < 0 then
+                        target_idx = seg_idx + 2
+                    end
+                end
+            end
+        end
+        if target_idx then
+            local tn1 = data.nodes[path[target_idx]]
+            local tn2 = data.nodes[path[target_idx + 1]]
+            if tn1 and tn2 and tn1.east and tn1.north and tn2.east and tn2.north then
+                local tdx = tn2.east - tn1.east
+                local tdy = tn2.north - tn1.north
+                local tlen = math.sqrt(tdx * tdx + tdy * tdy)
+                if tlen > 0.1 then
+                    local tlook = clamp(lookahead_m / tlen, 0, 1)
+                    lx = tn1.east + tdx * tlook
+                    ly = tn1.north + tdy * tlook
+                end
+            end
+        end
+        if target_idx and comp._autoTaxiLastTarget ~= target_idx then
+            comp._autoTaxiLastTarget = target_idx
+            auto_taxi_log(comp, "target seg " .. tostring(target_idx))
+        end
         local desired_true = heading_deg_from_to(aircraft.east, aircraft.north, lx, ly)
         if not desired_true then
             return false
+        end
+        if comp._guidanceState == "gate" and comp._endRamp then
+            local ramp = comp._endRamp
+            local east = ramp.east
+            local north = ramp.north
+            if (east == nil or north == nil) and is_valid_latlon(ramp.lat, ramp.lon) then
+                east, north = latlon_to_local(ramp.lat, ramp.lon)
+            end
+            if east ~= nil and north ~= nil then
+                local gate_dist = (U.gate_distance_meters and U.gate_distance_meters(comp, aircraft, route, data)) or nil
+                local gate_radius = (C and C.gateGuidanceRadius) or 60
+                if gate_dist and gate_dist <= (gate_radius * 1.2) then
+                    local gate_heading = heading_deg_from_to(aircraft.east, aircraft.north, east, north)
+                    if gate_heading then
+                        desired_true = gate_heading
+                    end
+                end
+            end
+        end
+        if now then
+            local last_log = comp._autoTaxiControlLog or 0
+            if (now - last_log) >= 2.0 then
+                comp._autoTaxiControlLog = now
+                auto_taxi_log(comp, string.format("ctrl seg=%s tgt=%s gs=%.1f kt", tostring(seg_idx), tostring(target_idx or ""), gs_kts))
+            end
         end
         local mag_var = 0
         if aircraft.lat and aircraft.lon then
@@ -215,6 +324,13 @@ function M.attach(U, C, def, helpers, settings)
         end
         if comp._guidanceState == "gate" then
             target_kts = math.min(target_kts, gate_kts)
+            if U.gate_distance_meters then
+                local gdist = U.gate_distance_meters(comp, aircraft, route, data)
+                local gstop = (C and C.gateStopDistance) or 2
+                if gdist and gdist <= gstop then
+                    target_kts = 0
+                end
+            end
         end
         local last_id = path[#path]
         local last_node = last_id and data.nodes[last_id] or nil
@@ -276,21 +392,25 @@ function M.attach(U, C, def, helpers, settings)
         if settingsTable[def.CONFIGAUTOFUNCTIONS] ~= def.ON then
             comp._autoTaxiReady = false
             auto_taxi_release_controls(comp, comp.yal or _G.yal, "auto-functions-off")
+            auto_taxi_log_once(comp, now, "gate:auto-functions-off", "blocked: auto functions off")
             return
         end
         if settingsTable[def.CONFIGVOICEADVICEONLY] == def.ON then
             comp._autoTaxiReady = false
             auto_taxi_release_controls(comp, comp.yal or _G.yal, "voice-advice-only")
+            auto_taxi_log_once(comp, now, "gate:voice-advice-only", "blocked: voice advice only")
             return
         end
         if settingsTable[def.CONFIGAUTOTAXIING] ~= def.ON then
             comp._autoTaxiReady = false
             auto_taxi_release_controls(comp, comp.yal or _G.yal, "setting-off")
+            auto_taxi_log_once(comp, now, "gate:setting-off", "blocked: auto taxiing off")
             return
         end
         if settingsTable[def.CONFIGAUTOTAXIGUIDANCE] ~= def.ON then
             comp._autoTaxiReady = false
             auto_taxi_release_controls(comp, comp.yal or _G.yal, "guidance-off")
+            auto_taxi_log_once(comp, now, "gate:guidance-off", "blocked: auto taxi guidance off")
             return
         end
         local tick_sec = (C and C.autoTaxiTickSec) or 0.05
@@ -303,21 +423,34 @@ function M.attach(U, C, def, helpers, settings)
         local yal = comp.yal or _G.yal
         if not yal then
             comp._autoTaxiReady = false
+            auto_taxi_log_once(comp, now, "gate:no-yal", "blocked: no yal handle")
             return
         end
         if yal.autotaxipause then
             comp._autoTaxiReady = false
             auto_taxi_release_controls(comp, yal, "paused")
+            auto_taxi_log_once(comp, now, "gate:paused", "blocked: paused")
             return
         end
         if comp._editRoute or comp._drawRoute then
             comp._autoTaxiReady = false
             auto_taxi_release_controls(comp, yal, "edit-draw")
+            auto_taxi_log_once(comp, now, "gate:edit-draw", "blocked: edit/draw active")
             return
         end
         if not (yal.airgroundsensor and get(yal.airgroundsensor) == def.ON) then
             comp._autoTaxiReady = false
             auto_taxi_release_controls(comp, yal, "airborne")
+            auto_taxi_log_once(comp, now, "gate:airborne", "blocked: airborne")
+            return
+        end
+        local gs_ms = (yal.groundspeed and (get(yal.groundspeed) or 0)) or 0
+        local gs_kts = gs_ms * 1.94384
+        local max_kts = (C and C.autoTaxiMaxActiveSpeedKts) or 40
+        if gs_kts > max_kts then
+            comp._autoTaxiReady = false
+            auto_taxi_release_controls(comp, yal, "groundspeed")
+            auto_taxi_log_once(comp, now, "gate:groundspeed", "blocked: gs " .. string.format("%.1f", gs_kts))
             return
         end
         local flightstate = yal.flightstate
@@ -325,24 +458,28 @@ function M.attach(U, C, def, helpers, settings)
             if flightstate ~= def.FLIGHTSTATEPREFLIGHT then
                 comp._autoTaxiReady = false
                 auto_taxi_release_controls(comp, yal, "flightstate")
+                auto_taxi_log_once(comp, now, "gate:flightstate", "blocked: flightstate " .. tostring(flightstate))
                 return
             end
         elseif comp.mode == 1 then
             if flightstate ~= def.FLIGHTSTATETAXITOGATE then
                 comp._autoTaxiReady = false
                 auto_taxi_release_controls(comp, yal, "flightstate")
+                auto_taxi_log_once(comp, now, "gate:flightstate", "blocked: flightstate " .. tostring(flightstate))
                 return
             end
             local proc = yal.proceduretable and yal.proceduretable[def.AFTERLANDINGPROCEDURE]
             if not (proc and proc.set) then
                 comp._autoTaxiReady = false
                 auto_taxi_release_controls(comp, yal, "after-landing")
+                auto_taxi_log_once(comp, now, "gate:after-landing", "blocked: after-landing incomplete")
                 return
             end
         end
         if yal.parkingbrakepos and get(yal.parkingbrakepos) == def.ON then
             comp._autoTaxiReady = false
             auto_taxi_release_controls(comp, yal, "parking-brake")
+            auto_taxi_log_once(comp, now, "gate:parking-brake", "blocked: parking brake")
             return
         end
         if comp.mode == 0 then
@@ -350,17 +487,20 @@ function M.attach(U, C, def, helpers, settings)
             if not (proc and proc.set) then
                 comp._autoTaxiReady = false
                 auto_taxi_release_controls(comp, yal, "before-taxi")
+                auto_taxi_log_once(comp, now, "gate:before-taxi", "blocked: before-taxi incomplete")
                 return
             end
         end
         if not comp._route or not comp._route.path or #comp._route.path < 2 then
             comp._autoTaxiReady = false
             auto_taxi_release_controls(comp, yal, "route")
+            auto_taxi_log_once(comp, now, "gate:route", "blocked: no route")
             return
         end
         if comp._routeErr == "taxi-complete" then
             comp._autoTaxiReady = false
             auto_taxi_release_controls(comp, yal, "taxi-complete")
+            auto_taxi_log_once(comp, now, "gate:taxi-complete", "blocked: taxi complete")
             return
         end
         local aircraft = comp._aircraftPoint
@@ -368,6 +508,7 @@ function M.attach(U, C, def, helpers, settings)
             if U.update_pushback_state and U.update_pushback_state(comp, now, yal, aircraft) then
                 comp._autoTaxiReady = false
                 auto_taxi_release_controls(comp, yal, "pushback")
+                auto_taxi_log_once(comp, now, "gate:pushback", "blocked: pushback active")
                 return
             end
         end
@@ -382,9 +523,14 @@ function M.attach(U, C, def, helpers, settings)
             comp._autoTaxiHoldUntil = now + hold_sec
             comp._autoTaxiReady = false
             auto_taxi_release_controls(comp, yal, "manual-" .. tostring(manual))
+            auto_taxi_log_once(comp, now, "gate:manual", "blocked: manual input " .. tostring(manual))
             return
         end
+        if not comp._autoTaxiReady then
+            auto_taxi_log_once(comp, now, "gate:ready", "ready")
+        end
         comp._autoTaxiReady = true
+        comp._autoTaxiAllowOverride = true
         local lat = yal.aircraftlatpos and get(yal.aircraftlatpos) or nil
         local lon = yal.aircraftlonpos and get(yal.aircraftlonpos) or nil
         if (not aircraft) or aircraft.east == nil or aircraft.north == nil then
@@ -401,11 +547,13 @@ function M.attach(U, C, def, helpers, settings)
         end
         if not aircraft or aircraft.east == nil or aircraft.north == nil then
             auto_taxi_release_controls(comp, yal, "no-aircraft")
+            auto_taxi_log_once(comp, now, "gate:no-aircraft", "blocked: no aircraft position")
             return
         end
         if not auto_taxi_apply_controls(comp, now, yal, aircraft) then
             auto_taxi_release_controls(comp, yal, "apply-failed")
             comp._autoTaxiReady = false
+            auto_taxi_log_once(comp, now, "gate:apply-failed", "blocked: apply failed")
         end
     end
 end
