@@ -9130,45 +9130,57 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                 local gs = yalref and yalref.groundspeed and (get(yalref.groundspeed) or 0) or 0
                 local park = yalref and yalref.parkingbrakepos and get(yalref.parkingbrakepos) or nil
                 if onGround and park == def.ON and gs < 1 and aircraft and is_valid_latlon(aircraft.lat, aircraft.lon) then
-                    if not nearest_ramp then
-                        nearest_ramp = helpers.getNearestRamp(
-                            icao,
-                            aircraft.lat,
-                            aircraft.lon,
-                            { filter = helpers.isRampSuitableFor738, data = comp._data }
-                        )
-                        if nearest_ramp and is_valid_latlon(nearest_ramp.lat, nearest_ramp.lon) then
-                            nearest_ramp_dist = distance_meters_latlon(
-                                nearest_ramp.lat,
-                                nearest_ramp.lon,
-                                aircraft.lat,
-                                aircraft.lon
-                            )
-                        end
+                    local on_runway = false
+                    if comp._arrProfile and aircraft then
+                        on_runway = is_on_runway_profile(comp._arrProfile, aircraft, 60, 5)
                     end
-                    local pb_dist = tuning.parkingBrakeCompleteDist or 35
-                    if nearest_ramp and nearest_ramp_dist and nearest_ramp_dist <= pb_dist then
-                        local ramp_label = short_ramp_label(nearest_ramp)
-                        clear_visual_guidance(comp, "taxi-complete")
-                        comp._visualGuidanceQueue = {}
-                        emit_guidance(comp, now, {
-                            text = "Taxi complete",
-                            direction = "straight",
-                            action = "TAXI COMPLETE",
-                            label = ramp_label,
-                            kind = "ramp"
-                        }, is_auto_taxi_guidance_enabled())
-                        comp._arrTaxiCompleteAnnounced = true
-                        set_guidance_state(comp, "complete", "taxi-complete", log_taxi)
-                        comp._route = nil
-                        comp._routeErr = "taxi-complete"
-                        comp._routeLabels = nil
-                        comp._routeLabelStats = nil
-                        comp._routeExtraSegments = nil
-                        comp._lastStartKey = nil
-                        comp._lastEndKey = nil
-                        comp._visualGuidanceQueue = {}
-                        log_taxi("TaxiRoute: taxi complete parking brake")
+                    if on_runway then
+                        if not comp._arrTaxiCompleteRunwaySkip then
+                            log_taxi("TaxiRoute: parking brake on runway, skip taxi complete")
+                            comp._arrTaxiCompleteRunwaySkip = true
+                        end
+                    else
+                        comp._arrTaxiCompleteRunwaySkip = nil
+                        if not nearest_ramp then
+                            nearest_ramp = helpers.getNearestRamp(
+                                icao,
+                                aircraft.lat,
+                                aircraft.lon,
+                                { filter = helpers.isRampSuitableFor738, data = comp._data }
+                            )
+                            if nearest_ramp and is_valid_latlon(nearest_ramp.lat, nearest_ramp.lon) then
+                                nearest_ramp_dist = distance_meters_latlon(
+                                    nearest_ramp.lat,
+                                    nearest_ramp.lon,
+                                    aircraft.lat,
+                                    aircraft.lon
+                                )
+                            end
+                        end
+                        local pb_dist = tuning.parkingBrakeCompleteDist or 35
+                        if nearest_ramp and nearest_ramp_dist and nearest_ramp_dist <= pb_dist then
+                            local ramp_label = short_ramp_label(nearest_ramp)
+                            clear_visual_guidance(comp, "taxi-complete")
+                            comp._visualGuidanceQueue = {}
+                            emit_guidance(comp, now, {
+                                text = "Taxi complete",
+                                direction = "straight",
+                                action = "TAXI COMPLETE",
+                                label = ramp_label,
+                                kind = "ramp"
+                            }, is_auto_taxi_guidance_enabled())
+                            comp._arrTaxiCompleteAnnounced = true
+                            set_guidance_state(comp, "complete", "taxi-complete", log_taxi)
+                            comp._route = nil
+                            comp._routeErr = "taxi-complete"
+                            comp._routeLabels = nil
+                            comp._routeLabelStats = nil
+                            comp._routeExtraSegments = nil
+                            comp._lastStartKey = nil
+                            comp._lastEndKey = nil
+                            comp._visualGuidanceQueue = {}
+                            log_taxi("TaxiRoute: taxi complete parking brake")
+                        end
                     end
                 end
             end

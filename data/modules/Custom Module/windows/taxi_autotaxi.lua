@@ -32,6 +32,62 @@ function M.attach(U, C, def, helpers, settings)
         comp._autoTaxiLogTimes[key] = t
         auto_taxi_log(comp, msg)
     end
+    local function auto_taxi_log_snapshot(comp, yal, reason)
+        if not comp or not yal then
+            return
+        end
+        local s = settings and settings.appSettings or nil
+        local fs = yal.flightstate
+        local ag = yal.airgroundsensor and get(yal.airgroundsensor) or nil
+        local gs = yal.groundspeed and get(yal.groundspeed) or nil
+        local pb = yal.parkingbrakepos and get(yal.parkingbrakepos) or nil
+        local proc_after = yal.proceduretable and yal.proceduretable[def.AFTERLANDINGPROCEDURE] or nil
+        local proc_before = yal.proceduretable and yal.proceduretable[def.BEFORETAXIPROCEDURE] or nil
+        local l1 = yal.loopStateTables and yal.loopStateTables[1] and yal.loopStateTables[1].lock or nil
+        local l2 = yal.loopStateTables and yal.loopStateTables[2] and yal.loopStateTables[2].lock or nil
+        local l3 = yal.loopStateTables and yal.loopStateTables[3] and yal.loopStateTables[3].lock or nil
+        local route_len = (comp._route and comp._route.path and #comp._route.path) or 0
+        local msg = "override snapshot"
+        if reason and reason ~= "" then
+            msg = msg .. " " .. tostring(reason)
+        end
+        msg = msg
+            .. " mode=" .. tostring(comp.mode)
+            .. " autoMode=" .. tostring(comp.autoMode)
+            .. " fs=" .. tostring(fs)
+            .. " ag=" .. tostring(ag)
+            .. " gs=" .. string.format("%.2f", (gs or 0) * 1.94384)
+            .. " pb=" .. tostring(pb)
+            .. " route=" .. tostring(route_len)
+            .. " beforeSet=" .. tostring(proc_before and proc_before.set)
+            .. " afterSet=" .. tostring(proc_after and proc_after.set)
+            .. " locks=" .. tostring(l1) .. "/" .. tostring(l2) .. "/" .. tostring(l3)
+        if s then
+            msg = msg
+                .. " auto=" .. tostring(s[def.CONFIGAUTOFUNCTIONS])
+                .. " guide=" .. tostring(s[def.CONFIGAUTOTAXIGUIDANCE])
+                .. " taxi=" .. tostring(s[def.CONFIGAUTOTAXIING])
+                .. " adv=" .. tostring(s[def.CONFIGVOICEADVICEONLY])
+        end
+        auto_taxi_log(comp, msg)
+    end
+    local function auto_taxi_log_snapshot_once(comp, now, key, yal, reason)
+        if not comp then
+            return
+        end
+        local k = "snap:" .. tostring(key or "")
+        local t = now or 0
+        local last = comp._autoTaxiLogTimes and comp._autoTaxiLogTimes[k] or nil
+        local min_dt = 4
+        if last and (t - last) < min_dt then
+            return
+        end
+        if not comp._autoTaxiLogTimes then
+            comp._autoTaxiLogTimes = {}
+        end
+        comp._autoTaxiLogTimes[k] = t
+        auto_taxi_log_snapshot(comp, yal, reason)
+    end
 
     local function auto_taxi_apply_overrides(comp, yal)
         if not comp or not yal or comp._autoTaxiOverrideActive then
@@ -40,19 +96,20 @@ function M.attach(U, C, def, helpers, settings)
         if comp._autoTaxiAllowOverride == false then
             return
         end
+        auto_taxi_log_snapshot(comp, yal, "activate")
         auto_taxi_log(comp, "overrides on")
         comp._autoTaxiOverrideActive = true
-        if yal.override_throttles and isProperty(yal.override_throttles) then
-            comp._autoTaxiPrevOverrideThrottles = get(yal.override_throttles)
-            set(yal.override_throttles, def.ON)
+        if yal.zibo_throttle_override and isProperty(yal.zibo_throttle_override) then
+            comp._autoTaxiPrevOverrideThrottles = get(yal.zibo_throttle_override)
+            set(yal.zibo_throttle_override, def.ON)
         end
-        if yal.override_wheel_steer and isProperty(yal.override_wheel_steer) then
-            comp._autoTaxiPrevOverrideSteer = get(yal.override_wheel_steer)
-            set(yal.override_wheel_steer, def.ON)
+        if yal.zibo_nosewheel_steer_override and isProperty(yal.zibo_nosewheel_steer_override) then
+            comp._autoTaxiPrevOverrideSteer = get(yal.zibo_nosewheel_steer_override)
+            set(yal.zibo_nosewheel_steer_override, def.ON)
         end
-        if yal.override_toe_brakes and isProperty(yal.override_toe_brakes) then
-            comp._autoTaxiPrevOverrideBrakes = get(yal.override_toe_brakes)
-            set(yal.override_toe_brakes, def.ON)
+        if yal.zibo_toe_brake_override and isProperty(yal.zibo_toe_brake_override) then
+            comp._autoTaxiPrevOverrideBrakes = get(yal.zibo_toe_brake_override)
+            set(yal.zibo_toe_brake_override, def.ON)
         end
         if yal.throttle_use_1 and isProperty(yal.throttle_use_1) then
             comp._autoTaxiPrevThrottle1 = get(yal.throttle_use_1)
@@ -80,14 +137,14 @@ function M.attach(U, C, def, helpers, settings)
         end
         if yal then
             if comp._autoTaxiOverrideActive then
-                if yal.override_throttles and isProperty(yal.override_throttles) then
-                    set(yal.override_throttles, comp._autoTaxiPrevOverrideThrottles or def.OFF)
+                if yal.zibo_throttle_override and isProperty(yal.zibo_throttle_override) then
+                    set(yal.zibo_throttle_override, comp._autoTaxiPrevOverrideThrottles or def.OFF)
                 end
-                if yal.override_wheel_steer and isProperty(yal.override_wheel_steer) then
-                    set(yal.override_wheel_steer, comp._autoTaxiPrevOverrideSteer or def.OFF)
+                if yal.zibo_nosewheel_steer_override and isProperty(yal.zibo_nosewheel_steer_override) then
+                    set(yal.zibo_nosewheel_steer_override, comp._autoTaxiPrevOverrideSteer or def.OFF)
                 end
-                if yal.override_toe_brakes and isProperty(yal.override_toe_brakes) then
-                    set(yal.override_toe_brakes, comp._autoTaxiPrevOverrideBrakes or def.OFF)
+                if yal.zibo_toe_brake_override and isProperty(yal.zibo_toe_brake_override) then
+                    set(yal.zibo_toe_brake_override, comp._autoTaxiPrevOverrideBrakes or def.OFF)
                 end
             end
             if yal.throttle_use_1 and isProperty(yal.throttle_use_1) then
@@ -393,24 +450,28 @@ function M.attach(U, C, def, helpers, settings)
             comp._autoTaxiReady = false
             auto_taxi_release_controls(comp, comp.yal or _G.yal, "auto-functions-off")
             auto_taxi_log_once(comp, now, "gate:auto-functions-off", "blocked: auto functions off")
+            auto_taxi_log_snapshot_once(comp, now, "gate:auto-functions-off", comp.yal or _G.yal, "gate:auto-functions-off")
             return
         end
         if settingsTable[def.CONFIGVOICEADVICEONLY] == def.ON then
             comp._autoTaxiReady = false
             auto_taxi_release_controls(comp, comp.yal or _G.yal, "voice-advice-only")
             auto_taxi_log_once(comp, now, "gate:voice-advice-only", "blocked: voice advice only")
+            auto_taxi_log_snapshot_once(comp, now, "gate:voice-advice-only", comp.yal or _G.yal, "gate:voice-advice-only")
             return
         end
         if settingsTable[def.CONFIGAUTOTAXIING] ~= def.ON then
             comp._autoTaxiReady = false
             auto_taxi_release_controls(comp, comp.yal or _G.yal, "setting-off")
             auto_taxi_log_once(comp, now, "gate:setting-off", "blocked: auto taxiing off")
+            auto_taxi_log_snapshot_once(comp, now, "gate:setting-off", comp.yal or _G.yal, "gate:setting-off")
             return
         end
         if settingsTable[def.CONFIGAUTOTAXIGUIDANCE] ~= def.ON then
             comp._autoTaxiReady = false
             auto_taxi_release_controls(comp, comp.yal or _G.yal, "guidance-off")
             auto_taxi_log_once(comp, now, "gate:guidance-off", "blocked: auto taxi guidance off")
+            auto_taxi_log_snapshot_once(comp, now, "gate:guidance-off", comp.yal or _G.yal, "gate:guidance-off")
             return
         end
         local tick_sec = (C and C.autoTaxiTickSec) or 0.05
@@ -430,18 +491,21 @@ function M.attach(U, C, def, helpers, settings)
             comp._autoTaxiReady = false
             auto_taxi_release_controls(comp, yal, "paused")
             auto_taxi_log_once(comp, now, "gate:paused", "blocked: paused")
+            auto_taxi_log_snapshot_once(comp, now, "gate:paused", yal, "gate:paused")
             return
         end
         if comp._editRoute or comp._drawRoute then
             comp._autoTaxiReady = false
             auto_taxi_release_controls(comp, yal, "edit-draw")
             auto_taxi_log_once(comp, now, "gate:edit-draw", "blocked: edit/draw active")
+            auto_taxi_log_snapshot_once(comp, now, "gate:edit-draw", yal, "gate:edit-draw")
             return
         end
         if not (yal.airgroundsensor and get(yal.airgroundsensor) == def.ON) then
             comp._autoTaxiReady = false
             auto_taxi_release_controls(comp, yal, "airborne")
             auto_taxi_log_once(comp, now, "gate:airborne", "blocked: airborne")
+            auto_taxi_log_snapshot_once(comp, now, "gate:airborne", yal, "gate:airborne")
             return
         end
         local gs_ms = (yal.groundspeed and (get(yal.groundspeed) or 0)) or 0
@@ -451,6 +515,7 @@ function M.attach(U, C, def, helpers, settings)
             comp._autoTaxiReady = false
             auto_taxi_release_controls(comp, yal, "groundspeed")
             auto_taxi_log_once(comp, now, "gate:groundspeed", "blocked: gs " .. string.format("%.1f", gs_kts))
+            auto_taxi_log_snapshot_once(comp, now, "gate:groundspeed", yal, "gate:groundspeed")
             return
         end
         local flightstate = yal.flightstate
@@ -459,6 +524,7 @@ function M.attach(U, C, def, helpers, settings)
                 comp._autoTaxiReady = false
                 auto_taxi_release_controls(comp, yal, "flightstate")
                 auto_taxi_log_once(comp, now, "gate:flightstate", "blocked: flightstate " .. tostring(flightstate))
+                auto_taxi_log_snapshot_once(comp, now, "gate:flightstate", yal, "gate:flightstate")
                 return
             end
         elseif comp.mode == 1 then
@@ -466,6 +532,7 @@ function M.attach(U, C, def, helpers, settings)
                 comp._autoTaxiReady = false
                 auto_taxi_release_controls(comp, yal, "flightstate")
                 auto_taxi_log_once(comp, now, "gate:flightstate", "blocked: flightstate " .. tostring(flightstate))
+                auto_taxi_log_snapshot_once(comp, now, "gate:flightstate", yal, "gate:flightstate")
                 return
             end
             local proc = yal.proceduretable and yal.proceduretable[def.AFTERLANDINGPROCEDURE]
@@ -473,6 +540,7 @@ function M.attach(U, C, def, helpers, settings)
                 comp._autoTaxiReady = false
                 auto_taxi_release_controls(comp, yal, "after-landing")
                 auto_taxi_log_once(comp, now, "gate:after-landing", "blocked: after-landing incomplete")
+                auto_taxi_log_snapshot_once(comp, now, "gate:after-landing", yal, "gate:after-landing")
                 return
             end
         end
@@ -480,6 +548,7 @@ function M.attach(U, C, def, helpers, settings)
             comp._autoTaxiReady = false
             auto_taxi_release_controls(comp, yal, "parking-brake")
             auto_taxi_log_once(comp, now, "gate:parking-brake", "blocked: parking brake")
+            auto_taxi_log_snapshot_once(comp, now, "gate:parking-brake", yal, "gate:parking-brake")
             return
         end
         if comp.mode == 0 then
@@ -488,6 +557,7 @@ function M.attach(U, C, def, helpers, settings)
                 comp._autoTaxiReady = false
                 auto_taxi_release_controls(comp, yal, "before-taxi")
                 auto_taxi_log_once(comp, now, "gate:before-taxi", "blocked: before-taxi incomplete")
+                auto_taxi_log_snapshot_once(comp, now, "gate:before-taxi", yal, "gate:before-taxi")
                 return
             end
         end
@@ -495,12 +565,14 @@ function M.attach(U, C, def, helpers, settings)
             comp._autoTaxiReady = false
             auto_taxi_release_controls(comp, yal, "route")
             auto_taxi_log_once(comp, now, "gate:route", "blocked: no route")
+            auto_taxi_log_snapshot_once(comp, now, "gate:route", yal, "gate:route")
             return
         end
         if comp._routeErr == "taxi-complete" then
             comp._autoTaxiReady = false
             auto_taxi_release_controls(comp, yal, "taxi-complete")
             auto_taxi_log_once(comp, now, "gate:taxi-complete", "blocked: taxi complete")
+            auto_taxi_log_snapshot_once(comp, now, "gate:taxi-complete", yal, "gate:taxi-complete")
             return
         end
         local aircraft = comp._aircraftPoint
@@ -509,6 +581,7 @@ function M.attach(U, C, def, helpers, settings)
                 comp._autoTaxiReady = false
                 auto_taxi_release_controls(comp, yal, "pushback")
                 auto_taxi_log_once(comp, now, "gate:pushback", "blocked: pushback active")
+                auto_taxi_log_snapshot_once(comp, now, "gate:pushback", yal, "gate:pushback")
                 return
             end
         end
@@ -524,6 +597,7 @@ function M.attach(U, C, def, helpers, settings)
             comp._autoTaxiReady = false
             auto_taxi_release_controls(comp, yal, "manual-" .. tostring(manual))
             auto_taxi_log_once(comp, now, "gate:manual", "blocked: manual input " .. tostring(manual))
+            auto_taxi_log_snapshot_once(comp, now, "gate:manual", yal, "gate:manual")
             return
         end
         if not comp._autoTaxiReady then
@@ -548,12 +622,14 @@ function M.attach(U, C, def, helpers, settings)
         if not aircraft or aircraft.east == nil or aircraft.north == nil then
             auto_taxi_release_controls(comp, yal, "no-aircraft")
             auto_taxi_log_once(comp, now, "gate:no-aircraft", "blocked: no aircraft position")
+            auto_taxi_log_snapshot_once(comp, now, "gate:no-aircraft", yal, "gate:no-aircraft")
             return
         end
         if not auto_taxi_apply_controls(comp, now, yal, aircraft) then
             auto_taxi_release_controls(comp, yal, "apply-failed")
             comp._autoTaxiReady = false
             auto_taxi_log_once(comp, now, "gate:apply-failed", "blocked: apply failed")
+            auto_taxi_log_snapshot_once(comp, now, "gate:apply-failed", yal, "gate:apply-failed")
         end
     end
 end
