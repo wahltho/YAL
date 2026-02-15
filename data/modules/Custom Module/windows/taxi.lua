@@ -3948,6 +3948,7 @@ C = {
     parkingBrakeCompleteDist = 35,
     gateStopOffsetMeters = 11,
     gatePopupHoldDist = 30,
+    gateStopDistance = gateStopDistance,
     gateDgsGoodX = 2.0,
     gateDgsGoodZPos = 0.2,
     gateDgsGoodZNeg = -0.5,
@@ -4031,6 +4032,9 @@ U = {
     collect_nearest_nodes = collect_nearest_nodes,
     normalize_icao = normalize_icao,
     build_route_labels = build_route_labels,
+    heading_deg_from_to = heading_deg_from_to,
+    heading_diff_deg = heading_diff_deg,
+    heading_diff_signed = heading_diff_signed,
     clamp = clamp,
     getFont = getFont,
     drawText = drawText,
@@ -4059,6 +4063,24 @@ U = {
     runway_label_voice = runway_label_voice,
     build_visual_label = build_visual_label
 }
+
+do
+    local ok, mod = pcall(require, "windows.taxi_gate")
+    if ok and mod and mod.attach then
+        mod.attach(U, C, def, helpers)
+    elseif helpers and helpers.logInfoTS then
+        helpers.logInfoTS("TaxiGate: module load failed")
+    end
+end
+
+do
+    local ok, mod = pcall(require, "windows.taxi_autotaxi")
+    if ok and mod and mod.attach then
+        mod.attach(U, C, def, helpers, settings)
+    elseif helpers and helpers.logInfoTS then
+        helpers.logInfoTS("AutoTaxi: module load failed")
+    end
+end
 
 U.update_pushback_state = function(comp, now, yal, aircraft)
     if not comp or not yal or comp.mode ~= 0 then
