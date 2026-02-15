@@ -560,11 +560,101 @@ local function format_runway_designator_text(label)
     return table.concat(parts, " / ")
 end
 
+local function clean_runway_label_keep_slash(label)
+    local s = string.upper(tostring(label or ""))
+    if string.sub(s, 1, 3) == "RWY" then
+        s = trim_spaces(string.gsub(s, "^RWY[%s_%-/]*", ""))
+    end
+    s = string.gsub(s, "[%s_%-]+", "")
+    return s
+end
+
+local function normalize_runway_pair_label(label)
+    if not label or label == "" then
+        return ""
+    end
+    local raw = clean_runway_label_keep_slash(label)
+    if raw == "" then
+        return ""
+    end
+    local parts = {}
+    if raw:find("/") then
+        for part in string.gmatch(raw, "[^/]+") do
+            part = trim_spaces(part)
+            if part ~= "" then
+                parts[#parts + 1] = part
+            end
+        end
+    else
+        local len = #raw
+        if len < 4 then
+            return raw
+        end
+        local i = 1
+        while i <= len do
+            local num = raw:sub(i, i + 1)
+            if #num < 2 then
+                break
+            end
+            local suffix = ""
+            local j = i + 2
+            if j <= len then
+                local ch = raw:sub(j, j)
+                if ch:match("%a") then
+                    suffix = ch
+                    j = j + 1
+                end
+            end
+            parts[#parts + 1] = num .. suffix
+            i = j
+        end
+    end
+    if #parts >= 2 then
+        local n1, s1 = parse_runway_parts(parts[1])
+        local n2, s2 = parse_runway_parts(parts[2])
+        if n1 and n2 then
+            local opp = n1 + 18
+            if opp > 36 then
+                opp = opp - 36
+            end
+            local function opposite_suffix(s)
+                if s == "L" then
+                    return "R"
+                elseif s == "R" then
+                    return "L"
+                elseif s == "C" then
+                    return "C"
+                end
+                return ""
+            end
+            if opp == n2 then
+                if s1 ~= "" and s2 == "" then
+                    s2 = opposite_suffix(s1)
+                elseif s2 ~= "" and s1 == "" then
+                    s1 = opposite_suffix(s2)
+                end
+            end
+            if s1 and s1 ~= "" then
+                parts[1] = string.format("%02d%s", n1, s1)
+            else
+                parts[1] = string.format("%02d", n1)
+            end
+            if s2 and s2 ~= "" then
+                parts[2] = string.format("%02d%s", n2, s2)
+            else
+                parts[2] = string.format("%02d", n2)
+            end
+        end
+    end
+    return table.concat(parts, "/")
+end
+
 local function runway_label_voice(label)
     if not label or label == "" then
         return "Runway"
     end
-    local formatted = format_runway_designator_text(label)
+    local normalized = normalize_runway_pair_label(label)
+    local formatted = format_runway_designator_text(normalized)
     if formatted == "" then
         return "Runway"
     end
@@ -1222,6 +1312,138 @@ local function build_runway_backtrack_segments(data, profile, node_id, target_po
         north2 = target.north
     }
     return segments
+end
+
+local function clear_temp_route_overlay(comp, data)
+    if not comp or not data then
+        return
+    end
+    if comp._tempRouteNodes and data.nodes then
+        for _, id in ipairs(comp._tempRouteNodes) do
+            data.nodes[id] = nil
+        end
+    end
+    if comp._tempRouteNodes and data.runway_nodes then
+        for _, id in ipairs(comp._tempRouteNodes) do
+            data.runway_nodes[id] = nil
+        end
+    end
+    if data._tempEdgeLabels and comp._tempRouteEdgeKeys then
+        for _, key in ipairs(comp._tempRouteEdgeKeys) do
+            data._tempEdgeLabels[key] = nil
+        end
+        if next(data._tempEdgeLabels) == nil then
+            data._tempEdgeLabels = nil
+        end
+    end
+    comp._tempRouteNodes = nil
+    comp._tempRouteEdgeKeys = nil
+    comp._tempRouteNodeSeq = nil
+end
+
+local function add_temp_route_node(comp, data, east, north)
+    if not comp or not data or not data.nodes then
+        return nil
+    end
+    if east == nil or north == nil then
+        return nil
+    end
+    comp._tempRouteNodeSeq = (comp._tempRouteNodeSeq or 0) + 1
+    local node_id = -comp._tempRouteNodeSeq
+    local node = { east = east, north = north, is_temp = true }
+    local lat, lon = local_to_latlon(east, north)
+    if is_valid_latlon(lat, lon) then
+        node.lat = lat
+        node.lon = lon
+    end
+    data.nodes[node_id] = node
+    comp._tempRouteNodes = comp._tempRouteNodes or {}
+    comp._tempRouteNodes[#comp._tempRouteNodes + 1] = node_id
+    return node_id
+end
+
+local function add_temp_edge_label(comp, data, from_id, to_id, label)
+    if not comp or not data or not from_id or not to_id then
+        return
+    end
+    if label == nil then
+        return
+    end
+    local key = tostring(from_id) .. ":" .. tostring(to_id)
+    data._tempEdgeLabels = data._tempEdgeLabels or {}
+    data._tempEdgeLabels[key] = label
+    comp._tempRouteEdgeKeys = comp._tempRouteEdgeKeys or {}
+    comp._tempRouteEdgeKeys[#comp._tempRouteEdgeKeys + 1] = key
+end
+
+local function apply_backtrack_segments_to_route(comp, route, data, backtrack_node_id, segments, runway_label)
+    if not comp or not route or not data or not segments or #segments == 0 then
+        return false
+    end
+    if not route.path or #route.path < 1 then
+        return false
+    end
+    if not data.nodes then
+        return false
+    end
+    local path = route.path
+    local at_start = (path[1] == backtrack_node_id)
+    local at_end = (path[#path] == backtrack_node_id)
+    if not at_start and not at_end then
+        return false
+    end
+    local last_seg = segments[#segments]
+    if not last_seg or last_seg.east1 == nil or last_seg.north1 == nil or last_seg.east2 == nil or last_seg.north2 == nil then
+        return false
+    end
+    local entry_e = last_seg.east1
+    local entry_n = last_seg.north1
+    local target_e = last_seg.east2
+    local target_n = last_seg.north2
+    if entry_e == nil or entry_n == nil or target_e == nil or target_n == nil then
+        return false
+    end
+    local entry_id = add_temp_route_node(comp, data, entry_e, entry_n)
+    local target_id = add_temp_route_node(comp, data, target_e, target_n)
+    if not entry_id or not target_id then
+        return false
+    end
+    if data.runway_nodes then
+        data.runway_nodes[entry_id] = true
+        data.runway_nodes[target_id] = true
+    end
+    if runway_label and runway_label ~= "" then
+        add_temp_edge_label(comp, data, target_id, entry_id, runway_label)
+        add_temp_edge_label(comp, data, entry_id, target_id, runway_label)
+    end
+    local new_path = {}
+    local function add_unique(id)
+        if id and (#new_path == 0 or new_path[#new_path] ~= id) then
+            new_path[#new_path + 1] = id
+        end
+    end
+    if at_start then
+        add_unique(target_id)
+        add_unique(entry_id)
+        add_unique(backtrack_node_id)
+        for _, id in ipairs(path) do
+            add_unique(id)
+        end
+    else
+        for _, id in ipairs(path) do
+            add_unique(id)
+        end
+        add_unique(entry_id)
+        add_unique(target_id)
+    end
+    route.path = new_path
+    route.start_id = new_path[1]
+    route.end_id = new_path[#new_path]
+    if route.bounds then
+        update_bounds(route.bounds, entry_e, entry_n)
+        update_bounds(route.bounds, target_e, target_n)
+    end
+    return true
 end
 
 local collect_runway_exit_candidates
@@ -2385,6 +2607,13 @@ local function get_edge_label(data, from_id, to_id)
     if not data or not from_id or not to_id then
         return ""
     end
+    if data._tempEdgeLabels then
+        local key = tostring(from_id) .. ":" .. tostring(to_id)
+        local label = data._tempEdgeLabels[key]
+        if label ~= nil then
+            return label
+        end
+    end
     local neighbors = data.adjacency and data.adjacency[from_id]
     if neighbors then
         for _, edge in ipairs(neighbors) do
@@ -2412,6 +2641,19 @@ local function infer_arrival_exit_from_route(route, data)
     if #path == 0 then
         return nil
     end
+    local function next_non_temp(start_idx)
+        if not data.nodes then
+            return nil
+        end
+        for idx = start_idx, #path do
+            local node_id = path[idx]
+            local node = data.nodes[node_id]
+            if not (node and node.is_temp) then
+                return node_id
+            end
+        end
+        return nil
+    end
     local saw_runway = false
     for i = 1, (#path - 1) do
         local label = get_edge_label(data, path[i], path[i + 1])
@@ -2422,17 +2664,21 @@ local function infer_arrival_exit_from_route(route, data)
                 local next_label = get_edge_label(data, path[i + 1], path[i + 2])
                 local next_is_rwy = next_label and is_runway_label(next_label)
                 if not next_is_rwy then
-                    return path[i + 1]
+                    local cand = next_non_temp(i + 1)
+                    return cand or path[i + 1]
                 end
             else
-                return path[i + 1]
+                local cand = next_non_temp(i + 1)
+                return cand or path[i + 1]
             end
         elseif saw_runway then
-            return path[i]
+            local cand = next_non_temp(i)
+            return cand or path[i]
         end
     end
     if not saw_runway then
-        return path[1]
+        local cand = next_non_temp(1)
+        return cand or path[1]
     end
     return nil
 end
@@ -2835,35 +3081,7 @@ local function build_visual_label(kind, display)
         return "TAXIWAY " .. spoken
     end
     if kind == "runway" then
-        local normalized = tostring(display)
-        if not normalized:find("/") then
-            local raw = normalize_runway_name(normalized)
-            local len = #raw
-            if len >= 4 then
-                local parts = {}
-                local i = 1
-                while i <= len do
-                    local num = raw:sub(i, i + 1)
-                    if #num < 2 then
-                        break
-                    end
-                    local suffix = ""
-                    local j = i + 2
-                    if j <= len then
-                        local ch = raw:sub(j, j)
-                        if ch:match("%a") then
-                            suffix = ch
-                            j = j + 1
-                        end
-                    end
-                    parts[#parts + 1] = num .. suffix
-                    i = j
-                end
-                if #parts >= 2 then
-                    normalized = table.concat(parts, "/")
-                end
-            end
-        end
+        local normalized = normalize_runway_pair_label(display)
         local formatted = format_runway_designator_text(normalized)
         if formatted == "" then
             return ""
@@ -6522,6 +6740,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
         end
 
         if not helpers.isvalidicao(icao or "") then
+            clear_temp_route_overlay(comp, comp._data)
             comp._data = nil
             comp._route = nil
             comp._dataErr = "invalid-icao"
@@ -6571,6 +6790,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
             comp._lastEndKey = nil
             comp._routeStartAnchor = nil
             comp._routeExtraSegments = nil
+            clear_temp_route_overlay(comp, data)
             comp._editTailSegments = nil
             comp._lastGuidanceNodeId = nil
             comp._lastGuidanceLabel = nil
@@ -6686,6 +6906,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
             pending = (derr == "global-index-pending")
         end
         if not data then
+            clear_temp_route_overlay(comp, comp._data)
             comp._data = nil
             comp._dataErr = pending and "global-index-pending" or (derr or "apt-not-found")
             comp._fitBounds = nil
@@ -7888,6 +8109,9 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
         if comp._editDirty or comp._lastStartKey ~= start_key or comp._lastEndKey ~= end_key or comp._route == nil then
             comp._lastStartKey = start_key
             comp._lastEndKey = end_key
+            if data then
+                clear_temp_route_overlay(comp, data)
+            end
             comp._initialGuidanceDone = false
             comp._initialMoveAnchor = nil
             comp._guidanceMoveAnchor = nil
@@ -8693,13 +8917,49 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                 comp._route = route
                 comp._lastRouteComputeTime = now
                 comp._routeErr = rerr
-                comp._routeLabels = route and build_route_labels(route.data, route.path) or nil
-                comp._routeLabelStats = route and compute_route_label_stats(route.data, route.path) or nil
+                comp._routeLabels = nil
+                comp._routeLabelStats = nil
                 if in_edit and route then
                     if comp._editDirty then
                         log_taxi("TaxiEdit: clean")
                     end
                     comp._editDirty = false
+                end
+                local backtrack_applied = false
+                comp._routeExtraSegments = nil
+                if (not comp._drawFreehand) and (not comp._manualRouteActive)
+                    and route and route.path and data and comp._runwayName and comp._runwayName ~= "" then
+                    local profile = compute_runway_landing_profile(data, comp._runwayName, runway_lat, runway_lon)
+                    if profile then
+                        local backtrack_node = nil
+                        local backtrack_target = nil
+                        if mode == 1 and backtrack_required and (not comp._arrOffRunwayHandled) then
+                            backtrack_node = arr_exit_id or route.path[1]
+                            if aircraft and is_on_runway_profile(profile, aircraft, 60, 5) then
+                                backtrack_target = { east = aircraft.east, north = aircraft.north }
+                            else
+                                backtrack_target = profile.touchdown or profile.threshold
+                            end
+                        elseif mode == 0 and not allow_runway_route then
+                            backtrack_node = comp._selectedDepEntryId or dep_holdshort_id or dep_end_node_id or route.end_id or route.path[#route.path]
+                            backtrack_target = profile.threshold
+                        end
+                        if backtrack_node then
+                            local segments = build_runway_backtrack_segments(data, profile, backtrack_node, backtrack_target)
+                            if segments and #segments > 0 then
+                                local runway_label = normalize_runway_name(comp._runwayName)
+                                if apply_backtrack_segments_to_route(comp, route, data, backtrack_node, segments, runway_label) then
+                                    backtrack_applied = true
+                                else
+                                    comp._routeExtraSegments = segments
+                                end
+                            end
+                        end
+                    end
+                end
+                if route then
+                    comp._routeLabels = build_route_labels(route.data, route.path)
+                    comp._routeLabelStats = compute_route_label_stats(route.data, route.path)
                 end
                 if route and is_valid_latlon(start_lat, start_lon) then
                     if not in_edit then
@@ -8767,6 +9027,13 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                             helpers.logInfoTS("TaxiLabels: " .. tostring(icao) .. " " .. tostring(comp._runwayName or "") .. " <none>")
                         end
                     end
+                    if backtrack_applied then
+                        helpers.logInfoTS(
+                            "TaxiRoute: backtrack applied mode=" .. tostring(mode) ..
+                            " runway=" .. tostring(comp._runwayName or "") ..
+                            " node=" .. tostring((mode == 1 and arr_exit_id) or comp._selectedDepEntryId or dep_holdshort_id or dep_end_node_id or "")
+                        )
+                    end
                     if comp._pendingRerouteEvent then
                         if comp._lastForwardPathKey ~= fwd_key then
                             record_reroute_event(comp, now)
@@ -8801,28 +9068,6 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                 end
                 if route and route.bounds then
                     comp._fitBounds = route.bounds
-                end
-                comp._routeExtraSegments = nil
-                if (not comp._drawFreehand) and route and route.path and data and comp._runwayName and comp._runwayName ~= "" then
-                    local profile = compute_runway_landing_profile(data, comp._runwayName, runway_lat, runway_lon)
-                    if profile then
-                        local backtrack_node = nil
-                        local backtrack_target = nil
-                        if mode == 1 and backtrack_required and (not comp._arrOffRunwayHandled) then
-                            backtrack_node = arr_exit_id or route.path[1]
-                            if aircraft and is_on_runway_profile(profile, aircraft, 60, 5) then
-                                backtrack_target = { east = aircraft.east, north = aircraft.north }
-                            else
-                                backtrack_target = profile.touchdown or profile.threshold
-                            end
-                        elseif mode == 0 and not allow_runway_route then
-                            backtrack_node = comp._selectedDepEntryId or dep_holdshort_id or dep_end_node_id or route.end_id or route.path[#route.path]
-                            backtrack_target = profile.threshold
-                        end
-                        if backtrack_node then
-                            comp._routeExtraSegments = build_runway_backtrack_segments(data, profile, backtrack_node, backtrack_target)
-                        end
-                    end
                 end
                 if mode == 1 and route and route.path and route.data and route.data ~= nil then
                     local exit_id = infer_arrival_exit_from_route(route, route.data)
