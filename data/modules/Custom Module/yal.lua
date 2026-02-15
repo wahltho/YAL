@@ -40,6 +40,79 @@ local function hoppieVoiceEnabled()
     return (tonumber(P.configvalues[def.CONFIGHOPPIEVOICE] or 0) == def.ON)
 end
 
+local function getAutoSaveSlot()
+    local raw = P.configvalues and P.configvalues[def.CONFIGSAVENUMBER] or nil
+    local start = 1
+    local finish = 1
+    if type(raw) == "number" then
+        start = math.floor(raw)
+        finish = start
+    elseif type(raw) == "string" then
+        local s = raw:gsub("%s+", "")
+        local a, b = s:match("^(%d+)%-(%d+)$")
+        if a and b then
+            local n1 = tonumber(a)
+            local n2 = tonumber(b)
+            if n1 and n2 then
+                start = n1
+                finish = n2
+            end
+        else
+            local n = tonumber(s)
+            if n then
+                start = n
+                finish = n
+            end
+        end
+    end
+    if start < 1 then start = 1 end
+    if start > 8 then start = 8 end
+    if finish < 1 then finish = 1 end
+    if finish > 8 then finish = 8 end
+    if start > finish then
+        start, finish = finish, start
+    end
+    local range_key = tostring(start) .. "-" .. tostring(finish)
+    local last_slot = P.configvalues and tonumber(P.configvalues[def.CONFIGSAVELAST]) or nil
+    if last_slot and (last_slot < start or last_slot > finish) then
+        last_slot = nil
+    end
+    if P._autosaveSlotRange ~= range_key then
+        P._autosaveSlotRange = range_key
+        if last_slot and start ~= finish then
+            local next_slot = last_slot + 1
+            if next_slot > finish then
+                next_slot = start
+            end
+            P._autosaveSlotCurrent = next_slot
+        else
+            P._autosaveSlotCurrent = last_slot or start
+        end
+    elseif not P._autosaveSlotCurrent or P._autosaveSlotCurrent < start or P._autosaveSlotCurrent > finish then
+        P._autosaveSlotCurrent = last_slot or start
+    end
+    local slot = P._autosaveSlotCurrent or start
+    if start ~= finish then
+        local next_slot = slot + 1
+        if next_slot > finish then
+            next_slot = start
+        end
+        P._autosaveSlotCurrent = next_slot
+    else
+        P._autosaveSlotCurrent = start
+    end
+    if P.configvalues then
+        P.configvalues[def.CONFIGSAVELAST] = slot
+        if settings and settings.appSettings then
+            settings.appSettings[def.CONFIGSAVELAST] = slot
+            if settings.writeSettings then
+                settings.writeSettings(settings.appSettings)
+            end
+        end
+    end
+    return slot
+end
+
 P.autotaxipause = false
 
 local function normalizeHoppieVoiceText(text)
@@ -5388,7 +5461,7 @@ function P.ongoingtasks()
                 P.pausetodtimer = sasl.createTimer()
                 sasl.startTimer(P.pausetodtimer)
             elseif (sasl.getElapsedSeconds(P.pausetodtimer) > P.configvalues[def.CONFIGTODPAUSEQUITTIME]) then
-                helpers.command_once("laminar/B738/tab/save_flight" .. tonumber(P.configvalues[def.CONFIGSAVENUMBER]))
+                helpers.command_once("laminar/B738/tab/save_flight" .. tostring(getAutoSaveSlot()))
                 helpers.command_once("sim/operation/quit")
             end
         elseif (P.pausetodtimer ~= nil) then
@@ -5405,7 +5478,7 @@ function P.ongoingtasks()
             P.savetimer = sasl.createTimer()
             sasl.startTimer(P.savetimer)
         elseif (sasl.getElapsedSeconds(P.savetimer) > P.configvalues[def.CONFIGSAVETIME]) then
-            helpers.command_once("laminar/B738/tab/save_flight" .. tonumber(P.configvalues[def.CONFIGSAVENUMBER]))
+            helpers.command_once("laminar/B738/tab/save_flight" .. tostring(getAutoSaveSlot()))
             sasl.startTimer(P.savetimer)
         end
     elseif (P.savetimer ~= nil) then

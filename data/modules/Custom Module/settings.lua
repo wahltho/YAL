@@ -61,7 +61,8 @@ local settingsDefinition = {
     [def.CONFIGRUNWAYFRICTIONCLAMP] = { dvalue = 0 , type = "number", min = 0, max = 1 },
     [def.CONFIGTODPAUSEQUITTIME] = { dvalue = 1800 , type = "number", min = 0, max = 9999 },
     [def.CONFIGSAVETIME] = { dvalue = 300 , type = "number", min = 0, max = 9999 },
-    [def.CONFIGSAVENUMBER] = { dvalue = 1 , type = "number", min = 1, max = 8 },
+    [def.CONFIGSAVENUMBER] = { dvalue = "1" , type = "string", minLen = 1, maxLen = 5 },
+    [def.CONFIGSAVELAST] = { dvalue = 1 , type = "number", min = 1, max = 8 },
     [def.CONFIGIGNOREALLBRIGHTHNESSSETTINGS] = { dvalue = 0 , type = "number", min = 0, max = 1 },
     [def.CONFIGHIDEEFBS] = { dvalue = 1 , type = "number", min = 0, max = 1 },
     [def.CONFIGSHOWBETAUPDATES] = { dvalue = 0 , type = "number", min = 0, max = 1 },
@@ -84,6 +85,46 @@ for k, v in pairs(settingsDefinition) do
     defaultSettings[k] = settingsDefinition[k].dvalue
 end
 
+local function normalizeSaveNumber(val)
+    if val == nil then
+        return nil
+    end
+    if type(val) == "number" then
+        local num = math.floor(val)
+        if num < 1 or num > 8 then
+            return nil
+        end
+        return tostring(num)
+    end
+    if type(val) ~= "string" then
+        return nil
+    end
+    local s = val:gsub("%s+", "")
+    if s == "" then
+        return nil
+    end
+    local a, b = s:match("^(%d+)%-(%d+)$")
+    if a and b then
+        local n1 = tonumber(a)
+        local n2 = tonumber(b)
+        if not n1 or not n2 then
+            return nil
+        end
+        if n1 < 1 or n1 > 8 or n2 < 1 or n2 > 8 then
+            return nil
+        end
+        if n1 > n2 then
+            n1, n2 = n2, n1
+        end
+        return tostring(n1) .. "-" .. tostring(n2)
+    end
+    local n = tonumber(s)
+    if n and n >= 1 and n <= 8 then
+        return tostring(math.floor(n))
+    end
+    return nil
+end
+
  
 
 local function checkSettings(tableTocheck)
@@ -95,7 +136,17 @@ local function checkSettings(tableTocheck)
     local result = false
     for k, v in pairs(settingsDefinition) do
         local defn = settingsDefinition[k]
-        if defn.type == "string" then
+        if k == def.CONFIGSAVENUMBER then
+            local normalized = normalizeSaveNumber(tableTocheck[k])
+            if not normalized then
+                sasl.logDebug("key: " .. k .. " missing or incorrect, setting value to default: " .. tostring(defn.dvalue))
+                tableTocheck[k] = defn.dvalue
+                result = true
+            elseif tableTocheck[k] ~= normalized then
+                tableTocheck[k] = normalized
+                result = true
+            end
+        elseif defn.type == "string" then
             local val = tableTocheck[k]
             if type(val) ~= "string" then
                 sasl.logDebug("key: " .. k .. " missing or incorrect, setting value to default: " .. tostring(defn.dvalue))

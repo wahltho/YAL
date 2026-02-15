@@ -132,10 +132,11 @@ function M.attach(U, C, def, helpers, settings)
         if not comp then
             return
         end
-        if comp._autoTaxiActive or comp._autoTaxiOverrideActive then
+        local had_active = comp._autoTaxiActive or comp._autoTaxiOverrideActive
+        if had_active then
             auto_taxi_log(comp, "release " .. tostring(reason or ""))
         end
-        if yal then
+        if had_active and yal then
             if comp._autoTaxiOverrideActive then
                 if yal.zibo_throttle_override and isProperty(yal.zibo_throttle_override) then
                     set(yal.zibo_throttle_override, comp._autoTaxiPrevOverrideThrottles or def.OFF)
@@ -192,6 +193,10 @@ function M.attach(U, C, def, helpers, settings)
         comp._autoTaxiPrevBrakeL = nil
         comp._autoTaxiPrevBrakeR = nil
         comp._autoTaxiPrevSteer = nil
+        comp._autoTaxiSteer = nil
+        comp._autoTaxiSteerTime = nil
+        comp._autoTaxiLastBrake = nil
+        comp._autoTaxiTurnSlow = nil
         comp._autoTaxiActive = false
         comp._autoTaxiAllowOverride = false
     end
@@ -208,6 +213,18 @@ function M.attach(U, C, def, helpers, settings)
         local yaw = (yal.yoke_heading_ratio and get(yal.yoke_heading_ratio)) or 0
         if math.abs(yaw) > 0.2 then
             return "steer"
+        end
+        local lbrake = (yal.left_brake_ratio and get(yal.left_brake_ratio)) or 0
+        local rbrake = (yal.right_brake_ratio and get(yal.right_brake_ratio)) or 0
+        if comp and comp._autoTaxiOverrideActive and comp._autoTaxiLastBrake ~= nil then
+            local ref = comp._autoTaxiLastBrake
+            if math.abs(lbrake - ref) > 0.08 or math.abs(rbrake - ref) > 0.08 then
+                return "brake"
+            end
+        else
+            if lbrake > 0.1 or rbrake > 0.1 then
+                return "brake"
+            end
         end
         if yal.parkingbrakepos and get(yal.parkingbrakepos) == def.ON then
             return "parking-brake"
@@ -339,6 +356,8 @@ function M.attach(U, C, def, helpers, settings)
                 end
             end
         end
+        local gs_ms = (yal.groundspeed and (get(yal.groundspeed) or 0)) or 0
+        local gs_kts = gs_ms * 1.94384
         if now then
             local last_log = comp._autoTaxiControlLog or 0
             if (now - last_log) >= 2.0 then
@@ -356,28 +375,60 @@ function M.attach(U, C, def, helpers, settings)
         local max_err = (C and C.autoTaxiSteerMaxErrDeg) or 35
         local max_steer = (C and C.autoTaxiSteerMaxDeg) or 25
         local steer_deg = clamp(diff / max_err, -1, 1) * max_steer
+        local steer_deadband = (C and C.autoTaxiSteerDeadbandDeg) or 1.0
+        if math.abs(steer_deg) < steer_deadband then
+            steer_deg = 0
+        end
+        local steer_rate = (C and C.autoTaxiSteerSlewDegPerSec) or 90
+        local prev_steer = comp._autoTaxiSteer
+        local prev_time = comp._autoTaxiSteerTime
+        if prev_steer ~= nil and now and prev_time then
+            local dt = now - prev_time
+            if dt < 0 then
+                dt = 0
+            end
+            if dt > 0 then
+                local max_delta = steer_rate * dt
+                local delta = steer_deg - prev_steer
+                if delta > max_delta then
+                    steer_deg = prev_steer + max_delta
+                elseif delta < -max_delta then
+                    steer_deg = prev_steer - max_delta
+                end
+            end
+        end
+        comp._autoTaxiSteer = steer_deg
+        if now then
+            comp._autoTaxiSteerTime = now
+        end
 
-        local gs_ms = (yal.groundspeed and (get(yal.groundspeed) or 0)) or 0
-        local gs_kts = gs_ms * 1.94384
         local target_kts = (C and C.autoTaxiSpeedKts) or 8
         local slow_kts = (C and C.autoTaxiTurnSpeedKts) or 5
         local gate_kts = (C and C.autoTaxiGateSpeedKts) or 3
         local stop_dist = (C and C.autoTaxiStopDistMeters) or 8
         local turn_angle = (C and C.autoTaxiTurnAngleDeg) or 25
         local turn_lead = (C and C.autoTaxiTurnLeadMeters) or 20
+        local turn_min_seg = (C and C.autoTaxiTurnMinSegMeters) or 15
+        local turn_exit = (C and C.autoTaxiTurnExitMeters) or 12
         local dist_to_seg_end = math.sqrt(
             (n2.east - aircraft.east) * (n2.east - aircraft.east)
             + (n2.north - aircraft.north) * (n2.north - aircraft.north)
         )
-        if seg_idx + 2 <= #path then
+        if comp._autoTaxiTurnSlow and dist_to_seg_end > turn_exit then
+            comp._autoTaxiTurnSlow = false
+        end
+        if (not comp._autoTaxiTurnSlow) and seg_idx + 2 <= #path and dist_to_seg_end <= turn_lead and seg_len >= turn_min_seg then
             local n3 = data.nodes[path[seg_idx + 2]]
             if n3 then
                 local h1 = heading_deg_from_to(n1.east, n1.north, n2.east, n2.north)
                 local h2 = heading_deg_from_to(n2.east, n2.north, n3.east, n3.north)
                 if h1 and h2 and heading_diff_deg(h1, h2) >= turn_angle and dist_to_seg_end <= turn_lead then
-                    target_kts = slow_kts
+                    comp._autoTaxiTurnSlow = true
                 end
             end
+        end
+        if comp._autoTaxiTurnSlow then
+            target_kts = slow_kts
         end
         if comp._guidanceState == "gate" then
             target_kts = math.min(target_kts, gate_kts)
@@ -413,6 +464,7 @@ function M.attach(U, C, def, helpers, settings)
         elseif speed_err < -1 then
             brake = clamp((-speed_err) * brake_kp, 0, brake_max)
         end
+        comp._autoTaxiLastBrake = brake
 
         auto_taxi_apply_overrides(comp, yal)
         if yal.tire_steer_cmd and isProperty(yal.tire_steer_cmd) then
