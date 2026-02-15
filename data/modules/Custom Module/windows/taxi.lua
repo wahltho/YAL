@@ -1897,6 +1897,14 @@ local function heading_diff_deg(h1, h2)
     return d
 end
 
+local function heading_diff_signed(target, current)
+    if target == nil or current == nil then
+        return 0
+    end
+    local diff = (target - current + 540) % 360 - 180
+    return diff
+end
+
 local function node_degree(data, node_id)
     if not data or not node_id then
         return 0
@@ -3952,6 +3960,21 @@ C = {
     pushbackReleaseSeconds = 2.0,
     pushbackReleaseMeters = 5,
     autoTaxiTickSec = 0.05,
+    autoTaxiSpeedKts = 8,
+    autoTaxiTurnSpeedKts = 5,
+    autoTaxiGateSpeedKts = 3,
+    autoTaxiStopDistMeters = 8,
+    autoTaxiTurnLeadMeters = 20,
+    autoTaxiTurnAngleDeg = 25,
+    autoTaxiLookaheadMeters = 25,
+    autoTaxiThrottleBase = 0.05,
+    autoTaxiThrottleKp = 0.03,
+    autoTaxiThrottleMax = 0.25,
+    autoTaxiBrakeKp = 0.12,
+    autoTaxiBrakeMax = 0.6,
+    autoTaxiSteerMaxDeg = 25,
+    autoTaxiSteerMaxErrDeg = 35,
+    autoTaxiManualHoldSec = 3,
     gateSelectRadius = 120,
     gateGuidanceRadius = 60,
     gateGuidanceDeadzone = 0.8,
@@ -4126,6 +4149,257 @@ U.update_pushback_state = function(comp, now, yal, aircraft)
     return false
 end
 
+local function auto_taxi_log(comp, msg)
+    local logger = (comp and comp._logTaxi) or (helpers and helpers.logInfoTS)
+    if logger then
+        logger("AutoTaxi: " .. tostring(msg))
+    end
+end
+
+local function auto_taxi_apply_overrides(comp, yal)
+    if not comp or not yal or comp._autoTaxiOverrideActive then
+        return
+    end
+    comp._autoTaxiOverrideActive = true
+    if yal.override_throttles and isProperty(yal.override_throttles) then
+        comp._autoTaxiPrevOverrideThrottles = get(yal.override_throttles)
+        set(yal.override_throttles, def.ON)
+    end
+    if yal.override_wheel_steer and isProperty(yal.override_wheel_steer) then
+        comp._autoTaxiPrevOverrideSteer = get(yal.override_wheel_steer)
+        set(yal.override_wheel_steer, def.ON)
+    end
+    if yal.override_toe_brakes and isProperty(yal.override_toe_brakes) then
+        comp._autoTaxiPrevOverrideBrakes = get(yal.override_toe_brakes)
+        set(yal.override_toe_brakes, def.ON)
+    end
+    if yal.throttle_use_1 and isProperty(yal.throttle_use_1) then
+        comp._autoTaxiPrevThrottle1 = get(yal.throttle_use_1)
+    end
+    if yal.throttle_use_2 and isProperty(yal.throttle_use_2) then
+        comp._autoTaxiPrevThrottle2 = get(yal.throttle_use_2)
+    end
+    if yal.left_brake_ratio and isProperty(yal.left_brake_ratio) then
+        comp._autoTaxiPrevBrakeL = get(yal.left_brake_ratio)
+    end
+    if yal.right_brake_ratio and isProperty(yal.right_brake_ratio) then
+        comp._autoTaxiPrevBrakeR = get(yal.right_brake_ratio)
+    end
+    if yal.tire_steer_cmd and isProperty(yal.tire_steer_cmd) then
+        comp._autoTaxiPrevSteer = get(yal.tire_steer_cmd)
+    end
+end
+
+local function auto_taxi_release_controls(comp, yal, reason)
+    if not comp then
+        return
+    end
+    if comp._autoTaxiActive or comp._autoTaxiOverrideActive then
+        auto_taxi_log(comp, "release " .. tostring(reason or ""))
+    end
+    if yal then
+        if comp._autoTaxiOverrideActive then
+            if yal.override_throttles and isProperty(yal.override_throttles) then
+                set(yal.override_throttles, comp._autoTaxiPrevOverrideThrottles or def.OFF)
+            end
+            if yal.override_wheel_steer and isProperty(yal.override_wheel_steer) then
+                set(yal.override_wheel_steer, comp._autoTaxiPrevOverrideSteer or def.OFF)
+            end
+            if yal.override_toe_brakes and isProperty(yal.override_toe_brakes) then
+                set(yal.override_toe_brakes, comp._autoTaxiPrevOverrideBrakes or def.OFF)
+            end
+        end
+        if yal.throttle_use_1 and isProperty(yal.throttle_use_1) then
+            if comp._autoTaxiPrevThrottle1 ~= nil then
+                set(yal.throttle_use_1, comp._autoTaxiPrevThrottle1)
+            else
+                set(yal.throttle_use_1, 0)
+            end
+        end
+        if yal.throttle_use_2 and isProperty(yal.throttle_use_2) then
+            if comp._autoTaxiPrevThrottle2 ~= nil then
+                set(yal.throttle_use_2, comp._autoTaxiPrevThrottle2)
+            else
+                set(yal.throttle_use_2, 0)
+            end
+        end
+        if yal.left_brake_ratio and isProperty(yal.left_brake_ratio) then
+            if comp._autoTaxiPrevBrakeL ~= nil then
+                set(yal.left_brake_ratio, comp._autoTaxiPrevBrakeL)
+            else
+                set(yal.left_brake_ratio, 0)
+            end
+        end
+        if yal.right_brake_ratio and isProperty(yal.right_brake_ratio) then
+            if comp._autoTaxiPrevBrakeR ~= nil then
+                set(yal.right_brake_ratio, comp._autoTaxiPrevBrakeR)
+            else
+                set(yal.right_brake_ratio, 0)
+            end
+        end
+        if yal.tire_steer_cmd and isProperty(yal.tire_steer_cmd) then
+            if comp._autoTaxiPrevSteer ~= nil then
+                set(yal.tire_steer_cmd, comp._autoTaxiPrevSteer)
+            else
+                set(yal.tire_steer_cmd, 0)
+            end
+        end
+    end
+    comp._autoTaxiOverrideActive = false
+    comp._autoTaxiPrevOverrideThrottles = nil
+    comp._autoTaxiPrevOverrideSteer = nil
+    comp._autoTaxiPrevOverrideBrakes = nil
+    comp._autoTaxiPrevThrottle1 = nil
+    comp._autoTaxiPrevThrottle2 = nil
+    comp._autoTaxiPrevBrakeL = nil
+    comp._autoTaxiPrevBrakeR = nil
+    comp._autoTaxiPrevSteer = nil
+    comp._autoTaxiActive = false
+end
+
+local function auto_taxi_manual_input(comp, yal)
+    if not yal then
+        return nil
+    end
+    local thr1 = (yal.hardware_throttle_1 and get(yal.hardware_throttle_1)) or 0
+    local thr2 = (yal.hardware_throttle_2 and get(yal.hardware_throttle_2)) or 0
+    if thr1 > 0.05 or thr2 > 0.05 then
+        return "throttle"
+    end
+    local yaw = (yal.yoke_heading_ratio and get(yal.yoke_heading_ratio)) or 0
+    if math.abs(yaw) > 0.2 then
+        return "steer"
+    end
+    if yal.parkingbrakepos and get(yal.parkingbrakepos) == def.ON then
+        return "parking-brake"
+    end
+    return nil
+end
+
+local function auto_taxi_apply_controls(comp, now, yal, aircraft)
+    if not comp or not yal or not aircraft then
+        return false
+    end
+    local route = comp._route
+    if not route or not route.path or not route.data or not route.data.nodes then
+        return false
+    end
+    local path = route.path
+    if #path < 2 then
+        return false
+    end
+    local data = route.data
+    local seg_idx = find_nearest_segment(data, path, aircraft.east, aircraft.north)
+    if not seg_idx or seg_idx >= #path then
+        return false
+    end
+    local n1 = data.nodes[path[seg_idx]]
+    local n2 = data.nodes[path[seg_idx + 1]]
+    if not n1 or not n2 then
+        return false
+    end
+    local dx = n2.east - n1.east
+    local dy = n2.north - n1.north
+    local seg_len = math.sqrt(dx * dx + dy * dy)
+    local lookahead_m = (C and C.autoTaxiLookaheadMeters) or 25
+    local look_t = 0.5
+    if seg_len > 0 then
+        local px, py, t = project_point_to_segment(
+            aircraft.east, aircraft.north,
+            n1.east, n1.north,
+            n2.east, n2.north
+        )
+        if t then
+            look_t = clamp(t + (lookahead_m / seg_len), 0, 1)
+        end
+    end
+    local lx = n1.east + dx * look_t
+    local ly = n1.north + dy * look_t
+    local desired_true = heading_deg_from_to(aircraft.east, aircraft.north, lx, ly)
+    if not desired_true then
+        return false
+    end
+    local mag_var = 0
+    if aircraft.lat and aircraft.lon then
+        mag_var = sasl.getMagneticVariation(aircraft.lat, aircraft.lon) or 0
+    end
+    local desired_mag = (desired_true - mag_var + 360) % 360
+    local track_mag = (yal.groundtrackmag and get(yal.groundtrackmag)) or desired_mag
+    local diff = heading_diff_signed(desired_mag, track_mag)
+    local max_err = (C and C.autoTaxiSteerMaxErrDeg) or 35
+    local max_steer = (C and C.autoTaxiSteerMaxDeg) or 25
+    local steer_deg = clamp(diff / max_err, -1, 1) * max_steer
+
+    local gs_ms = (yal.groundspeed and (get(yal.groundspeed) or 0)) or 0
+    local gs_kts = gs_ms * 1.94384
+    local target_kts = (C and C.autoTaxiSpeedKts) or 8
+    local slow_kts = (C and C.autoTaxiTurnSpeedKts) or 5
+    local gate_kts = (C and C.autoTaxiGateSpeedKts) or 3
+    local stop_dist = (C and C.autoTaxiStopDistMeters) or 8
+    local turn_angle = (C and C.autoTaxiTurnAngleDeg) or 25
+    local turn_lead = (C and C.autoTaxiTurnLeadMeters) or 20
+    local dist_to_seg_end = math.sqrt(
+        (n2.east - aircraft.east) * (n2.east - aircraft.east)
+        + (n2.north - aircraft.north) * (n2.north - aircraft.north)
+    )
+    if seg_idx + 2 <= #path then
+        local n3 = data.nodes[path[seg_idx + 2]]
+        if n3 then
+            local h1 = heading_deg_from_to(n1.east, n1.north, n2.east, n2.north)
+            local h2 = heading_deg_from_to(n2.east, n2.north, n3.east, n3.north)
+            if h1 and h2 and heading_diff_deg(h1, h2) >= turn_angle and dist_to_seg_end <= turn_lead then
+                target_kts = slow_kts
+            end
+        end
+    end
+    if comp._guidanceState == "gate" then
+        target_kts = math.min(target_kts, gate_kts)
+    end
+    local last_id = path[#path]
+    local last_node = last_id and data.nodes[last_id] or nil
+    if last_node and last_node.east and last_node.north then
+        local dx_end = last_node.east - aircraft.east
+        local dy_end = last_node.north - aircraft.north
+        local dist_end = math.sqrt(dx_end * dx_end + dy_end * dy_end)
+        if dist_end <= stop_dist then
+            target_kts = 0
+        end
+    end
+    local throttle_base = (C and C.autoTaxiThrottleBase) or 0.05
+    local throttle_kp = (C and C.autoTaxiThrottleKp) or 0.03
+    local throttle_max = (C and C.autoTaxiThrottleMax) or 0.25
+    local brake_kp = (C and C.autoTaxiBrakeKp) or 0.12
+    local brake_max = (C and C.autoTaxiBrakeMax) or 0.6
+    local speed_err = target_kts - gs_kts
+    local throttle = clamp(throttle_base + speed_err * throttle_kp, 0, throttle_max)
+    local brake = 0
+    if target_kts <= 0.5 then
+        throttle = 0
+        brake = brake_max
+    elseif speed_err < -1 then
+        brake = clamp((-speed_err) * brake_kp, 0, brake_max)
+    end
+
+    auto_taxi_apply_overrides(comp, yal)
+    if yal.tire_steer_cmd and isProperty(yal.tire_steer_cmd) then
+        set(yal.tire_steer_cmd, steer_deg)
+    end
+    if yal.throttle_use_1 and isProperty(yal.throttle_use_1) then
+        set(yal.throttle_use_1, throttle)
+    end
+    if yal.throttle_use_2 and isProperty(yal.throttle_use_2) then
+        set(yal.throttle_use_2, throttle)
+    end
+    if yal.left_brake_ratio and isProperty(yal.left_brake_ratio) then
+        set(yal.left_brake_ratio, brake)
+    end
+    if yal.right_brake_ratio and isProperty(yal.right_brake_ratio) then
+        set(yal.right_brake_ratio, brake)
+    end
+    comp._autoTaxiActive = true
+    return true
+end
+
 U.auto_taxi_tick = function(comp, now)
     if not comp then
         return
@@ -4138,12 +4412,24 @@ U.auto_taxi_tick = function(comp, now)
     if not settingsTable then
         return
     end
+    if settingsTable[def.CONFIGAUTOFUNCTIONS] ~= def.ON then
+        comp._autoTaxiReady = false
+        auto_taxi_release_controls(comp, comp.yal or _G.yal, "auto-functions-off")
+        return
+    end
+    if settingsTable[def.CONFIGVOICEADVICEONLY] == def.ON then
+        comp._autoTaxiReady = false
+        auto_taxi_release_controls(comp, comp.yal or _G.yal, "voice-advice-only")
+        return
+    end
     if settingsTable[def.CONFIGAUTOTAXIING] ~= def.ON then
         comp._autoTaxiReady = false
+        auto_taxi_release_controls(comp, comp.yal or _G.yal, "setting-off")
         return
     end
     if settingsTable[def.CONFIGAUTOTAXIGUIDANCE] ~= def.ON then
         comp._autoTaxiReady = false
+        auto_taxi_release_controls(comp, comp.yal or _G.yal, "guidance-off")
         return
     end
     local tick_sec = (C and C.autoTaxiTickSec) or 0.05
@@ -4158,52 +4444,103 @@ U.auto_taxi_tick = function(comp, now)
         comp._autoTaxiReady = false
         return
     end
+    if comp._editRoute or comp._drawRoute then
+        comp._autoTaxiReady = false
+        auto_taxi_release_controls(comp, yal, "edit-draw")
+        return
+    end
     if not (yal.airgroundsensor and get(yal.airgroundsensor) == def.ON) then
         comp._autoTaxiReady = false
+        auto_taxi_release_controls(comp, yal, "airborne")
         return
     end
     local flightstate = yal.flightstate
     if comp.mode == 0 then
         if flightstate ~= def.FLIGHTSTATEPREFLIGHT then
             comp._autoTaxiReady = false
+            auto_taxi_release_controls(comp, yal, "flightstate")
             return
         end
     elseif comp.mode == 1 then
         if flightstate ~= def.FLIGHTSTATETAXITOGATE then
             comp._autoTaxiReady = false
+            auto_taxi_release_controls(comp, yal, "flightstate")
             return
         end
         local proc = yal.proceduretable and yal.proceduretable[def.AFTERLANDINGPROCEDURE]
         if not (proc and proc.set) then
             comp._autoTaxiReady = false
+            auto_taxi_release_controls(comp, yal, "after-landing")
             return
         end
     end
     if yal.parkingbrakepos and get(yal.parkingbrakepos) == def.ON then
         comp._autoTaxiReady = false
+        auto_taxi_release_controls(comp, yal, "parking-brake")
         return
     end
     if comp.mode == 0 then
         local proc = yal.proceduretable and yal.proceduretable[def.BEFORETAXIPROCEDURE]
         if not (proc and proc.set) then
             comp._autoTaxiReady = false
+            auto_taxi_release_controls(comp, yal, "before-taxi")
             return
         end
     end
     if not comp._route or not comp._route.path or #comp._route.path < 2 then
         comp._autoTaxiReady = false
+        auto_taxi_release_controls(comp, yal, "route")
+        return
+    end
+    if comp._routeErr == "taxi-complete" then
+        comp._autoTaxiReady = false
+        auto_taxi_release_controls(comp, yal, "taxi-complete")
         return
     end
     local aircraft = comp._aircraftPoint
     if comp.mode == 0 then
         if U.update_pushback_state and U.update_pushback_state(comp, now, yal, aircraft) then
             comp._autoTaxiReady = false
+            auto_taxi_release_controls(comp, yal, "pushback")
             return
         end
     end
-
-    -- placeholder: manual input detection + control loop will be added later
+    local hold_until = comp._autoTaxiHoldUntil or 0
+    if now < hold_until then
+        comp._autoTaxiReady = false
+        return
+    end
+    local manual = auto_taxi_manual_input(comp, yal)
+    if manual then
+        local hold_sec = (C and C.autoTaxiManualHoldSec) or 3
+        comp._autoTaxiHoldUntil = now + hold_sec
+        comp._autoTaxiReady = false
+        auto_taxi_release_controls(comp, yal, "manual-" .. tostring(manual))
+        return
+    end
     comp._autoTaxiReady = true
+    local lat = yal.aircraftlatpos and get(yal.aircraftlatpos) or nil
+    local lon = yal.aircraftlonpos and get(yal.aircraftlonpos) or nil
+    if (not aircraft) or aircraft.east == nil or aircraft.north == nil then
+        if is_valid_latlon(lat, lon) then
+            local ae, an = latlon_to_local(lat, lon)
+            if ae and an then
+                aircraft = { east = ae, north = an }
+            end
+        end
+    end
+    if aircraft and is_valid_latlon(lat, lon) then
+        aircraft.lat = lat
+        aircraft.lon = lon
+    end
+    if not aircraft or aircraft.east == nil or aircraft.north == nil then
+        auto_taxi_release_controls(comp, yal, "no-aircraft")
+        return
+    end
+    if not auto_taxi_apply_controls(comp, now, yal, aircraft) then
+        auto_taxi_release_controls(comp, yal, "apply-failed")
+        comp._autoTaxiReady = false
+    end
 end
 
 U.ramp_frame_values = function(ramp, aircraft)
