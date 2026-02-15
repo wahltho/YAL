@@ -176,13 +176,14 @@ function M.attach(U, C, def, helpers)
         local text = "Continue straight"
         local dist = nil
         if dgs then
+            local cap_a = (C and C.gateDgsCapA) or 15
+            local cap_z = (C and C.gateDgsCapZ) or 105
+            local azi_a = (C and C.gateDgsAziA) or 15
+            local azi_z = (C and C.gateDgsAziZ) or 85
+            local azi_cross = dgs.dgs_azi_cross or ((C and C.gateDgsAziCrossover) or 6)
             local good_x = dgs.dgs_good_x or ((C and C.gateDgsGoodX) or 2.0)
             local good_z_pos = dgs.dgs_good_z_pos or ((C and C.gateDgsGoodZPos) or 0.2)
             local good_z_neg = dgs.dgs_good_z_neg or ((C and C.gateDgsGoodZNeg) or -0.5)
-            local azi_cross = dgs.dgs_azi_cross or ((C and C.gateDgsAziCrossover) or 6)
-            local azi_scale = dgs.dgs_azi_scale or ((C and C.gateDgsAziScale) or 0.3)
-            local turn_threshold = (C and C.gateDgsTurnThreshold) or 1.5
-            local xtrack_threshold = (C and C.gateDgsXtrackThreshold) or 0.25
             dist = dgs.nw_z
             if dist == nil then
                 return nil
@@ -190,30 +191,69 @@ function M.attach(U, C, def, helpers)
             if dist > radius then
                 return nil
             end
+            comp._gateUseDgs = true
+            local azimuth = 0
+            if dist > 0 then
+                azimuth = math.deg(math.atan((dgs.nw_x or 0) / (dist + 5.0)))
+            end
             local locgood = (math.abs(dgs.mw_x or 0) <= good_x)
                 and dist >= good_z_neg
                 and dist <= good_z_pos
-            if locgood or dist < good_z_neg then
+            local state = comp._gateDgsState or "ENGAGED"
+            if state == "ENGAGED" then
+                if dist <= cap_z and math.abs(azimuth) <= cap_a then
+                    state = "TRACK"
+                end
+            elseif state == "TRACK" then
+                if locgood then
+                    state = "GOOD"
+                elseif dist < good_z_neg then
+                    state = "BAD"
+                elseif dist > cap_z or math.abs(azimuth) > cap_a then
+                    state = "ENGAGED"
+                end
+            elseif state == "GOOD" then
+                if not locgood then
+                    state = "TRACK"
+                end
+            elseif state == "BAD" then
+                if dist >= good_z_neg then
+                    state = "TRACK"
+                end
+            else
+                state = "ENGAGED"
+            end
+            comp._gateDgsState = state
+
+            if state == "GOOD" or state == "BAD" or locgood or dist < good_z_neg then
                 action = "STOP"
                 text = "Stop"
             else
-                if dgs.ref_z and dgs.ref_z > azi_cross then
-                    local req_hdgt = math.deg(math.atan(-dgs.ref_x / (azi_scale * dgs.ref_z)))
-                    local d_hdgt = req_hdgt - (dgs.local_hdgt or 0)
-                    if d_hdgt < -turn_threshold then
-                        direction = "left"
-                        text = "Slight left"
-                    elseif d_hdgt > turn_threshold then
-                        direction = "right"
-                        text = "Slight right"
-                    end
+                if dist > azi_z or math.abs(azimuth) > azi_a then
+                    -- lead-in only, keep straight
                 else
-                    if dgs.ref_x and dgs.ref_x < -xtrack_threshold then
-                        direction = "right"
-                        text = "Slight right"
-                    elseif dgs.ref_x and dgs.ref_x > xtrack_threshold then
-                        direction = "left"
-                        text = "Slight left"
+                    local ref_z = dgs.ref_z
+                    local ref_x = dgs.ref_x
+                    if ref_z and ref_x then
+                        if ref_z > azi_cross then
+                            local req_hdgt = math.deg(math.atan(-ref_x / (0.3 * ref_z)))
+                            local d_hdgt = req_hdgt - (dgs.local_hdgt or 0)
+                            if d_hdgt < -1.5 then
+                                direction = "left"
+                                text = "Turn left"
+                            elseif d_hdgt > 1.5 then
+                                direction = "right"
+                                text = "Turn right"
+                            end
+                        else
+                            if ref_x < -0.25 then
+                                direction = "right"
+                                text = "Turn right"
+                            elseif ref_x > 0.25 then
+                                direction = "left"
+                                text = "Turn left"
+                            end
+                        end
                     end
                 end
             end
@@ -338,6 +378,7 @@ function M.attach(U, C, def, helpers)
         comp._gateCalloutKey = key
         comp._gateCalloutStage = 0
         comp._gateCalloutStop = false
+        comp._gateDgsState = "ENGAGED"
     end
 
     local function maybe_gate_voice_callouts(comp, dist, allow_voice, use_dgs)
