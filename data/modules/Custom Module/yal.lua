@@ -582,6 +582,38 @@ local function signalReloadDataref(reason)
     return true
 end
 
+local function backupSaslLog()
+    if not helpers or not helpers.file_exists_v2 then
+        return false
+    end
+    local src = def.PLUGINOUTPUTPATH .. "SASLLog.txt"
+    if not helpers.file_exists_v2(src) then
+        return false
+    end
+    local ts = os.date("%Y%m%d-%H%M%S")
+    local dst = def.PLUGINOUTPUTPATH .. "SASLLog_" .. ts .. ".txt"
+    local fin = io.open(src, "rb")
+    if not fin then
+        helpers.logInfoTS("AutoRestart: unable to open SASLLog for backup")
+        return false
+    end
+    local content = fin:read("*a")
+    fin:close()
+    if not content then
+        helpers.logInfoTS("AutoRestart: unable to read SASLLog for backup")
+        return false
+    end
+    local fout = io.open(dst, "wb")
+    if not fout then
+        helpers.logInfoTS("AutoRestart: unable to write SASLLog backup")
+        return false
+    end
+    fout:write(content)
+    fout:close()
+    helpers.logInfoTS("AutoRestart: backed up SASLLog to " .. dst)
+    return true
+end
+
 local function checkAutoRestart()
     if not autoRestartEnabled() then
         return
@@ -599,6 +631,7 @@ local function checkAutoRestart()
         return
     end
     P.autoRestartDeferred = false
+    backupSaslLog()
     os.remove(semPath)
     if not signalReloadDataref("semaphore") then
         helpers.logInfoTS("AutoRestart: reload request skipped (no dataref)")
