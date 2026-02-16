@@ -201,7 +201,7 @@ function M.attach(U, C, def, helpers, settings)
         comp._autoTaxiAllowOverride = false
     end
 
-    local function auto_taxi_manual_input(comp, yal)
+    local function auto_taxi_manual_input(comp, yal, now)
         if not yal then
             return nil
         end
@@ -212,22 +212,72 @@ function M.attach(U, C, def, helpers, settings)
         end
         local yaw = (yal.yoke_heading_ratio and get(yal.yoke_heading_ratio)) or 0
         if math.abs(yaw) > 0.2 then
-            return "steer"
+            if not now then
+                return "steer"
+            end
+            local t = comp and comp._autoTaxiManualType or nil
+            if t ~= "steer" then
+                comp._autoTaxiManualType = "steer"
+                comp._autoTaxiManualSince = now
+                return nil
+            end
+            local since = comp._autoTaxiManualSince or now
+            local debounce = (C and C.autoTaxiManualDebounceSec) or 0.4
+            if (now - since) >= debounce then
+                return "steer"
+            end
+            return nil
         end
         local lbrake = (yal.left_brake_ratio and get(yal.left_brake_ratio)) or 0
         local rbrake = (yal.right_brake_ratio and get(yal.right_brake_ratio)) or 0
         if comp and comp._autoTaxiOverrideActive and comp._autoTaxiLastBrake ~= nil then
             local ref = comp._autoTaxiLastBrake
             if lbrake > (ref + 0.08) or rbrake > (ref + 0.08) then
-                return "brake"
+                if not now then
+                    return "brake"
+                end
+                local t = comp._autoTaxiManualType
+                if t ~= "brake" then
+                    comp._autoTaxiManualType = "brake"
+                    comp._autoTaxiManualSince = now
+                    return nil
+                end
+                local since = comp._autoTaxiManualSince or now
+                local debounce = (C and C.autoTaxiManualDebounceSec) or 0.4
+                if (now - since) >= debounce then
+                    return "brake"
+                end
+                return nil
             end
         else
             if lbrake > 0.1 or rbrake > 0.1 then
-                return "brake"
+                if not now then
+                    return "brake"
+                end
+                local t = comp and comp._autoTaxiManualType or nil
+                if t ~= "brake" then
+                    comp._autoTaxiManualType = "brake"
+                    comp._autoTaxiManualSince = now
+                    return nil
+                end
+                local since = comp._autoTaxiManualSince or now
+                local debounce = (C and C.autoTaxiManualDebounceSec) or 0.4
+                if (now - since) >= debounce then
+                    return "brake"
+                end
+                return nil
             end
         end
         if yal.parkingbrakepos and get(yal.parkingbrakepos) == def.ON then
+            if comp then
+                comp._autoTaxiManualType = nil
+                comp._autoTaxiManualSince = nil
+            end
             return "parking-brake"
+        end
+        if comp then
+            comp._autoTaxiManualType = nil
+            comp._autoTaxiManualSince = nil
         end
         return nil
     end
@@ -253,14 +303,31 @@ function M.attach(U, C, def, helpers, settings)
             return false
         end
         local max_offroute = (C and C.autoTaxiOffRouteMeters) or 20
-        if dist_route and max_offroute > 0 and dist_route > max_offroute then
-            auto_taxi_log_once(
-                comp,
-                now,
-                "offroute",
-                string.format("blocked: offroute dist=%.1f m", dist_route)
-            )
-            return false
+        if dist_route and max_offroute > 0 then
+            local clear_dist = max_offroute * ((C and C.autoTaxiOffRouteClearFactor) or 0.7)
+            if comp._autoTaxiOffrouteActive then
+                if dist_route <= clear_dist then
+                    comp._autoTaxiOffrouteActive = false
+                else
+                    auto_taxi_log_once(
+                        comp,
+                        now,
+                        "offroute-hold",
+                        string.format("blocked: offroute hold dist=%.1f m", dist_route)
+                    )
+                    return false
+                end
+            end
+            if dist_route > max_offroute then
+                comp._autoTaxiOffrouteActive = true
+                auto_taxi_log_once(
+                    comp,
+                    now,
+                    "offroute",
+                    string.format("blocked: offroute dist=%.1f m", dist_route)
+                )
+                return false
+            end
         end
         if comp._autoTaxiTargetSegIdx and comp._autoTaxiTargetSegIdx <= seg_idx then
             comp._autoTaxiTargetSegIdx = nil
@@ -414,13 +481,6 @@ function M.attach(U, C, def, helpers, settings)
                 end
             end
         end
-        if now then
-            local last_log = comp._autoTaxiControlLog or 0
-            if (now - last_log) >= 2.0 then
-                comp._autoTaxiControlLog = now
-                auto_taxi_log(comp, string.format("ctrl seg=%s tgt=%s gs=%.1f kt", tostring(seg_idx), tostring(target_idx or ""), gs_kts))
-            end
-        end
         local mag_var = 0
         if aircraft.lat and aircraft.lon then
             mag_var = sasl.getMagneticVariation(aircraft.lat, aircraft.lon) or 0
@@ -562,6 +622,23 @@ function M.attach(U, C, def, helpers, settings)
             brake = clamp((-speed_err) * brake_kp, 0, brake_max)
         end
         comp._autoTaxiLastBrake = brake
+        if now then
+            local last_log = comp._autoTaxiControlLog or 0
+            if (now - last_log) >= 2.0 then
+                comp._autoTaxiControlLog = now
+                auto_taxi_log(comp, string.format(
+                    "ctrl seg=%s tgt=%s gs=%.1f kt target=%.1f dist=%.1f steer=%.1f thr=%.2f brk=%.2f",
+                    tostring(seg_idx),
+                    tostring(target_idx or ""),
+                    gs_kts,
+                    target_kts,
+                    dist_route or -1,
+                    steer_deg,
+                    throttle,
+                    brake
+                ))
+            end
+        end
 
         auto_taxi_apply_overrides(comp, yal)
         if yal.tire_steer_cmd and isProperty(yal.tire_steer_cmd) then
@@ -725,7 +802,7 @@ function M.attach(U, C, def, helpers, settings)
             comp._autoTaxiReady = false
             return
         end
-        local manual = auto_taxi_manual_input(comp, yal)
+        local manual = auto_taxi_manual_input(comp, yal, now)
         if manual then
             local hold_sec = (C and C.autoTaxiManualHoldSec) or 3
             comp._autoTaxiHoldUntil = now + hold_sec
