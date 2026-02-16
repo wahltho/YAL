@@ -1446,6 +1446,67 @@ local function apply_backtrack_segments_to_route(comp, route, data, backtrack_no
     return true
 end
 
+local function apply_dep_turnaround_stub(comp, route, data, profile, runway_label)
+    if not comp or not route or not data or not profile or not route.path or #route.path < 1 then
+        return false
+    end
+    if comp._depTurnaroundApplied then
+        return false
+    end
+    if not data.nodes or not profile.threshold or not profile.axis then
+        return false
+    end
+    local last_id = route.path[#route.path]
+    local last_node = data.nodes[last_id]
+    if not last_node or last_node.east == nil or last_node.north == nil then
+        return false
+    end
+    local threshold = profile.threshold
+    local dist2 = distance_sq(last_node.east, last_node.north, threshold.east, threshold.north)
+    if dist2 > (35 * 35) then
+        return false
+    end
+    local half = runway_corridor_half_width(profile)
+    local offset = half - 5
+    if offset > 12 then
+        offset = 12
+    elseif offset < 6 then
+        offset = 6
+    end
+    local axis = profile.axis
+    local px = -axis.y
+    local py = axis.x
+    local turn_e = threshold.east + px * offset
+    local turn_n = threshold.north + py * offset
+    local lineup_dist = 25
+    local lineup_e = threshold.east + axis.x * lineup_dist
+    local lineup_n = threshold.north + axis.y * lineup_dist
+    local turn_id = add_temp_route_node(comp, data, turn_e, turn_n)
+    local lineup_id = add_temp_route_node(comp, data, lineup_e, lineup_n)
+    if not turn_id or not lineup_id then
+        return false
+    end
+    if data.runway_nodes then
+        data.runway_nodes[turn_id] = true
+        data.runway_nodes[lineup_id] = true
+    end
+    if runway_label and runway_label ~= "" then
+        add_temp_edge_label(comp, data, last_id, turn_id, runway_label)
+        add_temp_edge_label(comp, data, turn_id, lineup_id, runway_label)
+        add_temp_edge_label(comp, data, turn_id, last_id, runway_label)
+        add_temp_edge_label(comp, data, lineup_id, turn_id, runway_label)
+    end
+    route.path[#route.path + 1] = turn_id
+    route.path[#route.path + 1] = lineup_id
+    route.end_id = lineup_id
+    if route.bounds then
+        update_bounds(route.bounds, turn_e, turn_n)
+        update_bounds(route.bounds, lineup_e, lineup_n)
+    end
+    comp._depTurnaroundApplied = true
+    return true
+end
+
 local collect_runway_exit_candidates
 
 local function compute_along_perp(profile, node)
@@ -4199,8 +4260,8 @@ C = {
     pushbackReleaseSeconds = 2.0,
     pushbackReleaseMeters = 5,
     autoTaxiTickSec = 0.05,
-    autoTaxiSpeedKts = 20,
-    autoTaxiTurnSpeedKts = 10,
+    autoTaxiSpeedKts = 15,
+    autoTaxiTurnSpeedKts = 8,
     autoTaxiGateSpeedKts = 5,
     autoTaxiStopDistMeters = 8,
     autoTaxiTurnLeadMeters = 20,
@@ -4613,6 +4674,35 @@ U.maybe_gate_voice_callouts = function(comp, dist, allow_voice, use_dgs)
         if dist <= threshold and stage < i then
             speak_guidance_text(comp, "Gate in " .. tostring(threshold) .. " meters")
             comp._gateCalloutStage = i
+        end
+    end
+end
+
+U.reset_dep_threshold_callouts = function(comp, key)
+    if not comp then
+        return
+    end
+    comp._depThresholdCalloutKey = key
+    comp._depThresholdCalloutStage = 0
+end
+
+U.maybe_dep_threshold_voice_callouts = function(comp, state, allow_voice)
+    if not comp or not state then
+        return
+    end
+    if not allow_voice or not is_voice_enabled() then
+        return
+    end
+    local dist = state.dist
+    if not dist or dist <= 0 then
+        return
+    end
+    local stage = comp._depThresholdCalloutStage or 0
+    local thresholds = { 300, 150, 50, 20 }
+    for i, threshold in ipairs(thresholds) do
+        if dist <= threshold and stage < i then
+            speak_guidance_text(comp, "Threshold in " .. tostring(threshold) .. " meters")
+            comp._depThresholdCalloutStage = i
         end
     end
 end
@@ -8222,6 +8312,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
             if data then
                 clear_temp_route_overlay(comp, data)
             end
+            comp._depTurnaroundApplied = false
             comp._initialGuidanceDone = false
             comp._initialMoveAnchor = nil
             comp._guidanceMoveAnchor = nil
@@ -9067,6 +9158,15 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                         end
                     end
                 end
+                if mode == 0 and dep_backtrack_required and route and data and comp._runwayName and comp._runwayName ~= "" then
+                    local profile = compute_runway_landing_profile(data, comp._runwayName, runway_lat, runway_lon)
+                    if profile then
+                        local runway_label = normalize_runway_name(comp._runwayName)
+                        if apply_dep_turnaround_stub(comp, route, data, profile, runway_label) then
+                            log_taxi("TaxiRoute: dep turnaround stub applied")
+                        end
+                    end
+                end
                 if route then
                     comp._routeLabels = build_route_labels(route.data, route.path)
                     comp._routeLabelStats = compute_route_label_stats(route.data, route.path)
@@ -9235,6 +9335,17 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
             local state = compute_dep_threshold_state(comp, dep_profile, runway_lat, runway_lon, aircraft)
             comp._depThresholdState = state
             comp._depThresholdReached = state and state.reached or false
+            local callout_key = tostring(icao) .. "|" .. tostring(comp._runwayName or "")
+            if comp._depThresholdCalloutKey ~= callout_key then
+                U.reset_dep_threshold_callouts(comp, callout_key)
+            end
+            if state and state.heading_diff and state.heading_diff <= depThresholdHeadingLimit
+                and state.perp and state.corridor and state.perp <= state.corridor
+                and (not comp._depThresholdReached) and (not comp._depThresholdLatched) then
+                U.maybe_dep_threshold_voice_callouts(comp, state, is_auto_taxi_guidance_enabled())
+            else
+                comp._depThresholdCalloutStage = 0
+            end
             if comp._depThresholdReached then
                 comp._depThresholdLatched = true
             end
@@ -9254,6 +9365,8 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
         else
             comp._lastDepThresholdReached = nil
             comp._depThresholdLatched = false
+            comp._depThresholdCalloutKey = nil
+            comp._depThresholdCalloutStage = 0
         end
 
         if mode == 0 and not comp._depThresholdLatched then
