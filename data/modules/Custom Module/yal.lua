@@ -679,11 +679,11 @@ function P.initDevReloadControls()
         return
     end
     if not P.devReloadCommand then
-        P.devReloadCommand = sasl.createCommand(def.APPNAMEPREFIX .. "/reload", "YAL Reload (Dev)")
+        P.devReloadCommand = sasl.createCommand(def.APPNAMEPREFIX .. "/forcereload", "Force Full Reload (Dev)")
         sasl.registerCommandHandler(P.devReloadCommand, 0, P.devreload_)
     end
     if not P.menu_dev_reload then
-        P.menu_dev_reload = sasl.appendMenuItem(P.menu_main, "Force Reload (Dev)", P.devreload)
+        P.menu_dev_reload = sasl.appendMenuItem(P.menu_main, "Force Full Reload (Dev)", P.devreload)
     end
     P.devReloadInitialized = true
 end
