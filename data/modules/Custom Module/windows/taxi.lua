@@ -4352,6 +4352,11 @@ U = {
     collect_nearest_nodes = collect_nearest_nodes,
     normalize_icao = normalize_icao,
     build_route_labels = build_route_labels,
+    clear_temp_route_overlay = clear_temp_route_overlay,
+    set_taxi_ref = set_taxi_ref,
+    align_taxi_data_projection = align_taxi_data_projection,
+    compute_route_label_stats = compute_route_label_stats,
+    build_edit_handles = build_edit_handles,
     heading_deg_from_to = heading_deg_from_to,
     heading_diff_deg = heading_diff_deg,
     heading_diff_signed = heading_diff_signed,
@@ -4707,6 +4712,3137 @@ U.maybe_dep_threshold_voice_callouts = function(comp, state, allow_voice)
     end
 end
 
+local function updateTaxiState(comp, map)
+    local U = comp._U or {}
+    local C = comp._C or {}
+    local def = comp._def
+    local helpers = comp._helpers
+    local log_taxi = comp._logTaxi
+    local updateInterval = C.updateInterval or 1.0
+    local startRampMaxMeters = C.startRampMaxMeters or 80
+    local rerouteCooldown = C.rerouteCooldown or 6
+    local rerouteDriftMeters = C.rerouteDriftMeters or 40
+    local guidanceMinSpeed = C.guidanceMinSpeed or 1
+    local guidanceTurnDistance = C.guidanceTurnDistance or 80
+    local guidanceTurnAngle = C.guidanceTurnAngle or 20
+    local guidanceLeadTimeSec = C.guidanceLeadTimeSec or 12
+    local guidanceMaxDistance = C.guidanceMaxDistance or 180
+    local guidanceStraightAngle = C.guidanceStraightAngle or 10
+    local runwayRouteMaxSpeed = 45
+    local depThresholdGateMeters = 60
+    local depThresholdHeadingLimit = 25
+    local depTakeoffLatchSpeed = 25
+    local depTakeoffLatchHoldSec = 2.0
+    local depRunwayCorridorMin = 25
+    local depRunwayCorridorMax = 80
+    local depRunwayCorridorBuffer = 10
+    local arrStartNodeMaxMeters = 180
+    local tuning = comp._tuning or {}
+    local now = 0
+    if comp._timer then
+        now = sasl.getElapsedSeconds(comp._timer) or 0
+    end
+    local in_edit = comp._editRoute or comp._drawRoute
+    if comp._lastUpdate and (now - comp._lastUpdate) < updateInterval then
+        return
+    end
+    comp._lastUpdate = now
+
+    -- Always refresh aircraft position for display, even in edit/draw mode.
+    local yal = comp.yal or _G.yal
+    if yal and yal.aircraftlatpos and yal.aircraftlonpos then
+        local alat = get(yal.aircraftlatpos)
+        local alon = get(yal.aircraftlonpos)
+        if U.is_valid_latlon(alat, alon) then
+            local ae, an = U.latlon_to_local(alat, alon)
+            if ae and an then
+                comp._aircraftPoint = { east = ae, north = an }
+            end
+        end
+    end
+
+    if in_edit then
+        U.clear_visual_guidance(comp, "edit")
+        comp._visualGuidanceQueue = {}
+    end
+
+    if not yal then
+        comp._dataErr = "yal-not-ready"
+        return
+    end
+
+    local depIcao = nil
+    if yal.depicao then
+        depIcao = U.normalize_icao(get(yal.depicao) or "")
+        if not helpers.isvalidicao(depIcao) then
+            depIcao = nil
+        end
+    end
+    local desIcao = nil
+    if yal.desicao then
+        desIcao = U.normalize_icao(get(yal.desicao) or "")
+        if not helpers.isvalidicao(desIcao) then
+            desIcao = nil
+        end
+    end
+    if desIcao and desIcao ~= comp._lastArrivalIcao then
+        comp._lastArrivalRunwayName = nil
+        comp._lastArrivalRunwayLat = nil
+        comp._lastArrivalRunwayLon = nil
+    end
+    if desIcao then
+        comp._lastArrivalIcao = desIcao
+    end
+    local onGroundSensor = yal.airgroundsensor and (get(yal.airgroundsensor) == def.ON)
+    local airborne = yal.airgroundsensor and (get(yal.airgroundsensor) == def.OFF)
+    if yal.flightstate == def.FLIGHTSTATEPREFLIGHT and depIcao then
+        comp._lastArrivalIcao = nil
+        comp._lastArrivalRunwayName = nil
+        comp._lastArrivalRunwayLat = nil
+        comp._lastArrivalRunwayLon = nil
+    end
+
+    local autoMode = comp.mode or 0
+    if yal.flightstate ~= nil then
+        if yal.flightstate == def.FLIGHTSTATEPREFLIGHT then
+            autoMode = 0
+            if not depIcao and comp._lastArrivalIcao and onGroundSensor then
+                autoMode = 1
+            end
+        else
+            autoMode = 1
+        end
+    end
+    -- After takeoff, force ARR mode and suppress DEP routing.
+    if airborne then
+        autoMode = 1
+        if comp.mode == 0 then
+            comp.modeOverride = false
+            comp.mode = 1
+        end
+    end
+    comp.autoMode = autoMode
+    if not comp.modeOverride then
+        comp.mode = autoMode
+    elseif comp.mode == autoMode then
+        comp.modeOverride = false
+    end
+
+    local mode = comp.mode or autoMode
+    if mode == 1 and onGroundSensor then
+        if not comp._arrOnGroundSince then
+            comp._arrOnGroundSince = now
+            if comp._quality then
+                comp._quality.rerouteEvents = {}
+                comp._quality.badSince = nil
+                comp._quality.distBadSince = nil
+            end
+        end
+    else
+        comp._arrOnGroundSince = nil
+    end
+    local nearestIcao = nil
+    if yal.nearesticao then
+        local nearest = U.normalize_icao(get(yal.nearesticao) or "")
+        if helpers.isvalidicao(nearest) then
+            nearestIcao = nearest
+        end
+    end
+    local icao = nil
+    if mode == 0 then
+        icao = depIcao
+        if not helpers.isvalidicao(icao or "") and nearestIcao then
+            icao = nearestIcao
+        end
+    else
+        icao = desIcao
+        if not helpers.isvalidicao(icao or "") and comp._lastArrivalIcao then
+            icao = comp._lastArrivalIcao
+        end
+        if not helpers.isvalidicao(icao or "") and onGroundSensor and nearestIcao then
+            icao = nearestIcao
+        end
+    end
+
+    if not helpers.isvalidicao(icao or "") then
+        U.clear_temp_route_overlay(comp, comp._data)
+        comp._data = nil
+        comp._route = nil
+        comp._dataErr = "invalid-icao"
+        comp._routeErr = nil
+        comp._lastIcao = nil
+        comp._fitBounds = nil
+        comp._runwayName = nil
+        U.clear_visual_guidance(comp, "invalid-icao")
+        comp._visualGuidanceQueue = {}
+        comp._drawFreehand = false
+        comp._arrOffRunwayHandled = false
+        comp._arrExitId = nil
+        comp._arrProfile = nil
+        comp._arrBacktrackRequired = nil
+        comp._arrRunwayExitAnnounced = false
+        comp._arrRunwayCrossWarned = nil
+        comp._runwayCrossWarnedKey = nil
+        comp._initialMoveAnchor = nil
+        comp._guidanceMoveAnchor = nil
+        comp._depEntryIssuedAt = nil
+        comp._editTailSegments = nil
+        U.set_taxi_ref(nil)
+        log_taxi("TaxiRoute: abort invalid-icao")
+        return
+    end
+
+    local prev_icao_valid = helpers.isvalidicao(comp._lastIcao or "")
+    local prev_start_override = comp._editStartOverride
+    local prev_end_override = comp._editEndOverride
+    local prev_waypoints = comp._routeWaypoints
+    local prev_draw_freehand = comp._drawFreehand
+    local icao_changed = (comp._lastIcao ~= icao)
+    local mode_changed = (comp._lastMode ~= mode)
+    if icao_changed or mode_changed then
+        comp._needsCenter = true
+        comp._route = nil
+        comp._routeErr = nil
+        comp._routeLabels = nil
+        comp._routeLabelStats = nil
+        comp._lastRouteDist = nil
+        comp._startPoint = nil
+        comp._endPoint = nil
+        comp._startRamp = nil
+        comp._startRampLabel = nil
+        comp._endRamp = nil
+        comp._lastStartKey = nil
+        comp._lastEndKey = nil
+        comp._routeStartAnchor = nil
+        comp._routeExtraSegments = nil
+        U.clear_temp_route_overlay(comp, comp._data)
+        comp._editTailSegments = nil
+        comp._lastGuidanceNodeId = nil
+        comp._lastGuidanceLabel = nil
+        comp._lastGuidanceTime = nil
+        comp._sCurveSkipNodeId = nil
+        U.clear_visual_guidance(comp, "reset")
+        comp._visualGuidanceQueue = {}
+        comp._editHandles = nil
+        comp._editSuppressedNodes = nil
+        comp._editDirty = false
+        comp._editStartOverride = nil
+        comp._editEndOverride = nil
+        comp._lastOffNetworkStartKey = nil
+        comp._lastOffNetworkEndKey = nil
+        comp._lastAutoRouteLogKey = nil
+        comp._drawFreehand = false
+        comp._arrOffRunwayHandled = false
+        comp._arrExitId = nil
+        comp._arrProfile = nil
+        comp._arrBacktrackRequired = nil
+        comp._arrRunwayExitAnnounced = false
+        comp._arrRunwayCrossWarned = nil
+        comp._depRunwayEntryAnnounced = false
+        comp._depTaxiCompleteAnnounced = false
+        comp._arrTaxiCompleteAnnounced = false
+        comp._initialGuidanceDone = false
+        comp._initialMoveAnchor = nil
+        comp._guidanceMoveAnchor = nil
+        comp._runwayCrossWarnedKey = nil
+        comp._depEntryIssuedAt = nil
+        log_taxi(
+            string.format(
+                "TaxiRoute: reset icao_changed=%s mode_changed=%s",
+                tostring(icao_changed),
+                tostring(mode_changed)
+            )
+        )
+        if comp._quality then
+            comp._quality.distBadSince = nil
+            comp._quality.badSince = nil
+            comp._quality.rerouteEvents = {}
+        end
+        comp._routeWaypoints = {}
+        comp._rerouteOverride = nil
+        comp._depThresholdLatched = false
+        comp._takeoffLatchSince = nil
+        comp._autoEndRampLowSpeedSince = nil
+        comp._autoEndRampSwitchTime = nil
+        if icao_changed or mode_changed then
+            comp._autoEndRampKey = nil
+        end
+        if icao_changed then
+            comp._selectedEndRampKey = nil
+            comp._selectedDepEntryId = nil
+            comp._data = nil
+            comp._dataErr = nil
+        end
+        if icao_changed and (not prev_icao_valid) and (not mode_changed) then
+            comp._editStartOverride = prev_start_override
+            comp._editEndOverride = prev_end_override
+            comp._routeWaypoints = prev_waypoints or {}
+            comp._drawFreehand = prev_draw_freehand
+        end
+    end
+
+    comp._lastIcao = icao
+    comp._lastMode = mode
+
+    local data = comp._data
+    local derr = comp._dataErr
+    local pending = (derr == "global-index-pending")
+    if data and comp._taxiGlobalPending and comp._taxiGlobalPending[icao]
+        and helpers.isGlobalAptIndexReady and helpers.isGlobalAptIndexReady() then
+        comp._taxiSourceByIcao = comp._taxiSourceByIcao or {}
+        comp._taxiSourceByIcao[icao] = "global"
+        comp._taxiGlobalPending[icao] = nil
+        comp._data = nil
+        comp._dataErr = nil
+        data = nil
+        comp._route = nil
+        comp._routeErr = nil
+        comp._routeLabels = nil
+        comp._routeLabelStats = nil
+        comp._routeExtraSegments = nil
+        comp._lastStartKey = nil
+        comp._lastEndKey = nil
+        comp._lastGuidanceNodeId = nil
+        comp._lastGuidanceLabel = nil
+        comp._lastGuidanceTime = nil
+        comp._sCurveSkipNodeId = nil
+        comp._needsCenter = true
+        comp._rerouteOverride = nil
+        if comp._quality then
+            comp._quality.badSince = nil
+            comp._quality.distBadSince = nil
+            comp._quality.rerouteEvents = {}
+        end
+    end
+    derr = comp._dataErr
+    pending = (derr == "global-index-pending")
+    if icao_changed or (not data and (not derr or pending)) then
+        local policy = comp._taxiSourceByIcao and comp._taxiSourceByIcao[icao] or nil
+        if comp._taxiGlobalPending and comp._taxiGlobalPending[icao] and helpers.isGlobalAptIndexReady and helpers.isGlobalAptIndexReady() then
+            policy = "global"
+            comp._taxiSourceByIcao[icao] = "global"
+            comp._taxiGlobalPending[icao] = nil
+        end
+        if helpers.getTaxiDataWithPolicy then
+            data, derr = helpers.getTaxiDataWithPolicy(icao, policy)
+        else
+            data, derr = helpers.getTaxiData(icao)
+        end
+        pending = (derr == "global-index-pending")
+    end
+    if not data then
+        U.clear_temp_route_overlay(comp, comp._data)
+        comp._data = nil
+        comp._dataErr = pending and "global-index-pending" or (derr or "apt-not-found")
+        comp._fitBounds = nil
+        comp._runwayName = nil
+        comp._routeExtraSegments = nil
+        comp._editTailSegments = nil
+        comp._arrExitId = nil
+        comp._arrProfile = nil
+        comp._arrBacktrackRequired = nil
+        comp._arrRunwayExitAnnounced = false
+        comp._arrRunwayCrossWarned = nil
+        U.clear_visual_guidance(comp, "no-data")
+        comp._visualGuidanceQueue = {}
+        U.set_taxi_ref(nil)
+        return
+    end
+    comp._data = data
+    U.set_taxi_ref(data)
+    comp._dataErr = nil
+    if data and data.entry and data.entry.source == "addon"
+        and data._labelsPatchPending
+        and helpers.patchTaxiLabelsFromGlobalForIcao
+        and helpers.isGlobalAptIndexReady
+        and helpers.isGlobalAptIndexReady() then
+        local patched = helpers.patchTaxiLabelsFromGlobalForIcao(data, icao, { log = true })
+        if patched and patched > 0 then
+            comp._routeLabels = nil
+            comp._routeLabelStats = nil
+            if comp._route and comp._route.path and comp._route.data == data then
+                comp._routeLabels = U.build_route_labels(data, comp._route.path)
+                comp._routeLabelStats = U.compute_route_label_stats(data, comp._route.path)
+            end
+            if comp._quality then
+                comp._quality.badSince = nil
+            end
+        end
+    end
+    local shifted, shift_dx, shift_dy = U.align_taxi_data_projection(data)
+    if shifted then
+        helpers.logInfoTS(
+            string.format(
+                "TaxiProj: icao=%s shift=%.1f/%.1f refAlign=true",
+                tostring(icao),
+                shift_dx or 0,
+                shift_dy or 0
+            )
+        )
+        comp._route = nil
+        comp._routeErr = nil
+        comp._routeLabels = nil
+        comp._routeExtraSegments = nil
+        comp._lastStartKey = nil
+        comp._lastEndKey = nil
+        comp._needsCenter = true
+    end
+    if comp._rampLinkCacheReset ~= data then
+        if data.ramps then
+            for _, ramp in ipairs(data.ramps) do
+                ramp._draw_link_east = nil
+                ramp._draw_link_north = nil
+            end
+        end
+        comp._rampLinkCacheReset = data
+    end
+    comp._fitBounds = data.bounds
+
+    local aircraft = nil
+    local lat = yal.aircraftlatpos and get(yal.aircraftlatpos) or nil
+    local lon = yal.aircraftlonpos and get(yal.aircraftlonpos) or nil
+    if U.is_valid_latlon(lat, lon) then
+        local east, north = U.latlon_to_local(lat, lon)
+        if east and north then
+            local heading = yal and yal.groundtrackmag and get(yal.groundtrackmag) or nil
+            local nose_offset = nil
+            local main_offset = nil
+            if yal and yal.gear_znose then
+                local gear_z = get(yal.gear_znose)
+                if type(gear_z) == "number" and gear_z ~= 0 then
+                    nose_offset = -gear_z
+                end
+            end
+            if yal and yal.gear_zmain then
+                local gear_z = get(yal.gear_zmain)
+                if type(gear_z) == "number" and gear_z ~= 0 then
+                    main_offset = -gear_z
+                end
+            end
+            if (nose_offset == nil or nose_offset == 0) and yal and yal.acf_cg_z then
+                local cg_z = get(yal.acf_cg_z)
+                if type(cg_z) == "number" and cg_z ~= 0 then
+                    nose_offset = math.abs(cg_z) * 0.3048
+                end
+            end
+            if main_offset == nil or main_offset == 0 then
+                main_offset = nose_offset
+            end
+            aircraft = {
+                lat = lat,
+                lon = lon,
+                east = east,
+                north = north,
+                heading = heading,
+                nose_offset = nose_offset,
+                main_offset = main_offset
+            }
+        end
+    end
+    local nearest_ramp = nil
+    local nearest_ramp_dist = nil
+    if comp._rerouteOverride and aircraft and U.is_valid_latlon(comp._rerouteOverride.lat, comp._rerouteOverride.lon) then
+        local d_override = U.distance_meters_latlon(comp._rerouteOverride.lat, comp._rerouteOverride.lon, aircraft.lat, aircraft.lon)
+        if d_override and d_override > 1000 then
+            comp._rerouteOverride = nil
+        end
+    end
+
+    local start_lat = nil
+    local start_lon = nil
+    local end_lat = nil
+    local end_lon = nil
+    local runway_lat = nil
+    local runway_lon = nil
+    local runway_name = ""
+    local raw_desrwy = ""
+    local touchdown = nil
+    local landing_profile = nil
+    local dep_profile = nil
+    local dep_runway_end_id = nil
+    local dep_runway_end_lat = nil
+    local dep_runway_end_lon = nil
+    local backtrack_required = false
+    local dep_holdshort_id = nil
+    local dep_end_node_id = nil
+    local dep_end_node_dist = nil
+    local dep_entry_candidate_id = nil
+    local dep_entry_candidate_dist = nil
+    local dep_entry_candidate_lat = nil
+    local dep_entry_candidate_lon = nil
+    local dep_backtrack_required = false
+    local arr_exit_id = nil
+    local allow_runway_route = false
+    local manual_active = (comp._routeWaypoints and #comp._routeWaypoints > 0) or comp._drawRoute
+    if comp._manualRouteActive ~= manual_active then
+        comp._manualRouteActive = manual_active
+        log_taxi("TaxiEdit: manual-route=" .. tostring(manual_active))
+    end
+
+    if mode == 0 then
+        if aircraft then
+            start_lat = aircraft.lat
+            start_lon = aircraft.lon
+        end
+        runway_lat = yal.deprwylatstartpos and get(yal.deprwylatstartpos) or nil
+        runway_lon = yal.deprwylonstartpos and get(yal.deprwylonstartpos) or nil
+        if not U.is_valid_latlon(runway_lat, runway_lon) then
+            runway_lat = yal.deprwylatendpos and get(yal.deprwylatendpos) or nil
+            runway_lon = yal.deprwylonendpos and get(yal.deprwylonendpos) or nil
+        end
+        runway_name = yal.deprwy and helpers.forceCleanString(get(yal.deprwy) or "") or ""
+        if comp._lastDepRunwayName and comp._lastDepRunwayName ~= runway_name then
+            comp._selectedDepEntryId = nil
+        end
+        comp._lastDepRunwayName = runway_name
+        comp._runwayName = runway_name
+        if data and comp._runwayName and comp._runwayName ~= "" then
+            local rwy, side = U.find_runway_entry(data, comp._runwayName, runway_lat, runway_lon)
+            if rwy then
+                runway_lat = (side == 1) and rwy.lat1 or rwy.lat2
+                runway_lon = (side == 1) and rwy.lon1 or rwy.lon2
+                dep_holdshort_id = U.find_holdshort_node_near(data, runway_lat, runway_lon)
+                if dep_holdshort_id and data.nodes and data.nodes[dep_holdshort_id] then
+                    local hs = data.nodes[dep_holdshort_id]
+                    if U.is_valid_latlon(hs.lat, hs.lon) then
+                        local d_hs = U.distance_meters_latlon(runway_lat, runway_lon, hs.lat, hs.lon)
+                        if d_hs and d_hs > 2000 then
+                            dep_holdshort_id = nil
+                        else
+                            end_lat = hs.lat
+                            end_lon = hs.lon
+                        end
+                    end
+                end
+                if not dep_holdshort_id and U.is_valid_latlon(runway_lat, runway_lon) then
+                    dep_end_node_id, dep_end_node_dist = U.nearest_non_runway_node(data, runway_lat, runway_lon)
+                    if dep_end_node_id and data.nodes and data.nodes[dep_end_node_id] then
+                        local dn = data.nodes[dep_end_node_id]
+                        if U.is_valid_latlon(dn.lat, dn.lon) then
+                            end_lat = dn.lat
+                            end_lon = dn.lon
+                        end
+                    end
+                end
+                if not dep_holdshort_id
+                    and not manual_active
+                    and not comp._selectedDepEntryId
+                    and dep_end_node_dist and dep_end_node_dist > depEntryFallbackMaxDist
+                    and data and data.nodes
+                    and aircraft and aircraft.east ~= nil and aircraft.north ~= nil then
+                    local re, rn = U.latlon_to_local(runway_lat, runway_lon)
+                    if re and rn then
+                        local candidates = collect_runway_exit_candidates(data, re, rn, 18)
+                        if candidates and #candidates > 0 then
+                            local best_id = nil
+                            local best_d2 = nil
+                            for _, cand in ipairs(candidates) do
+                                local node = data.nodes[cand.id]
+                                if node and node.east and node.north then
+                                    local dx = node.east - aircraft.east
+                                    local dy = node.north - aircraft.north
+                                    local d2 = dx * dx + dy * dy
+                                    if not best_d2 or d2 < best_d2 then
+                                        best_d2 = d2
+                                        best_id = cand.id
+                                    end
+                                end
+                            end
+                            if best_id then
+                                local dn = data.nodes[best_id]
+                                if dn and U.is_valid_latlon(dn.lat, dn.lon) then
+                                    dep_entry_candidate_id = best_id
+                                    dep_entry_candidate_dist = math.sqrt(best_d2 or 0)
+                                    dep_entry_candidate_lat = dn.lat
+                                    dep_entry_candidate_lon = dn.lon
+                                    log_taxi(
+                                        string.format(
+                                            "TaxiRoute: dep entry candidate id=%s dist=%.1f",
+                                            tostring(best_id),
+                                            dep_entry_candidate_dist or -1
+                                        )
+                                    )
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+        if not U.is_valid_latlon(end_lat, end_lon) then
+            end_lat = runway_lat
+            end_lon = runway_lon
+        end
+        if aircraft and comp.yal and comp.yal.aircraftonrwy and U.is_valid_latlon(runway_lat, runway_lon) then
+            local onRunway = comp.yal.aircraftonrwy(def.DEPARTURE, 40, depThresholdHeadingLimit)
+            if onRunway then
+                allow_runway_route = true
+            end
+        end
+    else
+        runway_lat = yal.desrwylatstartpos and get(yal.desrwylatstartpos) or nil
+        runway_lon = yal.desrwylonstartpos and get(yal.desrwylonstartpos) or nil
+        if not U.is_valid_latlon(runway_lat, runway_lon) then
+            runway_lat = yal.desrwylatendpos and get(yal.desrwylatendpos) or nil
+            runway_lon = yal.desrwylonendpos and get(yal.desrwylonendpos) or nil
+        end
+        if U.is_valid_latlon(runway_lat, runway_lon) then
+            comp._lastArrivalRunwayLat = runway_lat
+            comp._lastArrivalRunwayLon = runway_lon
+        elseif comp._lastArrivalRunwayLat and comp._lastArrivalRunwayLon then
+            runway_lat = comp._lastArrivalRunwayLat
+            runway_lon = comp._lastArrivalRunwayLon
+        end
+        raw_desrwy = yal.desrwy and helpers.forceCleanString(get(yal.desrwy) or "") or ""
+        runway_name = raw_desrwy
+        if runway_name ~= "" then
+            comp._lastArrivalRunwayName = runway_name
+        elseif comp._lastArrivalRunwayName then
+            runway_name = comp._lastArrivalRunwayName
+        end
+        comp._runwayName = runway_name
+        if data and comp._runwayName and comp._runwayName ~= "" then
+            local ref_lat = runway_lat
+            local ref_lon = runway_lon
+            -- When we have a runway name, stale lat/lon can bias selection to the wrong runway.
+            ref_lat = nil
+            ref_lon = nil
+            local log_key = tostring(icao) .. "|ARR|" .. tostring(raw_desrwy) .. "|" .. tostring(comp._runwayName)
+            if comp._lastRunwayLogKey ~= log_key then
+                comp._lastRunwayLogKey = log_key
+                helpers.logInfoTS(
+                    "Taxi: ARR runway input raw=" .. tostring(raw_desrwy) .. " resolved=" .. tostring(comp._runwayName)
+                )
+            end
+            local rwy, side = U.find_runway_entry(data, comp._runwayName, ref_lat, ref_lon)
+            if rwy then
+                runway_lat = (side == 1) and rwy.lat1 or rwy.lat2
+                runway_lon = (side == 1) and rwy.lon1 or rwy.lon2
+                comp._lastArrivalRunwayLat = runway_lat
+                comp._lastArrivalRunwayLon = runway_lon
+                local sel = tostring(rwy and (side == 1 and rwy.rwy1 or rwy.rwy2) or "?")
+                local sel_key = log_key .. "|SEL|" .. sel
+                if comp._lastRunwaySelLogKey ~= sel_key then
+                    comp._lastRunwaySelLogKey = sel_key
+                    helpers.logInfoTS("Taxi: ARR runway selected " .. tostring(sel))
+                end
+            end
+            start_lat = runway_lat
+            start_lon = runway_lon
+            landing_profile = U.compute_runway_landing_profile(data, comp._runwayName, runway_lat, runway_lon)
+            touchdown = landing_profile and landing_profile.touchdown or nil
+            if landing_profile and touchdown and touchdown.east and touchdown.north then
+                local exit_id = nil
+                exit_id, backtrack_required = U.select_runway_exit_node(data, landing_profile)
+                arr_exit_id = exit_id
+                if exit_id and data.nodes and data.nodes[exit_id] then
+                    local exit_node = data.nodes[exit_id]
+                    if U.is_valid_latlon(exit_node.lat, exit_node.lon) then
+                        if (yal and yal.airgroundsensor and (get(yal.airgroundsensor) ~= def.ON)) then
+                            start_lat = exit_node.lat
+                            start_lon = exit_node.lon
+                        elseif not backtrack_required then
+                            start_lat = exit_node.lat
+                            start_lon = exit_node.lon
+                        end
+                    end
+                end
+                if arr_exit_id then
+                    local exit_log_key = tostring(icao) .. "|ARR-EXIT|" .. tostring(comp._runwayName) .. "|" .. tostring(arr_exit_id) .. "|" .. tostring(backtrack_required)
+                    if comp._lastArrExitLogKey ~= exit_log_key then
+                        comp._lastArrExitLogKey = exit_log_key
+                        local along = nil
+                        local perp = nil
+                        local rollout = landing_profile and landing_profile.roll or nil
+                        local exit_node = data.nodes and data.nodes[arr_exit_id] or nil
+                        if exit_node and landing_profile then
+                            along, perp = U.compute_along_perp(landing_profile, exit_node)
+                        end
+                        helpers.logInfoTS(
+                            "Taxi: ARR exit id=" .. tostring(arr_exit_id) ..
+                            " backtrack=" .. tostring(backtrack_required) ..
+                            " along=" .. tostring(along or "?") ..
+                            " perp=" .. tostring(perp or "?") ..
+                            " rollout=" .. tostring(rollout or "?")
+                        )
+                    end
+                end
+                if not U.is_valid_latlon(start_lat, start_lon) then
+                    local tlat, tlon = local_to_latlon(touchdown.east, touchdown.north)
+                    if U.is_valid_latlon(tlat, tlon) then
+                        start_lat = tlat
+                        start_lon = tlon
+                        runway_lat = tlat
+                        runway_lon = tlon
+                    end
+                end
+            end
+        end
+        if not U.is_valid_latlon(start_lat, start_lon) then
+            start_lat = runway_lat
+            start_lon = runway_lon
+        end
+    end
+
+    if mode == 1 and aircraft and U.is_valid_latlon(runway_lat, runway_lon) then
+        local offRunway = nil
+        if landing_profile then
+            offRunway = not is_on_runway_profile(landing_profile, aircraft, 60, 5)
+        elseif comp.yal and comp.yal.aircraftonrwy then
+            offRunway = comp.yal.aircraftonrwy(def.ARRIVAL, 40, 20)
+        end
+        if offRunway == false then
+            local gs = yal and yal.groundspeed and (get(yal.groundspeed) or 0) or 0
+            if gs <= runwayRouteMaxSpeed then
+                allow_runway_route = true
+                start_lat = aircraft.lat
+                start_lon = aircraft.lon
+            end
+        end
+    end
+
+    local hasRunwayName = (runway_name ~= nil and runway_name ~= "")
+    local hasRunwayLatLon = U.is_valid_latlon(runway_lat, runway_lon)
+    local hasArrivalRunway = (mode == 1 and hasRunwayName) or false
+    local freehand_active = comp._drawFreehand and comp._routeWaypoints and (#comp._routeWaypoints > 0)
+    local canRoute = data and data.can_route and (mode == 1 or hasRunwayName or freehand_active or (mode == 0 and hasRunwayLatLon)) or false
+    if not canRoute and not freehand_active then
+        helpers.logInfoTS(
+            "TaxiDiag: canRoute=false icao=" .. tostring(icao) ..
+            " mode=" .. tostring(mode) ..
+            " data.can_route=" .. tostring(data and data.can_route) ..
+            " hasRunwayName=" .. tostring(hasRunwayName)
+        )
+    end
+
+    if mode == 0 and data and comp._runwayName and comp._runwayName ~= "" and U.is_valid_latlon(runway_lat, runway_lon) then
+        dep_profile = U.compute_runway_landing_profile(data, comp._runwayName, runway_lat, runway_lon)
+        if dep_profile and dep_profile.threshold and dep_profile.threshold.east and dep_profile.threshold.north then
+            dep_runway_end_id = U.find_nearest_runway_node(
+                data,
+                dep_profile.threshold.east,
+                dep_profile.threshold.north
+            )
+            local tlat, tlon = local_to_latlon(dep_profile.threshold.east, dep_profile.threshold.north)
+            if U.is_valid_latlon(tlat, tlon) then
+                dep_runway_end_lat = tlat
+                dep_runway_end_lon = tlon
+            end
+        end
+    end
+    if mode == 0 and dep_profile and (not dep_holdshort_id)
+        and dep_end_node_dist and dep_end_node_dist > depEntryFallbackMaxDist then
+        dep_backtrack_required = true
+        if not manual_active then
+            allow_runway_route = true
+        end
+    end
+    if mode == 0 then
+        if comp._depBacktrackRequired ~= dep_backtrack_required then
+            comp._depBacktrackRequired = dep_backtrack_required
+            if dep_backtrack_required then
+                log_taxi(
+                    string.format(
+                        "TaxiRoute: dep backtrack required dist=%.1f",
+                        dep_end_node_dist or -1
+                    )
+                )
+            end
+        end
+    end
+    if mode == 0 then
+        comp._depProfile = dep_profile
+    else
+        comp._depProfile = nil
+    end
+    if mode == 0 and allow_runway_route and dep_runway_end_lat and dep_runway_end_lon then
+        end_lat = dep_runway_end_lat
+        end_lon = dep_runway_end_lon
+    end
+
+    local ref_lat = nil
+    local ref_lon = nil
+    if yal.airportdatatable and yal.airportdatatable[icao] then
+        ref_lat = yal.airportdatatable[icao].latitude
+        ref_lon = yal.airportdatatable[icao].longitude
+    end
+    local ramp_ref_lat = ref_lat or runway_lat
+    local ramp_ref_lon = ref_lon or runway_lon
+
+    if mode == 0 and (not U.is_valid_latlon(start_lat, start_lon)) and U.is_valid_latlon(ramp_ref_lat, ramp_ref_lon) then
+        start_lat = ramp_ref_lat
+        start_lon = ramp_ref_lon
+    end
+    if mode == 1 and (not U.is_valid_latlon(start_lat, start_lon)) and U.is_valid_latlon(ramp_ref_lat, ramp_ref_lon) then
+        start_lat = ramp_ref_lat
+        start_lon = ramp_ref_lon
+    end
+
+    local end_ramp = nil
+    local user_selected_end = false
+    if mode == 1 and (not comp._drawFreehand) and U.is_valid_latlon(ramp_ref_lat, ramp_ref_lon) then
+        if comp._selectedEndRampKey and data and data.ramps then
+            for _, ramp in ipairs(data.ramps) do
+                if helpers.isRampSuitableFor738(ramp) and U.ramp_key(ramp) == comp._selectedEndRampKey then
+                    end_ramp = ramp
+                    user_selected_end = true
+                    break
+                end
+            end
+        end
+        if not end_ramp and comp._autoEndRampKey and data and data.ramps then
+            for _, ramp in ipairs(data.ramps) do
+                if helpers.isRampSuitableFor738(ramp) and U.ramp_key(ramp) == comp._autoEndRampKey then
+                    end_ramp = ramp
+                    break
+                end
+            end
+            if not end_ramp then
+                comp._autoEndRampKey = nil
+            end
+        end
+        if not end_ramp and onGroundSensor and aircraft then
+            local gate_heading = yal and yal.groundtrackmag and get(yal.groundtrackmag) or nil
+            local gate_radius = tuning.gateSelectRadius or (C and C.gateSelectRadius) or 120
+            end_ramp = U.select_best_ramp_for_aircraft(
+                data,
+                aircraft,
+                { filter = helpers.isRampSuitableFor738, heading_deg = gate_heading, radius_m = gate_radius }
+            )
+            if end_ramp then
+                comp._autoEndRampKey = U.ramp_key(end_ramp)
+            end
+        end
+        if not end_ramp then
+            end_ramp = helpers.getNearestRamp(icao, ramp_ref_lat, ramp_ref_lon, { filter = helpers.isRampSuitableFor738, data = data })
+            if end_ramp then
+                comp._autoEndRampKey = U.ramp_key(end_ramp)
+            end
+        end
+        if end_ramp and U.is_valid_latlon(end_ramp.lat, end_ramp.lon) then
+            end_lat = end_ramp.lat
+            end_lon = end_ramp.lon
+        end
+    end
+    if mode == 1 and (not comp._drawFreehand) and (not user_selected_end) and (not comp._manualRouteActive)
+        and data and aircraft and U.is_valid_latlon(aircraft.lat, aircraft.lon) then
+        local yalref = comp.yal or _G.yal
+        local onGround = yalref and yalref.airgroundsensor and (get(yalref.airgroundsensor) == def.ON)
+        local gs = yalref and yalref.groundspeed and (get(yalref.groundspeed) or 0) or 0
+        local gate_speed = tuning.autoGateSwitchSpeed or 5
+        local gate_hold = tuning.autoGateSwitchHoldSec or 2.0
+        local gate_cooldown = tuning.autoGateSwitchCooldownSec or 10.0
+        local gate_dist = tuning.autoGateSwitchDist or 35
+        local gate_delta = tuning.autoGateSwitchDelta or 20
+        local gate_ratio = tuning.autoGateSwitchRatio or 0.6
+        if onGround and gs < gate_speed then
+            if not comp._autoEndRampLowSpeedSince then
+                comp._autoEndRampLowSpeedSince = now
+            end
+            if (now - comp._autoEndRampLowSpeedSince) >= gate_hold then
+                if not nearest_ramp then
+                    local gate_heading = yalref and yalref.groundtrackmag and get(yalref.groundtrackmag) or nil
+                    local gate_radius = tuning.gateSelectRadius or (C and C.gateSelectRadius) or 120
+                    nearest_ramp, nearest_ramp_dist = U.select_best_ramp_for_aircraft(
+                        data,
+                        aircraft,
+                        { filter = helpers.isRampSuitableFor738, heading_deg = gate_heading, radius_m = gate_radius }
+                    )
+                    if nearest_ramp_dist == nil and nearest_ramp and U.is_valid_latlon(nearest_ramp.lat, nearest_ramp.lon) then
+                        nearest_ramp_dist = U.distance_meters_latlon(
+                            nearest_ramp.lat,
+                            nearest_ramp.lon,
+                            aircraft.lat,
+                            aircraft.lon
+                        )
+                    end
+                end
+                if nearest_ramp and end_ramp and U.is_valid_latlon(end_ramp.lat, end_ramp.lon) then
+                    local cand_key = U.ramp_key(nearest_ramp)
+                    local planned_key = U.ramp_key(end_ramp)
+                    if cand_key ~= planned_key then
+                        local d_cand = nearest_ramp_dist
+                        local d_plan = U.distance_meters_latlon(
+                            end_ramp.lat,
+                            end_ramp.lon,
+                            aircraft.lat,
+                            aircraft.lon
+                        )
+                        local cooldown_ok = (not comp._autoEndRampSwitchTime)
+                            or ((now - comp._autoEndRampSwitchTime) >= gate_cooldown)
+                        if d_cand and d_plan and cooldown_ok then
+                            local close_enough = d_cand <= gate_dist
+                            local clearly_closer = (d_plan - d_cand >= gate_delta)
+                                or (d_cand <= (d_plan * gate_ratio))
+                            if close_enough and clearly_closer then
+                                comp._autoEndRampKey = cand_key
+                                comp._autoEndRampSwitchTime = now
+                                end_ramp = nearest_ramp
+                                end_lat = end_ramp.lat
+                                end_lon = end_ramp.lon
+                                comp._route = nil
+                                comp._routeErr = nil
+                                comp._routeLabels = nil
+                                comp._routeLabelStats = nil
+                                comp._lastEndKey = nil
+                                comp._lastStartKey = nil
+                                comp._lastGuidanceNodeId = nil
+                                comp._lastGuidanceLabel = nil
+                                comp._lastGuidanceTime = nil
+                                comp._sCurveSkipNodeId = nil
+                                U.clear_visual_guidance(comp, "end-ramp-switch")
+                                comp._visualGuidanceQueue = {}
+                                comp._gateGuidanceLastDir = nil
+                                comp._gateGuidanceLastAction = nil
+                                comp._gateGuidanceLastTime = nil
+                                comp._gateGuidanceStop = false
+                                U.reset_gate_callouts(comp, cand_key)
+                                log_taxi(
+                                    string.format(
+                                        "TaxiRoute: auto end-ramp switch key=%s dist=%.1f plan=%.1f",
+                                        tostring(cand_key),
+                                        d_cand or -1,
+                                        d_plan or -1
+                                    )
+                                )
+                            end
+                        end
+                    end
+                end
+            end
+        else
+            comp._autoEndRampLowSpeedSince = nil
+        end
+    else
+        comp._autoEndRampLowSpeedSince = nil
+    end
+
+    if mode == 1 and landing_profile and end_ramp and U.is_valid_latlon(end_ramp.lat, end_ramp.lon) then
+        local pref_east = end_ramp.east
+        local pref_north = end_ramp.north
+        if (pref_east == nil or pref_north == nil) and U.is_valid_latlon(end_ramp.lat, end_ramp.lon) then
+            pref_east, pref_north = U.latlon_to_local(end_ramp.lat, end_ramp.lon)
+        end
+        if pref_east ~= nil and pref_north ~= nil
+            and landing_profile.threshold and landing_profile.threshold.east ~= nil and landing_profile.threshold.north ~= nil
+            and landing_profile.axis then
+            local dx = pref_east - landing_profile.threshold.east
+            local dy = pref_north - landing_profile.threshold.north
+            local cross = dx * landing_profile.axis.y - dy * landing_profile.axis.x
+            if math.abs(cross) > 1 then
+                local pref_side = (cross >= 0) and 1 or -1
+                local exit_id, backtrack = U.select_runway_exit_node(data, landing_profile, pref_side)
+                if exit_id and (exit_id ~= arr_exit_id or backtrack ~= backtrack_required) then
+                    arr_exit_id = exit_id
+                    backtrack_required = backtrack
+                    comp._lastArrExitLogKey = nil
+                    if backtrack_required then
+                        if U.is_valid_latlon(runway_lat, runway_lon) then
+                            start_lat = runway_lat
+                            start_lon = runway_lon
+                        elseif touchdown and touchdown.east and touchdown.north then
+                            local tlat, tlon = local_to_latlon(touchdown.east, touchdown.north)
+                            if U.is_valid_latlon(tlat, tlon) then
+                                start_lat = tlat
+                                start_lon = tlon
+                            end
+                        end
+                    elseif exit_id and data.nodes and data.nodes[exit_id] then
+                        local exit_node = data.nodes[exit_id]
+                        if U.is_valid_latlon(exit_node.lat, exit_node.lon) then
+                            start_lat = exit_node.lat
+                            start_lon = exit_node.lon
+                        end
+                    end
+                end
+            end
+        end
+    end
+    if mode == 1 then
+        comp._arrProfile = landing_profile
+        comp._arrBacktrackRequired = backtrack_required
+        if comp._arrExitId ~= arr_exit_id then
+            comp._arrExitId = arr_exit_id
+            comp._arrRunwayExitAnnounced = false
+            comp._arrRunwayCrossWarned = nil
+        end
+    else
+        comp._arrProfile = nil
+        comp._arrBacktrackRequired = nil
+        comp._arrExitId = nil
+        comp._arrRunwayExitAnnounced = false
+        comp._arrRunwayCrossWarned = nil
+    end
+    if mode == 1 and (not comp._drawFreehand)
+        and (not U.is_valid_latlon(end_lat, end_lon)) and U.is_valid_latlon(ramp_ref_lat, ramp_ref_lon) then
+        end_lat = ramp_ref_lat
+        end_lon = ramp_ref_lon
+    end
+
+    local start_ramp = nil
+    local start_is_aircraft = false
+    if mode == 0 and aircraft and U.is_valid_latlon(aircraft.lat, aircraft.lon) then
+        start_is_aircraft = true
+        start_ramp = helpers.getNearestRamp(icao, aircraft.lat, aircraft.lon, { filter = helpers.isRampSuitableFor738, data = data })
+        if start_ramp and start_ramp.lat and start_ramp.lon then
+            local d_m = U.distance_meters_latlon(start_ramp.lat, start_ramp.lon, aircraft.lat, aircraft.lon)
+            if d_m and d_m > startRampMaxMeters then
+                start_ramp = nil
+            end
+        end
+    end
+
+    if mode == 0 then
+        if start_ramp and not comp._startRampLabel then
+            comp._startRampLabel = start_ramp
+        end
+    else
+        comp._startRampLabel = nil
+    end
+
+    comp._startRamp = start_ramp
+    comp._startIsAircraft = (start_is_aircraft and not start_ramp) or false
+    comp._endRamp = end_ramp
+
+    local override_snap_max_m = 1000
+    local function snap_override(lat, lon)
+        if not data or not U.is_valid_latlon(lat, lon) then
+            return nil, "invalid"
+        end
+        local east, north = U.latlon_to_local(lat, lon)
+        if east == nil or north == nil then
+            return nil, "no-local"
+        end
+        local proj = U.find_nearest_edge_projection(data, east, north, { disallow_runway_edges = false })
+        if not proj or not proj.d2 then
+            return nil, "no-proj"
+        end
+        local dist = math.sqrt(proj.d2)
+        if dist > override_snap_max_m then
+            return nil, "too-far", dist
+        end
+        local wlat, wlon = local_to_latlon(proj.proj_east, proj.proj_north)
+        if not U.is_valid_latlon(wlat, wlon) then
+            return nil, "invalid-proj", dist
+        end
+        return {
+            lat = wlat,
+            lon = wlon,
+            east = proj.proj_east,
+            north = proj.proj_north,
+            dist = dist
+        }
+    end
+    if comp._drawRoute and comp._routeWaypoints and #comp._routeWaypoints > 0 and data and (not comp._drawFreehand) then
+        local guard = 0
+        local changed = true
+        while changed and comp._routeWaypoints and #comp._routeWaypoints > 0 and guard < 4 do
+            guard = guard + 1
+            changed = false
+            local first = comp._routeWaypoints[1]
+            if first then
+                local snapped, reason, dist = snap_override(first.lat, first.lon)
+                if not snapped and reason == "too-far" then
+                    log_taxi(
+                        string.format(
+                            "TaxiDraw: drop start waypoint off-network dist=%.1f",
+                            dist or -1
+                        )
+                    )
+                    table.remove(comp._routeWaypoints, 1)
+                    changed = true
+                elseif snapped then
+                    if first.lat ~= snapped.lat or first.lon ~= snapped.lon then
+                        log_taxi(
+                            string.format(
+                                "TaxiDraw: snap start waypoint dist=%.1f",
+                                snapped.dist or 0
+                            )
+                        )
+                    end
+                    first.lat = snapped.lat
+                    first.lon = snapped.lon
+                    first.east = snapped.east
+                    first.north = snapped.north
+                end
+            end
+            local count = comp._routeWaypoints and #comp._routeWaypoints or 0
+            if count > 0 then
+                local last = comp._routeWaypoints[count]
+                if last then
+                    local snapped, reason, dist = snap_override(last.lat, last.lon)
+                    if not snapped and reason == "too-far" then
+                        log_taxi(
+                            string.format(
+                                "TaxiDraw: drop end waypoint off-network dist=%.1f",
+                                dist or -1
+                            )
+                        )
+                        table.remove(comp._routeWaypoints, count)
+                        changed = true
+                    elseif snapped then
+                        if last.lat ~= snapped.lat or last.lon ~= snapped.lon then
+                            log_taxi(
+                                string.format(
+                                    "TaxiDraw: snap end waypoint dist=%.1f",
+                                    snapped.dist or 0
+                                )
+                            )
+                        end
+                        last.lat = snapped.lat
+                        last.lon = snapped.lon
+                        last.east = snapped.east
+                        last.north = snapped.north
+                    end
+                end
+            end
+        end
+    end
+    if comp._drawRoute and comp._routeWaypoints and #comp._routeWaypoints > 0 then
+        local first_wp = comp._routeWaypoints[1]
+        local last_wp = comp._routeWaypoints[#comp._routeWaypoints]
+        local slat, slon = ensure_waypoint_latlon(first_wp)
+        local elat, elon = ensure_waypoint_latlon(last_wp)
+        if slat and slon then
+            comp._editStartOverride = { lat = slat, lon = slon, mode = mode, icao = icao }
+        end
+        if elat and elon then
+            comp._editEndOverride = { lat = elat, lon = elon, mode = mode, icao = icao }
+        end
+    end
+    comp._depHoldshortNodeId = dep_holdshort_id
+    comp._depEntryCandidates = nil
+    comp._depEntryLabels = nil
+    if mode == 0 and data and U.is_valid_latlon(runway_lat, runway_lon) then
+        local re, rn = U.latlon_to_local(runway_lat, runway_lon)
+        local max_candidates = 40
+        local zoom = comp.zoom or 1
+        if zoom >= 2.0 then
+            max_candidates = 200
+        elseif zoom >= 1.5 then
+            max_candidates = 80
+        end
+        local candidates = collect_runway_exit_candidates(data, re, rn, max_candidates)
+        local cand_count = (candidates and #candidates) or 0
+        if cand_count > 0 then
+            comp._depEntryCandidates = candidates
+            comp._depEntryLabels = {}
+            for _, cand in ipairs(candidates) do
+                if cand.id then
+                    comp._depEntryLabels[cand.id] = U.find_runway_entry_label(data, cand.id)
+                end
+            end
+        end
+        if log_taxi then
+            local src = (data.entry and data.entry.source) or "?"
+            local key = tostring(icao) .. "|" .. tostring(comp._runwayName or "") .. "|" .. tostring(src)
+                .. "|" .. tostring(max_candidates) .. "|" .. tostring(cand_count)
+            if comp._lastDepEntriesLogKey ~= key then
+                comp._lastDepEntriesLogKey = key
+                log_taxi(
+                    "TaxiDepEntries: icao=" .. tostring(icao)
+                    .. " rwy=" .. tostring(comp._runwayName or "")
+                    .. " src=" .. tostring(src)
+                    .. " cand=" .. tostring(cand_count)
+                    .. " max=" .. tostring(max_candidates)
+                )
+            end
+        end
+        if cand_count == 0 and data.entry and data.entry.source == "addon" then
+            local src = data.entry.source
+            local fallback_key = tostring(icao) .. "|" .. tostring(comp._runwayName or "") .. "|" .. tostring(src)
+            if helpers and helpers.isGlobalAptIndexReady and helpers.isGlobalAptIndexReady() then
+                comp._taxiSourceByIcao = comp._taxiSourceByIcao or {}
+                comp._taxiSourceByIcao[icao] = "global"
+                if comp._taxiGlobalPending then
+                    comp._taxiGlobalPending[icao] = nil
+                end
+                comp._data = nil
+                comp._dataErr = nil
+                comp._route = nil
+                comp._routeErr = nil
+                comp._routeLabels = nil
+                comp._routeLabelStats = nil
+                comp._routeExtraSegments = nil
+                comp._lastStartKey = nil
+                comp._lastEndKey = nil
+                comp._lastGuidanceNodeId = nil
+                comp._lastGuidanceLabel = nil
+                comp._lastGuidanceTime = nil
+                comp._sCurveSkipNodeId = nil
+                comp._needsCenter = true
+                comp._rerouteOverride = nil
+                comp._depEntryCandidates = nil
+                comp._depEntryLabels = nil
+                comp._lastDepEntriesLogKey = nil
+                U.clear_visual_guidance(comp, "dep-entry-fallback")
+                comp._visualGuidanceQueue = {}
+                U.set_taxi_ref(nil)
+                if helpers and helpers.logInfoTS then
+                    helpers.logInfoTS(
+                        "TaxiDepEntries: forcing global (cand=0) icao="
+                        .. tostring(icao) .. " rwy=" .. tostring(comp._runwayName or "")
+                    )
+                end
+                return
+            end
+            comp._taxiGlobalPending = comp._taxiGlobalPending or {}
+            comp._taxiGlobalPending[icao] = true
+            comp._taxiSourceByIcao = comp._taxiSourceByIcao or {}
+            comp._taxiSourceByIcao[icao] = "global"
+            if helpers and helpers.requestGlobalAptIndex then
+                helpers.requestGlobalAptIndex("dep-entry-fallback")
+            end
+            if helpers and helpers.logInfoTS and comp._lastDepEntriesFallbackKey ~= fallback_key then
+                comp._lastDepEntriesFallbackKey = fallback_key
+                helpers.logInfoTS(
+                    "TaxiDepEntries: global pending (cand=0) icao="
+                    .. tostring(icao) .. " rwy=" .. tostring(comp._runwayName or "")
+                )
+            end
+        end
+    end
+
+    if (not in_edit) and comp._rerouteOverride and U.is_valid_latlon(comp._rerouteOverride.lat, comp._rerouteOverride.lon) then
+        start_lat = comp._rerouteOverride.lat
+        start_lon = comp._rerouteOverride.lon
+    end
+
+    local base_start_lat = start_lat
+    local base_start_lon = start_lon
+    local base_end_lat = end_lat
+    local base_end_lon = end_lon
+    local start_vis_lat = start_lat
+    local start_vis_lon = start_lon
+    local end_vis_lat = end_lat
+    local end_vis_lon = end_lon
+
+    local yalref = comp.yal or _G.yal
+    local onGround = yalref and yalref.airgroundsensor and (get(yalref.airgroundsensor) == def.ON)
+
+    local start_override = comp._editStartOverride
+    local has_start_override = false
+    if start_override and start_override.mode == mode and U.is_valid_latlon(start_override.lat, start_override.lon) then
+        if not start_override.icao or start_override.icao == "" then
+            start_override.icao = icao
+        end
+        has_start_override = (start_override.icao == icao)
+    end
+    if has_start_override then
+        start_lat = start_override.lat
+        start_lon = start_override.lon
+        start_vis_lat = start_override.lat
+        start_vis_lon = start_override.lon
+    end
+    if has_start_override and data and (not comp._drawFreehand) then
+        local snapped, reason, dist = snap_override(start_override.lat, start_override.lon)
+        if not snapped and reason == "too-far" then
+            if onGround then
+                log_taxi(
+                    string.format(
+                        "TaxiEdit: clear start override off-network dist=%.1f",
+                        dist or -1
+                    )
+                )
+                comp._editStartOverride = nil
+                has_start_override = false
+                start_lat = base_start_lat
+                start_lon = base_start_lon
+                start_vis_lat = start_lat
+                start_vis_lon = start_lon
+            else
+                local key = tostring(icao) .. "|" .. tostring(mode) .. "|start"
+                if comp._lastOffNetworkStartKey ~= key then
+                    comp._lastOffNetworkStartKey = key
+                    log_taxi(
+                        string.format(
+                            "TaxiEdit: keep start override off-network (air) dist=%.1f",
+                            dist or -1
+                        )
+                    )
+                end
+            end
+        elseif snapped then
+            if in_edit then
+                local snap_key = string.format(
+                    "%s|%s|%.6f|%.6f",
+                    tostring(icao),
+                    tostring(mode),
+                    tonumber(snapped.lat or 0),
+                    tonumber(snapped.lon or 0)
+                )
+                if comp._lastSnapStartKey ~= snap_key then
+                    comp._lastSnapStartKey = snap_key
+                    log_taxi(
+                        string.format(
+                            "TaxiEdit: snap start override dist=%.1f",
+                            snapped.dist or 0
+                        )
+                    )
+                end
+                start_lat = snapped.lat
+                start_lon = snapped.lon
+            else
+                comp._lastSnapStartKey = nil
+                if start_override.lat ~= snapped.lat or start_override.lon ~= snapped.lon then
+                    log_taxi(
+                        string.format(
+                            "TaxiEdit: snap start override dist=%.1f",
+                            snapped.dist or 0
+                        )
+                    )
+                end
+                start_override.lat = snapped.lat
+                start_override.lon = snapped.lon
+                start_lat = start_override.lat
+                start_lon = start_override.lon
+            end
+        end
+    else
+        comp._lastSnapStartKey = nil
+    end
+    local end_override = comp._editEndOverride
+    local has_end_override = false
+    if end_override and end_override.mode == mode and U.is_valid_latlon(end_override.lat, end_override.lon) then
+        if not end_override.icao or end_override.icao == "" then
+            end_override.icao = icao
+        end
+        has_end_override = (end_override.icao == icao)
+    end
+    if has_end_override then
+        end_lat = end_override.lat
+        end_lon = end_override.lon
+        end_vis_lat = end_override.lat
+        end_vis_lon = end_override.lon
+    end
+    if has_end_override and data and (not comp._drawFreehand) then
+        local snapped, reason, dist = snap_override(end_override.lat, end_override.lon)
+        if not snapped and reason == "too-far" then
+            if onGround then
+                log_taxi(
+                    string.format(
+                        "TaxiEdit: clear end override off-network dist=%.1f",
+                        dist or -1
+                    )
+                )
+                comp._editEndOverride = nil
+                has_end_override = false
+                end_lat = base_end_lat
+                end_lon = base_end_lon
+                end_vis_lat = end_lat
+                end_vis_lon = end_lon
+            else
+                local key = tostring(icao) .. "|" .. tostring(mode) .. "|end"
+                if comp._lastOffNetworkEndKey ~= key then
+                    comp._lastOffNetworkEndKey = key
+                    log_taxi(
+                        string.format(
+                            "TaxiEdit: keep end override off-network (air) dist=%.1f",
+                            dist or -1
+                        )
+                    )
+                end
+            end
+        elseif snapped then
+            if in_edit then
+                local snap_key = string.format(
+                    "%s|%s|%.6f|%.6f",
+                    tostring(icao),
+                    tostring(mode),
+                    tonumber(snapped.lat or 0),
+                    tonumber(snapped.lon or 0)
+                )
+                if comp._lastSnapEndKey ~= snap_key then
+                    comp._lastSnapEndKey = snap_key
+                    log_taxi(
+                        string.format(
+                            "TaxiEdit: snap end override dist=%.1f",
+                            snapped.dist or 0
+                        )
+                    )
+                end
+                end_lat = snapped.lat
+                end_lon = snapped.lon
+            else
+                comp._lastSnapEndKey = nil
+                if end_override.lat ~= snapped.lat or end_override.lon ~= snapped.lon then
+                    log_taxi(
+                        string.format(
+                            "TaxiEdit: snap end override dist=%.1f",
+                            snapped.dist or 0
+                        )
+                    )
+                end
+                end_override.lat = snapped.lat
+                end_override.lon = snapped.lon
+                end_lat = end_override.lat
+                end_lon = end_override.lon
+            end
+        end
+    else
+        comp._lastSnapEndKey = nil
+    end
+
+    local start_node_id, start_node_dist = U.nearest_node_info(data, start_lat, start_lon, false)
+    local start_non_runway_node_id = nil
+    local start_non_runway_node_dist = nil
+    if mode == 0 and start_is_aircraft and data and data.runway_nodes then
+        start_non_runway_node_id, start_non_runway_node_dist = U.nearest_non_runway_node(data, start_lat, start_lon)
+    end
+    local driftMeters = (mode == 1 and arrRerouteDriftMeters) or rerouteDriftMeters
+    if mode == 1 and allow_runway_route and start_node_id and start_node_dist and data and data.runway_nodes then
+        if not data.runway_nodes[start_node_id] then
+            local sx, sy = U.latlon_to_local(start_lat, start_lon)
+            if sx and sy then
+                local rwy_id = U.find_nearest_runway_node(data, sx, sy)
+                local rwy_dist = nil
+                if rwy_id and data.nodes and data.nodes[rwy_id] then
+                    local rn = data.nodes[rwy_id]
+                    if rn.east and rn.north then
+                        local dx = rn.east - sx
+                        local dy = rn.north - sy
+                        rwy_dist = math.sqrt(dx * dx + dy * dy)
+                    end
+                end
+                if rwy_id and rwy_dist and rwy_dist <= driftMeters then
+                    log_taxi(
+                        string.format(
+                            "TaxiRoute: on-runway start node swap dist=%.1f rwy_dist=%.1f",
+                            start_node_dist or -1,
+                            rwy_dist or -1
+                        )
+                    )
+                    start_node_id = rwy_id
+                    start_node_dist = rwy_dist
+                elseif start_node_dist > driftMeters then
+                    log_taxi(
+                        string.format(
+                            "TaxiRoute: on-runway start node drop dist=%.1f",
+                            start_node_dist or -1
+                        )
+                    )
+                    start_node_id = nil
+                    start_node_dist = nil
+                end
+            end
+        end
+    end
+    if mode == 1 and (not allow_runway_route) and start_node_dist and start_node_dist > driftMeters then
+        if onGround and (not has_start_override) and (not in_edit) and (not manual_active) then
+            log_taxi(
+                string.format(
+                    "TaxiRoute: clear start node dist=%.1f",
+                    start_node_dist or -1
+                )
+            )
+            start_node_id = nil
+            start_node_dist = nil
+        end
+    end
+    local end_node_id, end_node_dist = U.nearest_node_info(data, end_lat, end_lon, false)
+    if mode == 0 and data and data.runway_nodes then
+        dep_end_node_id, dep_end_node_dist = U.nearest_non_runway_node(data, end_lat, end_lon)
+    end
+    if mode == 1 and arr_exit_id and (not has_start_override) and (not comp._arrOffRunwayHandled)
+        and start_node_dist and start_node_dist > arrStartNodeMaxMeters
+        and arrival_grace_active(comp, now)
+        and data and data.nodes and data.nodes[arr_exit_id] then
+        local exit_node = data.nodes[arr_exit_id]
+        if exit_node and U.is_valid_latlon(exit_node.lat, exit_node.lon) then
+            start_lat = exit_node.lat
+            start_lon = exit_node.lon
+            start_node_id = arr_exit_id
+            start_node_dist = 0
+            comp._rerouteOverride = nil
+        end
+    end
+    if mode == 0 and (not has_end_override) and (not allow_runway_route)
+        and comp._selectedDepEntryId and data and data.nodes and data.nodes[comp._selectedDepEntryId] then
+        local sel = data.nodes[comp._selectedDepEntryId]
+        end_lat = sel.lat
+        end_lon = sel.lon
+        end_node_id = comp._selectedDepEntryId
+        end_node_dist = 0
+    end
+    comp._routeDebug = {
+        start_lat = start_lat,
+        start_lon = start_lon,
+        end_lat = end_lat,
+        end_lon = end_lon,
+        start_node_id = start_node_id,
+        start_node_dist = start_node_dist,
+        start_non_runway_node_id = start_non_runway_node_id,
+        start_non_runway_node_dist = start_non_runway_node_dist,
+        end_node_id = end_node_id,
+        end_node_dist = end_node_dist,
+        dep_end_node_id = dep_end_node_id,
+        dep_end_node_dist = dep_end_node_dist
+    }
+
+    if mode == 1 and (not hasArrivalRunway)
+        and ((not U.is_valid_latlon(start_lat, start_lon)) or (not U.is_valid_latlon(end_lat, end_lon))) then
+        comp._route = nil
+        comp._routeErr = "no-arrival-runway"
+        comp._routeExtraSegments = nil
+        comp._editTailSegments = nil
+        comp._lastStartKey = nil
+        comp._lastEndKey = nil
+        log_taxi("TaxiRoute: abort no-arrival-runway")
+        return
+    end
+
+    if U.is_valid_latlon(runway_lat, runway_lon) then
+        if mode == 1 then
+            local offRunway = nil
+            if landing_profile and aircraft then
+                offRunway = not is_on_runway_profile(landing_profile, aircraft, 60, 5)
+            elseif comp.yal and comp.yal.aircraftonrwy then
+                offRunway = comp.yal.aircraftonrwy(def.ARRIVAL, 40, 20)
+            end
+            if offRunway == false and not allow_runway_route then
+                comp._route = nil
+                comp._routeErr = "on-runway"
+                comp._routeExtraSegments = nil
+                comp._editTailSegments = nil
+                comp._lastStartKey = nil
+                comp._lastEndKey = nil
+                log_taxi("TaxiRoute: abort on-runway")
+                return
+            end
+        end
+    end
+
+    if comp._drawRoute and (not comp._routeWaypoints or #comp._routeWaypoints == 0) then
+        comp._route = nil
+        comp._routeErr = "draw-route-empty"
+        comp._routeExtraSegments = nil
+        comp._editTailSegments = nil
+        comp._lastStartKey = nil
+        comp._lastEndKey = nil
+        log_taxi("TaxiDraw: abort draw-route-empty")
+        return
+    end
+
+    local route_waypoints = comp._routeWaypoints
+    if route_waypoints and #route_waypoints > 0 then
+        local drop_first = waypoint_matches_override(route_waypoints[1], comp._editStartOverride)
+        local drop_last = waypoint_matches_override(route_waypoints[#route_waypoints], comp._editEndOverride)
+        if comp._drawFreehand then
+            drop_first = false
+            drop_last = false
+        end
+        if drop_first or drop_last then
+            local trimmed = {}
+            local s = drop_first and 2 or 1
+            local e = drop_last and (#route_waypoints - 1) or #route_waypoints
+            for i = s, e do
+                trimmed[#trimmed + 1] = route_waypoints[i]
+            end
+            route_waypoints = trimmed
+        end
+    end
+    if freehand_active and route_waypoints and #route_waypoints > 0 then
+        local first = route_waypoints[1]
+        local last = route_waypoints[#route_waypoints]
+        if first then
+            ensure_waypoint_latlon(first)
+            if U.is_valid_latlon(first.lat, first.lon) then
+                start_lat = first.lat
+                start_lon = first.lon
+            end
+        end
+        if last then
+            ensure_waypoint_latlon(last)
+            if U.is_valid_latlon(last.lat, last.lon) then
+                end_lat = last.lat
+                end_lon = last.lon
+            end
+        end
+    end
+
+    local anchor_lat = start_lat
+    local anchor_lon = start_lon
+    if not in_edit then
+        if comp._rerouteOverride and U.is_valid_latlon(comp._rerouteOverride.lat, comp._rerouteOverride.lon) then
+            anchor_lat = comp._rerouteOverride.lat
+            anchor_lon = comp._rerouteOverride.lon
+        elseif comp._route and comp._routeStartAnchor
+            and U.is_valid_latlon(comp._routeStartAnchor.lat, comp._routeStartAnchor.lon) then
+            anchor_lat = comp._routeStartAnchor.lat
+            anchor_lon = comp._routeStartAnchor.lon
+        end
+    end
+    local start_key = string.format("%.6f|%.6f", anchor_lat or 0, anchor_lon or 0)
+    local end_key = string.format("%.6f|%.6f|%s", end_lat or 0, end_lon or 0, tostring(comp._runwayName or ""))
+    local recompute_reason = nil
+    local suppress_edit_recompute = false
+    if comp._editDirty and in_edit and (not comp._drawRoute) and (not comp._wpDrag)
+        and (not comp._manualRouteActive)
+        and (not has_start_override) and (not has_end_override)
+        and (not comp._editSuppressedNodes or next(comp._editSuppressedNodes) == nil)
+        and (not route_waypoints or #route_waypoints == 0) then
+        comp._editDirty = false
+        suppress_edit_recompute = true
+    end
+    if comp._editDirty and (not suppress_edit_recompute) then
+        recompute_reason = "edit-dirty"
+    elseif comp._route == nil then
+        recompute_reason = "route-nil"
+    elseif comp._lastStartKey ~= start_key or comp._lastEndKey ~= end_key then
+        if not (mode == 0 and comp._depThresholdLatched and comp._route and (not in_edit) and (not comp._drawRoute)) then
+            recompute_reason = "start-end-change"
+        else
+            comp._lastStartKey = start_key
+            comp._lastEndKey = end_key
+        end
+    end
+    if recompute_reason then
+        local recompute_key = string.format(
+            "%s|%s|%s|%d|%s|%s",
+            tostring(recompute_reason),
+            tostring(start_key),
+            tostring(end_key),
+            (comp._routeWaypoints and #comp._routeWaypoints) or 0,
+            tostring(in_edit),
+            tostring(comp._drawRoute)
+        )
+        if comp._lastRecomputeKey ~= recompute_key then
+            comp._lastRecomputeKey = recompute_key
+            log_taxi(
+                string.format(
+                    "TaxiRoute: recompute reason=%s edit=%s draw=%s wps=%d",
+                    tostring(recompute_reason),
+                    tostring(in_edit),
+                    tostring(comp._drawRoute),
+                    (comp._routeWaypoints and #comp._routeWaypoints) or 0
+                )
+            )
+        end
+    end
+    if comp._editDirty or comp._lastStartKey ~= start_key or comp._lastEndKey ~= end_key or comp._route == nil then
+        comp._lastStartKey = start_key
+        comp._lastEndKey = end_key
+        if data then
+            U.clear_temp_route_overlay(comp, data)
+        end
+        comp._depTurnaroundApplied = false
+        comp._initialGuidanceDone = false
+        comp._initialMoveAnchor = nil
+        comp._guidanceMoveAnchor = nil
+        comp._runwayCrossWarnedKey = nil
+        comp._depEntryIssuedAt = nil
+        if (canRoute or freehand_active)
+            and (freehand_active or (U.is_valid_latlon(start_lat, start_lon) and U.is_valid_latlon(end_lat, end_lon))) then
+            local function fmt_latlon(latv, lonv)
+                if not latv or not lonv then
+                    return "nil/nil"
+                end
+                return string.format("%.6f/%.6f", tonumber(latv) or 0, tonumber(lonv) or 0)
+            end
+            local function fmt_node_latlon(node_id)
+                if not node_id or not data or not data.nodes then
+                    return "nil"
+                end
+                local n = data.nodes[node_id]
+                if not n then
+                    return tostring(node_id) .. ":?"
+                end
+                return tostring(node_id) .. ":" .. fmt_latlon(n.lat, n.lon)
+            end
+            local yalref = comp.yal or _G.yal
+            local onGround = yalref and yalref.airgroundsensor and (get(yalref.airgroundsensor) == def.ON)
+            local groundspeed = yalref and yalref.groundspeed and (get(yalref.groundspeed) or 0) or 0
+            local raw_dep = yalref and yalref.deprwy and helpers.forceCleanString(get(yalref.deprwy) or "") or ""
+            local raw_arr = yalref and yalref.desrwy and helpers.forceCleanString(get(yalref.desrwy) or "") or ""
+            local dep_lat = yalref and yalref.deprwylatstartpos and get(yalref.deprwylatstartpos) or nil
+            local dep_lon = yalref and yalref.deprwylonstartpos and get(yalref.deprwylonstartpos) or nil
+            local arr_lat = yalref and yalref.desrwylatstartpos and get(yalref.desrwylatstartpos) or nil
+            local arr_lon = yalref and yalref.desrwylonstartpos and get(yalref.desrwylonstartpos) or nil
+            local src = data and data.route_source or "?"
+            helpers.logInfoTS(
+                "TaxiDiag: mode=" .. tostring(mode) ..
+                " icao=" .. tostring(icao) ..
+                " src=" .. tostring(src) ..
+                " runway=" .. tostring(comp._runwayName or "") ..
+                " rawDEP=" .. tostring(raw_dep) ..
+                " rawARR=" .. tostring(raw_arr)
+            )
+            helpers.logInfoTS(
+                "TaxiDiag: runwayLatLon dep=" .. fmt_latlon(dep_lat, dep_lon) ..
+                " arr=" .. fmt_latlon(arr_lat, arr_lon) ..
+                " chosen=" .. fmt_latlon(runway_lat, runway_lon)
+            )
+            helpers.logInfoTS(
+                "TaxiDiag: start=" .. fmt_latlon(start_lat, start_lon) ..
+                " end=" .. fmt_latlon(end_lat, end_lon) ..
+                " aircraft=" .. (aircraft and fmt_latlon(aircraft.lat, aircraft.lon) or "nil/nil") ..
+                " reroute=" .. (comp._rerouteOverride and fmt_latlon(comp._rerouteOverride.lat, comp._rerouteOverride.lon) or "nil/nil")
+            )
+            local dep_end_dbg = ""
+            if dep_end_node_id then
+                dep_end_dbg = " depEnd=" .. fmt_node_latlon(dep_end_node_id) .. " d=" .. tostring(dep_end_node_dist or "?")
+            end
+            helpers.logInfoTS(
+                "TaxiDiag: nodes start=" .. fmt_node_latlon(start_node_id) .. " d=" .. tostring(start_node_dist or "?") ..
+                " end=" .. fmt_node_latlon(end_node_id) .. " d=" .. tostring(end_node_dist or "?") ..
+                dep_end_dbg ..
+                " depHS=" .. fmt_node_latlon(dep_holdshort_id) ..
+                " arrExit=" .. fmt_node_latlon(arr_exit_id)
+            )
+            helpers.logInfoTS(
+                "TaxiDiag: onGround=" .. tostring(onGround) .. " gs=" .. tostring(groundspeed)
+            )
+            local tirespeed = yalref and yalref.tirespeed and (get(yalref.tirespeed) or 0) or 0
+            local now = 0
+            if comp._timer then
+                now = sasl.getElapsedSeconds(comp._timer) or 0
+            end
+            local log_key = string.format("%d|%s|%s|%s|%.4f|%.4f|%.4f|%.4f",
+                mode or -1,
+                tostring(icao),
+                tostring(comp._runwayName or ""),
+                tostring(raw_dep or raw_arr or ""),
+                tonumber(start_lat or 0),
+                tonumber(start_lon or 0),
+                tonumber(end_lat or 0),
+                tonumber(end_lon or 0)
+            )
+            local should_log = (comp._lastRouteLogKey ~= log_key)
+            if not should_log and comp._lastRouteLogTime then
+                should_log = (now - comp._lastRouteLogTime) > 8
+            end
+            if should_log then
+                comp._lastRouteLogKey = log_key
+                comp._lastRouteLogTime = now
+                local wtl_e, wtl_n = nil, nil
+                if aircraft and aircraft.lat and aircraft.lon then
+                    wtl_e, wtl_n = U.latlon_to_local(aircraft.lat, aircraft.lon)
+                end
+                local rwy_entry_lat = nil
+                local rwy_entry_lon = nil
+                local rwy_entry_dist_m = nil
+                local rwy1, rwy2, rwy_side = nil, nil, nil
+                if data and comp._runwayName and comp._runwayName ~= "" then
+                    local rwy, side = U.find_runway_entry(data, comp._runwayName, runway_lat, runway_lon)
+                    if rwy then
+                        rwy1 = rwy.rwy1
+                        rwy2 = rwy.rwy2
+                        rwy_side = side
+                        rwy_entry_lat = (side == 1) and rwy.lat1 or rwy.lat2
+                        rwy_entry_lon = (side == 1) and rwy.lon1 or rwy.lon2
+                        if U.is_valid_latlon(runway_lat, runway_lon) and U.is_valid_latlon(rwy_entry_lat, rwy_entry_lon) then
+                            rwy_entry_dist_m = U.distance_meters_latlon(runway_lat, runway_lon, rwy_entry_lat, rwy_entry_lon)
+                        end
+                    end
+                end
+                local dep_hs_dist = nil
+                if dep_holdshort_id and data and data.nodes then
+                    local hs = data.nodes[dep_holdshort_id]
+                    if hs and U.is_valid_latlon(hs.lat, hs.lon) and U.is_valid_latlon(runway_lat, runway_lon) then
+                        dep_hs_dist = U.distance_meters_latlon(runway_lat, runway_lon, hs.lat, hs.lon)
+                    end
+                end
+                U.log_full_route_state(comp, data, mode, icao, {
+                    raw_dep = raw_dep,
+                    raw_arr = raw_arr,
+                    runway_name = comp._runwayName,
+                    runway_lat = runway_lat,
+                    runway_lon = runway_lon,
+                    chosen_lat = runway_lat,
+                    chosen_lon = runway_lon,
+                    rwy1 = rwy1,
+                    rwy2 = rwy2,
+                    rwy_side = rwy_side,
+                    rwy_entry_lat = rwy_entry_lat,
+                    rwy_entry_lon = rwy_entry_lon,
+                    rwy_entry_dist_m = rwy_entry_dist_m,
+                    aircraft_lat = aircraft and aircraft.lat or nil,
+                    aircraft_lon = aircraft and aircraft.lon or nil,
+                    aircraft_east = aircraft and aircraft.east or nil,
+                    aircraft_north = aircraft and aircraft.north or nil,
+                    aircraft_wtl_e = wtl_e,
+                    aircraft_wtl_n = wtl_n,
+                    start_lat = start_lat,
+                    start_lon = start_lon,
+                    end_lat = end_lat,
+                    end_lon = end_lon,
+                    start_node_id = start_node_id,
+                    start_node_dist = start_node_dist,
+                    end_node_id = end_node_id,
+                    end_node_dist = end_node_dist,
+                    start_non_runway_node_id = start_non_runway_node_id,
+                    start_non_runway_node_dist = start_non_runway_node_dist,
+                    dep_holdshort_id = dep_holdshort_id,
+                    dep_holdshort_dist_m = dep_hs_dist,
+                    arr_exit_id = arr_exit_id,
+                    reroute_lat = comp._rerouteOverride and comp._rerouteOverride.lat or nil,
+                    reroute_lon = comp._rerouteOverride and comp._rerouteOverride.lon or nil,
+                    onGround = onGround,
+                    groundspeed = groundspeed,
+                    tirespeed = tirespeed
+                })
+            end
+            local proj_data = nil
+            local proj_disallow_runway_edges = nil
+            local proj_start_id = nil
+            local proj_end_id = nil
+            local proj_waypoint_ids = nil
+            local function compute_projection(opts)
+                local disallow = opts and opts.disallow_runway_edges or nil
+                if proj_data and proj_disallow_runway_edges == disallow then
+                    return
+                end
+                proj_data = nil
+                proj_start_id = nil
+                proj_end_id = nil
+                proj_waypoint_ids = nil
+                proj_disallow_runway_edges = disallow
+                local start_proj = nil
+                local end_proj = nil
+                local waypoint_projs = nil
+                if not opts.start_node_id and U.is_valid_latlon(start_lat, start_lon) then
+                    local sx, sy = U.latlon_to_local(start_lat, start_lon)
+                    if sx and sy then
+                        if start_ramp and start_ramp.east and start_ramp.north then
+                            if start_ramp.heading ~= nil then
+                                start_proj = U.find_heading_edge_projection(
+                                    data,
+                                    start_ramp.east,
+                                    start_ramp.north,
+                                    start_ramp.heading,
+                                    { disallow_runway_edges = opts.disallow_runway_edges, radius_m = 150, angle_deg = 60 }
+                                )
+                            end
+                            if not start_proj then
+                                start_proj = U.find_preferred_edge_projection(
+                                    data,
+                                    start_ramp.east,
+                                    start_ramp.north,
+                                    { disallow_runway_edges = opts.disallow_runway_edges }
+                                )
+                            end
+                        end
+                        if not start_proj then
+                            start_proj = U.find_nearest_edge_projection(data, sx, sy, { disallow_runway_edges = opts.disallow_runway_edges })
+                        end
+                    end
+                end
+                if not opts.end_node_id and U.is_valid_latlon(end_lat, end_lon) then
+                    local ex, ey = U.latlon_to_local(end_lat, end_lon)
+                    if ex and ey then
+                        if end_ramp and end_ramp.east and end_ramp.north then
+                            if end_ramp.heading ~= nil then
+                                end_proj = U.find_heading_edge_projection(
+                                    data,
+                                    end_ramp.east,
+                                    end_ramp.north,
+                                    end_ramp.heading,
+                                    { disallow_runway_edges = opts.disallow_runway_edges, radius_m = 150, angle_deg = 60 }
+                                )
+                            end
+                            if not end_proj then
+                                end_proj = U.find_preferred_edge_projection(
+                                    data,
+                                    end_ramp.east,
+                                    end_ramp.north,
+                                    { disallow_runway_edges = opts.disallow_runway_edges }
+                                )
+                            end
+                        end
+                        if not end_proj then
+                            end_proj = U.find_nearest_edge_projection(data, ex, ey, { disallow_runway_edges = opts.disallow_runway_edges })
+                        end
+                    end
+                end
+                if route_waypoints and #route_waypoints > 0 then
+                    waypoint_projs = {}
+                    for _, wp in ipairs(route_waypoints) do
+                        if U.is_valid_latlon(wp.lat, wp.lon) then
+                            local wx, wy = U.latlon_to_local(wp.lat, wp.lon)
+                            if wx and wy then
+                                waypoint_projs[#waypoint_projs + 1] = U.find_nearest_edge_projection(
+                                    data,
+                                    wx,
+                                    wy,
+                                    { disallow_runway_edges = opts.disallow_runway_edges }
+                                )
+                            end
+                        end
+                    end
+                end
+                if start_proj or end_proj or (waypoint_projs and #waypoint_projs > 0) then
+                    proj_data, proj_start_id, proj_end_id, proj_waypoint_ids =
+                        U.build_projected_data(data, start_proj, end_proj, waypoint_projs)
+                end
+            end
+            local function apply_projection(opts)
+                if proj_data then
+                    opts.data = proj_data
+                    if proj_start_id and not opts.start_node_id then
+                        opts.start_node_id = proj_start_id
+                    end
+                    if proj_end_id and not opts.end_node_id then
+                        opts.end_node_id = proj_end_id
+                    end
+                else
+                    opts.data = data
+                end
+                if not opts.start_node_id and opts._fallback_start_node_id then
+                    opts.start_node_id = opts._fallback_start_node_id
+                end
+                if not opts.end_node_id and opts._fallback_end_node_id then
+                    opts.end_node_id = opts._fallback_end_node_id
+                end
+            end
+
+            local function node_has_non_runway_edge(node_id)
+                if not node_id or not data or not data.adjacency_any or not data.nodes then
+                    return false
+                end
+                local edges = data.adjacency_any[node_id]
+                if not edges then
+                    return false
+                end
+                for _, edge in ipairs(edges) do
+                    local other = data.nodes[edge.to]
+                    if other and not other.is_ramp and not (data.runway_nodes and data.runway_nodes[edge.to]) then
+                        return true
+                    end
+                end
+                return false
+            end
+
+            local function ramp_node_ok(ramp)
+                if not ramp or not ramp.node_id then
+                    return false
+                end
+                return node_has_non_runway_edge(ramp.node_id)
+            end
+
+            local function set_start_ramp_fallback(opts)
+                if start_ramp and start_ramp.node_id and node_has_non_runway_edge(start_ramp.node_id) then
+                    opts._fallback_start_node_id = start_ramp.node_id
+                    opts.allow_far_ramp = true
+                end
+            end
+
+            local function set_end_ramp_fallback(opts)
+                if user_selected_end and end_ramp and end_ramp.node_id and node_has_non_runway_edge(end_ramp.node_id) then
+                    opts._fallback_end_node_id = end_ramp.node_id
+                    opts.allow_far_ramp = true
+                end
+            end
+
+            local opts = {}
+            if mode == 0 then
+                opts.avoid_runway_end = not allow_runway_route
+                opts.runway_penalty = allow_runway_route and 1 or 500
+                opts.disallow_runway_edges = not allow_runway_route
+                opts.avoid_runway_nodes = not allow_runway_route
+                if not has_start_override and ramp_node_ok(start_ramp) then
+                    opts.start_node_id = start_ramp.node_id
+                    opts.allow_far_ramp = true
+                    log_taxi("TaxiRoute: start from ramp node id=" .. tostring(start_ramp.node_id))
+                end
+                if not has_end_override then
+                    if allow_runway_route and dep_runway_end_id and data.nodes and data.nodes[dep_runway_end_id] then
+                        opts.end_node_id = dep_runway_end_id
+                    elseif comp._selectedDepEntryId and data.nodes and data.nodes[comp._selectedDepEntryId] then
+                        opts.end_node_id = comp._selectedDepEntryId
+                    elseif dep_holdshort_id and data.nodes and data.nodes[dep_holdshort_id] then
+                        opts.end_node_id = dep_holdshort_id
+                    elseif dep_end_node_id and data.nodes and data.nodes[dep_end_node_id] then
+                        opts.end_node_id = dep_end_node_id
+                    end
+                end
+                set_start_ramp_fallback(opts)
+            elseif mode == 1 then
+                if not allow_runway_route then
+                    if (not comp._rerouteOverride) and (not has_start_override) and (not comp._arrOffRunwayHandled)
+                        and arr_exit_id and data.nodes and data.nodes[arr_exit_id] then
+                        opts.start_node_id = arr_exit_id
+                    elseif not backtrack_required then
+                        opts.avoid_runway_start = true
+                    end
+                end
+                opts.disallow_runway_edges = (not allow_runway_route) and (not backtrack_required)
+                opts.runway_penalty = allow_runway_route and 1 or 500
+                if not has_end_override and ramp_node_ok(end_ramp) then
+                    opts.end_node_id = end_ramp.node_id
+                    opts.allow_far_ramp = true
+                    log_taxi("TaxiRoute: end at ramp node id=" .. tostring(end_ramp.node_id))
+                end
+                set_end_ramp_fallback(opts)
+            end
+            if not opts.start_node_id and start_node_id and data.nodes and data.nodes[start_node_id] then
+                opts.start_node_id = start_node_id
+            end
+            if not opts.end_node_id and end_node_id and data.nodes and data.nodes[end_node_id] then
+                opts.end_node_id = end_node_id
+            end
+            compute_projection(opts)
+            apply_projection(opts)
+            local route, rerr = nil, nil
+            if comp._drawFreehand and route_waypoints and #route_waypoints > 0 then
+                if #route_waypoints < 2 then
+                    route = nil
+                    rerr = nil
+                else
+                    route, rerr = build_freehand_route(route_waypoints, data)
+                end
+            else
+                route, rerr = U.route_with_waypoints(
+                    icao,
+                    start_lat,
+                    start_lon,
+                    end_lat,
+                    end_lon,
+                    opts,
+                    proj_waypoint_ids,
+                    route_waypoints
+                )
+            end
+            if (not route) and rerr == "no-path" and mode == 1 and opts and opts.disallow_runway_edges then
+                opts = U.copy_opts(opts) or {}
+                opts.disallow_runway_edges = false
+                if (not has_start_override) and (not backtrack_required) then
+                    opts.runway_penalty = 500
+                end
+                set_end_ramp_fallback(opts)
+                apply_projection(opts)
+                route, rerr = U.route_with_waypoints(
+                    icao,
+                    start_lat,
+                    start_lon,
+                    end_lat,
+                    end_lon,
+                    opts,
+                    proj_waypoint_ids,
+                    route_waypoints
+                )
+            end
+            if (not route) and rerr == "no-path" and mode == 0 then
+                if (not comp._selectedDepEntryId)
+                    and (not has_end_override)
+                    and (not manual_active)
+                    and dep_entry_candidate_id
+                    and data and data.nodes and data.nodes[dep_entry_candidate_id] then
+                    comp._selectedDepEntryId = dep_entry_candidate_id
+                    local dn = data.nodes[dep_entry_candidate_id]
+                    if dn and U.is_valid_latlon(dn.lat, dn.lon) then
+                        end_lat = dn.lat
+                        end_lon = dn.lon
+                        end_node_id = dep_entry_candidate_id
+                        end_node_dist = 0
+                    end
+                    log_taxi(
+                        string.format(
+                            "TaxiRoute: dep entry fallback id=%s dist=%.1f",
+                            tostring(dep_entry_candidate_id),
+                            dep_entry_candidate_dist or -1
+                        )
+                    )
+                end
+                opts = {
+                    ignore_oneway = true,
+                    allow_far_ramp = true,
+                    disallow_runway_edges = true,
+                    avoid_runway_nodes = true
+                }
+                if not has_end_override then
+                    if allow_runway_route and dep_runway_end_id and data.nodes and data.nodes[dep_runway_end_id] then
+                        opts.end_node_id = dep_runway_end_id
+                    elseif comp._selectedDepEntryId and data.nodes and data.nodes[comp._selectedDepEntryId] then
+                        opts.end_node_id = comp._selectedDepEntryId
+                    elseif dep_holdshort_id and data.nodes and data.nodes[dep_holdshort_id] then
+                        opts.end_node_id = dep_holdshort_id
+                    end
+                end
+                set_start_ramp_fallback(opts)
+                apply_projection(opts)
+                route, rerr = U.route_with_waypoints(
+                    icao,
+                    start_lat,
+                    start_lon,
+                    end_lat,
+                    end_lon,
+                    opts,
+                    proj_waypoint_ids,
+                    route_waypoints
+                )
+            end
+            if (not route) and rerr == "no-path" and mode == 0 then
+                opts = {
+                    ignore_oneway = true,
+                    allow_far_ramp = true,
+                    disallow_runway_edges = false,
+                    avoid_runway_nodes = false,
+                    runway_penalty = 500
+                }
+                if not has_end_override then
+                    if allow_runway_route and dep_runway_end_id and data.nodes and data.nodes[dep_runway_end_id] then
+                        opts.end_node_id = dep_runway_end_id
+                    elseif comp._selectedDepEntryId and data.nodes and data.nodes[comp._selectedDepEntryId] then
+                        opts.end_node_id = comp._selectedDepEntryId
+                    elseif dep_holdshort_id and data.nodes and data.nodes[dep_holdshort_id] then
+                        opts.end_node_id = dep_holdshort_id
+                    end
+                end
+                set_start_ramp_fallback(opts)
+                apply_projection(opts)
+                route, rerr = U.route_with_waypoints(
+                    icao,
+                    start_lat,
+                    start_lon,
+                    end_lat,
+                    end_lon,
+                    opts,
+                    proj_waypoint_ids,
+                    route_waypoints
+                )
+            end
+            if (not route) and rerr == "no-path" and mode == 0 and U.is_valid_latlon(start_lat, start_lon) then
+                local sx, sy = U.latlon_to_local(start_lat, start_lon)
+                local candidates = U.collect_nearest_nodes(data, sx, sy, 18)
+                if #candidates > 0 then
+                    opts = {
+                        ignore_oneway = true,
+                        allow_far_ramp = true,
+                        disallow_runway_edges = true,
+                        avoid_runway_nodes = true
+                    }
+                    if not has_end_override then
+                        if allow_runway_route and dep_runway_end_id and data.nodes and data.nodes[dep_runway_end_id] then
+                            opts.end_node_id = dep_runway_end_id
+                        elseif comp._selectedDepEntryId and data.nodes and data.nodes[comp._selectedDepEntryId] then
+                            opts.end_node_id = comp._selectedDepEntryId
+                        elseif dep_holdshort_id and data.nodes and data.nodes[dep_holdshort_id] then
+                            opts.end_node_id = dep_holdshort_id
+                        end
+                    end
+                    set_start_ramp_fallback(opts)
+                    apply_projection(opts)
+                    local alt_route = U.try_route_from_candidates(
+                        icao,
+                        data,
+                        end_lat,
+                        end_lon,
+                        candidates,
+                        opts,
+                        proj_waypoint_ids,
+                        route_waypoints
+                    )
+                    if alt_route then
+                        route = alt_route
+                        rerr = nil
+                    end
+                end
+            end
+            if (not route) and rerr == "no-path" and mode == 0 then
+                opts = {
+                    ignore_oneway = true,
+                    allow_far_ramp = true,
+                    disallow_runway_edges = true,
+                    avoid_runway_nodes = false
+                }
+                if not has_end_override then
+                    if allow_runway_route and dep_runway_end_id and data.nodes and data.nodes[dep_runway_end_id] then
+                        opts.end_node_id = dep_runway_end_id
+                    elseif comp._selectedDepEntryId and data.nodes and data.nodes[comp._selectedDepEntryId] then
+                        opts.end_node_id = comp._selectedDepEntryId
+                    elseif dep_holdshort_id and data.nodes and data.nodes[dep_holdshort_id] then
+                        opts.end_node_id = dep_holdshort_id
+                    end
+                end
+                set_start_ramp_fallback(opts)
+                apply_projection(opts)
+                route, rerr = U.route_with_waypoints(
+                    icao,
+                    start_lat,
+                    start_lon,
+                    end_lat,
+                    end_lon,
+                    opts,
+                    proj_waypoint_ids,
+                    route_waypoints
+                )
+                if route and helpers and helpers.logInfoTS then
+                    helpers.logInfoTS("Taxi: DEP fallback allow runway nodes")
+                end
+            end
+            if (not route) and rerr == "no-path" and mode == 0 then
+                opts = {
+                    ignore_oneway = true,
+                    allow_far_ramp = true,
+                    disallow_runway_edges = false,
+                    avoid_runway_nodes = false,
+                    runway_penalty = 50
+                }
+                if not has_end_override then
+                    if allow_runway_route and dep_runway_end_id and data.nodes and data.nodes[dep_runway_end_id] then
+                        opts.end_node_id = dep_runway_end_id
+                    elseif comp._selectedDepEntryId and data.nodes and data.nodes[comp._selectedDepEntryId] then
+                        opts.end_node_id = comp._selectedDepEntryId
+                    elseif dep_holdshort_id and data.nodes and data.nodes[dep_holdshort_id] then
+                        opts.end_node_id = dep_holdshort_id
+                    end
+                end
+                set_start_ramp_fallback(opts)
+                apply_projection(opts)
+                route, rerr = U.route_with_waypoints(
+                    icao,
+                    start_lat,
+                    start_lon,
+                    end_lat,
+                    end_lon,
+                    opts,
+                    proj_waypoint_ids,
+                    route_waypoints
+                )
+                if route and helpers and helpers.logInfoTS then
+                    helpers.logInfoTS("Taxi: DEP fallback allow runway crossing")
+                end
+            end
+            if (not route) and rerr == "no-path" and mode == 0 and U.is_valid_latlon(end_lat, end_lon) then
+                local ex, ey = U.latlon_to_local(end_lat, end_lon)
+                local candidates = U.collect_nearest_nodes(data, ex, ey, 18)
+                if #candidates > 0 then
+                    opts = {
+                        ignore_oneway = true,
+                        allow_far_ramp = true,
+                        disallow_runway_edges = true,
+                        avoid_runway_nodes = true
+                    }
+                    if not has_end_override then
+                        if allow_runway_route and dep_runway_end_id and data.nodes and data.nodes[dep_runway_end_id] then
+                            opts.end_node_id = dep_runway_end_id
+                        elseif comp._selectedDepEntryId and data.nodes and data.nodes[comp._selectedDepEntryId] then
+                            opts.end_node_id = comp._selectedDepEntryId
+                        elseif dep_holdshort_id and data.nodes and data.nodes[dep_holdshort_id] then
+                            opts.end_node_id = dep_holdshort_id
+                        end
+                    end
+                    set_start_ramp_fallback(opts)
+                    apply_projection(opts)
+                    local alt_route = U.try_route_to_candidates(
+                        icao,
+                        data,
+                        start_lat,
+                        start_lon,
+                        candidates,
+                        opts,
+                        proj_waypoint_ids,
+                        route_waypoints
+                    )
+                    if alt_route then
+                        route = alt_route
+                        rerr = nil
+                    end
+                end
+            end
+            if (not route) and rerr == "no-path" and mode == 1 then
+                opts = {}
+                if (not has_start_override) and (not backtrack_required) then
+                    opts.avoid_runway_start = true
+                end
+                set_end_ramp_fallback(opts)
+                apply_projection(opts)
+                route, rerr = U.route_with_waypoints(
+                    icao,
+                    start_lat,
+                    start_lon,
+                    end_lat,
+                    end_lon,
+                    opts,
+                    proj_waypoint_ids,
+                    route_waypoints
+                )
+            end
+            if (not route) and rerr == "no-path" and mode == 1 then
+                opts = { ignore_oneway = true }
+                if (not has_start_override) and (not backtrack_required) then
+                    opts.avoid_runway_start = true
+                end
+                set_end_ramp_fallback(opts)
+                apply_projection(opts)
+                route, rerr = U.route_with_waypoints(
+                    icao,
+                    start_lat,
+                    start_lon,
+                    end_lat,
+                    end_lon,
+                    opts,
+                    proj_waypoint_ids,
+                    route_waypoints
+                )
+            end
+            if (not route) and rerr == "no-path" and mode == 1 then
+                opts = {}
+                if (not has_start_override) and (not backtrack_required) then
+                    opts.runway_penalty = 500
+                end
+                set_end_ramp_fallback(opts)
+                apply_projection(opts)
+                route, rerr = U.route_with_waypoints(
+                    icao,
+                    start_lat,
+                    start_lon,
+                    end_lat,
+                    end_lon,
+                    opts,
+                    proj_waypoint_ids,
+                    route_waypoints
+                )
+            end
+            if (not route) and rerr == "no-path" and mode == 1 then
+                opts = { ignore_oneway = true }
+                set_end_ramp_fallback(opts)
+                apply_projection(opts)
+                route, rerr = U.route_with_waypoints(
+                    icao,
+                    start_lat,
+                    start_lon,
+                    end_lat,
+                    end_lon,
+                    opts,
+                    proj_waypoint_ids,
+                    route_waypoints
+                )
+            end
+            if (not route) and rerr == "no-path" and mode == 1 then
+                opts = { allow_far_ramp = true }
+                if (not has_start_override) and (not backtrack_required) then
+                    opts.avoid_runway_start = true
+                    opts.runway_penalty = 500
+                end
+                set_end_ramp_fallback(opts)
+                apply_projection(opts)
+                route, rerr = U.route_with_waypoints(
+                    icao,
+                    start_lat,
+                    start_lon,
+                    end_lat,
+                    end_lon,
+                    opts,
+                    proj_waypoint_ids,
+                    route_waypoints
+                )
+            end
+            if (not route) and rerr == "no-path" and mode == 1 then
+                opts = { allow_far_ramp = true, ignore_oneway = true }
+                set_end_ramp_fallback(opts)
+                apply_projection(opts)
+                route, rerr = U.route_with_waypoints(
+                    icao,
+                    start_lat,
+                    start_lon,
+                    end_lat,
+                    end_lon,
+                    opts,
+                    proj_waypoint_ids,
+                    route_waypoints
+                )
+            end
+            if (not route) and rerr == "no-path" and mode == 1 then
+                local ref = touchdown
+                if not (ref and ref.east and ref.north) and U.is_valid_latlon(runway_lat, runway_lon) then
+                    local re, rn = U.latlon_to_local(runway_lat, runway_lon)
+                    ref = { east = re, north = rn }
+                end
+                if ref and ref.east and ref.north and data then
+                    local candidates = collect_runway_exit_candidates(data, ref.east, ref.north, 12)
+                    if #candidates > 0 then
+                        opts = { allow_far_ramp = true, ignore_oneway = true }
+                        if (not has_start_override) and (not backtrack_required) then
+                            opts.runway_penalty = 500
+                        end
+                        apply_projection(opts)
+                        local alt_route, alt_err, alt_lat, alt_lon = U.try_route_from_candidates(
+                            icao,
+                            data,
+                            end_lat,
+                            end_lon,
+                            candidates,
+                            opts,
+                            proj_waypoint_ids,
+                            route_waypoints
+                        )
+                        if alt_route then
+                            route = alt_route
+                            rerr = alt_err
+                            start_lat = alt_lat
+                            start_lon = alt_lon
+                        end
+                    end
+                end
+            end
+            if (not route) and rerr == "no-path" and mode == 1 and U.is_valid_latlon(end_lat, end_lon) and (not user_selected_end) then
+                local ee, en = U.latlon_to_local(end_lat, end_lon)
+                local candidates = U.collect_nearest_nodes(data, ee, en, 18)
+                if #candidates > 0 then
+                    opts = { allow_far_ramp = true, ignore_oneway = true }
+                    if (not has_start_override) and (not backtrack_required) then
+                        opts.runway_penalty = 500
+                    end
+                    apply_projection(opts)
+                    local alt_route, alt_err, alt_lat, alt_lon = U.try_route_to_candidates(
+                        icao,
+                        data,
+                        start_lat,
+                        start_lon,
+                        candidates,
+                        opts,
+                        proj_waypoint_ids,
+                        route_waypoints
+                    )
+                    if alt_route then
+                        route = alt_route
+                        rerr = alt_err
+                        end_lat = alt_lat
+                        end_lon = alt_lon
+                    end
+                end
+            end
+            if (not route) and rerr == "no-path" and mode == 1 and U.is_valid_latlon(end_lat, end_lon) and user_selected_end then
+                local ee, en = U.latlon_to_local(end_lat, end_lon)
+                local candidates = U.collect_nearest_nodes(data, ee, en, 18)
+                if #candidates > 0 then
+                    opts = { allow_far_ramp = true, ignore_oneway = true }
+                    if not backtrack_required then
+                        opts.runway_penalty = 500
+                    end
+                    apply_projection(opts)
+                    local alt_route, alt_err, alt_lat, alt_lon = U.try_route_to_candidates(
+                        icao,
+                        data,
+                        start_lat,
+                        start_lon,
+                        candidates,
+                        opts,
+                        proj_waypoint_ids,
+                        route_waypoints
+                    )
+                    if alt_route then
+                        route = alt_route
+                        rerr = alt_err
+                    end
+                end
+            end
+            comp._route = route
+            comp._lastRouteComputeTime = now
+            comp._routeErr = rerr
+            comp._routeLabels = nil
+            comp._routeLabelStats = nil
+            if in_edit and route then
+                if comp._editDirty then
+                    log_taxi("TaxiEdit: clean")
+                end
+                comp._editDirty = false
+            end
+            local backtrack_applied = false
+            comp._routeExtraSegments = nil
+            if (not comp._drawFreehand) and (not comp._manualRouteActive)
+                and route and route.path and data and comp._runwayName and comp._runwayName ~= "" then
+                local profile = U.compute_runway_landing_profile(data, comp._runwayName, runway_lat, runway_lon)
+                if profile then
+                    local backtrack_node = nil
+                    local backtrack_target = nil
+                    if mode == 1 and backtrack_required and (not comp._arrOffRunwayHandled) then
+                        backtrack_node = arr_exit_id or route.path[1]
+                        if aircraft and is_on_runway_profile(profile, aircraft, 60, 5) then
+                            backtrack_target = { east = aircraft.east, north = aircraft.north }
+                        else
+                            backtrack_target = profile.touchdown or profile.threshold
+                        end
+                    elseif mode == 0 and not allow_runway_route then
+                        backtrack_node = comp._selectedDepEntryId or dep_holdshort_id or dep_end_node_id or route.end_id or route.path[#route.path]
+                        backtrack_target = profile.threshold
+                    end
+                    if backtrack_node then
+                        local segments = U.build_runway_backtrack_segments(data, profile, backtrack_node, backtrack_target)
+                        if segments and #segments > 0 then
+                            local runway_label = U.normalize_runway_name(comp._runwayName)
+                            if apply_backtrack_segments_to_route(comp, route, data, backtrack_node, segments, runway_label) then
+                                backtrack_applied = true
+                            else
+                                comp._routeExtraSegments = segments
+                            end
+                        end
+                    end
+                end
+            end
+            if mode == 0 and dep_backtrack_required and route and data and comp._runwayName and comp._runwayName ~= "" then
+                local profile = U.compute_runway_landing_profile(data, comp._runwayName, runway_lat, runway_lon)
+                if profile then
+                    local runway_label = U.normalize_runway_name(comp._runwayName)
+                    if apply_dep_turnaround_stub(comp, route, data, profile, runway_label) then
+                        log_taxi("TaxiRoute: dep turnaround stub applied")
+                    end
+                end
+            end
+            if route then
+                comp._routeLabels = U.build_route_labels(route.data, route.path)
+                comp._routeLabelStats = U.compute_route_label_stats(route.data, route.path)
+            end
+            if route and U.is_valid_latlon(start_lat, start_lon) then
+                if not in_edit then
+                    comp._routeStartAnchor = { lat = start_lat, lon = start_lon }
+                    if comp._rerouteOverride then
+                        comp._rerouteOverride = nil
+                    end
+                else
+                    comp._routeStartAnchor = nil
+                end
+            end
+            if route and route.path then
+                local rlen = #route.path
+                local src = (route.data and route.data.route_source) or "?"
+                helpers.logInfoTS(
+                    string.format(
+                        "Taxi: route %s %s mode=%d len=%d start=%s end=%s src=%s",
+                        tostring(icao),
+                        tostring(comp._runwayName or ""),
+                        tonumber(mode or -1),
+                        tonumber(rlen or 0),
+                        tostring(route.start_id or "?"),
+                        tostring(route.end_id or "?"),
+                        tostring(src)
+                    )
+                )
+                local path = route.path
+                local path_parts = {}
+                for i = 1, #path do
+                    path_parts[#path_parts + 1] = tostring(path[i])
+                end
+                local path_key = table.concat(path_parts, ",")
+                local fwd_key = path_key
+                if aircraft and aircraft.east and aircraft.north then
+                    local seg_idx = U.find_nearest_segment(route.data, path, aircraft.east, aircraft.north)
+                    if seg_idx and seg_idx >= 1 and seg_idx < #path_parts then
+                        fwd_key = table.concat(path_parts, ",", seg_idx + 1, #path_parts)
+                    end
+                end
+                if comp._lastRoutePathKey ~= path_key then
+                    comp._lastRoutePathKey = path_key
+                    local max_chunk = 30
+                    local idx = 1
+                    while idx <= #path_parts do
+                        local last = math.min(idx + max_chunk - 1, #path_parts)
+                        local chunk = table.concat(path_parts, ",", idx, last)
+                        helpers.logInfoTS(
+                            string.format(
+                                "TaxiPath: %s %s %d/%d %s",
+                                tostring(icao),
+                                tostring(comp._runwayName or ""),
+                                idx,
+                                #path_parts,
+                                chunk
+                            )
+                        )
+                        idx = last + 1
+                    end
+                    local labels = comp._routeLabels or U.build_route_labels(route.data, route.path)
+                    if labels and #labels > 0 then
+                        helpers.logInfoTS(
+                            "TaxiLabels: " .. tostring(icao) .. " " .. tostring(comp._runwayName or "") .. " " .. table.concat(labels, " ")
+                        )
+                    else
+                        helpers.logInfoTS("TaxiLabels: " .. tostring(icao) .. " " .. tostring(comp._runwayName or "") .. " <none>")
+                    end
+                end
+                if backtrack_applied then
+                    helpers.logInfoTS(
+                        "TaxiRoute: backtrack applied mode=" .. tostring(mode) ..
+                        " runway=" .. tostring(comp._runwayName or "") ..
+                        " node=" .. tostring((mode == 1 and arr_exit_id) or comp._selectedDepEntryId or dep_holdshort_id or dep_end_node_id or "")
+                    )
+                end
+                if comp._pendingRerouteEvent then
+                    if comp._lastForwardPathKey ~= fwd_key then
+                        record_reroute_event(comp, now)
+                        comp._lastForwardPathKey = fwd_key
+                    end
+                    comp._pendingRerouteEvent = nil
+                end
+            elseif rerr then
+                helpers.logInfoTS("Taxi: route error " .. tostring(icao) .. " mode=" .. tostring(mode) .. " err=" .. tostring(rerr))
+                helpers.logInfoTS(
+                    string.format(
+                        "TaxiRoute: fail-details err=%s start=%s end=%s allow_runway=%s disallow_runway_edges=%s ignore_oneway=%s avoid_runway_nodes=%s runway_penalty=%s",
+                        tostring(rerr),
+                        tostring((opts and opts.start_node_id) or start_node_id),
+                        tostring((opts and opts.end_node_id) or end_node_id),
+                        tostring(allow_runway_route),
+                        tostring(opts and opts.disallow_runway_edges),
+                        tostring(opts and opts.ignore_oneway),
+                        tostring(opts and opts.avoid_runway_nodes),
+                        tostring(opts and opts.runway_penalty)
+                    )
+                )
+                log_taxi(
+                    string.format(
+                        "TaxiRoute: error=%s edit=%s draw=%s",
+                        tostring(rerr),
+                        tostring(in_edit),
+                        tostring(comp._drawRoute)
+                    )
+                )
+                comp._pendingRerouteEvent = nil
+            end
+            if route and route.bounds then
+                comp._fitBounds = route.bounds
+            end
+            if mode == 1 and route and route.path and route.data and route.data ~= nil then
+                local exit_id = infer_arrival_exit_from_route(route, route.data)
+                if exit_id and exit_id ~= comp._arrExitId then
+                    comp._arrExitId = exit_id
+                    local on_runway_now = false
+                    if comp._arrProfile and aircraft then
+                        on_runway_now = is_on_runway_profile(comp._arrProfile, aircraft, 60, 5)
+                    elseif comp.yal and comp.yal.aircraftonrwy then
+                        on_runway_now = (comp.yal.aircraftonrwy(def.ARRIVAL, 40, 20) == false)
+                    end
+                    if not on_runway_now or (not comp._arrRunwayExitAnnounced) then
+                        comp._arrRunwayExitAnnounced = false
+                    end
+                    comp._arrRunwayCrossWarned = nil
+                end
+            end
+            if route and route.data and route.data.route_source == "freehand" then
+                comp._freehandLabelCache = nil
+            end
+            comp._lastGuidanceNodeId = nil
+            comp._lastGuidanceLabel = nil
+            comp._lastGuidanceTime = nil
+            comp._sCurveSkipNodeId = nil
+        else
+            helpers.logInfoTS(
+                "TaxiDiag: route-skip icao=" .. tostring(icao) ..
+                " mode=" .. tostring(mode) ..
+                " canRoute=" .. tostring(canRoute) ..
+                " start_valid=" .. tostring(U.is_valid_latlon(start_lat, start_lon)) ..
+                " end_valid=" .. tostring(U.is_valid_latlon(end_lat, end_lon))
+            )
+            helpers.logInfoTS(
+                string.format(
+                    "TaxiRoute: skip-details start=%s end=%s allow_runway=%s disallow_runway_edges=%s ignore_oneway=%s avoid_runway_nodes=%s runway_penalty=%s",
+                    tostring(start_node_id),
+                    tostring(end_node_id),
+                    tostring(allow_runway_route),
+                    tostring((mode == 0 and (not allow_runway_route)) or (mode == 1 and (not allow_runway_route) and (not backtrack_required))),
+                    tostring(false),
+                    tostring(mode == 0 and (not allow_runway_route) or nil),
+                    tostring((allow_runway_route and 1) or 500)
+                )
+            )
+            comp._route = nil
+            comp._routeErr = canRoute and "route-endpoints-missing" or "no-routes"
+            comp._routeLabels = nil
+            log_taxi("TaxiRoute: skip err=" .. tostring(comp._routeErr))
+        end
+    end
+
+    comp._depThresholdState = nil
+    comp._depThresholdReached = false
+    if mode == 0 and dep_profile and aircraft and aircraft.east ~= nil and aircraft.north ~= nil then
+        local state = compute_dep_threshold_state(comp, dep_profile, runway_lat, runway_lon, aircraft)
+        comp._depThresholdState = state
+        comp._depThresholdReached = state and state.reached or false
+        local callout_key = tostring(icao) .. "|" .. tostring(comp._runwayName or "")
+        if comp._depThresholdCalloutKey ~= callout_key then
+            U.reset_dep_threshold_callouts(comp, callout_key)
+        end
+        if state and state.heading_diff and state.heading_diff <= depThresholdHeadingLimit
+            and state.perp and state.corridor and state.perp <= state.corridor
+            and (not comp._depThresholdReached) and (not comp._depThresholdLatched) then
+            U.maybe_dep_threshold_voice_callouts(comp, state, U.is_auto_taxi_guidance_enabled())
+        else
+            comp._depThresholdCalloutStage = 0
+        end
+        if comp._depThresholdReached then
+            comp._depThresholdLatched = true
+        end
+        if comp._lastDepThresholdReached ~= comp._depThresholdReached then
+            comp._lastDepThresholdReached = comp._depThresholdReached
+            helpers.logInfoTS(
+                string.format(
+                    "TaxiDepThreshold: reached=%s dist=%.1f perp=%.1f hdgDiff=%s corridor=%.1f",
+                    tostring(comp._depThresholdReached),
+                    state and state.dist or -1,
+                    state and state.perp or -1,
+                    state and state.heading_diff and string.format("%.1f", state.heading_diff) or "nil",
+                    state and state.corridor or -1
+                )
+            )
+        end
+    else
+        comp._lastDepThresholdReached = nil
+        comp._depThresholdLatched = false
+        comp._depThresholdCalloutKey = nil
+        comp._depThresholdCalloutStage = 0
+    end
+
+    if mode == 0 and not comp._depThresholdLatched then
+        local yal = comp.yal or _G.yal
+        local onGround = yal and yal.airgroundsensor and (get(yal.airgroundsensor) == def.ON)
+        local gs = yal and yal.groundspeed and (get(yal.groundspeed) or 0) or 0
+        local onRunway = false
+        if onGround and comp.yal and comp.yal.aircraftonrwy then
+            onRunway = comp.yal.aircraftonrwy(def.DEPARTURE, 40, depThresholdHeadingLimit)
+        end
+        if onGround and onRunway and gs >= depTakeoffLatchSpeed then
+            if not comp._takeoffLatchSince then
+                comp._takeoffLatchSince = now
+            end
+            if (now - comp._takeoffLatchSince) >= depTakeoffLatchHoldSec then
+                comp._depThresholdLatched = true
+                comp._takeoffLatchSince = nil
+                helpers.logInfoTS(
+                    string.format("TaxiDepThreshold: latched=takeoff-roll gs=%.1f", gs)
+                )
+            end
+        else
+            comp._takeoffLatchSince = nil
+        end
+    else
+        comp._takeoffLatchSince = nil
+    end
+
+    if mode ~= 0 then
+        comp._depThresholdLatched = false
+    elseif comp._depThresholdLatched then
+        local yal = comp.yal or _G.yal
+        local onGround = yal and yal.airgroundsensor and (get(yal.airgroundsensor) == def.ON)
+        if not onGround then
+            comp._depThresholdLatched = false
+        elseif comp.yal and comp.yal.aircraftonrwy and U.is_valid_latlon(runway_lat, runway_lon) then
+            local onRunway = comp.yal.aircraftonrwy(def.DEPARTURE, 40, 20)
+            local gs = yal and yal.groundspeed and (get(yal.groundspeed) or 0) or 0
+            if (not onRunway) and gs < 5 then
+                comp._depThresholdLatched = false
+            end
+        end
+    end
+
+    if not in_edit then
+        if comp._route and aircraft and aircraft.east and aircraft.north then
+            local yal = comp.yal or _G.yal
+            local onGround = yal and yal.airgroundsensor and (get(yal.airgroundsensor) == def.ON)
+            local tirespeed = yal and yal.tirespeed and (get(yal.tirespeed) or 0) or 0
+            local skip_reroute = false
+            if comp._drawFreehand and comp._routeWaypoints and #comp._routeWaypoints > 0 then
+                skip_reroute = true
+            end
+            if mode == 0 and (comp._depThresholdReached or comp._depThresholdLatched) then
+                skip_reroute = true
+            end
+            if onGround and tirespeed > 1 and not (mode == 0 and comp._depThresholdLatched) and (not skip_reroute) then
+                local offRunway = nil
+                if mode == 1 and U.is_valid_latlon(runway_lat, runway_lon) then
+                    if landing_profile and aircraft then
+                        offRunway = not is_on_runway_profile(landing_profile, aircraft, 60, 5)
+                    elseif comp.yal and comp.yal.aircraftonrwy then
+                        offRunway = comp.yal.aircraftonrwy(def.ARRIVAL, 40, 20)
+                    end
+                end
+                if mode == 1 and offRunway == false then
+                    return
+                end
+                if mode == 1 and offRunway and not comp._arrOffRunwayHandled then
+                    comp._arrOffRunwayHandled = true
+                    if not comp._rerouteOverride then
+                        comp._rerouteOverride = { lat = aircraft.lat, lon = aircraft.lon }
+                        if not arrival_grace_active(comp, now) then
+                            comp._pendingRerouteEvent = true
+                        end
+                        comp._lastRerouteTime = now
+                        comp._lastStartKey = nil
+                        comp._route = nil
+                        comp._routeErr = nil
+                        comp._routeLabels = nil
+                        comp._routeLabelStats = nil
+                    end
+                    log_taxi("TaxiRoute: off-runway reroute latch")
+                    return
+                end
+                local routeData = comp._route.data
+                local dist = U.distance_to_route(routeData, comp._route.path, aircraft.east, aircraft.north)
+                if comp._routeExtraSegments then
+                    local extra = U.distance_to_segments(comp._routeExtraSegments, aircraft.east, aircraft.north)
+                    if extra and (not dist or extra < dist) then
+                        dist = extra
+                    end
+                end
+                comp._lastRouteDist = dist
+                local lastReroute = comp._lastRerouteTime or 0
+                local driftMeters = (mode == 1 and arrRerouteDriftMeters) or rerouteDriftMeters
+                local skipReroute = false
+                if mode == 1 then
+                    local lastCompute = comp._lastRouteComputeTime or 0
+                    if lastCompute > 0 and (now - lastCompute) < 2 then
+                        local gs = yal and yal.groundspeed and (get(yal.groundspeed) or 0) or 0
+                        if dist and dist <= (driftMeters * 3) and gs < 25 then
+                            skipReroute = true
+                        end
+                    end
+                end
+                if dist and dist > driftMeters and (now - lastReroute) > rerouteCooldown then
+                    comp._rerouteOverride = { lat = aircraft.lat, lon = aircraft.lon }
+                    if not arrival_grace_active(comp, now) then
+                        comp._pendingRerouteEvent = true
+                    end
+                    comp._lastRerouteTime = now
+                    comp._lastStartKey = nil
+                    comp._route = nil
+                    comp._routeErr = nil
+                    comp._routeLabels = nil
+                    comp._routeLabelStats = nil
+                end
+            end
+        end
+
+        if comp._route then
+            if U.maybe_force_global_for_quality(comp, now, icao, mode, data, helpers, aircraft) then
+                U.update_visual_guidance(comp, now, aircraft)
+                return
+            end
+            U.maybe_speak_guidance(comp, now, aircraft)
+        end
+        if comp.mode == 0 and not comp._depTaxiCompleteAnnounced and comp._runwayName and comp._runwayName ~= "" then
+            local yal = comp.yal or _G.yal
+            local onGround = yal and yal.airgroundsensor and (get(yal.airgroundsensor) == def.ON)
+            if onGround and comp.yal and comp.yal.aircraftonrwy then
+                local onRunway = comp.yal.aircraftonrwy(def.DEPARTURE, 40, depThresholdHeadingLimit)
+                if onRunway then
+                    if not comp._depRunwayEntryAnnounced then
+                        local rwy_phrase = runway_label_voice(comp._runwayName)
+                        local entry_text = "Enter departure " .. rwy_phrase
+                        local entry_action = "ENTER RWY"
+                        local entry_direction = "straight"
+                        local entry_label = build_visual_label("runway", U.normalize_runway_name(comp._runwayName))
+                        local turn_threshold = 15
+                        if comp._route and comp._route.path and comp._route.data and dep_profile and dep_profile.axis then
+                            local path = comp._route.path
+                            local data = comp._route.data
+                            if #path >= 2 then
+                                local v1x, v1y = nil, nil
+                                local found = false
+                                local runway_nodes = data.runway_nodes
+                                if runway_nodes then
+                                    for i = #path - 1, 1, -1 do
+                                        local id1 = path[i]
+                                        local id2 = path[i + 1]
+                                        local is1 = runway_nodes[id1] and true or false
+                                        local is2 = runway_nodes[id2] and true or false
+                                        if is1 ~= is2 then
+                                            local n1 = data.nodes and data.nodes[id1] or nil
+                                            local n2 = data.nodes and data.nodes[id2] or nil
+                                            if n1 and n2 and n1.east and n1.north and n2.east and n2.north then
+                                                if is1 and (not is2) then
+                                                    v1x = n1.east - n2.east
+                                                    v1y = n1.north - n2.north
+                                                else
+                                                    v1x = n2.east - n1.east
+                                                    v1y = n2.north - n1.north
+                                                end
+                                                found = true
+                                            end
+                                            break
+                                        end
+                                    end
+                                end
+                                if not found then
+                                    local n1 = data.nodes and data.nodes[path[#path - 1]] or nil
+                                    local n2 = data.nodes and data.nodes[path[#path]] or nil
+                                    if n1 and n2 and n1.east and n1.north and n2.east and n2.north then
+                                        v1x = n2.east - n1.east
+                                        v1y = n2.north - n1.north
+                                        found = true
+                                    end
+                                end
+                                if found then
+                                    local len1 = math.sqrt(v1x * v1x + v1y * v1y)
+                                    local v2x = dep_profile.axis.x or 0
+                                    local v2y = dep_profile.axis.y or 0
+                                    local len2 = math.sqrt(v2x * v2x + v2y * v2y)
+                                    if len1 > 0.1 and len2 > 0.1 then
+                                        local dot = (v1x * v2x + v1y * v2y) / (len1 * len2)
+                                        if dot > 1 then dot = 1 end
+                                        if dot < -1 then dot = -1 end
+                                        local angle = math.deg(math.acos(dot))
+                                        if angle >= turn_threshold then
+                                            local cross = v1x * v2y - v1y * v2x
+                                            local turn = (cross >= 0) and "left" or "right"
+                                            entry_text = "Turn " .. turn .. " on departure " .. rwy_phrase
+                                            entry_action = (turn == "left") and "TURN LEFT" or "TURN RIGHT"
+                                            entry_direction = turn
+                                        end
+                                    end
+                                end
+                            end
+                        end
+                        emit_guidance(comp, now, {
+                            text = entry_text,
+                            direction = entry_direction,
+                            action = entry_action,
+                            label = entry_label,
+                            kind = "runway"
+                        }, U.is_auto_taxi_guidance_enabled())
+                        comp._depRunwayEntryAnnounced = true
+                        comp._depEntryIssuedAt = now
+                    end
+                    if comp._depThresholdLatched or comp._depThresholdReached then
+                        local entryIssuedAt = comp._depEntryIssuedAt or 0
+                        if (not entryIssuedAt) or (not now) or (now - entryIssuedAt) >= 2 then
+                            local rwy_phrase = runway_label_voice(comp._runwayName)
+                            emit_guidance(comp, now, {
+                                text = "On departure " .. rwy_phrase .. ", taxi complete",
+                                direction = "straight",
+                                action = "TAXI COMPLETE",
+                                label = build_visual_label("runway", U.normalize_runway_name(comp._runwayName)),
+                                kind = "runway",
+                                queue = true
+                            }, U.is_auto_taxi_guidance_enabled())
+                            comp._depTaxiCompleteAnnounced = true
+                        end
+                    end
+                end
+            end
+        end
+        if comp.mode == 1 and not comp._arrTaxiCompleteAnnounced then
+            local yalref = comp.yal or _G.yal
+            local onGround = yalref and yalref.airgroundsensor and (get(yalref.airgroundsensor) == def.ON)
+            local gs = yalref and yalref.groundspeed and (get(yalref.groundspeed) or 0) or 0
+            local park = yalref and yalref.parkingbrakepos and get(yalref.parkingbrakepos) or nil
+            if onGround and park == def.ON and gs < 1 and aircraft and U.is_valid_latlon(aircraft.lat, aircraft.lon) then
+                local on_runway = false
+                if comp._arrProfile and aircraft then
+                    on_runway = is_on_runway_profile(comp._arrProfile, aircraft, 60, 5)
+                end
+                if on_runway then
+                    if not comp._arrTaxiCompleteRunwaySkip then
+                        log_taxi("TaxiRoute: parking brake on runway, skip taxi complete")
+                        comp._arrTaxiCompleteRunwaySkip = true
+                    end
+                else
+                    comp._arrTaxiCompleteRunwaySkip = nil
+                    if not nearest_ramp then
+                        nearest_ramp = helpers.getNearestRamp(
+                            icao,
+                            aircraft.lat,
+                            aircraft.lon,
+                            { filter = helpers.isRampSuitableFor738, data = comp._data }
+                        )
+                        if nearest_ramp and U.is_valid_latlon(nearest_ramp.lat, nearest_ramp.lon) then
+                            nearest_ramp_dist = U.distance_meters_latlon(
+                                nearest_ramp.lat,
+                                nearest_ramp.lon,
+                                aircraft.lat,
+                                aircraft.lon
+                            )
+                        end
+                    end
+                    local pb_dist = tuning.parkingBrakeCompleteDist or 35
+                    if nearest_ramp and nearest_ramp_dist and nearest_ramp_dist <= pb_dist then
+                        local ramp_label = U.short_ramp_label(nearest_ramp)
+                        U.clear_visual_guidance(comp, "taxi-complete")
+                        comp._visualGuidanceQueue = {}
+                        emit_guidance(comp, now, {
+                            text = "Taxi complete",
+                            direction = "straight",
+                            action = "TAXI COMPLETE",
+                            label = ramp_label,
+                            kind = "ramp"
+                        }, U.is_auto_taxi_guidance_enabled())
+                        comp._arrTaxiCompleteAnnounced = true
+                        set_guidance_state(comp, "complete", "taxi-complete", log_taxi)
+                        comp._route = nil
+                        comp._routeErr = "taxi-complete"
+                        comp._routeLabels = nil
+                        comp._routeLabelStats = nil
+                        comp._routeExtraSegments = nil
+                        comp._lastStartKey = nil
+                        comp._lastEndKey = nil
+                        comp._visualGuidanceQueue = {}
+                        log_taxi("TaxiRoute: taxi complete parking brake")
+                    end
+                end
+            end
+        end
+        U.update_visual_guidance(comp, now, aircraft)
+    end
+
+    comp._editTailSegments = nil
+    if comp._route and comp._route.path and (not comp._drawFreehand)
+        and (in_edit or has_start_override or has_end_override) then
+        local routeData = comp._route.data or comp._data
+        if routeData and routeData.nodes then
+            local segs = {}
+            local first_id = comp._route.path[1]
+            local last_id = comp._route.path[#comp._route.path]
+            if has_start_override and U.is_valid_latlon(start_vis_lat, start_vis_lon) and first_id then
+                local n1 = routeData.nodes[first_id]
+                if n1 and n1.east and n1.north then
+                    local se, sn = U.latlon_to_local(start_vis_lat, start_vis_lon)
+                    if se and sn then
+                        local dx = n1.east - se
+                        local dy = n1.north - sn
+                        if (dx * dx + dy * dy) > 1 then
+                            segs[#segs + 1] = {
+                                east1 = se,
+                                north1 = sn,
+                                east2 = n1.east,
+                                north2 = n1.north
+                            }
+                        end
+                    end
+                end
+            end
+            if has_end_override and U.is_valid_latlon(end_vis_lat, end_vis_lon) and last_id then
+                local n2 = routeData.nodes[last_id]
+                if n2 and n2.east and n2.north then
+                    local ee, en = U.latlon_to_local(end_vis_lat, end_vis_lon)
+                    if ee and en then
+                        local dx = n2.east - ee
+                        local dy = n2.north - en
+                        if (dx * dx + dy * dy) > 1 then
+                            segs[#segs + 1] = {
+                                east1 = n2.east,
+                                north1 = n2.north,
+                                east2 = ee,
+                                north2 = en
+                            }
+                        end
+                    end
+                end
+            end
+            if #segs > 0 then
+                comp._editTailSegments = segs
+            end
+        end
+    end
+
+    comp._aircraftPoint = nil
+    if aircraft and aircraft.east ~= nil and aircraft.north ~= nil then
+        comp._aircraftPoint = { east = aircraft.east, north = aircraft.north }
+    end
+
+    if comp._fitBounds and comp._aircraftPoint then
+        local b = comp._fitBounds
+        local outside = false
+        if b.minX and b.maxX and b.minY and b.maxY then
+            outside = (comp._aircraftPoint.east < b.minX) or (comp._aircraftPoint.east > b.maxX)
+                or (comp._aircraftPoint.north < b.minY) or (comp._aircraftPoint.north > b.maxY)
+        end
+        local log_key = tostring(comp._lastIcao or "") .. "|" .. tostring(comp.mode or "") .. "|" .. tostring(outside)
+        if comp._lastBoundsLogKey ~= log_key then
+            comp._lastBoundsLogKey = log_key
+            helpers.logInfoTS(
+                string.format(
+                    "TaxiBounds: mode=%s icao=%s outside=%s bounds=[%.1f..%.1f, %.1f..%.1f] aircraft=%.1f/%.1f",
+                    tostring(comp.mode),
+                    tostring(comp._lastIcao or ""),
+                    tostring(outside),
+                    b.minX or 0,
+                    b.maxX or 0,
+                    b.minY or 0,
+                    b.maxY or 0,
+                    comp._aircraftPoint.east or 0,
+                    comp._aircraftPoint.north or 0
+                )
+            )
+        end
+    end
+
+    comp._startPoint = nil
+    local sp_lat = (in_edit and start_vis_lat) or start_lat
+    local sp_lon = (in_edit and start_vis_lon) or start_lon
+    if U.is_valid_latlon(sp_lat, sp_lon) then
+        local sx, sy = U.latlon_to_local(sp_lat, sp_lon)
+        comp._startPoint = { east = sx, north = sy }
+    end
+    comp._endPoint = nil
+    local ep_lat = (in_edit and end_vis_lat) or end_lat
+    local ep_lon = (in_edit and end_vis_lon) or end_lon
+    if U.is_valid_latlon(ep_lat, ep_lon) then
+        local ex, ey = U.latlon_to_local(ep_lat, ep_lon)
+        comp._endPoint = { east = ex, north = ey }
+    end
+
+    if in_edit then
+        if comp._route and comp._route.path and comp._route.data then
+            U.build_edit_handles(comp, start_vis_lat, start_vis_lon, end_vis_lat, end_vis_lon)
+        else
+            comp._editHandles = nil
+        end
+    else
+        comp._editHandles = nil
+    end
+
+    local route_state_key = string.format("%s|%s", tostring(comp._route ~= nil), tostring(comp._routeErr or ""))
+    if comp._lastRouteStateKey ~= route_state_key then
+        comp._lastRouteStateKey = route_state_key
+        log_taxi(
+            string.format(
+                "TaxiRoute: state route=%s err=%s edit=%s draw=%s",
+                tostring(comp._route ~= nil),
+                tostring(comp._routeErr),
+                tostring(in_edit),
+                tostring(comp._drawRoute)
+            )
+        )
+    end
+    if comp._route and comp._route.path and (not in_edit) and (not comp._drawRoute) then
+        local rlen = #comp._route.path
+        local src = (comp._route.data and comp._route.data.route_source) or "?"
+        local auto_key = table.concat({
+            tostring(comp._lastIcao or ""),
+            tostring(comp._runwayName or ""),
+            tostring(rlen),
+            tostring(comp._route.start_id or ""),
+            tostring(comp._route.end_id or ""),
+            tostring(src)
+        }, "|")
+        if comp._lastAutoRouteLogKey ~= auto_key then
+            comp._lastAutoRouteLogKey = auto_key
+            helpers.logInfoTS(
+                string.format(
+                    "TaxiAuto: route %s %s mode=%d len=%d start=%s end=%s src=%s",
+                    tostring(comp._lastIcao or ""),
+                    tostring(comp._runwayName or ""),
+                    tonumber(comp.mode or -1),
+                    tonumber(rlen or 0),
+                    tostring(comp._route.start_id or "?"),
+                    tostring(comp._route.end_id or "?"),
+                    tostring(src)
+                )
+            )
+        end
+    end
+
+    if comp._planCenterPending then
+        if (not in_edit) and comp.mode == 1 and onGround == false then
+            local b = comp._fitBounds
+            if b then
+                local cx, cy = U.compute_bounds_center(b)
+                if cx and cy then
+                    comp._setCenter(cx, cy)
+                    log_taxi("TaxiPlan: center on route bounds (open)")
+                    comp._planCenterPending = false
+                end
+            end
+        elseif onGround or comp.mode ~= 1 then
+            comp._planCenterPending = false
+        end
+    end
+    if comp._needsCenter and comp._fitBounds and not in_edit then
+        local cx, cy = U.compute_bounds_center(comp._fitBounds)
+        comp._setCenter(cx, cy)
+        comp._needsCenter = false
+    end
+end
+
+
 function M.windowSize()
     return defaultW, defaultH
 end
@@ -5001,6 +8137,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
         comp.panX = 0
         comp.panY = 0
     end
+    comp._setCenter = set_center
 
     local function center_on_aircraft()
         local yal = comp.yal or _G.yal
@@ -6699,3134 +9836,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
     end
 
     function comp:updateTaxiState(map)
-        local comp = self
-        local U = comp._U or {}
-        local C = comp._C or {}
-        local def = comp._def
-        local helpers = comp._helpers
-        local log_taxi = comp._logTaxi
-        local updateInterval = C.updateInterval or 1.0
-        local startRampMaxMeters = C.startRampMaxMeters or 80
-        local rerouteCooldown = C.rerouteCooldown or 6
-        local rerouteDriftMeters = C.rerouteDriftMeters or 40
-        local guidanceMinSpeed = C.guidanceMinSpeed or 1
-        local guidanceTurnDistance = C.guidanceTurnDistance or 80
-        local guidanceTurnAngle = C.guidanceTurnAngle or 20
-        local guidanceLeadTimeSec = C.guidanceLeadTimeSec or 12
-        local guidanceMaxDistance = C.guidanceMaxDistance or 180
-        local guidanceStraightAngle = C.guidanceStraightAngle or 10
-        local runwayRouteMaxSpeed = 45
-        local depThresholdGateMeters = 60
-        local depThresholdHeadingLimit = 25
-        local depTakeoffLatchSpeed = 25
-        local depTakeoffLatchHoldSec = 2.0
-        local depRunwayCorridorMin = 25
-        local depRunwayCorridorMax = 80
-        local depRunwayCorridorBuffer = 10
-        local arrStartNodeMaxMeters = 180
-        local tuning = comp._tuning or {}
-        local now = 0
-        if comp._timer then
-            now = sasl.getElapsedSeconds(comp._timer) or 0
-        end
-        local in_edit = comp._editRoute or comp._drawRoute
-        if comp._lastUpdate and (now - comp._lastUpdate) < updateInterval then
-            return
-        end
-        comp._lastUpdate = now
-
-        -- Always refresh aircraft position for display, even in edit/draw mode.
-        local yal = comp.yal or _G.yal
-        if yal and yal.aircraftlatpos and yal.aircraftlonpos then
-            local alat = get(yal.aircraftlatpos)
-            local alon = get(yal.aircraftlonpos)
-            if is_valid_latlon(alat, alon) then
-                local ae, an = latlon_to_local(alat, alon)
-                if ae and an then
-                    comp._aircraftPoint = { east = ae, north = an }
-                end
-            end
-        end
-
-        if in_edit then
-            clear_visual_guidance(comp, "edit")
-            comp._visualGuidanceQueue = {}
-        end
-
-        if not yal then
-            comp._dataErr = "yal-not-ready"
-            return
-        end
-
-        local depIcao = nil
-        if yal.depicao then
-            depIcao = normalize_icao(get(yal.depicao) or "")
-            if not helpers.isvalidicao(depIcao) then
-                depIcao = nil
-            end
-        end
-        local desIcao = nil
-        if yal.desicao then
-            desIcao = normalize_icao(get(yal.desicao) or "")
-            if not helpers.isvalidicao(desIcao) then
-                desIcao = nil
-            end
-        end
-        if desIcao and desIcao ~= comp._lastArrivalIcao then
-            comp._lastArrivalRunwayName = nil
-            comp._lastArrivalRunwayLat = nil
-            comp._lastArrivalRunwayLon = nil
-        end
-        if desIcao then
-            comp._lastArrivalIcao = desIcao
-        end
-        local onGroundSensor = yal.airgroundsensor and (get(yal.airgroundsensor) == def.ON)
-        local airborne = yal.airgroundsensor and (get(yal.airgroundsensor) == def.OFF)
-        if yal.flightstate == def.FLIGHTSTATEPREFLIGHT and depIcao then
-            comp._lastArrivalIcao = nil
-            comp._lastArrivalRunwayName = nil
-            comp._lastArrivalRunwayLat = nil
-            comp._lastArrivalRunwayLon = nil
-        end
-
-        local autoMode = comp.mode or 0
-        if yal.flightstate ~= nil then
-            if yal.flightstate == def.FLIGHTSTATEPREFLIGHT then
-                autoMode = 0
-                if not depIcao and comp._lastArrivalIcao and onGroundSensor then
-                    autoMode = 1
-                end
-            else
-                autoMode = 1
-            end
-        end
-        -- After takeoff, force ARR mode and suppress DEP routing.
-        if airborne then
-            autoMode = 1
-            if comp.mode == 0 then
-                comp.modeOverride = false
-                comp.mode = 1
-            end
-        end
-        comp.autoMode = autoMode
-        if not comp.modeOverride then
-            comp.mode = autoMode
-        elseif comp.mode == autoMode then
-            comp.modeOverride = false
-        end
-
-        local mode = comp.mode or autoMode
-        if mode == 1 and onGroundSensor then
-            if not comp._arrOnGroundSince then
-                comp._arrOnGroundSince = now
-                if comp._quality then
-                    comp._quality.rerouteEvents = {}
-                    comp._quality.badSince = nil
-                    comp._quality.distBadSince = nil
-                end
-            end
-        else
-            comp._arrOnGroundSince = nil
-        end
-        local nearestIcao = nil
-        if yal.nearesticao then
-            local nearest = normalize_icao(get(yal.nearesticao) or "")
-            if helpers.isvalidicao(nearest) then
-                nearestIcao = nearest
-            end
-        end
-        local icao = nil
-        if mode == 0 then
-            icao = depIcao
-            if not helpers.isvalidicao(icao or "") and nearestIcao then
-                icao = nearestIcao
-            end
-        else
-            icao = desIcao
-            if not helpers.isvalidicao(icao or "") and comp._lastArrivalIcao then
-                icao = comp._lastArrivalIcao
-            end
-            if not helpers.isvalidicao(icao or "") and onGroundSensor and nearestIcao then
-                icao = nearestIcao
-            end
-        end
-
-        if not helpers.isvalidicao(icao or "") then
-            clear_temp_route_overlay(comp, comp._data)
-            comp._data = nil
-            comp._route = nil
-            comp._dataErr = "invalid-icao"
-            comp._routeErr = nil
-            comp._lastIcao = nil
-            comp._fitBounds = nil
-            comp._runwayName = nil
-            clear_visual_guidance(comp, "invalid-icao")
-            comp._visualGuidanceQueue = {}
-            comp._drawFreehand = false
-            comp._arrOffRunwayHandled = false
-            comp._arrExitId = nil
-            comp._arrProfile = nil
-            comp._arrBacktrackRequired = nil
-            comp._arrRunwayExitAnnounced = false
-            comp._arrRunwayCrossWarned = nil
-            comp._runwayCrossWarnedKey = nil
-            comp._initialMoveAnchor = nil
-            comp._guidanceMoveAnchor = nil
-            comp._depEntryIssuedAt = nil
-            comp._editTailSegments = nil
-            set_taxi_ref(nil)
-            log_taxi("TaxiRoute: abort invalid-icao")
-            return
-        end
-
-        local prev_icao_valid = helpers.isvalidicao(comp._lastIcao or "")
-        local prev_start_override = comp._editStartOverride
-        local prev_end_override = comp._editEndOverride
-        local prev_waypoints = comp._routeWaypoints
-        local prev_draw_freehand = comp._drawFreehand
-        local icao_changed = (comp._lastIcao ~= icao)
-        local mode_changed = (comp._lastMode ~= mode)
-        if icao_changed or mode_changed then
-            comp._needsCenter = true
-            comp._route = nil
-            comp._routeErr = nil
-            comp._routeLabels = nil
-            comp._routeLabelStats = nil
-            comp._lastRouteDist = nil
-            comp._startPoint = nil
-            comp._endPoint = nil
-            comp._startRamp = nil
-            comp._startRampLabel = nil
-            comp._endRamp = nil
-            comp._lastStartKey = nil
-            comp._lastEndKey = nil
-            comp._routeStartAnchor = nil
-            comp._routeExtraSegments = nil
-            clear_temp_route_overlay(comp, comp._data)
-            comp._editTailSegments = nil
-            comp._lastGuidanceNodeId = nil
-            comp._lastGuidanceLabel = nil
-            comp._lastGuidanceTime = nil
-            comp._sCurveSkipNodeId = nil
-            clear_visual_guidance(comp, "reset")
-            comp._visualGuidanceQueue = {}
-            comp._editHandles = nil
-            comp._editSuppressedNodes = nil
-            comp._editDirty = false
-            comp._editStartOverride = nil
-            comp._editEndOverride = nil
-            comp._lastOffNetworkStartKey = nil
-            comp._lastOffNetworkEndKey = nil
-            comp._lastAutoRouteLogKey = nil
-            comp._drawFreehand = false
-            comp._arrOffRunwayHandled = false
-            comp._arrExitId = nil
-            comp._arrProfile = nil
-            comp._arrBacktrackRequired = nil
-            comp._arrRunwayExitAnnounced = false
-            comp._arrRunwayCrossWarned = nil
-            comp._depRunwayEntryAnnounced = false
-            comp._depTaxiCompleteAnnounced = false
-            comp._arrTaxiCompleteAnnounced = false
-            comp._initialGuidanceDone = false
-            comp._initialMoveAnchor = nil
-            comp._guidanceMoveAnchor = nil
-            comp._runwayCrossWarnedKey = nil
-            comp._depEntryIssuedAt = nil
-            log_taxi(
-                string.format(
-                    "TaxiRoute: reset icao_changed=%s mode_changed=%s",
-                    tostring(icao_changed),
-                    tostring(mode_changed)
-                )
-            )
-            if comp._quality then
-                comp._quality.distBadSince = nil
-                comp._quality.badSince = nil
-                comp._quality.rerouteEvents = {}
-            end
-            comp._routeWaypoints = {}
-            comp._rerouteOverride = nil
-            comp._depThresholdLatched = false
-            comp._takeoffLatchSince = nil
-            comp._autoEndRampLowSpeedSince = nil
-            comp._autoEndRampSwitchTime = nil
-            if icao_changed or mode_changed then
-                comp._autoEndRampKey = nil
-            end
-            if icao_changed then
-                comp._selectedEndRampKey = nil
-                comp._selectedDepEntryId = nil
-                comp._data = nil
-                comp._dataErr = nil
-            end
-            if icao_changed and (not prev_icao_valid) and (not mode_changed) then
-                comp._editStartOverride = prev_start_override
-                comp._editEndOverride = prev_end_override
-                comp._routeWaypoints = prev_waypoints or {}
-                comp._drawFreehand = prev_draw_freehand
-            end
-        end
-
-        comp._lastIcao = icao
-        comp._lastMode = mode
-
-        local data = comp._data
-        local derr = comp._dataErr
-        local pending = (derr == "global-index-pending")
-        if data and comp._taxiGlobalPending and comp._taxiGlobalPending[icao]
-            and helpers.isGlobalAptIndexReady and helpers.isGlobalAptIndexReady() then
-            comp._taxiSourceByIcao = comp._taxiSourceByIcao or {}
-            comp._taxiSourceByIcao[icao] = "global"
-            comp._taxiGlobalPending[icao] = nil
-            comp._data = nil
-            comp._dataErr = nil
-            data = nil
-            comp._route = nil
-            comp._routeErr = nil
-            comp._routeLabels = nil
-            comp._routeLabelStats = nil
-            comp._routeExtraSegments = nil
-            comp._lastStartKey = nil
-            comp._lastEndKey = nil
-            comp._lastGuidanceNodeId = nil
-            comp._lastGuidanceLabel = nil
-            comp._lastGuidanceTime = nil
-            comp._sCurveSkipNodeId = nil
-            comp._needsCenter = true
-            comp._rerouteOverride = nil
-            if comp._quality then
-                comp._quality.badSince = nil
-                comp._quality.distBadSince = nil
-                comp._quality.rerouteEvents = {}
-            end
-        end
-        derr = comp._dataErr
-        pending = (derr == "global-index-pending")
-        if icao_changed or (not data and (not derr or pending)) then
-            local policy = comp._taxiSourceByIcao and comp._taxiSourceByIcao[icao] or nil
-            if comp._taxiGlobalPending and comp._taxiGlobalPending[icao] and helpers.isGlobalAptIndexReady and helpers.isGlobalAptIndexReady() then
-                policy = "global"
-                comp._taxiSourceByIcao[icao] = "global"
-                comp._taxiGlobalPending[icao] = nil
-            end
-            if helpers.getTaxiDataWithPolicy then
-                data, derr = helpers.getTaxiDataWithPolicy(icao, policy)
-            else
-                data, derr = helpers.getTaxiData(icao)
-            end
-            pending = (derr == "global-index-pending")
-        end
-        if not data then
-            clear_temp_route_overlay(comp, comp._data)
-            comp._data = nil
-            comp._dataErr = pending and "global-index-pending" or (derr or "apt-not-found")
-            comp._fitBounds = nil
-            comp._runwayName = nil
-            comp._routeExtraSegments = nil
-            comp._editTailSegments = nil
-            comp._arrExitId = nil
-            comp._arrProfile = nil
-            comp._arrBacktrackRequired = nil
-            comp._arrRunwayExitAnnounced = false
-            comp._arrRunwayCrossWarned = nil
-            clear_visual_guidance(comp, "no-data")
-            comp._visualGuidanceQueue = {}
-            set_taxi_ref(nil)
-            return
-        end
-        comp._data = data
-        set_taxi_ref(data)
-        comp._dataErr = nil
-        if data and data.entry and data.entry.source == "addon"
-            and data._labelsPatchPending
-            and helpers.patchTaxiLabelsFromGlobalForIcao
-            and helpers.isGlobalAptIndexReady
-            and helpers.isGlobalAptIndexReady() then
-            local patched = helpers.patchTaxiLabelsFromGlobalForIcao(data, icao, { log = true })
-            if patched and patched > 0 then
-                comp._routeLabels = nil
-                comp._routeLabelStats = nil
-                if comp._route and comp._route.path and comp._route.data == data then
-                    comp._routeLabels = build_route_labels(data, comp._route.path)
-                    comp._routeLabelStats = compute_route_label_stats(data, comp._route.path)
-                end
-                if comp._quality then
-                    comp._quality.badSince = nil
-                end
-            end
-        end
-        local shifted, shift_dx, shift_dy = align_taxi_data_projection(data)
-        if shifted then
-            helpers.logInfoTS(
-                string.format(
-                    "TaxiProj: icao=%s shift=%.1f/%.1f refAlign=true",
-                    tostring(icao),
-                    shift_dx or 0,
-                    shift_dy or 0
-                )
-            )
-            comp._route = nil
-            comp._routeErr = nil
-            comp._routeLabels = nil
-            comp._routeExtraSegments = nil
-            comp._lastStartKey = nil
-            comp._lastEndKey = nil
-            comp._needsCenter = true
-        end
-        if comp._rampLinkCacheReset ~= data then
-            if data.ramps then
-                for _, ramp in ipairs(data.ramps) do
-                    ramp._draw_link_east = nil
-                    ramp._draw_link_north = nil
-                end
-            end
-            comp._rampLinkCacheReset = data
-        end
-        comp._fitBounds = data.bounds
-
-        local aircraft = nil
-        local lat = yal.aircraftlatpos and get(yal.aircraftlatpos) or nil
-        local lon = yal.aircraftlonpos and get(yal.aircraftlonpos) or nil
-        if is_valid_latlon(lat, lon) then
-            local east, north = latlon_to_local(lat, lon)
-            if east and north then
-                local heading = yal and yal.groundtrackmag and get(yal.groundtrackmag) or nil
-                local nose_offset = nil
-                local main_offset = nil
-                if yal and yal.gear_znose then
-                    local gear_z = get(yal.gear_znose)
-                    if type(gear_z) == "number" and gear_z ~= 0 then
-                        nose_offset = -gear_z
-                    end
-                end
-                if yal and yal.gear_zmain then
-                    local gear_z = get(yal.gear_zmain)
-                    if type(gear_z) == "number" and gear_z ~= 0 then
-                        main_offset = -gear_z
-                    end
-                end
-                if (nose_offset == nil or nose_offset == 0) and yal and yal.acf_cg_z then
-                    local cg_z = get(yal.acf_cg_z)
-                    if type(cg_z) == "number" and cg_z ~= 0 then
-                        nose_offset = math.abs(cg_z) * 0.3048
-                    end
-                end
-                if main_offset == nil or main_offset == 0 then
-                    main_offset = nose_offset
-                end
-                aircraft = {
-                    lat = lat,
-                    lon = lon,
-                    east = east,
-                    north = north,
-                    heading = heading,
-                    nose_offset = nose_offset,
-                    main_offset = main_offset
-                }
-            end
-        end
-        local nearest_ramp = nil
-        local nearest_ramp_dist = nil
-        if comp._rerouteOverride and aircraft and is_valid_latlon(comp._rerouteOverride.lat, comp._rerouteOverride.lon) then
-            local d_override = distance_meters_latlon(comp._rerouteOverride.lat, comp._rerouteOverride.lon, aircraft.lat, aircraft.lon)
-            if d_override and d_override > 1000 then
-                comp._rerouteOverride = nil
-            end
-        end
-
-        local start_lat = nil
-        local start_lon = nil
-        local end_lat = nil
-        local end_lon = nil
-        local runway_lat = nil
-        local runway_lon = nil
-        local runway_name = ""
-        local raw_desrwy = ""
-        local touchdown = nil
-        local landing_profile = nil
-        local dep_profile = nil
-        local dep_runway_end_id = nil
-        local dep_runway_end_lat = nil
-        local dep_runway_end_lon = nil
-        local backtrack_required = false
-        local dep_holdshort_id = nil
-        local dep_end_node_id = nil
-        local dep_end_node_dist = nil
-        local dep_entry_candidate_id = nil
-        local dep_entry_candidate_dist = nil
-        local dep_entry_candidate_lat = nil
-        local dep_entry_candidate_lon = nil
-        local dep_backtrack_required = false
-        local arr_exit_id = nil
-        local allow_runway_route = false
-        local manual_active = (comp._routeWaypoints and #comp._routeWaypoints > 0) or comp._drawRoute
-        if comp._manualRouteActive ~= manual_active then
-            comp._manualRouteActive = manual_active
-            log_taxi("TaxiEdit: manual-route=" .. tostring(manual_active))
-        end
-
-        if mode == 0 then
-            if aircraft then
-                start_lat = aircraft.lat
-                start_lon = aircraft.lon
-            end
-            runway_lat = yal.deprwylatstartpos and get(yal.deprwylatstartpos) or nil
-            runway_lon = yal.deprwylonstartpos and get(yal.deprwylonstartpos) or nil
-            if not is_valid_latlon(runway_lat, runway_lon) then
-                runway_lat = yal.deprwylatendpos and get(yal.deprwylatendpos) or nil
-                runway_lon = yal.deprwylonendpos and get(yal.deprwylonendpos) or nil
-            end
-            runway_name = yal.deprwy and helpers.forceCleanString(get(yal.deprwy) or "") or ""
-            if comp._lastDepRunwayName and comp._lastDepRunwayName ~= runway_name then
-                comp._selectedDepEntryId = nil
-            end
-            comp._lastDepRunwayName = runway_name
-            comp._runwayName = runway_name
-            if data and comp._runwayName and comp._runwayName ~= "" then
-                local rwy, side = find_runway_entry(data, comp._runwayName, runway_lat, runway_lon)
-                if rwy then
-                    runway_lat = (side == 1) and rwy.lat1 or rwy.lat2
-                    runway_lon = (side == 1) and rwy.lon1 or rwy.lon2
-                    dep_holdshort_id = find_holdshort_node_near(data, runway_lat, runway_lon)
-                    if dep_holdshort_id and data.nodes and data.nodes[dep_holdshort_id] then
-                        local hs = data.nodes[dep_holdshort_id]
-                        if is_valid_latlon(hs.lat, hs.lon) then
-                            local d_hs = distance_meters_latlon(runway_lat, runway_lon, hs.lat, hs.lon)
-                            if d_hs and d_hs > 2000 then
-                                dep_holdshort_id = nil
-                            else
-                                end_lat = hs.lat
-                                end_lon = hs.lon
-                            end
-                        end
-                    end
-                    if not dep_holdshort_id and is_valid_latlon(runway_lat, runway_lon) then
-                        dep_end_node_id, dep_end_node_dist = nearest_non_runway_node(data, runway_lat, runway_lon)
-                        if dep_end_node_id and data.nodes and data.nodes[dep_end_node_id] then
-                            local dn = data.nodes[dep_end_node_id]
-                            if is_valid_latlon(dn.lat, dn.lon) then
-                                end_lat = dn.lat
-                                end_lon = dn.lon
-                            end
-                        end
-                    end
-                    if not dep_holdshort_id
-                        and not manual_active
-                        and not comp._selectedDepEntryId
-                        and dep_end_node_dist and dep_end_node_dist > depEntryFallbackMaxDist
-                        and data and data.nodes
-                        and aircraft and aircraft.east ~= nil and aircraft.north ~= nil then
-                        local re, rn = latlon_to_local(runway_lat, runway_lon)
-                        if re and rn then
-                            local candidates = collect_runway_exit_candidates(data, re, rn, 18)
-                            if candidates and #candidates > 0 then
-                                local best_id = nil
-                                local best_d2 = nil
-                                for _, cand in ipairs(candidates) do
-                                    local node = data.nodes[cand.id]
-                                    if node and node.east and node.north then
-                                        local dx = node.east - aircraft.east
-                                        local dy = node.north - aircraft.north
-                                        local d2 = dx * dx + dy * dy
-                                        if not best_d2 or d2 < best_d2 then
-                                            best_d2 = d2
-                                            best_id = cand.id
-                                        end
-                                    end
-                                end
-                                if best_id then
-                                    local dn = data.nodes[best_id]
-                                    if dn and is_valid_latlon(dn.lat, dn.lon) then
-                                        dep_entry_candidate_id = best_id
-                                        dep_entry_candidate_dist = math.sqrt(best_d2 or 0)
-                                        dep_entry_candidate_lat = dn.lat
-                                        dep_entry_candidate_lon = dn.lon
-                                        log_taxi(
-                                            string.format(
-                                                "TaxiRoute: dep entry candidate id=%s dist=%.1f",
-                                                tostring(best_id),
-                                                dep_entry_candidate_dist or -1
-                                            )
-                                        )
-                                    end
-                                end
-                            end
-                        end
-                    end
-                end
-            end
-            if not is_valid_latlon(end_lat, end_lon) then
-                end_lat = runway_lat
-                end_lon = runway_lon
-            end
-            if aircraft and comp.yal and comp.yal.aircraftonrwy and is_valid_latlon(runway_lat, runway_lon) then
-                local onRunway = comp.yal.aircraftonrwy(def.DEPARTURE, 40, depThresholdHeadingLimit)
-                if onRunway then
-                    allow_runway_route = true
-                end
-            end
-        else
-            runway_lat = yal.desrwylatstartpos and get(yal.desrwylatstartpos) or nil
-            runway_lon = yal.desrwylonstartpos and get(yal.desrwylonstartpos) or nil
-            if not is_valid_latlon(runway_lat, runway_lon) then
-                runway_lat = yal.desrwylatendpos and get(yal.desrwylatendpos) or nil
-                runway_lon = yal.desrwylonendpos and get(yal.desrwylonendpos) or nil
-            end
-            if is_valid_latlon(runway_lat, runway_lon) then
-                comp._lastArrivalRunwayLat = runway_lat
-                comp._lastArrivalRunwayLon = runway_lon
-            elseif comp._lastArrivalRunwayLat and comp._lastArrivalRunwayLon then
-                runway_lat = comp._lastArrivalRunwayLat
-                runway_lon = comp._lastArrivalRunwayLon
-            end
-            raw_desrwy = yal.desrwy and helpers.forceCleanString(get(yal.desrwy) or "") or ""
-            runway_name = raw_desrwy
-            if runway_name ~= "" then
-                comp._lastArrivalRunwayName = runway_name
-            elseif comp._lastArrivalRunwayName then
-                runway_name = comp._lastArrivalRunwayName
-            end
-            comp._runwayName = runway_name
-            if data and comp._runwayName and comp._runwayName ~= "" then
-                local ref_lat = runway_lat
-                local ref_lon = runway_lon
-                -- When we have a runway name, stale lat/lon can bias selection to the wrong runway.
-                ref_lat = nil
-                ref_lon = nil
-                local log_key = tostring(icao) .. "|ARR|" .. tostring(raw_desrwy) .. "|" .. tostring(comp._runwayName)
-                if comp._lastRunwayLogKey ~= log_key then
-                    comp._lastRunwayLogKey = log_key
-                    helpers.logInfoTS(
-                        "Taxi: ARR runway input raw=" .. tostring(raw_desrwy) .. " resolved=" .. tostring(comp._runwayName)
-                    )
-                end
-                local rwy, side = find_runway_entry(data, comp._runwayName, ref_lat, ref_lon)
-                if rwy then
-                    runway_lat = (side == 1) and rwy.lat1 or rwy.lat2
-                    runway_lon = (side == 1) and rwy.lon1 or rwy.lon2
-                    comp._lastArrivalRunwayLat = runway_lat
-                    comp._lastArrivalRunwayLon = runway_lon
-                    local sel = tostring(rwy and (side == 1 and rwy.rwy1 or rwy.rwy2) or "?")
-                    local sel_key = log_key .. "|SEL|" .. sel
-                    if comp._lastRunwaySelLogKey ~= sel_key then
-                        comp._lastRunwaySelLogKey = sel_key
-                        helpers.logInfoTS("Taxi: ARR runway selected " .. tostring(sel))
-                    end
-                end
-                start_lat = runway_lat
-                start_lon = runway_lon
-                landing_profile = compute_runway_landing_profile(data, comp._runwayName, runway_lat, runway_lon)
-                touchdown = landing_profile and landing_profile.touchdown or nil
-                if landing_profile and touchdown and touchdown.east and touchdown.north then
-                    local exit_id = nil
-                    exit_id, backtrack_required = select_runway_exit_node(data, landing_profile)
-                    arr_exit_id = exit_id
-                    if exit_id and data.nodes and data.nodes[exit_id] then
-                        local exit_node = data.nodes[exit_id]
-                        if is_valid_latlon(exit_node.lat, exit_node.lon) then
-                            if (yal and yal.airgroundsensor and (get(yal.airgroundsensor) ~= def.ON)) then
-                                start_lat = exit_node.lat
-                                start_lon = exit_node.lon
-                            elseif not backtrack_required then
-                                start_lat = exit_node.lat
-                                start_lon = exit_node.lon
-                            end
-                        end
-                    end
-                    if arr_exit_id then
-                        local exit_log_key = tostring(icao) .. "|ARR-EXIT|" .. tostring(comp._runwayName) .. "|" .. tostring(arr_exit_id) .. "|" .. tostring(backtrack_required)
-                        if comp._lastArrExitLogKey ~= exit_log_key then
-                            comp._lastArrExitLogKey = exit_log_key
-                            local along = nil
-                            local perp = nil
-                            local rollout = landing_profile and landing_profile.roll or nil
-                            local exit_node = data.nodes and data.nodes[arr_exit_id] or nil
-                            if exit_node and landing_profile then
-                                along, perp = compute_along_perp(landing_profile, exit_node)
-                            end
-                            helpers.logInfoTS(
-                                "Taxi: ARR exit id=" .. tostring(arr_exit_id) ..
-                                " backtrack=" .. tostring(backtrack_required) ..
-                                " along=" .. tostring(along or "?") ..
-                                " perp=" .. tostring(perp or "?") ..
-                                " rollout=" .. tostring(rollout or "?")
-                            )
-                        end
-                    end
-                    if not is_valid_latlon(start_lat, start_lon) then
-                        local tlat, tlon = local_to_latlon(touchdown.east, touchdown.north)
-                        if is_valid_latlon(tlat, tlon) then
-                            start_lat = tlat
-                            start_lon = tlon
-                            runway_lat = tlat
-                            runway_lon = tlon
-                        end
-                    end
-                end
-            end
-            if not is_valid_latlon(start_lat, start_lon) then
-                start_lat = runway_lat
-                start_lon = runway_lon
-            end
-        end
-
-        if mode == 1 and aircraft and is_valid_latlon(runway_lat, runway_lon) then
-            local offRunway = nil
-            if landing_profile then
-                offRunway = not is_on_runway_profile(landing_profile, aircraft, 60, 5)
-            elseif comp.yal and comp.yal.aircraftonrwy then
-                offRunway = comp.yal.aircraftonrwy(def.ARRIVAL, 40, 20)
-            end
-            if offRunway == false then
-                local gs = yal and yal.groundspeed and (get(yal.groundspeed) or 0) or 0
-                if gs <= runwayRouteMaxSpeed then
-                    allow_runway_route = true
-                    start_lat = aircraft.lat
-                    start_lon = aircraft.lon
-                end
-            end
-        end
-
-        local hasRunwayName = (runway_name ~= nil and runway_name ~= "")
-        local hasRunwayLatLon = is_valid_latlon(runway_lat, runway_lon)
-        local hasArrivalRunway = (mode == 1 and hasRunwayName) or false
-        local freehand_active = comp._drawFreehand and comp._routeWaypoints and (#comp._routeWaypoints > 0)
-        local canRoute = data and data.can_route and (mode == 1 or hasRunwayName or freehand_active or (mode == 0 and hasRunwayLatLon)) or false
-        if not canRoute and not freehand_active then
-            helpers.logInfoTS(
-                "TaxiDiag: canRoute=false icao=" .. tostring(icao) ..
-                " mode=" .. tostring(mode) ..
-                " data.can_route=" .. tostring(data and data.can_route) ..
-                " hasRunwayName=" .. tostring(hasRunwayName)
-            )
-        end
-
-        if mode == 0 and data and comp._runwayName and comp._runwayName ~= "" and is_valid_latlon(runway_lat, runway_lon) then
-            dep_profile = compute_runway_landing_profile(data, comp._runwayName, runway_lat, runway_lon)
-            if dep_profile and dep_profile.threshold and dep_profile.threshold.east and dep_profile.threshold.north then
-                dep_runway_end_id = find_nearest_runway_node(
-                    data,
-                    dep_profile.threshold.east,
-                    dep_profile.threshold.north
-                )
-                local tlat, tlon = local_to_latlon(dep_profile.threshold.east, dep_profile.threshold.north)
-                if is_valid_latlon(tlat, tlon) then
-                    dep_runway_end_lat = tlat
-                    dep_runway_end_lon = tlon
-                end
-            end
-        end
-        if mode == 0 and dep_profile and (not dep_holdshort_id)
-            and dep_end_node_dist and dep_end_node_dist > depEntryFallbackMaxDist then
-            dep_backtrack_required = true
-            if not manual_active then
-                allow_runway_route = true
-            end
-        end
-        if mode == 0 then
-            if comp._depBacktrackRequired ~= dep_backtrack_required then
-                comp._depBacktrackRequired = dep_backtrack_required
-                if dep_backtrack_required then
-                    log_taxi(
-                        string.format(
-                            "TaxiRoute: dep backtrack required dist=%.1f",
-                            dep_end_node_dist or -1
-                        )
-                    )
-                end
-            end
-        end
-        if mode == 0 then
-            comp._depProfile = dep_profile
-        else
-            comp._depProfile = nil
-        end
-        if mode == 0 and allow_runway_route and dep_runway_end_lat and dep_runway_end_lon then
-            end_lat = dep_runway_end_lat
-            end_lon = dep_runway_end_lon
-        end
-
-        local ref_lat = nil
-        local ref_lon = nil
-        if yal.airportdatatable and yal.airportdatatable[icao] then
-            ref_lat = yal.airportdatatable[icao].latitude
-            ref_lon = yal.airportdatatable[icao].longitude
-        end
-        local ramp_ref_lat = ref_lat or runway_lat
-        local ramp_ref_lon = ref_lon or runway_lon
-
-        if mode == 0 and (not is_valid_latlon(start_lat, start_lon)) and is_valid_latlon(ramp_ref_lat, ramp_ref_lon) then
-            start_lat = ramp_ref_lat
-            start_lon = ramp_ref_lon
-        end
-        if mode == 1 and (not is_valid_latlon(start_lat, start_lon)) and is_valid_latlon(ramp_ref_lat, ramp_ref_lon) then
-            start_lat = ramp_ref_lat
-            start_lon = ramp_ref_lon
-        end
-
-        local end_ramp = nil
-        local user_selected_end = false
-        if mode == 1 and (not comp._drawFreehand) and is_valid_latlon(ramp_ref_lat, ramp_ref_lon) then
-            if comp._selectedEndRampKey and data and data.ramps then
-                for _, ramp in ipairs(data.ramps) do
-                    if helpers.isRampSuitableFor738(ramp) and ramp_key(ramp) == comp._selectedEndRampKey then
-                        end_ramp = ramp
-                        user_selected_end = true
-                        break
-                    end
-                end
-            end
-            if not end_ramp and comp._autoEndRampKey and data and data.ramps then
-                for _, ramp in ipairs(data.ramps) do
-                    if helpers.isRampSuitableFor738(ramp) and ramp_key(ramp) == comp._autoEndRampKey then
-                        end_ramp = ramp
-                        break
-                    end
-                end
-                if not end_ramp then
-                    comp._autoEndRampKey = nil
-                end
-            end
-            if not end_ramp and onGroundSensor and aircraft then
-                local gate_heading = yal and yal.groundtrackmag and get(yal.groundtrackmag) or nil
-                local gate_radius = tuning.gateSelectRadius or (C and C.gateSelectRadius) or 120
-                end_ramp = U.select_best_ramp_for_aircraft(
-                    data,
-                    aircraft,
-                    { filter = helpers.isRampSuitableFor738, heading_deg = gate_heading, radius_m = gate_radius }
-                )
-                if end_ramp then
-                    comp._autoEndRampKey = ramp_key(end_ramp)
-                end
-            end
-            if not end_ramp then
-                end_ramp = helpers.getNearestRamp(icao, ramp_ref_lat, ramp_ref_lon, { filter = helpers.isRampSuitableFor738, data = data })
-                if end_ramp then
-                    comp._autoEndRampKey = ramp_key(end_ramp)
-                end
-            end
-            if end_ramp and is_valid_latlon(end_ramp.lat, end_ramp.lon) then
-                end_lat = end_ramp.lat
-                end_lon = end_ramp.lon
-            end
-        end
-        if mode == 1 and (not comp._drawFreehand) and (not user_selected_end) and (not comp._manualRouteActive)
-            and data and aircraft and is_valid_latlon(aircraft.lat, aircraft.lon) then
-            local yalref = comp.yal or _G.yal
-            local onGround = yalref and yalref.airgroundsensor and (get(yalref.airgroundsensor) == def.ON)
-            local gs = yalref and yalref.groundspeed and (get(yalref.groundspeed) or 0) or 0
-            local gate_speed = tuning.autoGateSwitchSpeed or 5
-            local gate_hold = tuning.autoGateSwitchHoldSec or 2.0
-            local gate_cooldown = tuning.autoGateSwitchCooldownSec or 10.0
-            local gate_dist = tuning.autoGateSwitchDist or 35
-            local gate_delta = tuning.autoGateSwitchDelta or 20
-            local gate_ratio = tuning.autoGateSwitchRatio or 0.6
-            if onGround and gs < gate_speed then
-                if not comp._autoEndRampLowSpeedSince then
-                    comp._autoEndRampLowSpeedSince = now
-                end
-                if (now - comp._autoEndRampLowSpeedSince) >= gate_hold then
-                    if not nearest_ramp then
-                        local gate_heading = yalref and yalref.groundtrackmag and get(yalref.groundtrackmag) or nil
-                        local gate_radius = tuning.gateSelectRadius or (C and C.gateSelectRadius) or 120
-                        nearest_ramp, nearest_ramp_dist = U.select_best_ramp_for_aircraft(
-                            data,
-                            aircraft,
-                            { filter = helpers.isRampSuitableFor738, heading_deg = gate_heading, radius_m = gate_radius }
-                        )
-                        if nearest_ramp_dist == nil and nearest_ramp and is_valid_latlon(nearest_ramp.lat, nearest_ramp.lon) then
-                            nearest_ramp_dist = distance_meters_latlon(
-                                nearest_ramp.lat,
-                                nearest_ramp.lon,
-                                aircraft.lat,
-                                aircraft.lon
-                            )
-                        end
-                    end
-                    if nearest_ramp and end_ramp and is_valid_latlon(end_ramp.lat, end_ramp.lon) then
-                        local cand_key = ramp_key(nearest_ramp)
-                        local planned_key = ramp_key(end_ramp)
-                        if cand_key ~= planned_key then
-                            local d_cand = nearest_ramp_dist
-                            local d_plan = distance_meters_latlon(
-                                end_ramp.lat,
-                                end_ramp.lon,
-                                aircraft.lat,
-                                aircraft.lon
-                            )
-                            local cooldown_ok = (not comp._autoEndRampSwitchTime)
-                                or ((now - comp._autoEndRampSwitchTime) >= gate_cooldown)
-                            if d_cand and d_plan and cooldown_ok then
-                                local close_enough = d_cand <= gate_dist
-                                local clearly_closer = (d_plan - d_cand >= gate_delta)
-                                    or (d_cand <= (d_plan * gate_ratio))
-                                if close_enough and clearly_closer then
-                                    comp._autoEndRampKey = cand_key
-                                    comp._autoEndRampSwitchTime = now
-                                    end_ramp = nearest_ramp
-                                    end_lat = end_ramp.lat
-                                    end_lon = end_ramp.lon
-                                    comp._route = nil
-                                    comp._routeErr = nil
-                                    comp._routeLabels = nil
-                                    comp._routeLabelStats = nil
-                                    comp._lastEndKey = nil
-                                    comp._lastStartKey = nil
-                                    comp._lastGuidanceNodeId = nil
-                                    comp._lastGuidanceLabel = nil
-                                    comp._lastGuidanceTime = nil
-                                    comp._sCurveSkipNodeId = nil
-                                    clear_visual_guidance(comp, "end-ramp-switch")
-                                    comp._visualGuidanceQueue = {}
-                                    comp._gateGuidanceLastDir = nil
-                                    comp._gateGuidanceLastAction = nil
-                                    comp._gateGuidanceLastTime = nil
-                                    comp._gateGuidanceStop = false
-                                    U.reset_gate_callouts(comp, cand_key)
-                                    log_taxi(
-                                        string.format(
-                                            "TaxiRoute: auto end-ramp switch key=%s dist=%.1f plan=%.1f",
-                                            tostring(cand_key),
-                                            d_cand or -1,
-                                            d_plan or -1
-                                        )
-                                    )
-                                end
-                            end
-                        end
-                    end
-                end
-            else
-                comp._autoEndRampLowSpeedSince = nil
-            end
-        else
-            comp._autoEndRampLowSpeedSince = nil
-        end
-
-        if mode == 1 and landing_profile and end_ramp and is_valid_latlon(end_ramp.lat, end_ramp.lon) then
-            local pref_east = end_ramp.east
-            local pref_north = end_ramp.north
-            if (pref_east == nil or pref_north == nil) and is_valid_latlon(end_ramp.lat, end_ramp.lon) then
-                pref_east, pref_north = latlon_to_local(end_ramp.lat, end_ramp.lon)
-            end
-            if pref_east ~= nil and pref_north ~= nil
-                and landing_profile.threshold and landing_profile.threshold.east ~= nil and landing_profile.threshold.north ~= nil
-                and landing_profile.axis then
-                local dx = pref_east - landing_profile.threshold.east
-                local dy = pref_north - landing_profile.threshold.north
-                local cross = dx * landing_profile.axis.y - dy * landing_profile.axis.x
-                if math.abs(cross) > 1 then
-                    local pref_side = (cross >= 0) and 1 or -1
-                    local exit_id, backtrack = select_runway_exit_node(data, landing_profile, pref_side)
-                    if exit_id and (exit_id ~= arr_exit_id or backtrack ~= backtrack_required) then
-                        arr_exit_id = exit_id
-                        backtrack_required = backtrack
-                        comp._lastArrExitLogKey = nil
-                        if backtrack_required then
-                            if is_valid_latlon(runway_lat, runway_lon) then
-                                start_lat = runway_lat
-                                start_lon = runway_lon
-                            elseif touchdown and touchdown.east and touchdown.north then
-                                local tlat, tlon = local_to_latlon(touchdown.east, touchdown.north)
-                                if is_valid_latlon(tlat, tlon) then
-                                    start_lat = tlat
-                                    start_lon = tlon
-                                end
-                            end
-                        elseif exit_id and data.nodes and data.nodes[exit_id] then
-                            local exit_node = data.nodes[exit_id]
-                            if is_valid_latlon(exit_node.lat, exit_node.lon) then
-                                start_lat = exit_node.lat
-                                start_lon = exit_node.lon
-                            end
-                        end
-                    end
-                end
-            end
-        end
-        if mode == 1 then
-            comp._arrProfile = landing_profile
-            comp._arrBacktrackRequired = backtrack_required
-            if comp._arrExitId ~= arr_exit_id then
-                comp._arrExitId = arr_exit_id
-                comp._arrRunwayExitAnnounced = false
-                comp._arrRunwayCrossWarned = nil
-            end
-        else
-            comp._arrProfile = nil
-            comp._arrBacktrackRequired = nil
-            comp._arrExitId = nil
-            comp._arrRunwayExitAnnounced = false
-            comp._arrRunwayCrossWarned = nil
-        end
-        if mode == 1 and (not comp._drawFreehand)
-            and (not is_valid_latlon(end_lat, end_lon)) and is_valid_latlon(ramp_ref_lat, ramp_ref_lon) then
-            end_lat = ramp_ref_lat
-            end_lon = ramp_ref_lon
-        end
-
-        local start_ramp = nil
-        local start_is_aircraft = false
-        if mode == 0 and aircraft and is_valid_latlon(aircraft.lat, aircraft.lon) then
-            start_is_aircraft = true
-            start_ramp = helpers.getNearestRamp(icao, aircraft.lat, aircraft.lon, { filter = helpers.isRampSuitableFor738, data = data })
-            if start_ramp and start_ramp.lat and start_ramp.lon then
-                local d_m = distance_meters_latlon(start_ramp.lat, start_ramp.lon, aircraft.lat, aircraft.lon)
-                if d_m and d_m > startRampMaxMeters then
-                    start_ramp = nil
-                end
-            end
-        end
-
-        if mode == 0 then
-            if start_ramp and not comp._startRampLabel then
-                comp._startRampLabel = start_ramp
-            end
-        else
-            comp._startRampLabel = nil
-        end
-
-        comp._startRamp = start_ramp
-        comp._startIsAircraft = (start_is_aircraft and not start_ramp) or false
-        comp._endRamp = end_ramp
-
-        local override_snap_max_m = 1000
-        local function snap_override(lat, lon)
-            if not data or not is_valid_latlon(lat, lon) then
-                return nil, "invalid"
-            end
-            local east, north = latlon_to_local(lat, lon)
-            if east == nil or north == nil then
-                return nil, "no-local"
-            end
-            local proj = find_nearest_edge_projection(data, east, north, { disallow_runway_edges = false })
-            if not proj or not proj.d2 then
-                return nil, "no-proj"
-            end
-            local dist = math.sqrt(proj.d2)
-            if dist > override_snap_max_m then
-                return nil, "too-far", dist
-            end
-            local wlat, wlon = local_to_latlon(proj.proj_east, proj.proj_north)
-            if not is_valid_latlon(wlat, wlon) then
-                return nil, "invalid-proj", dist
-            end
-            return {
-                lat = wlat,
-                lon = wlon,
-                east = proj.proj_east,
-                north = proj.proj_north,
-                dist = dist
-            }
-        end
-        if comp._drawRoute and comp._routeWaypoints and #comp._routeWaypoints > 0 and data and (not comp._drawFreehand) then
-            local guard = 0
-            local changed = true
-            while changed and comp._routeWaypoints and #comp._routeWaypoints > 0 and guard < 4 do
-                guard = guard + 1
-                changed = false
-                local first = comp._routeWaypoints[1]
-                if first then
-                    local snapped, reason, dist = snap_override(first.lat, first.lon)
-                    if not snapped and reason == "too-far" then
-                        log_taxi(
-                            string.format(
-                                "TaxiDraw: drop start waypoint off-network dist=%.1f",
-                                dist or -1
-                            )
-                        )
-                        table.remove(comp._routeWaypoints, 1)
-                        changed = true
-                    elseif snapped then
-                        if first.lat ~= snapped.lat or first.lon ~= snapped.lon then
-                            log_taxi(
-                                string.format(
-                                    "TaxiDraw: snap start waypoint dist=%.1f",
-                                    snapped.dist or 0
-                                )
-                            )
-                        end
-                        first.lat = snapped.lat
-                        first.lon = snapped.lon
-                        first.east = snapped.east
-                        first.north = snapped.north
-                    end
-                end
-                local count = comp._routeWaypoints and #comp._routeWaypoints or 0
-                if count > 0 then
-                    local last = comp._routeWaypoints[count]
-                    if last then
-                        local snapped, reason, dist = snap_override(last.lat, last.lon)
-                        if not snapped and reason == "too-far" then
-                            log_taxi(
-                                string.format(
-                                    "TaxiDraw: drop end waypoint off-network dist=%.1f",
-                                    dist or -1
-                                )
-                            )
-                            table.remove(comp._routeWaypoints, count)
-                            changed = true
-                        elseif snapped then
-                            if last.lat ~= snapped.lat or last.lon ~= snapped.lon then
-                                log_taxi(
-                                    string.format(
-                                        "TaxiDraw: snap end waypoint dist=%.1f",
-                                        snapped.dist or 0
-                                    )
-                                )
-                            end
-                            last.lat = snapped.lat
-                            last.lon = snapped.lon
-                            last.east = snapped.east
-                            last.north = snapped.north
-                        end
-                    end
-                end
-            end
-        end
-        if comp._drawRoute and comp._routeWaypoints and #comp._routeWaypoints > 0 then
-            local first_wp = comp._routeWaypoints[1]
-            local last_wp = comp._routeWaypoints[#comp._routeWaypoints]
-            local slat, slon = ensure_waypoint_latlon(first_wp)
-            local elat, elon = ensure_waypoint_latlon(last_wp)
-            if slat and slon then
-                comp._editStartOverride = { lat = slat, lon = slon, mode = mode, icao = icao }
-            end
-            if elat and elon then
-                comp._editEndOverride = { lat = elat, lon = elon, mode = mode, icao = icao }
-            end
-        end
-        comp._depHoldshortNodeId = dep_holdshort_id
-        comp._depEntryCandidates = nil
-        comp._depEntryLabels = nil
-        if mode == 0 and data and is_valid_latlon(runway_lat, runway_lon) then
-            local re, rn = latlon_to_local(runway_lat, runway_lon)
-            local max_candidates = 40
-            local zoom = comp.zoom or 1
-            if zoom >= 2.0 then
-                max_candidates = 200
-            elseif zoom >= 1.5 then
-                max_candidates = 80
-            end
-            local candidates = collect_runway_exit_candidates(data, re, rn, max_candidates)
-            local cand_count = (candidates and #candidates) or 0
-            if cand_count > 0 then
-                comp._depEntryCandidates = candidates
-                comp._depEntryLabels = {}
-                for _, cand in ipairs(candidates) do
-                    if cand.id then
-                        comp._depEntryLabels[cand.id] = find_runway_entry_label(data, cand.id)
-                    end
-                end
-            end
-            if log_taxi then
-                local src = (data.entry and data.entry.source) or "?"
-                local key = tostring(icao) .. "|" .. tostring(comp._runwayName or "") .. "|" .. tostring(src)
-                    .. "|" .. tostring(max_candidates) .. "|" .. tostring(cand_count)
-                if comp._lastDepEntriesLogKey ~= key then
-                    comp._lastDepEntriesLogKey = key
-                    log_taxi(
-                        "TaxiDepEntries: icao=" .. tostring(icao)
-                        .. " rwy=" .. tostring(comp._runwayName or "")
-                        .. " src=" .. tostring(src)
-                        .. " cand=" .. tostring(cand_count)
-                        .. " max=" .. tostring(max_candidates)
-                    )
-                end
-            end
-            if cand_count == 0 and data.entry and data.entry.source == "addon" then
-                local src = data.entry.source
-                local fallback_key = tostring(icao) .. "|" .. tostring(comp._runwayName or "") .. "|" .. tostring(src)
-                if helpers and helpers.isGlobalAptIndexReady and helpers.isGlobalAptIndexReady() then
-                    comp._taxiSourceByIcao = comp._taxiSourceByIcao or {}
-                    comp._taxiSourceByIcao[icao] = "global"
-                    if comp._taxiGlobalPending then
-                        comp._taxiGlobalPending[icao] = nil
-                    end
-                    comp._data = nil
-                    comp._dataErr = nil
-                    comp._route = nil
-                    comp._routeErr = nil
-                    comp._routeLabels = nil
-                    comp._routeLabelStats = nil
-                    comp._routeExtraSegments = nil
-                    comp._lastStartKey = nil
-                    comp._lastEndKey = nil
-                    comp._lastGuidanceNodeId = nil
-                    comp._lastGuidanceLabel = nil
-                    comp._lastGuidanceTime = nil
-                    comp._sCurveSkipNodeId = nil
-                    comp._needsCenter = true
-                    comp._rerouteOverride = nil
-                    comp._depEntryCandidates = nil
-                    comp._depEntryLabels = nil
-                    comp._lastDepEntriesLogKey = nil
-                    clear_visual_guidance(comp, "dep-entry-fallback")
-                    comp._visualGuidanceQueue = {}
-                    set_taxi_ref(nil)
-                    if helpers and helpers.logInfoTS then
-                        helpers.logInfoTS(
-                            "TaxiDepEntries: forcing global (cand=0) icao="
-                            .. tostring(icao) .. " rwy=" .. tostring(comp._runwayName or "")
-                        )
-                    end
-                    return
-                end
-                comp._taxiGlobalPending = comp._taxiGlobalPending or {}
-                comp._taxiGlobalPending[icao] = true
-                comp._taxiSourceByIcao = comp._taxiSourceByIcao or {}
-                comp._taxiSourceByIcao[icao] = "global"
-                if helpers and helpers.requestGlobalAptIndex then
-                    helpers.requestGlobalAptIndex("dep-entry-fallback")
-                end
-                if helpers and helpers.logInfoTS and comp._lastDepEntriesFallbackKey ~= fallback_key then
-                    comp._lastDepEntriesFallbackKey = fallback_key
-                    helpers.logInfoTS(
-                        "TaxiDepEntries: global pending (cand=0) icao="
-                        .. tostring(icao) .. " rwy=" .. tostring(comp._runwayName or "")
-                    )
-                end
-            end
-        end
-
-        if (not in_edit) and comp._rerouteOverride and is_valid_latlon(comp._rerouteOverride.lat, comp._rerouteOverride.lon) then
-            start_lat = comp._rerouteOverride.lat
-            start_lon = comp._rerouteOverride.lon
-        end
-
-        local base_start_lat = start_lat
-        local base_start_lon = start_lon
-        local base_end_lat = end_lat
-        local base_end_lon = end_lon
-        local start_vis_lat = start_lat
-        local start_vis_lon = start_lon
-        local end_vis_lat = end_lat
-        local end_vis_lon = end_lon
-
-        local yalref = comp.yal or _G.yal
-        local onGround = yalref and yalref.airgroundsensor and (get(yalref.airgroundsensor) == def.ON)
-
-        local start_override = comp._editStartOverride
-        local has_start_override = false
-        if start_override and start_override.mode == mode and is_valid_latlon(start_override.lat, start_override.lon) then
-            if not start_override.icao or start_override.icao == "" then
-                start_override.icao = icao
-            end
-            has_start_override = (start_override.icao == icao)
-        end
-        if has_start_override then
-            start_lat = start_override.lat
-            start_lon = start_override.lon
-            start_vis_lat = start_override.lat
-            start_vis_lon = start_override.lon
-        end
-        if has_start_override and data and (not comp._drawFreehand) then
-            local snapped, reason, dist = snap_override(start_override.lat, start_override.lon)
-            if not snapped and reason == "too-far" then
-                if onGround then
-                    log_taxi(
-                        string.format(
-                            "TaxiEdit: clear start override off-network dist=%.1f",
-                            dist or -1
-                        )
-                    )
-                    comp._editStartOverride = nil
-                    has_start_override = false
-                    start_lat = base_start_lat
-                    start_lon = base_start_lon
-                    start_vis_lat = start_lat
-                    start_vis_lon = start_lon
-                else
-                    local key = tostring(icao) .. "|" .. tostring(mode) .. "|start"
-                    if comp._lastOffNetworkStartKey ~= key then
-                        comp._lastOffNetworkStartKey = key
-                        log_taxi(
-                            string.format(
-                                "TaxiEdit: keep start override off-network (air) dist=%.1f",
-                                dist or -1
-                            )
-                        )
-                    end
-                end
-            elseif snapped then
-                if in_edit then
-                    local snap_key = string.format(
-                        "%s|%s|%.6f|%.6f",
-                        tostring(icao),
-                        tostring(mode),
-                        tonumber(snapped.lat or 0),
-                        tonumber(snapped.lon or 0)
-                    )
-                    if comp._lastSnapStartKey ~= snap_key then
-                        comp._lastSnapStartKey = snap_key
-                        log_taxi(
-                            string.format(
-                                "TaxiEdit: snap start override dist=%.1f",
-                                snapped.dist or 0
-                            )
-                        )
-                    end
-                    start_lat = snapped.lat
-                    start_lon = snapped.lon
-                else
-                    comp._lastSnapStartKey = nil
-                    if start_override.lat ~= snapped.lat or start_override.lon ~= snapped.lon then
-                        log_taxi(
-                            string.format(
-                                "TaxiEdit: snap start override dist=%.1f",
-                                snapped.dist or 0
-                            )
-                        )
-                    end
-                    start_override.lat = snapped.lat
-                    start_override.lon = snapped.lon
-                    start_lat = start_override.lat
-                    start_lon = start_override.lon
-                end
-            end
-        else
-            comp._lastSnapStartKey = nil
-        end
-        local end_override = comp._editEndOverride
-        local has_end_override = false
-        if end_override and end_override.mode == mode and is_valid_latlon(end_override.lat, end_override.lon) then
-            if not end_override.icao or end_override.icao == "" then
-                end_override.icao = icao
-            end
-            has_end_override = (end_override.icao == icao)
-        end
-        if has_end_override then
-            end_lat = end_override.lat
-            end_lon = end_override.lon
-            end_vis_lat = end_override.lat
-            end_vis_lon = end_override.lon
-        end
-        if has_end_override and data and (not comp._drawFreehand) then
-            local snapped, reason, dist = snap_override(end_override.lat, end_override.lon)
-            if not snapped and reason == "too-far" then
-                if onGround then
-                    log_taxi(
-                        string.format(
-                            "TaxiEdit: clear end override off-network dist=%.1f",
-                            dist or -1
-                        )
-                    )
-                    comp._editEndOverride = nil
-                    has_end_override = false
-                    end_lat = base_end_lat
-                    end_lon = base_end_lon
-                    end_vis_lat = end_lat
-                    end_vis_lon = end_lon
-                else
-                    local key = tostring(icao) .. "|" .. tostring(mode) .. "|end"
-                    if comp._lastOffNetworkEndKey ~= key then
-                        comp._lastOffNetworkEndKey = key
-                        log_taxi(
-                            string.format(
-                                "TaxiEdit: keep end override off-network (air) dist=%.1f",
-                                dist or -1
-                            )
-                        )
-                    end
-                end
-            elseif snapped then
-                if in_edit then
-                    local snap_key = string.format(
-                        "%s|%s|%.6f|%.6f",
-                        tostring(icao),
-                        tostring(mode),
-                        tonumber(snapped.lat or 0),
-                        tonumber(snapped.lon or 0)
-                    )
-                    if comp._lastSnapEndKey ~= snap_key then
-                        comp._lastSnapEndKey = snap_key
-                        log_taxi(
-                            string.format(
-                                "TaxiEdit: snap end override dist=%.1f",
-                                snapped.dist or 0
-                            )
-                        )
-                    end
-                    end_lat = snapped.lat
-                    end_lon = snapped.lon
-                else
-                    comp._lastSnapEndKey = nil
-                    if end_override.lat ~= snapped.lat or end_override.lon ~= snapped.lon then
-                        log_taxi(
-                            string.format(
-                                "TaxiEdit: snap end override dist=%.1f",
-                                snapped.dist or 0
-                            )
-                        )
-                    end
-                    end_override.lat = snapped.lat
-                    end_override.lon = snapped.lon
-                    end_lat = end_override.lat
-                    end_lon = end_override.lon
-                end
-            end
-        else
-            comp._lastSnapEndKey = nil
-        end
-
-        local start_node_id, start_node_dist = nearest_node_info(data, start_lat, start_lon, false)
-        local start_non_runway_node_id = nil
-        local start_non_runway_node_dist = nil
-        if mode == 0 and start_is_aircraft and data and data.runway_nodes then
-            start_non_runway_node_id, start_non_runway_node_dist = nearest_non_runway_node(data, start_lat, start_lon)
-        end
-        local driftMeters = (mode == 1 and arrRerouteDriftMeters) or rerouteDriftMeters
-        if mode == 1 and allow_runway_route and start_node_id and start_node_dist and data and data.runway_nodes then
-            if not data.runway_nodes[start_node_id] then
-                local sx, sy = latlon_to_local(start_lat, start_lon)
-                if sx and sy then
-                    local rwy_id = find_nearest_runway_node(data, sx, sy)
-                    local rwy_dist = nil
-                    if rwy_id and data.nodes and data.nodes[rwy_id] then
-                        local rn = data.nodes[rwy_id]
-                        if rn.east and rn.north then
-                            local dx = rn.east - sx
-                            local dy = rn.north - sy
-                            rwy_dist = math.sqrt(dx * dx + dy * dy)
-                        end
-                    end
-                    if rwy_id and rwy_dist and rwy_dist <= driftMeters then
-                        log_taxi(
-                            string.format(
-                                "TaxiRoute: on-runway start node swap dist=%.1f rwy_dist=%.1f",
-                                start_node_dist or -1,
-                                rwy_dist or -1
-                            )
-                        )
-                        start_node_id = rwy_id
-                        start_node_dist = rwy_dist
-                    elseif start_node_dist > driftMeters then
-                        log_taxi(
-                            string.format(
-                                "TaxiRoute: on-runway start node drop dist=%.1f",
-                                start_node_dist or -1
-                            )
-                        )
-                        start_node_id = nil
-                        start_node_dist = nil
-                    end
-                end
-            end
-        end
-        if mode == 1 and (not allow_runway_route) and start_node_dist and start_node_dist > driftMeters then
-            if onGround and (not has_start_override) and (not in_edit) and (not manual_active) then
-                log_taxi(
-                    string.format(
-                        "TaxiRoute: clear start node dist=%.1f",
-                        start_node_dist or -1
-                    )
-                )
-                start_node_id = nil
-                start_node_dist = nil
-            end
-        end
-        local end_node_id, end_node_dist = nearest_node_info(data, end_lat, end_lon, false)
-        if mode == 0 and data and data.runway_nodes then
-            dep_end_node_id, dep_end_node_dist = nearest_non_runway_node(data, end_lat, end_lon)
-        end
-        if mode == 1 and arr_exit_id and (not has_start_override) and (not comp._arrOffRunwayHandled)
-            and start_node_dist and start_node_dist > arrStartNodeMaxMeters
-            and arrival_grace_active(comp, now)
-            and data and data.nodes and data.nodes[arr_exit_id] then
-            local exit_node = data.nodes[arr_exit_id]
-            if exit_node and is_valid_latlon(exit_node.lat, exit_node.lon) then
-                start_lat = exit_node.lat
-                start_lon = exit_node.lon
-                start_node_id = arr_exit_id
-                start_node_dist = 0
-                comp._rerouteOverride = nil
-            end
-        end
-        if mode == 0 and (not has_end_override) and (not allow_runway_route)
-            and comp._selectedDepEntryId and data and data.nodes and data.nodes[comp._selectedDepEntryId] then
-            local sel = data.nodes[comp._selectedDepEntryId]
-            end_lat = sel.lat
-            end_lon = sel.lon
-            end_node_id = comp._selectedDepEntryId
-            end_node_dist = 0
-        end
-        comp._routeDebug = {
-            start_lat = start_lat,
-            start_lon = start_lon,
-            end_lat = end_lat,
-            end_lon = end_lon,
-            start_node_id = start_node_id,
-            start_node_dist = start_node_dist,
-            start_non_runway_node_id = start_non_runway_node_id,
-            start_non_runway_node_dist = start_non_runway_node_dist,
-            end_node_id = end_node_id,
-            end_node_dist = end_node_dist,
-            dep_end_node_id = dep_end_node_id,
-            dep_end_node_dist = dep_end_node_dist
-        }
-
-        if mode == 1 and (not hasArrivalRunway)
-            and ((not is_valid_latlon(start_lat, start_lon)) or (not is_valid_latlon(end_lat, end_lon))) then
-            comp._route = nil
-            comp._routeErr = "no-arrival-runway"
-            comp._routeExtraSegments = nil
-            comp._editTailSegments = nil
-            comp._lastStartKey = nil
-            comp._lastEndKey = nil
-            log_taxi("TaxiRoute: abort no-arrival-runway")
-            return
-        end
-
-        if is_valid_latlon(runway_lat, runway_lon) then
-            if mode == 1 then
-                local offRunway = nil
-                if landing_profile and aircraft then
-                    offRunway = not is_on_runway_profile(landing_profile, aircraft, 60, 5)
-                elseif comp.yal and comp.yal.aircraftonrwy then
-                    offRunway = comp.yal.aircraftonrwy(def.ARRIVAL, 40, 20)
-                end
-                if offRunway == false and not allow_runway_route then
-                    comp._route = nil
-                    comp._routeErr = "on-runway"
-                    comp._routeExtraSegments = nil
-                    comp._editTailSegments = nil
-                    comp._lastStartKey = nil
-                    comp._lastEndKey = nil
-                    log_taxi("TaxiRoute: abort on-runway")
-                    return
-                end
-            end
-        end
-
-        if comp._drawRoute and (not comp._routeWaypoints or #comp._routeWaypoints == 0) then
-            comp._route = nil
-            comp._routeErr = "draw-route-empty"
-            comp._routeExtraSegments = nil
-            comp._editTailSegments = nil
-            comp._lastStartKey = nil
-            comp._lastEndKey = nil
-            log_taxi("TaxiDraw: abort draw-route-empty")
-            return
-        end
-
-        local route_waypoints = comp._routeWaypoints
-        if route_waypoints and #route_waypoints > 0 then
-            local drop_first = waypoint_matches_override(route_waypoints[1], comp._editStartOverride)
-            local drop_last = waypoint_matches_override(route_waypoints[#route_waypoints], comp._editEndOverride)
-            if comp._drawFreehand then
-                drop_first = false
-                drop_last = false
-            end
-            if drop_first or drop_last then
-                local trimmed = {}
-                local s = drop_first and 2 or 1
-                local e = drop_last and (#route_waypoints - 1) or #route_waypoints
-                for i = s, e do
-                    trimmed[#trimmed + 1] = route_waypoints[i]
-                end
-                route_waypoints = trimmed
-            end
-        end
-        if freehand_active and route_waypoints and #route_waypoints > 0 then
-            local first = route_waypoints[1]
-            local last = route_waypoints[#route_waypoints]
-            if first then
-                ensure_waypoint_latlon(first)
-                if is_valid_latlon(first.lat, first.lon) then
-                    start_lat = first.lat
-                    start_lon = first.lon
-                end
-            end
-            if last then
-                ensure_waypoint_latlon(last)
-                if is_valid_latlon(last.lat, last.lon) then
-                    end_lat = last.lat
-                    end_lon = last.lon
-                end
-            end
-        end
-
-        local anchor_lat = start_lat
-        local anchor_lon = start_lon
-        if not in_edit then
-            if comp._rerouteOverride and is_valid_latlon(comp._rerouteOverride.lat, comp._rerouteOverride.lon) then
-                anchor_lat = comp._rerouteOverride.lat
-                anchor_lon = comp._rerouteOverride.lon
-            elseif comp._route and comp._routeStartAnchor
-                and is_valid_latlon(comp._routeStartAnchor.lat, comp._routeStartAnchor.lon) then
-                anchor_lat = comp._routeStartAnchor.lat
-                anchor_lon = comp._routeStartAnchor.lon
-            end
-        end
-        local start_key = string.format("%.6f|%.6f", anchor_lat or 0, anchor_lon or 0)
-        local end_key = string.format("%.6f|%.6f|%s", end_lat or 0, end_lon or 0, tostring(comp._runwayName or ""))
-        local recompute_reason = nil
-        local suppress_edit_recompute = false
-        if comp._editDirty and in_edit and (not comp._drawRoute) and (not comp._wpDrag)
-            and (not comp._manualRouteActive)
-            and (not has_start_override) and (not has_end_override)
-            and (not comp._editSuppressedNodes or next(comp._editSuppressedNodes) == nil)
-            and (not route_waypoints or #route_waypoints == 0) then
-            comp._editDirty = false
-            suppress_edit_recompute = true
-        end
-        if comp._editDirty and (not suppress_edit_recompute) then
-            recompute_reason = "edit-dirty"
-        elseif comp._route == nil then
-            recompute_reason = "route-nil"
-        elseif comp._lastStartKey ~= start_key or comp._lastEndKey ~= end_key then
-            if not (mode == 0 and comp._depThresholdLatched and comp._route and (not in_edit) and (not comp._drawRoute)) then
-                recompute_reason = "start-end-change"
-            else
-                comp._lastStartKey = start_key
-                comp._lastEndKey = end_key
-            end
-        end
-        if recompute_reason then
-            local recompute_key = string.format(
-                "%s|%s|%s|%d|%s|%s",
-                tostring(recompute_reason),
-                tostring(start_key),
-                tostring(end_key),
-                (comp._routeWaypoints and #comp._routeWaypoints) or 0,
-                tostring(in_edit),
-                tostring(comp._drawRoute)
-            )
-            if comp._lastRecomputeKey ~= recompute_key then
-                comp._lastRecomputeKey = recompute_key
-                log_taxi(
-                    string.format(
-                        "TaxiRoute: recompute reason=%s edit=%s draw=%s wps=%d",
-                        tostring(recompute_reason),
-                        tostring(in_edit),
-                        tostring(comp._drawRoute),
-                        (comp._routeWaypoints and #comp._routeWaypoints) or 0
-                    )
-                )
-            end
-        end
-        if comp._editDirty or comp._lastStartKey ~= start_key or comp._lastEndKey ~= end_key or comp._route == nil then
-            comp._lastStartKey = start_key
-            comp._lastEndKey = end_key
-            if data then
-                clear_temp_route_overlay(comp, data)
-            end
-            comp._depTurnaroundApplied = false
-            comp._initialGuidanceDone = false
-            comp._initialMoveAnchor = nil
-            comp._guidanceMoveAnchor = nil
-            comp._runwayCrossWarnedKey = nil
-            comp._depEntryIssuedAt = nil
-            if (canRoute or freehand_active)
-                and (freehand_active or (is_valid_latlon(start_lat, start_lon) and is_valid_latlon(end_lat, end_lon))) then
-                local function fmt_latlon(latv, lonv)
-                    if not latv or not lonv then
-                        return "nil/nil"
-                    end
-                    return string.format("%.6f/%.6f", tonumber(latv) or 0, tonumber(lonv) or 0)
-                end
-                local function fmt_node_latlon(node_id)
-                    if not node_id or not data or not data.nodes then
-                        return "nil"
-                    end
-                    local n = data.nodes[node_id]
-                    if not n then
-                        return tostring(node_id) .. ":?"
-                    end
-                    return tostring(node_id) .. ":" .. fmt_latlon(n.lat, n.lon)
-                end
-                local yalref = comp.yal or _G.yal
-                local onGround = yalref and yalref.airgroundsensor and (get(yalref.airgroundsensor) == def.ON)
-                local groundspeed = yalref and yalref.groundspeed and (get(yalref.groundspeed) or 0) or 0
-                local raw_dep = yalref and yalref.deprwy and helpers.forceCleanString(get(yalref.deprwy) or "") or ""
-                local raw_arr = yalref and yalref.desrwy and helpers.forceCleanString(get(yalref.desrwy) or "") or ""
-                local dep_lat = yalref and yalref.deprwylatstartpos and get(yalref.deprwylatstartpos) or nil
-                local dep_lon = yalref and yalref.deprwylonstartpos and get(yalref.deprwylonstartpos) or nil
-                local arr_lat = yalref and yalref.desrwylatstartpos and get(yalref.desrwylatstartpos) or nil
-                local arr_lon = yalref and yalref.desrwylonstartpos and get(yalref.desrwylonstartpos) or nil
-                local src = data and data.route_source or "?"
-                helpers.logInfoTS(
-                    "TaxiDiag: mode=" .. tostring(mode) ..
-                    " icao=" .. tostring(icao) ..
-                    " src=" .. tostring(src) ..
-                    " runway=" .. tostring(comp._runwayName or "") ..
-                    " rawDEP=" .. tostring(raw_dep) ..
-                    " rawARR=" .. tostring(raw_arr)
-                )
-                helpers.logInfoTS(
-                    "TaxiDiag: runwayLatLon dep=" .. fmt_latlon(dep_lat, dep_lon) ..
-                    " arr=" .. fmt_latlon(arr_lat, arr_lon) ..
-                    " chosen=" .. fmt_latlon(runway_lat, runway_lon)
-                )
-                helpers.logInfoTS(
-                    "TaxiDiag: start=" .. fmt_latlon(start_lat, start_lon) ..
-                    " end=" .. fmt_latlon(end_lat, end_lon) ..
-                    " aircraft=" .. (aircraft and fmt_latlon(aircraft.lat, aircraft.lon) or "nil/nil") ..
-                    " reroute=" .. (comp._rerouteOverride and fmt_latlon(comp._rerouteOverride.lat, comp._rerouteOverride.lon) or "nil/nil")
-                )
-                local dep_end_dbg = ""
-                if dep_end_node_id then
-                    dep_end_dbg = " depEnd=" .. fmt_node_latlon(dep_end_node_id) .. " d=" .. tostring(dep_end_node_dist or "?")
-                end
-                helpers.logInfoTS(
-                    "TaxiDiag: nodes start=" .. fmt_node_latlon(start_node_id) .. " d=" .. tostring(start_node_dist or "?") ..
-                    " end=" .. fmt_node_latlon(end_node_id) .. " d=" .. tostring(end_node_dist or "?") ..
-                    dep_end_dbg ..
-                    " depHS=" .. fmt_node_latlon(dep_holdshort_id) ..
-                    " arrExit=" .. fmt_node_latlon(arr_exit_id)
-                )
-                helpers.logInfoTS(
-                    "TaxiDiag: onGround=" .. tostring(onGround) .. " gs=" .. tostring(groundspeed)
-                )
-                local tirespeed = yalref and yalref.tirespeed and (get(yalref.tirespeed) or 0) or 0
-                local now = 0
-                if comp._timer then
-                    now = sasl.getElapsedSeconds(comp._timer) or 0
-                end
-                local log_key = string.format("%d|%s|%s|%s|%.4f|%.4f|%.4f|%.4f",
-                    mode or -1,
-                    tostring(icao),
-                    tostring(comp._runwayName or ""),
-                    tostring(raw_dep or raw_arr or ""),
-                    tonumber(start_lat or 0),
-                    tonumber(start_lon or 0),
-                    tonumber(end_lat or 0),
-                    tonumber(end_lon or 0)
-                )
-                local should_log = (comp._lastRouteLogKey ~= log_key)
-                if not should_log and comp._lastRouteLogTime then
-                    should_log = (now - comp._lastRouteLogTime) > 8
-                end
-                if should_log then
-                    comp._lastRouteLogKey = log_key
-                    comp._lastRouteLogTime = now
-                    local wtl_e, wtl_n = nil, nil
-                    if aircraft and aircraft.lat and aircraft.lon then
-                        wtl_e, wtl_n = latlon_to_local(aircraft.lat, aircraft.lon)
-                    end
-                    local rwy_entry_lat = nil
-                    local rwy_entry_lon = nil
-                    local rwy_entry_dist_m = nil
-                    local rwy1, rwy2, rwy_side = nil, nil, nil
-                    if data and comp._runwayName and comp._runwayName ~= "" then
-                        local rwy, side = find_runway_entry(data, comp._runwayName, runway_lat, runway_lon)
-                        if rwy then
-                            rwy1 = rwy.rwy1
-                            rwy2 = rwy.rwy2
-                            rwy_side = side
-                            rwy_entry_lat = (side == 1) and rwy.lat1 or rwy.lat2
-                            rwy_entry_lon = (side == 1) and rwy.lon1 or rwy.lon2
-                            if is_valid_latlon(runway_lat, runway_lon) and is_valid_latlon(rwy_entry_lat, rwy_entry_lon) then
-                                rwy_entry_dist_m = distance_meters_latlon(runway_lat, runway_lon, rwy_entry_lat, rwy_entry_lon)
-                            end
-                        end
-                    end
-                    local dep_hs_dist = nil
-                    if dep_holdshort_id and data and data.nodes then
-                        local hs = data.nodes[dep_holdshort_id]
-                        if hs and is_valid_latlon(hs.lat, hs.lon) and is_valid_latlon(runway_lat, runway_lon) then
-                            dep_hs_dist = distance_meters_latlon(runway_lat, runway_lon, hs.lat, hs.lon)
-                        end
-                    end
-                    log_full_route_state(comp, data, mode, icao, {
-                        raw_dep = raw_dep,
-                        raw_arr = raw_arr,
-                        runway_name = comp._runwayName,
-                        runway_lat = runway_lat,
-                        runway_lon = runway_lon,
-                        chosen_lat = runway_lat,
-                        chosen_lon = runway_lon,
-                        rwy1 = rwy1,
-                        rwy2 = rwy2,
-                        rwy_side = rwy_side,
-                        rwy_entry_lat = rwy_entry_lat,
-                        rwy_entry_lon = rwy_entry_lon,
-                        rwy_entry_dist_m = rwy_entry_dist_m,
-                        aircraft_lat = aircraft and aircraft.lat or nil,
-                        aircraft_lon = aircraft and aircraft.lon or nil,
-                        aircraft_east = aircraft and aircraft.east or nil,
-                        aircraft_north = aircraft and aircraft.north or nil,
-                        aircraft_wtl_e = wtl_e,
-                        aircraft_wtl_n = wtl_n,
-                        start_lat = start_lat,
-                        start_lon = start_lon,
-                        end_lat = end_lat,
-                        end_lon = end_lon,
-                        start_node_id = start_node_id,
-                        start_node_dist = start_node_dist,
-                        end_node_id = end_node_id,
-                        end_node_dist = end_node_dist,
-                        start_non_runway_node_id = start_non_runway_node_id,
-                        start_non_runway_node_dist = start_non_runway_node_dist,
-                        dep_holdshort_id = dep_holdshort_id,
-                        dep_holdshort_dist_m = dep_hs_dist,
-                        arr_exit_id = arr_exit_id,
-                        reroute_lat = comp._rerouteOverride and comp._rerouteOverride.lat or nil,
-                        reroute_lon = comp._rerouteOverride and comp._rerouteOverride.lon or nil,
-                        onGround = onGround,
-                        groundspeed = groundspeed,
-                        tirespeed = tirespeed
-                    })
-                end
-                local proj_data = nil
-                local proj_disallow_runway_edges = nil
-                local proj_start_id = nil
-                local proj_end_id = nil
-                local proj_waypoint_ids = nil
-                local function compute_projection(opts)
-                    local disallow = opts and opts.disallow_runway_edges or nil
-                    if proj_data and proj_disallow_runway_edges == disallow then
-                        return
-                    end
-                    proj_data = nil
-                    proj_start_id = nil
-                    proj_end_id = nil
-                    proj_waypoint_ids = nil
-                    proj_disallow_runway_edges = disallow
-                    local start_proj = nil
-                    local end_proj = nil
-                    local waypoint_projs = nil
-                    if not opts.start_node_id and is_valid_latlon(start_lat, start_lon) then
-                        local sx, sy = latlon_to_local(start_lat, start_lon)
-                        if sx and sy then
-                            if start_ramp and start_ramp.east and start_ramp.north then
-                                if start_ramp.heading ~= nil then
-                                    start_proj = find_heading_edge_projection(
-                                        data,
-                                        start_ramp.east,
-                                        start_ramp.north,
-                                        start_ramp.heading,
-                                        { disallow_runway_edges = opts.disallow_runway_edges, radius_m = 150, angle_deg = 60 }
-                                    )
-                                end
-                                if not start_proj then
-                                    start_proj = find_preferred_edge_projection(
-                                        data,
-                                        start_ramp.east,
-                                        start_ramp.north,
-                                        { disallow_runway_edges = opts.disallow_runway_edges }
-                                    )
-                                end
-                            end
-                            if not start_proj then
-                                start_proj = find_nearest_edge_projection(data, sx, sy, { disallow_runway_edges = opts.disallow_runway_edges })
-                            end
-                        end
-                    end
-                    if not opts.end_node_id and is_valid_latlon(end_lat, end_lon) then
-                        local ex, ey = latlon_to_local(end_lat, end_lon)
-                        if ex and ey then
-                            if end_ramp and end_ramp.east and end_ramp.north then
-                                if end_ramp.heading ~= nil then
-                                    end_proj = find_heading_edge_projection(
-                                        data,
-                                        end_ramp.east,
-                                        end_ramp.north,
-                                        end_ramp.heading,
-                                        { disallow_runway_edges = opts.disallow_runway_edges, radius_m = 150, angle_deg = 60 }
-                                    )
-                                end
-                                if not end_proj then
-                                    end_proj = find_preferred_edge_projection(
-                                        data,
-                                        end_ramp.east,
-                                        end_ramp.north,
-                                        { disallow_runway_edges = opts.disallow_runway_edges }
-                                    )
-                                end
-                            end
-                            if not end_proj then
-                                end_proj = find_nearest_edge_projection(data, ex, ey, { disallow_runway_edges = opts.disallow_runway_edges })
-                            end
-                        end
-                    end
-                    if route_waypoints and #route_waypoints > 0 then
-                        waypoint_projs = {}
-                        for _, wp in ipairs(route_waypoints) do
-                            if is_valid_latlon(wp.lat, wp.lon) then
-                                local wx, wy = latlon_to_local(wp.lat, wp.lon)
-                                if wx and wy then
-                                    waypoint_projs[#waypoint_projs + 1] = find_nearest_edge_projection(
-                                        data,
-                                        wx,
-                                        wy,
-                                        { disallow_runway_edges = opts.disallow_runway_edges }
-                                    )
-                                end
-                            end
-                        end
-                    end
-                    if start_proj or end_proj or (waypoint_projs and #waypoint_projs > 0) then
-                        proj_data, proj_start_id, proj_end_id, proj_waypoint_ids =
-                            build_projected_data(data, start_proj, end_proj, waypoint_projs)
-                    end
-                end
-                local function apply_projection(opts)
-                    if proj_data then
-                        opts.data = proj_data
-                        if proj_start_id and not opts.start_node_id then
-                            opts.start_node_id = proj_start_id
-                        end
-                        if proj_end_id and not opts.end_node_id then
-                            opts.end_node_id = proj_end_id
-                        end
-                    else
-                        opts.data = data
-                    end
-                    if not opts.start_node_id and opts._fallback_start_node_id then
-                        opts.start_node_id = opts._fallback_start_node_id
-                    end
-                    if not opts.end_node_id and opts._fallback_end_node_id then
-                        opts.end_node_id = opts._fallback_end_node_id
-                    end
-                end
-
-                local function node_has_non_runway_edge(node_id)
-                    if not node_id or not data or not data.adjacency_any or not data.nodes then
-                        return false
-                    end
-                    local edges = data.adjacency_any[node_id]
-                    if not edges then
-                        return false
-                    end
-                    for _, edge in ipairs(edges) do
-                        local other = data.nodes[edge.to]
-                        if other and not other.is_ramp and not (data.runway_nodes and data.runway_nodes[edge.to]) then
-                            return true
-                        end
-                    end
-                    return false
-                end
-
-                local function ramp_node_ok(ramp)
-                    if not ramp or not ramp.node_id then
-                        return false
-                    end
-                    return node_has_non_runway_edge(ramp.node_id)
-                end
-
-                local function set_start_ramp_fallback(opts)
-                    if start_ramp and start_ramp.node_id and node_has_non_runway_edge(start_ramp.node_id) then
-                        opts._fallback_start_node_id = start_ramp.node_id
-                        opts.allow_far_ramp = true
-                    end
-                end
-
-                local function set_end_ramp_fallback(opts)
-                    if user_selected_end and end_ramp and end_ramp.node_id and node_has_non_runway_edge(end_ramp.node_id) then
-                        opts._fallback_end_node_id = end_ramp.node_id
-                        opts.allow_far_ramp = true
-                    end
-                end
-
-                local opts = {}
-                if mode == 0 then
-                    opts.avoid_runway_end = not allow_runway_route
-                    opts.runway_penalty = allow_runway_route and 1 or 500
-                    opts.disallow_runway_edges = not allow_runway_route
-                    opts.avoid_runway_nodes = not allow_runway_route
-                    if not has_start_override and ramp_node_ok(start_ramp) then
-                        opts.start_node_id = start_ramp.node_id
-                        opts.allow_far_ramp = true
-                        log_taxi("TaxiRoute: start from ramp node id=" .. tostring(start_ramp.node_id))
-                    end
-                    if not has_end_override then
-                        if allow_runway_route and dep_runway_end_id and data.nodes and data.nodes[dep_runway_end_id] then
-                            opts.end_node_id = dep_runway_end_id
-                        elseif comp._selectedDepEntryId and data.nodes and data.nodes[comp._selectedDepEntryId] then
-                            opts.end_node_id = comp._selectedDepEntryId
-                        elseif dep_holdshort_id and data.nodes and data.nodes[dep_holdshort_id] then
-                            opts.end_node_id = dep_holdshort_id
-                        elseif dep_end_node_id and data.nodes and data.nodes[dep_end_node_id] then
-                            opts.end_node_id = dep_end_node_id
-                        end
-                    end
-                    set_start_ramp_fallback(opts)
-                elseif mode == 1 then
-                    if not allow_runway_route then
-                        if (not comp._rerouteOverride) and (not has_start_override) and (not comp._arrOffRunwayHandled)
-                            and arr_exit_id and data.nodes and data.nodes[arr_exit_id] then
-                            opts.start_node_id = arr_exit_id
-                        elseif not backtrack_required then
-                            opts.avoid_runway_start = true
-                        end
-                    end
-                    opts.disallow_runway_edges = (not allow_runway_route) and (not backtrack_required)
-                    opts.runway_penalty = allow_runway_route and 1 or 500
-                    if not has_end_override and ramp_node_ok(end_ramp) then
-                        opts.end_node_id = end_ramp.node_id
-                        opts.allow_far_ramp = true
-                        log_taxi("TaxiRoute: end at ramp node id=" .. tostring(end_ramp.node_id))
-                    end
-                    set_end_ramp_fallback(opts)
-                end
-                if not opts.start_node_id and start_node_id and data.nodes and data.nodes[start_node_id] then
-                    opts.start_node_id = start_node_id
-                end
-                if not opts.end_node_id and end_node_id and data.nodes and data.nodes[end_node_id] then
-                    opts.end_node_id = end_node_id
-                end
-                compute_projection(opts)
-                apply_projection(opts)
-                local route, rerr = nil, nil
-                if comp._drawFreehand and route_waypoints and #route_waypoints > 0 then
-                    if #route_waypoints < 2 then
-                        route = nil
-                        rerr = nil
-                    else
-                        route, rerr = build_freehand_route(route_waypoints, data)
-                    end
-                else
-                    route, rerr = route_with_waypoints(
-                        icao,
-                        start_lat,
-                        start_lon,
-                        end_lat,
-                        end_lon,
-                        opts,
-                        proj_waypoint_ids,
-                        route_waypoints
-                    )
-                end
-                if (not route) and rerr == "no-path" and mode == 1 and opts and opts.disallow_runway_edges then
-                    opts = copy_opts(opts) or {}
-                    opts.disallow_runway_edges = false
-                    if (not has_start_override) and (not backtrack_required) then
-                        opts.runway_penalty = 500
-                    end
-                    set_end_ramp_fallback(opts)
-                    apply_projection(opts)
-                    route, rerr = route_with_waypoints(
-                        icao,
-                        start_lat,
-                        start_lon,
-                        end_lat,
-                        end_lon,
-                        opts,
-                        proj_waypoint_ids,
-                        route_waypoints
-                    )
-                end
-                if (not route) and rerr == "no-path" and mode == 0 then
-                    if (not comp._selectedDepEntryId)
-                        and (not has_end_override)
-                        and (not manual_active)
-                        and dep_entry_candidate_id
-                        and data and data.nodes and data.nodes[dep_entry_candidate_id] then
-                        comp._selectedDepEntryId = dep_entry_candidate_id
-                        local dn = data.nodes[dep_entry_candidate_id]
-                        if dn and is_valid_latlon(dn.lat, dn.lon) then
-                            end_lat = dn.lat
-                            end_lon = dn.lon
-                            end_node_id = dep_entry_candidate_id
-                            end_node_dist = 0
-                        end
-                        log_taxi(
-                            string.format(
-                                "TaxiRoute: dep entry fallback id=%s dist=%.1f",
-                                tostring(dep_entry_candidate_id),
-                                dep_entry_candidate_dist or -1
-                            )
-                        )
-                    end
-                    opts = {
-                        ignore_oneway = true,
-                        allow_far_ramp = true,
-                        disallow_runway_edges = true,
-                        avoid_runway_nodes = true
-                    }
-                    if not has_end_override then
-                        if allow_runway_route and dep_runway_end_id and data.nodes and data.nodes[dep_runway_end_id] then
-                            opts.end_node_id = dep_runway_end_id
-                        elseif comp._selectedDepEntryId and data.nodes and data.nodes[comp._selectedDepEntryId] then
-                            opts.end_node_id = comp._selectedDepEntryId
-                        elseif dep_holdshort_id and data.nodes and data.nodes[dep_holdshort_id] then
-                            opts.end_node_id = dep_holdshort_id
-                        end
-                    end
-                    set_start_ramp_fallback(opts)
-                    apply_projection(opts)
-                    route, rerr = route_with_waypoints(
-                        icao,
-                        start_lat,
-                        start_lon,
-                        end_lat,
-                        end_lon,
-                        opts,
-                        proj_waypoint_ids,
-                        route_waypoints
-                    )
-                end
-                if (not route) and rerr == "no-path" and mode == 0 then
-                    opts = {
-                        ignore_oneway = true,
-                        allow_far_ramp = true,
-                        disallow_runway_edges = false,
-                        avoid_runway_nodes = false,
-                        runway_penalty = 500
-                    }
-                    if not has_end_override then
-                        if allow_runway_route and dep_runway_end_id and data.nodes and data.nodes[dep_runway_end_id] then
-                            opts.end_node_id = dep_runway_end_id
-                        elseif comp._selectedDepEntryId and data.nodes and data.nodes[comp._selectedDepEntryId] then
-                            opts.end_node_id = comp._selectedDepEntryId
-                        elseif dep_holdshort_id and data.nodes and data.nodes[dep_holdshort_id] then
-                            opts.end_node_id = dep_holdshort_id
-                        end
-                    end
-                    set_start_ramp_fallback(opts)
-                    apply_projection(opts)
-                    route, rerr = route_with_waypoints(
-                        icao,
-                        start_lat,
-                        start_lon,
-                        end_lat,
-                        end_lon,
-                        opts,
-                        proj_waypoint_ids,
-                        route_waypoints
-                    )
-                end
-                if (not route) and rerr == "no-path" and mode == 0 and is_valid_latlon(start_lat, start_lon) then
-                    local sx, sy = latlon_to_local(start_lat, start_lon)
-                    local candidates = collect_nearest_nodes(data, sx, sy, 18)
-                    if #candidates > 0 then
-                        opts = {
-                            ignore_oneway = true,
-                            allow_far_ramp = true,
-                            disallow_runway_edges = true,
-                            avoid_runway_nodes = true
-                        }
-                        if not has_end_override then
-                            if allow_runway_route and dep_runway_end_id and data.nodes and data.nodes[dep_runway_end_id] then
-                                opts.end_node_id = dep_runway_end_id
-                            elseif comp._selectedDepEntryId and data.nodes and data.nodes[comp._selectedDepEntryId] then
-                                opts.end_node_id = comp._selectedDepEntryId
-                            elseif dep_holdshort_id and data.nodes and data.nodes[dep_holdshort_id] then
-                                opts.end_node_id = dep_holdshort_id
-                            end
-                        end
-                        set_start_ramp_fallback(opts)
-                        apply_projection(opts)
-                        local alt_route = try_route_from_candidates(
-                            icao,
-                            data,
-                            end_lat,
-                            end_lon,
-                            candidates,
-                            opts,
-                            proj_waypoint_ids,
-                            route_waypoints
-                        )
-                        if alt_route then
-                            route = alt_route
-                            rerr = nil
-                        end
-                    end
-                end
-                if (not route) and rerr == "no-path" and mode == 0 then
-                    opts = {
-                        ignore_oneway = true,
-                        allow_far_ramp = true,
-                        disallow_runway_edges = true,
-                        avoid_runway_nodes = false
-                    }
-                    if not has_end_override then
-                        if allow_runway_route and dep_runway_end_id and data.nodes and data.nodes[dep_runway_end_id] then
-                            opts.end_node_id = dep_runway_end_id
-                        elseif comp._selectedDepEntryId and data.nodes and data.nodes[comp._selectedDepEntryId] then
-                            opts.end_node_id = comp._selectedDepEntryId
-                        elseif dep_holdshort_id and data.nodes and data.nodes[dep_holdshort_id] then
-                            opts.end_node_id = dep_holdshort_id
-                        end
-                    end
-                    set_start_ramp_fallback(opts)
-                    apply_projection(opts)
-                    route, rerr = route_with_waypoints(
-                        icao,
-                        start_lat,
-                        start_lon,
-                        end_lat,
-                        end_lon,
-                        opts,
-                        proj_waypoint_ids,
-                        route_waypoints
-                    )
-                    if route and helpers and helpers.logInfoTS then
-                        helpers.logInfoTS("Taxi: DEP fallback allow runway nodes")
-                    end
-                end
-                if (not route) and rerr == "no-path" and mode == 0 then
-                    opts = {
-                        ignore_oneway = true,
-                        allow_far_ramp = true,
-                        disallow_runway_edges = false,
-                        avoid_runway_nodes = false,
-                        runway_penalty = 50
-                    }
-                    if not has_end_override then
-                        if allow_runway_route and dep_runway_end_id and data.nodes and data.nodes[dep_runway_end_id] then
-                            opts.end_node_id = dep_runway_end_id
-                        elseif comp._selectedDepEntryId and data.nodes and data.nodes[comp._selectedDepEntryId] then
-                            opts.end_node_id = comp._selectedDepEntryId
-                        elseif dep_holdshort_id and data.nodes and data.nodes[dep_holdshort_id] then
-                            opts.end_node_id = dep_holdshort_id
-                        end
-                    end
-                    set_start_ramp_fallback(opts)
-                    apply_projection(opts)
-                    route, rerr = route_with_waypoints(
-                        icao,
-                        start_lat,
-                        start_lon,
-                        end_lat,
-                        end_lon,
-                        opts,
-                        proj_waypoint_ids,
-                        route_waypoints
-                    )
-                    if route and helpers and helpers.logInfoTS then
-                        helpers.logInfoTS("Taxi: DEP fallback allow runway crossing")
-                    end
-                end
-                if (not route) and rerr == "no-path" and mode == 0 and is_valid_latlon(end_lat, end_lon) then
-                    local ex, ey = latlon_to_local(end_lat, end_lon)
-                    local candidates = collect_nearest_nodes(data, ex, ey, 18)
-                    if #candidates > 0 then
-                        opts = {
-                            ignore_oneway = true,
-                            allow_far_ramp = true,
-                            disallow_runway_edges = true,
-                            avoid_runway_nodes = true
-                        }
-                        if not has_end_override then
-                            if allow_runway_route and dep_runway_end_id and data.nodes and data.nodes[dep_runway_end_id] then
-                                opts.end_node_id = dep_runway_end_id
-                            elseif comp._selectedDepEntryId and data.nodes and data.nodes[comp._selectedDepEntryId] then
-                                opts.end_node_id = comp._selectedDepEntryId
-                            elseif dep_holdshort_id and data.nodes and data.nodes[dep_holdshort_id] then
-                                opts.end_node_id = dep_holdshort_id
-                            end
-                        end
-                        set_start_ramp_fallback(opts)
-                        apply_projection(opts)
-                        local alt_route = try_route_to_candidates(
-                            icao,
-                            data,
-                            start_lat,
-                            start_lon,
-                            candidates,
-                            opts,
-                            proj_waypoint_ids,
-                            route_waypoints
-                        )
-                        if alt_route then
-                            route = alt_route
-                            rerr = nil
-                        end
-                    end
-                end
-                if (not route) and rerr == "no-path" and mode == 1 then
-                    opts = {}
-                    if (not has_start_override) and (not backtrack_required) then
-                        opts.avoid_runway_start = true
-                    end
-                    set_end_ramp_fallback(opts)
-                    apply_projection(opts)
-                    route, rerr = route_with_waypoints(
-                        icao,
-                        start_lat,
-                        start_lon,
-                        end_lat,
-                        end_lon,
-                        opts,
-                        proj_waypoint_ids,
-                        route_waypoints
-                    )
-                end
-                if (not route) and rerr == "no-path" and mode == 1 then
-                    opts = { ignore_oneway = true }
-                    if (not has_start_override) and (not backtrack_required) then
-                        opts.avoid_runway_start = true
-                    end
-                    set_end_ramp_fallback(opts)
-                    apply_projection(opts)
-                    route, rerr = route_with_waypoints(
-                        icao,
-                        start_lat,
-                        start_lon,
-                        end_lat,
-                        end_lon,
-                        opts,
-                        proj_waypoint_ids,
-                        route_waypoints
-                    )
-                end
-                if (not route) and rerr == "no-path" and mode == 1 then
-                    opts = {}
-                    if (not has_start_override) and (not backtrack_required) then
-                        opts.runway_penalty = 500
-                    end
-                    set_end_ramp_fallback(opts)
-                    apply_projection(opts)
-                    route, rerr = route_with_waypoints(
-                        icao,
-                        start_lat,
-                        start_lon,
-                        end_lat,
-                        end_lon,
-                        opts,
-                        proj_waypoint_ids,
-                        route_waypoints
-                    )
-                end
-                if (not route) and rerr == "no-path" and mode == 1 then
-                    opts = { ignore_oneway = true }
-                    set_end_ramp_fallback(opts)
-                    apply_projection(opts)
-                    route, rerr = route_with_waypoints(
-                        icao,
-                        start_lat,
-                        start_lon,
-                        end_lat,
-                        end_lon,
-                        opts,
-                        proj_waypoint_ids,
-                        route_waypoints
-                    )
-                end
-                if (not route) and rerr == "no-path" and mode == 1 then
-                    opts = { allow_far_ramp = true }
-                    if (not has_start_override) and (not backtrack_required) then
-                        opts.avoid_runway_start = true
-                        opts.runway_penalty = 500
-                    end
-                    set_end_ramp_fallback(opts)
-                    apply_projection(opts)
-                    route, rerr = route_with_waypoints(
-                        icao,
-                        start_lat,
-                        start_lon,
-                        end_lat,
-                        end_lon,
-                        opts,
-                        proj_waypoint_ids,
-                        route_waypoints
-                    )
-                end
-                if (not route) and rerr == "no-path" and mode == 1 then
-                    opts = { allow_far_ramp = true, ignore_oneway = true }
-                    set_end_ramp_fallback(opts)
-                    apply_projection(opts)
-                    route, rerr = route_with_waypoints(
-                        icao,
-                        start_lat,
-                        start_lon,
-                        end_lat,
-                        end_lon,
-                        opts,
-                        proj_waypoint_ids,
-                        route_waypoints
-                    )
-                end
-                if (not route) and rerr == "no-path" and mode == 1 then
-                    local ref = touchdown
-                    if not (ref and ref.east and ref.north) and is_valid_latlon(runway_lat, runway_lon) then
-                        local re, rn = latlon_to_local(runway_lat, runway_lon)
-                        ref = { east = re, north = rn }
-                    end
-                    if ref and ref.east and ref.north and data then
-                        local candidates = collect_runway_exit_candidates(data, ref.east, ref.north, 12)
-                        if #candidates > 0 then
-                            opts = { allow_far_ramp = true, ignore_oneway = true }
-                            if (not has_start_override) and (not backtrack_required) then
-                                opts.runway_penalty = 500
-                            end
-                            apply_projection(opts)
-                            local alt_route, alt_err, alt_lat, alt_lon = try_route_from_candidates(
-                                icao,
-                                data,
-                                end_lat,
-                                end_lon,
-                                candidates,
-                                opts,
-                                proj_waypoint_ids,
-                                route_waypoints
-                            )
-                            if alt_route then
-                                route = alt_route
-                                rerr = alt_err
-                                start_lat = alt_lat
-                                start_lon = alt_lon
-                            end
-                        end
-                    end
-                end
-                if (not route) and rerr == "no-path" and mode == 1 and is_valid_latlon(end_lat, end_lon) and (not user_selected_end) then
-                    local ee, en = latlon_to_local(end_lat, end_lon)
-                    local candidates = collect_nearest_nodes(data, ee, en, 18)
-                    if #candidates > 0 then
-                        opts = { allow_far_ramp = true, ignore_oneway = true }
-                        if (not has_start_override) and (not backtrack_required) then
-                            opts.runway_penalty = 500
-                        end
-                        apply_projection(opts)
-                        local alt_route, alt_err, alt_lat, alt_lon = try_route_to_candidates(
-                            icao,
-                            data,
-                            start_lat,
-                            start_lon,
-                            candidates,
-                            opts,
-                            proj_waypoint_ids,
-                            route_waypoints
-                        )
-                        if alt_route then
-                            route = alt_route
-                            rerr = alt_err
-                            end_lat = alt_lat
-                            end_lon = alt_lon
-                        end
-                    end
-                end
-                if (not route) and rerr == "no-path" and mode == 1 and is_valid_latlon(end_lat, end_lon) and user_selected_end then
-                    local ee, en = latlon_to_local(end_lat, end_lon)
-                    local candidates = collect_nearest_nodes(data, ee, en, 18)
-                    if #candidates > 0 then
-                        opts = { allow_far_ramp = true, ignore_oneway = true }
-                        if not backtrack_required then
-                            opts.runway_penalty = 500
-                        end
-                        apply_projection(opts)
-                        local alt_route, alt_err, alt_lat, alt_lon = try_route_to_candidates(
-                            icao,
-                            data,
-                            start_lat,
-                            start_lon,
-                            candidates,
-                            opts,
-                            proj_waypoint_ids,
-                            route_waypoints
-                        )
-                        if alt_route then
-                            route = alt_route
-                            rerr = alt_err
-                        end
-                    end
-                end
-                comp._route = route
-                comp._lastRouteComputeTime = now
-                comp._routeErr = rerr
-                comp._routeLabels = nil
-                comp._routeLabelStats = nil
-                if in_edit and route then
-                    if comp._editDirty then
-                        log_taxi("TaxiEdit: clean")
-                    end
-                    comp._editDirty = false
-                end
-                local backtrack_applied = false
-                comp._routeExtraSegments = nil
-                if (not comp._drawFreehand) and (not comp._manualRouteActive)
-                    and route and route.path and data and comp._runwayName and comp._runwayName ~= "" then
-                    local profile = compute_runway_landing_profile(data, comp._runwayName, runway_lat, runway_lon)
-                    if profile then
-                        local backtrack_node = nil
-                        local backtrack_target = nil
-                        if mode == 1 and backtrack_required and (not comp._arrOffRunwayHandled) then
-                            backtrack_node = arr_exit_id or route.path[1]
-                            if aircraft and is_on_runway_profile(profile, aircraft, 60, 5) then
-                                backtrack_target = { east = aircraft.east, north = aircraft.north }
-                            else
-                                backtrack_target = profile.touchdown or profile.threshold
-                            end
-                        elseif mode == 0 and not allow_runway_route then
-                            backtrack_node = comp._selectedDepEntryId or dep_holdshort_id or dep_end_node_id or route.end_id or route.path[#route.path]
-                            backtrack_target = profile.threshold
-                        end
-                        if backtrack_node then
-                            local segments = build_runway_backtrack_segments(data, profile, backtrack_node, backtrack_target)
-                            if segments and #segments > 0 then
-                                local runway_label = normalize_runway_name(comp._runwayName)
-                                if apply_backtrack_segments_to_route(comp, route, data, backtrack_node, segments, runway_label) then
-                                    backtrack_applied = true
-                                else
-                                    comp._routeExtraSegments = segments
-                                end
-                            end
-                        end
-                    end
-                end
-                if mode == 0 and dep_backtrack_required and route and data and comp._runwayName and comp._runwayName ~= "" then
-                    local profile = compute_runway_landing_profile(data, comp._runwayName, runway_lat, runway_lon)
-                    if profile then
-                        local runway_label = normalize_runway_name(comp._runwayName)
-                        if apply_dep_turnaround_stub(comp, route, data, profile, runway_label) then
-                            log_taxi("TaxiRoute: dep turnaround stub applied")
-                        end
-                    end
-                end
-                if route then
-                    comp._routeLabels = build_route_labels(route.data, route.path)
-                    comp._routeLabelStats = compute_route_label_stats(route.data, route.path)
-                end
-                if route and is_valid_latlon(start_lat, start_lon) then
-                    if not in_edit then
-                        comp._routeStartAnchor = { lat = start_lat, lon = start_lon }
-                        if comp._rerouteOverride then
-                            comp._rerouteOverride = nil
-                        end
-                    else
-                        comp._routeStartAnchor = nil
-                    end
-                end
-                if route and route.path then
-                    local rlen = #route.path
-                    local src = (route.data and route.data.route_source) or "?"
-                    helpers.logInfoTS(
-                        string.format(
-                            "Taxi: route %s %s mode=%d len=%d start=%s end=%s src=%s",
-                            tostring(icao),
-                            tostring(comp._runwayName or ""),
-                            tonumber(mode or -1),
-                            tonumber(rlen or 0),
-                            tostring(route.start_id or "?"),
-                            tostring(route.end_id or "?"),
-                            tostring(src)
-                        )
-                    )
-                    local path = route.path
-                    local path_parts = {}
-                    for i = 1, #path do
-                        path_parts[#path_parts + 1] = tostring(path[i])
-                    end
-                    local path_key = table.concat(path_parts, ",")
-                    local fwd_key = path_key
-                    if aircraft and aircraft.east and aircraft.north then
-                        local seg_idx = find_nearest_segment(route.data, path, aircraft.east, aircraft.north)
-                        if seg_idx and seg_idx >= 1 and seg_idx < #path_parts then
-                            fwd_key = table.concat(path_parts, ",", seg_idx + 1, #path_parts)
-                        end
-                    end
-                    if comp._lastRoutePathKey ~= path_key then
-                        comp._lastRoutePathKey = path_key
-                        local max_chunk = 30
-                        local idx = 1
-                        while idx <= #path_parts do
-                            local last = math.min(idx + max_chunk - 1, #path_parts)
-                            local chunk = table.concat(path_parts, ",", idx, last)
-                            helpers.logInfoTS(
-                                string.format(
-                                    "TaxiPath: %s %s %d/%d %s",
-                                    tostring(icao),
-                                    tostring(comp._runwayName or ""),
-                                    idx,
-                                    #path_parts,
-                                    chunk
-                                )
-                            )
-                            idx = last + 1
-                        end
-                        local labels = comp._routeLabels or build_route_labels(route.data, route.path)
-                        if labels and #labels > 0 then
-                            helpers.logInfoTS(
-                                "TaxiLabels: " .. tostring(icao) .. " " .. tostring(comp._runwayName or "") .. " " .. table.concat(labels, " ")
-                            )
-                        else
-                            helpers.logInfoTS("TaxiLabels: " .. tostring(icao) .. " " .. tostring(comp._runwayName or "") .. " <none>")
-                        end
-                    end
-                    if backtrack_applied then
-                        helpers.logInfoTS(
-                            "TaxiRoute: backtrack applied mode=" .. tostring(mode) ..
-                            " runway=" .. tostring(comp._runwayName or "") ..
-                            " node=" .. tostring((mode == 1 and arr_exit_id) or comp._selectedDepEntryId or dep_holdshort_id or dep_end_node_id or "")
-                        )
-                    end
-                    if comp._pendingRerouteEvent then
-                        if comp._lastForwardPathKey ~= fwd_key then
-                            record_reroute_event(comp, now)
-                            comp._lastForwardPathKey = fwd_key
-                        end
-                        comp._pendingRerouteEvent = nil
-                    end
-                elseif rerr then
-                    helpers.logInfoTS("Taxi: route error " .. tostring(icao) .. " mode=" .. tostring(mode) .. " err=" .. tostring(rerr))
-                    helpers.logInfoTS(
-                        string.format(
-                            "TaxiRoute: fail-details err=%s start=%s end=%s allow_runway=%s disallow_runway_edges=%s ignore_oneway=%s avoid_runway_nodes=%s runway_penalty=%s",
-                            tostring(rerr),
-                            tostring((opts and opts.start_node_id) or start_node_id),
-                            tostring((opts and opts.end_node_id) or end_node_id),
-                            tostring(allow_runway_route),
-                            tostring(opts and opts.disallow_runway_edges),
-                            tostring(opts and opts.ignore_oneway),
-                            tostring(opts and opts.avoid_runway_nodes),
-                            tostring(opts and opts.runway_penalty)
-                        )
-                    )
-                    log_taxi(
-                        string.format(
-                            "TaxiRoute: error=%s edit=%s draw=%s",
-                            tostring(rerr),
-                            tostring(in_edit),
-                            tostring(comp._drawRoute)
-                        )
-                    )
-                    comp._pendingRerouteEvent = nil
-                end
-                if route and route.bounds then
-                    comp._fitBounds = route.bounds
-                end
-                if mode == 1 and route and route.path and route.data and route.data ~= nil then
-                    local exit_id = infer_arrival_exit_from_route(route, route.data)
-                    if exit_id and exit_id ~= comp._arrExitId then
-                        comp._arrExitId = exit_id
-                        local on_runway_now = false
-                        if comp._arrProfile and aircraft then
-                            on_runway_now = is_on_runway_profile(comp._arrProfile, aircraft, 60, 5)
-                        elseif comp.yal and comp.yal.aircraftonrwy then
-                            on_runway_now = (comp.yal.aircraftonrwy(def.ARRIVAL, 40, 20) == false)
-                        end
-                        if not on_runway_now or (not comp._arrRunwayExitAnnounced) then
-                            comp._arrRunwayExitAnnounced = false
-                        end
-                        comp._arrRunwayCrossWarned = nil
-                    end
-                end
-                if route and route.data and route.data.route_source == "freehand" then
-                    comp._freehandLabelCache = nil
-                end
-                comp._lastGuidanceNodeId = nil
-                comp._lastGuidanceLabel = nil
-                comp._lastGuidanceTime = nil
-                comp._sCurveSkipNodeId = nil
-            else
-                helpers.logInfoTS(
-                    "TaxiDiag: route-skip icao=" .. tostring(icao) ..
-                    " mode=" .. tostring(mode) ..
-                    " canRoute=" .. tostring(canRoute) ..
-                    " start_valid=" .. tostring(is_valid_latlon(start_lat, start_lon)) ..
-                    " end_valid=" .. tostring(is_valid_latlon(end_lat, end_lon))
-                )
-                helpers.logInfoTS(
-                    string.format(
-                        "TaxiRoute: skip-details start=%s end=%s allow_runway=%s disallow_runway_edges=%s ignore_oneway=%s avoid_runway_nodes=%s runway_penalty=%s",
-                        tostring(start_node_id),
-                        tostring(end_node_id),
-                        tostring(allow_runway_route),
-                        tostring((mode == 0 and (not allow_runway_route)) or (mode == 1 and (not allow_runway_route) and (not backtrack_required))),
-                        tostring(false),
-                        tostring(mode == 0 and (not allow_runway_route) or nil),
-                        tostring((allow_runway_route and 1) or 500)
-                    )
-                )
-                comp._route = nil
-                comp._routeErr = canRoute and "route-endpoints-missing" or "no-routes"
-                comp._routeLabels = nil
-                log_taxi("TaxiRoute: skip err=" .. tostring(comp._routeErr))
-            end
-        end
-
-        comp._depThresholdState = nil
-        comp._depThresholdReached = false
-        if mode == 0 and dep_profile and aircraft and aircraft.east ~= nil and aircraft.north ~= nil then
-            local state = compute_dep_threshold_state(comp, dep_profile, runway_lat, runway_lon, aircraft)
-            comp._depThresholdState = state
-            comp._depThresholdReached = state and state.reached or false
-            local callout_key = tostring(icao) .. "|" .. tostring(comp._runwayName or "")
-            if comp._depThresholdCalloutKey ~= callout_key then
-                U.reset_dep_threshold_callouts(comp, callout_key)
-            end
-            if state and state.heading_diff and state.heading_diff <= depThresholdHeadingLimit
-                and state.perp and state.corridor and state.perp <= state.corridor
-                and (not comp._depThresholdReached) and (not comp._depThresholdLatched) then
-                U.maybe_dep_threshold_voice_callouts(comp, state, is_auto_taxi_guidance_enabled())
-            else
-                comp._depThresholdCalloutStage = 0
-            end
-            if comp._depThresholdReached then
-                comp._depThresholdLatched = true
-            end
-            if comp._lastDepThresholdReached ~= comp._depThresholdReached then
-                comp._lastDepThresholdReached = comp._depThresholdReached
-                helpers.logInfoTS(
-                    string.format(
-                        "TaxiDepThreshold: reached=%s dist=%.1f perp=%.1f hdgDiff=%s corridor=%.1f",
-                        tostring(comp._depThresholdReached),
-                        state and state.dist or -1,
-                        state and state.perp or -1,
-                        state and state.heading_diff and string.format("%.1f", state.heading_diff) or "nil",
-                        state and state.corridor or -1
-                    )
-                )
-            end
-        else
-            comp._lastDepThresholdReached = nil
-            comp._depThresholdLatched = false
-            comp._depThresholdCalloutKey = nil
-            comp._depThresholdCalloutStage = 0
-        end
-
-        if mode == 0 and not comp._depThresholdLatched then
-            local yal = comp.yal or _G.yal
-            local onGround = yal and yal.airgroundsensor and (get(yal.airgroundsensor) == def.ON)
-            local gs = yal and yal.groundspeed and (get(yal.groundspeed) or 0) or 0
-            local onRunway = false
-            if onGround and comp.yal and comp.yal.aircraftonrwy then
-                onRunway = comp.yal.aircraftonrwy(def.DEPARTURE, 40, depThresholdHeadingLimit)
-            end
-            if onGround and onRunway and gs >= depTakeoffLatchSpeed then
-                if not comp._takeoffLatchSince then
-                    comp._takeoffLatchSince = now
-                end
-                if (now - comp._takeoffLatchSince) >= depTakeoffLatchHoldSec then
-                    comp._depThresholdLatched = true
-                    comp._takeoffLatchSince = nil
-                    helpers.logInfoTS(
-                        string.format("TaxiDepThreshold: latched=takeoff-roll gs=%.1f", gs)
-                    )
-                end
-            else
-                comp._takeoffLatchSince = nil
-            end
-        else
-            comp._takeoffLatchSince = nil
-        end
-
-        if mode ~= 0 then
-            comp._depThresholdLatched = false
-        elseif comp._depThresholdLatched then
-            local yal = comp.yal or _G.yal
-            local onGround = yal and yal.airgroundsensor and (get(yal.airgroundsensor) == def.ON)
-            if not onGround then
-                comp._depThresholdLatched = false
-            elseif comp.yal and comp.yal.aircraftonrwy and is_valid_latlon(runway_lat, runway_lon) then
-                local onRunway = comp.yal.aircraftonrwy(def.DEPARTURE, 40, 20)
-                local gs = yal and yal.groundspeed and (get(yal.groundspeed) or 0) or 0
-                if (not onRunway) and gs < 5 then
-                    comp._depThresholdLatched = false
-                end
-            end
-        end
-
-        if not in_edit then
-            if comp._route and aircraft and aircraft.east and aircraft.north then
-                local yal = comp.yal or _G.yal
-                local onGround = yal and yal.airgroundsensor and (get(yal.airgroundsensor) == def.ON)
-                local tirespeed = yal and yal.tirespeed and (get(yal.tirespeed) or 0) or 0
-                local skip_reroute = false
-                if comp._drawFreehand and comp._routeWaypoints and #comp._routeWaypoints > 0 then
-                    skip_reroute = true
-                end
-                if mode == 0 and (comp._depThresholdReached or comp._depThresholdLatched) then
-                    skip_reroute = true
-                end
-                if onGround and tirespeed > 1 and not (mode == 0 and comp._depThresholdLatched) and (not skip_reroute) then
-                    local offRunway = nil
-                    if mode == 1 and is_valid_latlon(runway_lat, runway_lon) then
-                        if landing_profile and aircraft then
-                            offRunway = not is_on_runway_profile(landing_profile, aircraft, 60, 5)
-                        elseif comp.yal and comp.yal.aircraftonrwy then
-                            offRunway = comp.yal.aircraftonrwy(def.ARRIVAL, 40, 20)
-                        end
-                    end
-                    if mode == 1 and offRunway == false then
-                        return
-                    end
-                    if mode == 1 and offRunway and not comp._arrOffRunwayHandled then
-                        comp._arrOffRunwayHandled = true
-                        if not comp._rerouteOverride then
-                            comp._rerouteOverride = { lat = aircraft.lat, lon = aircraft.lon }
-                            if not arrival_grace_active(comp, now) then
-                                comp._pendingRerouteEvent = true
-                            end
-                            comp._lastRerouteTime = now
-                            comp._lastStartKey = nil
-                            comp._route = nil
-                            comp._routeErr = nil
-                            comp._routeLabels = nil
-                            comp._routeLabelStats = nil
-                        end
-                        log_taxi("TaxiRoute: off-runway reroute latch")
-                        return
-                    end
-                    local routeData = comp._route.data
-                    local dist = distance_to_route(routeData, comp._route.path, aircraft.east, aircraft.north)
-                    if comp._routeExtraSegments then
-                        local extra = distance_to_segments(comp._routeExtraSegments, aircraft.east, aircraft.north)
-                        if extra and (not dist or extra < dist) then
-                            dist = extra
-                        end
-                    end
-                    comp._lastRouteDist = dist
-                    local lastReroute = comp._lastRerouteTime or 0
-                    local driftMeters = (mode == 1 and arrRerouteDriftMeters) or rerouteDriftMeters
-                    local skipReroute = false
-                    if mode == 1 then
-                        local lastCompute = comp._lastRouteComputeTime or 0
-                        if lastCompute > 0 and (now - lastCompute) < 2 then
-                            local gs = yal and yal.groundspeed and (get(yal.groundspeed) or 0) or 0
-                            if dist and dist <= (driftMeters * 3) and gs < 25 then
-                                skipReroute = true
-                            end
-                        end
-                    end
-                    if dist and dist > driftMeters and (now - lastReroute) > rerouteCooldown then
-                        comp._rerouteOverride = { lat = aircraft.lat, lon = aircraft.lon }
-                        if not arrival_grace_active(comp, now) then
-                            comp._pendingRerouteEvent = true
-                        end
-                        comp._lastRerouteTime = now
-                        comp._lastStartKey = nil
-                        comp._route = nil
-                        comp._routeErr = nil
-                        comp._routeLabels = nil
-                        comp._routeLabelStats = nil
-                    end
-                end
-            end
-
-            if comp._route then
-                if maybe_force_global_for_quality(comp, now, icao, mode, data, helpers, aircraft) then
-                    update_visual_guidance(comp, now, aircraft)
-                    return
-                end
-                maybe_speak_guidance(comp, now, aircraft)
-            end
-            if comp.mode == 0 and not comp._depTaxiCompleteAnnounced and comp._runwayName and comp._runwayName ~= "" then
-                local yal = comp.yal or _G.yal
-                local onGround = yal and yal.airgroundsensor and (get(yal.airgroundsensor) == def.ON)
-                if onGround and comp.yal and comp.yal.aircraftonrwy then
-                    local onRunway = comp.yal.aircraftonrwy(def.DEPARTURE, 40, depThresholdHeadingLimit)
-                    if onRunway then
-                        if not comp._depRunwayEntryAnnounced then
-                            local rwy_phrase = runway_label_voice(comp._runwayName)
-                            local entry_text = "Enter departure " .. rwy_phrase
-                            local entry_action = "ENTER RWY"
-                            local entry_direction = "straight"
-                            local entry_label = build_visual_label("runway", normalize_runway_name(comp._runwayName))
-                            local turn_threshold = 15
-                            if comp._route and comp._route.path and comp._route.data and dep_profile and dep_profile.axis then
-                                local path = comp._route.path
-                                local data = comp._route.data
-                                if #path >= 2 then
-                                    local v1x, v1y = nil, nil
-                                    local found = false
-                                    local runway_nodes = data.runway_nodes
-                                    if runway_nodes then
-                                        for i = #path - 1, 1, -1 do
-                                            local id1 = path[i]
-                                            local id2 = path[i + 1]
-                                            local is1 = runway_nodes[id1] and true or false
-                                            local is2 = runway_nodes[id2] and true or false
-                                            if is1 ~= is2 then
-                                                local n1 = data.nodes and data.nodes[id1] or nil
-                                                local n2 = data.nodes and data.nodes[id2] or nil
-                                                if n1 and n2 and n1.east and n1.north and n2.east and n2.north then
-                                                    if is1 and (not is2) then
-                                                        v1x = n1.east - n2.east
-                                                        v1y = n1.north - n2.north
-                                                    else
-                                                        v1x = n2.east - n1.east
-                                                        v1y = n2.north - n1.north
-                                                    end
-                                                    found = true
-                                                end
-                                                break
-                                            end
-                                        end
-                                    end
-                                    if not found then
-                                        local n1 = data.nodes and data.nodes[path[#path - 1]] or nil
-                                        local n2 = data.nodes and data.nodes[path[#path]] or nil
-                                        if n1 and n2 and n1.east and n1.north and n2.east and n2.north then
-                                            v1x = n2.east - n1.east
-                                            v1y = n2.north - n1.north
-                                            found = true
-                                        end
-                                    end
-                                    if found then
-                                        local len1 = math.sqrt(v1x * v1x + v1y * v1y)
-                                        local v2x = dep_profile.axis.x or 0
-                                        local v2y = dep_profile.axis.y or 0
-                                        local len2 = math.sqrt(v2x * v2x + v2y * v2y)
-                                        if len1 > 0.1 and len2 > 0.1 then
-                                            local dot = (v1x * v2x + v1y * v2y) / (len1 * len2)
-                                            if dot > 1 then dot = 1 end
-                                            if dot < -1 then dot = -1 end
-                                            local angle = math.deg(math.acos(dot))
-                                            if angle >= turn_threshold then
-                                                local cross = v1x * v2y - v1y * v2x
-                                                local turn = (cross >= 0) and "left" or "right"
-                                                entry_text = "Turn " .. turn .. " on departure " .. rwy_phrase
-                                                entry_action = (turn == "left") and "TURN LEFT" or "TURN RIGHT"
-                                                entry_direction = turn
-                                            end
-                                        end
-                                    end
-                                end
-                            end
-                            emit_guidance(comp, now, {
-                                text = entry_text,
-                                direction = entry_direction,
-                                action = entry_action,
-                                label = entry_label,
-                                kind = "runway"
-                            }, is_auto_taxi_guidance_enabled())
-                            comp._depRunwayEntryAnnounced = true
-                            comp._depEntryIssuedAt = now
-                        end
-                        if comp._depThresholdLatched or comp._depThresholdReached then
-                            local entryIssuedAt = comp._depEntryIssuedAt or 0
-                            if (not entryIssuedAt) or (not now) or (now - entryIssuedAt) >= 2 then
-                                local rwy_phrase = runway_label_voice(comp._runwayName)
-                                emit_guidance(comp, now, {
-                                    text = "On departure " .. rwy_phrase .. ", taxi complete",
-                                    direction = "straight",
-                                    action = "TAXI COMPLETE",
-                                    label = build_visual_label("runway", normalize_runway_name(comp._runwayName)),
-                                    kind = "runway",
-                                    queue = true
-                                }, is_auto_taxi_guidance_enabled())
-                                comp._depTaxiCompleteAnnounced = true
-                            end
-                        end
-                    end
-                end
-            end
-            if comp.mode == 1 and not comp._arrTaxiCompleteAnnounced then
-                local yalref = comp.yal or _G.yal
-                local onGround = yalref and yalref.airgroundsensor and (get(yalref.airgroundsensor) == def.ON)
-                local gs = yalref and yalref.groundspeed and (get(yalref.groundspeed) or 0) or 0
-                local park = yalref and yalref.parkingbrakepos and get(yalref.parkingbrakepos) or nil
-                if onGround and park == def.ON and gs < 1 and aircraft and is_valid_latlon(aircraft.lat, aircraft.lon) then
-                    local on_runway = false
-                    if comp._arrProfile and aircraft then
-                        on_runway = is_on_runway_profile(comp._arrProfile, aircraft, 60, 5)
-                    end
-                    if on_runway then
-                        if not comp._arrTaxiCompleteRunwaySkip then
-                            log_taxi("TaxiRoute: parking brake on runway, skip taxi complete")
-                            comp._arrTaxiCompleteRunwaySkip = true
-                        end
-                    else
-                        comp._arrTaxiCompleteRunwaySkip = nil
-                        if not nearest_ramp then
-                            nearest_ramp = helpers.getNearestRamp(
-                                icao,
-                                aircraft.lat,
-                                aircraft.lon,
-                                { filter = helpers.isRampSuitableFor738, data = comp._data }
-                            )
-                            if nearest_ramp and is_valid_latlon(nearest_ramp.lat, nearest_ramp.lon) then
-                                nearest_ramp_dist = distance_meters_latlon(
-                                    nearest_ramp.lat,
-                                    nearest_ramp.lon,
-                                    aircraft.lat,
-                                    aircraft.lon
-                                )
-                            end
-                        end
-                        local pb_dist = tuning.parkingBrakeCompleteDist or 35
-                        if nearest_ramp and nearest_ramp_dist and nearest_ramp_dist <= pb_dist then
-                            local ramp_label = short_ramp_label(nearest_ramp)
-                            clear_visual_guidance(comp, "taxi-complete")
-                            comp._visualGuidanceQueue = {}
-                            emit_guidance(comp, now, {
-                                text = "Taxi complete",
-                                direction = "straight",
-                                action = "TAXI COMPLETE",
-                                label = ramp_label,
-                                kind = "ramp"
-                            }, is_auto_taxi_guidance_enabled())
-                            comp._arrTaxiCompleteAnnounced = true
-                            set_guidance_state(comp, "complete", "taxi-complete", log_taxi)
-                            comp._route = nil
-                            comp._routeErr = "taxi-complete"
-                            comp._routeLabels = nil
-                            comp._routeLabelStats = nil
-                            comp._routeExtraSegments = nil
-                            comp._lastStartKey = nil
-                            comp._lastEndKey = nil
-                            comp._visualGuidanceQueue = {}
-                            log_taxi("TaxiRoute: taxi complete parking brake")
-                        end
-                    end
-                end
-            end
-            update_visual_guidance(comp, now, aircraft)
-        end
-
-        comp._editTailSegments = nil
-        if comp._route and comp._route.path and (not comp._drawFreehand)
-            and (in_edit or has_start_override or has_end_override) then
-            local routeData = comp._route.data or comp._data
-            if routeData and routeData.nodes then
-                local segs = {}
-                local first_id = comp._route.path[1]
-                local last_id = comp._route.path[#comp._route.path]
-                if has_start_override and is_valid_latlon(start_vis_lat, start_vis_lon) and first_id then
-                    local n1 = routeData.nodes[first_id]
-                    if n1 and n1.east and n1.north then
-                        local se, sn = latlon_to_local(start_vis_lat, start_vis_lon)
-                        if se and sn then
-                            local dx = n1.east - se
-                            local dy = n1.north - sn
-                            if (dx * dx + dy * dy) > 1 then
-                                segs[#segs + 1] = {
-                                    east1 = se,
-                                    north1 = sn,
-                                    east2 = n1.east,
-                                    north2 = n1.north
-                                }
-                            end
-                        end
-                    end
-                end
-                if has_end_override and is_valid_latlon(end_vis_lat, end_vis_lon) and last_id then
-                    local n2 = routeData.nodes[last_id]
-                    if n2 and n2.east and n2.north then
-                        local ee, en = latlon_to_local(end_vis_lat, end_vis_lon)
-                        if ee and en then
-                            local dx = n2.east - ee
-                            local dy = n2.north - en
-                            if (dx * dx + dy * dy) > 1 then
-                                segs[#segs + 1] = {
-                                    east1 = n2.east,
-                                    north1 = n2.north,
-                                    east2 = ee,
-                                    north2 = en
-                                }
-                            end
-                        end
-                    end
-                end
-                if #segs > 0 then
-                    comp._editTailSegments = segs
-                end
-            end
-        end
-
-        comp._aircraftPoint = nil
-        if aircraft and aircraft.east ~= nil and aircraft.north ~= nil then
-            comp._aircraftPoint = { east = aircraft.east, north = aircraft.north }
-        end
-
-        if comp._fitBounds and comp._aircraftPoint then
-            local b = comp._fitBounds
-            local outside = false
-            if b.minX and b.maxX and b.minY and b.maxY then
-                outside = (comp._aircraftPoint.east < b.minX) or (comp._aircraftPoint.east > b.maxX)
-                    or (comp._aircraftPoint.north < b.minY) or (comp._aircraftPoint.north > b.maxY)
-            end
-            local log_key = tostring(comp._lastIcao or "") .. "|" .. tostring(comp.mode or "") .. "|" .. tostring(outside)
-            if comp._lastBoundsLogKey ~= log_key then
-                comp._lastBoundsLogKey = log_key
-                helpers.logInfoTS(
-                    string.format(
-                        "TaxiBounds: mode=%s icao=%s outside=%s bounds=[%.1f..%.1f, %.1f..%.1f] aircraft=%.1f/%.1f",
-                        tostring(comp.mode),
-                        tostring(comp._lastIcao or ""),
-                        tostring(outside),
-                        b.minX or 0,
-                        b.maxX or 0,
-                        b.minY or 0,
-                        b.maxY or 0,
-                        comp._aircraftPoint.east or 0,
-                        comp._aircraftPoint.north or 0
-                    )
-                )
-            end
-        end
-
-        comp._startPoint = nil
-        local sp_lat = (in_edit and start_vis_lat) or start_lat
-        local sp_lon = (in_edit and start_vis_lon) or start_lon
-        if is_valid_latlon(sp_lat, sp_lon) then
-            local sx, sy = latlon_to_local(sp_lat, sp_lon)
-            comp._startPoint = { east = sx, north = sy }
-        end
-        comp._endPoint = nil
-        local ep_lat = (in_edit and end_vis_lat) or end_lat
-        local ep_lon = (in_edit and end_vis_lon) or end_lon
-        if is_valid_latlon(ep_lat, ep_lon) then
-            local ex, ey = latlon_to_local(ep_lat, ep_lon)
-            comp._endPoint = { east = ex, north = ey }
-        end
-
-        if in_edit then
-            if comp._route and comp._route.path and comp._route.data then
-                build_edit_handles(comp, start_vis_lat, start_vis_lon, end_vis_lat, end_vis_lon)
-            else
-                comp._editHandles = nil
-            end
-        else
-            comp._editHandles = nil
-        end
-
-        local route_state_key = string.format("%s|%s", tostring(comp._route ~= nil), tostring(comp._routeErr or ""))
-        if comp._lastRouteStateKey ~= route_state_key then
-            comp._lastRouteStateKey = route_state_key
-            log_taxi(
-                string.format(
-                    "TaxiRoute: state route=%s err=%s edit=%s draw=%s",
-                    tostring(comp._route ~= nil),
-                    tostring(comp._routeErr),
-                    tostring(in_edit),
-                    tostring(comp._drawRoute)
-                )
-            )
-        end
-        if comp._route and comp._route.path and (not in_edit) and (not comp._drawRoute) then
-            local rlen = #comp._route.path
-            local src = (comp._route.data and comp._route.data.route_source) or "?"
-            local auto_key = table.concat({
-                tostring(comp._lastIcao or ""),
-                tostring(comp._runwayName or ""),
-                tostring(rlen),
-                tostring(comp._route.start_id or ""),
-                tostring(comp._route.end_id or ""),
-                tostring(src)
-            }, "|")
-            if comp._lastAutoRouteLogKey ~= auto_key then
-                comp._lastAutoRouteLogKey = auto_key
-                helpers.logInfoTS(
-                    string.format(
-                        "TaxiAuto: route %s %s mode=%d len=%d start=%s end=%s src=%s",
-                        tostring(comp._lastIcao or ""),
-                        tostring(comp._runwayName or ""),
-                        tonumber(comp.mode or -1),
-                        tonumber(rlen or 0),
-                        tostring(comp._route.start_id or "?"),
-                        tostring(comp._route.end_id or "?"),
-                        tostring(src)
-                    )
-                )
-            end
-        end
-
-        if comp._planCenterPending then
-            if (not in_edit) and comp.mode == 1 and onGround == false then
-                local b = comp._fitBounds
-                if b then
-                    local cx, cy = compute_bounds_center(b)
-                    if cx and cy then
-                        set_center(cx, cy)
-                        log_taxi("TaxiPlan: center on route bounds (open)")
-                        comp._planCenterPending = false
-                    end
-                end
-            elseif onGround or comp.mode ~= 1 then
-                comp._planCenterPending = false
-            end
-        end
-        if comp._needsCenter and comp._fitBounds and not in_edit then
-            local cx, cy = compute_bounds_center(comp._fitBounds)
-            set_center(cx, cy)
-            comp._needsCenter = false
-        end
+        return updateTaxiState(self, map)
     end
 
     function comp:getPushbackHint()
