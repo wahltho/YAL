@@ -6586,7 +6586,12 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
     end
 
     function comp:update()
-        if self:isWindowVisible() then
+        local visible = self:isWindowVisible()
+        if visible and not self._lastWindowVisible then
+            self._planCenterPending = true
+        end
+        self._lastWindowVisible = visible
+        if visible then
             self:updateTaxiState()
         end
         return
@@ -7227,7 +7232,10 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                     if exit_id and data.nodes and data.nodes[exit_id] then
                         local exit_node = data.nodes[exit_id]
                         if is_valid_latlon(exit_node.lat, exit_node.lon) then
-                            if not backtrack_required then
+                            if (yal and yal.airgroundsensor and (get(yal.airgroundsensor) ~= def.ON)) then
+                                start_lat = exit_node.lat
+                                start_lon = exit_node.lon
+                            elseif not backtrack_required then
                                 start_lat = exit_node.lat
                                 start_lon = exit_node.lon
                             end
@@ -8085,7 +8093,16 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
         local start_key = string.format("%.6f|%.6f", anchor_lat or 0, anchor_lon or 0)
         local end_key = string.format("%.6f|%.6f", end_lat or 0, end_lon or 0)
         local recompute_reason = nil
-        if comp._editDirty then
+        local suppress_edit_recompute = false
+        if comp._editDirty and in_edit and (not comp._drawRoute) and (not comp._wpDrag)
+            and (not comp._manualRouteActive)
+            and (not has_start_override) and (not has_end_override)
+            and (not comp._editSuppressedNodes or next(comp._editSuppressedNodes) == nil)
+            and (not route_waypoints or #route_waypoints == 0) then
+            comp._editDirty = false
+            suppress_edit_recompute = true
+        end
+        if comp._editDirty and (not suppress_edit_recompute) then
             recompute_reason = "edit-dirty"
         elseif comp._route == nil then
             recompute_reason = "route-nil"
@@ -9451,7 +9468,8 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
         end
 
         comp._editTailSegments = nil
-        if in_edit and comp._route and comp._route.path and (not comp._drawFreehand) then
+        if comp._route and comp._route.path and (not comp._drawFreehand)
+            and (in_edit or has_start_override or has_end_override) then
             local routeData = comp._route.data or comp._data
             if routeData and routeData.nodes then
                 local segs = {}
@@ -9597,7 +9615,22 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
             end
         end
 
-        if comp._needsCenter and comp._fitBounds then
+        if comp._planCenterPending then
+            if (not in_edit) and comp.mode == 1 and onGround == false then
+                local b = comp._fitBounds
+                if b then
+                    local cx, cy = compute_bounds_center(b)
+                    if cx and cy then
+                        set_center(cx, cy)
+                        log_taxi("TaxiPlan: center on route bounds (open)")
+                        comp._planCenterPending = false
+                    end
+                end
+            elseif onGround or comp.mode ~= 1 then
+                comp._planCenterPending = false
+            end
+        end
+        if comp._needsCenter and comp._fitBounds and not in_edit then
             local cx, cy = compute_bounds_center(comp._fitBounds)
             set_center(cx, cy)
             comp._needsCenter = false

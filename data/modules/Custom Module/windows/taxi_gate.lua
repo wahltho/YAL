@@ -170,12 +170,16 @@ function M.attach(U, C, def, helpers)
         local deadzone = tuning.gateGuidanceDeadzone or (C and C.gateGuidanceDeadzone) or 0.8
         local behind_limit = tuning.gateGuidanceBehindLimit or (C and C.gateGuidanceBehindLimit) or -5
         local ramp = comp._endRamp
+        local local_x, local_z, ramp_hdg, fallback_dist = ramp_frame_values(ramp, aircraft)
         local dgs = ramp_dgs_values(ramp, aircraft)
         local direction = "straight"
         local action = "ALIGN"
         local text = "Continue straight"
         local dist = nil
         if dgs then
+            if fallback_dist and fallback_dist > radius then
+                return nil
+            end
             local cap_a = (C and C.gateDgsCapA) or 15
             local cap_z = (C and C.gateDgsCapZ) or 105
             local azi_a = (C and C.gateDgsAziA) or 15
@@ -258,7 +262,6 @@ function M.attach(U, C, def, helpers)
                 end
             end
         else
-            local local_x, local_z, ramp_hdg, fallback_dist = ramp_frame_values(ramp, aircraft)
             if not local_x or not local_z or not fallback_dist then
                 return nil
             end
@@ -317,7 +320,12 @@ function M.attach(U, C, def, helpers)
         end
         if comp._endRamp then
             local ramp = comp._endRamp
+            local local_x, local_z, ramp_hdg, fallback_dist = ramp_frame_values(ramp, aircraft)
+            local radius = (C and C.gateGuidanceRadius) or 60
             local dgs = ramp_dgs_values(ramp, aircraft)
+            if dgs and fallback_dist and fallback_dist > radius then
+                dgs = nil
+            end
             comp._gateUseDgs = dgs ~= nil
             if dgs and dgs.nw_z ~= nil then
                 local good_x = dgs.dgs_good_x or ((C and C.gateDgsGoodX) or 2.0)
@@ -331,16 +339,8 @@ function M.attach(U, C, def, helpers)
                 else
                     best = dgs.nw_z
                 end
-            else
-                local east = ramp.east
-                local north = ramp.north
-                if (east == nil or north == nil) and is_valid_latlon(ramp.lat, ramp.lon) then
-                    east, north = latlon_to_local(ramp.lat, ramp.lon)
-                end
-                if east ~= nil and north ~= nil then
-                    local d = math.sqrt(distance_sq(ax, ay, east, north))
-                    best = d
-                end
+            elseif fallback_dist then
+                best = fallback_dist
             end
         else
             comp._gateUseDgs = false
