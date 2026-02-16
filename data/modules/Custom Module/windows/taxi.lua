@@ -4319,6 +4319,7 @@ U = {
     getSettingNumber = getSettingNumber,
     emit_guidance = emit_guidance,
     arrival_grace_active = arrival_grace_active,
+    is_on_runway_profile = is_on_runway_profile,
     runway_label_voice = runway_label_voice,
     build_visual_label = build_visual_label
 }
@@ -8169,7 +8170,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
             end
         end
         local start_key = string.format("%.6f|%.6f", anchor_lat or 0, anchor_lon or 0)
-        local end_key = string.format("%.6f|%.6f", end_lat or 0, end_lon or 0)
+        local end_key = string.format("%.6f|%.6f|%s", end_lat or 0, end_lon or 0, tostring(comp._runwayName or ""))
         local recompute_reason = nil
         local suppress_edit_recompute = false
         if comp._editDirty and in_edit and (not comp._drawRoute) and (not comp._wpDrag)

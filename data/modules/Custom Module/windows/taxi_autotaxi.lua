@@ -8,6 +8,9 @@ function M.attach(U, C, def, helpers, settings)
     local heading_deg_from_to = U.heading_deg_from_to
     local heading_diff_signed = U.heading_diff_signed
     local heading_diff_deg = U.heading_diff_deg
+    local is_on_runway_profile = U.is_on_runway_profile
+    local is_runway_label = U.is_runway_label
+    local get_edge_label = U.get_edge_label
     local clamp = U.clamp
 
     local function auto_taxi_log(comp, msg)
@@ -304,6 +307,24 @@ function M.attach(U, C, def, helpers, settings)
         end
         local max_offroute = (C and C.autoTaxiOffRouteMeters) or 20
         if dist_route and max_offroute > 0 then
+            local on_runway = false
+            if is_runway_label and get_edge_label then
+                local raw_label = get_edge_label(data, path[seg_idx], path[seg_idx + 1])
+                if raw_label and is_runway_label(raw_label) then
+                    local profile = (comp.mode == 0 and comp._depProfile) or (comp.mode == 1 and comp._arrProfile) or nil
+                    if profile and is_on_runway_profile and is_on_runway_profile(profile, aircraft, 80, 15) then
+                        on_runway = true
+                    end
+                end
+            elseif data.runway_nodes and (data.runway_nodes[path[seg_idx]] or data.runway_nodes[path[seg_idx + 1]]) then
+                local profile = (comp.mode == 0 and comp._depProfile) or (comp.mode == 1 and comp._arrProfile) or nil
+                if profile and is_on_runway_profile and is_on_runway_profile(profile, aircraft, 80, 15) then
+                    on_runway = true
+                end
+            end
+            if on_runway then
+                comp._autoTaxiOffrouteActive = false
+            else
             local clear_dist = max_offroute * ((C and C.autoTaxiOffRouteClearFactor) or 0.7)
             if comp._autoTaxiOffrouteActive then
                 if dist_route <= clear_dist then
@@ -327,6 +348,7 @@ function M.attach(U, C, def, helpers, settings)
                     string.format("blocked: offroute dist=%.1f m", dist_route)
                 )
                 return false
+            end
             end
         end
         if comp._autoTaxiTargetSegIdx and comp._autoTaxiTargetSegIdx <= seg_idx then
