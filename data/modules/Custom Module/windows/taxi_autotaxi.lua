@@ -350,7 +350,8 @@ function M.attach(U, C, def, helpers, settings)
         local lookahead_speed = (C and C.autoTaxiLookaheadSpeedKts) or 1.2
         local lookahead_m = clamp(gs_kts * lookahead_speed, lookahead_min, lookahead_max)
         if lookahead_base and lookahead_base > 0 then
-            lookahead_m = clamp(lookahead_m, lookahead_min, math.max(lookahead_max, lookahead_base))
+            local hi = math.max(lookahead_max, lookahead_base)
+            lookahead_m = clamp(math.max(lookahead_m, lookahead_base), lookahead_min, hi)
         end
         local look_t = 0.5
         if seg_len > 0 then

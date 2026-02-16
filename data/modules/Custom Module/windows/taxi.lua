@@ -3309,23 +3309,25 @@ local function maybe_speak_guidance(comp, now, aircraft)
     end
     local yal = comp.yal or _G.yal
     local on_ground = (yal and yal.airgroundsensor and get(yal.airgroundsensor) == def.ON) or false
-    local function diag(reason, extra)
-        if not on_ground then
-            return
-        end
-        local t = now or 0
-        local last = comp._lastGuidanceDiagTime or 0
-        if (t - last) < 10 then
-            return
-        end
-        comp._lastGuidanceDiagTime = t
-        local msg = "TaxiGuidance: " .. tostring(reason)
-        if extra and extra ~= "" then
-            msg = msg .. " | " .. tostring(extra)
-        end
-        if groundspeed ~= nil or tirespeed ~= nil then
-            msg = msg .. " | gs=" .. tostring(groundspeed) .. " ts=" .. tostring(tirespeed)
-        end
+        local function diag(reason, extra)
+            if not on_ground then
+                return
+            end
+            local t = now or 0
+            local last = comp._lastGuidanceDiagTime or 0
+            if (t - last) < 10 then
+                return
+            end
+            comp._lastGuidanceDiagTime = t
+            local msg = "TaxiGuidance: " .. tostring(reason)
+            if extra and extra ~= "" then
+                msg = msg .. " | " .. tostring(extra)
+            end
+            local gs = (yal and yal.groundspeed and get(yal.groundspeed)) or nil
+            local ts = (yal and yal.tirespeed and get(yal.tirespeed)) or nil
+            if gs ~= nil or ts ~= nil then
+                msg = msg .. " | gs=" .. tostring(gs) .. " ts=" .. tostring(ts)
+            end
         local route = comp._route
         local pdata = (route and route.data) or comp._data
         local ppath = route and route.path or nil
@@ -6809,7 +6811,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
             comp._lastEndKey = nil
             comp._routeStartAnchor = nil
             comp._routeExtraSegments = nil
-            clear_temp_route_overlay(comp, data)
+            clear_temp_route_overlay(comp, comp._data)
             comp._editTailSegments = nil
             comp._lastGuidanceNodeId = nil
             comp._lastGuidanceLabel = nil
