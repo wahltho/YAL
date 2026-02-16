@@ -56,7 +56,7 @@ function M.attach(U, C, def, helpers, settings)
             .. " autoMode=" .. tostring(comp.autoMode)
             .. " fs=" .. tostring(fs)
             .. " ag=" .. tostring(ag)
-            .. " gs=" .. string.format("%.2f", (gs or 0) * 1.94384)
+            .. " gs=" .. string.format("%.2f", (gs or 0))
             .. " pb=" .. tostring(pb)
             .. " route=" .. tostring(route_len)
             .. " beforeSet=" .. tostring(proc_before and proc_before.set)
@@ -342,8 +342,7 @@ function M.attach(U, C, def, helpers, settings)
         local dx = n2.east - n1.east
         local dy = n2.north - n1.north
         local seg_len = math.sqrt(dx * dx + dy * dy)
-        local gs_ms = (yal.groundspeed and (get(yal.groundspeed) or 0)) or 0
-        local gs_kts = gs_ms * 1.94384
+        local gs_kts = (yal.groundspeed and (get(yal.groundspeed) or 0)) or 0
         local lookahead_base = (C and C.autoTaxiLookaheadMeters) or 25
         local lookahead_min = (C and C.autoTaxiLookaheadMinMeters) or 10
         local lookahead_max = (C and C.autoTaxiLookaheadMaxMeters) or 40
@@ -721,8 +720,7 @@ function M.attach(U, C, def, helpers, settings)
             auto_taxi_log_snapshot_once(comp, now, "gate:airborne", yal, "gate:airborne")
             return
         end
-        local gs_ms = (yal.groundspeed and (get(yal.groundspeed) or 0)) or 0
-        local gs_kts = gs_ms * 1.94384
+        local gs_kts = (yal.groundspeed and (get(yal.groundspeed) or 0)) or 0
         local max_kts = (C and C.autoTaxiMaxActiveSpeedKts) or 40
         if gs_kts > max_kts then
             comp._autoTaxiReady = false
