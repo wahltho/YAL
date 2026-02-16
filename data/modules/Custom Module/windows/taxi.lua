@@ -7711,14 +7711,90 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
         comp._depEntryLabels = nil
         if mode == 0 and data and is_valid_latlon(runway_lat, runway_lon) then
             local re, rn = latlon_to_local(runway_lat, runway_lon)
-            local candidates = collect_runway_exit_candidates(data, re, rn, 40)
-            if candidates and #candidates > 0 then
+            local max_candidates = 40
+            local zoom = comp.zoom or 1
+            if zoom >= 2.0 then
+                max_candidates = 200
+            elseif zoom >= 1.5 then
+                max_candidates = 80
+            end
+            local candidates = collect_runway_exit_candidates(data, re, rn, max_candidates)
+            local cand_count = (candidates and #candidates) or 0
+            if cand_count > 0 then
                 comp._depEntryCandidates = candidates
                 comp._depEntryLabels = {}
                 for _, cand in ipairs(candidates) do
                     if cand.id then
                         comp._depEntryLabels[cand.id] = find_runway_entry_label(data, cand.id)
                     end
+                end
+            end
+            if log_taxi then
+                local src = (data.entry and data.entry.source) or "?"
+                local key = tostring(icao) .. "|" .. tostring(comp._runwayName or "") .. "|" .. tostring(src)
+                    .. "|" .. tostring(max_candidates) .. "|" .. tostring(cand_count)
+                if comp._lastDepEntriesLogKey ~= key then
+                    comp._lastDepEntriesLogKey = key
+                    log_taxi(
+                        "TaxiDepEntries: icao=" .. tostring(icao)
+                        .. " rwy=" .. tostring(comp._runwayName or "")
+                        .. " src=" .. tostring(src)
+                        .. " cand=" .. tostring(cand_count)
+                        .. " max=" .. tostring(max_candidates)
+                    )
+                end
+            end
+            if cand_count == 0 and data.entry and data.entry.source == "addon" then
+                local src = data.entry.source
+                local fallback_key = tostring(icao) .. "|" .. tostring(comp._runwayName or "") .. "|" .. tostring(src)
+                if helpers and helpers.isGlobalAptIndexReady and helpers.isGlobalAptIndexReady() then
+                    comp._taxiSourceByIcao = comp._taxiSourceByIcao or {}
+                    comp._taxiSourceByIcao[icao] = "global"
+                    if comp._taxiGlobalPending then
+                        comp._taxiGlobalPending[icao] = nil
+                    end
+                    comp._data = nil
+                    comp._dataErr = nil
+                    comp._route = nil
+                    comp._routeErr = nil
+                    comp._routeLabels = nil
+                    comp._routeLabelStats = nil
+                    comp._routeExtraSegments = nil
+                    comp._lastStartKey = nil
+                    comp._lastEndKey = nil
+                    comp._lastGuidanceNodeId = nil
+                    comp._lastGuidanceLabel = nil
+                    comp._lastGuidanceTime = nil
+                    comp._sCurveSkipNodeId = nil
+                    comp._needsCenter = true
+                    comp._rerouteOverride = nil
+                    comp._depEntryCandidates = nil
+                    comp._depEntryLabels = nil
+                    comp._lastDepEntriesLogKey = nil
+                    clear_visual_guidance(comp, "dep-entry-fallback")
+                    comp._visualGuidanceQueue = {}
+                    set_taxi_ref(nil)
+                    if helpers and helpers.logInfoTS then
+                        helpers.logInfoTS(
+                            "TaxiDepEntries: forcing global (cand=0) icao="
+                            .. tostring(icao) .. " rwy=" .. tostring(comp._runwayName or "")
+                        )
+                    end
+                    return
+                end
+                comp._taxiGlobalPending = comp._taxiGlobalPending or {}
+                comp._taxiGlobalPending[icao] = true
+                comp._taxiSourceByIcao = comp._taxiSourceByIcao or {}
+                comp._taxiSourceByIcao[icao] = "global"
+                if helpers and helpers.requestGlobalAptIndex then
+                    helpers.requestGlobalAptIndex("dep-entry-fallback")
+                end
+                if helpers and helpers.logInfoTS and comp._lastDepEntriesFallbackKey ~= fallback_key then
+                    comp._lastDepEntriesFallbackKey = fallback_key
+                    helpers.logInfoTS(
+                        "TaxiDepEntries: global pending (cand=0) icao="
+                        .. tostring(icao) .. " rwy=" .. tostring(comp._runwayName or "")
+                    )
                 end
             end
         end
