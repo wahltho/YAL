@@ -569,6 +569,50 @@ local function clean_runway_label_keep_slash(label)
     return s
 end
 
+local function normalize_runway_name(name)
+    local text = tostring(name or "")
+    text = helpers.forceCleanString(text)
+    text = helpers.cleanstring(text)
+    text = string.upper(text)
+    text = string.gsub(text, "^RWY", "")
+    text = string.gsub(text, "%s+", "")
+    return text
+end
+
+local function parse_runway_parts(name)
+    local clean = normalize_runway_name(name)
+    if clean == "" then
+        return nil, ""
+    end
+    local len = #clean
+    local i = 1
+    while i <= len do
+        local b = string.byte(clean, i)
+        if not b or b < 48 or b > 57 then
+            break
+        end
+        i = i + 1
+    end
+    if i == 1 then
+        return nil, ""
+    end
+    local num = string.sub(clean, 1, i - 1)
+    local suffix = ""
+    local j = len
+    while j >= 1 do
+        local b = string.byte(clean, j)
+        local is_alpha = (b and ((b >= 65 and b <= 90) or (b >= 97 and b <= 122)))
+        if not is_alpha then
+            break
+        end
+        j = j - 1
+    end
+    if j < len then
+        suffix = string.sub(clean, j + 1, len)
+    end
+    return tonumber(num), suffix
+end
+
 local function normalize_runway_pair_label(label)
     if not label or label == "" then
         return ""
@@ -1058,50 +1102,6 @@ local function distance_to_segments(segments, east, north)
         return nil
     end
     return math.sqrt(best)
-end
-
-local function normalize_runway_name(name)
-    local text = tostring(name or "")
-    text = helpers.forceCleanString(text)
-    text = helpers.cleanstring(text)
-    text = string.upper(text)
-    text = string.gsub(text, "^RWY", "")
-    text = string.gsub(text, "%s+", "")
-    return text
-end
-
-local function parse_runway_parts(name)
-    local clean = normalize_runway_name(name)
-    if clean == "" then
-        return nil, ""
-    end
-    local len = #clean
-    local i = 1
-    while i <= len do
-        local b = string.byte(clean, i)
-        if not b or b < 48 or b > 57 then
-            break
-        end
-        i = i + 1
-    end
-    if i == 1 then
-        return nil, ""
-    end
-    local num = string.sub(clean, 1, i - 1)
-    local suffix = ""
-    local j = len
-    while j >= 1 do
-        local b = string.byte(clean, j)
-        local is_alpha = (b and ((b >= 65 and b <= 90) or (b >= 97 and b <= 122)))
-        if not is_alpha then
-            break
-        end
-        j = j - 1
-    end
-    if j < len then
-        suffix = string.sub(clean, j + 1, len)
-    end
-    return tonumber(num), suffix
 end
 
 local function find_runway_entry(data, runway_name, runway_lat, runway_lon)
@@ -4197,11 +4197,14 @@ C = {
     pushbackReleaseSeconds = 2.0,
     pushbackReleaseMeters = 5,
     autoTaxiTickSec = 0.05,
-    autoTaxiSpeedKts = 15,
-    autoTaxiTurnSpeedKts = 5,
-    autoTaxiGateSpeedKts = 3,
+    autoTaxiSpeedKts = 20,
+    autoTaxiTurnSpeedKts = 10,
+    autoTaxiGateSpeedKts = 5,
     autoTaxiStopDistMeters = 8,
     autoTaxiTurnLeadMeters = 20,
+    autoTaxiTurnLeadMinMeters = 25,
+    autoTaxiTurnLeadMaxMeters = 80,
+    autoTaxiTurnLeadSpeedKts = 4,
     autoTaxiTurnAngleDeg = 25,
     autoTaxiLookaheadMeters = 25,
     autoTaxiLookaheadMinMeters = 10,
@@ -4221,6 +4224,8 @@ C = {
     autoTaxiTurnHysteresisFactor = 0.6,
     autoTaxiManualHoldSec = 3,
     autoTaxiGuidanceLeadMeters = 20,
+    autoTaxiGuidanceTargetLeadMeters = 80,
+    autoTaxiGuidanceTargetStaleSec = 12,
     autoTaxiSCurveMaxSeg = guidanceSCurveMaxSeg,
     autoTaxiMaxActiveSpeedKts = 40,
     autoTaxiHeadingBlendMinKts = 3,

@@ -218,7 +218,7 @@ function M.attach(U, C, def, helpers, settings)
         local rbrake = (yal.right_brake_ratio and get(yal.right_brake_ratio)) or 0
         if comp and comp._autoTaxiOverrideActive and comp._autoTaxiLastBrake ~= nil then
             local ref = comp._autoTaxiLastBrake
-            if math.abs(lbrake - ref) > 0.08 or math.abs(rbrake - ref) > 0.08 then
+            if lbrake > (ref + 0.08) or rbrake > (ref + 0.08) then
                 return "brake"
             end
         else
@@ -303,10 +303,30 @@ function M.attach(U, C, def, helpers, settings)
             + (n2.north - aircraft.north) * (n2.north - aircraft.north)
         )
         local lead_m = (C and C.autoTaxiGuidanceLeadMeters) or (C and C.autoTaxiTurnLeadMeters) or 20
+        local lead_speed = (C and C.autoTaxiTurnLeadSpeedKts) or 0
+        if lead_speed > 0 then
+            local lead_min = (C and C.autoTaxiTurnLeadMinMeters) or lead_m
+            local lead_max = (C and C.autoTaxiTurnLeadMaxMeters) or lead_m
+            local dyn_lead = clamp(gs_kts * lead_speed, lead_min, lead_max)
+            if dyn_lead > lead_m then
+                lead_m = dyn_lead
+            end
+        end
         local target_idx = nil
         local target_reason = nil
         local gidx = comp._autoTaxiTargetSegIdx
-        if gidx and gidx > seg_idx and gidx <= (#path - 1) and dist_to_node <= lead_m then
+        local target_lead = lead_m
+        local target_lead_cfg = (C and C.autoTaxiGuidanceTargetLeadMeters) or 0
+        if target_lead_cfg > target_lead then
+            target_lead = target_lead_cfg
+        end
+        if gidx and gidx > seg_idx and gidx <= (#path - 1) and dist_to_node <= target_lead then
+            local stale_sec = (C and C.autoTaxiGuidanceTargetStaleSec) or 12
+            if comp._autoTaxiTargetTime and now and (now - comp._autoTaxiTargetTime) > stale_sec then
+                gidx = nil
+            end
+        end
+        if gidx and gidx > seg_idx and gidx <= (#path - 1) and dist_to_node <= target_lead then
             local h_curr = heading_deg_from_to(n1.east, n1.north, n2.east, n2.north)
             local tn1 = data.nodes[path[gidx]]
             local tn2 = data.nodes[path[gidx + 1]]
@@ -683,7 +703,7 @@ function M.attach(U, C, def, helpers, settings)
             auto_taxi_log_snapshot_once(comp, now, "gate:route", yal, "gate:route")
             return
         end
-        if comp._routeErr == "taxi-complete" then
+        if comp._routeErr == "taxi-complete" or comp._depTaxiCompleteAnnounced or comp._arrTaxiCompleteAnnounced then
             comp._autoTaxiReady = false
             auto_taxi_release_controls(comp, yal, "taxi-complete")
             auto_taxi_log_once(comp, now, "gate:taxi-complete", "blocked: taxi complete")
