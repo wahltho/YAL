@@ -2162,8 +2162,10 @@ function P.getMetar(icaocode, metarTable)
     end
 end
 --------------------------------------------------------------------------------------------------------------
-function P.isGroundIcingCondition(wx_in)
-    if not wx_in then return false end
+function P.isGroundIcingCondition(wx_in, tat_c)
+    if not wx_in and tat_c == nil then
+        return false
+    end
 
     local function normalize_temp(v)
         if v == nil then
@@ -2184,16 +2186,24 @@ function P.isGroundIcingCondition(wx_in)
         return nil
     end
 
-    local temp_c = normalize_temp(wx_in.temp) or normalize_temp(wx_in.temperature)
+    local temp_c = nil
+    if wx_in then
+        temp_c = normalize_temp(wx_in.temp) or normalize_temp(wx_in.temperature)
+    end
+    if temp_c == nil and tat_c ~= nil then
+        temp_c = tat_c
+    end
     if temp_c == nil then
         return false
     end
 
     local precip = false
-    if wx_in.precipitation then precip = true end
-    if wx_in.freezing then precip = true end
+    if wx_in then
+        if wx_in.precipitation then precip = true end
+        if wx_in.freezing then precip = true end
+    end
 
-    if (not precip) and wx_in.weather and type(wx_in.weather) == "table" then
+    if (not precip) and wx_in and wx_in.weather and type(wx_in.weather) == "table" then
         for _, w in ipairs(wx_in.weather) do
             local phenomenon = nil
             if type(w) == "string" then
@@ -2210,6 +2220,10 @@ function P.isGroundIcingCondition(wx_in)
                 if upper:find("RA", 1, true)
                 or upper:find("SN", 1, true)
                 or upper:find("DZ", 1, true)
+                or upper:find("PL", 1, true)
+                or upper:find("GR", 1, true)
+                or upper:find("GS", 1, true)
+                or upper:find("IC", 1, true)
                 or upper:find("BR", 1, true)
                 or upper:find("FG", 1, true)
                 or upper:find("FZ", 1, true) then
@@ -2220,8 +2234,42 @@ function P.isGroundIcingCondition(wx_in)
         end
     end
 
+    local dew_c = nil
+    if wx_in then
+        dew_c = normalize_temp(wx_in.dew_point)
+    end
+    local dew_spread = nil
+    if dew_c ~= nil then
+        dew_spread = math.abs(temp_c - dew_c)
+    end
+
+    local low_cloud = false
+    if wx_in and wx_in.clouds and type(wx_in.clouds) == "table" then
+        for _, c in ipairs(wx_in.clouds) do
+            local alt = c and c.altitude or nil
+            if alt and alt > 0 and alt <= 1500 then
+                low_cloud = true
+                break
+            end
+        end
+    end
+
+    local vis_m = nil
+    if wx_in and wx_in.visibility then
+        if type(wx_in.visibility) == "table" then
+            vis_m = wx_in.visibility.value
+        else
+            vis_m = wx_in.visibility
+        end
+    end
+
+    local visible_moisture = precip
+        or low_cloud
+        or (vis_m and vis_m <= 5000)
+        or (dew_spread and dew_spread <= 2)
+
     if temp_c <= 10 then
-        if precip or temp_c <= 5 then
+        if visible_moisture or temp_c <= 5 then
             return true
         end
     end

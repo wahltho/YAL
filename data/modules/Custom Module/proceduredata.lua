@@ -4714,7 +4714,8 @@ function M.fillProcedureTable()
                 ['ice_off'] = {
                     skipIf = function()
                         local wx = P.desmetar.decodedmetar
-                        return helpers.isGroundIcingCondition(wx)
+                        local tat_c = P.tatdegc and get(P.tatdegc) or nil
+                        return helpers.isGroundIcingCondition(wx, tat_c)
                     end,
                     check = function()
                         return (get(P.eng1heatpos) == def.OFF)
@@ -4873,7 +4874,8 @@ function M.fillProcedureTable()
                 ['ice_off'] = {
                     skipIf = function()
                         local wx = P.desmetar.decodedmetar
-                        return helpers.isGroundIcingCondition(wx)
+                        local tat_c = P.tatdegc and get(P.tatdegc) or nil
+                        return helpers.isGroundIcingCondition(wx, tat_c)
                     end,
                     check = function()
                         return (get(P.eng1heatpos) == def.OFF)

@@ -195,6 +195,22 @@ function P.getSettings()
 end
 
 
+function P.getSettingNumber(key, default)
+    local tbl = P.appSettings
+    if not tbl then
+        return default
+    end
+    local val = tbl[key]
+    if val == nil then
+        return default
+    end
+    val = tonumber(val)
+    if val == nil then
+        return default
+    end
+    return val
+end
+
 
 P.appSettings = P.getSettings()
 P.newSettingsAvailable = true

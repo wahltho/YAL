@@ -5859,13 +5859,8 @@ function P.ongoingtasks()
                     wx = P.desmetar.decodedmetar
                 end
 
-                local ground_icing
-                if wx ~= nil then
-                    ground_icing = helpers.isGroundIcingCondition(wx)
-                else
-                    local tat_c = get(P.tatdegc)
-                    ground_icing = (tat_c ~= nil) and (tat_c <= 5)
-                end
+                local tat_c = get(P.tatdegc)
+                local ground_icing = helpers.isGroundIcingCondition(wx, tat_c)
                 ground_icing = not not ground_icing
 
                 local function anyAntiIceOn()

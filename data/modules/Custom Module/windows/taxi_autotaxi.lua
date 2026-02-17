@@ -285,6 +285,113 @@ function M.attach(U, C, def, helpers, settings)
         return nil
     end
 
+    local function auto_taxi_align_runway(comp, now, yal, aircraft)
+        if not comp or comp.mode ~= 0 or not yal or not aircraft then
+            return false
+        end
+        if comp._depTaxiCompleteAnnounced or comp._routeErr == "taxi-complete" then
+            return false
+        end
+        local profile = comp._depProfile
+        if not profile or not profile.axis then
+            return false
+        end
+        if not is_on_runway_profile(profile, aircraft, 80, 15) then
+            return false
+        end
+        local limit = (C and C.autoTaxiAlignHeadingDeg) or 8
+        local axis_heading_true = math.deg(math.atan2(profile.axis.x, profile.axis.y))
+        if axis_heading_true < 0 then
+            axis_heading_true = axis_heading_true + 360
+        end
+        local mag_var = 0
+        if aircraft.lat and aircraft.lon then
+            mag_var = sasl.getMagneticVariation(aircraft.lat, aircraft.lon) or 0
+        end
+        local axis_heading_mag = (axis_heading_true - mag_var + 360) % 360
+        local hdg = (yal.groundtrackmag and get(yal.groundtrackmag)) or nil
+        if hdg == nil then
+            local hdg_true = yal.localpositionpsi and get(yal.localpositionpsi) or nil
+            if hdg_true ~= nil then
+                hdg = (hdg_true - mag_var + 360) % 360
+            end
+        end
+        if hdg == nil then
+            return false
+        end
+        local diff = heading_diff_deg(hdg, axis_heading_mag)
+        if diff == nil or diff <= limit then
+            comp._autoTaxiAlignActive = false
+            return false
+        end
+        comp._autoTaxiAllowOverride = true
+        local diff_signed = heading_diff_signed(axis_heading_mag, hdg)
+        local max_err = (C and C.autoTaxiSteerMaxErrDeg) or 35
+        local max_steer = (C and C.autoTaxiSteerMaxDeg) or 25
+        local steer = clamp(diff_signed, -max_err, max_err)
+        if max_err > 0 then
+            steer = (steer / max_err) * max_steer
+        end
+        local prev = comp._autoTaxiSteer or 0
+        local prev_time = comp._autoTaxiSteerTime or now
+        local rate = (C and C.autoTaxiSteerSlewDegPerSec) or 90
+        local dt = (now or 0) - (prev_time or 0)
+        if dt < 0 then
+            dt = 0
+        end
+        local max_delta = rate * dt
+        if steer > (prev + max_delta) then
+            steer = prev + max_delta
+        elseif steer < (prev - max_delta) then
+            steer = prev - max_delta
+        end
+        comp._autoTaxiSteer = steer
+        comp._autoTaxiSteerTime = now
+
+        local gs_kts = (yal.groundspeed and (get(yal.groundspeed) or 0)) or 0
+        local target_kts = (C and C.autoTaxiAlignSpeedKts) or (C and C.autoTaxiTurnSpeedKts) or 5
+        local throttle_base = (C and C.autoTaxiThrottleBase) or 0.05
+        local throttle_kp = (C and C.autoTaxiThrottleKp) or 0.03
+        local throttle_max = (C and C.autoTaxiThrottleMax) or 0.25
+        local brake_kp = (C and C.autoTaxiBrakeKp) or 0.12
+        local brake_max = (C and C.autoTaxiBrakeMax) or 0.6
+        local throttle = throttle_base + (target_kts - gs_kts) * throttle_kp
+        if throttle < 0 then
+            throttle = 0
+        elseif throttle > throttle_max then
+            throttle = throttle_max
+        end
+        local brake = 0
+        if gs_kts > target_kts then
+            brake = (gs_kts - target_kts) * brake_kp
+            if brake > brake_max then
+                brake = brake_max
+            end
+            throttle = 0
+        end
+
+        auto_taxi_apply_overrides(comp, yal)
+        if yal.tire_steer_cmd and isProperty(yal.tire_steer_cmd) then
+            set(yal.tire_steer_cmd, steer)
+        end
+        if yal.throttle_use_1 and isProperty(yal.throttle_use_1) then
+            set(yal.throttle_use_1, throttle)
+        end
+        if yal.throttle_use_2 and isProperty(yal.throttle_use_2) then
+            set(yal.throttle_use_2, throttle)
+        end
+        if yal.left_brake_ratio and isProperty(yal.left_brake_ratio) then
+            set(yal.left_brake_ratio, brake)
+        end
+        if yal.right_brake_ratio and isProperty(yal.right_brake_ratio) then
+            set(yal.right_brake_ratio, brake)
+        end
+        comp._autoTaxiActive = true
+        comp._autoTaxiAlignActive = true
+        auto_taxi_log_once(comp, now, "align-rwy", string.format("align runway hdg diff=%.1f", diff), 2)
+        return true
+    end
+
     local function auto_taxi_apply_controls(comp, now, yal, aircraft)
         if not comp or not yal or not aircraft then
             return false
@@ -323,6 +430,14 @@ function M.attach(U, C, def, helpers, settings)
                 local profile = (comp.mode == 0 and comp._depProfile) or (comp.mode == 1 and comp._arrProfile) or nil
                 if profile and is_on_runway_profile and is_on_runway_profile(profile, aircraft, 80, 15) then
                     on_runway = true
+                end
+            end
+            if not on_runway and comp.mode == 1 then
+                local profile = comp._arrProfile
+                if profile and is_on_runway_profile and is_on_runway_profile(profile, aircraft, 80, 15) then
+                    on_runway = true
+                elseif yal and yal.aircraftonrwy then
+                    on_runway = (yal.aircraftonrwy(def.ARRIVAL, 40, 20) == false)
                 end
             end
             if on_runway then
@@ -689,6 +804,10 @@ function M.attach(U, C, def, helpers, settings)
         if not comp then
             return
         end
+        if comp._autoTaxiForceRelease then
+            auto_taxi_release_controls(comp, comp.yal or _G.yal, comp._autoTaxiForceRelease)
+            comp._autoTaxiForceRelease = nil
+        end
         if comp.mode ~= 0 and comp.mode ~= 1 then
             comp._autoTaxiReady = false
             return
@@ -798,6 +917,27 @@ function M.attach(U, C, def, helpers, settings)
             end
         end
         if not comp._route or not comp._route.path or #comp._route.path < 2 then
+            local manual = auto_taxi_manual_input(comp, yal, now)
+            if manual then
+                local hold_sec = (C and C.autoTaxiManualHoldSec) or 3
+                comp._autoTaxiHoldUntil = now + hold_sec
+                comp._autoTaxiReady = false
+                auto_taxi_release_controls(comp, yal, "manual-" .. tostring(manual))
+                auto_taxi_log_once(comp, now, "gate:manual", "blocked: manual input " .. tostring(manual))
+                auto_taxi_log_snapshot_once(comp, now, "gate:manual", yal, "gate:manual")
+                return
+            end
+            local lat = yal.aircraftlatpos and get(yal.aircraftlatpos) or nil
+            local lon = yal.aircraftlonpos and get(yal.aircraftlonpos) or nil
+            if is_valid_latlon(lat, lon) then
+                local ae, an = latlon_to_local(lat, lon)
+                if ae and an then
+                    local aircraft = { east = ae, north = an, lat = lat, lon = lon }
+                    if auto_taxi_align_runway(comp, now, yal, aircraft) then
+                        return
+                    end
+                end
+            end
             comp._autoTaxiReady = false
             auto_taxi_release_controls(comp, yal, "route")
             auto_taxi_log_once(comp, now, "gate:route", "blocked: no route")
