@@ -3488,6 +3488,33 @@ function P.getTaxiPushbackHint()
     return P.taxiComponent:getPushbackHint()
 end
 
+function P.getTaxiPushbackDecision()
+    if not P.taxiComponent or not P.taxiComponent.getPushbackDecision then
+        return nil
+    end
+    if P.taxiComponent.updateTaxiState then
+        P.taxiComponent:updateTaxiState()
+    end
+    return P.taxiComponent:getPushbackDecision()
+end
+
+function P.getTaxiPushbackDecisionState(requiredDiff, notRequiredDiff)
+    local info = P.getTaxiPushbackDecision and P.getTaxiPushbackDecision() or nil
+    local diff = info and info.diff
+    if not diff then
+        return nil, nil, info
+    end
+    local req = tonumber(requiredDiff) or 120
+    local no = tonumber(notRequiredDiff) or 70
+    if diff >= req then
+        return "required", diff, info
+    end
+    if diff <= no then
+        return "not_required", diff, info
+    end
+    return "unknown", diff, info
+end
+
 local my_command_toggletaxilights = sasl.createCommand(def.APPNAMEPREFIX .. "/toggletaxilights", "Toggle Taxi Lights")
 sasl.registerCommandHandler(my_command_toggletaxilights, 0, P.toggletaxilights_)
 

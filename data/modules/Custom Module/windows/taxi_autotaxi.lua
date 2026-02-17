@@ -297,6 +297,9 @@ function M.attach(U, C, def, helpers, settings)
             return false
         end
         local path = route.path
+        if comp._autoTaxiPath and comp._autoTaxiPathRoute == route and #comp._autoTaxiPath > 1 then
+            path = comp._autoTaxiPath
+        end
         if #path < 2 then
             return false
         end

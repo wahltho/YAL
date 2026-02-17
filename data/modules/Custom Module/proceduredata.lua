@@ -1670,6 +1670,19 @@ function M.fillProcedureTable()
                         if not P.BPBisinstalled() then
                             return true
                         end
+                        local state = P.getTaxiPushbackDecisionState and P.getTaxiPushbackDecisionState(120, 70) or nil
+                        if state ~= "required" then
+                            if state == "not_required" then
+                                if not P._bpbNoPushbackAnnounced then
+                                    P.commandtableentry(def.TEXT, "No Pushback Required")
+                                    P._bpbNoPushbackAnnounced = true
+                                end
+                            else
+                                P._bpbNoPushbackAnnounced = nil
+                            end
+                            return true
+                        end
+                        P._bpbNoPushbackAnnounced = nil
                         return P.BPBPlanComplete and (get(P.BPBPlanComplete) == 1)
                     end,
                     action = function(loop)
@@ -1706,6 +1719,10 @@ function M.fillProcedureTable()
                             return true
                         end
                         if not P.BPBisinstalled() then
+                            return true
+                        end
+                        local state = P.getTaxiPushbackDecisionState and P.getTaxiPushbackDecisionState(120, 70) or nil
+                        if state ~= "required" then
                             return true
                         end
                         return P.BPBPlanComplete and (get(P.BPBPlanComplete) == 1)

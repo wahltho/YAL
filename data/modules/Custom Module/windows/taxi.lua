@@ -1165,8 +1165,43 @@ local function find_runway_entry(data, runway_name, runway_lat, runway_lon)
     return candidates[1].rwy, candidates[1].side
 end
 
+local function find_nearest_runway_entry_by_latlon(data, runway_lat, runway_lon)
+    if not data or not data.runways or not runway_lat or not runway_lon then
+        return nil
+    end
+    local best_rwy = nil
+    local best_side = nil
+    local best_d2 = nil
+    for _, rwy in ipairs(data.runways) do
+        if rwy.lat1 and rwy.lon1 then
+            local dlat = rwy.lat1 - runway_lat
+            local dlon = rwy.lon1 - runway_lon
+            local d2 = dlat * dlat + dlon * dlon
+            if (not best_d2) or d2 < best_d2 then
+                best_d2 = d2
+                best_rwy = rwy
+                best_side = 1
+            end
+        end
+        if rwy.lat2 and rwy.lon2 then
+            local dlat = rwy.lat2 - runway_lat
+            local dlon = rwy.lon2 - runway_lon
+            local d2 = dlat * dlat + dlon * dlon
+            if (not best_d2) or d2 < best_d2 then
+                best_d2 = d2
+                best_rwy = rwy
+                best_side = 2
+            end
+        end
+    end
+    return best_rwy, best_side
+end
+
 local function compute_runway_landing_profile(data, runway_name, runway_lat, runway_lon)
     local rwy, side = find_runway_entry(data, runway_name, runway_lat, runway_lon)
+    if not rwy and runway_lat and runway_lon then
+        rwy, side = find_nearest_runway_entry_by_latlon(data, runway_lat, runway_lon)
+    end
     if not rwy or not rwy.east1 or not rwy.north1 or not rwy.east2 or not rwy.north2 then
         return nil
     end
@@ -1464,7 +1499,18 @@ local function apply_dep_turnaround_stub(comp, route, data, profile, runway_labe
     local threshold = profile.threshold
     local dist2 = distance_sq(last_node.east, last_node.north, threshold.east, threshold.north)
     if dist2 > (35 * 35) then
-        return false
+        local along, perp = compute_along_perp(profile, last_node)
+        if not along or not perp then
+            return false
+        end
+        local corridor = runway_corridor_half_width(profile)
+        local max_along = math.max(120, depThresholdGateMeters * 2.5)
+        if perp > (corridor + 8) then
+            return false
+        end
+        if along < -10 or along > max_along then
+            return false
+        end
     end
     local half = runway_corridor_half_width(profile)
     local offset = half - 5
@@ -1709,9 +1755,22 @@ local function compute_dep_threshold_state(comp, profile, runway_lat, runway_lon
     local yal = comp and (comp.yal or _G.yal) or nil
     local track_mag = yal and yal.groundtrackmag and get(yal.groundtrackmag) or nil
     local heading_diff = nil
+    local heading_src = nil
     local heading_ok = false
     if track_mag ~= nil then
         heading_diff = helpers.headingdiff(track_mag, axis_heading_mag)
+        heading_src = "track"
+    end
+    local hdg_true = yal and yal.localpositionpsi and get(yal.localpositionpsi) or nil
+    if hdg_true ~= nil then
+        local hdg_mag = (hdg_true - mag_var + 360) % 360
+        local diff = helpers.headingdiff(hdg_mag, axis_heading_mag)
+        if heading_diff == nil or diff < heading_diff then
+            heading_diff = diff
+            heading_src = "heading"
+        end
+    end
+    if heading_diff ~= nil then
         heading_ok = heading_diff <= depThresholdHeadingLimit
     end
     local reached = (perp <= corridor) and heading_ok and (dist <= depThresholdGateMeters)
@@ -1721,6 +1780,8 @@ local function compute_dep_threshold_state(comp, profile, runway_lat, runway_lon
         perp = perp,
         corridor = corridor,
         heading_diff = heading_diff,
+        heading_ok = heading_ok,
+        heading_src = heading_src,
         axis_heading_mag = axis_heading_mag
     }
 end
@@ -2991,6 +3052,8 @@ local function maybe_force_global_for_quality(comp, now, icao, mode, data, helpe
         comp._routeLabels = nil
         comp._routeLabelStats = nil
         comp._routeExtraSegments = nil
+        comp._autoTaxiPath = nil
+        comp._autoTaxiPathRoute = nil
         comp._lastStartKey = nil
         comp._lastEndKey = nil
         comp._startRampLabel = nil
@@ -3056,6 +3119,92 @@ local function get_node_degree(data, node_id)
         return 0
     end
     return #edges
+end
+
+local function simplify_route_path(data, path, opts)
+    if not data or not data.nodes or not path or #path < 3 then
+        return path
+    end
+    local max_angle = (opts and opts.max_angle) or 10
+    local max_seg = (opts and opts.max_seg) or 60
+    local require_same = (opts == nil) or (opts.require_same_label ~= false)
+    local allow_runway = (opts and opts.allow_runway) or false
+    local max_degree = (opts and opts.max_degree) or 2
+    local out = {}
+    local removed = 0
+    local prev_id = path[1]
+    out[1] = prev_id
+    for i = 2, (#path - 1) do
+        local curr_id = path[i]
+        local next_id = path[i + 1]
+        local n1 = data.nodes[prev_id]
+        local n2 = data.nodes[curr_id]
+        local n3 = data.nodes[next_id]
+        local can_skip = false
+        if n1 and n2 and n3 and n1.east and n1.north and n2.east and n2.north and n3.east and n3.north then
+            can_skip = true
+            if max_degree and max_degree > 0 then
+                local edges = data.adjacency_any and data.adjacency_any[curr_id]
+                if edges and #edges > max_degree then
+                    can_skip = false
+                end
+            end
+            local label1 = nil
+            local label2 = nil
+            if can_skip and require_same then
+                label1 = get_edge_label(data, prev_id, curr_id)
+                label2 = get_edge_label(data, curr_id, next_id)
+                if label1 ~= label2 then
+                    if label1 ~= "" or label2 ~= "" then
+                        can_skip = false
+                    end
+                end
+            end
+            if can_skip and (not allow_runway) then
+                if data.runway_nodes and (data.runway_nodes[prev_id] or data.runway_nodes[curr_id] or data.runway_nodes[next_id]) then
+                    can_skip = false
+                end
+                if (label1 and is_runway_label(label1)) or (label2 and is_runway_label(label2)) then
+                    can_skip = false
+                end
+            end
+            if can_skip then
+                local vx1 = n2.east - n1.east
+                local vy1 = n2.north - n1.north
+                local vx2 = n3.east - n2.east
+                local vy2 = n3.north - n2.north
+                local len1 = math.sqrt(vx1 * vx1 + vy1 * vy1)
+                local len2 = math.sqrt(vx2 * vx2 + vy2 * vy2)
+                if len1 < 0.5 or len2 < 0.5 then
+                    -- degenerate segment, skip
+                elseif len1 > max_seg or len2 > max_seg then
+                    can_skip = false
+                else
+                    local dot = (vx1 * vx2 + vy1 * vy2) / (len1 * len2)
+                    if dot > 1 then
+                        dot = 1
+                    elseif dot < -1 then
+                        dot = -1
+                    end
+                    local angle = math.deg(math.acos(dot))
+                    if angle > max_angle then
+                        can_skip = false
+                    end
+                end
+            end
+        end
+        if can_skip then
+            removed = removed + 1
+        else
+            out[#out + 1] = curr_id
+            prev_id = curr_id
+        end
+    end
+    out[#out + 1] = path[#path]
+    if removed == 0 then
+        return path
+    end
+    return out
 end
 
 local function guidance_distance_for_speed(tirespeed)
@@ -4291,6 +4440,8 @@ C = {
     autoTaxiGuidanceTargetLeadMeters = 80,
     autoTaxiGuidanceTargetStaleSec = 12,
     autoTaxiSCurveMaxSeg = guidanceSCurveMaxSeg,
+    autoTaxiSmoothAngleDeg = 12,
+    autoTaxiSmoothMaxSeg = 60,
     autoTaxiMaxActiveSpeedKts = 40,
     autoTaxiHeadingBlendMinKts = 3,
     autoTaxiHeadingBlendMaxKts = 8,
@@ -4339,7 +4490,10 @@ U = {
     normalize_runway_name = normalize_runway_name,
     parse_runway_parts = parse_runway_parts,
     find_runway_entry = find_runway_entry,
+    find_nearest_runway_entry_by_latlon = find_nearest_runway_entry_by_latlon,
     compute_runway_landing_profile = compute_runway_landing_profile,
+    runway_pair_label = runway_pair_label,
+    runway_end_label = runway_end_label,
     find_nearest_runway_node = find_nearest_runway_node,
     find_holdshort_node_near = find_holdshort_node_near,
     build_runway_backtrack_segments = build_runway_backtrack_segments,
@@ -4375,6 +4529,7 @@ U = {
     find_runway_entry_label = find_runway_entry_label,
     get_edge_label = get_edge_label,
     find_nearest_segment = find_nearest_segment,
+    simplify_route_path = simplify_route_path,
     get_node_degree = get_node_degree,
     guidance_distance_for_speed = guidance_distance_for_speed,
     speak_guidance_text = speak_guidance_text,
@@ -4689,6 +4844,7 @@ U.reset_dep_threshold_callouts = function(comp, key)
     end
     comp._depThresholdCalloutKey = key
     comp._depThresholdCalloutStage = 0
+    comp._depThresholdBlockedLog = 0
 end
 
 U.maybe_dep_threshold_voice_callouts = function(comp, state, allow_voice)
@@ -5415,20 +5571,39 @@ local function updateTaxiState(comp, map)
         )
     end
 
-    if mode == 0 and data and comp._runwayName and comp._runwayName ~= "" and U.is_valid_latlon(runway_lat, runway_lon) then
-        dep_profile = U.compute_runway_landing_profile(data, comp._runwayName, runway_lat, runway_lon)
-        if dep_profile and dep_profile.threshold and dep_profile.threshold.east and dep_profile.threshold.north then
-            dep_runway_end_id = U.find_nearest_runway_node(
-                data,
-                dep_profile.threshold.east,
-                dep_profile.threshold.north
-            )
-            local tlat, tlon = local_to_latlon(dep_profile.threshold.east, dep_profile.threshold.north)
-            if U.is_valid_latlon(tlat, tlon) then
-                dep_runway_end_lat = tlat
-                dep_runway_end_lon = tlon
-            end
+    if mode == 0 and data and U.is_valid_latlon(runway_lat, runway_lon) then
+        local dep_rwy = nil
+        local dep_side = nil
+        if comp._runwayName and comp._runwayName ~= "" then
+            dep_rwy, dep_side = U.find_runway_entry(data, comp._runwayName, runway_lat, runway_lon)
         end
+        if not dep_rwy then
+            dep_rwy, dep_side = U.find_nearest_runway_entry_by_latlon(data, runway_lat, runway_lon)
+        end
+        if dep_rwy then
+            dep_profile = U.compute_runway_landing_profile(data, comp._runwayName, runway_lat, runway_lon)
+            if dep_profile and dep_profile.threshold and dep_profile.threshold.east and dep_profile.threshold.north then
+                dep_runway_end_id = U.find_nearest_runway_node(
+                    data,
+                    dep_profile.threshold.east,
+                    dep_profile.threshold.north
+                )
+                local tlat, tlon = local_to_latlon(dep_profile.threshold.east, dep_profile.threshold.north)
+                if U.is_valid_latlon(tlat, tlon) then
+                    dep_runway_end_lat = tlat
+                    dep_runway_end_lon = tlon
+                end
+            end
+            local dep_label = U.runway_end_label(dep_rwy, dep_side)
+            if dep_label == "" then
+                dep_label = U.runway_pair_label(dep_rwy)
+            end
+            comp._depProfileLabel = dep_label
+        else
+            comp._depProfileLabel = nil
+        end
+    else
+        comp._depProfileLabel = nil
     end
     if mode == 0 and dep_profile and (not dep_holdshort_id)
         and dep_end_node_dist and dep_end_node_dist > depEntryFallbackMaxDist then
@@ -7142,8 +7317,27 @@ local function updateTaxiState(comp, map)
             local backtrack_applied = false
             comp._routeExtraSegments = nil
             if (not comp._drawFreehand) and (not comp._manualRouteActive)
-                and route and route.path and data and comp._runwayName and comp._runwayName ~= "" then
-                local profile = U.compute_runway_landing_profile(data, comp._runwayName, runway_lat, runway_lon)
+                and route and route.path and data then
+                local profile = nil
+                local runway_label = nil
+                if comp._runwayName and comp._runwayName ~= "" then
+                    profile = U.compute_runway_landing_profile(data, comp._runwayName, runway_lat, runway_lon)
+                    runway_label = U.normalize_runway_name(comp._runwayName)
+                else
+                    if mode == 0 then
+                        profile = dep_profile or U.compute_runway_landing_profile(data, comp._runwayName, runway_lat, runway_lon)
+                        runway_label = comp._depProfileLabel or ""
+                    else
+                        profile = landing_profile or U.compute_runway_landing_profile(data, comp._runwayName, runway_lat, runway_lon)
+                    end
+                    if (not runway_label or runway_label == "") and U.is_valid_latlon(runway_lat, runway_lon) then
+                        local rwy, side = U.find_nearest_runway_entry_by_latlon(data, runway_lat, runway_lon)
+                        runway_label = U.runway_end_label(rwy, side)
+                        if runway_label == "" then
+                            runway_label = U.runway_pair_label(rwy)
+                        end
+                    end
+                end
                 if profile then
                     local backtrack_node = nil
                     local backtrack_target = nil
@@ -7161,7 +7355,6 @@ local function updateTaxiState(comp, map)
                     if backtrack_node then
                         local segments = U.build_runway_backtrack_segments(data, profile, backtrack_node, backtrack_target)
                         if segments and #segments > 0 then
-                            local runway_label = U.normalize_runway_name(comp._runwayName)
                             if apply_backtrack_segments_to_route(comp, route, data, backtrack_node, segments, runway_label) then
                                 backtrack_applied = true
                             else
@@ -7171,10 +7364,17 @@ local function updateTaxiState(comp, map)
                     end
                 end
             end
-            if mode == 0 and dep_backtrack_required and route and data and comp._runwayName and comp._runwayName ~= "" then
-                local profile = U.compute_runway_landing_profile(data, comp._runwayName, runway_lat, runway_lon)
+            if mode == 0 and dep_backtrack_required and route and data then
+                local profile = dep_profile or U.compute_runway_landing_profile(data, comp._runwayName, runway_lat, runway_lon)
                 if profile then
-                    local runway_label = U.normalize_runway_name(comp._runwayName)
+                    local runway_label = (comp._runwayName and comp._runwayName ~= "" and U.normalize_runway_name(comp._runwayName)) or (comp._depProfileLabel or "")
+                    if runway_label == "" and U.is_valid_latlon(runway_lat, runway_lon) then
+                        local rwy, side = U.find_nearest_runway_entry_by_latlon(data, runway_lat, runway_lon)
+                        runway_label = U.runway_end_label(rwy, side)
+                        if runway_label == "" then
+                            runway_label = U.runway_pair_label(rwy)
+                        end
+                    end
                     if apply_dep_turnaround_stub(comp, route, data, profile, runway_label) then
                         log_taxi("TaxiRoute: dep turnaround stub applied")
                     end
@@ -7183,6 +7383,31 @@ local function updateTaxiState(comp, map)
             if route then
                 comp._routeLabels = U.build_route_labels(route.data, route.path)
                 comp._routeLabelStats = U.compute_route_label_stats(route.data, route.path)
+            end
+            if route and route.path then
+                local smooth_angle = C.autoTaxiSmoothAngleDeg or guidanceStraightAngle
+                local smooth_seg = C.autoTaxiSmoothMaxSeg or C.autoTaxiSCurveMaxSeg or 0
+                if smooth_seg and smooth_seg > 0 then
+                    local smooth_path = U.simplify_route_path(route.data, route.path, {
+                        max_angle = smooth_angle,
+                        max_seg = smooth_seg,
+                        require_same_label = true,
+                        allow_runway = false
+                    })
+                    if smooth_path ~= route.path then
+                        comp._autoTaxiPath = smooth_path
+                        comp._autoTaxiPathRoute = route
+                    else
+                        comp._autoTaxiPath = nil
+                        comp._autoTaxiPathRoute = nil
+                    end
+                else
+                    comp._autoTaxiPath = nil
+                    comp._autoTaxiPathRoute = nil
+                end
+            else
+                comp._autoTaxiPath = nil
+                comp._autoTaxiPathRoute = nil
             end
             if route and U.is_valid_latlon(start_lat, start_lon) then
                 if not in_edit then
@@ -7338,6 +7563,8 @@ local function updateTaxiState(comp, map)
             comp._route = nil
             comp._routeErr = canRoute and "route-endpoints-missing" or "no-routes"
             comp._routeLabels = nil
+            comp._autoTaxiPath = nil
+            comp._autoTaxiPathRoute = nil
             log_taxi("TaxiRoute: skip err=" .. tostring(comp._routeErr))
         end
     end
@@ -7352,12 +7579,32 @@ local function updateTaxiState(comp, map)
         if comp._depThresholdCalloutKey ~= callout_key then
             U.reset_dep_threshold_callouts(comp, callout_key)
         end
-        if state and state.heading_diff and state.heading_diff <= depThresholdHeadingLimit
+        if state and state.heading_ok
             and state.perp and state.corridor and state.perp <= state.corridor
             and (not comp._depThresholdReached) and (not comp._depThresholdLatched) then
             U.maybe_dep_threshold_voice_callouts(comp, state, U.is_auto_taxi_guidance_enabled())
         else
             comp._depThresholdCalloutStage = 0
+            if state and state.dist and state.dist <= 400
+                and (not comp._depThresholdReached) and (not comp._depThresholdLatched) then
+                local blocked = (state.heading_ok == false)
+                    or (state.perp and state.corridor and state.perp > state.corridor)
+                if blocked then
+                    local last_block = comp._depThresholdBlockedLog or 0
+                    if (now - last_block) >= 5 then
+                        comp._depThresholdBlockedLog = now
+                        helpers.logInfoTS(
+                            string.format(
+                                "TaxiDepThreshold: blocked dist=%.1f perp=%.1f hdgDiff=%s src=%s",
+                                state.dist or -1,
+                                state.perp or -1,
+                                state.heading_diff and string.format("%.1f", state.heading_diff) or "nil",
+                                tostring(state.heading_src or "?")
+                            )
+                        )
+                    end
+                end
+            end
         end
         if comp._depThresholdReached then
             comp._depThresholdLatched = true
@@ -7366,11 +7613,13 @@ local function updateTaxiState(comp, map)
             comp._lastDepThresholdReached = comp._depThresholdReached
             helpers.logInfoTS(
                 string.format(
-                    "TaxiDepThreshold: reached=%s dist=%.1f perp=%.1f hdgDiff=%s corridor=%.1f",
+                    "TaxiDepThreshold: reached=%s dist=%.1f perp=%.1f hdgDiff=%s hdgOk=%s src=%s corridor=%.1f",
                     tostring(comp._depThresholdReached),
                     state and state.dist or -1,
                     state and state.perp or -1,
                     state and state.heading_diff and string.format("%.1f", state.heading_diff) or "nil",
+                    tostring(state and state.heading_ok),
+                    tostring(state and state.heading_src or "?"),
                     state and state.corridor or -1
                 )
             )
@@ -9910,6 +10159,85 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
             return "nose toward Taxiway " .. taxiway_label_voice(label) .. " heading " .. tostring(compass)
         end
         return "nose toward heading " .. tostring(compass)
+    end
+
+    function comp:getPushbackDecision()
+        if comp.mode ~= 0 then
+            return nil
+        end
+        local path = comp._route and comp._route.path or nil
+        local data = comp._route and comp._route.data or nil
+        local n1 = nil
+        local n2 = nil
+        if path and data and #path >= 2 then
+            for i = 1, #path - 1 do
+                local a = data.nodes and data.nodes[path[i]] or nil
+                local b = data.nodes and data.nodes[path[i + 1]] or nil
+                if a and b and a.east and a.north and b.east and b.north then
+                    if a.is_ramp or b.is_ramp then
+                        goto continue
+                    end
+                    local raw_label = get_edge_label(data, path[i], path[i + 1])
+                    if raw_label == "RAMP" or (raw_label and is_runway_label(raw_label)) then
+                        goto continue
+                    end
+                    local dx = b.east - a.east
+                    local dy = b.north - a.north
+                    if dx ~= 0 or dy ~= 0 then
+                        n1 = a
+                        n2 = b
+                        break
+                    end
+                end
+                ::continue::
+            end
+        end
+        if not n1 or not n2 then
+            if comp._aircraftPoint and comp._data then
+                local proj = find_nearest_edge_projection(
+                    comp._data,
+                    comp._aircraftPoint.east,
+                    comp._aircraftPoint.north,
+                    { disallow_runway_edges = true }
+                )
+                if proj and proj.edge and proj.edge.a and proj.edge.b then
+                    local a = comp._data.nodes and comp._data.nodes[proj.edge.a] or nil
+                    local b = comp._data.nodes and comp._data.nodes[proj.edge.b] or nil
+                    if a and b and a.east and a.north and b.east and b.north then
+                        n1 = a
+                        n2 = b
+                    end
+                end
+            end
+        end
+        if not n1 or not n2 or n1.east == nil or n1.north == nil or n2.east == nil or n2.north == nil then
+            return nil
+        end
+        local dx = n2.east - n1.east
+        local dy = n2.north - n1.north
+        if dx == 0 and dy == 0 then
+            return nil
+        end
+        local heading = math.deg(math.atan2(dx, dy))
+        if heading < 0 then
+            heading = heading + 360
+        end
+        local yal = comp.yal or _G.yal
+        local ac_heading = nil
+        if yal and yal.localpositionpsi and isProperty(yal.localpositionpsi) then
+            ac_heading = get(yal.localpositionpsi)
+        elseif yal and yal.groundtrackmag and isProperty(yal.groundtrackmag) then
+            ac_heading = get(yal.groundtrackmag)
+        end
+        if ac_heading == nil then
+            return { heading = heading }
+        end
+        local diff = math.abs(((heading - ac_heading + 540) % 360) - 180)
+        return {
+            heading = heading,
+            aircraft = ac_heading,
+            diff = diff
+        }
     end
 
     function comp:clearVisualGuidance()
