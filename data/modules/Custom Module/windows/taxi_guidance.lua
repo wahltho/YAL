@@ -694,8 +694,14 @@ function M.attach(U, C, def, helpers, settings)
             if not info then
                 return nil
             end
+            if info.kind == "taxiway" then
+                info.text = "Continue straight on " .. taxiway_label_voice(info.display or info.text or "")
+                info.action = "CONTINUE"
+            elseif info.kind == "runway" then
+                info.text = "Continue on " .. runway_label_voice(info.display or info.text or "")
+                info.action = "CONTINUE"
+            end
             info.direction = "straight"
-            info.action = "STRAIGHT"
             info.targetSegIdx = seg_idx
             return info
         end
@@ -1084,6 +1090,16 @@ function M.attach(U, C, def, helpers, settings)
                     queue_visual_guidance(comp, info)
                 else
                     set_visual_guidance(comp, info)
+                end
+            end
+            if auto_voice and is_voice_enabled() and info.text and info.text ~= "" then
+                local last_text = comp._lastGuidanceVoiceText
+                local last_time = comp._lastGuidanceVoiceTime or 0
+                local cooldown = (C and C.guidanceCooldown) or 8
+                if info.text ~= last_text or (now and (now - last_time) >= cooldown) then
+                    speak_guidance_text(comp, info.text)
+                    comp._lastGuidanceVoiceText = info.text
+                    comp._lastGuidanceVoiceTime = now or 0
                 end
             end
             return true

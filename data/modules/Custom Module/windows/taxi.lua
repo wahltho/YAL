@@ -3329,6 +3329,9 @@ U.update_pushback_state = function(comp, now, yal, aircraft)
             comp._pushbackCompleted = false
             comp._pushbackPlanSeen = false
             comp._pushbackReleaseAnchor = nil
+            comp._pushbackReanchorPending = nil
+            comp._pushbackReanchorDone = nil
+            comp._pushbackReanchorTime = nil
         end
         return false
     end
@@ -3343,6 +3346,9 @@ U.update_pushback_state = function(comp, now, yal, aircraft)
         comp._pushbackCompleted = false
         comp._pushbackPlanSeen = false
         comp._pushbackReleaseAnchor = nil
+        comp._pushbackReanchorPending = nil
+        comp._pushbackReanchorDone = nil
+        comp._pushbackReanchorTime = nil
         return false
     end
 
@@ -3357,6 +3363,9 @@ U.update_pushback_state = function(comp, now, yal, aircraft)
         comp._pushbackCompleted = false
         comp._pushbackPlanSeen = planOn or comp._pushbackPlanSeen
         comp._pushbackReleaseAnchor = nil
+        comp._pushbackReanchorPending = false
+        comp._pushbackReanchorDone = false
+        comp._pushbackReanchorTime = nil
         return true
     end
 
@@ -3368,6 +3377,10 @@ U.update_pushback_state = function(comp, now, yal, aircraft)
         end
         comp._pushbackActive = false
         comp._pushbackCompleted = true
+        if not comp._pushbackReanchorDone and not comp._pushbackReanchorPending then
+            comp._pushbackReanchorPending = true
+            comp._pushbackReanchorTime = now or 0
+        end
         return false
     end
 
@@ -3398,6 +3411,10 @@ U.update_pushback_state = function(comp, now, yal, aircraft)
                 comp._pushbackCompleted = true
                 comp._pushbackPlanSeen = false
                 comp._pushbackReleaseAnchor = nil
+                if not comp._pushbackReanchorDone then
+                    comp._pushbackReanchorPending = true
+                    comp._pushbackReanchorTime = now or 0
+                end
                 return false
             end
             return true
@@ -4041,6 +4058,28 @@ local function updateTaxiState(comp, map)
         local d_override = U.distance_meters_latlon(comp._rerouteOverride.lat, comp._rerouteOverride.lon, aircraft.lat, aircraft.lon)
         if d_override and d_override > 1000 then
             comp._rerouteOverride = nil
+        end
+    end
+    if mode == 0 and comp._pushbackReanchorPending and aircraft and U.is_valid_latlon(aircraft.lat, aircraft.lon) then
+        if not in_edit then
+            comp._rerouteOverride = { lat = aircraft.lat, lon = aircraft.lon }
+            comp._routeStartAnchor = nil
+            comp._lastStartKey = nil
+            comp._route = nil
+            comp._routeErr = nil
+            comp._routeLabels = nil
+            comp._routeLabelStats = nil
+            comp._autoTaxiPath = nil
+            comp._autoTaxiPathRoute = nil
+            comp._pendingRerouteEvent = true
+            comp._pushbackReanchorPending = false
+            comp._pushbackReanchorDone = true
+            comp._pushbackReanchorTime = nil
+            if log_taxi then
+                log_taxi("TaxiRoute: pushback reanchor")
+            elseif helpers and helpers.logInfoTS then
+                helpers.logInfoTS("TaxiRoute: pushback reanchor")
+            end
         end
     end
 
@@ -6439,18 +6478,17 @@ local function updateTaxiState(comp, map)
                 end
                 if mode == 1 and offRunway and not comp._arrOffRunwayHandled then
                     comp._arrOffRunwayHandled = true
-                    if not comp._rerouteOverride then
-                        comp._rerouteOverride = { lat = aircraft.lat, lon = aircraft.lon }
-                        if not arrival_grace_active(comp, now) then
-                            comp._pendingRerouteEvent = true
-                        end
-                        comp._lastRerouteTime = now
-                        comp._lastStartKey = nil
-                        comp._route = nil
-                        comp._routeErr = nil
-                        comp._routeLabels = nil
-                        comp._routeLabelStats = nil
+                    comp._rerouteOverride = { lat = aircraft.lat, lon = aircraft.lon }
+                    comp._routeStartAnchor = nil
+                    if not arrival_grace_active(comp, now) then
+                        comp._pendingRerouteEvent = true
                     end
+                    comp._lastRerouteTime = now
+                    comp._lastStartKey = nil
+                    comp._route = nil
+                    comp._routeErr = nil
+                    comp._routeLabels = nil
+                    comp._routeLabelStats = nil
                     log_taxi("TaxiRoute: off-runway reroute latch")
                     return
                 end
@@ -6477,6 +6515,7 @@ local function updateTaxiState(comp, map)
                 end
                 if dist and dist > driftMeters and (now - lastReroute) > C.rerouteCooldown then
                     comp._rerouteOverride = { lat = aircraft.lat, lon = aircraft.lon }
+                    comp._routeStartAnchor = nil
                     if not arrival_grace_active(comp, now) then
                         comp._pendingRerouteEvent = true
                     end
@@ -7021,6 +7060,9 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
     comp._pushbackCompleted = false
     comp._pushbackPlanSeen = false
     comp._pushbackReleaseAnchor = nil
+    comp._pushbackReanchorPending = nil
+    comp._pushbackReanchorDone = nil
+    comp._pushbackReanchorTime = nil
     comp._autoTaxiNext = nil
     comp._autoTaxiReady = false
     comp._lastRecomputeKey = nil
