@@ -1671,16 +1671,16 @@ function M.fillProcedureTable()
                             return true
                         end
                         local state = P.getTaxiPushbackDecisionState and P.getTaxiPushbackDecisionState(120, 70) or nil
-                        if state ~= "required" then
-                            if state == "not_required" then
-                                if not P._bpbNoPushbackAnnounced then
-                                    P.commandtableentry(def.TEXT, "No Pushback Required")
-                                    P._bpbNoPushbackAnnounced = true
-                                end
-                            else
-                                P._bpbNoPushbackAnnounced = nil
+                        if state == "not_required" then
+                            if not P._bpbNoPushbackAnnounced then
+                                P.commandtableentry(def.TEXT, "No Pushback Required")
+                                P._bpbNoPushbackAnnounced = true
                             end
                             return true
+                        end
+                        if state ~= "required" then
+                            -- No reliable routing info: always open planner.
+                            P._bpbNoPushbackAnnounced = nil
                         end
                         P._bpbNoPushbackAnnounced = nil
                         return P.BPBPlanComplete and (get(P.BPBPlanComplete) == 1)
@@ -1722,7 +1722,7 @@ function M.fillProcedureTable()
                             return true
                         end
                         local state = P.getTaxiPushbackDecisionState and P.getTaxiPushbackDecisionState(120, 70) or nil
-                        if state ~= "required" then
+                        if state == "not_required" then
                             return true
                         end
                         return P.BPBPlanComplete and (get(P.BPBPlanComplete) == 1)
