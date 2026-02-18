@@ -208,12 +208,32 @@ function M.attach(U, C, def, helpers, settings)
         if not yal then
             return nil
         end
-        local thr1 = (yal.hardware_throttle_1 and get(yal.hardware_throttle_1)) or 0
-        local thr2 = (yal.hardware_throttle_2 and get(yal.hardware_throttle_2)) or 0
-        if thr1 > 0.05 or thr2 > 0.05 then
-            return "throttle"
+        local zthr1 = (yal.zibo_axis_throttle1 and get(yal.zibo_axis_throttle1)) or nil
+        local zthr2 = (yal.zibo_axis_throttle2 and get(yal.zibo_axis_throttle2)) or nil
+        if zthr1 ~= nil or zthr2 ~= nil then
+            local z1 = zthr1 or 0
+            local z2 = zthr2 or 0
+            if math.abs(z1) > 0.05 or math.abs(z2) > 0.05 then
+                return "throttle"
+            end
+        else
+            local thr1 = (yal.hardware_throttle_1 and get(yal.hardware_throttle_1)) or 0
+            local thr2 = (yal.hardware_throttle_2 and get(yal.hardware_throttle_2)) or 0
+            if thr1 > 0.05 or thr2 > 0.05 then
+                return "throttle"
+            end
         end
-        local yaw = (yal.yoke_heading_ratio and get(yal.yoke_heading_ratio)) or 0
+        local yaw = nil
+        if yal.zibo_axis_heading then
+            yaw = get(yal.zibo_axis_heading)
+        end
+        if yaw == nil then
+            yaw = (yal.yoke_heading_ratio and get(yal.yoke_heading_ratio)) or 0
+            local yaw2 = (yal.yoke_heading_ratio_cockpit and get(yal.yoke_heading_ratio_cockpit)) or nil
+            if yaw2 ~= nil and math.abs(yaw2) > math.abs(yaw) then
+                yaw = yaw2
+            end
+        end
         if math.abs(yaw) > 0.2 then
             if not now then
                 return "steer"
@@ -231,28 +251,47 @@ function M.attach(U, C, def, helpers, settings)
             end
             return nil
         end
-        local lbrake = (yal.left_brake_ratio and get(yal.left_brake_ratio)) or 0
-        local rbrake = (yal.right_brake_ratio and get(yal.right_brake_ratio)) or 0
-        if comp and comp._autoTaxiOverrideActive and comp._autoTaxiLastBrake ~= nil then
-            local ref = comp._autoTaxiLastBrake
-            if lbrake > (ref + 0.08) or rbrake > (ref + 0.08) then
-                if not now then
-                    return "brake"
-                end
-                local t = comp._autoTaxiManualType
-                if t ~= "brake" then
-                    comp._autoTaxiManualType = "brake"
-                    comp._autoTaxiManualSince = now
-                    return nil
-                end
-                local since = comp._autoTaxiManualSince or now
-                local debounce = (C and C.autoTaxiManualDebounceSec) or 0.4
-                if (now - since) >= debounce then
-                    return "brake"
-                end
+        local nw1 = (yal.zibo_axis_nosewheel and get(yal.zibo_axis_nosewheel)) or nil
+        local nw2 = (yal.zibo_axis_nosewheel2 and get(yal.zibo_axis_nosewheel2)) or nil
+        local nw3 = (yal.zibo_axis_nosewheel3 and get(yal.zibo_axis_nosewheel3)) or nil
+        local nw = nil
+        if nw1 ~= nil then
+            nw = math.abs(nw1)
+        end
+        if nw2 ~= nil then
+            local v = math.abs(nw2)
+            if nw == nil or v > nw then
+                nw = v
+            end
+        end
+        if nw3 ~= nil then
+            local v = math.abs(nw3)
+            if nw == nil or v > nw then
+                nw = v
+            end
+        end
+        if nw ~= nil and nw > 0.05 then
+            if not now then
+                return "tiller"
+            end
+            local t = comp and comp._autoTaxiManualType or nil
+            if t ~= "tiller" then
+                comp._autoTaxiManualType = "tiller"
+                comp._autoTaxiManualSince = now
                 return nil
             end
-        else
+            local since = comp._autoTaxiManualSince or now
+            local debounce = (C and C.autoTaxiManualDebounceSec) or 0.4
+            if (now - since) >= debounce then
+                return "tiller"
+            end
+            return nil
+        end
+        local zlb = (yal.zibo_axis_left_toe_brake and get(yal.zibo_axis_left_toe_brake)) or nil
+        local zrb = (yal.zibo_axis_right_toe_brake and get(yal.zibo_axis_right_toe_brake)) or nil
+        if zlb ~= nil or zrb ~= nil then
+            local lbrake = math.abs(zlb or 0)
+            local rbrake = math.abs(zrb or 0)
             if lbrake > 0.1 or rbrake > 0.1 then
                 if not now then
                     return "brake"
@@ -269,6 +308,47 @@ function M.attach(U, C, def, helpers, settings)
                     return "brake"
                 end
                 return nil
+            end
+        else
+            local lbrake = (yal.left_brake_ratio and get(yal.left_brake_ratio)) or 0
+            local rbrake = (yal.right_brake_ratio and get(yal.right_brake_ratio)) or 0
+            if comp and comp._autoTaxiOverrideActive and comp._autoTaxiLastBrake ~= nil then
+                local ref = comp._autoTaxiLastBrake
+                if lbrake > (ref + 0.08) or rbrake > (ref + 0.08) then
+                    if not now then
+                        return "brake"
+                    end
+                    local t = comp._autoTaxiManualType
+                    if t ~= "brake" then
+                        comp._autoTaxiManualType = "brake"
+                        comp._autoTaxiManualSince = now
+                        return nil
+                    end
+                    local since = comp._autoTaxiManualSince or now
+                    local debounce = (C and C.autoTaxiManualDebounceSec) or 0.4
+                    if (now - since) >= debounce then
+                        return "brake"
+                    end
+                    return nil
+                end
+            else
+                if lbrake > 0.1 or rbrake > 0.1 then
+                    if not now then
+                        return "brake"
+                    end
+                    local t = comp and comp._autoTaxiManualType or nil
+                    if t ~= "brake" then
+                        comp._autoTaxiManualType = "brake"
+                        comp._autoTaxiManualSince = now
+                        return nil
+                    end
+                    local since = comp._autoTaxiManualSince or now
+                    local debounce = (C and C.autoTaxiManualDebounceSec) or 0.4
+                    if (now - since) >= debounce then
+                        return "brake"
+                    end
+                    return nil
+                end
             end
         end
         if yal.parkingbrakepos and get(yal.parkingbrakepos) == def.ON then
@@ -437,7 +517,13 @@ function M.attach(U, C, def, helpers, settings)
                 if profile and is_on_runway_profile and is_on_runway_profile(profile, aircraft, 80, 15) then
                     on_runway = true
                 elseif yal and yal.aircraftonrwy then
-                    on_runway = (yal.aircraftonrwy(def.ARRIVAL, 40, 20) == false)
+                    on_runway = not yal.aircraftonrwy(def.ARRIVAL, 40, 20)
+                end
+            end
+            if not on_runway and comp.mode == 0 then
+                local profile = comp._depProfile
+                if profile and is_on_runway_profile and is_on_runway_profile(profile, aircraft, 80, 15) then
+                    on_runway = true
                 end
             end
             if on_runway then
@@ -519,6 +605,7 @@ function M.attach(U, C, def, helpers, settings)
                 lead_m = dyn_lead
             end
         end
+        local turn_min_seg = (C and C.autoTaxiTurnMinSegMeters) or 15
         local target_idx = nil
         local target_reason = nil
         local gidx = comp._autoTaxiTargetSegIdx
@@ -538,10 +625,15 @@ function M.attach(U, C, def, helpers, settings)
             local tn1 = data.nodes[path[gidx]]
             local tn2 = data.nodes[path[gidx + 1]]
             if h_curr and tn1 and tn2 and tn1.east and tn1.north and tn2.east and tn2.north then
-                local h_tgt = heading_deg_from_to(tn1.east, tn1.north, tn2.east, tn2.north)
-                if h_tgt and heading_diff_deg(h_curr, h_tgt) >= ((C and C.autoTaxiTurnAngleDeg) or 25) * 0.5 then
-                    target_idx = gidx
-                    target_reason = "guidance"
+                local tdx = tn2.east - tn1.east
+                local tdy = tn2.north - tn1.north
+                local tlen = math.sqrt(tdx * tdx + tdy * tdy)
+                if tlen >= turn_min_seg then
+                    local h_tgt = heading_deg_from_to(tn1.east, tn1.north, tn2.east, tn2.north)
+                    if h_tgt and heading_diff_deg(h_curr, h_tgt) >= ((C and C.autoTaxiTurnAngleDeg) or 25) * 0.5 then
+                        target_idx = gidx
+                        target_reason = "guidance"
+                    end
                 end
             end
         end
@@ -551,7 +643,10 @@ function M.attach(U, C, def, helpers, settings)
                 local h1 = heading_deg_from_to(n1.east, n1.north, n2.east, n2.north)
                 local h2 = heading_deg_from_to(n2.east, n2.north, n3.east, n3.north)
                 local turn_angle = (C and C.autoTaxiTurnAngleDeg) or 25
-                if h1 and h2 and heading_diff_deg(h1, h2) >= turn_angle then
+                local dx2 = n3.east - n2.east
+                local dy2 = n3.north - n2.north
+                local len2 = math.sqrt(dx2 * dx2 + dy2 * dy2)
+                if h1 and h2 and len2 >= turn_min_seg and heading_diff_deg(h1, h2) >= turn_angle then
                     target_idx = seg_idx + 1
                     target_reason = "geom-turn"
                 end
@@ -566,8 +661,9 @@ function M.attach(U, C, def, helpers, settings)
                 local v3x = n4.east - n3.east
                 local v3y = n4.north - n3.north
                 local len2 = math.sqrt(v2x * v2x + v2y * v2y)
+                local len3 = math.sqrt(v3x * v3x + v3y * v3y)
                 local max_seg = (C and C.autoTaxiSCurveMaxSeg) or 50
-                if len2 > 0.1 and len2 <= max_seg then
+                if len2 > 0.1 and len2 <= max_seg and len3 >= turn_min_seg then
                     local cross1 = dx * v2y - dy * v2x
                     local cross2 = v2x * v3y - v2y * v3x
                     if cross1 ~= 0 and cross2 ~= 0 and (cross1 * cross2) < 0 then
@@ -681,7 +777,6 @@ function M.attach(U, C, def, helpers, settings)
         local stop_dist = (C and C.autoTaxiStopDistMeters) or 8
         local turn_angle = (C and C.autoTaxiTurnAngleDeg) or 25
         local turn_lead = (C and C.autoTaxiTurnLeadMeters) or 20
-        local turn_min_seg = (C and C.autoTaxiTurnMinSegMeters) or 15
         local turn_exit = (C and C.autoTaxiTurnExitMeters) or 12
         local last_seg = comp._autoTaxiLastSegIdx
         if not last_seg or last_seg ~= seg_idx then
@@ -714,7 +809,7 @@ function M.attach(U, C, def, helpers, settings)
                 comp._autoTaxiTurnSegIdx = nil
             end
         end
-        if (not comp._autoTaxiTurnSlow) and seg_idx + 2 <= #path and dist_to_seg_end <= turn_lead and seg_len >= turn_min_seg then
+        if (not comp._autoTaxiTurnSlow) and seg_idx + 2 <= #path and dist_to_seg_end <= turn_lead then
             local n3 = data.nodes[path[seg_idx + 2]]
             if n3 then
                 if h1 and h2 and heading_diff_deg(h1, h2) >= turn_angle and dist_to_seg_end <= turn_lead then
@@ -963,6 +1058,15 @@ function M.attach(U, C, def, helpers, settings)
         end
         local hold_until = comp._autoTaxiHoldUntil or 0
         if now < hold_until then
+            local manual = auto_taxi_manual_input(comp, yal, now)
+            if manual then
+                local hold_sec = (C and C.autoTaxiManualHoldSec) or 3
+                comp._autoTaxiHoldUntil = now + hold_sec
+                comp._autoTaxiReady = false
+                auto_taxi_release_controls(comp, yal, "manual-" .. tostring(manual))
+                auto_taxi_log_once(comp, now, "gate:manual-hold", "blocked: manual input " .. tostring(manual))
+                auto_taxi_log_snapshot_once(comp, now, "gate:manual-hold", yal, "gate:manual-hold")
+            end
             comp._autoTaxiReady = false
             return
         end

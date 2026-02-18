@@ -4787,15 +4787,15 @@ function M.fillProcedureTable()
                 ['hyd_pumps_off'] = {
                     check = function() return (get(P.hydro1pos) == def.OFF) and (get(P.hydro2pos) == def.OFF) end,
                     action = function() set(P.hydro1pos, def.OFF); set(P.hydro2pos, def.OFF) end,
-                    advice = "Switch Both Hydraulic Pumps Off",
-                    confirm = "Both Hydraulic Pumps checked Off",
+                    advice = "Switch Both Engine-Driven Hydraulic Pumps Off",
+                    confirm = "Both Engine-Driven Hydraulic Pumps checked Off",
                     nextStep = 'elec_hyd_pumps_off'
                 },
                 ['elec_hyd_pumps_off'] = {
                     check = function() return (get(P.elechydro1pos) == def.OFF) and (get(P.elechydro2pos) == def.OFF) end,
                     action = function() set(P.elechydro1pos, def.OFF); set(P.elechydro2pos, def.OFF) end,
-                    advice = "Switch Both Electrical Hydraulic Pumps Off",
-                    confirm = "Both Electrical Hydraulic Pumps checked Off",
+                    advice = "Switch Both Electric Hydraulic Pumps Off",
+                    confirm = "Both Electric Hydraulic Pumps checked Off",
                     nextStep = 'beacon_off'
                 },
                 ['beacon_off'] = {

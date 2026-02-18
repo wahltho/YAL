@@ -1425,6 +1425,9 @@ local function apply_backtrack_segments_to_route(comp, route, data, backtrack_no
     return true
 end
 
+local compute_along_perp
+local runway_corridor_half_width
+
 local function apply_dep_turnaround_stub(comp, route, data, profile, runway_label)
     if not comp or not route or not data or not profile or not route.path or #route.path < 1 then
         return false
@@ -1499,7 +1502,7 @@ end
 
 local collect_runway_exit_candidates
 
-local function compute_along_perp(profile, node)
+compute_along_perp = function(profile, node)
     if not profile or not profile.threshold or not profile.axis or not node or not node.east or not node.north then
         return nil, nil
     end
@@ -1633,7 +1636,7 @@ local function find_runway_crossing(data, n1, n2)
     return nil, ""
 end
 
-local function runway_corridor_half_width(profile)
+runway_corridor_half_width = function(profile)
     local width = tonumber(profile and profile.width) or 0
     local half = 0
     if width > 0 then
@@ -3064,92 +3067,6 @@ local function get_node_degree(data, node_id)
     return #edges
 end
 
-local function simplify_route_path(data, path, opts)
-    if not data or not data.nodes or not path or #path < 3 then
-        return path
-    end
-    local max_angle = (opts and opts.max_angle) or 10
-    local max_seg = (opts and opts.max_seg) or 60
-    local require_same = (opts == nil) or (opts.require_same_label ~= false)
-    local allow_runway = (opts and opts.allow_runway) or false
-    local max_degree = (opts and opts.max_degree) or 2
-    local out = {}
-    local removed = 0
-    local prev_id = path[1]
-    out[1] = prev_id
-    for i = 2, (#path - 1) do
-        local curr_id = path[i]
-        local next_id = path[i + 1]
-        local n1 = data.nodes[prev_id]
-        local n2 = data.nodes[curr_id]
-        local n3 = data.nodes[next_id]
-        local can_skip = false
-        if n1 and n2 and n3 and n1.east and n1.north and n2.east and n2.north and n3.east and n3.north then
-            can_skip = true
-            if max_degree and max_degree > 0 then
-                local edges = data.adjacency_any and data.adjacency_any[curr_id]
-                if edges and #edges > max_degree then
-                    can_skip = false
-                end
-            end
-            local label1 = nil
-            local label2 = nil
-            if can_skip and require_same then
-                label1 = get_edge_label(data, prev_id, curr_id)
-                label2 = get_edge_label(data, curr_id, next_id)
-                if label1 ~= label2 then
-                    if label1 ~= "" or label2 ~= "" then
-                        can_skip = false
-                    end
-                end
-            end
-            if can_skip and (not allow_runway) then
-                if data.runway_nodes and (data.runway_nodes[prev_id] or data.runway_nodes[curr_id] or data.runway_nodes[next_id]) then
-                    can_skip = false
-                end
-                if (label1 and is_runway_label(label1)) or (label2 and is_runway_label(label2)) then
-                    can_skip = false
-                end
-            end
-            if can_skip then
-                local vx1 = n2.east - n1.east
-                local vy1 = n2.north - n1.north
-                local vx2 = n3.east - n2.east
-                local vy2 = n3.north - n2.north
-                local len1 = math.sqrt(vx1 * vx1 + vy1 * vy1)
-                local len2 = math.sqrt(vx2 * vx2 + vy2 * vy2)
-                if len1 < 0.5 or len2 < 0.5 then
-                    -- degenerate segment, skip
-                elseif len1 > max_seg or len2 > max_seg then
-                    can_skip = false
-                else
-                    local dot = (vx1 * vx2 + vy1 * vy2) / (len1 * len2)
-                    if dot > 1 then
-                        dot = 1
-                    elseif dot < -1 then
-                        dot = -1
-                    end
-                    local angle = math.deg(math.acos(dot))
-                    if angle > max_angle then
-                        can_skip = false
-                    end
-                end
-            end
-        end
-        if can_skip then
-            removed = removed + 1
-        else
-            out[#out + 1] = curr_id
-            prev_id = curr_id
-        end
-    end
-    out[#out + 1] = path[#path]
-    if removed == 0 then
-        return path
-    end
-    return out
-end
-
 U = {
     is_valid_latlon = is_valid_latlon,
     compute_bounds_center = compute_bounds_center,
@@ -3223,7 +3140,6 @@ U = {
     find_runway_entry_label = find_runway_entry_label,
     get_edge_label = get_edge_label,
     find_nearest_segment = find_nearest_segment,
-    simplify_route_path = simplify_route_path,
     get_node_degree = get_node_degree,
     guidance_distance_for_speed = guidance_distance_for_speed,
     speak_guidance_text = speak_guidance_text,
@@ -4324,8 +4240,9 @@ local function updateTaxiState(comp, map)
         if landing_profile then
             offRunway = not is_on_runway_profile(landing_profile, aircraft, 60, 5)
         elseif comp.yal and comp.yal.aircraftonrwy then
-            offRunway = comp.yal.aircraftonrwy(def.ARRIVAL, 40, 20)
+            offRunway = not comp.yal.aircraftonrwy(def.ARRIVAL, 40, 20)
         end
+        comp._arrOffRunway = offRunway
         if offRunway == false then
             local gs = yal and yal.groundspeed and (get(yal.groundspeed) or 0) or 0
             if gs <= C.runwayRouteMaxSpeed then
@@ -4334,6 +4251,8 @@ local function updateTaxiState(comp, map)
                 start_lon = aircraft.lon
             end
         end
+    else
+        comp._arrOffRunway = nil
     end
 
     local hasRunwayName = (runway_name ~= nil and runway_name ~= "")
@@ -5044,7 +4963,7 @@ local function updateTaxiState(comp, map)
         start_non_runway_node_id, start_non_runway_node_dist = U.nearest_non_runway_node(data, start_lat, start_lon)
     end
     local driftMeters = (mode == 1 and C.arrRerouteDriftMeters) or C.rerouteDriftMeters
-    if mode == 1 and allow_runway_route and start_node_id and start_node_dist and data and data.runway_nodes then
+    if mode == 1 and allow_runway_route and comp._arrOffRunway == false and start_node_id and start_node_dist and data and data.runway_nodes then
         if not data.runway_nodes[start_node_id] then
             local sx, sy = U.latlon_to_local(start_lat, start_lon)
             if sx and sy then
@@ -5083,14 +5002,16 @@ local function updateTaxiState(comp, map)
     end
     if mode == 1 and (not allow_runway_route) and start_node_dist and start_node_dist > driftMeters then
         if onGround and (not has_start_override) and (not in_edit) and (not manual_active) then
-            log_taxi(
-                string.format(
-                    "TaxiRoute: clear start node dist=%.1f",
-                    start_node_dist or -1
+            if comp._arrOffRunway ~= false then
+                log_taxi(
+                    string.format(
+                        "TaxiRoute: clear start node dist=%.1f",
+                        start_node_dist or -1
+                    )
                 )
-            )
-            start_node_id = nil
-            start_node_dist = nil
+                start_node_id = nil
+                start_node_dist = nil
+            end
         end
     end
     local end_node_id, end_node_dist = U.nearest_node_info(data, end_lat, end_lon, false)
@@ -5148,11 +5069,11 @@ local function updateTaxiState(comp, map)
     if U.is_valid_latlon(runway_lat, runway_lon) then
         if mode == 1 then
             local offRunway = nil
-            if landing_profile and aircraft then
-                offRunway = not is_on_runway_profile(landing_profile, aircraft, 60, 5)
-            elseif comp.yal and comp.yal.aircraftonrwy then
-                offRunway = comp.yal.aircraftonrwy(def.ARRIVAL, 40, 20)
-            end
+                if landing_profile and aircraft then
+                    offRunway = not is_on_runway_profile(landing_profile, aircraft, 60, 5)
+                elseif comp.yal and comp.yal.aircraftonrwy then
+                    offRunway = not comp.yal.aircraftonrwy(def.ARRIVAL, 40, 20)
+                end
             if offRunway == false and not allow_runway_route then
                 comp._route = nil
                 comp._routeErr = "on-runway"
@@ -5680,7 +5601,8 @@ local function updateTaxiState(comp, map)
                     and (not has_end_override)
                     and (not manual_active)
                     and dep_entry_candidate_id
-                    and data and data.nodes and data.nodes[dep_entry_candidate_id] then
+                    and data and data.nodes and data.nodes[dep_entry_candidate_id]
+                    and (not start_node_id or dep_entry_candidate_id ~= start_node_id) then
                     comp._selectedDepEntryId = dep_entry_candidate_id
                     local dn = data.nodes[dep_entry_candidate_id]
                     if dn and U.is_valid_latlon(dn.lat, dn.lon) then
@@ -6082,6 +6004,10 @@ local function updateTaxiState(comp, map)
                     end
                 end
             end
+            if route and route.path and #route.path < 2 then
+                route = nil
+                rerr = "no-path"
+            end
             comp._route = route
             comp._lastRouteComputeTime = now
             comp._routeErr = rerr
@@ -6163,31 +6089,8 @@ local function updateTaxiState(comp, map)
                 comp._routeLabels = U.build_route_labels(route.data, route.path)
                 comp._routeLabelStats = U.compute_route_label_stats(route.data, route.path)
             end
-            if route and route.path then
-                local smooth_angle = C.autoTaxiSmoothAngleDeg or C.guidanceStraightAngle
-                local smooth_seg = C.autoTaxiSmoothMaxSeg or C.autoTaxiSCurveMaxSeg or 0
-                if smooth_seg and smooth_seg > 0 then
-                    local smooth_path = U.simplify_route_path(route.data, route.path, {
-                        max_angle = smooth_angle,
-                        max_seg = smooth_seg,
-                        require_same_label = true,
-                        allow_runway = false
-                    })
-                    if smooth_path ~= route.path then
-                        comp._autoTaxiPath = smooth_path
-                        comp._autoTaxiPathRoute = route
-                    else
-                        comp._autoTaxiPath = nil
-                        comp._autoTaxiPathRoute = nil
-                    end
-                else
-                    comp._autoTaxiPath = nil
-                    comp._autoTaxiPathRoute = nil
-                end
-            else
-                comp._autoTaxiPath = nil
-                comp._autoTaxiPathRoute = nil
-            end
+            comp._autoTaxiPath = nil
+            comp._autoTaxiPathRoute = nil
             if route and U.is_valid_latlon(start_lat, start_lon) then
                 if not in_edit then
                     comp._routeStartAnchor = { lat = start_lat, lon = start_lon }
@@ -6304,7 +6207,7 @@ local function updateTaxiState(comp, map)
                     if comp._arrProfile and aircraft then
                         on_runway_now = is_on_runway_profile(comp._arrProfile, aircraft, 60, 5)
                     elseif comp.yal and comp.yal.aircraftonrwy then
-                        on_runway_now = (comp.yal.aircraftonrwy(def.ARRIVAL, 40, 20) == false)
+                        on_runway_now = not comp.yal.aircraftonrwy(def.ARRIVAL, 40, 20)
                     end
                     if not on_runway_now or (not comp._arrRunwayExitAnnounced) then
                         comp._arrRunwayExitAnnounced = false
@@ -6470,7 +6373,7 @@ local function updateTaxiState(comp, map)
                     if landing_profile and aircraft then
                         offRunway = not is_on_runway_profile(landing_profile, aircraft, 60, 5)
                     elseif comp.yal and comp.yal.aircraftonrwy then
-                        offRunway = comp.yal.aircraftonrwy(def.ARRIVAL, 40, 20)
+                        offRunway = not comp.yal.aircraftonrwy(def.ARRIVAL, 40, 20)
                     end
                 end
                 if mode == 1 and offRunway == false then
@@ -6493,6 +6396,7 @@ local function updateTaxiState(comp, map)
                     return
                 end
                 local routeData = comp._route.data
+                local prev_dist = comp._lastRouteDist
                 local dist = U.distance_to_route(routeData, comp._route.path, aircraft.east, aircraft.north)
                 if comp._routeExtraSegments then
                     local extra = U.distance_to_segments(comp._routeExtraSegments, aircraft.east, aircraft.north)
@@ -6514,17 +6418,20 @@ local function updateTaxiState(comp, map)
                     end
                 end
                 if dist and dist > driftMeters and (now - lastReroute) > C.rerouteCooldown then
-                    comp._rerouteOverride = { lat = aircraft.lat, lon = aircraft.lon }
-                    comp._routeStartAnchor = nil
-                    if not arrival_grace_active(comp, now) then
-                        comp._pendingRerouteEvent = true
+                    local sustained_offroute = prev_dist and prev_dist > driftMeters
+                    if (comp._guidanceState == "complete") or sustained_offroute then
+                        comp._rerouteOverride = { lat = aircraft.lat, lon = aircraft.lon }
+                        comp._routeStartAnchor = nil
+                        if not arrival_grace_active(comp, now) then
+                            comp._pendingRerouteEvent = true
+                        end
+                        comp._lastRerouteTime = now
+                        comp._lastStartKey = nil
+                        comp._route = nil
+                        comp._routeErr = nil
+                        comp._routeLabels = nil
+                        comp._routeLabelStats = nil
                     end
-                    comp._lastRerouteTime = now
-                    comp._lastStartKey = nil
-                    comp._route = nil
-                    comp._routeErr = nil
-                    comp._routeLabels = nil
-                    comp._routeLabelStats = nil
                 end
             end
         end

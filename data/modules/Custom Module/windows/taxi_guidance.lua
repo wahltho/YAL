@@ -380,6 +380,19 @@ function M.attach(U, C, def, helpers, settings)
                 diag("pushback-active")
                 return
             end
+            local proc = yal and yal.proceduretable and yal.proceduretable[def.BEFORETAXIPROCEDURE]
+            if not (proc and proc.set) then
+                clear_visual_guidance(comp, "before-taxi")
+                set_guidance_state(comp, "idle", "before-taxi", log_taxi)
+                diag("before-taxi-incomplete")
+                return
+            end
+            if yal and yal.parkingbrakepos and get(yal.parkingbrakepos) == def.ON then
+                clear_visual_guidance(comp, "parking-brake")
+                set_guidance_state(comp, "idle", "parking-brake", log_taxi)
+                diag("parking-brake")
+                return
+            end
         end
         local route = comp._route
         local data = (route and route.data) or comp._data
@@ -425,7 +438,7 @@ function M.attach(U, C, def, helpers, settings)
                 if comp._arrProfile and aircraft then
                     offRunway = not is_on_runway_profile(comp._arrProfile, aircraft, 60, 5)
                 elseif comp.yal and comp.yal.aircraftonrwy then
-                    offRunway = comp.yal.aircraftonrwy(def.ARRIVAL, 40, 20)
+                    offRunway = not comp.yal.aircraftonrwy(def.ARRIVAL, 40, 20)
                 end
                 if offRunway == false then
                     gate_ok = false
@@ -498,7 +511,7 @@ function M.attach(U, C, def, helpers, settings)
                             allow_voice = false
                         end
                         maybe_keep_gate_popup(gate_info)
-                        emit_guidance(comp, now, gate_info, allow_voice)
+                        U.emit_guidance(comp, now, gate_info, allow_voice)
                         comp._gateGuidanceStop = true
                         comp._gateGuidanceLastDir = gate_info.direction
                         comp._gateGuidanceLastAction = gate_info.action
@@ -509,7 +522,7 @@ function M.attach(U, C, def, helpers, settings)
                 comp._gateGuidanceStop = false
                 if (not same) or ((now - last_time) >= cooldown) then
                     maybe_keep_gate_popup(gate_info)
-                    emit_guidance(comp, now, gate_info, auto_voice)
+                    U.emit_guidance(comp, now, gate_info, auto_voice)
                     comp._gateGuidanceLastDir = gate_info.direction
                     comp._gateGuidanceLastAction = gate_info.action
                     comp._gateGuidanceLastTime = now
@@ -700,6 +713,9 @@ function M.attach(U, C, def, helpers, settings)
             elseif info.kind == "runway" then
                 info.text = "Continue on " .. runway_label_voice(info.display or info.text or "")
                 info.action = "CONTINUE"
+            end
+            if info.display and info.display ~= "" then
+                info.label = build_visual_label(info.kind, info.display)
             end
             info.direction = "straight"
             info.targetSegIdx = seg_idx
