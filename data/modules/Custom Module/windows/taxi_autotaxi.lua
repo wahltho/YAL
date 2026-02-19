@@ -365,7 +365,7 @@ function M.attach(U, C, def, helpers, settings)
         return nil
     end
 
-    local function auto_taxi_align_runway(comp, now, yal, aircraft)
+    local function auto_taxi_align_runway(comp, now, yal, aircraft, force_hold)
         if not comp or comp.mode ~= 0 or not yal or not aircraft then
             return false
         end
@@ -400,7 +400,11 @@ function M.attach(U, C, def, helpers, settings)
             return false
         end
         local diff = heading_diff_deg(hdg, axis_heading_mag)
-        if diff == nil or diff <= limit then
+        if diff == nil then
+            comp._autoTaxiAlignActive = false
+            return false
+        end
+        if diff <= limit and not force_hold then
             comp._autoTaxiAlignActive = false
             return false
         end
@@ -526,10 +530,54 @@ function M.attach(U, C, def, helpers, settings)
                     on_runway = true
                 end
             end
+            if comp.mode == 0 and (comp._depThresholdReached or comp._depThresholdLatched) and yal and yal.aircraftonrwy then
+                local on_rwy = yal.aircraftonrwy(def.DEPARTURE, 40, (C and C.depThresholdHeadingLimit) or 25)
+                if on_rwy then
+                    comp._autoTaxiRunwaySegIdx = comp._autoTaxiRunwaySegIdx or seg_idx
+                    if auto_taxi_align_runway(comp, now, yal, aircraft, true) then
+                        return true
+                    end
+                    seg_idx = comp._autoTaxiRunwaySegIdx
+                else
+                    comp._autoTaxiRunwaySegIdx = nil
+                end
+            else
+                comp._autoTaxiRunwaySegIdx = nil
+            end
             if on_runway then
                 comp._autoTaxiOffrouteActive = false
             else
             local clear_dist = max_offroute * ((C and C.autoTaxiOffRouteClearFactor) or 0.7)
+            local last_dist = comp._autoTaxiDivergeLastDist
+            if last_dist and dist_route > last_dist and dist_route > clear_dist then
+                if not comp._autoTaxiDivergeStart and now then
+                    comp._autoTaxiDivergeStart = now
+                end
+            else
+                comp._autoTaxiDivergeStart = nil
+            end
+            comp._autoTaxiDivergeLastDist = dist_route
+            local reroute_cooldown = (C and C.rerouteCooldown) or 6
+            local last_reroute = comp._lastRerouteTime or 0
+            if comp._autoTaxiDivergeStart and now and (now - comp._autoTaxiDivergeStart) >= reroute_cooldown then
+                if now and (now - last_reroute) >= reroute_cooldown then
+                    if not (comp._editRoute or comp._drawRoute) and aircraft.lat and aircraft.lon then
+                        comp._rerouteOverride = { lat = aircraft.lat, lon = aircraft.lon }
+                        comp._routeStartAnchor = nil
+                        comp._lastStartKey = nil
+                        comp._route = nil
+                        comp._routeErr = nil
+                        comp._routeLabels = nil
+                        comp._routeLabelStats = nil
+                        comp._lastRerouteTime = now
+                        comp._pendingRerouteEvent = true
+                        comp._autoTaxiDivergeStart = nil
+                        auto_taxi_log_once(comp, now, "diverge-reroute", "reroute reanchor (diverge)")
+                        return false
+                    end
+                end
+                comp._autoTaxiDivergeStart = nil
+            end
             if comp._autoTaxiOffrouteActive then
                 if dist_route <= clear_dist then
                     comp._autoTaxiOffrouteActive = false
