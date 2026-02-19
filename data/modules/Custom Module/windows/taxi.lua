@@ -6019,6 +6019,10 @@ local function updateTaxiState(comp, map)
                 end
                 comp._editDirty = false
             end
+            if recompute_reason == "edit-dirty" and comp._editDirty then
+                -- Avoid edit-dirty recompute loops when routing cannot resolve.
+                comp._editDirty = false
+            end
             local backtrack_applied = false
             comp._routeExtraSegments = nil
             if (not comp._drawFreehand) and (not comp._manualRouteActive)

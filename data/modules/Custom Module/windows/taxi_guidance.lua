@@ -1140,6 +1140,42 @@ function M.attach(U, C, def, helpers, settings)
             return
         end
 
+        if comp._guidanceRoute ~= route then
+            comp._guidanceRoute = route
+            comp._guidanceActiveSegIdx = nil
+        end
+        local active_seg = comp._guidanceActiveSegIdx
+        if active_seg and active_seg >= #path then
+            active_seg = nil
+            comp._guidanceActiveSegIdx = nil
+        end
+        if active_seg and active_seg ~= seg_idx then
+            local use_active = false
+            if active_seg > seg_idx then
+                use_active = true
+            else
+                local an1 = data.nodes[path[active_seg]]
+                local an2 = data.nodes[path[active_seg + 1]]
+                if an1 and an2 and an1.east and an1.north and an2.east and an2.north then
+                    local _, _, t = project_point_to_segment(
+                        aircraft.east, aircraft.north,
+                        an1.east, an1.north,
+                        an2.east, an2.north
+                    )
+                    if t and t < 1 then
+                        use_active = true
+                    end
+                end
+            end
+            if use_active then
+                seg_idx = active_seg
+            else
+                comp._guidanceActiveSegIdx = seg_idx
+            end
+        elseif not active_seg then
+            comp._guidanceActiveSegIdx = seg_idx
+        end
+
         local next_idx = seg_idx + 1
         local seg_len = nil
         if data and data.nodes then

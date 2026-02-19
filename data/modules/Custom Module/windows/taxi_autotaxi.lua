@@ -551,6 +551,22 @@ function M.attach(U, C, def, helpers, settings)
                     "offroute",
                     string.format("blocked: offroute dist=%.1f m", dist_route)
                 )
+                local reroute_cooldown = (C and C.rerouteCooldown) or 6
+                local last_reroute = comp._lastRerouteTime or 0
+                if now and (now - last_reroute) >= reroute_cooldown then
+                    if not (comp._editRoute or comp._drawRoute) and aircraft.lat and aircraft.lon then
+                        comp._rerouteOverride = { lat = aircraft.lat, lon = aircraft.lon }
+                        comp._routeStartAnchor = nil
+                        comp._lastStartKey = nil
+                        comp._route = nil
+                        comp._routeErr = nil
+                        comp._routeLabels = nil
+                        comp._routeLabelStats = nil
+                        comp._lastRerouteTime = now
+                        comp._pendingRerouteEvent = true
+                        auto_taxi_log_once(comp, now, "offroute-reroute", "reroute reanchor")
+                    end
+                end
                 return false
             end
             end
@@ -606,21 +622,30 @@ function M.attach(U, C, def, helpers, settings)
             end
         end
         local turn_min_seg = (C and C.autoTaxiTurnMinSegMeters) or 15
+        if comp._autoTaxiActiveTargetFrom ~= seg_idx then
+            comp._autoTaxiActiveTargetSegIdx = nil
+            comp._autoTaxiActiveTargetFrom = seg_idx
+        end
         local target_idx = nil
         local target_reason = nil
+        if comp._autoTaxiActiveTargetSegIdx and comp._autoTaxiActiveTargetSegIdx > seg_idx then
+            target_idx = comp._autoTaxiActiveTargetSegIdx
+            target_reason = "hold"
+        end
         local gidx = comp._autoTaxiTargetSegIdx
         local target_lead = lead_m
         local target_lead_cfg = (C and C.autoTaxiGuidanceTargetLeadMeters) or 0
         if target_lead_cfg > target_lead then
             target_lead = target_lead_cfg
         end
+        local lead_window = math.max(lead_m, lookahead_m)
         if gidx and gidx > seg_idx and gidx <= (#path - 1) and dist_to_node <= target_lead then
             local stale_sec = (C and C.autoTaxiGuidanceTargetStaleSec) or 12
             if comp._autoTaxiTargetTime and now and (now - comp._autoTaxiTargetTime) > stale_sec then
                 gidx = nil
             end
         end
-        if gidx and gidx > seg_idx and gidx <= (#path - 1) and dist_to_node <= target_lead then
+        if (not target_idx) and gidx and gidx > seg_idx and gidx <= (#path - 1) and dist_to_node <= target_lead then
             local h_curr = heading_deg_from_to(n1.east, n1.north, n2.east, n2.north)
             local tn1 = data.nodes[path[gidx]]
             local tn2 = data.nodes[path[gidx + 1]]
@@ -637,7 +662,7 @@ function M.attach(U, C, def, helpers, settings)
                 end
             end
         end
-        if not target_idx and (seg_idx + 2) <= #path and dist_to_node <= lead_m then
+        if not target_idx and (seg_idx + 2) <= #path and dist_to_node <= lead_window then
             local n3 = data.nodes[path[seg_idx + 2]]
             if n3 and n3.east and n3.north then
                 local h1 = heading_deg_from_to(n1.east, n1.north, n2.east, n2.north)
@@ -652,7 +677,7 @@ function M.attach(U, C, def, helpers, settings)
                 end
             end
         end
-        if not target_idx and (seg_idx + 3) <= #path and dist_to_node <= lead_m then
+        if not target_idx and (seg_idx + 3) <= #path and dist_to_node <= lead_window then
             local n3 = data.nodes[path[seg_idx + 2]]
             local n4 = data.nodes[path[seg_idx + 3]]
             if n3 and n4 and n3.east and n3.north and n4.east and n4.north then
@@ -674,6 +699,19 @@ function M.attach(U, C, def, helpers, settings)
             end
         end
         if target_idx then
+            comp._autoTaxiActiveTargetSegIdx = target_idx
+        else
+            comp._autoTaxiActiveTargetSegIdx = nil
+        end
+        if target_idx and comp._autoTaxiLastTarget ~= target_idx then
+            comp._autoTaxiLastTarget = target_idx
+            if target_reason then
+                auto_taxi_log(comp, "target seg " .. tostring(target_idx) .. " (" .. tostring(target_reason) .. ")")
+            else
+                auto_taxi_log(comp, "target seg " .. tostring(target_idx))
+            end
+        end
+        if target_idx then
             local tn1 = data.nodes[path[target_idx]]
             local tn2 = data.nodes[path[target_idx + 1]]
             if tn1 and tn2 and tn1.east and tn1.north and tn2.east and tn2.north then
@@ -685,14 +723,6 @@ function M.attach(U, C, def, helpers, settings)
                     lx = tn1.east + tdx * tlook
                     ly = tn1.north + tdy * tlook
                 end
-            end
-        end
-        if target_idx and comp._autoTaxiLastTarget ~= target_idx then
-            comp._autoTaxiLastTarget = target_idx
-            if target_reason then
-                auto_taxi_log(comp, "target seg " .. tostring(target_idx) .. " (" .. tostring(target_reason) .. ")")
-            else
-                auto_taxi_log(comp, "target seg " .. tostring(target_idx))
             end
         end
         local desired_true = heading_deg_from_to(aircraft.east, aircraft.north, lx, ly)
@@ -777,7 +807,6 @@ function M.attach(U, C, def, helpers, settings)
         local stop_dist = (C and C.autoTaxiStopDistMeters) or 8
         local turn_angle = (C and C.autoTaxiTurnAngleDeg) or 25
         local turn_lead = (C and C.autoTaxiTurnLeadMeters) or 20
-        local turn_exit = (C and C.autoTaxiTurnExitMeters) or 12
         local last_seg = comp._autoTaxiLastSegIdx
         if not last_seg or last_seg ~= seg_idx then
             if comp._autoTaxiTurnSlow then
@@ -787,6 +816,7 @@ function M.attach(U, C, def, helpers, settings)
             comp._autoTaxiTurnSegIdx = nil
             comp._autoTaxiLastSegIdx = seg_idx
         end
+        local turn_lead_active = math.max(turn_lead, lead_m, lookahead_m)
         local dist_to_seg_end = math.sqrt(
             (n2.east - aircraft.east) * (n2.east - aircraft.east)
             + (n2.north - aircraft.north) * (n2.north - aircraft.north)
@@ -800,19 +830,26 @@ function M.attach(U, C, def, helpers, settings)
                 h2 = heading_deg_from_to(n2.east, n2.north, n3.east, n3.north)
             end
         end
+        if target_reason == "geom-turn" or target_reason == "geom-scurve" then
+            if not comp._autoTaxiTurnSlow then
+                comp._autoTaxiTurnSlow = true
+                comp._autoTaxiTurnSegIdx = seg_idx
+                auto_taxi_log_once(comp, now, "turnslow-on-" .. tostring(seg_idx), "turn slow on (target)")
+            end
+        end
         if comp._autoTaxiTurnSlow then
             local hyst = (C and C.autoTaxiTurnHysteresisFactor) or 0.6
-            if dist_to_seg_end > turn_exit
+            if dist_to_seg_end > turn_lead_active
                 or (h1 and h2 and heading_diff_deg(h1, h2) < (turn_angle * hyst)) then
                 auto_taxi_log_once(comp, now, "turnslow-off-" .. tostring(seg_idx), "turn slow off")
                 comp._autoTaxiTurnSlow = false
                 comp._autoTaxiTurnSegIdx = nil
             end
         end
-        if (not comp._autoTaxiTurnSlow) and seg_idx + 2 <= #path and dist_to_seg_end <= turn_lead then
+        if (not comp._autoTaxiTurnSlow) and seg_idx + 2 <= #path and dist_to_seg_end <= turn_lead_active then
             local n3 = data.nodes[path[seg_idx + 2]]
             if n3 then
-                if h1 and h2 and heading_diff_deg(h1, h2) >= turn_angle and dist_to_seg_end <= turn_lead then
+                if h1 and h2 and heading_diff_deg(h1, h2) >= turn_angle and dist_to_seg_end <= turn_lead_active then
                     comp._autoTaxiTurnSlow = true
                     comp._autoTaxiTurnSegIdx = seg_idx
                     auto_taxi_log_once(comp, now, "turnslow-on-" .. tostring(seg_idx), "turn slow on")
