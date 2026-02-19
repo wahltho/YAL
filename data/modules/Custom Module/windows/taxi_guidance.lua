@@ -1175,6 +1175,12 @@ function M.attach(U, C, def, helpers, settings)
         elseif not active_seg then
             comp._guidanceActiveSegIdx = seg_idx
         end
+        if comp._autoTaxiActive and comp._autoTaxiLastSegIdx
+            and comp._autoTaxiLastSegIdx >= 1
+            and comp._autoTaxiLastSegIdx < #path then
+            seg_idx = comp._autoTaxiLastSegIdx
+            comp._guidanceActiveSegIdx = seg_idx
+        end
 
         local next_idx = seg_idx + 1
         local seg_len = nil
@@ -1337,6 +1343,23 @@ function M.attach(U, C, def, helpers, settings)
                 next_info.label = build_visual_label(next_info.kind, next_info.display)
             elseif next_info.kind == "runway" and next_info.display and next_info.display ~= "" then
                 next_info.label = build_visual_label(next_info.kind, next_info.display)
+            end
+            if comp._lastGuidanceSegment == seg_idx and comp._lastGuidanceAction and next_info.action then
+                local last_action = comp._lastGuidanceAction
+                local new_action = next_info.action
+                local last_basic = (last_action == "TURN LEFT" or last_action == "TURN RIGHT"
+                    or last_action == "CONTINUE" or last_action == "TAXI VIA")
+                local new_basic = (new_action == "TURN LEFT" or new_action == "TURN RIGHT"
+                    or new_action == "CONTINUE" or new_action == "TAXI VIA")
+                if last_basic and new_basic and last_action ~= new_action then
+                    local last_turn = (last_action == "TURN LEFT" or last_action == "TURN RIGHT")
+                    local new_turn = (new_action == "TURN LEFT" or new_action == "TURN RIGHT")
+                    if last_turn then
+                        next_info = nil
+                    elseif not last_turn and not new_turn then
+                        next_info = nil
+                    end
+                end
             end
             next_info = resolve_ramp_guidance(seg_idx, next_info)
             next_info = maybe_skip_duplicate_guidance(next_info)

@@ -1762,8 +1762,31 @@ local function select_runway_exit_node(data, profile, preferred_side)
         end
         local max_turn = 120
         local axis = profile.axis
-        local best_angle = nil
+        local best_runway_angle = nil
         local neighbors = data.adjacency_any[node_id] or {}
+        for _, edge in ipairs(neighbors) do
+            local to_id = edge.to
+            if to_id and data.nodes[to_id] and data.runway_nodes and data.runway_nodes[to_id] then
+                local n2 = data.nodes[to_id]
+                if n2.east and n2.north then
+                    local vx = n2.east - node.east
+                    local vy = n2.north - node.north
+                    local vlen = math.sqrt(vx * vx + vy * vy)
+                    if vlen > 0.1 then
+                        local dot = (axis.x * vx + axis.y * vy) / vlen
+                        if dot > 1 then dot = 1 elseif dot < -1 then dot = -1 end
+                        local angle = math.deg(math.acos(dot))
+                        if not best_runway_angle or angle < best_runway_angle then
+                            best_runway_angle = angle
+                        end
+                    end
+                end
+            end
+        end
+        if best_runway_angle and best_runway_angle > max_turn then
+            return false
+        end
+        local best_angle = nil
         for _, edge in ipairs(neighbors) do
             local to_id = edge.to
             if to_id and data.nodes[to_id] then

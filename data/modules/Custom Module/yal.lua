@@ -4352,44 +4352,18 @@ function P.settotrim(trimvalue)
         targettrim = trimvalue
     end
 
-    if (targettrim == 3.0) then
-        trimwheelcalcrounded = 65
-    elseif (targettrim == 3.25) then
-        trimwheelcalcrounded = 61
-    elseif (targettrim == 3.5) then
-        trimwheelcalcrounded = 58
-    elseif (targettrim == 3.75) then
-        trimwheelcalcrounded = 55
-    elseif (targettrim == 4.0) then
-        trimwheelcalcrounded = 52
-    elseif (targettrim == 4.25) then
-        trimwheelcalcrounded = 48
-    elseif (targettrim == 4.5) then
-        trimwheelcalcrounded = 45
-    elseif (targettrim == 4.75) then
-        trimwheelcalcrounded = 42
-    elseif (targettrim == 5.0) then
-        trimwheelcalcrounded = 40
-    elseif (targettrim == 5.25) then
-        trimwheelcalcrounded = 34
-    elseif (targettrim == 5.5) then
-        trimwheelcalcrounded = 32
-    elseif (targettrim == 5.75) then
-        trimwheelcalcrounded = 30
-    elseif (targettrim == 6.00) then
-        trimwheelcalcrounded = 27
-    elseif (targettrim == 6.25) then
-        trimwheelcalcrounded = 24
-       elseif (targettrim == 6.50) then
-        trimwheelcalcrounded = 21
-    else
+    trimwheelcalcrounded = helpers.trimvalue_to_trimwheel(targettrim)
+    if trimwheelcalcrounded == nil then
         trimwheelcalcrounded = 40
     end
 
     trimwheeltemp = get(P.trimwheel)
-    trimwheelrounded = helpers.roundnumber(trimwheeltemp * -100)
+    trimwheelrounded = trimwheeltemp * -100
+    local loopguard = 0
+    local tolerance = 0.5
 
-    while ((trimwheelrounded ~= trimwheelcalcrounded) and (trimwheeltemp ~= trimwheelold)) do
+    while ((math.abs(trimwheelrounded - trimwheelcalcrounded) > tolerance)
+        and (trimwheeltemp ~= trimwheelold) and (loopguard < 200)) do
         sasl.logDebug("while loop settotrim")
         if (trimwheelrounded > trimwheelcalcrounded) then
             helpers.command_once("laminar/B738/flight_controls/pitch_trim_up")
@@ -4401,7 +4375,8 @@ function P.settotrim(trimvalue)
 
         trimwheelold = trimwheeltemp
         trimwheeltemp = get(P.trimwheel)
-        trimwheelrounded = helpers.roundnumber(trimwheeltemp * -100)
+        trimwheelrounded = trimwheeltemp * -100
+        loopguard = loopguard + 1
 
     end
 
@@ -6013,12 +5988,14 @@ function P.ongoingtasks()
                 end
             end
         elseif (P.ongoingtaskstepindex == 7) then
-            if (get(P.trimcalc) > 0) and (get(P.trimcalc) ~= helpers.gettrim(get(P.trimwheel)) and (get(P.groundspeed) < 45)) then
+            if (get(P.trimcalc) > 0) and (not helpers.trimwheel_matches_target(get(P.trimwheel), get(P.trimcalc)) and (get(P.groundspeed) < 45)) then
                 if (((P.configvalues[def.CONFIGAUTOFUNCTIONS] == def.ON) and (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON))) then
                     P.settotrim()
-                    P.commandtableentry(def.TEXT, "Trim " .. tostring(get(P.trimcalc)))
+                    local trimText = helpers.format_trim_quarter(get(P.trimcalc)) or tostring(get(P.trimcalc))
+                    P.commandtableentry(def.TEXT, "Trim " .. trimText)
                 elseif (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                    P.commandtableentry(def.TEXT, "Set Trim " .. tostring(get(P.trimcalc)))
+                    local trimText = helpers.format_trim_quarter(get(P.trimcalc)) or tostring(get(P.trimcalc))
+                    P.commandtableentry(def.TEXT, "Set Trim " .. trimText)
                     P.ongoingtaskstepindex = P.ongoingtaskstepindex - 1
                 end
             end

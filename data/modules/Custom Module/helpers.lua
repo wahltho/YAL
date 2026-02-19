@@ -1190,6 +1190,33 @@ function P.roundnumber(num, decimalPlaces)
 end
 
 --------------------------------------------------------------------------------------------------------------
+function P.round_to_step(value, step)
+
+    local v = tonumber(value)
+    local s = tonumber(step)
+    if not v or not s or s <= 0 then
+        return nil
+    end
+    local scaled = v / s
+    local rounded = P.roundnumber(scaled, 0)
+    return rounded * s
+
+end
+
+--------------------------------------------------------------------------------------------------------------
+function P.format_trim_quarter(value)
+
+    local rounded = P.round_to_step(value, 0.25)
+    if rounded == nil then
+        return nil
+    end
+    local text = string.format("%.2f", rounded)
+    text = text:gsub("%.?0+$", "")
+    return text
+
+end
+
+--------------------------------------------------------------------------------------------------------------
 function P.formatcgvalue(value)
     local cg = tonumber(value)
     if not cg then
@@ -1290,6 +1317,72 @@ function P.gettrim(trimwheel)
     end
 
     return (trim)
+
+end
+
+--------------------------------------------------------------------------------------------------------------
+function P.trimvalue_to_trimwheel(trim_value)
+
+    local t = tonumber(trim_value)
+    if not t then
+        return nil
+    end
+    if not P._trimwheel_map then
+        P._trimwheel_map = {
+            {3.00, 65},
+            {3.25, 61},
+            {3.50, 58},
+            {3.75, 55},
+            {4.00, 52},
+            {4.25, 48},
+            {4.50, 45},
+            {4.75, 42},
+            {5.00, 40},
+            {5.25, 34},
+            {5.50, 32},
+            {5.75, 30},
+            {6.00, 27},
+            {6.25, 24},
+            {6.50, 21}
+        }
+    end
+    local map = P._trimwheel_map
+    local first = map[1]
+    local last = map[#map]
+    if t <= first[1] then
+        return first[2]
+    end
+    if t >= last[1] then
+        return last[2]
+    end
+    for i = 1, (#map - 1) do
+        local t1 = map[i][1]
+        local t2 = map[i + 1][1]
+        if t >= t1 and t <= t2 then
+            local w1 = map[i][2]
+            local w2 = map[i + 1][2]
+            local frac = (t - t1) / (t2 - t1)
+            return w1 + (w2 - w1) * frac
+        end
+    end
+    return last[2]
+
+end
+
+--------------------------------------------------------------------------------------------------------------
+function P.trimwheel_matches_target(trimwheel, trim_value, tol)
+
+    local target = P.trimvalue_to_trimwheel(trim_value)
+    if not target then
+        return false
+    end
+    local tw = tonumber(trimwheel)
+    if not tw then
+        return false
+    end
+    local actual = tw * -100
+    local tolerance = tonumber(tol) or 0.5
+    return math.abs(actual - target) <= tolerance
 
 end
 
