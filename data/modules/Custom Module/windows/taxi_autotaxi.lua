@@ -629,6 +629,10 @@ function M.attach(U, C, def, helpers, settings)
                 end
             end
             if dist_route > max_offroute then
+                if comp.mode == 0 and (comp._depThresholdReached or comp._depThresholdLatched) then
+                    auto_taxi_log_once(comp, now, "offroute-depentry", "blocked: offroute during dep-entry")
+                    return false
+                end
                 comp._autoTaxiOffrouteActive = true
                 auto_taxi_log_once(
                     comp,
@@ -946,6 +950,11 @@ function M.attach(U, C, def, helpers, settings)
         end
         if comp._autoTaxiTurnSlow then
             target_kts = slow_kts
+        end
+        if comp.mode == 0 and (comp._depThresholdReached or comp._depThresholdLatched) then
+            if math.abs(diff) > turn_angle then
+                target_kts = math.min(target_kts, slow_kts)
+            end
         end
         if comp._guidanceState == "gate" then
             target_kts = math.min(target_kts, gate_kts, slow_kts)

@@ -4089,6 +4089,7 @@ local function updateTaxiState(comp, map)
     end
 
     if mode == 0 then
+        comp._arrRawRunwayMissing = false
         if aircraft then
             start_lat = aircraft.lat
             start_lon = aircraft.lon
@@ -4209,6 +4210,7 @@ local function updateTaxiState(comp, map)
         elseif comp._lastArrivalRunwayName then
             runway_name = comp._lastArrivalRunwayName
         end
+        comp._arrRawRunwayMissing = (mode == 1 and onGroundSensor and raw_desrwy == "" and runway_name ~= "")
         comp._runwayName = runway_name
         if data and comp._runwayName and comp._runwayName ~= "" then
             local ref_lat = runway_lat
@@ -6441,7 +6443,7 @@ local function updateTaxiState(comp, map)
                 if mode == 1 and offRunway == false then
                     return
                 end
-                if mode == 1 and offRunway and not comp._arrOffRunwayHandled then
+                if mode == 1 and offRunway and not comp._arrOffRunwayHandled and not comp._arrRawRunwayMissing then
                     comp._arrOffRunwayHandled = true
                     comp._rerouteOverride = { lat = aircraft.lat, lon = aircraft.lon }
                     comp._routeStartAnchor = nil
