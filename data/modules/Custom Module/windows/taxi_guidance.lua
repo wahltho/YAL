@@ -1175,11 +1175,17 @@ function M.attach(U, C, def, helpers, settings)
         elseif not active_seg then
             comp._guidanceActiveSegIdx = seg_idx
         end
-        if comp._autoTaxiActive and comp._autoTaxiLastSegIdx
-            and comp._autoTaxiLastSegIdx >= 1
-            and comp._autoTaxiLastSegIdx < #path then
-            seg_idx = comp._autoTaxiLastSegIdx
-            comp._guidanceActiveSegIdx = seg_idx
+        if comp._autoTaxiActive then
+            local auto_idx = comp._autoTaxiActiveSegIdx or comp._autoTaxiLastSegIdx
+            if auto_idx and auto_idx >= 1 and auto_idx < #path then
+                local gactive = comp._guidanceActiveSegIdx
+                if gactive and auto_idx < gactive then
+                    seg_idx = gactive
+                else
+                    seg_idx = auto_idx
+                    comp._guidanceActiveSegIdx = seg_idx
+                end
+            end
         end
 
         local next_idx = seg_idx + 1

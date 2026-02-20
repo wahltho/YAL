@@ -1733,7 +1733,7 @@ local function compute_dep_threshold_state(comp, profile, runway_lat, runway_lon
     }
 end
 
-local function select_runway_exit_node(data, profile, preferred_side)
+local function select_runway_exit_node(data, profile, preferred_side, airborne)
     if not data or not profile or not profile.touchdown or not profile.axis then
         return nil, false
     end
@@ -1820,7 +1820,14 @@ local function select_runway_exit_node(data, profile, preferred_side)
     end
 
     local td = profile.touchdown
-    local candidates = collect_runway_exit_candidates(data, td.east, td.north, 32)
+    local td_along = nil
+    if td and td.east and td.north and profile.threshold and profile.threshold.east and profile.threshold.north then
+        local dx = td.east - profile.threshold.east
+        local dy = td.north - profile.threshold.north
+        td_along = dx * profile.axis.x + dy * profile.axis.y
+    end
+    local max_candidates = 32
+    local candidates = collect_runway_exit_candidates(data, td.east, td.north, max_candidates)
     if #candidates == 0 then
         return find_nearest_runway_node(data, td.east, td.north), true
     end
@@ -1834,6 +1841,8 @@ local function select_runway_exit_node(data, profile, preferred_side)
         local best_forward_cost = nil
         local best_back = nil
         local best_back_along = nil
+        local best_any = nil
+        local best_any_along = nil
         for _, cand in ipairs(candidates) do
             local node = data.nodes[cand.id]
             if node and node.east and node.north then
@@ -1860,6 +1869,10 @@ local function select_runway_exit_node(data, profile, preferred_side)
                 if perp > perp_limit then
                     goto continue
                 end
+                if (not best_any_along) or along > best_any_along then
+                    best_any_along = along
+                    best_any = cand.id
+                end
                 if along >= (rollout - tol) then
                     local cost = math.abs(along - rollout)
                     if not best_forward_cost or cost < best_forward_cost then
@@ -1875,25 +1888,47 @@ local function select_runway_exit_node(data, profile, preferred_side)
             end
             ::continue::
         end
-        return best_forward, best_back
+        return best_forward, best_back, best_back_along, best_any, best_any_along
     end
 
     if preferred_side and preferred_side ~= 0 then
-        local bf, bb = pick(true)
+        local bf, bb, bb_along, best_any, best_any_along = pick(true)
+        if not bf and bb and max_candidates and #candidates >= max_candidates then
+            candidates = collect_runway_exit_candidates(data, td.east, td.north, nil)
+            bf, bb, bb_along, best_any, best_any_along = pick(true)
+        end
         if bf then
             return bf, false
         end
+        if (not bf) and bb and airborne and best_any then
+            return best_any, false
+        end
         if bb then
-            return bb, true
+            local backtrack = true
+            if td_along ~= nil and bb_along ~= nil and bb_along >= (td_along - tol) then
+                backtrack = false
+            end
+            return bb, backtrack
         end
     end
 
-    local bf, bb = pick(false)
+    local bf, bb, bb_along, best_any, best_any_along = pick(false)
+    if not bf and bb and max_candidates and #candidates >= max_candidates then
+        candidates = collect_runway_exit_candidates(data, td.east, td.north, nil)
+        bf, bb, bb_along, best_any, best_any_along = pick(false)
+    end
     if bf then
         return bf, false
     end
+    if (not bf) and bb and airborne and best_any then
+        return best_any, false
+    end
     if bb then
-        return bb, true
+        local backtrack = true
+        if td_along ~= nil and bb_along ~= nil and bb_along >= (td_along - tol) then
+            backtrack = false
+        end
+        return bb, backtrack
     end
     return find_nearest_runway_node(data, td.east, td.north), true
 end
@@ -4207,7 +4242,7 @@ local function updateTaxiState(comp, map)
             touchdown = landing_profile and landing_profile.touchdown or nil
             if landing_profile and touchdown and touchdown.east and touchdown.north then
                 local exit_id = nil
-                exit_id, backtrack_required = U.select_runway_exit_node(data, landing_profile)
+                exit_id, backtrack_required = U.select_runway_exit_node(data, landing_profile, nil, airborne)
                 arr_exit_id = exit_id
                 if exit_id and data.nodes and data.nodes[exit_id] then
                     local exit_node = data.nodes[exit_id]
@@ -4527,7 +4562,7 @@ local function updateTaxiState(comp, map)
             local cross = dx * landing_profile.axis.y - dy * landing_profile.axis.x
             if math.abs(cross) > 1 then
                 local pref_side = (cross >= 0) and 1 or -1
-                local exit_id, backtrack = U.select_runway_exit_node(data, landing_profile, pref_side)
+                local exit_id, backtrack = U.select_runway_exit_node(data, landing_profile, pref_side, airborne)
                 if exit_id and (exit_id ~= arr_exit_id or backtrack ~= backtrack_required) then
                     arr_exit_id = exit_id
                     backtrack_required = backtrack
