@@ -2035,6 +2035,26 @@ local function route_with_waypoints(icao, start_lat, start_lon, end_lat, end_lon
     if #full_path == 0 then
         return nil, "no-path"
     end
+    if #full_path >= 3 then
+        local cleaned = {}
+        local i = 1
+        while i <= #full_path do
+            local node_id = full_path[i]
+            local prev_id = cleaned[#cleaned]
+            local next_id = full_path[i + 1]
+            if prev_id and next_id and prev_id == next_id
+                and type(node_id) == "string"
+                and string.sub(node_id, 1, 10) == "__taxi_wp_" then
+                i = i + 2
+            else
+                if node_id ~= prev_id then
+                    cleaned[#cleaned + 1] = node_id
+                end
+                i = i + 1
+            end
+        end
+        full_path = cleaned
+    end
     return {
         data = data,
         start_id = full_path[1],
@@ -2809,6 +2829,40 @@ local function infer_arrival_exit_from_route(route, data)
     return nil
 end
 
+local function route_first_taxi_angle(route, data, profile)
+    if not route or not data or not profile or not profile.axis then
+        return nil
+    end
+    local path = route.path
+    if not path or #path < 2 then
+        return nil
+    end
+    local axis_heading = math.deg(math.atan2(profile.axis.x, profile.axis.y))
+    if axis_heading < 0 then
+        axis_heading = axis_heading + 360
+    end
+    local saw_runway = false
+    for i = 1, (#path - 1) do
+        local label = get_edge_label(data, path[i], path[i + 1])
+        local is_rwy = label and is_runway_label(label)
+        if is_rwy then
+            saw_runway = true
+        else
+            if saw_runway or i == 1 then
+                local n1 = data.nodes and data.nodes[path[i]] or nil
+                local n2 = data.nodes and data.nodes[path[i + 1]] or nil
+                if n1 and n2 and n1.east and n1.north and n2.east and n2.north then
+                    local seg_heading = heading_deg_from_to(n1.east, n1.north, n2.east, n2.north)
+                    if seg_heading then
+                        return heading_diff_deg(axis_heading, seg_heading)
+                    end
+                end
+            end
+        end
+    end
+    return nil
+end
+
 local function compute_route_label_stats(data, path)
     local stats = { taxi_edges = 0, missing = 0, none = 0 }
     if not data or not path or #path < 2 then
@@ -3528,7 +3582,7 @@ U.gate_distance_meters = function(comp, aircraft, route, data)
     else
         comp._gateUseDgs = false
     end
-    if route and data and route.path and #route.path > 0 and data.nodes then
+    if (not comp._endRamp) and route and data and route.path and #route.path > 0 and data.nodes then
         local node = data.nodes[route.path[#route.path]]
         if node and node.east ~= nil and node.north ~= nil then
             local d = math.sqrt(distance_sq(ax, ay, node.east, node.north))
@@ -3846,6 +3900,8 @@ local function updateTaxiState(comp, map)
             comp._quality.rerouteEvents = {}
         end
         comp._routeWaypoints = {}
+        comp._manualRouteLock = false
+        comp._manualRouteSnapshot = nil
         comp._rerouteOverride = nil
         comp._depThresholdLatched = false
         comp._takeoffLatchSince = nil
@@ -3865,6 +3921,8 @@ local function updateTaxiState(comp, map)
             comp._editEndOverride = prev_end_override
             comp._routeWaypoints = prev_waypoints or {}
             comp._drawFreehand = prev_draw_freehand
+            comp._manualRouteLock = (prev_waypoints and #prev_waypoints > 0) or false
+            comp._manualRouteSnapshot = nil
         end
     end
 
@@ -3938,6 +3996,33 @@ local function updateTaxiState(comp, map)
     comp._data = data
     U.set_taxi_ref(data)
     comp._dataErr = nil
+    if comp._manualRouteLock and (not in_edit) and (not comp._drawRoute) and data then
+        local snap = comp._manualRouteSnapshot
+        if snap and snap.data == data and snap.icao == icao and snap.mode == mode then
+            if not comp._route and snap.route then
+                comp._route = snap.route
+                comp._routeLabels = snap.routeLabels
+                comp._routeLabelStats = snap.routeLabelStats
+                comp._routeExtraSegments = snap.routeExtraSegments
+                comp._lastStartKey = snap.lastStartKey
+                comp._lastEndKey = snap.lastEndKey
+                log_taxi("TaxiRoute: manual-snapshot restore")
+            end
+        elseif comp._route then
+            comp._manualRouteSnapshot = {
+                route = comp._route,
+                routeLabels = comp._routeLabels,
+                routeLabelStats = comp._routeLabelStats,
+                routeExtraSegments = comp._routeExtraSegments,
+                lastStartKey = comp._lastStartKey,
+                lastEndKey = comp._lastEndKey,
+                data = data,
+                icao = icao,
+                mode = mode
+            }
+            log_taxi("TaxiRoute: manual-snapshot store")
+        end
+    end
     if data and data.entry and data.entry.source == "addon"
         and data._labelsPatchPending
         and helpers.patchTaxiLabelsFromGlobalForIcao
@@ -4082,7 +4167,15 @@ local function updateTaxiState(comp, map)
     local dep_backtrack_required = false
     local arr_exit_id = nil
     local allow_runway_route = false
-    local manual_active = (comp._routeWaypoints and #comp._routeWaypoints > 0) or comp._drawRoute
+    local manual_active = false
+    if comp._manualRouteLock then
+        if (comp._routeWaypoints and #comp._routeWaypoints > 0) or comp._route then
+            manual_active = true
+        end
+    end
+    if comp._editRoute or comp._drawRoute then
+        manual_active = true
+    end
     if comp._manualRouteActive ~= manual_active then
         comp._manualRouteActive = manual_active
         log_taxi("TaxiEdit: manual-route=" .. tostring(manual_active))
@@ -5023,6 +5116,25 @@ local function updateTaxiState(comp, map)
         start_non_runway_node_id, start_non_runway_node_dist = U.nearest_non_runway_node(data, start_lat, start_lon)
     end
     local driftMeters = (mode == 1 and C.arrRerouteDriftMeters) or C.rerouteDriftMeters
+    if mode == 1 and arrival_grace_active(comp, now)
+        and onGround and aircraft and U.is_valid_latlon(aircraft.lat, aircraft.lon)
+        and (not has_start_override) and (not in_edit) and (not manual_active)
+        and start_node_dist and start_node_dist > C.arrStartNodeMaxMeters then
+        start_lat = aircraft.lat
+        start_lon = aircraft.lon
+        if not has_start_override then
+            start_vis_lat = start_lat
+            start_vis_lon = start_lon
+        end
+        start_node_id, start_node_dist = U.nearest_node_info(data, start_lat, start_lon, false)
+        comp._rerouteOverride = nil
+        log_taxi(
+            string.format(
+                "TaxiRoute: arr grace start->aircraft dist=%.1f",
+                start_node_dist or -1
+            )
+        )
+    end
     if mode == 1 and allow_runway_route and comp._arrOffRunway == false and start_node_id and start_node_dist and data and data.runway_nodes then
         if not data.runway_nodes[start_node_id] then
             local sx, sy = U.latlon_to_local(start_lat, start_lon)
@@ -5077,6 +5189,28 @@ local function updateTaxiState(comp, map)
     local end_node_id, end_node_dist = U.nearest_node_info(data, end_lat, end_lon, false)
     if mode == 0 and data and data.runway_nodes then
         dep_end_node_id, dep_end_node_dist = U.nearest_non_runway_node(data, end_lat, end_lon)
+    end
+    if comp._rerouteOverride and start_node_id and end_node_id and start_node_id == end_node_id then
+        log_taxi(
+            string.format(
+                "TaxiRoute: reroute override collapsed start=end id=%s dist=%.1f",
+                tostring(start_node_id),
+                start_node_dist or -1
+            )
+        )
+        comp._rerouteOverride = nil
+        if aircraft and U.is_valid_latlon(aircraft.lat, aircraft.lon) then
+            start_lat = aircraft.lat
+            start_lon = aircraft.lon
+            if not has_start_override then
+                start_vis_lat = start_lat
+                start_vis_lon = start_lon
+            end
+            start_node_id, start_node_dist = U.nearest_node_info(data, start_lat, start_lon, false)
+            if mode == 0 and start_is_aircraft and data and data.runway_nodes then
+                start_non_runway_node_id, start_non_runway_node_dist = U.nearest_non_runway_node(data, start_lat, start_lon)
+            end
+        end
     end
     if mode == 1 and arr_exit_id and (not has_start_override) and (not comp._arrOffRunwayHandled)
         and start_node_dist and start_node_dist > C.arrStartNodeMaxMeters
@@ -5159,6 +5293,9 @@ local function updateTaxiState(comp, map)
     end
 
     local route_waypoints = comp._routeWaypoints
+    if route_waypoints and #route_waypoints > 0 and (not comp._manualRouteActive) then
+        route_waypoints = nil
+    end
     if route_waypoints and #route_waypoints > 0 then
         local drop_first = waypoint_matches_override(route_waypoints[1], comp._editStartOverride)
         local drop_last = waypoint_matches_override(route_waypoints[#route_waypoints], comp._editEndOverride)
@@ -5197,7 +5334,7 @@ local function updateTaxiState(comp, map)
 
     local anchor_lat = start_lat
     local anchor_lon = start_lon
-    if not in_edit then
+    if not in_edit and (not comp._manualRouteActive) then
         if comp._rerouteOverride and U.is_valid_latlon(comp._rerouteOverride.lat, comp._rerouteOverride.lon) then
             anchor_lat = comp._rerouteOverride.lat
             anchor_lon = comp._rerouteOverride.lon
@@ -5224,11 +5361,20 @@ local function updateTaxiState(comp, map)
     elseif comp._route == nil then
         recompute_reason = "route-nil"
     elseif comp._lastStartKey ~= start_key or comp._lastEndKey ~= end_key then
-        if not (mode == 0 and comp._depThresholdLatched and comp._route and (not in_edit) and (not comp._drawRoute)) then
+        if comp._manualRouteActive and (not in_edit) and (not comp._drawRoute) and comp._route then
+            comp._lastStartKey = start_key
+            comp._lastEndKey = end_key
+        elseif not (mode == 0 and comp._depThresholdLatched and comp._route and (not in_edit) and (not comp._drawRoute)) then
             recompute_reason = "start-end-change"
         else
             comp._lastStartKey = start_key
             comp._lastEndKey = end_key
+        end
+    end
+    if comp._manualRouteLock and (not in_edit) and (not comp._drawRoute) then
+        if comp._route then
+            comp._editDirty = false
+            recompute_reason = nil
         end
     end
     if recompute_reason then
@@ -5245,11 +5391,13 @@ local function updateTaxiState(comp, map)
             comp._lastRecomputeKey = recompute_key
             log_taxi(
                 string.format(
-                    "TaxiRoute: recompute reason=%s edit=%s draw=%s wps=%d",
+                    "TaxiRoute: recompute reason=%s edit=%s draw=%s wps=%d manual=%s lock=%s",
                     tostring(recompute_reason),
                     tostring(in_edit),
                     tostring(comp._drawRoute),
-                    (comp._routeWaypoints and #comp._routeWaypoints) or 0
+                    (comp._routeWaypoints and #comp._routeWaypoints) or 0,
+                    tostring(comp._manualRouteActive),
+                    tostring(comp._manualRouteLock)
                 )
             )
         end
@@ -6068,6 +6216,76 @@ local function updateTaxiState(comp, map)
                 route = nil
                 rerr = "no-path"
             end
+            if route and mode == 1 and landing_profile and data and arr_exit_id
+                and (not comp._drawFreehand) and (not comp._manualRouteActive)
+                and (not backtrack_required) then
+                local angle = route_first_taxi_angle(route, data, landing_profile)
+                if angle and angle > 120 then
+                    local ref = landing_profile.touchdown
+                    if not (ref and ref.east and ref.north) and landing_profile.threshold then
+                        ref = landing_profile.threshold
+                    end
+                    if (not ref or ref.east == nil or ref.north == nil) and U.is_valid_latlon(start_lat, start_lon) then
+                        local re, rn = U.latlon_to_local(start_lat, start_lon)
+                        ref = (re and rn) and { east = re, north = rn } or nil
+                    end
+                    if ref and ref.east and ref.north then
+                        local candidates = collect_runway_exit_candidates(data, ref.east, ref.north, 12)
+                        local best_route = nil
+                        local best_exit = nil
+                        local best_angle = nil
+                        for _, cand in ipairs(candidates) do
+                            local cid = cand.id
+                            if cid and cid ~= arr_exit_id and data.nodes and data.nodes[cid] then
+                                local alt_opts = U.copy_opts(opts) or {}
+                                alt_opts.start_node_id = cid
+                                alt_opts.allow_far_ramp = true
+                                apply_projection(alt_opts)
+                                local alt_route, alt_err = U.route_with_waypoints(
+                                    icao,
+                                    start_lat,
+                                    start_lon,
+                                    end_lat,
+                                    end_lon,
+                                    alt_opts,
+                                    proj_waypoint_ids,
+                                    route_waypoints
+                                )
+                                if alt_route and alt_route.path and #alt_route.path >= 2 then
+                                    local alt_angle = route_first_taxi_angle(alt_route, data, landing_profile)
+                                    if alt_angle and alt_angle <= 120 then
+                                        if (not best_angle) or alt_angle < best_angle then
+                                            best_angle = alt_angle
+                                            best_route = alt_route
+                                            best_exit = cid
+                                            rerr = alt_err
+                                        end
+                                    end
+                                end
+                            end
+                        end
+                        if best_route and best_exit then
+                            route = best_route
+                            arr_exit_id = best_exit
+                            start_node_id = best_exit
+                            start_node_dist = 0
+                            local exit_node = data.nodes and data.nodes[best_exit] or nil
+                            if exit_node and U.is_valid_latlon(exit_node.lat, exit_node.lon) then
+                                start_lat = exit_node.lat
+                                start_lon = exit_node.lon
+                            end
+                            log_taxi(
+                                "TaxiRoute: ARR exit angle reroute exit=" .. tostring(best_exit)
+                                    .. " angle=" .. string.format("%.1f", best_angle or -1)
+                            )
+                        else
+                            log_taxi(
+                                "TaxiRoute: ARR exit angle steep angle=" .. string.format("%.1f", angle)
+                            )
+                        end
+                    end
+                end
+            end
             comp._route = route
             comp._lastRouteComputeTime = now
             comp._routeErr = rerr
@@ -6425,6 +6643,9 @@ local function updateTaxiState(comp, map)
             local onGround = yal and yal.airgroundsensor and (get(yal.airgroundsensor) == def.ON)
             local tirespeed = yal and yal.tirespeed and (get(yal.tirespeed) or 0) or 0
             local skip_reroute = false
+            if comp._manualRouteActive then
+                skip_reroute = true
+            end
             if comp._drawFreehand and comp._routeWaypoints and #comp._routeWaypoints > 0 then
                 skip_reroute = true
             end
@@ -6457,6 +6678,13 @@ local function updateTaxiState(comp, map)
                     comp._routeLabels = nil
                     comp._routeLabelStats = nil
                     log_taxi("TaxiRoute: off-runway reroute latch")
+                    log_taxi(
+                        string.format(
+                            "TaxiRoute: reroute reason=offrunway mode=%s manual=%s",
+                            tostring(mode),
+                            tostring(comp._manualRouteActive)
+                        )
+                    )
                     return
                 end
                 local routeData = comp._route.data
@@ -6495,6 +6723,15 @@ local function updateTaxiState(comp, map)
                         comp._routeErr = nil
                         comp._routeLabels = nil
                         comp._routeLabelStats = nil
+                        log_taxi(
+                            string.format(
+                                "TaxiRoute: reroute reason=offroute dist=%.1f drift=%.1f prev=%.1f manual=%s",
+                                dist or -1,
+                                driftMeters or -1,
+                                prev_dist or -1,
+                                tostring(comp._manualRouteActive)
+                            )
+                        )
                     end
                 end
             end
@@ -6995,6 +7232,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
     comp._lastEndKey = nil
     comp._routeStartAnchor = nil
     comp._routeExtraSegments = nil
+    comp._followAircraft = true
     comp._lastArrivalIcao = nil
     comp._lastArrivalRunwayName = nil
     comp._lastArrivalRunwayLat = nil
@@ -7007,6 +7245,8 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
     comp._sCurveSkipNodeId = nil
     comp._visualGuidance = nil
     comp._manualRouteActive = false
+    comp._manualRouteLock = false
+    comp._manualRouteSnapshot = nil
     comp._gateNote = nil
     comp._gateCalloutKey = nil
     comp._gateCalloutStage = 0
@@ -7156,6 +7396,10 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
         if not yal or not yal.aircraftlatpos or not yal.aircraftlonpos then
             return false
         end
+        if yal.airgroundsensor and get(yal.airgroundsensor) ~= def.ON then
+            comp._followAircraft = false
+            return false
+        end
         local lat = get(yal.aircraftlatpos)
         local lon = get(yal.aircraftlonpos)
         if not is_valid_latlon(lat, lon) then
@@ -7231,6 +7475,10 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
         local y = h - C.headerH - C.toolbarH + 3
         local x = 8
 
+        if comp._followAircraft and (comp._editRoute or comp._drawRoute or comp.drag) then
+            comp._followAircraft = false
+        end
+
         local modeLabel = (comp.mode == 1) and "ARR" or "DEP"
         addButton(layout.buttons, x, y, 64, btnH, modeLabel, "toggle_mode")
         x = x + 70
@@ -7244,9 +7492,13 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
         x = x + btnW + 6
         addButton(layout.buttons, x, y, btnW, btnH, "FIT", "fit")
         x = x + btnW + 6
-        addButton(layout.buttons, x, y, btnW, btnH, "CENTER", "center")
+        local centerLabel = comp._followAircraft and "FOLLOW" or "CENTER"
+        addButton(layout.buttons, x, y, btnW, btnH, centerLabel, "center")
         x = x + btnW + 6
         addButton(layout.buttons, x, y, btnW, btnH, "AUTO", "auto_route")
+        x = x + btnW + 10
+        local manualLabel = "MANUAL"
+        addButton(layout.buttons, x, y, btnW, btnH, manualLabel, "toggle_manual")
         x = x + btnW + 10
         local editLabel = comp._editRoute and "EDIT ON" or "EDIT"
         addButton(layout.buttons, x, y, btnW, btnH, editLabel, "toggle_edit")
@@ -7266,6 +7518,10 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                 active = comp._editRoute == true
             elseif b.action == "toggle_draw" then
                 active = comp._drawRoute == true
+            elseif b.action == "toggle_manual" then
+                active = comp._manualRouteLock == true
+            elseif b.action == "center" then
+                active = comp._followAircraft == true
             end
             drawButton(font, b, active, uiFontSize)
         end
@@ -7279,6 +7535,9 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
             sasl.gl.setClipArea(map.x, map.y, map.w, map.h)
         end
 
+        if comp._followAircraft and (not comp._editRoute) and (not comp._drawRoute) then
+            center_on_aircraft()
+        end
         local centerEast = comp.centerEast
         local centerNorth = comp.centerNorth
         if centerEast == nil or centerNorth == nil then
@@ -7844,6 +8103,8 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                 active = comp._editRoute == true
             elseif b.action == "toggle_draw" then
                 active = comp._drawRoute == true
+            elseif b.action == "toggle_manual" then
+                active = comp._manualRouteLock == true
             end
             drawButton(font, b, active, uiFontSize)
         end
@@ -7856,8 +8117,13 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
         if not layout then
             return false
         end
-        local is_left = (button == MB_LEFT or button == 1)
-        local is_right = (button == MB_RIGHT or button == 2 or button == 3)
+        local has_left = (MB_LEFT ~= nil)
+        local has_right = (MB_RIGHT ~= nil)
+        local is_left = (has_left and button == MB_LEFT) or ((not has_left) and (button == 0 or button == 1))
+        local is_right = (has_right and button == MB_RIGHT) or ((not has_right) and (button == 2 or button == 3))
+        if is_left then
+            is_right = false
+        end
         if not (is_left or is_right) then
             return false
         end
@@ -7919,6 +8185,12 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                         )
                     end
                 elseif b.action == "center" then
+                    if not (comp.yal and comp.yal.airgroundsensor and get(comp.yal.airgroundsensor) == def.ON) then
+                        comp._followAircraft = false
+                        log_taxi("TaxiMap: center ignored (airborne)")
+                        return true
+                    end
+                    comp._followAircraft = true
                     if not center_on_aircraft() then
                         if comp._fitBounds then
                             local cx, cy = compute_bounds_center(comp._fitBounds)
@@ -7944,7 +8216,29 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                     comp._undoState = nil
                     comp._undoReason = nil
                     comp._manualRouteActive = false
+                    comp._manualRouteLock = false
+                    comp._manualRouteSnapshot = nil
                     log_taxi("TaxiRoute: auto-reset")
+                elseif b.action == "toggle_manual" then
+                    if comp._manualRouteLock then
+                        comp._manualRouteLock = false
+                        comp._manualRouteSnapshot = nil
+                        log_taxi("TaxiEdit: manual-lock=false")
+                    else
+                        if (comp._routeWaypoints and #comp._routeWaypoints > 0) or comp._route then
+                            comp._manualRouteLock = true
+                            log_taxi(
+                                string.format(
+                                    "TaxiEdit: manual-lock=true wps=%d route=%s",
+                                    (comp._routeWaypoints and #comp._routeWaypoints) or 0,
+                                    tostring(comp._route ~= nil)
+                                )
+                            )
+                        else
+                            comp._manualRouteLock = false
+                            log_taxi("TaxiEdit: manual-lock ignored (no-waypoints/no-route)")
+                        end
+                    end
                 elseif b.action == "font_down" then
                     comp.fontSize = clamp(comp.fontSize - 1, C.minFont, C.maxFont)
                     comp._fontHandle = nil
@@ -7960,12 +8254,26 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                         comp._wpDrag = nil
                         comp._editHandles = nil
                         comp._editSuppressedNodes = nil
+                        if not comp._manualRouteLock then
+                            comp._drawFreehand = false
+                            if comp._routeWaypoints and #comp._routeWaypoints > 0 then
+                                comp._routeWaypoints = {}
+                                comp._route = nil
+                                comp._routeErr = nil
+                                comp._lastStartKey = nil
+                                comp._lastEndKey = nil
+                                comp._lastUpdate = nil
+                                log_taxi("TaxiEdit: cleared waypoints on edit off")
+                            end
+                            comp._manualRouteActive = false
+                        end
                     end
                     if comp._editRoute then
                         comp._editDirty = false
                         comp._editSuppressedNodes = {}
                         comp._editHandles = nil
                         clear_visual_guidance(comp, "edit-toggle")
+                        comp._followAircraft = false
                     end
                     log_taxi(
                         string.format(
@@ -7993,9 +8301,12 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                         comp._editHandles = nil
                         comp._editStartOverride = nil
                         comp._editEndOverride = nil
+                        comp._followAircraft = false
                     elseif not comp._routeWaypoints or #comp._routeWaypoints == 0 then
                         comp._drawFreehand = false
                         comp._manualRouteActive = false
+                        comp._manualRouteLock = false
+                        comp._manualRouteSnapshot = nil
                     end
                     log_taxi(
                         string.format(
@@ -8030,6 +8341,8 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                     comp._routeErr = nil
                     comp._lastUpdate = nil
                     comp._manualRouteActive = false
+                    comp._manualRouteLock = false
+                    comp._manualRouteSnapshot = nil
                     log_taxi("TaxiEdit: clear-route")
                 end
                 return true
@@ -8561,6 +8874,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                 end
                 if is_left and x >= dragX1 and x <= dragX2 and y >= dragY1 and y <= dragY2 then
                     comp.drag = { startX = x, startY = y, panX = comp.panX, panY = comp.panY }
+                    comp._followAircraft = false
                     return true
                 end
                 return false

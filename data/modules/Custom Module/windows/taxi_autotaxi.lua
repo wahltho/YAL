@@ -504,6 +504,8 @@ function M.attach(U, C, def, helpers, settings)
         if comp._autoTaxiActiveRoute ~= route then
             comp._autoTaxiActiveRoute = route
             comp._autoTaxiActiveSegIdx = nil
+            comp._autoTaxiLastSegIdx = nil
+            comp._autoTaxiEndStopLatched = false
         end
         local active_seg = comp._autoTaxiActiveSegIdx
         if active_seg and active_seg >= #path then
@@ -772,27 +774,7 @@ function M.attach(U, C, def, helpers, settings)
                 end
             end
         end
-        if not target_idx and (seg_idx + 3) <= #path and dist_to_node <= turn_lead_active then
-            local n3 = data.nodes[path[seg_idx + 2]]
-            local n4 = data.nodes[path[seg_idx + 3]]
-            if n3 and n4 and n3.east and n3.north and n4.east and n4.north then
-                local v2x = n3.east - n2.east
-                local v2y = n3.north - n2.north
-                local v3x = n4.east - n3.east
-                local v3y = n4.north - n3.north
-                local len2 = math.sqrt(v2x * v2x + v2y * v2y)
-                local len3 = math.sqrt(v3x * v3x + v3y * v3y)
-                local max_seg = (C and C.autoTaxiSCurveMaxSeg) or 50
-                if len2 > 0.1 and len2 <= max_seg and len3 >= turn_min_seg then
-                    local cross1 = dx * v2y - dy * v2x
-                    local cross2 = v2x * v3y - v2y * v3x
-                    if cross1 ~= 0 and cross2 ~= 0 and (cross1 * cross2) < 0 then
-                        target_idx = seg_idx + 2
-                        target_reason = "geom-scurve"
-                    end
-                end
-            end
-        end
+        -- NOTE: geom-scurve targeting disabled to avoid visible weaving on taxi-in/out.
         if target_idx then
             comp._autoTaxiActiveTargetSegIdx = target_idx
         else
@@ -902,7 +884,7 @@ function M.attach(U, C, def, helpers, settings)
         local stop_dist = (C and C.autoTaxiStopDistMeters) or 8
         local turn_angle = (C and C.autoTaxiTurnAngleDeg) or 25
         local last_seg = comp._autoTaxiLastSegIdx
-        if not last_seg or last_seg ~= seg_idx then
+        if not last_seg or seg_idx >= last_seg then
             comp._autoTaxiLastSegIdx = seg_idx
         end
         local dist_to_seg_end = math.sqrt(
@@ -922,7 +904,7 @@ function M.attach(U, C, def, helpers, settings)
                 h2 = heading_deg_from_to(n2.east, n2.north, n3.east, n3.north)
             end
         end
-        if target_reason == "geom-turn" or target_reason == "geom-scurve" then
+        if (target_reason == "geom-turn" or target_reason == "geom-scurve") and dist_to_node <= turn_lead then
             if not comp._autoTaxiTurnSlow then
                 comp._autoTaxiTurnSlow = true
                 comp._autoTaxiTurnSegIdx = seg_idx
@@ -931,17 +913,17 @@ function M.attach(U, C, def, helpers, settings)
         end
         if comp._autoTaxiTurnSlow then
             local hyst = (C and C.autoTaxiTurnHysteresisFactor) or 0.6
-            if progressed >= turn_lead_active
+            if progressed >= turn_lead
                 and (not (h1 and h2) or heading_diff_deg(h1, h2) < (turn_angle * hyst)) then
                 auto_taxi_log_once(comp, now, "turnslow-off-" .. tostring(seg_idx), "turn slow off")
                 comp._autoTaxiTurnSlow = false
                 comp._autoTaxiTurnSegIdx = nil
             end
         end
-        if (not comp._autoTaxiTurnSlow) and seg_idx + 2 <= #path and dist_to_seg_end <= turn_lead_active then
+        if (not comp._autoTaxiTurnSlow) and seg_idx + 2 <= #path and dist_to_seg_end <= turn_lead then
             local n3 = data.nodes[path[seg_idx + 2]]
             if n3 then
-                if h1 and h2 and heading_diff_deg(h1, h2) >= turn_angle and dist_to_seg_end <= turn_lead_active then
+                if h1 and h2 and heading_diff_deg(h1, h2) >= turn_angle and dist_to_seg_end <= turn_lead then
                     comp._autoTaxiTurnSlow = true
                     comp._autoTaxiTurnSegIdx = seg_idx
                     auto_taxi_log_once(comp, now, "turnslow-on-" .. tostring(seg_idx), "turn slow on")
@@ -972,6 +954,12 @@ function M.attach(U, C, def, helpers, settings)
             local dx_end = last_node.east - aircraft.east
             local dy_end = last_node.north - aircraft.north
             local dist_end = math.sqrt(dx_end * dx_end + dy_end * dy_end)
+            if dist_end <= stop_dist then
+                comp._autoTaxiEndStopLatched = true
+            end
+            if comp._autoTaxiEndStopLatched then
+                target_kts = 0
+            end
             if dist_end <= stop_dist then
                 target_kts = 0
             end
@@ -1119,14 +1107,6 @@ function M.attach(U, C, def, helpers, settings)
                 auto_taxi_log_snapshot_once(comp, now, "gate:flightstate", yal, "gate:flightstate")
                 return
             end
-            local proc = yal.proceduretable and yal.proceduretable[def.AFTERLANDINGPROCEDURE]
-            if not (proc and proc.set) then
-                comp._autoTaxiReady = false
-                auto_taxi_release_controls(comp, yal, "after-landing")
-                auto_taxi_log_once(comp, now, "gate:after-landing", "blocked: after-landing incomplete")
-                auto_taxi_log_snapshot_once(comp, now, "gate:after-landing", yal, "gate:after-landing")
-                return
-            end
         end
         if yal.parkingbrakepos and get(yal.parkingbrakepos) == def.ON then
             comp._autoTaxiReady = false
@@ -1143,6 +1123,30 @@ function M.attach(U, C, def, helpers, settings)
                 auto_taxi_log_once(comp, now, "gate:before-taxi", "blocked: before-taxi incomplete")
                 auto_taxi_log_snapshot_once(comp, now, "gate:before-taxi", yal, "gate:before-taxi")
                 return
+            end
+            if yal.loopStateTables then
+                for _, loop in ipairs(yal.loopStateTables) do
+                    if loop and loop.lock == def.BEFORETAXIPROCEDURE then
+                        comp._autoTaxiReady = false
+                        auto_taxi_release_controls(comp, yal, "before-taxi-active")
+                        auto_taxi_log_once(comp, now, "gate:before-taxi-active", "blocked: before-taxi active")
+                        auto_taxi_log_snapshot_once(comp, now, "gate:before-taxi-active", yal, "gate:before-taxi-active")
+                        return
+                    end
+                end
+            else
+                local l1 = yal.procedureloop1
+                local l2 = yal.procedureloop2
+                local l3 = yal.procedureloop3
+                if (l1 and l1.lock == def.BEFORETAXIPROCEDURE)
+                    or (l2 and l2.lock == def.BEFORETAXIPROCEDURE)
+                    or (l3 and l3.lock == def.BEFORETAXIPROCEDURE) then
+                    comp._autoTaxiReady = false
+                    auto_taxi_release_controls(comp, yal, "before-taxi-active")
+                    auto_taxi_log_once(comp, now, "gate:before-taxi-active", "blocked: before-taxi active")
+                    auto_taxi_log_snapshot_once(comp, now, "gate:before-taxi-active", yal, "gate:before-taxi-active")
+                    return
+                end
             end
         end
         if not comp._route or not comp._route.path or #comp._route.path < 2 then
@@ -1238,6 +1242,22 @@ function M.attach(U, C, def, helpers, settings)
             auto_taxi_log_once(comp, now, "gate:no-aircraft", "blocked: no aircraft position")
             auto_taxi_log_snapshot_once(comp, now, "gate:no-aircraft", yal, "gate:no-aircraft")
             return
+        end
+        if comp.mode == 0 and gs_kts >= ((C and C.depTakeoffLatchSpeed) or 25) then
+            local on_rwy = false
+            if comp._depProfile and aircraft then
+                on_rwy = is_on_runway_profile(comp._depProfile, aircraft, 60, 5)
+            end
+            if (not on_rwy) and yal and yal.aircraftonrwy then
+                on_rwy = yal.aircraftonrwy(def.DEPARTURE, 40, (C and C.depThresholdHeadingLimit) or 25)
+            end
+            if on_rwy then
+                comp._autoTaxiReady = false
+                auto_taxi_release_controls(comp, yal, "takeoff-roll")
+                auto_taxi_log_once(comp, now, "gate:takeoff-roll", "blocked: takeoff roll")
+                auto_taxi_log_snapshot_once(comp, now, "gate:takeoff-roll", yal, "gate:takeoff-roll")
+                return
+            end
         end
         if not auto_taxi_apply_controls(comp, now, yal, aircraft) then
             auto_taxi_release_controls(comp, yal, "apply-failed")

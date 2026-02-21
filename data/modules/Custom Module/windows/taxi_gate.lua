@@ -345,7 +345,7 @@ function M.attach(U, C, def, helpers)
         else
             comp._gateUseDgs = false
         end
-        if route and data and route.path and #route.path > 0 and data.nodes then
+        if (not comp._endRamp) and route and data and route.path and #route.path > 0 and data.nodes then
             local node = data.nodes[route.path[#route.path]]
             if node and node.east ~= nil and node.north ~= nil then
                 local d = math.sqrt(distance_sq(ax, ay, node.east, node.north))
