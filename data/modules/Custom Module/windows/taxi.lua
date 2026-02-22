@@ -4121,23 +4121,67 @@ local function updateTaxiState(comp, map)
     end
     if mode == 0 and comp._pushbackReanchorPending and aircraft and U.is_valid_latlon(aircraft.lat, aircraft.lon) then
         if not in_edit then
-            comp._rerouteOverride = { lat = aircraft.lat, lon = aircraft.lon }
-            comp._routeStartAnchor = nil
-            comp._lastStartKey = nil
-            comp._route = nil
-            comp._routeErr = nil
-            comp._routeLabels = nil
-            comp._routeLabelStats = nil
-            comp._autoTaxiPath = nil
-            comp._autoTaxiPathRoute = nil
-            comp._pendingRerouteEvent = true
-            comp._pushbackReanchorPending = false
-            comp._pushbackReanchorDone = true
-            comp._pushbackReanchorTime = nil
-            if log_taxi then
-                log_taxi("TaxiRoute: pushback reanchor")
-            elseif helpers and helpers.logInfoTS then
-                helpers.logInfoTS("TaxiRoute: pushback reanchor")
+            local seg_idx = nil
+            local dist = nil
+            if comp._route and (not comp._routeErr) and comp._route.data and comp._route.path and #comp._route.path > 1 then
+                seg_idx, dist = U.find_nearest_segment(comp._route.data, comp._route.path, aircraft.east, aircraft.north)
+            end
+            local driftMeters = (mode == 1 and C.arrRerouteDriftMeters) or C.rerouteDriftMeters
+            if seg_idx and dist and driftMeters and dist <= driftMeters then
+                comp._pushbackReanchorPending = false
+                comp._pushbackReanchorDone = true
+                comp._pushbackReanchorTime = nil
+                comp._rerouteOverride = nil
+                comp._pendingRerouteEvent = nil
+                comp._autoTaxiActiveRoute = comp._route
+                comp._autoTaxiActiveSegIdx = seg_idx
+                comp._autoTaxiLastSegIdx = seg_idx
+                comp._autoTaxiRunwaySegIdx = nil
+                comp._guidanceRoute = comp._route
+                comp._guidanceActiveSegIdx = seg_idx
+                comp._guidanceMonotonicSegIdx = seg_idx
+                comp._lastGuidanceNodeId = nil
+                comp._lastGuidanceLabel = nil
+                comp._lastGuidanceTime = nil
+                comp._lastGuidanceSegment = nil
+                comp._lastGuidanceAction = nil
+                comp._lastGuidanceVoiceText = nil
+                comp._lastGuidanceVoiceTime = nil
+                if log_taxi then
+                    log_taxi(string.format("TaxiRoute: pushback reattach seg=%s dist=%.1f", tostring(seg_idx), dist or 0))
+                elseif helpers and helpers.logInfoTS then
+                    helpers.logInfoTS(
+                        string.format("TaxiRoute: pushback reattach seg=%s dist=%.1f", tostring(seg_idx), dist or 0)
+                    )
+                end
+            else
+                comp._rerouteOverride = { lat = aircraft.lat, lon = aircraft.lon }
+                if data and aircraft.east ~= nil and aircraft.north ~= nil then
+                    local proj = U.find_nearest_edge_projection(data, aircraft.east, aircraft.north, { disallow_runway_edges = true })
+                    if proj and proj.proj_east and proj.proj_north then
+                        local plat, plon = local_to_latlon(proj.proj_east, proj.proj_north)
+                        if U.is_valid_latlon(plat, plon) then
+                            comp._rerouteOverride = { lat = plat, lon = plon }
+                        end
+                    end
+                end
+                comp._routeStartAnchor = nil
+                comp._lastStartKey = nil
+                comp._route = nil
+                comp._routeErr = nil
+                comp._routeLabels = nil
+                comp._routeLabelStats = nil
+                comp._autoTaxiPath = nil
+                comp._autoTaxiPathRoute = nil
+                comp._pendingRerouteEvent = true
+                comp._pushbackReanchorPending = false
+                comp._pushbackReanchorDone = true
+                comp._pushbackReanchorTime = nil
+                if log_taxi then
+                    log_taxi("TaxiRoute: pushback reanchor")
+                elseif helpers and helpers.logInfoTS then
+                    helpers.logInfoTS("TaxiRoute: pushback reanchor")
+                end
             end
         end
     end
@@ -6286,6 +6330,22 @@ local function updateTaxiState(comp, map)
                     end
                 end
             end
+            if (not route) and (not in_edit) and (not comp._drawRoute)
+                and comp._route and (not comp._routeErr) and comp._route.data == data
+                and comp._route.path and aircraft and aircraft.east and aircraft.north then
+                local keep_dist = U.distance_to_route(comp._route.data, comp._route.path, aircraft.east, aircraft.north)
+                if keep_dist and keep_dist <= driftMeters then
+                    route = comp._route
+                    rerr = nil
+                    log_taxi(
+                        string.format(
+                            "TaxiRoute: keep last-good dist=%.1f drift=%.1f",
+                            keep_dist or -1,
+                            driftMeters or -1
+                        )
+                    )
+                end
+            end
             comp._route = route
             comp._lastRouteComputeTime = now
             comp._routeErr = rerr
@@ -6404,6 +6464,7 @@ local function updateTaxiState(comp, map)
                     path_parts[#path_parts + 1] = tostring(path[i])
                 end
                 local path_key = table.concat(path_parts, ",")
+                local same_path = (comp._lastRoutePathKey == path_key)
                 local fwd_key = path_key
                 if aircraft and aircraft.east and aircraft.north then
                     local seg_idx = U.find_nearest_segment(route.data, path, aircraft.east, aircraft.north)
@@ -6437,6 +6498,14 @@ local function updateTaxiState(comp, map)
                         )
                     else
                         helpers.logInfoTS("TaxiLabels: " .. tostring(icao) .. " " .. tostring(comp._runwayName or "") .. " <none>")
+                    end
+                end
+                if same_path then
+                    if comp._autoTaxiActiveSegIdx or comp._autoTaxiLastSegIdx then
+                        comp._autoTaxiActiveRoute = route
+                    end
+                    if comp._guidanceActiveSegIdx or comp._guidanceMonotonicSegIdx then
+                        comp._guidanceRoute = route
                     end
                 end
                 if backtrack_applied then
@@ -6737,7 +6806,7 @@ local function updateTaxiState(comp, map)
             end
         end
 
-        if comp._route then
+        if comp._route and not comp._routeErr then
             if U.maybe_force_global_for_quality(comp, now, icao, mode, data, helpers, aircraft) then
                 U.update_visual_guidance(comp, now, aircraft)
                 return
@@ -6745,6 +6814,9 @@ local function updateTaxiState(comp, map)
             U.maybe_speak_guidance(comp, now, aircraft)
         end
         if comp.mode == 0 and not comp._depTaxiCompleteAnnounced and comp._runwayName and comp._runwayName ~= "" then
+            if comp._routeErr then
+                return
+            end
             local yal = comp.yal or _G.yal
             local onGround = yal and yal.airgroundsensor and (get(yal.airgroundsensor) == def.ON)
             if onGround and comp.yal and comp.yal.aircraftonrwy then

@@ -5194,9 +5194,23 @@ function P.buildnavdatatable(navdatatable)
                     newEntry[def.DESTLATPOS] = lat_val
                     newEntry[def.DESTLONPOS] = lon_val
                     newEntry[def.DESTNAVDME] = true
+                    local service_level = navdataitems[#navdataitems]
+                    if service_level then
+                        service_level = tostring(service_level):upper()
+                        if service_level == "LP" or service_level == "LPV" or service_level == "GLS" then
+                            newEntry.serviceLevel = service_level
+                        else
+                            service_level = nil
+                        end
+                    end
 
                     if record_type_str == def.NAVDATARECTYPELPV then
-                        newEntry[def.DESTNAVTYPE] = def.NAVTYPELPV
+                        if service_level == "LP" then
+                            newEntry[def.DESTNAVTYPE] = def.NAVTYPERNAV
+                            newEntry.isLateralOnly = true
+                        else
+                            newEntry[def.DESTNAVTYPE] = def.NAVTYPELPV
+                        end
                     else
                         newEntry[def.DESTNAVTYPE] = def.NAVTYPEGLS
                     end
@@ -5205,7 +5219,7 @@ function P.buildnavdatatable(navdatatable)
                     local raw_course_str = navdataitems[def.NAVSRC_COL_BEARING]
                     local raw_course = tonumber(raw_course_str)
                     if raw_course then
-                        -- LPV/GLS: bearing encodes true course; values >= 1000 include a prefix.
+                        -- LP/LPV/GLS: bearing encodes true course; values >= 1000 include a prefix.
                         local true_course = raw_course
                         if raw_course >= 1000 then
                             true_course = raw_course % 1000
