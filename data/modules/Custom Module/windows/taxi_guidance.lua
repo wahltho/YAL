@@ -281,19 +281,19 @@ function M.attach(U, C, def, helpers, settings)
         return false
     end
 
-    local function before_taxi_completed(comp)
+    local function before_taxi_started(comp)
         local yal = comp and (comp.yal or _G.yal) or nil
         if not yal then
             return false
         end
         local proc = yal.proceduretable and yal.proceduretable[def.BEFORETAXIPROCEDURE]
-        if not (proc and proc.set) then
-            return false
+        if proc and proc.set then
+            return true
         end
         if yal.loopStateTables then
             for _, loop in ipairs(yal.loopStateTables) do
                 if loop and loop.lock == def.BEFORETAXIPROCEDURE then
-                    return false
+                    return true
                 end
             end
         else
@@ -303,10 +303,10 @@ function M.attach(U, C, def, helpers, settings)
             if (l1 and l1.lock == def.BEFORETAXIPROCEDURE)
                 or (l2 and l2.lock == def.BEFORETAXIPROCEDURE)
                 or (l3 and l3.lock == def.BEFORETAXIPROCEDURE) then
-                return false
+                return true
             end
         end
-        return true
+        return false
     end
 
     local function update_visual_guidance(comp, now, aircraft)
@@ -409,10 +409,10 @@ function M.attach(U, C, def, helpers, settings)
                 diag("pushback-active")
                 return
             end
-            if not before_taxi_completed(comp) then
+            if not before_taxi_started(comp) then
                 clear_visual_guidance(comp, "before-taxi")
                 set_guidance_state(comp, "idle", "before-taxi", log_taxi)
-                diag("before-taxi-incomplete")
+                diag("before-taxi-not-started")
                 return
             end
             if yal and yal.parkingbrakepos and get(yal.parkingbrakepos) == def.ON then
@@ -420,6 +420,25 @@ function M.attach(U, C, def, helpers, settings)
                 set_guidance_state(comp, "idle", "parking-brake", log_taxi)
                 diag("parking-brake")
                 return
+            end
+            if comp._takeoffRollGuidance then
+                local on_rwy = false
+                if comp._depProfile and aircraft then
+                    on_rwy = is_on_runway_profile(comp._depProfile, aircraft, 60, 5)
+                end
+                if (not on_rwy) and yal and yal.aircraftonrwy then
+                    on_rwy = yal.aircraftonrwy(def.DEPARTURE, 40, (C and C.depThresholdHeadingLimit) or 25)
+                end
+                if (not on_rwy) and gs < 5 then
+                    comp._takeoffRollGuidance = nil
+                elseif on_ground then
+                    clear_visual_guidance(comp, "takeoff-roll")
+                    comp._visualGuidanceQueue = {}
+                    local logger = comp._logTaxi or (helpers and helpers.logInfoTS)
+                    set_guidance_state(comp, "complete", "takeoff-roll", logger)
+                    diag("takeoff-roll")
+                    return
+                end
             end
             if gs >= ((C and C.depTakeoffLatchSpeed) or 25) then
                 local on_rwy = false
@@ -430,6 +449,7 @@ function M.attach(U, C, def, helpers, settings)
                     on_rwy = yal.aircraftonrwy(def.DEPARTURE, 40, (C and C.depThresholdHeadingLimit) or 25)
                 end
                 if on_rwy then
+                    comp._takeoffRollGuidance = true
                     clear_visual_guidance(comp, "takeoff-roll")
                     comp._visualGuidanceQueue = {}
                     local logger = comp._logTaxi or (helpers and helpers.logInfoTS)
@@ -605,27 +625,7 @@ function M.attach(U, C, def, helpers, settings)
             return
         end
         if comp.mode == 0 and before_takeoff_active_or_set(comp) then
-            local kept = false
-            if is_taxi_complete_info(comp._visualGuidance) then
-                kept = true
-                comp._visualGuidanceQueue = {}
-            elseif comp._visualGuidanceQueue and #comp._visualGuidanceQueue > 0 then
-                for i = 1, #comp._visualGuidanceQueue do
-                    local queued = comp._visualGuidanceQueue[i]
-                    if is_taxi_complete_info(queued) then
-                        set_visual_guidance(comp, queued)
-                        table.remove(comp._visualGuidanceQueue, i)
-                        comp._visualGuidanceQueue = {}
-                        kept = true
-                        break
-                    end
-                end
-            end
-            if not kept then
-                clear_visual_guidance(comp, "before-takeoff")
-            end
             diag("before-takeoff")
-            return
         end
         if comp._depThresholdLatched and (comp.mode == 0) then
             diag("dep-threshold")
@@ -1205,6 +1205,10 @@ function M.attach(U, C, def, helpers, settings)
         if comp._guidanceRoute ~= route then
             comp._guidanceRoute = route
             comp._guidanceActiveSegIdx = nil
+            comp._guidanceMonotonicSegIdx = nil
+            comp._lastGuidanceSegment = nil
+            comp._lastGuidanceLabel = nil
+            comp._lastGuidanceAction = nil
         end
         local active_seg = comp._guidanceActiveSegIdx
         if active_seg and active_seg >= #path then
@@ -1251,6 +1255,19 @@ function M.attach(U, C, def, helpers, settings)
                     comp._guidanceActiveSegIdx = seg_idx
                 end
             end
+        end
+        do
+            local mono = comp._guidanceMonotonicSegIdx
+            if mono and mono >= 1 and mono < #path then
+                if seg_idx < mono then
+                    seg_idx = mono
+                elseif seg_idx > mono then
+                    comp._guidanceMonotonicSegIdx = seg_idx
+                end
+            else
+                comp._guidanceMonotonicSegIdx = seg_idx
+            end
+            comp._guidanceActiveSegIdx = seg_idx
         end
 
         local next_idx = seg_idx + 1
@@ -1424,6 +1441,13 @@ function M.attach(U, C, def, helpers, settings)
             if next_info.kind == "runway" and next_info.action == "CONTINUE" then
                 local last_action = comp._lastGuidanceAction
                 local last_label = comp._lastGuidanceLabel
+                if last_action == "LEAVE RWY" and last_label and next_info.display
+                    and last_label == next_info.display then
+                    local last_seg = comp._lastGuidanceSegment
+                    if last_seg and seg_idx and seg_idx <= (last_seg + 1) then
+                        next_info = nil
+                    end
+                end
                 if (last_action == "TURN LEFT" or last_action == "TURN RIGHT")
                     and last_label and next_info.display
                     and last_label == next_info.display then

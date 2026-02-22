@@ -92,6 +92,34 @@ function M.attach(U, C, def, helpers, settings)
         auto_taxi_log_snapshot(comp, yal, reason)
     end
 
+    local function before_taxi_started(comp)
+        local yal = comp and (comp.yal or _G.yal) or nil
+        if not yal then
+            return false
+        end
+        local proc = yal.proceduretable and yal.proceduretable[def.BEFORETAXIPROCEDURE]
+        if proc and proc.set then
+            return true
+        end
+        if yal.loopStateTables then
+            for _, loop in ipairs(yal.loopStateTables) do
+                if loop and loop.lock == def.BEFORETAXIPROCEDURE then
+                    return true
+                end
+            end
+        else
+            local l1 = yal.procedureloop1
+            local l2 = yal.procedureloop2
+            local l3 = yal.procedureloop3
+            if (l1 and l1.lock == def.BEFORETAXIPROCEDURE)
+                or (l2 and l2.lock == def.BEFORETAXIPROCEDURE)
+                or (l3 and l3.lock == def.BEFORETAXIPROCEDURE) then
+                return true
+            end
+        end
+        return false
+    end
+
     local function auto_taxi_apply_overrides(comp, yal)
         if not comp or not yal or comp._autoTaxiOverrideActive then
             return
@@ -1116,37 +1144,12 @@ function M.attach(U, C, def, helpers, settings)
             return
         end
         if comp.mode == 0 then
-            local proc = yal.proceduretable and yal.proceduretable[def.BEFORETAXIPROCEDURE]
-            if not (proc and proc.set) then
+            if not before_taxi_started(comp) then
                 comp._autoTaxiReady = false
                 auto_taxi_release_controls(comp, yal, "before-taxi")
-                auto_taxi_log_once(comp, now, "gate:before-taxi", "blocked: before-taxi incomplete")
+                auto_taxi_log_once(comp, now, "gate:before-taxi", "blocked: before-taxi not started")
                 auto_taxi_log_snapshot_once(comp, now, "gate:before-taxi", yal, "gate:before-taxi")
                 return
-            end
-            if yal.loopStateTables then
-                for _, loop in ipairs(yal.loopStateTables) do
-                    if loop and loop.lock == def.BEFORETAXIPROCEDURE then
-                        comp._autoTaxiReady = false
-                        auto_taxi_release_controls(comp, yal, "before-taxi-active")
-                        auto_taxi_log_once(comp, now, "gate:before-taxi-active", "blocked: before-taxi active")
-                        auto_taxi_log_snapshot_once(comp, now, "gate:before-taxi-active", yal, "gate:before-taxi-active")
-                        return
-                    end
-                end
-            else
-                local l1 = yal.procedureloop1
-                local l2 = yal.procedureloop2
-                local l3 = yal.procedureloop3
-                if (l1 and l1.lock == def.BEFORETAXIPROCEDURE)
-                    or (l2 and l2.lock == def.BEFORETAXIPROCEDURE)
-                    or (l3 and l3.lock == def.BEFORETAXIPROCEDURE) then
-                    comp._autoTaxiReady = false
-                    auto_taxi_release_controls(comp, yal, "before-taxi-active")
-                    auto_taxi_log_once(comp, now, "gate:before-taxi-active", "blocked: before-taxi active")
-                    auto_taxi_log_snapshot_once(comp, now, "gate:before-taxi-active", yal, "gate:before-taxi-active")
-                    return
-                end
             end
         end
         if not comp._route or not comp._route.path or #comp._route.path < 2 then

@@ -6750,125 +6750,129 @@ local function updateTaxiState(comp, map)
             if onGround and comp.yal and comp.yal.aircraftonrwy then
                 local onRunway = comp.yal.aircraftonrwy(def.DEPARTURE, 40, C.depThresholdHeadingLimit)
                 if onRunway then
-                    if not comp._depRunwayEntryAnnounced then
-                        local rwy_phrase = runway_label_voice(comp._runwayName)
-                        local entry_text = "Enter departure " .. rwy_phrase
-                        local entry_action = "ENTER RWY"
-                        local entry_direction = "straight"
-                        local entry_label = build_visual_label("runway", U.normalize_runway_name(comp._runwayName))
-                        local turn_threshold = 15
-                        if comp._route and comp._route.path and comp._route.data and dep_profile and dep_profile.axis then
-                            local path = comp._route.path
-                            local data = comp._route.data
-                            if #path >= 2 then
-                                local v1x, v1y = nil, nil
-                                local found = false
-                                local runway_nodes = data.runway_nodes
-                                if runway_nodes then
-                                    for i = #path - 1, 1, -1 do
-                                        local id1 = path[i]
-                                        local id2 = path[i + 1]
-                                        local is1 = runway_nodes[id1] and true or false
-                                        local is2 = runway_nodes[id2] and true or false
-                                        if is1 ~= is2 then
-                                            local n1 = data.nodes and data.nodes[id1] or nil
-                                            local n2 = data.nodes and data.nodes[id2] or nil
-                                            if n1 and n2 and n1.east and n1.north and n2.east and n2.north then
-                                                if is1 and (not is2) then
-                                                    v1x = n1.east - n2.east
-                                                    v1y = n1.north - n2.north
-                                                else
-                                                    v1x = n2.east - n1.east
-                                                    v1y = n2.north - n1.north
+                    local gs = yal and yal.groundspeed and (get(yal.groundspeed) or 0) or 0
+                    local takeoff_roll = gs >= ((C and C.depTakeoffLatchSpeed) or 25)
+                    if not takeoff_roll then
+                        if not comp._depRunwayEntryAnnounced then
+                            local rwy_phrase = runway_label_voice(comp._runwayName)
+                            local entry_text = "Enter departure " .. rwy_phrase
+                            local entry_action = "ENTER RWY"
+                            local entry_direction = "straight"
+                            local entry_label = build_visual_label("runway", U.normalize_runway_name(comp._runwayName))
+                            local turn_threshold = 15
+                            if comp._route and comp._route.path and comp._route.data and dep_profile and dep_profile.axis then
+                                local path = comp._route.path
+                                local data = comp._route.data
+                                if #path >= 2 then
+                                    local v1x, v1y = nil, nil
+                                    local found = false
+                                    local runway_nodes = data.runway_nodes
+                                    if runway_nodes then
+                                        for i = #path - 1, 1, -1 do
+                                            local id1 = path[i]
+                                            local id2 = path[i + 1]
+                                            local is1 = runway_nodes[id1] and true or false
+                                            local is2 = runway_nodes[id2] and true or false
+                                            if is1 ~= is2 then
+                                                local n1 = data.nodes and data.nodes[id1] or nil
+                                                local n2 = data.nodes and data.nodes[id2] or nil
+                                                if n1 and n2 and n1.east and n1.north and n2.east and n2.north then
+                                                    if is1 and (not is2) then
+                                                        v1x = n1.east - n2.east
+                                                        v1y = n1.north - n2.north
+                                                    else
+                                                        v1x = n2.east - n1.east
+                                                        v1y = n2.north - n1.north
+                                                    end
+                                                    found = true
                                                 end
-                                                found = true
+                                                break
                                             end
-                                            break
                                         end
                                     end
-                                end
-                                if not found then
-                                    local n1 = data.nodes and data.nodes[path[#path - 1]] or nil
-                                    local n2 = data.nodes and data.nodes[path[#path]] or nil
-                                    if n1 and n2 and n1.east and n1.north and n2.east and n2.north then
-                                        v1x = n2.east - n1.east
-                                        v1y = n2.north - n1.north
-                                        found = true
+                                    if not found then
+                                        local n1 = data.nodes and data.nodes[path[#path - 1]] or nil
+                                        local n2 = data.nodes and data.nodes[path[#path]] or nil
+                                        if n1 and n2 and n1.east and n1.north and n2.east and n2.north then
+                                            v1x = n2.east - n1.east
+                                            v1y = n2.north - n1.north
+                                            found = true
+                                        end
                                     end
-                                end
-                                if found then
-                                    local len1 = math.sqrt(v1x * v1x + v1y * v1y)
-                                    local v2x = dep_profile.axis.x or 0
-                                    local v2y = dep_profile.axis.y or 0
-                                    local len2 = math.sqrt(v2x * v2x + v2y * v2y)
-                                    if len1 > 0.1 and len2 > 0.1 then
-                                        local dot = (v1x * v2x + v1y * v2y) / (len1 * len2)
-                                        if dot > 1 then dot = 1 end
-                                        if dot < -1 then dot = -1 end
-                                        local angle = math.deg(math.acos(dot))
-                                        if angle >= turn_threshold then
-                                            local cross = v1x * v2y - v1y * v2x
-                                            local turn = (cross >= 0) and "left" or "right"
-                                            entry_text = "Turn " .. turn .. " on departure " .. rwy_phrase
-                                            entry_action = (turn == "left") and "TURN LEFT" or "TURN RIGHT"
-                                            entry_direction = turn
+                                    if found then
+                                        local len1 = math.sqrt(v1x * v1x + v1y * v1y)
+                                        local v2x = dep_profile.axis.x or 0
+                                        local v2y = dep_profile.axis.y or 0
+                                        local len2 = math.sqrt(v2x * v2x + v2y * v2y)
+                                        if len1 > 0.1 and len2 > 0.1 then
+                                            local dot = (v1x * v2x + v1y * v2y) / (len1 * len2)
+                                            if dot > 1 then dot = 1 end
+                                            if dot < -1 then dot = -1 end
+                                            local angle = math.deg(math.acos(dot))
+                                            if angle >= turn_threshold then
+                                                local cross = v1x * v2y - v1y * v2x
+                                                local turn = (cross >= 0) and "left" or "right"
+                                                entry_text = "Turn " .. turn .. " on departure " .. rwy_phrase
+                                                entry_action = (turn == "left") and "TURN LEFT" or "TURN RIGHT"
+                                                entry_direction = turn
+                                            end
                                         end
                                     end
                                 end
                             end
+                            emit_guidance(comp, now, {
+                                text = entry_text,
+                                direction = entry_direction,
+                                action = entry_action,
+                                label = entry_label,
+                                kind = "runway"
+                            }, U.is_auto_taxi_guidance_enabled())
+                            comp._depRunwayEntryAnnounced = true
+                            comp._depEntryIssuedAt = now
                         end
-                        emit_guidance(comp, now, {
-                            text = entry_text,
-                            direction = entry_direction,
-                            action = entry_action,
-                            label = entry_label,
-                            kind = "runway"
-                        }, U.is_auto_taxi_guidance_enabled())
-                        comp._depRunwayEntryAnnounced = true
-                        comp._depEntryIssuedAt = now
-                    end
-                    if comp._depThresholdLatched or comp._depThresholdReached then
-                        local entryIssuedAt = comp._depEntryIssuedAt or 0
-                        if (not entryIssuedAt) or (not now) or (now - entryIssuedAt) >= 2 then
-                            local align_needed = nil
-                            if dep_profile and aircraft then
-                                align_needed = compute_dep_threshold_state(comp, dep_profile, runway_lat, runway_lon, aircraft)
-                            end
-                            if align_needed and align_needed.heading_diff ~= nil
-                                and align_needed.heading_diff > ((comp._tuning and comp._tuning.autoTaxiAlignHeadingDeg)
-                                or (C and C.autoTaxiAlignHeadingDeg) or 8) then
-                                align_needed = true
-                            else
-                                align_needed = false
-                            end
-                            if align_needed then
-                                local last = comp._depAlignLastAt or 0
-                                local cooldown = (C and C.autoTaxiAlignCooldownSec) or 3
-                                if (not now) or (now - last) >= cooldown then
+                        if comp._depThresholdLatched or comp._depThresholdReached then
+                            local entryIssuedAt = comp._depEntryIssuedAt or 0
+                            if (not entryIssuedAt) or (not now) or (now - entryIssuedAt) >= 2 then
+                                local align_needed = nil
+                                if dep_profile and aircraft then
+                                    align_needed = compute_dep_threshold_state(comp, dep_profile, runway_lat, runway_lon, aircraft)
+                                end
+                                if align_needed and align_needed.heading_diff ~= nil
+                                    and align_needed.heading_diff > ((comp._tuning and comp._tuning.autoTaxiAlignHeadingDeg)
+                                    or (C and C.autoTaxiAlignHeadingDeg) or 8) then
+                                    align_needed = true
+                                else
+                                    align_needed = false
+                                end
+                                if align_needed then
+                                    local last = comp._depAlignLastAt or 0
+                                    local cooldown = (C and C.autoTaxiAlignCooldownSec) or 3
+                                    if (not now) or (now - last) >= cooldown then
+                                        local rwy_phrase = runway_label_voice(comp._runwayName)
+                                        emit_guidance(comp, now, {
+                                            text = "Align with departure " .. rwy_phrase,
+                                            direction = "straight",
+                                            action = "ALIGN RWY",
+                                            label = build_visual_label("runway", U.normalize_runway_name(comp._runwayName)),
+                                            kind = "runway"
+                                        }, U.is_auto_taxi_guidance_enabled())
+                                        comp._depAlignLastAt = now
+                                    end
+                                    comp._depAlignPending = true
+                                else
                                     local rwy_phrase = runway_label_voice(comp._runwayName)
                                     emit_guidance(comp, now, {
-                                        text = "Align with departure " .. rwy_phrase,
+                                        text = "On departure " .. rwy_phrase .. ", taxi complete",
                                         direction = "straight",
-                                        action = "ALIGN RWY",
+                                        action = "TAXI COMPLETE",
                                         label = build_visual_label("runway", U.normalize_runway_name(comp._runwayName)),
-                                        kind = "runway"
+                                        kind = "runway",
+                                        queue = true
                                     }, U.is_auto_taxi_guidance_enabled())
-                                    comp._depAlignLastAt = now
+                                    comp._depTaxiCompleteAnnounced = true
+                                    comp._depAlignPending = nil
+                                    comp._autoTaxiForceRelease = "taxi-complete"
                                 end
-                                comp._depAlignPending = true
-                            else
-                                local rwy_phrase = runway_label_voice(comp._runwayName)
-                                emit_guidance(comp, now, {
-                                    text = "On departure " .. rwy_phrase .. ", taxi complete",
-                                    direction = "straight",
-                                    action = "TAXI COMPLETE",
-                                    label = build_visual_label("runway", U.normalize_runway_name(comp._runwayName)),
-                                    kind = "runway",
-                                    queue = true
-                                }, U.is_auto_taxi_guidance_enabled())
-                                comp._depTaxiCompleteAnnounced = true
-                                comp._depAlignPending = nil
-                                comp._autoTaxiForceRelease = "taxi-complete"
                             end
                         end
                     end
