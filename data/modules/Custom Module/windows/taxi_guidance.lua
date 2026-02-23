@@ -1180,6 +1180,9 @@ function M.attach(U, C, def, helpers, settings)
                     comp._lastGuidanceVoiceTime = now or 0
                 end
             end
+            if comp._guidanceForceInitial then
+                comp._guidanceForceInitial = nil
+            end
             return true
         end
 
@@ -1269,6 +1272,31 @@ function M.attach(U, C, def, helpers, settings)
             end
             comp._guidanceActiveSegIdx = seg_idx
         end
+        do
+            local last_seg = comp._lastGuidanceSegment
+            local last_action = comp._lastGuidanceAction
+            if last_seg and last_action
+                and (last_action == "TURN LEFT" or last_action == "TURN RIGHT")
+                and seg_idx > last_seg
+                and data and data.nodes and path[last_seg] and path[last_seg + 1] then
+                local ln1 = data.nodes[path[last_seg]]
+                local ln2 = data.nodes[path[last_seg + 1]]
+                if ln1 and ln2 and ln1.east and ln1.north and ln2.east and ln2.north then
+                    local _, _, t = project_point_to_segment(
+                        aircraft.east, aircraft.north,
+                        ln1.east, ln1.north,
+                        ln2.east, ln2.north
+                    )
+                    if t and t < 1 then
+                        seg_idx = last_seg
+                        comp._guidanceActiveSegIdx = seg_idx
+                        if comp._guidanceMonotonicSegIdx and comp._guidanceMonotonicSegIdx < seg_idx then
+                            comp._guidanceMonotonicSegIdx = seg_idx
+                        end
+                    end
+                end
+            end
+        end
 
         local next_idx = seg_idx + 1
         local seg_len = nil
@@ -1289,6 +1317,7 @@ function M.attach(U, C, def, helpers, settings)
             end
         end
 
+        local force_initial = comp._guidanceForceInitial and first_guidance
         local threshold = guidance_distance_for_speed((yal and yal.tirespeed and get(yal.tirespeed)) or 0)
         if comp._lastGuidanceSegment and comp._lastGuidanceSegment == seg_idx then
             if (now - (comp._lastGuidanceTime or 0)) < C.guidanceCooldown then
@@ -1300,41 +1329,43 @@ function M.attach(U, C, def, helpers, settings)
             diag("too-far", string.format("dist=%.1f thresh=%.1f", dist, threshold))
             return
         end
-        if not comp._guidanceMoveAnchor then
-            comp._guidanceMoveAnchor = {
-                east = aircraft.east,
-                north = aircraft.north,
-                t = now
-            }
-        end
-        local moved = false
-        local move_anchor = comp._guidanceMoveAnchor
-        if move_anchor then
-            local dx = aircraft.east - move_anchor.east
-            local dy = aircraft.north - move_anchor.north
-            local moved_dist = math.sqrt(dx * dx + dy * dy)
-            if moved_dist >= C.initialGuidanceMinForwardMeters then
-                moved = true
-            else
-                local elapsed = (now or 0) - (move_anchor.t or 0)
-                if elapsed >= C.initialGuidanceMinForwardSeconds then
+        if not force_initial then
+            if not comp._guidanceMoveAnchor then
+                comp._guidanceMoveAnchor = {
+                    east = aircraft.east,
+                    north = aircraft.north,
+                    t = now
+                }
+            end
+            local moved = false
+            local move_anchor = comp._guidanceMoveAnchor
+            if move_anchor then
+                local dx = aircraft.east - move_anchor.east
+                local dy = aircraft.north - move_anchor.north
+                local moved_dist = math.sqrt(dx * dx + dy * dy)
+                if moved_dist >= C.initialGuidanceMinForwardMeters then
                     moved = true
-                elseif moved_dist <= -C.initialGuidanceReverseResetMeters then
-                    comp._guidanceMoveAnchor = nil
+                else
+                    local elapsed = (now or 0) - (move_anchor.t or 0)
+                    if elapsed >= C.initialGuidanceMinForwardSeconds then
+                        moved = true
+                    elseif moved_dist <= -C.initialGuidanceReverseResetMeters then
+                        comp._guidanceMoveAnchor = nil
+                    end
                 end
             end
-        end
-        if not moved then
-            diag("forward-wait", string.format("dist=%.1f", dist))
-            return
-        end
-        if first_guidance and gs < C.initialGuidanceMinSpeed then
-            diag("too-slow", string.format("dist=%.1f", dist))
-            return
-        end
-        if gs < C.guidanceMinSpeed then
-            diag("non-forward-speed", string.format("dist=%.1f", dist))
-            return
+            if not moved then
+                diag("forward-wait", string.format("dist=%.1f", dist))
+                return
+            end
+            if first_guidance and gs < C.initialGuidanceMinSpeed then
+                diag("too-slow", string.format("dist=%.1f", dist))
+                return
+            end
+            if gs < C.guidanceMinSpeed then
+                diag("non-forward-speed", string.format("dist=%.1f", dist))
+                return
+            end
         end
         local next_info = nil
         local next_label = nil

@@ -4147,6 +4147,7 @@ local function updateTaxiState(comp, map)
                 comp._lastGuidanceAction = nil
                 comp._lastGuidanceVoiceText = nil
                 comp._lastGuidanceVoiceTime = nil
+                comp._guidanceForceInitial = true
                 if log_taxi then
                     log_taxi(string.format("TaxiRoute: pushback reattach seg=%s dist=%.1f", tostring(seg_idx), dist or 0))
                 elseif helpers and helpers.logInfoTS then
@@ -4442,7 +4443,7 @@ local function updateTaxiState(comp, map)
         comp._arrOffRunway = offRunway
         if offRunway == false then
             local gs = yal and yal.groundspeed and (get(yal.groundspeed) or 0) or 0
-            if gs <= C.runwayRouteMaxSpeed then
+            if backtrack_required or (gs <= C.runwayRouteMaxSpeed) then
                 allow_runway_route = true
                 start_lat = aircraft.lat
                 start_lon = aircraft.lon
@@ -5312,7 +5313,7 @@ local function updateTaxiState(comp, map)
                 elseif comp.yal and comp.yal.aircraftonrwy then
                     offRunway = not comp.yal.aircraftonrwy(def.ARRIVAL, 40, 20)
                 end
-            if offRunway == false and not allow_runway_route then
+            if offRunway == false and not allow_runway_route and not backtrack_required then
                 comp._route = nil
                 comp._routeErr = "on-runway"
                 comp._routeExtraSegments = nil
