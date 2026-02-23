@@ -3214,6 +3214,7 @@ U = {
     find_runway_entry = find_runway_entry,
     find_nearest_runway_entry_by_latlon = find_nearest_runway_entry_by_latlon,
     compute_runway_landing_profile = compute_runway_landing_profile,
+    find_runway_crossing = find_runway_crossing,
     runway_pair_label = runway_pair_label,
     runway_end_label = runway_end_label,
     find_nearest_runway_node = find_nearest_runway_node,
@@ -4381,6 +4382,17 @@ local function updateTaxiState(comp, map)
             landing_profile = U.compute_runway_landing_profile(data, comp._runwayName, runway_lat, runway_lon)
             touchdown = landing_profile and landing_profile.touchdown or nil
             if landing_profile and touchdown and touchdown.east and touchdown.north then
+                if onGroundSensor and aircraft and aircraft.east ~= nil and aircraft.north ~= nil then
+                    local on_rwy_now = is_on_runway_profile(landing_profile, aircraft, 60, 5)
+                    if on_rwy_now then
+                        local along = U.compute_along_perp(landing_profile, aircraft)
+                        if along then
+                            if (not landing_profile.roll) or along > landing_profile.roll then
+                                landing_profile.roll = along
+                            end
+                        end
+                    end
+                end
                 local exit_id = nil
                 exit_id, backtrack_required = U.select_runway_exit_node(data, landing_profile, nil, airborne)
                 arr_exit_id = exit_id
@@ -4442,15 +4454,45 @@ local function updateTaxiState(comp, map)
         end
         comp._arrOffRunway = offRunway
         if offRunway == false then
-            local gs = yal and yal.groundspeed and (get(yal.groundspeed) or 0) or 0
-            if backtrack_required or (gs <= C.runwayRouteMaxSpeed) then
-                allow_runway_route = true
-                start_lat = aircraft.lat
-                start_lon = aircraft.lon
-            end
+            allow_runway_route = true
+            start_lat = aircraft.lat
+            start_lon = aircraft.lon
         end
     else
         comp._arrOffRunway = nil
+    end
+
+    if mode == 0 and helpers and helpers.before_taxi_started then
+        comp._beforeTaxiStarted = helpers.before_taxi_started(yal)
+    else
+        comp._beforeTaxiStarted = false
+    end
+    if not comp._beforeTaxiStarted then
+        comp._beforeTaxiReanchorDone = nil
+        comp._beforeTaxiReanchorIcao = nil
+        comp._beforeTaxiReanchorRunway = nil
+    elseif mode == 0 and aircraft and U.is_valid_latlon(aircraft.lat, aircraft.lon)
+        and (not in_edit) and (not manual_active) and (not comp._drawFreehand)
+        and (not comp._editStartOverride) and (not comp._editEndOverride) then
+        if comp._beforeTaxiReanchorIcao ~= icao or comp._beforeTaxiReanchorRunway ~= runway_name then
+            comp._beforeTaxiReanchorDone = nil
+        end
+        if not comp._beforeTaxiReanchorDone then
+            comp._beforeTaxiReanchorDone = true
+            comp._beforeTaxiReanchorIcao = icao
+            comp._beforeTaxiReanchorRunway = runway_name
+            comp._rerouteOverride = { lat = aircraft.lat, lon = aircraft.lon }
+            comp._routeStartAnchor = nil
+            comp._lastStartKey = nil
+            comp._route = nil
+            comp._routeErr = nil
+            comp._routeLabels = nil
+            comp._routeLabelStats = nil
+            comp._autoTaxiPath = nil
+            comp._autoTaxiPathRoute = nil
+            comp._pendingRerouteEvent = true
+            log_taxi("TaxiRoute: before-taxi reanchor")
+        end
     end
 
     local hasRunwayName = (runway_name ~= nil and runway_name ~= "")
@@ -4645,7 +4687,7 @@ local function updateTaxiState(comp, map)
                             local close_enough = d_cand <= gate_dist
                             local clearly_closer = (d_plan - d_cand >= gate_delta)
                                 or (d_cand <= (d_plan * gate_ratio))
-                            if close_enough and clearly_closer then
+                            if clearly_closer then
                                 comp._autoEndRampKey = cand_key
                                 comp._autoEndRampSwitchTime = now
                                 end_ramp = nearest_ramp
@@ -5202,6 +5244,19 @@ local function updateTaxiState(comp, map)
                             rwy_dist or -1
                         )
                     )
+                    start_node_id = rwy_id
+                    start_node_dist = rwy_dist
+                elseif rwy_id and rwy_dist then
+                    if comp._lastOnRunwayReanchorId ~= rwy_id then
+                        comp._lastOnRunwayReanchorId = rwy_id
+                        log_taxi(
+                            string.format(
+                                "TaxiRoute: on-runway start node reanchor dist=%.1f rwy_dist=%.1f",
+                                start_node_dist or -1,
+                                rwy_dist or -1
+                            )
+                        )
+                    end
                     start_node_id = rwy_id
                     start_node_dist = rwy_dist
                 elseif start_node_dist > driftMeters then
@@ -5830,6 +5885,25 @@ local function updateTaxiState(comp, map)
                     route_waypoints
                 )
             end
+            if (not route) and rerr == "no-path" and comp._rerouteOverride and opts and opts.disallow_runway_edges then
+                opts.disallow_runway_edges = false
+                opts.avoid_runway_nodes = false
+                if opts.runway_penalty == nil then
+                    opts.runway_penalty = 500
+                end
+                compute_projection(opts)
+                apply_projection(opts)
+                route, rerr = U.route_with_waypoints(
+                    icao,
+                    start_lat,
+                    start_lon,
+                    end_lat,
+                    end_lon,
+                    opts,
+                    proj_waypoint_ids,
+                    route_waypoints
+                )
+            end
             if (not route) and rerr == "no-path" and mode == 1 and opts and opts.disallow_runway_edges then
                 opts = U.copy_opts(opts) or {}
                 opts.disallow_runway_edges = false
@@ -6331,6 +6405,18 @@ local function updateTaxiState(comp, map)
                     end
                 end
             end
+            if (not route) and rerr == "no-path" and mode == 0 and allow_runway_route
+                and start_node_id and end_node_id and start_node_id == end_node_id
+                and comp._route and (not comp._routeErr) and comp._route.data == data
+                and comp._route.path and #comp._route.path > 1 then
+                route = comp._route
+                rerr = nil
+                local keep_key = tostring(start_node_id)
+                if comp._lastStartEndKeepKey ~= keep_key then
+                    comp._lastStartEndKeepKey = keep_key
+                    log_taxi("TaxiRoute: keep last-good (start=end) id=" .. tostring(start_node_id))
+                end
+            end
             if (not route) and (not in_edit) and (not comp._drawRoute)
                 and comp._route and (not comp._routeErr) and comp._route.data == data
                 and comp._route.path and aircraft and aircraft.east and aircraft.north then
@@ -6782,7 +6868,52 @@ local function updateTaxiState(comp, map)
                 if dist and dist > driftMeters and (now - lastReroute) > C.rerouteCooldown then
                     local sustained_offroute = prev_dist and prev_dist > driftMeters
                     if (comp._guidanceState == "complete") or sustained_offroute then
+                        local seg_idx = nil
+                        if comp._route and comp._route.data and comp._route.path and #comp._route.path > 1 then
+                            seg_idx = U.find_nearest_segment(comp._route.data, comp._route.path, aircraft.east, aircraft.north)
+                        end
+                        if seg_idx then
+                            if comp._guidanceMonotonicSegIdx and comp._guidanceMonotonicSegIdx > seg_idx then
+                                seg_idx = comp._guidanceMonotonicSegIdx
+                            end
+                            comp._autoTaxiActiveRoute = comp._route
+                            comp._autoTaxiActiveSegIdx = seg_idx
+                            comp._autoTaxiLastSegIdx = seg_idx
+                            comp._autoTaxiRunwaySegIdx = nil
+                            comp._guidanceRoute = comp._route
+                            comp._guidanceActiveSegIdx = seg_idx
+                            comp._guidanceMonotonicSegIdx = seg_idx
+                            comp._guidanceForceInitial = true
+                            comp._lastGuidanceNodeId = nil
+                            comp._lastGuidanceLabel = nil
+                            comp._lastGuidanceTime = nil
+                            comp._lastGuidanceSegment = nil
+                            comp._lastGuidanceAction = nil
+                            comp._lastGuidanceVoiceText = nil
+                            comp._lastGuidanceVoiceTime = nil
+                            log_taxi(
+                                string.format(
+                                    "TaxiRoute: offroute reanchor seg=%s dist=%.1f",
+                                    tostring(seg_idx),
+                                    dist or -1
+                                )
+                            )
+                        end
                         comp._rerouteOverride = { lat = aircraft.lat, lon = aircraft.lon }
+                        if data and aircraft.east ~= nil and aircraft.north ~= nil then
+                            local proj = U.find_nearest_edge_projection(
+                                data,
+                                aircraft.east,
+                                aircraft.north,
+                                { disallow_runway_edges = (mode == 0 and (not allow_runway_route)) }
+                            )
+                            if proj and proj.proj_east and proj.proj_north then
+                                local plat, plon = local_to_latlon(proj.proj_east, proj.proj_north)
+                                if U.is_valid_latlon(plat, plon) then
+                                    comp._rerouteOverride = { lat = plat, lon = plon }
+                                end
+                            end
+                        end
                         comp._routeStartAnchor = nil
                         if not arrival_grace_active(comp, now) then
                             comp._pendingRerouteEvent = true

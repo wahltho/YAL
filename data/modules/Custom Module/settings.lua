@@ -137,14 +137,24 @@ local function checkSettings(tableTocheck)
     for k, v in pairs(settingsDefinition) do
         local defn = settingsDefinition[k]
         if k == def.CONFIGSAVENUMBER then
-            local normalized = normalizeSaveNumber(tableTocheck[k])
-            if not normalized then
-                sasl.logDebug("key: " .. k .. " missing or incorrect, setting value to default: " .. tostring(defn.dvalue))
-                tableTocheck[k] = defn.dvalue
-                result = true
-            elseif tableTocheck[k] ~= normalized then
-                tableTocheck[k] = normalized
-                result = true
+            local cur = tableTocheck[k]
+            if type(cur) == "number" then
+                local num = math.floor(cur + 0.00001)
+                if num < 1 or num > 8 or math.abs(cur - num) > 0.0001 then
+                    sasl.logDebug("key: " .. k .. " missing or incorrect, setting value to default: " .. tostring(defn.dvalue))
+                    tableTocheck[k] = defn.dvalue
+                    result = true
+                end
+            else
+                local normalized = normalizeSaveNumber(cur)
+                if not normalized then
+                    sasl.logDebug("key: " .. k .. " missing or incorrect, setting value to default: " .. tostring(defn.dvalue))
+                    tableTocheck[k] = defn.dvalue
+                    result = true
+                elseif cur ~= normalized then
+                    tableTocheck[k] = normalized
+                    result = true
+                end
             end
         elseif defn.type == "string" then
             local val = tableTocheck[k]

@@ -554,7 +554,12 @@ function M.attach(U, C, def, helpers, settings)
             if gate_seg and gate_seg >= 1 and gate_seg < #route.path then
                 local node = route.data.nodes[route.path[gate_seg + 1]]
                 local on_ramp = node and (node.is_ramp or node.ramp_name or node.ramp_id) or false
-                if (not on_ramp) and gate_seg < (#route.path - 1) then
+                local gate_radius = (comp._tuning and comp._tuning.gateGuidanceRadius) or (C and C.gateGuidanceRadius) or 60
+                local defer_gate = true
+                if gate_dist and gate_radius and gate_dist <= gate_radius then
+                    defer_gate = false
+                end
+                if (not on_ramp) and gate_seg < (#route.path - 1) and defer_gate then
                     comp._gateGuidanceActive = false
                     guidance_state = "route"
                     set_guidance_state(comp, guidance_state, "gate-defer", log_taxi)
@@ -1410,6 +1415,19 @@ function M.attach(U, C, def, helpers, settings)
                 next_info = build_guidance_for_runway_continue(seg_idx, raw_label)
             elseif raw_rwy and next_rwy and raw_label ~= next_raw_label then
                 next_info = build_guidance_for_crossing_warning(seg_idx, next_raw_label)
+            end
+        end
+
+        if not next_info and data and n1 and n2 then
+            local raw_rwy = raw_label and is_runway_label(raw_label)
+            local next_rwy = next_raw_label and is_runway_label(next_raw_label)
+            if (not raw_rwy) and (not next_rwy) then
+                if not (data.runway_nodes and (data.runway_nodes[path[seg_idx]] or data.runway_nodes[path[seg_idx + 1]])) then
+                    local _, cross_label = U.find_runway_crossing(data, n1, n2)
+                    if cross_label and cross_label ~= "" then
+                        next_info = build_guidance_for_crossing_warning(seg_idx, cross_label)
+                    end
+                end
             end
         end
 

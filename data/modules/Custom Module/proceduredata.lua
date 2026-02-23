@@ -534,6 +534,48 @@ local function cacheApproachCourse(loop, entry, course)
     end
     P.approachCourseMag = course
     P.approachNavType = entry and entry[def.DESTNAVTYPE] or nil
+
+    local ziboCourse = nil
+    if entry then
+        ziboCourse = helpers.calcApproachCourseZibo(entry, {
+            icao = get(P.desicao),
+            runway = get(P.desrwy),
+            runwayMag = tonumber(get(P.desrwyheading)),
+            runwayTrue = getRunwayTrueFromEndpoints(),
+            fmslegs = get(P.fmslegs),
+            fmslegslat = get(P.fmslegslat),
+            fmslegslon = get(P.fmslegslon),
+            navdatatable = P.navdatatable,
+            navIndices = loop and loop.navdatatableindices or nil,
+            appId = (loop and loop.detectedApproach and loop.detectedApproach.entry and loop.detectedApproach.entry.code) or nil
+        })
+    end
+    if loop then
+        loop.approachCourseMagZibo = ziboCourse
+    end
+    P.approachCourseMagZibo = ziboCourse
+
+    local icao = get(P.desicao)
+    local rwy = get(P.desrwy)
+    local navType = entry and entry[def.DESTNAVTYPE] or ""
+    local navId = entry and entry[def.DESTNAVID] or ""
+    local appId = ""
+    if loop and loop.detectedApproach and loop.detectedApproach.entry and loop.detectedApproach.entry.code then
+        appId = loop.detectedApproach.entry.code
+    end
+    local key = tostring(icao) .. "|" .. tostring(rwy) .. "|" .. tostring(navType) .. "|" .. tostring(navId) .. "|" .. tostring(appId)
+    if key ~= P._approachCourseCompareKey then
+        P._approachCourseCompareKey = key
+        local diff = nil
+        if course and ziboCourse then
+            diff = math.abs(helpers.headingdiff(course, ziboCourse))
+        end
+        helpers.logInfoTS(string.format(
+            "ApproachCourseCompare: current=%s zibo=%s diff=%s navType=%s rwy=%s navId=%s appId=%s",
+            tostring(course), tostring(ziboCourse), tostring(diff), tostring(navType),
+            tostring(rwy), tostring(navId), tostring(appId)
+        ))
+    end
 end
 
 local function getCachedApproachCourse(loop)

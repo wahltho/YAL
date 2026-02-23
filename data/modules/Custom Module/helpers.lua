@@ -1051,6 +1051,35 @@ function P.isvalidrwy(runway)
 end
 
 --------------------------------------------------------------------------------------------------------------
+function P.before_taxi_started(yal)
+    if not yal then
+        return false
+    end
+    local proc = yal.proceduretable and yal.proceduretable[def.BEFORETAXIPROCEDURE]
+    if proc and proc.set then
+        return true
+    end
+    if yal.loopStateTables then
+        for i = 1, #yal.loopStateTables do
+            local loop = yal.loopStateTables[i]
+            if loop and loop.lock == def.BEFORETAXIPROCEDURE then
+                return true
+            end
+        end
+    else
+        local l1 = yal.procedureloop1
+        local l2 = yal.procedureloop2
+        local l3 = yal.procedureloop3
+        if (l1 and l1.lock == def.BEFORETAXIPROCEDURE)
+            or (l2 and l2.lock == def.BEFORETAXIPROCEDURE)
+            or (l3 and l3.lock == def.BEFORETAXIPROCEDURE) then
+            return true
+        end
+    end
+    return false
+end
+
+--------------------------------------------------------------------------------------------------------------
 function P.adjustrwy(runway, increment)
     
     if not P.isvalidrwy(runway) then
@@ -4207,10 +4236,22 @@ function P.loadCIFP(icao)
                             if not entry.course then
                                 local courseField = trimString(parts[21] or "")
                                 local courseValue = tonumber(courseField)
+                                local courseIsTrue = false
+                                if not courseValue and courseField ~= "" then
+                                    local upper = string.upper(courseField)
+                                    if string.sub(upper, -1) == "T" then
+                                        courseIsTrue = true
+                                        courseValue = tonumber(string.sub(upper, 1, -2))
+                                    end
+                                end
                                 if courseValue then
-                                    -- ARINC: course stored in 1/10 deg. Always divide by 10.
-                                    local magneticCourse = P.calccourse(courseValue / 10.0)
-                                    entry.course = magneticCourse
+                                    -- ARINC: course stored in 1/10 deg. "T" indicates true course.
+                                    local courseDeg = P.calccourse(courseValue / 10.0)
+                                    entry.course_raw = courseDeg
+                                    entry.course_is_true = courseIsTrue
+                                    if not courseIsTrue then
+                                        entry.course = courseDeg
+                                    end
                                 end
                             end
 
@@ -4286,6 +4327,207 @@ end
 function P.getCIFPApproachCourse(icao, navType, runway)
     local entry = P.getCIFPApproach(icao, navType, runway)
     return entry and entry.course or nil
+end
+
+function P.getCIFPApproachCourseInfo(icao, navType, runway)
+    local entry = P.getCIFPApproach(icao, navType, runway)
+    if not entry then
+        return nil, nil
+    end
+    if entry.course_raw ~= nil then
+        return entry.course_raw, entry.course_is_true == true
+    end
+    if entry.course ~= nil then
+        return entry.course, false
+    end
+    return nil, nil
+end
+
+function P.calcApproachCourseZibo(entry, ctx)
+    if not entry then
+        return nil
+    end
+    ctx = ctx or {}
+
+    local navType = entry[def.DESTNAVTYPE]
+    local icao = ctx.icao or entry[def.DESTICAO]
+    local runway = ctx.runway or entry[def.DESTRWY]
+
+    local appId = ctx.appId
+    if type(appId) == "string" then
+        appId = appId:gsub("%s+", ""):upper()
+    end
+    if appId and ctx.navdatatable and ctx.navIndices
+        and (navType == def.NAVTYPEGLS or navType == def.NAVTYPELPV or navType == def.NAVTYPERNAV) then
+        for _, idx in ipairs(ctx.navIndices) do
+            local cand = ctx.navdatatable[idx]
+            if cand and cand[def.DESTNAVTYPE] == navType then
+                local candId = cand[def.DESTNAVID]
+                local candIdUpper = type(candId) == "string" and candId:upper() or candId
+                local appIdUpper = appId
+                local altId = cand.alt_id
+                local altIdUpper = type(altId) == "string" and altId:upper() or altId
+                local appIdStored = cand.app_id
+                local appIdStoredUpper = type(appIdStored) == "string" and appIdStored:upper() or appIdStored
+                if (appIdUpper and candIdUpper == appIdUpper)
+                    or (appIdUpper and altIdUpper == appIdUpper)
+                    or (appIdUpper and appIdStoredUpper == appIdUpper) then
+                    entry = cand
+                    navType = cand[def.DESTNAVTYPE]
+                    break
+                end
+            end
+        end
+    end
+    local magVar = ctx.magVar
+    if magVar == nil then
+        magVar = entry[def.DESTMAGVAR]
+        if magVar == nil then
+            local lat = entry[def.DESTLATPOS]
+            local lon = entry[def.DESTLONPOS]
+            if lat and lon and lat ~= 0 and lon ~= 0 then
+                magVar = sasl.getMagneticVariation(lat, lon)
+            end
+        end
+    end
+    magVar = tonumber(magVar) or 0
+
+    local function decode_raw_course(raw)
+        local rawVal = tonumber(raw)
+        if not rawVal then
+            return nil, nil, false
+        end
+        if rawVal > 360 then
+            local mag = math.floor(rawVal / 360)
+            local trueC = rawVal - mag
+            return P.calccourse(trueC), P.calccourse(mag), true
+        end
+        return P.calccourse(rawVal), nil, false
+    end
+
+    local function clean_leg_token(token)
+        if type(token) ~= "string" then
+            return ""
+        end
+        return token:gsub("[%(%)]", ""):gsub("%s+", "")
+    end
+
+    local function is_runway_leg(token)
+        local clean = clean_leg_token(token)
+        return clean:upper():match("^RW%d%d?[LRC]?") ~= nil
+    end
+
+    local function matches_dest_runway(token, destRunway)
+        if not token or not destRunway then
+            return false
+        end
+        local cleanToken = clean_leg_token(token):upper():gsub("^RW", "")
+        local cleanDest = clean_leg_token(destRunway):upper():gsub("^RW", "")
+        return cleanToken == cleanDest
+    end
+
+    local function get_fms_final_mag_course()
+        local legsStr = ctx.fmslegs
+        local latArr = ctx.fmslegslat
+        local lonArr = ctx.fmslegslon
+        if type(legsStr) ~= "string" or not latArr or not lonArr then
+            return nil
+        end
+        local waypoints = P.buildlegstable(legsStr, latArr, lonArr)
+        if not waypoints or #waypoints < 2 then
+            return nil
+        end
+        local destRunway = runway
+        local selectedCourse = nil
+        if destRunway and P.isvalidrwy(destRunway) then
+            for i = #waypoints - 1, 1, -1 do
+                local nxt = waypoints[i + 1]
+                if nxt and nxt.name and matches_dest_runway(nxt.name, destRunway) then
+                    selectedCourse = waypoints[i].magnetic_course
+                    break
+                end
+            end
+        else
+            for i = #waypoints - 1, 1, -1 do
+                local nxt = waypoints[i + 1]
+                if nxt and nxt.name and is_runway_leg(nxt.name) then
+                    selectedCourse = waypoints[i].magnetic_course
+                    break
+                end
+            end
+        end
+        if selectedCourse and selectedCourse ~= 0 then
+            return P.calccourse(selectedCourse)
+        end
+        return nil
+    end
+
+    local function cifp_course_mag(candidateType)
+        if not (icao and runway and candidateType) then
+            return nil
+        end
+        local course, isTrue = P.getCIFPApproachCourseInfo(icao, candidateType, runway)
+        if course == nil then
+            return nil
+        end
+        if isTrue then
+            return P.calccourse(course - magVar)
+        end
+        return P.calccourse(course)
+    end
+
+    if navType == def.NAVTYPEILS or navType == def.NAVTYPELOC
+        or navType == def.NAVTYPELDA or navType == def.NAVTYPEIGS then
+        local raw = entry[def.DESTRAWBEARING]
+        local trueC, magC, hasMag = decode_raw_course(raw)
+        if hasMag and magC then
+            return P.calccourse(magC)
+        end
+        if trueC then
+            return P.calccourse(trueC - magVar)
+        end
+        if entry[def.DESTCOURSE] ~= nil then
+            return P.calccourse(entry[def.DESTCOURSE])
+        end
+    elseif navType == def.NAVTYPEGLS then
+        if entry.isTrueCourse and entry.truecourse then
+            return P.calccourse(entry.truecourse - magVar)
+        end
+        if entry[def.DESTCOURSE] ~= nil then
+            return P.calccourse(entry[def.DESTCOURSE])
+        end
+    else
+        local fmsMag = get_fms_final_mag_course()
+        if fmsMag then
+            return P.calccourse(fmsMag)
+        end
+        local candidateTypes = { navType }
+        if navType == def.NAVTYPELPV or navType == def.NAVTYPEGLS then
+            candidateTypes = { navType, def.NAVTYPERNAV }
+        end
+        for _, candidateType in ipairs(candidateTypes) do
+            local cifpMag = cifp_course_mag(candidateType)
+            if cifpMag then
+                return cifpMag
+            end
+        end
+        if entry.isTrueCourse and entry.truecourse then
+            return P.calccourse(entry.truecourse - magVar)
+        end
+        if entry[def.DESTCOURSE] ~= nil then
+            return P.calccourse(entry[def.DESTCOURSE])
+        end
+    end
+
+    local runwayMag = tonumber(ctx.runwayMag)
+    if runwayMag then
+        return P.calccourse(runwayMag)
+    end
+    local runwayTrue = tonumber(ctx.runwayTrue)
+    if runwayTrue then
+        return P.calccourse(runwayTrue - magVar)
+    end
+    return nil
 end
 
 function P.getCIFPMissedApproachAltitude(icao, navType, runway, detectedApproach)
@@ -4899,7 +5141,7 @@ function P.buildnavdatatable(navdatatable)
             elseif string.sub(line, 1, 5) == "SIZE\t" then
                 idx_size = tonumber(string.sub(line, 6)) or 0
             else
-                local parts = split_tabs_simple(line, 30)
+                local parts = split_tabs_simple(line, 32)
                 local icao = parts[1]
                 if icao and icao ~= "" then
                     local entry = {}
@@ -4932,6 +5174,14 @@ function P.buildnavdatatable(navdatatable)
                     entry[def.DESTDMEFREQ] = tonumber(parts[27]) or 0
                     entry.truecourse = tonumber(parts[28]) or nil
                     entry.isTrueCourse = (parts[29] == "1")
+                    local app_id = parts[30]
+                    if app_id ~= nil and app_id ~= "" then
+                        entry.app_id = app_id
+                    end
+                    local alt_id = parts[31]
+                    if alt_id ~= nil and alt_id ~= "" then
+                        entry.alt_id = alt_id
+                    end
                     table.insert(entries, entry)
                 end
             end
@@ -4998,7 +5248,9 @@ function P.buildnavdatatable(navdatatable)
                 tostring(e[def.DESTDMEIDENT] or ""),
                 tostring(tonumber(e[def.DESTDMEFREQ]) or 0),
                 tostring(tonumber(e.truecourse) or ""),
-                (e.isTrueCourse and "1" or "0")
+                (e.isTrueCourse and "1" or "0"),
+                tostring(e.app_id or ""),
+                tostring(e.alt_id or "")
             }
             f:write(table.concat(fields, "\t"), "\n")
         end
@@ -5215,6 +5467,11 @@ function P.buildnavdatatable(navdatatable)
                         newEntry[def.DESTNAVTYPE] = def.NAVTYPEGLS
                     end
                     newEntry[def.DESTNAVID] = navdataitems[def.NAVSRC_COL_IDENT]
+                    newEntry.app_id = navdataitems[def.NAVSRC_COL_IDENT]
+                    local alt_id = navdataitems[def.NAVSRC_COL_NAME]
+                    if alt_id and alt_id ~= "" then
+                        newEntry.alt_id = alt_id
+                    end
                     
                     local raw_course_str = navdataitems[def.NAVSRC_COL_BEARING]
                     local raw_course = tonumber(raw_course_str)
