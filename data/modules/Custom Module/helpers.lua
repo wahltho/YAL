@@ -399,6 +399,113 @@ function P.checkForUpdate(showBeta)
     return updateAvailable, newVersion
 end
 
+local function parse_zibo_version_triplet(text)
+    local s = tostring(text or "")
+    local major, minor, patch = s:match("(%d+)%.(%d+)%.(%d+)")
+    if major then
+        return {
+            major = tonumber(major) or 0,
+            minor = tonumber(minor) or 0,
+            patch = tonumber(patch) or 0,
+        }
+    end
+    major, minor = s:match("(%d+)%.(%d+)")
+    if major then
+        return {
+            major = tonumber(major) or 0,
+            minor = tonumber(minor) or 0,
+            patch = 0,
+        }
+    end
+    return nil
+end
+
+local function compare_zibo_triplet(a, b)
+    if not a and not b then
+        return 0
+    end
+    if not a then
+        return -1
+    end
+    if not b then
+        return 1
+    end
+    if a.major ~= b.major then
+        return (a.major > b.major) and 1 or -1
+    end
+    if a.minor ~= b.minor then
+        return (a.minor > b.minor) and 1 or -1
+    end
+    if a.patch ~= b.patch then
+        return (a.patch > b.patch) and 1 or -1
+    end
+    return 0
+end
+
+local function format_zibo_triplet(v)
+    if not v then
+        return ""
+    end
+    return string.format("%d.%02d.%02d", v.major or 0, v.minor or 0, v.patch or 0)
+end
+
+local function parse_zibo_feed_latest(feed_xml)
+    local best = nil
+    for title in string.gmatch(tostring(feed_xml or ""), "<title>([^<]+)</title>") do
+        local a, b, c = title:match("B738X_XP%d+_(%d+)_(%d+)_(%d+)%.zip")
+        if not a then
+            a, b, c = title:match("B738X_(%d+)_(%d+)_(%d+)%.zip")
+        end
+        if not a then
+            a, b = title:match("B737%-800X_XP%d+_(%d+)_(%d+)_full%.zip")
+            c = "0"
+        end
+        if not a then
+            a, b = title:match("B737%-800X_(%d+)_(%d+)_full%.zip")
+            c = "0"
+        end
+        if a then
+            local v = {
+                major = tonumber(a) or 0,
+                minor = tonumber(b) or 0,
+                patch = tonumber(c) or 0,
+                title = title,
+            }
+            if (not best) or compare_zibo_triplet(v, best) > 0 then
+                best = v
+            end
+        end
+    end
+    return best
+end
+
+function P.checkForZiboUpdate(localReleaseText)
+    local localVersion = parse_zibo_version_triplet(localReleaseText)
+    local localVersionText = format_zibo_triplet(localVersion)
+    local downloadResult, contents = sasl.net.downloadFileContentsSync(def.ZIBOUPDATEFEEDURL)
+    if not downloadResult or not contents or contents == "" then
+        P.logInfoTS("Check for Zibo Update FAILED")
+        return false, "", localVersionText
+    end
+    local latest = parse_zibo_feed_latest(contents)
+    if not latest then
+        P.logInfoTS("Check for Zibo Update FAILED (no version in feed)")
+        return false, "", localVersionText
+    end
+    local latestText = format_zibo_triplet(latest)
+    if not localVersion then
+        P.logInfoTS("Check for Zibo Update skipped (local release not parseable)")
+        return false, latestText, localVersionText
+    end
+    local updateAvailable = compare_zibo_triplet(latest, localVersion) > 0
+    if updateAvailable then
+        P.logInfoTS(string.format("New Zibo version available v%s (installed v%s)", latestText, localVersionText))
+    else
+        P.logInfoTS(string.format("Zibo is up to date (installed v%s, latest v%s)", localVersionText, latestText))
+    end
+    return updateAvailable, latestText, localVersionText
+end
+
 -------------------------------------------------------------------------------------------------------------- 
 function P.get(dataref)
 return get(globalProperty(dataref))
@@ -3717,6 +3824,7 @@ function P.getdistancealongroute(detailed_route, currentLat, currentLon)
     local cumulativeDistance = 0
     local totalWaypoints = #detailed_route
     local foundSegment = false
+    local onroute_tolerance_nm = 0.5
 
     for i = 1, totalWaypoints - 1 do
         local wp1 = detailed_route[i]
@@ -3726,7 +3834,7 @@ function P.getdistancealongroute(detailed_route, currentLat, currentLon)
         local distFromAircraftToStart = P.getdistance(currentLat, currentLon, wp1.latitude, wp1.longitude)
         local distFromAircraftToEnd = P.getdistance(currentLat, currentLon, wp2.latitude, wp2.longitude)
 
-        if math.abs(distFromAircraftToStart + distFromAircraftToEnd - segmentDistance) < 0.1 then
+        if math.abs(distFromAircraftToStart + distFromAircraftToEnd - segmentDistance) < onroute_tolerance_nm then
             cumulativeDistance = cumulativeDistance + distFromAircraftToStart
             foundSegment = true
             return cumulativeDistance, foundSegment
@@ -4471,7 +4579,7 @@ function P.calcApproachCourseZibo(entry, ctx)
             return nil
         end
         if isTrue then
-            return P.calccourse(course - magVar)
+            return P.calccourse(course + magVar)
         end
         return P.calccourse(course)
     end
@@ -4484,22 +4592,25 @@ function P.calcApproachCourseZibo(entry, ctx)
             return P.calccourse(magC)
         end
         if trueC then
-            return P.calccourse(trueC - magVar)
+            return P.calccourse(trueC + magVar)
         end
         if entry[def.DESTCOURSE] ~= nil then
             return P.calccourse(entry[def.DESTCOURSE])
         end
     elseif navType == def.NAVTYPEGLS then
         if entry.isTrueCourse and entry.truecourse then
-            return P.calccourse(entry.truecourse - magVar)
+            return P.calccourse(entry.truecourse + magVar)
         end
         if entry[def.DESTCOURSE] ~= nil then
             return P.calccourse(entry[def.DESTCOURSE])
         end
     else
-        local fmsMag = get_fms_final_mag_course()
-        if fmsMag then
-            return P.calccourse(fmsMag)
+        if entry.isTrueCourse and entry.truecourse then
+            return P.calccourse(entry.truecourse + magVar)
+        end
+        local entryCourse = tonumber(entry[def.DESTCOURSE])
+        if entryCourse and entryCourse > 0 then
+            return P.calccourse(entryCourse)
         end
         local candidateTypes = { navType }
         if navType == def.NAVTYPELPV or navType == def.NAVTYPEGLS then
@@ -4511,11 +4622,9 @@ function P.calcApproachCourseZibo(entry, ctx)
                 return cifpMag
             end
         end
-        if entry.isTrueCourse and entry.truecourse then
-            return P.calccourse(entry.truecourse - magVar)
-        end
-        if entry[def.DESTCOURSE] ~= nil then
-            return P.calccourse(entry[def.DESTCOURSE])
+        local fmsMag = get_fms_final_mag_course()
+        if fmsMag then
+            return P.calccourse(fmsMag)
         end
     end
 
@@ -4525,7 +4634,7 @@ function P.calcApproachCourseZibo(entry, ctx)
     end
     local runwayTrue = tonumber(ctx.runwayTrue)
     if runwayTrue then
-        return P.calccourse(runwayTrue - magVar)
+        return P.calccourse(runwayTrue + magVar)
     end
     return nil
 end
@@ -5131,17 +5240,37 @@ function P.buildnavdatatable(navdatatable)
         if not f then
             return nil
         end
+        local cache_epoch = tonumber(def.CACHE_EPOCH) or 1
+        local idx_version = nil
+        local idx_epoch = nil
         local idx_path = nil
         local idx_size = nil
         local entries = {}
+        local first_line = strip_cr(f:read("*l"))
+        if not first_line then
+            f:close()
+            return nil
+        end
+        do
+            local first_parts = split_tabs_simple(first_line, 2)
+            if first_parts[1] == "YALNAVIDX" then
+                idx_version = tonumber(first_parts[2]) or 0
+            else
+                f:close()
+                pcall(function() os.remove(NAV_IDX_FILE) end)
+                return nil
+            end
+        end
         for line in f:lines() do
             line = strip_cr(line)
-            if string.sub(line, 1, 5) == "PATH\t" then
+            if string.sub(line, 1, 6) == "EPOCH\t" then
+                idx_epoch = tonumber(string.sub(line, 7)) or 0
+            elseif string.sub(line, 1, 5) == "PATH\t" then
                 idx_path = string.sub(line, 6)
             elseif string.sub(line, 1, 5) == "SIZE\t" then
                 idx_size = tonumber(string.sub(line, 6)) or 0
             else
-                local parts = split_tabs_simple(line, 32)
+                local parts = split_tabs_simple(line, 34)
                 local icao = parts[1]
                 if icao and icao ~= "" then
                     local entry = {}
@@ -5182,11 +5311,43 @@ function P.buildnavdatatable(navdatatable)
                     if alt_id ~= nil and alt_id ~= "" then
                         entry.alt_id = alt_id
                     end
+                    local service_level = parts[32]
+                    if service_level ~= nil and service_level ~= "" then
+                        entry.serviceLevel = tostring(service_level):upper()
+                    end
+                    entry.isLateralOnly = (parts[33] == "1")
+                    -- Backward compatibility for older caches that did not persist LP flags.
+                    if (not entry.isLateralOnly)
+                        and entry[def.DESTNAVTYPE] == def.NAVTYPERNAV
+                        and entry[def.DESTSRCRECTYPE] == def.NAVDATARECTYPELPV then
+                        entry.isLateralOnly = true
+                    end
+                    if (not entry.serviceLevel)
+                        and entry.isLateralOnly
+                        and entry[def.DESTSRCRECTYPE] == def.NAVDATARECTYPELPV then
+                        entry.serviceLevel = "LP"
+                    end
                     table.insert(entries, entry)
                 end
             end
         end
         f:close()
+        if idx_version ~= 1 then
+            P.logInfoTS("Navdata cache invalid (index version mismatch), rebuilding.")
+            pcall(function() os.remove(NAV_IDX_FILE) end)
+            return nil
+        end
+        if idx_epoch ~= cache_epoch then
+            P.logInfoTS(
+                "Navdata cache invalid (cache epoch "
+                    .. tostring(idx_epoch)
+                    .. " != "
+                    .. tostring(cache_epoch)
+                    .. "), rebuilding."
+            )
+            pcall(function() os.remove(NAV_IDX_FILE) end)
+            return nil
+        end
         if idx_path ~= path or (idx_size or 0) ~= (size or 0) then
             return nil
         end
@@ -5215,6 +5376,8 @@ function P.buildnavdatatable(navdatatable)
             sasl.logWarning("Navdata: failed to write nav index: " .. tostring(NAV_IDX_FILE))
             return false
         end
+        f:write("YALNAVIDX\t1\n")
+        f:write("EPOCH\t", tostring(tonumber(def.CACHE_EPOCH) or 1), "\n")
         f:write("PATH\t", tostring(path or ""), "\n")
         f:write("SIZE\t", tostring(size or 0), "\n")
         for i = 1, #entries do
@@ -5250,7 +5413,9 @@ function P.buildnavdatatable(navdatatable)
                 tostring(tonumber(e.truecourse) or ""),
                 (e.isTrueCourse and "1" or "0"),
                 tostring(e.app_id or ""),
-                tostring(e.alt_id or "")
+                tostring(e.alt_id or ""),
+                tostring(e.serviceLevel or ""),
+                (e.isLateralOnly and "1" or "0")
             }
             f:write(table.concat(fields, "\t"), "\n")
         end
@@ -5485,7 +5650,7 @@ function P.buildnavdatatable(navdatatable)
                         local mag_variation = sasl.getMagneticVariation(lat_val, lon_val) or 0
                         newEntry.truecourse = trueCourseNormalized
                         newEntry.isTrueCourse = true
-                        newEntry[def.DESTCOURSE] = P.calccourse(trueCourseNormalized - mag_variation)
+                        newEntry[def.DESTCOURSE] = P.calccourse(trueCourseNormalized + mag_variation)
                         newEntry[def.DESTMAGVAR] = mag_variation
                     else
                         P.logInfoTS("Could not read true course for LPV/GLS (column NAVSRC_COL_BEARING): " .. navdatarecord)
@@ -5622,6 +5787,8 @@ function P.buildairportdatatable(airport_db)
             sasl.logWarning("Airportdata: failed to write airport meta index: " .. tostring(AIRPORT_META_IDX_FILE))
             return false
         end
+        file:write("YALAPTMETAIDX\t1\n")
+        file:write("EPOCH\t", tostring(tonumber(def.CACHE_EPOCH) or 1), "\n")
         file:write("PATH\t", tostring(meta.path or ""), "\n")
         file:write("SIZE\t", tostring(meta.size or 0), "\n")
         for icao, data in pairs(db) do
@@ -5650,6 +5817,9 @@ function P.buildairportdatatable(airport_db)
         if not file then
             return nil
         end
+        local cache_epoch = tonumber(def.CACHE_EPOCH) or 1
+        local idx_version = nil
+        local idx_epoch = nil
         local idx_path = nil
         local idx_size = nil
         local entries = {}
@@ -5658,7 +5828,11 @@ function P.buildairportdatatable(airport_db)
             if len > 0 and string.byte(line, len) == 13 then
                 line = string.sub(line, 1, len - 1)
             end
-            if string.sub(line, 1, 5) == "PATH\t" then
+            if string.sub(line, 1, 14) == "YALAPTMETAIDX\t" then
+                idx_version = tonumber(string.sub(line, 15)) or 0
+            elseif string.sub(line, 1, 6) == "EPOCH\t" then
+                idx_epoch = tonumber(string.sub(line, 7)) or 0
+            elseif string.sub(line, 1, 5) == "PATH\t" then
                 idx_path = string.sub(line, 6)
             elseif string.sub(line, 1, 5) == "SIZE\t" then
                 idx_size = tonumber(string.sub(line, 6)) or 0
@@ -5678,6 +5852,22 @@ function P.buildairportdatatable(airport_db)
             end
         end
         file:close()
+        if idx_version ~= 1 then
+            P.logInfoTS("Airportdata cache invalid (index version mismatch), rebuilding.")
+            pcall(function() os.remove(AIRPORT_META_IDX_FILE) end)
+            return nil
+        end
+        if idx_epoch ~= cache_epoch then
+            P.logInfoTS(
+                "Airportdata cache invalid (cache epoch "
+                    .. tostring(idx_epoch)
+                    .. " != "
+                    .. tostring(cache_epoch)
+                    .. "), rebuilding."
+            )
+            pcall(function() os.remove(AIRPORT_META_IDX_FILE) end)
+            return nil
+        end
         if not meta or idx_path ~= meta.path or (idx_size or 0) ~= (meta.size or 0) then
             return nil
         end
@@ -8088,7 +8278,23 @@ local function load_global_index(meta)
             if value ~= "" and value ~= "-" then
                 idx_meta.fingerprint = value
             end
+        elseif key == "EPOCH" then
+            idx_meta.epoch = tonumber(value)
         end
+    end
+
+    local cache_epoch = tonumber(def.CACHE_EPOCH) or 1
+    if (idx_meta.epoch or -1) ~= cache_epoch then
+        helpers.logInfoTS(
+            "Global Airports Taxidata Table cache invalid (cache epoch "
+                .. tostring(idx_meta.epoch)
+                .. " != "
+                .. tostring(cache_epoch)
+                .. ")"
+        )
+        file:close()
+        pcall(function() os.remove(GLOBAL_APT_INDEX_FILE) end)
+        return nil
     end
 
     if not meta_matches(idx_meta, meta) then
@@ -8131,6 +8337,7 @@ local function write_global_index(meta, entries)
         return false
     end
     file:write("YALAPTIDX\t", tostring(GLOBAL_APT_INDEX_VERSION), "\n")
+    file:write("EPOCH\t", tostring(tonumber(def.CACHE_EPOCH) or 1), "\n")
     file:write("PATH\t", tostring(meta.path or ""), "\n")
     file:write("MTIME\t", meta.mtime and tostring(meta.mtime) or "-", "\n")
     file:write("SIZE\t", tostring(meta.size or 0), "\n")
@@ -8698,7 +8905,7 @@ function P.getrwyheadingfromnavdata(navdatatable, icao, rwy)
                 end
             end
             magVar = magVar or 0
-            return P.calccourse(entry.truecourse - magVar)
+            return P.calccourse(entry.truecourse + magVar)
         end
         return entry[def.DESTCOURSE]
     end

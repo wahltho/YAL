@@ -6013,10 +6013,6 @@ function P.ongoingtasks()
             if (helpers.isvalidicao(get(P.depicao)) and helpers.isvalidrwy(get(P.deprwy)) and tonumber(get(P.deprwyheading))) then
                 headingrounded = helpers.roundnumber(get(P.deprwyheading))
             end
-            local navrwyheading = helpers.getrwyheadingfromnavdata(P.navdatatable, get(P.depicao), get(P.deprwy))
-            if (navrwyheading and ((not headingrounded) or (headingrounded and (math.abs(headingrounded - navrwyheading) <= 3)))) then
-                headingrounded = navrwyheading
-            end
             if (headingrounded and (headingrounded ~= get(P.mcpheading)) and (get(P.groundspeed) < 45)) then
                 if ((P.configvalues[def.CONFIGAUTOFUNCTIONS] == def.ON) and (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON)) then
                     set(P.mcpheading, headingrounded)
@@ -6058,7 +6054,7 @@ function P.ongoingtasks()
         if aircraftInAir and flightStateEligible and not suppressDiscoWarnings then
             -- Additional guard: ToD missing but route still long
             if (not todDistance) or (todDistance <= 0) then
-                local remainingDistance = helpers.getRemainingRouteDistance(
+                local remainingDistance, _, onRoute = helpers.getRemainingRouteDistance(
                     get(P.fmslegs),
                     get(P.fmslegslat),
                     get(P.fmslegslon),
@@ -6068,11 +6064,15 @@ function P.ongoingtasks()
                 local distDest = get(P.distdest)
 
                 if remainingDistance and distDest and (remainingDistance > 0) and (distDest > 0) then
-                    local diff = distDest - remainingDistance
-                    if diff > 50 then -- significant gap -> route likely incomplete
-                        if not P.routeEndsEarlyWarned then
-                            P.commandtableentry(def.TEXT, "Warning: Route may end too early. Check Arrival / Approach setup.")
-                            P.routeEndsEarlyWarned = true
+                    if onRoute == true then
+                        local diff = distDest - remainingDistance
+                        if diff > 50 then -- significant gap -> route likely incomplete
+                            if not P.routeEndsEarlyWarned then
+                                P.commandtableentry(def.TEXT, "Warning: Route may end too early. Check Arrival / Approach setup.")
+                                P.routeEndsEarlyWarned = true
+                            end
+                        else
+                            P.routeEndsEarlyWarned = false
                         end
                     else
                         P.routeEndsEarlyWarned = false
@@ -6126,7 +6126,7 @@ function P.ongoingtasks()
             local routeWarningTolerance = 5
 
             if routeCheckEligible and todDistance and todDistance > routeWarningTolerance then
-                local remainingDistance = helpers.getRemainingRouteDistance(
+                local remainingDistance, _, onRoute = helpers.getRemainingRouteDistance(
                     get(P.fmslegs),
                     get(P.fmslegslat),
                     get(P.fmslegslon),
@@ -6134,7 +6134,7 @@ function P.ongoingtasks()
                     get(P.aircraftlonpos)
                 )
 
-                local hasRemaining = remainingDistance and remainingDistance > 0
+                local hasRemaining = remainingDistance and remainingDistance > 0 and onRoute == true
                 local distDest = get(P.distdest)
                 local hasDestDistance = distDest and distDest > 0
 

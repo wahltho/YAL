@@ -440,7 +440,17 @@ local function normalize_taxiway_label(label)
         parts[#parts + 1] = part
     end
     if #parts == 2 and #parts[1] == 1 and #parts[2] >= 1 then
-        clean = parts[2]
+        local second_has_alpha = false
+        for i = 1, #parts[2] do
+            local b = string.byte(parts[2], i)
+            if b and b >= 65 and b <= 90 then
+                second_has_alpha = true
+                break
+            end
+        end
+        if second_has_alpha then
+            clean = parts[2]
+        end
     end
     return clean
 end
@@ -1604,9 +1614,7 @@ local function segment_crosses_runway(rwy, x1, y1, x2, y2)
     end
     local half = (width * 0.5) + 3
     if math.abs(c1) <= half and math.abs(c2) <= half then
-        local minA = math.min(a1, a2)
-        local maxA = math.max(a1, a2)
-        return maxA >= 0 and minA <= len
+        return false
     end
     local denom = (c1 - c2)
     if denom ~= 0 then
@@ -2892,6 +2900,183 @@ local function compute_route_label_stats(data, path)
     return stats
 end
 
+local function next_numeric_node_id(nodes)
+    local max_id = 0
+    if not nodes then
+        return 1
+    end
+    for id, _ in pairs(nodes) do
+        if type(id) == "number" and id > max_id then
+            max_id = id
+        end
+    end
+    return max_id + 1
+end
+
+local function resolve_dep_runway_latlon(comp)
+    local yal = comp and (comp.yal or _G.yal) or nil
+    if not yal then
+        return nil, nil
+    end
+    local lat = yal.deprwylatstartpos and get(yal.deprwylatstartpos) or nil
+    local lon = yal.deprwylonstartpos and get(yal.deprwylonstartpos) or nil
+    if not is_valid_latlon(lat, lon) then
+        lat = yal.deprwylatendpos and get(yal.deprwylatendpos) or nil
+        lon = yal.deprwylonendpos and get(yal.deprwylonendpos) or nil
+    end
+    if not is_valid_latlon(lat, lon) then
+        return nil, nil
+    end
+    return lat, lon
+end
+
+local function ensure_manual_dep_runway_anchor(comp)
+    if not comp or comp.mode ~= 0 then
+        return false
+    end
+    local route = comp._route
+    if not route or not route.path or #route.path < 2 or not route.data then
+        return false
+    end
+    if route.data.route_source ~= "freehand" then
+        return false
+    end
+    local route_data = route.data
+    if not route_data.nodes then
+        return false
+    end
+    local runway_name = comp._runwayName or ""
+    if runway_name == "" then
+        local yal = comp.yal or _G.yal
+        if yal and yal.deprwy then
+            runway_name = helpers.forceCleanString(get(yal.deprwy) or "")
+        end
+    end
+    if runway_name == "" then
+        return false
+    end
+    local runway_lat, runway_lon = resolve_dep_runway_latlon(comp)
+    local profile = compute_runway_landing_profile(comp._data or route_data, runway_name, runway_lat, runway_lon)
+    if not profile or not profile.threshold or not profile.axis then
+        return false
+    end
+
+    local last_id = route.path[#route.path]
+    local prev_id = route.path[#route.path - 1]
+    local last_node = route_data.nodes[last_id]
+    local prev_node = route_data.nodes[prev_id]
+    if not last_node or not prev_node then
+        return false
+    end
+    if last_node.east == nil or last_node.north == nil or prev_node.east == nil or prev_node.north == nil then
+        return false
+    end
+
+    local along, perp = compute_along_perp(profile, last_node)
+    if along == nil or perp == nil then
+        return false
+    end
+    local corridor = runway_corridor_half_width(profile)
+    if perp > (corridor + 35) then
+        return false
+    end
+    local dist_to_threshold = math.sqrt(distance_sq(
+        last_node.east,
+        last_node.north,
+        profile.threshold.east,
+        profile.threshold.north
+    ))
+    local max_dist = math.max(120, (C.depThresholdGateMeters or 45) * 3)
+    if dist_to_threshold > max_dist then
+        return false
+    end
+    if along >= 20 then
+        return false
+    end
+
+    local axis_heading = heading_deg_from_to(
+        profile.threshold.east,
+        profile.threshold.north,
+        profile.threshold.east + profile.axis.x * 10,
+        profile.threshold.north + profile.axis.y * 10
+    )
+    local inbound_heading = heading_deg_from_to(prev_node.east, prev_node.north, last_node.east, last_node.north)
+    if axis_heading and inbound_heading and along >= 5 then
+        local diff = heading_diff_deg(axis_heading, inbound_heading)
+        if diff <= 12 then
+            return false
+        end
+    end
+
+    local lineup_dist = math.max(15, math.min((C.depThresholdGateMeters or 45) * 0.8, 30))
+    local target_east = profile.threshold.east + profile.axis.x * lineup_dist
+    local target_north = profile.threshold.north + profile.axis.y * lineup_dist
+    local tail_dist = math.sqrt(distance_sq(last_node.east, last_node.north, target_east, target_north))
+    if tail_dist < 6 or tail_dist > 160 then
+        return false
+    end
+
+    local target_lat, target_lon = local_to_latlon(target_east, target_north)
+    local node_id = next_numeric_node_id(route_data.nodes)
+    route_data.nodes[node_id] = {
+        id = node_id,
+        east = target_east,
+        north = target_north,
+        lat = target_lat,
+        lon = target_lon,
+        is_temp = true
+    }
+    route_data.adjacency = route_data.adjacency or {}
+    route_data.adjacency_any = route_data.adjacency_any or {}
+    route_data.adjacency[last_id] = route_data.adjacency[last_id] or {}
+    route_data.adjacency_any[last_id] = route_data.adjacency_any[last_id] or {}
+    route_data.adjacency[node_id] = route_data.adjacency[node_id] or {}
+    route_data.adjacency_any[node_id] = route_data.adjacency_any[node_id] or {}
+    local label = normalize_runway_name(runway_name)
+    table.insert(route_data.adjacency[last_id], { to = node_id, label = label })
+    table.insert(route_data.adjacency_any[last_id], { to = node_id, label = label })
+    table.insert(route_data.adjacency[node_id], { to = last_id, label = label })
+    table.insert(route_data.adjacency_any[node_id], { to = last_id, label = label })
+    route_data.runway_nodes = route_data.runway_nodes or {}
+    route_data.runway_nodes[node_id] = true
+    route.path[#route.path + 1] = node_id
+    route.end_id = node_id
+    if route.bounds then
+        update_bounds(route.bounds, target_east, target_north)
+    end
+    if comp._routeWaypoints and #comp._routeWaypoints > 0 and is_valid_latlon(target_lat, target_lon) then
+        local last_wp = comp._routeWaypoints[#comp._routeWaypoints]
+        local wp_lat, wp_lon = ensure_waypoint_latlon(last_wp)
+        local append_wp = true
+        if is_valid_latlon(wp_lat, wp_lon) then
+            local d_wp = distance_meters_latlon(wp_lat, wp_lon, target_lat, target_lon)
+            if d_wp and d_wp < 6 then
+                append_wp = false
+            end
+        end
+        if append_wp then
+            comp._routeWaypoints[#comp._routeWaypoints + 1] = {
+                lat = target_lat,
+                lon = target_lon,
+                east = target_east,
+                north = target_north
+            }
+        end
+    end
+    comp._routeLabels = build_route_labels(route_data, route.path)
+    comp._routeLabelStats = compute_route_label_stats(route_data, route.path)
+    log_taxi(
+        string.format(
+            "TaxiEdit: manual dep anchor appended runway=%s dist=%.1f along=%.1f perp=%.1f",
+            tostring(runway_name),
+            tail_dist or -1,
+            along or -1,
+            perp or -1
+        )
+    )
+    return true
+end
+
 local function arrival_grace_active(comp, now)
     if not comp or not now then
         return false
@@ -2979,6 +3164,26 @@ local function build_quality_log(comp, data, icao, mode, reasons)
     )
 end
 
+local function reset_guidance_tracking(comp, reset_state)
+    if not comp then
+        return
+    end
+    comp._lastGuidanceNodeId = nil
+    comp._lastGuidanceLabel = nil
+    comp._lastGuidanceTime = nil
+    comp._lastGuidanceSegment = nil
+    comp._lastGuidanceAction = nil
+    comp._lastGuidanceVoiceText = nil
+    comp._lastGuidanceVoiceTime = nil
+    comp._guidanceMoveAnchor = nil
+    comp._guidanceLastPos = nil
+    comp._guidanceActiveSegIdx = nil
+    comp._guidanceMonotonicSegIdx = nil
+    if reset_state then
+        comp._guidanceState = "idle"
+    end
+end
+
 local function maybe_force_global_for_quality(comp, now, icao, mode, data, helpers, aircraft)
     if not comp or not data or not icao or not now then
         return false
@@ -3063,18 +3268,15 @@ local function maybe_force_global_for_quality(comp, now, icao, mode, data, helpe
                     comp._routeLabelStats = nil
                     comp._lastEndKey = nil
                     comp._lastStartKey = nil
-                    comp._lastGuidanceNodeId = nil
-                    comp._lastGuidanceLabel = nil
-                    comp._lastGuidanceTime = nil
+                    reset_guidance_tracking(comp, true)
                     comp._sCurveSkipNodeId = nil
                     clear_visual_guidance(comp, "end-ramp-switch-quality")
                     comp._visualGuidanceQueue = {}
-            comp._gateGuidanceLastDir = nil
-            comp._gateGuidanceLastAction = nil
-            comp._gateGuidanceLastTime = nil
-            comp._gateGuidanceStop = false
-            comp._gateGuidanceActive = false
-            comp._guidanceState = "idle"
+                    comp._gateGuidanceLastDir = nil
+                    comp._gateGuidanceLastAction = nil
+                    comp._gateGuidanceLastTime = nil
+                    comp._gateGuidanceStop = false
+                    comp._gateGuidanceActive = false
                     U.reset_gate_callouts(comp, cand_key)
                     if comp._quality then
                         comp._quality.badSince = nil
@@ -3115,9 +3317,7 @@ local function maybe_force_global_for_quality(comp, now, icao, mode, data, helpe
         comp._lastStartKey = nil
         comp._lastEndKey = nil
         comp._startRampLabel = nil
-        comp._lastGuidanceNodeId = nil
-        comp._lastGuidanceLabel = nil
-        comp._lastGuidanceTime = nil
+        reset_guidance_tracking(comp, true)
         comp._sCurveSkipNodeId = nil
         comp._rerouteOverride = nil
         comp._needsCenter = true
@@ -4134,6 +4334,7 @@ local function updateTaxiState(comp, map)
                 comp._pushbackReanchorTime = nil
                 comp._rerouteOverride = nil
                 comp._pendingRerouteEvent = nil
+                reset_guidance_tracking(comp, false)
                 comp._autoTaxiActiveRoute = comp._route
                 comp._autoTaxiActiveSegIdx = seg_idx
                 comp._autoTaxiLastSegIdx = seg_idx
@@ -4141,13 +4342,6 @@ local function updateTaxiState(comp, map)
                 comp._guidanceRoute = comp._route
                 comp._guidanceActiveSegIdx = seg_idx
                 comp._guidanceMonotonicSegIdx = seg_idx
-                comp._lastGuidanceNodeId = nil
-                comp._lastGuidanceLabel = nil
-                comp._lastGuidanceTime = nil
-                comp._lastGuidanceSegment = nil
-                comp._lastGuidanceAction = nil
-                comp._lastGuidanceVoiceText = nil
-                comp._lastGuidanceVoiceTime = nil
                 comp._guidanceForceInitial = true
                 if log_taxi then
                     log_taxi(string.format("TaxiRoute: pushback reattach seg=%s dist=%.1f", tostring(seg_idx), dist or 0))
@@ -6561,6 +6755,24 @@ local function updateTaxiState(comp, map)
                 end
                 if comp._lastRoutePathKey ~= path_key then
                     comp._lastRoutePathKey = path_key
+                    -- New route geometry: reset guidance/autotaxi segment anchors so
+                    -- callouts restart from the current aircraft position.
+                    comp._guidanceRoute = route
+                    comp._guidanceActiveSegIdx = nil
+                    comp._guidanceMonotonicSegIdx = nil
+                    comp._guidanceMoveAnchor = nil
+                    comp._guidanceForceInitial = true
+                    comp._lastGuidanceSegment = nil
+                    comp._lastGuidanceAction = nil
+                    comp._lastGuidanceVoiceText = nil
+                    comp._lastGuidanceVoiceTime = nil
+                    comp._autoTaxiActiveRoute = route
+                    comp._autoTaxiActiveSegIdx = nil
+                    comp._autoTaxiLastSegIdx = nil
+                    comp._autoTaxiRunwaySegIdx = nil
+                    comp._autoTaxiTargetSegIdx = nil
+                    comp._autoTaxiTargetAction = nil
+                    comp._autoTaxiTargetLabel = nil
                     local max_chunk = 30
                     local idx = 1
                     while idx <= #path_parts do
@@ -6876,6 +7088,7 @@ local function updateTaxiState(comp, map)
                             if comp._guidanceMonotonicSegIdx and comp._guidanceMonotonicSegIdx > seg_idx then
                                 seg_idx = comp._guidanceMonotonicSegIdx
                             end
+                            reset_guidance_tracking(comp, false)
                             comp._autoTaxiActiveRoute = comp._route
                             comp._autoTaxiActiveSegIdx = seg_idx
                             comp._autoTaxiLastSegIdx = seg_idx
@@ -6884,13 +7097,6 @@ local function updateTaxiState(comp, map)
                             comp._guidanceActiveSegIdx = seg_idx
                             comp._guidanceMonotonicSegIdx = seg_idx
                             comp._guidanceForceInitial = true
-                            comp._lastGuidanceNodeId = nil
-                            comp._lastGuidanceLabel = nil
-                            comp._lastGuidanceTime = nil
-                            comp._lastGuidanceSegment = nil
-                            comp._lastGuidanceAction = nil
-                            comp._lastGuidanceVoiceText = nil
-                            comp._lastGuidanceVoiceTime = nil
                             log_taxi(
                                 string.format(
                                     "TaxiRoute: offroute reanchor seg=%s dist=%.1f",
@@ -6898,6 +7104,20 @@ local function updateTaxiState(comp, map)
                                     dist or -1
                                 )
                             )
+                            if mode == 0 then
+                                local path_len = comp._route and comp._route.path and #comp._route.path or 0
+                                if path_len > 1 and seg_idx >= (path_len - 1) then
+                                    comp._lastRerouteTime = now
+                                    log_taxi(
+                                        string.format(
+                                            "TaxiRoute: offroute reanchor only (near end) seg=%s dist=%.1f",
+                                            tostring(seg_idx),
+                                            dist or -1
+                                        )
+                                    )
+                                    return
+                                end
+                            end
                         end
                         comp._rerouteOverride = { lat = aircraft.lat, lon = aircraft.lon }
                         if data and aircraft.east ~= nil and aircraft.north ~= nil then
@@ -6956,6 +7176,7 @@ local function updateTaxiState(comp, map)
                 if onRunway then
                     local gs = yal and yal.groundspeed and (get(yal.groundspeed) or 0) or 0
                     local takeoff_roll = gs >= ((C and C.depTakeoffLatchSpeed) or 25)
+                        and (comp._depThresholdLatched or comp._depThresholdReached)
                     if not takeoff_roll then
                         if not comp._depRunwayEntryAnnounced then
                             local rwy_phrase = runway_label_voice(comp._runwayName)
@@ -8442,6 +8663,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                                     tostring(comp._route ~= nil)
                                 )
                             )
+                            ensure_manual_dep_runway_anchor(comp)
                         else
                             comp._manualRouteLock = false
                             log_taxi("TaxiEdit: manual-lock ignored (no-waypoints/no-route)")
@@ -9507,6 +9729,23 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
         if heading < 0 then
             heading = heading + 360
         end
+        local join_heading = nil
+        local join_dist = nil
+        if comp._aircraftPoint and comp._aircraftPoint.east and comp._aircraftPoint.north then
+            local jdx = n1.east - comp._aircraftPoint.east
+            local jdy = n1.north - comp._aircraftPoint.north
+            if jdx ~= 0 or jdy ~= 0 then
+                join_dist = math.sqrt(jdx * jdx + jdy * jdy)
+                join_heading = math.deg(math.atan2(jdx, jdy))
+                if join_heading < 0 then
+                    join_heading = join_heading + 360
+                end
+            end
+        end
+        local heading_use = heading
+        if join_heading and join_dist and join_dist > ((C and C.pushbackReleaseMeters) or 5) then
+            heading_use = join_heading
+        end
         local yal = comp.yal or _G.yal
         local ac_heading = nil
         if yal and yal.localpositionpsi and isProperty(yal.localpositionpsi) then
@@ -9517,9 +9756,12 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
         if ac_heading == nil then
             return { heading = heading }
         end
-        local diff = math.abs(((heading - ac_heading + 540) % 360) - 180)
+        local diff = math.abs(((heading_use - ac_heading + 540) % 360) - 180)
         return {
-            heading = heading,
+            heading = heading_use,
+            route_heading = heading,
+            join_heading = join_heading,
+            join_dist = join_dist,
             aircraft = ac_heading,
             diff = diff
         }

@@ -13,8 +13,28 @@ local taxiComponent
 local taxiPopupWindow
 local taxiPopupInitialized = false
 local taxiPopupComponent
+local updatePopupWindow
+local updatePopupInitialized = false
+local updatePopupComponent
+local startupUpdateCheckDone = false
+local startupUpdateCheckEarliest = 0
+local startupUpdateCheckPerformed = false
 local menu_taxi = nil
 local taxiGateLastLogTime = 0
+local ziboReleaseDr = globalProperty("laminar/B738/release")
+
+local function normalize_zibo_release(raw)
+    local s = helpers.forceCleanString(tostring(raw or ""))
+    local full = s:match("(%d+%.%d+%.%d+)")
+    if full then
+        return full
+    end
+    local short = s:match("(%d+%.%d+)")
+    if short then
+        return short
+    end
+    return s
+end
 
 local function maybeInitDebugOverlay()
     if debugOverlayInitialized then return end
@@ -179,9 +199,9 @@ local function maybeInitSetupWindow()
         noBackground = true,
         noDecore = true,
         proportional = false,
-        resizeCallback = function(c, rw, rh, _, _)
-            if c and c.position then set(c.position, {0, 0, rw, rh}) end
-            if c and c.size then c.size = {rw, rh} end
+        resizeCallback = function(_, rw, rh, _, _)
+            if comp and comp.position then set(comp.position, {0, 0, rw, rh}) end
+            if comp and comp.size then comp.size = {rw, rh} end
             return 0, 0, rw, rh
         end,
         components = { comp }
@@ -357,6 +377,168 @@ local function maybeInitTaxiPopupWindow()
     helpers.logInfoTS("Taxi guidance popup initialized")
 end
 
+local function maybeInitUpdatePopupWindow()
+    if updatePopupInitialized then
+        return
+    end
+
+    local ok, modOrErr = pcall(require, "windows.update_popup")
+    if not ok then
+        sasl.logWarning("Update popup failed to load: " .. tostring(modOrErr))
+        updatePopupInitialized = true
+        return
+    end
+
+    local mod = modOrErr
+    if not mod or not mod.newComponent then
+        updatePopupInitialized = true
+        sasl.logWarning("Update popup module missing newComponent.")
+        return
+    end
+
+    local comp = mod.newComponent({
+        yal = yal,
+        def = def,
+        helpers = helpers,
+        onAcknowledge = function()
+            helpers.logInfoTS("Startup update popup acknowledged")
+        end
+    })
+    updatePopupComponent = comp
+    local w, h = mod.windowSize()
+    local xRoot, yRoot, wRoot, hRoot = sasl.windows.getMonitorBoundsOS(0)
+    local posX = xRoot + math.max(0, (wRoot - w) / 2)
+    local posY = yRoot + math.max(0, (hRoot - h) * 0.25)
+
+    updatePopupWindow = contextWindow {
+        name = "YAL Updates",
+        position = { posX, posY, w, h },
+        saveState = true,
+        visible = false,
+        noResize = true,
+        vrAuto = true,
+        noBackground = true,
+        noDecore = true,
+        proportional = false,
+        components = { comp }
+    }
+
+    if comp.setWindow then
+        comp:setWindow(updatePopupWindow)
+    end
+
+    updatePopupInitialized = true
+    helpers.logInfoTS("Update popup initialized")
+end
+
+local function armStartupUpdateCheck()
+    if startupUpdateCheckPerformed then
+        return
+    end
+    startupUpdateCheckDone = false
+    startupUpdateCheckEarliest = (os.time() or 0) + 2
+end
+
+local function is_yal_beta_version()
+    local v = tostring(def.VERSION or ""):lower()
+    return (v:find("beta", 1, true) ~= nil) or (v:find("b", 1, true) ~= nil)
+end
+
+local function maybeRunStartupUpdateCheck()
+    if startupUpdateCheckDone then
+        return
+    end
+    if not settings or not settings.appSettings then
+        return
+    end
+    local now = os.time() or 0
+    if startupUpdateCheckEarliest > 0 and now < startupUpdateCheckEarliest then
+        return
+    end
+    local ziboRelease = ""
+    if ziboReleaseDr and isProperty(ziboReleaseDr) then
+        ziboRelease = helpers.forceCleanString(tostring(get(ziboReleaseDr) or ""))
+    end
+    helpers.logInfoTS(string.format(
+        "Zibo installed version: v%s",
+        tostring((normalize_zibo_release(ziboRelease) ~= "") and normalize_zibo_release(ziboRelease) or "?")
+    ))
+    if tonumber(settings.appSettings[def.CONFIGAUTOUPDATECHECK] or 0) ~= def.ON then
+        startupUpdateCheckDone = true
+        startupUpdateCheckPerformed = true
+        helpers.logInfoTS("Startup update check skipped (setting OFF)")
+        return
+    end
+    if not helpers.isZibo() then
+        return
+    end
+    if yal and yal.isReloadWithinSession then
+        startupUpdateCheckDone = true
+        startupUpdateCheckPerformed = true
+        helpers.logInfoTS("Startup update check skipped (SASL reload within session)")
+        return
+    end
+
+    startupUpdateCheckDone = true
+    startupUpdateCheckPerformed = true
+
+    local showBetaUpdates = tonumber(settings.appSettings[def.CONFIGSHOWBETAUPDATES] or 0) == def.ON
+    local checkBeta = showBetaUpdates or is_yal_beta_version()
+    local yalAvailable, yalLatest = helpers.checkForUpdate(checkBeta)
+    local _, yalStable = helpers.checkForUpdate(false)
+    local _, yalBeta = helpers.checkForUpdate(true)
+
+    local ziboAvailable, ziboLatest, ziboLocal = helpers.checkForZiboUpdate(ziboRelease)
+    helpers.logInfoTS(string.format(
+        "Zibo feed latest version: v%s",
+        tostring((ziboLatest and ziboLatest ~= "") and ziboLatest or "?")
+    ))
+
+    helpers.startupUpdateInfo = {
+        ts = now,
+        yal = {
+            checkBeta = checkBeta,
+            available = yalAvailable,
+            latest = yalLatest,
+            latestStable = yalStable,
+            latestBeta = yalBeta,
+            current = tostring(def.VERSION or ""),
+        },
+        zibo = {
+            available = ziboAvailable,
+            latest = ziboLatest,
+            current = ziboLocal,
+        },
+    }
+
+    if not yalAvailable and not ziboAvailable then
+        helpers.logInfoTS("Startup update check: no updates available")
+        return
+    end
+
+    local lines = {}
+    if yalAvailable then
+        lines[#lines + 1] = string.format("YAL update available: v%s (installed v%s)", tostring(yalLatest or "?"), tostring(def.VERSION or "?"))
+    end
+    if checkBeta and yalStable and yalStable ~= "" then
+        lines[#lines + 1] = string.format("Latest stable YAL: v%s", tostring(yalStable))
+    elseif (not checkBeta) and yalBeta and yalBeta ~= "" then
+        lines[#lines + 1] = string.format("Latest beta YAL: v%s", tostring(yalBeta))
+    end
+    if ziboAvailable then
+        lines[#lines + 1] = string.format("Zibo update available: v%s (installed v%s)", tostring(ziboLatest or "?"), tostring(ziboLocal or "?"))
+    end
+
+    maybeInitUpdatePopupWindow()
+    if updatePopupComponent and updatePopupComponent.setPayload then
+        updatePopupComponent:setPayload({
+            title = "Update available",
+            lines = lines,
+            okLabel = "OK",
+        })
+    end
+end
+
 -- ensure setup window (and its command/menu) is constructed early
 maybeInitSetupWindow()
 
@@ -394,6 +576,7 @@ if helpers.isZibo() then
     maybeInitTaxiWindow()
     if menu_settings then sasl.enableMenuItem(yal.menu_main , menu_settings , def.ON) end
     yal.initializeScript()
+    armStartupUpdateCheck()
     maybeInitDebugOverlay()
     sasl.startTimer(oneSecTimer)
     waitstep = def.LONGWAIT
@@ -405,6 +588,7 @@ else
     if setupWindow then setupWindow:setIsVisible(false) end
     if taxiWindow then taxiWindow:setIsVisible(false) end
     if taxiPopupWindow then taxiPopupWindow:setIsVisible(false) end
+    if updatePopupWindow then updatePopupWindow:setIsVisible(false) end
 end
 
 function onAirportLoaded(flightNumber)
@@ -417,6 +601,7 @@ function onAirportLoaded(flightNumber)
         maybeInitTaxiWindow()
         if menu_settings then sasl.enableMenuItem(yal.menu_main , menu_settings , def.ON) end
         yal.initializeScript()
+        armStartupUpdateCheck()
         maybeInitDebugOverlay()
         sasl.startTimer(oneSecTimer)
         waitstep = def.LONGWAIT
@@ -428,12 +613,14 @@ function onAirportLoaded(flightNumber)
         if setupWindow then setupWindow:setIsVisible(false) end
         if taxiWindow then taxiWindow:setIsVisible(false) end
         if taxiPopupWindow then taxiPopupWindow:setIsVisible(false) end
+        if updatePopupWindow then updatePopupWindow:setIsVisible(false) end
     end
 end
 
 function update()
     if helpers.isZibo() then
         maybeInitDebugOverlay()
+        maybeRunStartupUpdateCheck()
         local autoTaxiEnabled = false
         local autoTaxiingEnabled = false
         local visualTaxiEnabled = false

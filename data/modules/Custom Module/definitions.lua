@@ -3,6 +3,7 @@
 local P = {}
 
 P.VERSION = "4.6b8"
+P.CACHE_EPOCH = 1
 
 --------------------------------------------------------------------------------------------------------------
 -- Constants
@@ -61,6 +62,7 @@ P.CONFIGSAVELAST = "SAVELAST"
 P.CONFIGGEARDOWNFLAPS = "GEARDOWNFLAPS"
 P.CONFIGPACKSRESTOREALT = "PACKSRESTOREALT"
 P.CONFIGSHOWBETAUPDATES = "SHOWBETAUPDATES"
+P.CONFIGAUTOUPDATECHECK = "AUTOUPDATECHECK"
 P.CONFIGJITLUAON = "JITLUAON"
 P.CONFIGZIBOISMODDED = "ZIBOISMODDED"
 P.CONFIGDEBUGOVERLAY = "DEBUGOVERLAY"
@@ -409,6 +411,7 @@ P.YALCACHEPATH = P.XPOUTPUTPATH .. "caches" .. P.OSSEPARATOR .. P.APPNAMEPREFIX 
 P.ZIBO_B738_CALC_PATH = sasl.getXPlanePath() .. P.OSSEPARATOR .. "Aircraft" .. P.OSSEPARATOR .. "B737-800X" .. P.OSSEPARATOR .. "plugins" .. P.OSSEPARATOR .. "xlua" .. P.OSSEPARATOR .. "scripts" .. P.OSSEPARATOR .. "B738.calc" .. P.OSSEPARATOR .. "B738.calc.lua"
 P.YALGITHUBURL = "https://raw.githubusercontent.com/wahltho/YAL/main/data/modules/configuration/version.ini"
 P.YALBETAGITHUBURL = "https://raw.githubusercontent.com/wahltho/YAL/beta/data/modules/configuration/version.ini"
+P.ZIBOUPDATEFEEDURL = "https://skymatixva.com/tfiles/feed.xml"
 
 P.AVWEATHERFURLCSV = "https://aviationweather.gov/api/data/metar?taf=false&ids="
 

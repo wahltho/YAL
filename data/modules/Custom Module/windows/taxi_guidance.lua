@@ -422,40 +422,46 @@ function M.attach(U, C, def, helpers, settings)
                 return
             end
             if comp._takeoffRollGuidance then
-                local on_rwy = false
-                if comp._depProfile and aircraft then
-                    on_rwy = is_on_runway_profile(comp._depProfile, aircraft, 60, 5)
-                end
-                if (not on_rwy) and yal and yal.aircraftonrwy then
-                    on_rwy = yal.aircraftonrwy(def.DEPARTURE, 40, (C and C.depThresholdHeadingLimit) or 25)
-                end
-                if (not on_rwy) and gs < 5 then
+                if not (comp._depThresholdLatched or comp._depThresholdReached) then
                     comp._takeoffRollGuidance = nil
-                elseif on_ground then
-                    clear_visual_guidance(comp, "takeoff-roll")
-                    comp._visualGuidanceQueue = {}
-                    local logger = comp._logTaxi or (helpers and helpers.logInfoTS)
-                    set_guidance_state(comp, "complete", "takeoff-roll", logger)
-                    diag("takeoff-roll")
-                    return
+                else
+                    local on_rwy = false
+                    if comp._depProfile and aircraft then
+                        on_rwy = is_on_runway_profile(comp._depProfile, aircraft, 60, 5)
+                    end
+                    if (not on_rwy) and yal and yal.aircraftonrwy then
+                        on_rwy = yal.aircraftonrwy(def.DEPARTURE, 40, (C and C.depThresholdHeadingLimit) or 25)
+                    end
+                    if (not on_rwy) and gs < 5 then
+                        comp._takeoffRollGuidance = nil
+                    elseif on_ground then
+                        clear_visual_guidance(comp, "takeoff-roll")
+                        comp._visualGuidanceQueue = {}
+                        local logger = comp._logTaxi or (helpers and helpers.logInfoTS)
+                        set_guidance_state(comp, "complete", "takeoff-roll", logger)
+                        diag("takeoff-roll")
+                        return
+                    end
                 end
             end
             if gs >= ((C and C.depTakeoffLatchSpeed) or 25) then
-                local on_rwy = false
-                if comp._depProfile and aircraft then
-                    on_rwy = is_on_runway_profile(comp._depProfile, aircraft, 60, 5)
-                end
-                if (not on_rwy) and yal and yal.aircraftonrwy then
-                    on_rwy = yal.aircraftonrwy(def.DEPARTURE, 40, (C and C.depThresholdHeadingLimit) or 25)
-                end
-                if on_rwy then
-                    comp._takeoffRollGuidance = true
-                    clear_visual_guidance(comp, "takeoff-roll")
-                    comp._visualGuidanceQueue = {}
-                    local logger = comp._logTaxi or (helpers and helpers.logInfoTS)
-                    set_guidance_state(comp, "complete", "takeoff-roll", logger)
-                    diag("takeoff-roll")
-                    return
+                if comp._depThresholdLatched or comp._depThresholdReached then
+                    local on_rwy = false
+                    if comp._depProfile and aircraft then
+                        on_rwy = is_on_runway_profile(comp._depProfile, aircraft, 60, 5)
+                    end
+                    if (not on_rwy) and yal and yal.aircraftonrwy then
+                        on_rwy = yal.aircraftonrwy(def.DEPARTURE, 40, (C and C.depThresholdHeadingLimit) or 25)
+                    end
+                    if on_rwy then
+                        comp._takeoffRollGuidance = true
+                        clear_visual_guidance(comp, "takeoff-roll")
+                        comp._visualGuidanceQueue = {}
+                        local logger = comp._logTaxi or (helpers and helpers.logInfoTS)
+                        set_guidance_state(comp, "complete", "takeoff-roll", logger)
+                        diag("takeoff-roll")
+                        return
+                    end
                 end
             end
         end
@@ -549,6 +555,31 @@ function M.attach(U, C, def, helpers, settings)
         if guidance_state == "complete" then
             return
         end
+        if guidance_state == "route" and comp.mode == 1 and comp._endRamp and aircraft then
+            local dist = gate_distance_meters(comp, aircraft, route, data)
+            comp._gateNote = gate_note_text(dist, comp._gateUseDgs)
+            local gate_key = gate_target_key(comp, route)
+            if gate_key ~= comp._gateCalloutKey then
+                reset_gate_callouts(comp, gate_key)
+            end
+            if gate_key and dist and dist <= 80 and not comp._arrTaxiCompleteAnnounced then
+                local gate_speed = (comp._tuning and comp._tuning.gateGuidanceMaxSpeed) or (C and C.gateGuidanceMaxSpeed) or 12
+                local offRunway = nil
+                if comp._arrProfile and aircraft then
+                    offRunway = not is_on_runway_profile(comp._arrProfile, aircraft, 60, 5)
+                elseif comp.yal and comp.yal.aircraftonrwy then
+                    offRunway = not comp.yal.aircraftonrwy(def.ARRIVAL, 40, 20)
+                end
+                if offRunway ~= false and gs <= gate_speed then
+                    local stop_dist = (comp._gateUseDgs and ((C and C.gateDgsGoodZPos) or 0.2)) or C.gateStopDistance
+                    if gs > 0.2 or dist <= stop_dist then
+                        maybe_gate_voice_callouts(comp, dist, auto_voice, comp._gateUseDgs)
+                    end
+                end
+            end
+        elseif guidance_state ~= "gate" then
+            comp._gateNote = nil
+        end
         if guidance_state == "gate" and route and route.path and route.data and route.data.nodes then
             local gate_seg = comp._autoTaxiLastSegIdx or comp._guidanceActiveSegIdx
             if gate_seg and gate_seg >= 1 and gate_seg < #route.path then
@@ -620,7 +651,9 @@ function M.attach(U, C, def, helpers, settings)
             end
             return
         else
-            comp._gateNote = nil
+            if guidance_state ~= "route" then
+                comp._gateNote = nil
+            end
             if comp._gateCalloutKey ~= nil then
                 reset_gate_callouts(comp, nil)
             end
@@ -723,28 +756,78 @@ function M.attach(U, C, def, helpers, settings)
             return result
         end
 
+        local function label_matches_dep(label)
+            if not comp or comp.mode ~= 0 then
+                return false
+            end
+            local dep_label = comp._depProfileLabel or ""
+            local dep_name = comp._runwayName or ""
+            if dep_label == "" or dep_name == "" or not label then
+                return false
+            end
+            local dep_pair = normalize_runway_pair_label(dep_label)
+            local label_pair = normalize_runway_pair_label(label)
+            if dep_pair == "" or label_pair == "" then
+                return false
+            end
+            if dep_pair == label_pair then
+                return true
+            end
+            for part in string.gmatch(dep_pair, "[^/]+") do
+                for lpart in string.gmatch(label_pair, "[^/]+") do
+                    if part == lpart then
+                        return true
+                    end
+                end
+            end
+            return false
+        end
+
+        local function resolve_runway_label(label)
+            if not label or label == "" then
+                return label
+            end
+            if label_matches_dep(label) then
+                return comp._runwayName or label
+            end
+            return label
+        end
+
+        local function runway_voice(label)
+            return runway_label_voice(resolve_runway_label(label))
+        end
+
+        local function runway_display(label)
+            return normalize_runway_name(resolve_runway_label(label))
+        end
+
         local function guidance_label_info(from_id, to_id, fallback_label, ramp_hint, allow_missing)
             local raw_label = get_edge_label(data, from_id, to_id)
             if (not raw_label or raw_label == "") and is_freehand then
                 local fh = freehand_segment_label(from_id, to_id)
                 if fh and fh.label and fh.label ~= "" then
                     if fh.is_runway then
-                        local display = normalize_runway_name(fh.label)
+                        local display = runway_display(fh.label)
                         if display == "" then
                             display = tostring(fh.label)
                         end
-                        return { kind = "runway", text = runway_label_voice(fh.label), display = display }
+                        return { kind = "runway", text = runway_voice(fh.label), display = display }
                     end
                     raw_label = fh.label
                 end
             end
             if raw_label and raw_label ~= "" then
-                if raw_label == "RAMP" or (is_runway_label(raw_label) and raw_label ~= "RAMP") then
-                    local display = normalize_runway_name(raw_label)
+                if raw_label == "RAMP" then
+                    local display = ramp_hint or ""
+                    local text = (display ~= "" and display) or "Gate"
+                    return { kind = "ramp", text = text, display = display }
+                end
+                if is_runway_label(raw_label) then
+                    local display = runway_display(raw_label)
                     if display == "" then
                         display = tostring(raw_label)
                     end
-                    return { kind = "runway", text = runway_label_voice(raw_label), display = display }
+                    return { kind = "runway", text = runway_voice(raw_label), display = display }
                 end
                 local display = normalize_taxiway_label(raw_label)
                 if display == "" and not allow_missing then
@@ -806,64 +889,64 @@ function M.attach(U, C, def, helpers, settings)
         end
 
         local function build_guidance_for_crossing(seg_idx, label)
-            local text = "Caution, crossing " .. runway_label_voice(label)
+            local text = "Caution, crossing " .. runway_voice(label)
             return {
                 text = text,
                 direction = "straight",
                 action = "CROSS RWY",
-                label = build_visual_label("runway", normalize_runway_name(label)),
+                label = build_visual_label("runway", runway_display(label)),
                 kind = "runway",
                 targetSegIdx = seg_idx
             }
         end
 
         local function build_guidance_for_exit(seg_idx, label, exit_dir)
-            local text = "Leave " .. runway_label_voice(label) .. " to " .. exit_dir
+            local text = "Leave " .. runway_voice(label) .. " to " .. exit_dir
             return {
                 text = text,
                 direction = exit_dir,
                 action = "EXIT RWY",
-                label = build_visual_label("runway", normalize_runway_name(label)),
+                label = build_visual_label("runway", runway_display(label)),
                 kind = "runway",
                 targetSegIdx = seg_idx
             }
         end
 
         local function build_guidance_for_entry(seg_idx, label, turn_dir)
-            local text = "Enter " .. runway_label_voice(label)
+            local text = "Enter " .. runway_voice(label)
             local action = "ENTER RWY"
             if turn_dir == "left" then
-                text = "Turn left on " .. runway_label_voice(label)
+                text = "Turn left on " .. runway_voice(label)
                 action = "TURN LEFT"
             elseif turn_dir == "right" then
-                text = "Turn right on " .. runway_label_voice(label)
+                text = "Turn right on " .. runway_voice(label)
                 action = "TURN RIGHT"
             end
             return {
                 text = text,
                 direction = turn_dir or "straight",
                 action = action,
-                label = build_visual_label("runway", normalize_runway_name(label)),
+                label = build_visual_label("runway", runway_display(label)),
                 kind = "runway",
                 targetSegIdx = seg_idx
             }
         end
 
         local function build_guidance_for_runway_entry(seg_idx, label, turn_dir)
-            local text = "Taxi via " .. runway_label_voice(label)
+            local text = "Taxi via " .. runway_voice(label)
             local action = "TAXI VIA"
             if turn_dir == "left" then
-                text = "Turn left on " .. runway_label_voice(label)
+                text = "Turn left on " .. runway_voice(label)
                 action = "TURN LEFT"
             elseif turn_dir == "right" then
-                text = "Turn right on " .. runway_label_voice(label)
+                text = "Turn right on " .. runway_voice(label)
                 action = "TURN RIGHT"
             end
             return {
                 text = text,
                 direction = turn_dir or "straight",
                 action = action,
-                label = build_visual_label("runway", normalize_runway_name(label)),
+                label = build_visual_label("runway", runway_display(label)),
                 kind = "runway",
                 targetSegIdx = seg_idx
             }
@@ -938,84 +1021,94 @@ function M.attach(U, C, def, helpers, settings)
             }
         end
 
-        local function build_guidance_for_runway_turn(turn_dir, label)
-            local text = "Turn " .. turn_dir .. " on " .. runway_label_voice(label)
+        local function build_guidance_for_generic_turn(turn_dir)
+            local text = "Turn " .. turn_dir
             return {
                 text = text,
                 direction = turn_dir,
                 action = (turn_dir == "left") and "TURN LEFT" or "TURN RIGHT",
-                label = build_visual_label("runway", normalize_runway_name(label)),
+                kind = "route"
+            }
+        end
+
+        local function build_guidance_for_runway_turn(turn_dir, label)
+            local text = "Turn " .. turn_dir .. " on " .. runway_voice(label)
+            return {
+                text = text,
+                direction = turn_dir,
+                action = (turn_dir == "left") and "TURN LEFT" or "TURN RIGHT",
+                label = build_visual_label("runway", runway_display(label)),
                 kind = "runway"
             }
         end
 
         local function build_guidance_for_crossing_warning(seg_idx, label)
-            local text = "Caution, crossing " .. runway_label_voice(label)
+            local text = "Caution, crossing " .. runway_voice(label)
             return {
                 text = text,
                 direction = "straight",
                 action = "CROSS RWY",
-                label = build_visual_label("runway", normalize_runway_name(label)),
+                label = build_visual_label("runway", runway_display(label)),
                 kind = "runway",
                 targetSegIdx = seg_idx
             }
         end
 
         local function build_guidance_for_runway_exit(seg_idx, label, exit_dir)
-            local text = "Leave " .. runway_label_voice(label) .. " to " .. exit_dir
+            local text = "Leave " .. runway_voice(label) .. " to " .. exit_dir
             return {
                 text = text,
                 direction = exit_dir,
                 action = "EXIT RWY",
-                label = build_visual_label("runway", normalize_runway_name(label)),
+                label = build_visual_label("runway", runway_display(label)),
                 kind = "runway",
                 targetSegIdx = seg_idx
             }
         end
 
         local function build_guidance_for_runway_crossing(seg_idx, label)
-            local text = "Caution, crossing " .. runway_label_voice(label)
+            local text = "Caution, crossing " .. runway_voice(label)
             return {
                 text = text,
                 direction = "straight",
                 action = "CROSS RWY",
-                label = build_visual_label("runway", normalize_runway_name(label)),
+                label = build_visual_label("runway", runway_display(label)),
                 kind = "runway",
                 targetSegIdx = seg_idx
             }
         end
 
         local function build_guidance_for_runway_continue(seg_idx, label)
-            local text = "Continue on " .. runway_label_voice(label)
+            local text = "Continue on " .. runway_voice(label)
             return {
                 text = text,
                 direction = "straight",
                 action = "CONTINUE",
-                label = build_visual_label("runway", normalize_runway_name(label)),
+                label = build_visual_label("runway", runway_display(label)),
                 kind = "runway",
                 targetSegIdx = seg_idx
             }
         end
 
         local function build_guidance_for_runway_entry(seg_idx, label)
-            local text = "Taxi via " .. runway_label_voice(label)
+            local text = "Taxi via " .. runway_voice(label)
             return {
                 text = text,
                 direction = "straight",
                 action = "TAXI VIA",
-                label = build_visual_label("runway", normalize_runway_name(label)),
+                label = build_visual_label("runway", runway_display(label)),
                 kind = "runway",
                 targetSegIdx = seg_idx
             }
         end
 
         local function build_guidance_for_hold_short(seg_idx, label)
-            local text = "Hold short of " .. runway_label_voice(label)
+            local text = "Hold short of " .. runway_voice(label)
             return {
                 text = text,
                 direction = "straight",
                 action = "HOLD SHORT",
-                label = build_visual_label("runway", normalize_runway_name(label)),
+                label = build_visual_label("runway", runway_display(label)),
                 kind = "runway",
                 targetSegIdx = seg_idx
             }
@@ -1052,24 +1145,24 @@ function M.attach(U, C, def, helpers, settings)
         end
 
         local function build_guidance_for_line_up(seg_idx, label)
-            local text = "Line up on " .. runway_label_voice(label)
+            local text = "Line up on " .. runway_voice(label)
             return {
                 text = text,
                 direction = "straight",
                 action = "LINE UP",
-                label = build_visual_label("runway", normalize_runway_name(label)),
+                label = build_visual_label("runway", runway_display(label)),
                 kind = "runway",
                 targetSegIdx = seg_idx
             }
         end
 
         local function build_guidance_for_takeoff(seg_idx, label)
-            local text = "Cleared for takeoff " .. runway_label_voice(label)
+            local text = "Cleared for takeoff " .. runway_voice(label)
             return {
                 text = text,
                 direction = "straight",
                 action = "TAKEOFF",
-                label = build_visual_label("runway", normalize_runway_name(label)),
+                label = build_visual_label("runway", runway_display(label)),
                 kind = "runway",
                 targetSegIdx = seg_idx
             }
@@ -1168,14 +1261,10 @@ function M.attach(U, C, def, helpers, settings)
                     return false
                 end
             end
-            if is_visual_taxi_guidance_enabled() and info.visual ~= false then
-                if info.queue then
-                    queue_visual_guidance(comp, info)
-                else
-                    set_visual_guidance(comp, info)
-                end
-            end
-            if auto_voice and is_voice_enabled() and info.text and info.text ~= "" then
+            local voice_queued = false
+            local voice_active = auto_voice and is_voice_enabled()
+            local voice_text_ok = voice_active and info.text and info.text ~= ""
+            if voice_text_ok then
                 local last_text = comp._lastGuidanceVoiceText
                 local last_time = comp._lastGuidanceVoiceTime or 0
                 local cooldown = (C and C.guidanceCooldown) or 8
@@ -1183,6 +1272,22 @@ function M.attach(U, C, def, helpers, settings)
                     speak_guidance_text(comp, info.text)
                     comp._lastGuidanceVoiceText = info.text
                     comp._lastGuidanceVoiceTime = now or 0
+                    voice_queued = true
+                end
+            end
+            if is_visual_taxi_guidance_enabled() and info.visual ~= false then
+                local action = info.action
+                local force_visual = (action == "STOP" or action == "HOLD SHORT" or action == "CROSS RWY")
+                local allow_visual = true
+                if voice_text_ok and (not force_visual) and (not voice_queued) then
+                    allow_visual = false
+                end
+                if allow_visual then
+                    if info.queue then
+                        queue_visual_guidance(comp, info)
+                    else
+                        set_visual_guidance(comp, info)
+                    end
                 end
             end
             if comp._guidanceForceInitial then
@@ -1302,6 +1407,23 @@ function M.attach(U, C, def, helpers, settings)
                 end
             end
         end
+        do
+            if data and data.nodes and path[seg_idx] and path[seg_idx + 1] and path[seg_idx + 2] then
+                local n_from = data.nodes[path[seg_idx]]
+                local n_to = data.nodes[path[seg_idx + 1]]
+                if n_from and n_to and n_from.east and n_from.north and n_to.east and n_to.north then
+                    local d_from = distance_sq(aircraft.east, aircraft.north, n_from.east, n_from.north)
+                    local d_to = distance_sq(aircraft.east, aircraft.north, n_to.east, n_to.north)
+                    if d_to < d_from then
+                        seg_idx = seg_idx + 1
+                        comp._guidanceActiveSegIdx = seg_idx
+                        if comp._guidanceMonotonicSegIdx and comp._guidanceMonotonicSegIdx < seg_idx then
+                            comp._guidanceMonotonicSegIdx = seg_idx
+                        end
+                    end
+                end
+            end
+        end
 
         local next_idx = seg_idx + 1
         local seg_len = nil
@@ -1381,18 +1503,49 @@ function M.attach(U, C, def, helpers, settings)
         local n1 = data.nodes[path[seg_idx]]
         local n2 = data.nodes[path[seg_idx + 1]]
         local n3 = data.nodes[path[seg_idx + 2]]
+        local dist_to_node = nil
+        if n2 and n2.east and n2.north then
+            local dxn = n2.east - aircraft.east
+            local dyn = n2.north - aircraft.north
+            dist_to_node = math.sqrt(dxn * dxn + dyn * dyn)
+        end
         local turn_dir = nil
+        local turn_angle = nil
         if n1 and n2 and n3 and n1.east and n1.north and n2.east and n2.north and n3.east and n3.north then
-            local h1 = heading_deg_from_to(n1.east, n1.north, n2.east, n2.north)
-            local h2 = heading_deg_from_to(n2.east, n2.north, n3.east, n3.north)
+            local v1x = n2.east - n1.east
+            local v1y = n2.north - n1.north
+            local v2x = n3.east - n2.east
+            local v2y = n3.north - n2.north
+            local h1 = heading_deg_from_to(0, 0, v1x, v1y)
+            local h2 = heading_deg_from_to(0, 0, v2x, v2y)
             if h1 and h2 then
                 local diff = heading_diff_deg(h1, h2)
+                turn_angle = diff
                 if diff >= C.guidanceTurnAngle then
-                    local cross = (n2.east - n1.east) * (n3.north - n2.north)
-                        - (n2.north - n1.north) * (n3.east - n2.east)
+                    local cross = v1x * v2y - v1y * v2x
                     turn_dir = (cross >= 0) and "left" or "right"
                 end
             end
+        end
+        local allow_turn = true
+        local turn_allow_dist = threshold
+        if turn_dir and turn_dir ~= "straight" then
+            local promote_turn = false
+            if next_raw_label and is_runway_label(next_raw_label) then
+                promote_turn = true
+            elseif raw_label and next_raw_label and raw_label ~= "" and next_raw_label ~= "" then
+                local raw_norm = normalize_taxiway_label(raw_label)
+                local next_norm = normalize_taxiway_label(next_raw_label)
+                if raw_norm ~= "" and raw_norm == next_norm then
+                    promote_turn = true
+                end
+            end
+            if promote_turn and C and C.guidanceMaxDistance and C.guidanceMaxDistance > turn_allow_dist then
+                turn_allow_dist = C.guidanceMaxDistance
+            end
+        end
+        if dist_to_node and turn_allow_dist and dist_to_node > turn_allow_dist then
+            allow_turn = false
         end
 
         if seg_len and seg_len < C.guidanceFirstTurnMinMeters then
@@ -1407,14 +1560,36 @@ function M.attach(U, C, def, helpers, settings)
             local next_rwy = is_runway_label(next_raw_label)
             if raw_rwy ~= next_rwy then
                 if raw_rwy and not next_rwy then
-                    next_info = build_guidance_for_exit(seg_idx, raw_label, turn_dir or "straight")
+                    local skip_exit = false
+                    if comp._lastGuidanceAction == "CROSS RWY" then
+                        local last_label = comp._lastGuidanceLabel or ""
+                        local raw_disp = normalize_runway_name(raw_label)
+                        if raw_disp ~= "" and last_label == raw_disp then
+                            skip_exit = true
+                        end
+                    end
+                    local exit_dir = turn_dir
+                    if not allow_turn then
+                        exit_dir = nil
+                    end
+                    if not skip_exit then
+                        next_info = build_guidance_for_exit(seg_idx, raw_label, exit_dir or "straight")
+                    end
                 elseif not raw_rwy and next_rwy then
-                    next_info = build_guidance_for_entry(seg_idx, next_raw_label, turn_dir)
+                    local entry_dir = turn_dir
+                    if not allow_turn then
+                        entry_dir = nil
+                    end
+                    next_info = build_guidance_for_entry(seg_idx, next_raw_label, entry_dir)
                 end
             elseif raw_rwy and next_rwy and raw_label == next_raw_label then
                 next_info = build_guidance_for_runway_continue(seg_idx, raw_label)
             elseif raw_rwy and next_rwy and raw_label ~= next_raw_label then
-                next_info = build_guidance_for_crossing_warning(seg_idx, next_raw_label)
+                if turn_dir and turn_dir ~= "straight" and allow_turn then
+                    next_info = build_guidance_for_runway_turn(turn_dir, next_raw_label)
+                else
+                    next_info = build_guidance_for_crossing_warning(seg_idx, next_raw_label)
+                end
             end
         end
 
@@ -1442,26 +1617,47 @@ function M.attach(U, C, def, helpers, settings)
                 local next_info_raw = guidance_label_info(path[seg_idx + 1], path[seg_idx + 2], nil, nil, true)
                 if next_info_raw and next_info_raw.display and next_info_raw.kind == "taxiway" then
                     local same = normalize_taxiway_label(next_display) == normalize_taxiway_label(next_info_raw.display)
-                    if same and turn_dir and turn_dir ~= "straight" then
-                        next_info = build_guidance_for_turn_text(turn_dir, next_info_raw.display)
-                    elseif same and not turn_dir then
-                        next_info = build_guidance_for_continue(seg_idx, next_info_raw.display)
-                    elseif turn_dir and turn_dir ~= "straight" then
-                        next_info = build_guidance_for_turning(seg_idx, next_info_raw.display, turn_dir)
+                    if same then
+                        local strong_turn = turn_angle and (turn_angle >= (C.guidanceTurnAngle * 1.5))
+                        if turn_dir and turn_dir ~= "straight" and allow_turn then
+                            if strong_turn then
+                                next_info = build_guidance_for_turn_text(turn_dir, next_info_raw.display)
+                            elseif not is_freehand then
+                                next_info = build_guidance_for_continue(seg_idx, next_info_raw.display)
+                            end
+                        elseif not is_freehand then
+                            next_info = build_guidance_for_continue(seg_idx, next_info_raw.display)
+                        end
+                    elseif turn_dir and turn_dir ~= "straight" and allow_turn then
+                        if next_info_raw.display and next_info_raw.display ~= "" then
+                            next_info = build_guidance_for_turning(seg_idx, next_info_raw.display, turn_dir)
+                        elseif is_freehand then
+                            next_info = build_guidance_for_generic_turn(turn_dir)
+                        end
                     end
-                elseif turn_dir and turn_dir ~= "straight" then
-                    next_info = build_guidance_for_turning(seg_idx, next_display, turn_dir)
+                elseif turn_dir and turn_dir ~= "straight" and allow_turn then
+                    if next_display and next_display ~= "" then
+                        next_info = build_guidance_for_turning(seg_idx, next_display, turn_dir)
+                    elseif is_freehand then
+                        next_info = build_guidance_for_generic_turn(turn_dir)
+                    end
                 end
             end
             if not next_info then
                 if next_kind == "taxiway" then
-                    if turn_dir and turn_dir ~= "straight" then
-                        next_info = build_guidance_for_turning(seg_idx, next_display, turn_dir)
+                    if turn_dir and turn_dir ~= "straight" and allow_turn then
+                        if next_display and next_display ~= "" then
+                            next_info = build_guidance_for_turning(seg_idx, next_display, turn_dir)
+                        elseif is_freehand then
+                            next_info = build_guidance_for_generic_turn(turn_dir)
+                        end
                     else
-                        next_info = build_guidance_for_taxi(seg_idx, next_display)
+                        if not is_freehand or first_guidance then
+                            next_info = build_guidance_for_taxi(seg_idx, next_display)
+                        end
                     end
                 elseif next_kind == "runway" then
-                    if turn_dir and turn_dir ~= "straight" then
+                    if turn_dir and turn_dir ~= "straight" and allow_turn then
                         next_info = build_guidance_for_runway_turn(turn_dir, next_display)
                     else
                         next_info = build_guidance_for_runway_entry(seg_idx, next_display)
@@ -1478,6 +1674,28 @@ function M.attach(U, C, def, helpers, settings)
             end
         end
 
+        if next_info then
+            if comp._lastGuidanceAction == "TURN LEFT" or comp._lastGuidanceAction == "TURN RIGHT" then
+                local last_seg = comp._lastGuidanceSegment
+                if last_seg and data and data.nodes and path[last_seg] and path[last_seg + 1] then
+                    local ln1 = data.nodes[path[last_seg]]
+                    local ln2 = data.nodes[path[last_seg + 1]]
+                    if ln1 and ln2 and ln1.east and ln1.north and ln2.east and ln2.north then
+                        local _, _, t = project_point_to_segment(
+                            aircraft.east, aircraft.north,
+                            ln1.east, ln1.north,
+                            ln2.east, ln2.north
+                        )
+                        if t and t < 1 then
+                            local new_action = next_info.action
+                            if new_action == "CONTINUE" or new_action == "TAXI VIA" then
+                                next_info = nil
+                            end
+                        end
+                    end
+                end
+            end
+        end
         if next_info then
             next_info.display = next_info.display or next_display
             next_info.kind = next_info.kind or next_kind
@@ -1542,7 +1760,7 @@ function M.attach(U, C, def, helpers, settings)
             end
         end
 
-        if not next_info and dist <= (C.guidanceTurnDistance * 0.5) then
+        if (not is_freehand) and (not next_info) and dist <= (C.guidanceTurnDistance * 0.5) then
             local info = build_guidance_from_segment(seg_idx)
             if info then
                 if is_visual_taxi_guidance_enabled() and info.visual ~= false then

@@ -92,6 +92,40 @@ local function isLocalizerNavType(navType)
         or navType == def.NAVTYPEIGS
 end
 
+local function isLateralOnlyApproach(navdata)
+    if not navdata then
+        return false
+    end
+    if navdata.isLateralOnly or navdata.serviceLevel == "LP" then
+        return true
+    end
+    -- Backward compatibility for nav cache lines created before LP flags were persisted.
+    if navdata[def.DESTNAVTYPE] == def.NAVTYPERNAV
+        and navdata[def.DESTSRCRECTYPE] == def.NAVDATARECTYPELPV then
+        return true
+    end
+    return false
+end
+
+local function navTypeFromSelectedApproachId(selectedAppId)
+    if type(selectedAppId) ~= "string" then
+        return nil
+    end
+    local id = selectedAppId:gsub("%s+", ""):upper()
+    if id == "" or id == "------" then
+        return nil
+    end
+    if id:sub(1, 3) == def.NAVTYPELDA then
+        return def.NAVTYPELDA
+    end
+    local prefix = id:sub(1, 1)
+    if prefix == "I" then return def.NAVTYPEILS end
+    if prefix == "L" then return def.NAVTYPELOC end
+    if prefix == "R" then return def.NAVTYPERNAV end
+    if prefix == "G" then return def.NAVTYPEGLS end
+    return nil
+end
+
 local function getFmcApproachRefData()
     if not helpers.fmcHeaderContains("APPROACH REF") then
         return nil
@@ -225,7 +259,7 @@ local function getNavEntryCourse(entry)
     else
         runwayRef = runwayMag and helpers.calccourse(runwayMag) or nil
         if not runwayRef and runwayTrue then
-            runwayRef = helpers.calccourse(runwayTrue - magVar)
+            runwayRef = helpers.calccourse(runwayTrue + magVar)
         end
     end
     if isRnavNav then
@@ -242,7 +276,7 @@ local function getNavEntryCourse(entry)
         if runwayMag then
             sanityRunwayRef = helpers.calccourse(runwayMag)
         elseif runwayTrue then
-            sanityRunwayRef = helpers.calccourse(runwayTrue - magVar)
+            sanityRunwayRef = helpers.calccourse(runwayTrue + magVar)
         end
     end
     local function isPlausible(course)
@@ -264,10 +298,10 @@ local function getNavEntryCourse(entry)
                 if valueIsTrue then
                     return helpers.calccourse(course)
                 end
-                return helpers.calccourse(course + magVar)
+                return helpers.calccourse(course - magVar)
             end
             if valueIsTrue then
-                return helpers.calccourse(course - magVar)
+                return helpers.calccourse(course + magVar)
             end
             return helpers.calccourse(course)
         end
@@ -611,10 +645,6 @@ local function getMcpHeadingTarget()
     local headingrounded = nil
     if (helpers.isvalidicao(get(P.desicao)) and helpers.isvalidrwy(get(P.desrwy)) and tonumber(get(P.desrwyheading))) then
         headingrounded = helpers.roundnumber(get(P.desrwyheading))
-    end
-    local navrwyheading = helpers.getrwyheadingfromnavdata(P.navdatatable, get(P.desicao), get(P.desrwy))
-    if (navrwyheading and ((not headingrounded) or (headingrounded and (math.abs(headingrounded - navrwyheading) <= 3)))) then
-        headingrounded = navrwyheading
     end
     local cached = getCachedApproachCourseForHeading(headingrounded)
     if cached then
@@ -2669,10 +2699,6 @@ function M.fillProcedureTable()
                         if (helpers.isvalidicao(get(P.depicao)) and helpers.isvalidrwy(get(P.deprwy)) and tonumber(get(P.deprwyheading))) then
                             headingrounded = helpers.roundnumber(get(P.deprwyheading))
                         end
-                        local navrwyheading = helpers.getrwyheadingfromnavdata(P.navdatatable, get(P.depicao), get(P.deprwy))
-                        if (navrwyheading and ((not headingrounded) or (headingrounded and (math.abs(headingrounded - navrwyheading) <= 3)))) then
-                            headingrounded = navrwyheading
-                        end
                         if headingrounded then
                             return get(P.mcpheading) == headingrounded
                         end
@@ -2682,10 +2708,6 @@ function M.fillProcedureTable()
                         local headingrounded = nil
                         if (helpers.isvalidicao(get(P.depicao)) and helpers.isvalidrwy(get(P.deprwy)) and tonumber(get(P.deprwyheading))) then
                             headingrounded = helpers.roundnumber(get(P.deprwyheading))
-                        end
-                        local navrwyheading = helpers.getrwyheadingfromnavdata(P.navdatatable, get(P.depicao), get(P.deprwy))
-                        if (navrwyheading and ((not headingrounded) or (headingrounded and (math.abs(headingrounded - navrwyheading) <= 3)))) then
-                            headingrounded = navrwyheading
                         end
                         if headingrounded then
                             return "Set M C P Heading " .. helpers.addspaces(helpers.padNumberWithZerosStrict(headingrounded, 3))
@@ -5263,6 +5285,27 @@ function M.fillProcedureTable()
                                 selectedAppId = val
                             end
                         end
+                        if selectedAppId then
+                            local selectedNavType = navTypeFromSelectedApproachId(selectedAppId)
+                            if selectedNavType then
+                                local selectedTypeAllowed = false
+                                for _, candidateType in ipairs(candidateTypes) do
+                                    if candidateType == selectedNavType then
+                                        selectedTypeAllowed = true
+                                        break
+                                    end
+                                    -- LOC/ILS are considered compatible for selection filtering.
+                                    if ((candidateType == def.NAVTYPEILS and selectedNavType == def.NAVTYPELOC)
+                                        or (candidateType == def.NAVTYPELOC and selectedNavType == def.NAVTYPEILS)) then
+                                        selectedTypeAllowed = true
+                                        break
+                                    end
+                                end
+                                if not selectedTypeAllowed then
+                                    selectedAppId = nil
+                                end
+                            end
+                        end
 
                         local detectedVariant = helpers.detectCIFPApproachVariant(
                             get(P.desicao),
@@ -5296,7 +5339,7 @@ function M.fillProcedureTable()
                                     local entryCourse = entry[def.DESTCOURSE]
                                     if entry.isTrueCourse and entry.truecourse then
                                         local magVar = getEntryMagVar(entry)
-                                        entryCourse = helpers.calccourse(entry.truecourse - magVar)
+                                        entryCourse = helpers.calccourse(entry.truecourse + magVar)
                                     end
                                     if not entryCourse then return math.huge end
                                     return math.abs(helpers.headingdiff(entryCourse, targetCourse))
@@ -5412,7 +5455,7 @@ function M.fillProcedureTable()
                         else
                             runwayRef = runwayMag and helpers.calccourse(runwayMag) or nil
                             if not runwayRef and runwayTrue then
-                                runwayRef = helpers.calccourse(runwayTrue - magVar)
+                                runwayRef = helpers.calccourse(runwayTrue + magVar)
                             end
                         end
                         local navType = navEntry and navEntry[def.DESTNAVTYPE]
@@ -5442,7 +5485,7 @@ function M.fillProcedureTable()
                             if runwayMag then
                                 sanityRunwayRef = helpers.calccourse(runwayMag)
                             elseif runwayTrue then
-                                sanityRunwayRef = helpers.calccourse(runwayTrue - magVar)
+                                sanityRunwayRef = helpers.calccourse(runwayTrue + magVar)
                             end
                         end
                         local sanityRefs = nil
@@ -5638,7 +5681,7 @@ function M.fillProcedureTable()
                         local navtype = navdata[def.DESTNAVTYPE] or ""
                         local ident = navdata[def.DESTNAVID] or ""
                         local runwayDesignator = navdata[def.DESTRWY] or ""
-                        local isLP = navdata.isLateralOnly or navdata.serviceLevel == "LP"
+                        local isLP = isLateralOnlyApproach(navdata)
                         local approachDescriptor = helpers.addspaces(navtype) .. " Approach"
                         local destinationIcao = get(P.desicao)
                         local detectedVariant = loop.detectedApproach
@@ -5724,7 +5767,7 @@ function M.fillProcedureTable()
                             local navtype = navdata[def.DESTNAVTYPE] or ""
                             local ident = navdata[def.DESTNAVID] or ""
                             local runwayDesignator = navdata[def.DESTRWY] or ""
-                            local isLP = navdata.isLateralOnly or navdata.serviceLevel == "LP"
+                            local isLP = isLateralOnlyApproach(navdata)
                             local descriptor = helpers.addspaces(navtype) .. " Approach"
                             local destinationIcao = get(P.desicao)
                             if destinationIcao and destinationIcao ~= "" then
@@ -5762,7 +5805,7 @@ function M.fillProcedureTable()
                 ['set_capt_freq'] = {
                     check = function(loop, procData)
                         local navdata = P.navdatatable[loop.navdatatableindex]
-                        local isLP = navdata and (navdata.isLateralOnly or navdata.serviceLevel == "LP")
+                        local isLP = isLateralOnlyApproach(navdata)
                         local freqValue = getFmcApproachRefFrequency(navdata[def.DESTNAVTYPE]) or navdata[def.DESTFREQ]
                         if isLP then
                             if (get(P.mmrinstalled) == def.ON) then
@@ -5783,7 +5826,7 @@ function M.fillProcedureTable()
                     end,
                     action = function(loop, procData)
                         local navdata = P.navdatatable[loop.navdatatableindex]
-                        local isLP = navdata and (navdata.isLateralOnly or navdata.serviceLevel == "LP")
+                        local isLP = isLateralOnlyApproach(navdata)
                         local navType = navdata[def.DESTNAVTYPE]
                         local freqValue = getFmcApproachRefFrequency(navType) or navdata[def.DESTFREQ]
                         if isLP then
@@ -5817,7 +5860,7 @@ function M.fillProcedureTable()
                     end,
                     advice = function(loop, procData)
                         local navdata = P.navdatatable[loop.navdatatableindex]
-                        local isLP = navdata and (navdata.isLateralOnly or navdata.serviceLevel == "LP")
+                        local isLP = isLateralOnlyApproach(navdata)
                         if isLocalizerNavType(navdata[def.DESTNAVTYPE]) then
                             local freqValue = getFmcApproachRefFrequency(navdata[def.DESTNAVTYPE]) or navdata[def.DESTFREQ]
                             return "Set Captain Frequency " .. helpers.addspaces(helpers.formatILSFrequency(freqValue))
@@ -5828,7 +5871,7 @@ function M.fillProcedureTable()
                     end,
                     confirm = function(loop, procData)
                         local navdata = P.navdatatable[loop.navdatatableindex]
-                        local isLP = navdata and (navdata.isLateralOnly or navdata.serviceLevel == "LP")
+                        local isLP = isLateralOnlyApproach(navdata)
                         if isLocalizerNavType(navdata[def.DESTNAVTYPE]) then
                             local freqValue = getFmcApproachRefFrequency(navdata[def.DESTNAVTYPE]) or navdata[def.DESTFREQ]
                             return "Captain Frequency checked and " .. helpers.addspaces(helpers.formatILSFrequency(freqValue))
@@ -5843,7 +5886,7 @@ function M.fillProcedureTable()
                     skipIf = function(loop, procData)
                         local navdata = P.navdatatable[loop.navdatatableindex]
                         if not navdata then return true end
-                        local isLP = navdata.isLateralOnly or navdata.serviceLevel == "LP"
+                        local isLP = isLateralOnlyApproach(navdata)
                         local navtype = navdata[def.DESTNAVTYPE]
 
                         local function prepareApproachDME()
@@ -5893,7 +5936,7 @@ function M.fillProcedureTable()
                     check = function(loop, procData)
                         local navdata = P.navdatatable[loop.navdatatableindex]
                         if not navdata then return true end
-                        local isLP = navdata.isLateralOnly or navdata.serviceLevel == "LP"
+                        local isLP = isLateralOnlyApproach(navdata)
                         if isLocalizerNavType(navdata[def.DESTNAVTYPE]) then 
                             if navdata[def.DESTNAVDME] then
                                 local freqValue = getFmcApproachRefFrequency(navdata[def.DESTNAVTYPE]) or navdata[def.DESTFREQ]
@@ -5924,7 +5967,7 @@ function M.fillProcedureTable()
                     action = function(loop, procData)
                         local navdata = P.navdatatable[loop.navdatatableindex]
                         if not navdata then return end
-                        local isLP = navdata.isLateralOnly or navdata.serviceLevel == "LP"
+                        local isLP = isLateralOnlyApproach(navdata)
                         if isLocalizerNavType(navdata[def.DESTNAVTYPE]) then
                             if navdata[def.DESTNAVDME] then
                                 local freqValue = getFmcApproachRefFrequency(navdata[def.DESTNAVTYPE]) or navdata[def.DESTFREQ]
@@ -5965,7 +6008,7 @@ function M.fillProcedureTable()
                     advice = function(loop, procData)
                         local navdata = P.navdatatable[loop.navdatatableindex]
                         if not navdata then return "" end
-                        local isLP = navdata.isLateralOnly or navdata.serviceLevel == "LP"
+                        local isLP = isLateralOnlyApproach(navdata)
                         if isLocalizerNavType(navdata[def.DESTNAVTYPE]) then
                             if navdata[def.DESTNAVDME] then
                                 local freqValue = getFmcApproachRefFrequency(navdata[def.DESTNAVTYPE]) or navdata[def.DESTFREQ]
@@ -6003,7 +6046,7 @@ function M.fillProcedureTable()
                         end
 
                         local message = ""
-                        local isLP = navdata.isLateralOnly or navdata.serviceLevel == "LP"
+                        local isLP = isLateralOnlyApproach(navdata)
 
                         if isLocalizerNavType(navdata[def.DESTNAVTYPE]) then
                             if navdata[def.DESTNAVDME] then

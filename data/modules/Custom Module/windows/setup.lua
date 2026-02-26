@@ -11,16 +11,55 @@ local def = require("definitions")
 local settings = require("settings")
 local messages = require("messages")
 local helpers = require("helpers")
-local showBetaUpdates = toboolean(settings.appSettings.SHOWBETAUPDATES)
-local updateAvailable, newVersion = helpers.checkForUpdate(showBetaUpdates)
-local stableAvailable, stableVersion = helpers.checkForUpdate(false)
-local wTitle = string.format("%s v%s", def.APPNAMEPREFIXLONG, def.VERSION)
-if updateAvailable then
-    wTitle = wTitle .. "   " .. (messages.translation['UPDATEAVAILABLE'] or "Update") .. " v" .. (newVersion or "")
+local ziboReleaseDr = globalProperty("laminar/B738/release")
+
+local function isYalBetaVersion()
+    local v = tostring(def.VERSION or ""):lower()
+    return (v:find("beta", 1, true) ~= nil) or (v:find("b", 1, true) ~= nil)
 end
-local isBeta = tostring(def.VERSION or ""):lower():find("b") or tostring(def.VERSION or ""):lower():find("beta")
-if isBeta and stableVersion and stableVersion ~= "" then
-    wTitle = wTitle .. "  •  Last Stable v" .. stableVersion
+
+local fallbackStableChecked = false
+local fallbackStableVersion = nil
+
+local function getFallbackStableVersion()
+    if fallbackStableChecked then
+        return fallbackStableVersion
+    end
+    fallbackStableChecked = true
+    local ok, _, version = pcall(helpers.checkForUpdate, false)
+    if ok and version and version ~= "" then
+        fallbackStableVersion = tostring(version)
+    end
+    return fallbackStableVersion
+end
+
+local function getWindowTitle()
+    local title = string.format("%s v%s", def.APPNAMEPREFIXLONG, def.VERSION)
+    local info = helpers.startupUpdateInfo
+    local yalInfo = (type(info) == "table") and info.yal or nil
+    if type(yalInfo) == "table" then
+        if yalInfo.available and yalInfo.latest and yalInfo.latest ~= "" then
+            title = title .. "   " .. (messages.translation['UPDATEAVAILABLE'] or "Update") .. " v" .. tostring(yalInfo.latest)
+        end
+        local checkBeta = yalInfo.checkBeta
+        if checkBeta == nil then
+            checkBeta = isYalBetaVersion()
+        end
+        if checkBeta and yalInfo.latestStable and yalInfo.latestStable ~= "" then
+            title = title .. "  •  Last Stable v" .. tostring(yalInfo.latestStable)
+        elseif (not checkBeta) and yalInfo.latestBeta and yalInfo.latestBeta ~= "" then
+            title = title .. "  •  Beta v" .. tostring(yalInfo.latestBeta)
+        end
+        return title
+    end
+
+    if isYalBetaVersion() then
+        local stable = getFallbackStableVersion()
+        if stable and stable ~= "" then
+            title = title .. "  •  Last Stable v" .. tostring(stable)
+        end
+    end
+    return title
 end
 
 local function getSafeFont()
@@ -116,6 +155,7 @@ addCheckbox('YANSHINTEGRATION','YANSHINTEGRATION')
 addCheckbox('AUTOFUELING','AUTOFUELING')
 addText('HOPPIEID','HOPPIEID',0,16)
 addCheckbox('HOPPIEVOICE','HOPPIEVOICE')
+addCheckbox('AUTOUPDATECHECK','AUTOUPDATECHECK')
 addCheckbox('SHOWBETAUPDATES','SHOWBETAUPDATES')
 addCheckbox('DEBUGMODE','DEBUGMODE')
 
@@ -124,6 +164,51 @@ local function not_(v) return (v == 0 or v == false) and 1 or 0 end
 
 local function drawTextLine(font, x, y, text, color)
     sasl.gl.drawTextI(font, x, y, tostring(text or ""), TEXT_ALIGN_LEFT, color)
+end
+
+local function estimateTextWidth(text)
+    return string.len(tostring(text or "")) * 7
+end
+
+local function truncateTextByWidth(text, maxWidth)
+    local t = tostring(text or "")
+    if t == "" or maxWidth <= 0 then
+        return ""
+    end
+    if estimateTextWidth(t) <= maxWidth then
+        return t
+    end
+    local maxChars = math.max(3, math.floor(maxWidth / 7) - 3)
+    if maxChars >= string.len(t) then
+        return t
+    end
+    return string.sub(t, 1, maxChars) .. "..."
+end
+
+local function ziboHeaderText()
+    if not ziboReleaseDr or not isProperty(ziboReleaseDr) then
+        return nil
+    end
+    local raw = tostring(get(ziboReleaseDr) or "")
+    raw = helpers.forceCleanString(raw)
+    raw = raw:gsub("^%s+", ""):gsub("%s+$", "")
+    if raw == "" then
+        return nil
+    end
+    local ver = raw:match("([Vv]%d[%w%.%-]*)")
+    if not ver then
+        ver = raw:match("(%d[%w%.%-]*)")
+        if ver then
+            ver = "v" .. ver
+        end
+    end
+    if not ver then
+        return "Zibo " .. raw
+    end
+    if string.sub(ver, 1, 1) == "V" then
+        ver = "v" .. string.sub(ver, 2)
+    end
+    return "Zibo " .. ver
 end
 
 local function drawCheckbox(font, x, y, label, checked)
@@ -161,10 +246,6 @@ function M.newComponent(ctx)
     end
 
     local function getSize()
-        if comp._window and comp._window.getPosition then
-            local _, _, ww, hh = comp._window:getPosition()
-            return ww or defaultW, hh or defaultH
-        end
         local p = get(comp.position)
         return p[3] or defaultW, p[4] or defaultH
     end
@@ -261,6 +342,9 @@ function M.newComponent(ctx)
                     local labelText = (item.label or "") .. ":"
                     local boxX = x + leftLabelWidth
                     local boxW = textBoxWidthLeft
+                    if item.key == def.CONFIGSAVENUMBER then
+                        boxW = numberBoxWidthLeft
+                    end
                     drawTextLine(font, x, yRow, labelText, color)
                     drawRectangle(boxX, yRow - 2, boxW, lineHeight, {0.08,0.08,0.08,0.8})
                     drawFrame(boxX, yRow - 2, boxW, lineHeight, isFocus and {0.95,0.95,0.3,1} or {0.8,0.8,0.8,0.9})
@@ -391,8 +475,21 @@ function M.newComponent(ctx)
         end
 
         -- Header with status and close
-        drawTextLine(font, 10, h - headerH + 4, wTitle, color)
-        drawTextLine(font, w - 18, h - headerH + 4, "X", color)
+        local closeX = w - 18
+        local headerY = h - headerH + 4
+        local titleText = getWindowTitle()
+        local ziboText = ziboHeaderText()
+        if ziboText and ziboText ~= "" then
+            local ziboW = estimateTextWidth(ziboText)
+            local ziboX = closeX - 10 - ziboW
+            if ziboX > 120 then
+                local maxTitleW = ziboX - 16
+                titleText = truncateTextByWidth(titleText, maxTitleW)
+                drawTextLine(font, ziboX, headerY, ziboText, {0.75, 0.85, 0.95, 1})
+            end
+        end
+        drawTextLine(font, 10, headerY, titleText, color)
+        drawTextLine(font, closeX, headerY, "X", color)
 
         -- Buttons (anchored bottom-right, do not affect list layout)
         local btnX = rightX
@@ -450,7 +547,8 @@ function M.newComponent(ctx)
         local layout = self._layout
         if not layout then return false end
 
-        if button == MB_LEFT then
+        local leftClick = (button == MB_LEFT or button == 1)
+        if leftClick then
             -- Close
             if layout.close and x >= layout.close.x and x <= (layout.close.x + layout.close.w) and y >= layout.close.y and y <= (layout.close.y + layout.close.h) then
                 if self._window then self._window:setIsVisible(false) end
@@ -541,7 +639,8 @@ function M.newComponent(ctx)
     end
 
     function comp:onMouseUp(_, _, button)
-        if button == MB_LEFT and self.scrollDrag then
+        local leftClick = (button == MB_LEFT or button == 1)
+        if leftClick and self.scrollDrag then
             self.scrollDrag = nil
             return true
         end

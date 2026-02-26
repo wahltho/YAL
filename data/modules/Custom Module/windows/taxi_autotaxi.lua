@@ -12,6 +12,7 @@ function M.attach(U, C, def, helpers, settings)
     local is_runway_label = U.is_runway_label
     local get_edge_label = U.get_edge_label
     local clamp = U.clamp
+    local distance_sq = U.distance_sq
 
     local function auto_taxi_log(comp, msg)
         local logger = (comp and comp._logTaxi) or (helpers and helpers.logInfoTS)
@@ -566,6 +567,22 @@ function M.attach(U, C, def, helpers, settings)
         elseif not active_seg then
             comp._autoTaxiActiveSegIdx = seg_idx
         end
+        do
+            if data and data.nodes and path[seg_idx] and path[seg_idx + 1] and path[seg_idx + 2] then
+                local n_from = data.nodes[path[seg_idx]]
+                local n_to = data.nodes[path[seg_idx + 1]]
+                if n_from and n_to and n_from.east and n_from.north and n_to.east and n_to.north then
+                    local d_from = distance_sq(aircraft.east, aircraft.north, n_from.east, n_from.north)
+                    local d_to = distance_sq(aircraft.east, aircraft.north, n_to.east, n_to.north)
+                    if d_to < d_from then
+                        seg_idx = seg_idx + 1
+                        comp._autoTaxiActiveSegIdx = seg_idx
+                    end
+                end
+            end
+        end
+        local path_len = #path
+        local near_end = (path_len > 1 and seg_idx >= (path_len - 1)) or false
         local max_offroute = (C and C.autoTaxiOffRouteMeters) or 20
         if dist_route and max_offroute > 0 then
             local on_runway = false
@@ -629,6 +646,10 @@ function M.attach(U, C, def, helpers, settings)
             if comp._autoTaxiDivergeStart and now and (now - comp._autoTaxiDivergeStart) >= reroute_cooldown then
                 if now and (now - last_reroute) >= reroute_cooldown then
                     if not (comp._editRoute or comp._drawRoute) and aircraft.lat and aircraft.lon then
+                        if near_end then
+                            auto_taxi_log_once(comp, now, "diverge-reroute-end", "skip reroute (near end)")
+                            comp._autoTaxiDivergeStart = nil
+                        else
                         comp._rerouteOverride = { lat = aircraft.lat, lon = aircraft.lon }
                         comp._routeStartAnchor = nil
                         comp._lastStartKey = nil
@@ -641,6 +662,7 @@ function M.attach(U, C, def, helpers, settings)
                         comp._autoTaxiDivergeStart = nil
                         auto_taxi_log_once(comp, now, "diverge-reroute", "reroute reanchor (diverge)")
                         return false
+                        end
                     end
                 end
                 comp._autoTaxiDivergeStart = nil
@@ -674,6 +696,9 @@ function M.attach(U, C, def, helpers, settings)
                 local last_reroute = comp._lastRerouteTime or 0
                 if now and (now - last_reroute) >= reroute_cooldown then
                     if not (comp._editRoute or comp._drawRoute) and aircraft.lat and aircraft.lon then
+                        if near_end then
+                            auto_taxi_log_once(comp, now, "offroute-reroute-end", "skip reroute (near end)")
+                        else
                         comp._rerouteOverride = { lat = aircraft.lat, lon = aircraft.lon }
                         comp._routeStartAnchor = nil
                         comp._lastStartKey = nil
@@ -684,6 +709,7 @@ function M.attach(U, C, def, helpers, settings)
                         comp._lastRerouteTime = now
                         comp._pendingRerouteEvent = true
                         auto_taxi_log_once(comp, now, "offroute-reroute", "reroute reanchor")
+                        end
                     end
                 end
                 return false

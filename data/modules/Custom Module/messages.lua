@@ -24,6 +24,7 @@ local english = {
     HOPPIEID = 'Hoppie ID',
     DEBUGMODE = 'Debug mode log',
     SHOWBETAUPDATES = 'Show beta updates',
+    AUTOUPDATECHECK = 'Check YAL/Zibo updates on startup',
     TODPAUSEQUITTIME = 'Sim exit after Pause at TOD (0-9999 sec)',
     SAVETIME = 'Auto Flight Save Time (0-9999 sec)',
     SAVENUMBER = 'Auto Flight Save EFB Position(s)',
