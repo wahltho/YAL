@@ -406,12 +406,14 @@ function M.attach(U, C, def, helpers, settings)
             if block then
                 comp._initialMoveAnchor = nil
                 comp._guidanceMoveAnchor = nil
+                comp._depGateStartDone = nil
                 diag("pushback-active")
                 return
             end
             if not before_taxi_started(comp) then
                 clear_visual_guidance(comp, "before-taxi")
                 set_guidance_state(comp, "idle", "before-taxi", log_taxi)
+                comp._depGateStartDone = nil
                 diag("before-taxi-not-started")
                 return
             end
@@ -863,6 +865,32 @@ function M.attach(U, C, def, helpers, settings)
             elseif info.kind == "runway" then
                 info.text = "Continue on " .. runway_label_voice(info.display or info.text or "")
                 info.action = "CONTINUE"
+            elseif info.kind == "ramp" then
+                if comp.mode == 0 then
+                    local next_hint = guidance_label_info(to_id, path[seg_idx + 2], nil, nil, true)
+                    if next_hint and next_hint.kind == "taxiway" and next_hint.display and next_hint.display ~= "" then
+                        return {
+                            text = "Taxi via " .. taxiway_label_voice(next_hint.display),
+                            direction = "straight",
+                            action = "TAXI VIA",
+                            label = build_visual_label("taxiway", next_hint.display),
+                            kind = "taxiway",
+                            display = next_hint.display,
+                            targetSegIdx = seg_idx
+                        }
+                    end
+                    if comp._depGateStartDone then
+                        return nil
+                    end
+                    info.text = "Gate"
+                    info.action = "TAXI TO"
+                    comp._depGateStartDone = true
+                else
+                    if not info.text or info.text == "" then
+                        info.text = "Taxi to Gate"
+                    end
+                    info.action = "TAXI TO"
+                end
             end
             if info.display and info.display ~= "" then
                 info.label = build_visual_label(info.kind, info.display)
@@ -1115,11 +1143,15 @@ function M.attach(U, C, def, helpers, settings)
         end
 
         local function build_guidance_for_gate(seg_idx, label)
+            local gate_label = label
+            if not gate_label or gate_label == "" then
+                gate_label = "Gate"
+            end
             return {
-                text = "Taxi to " .. tostring(label),
+                text = "Taxi to " .. tostring(gate_label),
                 direction = "straight",
                 action = "TAXI TO",
-                label = label,
+                label = gate_label,
                 kind = "ramp",
                 targetSegIdx = seg_idx
             }
@@ -1279,7 +1311,16 @@ function M.attach(U, C, def, helpers, settings)
                 local action = info.action
                 local force_visual = (action == "STOP" or action == "HOLD SHORT" or action == "CROSS RWY")
                 local allow_visual = true
+                local current_visual = comp._visualGuidance
+                local visual_changed = true
+                if current_visual then
+                    visual_changed = (current_visual.action ~= info.action)
+                        or (current_visual.display ~= info.display)
+                        or (current_visual.text ~= info.text)
+                end
                 if voice_text_ok and (not force_visual) and (not voice_queued) then
+                    -- Keep popup and voice synchronized: if voice is still in cooldown,
+                    -- don't advance popup text to a newer guidance line yet.
                     allow_visual = false
                 end
                 if allow_visual then
@@ -1663,7 +1704,27 @@ function M.attach(U, C, def, helpers, settings)
                         next_info = build_guidance_for_runway_entry(seg_idx, next_display)
                     end
                 elseif next_kind == "ramp" then
-                    next_info = build_guidance_for_gate(seg_idx, next_display)
+                    if comp.mode == 0 then
+                        local allow_gate = first_guidance and (not comp._depGateStartDone)
+                            and seg_idx <= 1
+                            and gs <= math.max(1.5, C.initialGuidanceMinSpeed or 1)
+                        if allow_gate then
+                            next_info = build_guidance_for_gate(
+                                seg_idx,
+                                (next_display and next_display ~= "" and next_display) or "Gate"
+                            )
+                            comp._depGateStartDone = true
+                        else
+                            local ramp_next = guidance_label_info(path[seg_idx + 1], path[seg_idx + 2], nil, nil, true)
+                            if ramp_next and ramp_next.kind == "taxiway" and ramp_next.display and ramp_next.display ~= "" then
+                                next_info = build_guidance_for_initial(seg_idx, ramp_next.display)
+                            elseif ramp_next and ramp_next.kind == "runway" and ramp_next.display and ramp_next.display ~= "" then
+                                next_info = build_guidance_for_runway_entry(seg_idx, ramp_next.display)
+                            end
+                        end
+                    else
+                        next_info = build_guidance_for_gate(seg_idx, next_display)
+                    end
                 else
                     if comp._lastGuidanceAction then
                         next_info = nil

@@ -761,7 +761,9 @@ function P.YalinitGlobal()
 
     --------------------------------------------------------------------------------------------------------------
 
-    P.ongoingtaskstepindex = 1
+    P.ongoingcoretaskindex = 4
+    P.ongoingtaskstepindex = 7
+    P.ongoingpretaskindex = 1
 
     P.procedurelooptemplate = {
         lock = def.NOPROCEDURE,
@@ -777,6 +779,11 @@ function P.YalinitGlobal()
         setonabort = false,
         lastStepName = "",
         skipConfirmForStep = nil,
+        adviceRepeatKey = nil,
+        adviceRepeatCount = 0,
+        adviceRepeatSpoken = 0,
+        stepOnceRequested = false,
+        stepOnceTargetStep = nil,
         debugPaused = false,
         debugStepOnce = false,
         debugBreakpoints = {}
@@ -979,15 +986,19 @@ function P.initDataref()
     local handle = globalProperty(path)
     if not isProperty(handle) then
         helpers.logInfoTS("Dataref '" .. path .. "' not found. Creating it now.")
-        P.OngoingTaskIndexdr = createGlobalPropertyi(path, 1, false, true, true)
+        P.OngoingTaskIndexdr = createGlobalPropertyi(path, 7, false, true, true)
     else
         helpers.logInfoTS("Found existing dataref: '" .. path .. "'")
         P.OngoingTaskIndexdr = handle
     end
     P.ongoingtaskstepindex = get(P.OngoingTaskIndexdr)
     if P.ongoingtaskstepindex == 0 then
-        P.ongoingtaskstepindex = 1
+        P.ongoingtaskstepindex = 7
     end
+    if P.ongoingtaskstepindex < 7 or P.ongoingtaskstepindex > 11 then
+        P.ongoingtaskstepindex = 7
+    end
+    P.ongoingcoretaskindex = 4
     helpers.logInfoTS("Ongoing task index restored to: " .. P.ongoingtaskstepindex)
 
     local path = def.APPNAMEPREFIX .. "/state/flightstate"
@@ -1574,6 +1585,11 @@ function P.resetLoopState(loopTable)
     loopTable.procedurenotpossible = cleanTemplate.procedurenotpossible -- Setzt auf false
     loopTable.triggeredmanually = cleanTemplate.triggeredmanually -- Setzt auf false (Standard)
     loopTable.skipConfirmForStep = nil
+    loopTable.adviceRepeatKey = nil
+    loopTable.adviceRepeatCount = 0
+    loopTable.adviceRepeatSpoken = 0
+    loopTable.stepOnceRequested = false
+    loopTable.stepOnceTargetStep = nil
     loopTable.debugPaused = false
     loopTable.debugStepOnce = false
     loopTable.debugBreakpoints = {}
@@ -2244,6 +2260,55 @@ function P.commandtableentry(state, text)
 end
 
 --------------------------------------------------------------------------------------------------------------
+function P.shouldQueueVoiceAdvice(loop, stepName, adviceText)
+    if not loop then
+        return true, nil
+    end
+
+    local skipCount = tonumber(P.configvalues[def.CONFIGVOICEADVICEREPEATSKIP]) or 0
+    if skipCount < 0 then
+        skipCount = 0
+    end
+
+    local maxRepeats = tonumber(P.configvalues[def.CONFIGVOICEADVICEMAXREPEATS]) or 0
+    if maxRepeats < 0 then
+        maxRepeats = 0
+    end
+    if maxRepeats >= 99 then
+        maxRepeats = 0
+    end
+
+    local key = tostring(loop.lock or 0) .. "|" .. tostring(stepName or "") .. "|" .. tostring(adviceText or "")
+    if loop.adviceRepeatKey ~= key then
+        loop.adviceRepeatKey = key
+        loop.adviceRepeatCount = 0
+        loop.adviceRepeatSpoken = 1
+        return true, nil
+    end
+
+    local spokenCount = tonumber(loop.adviceRepeatSpoken) or 0
+    if maxRepeats > 0 and spokenCount >= maxRepeats then
+        return false, "max-reached"
+    end
+
+    local currentCount = tonumber(loop.adviceRepeatCount) or 0
+    if skipCount <= 0 then
+        loop.adviceRepeatCount = currentCount + 1
+        loop.adviceRepeatSpoken = spokenCount + 1
+        return true, nil
+    end
+
+    if currentCount >= skipCount then
+        loop.adviceRepeatCount = 0
+        loop.adviceRepeatSpoken = spokenCount + 1
+        return true, nil
+    end
+
+    loop.adviceRepeatCount = currentCount + 1
+    return false, "repeat-skip"
+end
+
+--------------------------------------------------------------------------------------------------------------
 function P.togglesimfreeze()
 
     if (get(P.simfreezed) == def.OFF) then
@@ -2607,6 +2672,39 @@ end
 
 local my_command_skipprocedurestep = sasl.createCommand(def.APPNAMEPREFIX .. "/skipprocedurestep", "Skip Procedure Step")
 sasl.registerCommandHandler(my_command_skipprocedurestep, 0, P.skipprocedurestep_)
+
+--------------------------------------------------------------------------------------------------------------
+function P.stepprocedureonce()
+    local loop = P.findMostRecentLoop()
+    if not loop then
+        P.commandtableentry(def.TEXT, "No active procedure")
+        return false
+    end
+    if P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON then
+        P.commandtableentry(def.TEXT, "Step Once works in Voice Advice Only mode")
+        return false
+    end
+    if not loop.currentStepName or loop.currentStepName == "" then
+        P.commandtableentry(def.TEXT, "No active procedure step")
+        return false
+    end
+
+    loop.stepOnceRequested = true
+    loop.stepOnceTargetStep = loop.currentStepName
+    helpers.logInfoTS("Step Once armed for step '" .. tostring(loop.currentStepName) .. "'")
+    P.commandtableentry(def.TEXT, "Step Once armed")
+    return true
+end
+
+function P.stepprocedureonce_(phase)
+    if phase == SASL_COMMAND_BEGIN then
+        P.stepprocedureonce()
+    end
+    return 0
+end
+
+local my_command_stepprocedureonce = sasl.createCommand(def.APPNAMEPREFIX .. "/step_once", "Execute Current Procedure Step Once")
+sasl.registerCommandHandler(my_command_stepprocedureonce, 0, P.stepprocedureonce_)
 
 --------------------------------------------------------------------------------------------------------------
 local QNH_HYSTERESIS_HPA = 0.3
@@ -5453,6 +5551,9 @@ function P.autofunctions()
     if flightStateChanged then
         set(P.flightstatedr, P.flightstate)
         P.syncProceduresToFlightState()
+        if P.flightstate < def.FLIGHTSTATEAPPROACH then
+            P.ongoingpretaskindex = 3
+        end
     end
 
     return true
@@ -5470,6 +5571,8 @@ function P.updateSharedVariables()
     if helpers.isvalidicao(desIcaoNow) and desIcaoNow ~= P.lastDesIcao then
         P.lastDesIcao = desIcaoNow
         helpers.getMetar(desIcaoNow, P.desmetar)
+        -- Prioritize cabin landing altitude refresh right after destination changes.
+        P.ongoingpretaskindex = 3
     end
 
     if ((get(P.desrwyheading) ~= P.desrwyheadingtemp) and (get(P.desrwyheading) ~= 0)) then
@@ -5487,6 +5590,519 @@ function P.updateSharedVariables()
     if ((get(P.desrwylonendpos) ~= P.desrwylonendpostemp) and (get(P.desrwylonendpos) ~= 0)) then
         P.desrwylonendpostemp = get(P.desrwylonendpos)
     end
+end
+
+--------------------------------------------------------------------------------------------------------------
+function P.runOnePreOngoingTask()
+    local idx = tonumber(P.ongoingpretaskindex) or 1
+    if idx < 1 or idx > 3 then
+        idx = 1
+    end
+
+    local cockpitInitLoop = P[def.PROCEDURELOOP .. P.proceduretable[def.COCKPITINITPROCEDURE].loop]
+    if cockpitInitLoop and cockpitInitLoop.lock == def.COCKPITINITPROCEDURE then
+        P.ongoingpretaskindex = idx + 1
+        if P.ongoingpretaskindex > 3 then
+            P.ongoingpretaskindex = 1
+        end
+        return
+    end
+
+    if idx == 1 then
+        if P.enginesrunning(def.BOTH) and (P.configvalues[def.CONFIGAUTOCENTERTANKHANDLING] == def.ON) then
+            if (P.configvalues[def.CONFIGAUTOFUNCTIONS] == def.ON) and (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
+                P.autocentertanks()
+            elseif (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
+                if ((get(P.centertanklbs) > 1000) and (get(P.centertanklpress) > 0) and (get(P.centertankrpress) > 0) and (get(P.centertankstat) > 0)) then
+                    if ((get(P.centertanklswitch) == def.OFF) or (get(P.centertankrswitch) == def.OFF)) then
+                        P.commandtableentry(def.TEXT, "Set Center Tank Fuel Pumps On")
+                    end
+                elseif ((get(P.centertanklbs) <= 1000)) or ((get(P.centertanklpress) == 0) and (get(P.centertankrpress) == 0)) then
+                    if ((get(P.centertanklswitch) == def.ON) or (get(P.centertankrswitch) == def.ON)) then
+                        P.commandtableentry(def.TEXT, "Set Center Tank Fuel Pumps Off")
+                    end
+                end
+            end
+        end
+    elseif idx == 2 then
+        if (P.flightstate < def.FLIGHTSTATECRUISE) and (get(P.fmccruisealt) ~= 0) and (get(P.fmccruisealt) ~= 20000) then
+            local fmccruisealttmp = helpers.roundnumber(get(P.fmccruisealt) / 500) * 500
+            if get(P.cabincruisealt) ~= fmccruisealttmp then
+                if (P.configvalues[def.CONFIGAUTOFUNCTIONS] == def.ON) and (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
+                    set(P.cabincruisealt, fmccruisealttmp)
+                elseif (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
+                    P.commandtableentry(def.TEXT, "Set Cabin Cruise Alitude " .. helpers.addspaces(fmccruisealttmp))
+                end
+            end
+        end
+    elseif idx == 3 then
+        local destination_icao = string.upper(helpers.cleanstring(get(P.desicao) or ""))
+        if (P.flightstate < def.FLIGHTSTATEAPPROACH) and helpers.isvalidicao(destination_icao) then
+            local deslandingalttmp = 0
+            local haslandingalt = false
+
+            if P.airportdatatable[destination_icao] and P.airportdatatable[destination_icao].elevation_ft then
+                deslandingalttmp = helpers.roundnumber(P.airportdatatable[destination_icao].elevation_ft / 50) * 50
+                haslandingalt = true
+            elseif get(P.desrwyalt) > -1000 then
+                deslandingalttmp = helpers.roundnumber(get(P.desrwyalt) / 50) * 50
+                haslandingalt = true
+            end
+
+            if haslandingalt then
+                if deslandingalttmp < 0 then
+                    deslandingalttmp = 0
+                end
+                if get(P.cabinlandingalt) ~= deslandingalttmp then
+                    if (P.configvalues[def.CONFIGAUTOFUNCTIONS] == def.ON) and (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
+                        set(P.cabinlandingalt, deslandingalttmp)
+                    elseif (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
+                        P.commandtableentry(def.TEXT, "Set Cabin Landing Altitude " .. helpers.addspaces(deslandingalttmp))
+                    end
+                end
+            end
+        end
+    end
+
+    P.ongoingpretaskindex = idx + 1
+    if P.ongoingpretaskindex > 3 then
+        P.ongoingpretaskindex = 1
+    end
+end
+
+--------------------------------------------------------------------------------------------------------------
+function P.runOneCoreOngoingTask()
+    local idx = tonumber(P.ongoingcoretaskindex) or 4
+    if idx < 4 or idx > 6 then
+        idx = 4
+    end
+
+    if idx == 4 then
+        if (P.configvalues[def.CONFIGAUTOANTIICE] == def.ON) then
+            if (get(P.airgroundsensor) == def.ON) then
+                local apu_bleed_ok = P.apurunning() and (get(P.apubleedpos) == def.ON)
+                local eng_bleed_ok = P.enginesrunning() and ((get(P.eng1bleedpos) == def.ON) or (get(P.eng2bleedpos) == def.ON))
+                local bleed_ok = apu_bleed_ok or eng_bleed_ok
+
+                local dep_phase = (P.flightstate == def.FLIGHTSTATEPREFLIGHT)
+                local arr_afterlanding = (P.flightstate == def.FLIGHTSTATEAFTERLANDING)
+                local arr_taxi_to_gate = (P.flightstate == def.FLIGHTSTATETAXITOGATE)
+
+                local wx
+                if dep_phase then
+                    wx = P.depmetar.decodedmetar
+                else
+                    wx = P.desmetar.decodedmetar
+                end
+
+                local tat_c = get(P.tatdegc)
+                local ground_icing = helpers.isGroundIcingCondition(wx, tat_c)
+                ground_icing = not not ground_icing
+
+                local function anyAntiIceOn()
+                    return (get(P.eng1heatpos) == def.ON) or (get(P.eng2heatpos) == def.ON) or (get(P.wingheatpos) == def.ON)
+                end
+
+                local function anyAntiIceOff()
+                    return (get(P.eng1heatpos) == def.OFF) or (get(P.eng2heatpos) == def.OFF) or (get(P.wingheatpos) == def.OFF)
+                end
+
+                if dep_phase then
+                    if (P.configvalues[def.CONFIGAUTOFUNCTIONS] == def.ON) and (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
+                        if ground_icing and bleed_ok then
+                            P.iceprotection(def.ON)
+                        else
+                            P.iceprotection(def.OFF)
+                        end
+                    else
+                        if ground_icing and bleed_ok then
+                            if anyAntiIceOff() then
+                                P.commandtableentry(def.TEXT, "Ground Icing Conditions, Switch Anti Icing On")
+                            end
+                        else
+                            if anyAntiIceOn() then
+                                P.commandtableentry(def.TEXT, "No Ground Icing Conditions, Switch Anti Icing Off")
+                            end
+                        end
+                    end
+
+                elseif arr_afterlanding then
+                    if (P.configvalues[def.CONFIGAUTOFUNCTIONS] == def.ON) and (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
+                        if ground_icing and bleed_ok then
+                            P.iceprotection(def.ON)
+                        end
+                    else
+                        if ground_icing and bleed_ok then
+                            if anyAntiIceOff() then
+                                P.commandtableentry(def.TEXT, "Icing Conditions After Landing, Switch Anti Icing On")
+                            end
+                        end
+                    end
+
+                elseif arr_taxi_to_gate then
+                    if (P.configvalues[def.CONFIGAUTOFUNCTIONS] == def.ON) and (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
+                        if ground_icing and bleed_ok then
+                            P.iceprotection(def.ON)
+                        else
+                            P.iceprotection(def.OFF)
+                        end
+                    else
+                        if ground_icing and bleed_ok then
+                            if anyAntiIceOff() then
+                                P.commandtableentry(def.TEXT, "Icing Conditions Taxi In, Switch Anti Icing On")
+                            end
+                        else
+                            if anyAntiIceOn() then
+                                P.commandtableentry(def.TEXT, "No Icing Conditions Taxi In, Switch Anti Icing Off")
+                            end
+                        end
+                    end
+                end
+
+            else
+                if (P.configvalues[def.CONFIGAUTOFUNCTIONS] == def.ON)
+                and (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
+
+                    if ((get(P.frameice) > 0.01) and (get(P.altitude) < 30000)) then
+                        P.iceprotection(def.ON)
+                    elseif ((get(P.altitude) > 30000) or (get(P.tatdegc) > 10)) then
+                        P.iceprotection(def.OFF)
+                    end
+
+                elseif (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
+
+                    if ((get(P.frameice) > 0.01) and (get(P.altitude) < 30000)) then
+                        if ((get(P.eng1heatpos) == def.OFF) or (get(P.eng2heatpos) == def.OFF) or (get(P.wingheatpos) == def.OFF)) then
+                            P.commandtableentry(def.TEXT, "Caution Icing Detected, Switch Anti Icing On")
+                        end
+                    elseif (get(P.altitude) > 30000) then
+                        if ((get(P.eng1heatpos) == def.ON) or (get(P.eng2heatpos) == def.ON) or (get(P.wingheatpos) == def.ON)) then
+                            P.commandtableentry(def.TEXT, "Above 30000 Feet, Switch Anti Icing Off")
+                        end
+                    elseif (get(P.tatdegc) > 10) then
+                        if ((get(P.eng1heatpos) == def.ON) or (get(P.eng2heatpos) == def.ON) or (get(P.wingheatpos) == def.ON)) then
+                            P.commandtableentry(def.TEXT, "T A T above 10 degree, Switch Anti Icing Off")
+                        end
+                    end
+                end
+            end
+        end
+    elseif idx == 5 then
+        if (P.configvalues[def.CONFIGAUTOWIPER] == def.ON) then
+            local groundspeed = get(P.groundspeed)
+            local wipersOn = (get(P.lwiperpos) ~= def.WIPEROFF) or (get(P.rwiperpos) ~= def.WIPEROFF)
+
+            if ((P.configvalues[def.CONFIGAUTOFUNCTIONS] == def.ON) and (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON)) then
+                if (groundspeed > 250) then
+                    P.autowiper(def.OFF)
+                elseif ((P.apurunning() == def.APUONBUS) or (get(P.gen1pos) == def.ON) or (get(P.gen2pos) == def.ON)) then
+                    P.autowiper(def.ON)
+                elseif ((P.apurunning() < def.APUONBUS) and (get(P.gen1pos) == def.OFF) and (get(P.gen2pos) == def.OFF)) then
+                    P.autowiper(def.OFF)
+                end
+            elseif (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
+                if (groundspeed > 250) and wipersOn then
+                    P.commandtableentry(def.TEXT, "Wipers On above 250 knots - set Off")
+                end
+            end
+        end
+    elseif idx == 6 then
+        if ((get(P.airgroundsensor) == def.ON) and (P.procedureloop1.lock == def.NOPROCEDURE) and (get(P.battery) == def.ON) and (get(P.mainbus) ~= def.OFF) and (P.flightstate == def.FLIGHTSTATEPREFLIGHT) and (get(P.taxilight) == def.OFF)) then
+            if ((P.configvalues[def.CONFIGAUTOBARO] == def.ON) and (get(P.groundspeed) < 45)) then
+                local baroinchtmp, baropastmp = P.getlocalqnh(def.DEPARTURE)
+                if (helpers.roundnumber(math.abs(helpers.roundnumber(get(P.baropilot), 2) - baroinchtmp), 2) > 0.01) then
+                    if ((P.configvalues[def.CONFIGAUTOFUNCTIONS] == def.ON) and (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON)) then
+                        set(P.baropilot, baroinchtmp)
+                    elseif (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
+                        local qnhText = nil
+                        if (get(P.baroinhpa) == def.ON) then
+                            qnhText = helpers.formatQnhValue(baropastmp, true)
+                        else
+                            qnhText = helpers.formatQnhValue(baroinchtmp, false)
+                        end
+                        if qnhText then
+                            P.commandtableentry(def.TEXT, "Set Q N H " .. helpers.addspaces(qnhText))
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    P.ongoingcoretaskindex = idx + 1
+    if P.ongoingcoretaskindex > 6 then
+        P.ongoingcoretaskindex = 4
+    end
+end
+
+--------------------------------------------------------------------------------------------------------------
+function P.runOneMainOngoingTask()
+    local idx = tonumber(P.ongoingtaskstepindex) or 7
+    if idx < 7 or idx > 11 then
+        idx = 7
+    end
+    local holdCurrent = false
+
+    local preflightGateOpen =
+        (get(P.airgroundsensor) == def.ON) and
+        (P.procedureloop1.lock == def.NOPROCEDURE) and
+        (get(P.battery) == def.ON) and
+        (get(P.mainbus) ~= def.OFF) and
+        (P.flightstate == def.FLIGHTSTATEPREFLIGHT) and
+        (get(P.taxilight) == def.OFF)
+
+    if preflightGateOpen then
+        if idx == 7 then
+            if (get(P.trimcalc) > 0) and (not helpers.trimwheel_matches_target(get(P.trimwheel), get(P.trimcalc)) and (get(P.groundspeed) < 45)) then
+                if ((P.configvalues[def.CONFIGAUTOFUNCTIONS] == def.ON) and (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON)) then
+                    P.settotrim()
+                    local trimText = helpers.format_trim_quarter(get(P.trimcalc)) or tostring(get(P.trimcalc))
+                    P.commandtableentry(def.TEXT, "Trim " .. trimText)
+                elseif (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
+                    local trimText = helpers.format_trim_quarter(get(P.trimcalc)) or tostring(get(P.trimcalc))
+                    P.commandtableentry(def.TEXT, "Set Trim " .. trimText)
+                end
+            end
+        elseif idx == 8 then
+            if ((get(P.v2speed) > 0) and (get(P.v2speed) ~= get(P.mcpspeed)) and (get(P.groundspeed) < 45)) then
+                if ((P.configvalues[def.CONFIGAUTOFUNCTIONS] == def.ON) and (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON)) then
+                    set(P.mcpspeed, get(P.v2speed))
+                elseif (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
+                    P.commandtableentry(def.TEXT, "Set M C P Speed " .. helpers.addspaces(get(P.v2speed)))
+                end
+            end
+        elseif idx == 9 then
+            local headingrounded = nil
+            if (helpers.isvalidicao(get(P.depicao)) and helpers.isvalidrwy(get(P.deprwy)) and tonumber(get(P.deprwyheading))) then
+                headingrounded = helpers.roundnumber(get(P.deprwyheading))
+            end
+            if (headingrounded and (headingrounded ~= get(P.mcpheading)) and (get(P.groundspeed) < 45)) then
+                if ((P.configvalues[def.CONFIGAUTOFUNCTIONS] == def.ON) and (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON)) then
+                    set(P.mcpheading, headingrounded)
+                elseif (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
+                    P.commandtableentry(def.TEXT, "Set M C P Heading " .. helpers.addspaces(helpers.padNumberWithZerosStrict(headingrounded, 3)))
+                end
+            end
+        end
+    elseif idx == 7 then
+        idx = 10
+    end
+
+    if idx == 10 then
+        local todDistance = get(P.vnavtoddist)
+        local aircraftInAir = (get(P.airgroundsensor) == def.OFF)
+        local radioAltitude = get(P.radioaltitude)
+        local suppressDiscoWarnings =
+            (P.flightstate == def.FLIGHTSTATEAPPROACH) and
+            radioAltitude and (radioAltitude >= 0) and (radioAltitude < 1000)
+        local flightStateEligible =
+            (P.flightstate == def.FLIGHTSTATECLIMB) or
+            (P.flightstate == def.FLIGHTSTATECRUISE) or
+            (P.flightstate == def.FLIGHTSTATEAPPROACH)
+        local mcpAlt = get(P.mcpaltitude) or 0
+
+        if P.pauseTodMonitorActive then
+            if get(P.pausetod) ~= def.ON then
+                P.pauseTodMonitorActive = false
+                P.pauseTodMcpAltAtPrompt = nil
+            elseif (type(P.pauseTodMcpAltAtPrompt) == "number") and (math.abs(mcpAlt - P.pauseTodMcpAltAtPrompt) >= 100) then
+                set(P.pausetod, def.OFF)
+                P.pauseTodAutoDisabled = true
+                P.pauseTodMonitorActive = false
+                P.pauseTodMcpAltAtPrompt = nil
+            end
+        end
+
+        if aircraftInAir and flightStateEligible and not suppressDiscoWarnings then
+            if (not todDistance) or (todDistance <= 0) then
+                local remainingDistance, _, onRoute = helpers.getRemainingRouteDistance(
+                    get(P.fmslegs),
+                    get(P.fmslegslat),
+                    get(P.fmslegslon),
+                    get(P.aircraftlatpos),
+                    get(P.aircraftlonpos)
+                )
+                local distDest = get(P.distdest)
+
+                if remainingDistance and distDest and (remainingDistance > 0) and (distDest > 0) then
+                    if onRoute == true then
+                        local diff = distDest - remainingDistance
+                        if diff > 50 then
+                            if not P.routeEndsEarlyWarned then
+                                P.commandtableentry(def.TEXT, "Warning: Route may end too early. Check Arrival / Approach setup.")
+                                P.routeEndsEarlyWarned = true
+                            end
+                        else
+                            P.routeEndsEarlyWarned = false
+                        end
+                    else
+                        P.routeEndsEarlyWarned = false
+                    end
+                end
+            else
+                P.routeEndsEarlyWarned = false
+            end
+        else
+            P.routeEndsEarlyWarned = false
+        end
+
+        if todDistance and todDistance > 0 and aircraftInAir and not suppressDiscoWarnings then
+            local discontinuity = helpers.detectFMSDiscontinuity(
+                get(P.fmslegs),
+                get(P.fmslegslat),
+                get(P.fmslegslon),
+                get(P.aircraftlatpos),
+                get(P.aircraftlonpos),
+                { maxAheadNm = 20 }
+            )
+            if discontinuity then
+                local prevLegText = ""
+                if discontinuity.previous then
+                    prevLegText = " after " .. helpers.replaceRunwayPrefix(discontinuity.previous)
+                end
+
+                if (get(P.fmccruisealt) or 0) > 0 then
+                    if todDistance <= 10 and not P.todDiscontinuityWarned10 then
+                        P.commandtableentry(def.TEXT, "Warning: Route still contains a Discontinuity" .. prevLegText .. " about 10 NM before Top of Descent")
+                        P.todDiscontinuityWarned10 = true
+                    elseif todDistance <= 30 and not P.todDiscontinuityWarned30 then
+                        P.commandtableentry(def.TEXT, "Warning: Route still contains a Discontinuity" .. prevLegText .. " about 30 NM before Top of Descent")
+                        P.todDiscontinuityWarned30 = true
+                    end
+                end
+            else
+                P.todDiscontinuityWarned30 = false
+                P.todDiscontinuityWarned10 = false
+            end
+
+            if todDistance > 40 then
+                P.todDiscontinuityWarned30 = false
+                P.todDiscontinuityWarned10 = false
+            end
+
+            local routeCheckEligible =
+                (P.flightstate == def.FLIGHTSTATECRUISE) or
+                (P.flightstate == def.FLIGHTSTATEAPPROACH)
+
+            local routeWarningTolerance = 5
+
+            if routeCheckEligible and todDistance and todDistance > routeWarningTolerance then
+                local remainingDistance, _, onRoute = helpers.getRemainingRouteDistance(
+                    get(P.fmslegs),
+                    get(P.fmslegslat),
+                    get(P.fmslegslon),
+                    get(P.aircraftlatpos),
+                    get(P.aircraftlonpos)
+                )
+
+                local hasRemaining = remainingDistance and remainingDistance > 0 and onRoute == true
+                local distDest = get(P.distdest)
+                local hasDestDistance = distDest and distDest > 0
+
+                if hasRemaining then
+                    if todDistance > (remainingDistance + routeWarningTolerance) then
+                        if not P.routeEndsEarlyWarned then
+                            P.commandtableentry(def.TEXT, "Warning: Route may end before Top of Descent, check Arrival setup")
+                            P.routeEndsEarlyWarned = true
+                        end
+                    elseif P.routeEndsEarlyWarned and todDistance <= (remainingDistance + routeWarningTolerance * 0.2) then
+                        P.routeEndsEarlyWarned = false
+                    end
+                elseif hasDestDistance then
+                    if todDistance > (distDest + routeWarningTolerance) then
+                        if not P.routeEndsEarlyWarned then
+                            P.commandtableentry(def.TEXT, "Warning: Route may end before Top of Descent, check Arrival setup")
+                            P.routeEndsEarlyWarned = true
+                        end
+                    elseif P.routeEndsEarlyWarned and todDistance <= (distDest + routeWarningTolerance * 0.2) then
+                        P.routeEndsEarlyWarned = false
+                    end
+                else
+                    P.routeEndsEarlyWarned = false
+                end
+            else
+                P.routeEndsEarlyWarned = false
+            end
+        else
+            P.todDiscontinuityWarned30 = false
+            P.todDiscontinuityWarned10 = false
+            P.routeEndsEarlyWarned = false
+        end
+
+        if (P.flightstate == def.FLIGHTSTATECRUISE) and (get(P.fmsflightphase) == def.FMSFLIGHTPHASE_CRUISE) and not suppressDiscoWarnings then
+            local fmcCruiseAlt = get(P.fmccruisealt) or 0
+            local fmcCruiseRounded = helpers.roundnumber(fmcCruiseAlt / 100, 0) * 100
+            local withinTolerance = (mcpAlt >= (fmcCruiseRounded - 100))
+            if withinTolerance and (get(P.vnavtoddist) < 20) then
+                P.commandtableentry(def.TEXT, "Approaching Top of Descent, Reset M C P Altitude")
+                if (get(P.pausetod) == def.ON) and (not P.pauseTodAutoDisabled) and (not P.pauseTodMonitorActive) then
+                    P.pauseTodMonitorActive = true
+                    P.pauseTodMcpAltAtPrompt = mcpAlt
+                end
+                holdCurrent = true
+            end
+        end
+    end
+
+    if idx == 11 then
+        local skipReason = nil
+        if (P.flightstate == def.FLIGHTSTATECRUISE) and (get(P.fmsflightphase) == def.FMSFLIGHTPHASE_CRUISE) and (get(P.totalfuellbs) < 1000) then
+            local reservefuelLbs = 5000
+
+            if P.YANSHisinstalled() and P.YANSHflightplanloaded() and P.YANSHFuelReserve and get(P.YANSHFuelReserve) > 0 and P.YANSHFuelAlternateBurn and get(P.YANSHFuelAlternateBurn) > 0 and P.YANSHParamsUnitsFlag then
+                local yanshReserveRaw = get(P.YANSHFuelReserve)
+                local yanshAlternateRaw = get(P.YANSHFuelAlternateBurn)
+                local yanshReserveLbs = yanshReserveRaw
+                local yanshAlternateLbs = yanshAlternateRaw
+
+                if get(P.YANSHParamsUnitsFlag) == def.YANSHUNITKGS then
+                    yanshReserveLbs = yanshReserveRaw * def.KGTOLBS
+                    yanshAlternateLbs = yanshAlternateRaw * def.KGTOLBS
+                end
+                reservefuelLbs = yanshReserveLbs + yanshAlternateLbs
+            end
+
+            local distanceToTODNM = get(P.vnavtoddist)
+            if type(distanceToTODNM) ~= "number" or distanceToTODNM <= 0 then
+                local distDest = get(P.distdest)
+                if type(distDest) == "number" and distDest > 0 then
+                    distanceToTODNM = distDest
+                else
+                    skipReason = "skip (no ToD or destination distance)"
+                end
+            end
+
+            if not skipReason then
+                local requiredfuellbs = P.calculateRequiredFuelNow(distanceToTODNM, reservefuelLbs)
+                local currentTotal = get(P.totalfuellbs) or 0
+                if type(requiredfuellbs) ~= "number" or requiredfuellbs <= 0 then
+                    skipReason = "skip (invalid required fuel)"
+                elseif requiredfuellbs <= currentTotal then
+                    skipReason = "skip (required <= current)"
+                else
+                    P.refuelAircraft(requiredfuellbs)
+                end
+            end
+        end
+
+        if skipReason then
+            if P.refuelFailsafeReason ~= skipReason then
+                helpers.logInfoTS("Refuel failsafe: " .. tostring(skipReason))
+                P.refuelFailsafeReason = skipReason
+            end
+        else
+            P.refuelFailsafeReason = nil
+        end
+    end
+
+    if not holdCurrent then
+        idx = idx + 1
+    end
+
+    if idx > 11 then
+        idx = 7
+    end
+    P.ongoingtaskstepindex = idx
 end
 
 --------------------------------------------------------------------------------------------------------------
@@ -5768,479 +6384,9 @@ function P.ongoingtasks()
         end
     end
 
-    if (P[def.PROCEDURELOOP .. P.proceduretable[def.COCKPITINITPROCEDURE].loop].lock ~= def.COCKPITINITPROCEDURE) then
-        if (P.ongoingtaskstepindex == 1) then
-            if (P.enginesrunning(def.BOTH) and (P.configvalues[def.CONFIGAUTOCENTERTANKHANDLING] == def.ON)) then
-                if ((P.configvalues[def.CONFIGAUTOFUNCTIONS] == def.ON) and (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON)) then
-                    P.autocentertanks()
-                elseif (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                    if ((get(P.centertanklbs) > 1000) and (get(P.centertanklpress) > 0) and (get(P.centertankrpress) > 0) and (get(P.centertankstat) > 0)) then
-                        if ((get(P.centertanklswitch) == def.OFF) or (get(P.centertankrswitch) == def.OFF)) then
-                            P.commandtableentry(def.TEXT, "Set Center Tank Fuel Pumps On")
-                            P.ongoingtaskstepindex = P.ongoingtaskstepindex - 1
-                        end
-                    elseif ((get(P.centertanklbs) <= 1000)) or ((get(P.centertanklpress) == 0) and (get(P.centertankrpress) == 0)) then
-                        if ((get(P.centertanklswitch) == def.ON) or (get(P.centertankrswitch) == def.ON)) then
-                            P.commandtableentry(def.TEXT, "Set Center Tank Fuel Pumps Off")
-                            P.ongoingtaskstepindex = P.ongoingtaskstepindex - 1
-                        end
-                    end
-                end
-            end
-        elseif (P.ongoingtaskstepindex == 2) then
-            if ( (P.flightstate < def.FLIGHTSTATECRUISE) and (get(P.fmccruisealt) ~= 0) and (get(P.fmccruisealt) ~= 20000)) then
-                local fmccruisealttmp = helpers.roundnumber(get(P.fmccruisealt) / 500) * 500
-                if (get(P.cabincruisealt)  ~= fmccruisealttmp) then
-                    if ((P.configvalues[def.CONFIGAUTOFUNCTIONS] == def.ON) and (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON)) then
-                        set(P.cabincruisealt, fmccruisealttmp)
-                    elseif (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                        P.commandtableentry(def.TEXT, "Set Cabin Cruise Alitude " .. helpers.addspaces(fmccruisealttmp))
-                        P.ongoingtaskstepindex = P.ongoingtaskstepindex - 1
-                    end
-                end
-            end
-        elseif (P.ongoingtaskstepindex == 3) then
-            if ((P.flightstate < 4) and helpers.isvalidicao(get(P.desicao))) then
-                local deslandingalttmp = 0
-                local destination_icao = get(P.desicao)
-
-                if (P.airportdatatable[destination_icao] and P.airportdatatable[destination_icao].elevation_ft) then
-                    deslandingalttmp = helpers.roundnumber(P.airportdatatable[destination_icao].elevation_ft / 50) * 50
-                elseif (get(P.desrwyalt) > -1000) then
-                     deslandingalttmp = helpers.roundnumber(get(P.desrwyalt) / 50) * 50
-                end
-
-                if (deslandingalttmp > 0 and get(P.cabinlandingalt) ~= deslandingalttmp) then
-                    if ((P.configvalues[def.CONFIGAUTOFUNCTIONS] == def.ON) and (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON)) then
-                        set(P.cabinlandingalt, deslandingalttmp)
-                    elseif (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                        P.commandtableentry(def.TEXT, "Set Cabin Landing Altitude " .. helpers.addspaces(deslandingalttmp))
-                        P.ongoingtaskstepindex = P.ongoingtaskstepindex - 1
-                    end
-                end
-            end
-        end
-    elseif (P.ongoingtaskstepindex == 1) then
-        P.ongoingtaskstepindex = 4
-    end
-
-    if (P.ongoingtaskstepindex == 4) then
-        if (P.configvalues[def.CONFIGAUTOANTIICE] == def.ON) then
-
-            if (get(P.airgroundsensor) == def.ON) then
-                local apu_bleed_ok = P.apurunning() and (get(P.apubleedpos) == def.ON)
-                local eng_bleed_ok = P.enginesrunning() and ((get(P.eng1bleedpos) == def.ON) or (get(P.eng2bleedpos) == def.ON))
-                local bleed_ok = apu_bleed_ok or eng_bleed_ok
-
-                local dep_phase = (P.flightstate == def.FLIGHTSTATEPREFLIGHT)
-                local arr_afterlanding = (P.flightstate == def.FLIGHTSTATEAFTERLANDING)
-                local arr_taxi_to_gate = (P.flightstate == def.FLIGHTSTATETAXITOGATE)
-
-                local wx
-                if dep_phase then
-                    wx = P.depmetar.decodedmetar
-                else
-                    wx = P.desmetar.decodedmetar
-                end
-
-                local tat_c = get(P.tatdegc)
-                local ground_icing = helpers.isGroundIcingCondition(wx, tat_c)
-                ground_icing = not not ground_icing
-
-                local function anyAntiIceOn()
-                    return (get(P.eng1heatpos) == def.ON) or (get(P.eng2heatpos) == def.ON) or (get(P.wingheatpos) == def.ON)
-                end
-
-                local function anyAntiIceOff()
-                    return (get(P.eng1heatpos) == def.OFF) or (get(P.eng2heatpos) == def.OFF) or (get(P.wingheatpos) == def.OFF)
-                end
-
-                if dep_phase then
-                    if (P.configvalues[def.CONFIGAUTOFUNCTIONS] == def.ON) and (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
-                        if ground_icing and bleed_ok then
-                            P.iceprotection(def.ON)
-                        else
-                            P.iceprotection(def.OFF)
-                        end
-                    else
-                        if ground_icing and bleed_ok then
-                            if anyAntiIceOff() then
-                                P.commandtableentry(def.TEXT, "Ground Icing Conditions, Switch Anti Icing On")
-                                P.ongoingtaskstepindex = P.ongoingtaskstepindex - 1
-                            end
-                        else
-                            if anyAntiIceOn() then
-                                P.commandtableentry(def.TEXT, "No Ground Icing Conditions, Switch Anti Icing Off")
-                                P.ongoingtaskstepindex = P.ongoingtaskstepindex - 1
-                            end
-                        end
-                    end
-
-                elseif arr_afterlanding then
-                    if (P.configvalues[def.CONFIGAUTOFUNCTIONS] == def.ON) and (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
-                        if ground_icing and bleed_ok then
-                            P.iceprotection(def.ON)
-                        end
-                    else
-                        if ground_icing and bleed_ok then
-                            if anyAntiIceOff() then
-                                P.commandtableentry(def.TEXT, "Icing Conditions After Landing, Switch Anti Icing On")
-                                P.ongoingtaskstepindex = P.ongoingtaskstepindex - 1
-                            end
-                        end
-                    end
-
-                elseif arr_taxi_to_gate then
-                    if (P.configvalues[def.CONFIGAUTOFUNCTIONS] == def.ON) and (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
-                        if ground_icing and bleed_ok then
-                            P.iceprotection(def.ON)
-                        else
-                            P.iceprotection(def.OFF)
-                        end
-                    else
-                        if ground_icing and bleed_ok then
-                            if anyAntiIceOff() then
-                                P.commandtableentry(def.TEXT, "Icing Conditions Taxi In, Switch Anti Icing On")
-                                P.ongoingtaskstepindex = P.ongoingtaskstepindex - 1
-                            end
-                        else
-                            if anyAntiIceOn() then
-                                P.commandtableentry(def.TEXT, "No Icing Conditions Taxi In, Switch Anti Icing Off")
-                                P.ongoingtaskstepindex = P.ongoingtaskstepindex - 1
-                            end
-                        end
-                    end
-                end
-
-            else
-                if (P.configvalues[def.CONFIGAUTOFUNCTIONS] == def.ON)
-                and (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
-
-                    if ((get(P.frameice) > 0.01) and (get(P.altitude) < 30000)) then
-                        P.iceprotection(def.ON)
-                    elseif ((get(P.altitude) > 30000) or (get(P.tatdegc) > 10)) then
-                        P.iceprotection(def.OFF)
-                    end
-
-                elseif (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-
-                    if ((get(P.frameice) > 0.01) and (get(P.altitude) < 30000)) then
-                        if ((get(P.eng1heatpos) == def.OFF) or (get(P.eng2heatpos) == def.OFF) or (get(P.wingheatpos) == def.OFF)) then
-                            P.commandtableentry(def.TEXT, "Caution Icing Detected, Switch Anti Icing On")
-                            P.ongoingtaskstepindex = P.ongoingtaskstepindex - 1
-                        end
-                    elseif (get(P.altitude) > 30000) then
-                        if ((get(P.eng1heatpos) == def.ON) or (get(P.eng2heatpos) == def.ON) or (get(P.wingheatpos) == def.ON)) then
-                            P.commandtableentry(def.TEXT, "Above 30000 Feet, Switch Anti Icing Off")
-                            P.ongoingtaskstepindex = P.ongoingtaskstepindex - 1
-                        end
-                    elseif (get(P.tatdegc) > 10) then
-                        if ((get(P.eng1heatpos) == def.ON) or (get(P.eng2heatpos) == def.ON) or (get(P.wingheatpos) == def.ON)) then
-                            P.commandtableentry(def.TEXT, "T A T above 10 degree, Switch Anti Icing Off")
-                            P.ongoingtaskstepindex = P.ongoingtaskstepindex - 1
-                        end
-                    end
-                end
-            end
-        end
-    end
-
-    if (P.ongoingtaskstepindex == 5) then
-        if (P.configvalues[def.CONFIGAUTOWIPER] == def.ON) then
-            local groundspeed = get(P.groundspeed)
-            local wipersOn = (get(P.lwiperpos) ~= def.WIPEROFF) or (get(P.rwiperpos) ~= def.WIPEROFF)
-
-            if ((P.configvalues[def.CONFIGAUTOFUNCTIONS] == def.ON) and (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON)) then
-                if (groundspeed > 250) then
-                    P.autowiper(def.OFF)
-                elseif ((P.apurunning() == def.APUONBUS) or (get(P.gen1pos) == def.ON) or (get(P.gen2pos) == def.ON)) then
-                    P.autowiper(def.ON)
-                elseif ((P.apurunning() < def.APUONBUS) and (get(P.gen1pos) == def.OFF) and (get(P.gen2pos) == def.OFF)) then
-                    P.autowiper(def.OFF)
-                end
-            elseif (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                if (groundspeed > 250) and wipersOn then
-                    P.commandtableentry(def.TEXT, "Wipers On above 250 knots - set Off")
-                end
-            end
-        end
-    end
-
-    if (((get(P.airgroundsensor) == def.ON) and (P.procedureloop1.lock == def.NOPROCEDURE) and (get(P.battery) == def.ON) and (get(P.mainbus) ~= def.OFF) and (P.flightstate == def.FLIGHTSTATEPREFLIGHT) and (get(P.taxilight) == def.OFF))) then
-        if (P.ongoingtaskstepindex == 6) then
-            if ((P.configvalues[def.CONFIGAUTOBARO] == def.ON) and (get(P.groundspeed) < 45)) then
-                local baroinchtmp, baropastmp = P.getlocalqnh(def.DEPARTURE)
-                if (helpers.roundnumber(math.abs(helpers.roundnumber(get(P.baropilot),2) - baroinchtmp),2) > 0.01) then
-                    if ((P.configvalues[def.CONFIGAUTOFUNCTIONS] == def.ON) and (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON)) then
-                        set(P.baropilot, baroinchtmp)
-                    elseif (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                        local qnhText = nil
-                        if (get(P.baroinhpa) == def.ON) then
-                            qnhText = helpers.formatQnhValue(baropastmp, true)
-                        else
-                            qnhText = helpers.formatQnhValue(baroinchtmp, false)
-                        end
-                        if qnhText then
-                            P.commandtableentry(def.TEXT, "Set Q N H " .. helpers.addspaces(qnhText))
-                        end
-                        P.ongoingtaskstepindex = P.ongoingtaskstepindex - 1
-                    end
-                end
-            end
-        elseif (P.ongoingtaskstepindex == 7) then
-            if (get(P.trimcalc) > 0) and (not helpers.trimwheel_matches_target(get(P.trimwheel), get(P.trimcalc)) and (get(P.groundspeed) < 45)) then
-                if (((P.configvalues[def.CONFIGAUTOFUNCTIONS] == def.ON) and (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON))) then
-                    P.settotrim()
-                    local trimText = helpers.format_trim_quarter(get(P.trimcalc)) or tostring(get(P.trimcalc))
-                    P.commandtableentry(def.TEXT, "Trim " .. trimText)
-                elseif (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                    local trimText = helpers.format_trim_quarter(get(P.trimcalc)) or tostring(get(P.trimcalc))
-                    P.commandtableentry(def.TEXT, "Set Trim " .. trimText)
-                    P.ongoingtaskstepindex = P.ongoingtaskstepindex - 1
-                end
-            end
-        elseif (P.ongoingtaskstepindex == 8) then
-            if ((get(P.v2speed) > 0) and (get(P.v2speed) ~= get(P.mcpspeed)) and (get(P.groundspeed) < 45)) then
-                if ((P.configvalues[def.CONFIGAUTOFUNCTIONS] == def.ON) and (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON)) then
-                    set(P.mcpspeed, get(P.v2speed))
-                elseif (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                    P.commandtableentry(def.TEXT, "Set M C P Speed " .. helpers.addspaces(get(P.v2speed)))
-                    P.ongoingtaskstepindex = P.ongoingtaskstepindex - 1
-                end
-            end
-        elseif (P.ongoingtaskstepindex == 9) then
-            local headingrounded = nil
-            if (helpers.isvalidicao(get(P.depicao)) and helpers.isvalidrwy(get(P.deprwy)) and tonumber(get(P.deprwyheading))) then
-                headingrounded = helpers.roundnumber(get(P.deprwyheading))
-            end
-            if (headingrounded and (headingrounded ~= get(P.mcpheading)) and (get(P.groundspeed) < 45)) then
-                if ((P.configvalues[def.CONFIGAUTOFUNCTIONS] == def.ON) and (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON)) then
-                    set(P.mcpheading, headingrounded)
-                elseif (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                    P.commandtableentry(def.TEXT, "Set M C P Heading " .. helpers.addspaces(helpers.padNumberWithZerosStrict(headingrounded,3)))
-                    P.ongoingtaskstepindex = P.ongoingtaskstepindex - 1
-                end
-            end
-        end
-    elseif (P.ongoingtaskstepindex == 6) then
-        P.ongoingtaskstepindex = 10
-    end
-
-    if (P.ongoingtaskstepindex == 10) then
-        local todDistance = get(P.vnavtoddist)
-        local aircraftInAir = (get(P.airgroundsensor) == def.OFF)
-        local radioAltitude = get(P.radioaltitude)
-        local suppressDiscoWarnings =
-            (P.flightstate == def.FLIGHTSTATEAPPROACH) and
-            radioAltitude and (radioAltitude >= 0) and (radioAltitude < 1000)
-        local flightStateEligible =
-            (P.flightstate == def.FLIGHTSTATECLIMB) or
-            (P.flightstate == def.FLIGHTSTATECRUISE) or
-            (P.flightstate == def.FLIGHTSTATEAPPROACH)
-        local mcpAlt = get(P.mcpaltitude) or 0
-
-        if P.pauseTodMonitorActive then
-            if get(P.pausetod) ~= def.ON then
-                P.pauseTodMonitorActive = false
-                P.pauseTodMcpAltAtPrompt = nil
-            elseif (type(P.pauseTodMcpAltAtPrompt) == "number") and (math.abs(mcpAlt - P.pauseTodMcpAltAtPrompt) >= 100) then
-                set(P.pausetod, def.OFF)
-                P.pauseTodAutoDisabled = true
-                P.pauseTodMonitorActive = false
-                P.pauseTodMcpAltAtPrompt = nil
-            end
-        end
-
-        if aircraftInAir and flightStateEligible and not suppressDiscoWarnings then
-            -- Additional guard: ToD missing but route still long
-            if (not todDistance) or (todDistance <= 0) then
-                local remainingDistance, _, onRoute = helpers.getRemainingRouteDistance(
-                    get(P.fmslegs),
-                    get(P.fmslegslat),
-                    get(P.fmslegslon),
-                    get(P.aircraftlatpos),
-                    get(P.aircraftlonpos)
-                )
-                local distDest = get(P.distdest)
-
-                if remainingDistance and distDest and (remainingDistance > 0) and (distDest > 0) then
-                    if onRoute == true then
-                        local diff = distDest - remainingDistance
-                        if diff > 50 then -- significant gap -> route likely incomplete
-                            if not P.routeEndsEarlyWarned then
-                                P.commandtableentry(def.TEXT, "Warning: Route may end too early. Check Arrival / Approach setup.")
-                                P.routeEndsEarlyWarned = true
-                            end
-                        else
-                            P.routeEndsEarlyWarned = false
-                        end
-                    else
-                        P.routeEndsEarlyWarned = false
-                    end
-                end
-            else
-                P.routeEndsEarlyWarned = false
-            end
-        else
-            P.routeEndsEarlyWarned = false
-        end
-
-        if todDistance and todDistance > 0 and aircraftInAir and not suppressDiscoWarnings then
-            local discontinuity = helpers.detectFMSDiscontinuity(
-                get(P.fmslegs),
-                get(P.fmslegslat),
-                get(P.fmslegslon),
-                get(P.aircraftlatpos),
-                get(P.aircraftlonpos),
-                { maxAheadNm = 20 }
-            )
-            if discontinuity then
-                local prevLegText = ""
-                if discontinuity.previous then
-                    prevLegText = " after " .. helpers.replaceRunwayPrefix(discontinuity.previous)
-                end
-
-                if (get(P.fmccruisealt) or 0) > 0 then
-                    if todDistance <= 10 and not P.todDiscontinuityWarned10 then
-                        P.commandtableentry(def.TEXT, "Warning: Route still contains a Discontinuity" .. prevLegText .. " about 10 NM before Top of Descent")
-                        P.todDiscontinuityWarned10 = true
-                    elseif todDistance <= 30 and not P.todDiscontinuityWarned30 then
-                        P.commandtableentry(def.TEXT, "Warning: Route still contains a Discontinuity" .. prevLegText .. " about 30 NM before Top of Descent")
-                        P.todDiscontinuityWarned30 = true
-                    end
-                end
-            else
-                P.todDiscontinuityWarned30 = false
-                P.todDiscontinuityWarned10 = false
-            end
-
-            if todDistance > 40 then
-                P.todDiscontinuityWarned30 = false
-                P.todDiscontinuityWarned10 = false
-            end
-
-            local routeCheckEligible =
-                (P.flightstate == def.FLIGHTSTATECRUISE) or
-                (P.flightstate == def.FLIGHTSTATEAPPROACH)
-
-            local routeWarningTolerance = 5
-
-            if routeCheckEligible and todDistance and todDistance > routeWarningTolerance then
-                local remainingDistance, _, onRoute = helpers.getRemainingRouteDistance(
-                    get(P.fmslegs),
-                    get(P.fmslegslat),
-                    get(P.fmslegslon),
-                    get(P.aircraftlatpos),
-                    get(P.aircraftlonpos)
-                )
-
-                local hasRemaining = remainingDistance and remainingDistance > 0 and onRoute == true
-                local distDest = get(P.distdest)
-                local hasDestDistance = distDest and distDest > 0
-
-                if hasRemaining then
-                    if todDistance > (remainingDistance + routeWarningTolerance) then
-                        if not P.routeEndsEarlyWarned then
-                            P.commandtableentry(def.TEXT, "Warning: Route may end before Top of Descent, check Arrival setup")
-                            P.routeEndsEarlyWarned = true
-                        end
-                    elseif P.routeEndsEarlyWarned and todDistance <= (remainingDistance + routeWarningTolerance * 0.2) then
-                        P.routeEndsEarlyWarned = false
-                    end
-                elseif hasDestDistance then
-                    if todDistance > (distDest + routeWarningTolerance) then
-                        if not P.routeEndsEarlyWarned then
-                            P.commandtableentry(def.TEXT, "Warning: Route may end before Top of Descent, check Arrival setup")
-                            P.routeEndsEarlyWarned = true
-                        end
-                    elseif P.routeEndsEarlyWarned and todDistance <= (distDest + routeWarningTolerance * 0.2) then
-                        P.routeEndsEarlyWarned = false
-                    end
-                else
-                    P.routeEndsEarlyWarned = false
-                end
-            else
-                P.routeEndsEarlyWarned = false
-            end
-        else
-            P.todDiscontinuityWarned30 = false
-            P.todDiscontinuityWarned10 = false
-            P.routeEndsEarlyWarned = false
-        end
-
-        if (P.flightstate == def.FLIGHTSTATECRUISE) and (get(P.fmsflightphase) == def.FMSFLIGHTPHASE_CRUISE) and not suppressDiscoWarnings then
-            local fmcCruiseAlt = get(P.fmccruisealt) or 0
-            -- FMC Cruise kann "ungerade" sein (z.B. 39100); MCP ist in 100-ft-Schritten.
-            local fmcCruiseRounded = helpers.roundnumber(fmcCruiseAlt / 100, 0) * 100
-            local withinTolerance = (mcpAlt >= (fmcCruiseRounded - 100))
-            if withinTolerance and (get(P.vnavtoddist) < 20) then
-                P.commandtableentry(def.TEXT, "Approaching Top of Descent, Reset M C P Altitude")
-                if (get(P.pausetod) == def.ON) and (not P.pauseTodAutoDisabled) and (not P.pauseTodMonitorActive) then
-                    P.pauseTodMonitorActive = true
-                    P.pauseTodMcpAltAtPrompt = mcpAlt
-                end
-                P.ongoingtaskstepindex = P.ongoingtaskstepindex - 1
-            end
-        end
-    end
-
-     if (P.ongoingtaskstepindex == 11) then
-        local skipReason = nil
-        if (P.flightstate == def.FLIGHTSTATECRUISE) and (get(P.fmsflightphase) == def.FMSFLIGHTPHASE_CRUISE) and (get(P.totalfuellbs) < 1000) then
-
-            local reservefuelLbs = 5000
-
-            if P.YANSHisinstalled() and P.YANSHflightplanloaded() and P.YANSHFuelReserve and get(P.YANSHFuelReserve) > 0 and P.YANSHFuelAlternateBurn and get(P.YANSHFuelAlternateBurn) > 0 and P.YANSHParamsUnitsFlag then
-                local yanshReserveRaw = get(P.YANSHFuelReserve)
-                local yanshAlternateRaw = get(P.YANSHFuelAlternateBurn)
-                local yanshReserveLbs = yanshReserveRaw
-                local yanshAlternateLbs = yanshAlternateRaw
-
-                if get(P.YANSHParamsUnitsFlag) == def.YANSHUNITKGS then
-                    yanshReserveLbs = yanshReserveRaw * def.KGTOLBS
-                    yanshAlternateLbs = yanshAlternateRaw * def.KGTOLBS
-                end
-                reservefuelLbs = yanshReserveLbs + yanshAlternateLbs
-            end
-
-            local distanceToTODNM = get(P.vnavtoddist)
-            if type(distanceToTODNM) ~= "number" or distanceToTODNM <= 0 then
-                local distDest = get(P.distdest)
-                if type(distDest) == "number" and distDest > 0 then
-                    distanceToTODNM = distDest
-                else
-                    skipReason = "skip (no ToD or destination distance)"
-                end
-            end
-
-            if not skipReason then
-                local requiredfuellbs = P.calculateRequiredFuelNow(distanceToTODNM, reservefuelLbs)
-                local currentTotal = get(P.totalfuellbs) or 0
-                if type(requiredfuellbs) ~= "number" or requiredfuellbs <= 0 then
-                    skipReason = "skip (invalid required fuel)"
-                elseif requiredfuellbs <= currentTotal then
-                    skipReason = "skip (required <= current)"
-                else
-                    P.refuelAircraft(requiredfuellbs)
-                end
-            end
-        end
-
-        if skipReason then
-            if P.refuelFailsafeReason ~= skipReason then
-                helpers.logInfoTS("Refuel failsafe: " .. tostring(skipReason))
-                P.refuelFailsafeReason = skipReason
-            end
-        else
-            P.refuelFailsafeReason = nil
-        end
-    end
-
-    P.ongoingtaskstepindex = P.ongoingtaskstepindex + 1
-
-    if (P.ongoingtaskstepindex > 11) then
-        P.ongoingtaskstepindex = 1
-    end
+    P.runOnePreOngoingTask()
+    P.runOneCoreOngoingTask()
+    P.runOneMainOngoingTask()
 
     if P.OngoingTaskIndexdr then
         set(P.OngoingTaskIndexdr, P.ongoingtaskstepindex)
@@ -6251,6 +6397,38 @@ function P.ongoingtasks()
 end
 
 --------------------------------------------------------------------------------------------------------------
+
+local function isViewCommandPath(path)
+    if type(path) ~= "string" then
+        return false
+    end
+    if path == "sim/view/default_view" then
+        return true
+    end
+    if string.find(path, "sim/view/quick_look_", 1, true) == 1 then
+        return true
+    end
+    if string.find(path, "SRS/X-Camera/Select_View_ID_", 1, true) == 1 then
+        return true
+    end
+    return false
+end
+
+local function viewCommandAllowedNow()
+    if P.configvalues[def.CONFIGVIEWCHANGES] ~= def.ON then
+        return false
+    end
+    if get(P.airgroundsensor) == def.OFF then
+        return true
+    end
+    if get(P.tirespeed) < 1 then
+        return true
+    end
+    if P.BPBStarted and isProperty(P.BPBStarted) and get(P.BPBStarted) == def.ON then
+        return true
+    end
+    return false
+end
 
 function P.commandtableloop()
 
@@ -6266,11 +6444,16 @@ function P.commandtableloop()
             local command_path = P.commandtable[1][2]
             helpers.logInfoTS("COMMAND: " .. tostring(command_path))
 
-            local command_handle = sasl.findCommand(command_path)
-            if command_handle then
-                sasl.commandOnce(command_handle)
+            local suppressViewCommand = isViewCommandPath(command_path) and (not viewCommandAllowedNow())
+            if suppressViewCommand then
+                helpers.logInfoTS("View command suppressed: " .. tostring(command_path))
             else
-                sasl.logWarning("Command not found: " .. tostring(command_path))
+                local command_handle = sasl.findCommand(command_path)
+                if command_handle then
+                    sasl.commandOnce(command_handle)
+                else
+                    sasl.logWarning("Command not found: " .. tostring(command_path))
+                end
             end
             table.remove(P.commandtable, 1)
         else
@@ -6513,6 +6696,11 @@ function P.runProcedureLoop(loopIndex)
                 local stepName = loop.currentStepName
             sasl.logDebug("Engine A - Processing Step: '" .. tostring(stepName) .. "'")
             local step = procData.steps[stepName]
+            if loop.stepOnceRequested and loop.stepOnceTargetStep and loop.stepOnceTargetStep ~= stepName then
+                helpers.logInfoTS("Step Once cancelled: step changed from '" .. tostring(loop.stepOnceTargetStep) .. "' to '" .. tostring(stepName) .. "'")
+                loop.stepOnceRequested = false
+                loop.stepOnceTargetStep = nil
+            end
 
             if not step then
                 sasl.logDebug("Procedure " .. procData.name .. " failed: Step '" .. tostring(stepName) .. "' is nil! Aborting.")
@@ -6705,13 +6893,29 @@ function P.runProcedureLoop(loopIndex)
                                                 end
                                                  -- Nur hinzufügen, wenn es ein gültiger String ist
                                                 if type(advice_msg_raw) == "string" and advice_msg_raw ~= "" then
-                                                    P.commandtableentry(def.TEXT, advice_msg_raw)
-                                                    sasl.logDebug("Advice message: " .. advice_msg_raw)
+                                                    local queueAdvice, adviceReason = P.shouldQueueVoiceAdvice(loop, stepName, advice_msg_raw)
+                                                    if queueAdvice then
+                                                        P.commandtableentry(def.TEXT, advice_msg_raw)
+                                                        sasl.logDebug("Advice message: " .. advice_msg_raw)
+                                                    elseif adviceReason == "max-reached" then
+                                                        loop.procedureskipstep = true
+                                                        helpers.logInfoTS("Voice advice max repeats reached, skipping step '" .. tostring(stepName) .. "'")
+                                                    else
+                                                        sasl.logDebug("Advice message skipped by repeat throttle: " .. advice_msg_raw)
+                                                    end
                                                 end
                                             end
-                                            if step.action and step.runActionInAdviceMode then
+                                            local allowStepOnce = loop.stepOnceRequested and (loop.stepOnceTargetStep == stepName)
+                                            if step.action and (step.runActionInAdviceMode or allowStepOnce) then
                                                  step.action(loop, procData);
-                                                 sasl.logDebug("Executed 'runActionInAdviceMode' action.")
+                                                 if allowStepOnce then
+                                                    loop.stepOnceRequested = false
+                                                    loop.stepOnceTargetStep = nil
+                                                    loop.skipConfirmForStep = stepName
+                                                    helpers.logInfoTS("Step Once executed for step '" .. tostring(stepName) .. "'")
+                                                 else
+                                                    sasl.logDebug("Executed 'runActionInAdviceMode' action.")
+                                                 end
                                             end
                                             -- Ende advice Fix
                                         else
@@ -6741,15 +6945,31 @@ function P.runProcedureLoop(loopIndex)
                                                     advice_msg_raw = step.advice
                                                 end
                                                 if type(advice_msg_raw) == "string" and advice_msg_raw ~= "" then
-                                                    P.commandtableentry(def.TEXT, advice_msg_raw)
-                                                    sasl.logDebug("Advice message: " .. advice_msg_raw)
+                                                    local queueAdvice, adviceReason = P.shouldQueueVoiceAdvice(loop, stepName, advice_msg_raw)
+                                                    if queueAdvice then
+                                                        P.commandtableentry(def.TEXT, advice_msg_raw)
+                                                        sasl.logDebug("Advice message: " .. advice_msg_raw)
+                                                    elseif adviceReason == "max-reached" then
+                                                        loop.procedureskipstep = true
+                                                        helpers.logInfoTS("Voice advice max repeats reached, skipping step '" .. tostring(stepName) .. "'")
+                                                    else
+                                                        sasl.logDebug("Advice message skipped by repeat throttle: " .. advice_msg_raw)
+                                                    end
                                                 end
                                             end
 
                                             -- 2. Action AUSNAHMSWEISE ausführen (wenn geflaggt und nicht wiederholt)
-                                            if step.action and step.runActionInAdviceMode then
+                                            local allowStepOnce = loop.stepOnceRequested and (loop.stepOnceTargetStep == stepName)
+                                            if step.action and (step.runActionInAdviceMode or allowStepOnce) then
                                                  step.action(loop, procData);
-                                                 sasl.logDebug("Executed 'runActionInAdviceMode' action (on first fail).")
+                                                 if allowStepOnce then
+                                                    loop.stepOnceRequested = false
+                                                    loop.stepOnceTargetStep = nil
+                                                    loop.skipConfirmForStep = stepName
+                                                    helpers.logInfoTS("Step Once executed for step '" .. tostring(stepName) .. "'")
+                                                 else
+                                                    sasl.logDebug("Executed 'runActionInAdviceMode' action (on first fail).")
+                                                 end
                                             end
 
                                         else
@@ -7074,6 +7294,7 @@ end
 
 local menu_cycleprocedures = sasl.appendMenuItem(P.menu_main, "Cycle Through Procedures", P.cycleprocedures)
 local menu_skip_procedure_step = sasl.appendMenuItem(P.menu_main, "Skip Procedure Step", P.skipprocedurestep)
+local menu_step_once = sasl.appendMenuItem(P.menu_main, "Step Once (Advice Only)", P.stepprocedureonce)
 local menu_skip_procedure = sasl.appendMenuItem(P.menu_main, "Skip Procedure", P.skipprocedure)
 local menu_abort_procedure = sasl.appendMenuItem(P.menu_main, "Abort Procedure", P.abortprocedure)
 sasl.appendMenuSeparator ( P.menu_main )
@@ -7134,6 +7355,7 @@ function P.enableMenus(enableflag)
 
     sasl.enableMenuItem(P.menu_main , menu_cycleprocedures , enableflag)
     sasl.enableMenuItem(P.menu_main , menu_skip_procedure_step , enableflag)
+    sasl.enableMenuItem(P.menu_main , menu_step_once , enableflag)
     sasl.enableMenuItem(P.menu_main , menu_skip_procedure , enableflag)
     sasl.enableMenuItem(P.menu_main , menu_abort_procedure , enableflag)
     sasl.enableMenuItem(P.menu_main , menu_speak_depmetar , enableflag)

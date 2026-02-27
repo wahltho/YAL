@@ -3085,6 +3085,89 @@ local function arrival_grace_active(comp, now)
     return t0 ~= nil and (now - t0) < C.qualityArrGraceSec
 end
 
+local function after_landing_started(comp)
+    local yal = comp and (comp.yal or _G.yal) or nil
+    if not yal then
+        return false
+    end
+    local proc = yal.proceduretable and yal.proceduretable[def.AFTERLANDINGPROCEDURE]
+    if proc and proc.set then
+        return true
+    end
+    if yal.loopStateTables then
+        for _, loop in ipairs(yal.loopStateTables) do
+            if loop and loop.lock == def.AFTERLANDINGPROCEDURE then
+                return true
+            end
+        end
+    else
+        local l1 = yal.procedureloop1
+        local l2 = yal.procedureloop2
+        local l3 = yal.procedureloop3
+        if (l1 and l1.lock == def.AFTERLANDINGPROCEDURE)
+            or (l2 and l2.lock == def.AFTERLANDINGPROCEDURE)
+            or (l3 and l3.lock == def.AFTERLANDINGPROCEDURE) then
+            return true
+        end
+    end
+    return false
+end
+
+local function runway_exit_along(profile, data, exit_id)
+    if not profile or not data or not data.nodes or not exit_id then
+        return nil
+    end
+    local node = data.nodes[exit_id]
+    if not node then
+        return nil
+    end
+    local along = U.compute_along_perp(profile, node)
+    return along
+end
+
+local function set_reroute_override_from_aircraft(comp, data, aircraft, disallow_runway_edges)
+    if not comp or not aircraft or not is_valid_latlon(aircraft.lat, aircraft.lon) then
+        return false
+    end
+    comp._rerouteOverride = { lat = aircraft.lat, lon = aircraft.lon }
+    if data and aircraft.east ~= nil and aircraft.north ~= nil then
+        local proj = U.find_nearest_edge_projection(
+            data,
+            aircraft.east,
+            aircraft.north,
+            { disallow_runway_edges = disallow_runway_edges and true or false }
+        )
+        if proj and proj.proj_east and proj.proj_north then
+            local plat, plon = local_to_latlon(proj.proj_east, proj.proj_north)
+            if is_valid_latlon(plat, plon) then
+                comp._rerouteOverride = { lat = plat, lon = plon }
+            end
+        end
+    end
+    return true
+end
+
+local function force_arrival_recompute(comp, data, aircraft, now, reason, log_taxi)
+    if not comp then
+        return
+    end
+    set_reroute_override_from_aircraft(comp, data, aircraft, false)
+    comp._routeStartAnchor = nil
+    comp._lastStartKey = nil
+    comp._route = nil
+    comp._routeErr = nil
+    comp._routeLabels = nil
+    comp._routeLabelStats = nil
+    comp._routeExtraSegments = nil
+    comp._autoTaxiPath = nil
+    comp._autoTaxiPathRoute = nil
+    comp._pendingRerouteEvent = true
+    comp._lastRerouteTime = now
+    if log_taxi then
+        log_taxi("TaxiRoute: reroute reason=" .. tostring(reason))
+    end
+end
+
 local function record_reroute_event(comp, now)
     if not comp then
         return
@@ -3262,12 +3345,15 @@ local function maybe_force_global_for_quality(comp, now, icao, mode, data, helpe
                     comp._autoEndRampKey = cand_key
                     comp._autoEndRampSwitchTime = now
                     comp._endRamp = nearest_ramp
+                    set_reroute_override_from_aircraft(comp, data, aircraft, true)
+                    comp._routeStartAnchor = nil
                     comp._route = nil
                     comp._routeErr = nil
                     comp._routeLabels = nil
                     comp._routeLabelStats = nil
                     comp._lastEndKey = nil
                     comp._lastStartKey = nil
+                    comp._pendingRerouteEvent = true
                     reset_guidance_tracking(comp, true)
                     comp._sCurveSkipNodeId = nil
                     clear_visual_guidance(comp, "end-ramp-switch-quality")
@@ -3974,6 +4060,7 @@ local function updateTaxiState(comp, map)
     if mode == 1 and onGroundSensor then
         if not comp._arrOnGroundSince then
             comp._arrOnGroundSince = now
+            comp._arrGroundRecomputePending = true
             if comp._quality then
                 comp._quality.rerouteEvents = {}
                 comp._quality.badSince = nil
@@ -3982,6 +4069,30 @@ local function updateTaxiState(comp, map)
         end
     else
         comp._arrOnGroundSince = nil
+        comp._arrGroundRecomputePending = nil
+    end
+    if comp._arrTaxiCompleteFreeze then
+        local release = false
+        if mode ~= 1 or (not onGroundSensor) then
+            release = true
+        elseif in_edit or comp._drawRoute then
+            release = true
+        elseif (comp._manualRouteActive and comp._manualRouteActive == true) then
+            release = true
+        else
+            local gs_now = yal.groundspeed and (get(yal.groundspeed) or 0) or 0
+            local park_now = yal.parkingbrakepos and get(yal.parkingbrakepos) or nil
+            if park_now ~= def.ON and gs_now > 2 then
+                release = true
+            end
+        end
+        if release then
+            comp._arrTaxiCompleteFreeze = false
+            if comp._routeErr == "taxi-complete" then
+                comp._routeErr = nil
+            end
+            log_taxi("TaxiRoute: taxi-complete freeze released")
+        end
     end
     local nearestIcao = nil
     if yal.nearesticao then
@@ -4019,15 +4130,21 @@ local function updateTaxiState(comp, map)
         comp._visualGuidanceQueue = {}
         comp._drawFreehand = false
         comp._arrOffRunwayHandled = false
+        comp._arrExitLockedId = nil
+        comp._arrExitLockedAlong = nil
         comp._arrExitId = nil
+        comp._arrExitAlong = nil
         comp._arrProfile = nil
         comp._arrBacktrackRequired = nil
+        comp._arrGroundRecomputePending = nil
+        comp._arrTaxiCompleteFreeze = false
         comp._arrRunwayExitAnnounced = false
         comp._arrRunwayCrossWarned = nil
         comp._runwayCrossWarnedKey = nil
         comp._initialMoveAnchor = nil
         comp._guidanceMoveAnchor = nil
         comp._depEntryIssuedAt = nil
+        comp._offrouteDivergenceCount = 0
         comp._editTailSegments = nil
         U.set_taxi_ref(nil)
         log_taxi("TaxiRoute: abort invalid-icao")
@@ -4075,9 +4192,14 @@ local function updateTaxiState(comp, map)
         comp._lastAutoRouteLogKey = nil
         comp._drawFreehand = false
         comp._arrOffRunwayHandled = false
+        comp._arrExitLockedId = nil
+        comp._arrExitLockedAlong = nil
         comp._arrExitId = nil
+        comp._arrExitAlong = nil
         comp._arrProfile = nil
         comp._arrBacktrackRequired = nil
+        comp._arrGroundRecomputePending = nil
+        comp._arrTaxiCompleteFreeze = false
         comp._arrRunwayExitAnnounced = false
         comp._arrRunwayCrossWarned = nil
         comp._depRunwayEntryAnnounced = false
@@ -4088,6 +4210,7 @@ local function updateTaxiState(comp, map)
         comp._guidanceMoveAnchor = nil
         comp._runwayCrossWarnedKey = nil
         comp._depEntryIssuedAt = nil
+        comp._offrouteDivergenceCount = 0
         log_taxi(
             string.format(
                 "TaxiRoute: reset icao_changed=%s mode_changed=%s",
@@ -4185,8 +4308,11 @@ local function updateTaxiState(comp, map)
         comp._routeExtraSegments = nil
         comp._editTailSegments = nil
         comp._arrExitId = nil
+        comp._arrExitAlong = nil
         comp._arrProfile = nil
         comp._arrBacktrackRequired = nil
+        comp._arrGroundRecomputePending = nil
+        comp._arrTaxiCompleteFreeze = false
         comp._arrRunwayExitAnnounced = false
         comp._arrRunwayCrossWarned = nil
         U.clear_visual_guidance(comp, "no-data")
@@ -4419,6 +4545,14 @@ local function updateTaxiState(comp, map)
     if comp._manualRouteActive ~= manual_active then
         comp._manualRouteActive = manual_active
         log_taxi("TaxiEdit: manual-route=" .. tostring(manual_active))
+    end
+    if mode == 1 and comp._arrGroundRecomputePending
+        and onGroundSensor and aircraft and (not in_edit)
+        and (not manual_active) and (not comp._drawFreehand)
+        and (not comp._editStartOverride) and (not comp._editEndOverride)
+        and after_landing_started(comp) then
+        comp._arrGroundRecomputePending = nil
+        force_arrival_recompute(comp, data, aircraft, now, "arr-taxi-start", log_taxi)
     end
 
     if mode == 0 then
@@ -4881,18 +5015,24 @@ local function updateTaxiState(comp, map)
                             local close_enough = d_cand <= gate_dist
                             local clearly_closer = (d_plan - d_cand >= gate_delta)
                                 or (d_cand <= (d_plan * gate_ratio))
-                            if clearly_closer then
+                            local moving_switch_ok = (gs < math.max(gate_speed * 4, 12))
+                            local should_switch = (close_enough and clearly_closer)
+                                or (moving_switch_ok and (d_plan - d_cand >= (gate_delta * 1.5)))
+                            if should_switch then
                                 comp._autoEndRampKey = cand_key
                                 comp._autoEndRampSwitchTime = now
                                 end_ramp = nearest_ramp
                                 end_lat = end_ramp.lat
                                 end_lon = end_ramp.lon
+                                set_reroute_override_from_aircraft(comp, data, aircraft, true)
+                                comp._routeStartAnchor = nil
                                 comp._route = nil
                                 comp._routeErr = nil
                                 comp._routeLabels = nil
                                 comp._routeLabelStats = nil
                                 comp._lastEndKey = nil
                                 comp._lastStartKey = nil
+                                comp._pendingRerouteEvent = true
                                 comp._lastGuidanceNodeId = nil
                                 comp._lastGuidanceLabel = nil
                                 comp._lastGuidanceTime = nil
@@ -4965,20 +5105,85 @@ local function updateTaxiState(comp, map)
             end
         end
     end
+    local arr_exit_along = nil
+    if mode == 1 and landing_profile and arr_exit_id then
+        arr_exit_along = runway_exit_along(landing_profile, data, arr_exit_id)
+    end
+    if mode == 1 and comp._arrExitLockedId and arr_exit_id and arr_exit_id ~= comp._arrExitLockedId then
+        local locked_exit = comp._arrExitLockedId
+        local locked_along = comp._arrExitLockedAlong
+        arr_exit_id = locked_exit
+        if locked_along ~= nil then
+            arr_exit_along = locked_along
+        elseif landing_profile and data and locked_exit then
+            arr_exit_along = runway_exit_along(landing_profile, data, locked_exit)
+        end
+        backtrack_required = comp._arrBacktrackRequired and true or false
+        if data and data.nodes and data.nodes[locked_exit] and (not backtrack_required) then
+            local locked_node = data.nodes[locked_exit]
+            if U.is_valid_latlon(locked_node.lat, locked_node.lon) then
+                start_lat = locked_node.lat
+                start_lon = locked_node.lon
+            end
+        end
+        log_taxi("TaxiRoute: ARR exit lock keep=" .. tostring(locked_exit))
+    end
+    if mode == 1 and onGroundSensor and comp._arrExitId and arr_exit_id
+        and arr_exit_id ~= comp._arrExitId
+        and comp._arrExitAlong ~= nil and arr_exit_along ~= nil
+        and (not backtrack_required) and (not comp._arrBacktrackRequired)
+        and arr_exit_along < comp._arrExitAlong then
+        local new_along = arr_exit_along
+        local prev_exit = comp._arrExitId
+        local prev_along = comp._arrExitAlong
+        arr_exit_id = prev_exit
+        arr_exit_along = prev_along
+        backtrack_required = comp._arrBacktrackRequired and true or false
+        if data and data.nodes and data.nodes[prev_exit] and (not backtrack_required) then
+            local prev_node = data.nodes[prev_exit]
+            if U.is_valid_latlon(prev_node.lat, prev_node.lon) then
+                start_lat = prev_node.lat
+                start_lon = prev_node.lon
+            end
+        end
+        log_taxi(
+            string.format(
+                "TaxiRoute: ARR exit rollback blocked keep=%s oldAlong=%.1f newAlong=%.1f",
+                tostring(prev_exit),
+                prev_along or -1,
+                new_along or -1
+            )
+        )
+    end
     if mode == 1 then
         comp._arrProfile = landing_profile
         comp._arrBacktrackRequired = backtrack_required
+        if comp._arrOffRunwayHandled and (not comp._arrExitLockedId) and comp._arrExitId then
+            comp._arrExitLockedId = comp._arrExitId
+            comp._arrExitLockedAlong = comp._arrExitAlong
+        end
         if comp._arrExitId ~= arr_exit_id then
             comp._arrExitId = arr_exit_id
             comp._arrRunwayExitAnnounced = false
             comp._arrRunwayCrossWarned = nil
         end
+        if arr_exit_id then
+            if arr_exit_along ~= nil then
+                comp._arrExitAlong = arr_exit_along
+            end
+        else
+            comp._arrExitAlong = nil
+        end
     else
         comp._arrProfile = nil
         comp._arrBacktrackRequired = nil
+        comp._arrExitLockedId = nil
+        comp._arrExitLockedAlong = nil
         comp._arrExitId = nil
+        comp._arrExitAlong = nil
         comp._arrRunwayExitAnnounced = false
         comp._arrRunwayCrossWarned = nil
+        comp._offrouteDivergenceCount = 0
     end
     if mode == 1 and (not comp._drawFreehand)
         and (not U.is_valid_latlon(end_lat, end_lon)) and U.is_valid_latlon(ramp_ref_lat, ramp_ref_lon) then
@@ -5485,24 +5690,64 @@ local function updateTaxiState(comp, map)
         dep_end_node_id, dep_end_node_dist = U.nearest_non_runway_node(data, end_lat, end_lon)
     end
     if comp._rerouteOverride and start_node_id and end_node_id and start_node_id == end_node_id then
-        log_taxi(
-            string.format(
-                "TaxiRoute: reroute override collapsed start=end id=%s dist=%.1f",
-                tostring(start_node_id),
-                start_node_dist or -1
-            )
-        )
-        comp._rerouteOverride = nil
-        if aircraft and U.is_valid_latlon(aircraft.lat, aircraft.lon) then
-            start_lat = aircraft.lat
-            start_lon = aircraft.lon
-            if not has_start_override then
-                start_vis_lat = start_lat
-                start_vis_lon = start_lon
+        local kept = false
+        if comp._route and (not comp._routeErr) and comp._route.data == data and comp._route.path and #comp._route.path > 1 then
+            local seg_idx = nil
+            if aircraft and aircraft.east ~= nil and aircraft.north ~= nil then
+                seg_idx = U.find_nearest_segment(comp._route.data, comp._route.path, aircraft.east, aircraft.north)
             end
-            start_node_id, start_node_dist = U.nearest_node_info(data, start_lat, start_lon, false)
-            if mode == 0 and start_is_aircraft and data and data.runway_nodes then
-                start_non_runway_node_id, start_non_runway_node_dist = U.nearest_non_runway_node(data, start_lat, start_lon)
+            comp._rerouteOverride = nil
+            comp._routeCollapseHold = true
+            if seg_idx then
+                reset_guidance_tracking(comp, false)
+                comp._autoTaxiActiveRoute = comp._route
+                comp._autoTaxiActiveSegIdx = seg_idx
+                comp._autoTaxiLastSegIdx = seg_idx
+                comp._autoTaxiRunwaySegIdx = nil
+                comp._guidanceRoute = comp._route
+                comp._guidanceActiveSegIdx = seg_idx
+                comp._guidanceMonotonicSegIdx = seg_idx
+                comp._guidanceForceInitial = true
+                log_taxi(
+                    string.format(
+                        "TaxiRoute: reroute override collapsed start=end id=%s keep-route seg=%s dist=%.1f",
+                        tostring(start_node_id),
+                        tostring(seg_idx),
+                        start_node_dist or -1
+                    )
+                )
+            else
+                log_taxi(
+                    string.format(
+                        "TaxiRoute: reroute override collapsed start=end id=%s keep-route dist=%.1f",
+                        tostring(start_node_id),
+                        start_node_dist or -1
+                    )
+                )
+            end
+            comp._lastRerouteTime = now
+            kept = true
+        end
+        if not kept then
+            log_taxi(
+                string.format(
+                    "TaxiRoute: reroute override collapsed start=end id=%s dist=%.1f",
+                    tostring(start_node_id),
+                    start_node_dist or -1
+                )
+            )
+            comp._rerouteOverride = nil
+            if aircraft and U.is_valid_latlon(aircraft.lat, aircraft.lon) then
+                start_lat = aircraft.lat
+                start_lon = aircraft.lon
+                if not has_start_override then
+                    start_vis_lat = start_lat
+                    start_vis_lon = start_lon
+                end
+                start_node_id, start_node_dist = U.nearest_node_info(data, start_lat, start_lon, false)
+                if mode == 0 and start_is_aircraft and data and data.runway_nodes then
+                    start_non_runway_node_id, start_non_runway_node_dist = U.nearest_non_runway_node(data, start_lat, start_lon)
+                end
             end
         end
     end
@@ -5640,6 +5885,8 @@ local function updateTaxiState(comp, map)
     end
     local start_key = string.format("%.6f|%.6f", anchor_lat or 0, anchor_lon or 0)
     local end_key = string.format("%.6f|%.6f|%s", end_lat or 0, end_lon or 0, tostring(comp._runwayName or ""))
+    local taxi_complete_freeze = (mode == 1 and comp._arrTaxiCompleteFreeze and comp._routeErr == "taxi-complete"
+        and (not in_edit) and (not comp._drawRoute) and (not comp._manualRouteActive))
     local recompute_reason = nil
     local suppress_edit_recompute = false
     if comp._editDirty and in_edit and (not comp._drawRoute) and (not comp._wpDrag)
@@ -5653,7 +5900,9 @@ local function updateTaxiState(comp, map)
     if comp._editDirty and (not suppress_edit_recompute) then
         recompute_reason = "edit-dirty"
     elseif comp._route == nil then
-        recompute_reason = "route-nil"
+        if not taxi_complete_freeze then
+            recompute_reason = "route-nil"
+        end
     elseif comp._lastStartKey ~= start_key or comp._lastEndKey ~= end_key then
         if comp._manualRouteActive and (not in_edit) and (not comp._drawRoute) and comp._route then
             comp._lastStartKey = start_key
@@ -5670,6 +5919,12 @@ local function updateTaxiState(comp, map)
             comp._editDirty = false
             recompute_reason = nil
         end
+    end
+    if comp._routeCollapseHold and comp._route and (not comp._routeErr) then
+        comp._lastStartKey = start_key
+        comp._lastEndKey = end_key
+        comp._editDirty = false
+        recompute_reason = nil
     end
     if recompute_reason then
         local recompute_key = string.format(
@@ -5696,7 +5951,18 @@ local function updateTaxiState(comp, map)
             )
         end
     end
-    if comp._editDirty or comp._lastStartKey ~= start_key or comp._lastEndKey ~= end_key or comp._route == nil then
+    local route_refresh_needed = comp._editDirty
+        or comp._lastStartKey ~= start_key
+        or comp._lastEndKey ~= end_key
+        or comp._route == nil
+    if comp._routeCollapseHold and comp._route and (not comp._routeErr) then
+        route_refresh_needed = false
+        comp._routeCollapseHold = nil
+    end
+    if taxi_complete_freeze then
+        route_refresh_needed = comp._editDirty
+    end
+    if route_refresh_needed then
         comp._lastStartKey = start_key
         comp._lastEndKey = end_key
         if data then
@@ -6766,6 +7032,8 @@ local function updateTaxiState(comp, map)
                     comp._lastGuidanceAction = nil
                     comp._lastGuidanceVoiceText = nil
                     comp._lastGuidanceVoiceTime = nil
+                    U.clear_visual_guidance(comp, "route-recompute")
+                    comp._visualGuidanceQueue = {}
                     comp._autoTaxiActiveRoute = route
                     comp._autoTaxiActiveSegIdx = nil
                     comp._autoTaxiLastSegIdx = nil
@@ -6853,6 +7121,9 @@ local function updateTaxiState(comp, map)
                 local exit_id = infer_arrival_exit_from_route(route, route.data)
                 if exit_id and exit_id ~= comp._arrExitId then
                     comp._arrExitId = exit_id
+                    if comp._arrProfile then
+                        comp._arrExitAlong = runway_exit_along(comp._arrProfile, route.data, exit_id)
+                    end
                     local on_runway_now = false
                     if comp._arrProfile and aircraft then
                         on_runway_now = is_on_runway_profile(comp._arrProfile, aircraft, 60, 5)
@@ -6971,6 +7242,20 @@ local function updateTaxiState(comp, map)
         if onGround and comp.yal and comp.yal.aircraftonrwy then
             onRunway = comp.yal.aircraftonrwy(def.DEPARTURE, 40, C.depThresholdHeadingLimit)
         end
+        if onGround and onRunway and gs < 5 and (not comp._depThresholdReached) then
+            if not comp._depOnRunwayLatchSince then
+                comp._depOnRunwayLatchSince = now
+            end
+            if (now - comp._depOnRunwayLatchSince) >= C.depTakeoffLatchHoldSec then
+                comp._depThresholdLatched = true
+                comp._depOnRunwayLatchSince = nil
+                helpers.logInfoTS(
+                    string.format("TaxiDepThreshold: latched=on-runway-aligned gs=%.1f", gs)
+                )
+            end
+        else
+            comp._depOnRunwayLatchSince = nil
+        end
         if onGround and onRunway and gs >= C.depTakeoffLatchSpeed then
             if not comp._takeoffLatchSince then
                 comp._takeoffLatchSince = now
@@ -6987,6 +7272,7 @@ local function updateTaxiState(comp, map)
         end
     else
         comp._takeoffLatchSince = nil
+        comp._depOnRunwayLatchSince = nil
     end
 
     if mode ~= 0 then
@@ -7030,10 +7316,34 @@ local function updateTaxiState(comp, map)
                     end
                 end
                 if mode == 1 and offRunway == false then
+                    if landing_profile and comp._arrExitId and data and data.nodes
+                        and (now - lastReroute) > C.rerouteCooldown then
+                        local along_now = U.compute_along_perp(landing_profile, aircraft)
+                        local along_exit = comp._arrExitAlong
+                        if along_exit == nil then
+                            along_exit = runway_exit_along(landing_profile, data, comp._arrExitId)
+                        end
+                        if along_now and along_exit and (along_now - along_exit) > driftMeters then
+                            comp._arrGroundRecomputePending = nil
+                            comp._arrRunwayExitAnnounced = false
+                            comp._arrRunwayCrossWarned = nil
+                            force_arrival_recompute(
+                                comp,
+                                data,
+                                aircraft,
+                                now,
+                                string.format("arr-exit-missed along=%.1f exit=%.1f", along_now, along_exit),
+                                log_taxi
+                            )
+                            return
+                        end
+                    end
                     return
                 end
                 if mode == 1 and offRunway and not comp._arrOffRunwayHandled and not comp._arrRawRunwayMissing then
                     comp._arrOffRunwayHandled = true
+                    comp._arrExitLockedId = comp._arrExitId
+                    comp._arrExitLockedAlong = comp._arrExitAlong
                     comp._rerouteOverride = { lat = aircraft.lat, lon = aircraft.lon }
                     comp._routeStartAnchor = nil
                     if not arrival_grace_active(comp, now) then
@@ -7077,9 +7387,35 @@ local function updateTaxiState(comp, map)
                         end
                     end
                 end
-                if dist and dist > driftMeters and (now - lastReroute) > C.rerouteCooldown then
+                if mode == 0 and dep_profile and comp._depThresholdState and comp._depThresholdState.heading_diff then
+                    local on_dep_runway = is_on_runway_profile(dep_profile, aircraft, 60, 5)
+                    local reverse_hdg = 180 - (C.depThresholdHeadingLimit or 25)
+                    if on_dep_runway and comp._depThresholdState.heading_diff >= reverse_hdg then
+                        skipReroute = true
+                        if (not comp._lastBacktrackHoldLog) or ((now - comp._lastBacktrackHoldLog) >= 3) then
+                            comp._lastBacktrackHoldLog = now
+                            log_taxi(
+                                string.format(
+                                    "TaxiRoute: offroute hold backtrack dist=%.1f hdgDiff=%.1f",
+                                    dist or -1,
+                                    comp._depThresholdState.heading_diff or -1
+                                )
+                            )
+                        end
+                    end
+                end
+                if dist and dist > driftMeters and (not skipReroute) and (now - lastReroute) > C.rerouteCooldown then
                     local sustained_offroute = prev_dist and prev_dist > driftMeters
-                    if (comp._guidanceState == "complete") or sustained_offroute then
+                    local divergence_trigger = false
+                    if prev_dist and dist > prev_dist then
+                        comp._offrouteDivergenceCount = (comp._offrouteDivergenceCount or 0) + 1
+                    else
+                        comp._offrouteDivergenceCount = 0
+                    end
+                    if dist > (driftMeters * 0.7) and (comp._offrouteDivergenceCount or 0) >= 2 then
+                        divergence_trigger = true
+                    end
+                    if (comp._guidanceState == "complete") or sustained_offroute or divergence_trigger then
                         local seg_idx = nil
                         if comp._route and comp._route.data and comp._route.path and #comp._route.path > 1 then
                             seg_idx = U.find_nearest_segment(comp._route.data, comp._route.path, aircraft.east, aircraft.north)
@@ -7097,6 +7433,8 @@ local function updateTaxiState(comp, map)
                             comp._guidanceActiveSegIdx = seg_idx
                             comp._guidanceMonotonicSegIdx = seg_idx
                             comp._guidanceForceInitial = true
+                            U.clear_visual_guidance(comp, "offroute-reanchor")
+                            comp._visualGuidanceQueue = {}
                             log_taxi(
                                 string.format(
                                     "TaxiRoute: offroute reanchor seg=%s dist=%.1f",
@@ -7146,14 +7484,17 @@ local function updateTaxiState(comp, map)
                         comp._routeLabelStats = nil
                         log_taxi(
                             string.format(
-                                "TaxiRoute: reroute reason=offroute dist=%.1f drift=%.1f prev=%.1f manual=%s",
+                                "TaxiRoute: reroute reason=offroute dist=%.1f drift=%.1f prev=%.1f div=%s manual=%s",
                                 dist or -1,
                                 driftMeters or -1,
                                 prev_dist or -1,
+                                tostring(divergence_trigger),
                                 tostring(comp._manualRouteActive)
                             )
                         )
                     end
+                else
+                    comp._offrouteDivergenceCount = 0
                 end
             end
         end
@@ -7350,6 +7691,7 @@ local function updateTaxiState(comp, map)
                             kind = "ramp"
                         }, U.is_auto_taxi_guidance_enabled())
                         comp._arrTaxiCompleteAnnounced = true
+                        comp._arrTaxiCompleteFreeze = true
                         set_guidance_state(comp, "complete", "taxi-complete", log_taxi)
                         comp._route = nil
                         comp._routeErr = "taxi-complete"
@@ -7690,6 +8032,13 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
     comp._depRunwayEntryAnnounced = false
     comp._depTaxiCompleteAnnounced = false
     comp._arrTaxiCompleteAnnounced = false
+    comp._arrTaxiCompleteFreeze = false
+    comp._arrExitLockedId = nil
+    comp._arrExitLockedAlong = nil
+    comp._arrExitId = nil
+    comp._arrExitAlong = nil
+    comp._arrGroundRecomputePending = nil
+    comp._offrouteDivergenceCount = 0
     comp._initialGuidanceDone = false
     comp._initialMoveAnchor = nil
     comp._guidanceMoveAnchor = nil

@@ -13,6 +13,8 @@ local settingsDefinition = {
     [def.CONFIGFMCAUTOMATION] = { dvalue = 1 , type = "number", min = 0, max = 1 },
     [def.CONFIGHEADINGSYNCINTERVAL] = { dvalue = 0 , type = "number", min = 0, max = 9999 },
     [def.CONFIGVOICEADVICEONLY] = { dvalue = 1 , type = "number", min = 0, max = 1 },
+    [def.CONFIGVOICEADVICEREPEATSKIP] = { dvalue = 4 , type = "number", min = 0, max = 10 },
+    [def.CONFIGVOICEADVICEMAXREPEATS] = { dvalue = 0 , type = "number", min = 0, max = 99 },
     [def.CONFIGAUTOFUELING] = { dvalue = 0 , type = "number", min = 0, max = 1 },
     [def.CONFIGHOPPIEID] = { dvalue = "" , type = "string", minLen = 0, maxLen = 16 },
     [def.CONFIGCUSTOMAPPROACHCALC] = { dvalue = 0 , type = "number", min = 0, max = 1 },
