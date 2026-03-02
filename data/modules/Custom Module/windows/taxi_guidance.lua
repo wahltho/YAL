@@ -411,11 +411,34 @@ function M.attach(U, C, def, helpers, settings)
                 return
             end
             if not before_taxi_started(comp) then
+                comp._guidanceBeforeTaxiBlocked = true
                 clear_visual_guidance(comp, "before-taxi")
                 set_guidance_state(comp, "idle", "before-taxi", log_taxi)
                 comp._depGateStartDone = nil
                 diag("before-taxi-not-started")
                 return
+            end
+            if comp._guidanceBeforeTaxiBlocked then
+                comp._guidanceBeforeTaxiBlocked = nil
+                if comp._route and comp._route.path and comp._route.data and #comp._route.path > 1 then
+                    local s = find_nearest_segment(comp._route.data, comp._route.path, aircraft.east, aircraft.north)
+                    if s and s >= 1 and s < #comp._route.path then
+                        comp._guidanceActiveSegIdx = s
+                        comp._guidanceMonotonicSegIdx = s
+                        comp._lastGuidanceSegment = nil
+                        comp._lastGuidanceNodeId = nil
+                        comp._lastGuidanceLabel = nil
+                        comp._lastGuidanceAction = nil
+                        comp._lastGuidanceTime = nil
+                        comp._lastGuidanceVoiceText = nil
+                        comp._lastGuidanceVoiceTime = nil
+                        comp._guidanceMoveAnchor = nil
+                        comp._guidanceForceInitial = true
+                        if log_taxi then
+                            log_taxi("TaxiGuidance: before-taxi-start reanchor seg=" .. tostring(s))
+                        end
+                    end
+                end
             end
             if yal and yal.parkingbrakepos and get(yal.parkingbrakepos) == def.ON then
                 clear_visual_guidance(comp, "parking-brake")
@@ -554,6 +577,13 @@ function M.attach(U, C, def, helpers, settings)
             end
         end
         set_guidance_state(comp, guidance_state, "resolve", log_taxi)
+        if guidance_state == "gate" then
+            if not comp._gateGuidanceSince then
+                comp._gateGuidanceSince = now
+            end
+        else
+            comp._gateGuidanceSince = nil
+        end
         if guidance_state == "complete" then
             return
         end
@@ -610,6 +640,23 @@ function M.attach(U, C, def, helpers, settings)
                 comp._gateNote = gate_note_text(dist, comp._gateUseDgs)
                 if dist then
                     local stop_dist = (comp._gateUseDgs and ((C and C.gateDgsGoodZPos) or 0.2)) or C.gateStopDistance
+                    if helpers and helpers.logInfoTS then
+                        local last_gate_diag = comp._lastGateDiagTime or 0
+                        if (now - last_gate_diag) >= 5 then
+                            comp._lastGateDiagTime = now
+                            helpers.logInfoTS(
+                                string.format(
+                                    "GateDiag: dist=%.1f stop=%.1f gs=%.1f stage=%s stopCalled=%s dgs=%s",
+                                    dist,
+                                    stop_dist or -1,
+                                    gs or 0,
+                                    tostring(comp._gateCalloutStage or 0),
+                                    tostring(comp._gateCalloutStop),
+                                    tostring(comp._gateUseDgs)
+                                )
+                            )
+                        end
+                    end
                     if gs > 0.2 or dist <= stop_dist then
                         if not comp._arrTaxiCompleteAnnounced then
                             maybe_gate_voice_callouts(comp, dist, auto_voice, comp._gateUseDgs)
@@ -626,6 +673,12 @@ function M.attach(U, C, def, helpers, settings)
                 local same = (gate_info.direction == comp._gateGuidanceLastDir) and (gate_info.action == comp._gateGuidanceLastAction)
                 if gate_info.action == "STOP" then
                     if not comp._gateGuidanceStop then
+                        local gate_min_age = ((comp._tuning and comp._tuning.gateGuidanceCooldownSec) or (C and C.gateGuidanceCooldownSec) or 4)
+                        local gate_age = (comp._gateGuidanceSince and now) and (now - comp._gateGuidanceSince) or gate_min_age
+                        local stop_ready = (comp._gateCalloutStop == true) or (gate_age >= gate_min_age)
+                        if not stop_ready then
+                            return
+                        end
                         local allow_voice = auto_voice
                         if comp._gateCalloutStop then
                             allow_voice = false
@@ -1288,11 +1341,20 @@ function M.attach(U, C, def, helpers, settings)
             if not info then
                 return false
             end
+            if info.targetSegIdx and comp._lastGuidanceSegment and info.targetSegIdx == comp._lastGuidanceSegment then
+                local same_action = tostring(comp._lastGuidanceAction or "") == tostring(info.action or "")
+                local same_display = tostring(comp._lastGuidanceLabel or "") == tostring(info.display or "")
+                local same_text = tostring(comp._lastGuidanceVoiceText or "") == tostring(info.text or "")
+                if same_action and (same_display or same_text) then
+                    return false
+                end
+            end
             if info.action == "STOP" and info.kind == "ramp" then
                 if comp._routeErr == "taxi-complete" or comp._arrTaxiCompleteAnnounced then
                     return false
                 end
             end
+            local emitted = false
             local voice_queued = false
             local voice_active = auto_voice and is_voice_enabled()
             local voice_text_ok = voice_active and info.text and info.text ~= ""
@@ -1305,36 +1367,43 @@ function M.attach(U, C, def, helpers, settings)
                     comp._lastGuidanceVoiceText = info.text
                     comp._lastGuidanceVoiceTime = now or 0
                     voice_queued = true
+                    emitted = true
                 end
             end
             if is_visual_taxi_guidance_enabled() and info.visual ~= false then
                 local action = info.action
-                local force_visual = (action == "STOP" or action == "HOLD SHORT" or action == "CROSS RWY")
+                local force_visual = (
+                    action == "STOP"
+                    or action == "HOLD SHORT"
+                    or action == "CROSS RWY"
+                    or action == "TURN LEFT"
+                    or action == "TURN RIGHT"
+                    or action == "ENTER RWY"
+                )
                 local allow_visual = true
                 local current_visual = comp._visualGuidance
-                local visual_changed = true
-                if current_visual then
-                    visual_changed = (current_visual.action ~= info.action)
-                        or (current_visual.display ~= info.display)
-                        or (current_visual.text ~= info.text)
-                end
-                if voice_text_ok and (not force_visual) and (not voice_queued) then
-                    -- Keep popup and voice synchronized: if voice is still in cooldown,
-                    -- don't advance popup text to a newer guidance line yet.
+                if voice_text_ok and (not voice_queued) then
+                    -- Keep popup strictly in sync with the emitted voice event.
                     allow_visual = false
                 end
                 if allow_visual then
-                    if info.queue then
+                    if force_visual
+                        or (current_visual and current_visual.targetSegIdx and info.targetSegIdx
+                            and info.targetSegIdx > current_visual.targetSegIdx) then
+                        comp._visualGuidanceQueue = {}
+                        set_visual_guidance(comp, info)
+                    elseif info.queue then
                         queue_visual_guidance(comp, info)
                     else
                         set_visual_guidance(comp, info)
                     end
+                    emitted = true
                 end
             end
             if comp._guidanceForceInitial then
                 comp._guidanceForceInitial = nil
             end
-            return true
+            return emitted
         end
 
         if guidance_state ~= "route" then
@@ -1806,9 +1875,20 @@ function M.attach(U, C, def, helpers, settings)
             next_info = maybe_skip_duplicate_guidance(next_info)
             if next_info then
                 if is_visual_taxi_guidance_enabled() and next_info.visual ~= false then
-                    next_info.showAt = now and (now + C.visualGuidanceSyncDelay) or nil
-                    next_info.minShowUntil = now and (now + C.visualGuidanceMinShow) or nil
-                    next_info.expiresAt = now and (now + C.visualGuidanceDuration) or nil
+                    local visual_delay = C.visualGuidanceSyncDelay
+                    local action = next_info.action
+                    if action == "STOP"
+                        or action == "HOLD SHORT"
+                        or action == "CROSS RWY"
+                        or action == "TURN LEFT"
+                        or action == "TURN RIGHT"
+                        or action == "ENTER RWY"
+                        or action == "EXIT RWY" then
+                        visual_delay = 0
+                    end
+                    next_info.showAt = now and (now + visual_delay) or nil
+                    next_info.minShowUntil = now and (now + visual_delay + C.visualGuidanceMinShow) or nil
+                    next_info.expiresAt = now and (now + visual_delay + C.visualGuidanceDuration) or nil
                 end
                 if set_guidance(next_info) then
                     comp._lastGuidanceSegment = seg_idx
@@ -1825,9 +1905,20 @@ function M.attach(U, C, def, helpers, settings)
             local info = build_guidance_from_segment(seg_idx)
             if info then
                 if is_visual_taxi_guidance_enabled() and info.visual ~= false then
-                    info.showAt = now and (now + C.visualGuidanceSyncDelay) or nil
-                    info.minShowUntil = now and (now + C.visualGuidanceMinShow) or nil
-                    info.expiresAt = now and (now + C.visualGuidanceDuration) or nil
+                    local visual_delay = C.visualGuidanceSyncDelay
+                    local action = info.action
+                    if action == "STOP"
+                        or action == "HOLD SHORT"
+                        or action == "CROSS RWY"
+                        or action == "TURN LEFT"
+                        or action == "TURN RIGHT"
+                        or action == "ENTER RWY"
+                        or action == "EXIT RWY" then
+                        visual_delay = 0
+                    end
+                    info.showAt = now and (now + visual_delay) or nil
+                    info.minShowUntil = now and (now + visual_delay + C.visualGuidanceMinShow) or nil
+                    info.expiresAt = now and (now + visual_delay + C.visualGuidanceDuration) or nil
                 end
                 if set_guidance(info) then
                     comp._lastGuidanceSegment = seg_idx

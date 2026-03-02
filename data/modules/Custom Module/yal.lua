@@ -5151,15 +5151,8 @@ function P.duringclimb()
         P.triggerprocedure(proc_to_check)
     end
 
-    local departure_icao = get(P.depicao)
-    local departure_altitude = 0
-    if P.airportdatatable[departure_icao] and P.airportdatatable[departure_icao].elevation_ft then
-        departure_altitude = P.airportdatatable[departure_icao].elevation_ft
-    end
-
-    local height_above_field = get(P.altitude) - departure_altitude
     local lower_airspace_alt = P.configvalues[def.CONFIGLOWEAIRSPACEALT]
-    local altitudeTriggerConditions = (height_above_field >= lower_airspace_alt) or (get(P.altitude) >= lower_airspace_alt)
+    local altitudeTriggerConditions = (get(P.altitude) >= lower_airspace_alt)
     local above10kTargetLoopIndex = P.proceduretable[def.ALTITUDEA10000PROCEDURE].loop
     local isAbove10kLoopFree = (P.loopStateTables[above10kTargetLoopIndex].lock == def.NOPROCEDURE)
     if altitudeTriggerConditions and isAbove10kLoopFree then
@@ -5170,6 +5163,52 @@ function P.duringclimb()
     if (P.configvalues[def.CONFIGAUTOFLAPS] == def.ON) and (get(P.flapleverpos) > def.FLAPSUP) then
         P.flapsuphandling()
     end
+end
+
+--------------------------------------------------------------------------------------------------------------
+function P.triggerapproachprep()
+    local desIcao = get(P.desicao)
+    local desRwy = get(P.desrwy)
+    local validDest = helpers.isvalidicao(desIcao) and helpers.isvalidrwy(desRwy)
+    local key = validDest and (tostring(desIcao) .. "|" .. tostring(desRwy)) or nil
+
+    if key ~= P.approachPrepTriggerKey then
+        P.approachPrepTriggerKey = key
+        P.approachPrepCompletedForKey = nil
+    end
+    if not key or P.approachPrepCompletedForKey == key then
+        return
+    end
+
+    local distDest = tonumber(get(P.distdest)) or 99999
+    local vs = tonumber(get(P.verticalspeed)) or 0
+    if distDest > 40 or vs >= -300 then
+        return
+    end
+
+    local ilsDone = P.proceduretable[def.SETILSPROCEDURE] and P.proceduretable[def.SETILSPROCEDURE].set
+    if not ilsDone then
+        P.triggerprocedure(def.SETILSPROCEDURE, false)
+        return
+    end
+
+    local requireVref = (P.configvalues[def.CONFIGVREF30SET] == def.ON)
+    if requireVref then
+        local vrefDone = (P.proceduretable[def.SETVREFPROCEDURE] and P.proceduretable[def.SETVREFPROCEDURE].set) or (get(P.vref) ~= 0)
+        if not vrefDone then
+            P.triggerprocedure(def.SETVREFPROCEDURE, false)
+            return
+        end
+
+        local windDone = P.proceduretable[def.SETWINDCORRPROCEDURE] and P.proceduretable[def.SETWINDCORRPROCEDURE].set
+        if not windDone then
+            P.triggerprocedure(def.SETWINDCORRPROCEDURE, false)
+            return
+        end
+    end
+
+    P.approachPrepCompletedForKey = key
+    helpers.logInfoTS(string.format("ApproachPrepTrigger: completed key=%s distDest=%.1f vs=%d", key, distDest, helpers.roundnumber(vs)))
 end
 
 --------------------------------------------------------------------------------------------------------------
@@ -5192,6 +5231,18 @@ function P.duringdescent()
         P.triggerprocedure(proc_to_check)
     end
 
+    P.triggerapproachprep()
+
+    local lower_airspace_alt = P.configvalues[def.CONFIGLOWEAIRSPACEALT]
+    local altitudeB10kConditions = (get(P.altitude) < lower_airspace_alt)
+    local procB10k = def.ALTITUDEB10000PROCEDURE
+    local loopB10kIndex = P.proceduretable[procB10k].loop
+    local isLoopB10kFree = (P.loopStateTables[loopB10kIndex].lock == def.NOPROCEDURE)
+    if altitudeB10kConditions and isLoopB10kFree then
+        sasl.logDebug("Autofunctions triggering ALTITUDEB10000PROCEDURE (Loop " .. loopB10kIndex .. " is free).")
+        P.triggerprocedure(procB10k)
+    end
+
     local destination_icao = get(P.desicao)
     local destination_altitude = nil
     if P.airportdatatable[destination_icao] and P.airportdatatable[destination_icao].elevation_ft then
@@ -5204,17 +5255,7 @@ function P.duringdescent()
     if destination_altitude and destination_altitude > -1000 then
         height_above_field = get(P.altitude) - destination_altitude
     end
-
-    local radio_alt = get(P.radioaltitude)
-    local lower_airspace_alt = P.configvalues[def.CONFIGLOWEAIRSPACEALT]
-    local altitudeB10kConditions = (height_above_field < lower_airspace_alt) or (radio_alt < lower_airspace_alt)
-    local procB10k = def.ALTITUDEB10000PROCEDURE
-    local loopB10kIndex = P.proceduretable[procB10k].loop
-    local isLoopB10kFree = (P.loopStateTables[loopB10kIndex].lock == def.NOPROCEDURE)
-    if altitudeB10kConditions and isLoopB10kFree then
-        sasl.logDebug("Autofunctions triggering ALTITUDEB10000PROCEDURE (Loop " .. loopB10kIndex .. " is free).")
-        P.triggerprocedure(procB10k)
-    end
+    local radio_alt = get(P.radioaltitude) or 99999
 
     local altitudeB2500Conditions = (height_above_field < 2500) or (radio_alt < 2500)
     local procB2500 = def.RADIOALTITUDEB2500PROCEDURE

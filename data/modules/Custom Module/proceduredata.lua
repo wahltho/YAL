@@ -570,8 +570,9 @@ local function cacheApproachCourse(loop, entry, course)
     P.approachNavType = entry and entry[def.DESTNAVTYPE] or nil
 
     local ziboCourse = nil
+    local ziboSource = nil
     if entry then
-        ziboCourse = helpers.calcApproachCourseZibo(entry, {
+        local ziboCtx = {
             icao = get(P.desicao),
             runway = get(P.desrwy),
             runwayMag = tonumber(get(P.desrwyheading)),
@@ -582,12 +583,16 @@ local function cacheApproachCourse(loop, entry, course)
             navdatatable = P.navdatatable,
             navIndices = loop and loop.navdatatableindices or nil,
             appId = (loop and loop.detectedApproach and loop.detectedApproach.entry and loop.detectedApproach.entry.code) or nil
-        })
+        }
+        ziboCourse = helpers.calcApproachCourseZibo(entry, ziboCtx)
+        ziboSource = ziboCtx.source
     end
     if loop then
         loop.approachCourseMagZibo = ziboCourse
+        loop.approachCourseMagZiboSource = ziboSource
     end
     P.approachCourseMagZibo = ziboCourse
+    P.approachCourseMagZiboSource = ziboSource
 
     local icao = get(P.desicao)
     local rwy = get(P.desrwy)
@@ -605,8 +610,8 @@ local function cacheApproachCourse(loop, entry, course)
             diff = math.abs(helpers.headingdiff(course, ziboCourse))
         end
         helpers.logInfoTS(string.format(
-            "ApproachCourseCompare: current=%s zibo=%s diff=%s navType=%s rwy=%s navId=%s appId=%s",
-            tostring(course), tostring(ziboCourse), tostring(diff), tostring(navType),
+            "ApproachCourseCompare: current=%s zibo=%s ziboSource=%s diff=%s navType=%s rwy=%s navId=%s appId=%s",
+            tostring(course), tostring(ziboCourse), tostring(ziboSource), tostring(diff), tostring(navType),
             tostring(rwy), tostring(navId), tostring(appId)
         ))
     end
@@ -3075,13 +3080,8 @@ function M.fillProcedureTable()
                 { 
                   check = function(loop) 
                       if not loop.triggeredmanually then return true end
-                      local departure_altitude = 0
-                      if P.airportdatatable[get(P.depicao)] and P.airportdatatable[get(P.depicao)].elevation_ft then
-                          departure_altitude = P.airportdatatable[get(P.depicao)].elevation_ft
-                      end
-                      local height_above_field = get(P.altitude) - departure_altitude
                       local lower_airspace_alt = P.configvalues[def.CONFIGLOWEAIRSPACEALT]
-                      return (height_above_field >= lower_airspace_alt) or (get(P.altitude) >= lower_airspace_alt)
+                      return (get(P.altitude) >= lower_airspace_alt)
                   end, 
                   failMsg = "Procedure only possible above lower Airspace Altitude" 
                 }
@@ -3408,17 +3408,8 @@ function M.fillProcedureTable()
                 { 
                   check = function(loop) 
                       if not loop.triggeredmanually then return true end
-                      local destination_altitude = get(P.desrwyalt)
-                      if P.airportdatatable[get(P.desicao)] and P.airportdatatable[get(P.desicao)].elevation_ft then
-                          destination_altitude = P.airportdatatable[get(P.desicao)].elevation_ft
-                      end
-                      local height_above_field = 99999
-                      if destination_altitude and destination_altitude > -1000 then
-                          height_above_field = get(P.altitude) - destination_altitude
-                      end
-                      local radio_alt = get(P.radioaltitude)
                       local lower_airspace_alt = P.configvalues[def.CONFIGLOWEAIRSPACEALT]
-                      return (height_above_field < lower_airspace_alt) or (radio_alt < lower_airspace_alt)
+                      return (get(P.altitude) < lower_airspace_alt)
                   end, 
                   failMsg = "Procedure only possible below lower Airspace Altitude" 
                 }
@@ -3475,126 +3466,6 @@ function M.fillProcedureTable()
                 ['set_view_main_1'] = {
                     skipIf = function() return P.configvalues[def.CONFIGVIEWCHANGES] ~= def.ON end,
                     view = function() return P.configvalues[def.CONFIGVIEWMAINPANEL] end,
-                    nextStep = 'trigger_ils_proc'
-                },
-                ['trigger_ils_proc'] = {
-                    action = function()
-                        P.triggerprocedure(def.SETILSPROCEDURE, false) 
-                    end,
-                    check = function()
-                        local procKey = def.SETILSPROCEDURE
-                        local procData = P.proceduretable[procKey]
-                        if procData.set then
-                            return true
-                        else
-                            return false
-                        end
-                    end,
-                    advice = nil, 
-                    confirm = nil,
-                    runActionInAdviceMode = true,
-                    nextStep = 'trigger_vref_proc' 
-                },
-                ['trigger_vref_proc'] = {
-                    skipIf = function() return P.configvalues[def.CONFIGVREF30SET] == def.OFF end,
-                    action = function(loop)
-                        if not loop then return end
-                        local procData = P.proceduretable[def.SETVREFPROCEDURE]
-                        if procData and procData.set then
-                            loop.vrefproctriggered = nil
-                            return
-                        end
-
-                        -- Only trigger SetVref if VREF is still empty and we haven't started waiting yet.
-                        if get(P.vref) == 0 and not loop.vrefproctriggered then
-                            local ok = P.triggerprocedure(def.SETVREFPROCEDURE, false)
-                            -- Mark as waiting if we successfully triggered OR if the target loop is now running SetVref.
-                            local loop3 = P.loopStateTables and P.loopStateTables[3]
-                            local running = loop3 and (loop3.lock == def.SETVREFPROCEDURE)
-                            if ok or running then
-                                loop.vrefproctriggered = true
-                            end
-                        end
-                    end,
-                    check = function(loop)
-                        local procKey = def.SETVREFPROCEDURE 
-                        local procData = P.proceduretable[procKey]
-                        if procData and procData.set then
-                            if loop then loop.vrefproctriggered = nil end
-                            return true
-                        end
-
-                        -- If we triggered SetVref from this step, wait until it completes.
-                        if loop and loop.vrefproctriggered then
-                            local loop3 = P.loopStateTables and P.loopStateTables[3]
-                            local running = loop3 and (loop3.lock == def.SETVREFPROCEDURE)
-                            -- If SetVref is no longer running but VREF is set, assume it was completed/aborted after manual input and continue.
-                            if not running and get(P.vref) ~= 0 then
-                                loop.vrefproctriggered = nil
-                                return true
-                            end
-                            return false
-                        end
-
-                        -- If we didn't trigger SetVref here, treat "VREF already set" as sufficient to proceed.
-                        return get(P.vref) ~= 0
-                    end,
-                    advice = nil,
-                    confirm = function() 
-                        if get(P.vref) ~= 0 then 
-                            return "V REF flaps " .. get(P.appflaps) .. " checked and " .. get(P.vref) 
-                        else 
-                            return false 
-                        end
-                    end,
-                    runActionInAdviceMode = true, 
-                    nextStep = 'trigger_windcorr_proc' 
-                },
-                ['trigger_windcorr_proc'] = {
-                    skipIf = function(loop)
-                        local skip = P.configvalues[def.CONFIGVREF30SET] == def.OFF
-                        return skip
-                    end,
-                    action = function(loop)
-                        if not loop then return end
-                        local procData = P.proceduretable[def.SETWINDCORRPROCEDURE]
-                        if procData and procData.set then
-                            loop.windcorrproctriggered = nil
-                            return
-                        end
-
-                        if not loop.windcorrproctriggered then
-                            local ok = P.triggerprocedure(def.SETWINDCORRPROCEDURE, false)
-                            local loop3 = P.loopStateTables and P.loopStateTables[3]
-                            local running = loop3 and (loop3.lock == def.SETWINDCORRPROCEDURE)
-                            if ok or running then
-                                loop.windcorrproctriggered = true
-                            end
-                        end
-                    end,
-                    check = function(loop)
-                        local procKey = def.SETWINDCORRPROCEDURE
-                        local procData = P.proceduretable[procKey]
-                        if procData and procData.set then
-                            if loop then loop.windcorrproctriggered = nil end
-                            return true
-                        end
-
-                        if loop and loop.windcorrproctriggered then
-                            local loop3 = P.loopStateTables and P.loopStateTables[3]
-                            local running = loop3 and (loop3.lock == def.SETWINDCORRPROCEDURE)
-                            if not running then
-                                loop.windcorrproctriggered = nil
-                                return true
-                            end
-                            return false
-                        end
-
-                        return false
-                    end,
-                    advice = nil,
-                    confirm = nil,
-                    runActionInAdviceMode = true,
                     nextStep = 'set_view_main_2'
                 },
                 ['set_view_main_2'] = {

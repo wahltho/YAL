@@ -4460,6 +4460,11 @@ function P.calcApproachCourseZibo(entry, ctx)
     local navType = entry[def.DESTNAVTYPE]
     local icao = ctx.icao or entry[def.DESTICAO]
     local runway = ctx.runway or entry[def.DESTRWY]
+    local function markSource(source)
+        if ctx then
+            ctx.source = source
+        end
+    end
 
     local appId = ctx.appId
     if type(appId) == "string" then
@@ -4589,27 +4594,52 @@ function P.calcApproachCourseZibo(entry, ctx)
         local raw = entry[def.DESTRAWBEARING]
         local trueC, magC, hasMag = decode_raw_course(raw)
         if hasMag and magC then
+            markSource("RAW_MAG")
             return P.calccourse(magC)
         end
         if trueC then
+            markSource("RAW_TRUE")
             return P.calccourse(trueC + magVar)
         end
         if entry[def.DESTCOURSE] ~= nil then
+            markSource("NAV")
             return P.calccourse(entry[def.DESTCOURSE])
         end
     elseif navType == def.NAVTYPEGLS then
         if entry.isTrueCourse and entry.truecourse then
+            markSource("NAV_TRUE")
             return P.calccourse(entry.truecourse + magVar)
         end
         if entry[def.DESTCOURSE] ~= nil then
+            markSource("NAV")
             return P.calccourse(entry[def.DESTCOURSE])
         end
     else
+        -- Zibo RNAV/FAC path: final-leg FMS course first, runway heading fallback second.
+        if navType == def.NAVTYPERNAV then
+            local fmsMag = get_fms_final_mag_course()
+            if fmsMag then
+                markSource("FMS")
+                return P.calccourse(fmsMag)
+            end
+            local runwayMag = tonumber(ctx.runwayMag)
+            if runwayMag then
+                markSource("RUNWAY_MAG")
+                return P.calccourse(runwayMag)
+            end
+            local runwayTrue = tonumber(ctx.runwayTrue)
+            if runwayTrue then
+                markSource("RUNWAY_TRUE")
+                return P.calccourse(runwayTrue + magVar)
+            end
+        end
         if entry.isTrueCourse and entry.truecourse then
+            markSource("NAV_TRUE")
             return P.calccourse(entry.truecourse + magVar)
         end
         local entryCourse = tonumber(entry[def.DESTCOURSE])
         if entryCourse and entryCourse > 0 then
+            markSource("NAV")
             return P.calccourse(entryCourse)
         end
         local candidateTypes = { navType }
@@ -4619,23 +4649,28 @@ function P.calcApproachCourseZibo(entry, ctx)
         for _, candidateType in ipairs(candidateTypes) do
             local cifpMag = cifp_course_mag(candidateType)
             if cifpMag then
+                markSource("CIFP")
                 return cifpMag
             end
         end
         local fmsMag = get_fms_final_mag_course()
         if fmsMag then
+            markSource("FMS")
             return P.calccourse(fmsMag)
         end
     end
 
     local runwayMag = tonumber(ctx.runwayMag)
     if runwayMag then
+        markSource("RUNWAY_MAG")
         return P.calccourse(runwayMag)
     end
     local runwayTrue = tonumber(ctx.runwayTrue)
     if runwayTrue then
+        markSource("RUNWAY_TRUE")
         return P.calccourse(runwayTrue + magVar)
     end
+    markSource("NONE")
     return nil
 end
 
