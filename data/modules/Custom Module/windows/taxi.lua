@@ -8187,6 +8187,16 @@ local function updateTaxiState(comp, map)
                     end
                 else
                     comp._arrTaxiCompleteRunwaySkip = nil
+                    local planned_ramp = comp._endRamp
+                    local planned_ramp_dist = nil
+                    if planned_ramp and U.is_valid_latlon(planned_ramp.lat, planned_ramp.lon) then
+                        planned_ramp_dist = U.distance_meters_latlon(
+                            planned_ramp.lat,
+                            planned_ramp.lon,
+                            aircraft.lat,
+                            aircraft.lon
+                        )
+                    end
                     if not nearest_ramp then
                         nearest_ramp = helpers.getNearestRamp(
                             icao,
@@ -8204,8 +8214,19 @@ local function updateTaxiState(comp, map)
                         end
                     end
                     local pb_dist = tuning.parkingBrakeCompleteDist or 35
-                    if nearest_ramp and nearest_ramp_dist and nearest_ramp_dist <= pb_dist then
-                        local ramp_label = U.short_ramp_label(nearest_ramp)
+                    local complete_ok = false
+                    local complete_ramp = nil
+                    if planned_ramp and planned_ramp_dist then
+                        if planned_ramp_dist <= pb_dist then
+                            complete_ok = true
+                            complete_ramp = planned_ramp
+                        end
+                    elseif nearest_ramp and nearest_ramp_dist and nearest_ramp_dist <= pb_dist then
+                        complete_ok = true
+                        complete_ramp = nearest_ramp
+                    end
+                    if complete_ok and complete_ramp then
+                        local ramp_label = U.short_ramp_label(complete_ramp)
                         U.clear_visual_guidance(comp, "taxi-complete")
                         comp._visualGuidanceQueue = {}
                         emit_guidance(comp, now, {
@@ -8227,6 +8248,20 @@ local function updateTaxiState(comp, map)
                         comp._lastEndKey = nil
                         comp._visualGuidanceQueue = {}
                         log_taxi("TaxiRoute: taxi complete parking brake")
+                    elseif log_taxi and now then
+                        local last_block = comp._arrParkCompleteBlockedLogAt or 0
+                        if (now - last_block) >= 5 then
+                            comp._arrParkCompleteBlockedLogAt = now
+                            log_taxi(
+                                string.format(
+                                    "TaxiRoute: parking brake complete blocked planned=%.1f nearest=%.1f limit=%.1f hasEnd=%s",
+                                    planned_ramp_dist or -1,
+                                    nearest_ramp_dist or -1,
+                                    pb_dist or -1,
+                                    tostring(planned_ramp ~= nil)
+                                )
+                            )
+                        end
                     end
                 end
             end

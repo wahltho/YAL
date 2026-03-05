@@ -549,13 +549,13 @@ function M.attach(U, C, def, helpers, settings)
             end
             if comp.mode == 1 and comp._endRamp then
                 local gate_ok = true
+                local gate_reason = "ok"
                 local gate_speed = (comp._tuning and comp._tuning.gateGuidanceMaxSpeed) or (C and C.gateGuidanceMaxSpeed) or 12
                 local gate_entry_speed = math.max(3, math.min(gate_speed, gate_speed * 0.6))
+                local gate_radius = (comp._tuning and comp._tuning.gateGuidanceRadius) or (C and C.gateGuidanceRadius) or 60
+                local gate_keep = gate_radius * 1.6
                 if gs > gate_speed and comp._gateGuidanceActive then
                     comp._gateGuidanceActive = false
-                end
-                if gs > gate_entry_speed and not comp._gateGuidanceActive then
-                    gate_ok = false
                 end
                 local offRunway = nil
                 if comp._arrProfile and aircraft then
@@ -565,38 +565,76 @@ function M.attach(U, C, def, helpers, settings)
                 end
                 if offRunway == false then
                     gate_ok = false
+                    gate_reason = "on-runway"
                 end
+
+                gate_dist = gate_distance_meters(comp, aircraft, route, data)
+                local gate_ref_dist = gate_dist
+                local gate_east, gate_north = gate_target_position(comp, route, data)
+                local gate_geom_dist = nil
+                if gate_east ~= nil and gate_north ~= nil then
+                    gate_geom_dist = math.sqrt(distance_sq(aircraft.east, aircraft.north, gate_east, gate_north))
+                end
+                local stop_dist = (comp._gateUseDgs and ((C and C.gateDgsGoodZPos) or 0.2)) or C.gateStopDistance
+                if comp._gateUseDgs and gate_dist and gate_dist <= stop_dist and gate_geom_dist and gate_geom_dist > gate_radius then
+                    gate_ref_dist = gate_geom_dist
+                elseif comp._gateUseDgs and gate_ref_dist and gate_geom_dist and gate_geom_dist > gate_ref_dist then
+                    gate_ref_dist = gate_geom_dist
+                end
+                gate_dist = gate_ref_dist
+
+                if gate_ok and gs > gate_entry_speed and (not comp._gateGuidanceActive) then
+                    if not (gate_ref_dist and gate_ref_dist <= gate_radius) then
+                        gate_ok = false
+                        gate_reason = "entry-speed"
+                    else
+                        gate_reason = "late-entry-near-gate"
+                    end
+                end
+
                 if gate_ok then
-                    gate_dist = gate_distance_meters(comp, aircraft, route, data)
-                    local gate_radius = (comp._tuning and comp._tuning.gateGuidanceRadius) or (C and C.gateGuidanceRadius) or 60
-                    local gate_keep = gate_radius * 1.6
-                    local gate_ref_dist = gate_dist
-                    local gate_east, gate_north = gate_target_position(comp, route, data)
-                    local gate_geom_dist = nil
-                    if gate_east ~= nil and gate_north ~= nil then
-                        gate_geom_dist = math.sqrt(distance_sq(aircraft.east, aircraft.north, gate_east, gate_north))
-                    end
-                    local stop_dist = (comp._gateUseDgs and ((C and C.gateDgsGoodZPos) or 0.2)) or C.gateStopDistance
-                    if comp._gateUseDgs and gate_dist and gate_dist <= stop_dist and gate_geom_dist and gate_geom_dist > gate_radius then
-                        gate_ref_dist = gate_geom_dist
-                    elseif comp._gateUseDgs and gate_ref_dist and gate_geom_dist and gate_geom_dist > gate_ref_dist then
-                        gate_ref_dist = gate_geom_dist
-                    end
                     if gate_ref_dist and gate_ref_dist <= gate_radius then
                         comp._gateGuidanceActive = true
                     elseif comp._gateGuidanceActive and gate_ref_dist and gate_ref_dist <= gate_keep then
                         -- keep latch
                     else
                         comp._gateGuidanceActive = false
+                        gate_reason = "out-of-radius"
                     end
                     if comp._gateGuidanceActive and gate_ref_dist and comp._gateGuidanceLastDist
                         and gate_ref_dist > (comp._gateGuidanceLastDist + 5) and gate_ref_dist > gate_radius then
                         comp._gateGuidanceActive = false
+                        gate_reason = "distance-increasing"
                     end
-                    gate_dist = gate_ref_dist
                 else
                     comp._gateGuidanceActive = false
                 end
+
+                if helpers and helpers.logInfoTS and now then
+                    local log_now = false
+                    local active_changed = (comp._lastGateGuidanceActive ~= comp._gateGuidanceActive)
+                    if active_changed then
+                        log_now = true
+                    else
+                        local last_diag = comp._lastGateRouteDiagTime or 0
+                        if (now - last_diag) >= 5 then
+                            log_now = true
+                        end
+                    end
+                    if log_now then
+                        comp._lastGateRouteDiagTime = now
+                        comp._lastGateGuidanceActive = comp._gateGuidanceActive
+                        local dist_txt = gate_ref_dist and string.format("%.1f", gate_ref_dist) or "nil"
+                        helpers.logInfoTS(
+                            "GateRoute: active=" .. tostring(comp._gateGuidanceActive)
+                            .. " reason=" .. tostring(gate_reason)
+                            .. " dist=" .. tostring(dist_txt)
+                            .. " gs=" .. string.format("%.1f", gs or 0)
+                            .. " offRunway=" .. tostring(offRunway)
+                        )
+                    end
+                end
+
                 comp._gateGuidanceLastDist = gate_dist
                 if comp._gateGuidanceActive then
                     guidance_state = "gate"
