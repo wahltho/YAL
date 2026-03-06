@@ -227,6 +227,9 @@ function M.attach(U, C, def, helpers, settings)
             comp._terminalGuidanceKey = nil
             comp._terminalGuidanceTime = nil
             if state ~= "route" then
+                comp._lastCrossingLabel = nil
+                comp._lastCrossingSeg = nil
+                comp._lastCrossingTime = nil
                 comp._autoTaxiTargetSegIdx = nil
                 comp._autoTaxiTargetTime = nil
                 comp._autoTaxiTargetAction = nil
@@ -1436,6 +1439,24 @@ function M.attach(U, C, def, helpers, settings)
             if not new_info then
                 return nil
             end
+            if new_info.action == "CROSS RWY" then
+                local new_label = tostring(new_info.display or "")
+                local new_seg = tonumber(new_info.targetSegIdx or -1)
+                local last_label = tostring(comp._lastCrossingLabel or "")
+                local last_seg = tonumber(comp._lastCrossingSeg or -1)
+                local last_time = tonumber(comp._lastCrossingTime or 0)
+                local cooldown = (C and C.guidanceCooldown) or 8
+                if new_label ~= "" and last_label == new_label then
+                    if (new_seg >= 0) and (new_seg == last_seg) then
+                        return nil
+                    end
+                    if now and (new_seg >= 0) and (last_seg >= 0)
+                        and (new_seg <= (last_seg + 1))
+                        and ((now - last_time) < (cooldown * 2)) then
+                        return nil
+                    end
+                end
+            end
             if comp._lastGuidanceLabel == new_info.display and comp._lastGuidanceAction == new_info.action then
                 return nil
             end
@@ -1557,6 +1578,11 @@ function M.attach(U, C, def, helpers, settings)
                 comp._terminalGuidanceKey = terminal_key
                 comp._terminalGuidanceTime = now or 0
             end
+            if emitted and info.action == "CROSS RWY" then
+                comp._lastCrossingLabel = tostring(info.display or "")
+                comp._lastCrossingSeg = tonumber(info.targetSegIdx or comp._guidanceActiveSegIdx or -1)
+                comp._lastCrossingTime = now or 0
+            end
             return emitted
         end
 
@@ -1587,6 +1613,9 @@ function M.attach(U, C, def, helpers, settings)
             comp._lastGuidanceLabel = nil
             comp._lastGuidanceAction = nil
             comp._terminalGuidanceKey = nil
+            comp._lastCrossingLabel = nil
+            comp._lastCrossingSeg = nil
+            comp._lastCrossingTime = nil
         end
         local active_seg = comp._guidanceActiveSegIdx
         if active_seg and active_seg >= #path then
@@ -1699,6 +1728,11 @@ function M.attach(U, C, def, helpers, settings)
                 comp._guidanceMonotonicSegIdx = seg_idx
             end
             comp._guidanceActiveSegIdx = seg_idx
+            if comp._lastCrossingSeg and seg_idx > (comp._lastCrossingSeg + 1) then
+                comp._lastCrossingLabel = nil
+                comp._lastCrossingSeg = nil
+                comp._lastCrossingTime = nil
+            end
         end
 
         local next_idx = seg_idx + 1
@@ -1858,10 +1892,18 @@ function M.attach(U, C, def, helpers, settings)
             elseif raw_rwy and next_rwy and raw_label == next_raw_label then
                 next_info = build_guidance_for_runway_continue(seg_idx, raw_label)
             elseif raw_rwy and next_rwy and raw_label ~= next_raw_label then
-                if turn_dir and turn_dir ~= "straight" and allow_turn then
-                    next_info = build_guidance_for_runway_turn(turn_dir, next_raw_label)
+                if comp.mode == 0 and label_matches_dep(next_raw_label) and not comp._depRunwayEntryAnnounced then
+                    local dep_turn = turn_dir
+                    if not allow_turn then
+                        dep_turn = nil
+                    end
+                    next_info = build_guidance_for_entry(seg_idx, next_raw_label, dep_turn)
                 else
-                    next_info = build_guidance_for_crossing_warning(seg_idx, next_raw_label)
+                    if turn_dir and turn_dir ~= "straight" and allow_turn then
+                        next_info = build_guidance_for_runway_turn(turn_dir, next_raw_label)
+                    else
+                        next_info = build_guidance_for_crossing_warning(seg_idx, next_raw_label)
+                    end
                 end
             end
         end
@@ -1879,7 +1921,9 @@ function M.attach(U, C, def, helpers, settings)
                 if not on_profile then
                     local _, cross_label = U.find_runway_crossing(data, n1, n2)
                     if cross_label and cross_label ~= "" then
-                        next_info = build_guidance_for_crossing_warning(seg_idx, cross_label)
+                        if not (comp.mode == 0 and label_matches_dep(cross_label) and not comp._depRunwayEntryAnnounced) then
+                            next_info = build_guidance_for_crossing_warning(seg_idx, cross_label)
+                        end
                     end
                 end
             end
@@ -1894,7 +1938,9 @@ function M.attach(U, C, def, helpers, settings)
             if not on_profile then
                 local _, ahead_cross_label = U.find_runway_crossing(data, n2, n3)
                 if ahead_cross_label and ahead_cross_label ~= "" then
-                    next_info = build_guidance_for_crossing_warning(seg_idx + 1, ahead_cross_label)
+                    if not (comp.mode == 0 and label_matches_dep(ahead_cross_label) and not comp._depRunwayEntryAnnounced) then
+                        next_info = build_guidance_for_crossing_warning(seg_idx + 1, ahead_cross_label)
+                    end
                 end
             end
         end
