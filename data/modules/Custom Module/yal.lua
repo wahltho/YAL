@@ -725,8 +725,10 @@ function P.YalinitGlobal()
 
     P.depmetar = {icaocode = "XXXX", metarfound = false, metar = {}, decodedmetar = {}}
     P.desmetar = {icaocode = "XXXX", metarfound = false, metar = {}, decodedmetar = {}}
+    P.nearmetar = {icaocode = "XXXX", metarfound = false, metar = {}, decodedmetar = {}}
     P.lastDepIcao = ""
     P.lastDesIcao = ""
+    P.lastNearIcao = ""
 
     P.todDiscontinuityWarned30 = false
     P.todDiscontinuityWarned10 = false
@@ -739,6 +741,8 @@ function P.YalinitGlobal()
     P.runwayFrictionSeen = nil
     P.lastQnhHpaDep = nil
     P.lastQnhHpaArr = nil
+    P.lastQnhSourceDep = nil
+    P.lastQnhSourceArr = nil
 
 
     --------------------------------------------------------------------------------------------------------------
@@ -2736,14 +2740,34 @@ function P.getlocalqnh(deparr)
     local localqnhraw = region_pas and (region_pas / 100) or nil
 
     local metar_altim_in_hpa_val = nil
+    local qnh_source = "region"
 
     if (deparr == def.DEPARTURE) then
-        if P.depmetar.metarfound and P.depmetar.decodedmetar and P.depmetar.decodedmetar.pressure and P.depmetar.decodedmetar.pressure.qnh_hpa then
+        local depIcaoNow = string.upper(helpers.cleanstring(get(P.depicao) or ""))
+        local depIcaoOk = helpers.isvalidicao(depIcaoNow)
+        if depIcaoOk
+            and P.depmetar and P.depmetar.metarfound
+            and P.depmetar.icaocode
+            and string.upper(P.depmetar.icaocode) == depIcaoNow
+            and P.depmetar.decodedmetar and P.depmetar.decodedmetar.pressure and P.depmetar.decodedmetar.pressure.qnh_hpa then
             metar_altim_in_hpa_val = tonumber(P.depmetar.decodedmetar.pressure.qnh_hpa)
+            qnh_source = "depmetar"
+        end
+        if metar_altim_in_hpa_val == nil then
+            local nearestIcao = helpers.extractprimaryicao(get(P.nearesticao) or "")
+            if helpers.isvalidicao(nearestIcao)
+                and P.nearmetar and P.nearmetar.metarfound
+                and P.nearmetar.icaocode
+                and string.upper(P.nearmetar.icaocode) == nearestIcao
+                and P.nearmetar.decodedmetar and P.nearmetar.decodedmetar.pressure and P.nearmetar.decodedmetar.pressure.qnh_hpa then
+                metar_altim_in_hpa_val = tonumber(P.nearmetar.decodedmetar.pressure.qnh_hpa)
+                qnh_source = "nearestmetar"
+            end
         end
     elseif (deparr == def.ARRIVAL) then
         if P.desmetar.metarfound and P.desmetar.decodedmetar and P.desmetar.decodedmetar.pressure and P.desmetar.decodedmetar.pressure.qnh_hpa then
             metar_altim_in_hpa_val = tonumber(P.desmetar.decodedmetar.pressure.qnh_hpa)
+            qnh_source = "desmetar"
         end
     end
 
@@ -2763,6 +2787,18 @@ function P.getlocalqnh(deparr)
     end
 
     local localqnhinch = localqnhpas and helpers.convertpressure(localqnhpas) or nil
+
+    if deparr == def.DEPARTURE then
+        if P.lastQnhSourceDep ~= qnh_source then
+            P.lastQnhSourceDep = qnh_source
+            helpers.logInfoTS("QNH source DEP: " .. tostring(qnh_source))
+        end
+    elseif deparr == def.ARRIVAL then
+        if P.lastQnhSourceArr ~= qnh_source then
+            P.lastQnhSourceArr = qnh_source
+            helpers.logInfoTS("QNH source ARR: " .. tostring(qnh_source))
+        end
+    end
 
     sasl.logDebug("GETLOCALQNH: INCH " .. tostring(localqnhinch) .. " PAS " .. tostring(localqnhpas))
 
@@ -5194,7 +5230,8 @@ function P.triggerapproachprep()
 
     local requireVref = (P.configvalues[def.CONFIGVREF30SET] == def.ON)
     if requireVref then
-        local vrefDone = (P.proceduretable[def.SETVREFPROCEDURE] and P.proceduretable[def.SETVREFPROCEDURE].set) or (get(P.vref) ~= 0)
+        local vrefProc = P.proceduretable[def.SETVREFPROCEDURE]
+        local vrefDone = (vrefProc and vrefProc.set == true) or false
         if not vrefDone then
             P.triggerprocedure(def.SETVREFPROCEDURE, false)
             return
@@ -5615,6 +5652,15 @@ function P.updateSharedVariables()
         -- Prioritize cabin landing altitude refresh right after destination changes.
         P.ongoingpretaskindex = 3
     end
+    local nearestIcaoNow = helpers.extractprimaryicao(get(P.nearesticao) or "")
+    if helpers.isvalidicao(nearestIcaoNow) then
+        if nearestIcaoNow ~= P.lastNearIcao then
+            P.lastNearIcao = nearestIcaoNow
+            helpers.getMetar(nearestIcaoNow, P.nearmetar)
+        end
+    else
+        P.lastNearIcao = ""
+    end
 
     if ((get(P.desrwyheading) ~= P.desrwyheadingtemp) and (get(P.desrwyheading) ~= 0)) then
         P.desrwyheadingtemp = get(P.desrwyheading)
@@ -5894,13 +5940,15 @@ function P.runOneMainOngoingTask()
 
     if preflightGateOpen then
         if idx == 7 then
-            if (get(P.trimcalc) > 0) and (not helpers.trimwheel_matches_target(get(P.trimwheel), get(P.trimcalc)) and (get(P.groundspeed) < 45)) then
+            local trimCalcRaw = tonumber(get(P.trimcalc)) or 0
+            local trimTarget = helpers.round_to_step(trimCalcRaw, 0.25) or trimCalcRaw
+            if (trimTarget > 0) and (not helpers.trimwheel_matches_trim_step(get(P.trimwheel), trimTarget, 0.25) and (get(P.groundspeed) < 45)) then
                 if ((P.configvalues[def.CONFIGAUTOFUNCTIONS] == def.ON) and (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON)) then
-                    P.settotrim()
-                    local trimText = helpers.format_trim_quarter(get(P.trimcalc)) or tostring(get(P.trimcalc))
+                    P.settotrim(trimTarget)
+                    local trimText = helpers.format_trim_quarter(trimTarget) or tostring(trimTarget)
                     P.commandtableentry(def.TEXT, "Trim " .. trimText)
                 elseif (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                    local trimText = helpers.format_trim_quarter(get(P.trimcalc)) or tostring(get(P.trimcalc))
+                    local trimText = helpers.format_trim_quarter(trimTarget) or tostring(trimTarget)
                     P.commandtableentry(def.TEXT, "Set Trim " .. trimText)
                 end
             end

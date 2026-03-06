@@ -188,6 +188,7 @@ function P.isZibo()
         if (string.sub(tailnum, 1, 5) == "ZB738")
             or (string.sub(tailnum, 1, 4) == "B736")
             or (string.sub(tailnum, 1, 4) == "B737")
+            or (string.sub(tailnum, 1, 4) == "B738")
             or (string.sub(tailnum, 1, 4) == "738")
             or (string.sub(tailnum, 1, 4) == "B739") then
             return true
@@ -1120,6 +1121,44 @@ function P.isvalidicao(icao)
 end
 
 --------------------------------------------------------------------------------------------------------------
+function P.extractprimaryicao(value)
+    local text = tostring(value or "")
+    text = P.forceCleanString(text)
+    if text == "" then
+        return ""
+    end
+    text = string.upper(text)
+
+    local len = #text
+    if len >= 4 then
+        local function is_alpha_byte(b)
+            return b and b >= 65 and b <= 90
+        end
+        for i = 1, (len - 3) do
+            local b1 = string.byte(text, i)
+            local b2 = string.byte(text, i + 1)
+            local b3 = string.byte(text, i + 2)
+            local b4 = string.byte(text, i + 3)
+            if is_alpha_byte(b1) and is_alpha_byte(b2) and is_alpha_byte(b3) and is_alpha_byte(b4) then
+                local candidate = string.sub(text, i, i + 3)
+                if P.isvalidicao(candidate) then
+                    return candidate
+                end
+            end
+        end
+    end
+
+    local cleaned = string.upper(P.cleanstring(text))
+    if #cleaned >= 4 then
+        local fallback = string.sub(cleaned, 1, 4)
+        if P.isvalidicao(fallback) then
+            return fallback
+        end
+    end
+    return ""
+end
+
+--------------------------------------------------------------------------------------------------------------
 function P.isvalidrwy(runway)
     if type(runway) ~= "string" then
         return false
@@ -1519,6 +1558,27 @@ function P.trimwheel_matches_target(trimwheel, trim_value, tol)
     local actual = tw * -100
     local tolerance = tonumber(tol) or 0.5
     return math.abs(actual - target) <= tolerance
+
+end
+
+--------------------------------------------------------------------------------------------------------------
+function P.trimwheel_matches_trim_step(trimwheel, trim_value, step)
+
+    local tw = tonumber(trimwheel)
+    local tv = tonumber(trim_value)
+    local s = tonumber(step) or 0.25
+    if (not tw) or (not tv) or (s <= 0) then
+        return false
+    end
+
+    local currentTrim = P.gettrim(tw)
+    local currentStep = P.round_to_step(currentTrim, s)
+    local targetStep = P.round_to_step(tv, s)
+    if (currentStep == nil) or (targetStep == nil) then
+        return false
+    end
+
+    return math.abs(currentStep - targetStep) < 0.01
 
 end
 
