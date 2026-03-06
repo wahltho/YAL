@@ -196,27 +196,6 @@ local function getFmcApproachRefData()
     }
 end
 
-local function getFmcApproachRefCourse(entryNavType)
-    local fmc = getFmcApproachRefData()
-    if not fmc or not fmc.course then
-        return nil
-    end
-    if isLocalizerNavType(entryNavType) then
-        if not isLocalizerNavType(fmc.navType) then
-            return nil
-        end
-    elseif entryNavType == def.NAVTYPEGLS then
-        if fmc.navType ~= def.NAVTYPEGLS then
-            return nil
-        end
-    elseif entryNavType == def.NAVTYPELPV or entryNavType == def.NAVTYPERNAV then
-        if isLocalizerNavType(fmc.navType) then
-            return nil
-        end
-    end
-    return fmc.course
-end
-
 local function getFmcApproachRefFrequency(entryNavType)
     local fmc = getFmcApproachRefData()
     if not fmc or not fmc.freq then
@@ -380,14 +359,6 @@ local function getNavEntryCourse(entry)
             return nil
         end
         return candidate
-    end
-
-    local fmcCourse = getFmcApproachRefCourse(navType)
-    if fmcCourse then
-        local normalized = sanityCheck(normalizeCourse(fmcCourse, false), "FMC")
-        if normalized then
-            return normalized
-        end
     end
 
     local function getFMSFinalMagCourse()
@@ -561,38 +532,86 @@ local function getNavEntryCourse(entry)
     return navCourse
 end
 
-local function cacheApproachCourse(loop, entry, course)
+local function build_zibo_course_ctx(loop)
+    return {
+        icao = get(P.desicao),
+        runway = get(P.desrwy),
+        runwayMag = tonumber(get(P.desrwyheading)),
+        runwayTrue = getRunwayTrueFromEndpoints(),
+        fmslegs = get(P.fmslegs),
+        fmslegslat = get(P.fmslegslat),
+        fmslegslon = get(P.fmslegslon),
+        navdatatable = P.navdatatable,
+        navIndices = loop and loop.navdatatableindices or nil,
+        appId = (loop and loop.detectedApproach and loop.detectedApproach.entry and loop.detectedApproach.entry.code) or nil
+    }
+end
+
+local function build_detected_approach_nav_entry(loop)
+    if not loop or not loop.detectedApproach then
+        return nil
+    end
+    local detected = loop.detectedApproach
+    local detectedEntry = detected.entry
+    if not detectedEntry or not detected.navType then
+        return nil
+    end
+
+    local runway = get(P.desrwy)
+    if (not runway or runway == "") and detectedEntry.runway then
+        runway = detectedEntry.runway
+    end
+    local navId = detectedEntry.code or detectedEntry.localizerIdent or ""
+
+    local navEntry = {}
+    navEntry[def.DESTNAVTYPE] = detected.navType
+    navEntry[def.DESTICAO] = get(P.desicao)
+    navEntry[def.DESTRWY] = runway
+    navEntry[def.DESTNAVID] = navId
+    navEntry.app_id = detectedEntry.code
+    navEntry.alt_id = detectedEntry.code
+    navEntry._detectedOnly = true
+
+    if detectedEntry.course_raw ~= nil then
+        if detectedEntry.course_is_true then
+            navEntry.isTrueCourse = true
+            navEntry.truecourse = helpers.calccourse(detectedEntry.course_raw)
+        else
+            navEntry[def.DESTCOURSE] = helpers.calccourse(detectedEntry.course_raw)
+        end
+    elseif detectedEntry.course ~= nil then
+        navEntry[def.DESTCOURSE] = helpers.calccourse(detectedEntry.course)
+    end
+
+    return navEntry
+end
+
+local function cacheApproachCourse(loop, entry, course, selectedSource, ziboCourse, ziboSource, legacyCourse)
     if loop then
         loop.approachCourseMag = course
         loop.approachNavType = entry and entry[def.DESTNAVTYPE] or nil
+        loop.approachCourseSource = selectedSource
     end
     P.approachCourseMag = course
     P.approachNavType = entry and entry[def.DESTNAVTYPE] or nil
+    P.approachCourseSource = selectedSource
 
-    local ziboCourse = nil
-    local ziboSource = nil
-    if entry then
-        local ziboCtx = {
-            icao = get(P.desicao),
-            runway = get(P.desrwy),
-            runwayMag = tonumber(get(P.desrwyheading)),
-            runwayTrue = getRunwayTrueFromEndpoints(),
-            fmslegs = get(P.fmslegs),
-            fmslegslat = get(P.fmslegslat),
-            fmslegslon = get(P.fmslegslon),
-            navdatatable = P.navdatatable,
-            navIndices = loop and loop.navdatatableindices or nil,
-            appId = (loop and loop.detectedApproach and loop.detectedApproach.entry and loop.detectedApproach.entry.code) or nil
-        }
+    if entry and not ziboCourse then
+        local ziboCtx = build_zibo_course_ctx(loop)
         ziboCourse = helpers.calcApproachCourseZibo(entry, ziboCtx)
         ziboSource = ziboCtx.source
+    end
+    if entry and not legacyCourse then
+        legacyCourse = getNavEntryCourse(entry)
     end
     if loop then
         loop.approachCourseMagZibo = ziboCourse
         loop.approachCourseMagZiboSource = ziboSource
+        loop.approachCourseMagLegacy = legacyCourse
     end
     P.approachCourseMagZibo = ziboCourse
     P.approachCourseMagZiboSource = ziboSource
+    P.approachCourseMagLegacy = legacyCourse
 
     local icao = get(P.desicao)
     local rwy = get(P.desrwy)
@@ -605,13 +624,18 @@ local function cacheApproachCourse(loop, entry, course)
     local key = tostring(icao) .. "|" .. tostring(rwy) .. "|" .. tostring(navType) .. "|" .. tostring(navId) .. "|" .. tostring(appId)
     if key ~= P._approachCourseCompareKey then
         P._approachCourseCompareKey = key
-        local diff = nil
+        local diff_selected_zibo = nil
         if course and ziboCourse then
-            diff = math.abs(helpers.headingdiff(course, ziboCourse))
+            diff_selected_zibo = math.abs(helpers.headingdiff(course, ziboCourse))
+        end
+        local diff_legacy_zibo = nil
+        if legacyCourse and ziboCourse then
+            diff_legacy_zibo = math.abs(helpers.headingdiff(legacyCourse, ziboCourse))
         end
         helpers.logInfoTS(string.format(
-            "ApproachCourseCompare: current=%s zibo=%s ziboSource=%s diff=%s navType=%s rwy=%s navId=%s appId=%s",
-            tostring(course), tostring(ziboCourse), tostring(ziboSource), tostring(diff), tostring(navType),
+            "ApproachCourseCompare: selected=%s selectedSource=%s legacy=%s zibo=%s ziboSource=%s diffSelectedZibo=%s diffLegacyZibo=%s navType=%s rwy=%s navId=%s appId=%s",
+            tostring(course), tostring(selectedSource), tostring(legacyCourse), tostring(ziboCourse), tostring(ziboSource),
+            tostring(diff_selected_zibo), tostring(diff_legacy_zibo), tostring(navType),
             tostring(rwy), tostring(navId), tostring(appId)
         ))
     end
@@ -622,8 +646,46 @@ local function getCachedApproachCourse(loop)
         return loop.approachCourseMag
     end
     local entry = loop and loop.navdatatableindex and P.navdatatable[loop.navdatatableindex] or nil
-    local course = entry and getNavEntryCourse(entry) or nil
-    cacheApproachCourse(loop, entry, course)
+    if not entry then
+        entry = build_detected_approach_nav_entry(loop)
+        if entry and loop and not loop._loggedDetectedApproachFallback then
+            loop._loggedDetectedApproachFallback = true
+            helpers.logInfoTS(string.format(
+                "ApproachCourseFallback: using detected approach only (icao=%s rwy=%s navType=%s appId=%s)",
+                tostring(get(P.desicao)), tostring(get(P.desrwy)), tostring(entry[def.DESTNAVTYPE]), tostring(entry[def.DESTNAVID])
+            ))
+        end
+    end
+    local ziboCourse = nil
+    local ziboSource = nil
+    local legacyCourse = nil
+    local selectedSource = "none"
+    if entry then
+        local ziboCtx = build_zibo_course_ctx(loop)
+        ziboCourse = helpers.calcApproachCourseZibo(entry, ziboCtx)
+        ziboSource = ziboCtx.source
+        legacyCourse = getNavEntryCourse(entry)
+    end
+    local course = ziboCourse or legacyCourse
+    if ziboCourse then
+        selectedSource = "zibo"
+    elseif legacyCourse then
+        selectedSource = "legacy"
+    else
+        local runwayHeading = tonumber(get(P.desrwyheading))
+        if runwayHeading then
+            course = helpers.roundnumber(runwayHeading)
+            selectedSource = "runway"
+            if loop and (not loop._loggedRunwayCourseFallback) then
+                loop._loggedRunwayCourseFallback = true
+                helpers.logInfoTS(string.format(
+                    "ApproachCourseFallback: using destination runway heading (icao=%s rwy=%s course=%s)",
+                    tostring(get(P.desicao)), tostring(get(P.desrwy)), tostring(course)
+                ))
+            end
+        end
+    end
+    cacheApproachCourse(loop, entry, course, selectedSource, ziboCourse, ziboSource, legacyCourse)
     return course
 end
 
@@ -656,6 +718,260 @@ local function getMcpHeadingTarget()
         headingrounded = cached
     end
     return headingrounded
+end
+
+local function getSetIlsNavdata(loop)
+    if not loop or not loop.navdatatableindex then
+        return nil
+    end
+    return P.navdatatable[loop.navdatatableindex]
+end
+
+local function getSetIlsApproachDME(loop, navdata)
+    if not loop or not navdata then
+        return nil
+    end
+    local key = tostring(loop.navdatatableindex or "") .. "|" .. tostring(get(P.desicao) or "") .. "|" .. tostring(get(P.desrwy) or "")
+    if loop._setIlsDmeKey == key and loop._setIlsDmeReady then
+        return loop.approachDME
+    end
+    local dmeInfo = helpers.findApproachDME(
+        P.navdatatable,
+        get(P.desicao),
+        get(P.desrwy),
+        navdata[def.DESTLATPOS],
+        navdata[def.DESTLONPOS],
+        navdata[def.DESTNAVID]
+    )
+    loop.approachDME = dmeInfo
+    loop._setIlsDmeKey = key
+    loop._setIlsDmeReady = true
+    return dmeInfo
+end
+
+local function buildSetIlsPlan(loop)
+    local navdata = getSetIlsNavdata(loop)
+    local plan = {
+        navdata = navdata,
+        navType = navdata and navdata[def.DESTNAVTYPE] or nil,
+        isLP = navdata and isLateralOnlyApproach(navdata) or false,
+        captTune = nil,
+        foTune = nil,
+        foNeedsDmeWarning = false,
+        primaryTuneMessage = nil
+    }
+    if not navdata then
+        return plan
+    end
+
+    local mmrInstalled = (get(P.mmrinstalled) == def.ON)
+    local navType = plan.navType
+    local isLP = plan.isLP
+    local channelValue = navdata[def.DESTFREQ]
+    local localizerFreq = navdata[def.DESTFREQ]
+    local fmcFreq = getFmcApproachRefFrequency(navType)
+    if isLocalizerNavType(navType) and fmcFreq then
+        localizerFreq = fmcFreq
+    end
+    if (navType == def.NAVTYPEGLS or navType == def.NAVTYPELPV) and fmcFreq then
+        channelValue = fmcFreq
+    end
+
+    local function dmeTune()
+        local dmeInfo = getSetIlsApproachDME(loop, navdata)
+        if not dmeInfo then
+            plan.foNeedsDmeWarning = true
+            return nil
+        end
+        local value = dmeInfo[def.DESTDMEFREQ] ~= 0 and dmeInfo[def.DESTDMEFREQ] or dmeInfo[def.DESTFREQ]
+        return {
+            type = "dme",
+            value = value,
+            ident = dmeInfo[def.DESTDMEIDENT] or dmeInfo[def.DESTNAVID] or ""
+        }
+    end
+
+    if isLP then
+        if mmrInstalled and channelValue then
+            plan.captTune = { type = "mmr", value = channelValue, mode = def.MMRLPV }
+        end
+        plan.foTune = dmeTune()
+    elseif isLocalizerNavType(navType) then
+        if localizerFreq then
+            plan.captTune = { type = "localizer", value = localizerFreq }
+            if navdata[def.DESTNAVDME] then
+                plan.foTune = { type = "localizer", value = localizerFreq }
+            else
+                plan.foTune = dmeTune()
+            end
+        end
+    elseif navType == def.NAVTYPEGLS then
+        if mmrInstalled and channelValue then
+            plan.captTune = { type = "mmr", value = channelValue, mode = def.MMRGLS }
+            plan.foTune = { type = "mmr", value = channelValue, mode = def.MMRGLS }
+        end
+    elseif navType == def.NAVTYPELPV then
+        if mmrInstalled and channelValue then
+            plan.captTune = { type = "mmr", value = channelValue, mode = def.MMRLPV }
+        end
+        plan.foTune = dmeTune()
+    elseif navType == def.NAVTYPERNAV then
+        plan.foTune = dmeTune()
+    end
+
+    if isLocalizerNavType(navType) and localizerFreq then
+        plan.primaryTuneMessage = "Frequency " .. helpers.addspaces(helpers.formatILSFrequency(localizerFreq))
+    elseif navType == def.NAVTYPEGLS or navType == def.NAVTYPELPV or isLP then
+        if channelValue then
+            plan.primaryTuneMessage = "Channel " .. helpers.addspaces(channelValue)
+        end
+    elseif plan.foTune and plan.foTune.type == "dme" and plan.foTune.value then
+        local identText = (plan.foTune.ident and plan.foTune.ident ~= "")
+            and (" (" .. helpers.spellNato(plan.foTune.ident) .. ")") or ""
+        plan.primaryTuneMessage = "D M E " .. helpers.addspaces(helpers.formatILSFrequency(plan.foTune.value)) .. identText
+    else
+        plan.primaryTuneMessage = "Course guidance via F M C"
+    end
+
+    return plan
+end
+
+local function maybeWarnSetIlsNoFoDme(loop)
+    if not loop or loop.noFODmeWarned then
+        return
+    end
+    P.commandtableentry(def.TEXT, "No suitable D M E found for Copilot")
+    loop.noFODmeWarned = true
+end
+
+local function checkSetIlsCaptainTune(tune)
+    if not tune then
+        return true
+    end
+    if tune.type == "localizer" then
+        if get(P.mmrinstalled) == def.ON then
+            return (get(P.mmrcptactvalue) == tune.value) and (get(P.mmrcptactmode) == def.MMRILS)
+        end
+        return get(P.nav1freq) == tune.value
+    end
+    if tune.type == "mmr" then
+        return (get(P.mmrcptactvalue) == tune.value) and (get(P.mmrcptactmode) == tune.mode)
+    end
+    return true
+end
+
+local function applySetIlsCaptainTune(tune)
+    if not tune then
+        return
+    end
+    if tune.type == "localizer" then
+        if get(P.mmrinstalled) == def.ON then
+            helpers.mmrCopyActToStby(def.MMRCAPTAIN)
+            set(P.mmrcptactmode, def.MMRILS)
+            set(P.mmrcptactvalue, tune.value)
+        end
+        set(P.nav1stdbyfreq, get(P.nav1freq))
+        set(P.nav1freq, tune.value)
+        return
+    end
+    if tune.type == "mmr" and get(P.mmrinstalled) == def.ON then
+        helpers.mmrCopyActToStby(def.MMRCAPTAIN)
+        set(P.mmrcptactmode, tune.mode)
+        set(P.mmrcptactvalue, tune.value)
+    end
+end
+
+local function captainTuneAdviceText(tune)
+    if not tune then
+        return ""
+    end
+    if tune.type == "localizer" then
+        return "Set Captain Frequency " .. helpers.addspaces(helpers.formatILSFrequency(tune.value))
+    end
+    return "Set Captain Channel " .. helpers.addspaces(tune.value)
+end
+
+local function captainTuneConfirmText(tune)
+    if not tune then
+        return ""
+    end
+    if tune.type == "localizer" then
+        return "Captain Frequency checked and " .. helpers.addspaces(helpers.formatILSFrequency(tune.value))
+    end
+    return "Captain Channel checked and " .. helpers.addspaces(tune.value)
+end
+
+local function checkSetIlsFoTune(tune)
+    if not tune then
+        return true
+    end
+    if tune.type == "localizer" then
+        if get(P.mmrinstalled) == def.ON then
+            return (get(P.mmrfoactvalue) == tune.value) and (get(P.mmrfoactmode) == def.MMRILS)
+        end
+        return get(P.nav2freq) == tune.value
+    end
+    if tune.type == "dme" then
+        return get(P.nav2freq) == tune.value
+    end
+    if tune.type == "mmr" and get(P.mmrinstalled) == def.ON then
+        return (get(P.mmrfoactvalue) == tune.value) and (get(P.mmrfoactmode) == tune.mode)
+    end
+    return true
+end
+
+local function applySetIlsFoTune(tune)
+    if not tune then
+        return
+    end
+    if tune.type == "localizer" then
+        if get(P.mmrinstalled) == def.ON then
+            helpers.mmrCopyActToStby(def.MMRFO)
+            set(P.mmrfoactmode, def.MMRILS)
+            set(P.mmrfoactvalue, tune.value)
+        end
+        set(P.nav2stdbyfreq, get(P.nav2freq))
+        set(P.nav2freq, tune.value)
+        return
+    end
+    if tune.type == "dme" then
+        set(P.nav2stdbyfreq, get(P.nav2freq))
+        set(P.nav2freq, tune.value)
+        return
+    end
+    if tune.type == "mmr" and get(P.mmrinstalled) == def.ON then
+        helpers.mmrCopyActToStby(def.MMRFO)
+        set(P.mmrfoactmode, tune.mode)
+        set(P.mmrfoactvalue, tune.value)
+    end
+end
+
+local function foTuneAdviceText(tune)
+    if not tune then
+        return ""
+    end
+    if tune.type == "localizer" then
+        return "Set Copilot Frequency " .. helpers.addspaces(helpers.formatILSFrequency(tune.value))
+    end
+    if tune.type == "dme" then
+        local identText = (tune.ident and tune.ident ~= "") and (" (" .. helpers.spellNato(tune.ident) .. ")") or ""
+        return "Set Copilot D M E Frequency " .. helpers.addspaces(helpers.formatILSFrequency(tune.value)) .. identText
+    end
+    return "Set Copilot Channel " .. helpers.addspaces(tune.value)
+end
+
+local function foTuneConfirmText(tune)
+    if not tune then
+        return ""
+    end
+    if tune.type == "localizer" then
+        return "Copilot Frequency checked and " .. helpers.addspaces(helpers.formatILSFrequency(tune.value))
+    end
+    if tune.type == "dme" then
+        local identText = (tune.ident and tune.ident ~= "") and (" (" .. helpers.spellNato(tune.ident) .. ")") or ""
+        return "Copilot D M E Frequency checked and " .. helpers.addspaces(helpers.formatILSFrequency(tune.value)) .. identText
+    end
+    return "Copilot Channel checked and " .. helpers.addspaces(tune.value)
 end
 
 local function getMissedApproachAlt(loop)
@@ -3231,7 +3547,7 @@ function M.fillProcedureTable()
                         return "Set Destination Airport and Runway in F M C"
                     end,
                     confirm = function()
-                        return "Destination Runway checked " .. helpers.addspaces(get(P.desrwy))
+                        return "Destination Runway checked " .. helpers.formatRunwayDesignator(get(P.desrwy))
                     end,
                     nextStep = 'check_rwy_suitability'
                 },
@@ -3239,7 +3555,7 @@ function M.fillProcedureTable()
                     action = function()
                         if P.desmetar.metarfound then
                             if not helpers.shouldCheckRunwaySuitability(P.desmetar, get(P.desrwy), P.approachNavType) then
-                                P.commandtableentry(def.TEXT, "Check Destination Runway " .. helpers.addspaces(get(P.desrwy)))
+                                P.commandtableentry(def.TEXT, "Check Destination Runway " .. helpers.formatRunwayDesignator(get(P.desrwy)))
                             end
                         end
                     end,
@@ -5148,6 +5464,15 @@ function M.fillProcedureTable()
                         end
                         loop.navdatatableindices = navIndices
                         loop.navdatatableindex = (navIndices and navIndices[1]) or nil
+                        loop.approachDME = nil
+                        loop._setIlsDmeKey = nil
+                        loop._setIlsDmeReady = nil
+                        loop.noFODmeWarned = nil
+                        loop.approachCourseMag = nil
+                        loop.approachCourseMagZibo = nil
+                        loop.approachCourseMagZiboSource = nil
+                        loop.approachCourseMagLegacy = nil
+                        loop.approachCourseSource = nil
 
                         local selectedAppId = nil
                         if P.fmsselectedapp then
@@ -5288,248 +5613,7 @@ function M.fillProcedureTable()
                     action = function(loop, procData)
                         local runway = get(P.desrwy)
                         local runwayFormatted = helpers.formatRunwayDesignator(runway)
-                        local course = nil
-
-                        local navEntry = nil
-                        if loop and loop.navdatatableindex and P.navdatatable[loop.navdatatableindex] then
-                            navEntry = P.navdatatable[loop.navdatatableindex]
-                        end
-                        local runwayToken = runway
-                        if navEntry and type(navEntry[def.DESTRWY]) == "string" then
-                            runwayToken = navEntry[def.DESTRWY]
-                        end
-                        local announceTrue = runwayUsesTrue(runwayToken) or runwayUsesTrue(runway)
-                        local magVar = nil
-                        if navEntry then
-                            magVar = getEntryMagVar(navEntry)
-                        else
-                            local latVar = get(P.desrwylatstartpos)
-                            local lonVar = get(P.desrwylonstartpos)
-                            if latVar and lonVar and latVar ~= 0 and lonVar ~= 0 then
-                                magVar = sasl.getMagneticVariation(latVar, lonVar)
-                            else
-                                local apt = P.airportdatatable[get(P.desicao)]
-                                if apt and apt.latitude and apt.longitude then
-                                    magVar = sasl.getMagneticVariation(apt.latitude, apt.longitude)
-                                end
-                            end
-                        end
-                        magVar = tonumber(magVar) or 0
-                        local runwayMag = tonumber(get(P.desrwyheading))
-                        local runwayTrue = getRunwayTrueFromEndpoints()
-                        if not runwayTrue and runwayMag then
-                            runwayTrue = helpers.calccourse(runwayMag + magVar)
-                        end
-                        local runwayRef = nil
-                        if announceTrue then
-                            runwayRef = runwayTrue
-                        else
-                            runwayRef = runwayMag and helpers.calccourse(runwayMag) or nil
-                            if not runwayRef and runwayTrue then
-                                runwayRef = helpers.calccourse(runwayTrue + magVar)
-                            end
-                        end
-                        local navType = navEntry and navEntry[def.DESTNAVTYPE]
-                        local isRnavNav = navType == def.NAVTYPELPV
-                            or navType == def.NAVTYPERNAV
-                            or navType == def.NAVTYPEGLS
-                        if isRnavNav then
-                            runwayRef = nil
-                        end
-                        local function isPlausible(value)
-                            if not value then return false end
-                            if runwayRef then
-                                local diff = math.abs(value - runwayRef)
-                                if diff > 180 then diff = 360 - diff end
-                                return diff <= 10
-                            end
-                            return true
-                        end
-                        local sanityRunwayRef = nil
-                        if announceTrue then
-                            if runwayTrue then
-                                sanityRunwayRef = helpers.calccourse(runwayTrue)
-                            elseif runwayMag then
-                                sanityRunwayRef = helpers.calccourse(runwayMag + magVar)
-                            end
-                        else
-                            if runwayMag then
-                                sanityRunwayRef = helpers.calccourse(runwayMag)
-                            elseif runwayTrue then
-                                sanityRunwayRef = helpers.calccourse(runwayTrue + magVar)
-                            end
-                        end
-                        local sanityRefs = nil
-                        local function buildSanityRefs()
-                            if sanityRefs then return sanityRefs end
-                            sanityRefs = {}
-                            if sanityRunwayRef then
-                                table.insert(sanityRefs, sanityRunwayRef)
-                            end
-                            local navTypeForCifp = navType
-                            if type(navTypeForCifp) == "string" and type(runway) == "string" then
-                                local candidateTypes = { navTypeForCifp }
-                                if navTypeForCifp == def.NAVTYPELPV or navTypeForCifp == def.NAVTYPEGLS then
-                                    table.insert(candidateTypes, def.NAVTYPERNAV)
-                                end
-                                for _, candidateType in ipairs(candidateTypes) do
-                                    local cifpCourse = helpers.getCIFPApproachCourse(get(P.desicao), candidateType, runway)
-                                    if cifpCourse then
-                                        local cifpRef = normalizeCourse(cifpCourse, nil)
-                                        if cifpRef then
-                                            table.insert(sanityRefs, cifpRef)
-                                        end
-                                        break
-                                    end
-                                end
-                            end
-                            return sanityRefs
-                        end
-                        local function sanityCheck(candidate, source)
-                            if not candidate then return nil end
-                            local refs = buildSanityRefs()
-                            if not refs or #refs == 0 then return candidate end
-                            local minDiff = 360
-                            for _, ref in ipairs(refs) do
-                                local diff = math.abs(candidate - ref)
-                                if diff > 180 then diff = 360 - diff end
-                                if diff < minDiff then minDiff = diff end
-                            end
-                            if minDiff > 30 then
-                                helpers.logInfoTS(string.format(
-                                    "Runway course sanity check failed (source=%s, course=%s, minDiff=%d, runway=%s).",
-                                    tostring(source), tostring(candidate), math.floor(minDiff + 0.5), tostring(runway)
-                                ))
-                                return nil
-                            end
-                            return candidate
-                        end
-                        local function normalizeCourse(value, valueIsTrue)
-                            if value == nil then
-                                return nil
-                            end
-
-                            local function normalizeKnown(isTrue)
-                                if announceTrue then
-                                    if isTrue then
-                                        return helpers.calccourse(value)
-                                    end
-                                    return helpers.calccourse(value + magVar)
-                                end
-                                if isTrue then
-                                    return helpers.calccourse(value - magVar)
-                                end
-                                return helpers.calccourse(value)
-                            end
-
-                            local function score(candidate)
-                                if not candidate or not runwayRef then
-                                    return nil
-                                end
-                                local diff = math.abs(candidate - runwayRef)
-                                if diff > 180 then diff = 360 - diff end
-                                return diff
-                            end
-
-                            if valueIsTrue == true then
-                                local normalized = normalizeKnown(true)
-                                return isPlausible(normalized) and normalized or nil
-                            elseif valueIsTrue == false then
-                                local normalized = normalizeKnown(false)
-                                return isPlausible(normalized) and normalized or nil
-                            end
-
-                            local candA = normalizeKnown(announceTrue)
-                            local candB = normalizeKnown(not announceTrue)
-                            local scoreA = score(candA)
-                            local scoreB = score(candB)
-                            local pick = nil
-                            if scoreA and scoreB then
-                                pick = (scoreA <= scoreB) and candA or candB
-                            else
-                                pick = candA or candB
-                            end
-                            return isPlausible(pick) and pick or nil
-                        end
-
-                        local function getFMSFinalMagCourse()
-                            if not (P and P.fmslegs and P.fmslegslat and P.fmslegslon) then return nil end
-                            local legsStr = get(P.fmslegs)
-                            local latArr = get(P.fmslegslat)
-                            local lonArr = get(P.fmslegslon)
-                            local waypoints = helpers.buildlegstable(legsStr, latArr, lonArr)
-                            if not waypoints or #waypoints < 2 then return nil end
-
-                            local destRunway = get(P.desrwy)
-                            local selectedCourse = nil
-
-                            if helpers.isvalidrwy(destRunway) then
-                                for i = #waypoints - 1, 1, -1 do
-                                    local nxt = waypoints[i + 1]
-                                    if nxt and nxt.name and matchesDestRunway(nxt.name, destRunway) then
-                                        selectedCourse = waypoints[i].magnetic_course
-                                        break
-                                    end
-                                end
-                            else
-                                for i = #waypoints - 1, 1, -1 do
-                                    local nxt = waypoints[i + 1]
-                                    if nxt and nxt.name and isRunwayLeg(nxt.name) then
-                                        selectedCourse = waypoints[i].magnetic_course
-                                        break
-                                    end
-                                end
-                            end
-
-                            if selectedCourse and selectedCourse ~= 0 then
-                                return helpers.calccourse(selectedCourse)
-                            end
-                            return nil
-                        end
-
-                        -- Attempt to derive final-leg course from FMC (only if Runway-Leg found)
-                        if not course then
-                            local fmsCourse = getFMSFinalMagCourse()
-                            course = sanityCheck(normalizeCourse(fmsCourse, false), "FMS")
-                        end
-
-                        -- Prefer detected CIFP approach course
-                        if loop and loop.detectedApproach and loop.detectedApproach.entry and loop.detectedApproach.entry.course then
-                            course = sanityCheck(normalizeCourse(loop.detectedApproach.entry.course, nil), "CIFP")
-                        end
-
-                        -- Fallback to CIFP course for runway/nav type when no variant detected
-                        if not course and navType then
-                            local candidateTypes = { navType }
-                            if navType == def.NAVTYPELPV or navType == def.NAVTYPEGLS then
-                                table.insert(candidateTypes, def.NAVTYPERNAV)
-                            end
-                            for _, candidate in ipairs(candidateTypes) do
-                                local cifpCourse = helpers.getCIFPApproachCourse(get(P.desicao), candidate, runway)
-                                if cifpCourse then
-                                    course = sanityCheck(normalizeCourse(cifpCourse, nil), "CIFP")
-                                    if course then break end
-                                end
-                            end
-                        end
-
-                        -- Fall back to navdata-derived runway heading
-                        if not course then
-                            local navCourse = helpers.getrwyheadingfromnavdata(P.navdatatable, get(P.desicao), runway)
-                            course = sanityCheck(normalizeCourse(navCourse, nil), "NAV")
-                        end
-
-                        -- Fallback to FMC runway heading
-                        if not course and tonumber(get(P.desrwyheading)) then
-                            course = sanityCheck(normalizeCourse(helpers.roundnumber(get(P.desrwyheading)), false), "RUNWAY")
-                        end
-
-                        -- Compute bearing from runway endpoints if available
-                        if not course then
-                            if runwayTrue then
-                                course = sanityCheck(normalizeCourse(runwayTrue, true), "RUNWAYTRUE")
-                            end
-                        end
+                        local course = getCachedApproachCourse(loop)
 
                         if course then
                             P.commandtableentry(def.TEXT, "Runway " .. runwayFormatted .. " course " .. helpers.addspaces(helpers.padNumberWithZerosStrict(course, 3)))
@@ -5580,14 +5664,8 @@ function M.fillProcedureTable()
                         if isLocalizerNavType(navtype) and navdata[def.DESTNAVDME] then
                             approachDescriptor = approachDescriptor .. " with DME"
                         end
-                        local freqMsg
-                        if isLP then
-                            freqMsg = "Channel " .. helpers.addspaces(navdata[def.DESTFREQ] or "")
-                        elseif isLocalizerNavType(navtype) then
-                            freqMsg = "Frequency " .. helpers.addspaces(helpers.formatILSFrequency(navdata[def.DESTFREQ] or 0))
-                        else
-                            freqMsg = "Channel " .. helpers.addspaces(navdata[def.DESTFREQ] or "")
-                        end
+                        local plan = buildSetIlsPlan(loop)
+                        local freqMsg = plan.primaryTuneMessage or "Course guidance via F M C"
                         local message = "Runway " .. helpers.formatRunwayDesignator(navdata[def.DESTRWY])
                             .. " has " .. approachDescriptor .. " (Ident " .. helpers.spellNato(ident) .. ") "
                             .. freqMsg
@@ -5674,280 +5752,51 @@ function M.fillProcedureTable()
                     nextStep = 'set_capt_freq'
                 },
                 ['set_capt_freq'] = {
+                    skipIf = function(loop, procData)
+                        local plan = buildSetIlsPlan(loop)
+                        return (plan.captTune == nil)
+                    end,
                     check = function(loop, procData)
-                        local navdata = P.navdatatable[loop.navdatatableindex]
-                        local isLP = isLateralOnlyApproach(navdata)
-                        local freqValue = getFmcApproachRefFrequency(navdata[def.DESTNAVTYPE]) or navdata[def.DESTFREQ]
-                        if isLP then
-                            if (get(P.mmrinstalled) == def.ON) then
-                                return (get(P.mmrcptactvalue) == freqValue) and (get(P.mmrcptactmode) == def.MMRLPV)
-                            end
-                            return true
-                        end
-                        if isLocalizerNavType(navdata[def.DESTNAVTYPE]) then
-                            if (get(P.mmrinstalled) == def.ON) then
-                                return (get(P.mmrcptactvalue) == freqValue) and (get(P.mmrcptactmode) == def.MMRILS)
-                            else
-                                return (get(P.nav1freq) == freqValue)
-                            end
-                        elseif ((navdata[def.DESTNAVTYPE] == def.NAVTYPEGLS) or (navdata[def.DESTNAVTYPE] == def.NAVTYPELPV)) and (get(P.mmrinstalled) == def.ON) then
-                            return (get(P.mmrcptactvalue) == freqValue) and ((get(P.mmrcptactmode) == def.MMRGLS) or (get(P.mmrcptactmode) == def.MMRLPV))
-                        end
-                        return true 
+                        local plan = buildSetIlsPlan(loop)
+                        return checkSetIlsCaptainTune(plan.captTune)
                     end,
                     action = function(loop, procData)
-                        local navdata = P.navdatatable[loop.navdatatableindex]
-                        local isLP = isLateralOnlyApproach(navdata)
-                        local navType = navdata[def.DESTNAVTYPE]
-                        local freqValue = getFmcApproachRefFrequency(navType) or navdata[def.DESTFREQ]
-                        if isLP then
-                            if (get(P.mmrinstalled) == def.ON) then
-                                helpers.mmrCopyActToStby(def.MMRCAPTAIN)
-                                set(P.mmrcptactmode, def.MMRLPV)
-                                set(P.mmrcptactvalue, freqValue)
-                            end
-                            return
-                        end
-                        if isLocalizerNavType(navType) then
-                            if (get(P.mmrinstalled) == def.ON) then
-                                helpers.mmrCopyActToStby(def.MMRCAPTAIN)
-                                set(P.mmrcptactmode, def.MMRILS)
-                                set(P.mmrcptactvalue, freqValue)
-                                set(P.nav1stdbyfreq, get(P.nav1freq))
-                                set(P.nav1freq, freqValue)
-                            else
-                                set(P.nav1stdbyfreq, get(P.nav1freq))
-                                set(P.nav1freq, freqValue)
-                            end
-                        elseif (navType == def.NAVTYPEGLS or navType == def.NAVTYPELPV) and (get(P.mmrinstalled) == def.ON) then
-                            helpers.mmrCopyActToStby(def.MMRCAPTAIN)
-                            if navType == def.NAVTYPEGLS then
-                                set(P.mmrcptactmode, def.MMRGLS)
-                            else
-                                set(P.mmrcptactmode, def.MMRLPV)
-                            end
-                            set(P.mmrcptactvalue, freqValue)
-                        end
+                        local plan = buildSetIlsPlan(loop)
+                        applySetIlsCaptainTune(plan.captTune)
                     end,
                     advice = function(loop, procData)
-                        local navdata = P.navdatatable[loop.navdatatableindex]
-                        local isLP = isLateralOnlyApproach(navdata)
-                        if isLocalizerNavType(navdata[def.DESTNAVTYPE]) then
-                            local freqValue = getFmcApproachRefFrequency(navdata[def.DESTNAVTYPE]) or navdata[def.DESTFREQ]
-                            return "Set Captain Frequency " .. helpers.addspaces(helpers.formatILSFrequency(freqValue))
-                        else
-                            local freqValue = getFmcApproachRefFrequency(navdata[def.DESTNAVTYPE]) or navdata[def.DESTFREQ]
-                            return "Set Captain Channel " .. helpers.addspaces(freqValue)
-                        end
+                        local plan = buildSetIlsPlan(loop)
+                        return captainTuneAdviceText(plan.captTune)
                     end,
                     confirm = function(loop, procData)
-                        local navdata = P.navdatatable[loop.navdatatableindex]
-                        local isLP = isLateralOnlyApproach(navdata)
-                        if isLocalizerNavType(navdata[def.DESTNAVTYPE]) then
-                            local freqValue = getFmcApproachRefFrequency(navdata[def.DESTNAVTYPE]) or navdata[def.DESTFREQ]
-                            return "Captain Frequency checked and " .. helpers.addspaces(helpers.formatILSFrequency(freqValue))
-                        else
-                            local freqValue = getFmcApproachRefFrequency(navdata[def.DESTNAVTYPE]) or navdata[def.DESTFREQ]
-                            return "Captain Channel checked and " .. helpers.addspaces(freqValue)
-                        end
+                        local plan = buildSetIlsPlan(loop)
+                        return captainTuneConfirmText(plan.captTune)
                     end,
                     nextStep = 'set_fo_freq'
                 },
                 ['set_fo_freq'] = {
                     skipIf = function(loop, procData)
-                        local navdata = P.navdatatable[loop.navdatatableindex]
-                        if not navdata then return true end
-                        local isLP = isLateralOnlyApproach(navdata)
-                        local navtype = navdata[def.DESTNAVTYPE]
-
-                        local function prepareApproachDME()
-                            local dmeInfo = helpers.findApproachDME(
-                                P.navdatatable,
-                                get(P.desicao),
-                                get(P.desrwy),
-                                navdata[def.DESTLATPOS],
-                                navdata[def.DESTLONPOS],
-                                navdata[def.DESTNAVID]
-                            )
-                            loop.approachDME = dmeInfo
-                            return dmeInfo
+                        local plan = buildSetIlsPlan(loop)
+                        if plan.foNeedsDmeWarning then
+                            maybeWarnSetIlsNoFoDme(loop)
                         end
-
-                        if navtype == def.NAVTYPELPV or isLP then
-                            local dme = prepareApproachDME()
-                            if not dme then
-                                if loop and not loop.noFODmeWarned then
-                                    P.commandtableentry(def.TEXT, "No suitable D M E found for Copilot")
-                                    loop.noFODmeWarned = true
-                                end
-                                return true
-                            end
-                            return false
-                        end
-
-                        if isLocalizerNavType(navtype) then
-                            if navdata[def.DESTNAVDME] then
-                                loop.approachDME = nil
-                                return false
-                            end
-                            local dme = prepareApproachDME()
-                            if not dme then
-                                if loop and not loop.noFODmeWarned then
-                                    P.commandtableentry(def.TEXT, "No suitable D M E found for Copilot")
-                                    loop.noFODmeWarned = true
-                                end
-                                return true
-                            end
-                            return false
-                        end
-
-                        loop.approachDME = nil
-                        return false 
+                        return (plan.foTune == nil)
                     end,
                     check = function(loop, procData)
-                        local navdata = P.navdatatable[loop.navdatatableindex]
-                        if not navdata then return true end
-                        local isLP = isLateralOnlyApproach(navdata)
-                        if isLocalizerNavType(navdata[def.DESTNAVTYPE]) then 
-                            if navdata[def.DESTNAVDME] then
-                                local freqValue = getFmcApproachRefFrequency(navdata[def.DESTNAVTYPE]) or navdata[def.DESTFREQ]
-                                if (get(P.mmrinstalled) == def.ON) then
-                                    return (get(P.mmrfoactvalue) == freqValue) and (get(P.mmrfoactmode) == def.MMRILS)
-                                else
-                                    return (get(P.nav2freq) == freqValue)
-                                end
-                            else
-                                local dmeInfo = loop.approachDME or helpers.findApproachDME(P.navdatatable, get(P.desicao), get(P.desrwy), navdata[def.DESTLATPOS], navdata[def.DESTLONPOS], navdata[def.DESTNAVID])
-                                loop.approachDME = dmeInfo
-                                if not dmeInfo then return true end
-                                local freqValue = dmeInfo[def.DESTDMEFREQ] ~= 0 and dmeInfo[def.DESTDMEFREQ] or dmeInfo[def.DESTFREQ]
-                                return (get(P.nav2freq) == freqValue)
-                            end
-                        elseif (navdata[def.DESTNAVTYPE] == def.NAVTYPELPV) or isLP then
-                            local dmeInfo = loop.approachDME or helpers.findApproachDME(P.navdatatable, get(P.desicao), get(P.desrwy), navdata[def.DESTLATPOS], navdata[def.DESTLONPOS], navdata[def.DESTNAVID])
-                            loop.approachDME = dmeInfo
-                            if not dmeInfo then return true end
-                            local freqValue = dmeInfo[def.DESTDMEFREQ] ~= 0 and dmeInfo[def.DESTDMEFREQ] or dmeInfo[def.DESTFREQ]
-                            return (get(P.nav2freq) == freqValue)
-                        elseif (navdata[def.DESTNAVTYPE] == def.NAVTYPEGLS) and (get(P.mmrinstalled) == def.ON) then
-                            local freqValue = getFmcApproachRefFrequency(navdata[def.DESTNAVTYPE]) or navdata[def.DESTFREQ]
-                            return (get(P.mmrfoactvalue) == freqValue) and (get(P.mmrfoactmode) == def.MMRGLS)
-                        end
-                        return true 
+                        local plan = buildSetIlsPlan(loop)
+                        return checkSetIlsFoTune(plan.foTune)
                     end,
                     action = function(loop, procData)
-                        local navdata = P.navdatatable[loop.navdatatableindex]
-                        if not navdata then return end
-                        local isLP = isLateralOnlyApproach(navdata)
-                        if isLocalizerNavType(navdata[def.DESTNAVTYPE]) then
-                            if navdata[def.DESTNAVDME] then
-                                local freqValue = getFmcApproachRefFrequency(navdata[def.DESTNAVTYPE]) or navdata[def.DESTFREQ]
-                                if (get(P.mmrinstalled) == def.ON) then
-                                    helpers.mmrCopyActToStby(def.MMRFO)
-                                    set(P.mmrfoactmode, def.MMRILS)
-                                    set(P.mmrfoactvalue, freqValue)
-                                    set(P.nav2stdbyfreq, get(P.nav2freq))
-                                    set(P.nav2freq, freqValue)
-                                else
-                                    set(P.nav2stdbyfreq, get(P.nav2freq))
-                                    set(P.nav2freq, freqValue)
-                                end
-                            else
-                                local dmeInfo = loop.approachDME or helpers.findApproachDME(P.navdatatable, get(P.desicao), get(P.desrwy), navdata[def.DESTLATPOS], navdata[def.DESTLONPOS], navdata[def.DESTNAVID])
-                                loop.approachDME = dmeInfo
-                                if dmeInfo then
-                                    local freqValue = dmeInfo[def.DESTDMEFREQ] ~= 0 and dmeInfo[def.DESTDMEFREQ] or dmeInfo[def.DESTFREQ]
-                                    set(P.nav2stdbyfreq, get(P.nav2freq))
-                                    set(P.nav2freq, freqValue)
-                                end
-                            end
-                        elseif (navdata[def.DESTNAVTYPE] == def.NAVTYPELPV) or isLP then
-                            local dmeInfo = loop.approachDME or helpers.findApproachDME(P.navdatatable, get(P.desicao), get(P.desrwy), navdata[def.DESTLATPOS], navdata[def.DESTLONPOS], navdata[def.DESTNAVID])
-                            loop.approachDME = dmeInfo
-                            if dmeInfo then
-                                local freqValue = dmeInfo[def.DESTDMEFREQ] ~= 0 and dmeInfo[def.DESTDMEFREQ] or dmeInfo[def.DESTFREQ]
-                                set(P.nav2stdbyfreq, get(P.nav2freq))
-                                set(P.nav2freq, freqValue)
-                            end
-                        elseif (navdata[def.DESTNAVTYPE] == def.NAVTYPEGLS) and (get(P.mmrinstalled) == def.ON) then
-                            helpers.mmrCopyActToStby(def.MMRFO)
-                            set(P.mmrfoactmode, def.MMRGLS)
-                            local freqValue = getFmcApproachRefFrequency(navdata[def.DESTNAVTYPE]) or navdata[def.DESTFREQ]
-                            set(P.mmrfoactvalue, freqValue)
-                        end
+                        local plan = buildSetIlsPlan(loop)
+                        applySetIlsFoTune(plan.foTune)
                     end,
                     advice = function(loop, procData)
-                        local navdata = P.navdatatable[loop.navdatatableindex]
-                        if not navdata then return "" end
-                        local isLP = isLateralOnlyApproach(navdata)
-                        if isLocalizerNavType(navdata[def.DESTNAVTYPE]) then
-                            if navdata[def.DESTNAVDME] then
-                                local freqValue = getFmcApproachRefFrequency(navdata[def.DESTNAVTYPE]) or navdata[def.DESTFREQ]
-                                return "Set Copilot Frequency " .. helpers.addspaces(helpers.formatILSFrequency(freqValue))
-                            else
-                                local dmeInfo = loop.approachDME or helpers.findApproachDME(P.navdatatable, get(P.desicao), get(P.desrwy), navdata[def.DESTLATPOS], navdata[def.DESTLONPOS], navdata[def.DESTNAVID])
-                                loop.approachDME = dmeInfo
-                                if dmeInfo then
-                                    local freqValue = dmeInfo[def.DESTDMEFREQ] ~= 0 and dmeInfo[def.DESTDMEFREQ] or dmeInfo[def.DESTFREQ]
-                                    local ident = dmeInfo[def.DESTDMEIDENT] or dmeInfo[def.DESTNAVID] or ""
-                                    local identText = (ident ~= "" and (" (" .. helpers.spellNato(ident) .. ")")) or ""
-                                    return "Set Copilot D M E Frequency " .. helpers.addspaces(helpers.formatILSFrequency(freqValue)) .. identText
-                                end
-                            end
-                        elseif (navdata[def.DESTNAVTYPE] == def.NAVTYPELPV) or isLP then
-                            local dmeInfo = loop.approachDME or helpers.findApproachDME(P.navdatatable, get(P.desicao), get(P.desrwy), navdata[def.DESTLATPOS], navdata[def.DESTLONPOS], navdata[def.DESTNAVID])
-                            loop.approachDME = dmeInfo
-                            if dmeInfo then
-                                local freqValue = dmeInfo[def.DESTDMEFREQ] ~= 0 and dmeInfo[def.DESTDMEFREQ] or dmeInfo[def.DESTFREQ]
-                                local ident = dmeInfo[def.DESTDMEIDENT] or dmeInfo[def.DESTNAVID] or ""
-                                local identText = (ident ~= "" and (" (" .. helpers.spellNato(ident) .. ")")) or ""
-                                return "Set Copilot D M E Frequency " .. helpers.addspaces(helpers.formatILSFrequency(freqValue)) .. identText
-                            end
-                        else
-                            local freqValue = getFmcApproachRefFrequency(navdata[def.DESTNAVTYPE]) or navdata[def.DESTFREQ]
-                            return "Set Copilot Channel " .. helpers.addspaces(freqValue)
-                        end
-                        return ""
+                        local plan = buildSetIlsPlan(loop)
+                        return foTuneAdviceText(plan.foTune)
                     end,
                     confirm = function(loop, procData)
-                        local navdata = P.navdatatable[loop.navdatatableindex]
-                        if not navdata then
-                            loop.approachDME = nil
-                            return ""
-                        end
-
-                        local message = ""
-                        local isLP = isLateralOnlyApproach(navdata)
-
-                        if isLocalizerNavType(navdata[def.DESTNAVTYPE]) then
-                            if navdata[def.DESTNAVDME] then
-                                local freqValue = getFmcApproachRefFrequency(navdata[def.DESTNAVTYPE]) or navdata[def.DESTFREQ]
-                                message = "Copilot Frequency checked and " .. helpers.addspaces(helpers.formatILSFrequency(freqValue))
-                            else
-                                local dmeInfo = loop.approachDME or helpers.findApproachDME(P.navdatatable, get(P.desicao), get(P.desrwy), navdata[def.DESTLATPOS], navdata[def.DESTLONPOS], navdata[def.DESTNAVID])
-                                loop.approachDME = dmeInfo
-                                if dmeInfo then
-                                    local freqValue = dmeInfo[def.DESTDMEFREQ] ~= 0 and dmeInfo[def.DESTDMEFREQ] or dmeInfo[def.DESTFREQ]
-                                    local ident = dmeInfo[def.DESTDMEIDENT] or dmeInfo[def.DESTNAVID] or ""
-                                    local identText = (ident ~= "" and (" (" .. helpers.spellNato(ident) .. ")")) or ""
-                                    message = "Copilot D M E Frequency checked and " .. helpers.addspaces(helpers.formatILSFrequency(freqValue)) .. identText
-                                end
-                            end
-                        elseif (navdata[def.DESTNAVTYPE] == def.NAVTYPELPV) or isLP then
-                            local dmeInfo = loop.approachDME or helpers.findApproachDME(P.navdatatable, get(P.desicao), get(P.desrwy), navdata[def.DESTLATPOS], navdata[def.DESTLONPOS], navdata[def.DESTNAVID])
-                            loop.approachDME = dmeInfo
-                            if dmeInfo then
-                                local freqValue = dmeInfo[def.DESTDMEFREQ] ~= 0 and dmeInfo[def.DESTDMEFREQ] or dmeInfo[def.DESTFREQ]
-                                local ident = dmeInfo[def.DESTDMEIDENT] or dmeInfo[def.DESTNAVID] or ""
-                                local identText = (ident ~= "" and (" (" .. helpers.spellNato(ident) .. ")")) or ""
-                                message = "Copilot D M E Frequency checked and " .. helpers.addspaces(helpers.formatILSFrequency(freqValue)) .. identText
-                            end
-                        else
-                            local freqValue = getFmcApproachRefFrequency(navdata[def.DESTNAVTYPE]) or navdata[def.DESTFREQ]
-                            message = "Copilot Channel checked and " .. helpers.addspaces(freqValue)
-                        end
-                        loop.approachDME = nil
-                        return message
+                        local plan = buildSetIlsPlan(loop)
+                        return foTuneConfirmText(plan.foTune)
                     end,
                     nextStep = 'view_main_panel'
                 },
@@ -6167,9 +6016,8 @@ function M.fillProcedureTable()
                 ['voice_vref_advice'] = {
                     skipIf = function() return P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON end,
                     check = function(loop)
-                        local target = tonumber(loop and loop.appvrefcalc) or 0
-                        if target <= 0 then return false end
-                        return (get(P.vref) == target)
+                        local current = tonumber(get(P.vref)) or 0
+                        return current > 0
                     end,
                     advice = function(loop)
                         local flaps = tostring(loop.appflapscalcstring or get(P.appflaps) or "")
@@ -6177,9 +6025,10 @@ function M.fillProcedureTable()
                         return "Set V REF flaps " .. flaps .. " " .. vref
                     end,
                     confirm = function(loop)
-                        local target = tonumber(loop and loop.appvrefcalc)
-                        if target and target > 0 and get(P.vref) == target then
-                            return "V REF flaps " .. tostring(loop.appflapscalcstring or "") .. " checked and " .. tostring(loop.appvrefcalcstring or target)
+                        local current = tonumber(get(P.vref)) or 0
+                        if current > 0 then
+                            local currentString = helpers.padNumberWithZerosStrict(math.floor(current + 0.5), 3)
+                            return "V REF flaps " .. tostring(loop.appflapscalcstring or "") .. " checked and " .. tostring(currentString)
                         end
                         return false
                     end,
