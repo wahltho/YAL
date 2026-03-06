@@ -536,6 +536,7 @@ function M.attach(U, C, def, helpers, settings)
         end
         local guidance_state = comp._guidanceState or "idle"
         local gate_dist = nil
+        local gate_route_suppress = false
         if comp._routeErr == "taxi-complete" or comp._arrTaxiCompleteAnnounced or comp._depTaxiCompleteAnnounced then
             guidance_state = "complete"
             comp._gateGuidanceActive = false
@@ -608,6 +609,9 @@ function M.attach(U, C, def, helpers, settings)
                     end
                 else
                     comp._gateGuidanceActive = false
+                end
+                if offRunway ~= false and gate_ref_dist and gate_ref_dist <= gate_keep then
+                    gate_route_suppress = true
                 end
 
                 if helpers and helpers.logInfoTS and now then
@@ -785,6 +789,21 @@ function M.attach(U, C, def, helpers, settings)
             if comp._gateCalloutKey ~= nil then
                 reset_gate_callouts(comp, nil)
             end
+        end
+        if guidance_state == "route" and gate_route_suppress then
+            if comp._visualGuidance and comp._visualGuidance.kind ~= "ramp" then
+                clear_visual_guidance(comp, "gate-approach")
+            end
+            if not comp._gateRouteSuppress then
+                comp._gateRouteSuppress = true
+                if helpers and helpers.logInfoTS then
+                    helpers.logInfoTS("TaxiGuide: route guidance suppressed near gate")
+                end
+            end
+            diag("gate-approach-suppress")
+            return
+        elseif comp._gateRouteSuppress then
+            comp._gateRouteSuppress = false
         end
         if not comp._route or not comp._route.path then
             diag("no-route")
@@ -1652,6 +1671,7 @@ function M.attach(U, C, def, helpers, settings)
                 end
             end
         end
+        local threshold = guidance_distance_for_speed((yal and yal.tirespeed and get(yal.tirespeed)) or 0)
         do
             if data and data.nodes and path[seg_idx] and path[seg_idx + 1] and path[seg_idx + 2] then
                 local n_from = data.nodes[path[seg_idx]]
@@ -1659,7 +1679,8 @@ function M.attach(U, C, def, helpers, settings)
                 if n_from and n_to and n_from.east and n_from.north and n_to.east and n_to.north then
                     local d_from = distance_sq(aircraft.east, aircraft.north, n_from.east, n_from.north)
                     local d_to = distance_sq(aircraft.east, aircraft.north, n_to.east, n_to.north)
-                    if d_to < d_from then
+                    local advance_gate = math.max(20, (threshold or C.guidanceTurnDistance) * 0.35)
+                    if d_to < d_from and math.sqrt(d_to) <= advance_gate then
                         seg_idx = seg_idx + 1
                         comp._guidanceActiveSegIdx = seg_idx
                         if comp._guidanceMonotonicSegIdx and comp._guidanceMonotonicSegIdx < seg_idx then
@@ -1700,12 +1721,9 @@ function M.attach(U, C, def, helpers, settings)
         end
 
         local force_initial = comp._guidanceForceInitial and first_guidance
-        local threshold = guidance_distance_for_speed((yal and yal.tirespeed and get(yal.tirespeed)) or 0)
+        local in_segment_cooldown = false
         if comp._lastGuidanceSegment and comp._lastGuidanceSegment == seg_idx then
-            if (now - (comp._lastGuidanceTime or 0)) < C.guidanceCooldown then
-                diag("cooldown")
-                return
-            end
+            in_segment_cooldown = ((now - (comp._lastGuidanceTime or 0)) < C.guidanceCooldown)
         end
         if dist > threshold then
             diag("too-far", string.format("dist=%.1f thresh=%.1f", dist, threshold))
@@ -1866,6 +1884,20 @@ function M.attach(U, C, def, helpers, settings)
                 end
             end
         end
+        if not next_info and data and n2 and n3 and dist_to_node and dist_to_node <= threshold then
+            local on_profile = false
+            if comp.mode == 1 and comp._arrProfile then
+                on_profile = is_on_runway_profile(comp._arrProfile, aircraft, 60, 5)
+            elseif comp.mode == 0 and comp._depProfile then
+                on_profile = is_on_runway_profile(comp._depProfile, aircraft, 60, 5)
+            end
+            if not on_profile then
+                local _, ahead_cross_label = U.find_runway_crossing(data, n2, n3)
+                if ahead_cross_label and ahead_cross_label ~= "" then
+                    next_info = build_guidance_for_crossing_warning(seg_idx + 1, ahead_cross_label)
+                end
+            end
+        end
 
         if not next_info then
             local info = guidance_label_info(path[seg_idx], path[seg_idx + 1], nil, nil, false)
@@ -1906,11 +1938,29 @@ function M.attach(U, C, def, helpers, settings)
             end
             if not next_info then
                 if next_kind == "taxiway" then
-                    if turn_dir and turn_dir ~= "straight" and allow_turn then
+                    local label_changed = false
+                    if raw_label and next_display and raw_label ~= "" and next_display ~= "" then
+                        local rn = normalize_taxiway_label(raw_label)
+                        local nn = normalize_taxiway_label(next_display)
+                        label_changed = (rn ~= "" and nn ~= "" and rn ~= nn)
+                    end
+                    local forced_turn = turn_dir
+                    if (not forced_turn) and label_changed and turn_angle
+                        and turn_angle >= math.max(8, (C.guidanceTurnAngle or 15) * 0.6)
+                        and n1 and n2 and n3
+                        and n1.east and n1.north and n2.east and n2.north and n3.east and n3.north then
+                        local v1x = n2.east - n1.east
+                        local v1y = n2.north - n1.north
+                        local v2x = n3.east - n2.east
+                        local v2y = n3.north - n2.north
+                        local cross = v1x * v2y - v1y * v2x
+                        forced_turn = (cross >= 0) and "left" or "right"
+                    end
+                    if forced_turn and forced_turn ~= "straight" and allow_turn then
                         if next_display and next_display ~= "" then
-                            next_info = build_guidance_for_turning(seg_idx, next_display, turn_dir)
+                            next_info = build_guidance_for_turning(seg_idx, next_display, forced_turn)
                         elseif is_freehand then
-                            next_info = build_guidance_for_generic_turn(turn_dir)
+                            next_info = build_guidance_for_generic_turn(forced_turn)
                         end
                     else
                         if not is_freehand or first_guidance then
@@ -1952,6 +2002,15 @@ function M.attach(U, C, def, helpers, settings)
                         next_info = build_guidance_for_route(seg_idx)
                     end
                 end
+            end
+        end
+        if in_segment_cooldown then
+            local safety = next_info and (next_info.action == "CROSS RWY" or next_info.action == "HOLD SHORT")
+            local near_node = dist_to_node and threshold
+                and (dist_to_node <= math.max(20, threshold * 0.35))
+            if (not safety) and (not near_node) then
+                diag("cooldown")
+                return
             end
         end
 
@@ -2227,6 +2286,81 @@ function M.attach(U, C, def, helpers, settings)
         end
     end
 
+    local function dep_entry_turn_from_route(route, dep_profile, aircraft)
+        if not route or not dep_profile or not dep_profile.axis then
+            return nil
+        end
+        local path = route.path
+        local data = route.data
+        if not path or not data or not data.nodes or not data.runway_nodes or #path < 2 then
+            return nil
+        end
+        local ax = aircraft and aircraft.east or nil
+        local ay = aircraft and aircraft.north or nil
+        local best_i = nil
+        local best_d2 = nil
+        for i = 1, #path - 1 do
+            local id1 = path[i]
+            local id2 = path[i + 1]
+            local is1 = data.runway_nodes[id1] and true or false
+            local is2 = data.runway_nodes[id2] and true or false
+            if is1 ~= is2 then
+                local n1 = data.nodes[id1]
+                local n2 = data.nodes[id2]
+                if n1 and n2 and n1.east and n1.north and n2.east and n2.north then
+                    local d2 = i
+                    if ax and ay then
+                        local mx = (n1.east + n2.east) * 0.5
+                        local my = (n1.north + n2.north) * 0.5
+                        local dx = mx - ax
+                        local dy = my - ay
+                        d2 = dx * dx + dy * dy
+                    end
+                    if (not best_d2) or d2 < best_d2 then
+                        best_d2 = d2
+                        best_i = i
+                    end
+                end
+            end
+        end
+        if not best_i then
+            return nil
+        end
+        local id1 = path[best_i]
+        local id2 = path[best_i + 1]
+        local n1 = data.nodes[id1]
+        local n2 = data.nodes[id2]
+        if not (n1 and n2 and n1.east and n1.north and n2.east and n2.north) then
+            return nil
+        end
+        local is1 = data.runway_nodes[id1] and true or false
+        local is2 = data.runway_nodes[id2] and true or false
+        local v1x, v1y = nil, nil
+        if is1 and (not is2) then
+            v1x = n1.east - n2.east
+            v1y = n1.north - n2.north
+        else
+            v1x = n2.east - n1.east
+            v1y = n2.north - n1.north
+        end
+        local len1 = math.sqrt(v1x * v1x + v1y * v1y)
+        local v2x = dep_profile.axis.x or 0
+        local v2y = dep_profile.axis.y or 0
+        local len2 = math.sqrt(v2x * v2x + v2y * v2y)
+        if len1 <= 0.1 or len2 <= 0.1 then
+            return nil
+        end
+        local dot = (v1x * v2x + v1y * v2y) / (len1 * len2)
+        if dot > 1 then dot = 1 end
+        if dot < -1 then dot = -1 end
+        local angle = math.deg(math.acos(dot))
+        if angle < math.max(15, (C and C.guidanceTurnAngle) or 15) then
+            return nil
+        end
+        local cross = v1x * v2y - v1y * v2x
+        return (cross >= 0) and "left" or "right"
+    end
+
     U.guidance_distance_for_speed = guidance_distance_for_speed
     U.speak_guidance_text = speak_guidance_text
     U.build_visual_label = build_visual_label
@@ -2238,6 +2372,7 @@ function M.attach(U, C, def, helpers, settings)
     U.update_visual_guidance = update_visual_guidance
     U.maybe_speak_guidance = maybe_speak_guidance
     U.emit_guidance = emit_guidance
+    U.dep_entry_turn_from_route = dep_entry_turn_from_route
 end
 
 return M
