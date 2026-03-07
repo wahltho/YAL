@@ -1734,6 +1734,10 @@ function M.attach(U, C, def, helpers, settings)
                 comp._lastCrossingTime = nil
             end
         end
+        if comp._guidanceTurnLockUntilSeg and seg_idx and seg_idx > comp._guidanceTurnLockUntilSeg then
+            comp._guidanceTurnLockLabel = nil
+            comp._guidanceTurnLockUntilSeg = nil
+        end
 
         local next_idx = seg_idx + 1
         local seg_len = nil
@@ -2232,6 +2236,23 @@ function M.attach(U, C, def, helpers, settings)
                     next_info = nil
                 end
             end
+            if next_info and comp._guidanceTurnLockLabel and comp._guidanceTurnLockUntilSeg then
+                local action = next_info.action
+                local basic = (action == "CONTINUE" or action == "TAXI VIA" or action == "TAXI")
+                local label = tostring(next_info.display or "")
+                if basic and label ~= "" and label ~= tostring(comp._guidanceTurnLockLabel)
+                    and seg_idx and seg_idx <= comp._guidanceTurnLockUntilSeg then
+                    if helpers and helpers.logInfoTS then
+                        helpers.logInfoTS(
+                            "TaxiGuide: suppress turn-lock flip from="
+                                .. tostring(comp._guidanceTurnLockLabel)
+                                .. " to="
+                                .. tostring(label)
+                        )
+                    end
+                    next_info = nil
+                end
+            end
             next_info = resolve_ramp_guidance(seg_idx, next_info)
             next_info = maybe_skip_duplicate_guidance(next_info)
             if next_info then
@@ -2257,6 +2278,13 @@ function M.attach(U, C, def, helpers, settings)
                     comp._lastGuidanceLabel = next_info.display
                     comp._lastGuidanceAction = next_info.action
                     comp._lastGuidanceTime = now
+                    if next_info.action == "TURN LEFT" or next_info.action == "TURN RIGHT" then
+                        comp._guidanceTurnLockLabel = next_info.display
+                        comp._guidanceTurnLockUntilSeg = (next_info.targetSegIdx or seg_idx) + 2
+                    elseif next_info.action ~= "CONTINUE" and next_info.action ~= "TAXI VIA" and next_info.action ~= "TAXI" then
+                        comp._guidanceTurnLockLabel = nil
+                        comp._guidanceTurnLockUntilSeg = nil
+                    end
                 end
                 return
             end

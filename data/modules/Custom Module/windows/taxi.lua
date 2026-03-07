@@ -3279,6 +3279,8 @@ local function reset_guidance_tracking(comp, reset_state)
     comp._guidanceLastPos = nil
     comp._guidanceActiveSegIdx = nil
     comp._guidanceMonotonicSegIdx = nil
+    comp._guidanceTurnLockLabel = nil
+    comp._guidanceTurnLockUntilSeg = nil
     if reset_state then
         comp._guidanceState = "idle"
     end
@@ -3964,6 +3966,55 @@ U.update_pushback_state = function(comp, now, yal, aircraft)
 
     if comp._pushbackStartedEver then
         if connectedRef and isProperty(connectedRef) and connectedOn then
+            local speed_thresh = (C and C.pushbackReleaseSpeed) or 1.0
+            local secs_thresh = (C and C.pushbackReleaseSeconds) or 2.0
+            local meters_thresh = (C and C.pushbackReleaseMeters) or 5
+            local driftMeters = (C and C.rerouteDriftMeters) or 40
+            local gs = (yal.groundspeed and (get(yal.groundspeed) or 0)) or 0
+            local ts = (yal.tirespeed and (get(yal.tirespeed) or 0)) or 0
+            local moving = (gs >= speed_thresh or ts >= speed_thresh)
+            local joined_route = false
+            if moving and comp._route and (not comp._routeErr) and aircraft
+                and aircraft.east ~= nil and aircraft.north ~= nil
+                and comp._route.data and comp._route.path and #comp._route.path > 1 then
+                local _, dist = U.find_nearest_segment(comp._route.data, comp._route.path, aircraft.east, aircraft.north)
+                if dist and dist <= driftMeters then
+                    joined_route = true
+                end
+            end
+            if moving and joined_route and aircraft and aircraft.east ~= nil and aircraft.north ~= nil then
+                local anchor = comp._pushbackReleaseAnchor
+                if not anchor then
+                    comp._pushbackReleaseAnchor = { east = aircraft.east, north = aircraft.north, time = now }
+                else
+                    local dx = aircraft.east - anchor.east
+                    local dy = aircraft.north - anchor.north
+                    local dist = math.sqrt(dx * dx + dy * dy)
+                    if dist >= meters_thresh and (now - (anchor.time or now)) >= secs_thresh then
+                        comp._pushbackStartedEver = false
+                        comp._pushbackActive = false
+                        comp._pushbackCompleted = true
+                        comp._pushbackPlanSeen = false
+                        comp._pushbackReleaseAnchor = nil
+                        if not comp._pushbackReanchorDone and not comp._pushbackReanchorPending then
+                            comp._pushbackReanchorPending = true
+                            comp._pushbackReanchorTime = now or 0
+                        end
+                        if helpers and helpers.logInfoTS then
+                            helpers.logInfoTS(
+                                string.format(
+                                    "TaxiRoute: pushback release by route join gs=%.1f ts=%.1f",
+                                    gs or -1,
+                                    ts or -1
+                                )
+                            )
+                        end
+                        return false
+                    end
+                end
+            else
+                comp._pushbackReleaseAnchor = nil
+            end
             comp._pushbackActive = true
             comp._pushbackCompleted = false
             return true
