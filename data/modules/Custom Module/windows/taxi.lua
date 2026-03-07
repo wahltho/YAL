@@ -5327,7 +5327,7 @@ local function updateTaxiState(comp, map)
     local hasRunwayLatLon = U.is_valid_latlon(runway_lat, runway_lon)
     local hasArrivalRunway = (mode == 1 and hasRunwayName) or false
     local freehand_active = comp._drawFreehand and comp._routeWaypoints and (#comp._routeWaypoints > 0)
-    local canRoute = data and data.can_route and (mode == 1 or hasRunwayName or freehand_active or (mode == 0 and hasRunwayLatLon)) or false
+    local canRoute = data and data.can_route and (mode == 1 or hasRunwayName or freehand_active) or false
     if not canRoute and not freehand_active then
         helpers.logInfoTS(
             "TaxiDiag: canRoute=false icao=" .. tostring(icao) ..
@@ -5337,7 +5337,7 @@ local function updateTaxiState(comp, map)
         )
     end
 
-    if mode == 0 and data and U.is_valid_latlon(runway_lat, runway_lon) then
+    if mode == 0 and data and U.is_valid_latlon(runway_lat, runway_lon) and hasRunwayName then
         local dep_rwy = nil
         local dep_side = nil
         if comp._runwayName and comp._runwayName ~= "" then
@@ -6156,7 +6156,7 @@ local function updateTaxiState(comp, map)
             auto_dep_entry_allowed = false
         end
     end
-    if mode == 0 and (not allow_runway_route)
+    if mode == 0 and hasRunwayName and (not allow_runway_route)
         and (not dep_holdshort_id)
         and (not has_end_override) and (not manual_active)
         and (not comp._drawFreehand) and aircraft
@@ -7066,7 +7066,8 @@ local function updateTaxiState(comp, map)
                 )
             end
             if (not route) and rerr == "no-path" and mode == 0 then
-                if (not comp._selectedDepEntryId)
+                if hasRunwayName
+                    and (not comp._selectedDepEntryId)
                     and (not has_end_override)
                     and (not manual_active)
                     and dep_entry_candidate_id
@@ -8147,6 +8148,18 @@ local function updateTaxiState(comp, map)
                                     log_taxi(
                                         string.format(
                                             "TaxiRoute: offroute reanchor only (near end) seg=%s dist=%.1f",
+                                            tostring(seg_idx),
+                                            dist or -1
+                                        )
+                                    )
+                                    return
+                                end
+                                if mode == 0 and (allow_runway_route or comp._depBacktrackRequired)
+                                    and path_len > 2 and seg_idx >= (path_len - 2) then
+                                    comp._lastRerouteTime = now
+                                    log_taxi(
+                                        string.format(
+                                            "TaxiRoute: offroute reanchor only (dep runway near end) seg=%s dist=%.1f",
                                             tostring(seg_idx),
                                             dist or -1
                                         )

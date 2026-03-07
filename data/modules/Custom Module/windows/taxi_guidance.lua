@@ -2129,6 +2129,20 @@ function M.attach(U, C, def, helpers, settings)
             end
         end
         if next_info then
+            local last_action = comp._lastGuidanceAction
+            local last_seg = comp._lastGuidanceSegment
+            local last_label = tostring(comp._lastGuidanceLabel or "")
+            local next_label_display = tostring(next_info.display or "")
+            if last_seg and last_label ~= "" and next_label_display ~= ""
+                and (last_action == "TURN LEFT" or last_action == "TURN RIGHT")
+                and (next_info.action == "CONTINUE" or next_info.action == "TAXI VIA")
+                and last_label == next_label_display
+                and next_info.kind == "taxiway"
+                and next_info.targetSegIdx and next_info.targetSegIdx <= (last_seg + 2) then
+                next_info = nil
+            end
+        end
+        if next_info then
             next_info.display = next_info.display or next_display
             next_info.kind = next_info.kind or next_kind
             next_info.text = next_info.text or next_label or "Taxi"
