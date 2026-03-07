@@ -108,10 +108,10 @@ local function isLateralOnlyApproach(navdata)
 end
 
 local function navTypeFromSelectedApproachId(selectedAppId)
-    if type(selectedAppId) ~= "string" then
+    local id = type(selectedAppId) == "string" and selectedAppId:gsub("%s+", ""):upper() or nil
+    if not id then
         return nil
     end
-    local id = selectedAppId:gsub("%s+", ""):upper()
     if id == "" or id == "------" then
         return nil
     end
@@ -124,6 +124,71 @@ local function navTypeFromSelectedApproachId(selectedAppId)
     if prefix == "R" then return def.NAVTYPERNAV end
     if prefix == "G" then return def.NAVTYPEGLS end
     return nil
+end
+
+local function normalizeSelectedApproachId(selectedAppId)
+    if type(selectedAppId) ~= "string" then
+        return nil
+    end
+    local id = selectedAppId:gsub("%s+", ""):upper()
+    if id == "" or id == "------" then
+        return nil
+    end
+    return id
+end
+
+local function addSetIlsCandidateType(candidateTypes, seen, navType)
+    if navType ~= nil and not seen[navType] then
+        table.insert(candidateTypes, navType)
+        seen[navType] = true
+    end
+end
+
+local function addSetIlsCandidateFamily(candidateTypes, seen, navType)
+    if navType == def.NAVTYPEILS or navType == def.NAVTYPELOC then
+        addSetIlsCandidateType(candidateTypes, seen, def.NAVTYPEILS)
+        addSetIlsCandidateType(candidateTypes, seen, def.NAVTYPELOC)
+        return
+    end
+    if navType == def.NAVTYPELPV or navType == def.NAVTYPERNAV then
+        addSetIlsCandidateType(candidateTypes, seen, def.NAVTYPELPV)
+        addSetIlsCandidateType(candidateTypes, seen, def.NAVTYPERNAV)
+        return
+    end
+    addSetIlsCandidateType(candidateTypes, seen, navType)
+end
+
+local function buildSetIlsCandidateTypes(selectedNavType, detectedNavType)
+    local candidateTypes = {}
+    local seen = {}
+    addSetIlsCandidateFamily(candidateTypes, seen, detectedNavType)
+    addSetIlsCandidateFamily(candidateTypes, seen, selectedNavType)
+    if #candidateTypes == 0 then
+        addSetIlsCandidateType(candidateTypes, seen, def.NAVTYPEILS)
+        addSetIlsCandidateType(candidateTypes, seen, def.NAVTYPEGLS)
+        addSetIlsCandidateType(candidateTypes, seen, def.NAVTYPELPV)
+        addSetIlsCandidateType(candidateTypes, seen, def.NAVTYPELDA)
+        addSetIlsCandidateType(candidateTypes, seen, def.NAVTYPELOC)
+        addSetIlsCandidateType(candidateTypes, seen, def.NAVTYPEIGS)
+        addSetIlsCandidateType(candidateTypes, seen, def.NAVTYPERNAV)
+    end
+    return candidateTypes
+end
+
+local function navEntryMatchesSelectedApproach(entry, selectedAppId)
+    local appId = normalizeSelectedApproachId(selectedAppId)
+    if not entry or not appId then
+        return false
+    end
+
+    local function normalizeEntryId(value)
+        return type(value) == "string" and value:gsub("%s+", ""):upper() or nil
+    end
+
+    local navId = normalizeEntryId(entry[def.DESTNAVID])
+    local altId = normalizeEntryId(entry.alt_id)
+    local storedAppId = normalizeEntryId(entry.app_id)
+    return navId == appId or altId == appId or storedAppId == appId
 end
 
 local function getFmcApproachRefData()
@@ -5420,36 +5485,35 @@ function M.fillProcedureTable()
                 },
                 ['find_navdata'] = {
                     branch = function(loop, procData)
-                        local FMC1Line04X = helpers.get("laminar/B738/fmc1/Line04_X")
-                        local FMC1Line04L = helpers.get("laminar/B738/fmc1/Line04_L")
-                        local apptype
-                        local candidateTypes = {}
-                        local hasLPV = false
-                        if ((string.len(FMC1Line04X) == 24) and (string.len(FMC1Line04L) == 24)) then
-                            apptype = string.sub(FMC1Line04X, 2, 4)
-                            if ((apptype == def.NAVTYPEILS)
-                                or (apptype == def.NAVTYPEGLS)
-                                or (apptype == def.NAVTYPELDA)
-                                or (apptype == def.NAVTYPELOC)
-                                or (apptype == def.NAVTYPEIGS)) then
-                                table.insert(candidateTypes, apptype)
-                            else
-                                table.insert(candidateTypes, def.NAVTYPERNAV)
-                                table.insert(candidateTypes, def.NAVTYPELPV)
-                                hasLPV = true
-                            end
-                        else
-                            table.insert(candidateTypes, def.NAVTYPERNAV)
-                            table.insert(candidateTypes, def.NAVTYPELPV)
-                            hasLPV = true
+                        local selectedAppId = nil
+                        if P.fmsselectedapp then
+                            selectedAppId = normalizeSelectedApproachId(get(P.fmsselectedapp))
                         end
 
-                        local navIndices = helpers.getnavdataindices(P.navdatatable, get(P.desicao), get(P.desrwy), candidateTypes)
-                        navIndices = navIndices or {}
-                        if (#navIndices == 0) and not hasLPV then
-                            navIndices = helpers.getnavdataindices(P.navdatatable, get(P.desicao), get(P.desrwy), { def.NAVTYPELPV })
-                            navIndices = navIndices or {}
-                            hasLPV = true
+                        local detectedVariant = helpers.detectCIFPApproachVariant(
+                            get(P.desicao),
+                            get(P.desrwy),
+                            get(P.fmslegs),
+                            get(P.fmslegslat),
+                            get(P.fmslegslon),
+                            selectedAppId
+                        )
+                        local selectedNavType = navTypeFromSelectedApproachId(selectedAppId)
+                        local detectedNavType = detectedVariant and detectedVariant.navType or nil
+                        local candidateTypes = buildSetIlsCandidateTypes(selectedNavType, detectedNavType)
+                        local navIndices = helpers.getnavdataindices(P.navdatatable, get(P.desicao), get(P.desrwy), candidateTypes) or {}
+
+                        if selectedAppId and #navIndices > 1 then
+                            local appMatched = {}
+                            for _, idx in ipairs(navIndices) do
+                                local entry = P.navdatatable[idx]
+                                if navEntryMatchesSelectedApproach(entry, selectedAppId) then
+                                    table.insert(appMatched, idx)
+                                end
+                            end
+                            if #appMatched > 0 then
+                                navIndices = appMatched
+                            end
                         end
 
                         if navIndices and #navIndices > 1 then
@@ -5473,44 +5537,6 @@ function M.fillProcedureTable()
                         loop.approachCourseMagZiboSource = nil
                         loop.approachCourseMagLegacy = nil
                         loop.approachCourseSource = nil
-
-                        local selectedAppId = nil
-                        if P.fmsselectedapp then
-                            local val = get(P.fmsselectedapp)
-                            if val and val ~= "" and val ~= "------" then
-                                selectedAppId = val
-                            end
-                        end
-                        if selectedAppId then
-                            local selectedNavType = navTypeFromSelectedApproachId(selectedAppId)
-                            if selectedNavType then
-                                local selectedTypeAllowed = false
-                                for _, candidateType in ipairs(candidateTypes) do
-                                    if candidateType == selectedNavType then
-                                        selectedTypeAllowed = true
-                                        break
-                                    end
-                                    -- LOC/ILS are considered compatible for selection filtering.
-                                    if ((candidateType == def.NAVTYPEILS and selectedNavType == def.NAVTYPELOC)
-                                        or (candidateType == def.NAVTYPELOC and selectedNavType == def.NAVTYPEILS)) then
-                                        selectedTypeAllowed = true
-                                        break
-                                    end
-                                end
-                                if not selectedTypeAllowed then
-                                    selectedAppId = nil
-                                end
-                            end
-                        end
-
-                        local detectedVariant = helpers.detectCIFPApproachVariant(
-                            get(P.desicao),
-                            get(P.desrwy),
-                            get(P.fmslegs),
-                            get(P.fmslegslat),
-                            get(P.fmslegslon),
-                            selectedAppId
-                        )
                         loop.detectedApproach = detectedVariant
                         if detectedVariant and detectedVariant.navType then
                             local navType = detectedVariant.navType
@@ -5554,6 +5580,19 @@ function M.fillProcedureTable()
                         else
                             loop.detectedApproach = nil
                         end
+
+                        local chosenEntry = loop.navdatatableindex and P.navdatatable[loop.navdatatableindex] or nil
+                        helpers.logInfoTS(string.format(
+                            "SetIlsResolve: selectedApp=%s selectedNavType=%s detectedNavType=%s candidateTypes=%s navCount=%d chosenType=%s chosenId=%s chosenRwy=%s",
+                            tostring(selectedAppId),
+                            tostring(selectedNavType),
+                            tostring(detectedNavType),
+                            table.concat(candidateTypes, ","),
+                            #(loop.navdatatableindices or {}),
+                            tostring(chosenEntry and chosenEntry[def.DESTNAVTYPE] or nil),
+                            tostring(chosenEntry and chosenEntry[def.DESTNAVID] or nil),
+                            tostring(chosenEntry and chosenEntry[def.DESTRWY] or nil)
+                        ))
 
                         if loop.navdatatableindex ~= nil and P.navdatatable[loop.navdatatableindex] ~= nil then
                             return 'announce_approach_type' 
