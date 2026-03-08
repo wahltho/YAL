@@ -59,7 +59,17 @@ local function update_bounds(bounds, x, y)
     end
 end
 
-local compute_along_perp
+local function compute_along_perp(profile, node)
+    if not profile or not profile.threshold or not profile.axis or not node or not node.east or not node.north then
+        return nil, nil
+    end
+    local dx = node.east - profile.threshold.east
+    local dy = node.north - profile.threshold.north
+    local along = dx * profile.axis.x + dy * profile.axis.y
+    local cross = dx * profile.axis.y - dy * profile.axis.x
+    local perp = math.abs(cross)
+    return along, perp
+end
 
 local function estimate_text_width(text, size)
     local len = string.len(text or "")
@@ -1604,18 +1614,6 @@ local function apply_dep_turnaround_stub(comp, route, data, profile, runway_labe
 end
 
 local collect_runway_exit_candidates
-
-compute_along_perp = function(profile, node)
-    if not profile or not profile.threshold or not profile.axis or not node or not node.east or not node.north then
-        return nil, nil
-    end
-    local dx = node.east - profile.threshold.east
-    local dy = node.north - profile.threshold.north
-    local along = dx * profile.axis.x + dy * profile.axis.y
-    local cross = dx * profile.axis.y - dy * profile.axis.x
-    local perp = math.abs(cross)
-    return along, perp
-end
 
 local function runway_pair_label(rwy)
     if not rwy then
