@@ -97,6 +97,9 @@ local function normalizeSaveNumber(val)
     end
     if type(val) == "number" then
         local num = math.floor(val)
+        if num == 0 then
+            return "0"
+        end
         if num < 1 or num > 8 then
             return nil
         end
@@ -108,6 +111,9 @@ local function normalizeSaveNumber(val)
     local s = val:gsub("%s+", "")
     if s == "" then
         return nil
+    end
+    if s == "0" then
+        return "0"
     end
     local a, b = s:match("^(%d+)%-(%d+)$")
     if a and b then

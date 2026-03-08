@@ -66,8 +66,19 @@ local function setTrimAdvicePopupState(target)
     P.trimAdvicePopupState = { active = true, target = value }
 end
 
+local function isPeriodicAutoSaveDisabled()
+    local raw = P.configvalues and tonumber(P.configvalues[def.CONFIGSAVETIME]) or nil
+    if raw == nil then
+        return false
+    end
+    return (raw == 0) or (raw == 9999)
+end
+
 local function getAutoSaveSlot()
     local raw = P.configvalues and P.configvalues[def.CONFIGSAVENUMBER] or nil
+    if raw == 0 or raw == "0" then
+        return 1
+    end
     local start = 1
     local finish = 1
     if type(raw) == "number" then
@@ -6439,7 +6450,7 @@ function P.ongoingtasks()
         P.pausetodtimer = nil
     end
 
-    if (P.configvalues[def.CONFIGSAVETIME] ~= 9999) then
+    if not isPeriodicAutoSaveDisabled() then
         if (P.savetimer == nil) then
             P.savetimer = sasl.createTimer()
             sasl.startTimer(P.savetimer)
