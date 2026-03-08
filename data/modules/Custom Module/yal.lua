@@ -2877,6 +2877,71 @@ sasl.registerCommandHandler(my_command_speakdepmetar, 0, P.speakdepmetar_)
 
 
 --------------------------------------------------------------------------------------------------------------
+function P.canTriggerProcedureForCycle(procedureKey)
+    local procedureData = P.proceduretable[procedureKey]
+    if not procedureData then
+        return false
+    end
+
+    local requiredState = procedureData.requiredFlightstate
+    if requiredState then
+        local currentState = P.flightstate
+        local isStateAllowed = false
+        if type(requiredState) == "table" then
+            for _, allowed in ipairs(requiredState) do
+                if currentState == allowed then
+                    isStateAllowed = true
+                    break
+                end
+            end
+        else
+            isStateAllowed = (currentState == requiredState)
+        end
+        if not isStateAllowed then
+            sasl.logDebug("cycleprocedures: skipping '" .. procedureData.name .. "' due to flight state mismatch.")
+            return false
+        end
+    end
+
+    local aircraftIsOnGround = (get(P.airgroundsensor) == def.ON)
+    local allowedState = procedureData.allowedState
+    if allowedState == def.GROUNDONLY and not aircraftIsOnGround then
+        sasl.logDebug("cycleprocedures: skipping '" .. procedureData.name .. "' because aircraft is not on ground.")
+        return false
+    end
+    if allowedState == def.AIRONLY and aircraftIsOnGround then
+        sasl.logDebug("cycleprocedures: skipping '" .. procedureData.name .. "' because aircraft is on ground.")
+        return false
+    end
+
+    local prerequisite = procedureData.prerequisite
+    if prerequisite then
+        local prerequisiteMet = false
+        if type(prerequisite) == "function" then
+            prerequisiteMet = prerequisite()
+        elseif type(prerequisite) == "number" and P.proceduretable[prerequisite] then
+            prerequisiteMet = P.proceduretable[prerequisite].set
+        end
+        if not prerequisiteMet then
+            sasl.logDebug("cycleprocedures: skipping '" .. procedureData.name .. "' due to unmet prerequisite.")
+            return false
+        end
+    end
+
+    if procedureData.prerequisiteChecks then
+        local prereqContext = { triggeredmanually = true }
+        for i, prereq in ipairs(procedureData.prerequisiteChecks) do
+            if not prereq.check(prereqContext) then
+                sasl.logDebug("cycleprocedures: skipping '" .. procedureData.name .. "' due to prerequisite check #" .. i .. ".")
+                return false
+            end
+        end
+    end
+
+    return true
+end
+
+--------------------------------------------------------------------------------------------------------------
 function P.triggerprocedure(procedureKey, isManual)
     isManual = isManual or false -- Standardwert, falls isManual nicht übergeben wird
 
@@ -3026,6 +3091,8 @@ function P.cycleprocedures()
         return true
     end
 
+    helpers.logInfoTS("cycleprocedures: command triggered")
+
     local proceduresToSort = {}
     for key, value in pairs(P.proceduretable) do
         table.insert(proceduresToSort, { originalKey = key, data = value })
@@ -3076,9 +3143,10 @@ function P.cycleprocedures()
             end
 
             if not shouldSkip and not procedure.data.set then
-                helpers.logInfoTS("Next Procedure is: " .. procedure.data.name)
-                P.procedureloop1.lock = procedure.originalKey
-                return true
+                if P.canTriggerProcedureForCycle(procedure.originalKey) then
+                    helpers.logInfoTS("Next Procedure is: " .. procedure.data.name)
+                    return P.triggerprocedure(procedure.originalKey, def.TRIGGEREDMANUALLY)
+                end
             elseif shouldSkip then
                 helpers.logInfoTS("Skipping " .. procedure.data.name .. " Procedure as its skip condition is met.")
             end
