@@ -16,6 +16,7 @@ local english = {
     VOICEADVICEONLY = 'Voice Advice Only',
     VOICEADVICEREPEATSKIP = 'Voice Advice Repeat Skip (cycles)',
     VOICEADVICEMAXREPEATS = 'Voice Advice Max Repeats (0/99=off)',
+    TRIMADVICEPOPUP = 'Voice Advice Trim Popup',
     AUTOTAXIGUIDANCE = 'Auto Taxi Guidance (voice)',
     VISUALTAXIGUIDANCE = 'Auto Taxi Guidance (Visual)',
     AUTOTAXIING = 'Auto Taxiing (Experimental)',

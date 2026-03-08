@@ -13,6 +13,9 @@ local taxiComponent
 local taxiPopupWindow
 local taxiPopupInitialized = false
 local taxiPopupComponent
+local trimPopupWindow
+local trimPopupInitialized = false
+local trimPopupComponent
 local updatePopupWindow
 local updatePopupInitialized = false
 local updatePopupComponent
@@ -431,6 +434,74 @@ local function maybeInitUpdatePopupWindow()
     helpers.logInfoTS("Update popup initialized")
 end
 
+local function saveTrimPopupPosition(x, y)
+    if not settings or not settings.appSettings then
+        return
+    end
+    settings.appSettings[def.CONFIGTRIMADVICEPOPUPX] = tonumber(x) or -1
+    settings.appSettings[def.CONFIGTRIMADVICEPOPUPY] = tonumber(y) or -1
+    settings.writeSettings(settings.appSettings)
+end
+
+local function maybeInitTrimPopupWindow()
+    if trimPopupInitialized then
+        return
+    end
+
+    local ok, modOrErr = pcall(require, "windows.trim_popup")
+    if not ok then
+        sasl.logWarning("Trim popup failed to load: " .. tostring(modOrErr))
+        trimPopupInitialized = true
+        return
+    end
+
+    local mod = modOrErr
+    if not mod or not mod.newComponent then
+        trimPopupInitialized = true
+        sasl.logWarning("Trim popup module missing newComponent.")
+        return
+    end
+
+    local comp = mod.newComponent({
+        yal = yal,
+        def = def,
+        helpers = helpers,
+        onMoveEnd = saveTrimPopupPosition
+    })
+    trimPopupComponent = comp
+    yal.trimAdvicePopup = comp
+    local w, h = mod.windowSize()
+    local xRoot, yRoot, wRoot, hRoot = sasl.windows.getMonitorBoundsOS(0)
+    local posX = settings.getSettingNumber(def.CONFIGTRIMADVICEPOPUPX, -1)
+    local posY = settings.getSettingNumber(def.CONFIGTRIMADVICEPOPUPY, -1)
+    if posX == nil or posX < 0 then
+        posX = xRoot + math.max(0, (wRoot - w) * 0.62)
+    end
+    if posY == nil or posY < 0 then
+        posY = yRoot + math.max(0, (hRoot - h) * 0.28)
+    end
+
+    trimPopupWindow = contextWindow {
+        name = "YAL Trim Advice",
+        position = { posX, posY, w, h },
+        saveState = false,
+        visible = false,
+        noResize = true,
+        vrAuto = true,
+        noBackground = true,
+        noDecore = true,
+        proportional = false,
+        components = { comp }
+    }
+
+    if comp.setWindow then
+        comp:setWindow(trimPopupWindow)
+    end
+
+    trimPopupInitialized = true
+    helpers.logInfoTS("Trim popup initialized")
+end
+
 local function armStartupUpdateCheck()
     if startupUpdateCheckPerformed then
         return
@@ -588,6 +659,7 @@ else
     if setupWindow then setupWindow:setIsVisible(false) end
     if taxiWindow then taxiWindow:setIsVisible(false) end
     if taxiPopupWindow then taxiPopupWindow:setIsVisible(false) end
+    if trimPopupWindow then trimPopupWindow:setIsVisible(false) end
     if updatePopupWindow then updatePopupWindow:setIsVisible(false) end
 end
 
@@ -613,6 +685,7 @@ function onAirportLoaded(flightNumber)
         if setupWindow then setupWindow:setIsVisible(false) end
         if taxiWindow then taxiWindow:setIsVisible(false) end
         if taxiPopupWindow then taxiPopupWindow:setIsVisible(false) end
+        if trimPopupWindow then trimPopupWindow:setIsVisible(false) end
         if updatePopupWindow then updatePopupWindow:setIsVisible(false) end
     end
 end
@@ -624,10 +697,12 @@ function update()
         local autoTaxiEnabled = false
         local autoTaxiingEnabled = false
         local visualTaxiEnabled = false
+        local trimPopupEnabled = false
         if settings and settings.appSettings then
             autoTaxiEnabled = (settings.appSettings[def.CONFIGAUTOTAXIGUIDANCE] == def.ON)
             visualTaxiEnabled = (settings.appSettings[def.CONFIGVISUALTAXIGUIDANCE] == def.ON)
             autoTaxiingEnabled = (settings.appSettings[def.CONFIGAUTOTAXIING] == def.ON)
+            trimPopupEnabled = (settings.appSettings[def.CONFIGTRIMADVICEPOPUP] == def.ON)
         end
         if visualTaxiEnabled then
             maybeInitTaxiPopupWindow()
@@ -642,6 +717,16 @@ function update()
                 end
             end
         end
+        if trimPopupEnabled then
+            maybeInitTrimPopupWindow()
+        else
+            if trimPopupComponent and trimPopupComponent.clearStatus then
+                trimPopupComponent:clearStatus()
+            end
+            if trimPopupWindow and trimPopupWindow.isVisible and trimPopupWindow:isVisible() then
+                trimPopupWindow:setIsVisible(false)
+            end
+        end
         local taxiVisible = taxiWindow and taxiWindow.isVisible and taxiWindow:isVisible()
         if helpers.isGlobalAptIndexRunning() then
             helpers.updateGlobalAptIndex(nil, false)
@@ -654,6 +739,9 @@ function update()
         end
         if taxiComponent and autoTaxiEnabled and autoTaxiingEnabled and taxiComponent.autoTaxiTick then
             taxiComponent:autoTaxiTick()
+        end
+        if trimPopupComponent and trimPopupComponent.tick then
+            trimPopupComponent:tick()
         end
         local current_elapsed_time = sasl.getElapsedSeconds(oneSecTimer)
 
