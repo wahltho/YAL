@@ -71,6 +71,23 @@ local function compute_along_perp(profile, node)
     return along, perp
 end
 
+local function runway_corridor_half_width(profile)
+    local width = tonumber(profile and profile.width) or 0
+    local half = 0
+    if width > 0 then
+        half = (width * 0.5) + C.depRunwayCorridorBuffer
+    else
+        half = 35
+    end
+    if half < C.depRunwayCorridorMin then
+        half = C.depRunwayCorridorMin
+    end
+    if C.depRunwayCorridorMax and half > C.depRunwayCorridorMax then
+        half = C.depRunwayCorridorMax
+    end
+    return half
+end
+
 local function estimate_text_width(text, size)
     local len = string.len(text or "")
     return len * (size * 0.6)
@@ -1538,9 +1555,6 @@ local function apply_backtrack_segments_to_route(comp, route, data, backtrack_no
     return true
 end
 
-local compute_along_perp
-local runway_corridor_half_width
-
 local function apply_dep_turnaround_stub(comp, route, data, profile, runway_label)
     if not comp or not route or not data or not profile or not route.path or #route.path < 1 then
         return false
@@ -1733,23 +1747,6 @@ local function find_runway_crossing(data, n1, n2)
         end
     end
     return nil, ""
-end
-
-runway_corridor_half_width = function(profile)
-    local width = tonumber(profile and profile.width) or 0
-    local half = 0
-    if width > 0 then
-        half = (width * 0.5) + C.depRunwayCorridorBuffer
-    else
-        half = 35
-    end
-    if half < C.depRunwayCorridorMin then
-        half = C.depRunwayCorridorMin
-    end
-    if C.depRunwayCorridorMax and half > C.depRunwayCorridorMax then
-        half = C.depRunwayCorridorMax
-    end
-    return half
 end
 
 local function is_on_runway_profile(profile, aircraft, along_pad, perp_pad)
