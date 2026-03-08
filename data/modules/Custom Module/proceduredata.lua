@@ -191,93 +191,6 @@ local function navEntryMatchesSelectedApproach(entry, selectedAppId)
     return navId == appId or altId == appId or storedAppId == appId
 end
 
-local function getFmcApproachRefData()
-    if not helpers.fmcHeaderContains("APPROACH REF") then
-        return nil
-    end
-
-    local lineX = helpers.get("laminar/B738/fmc1/Line04_X") or ""
-    local lineL = helpers.get("laminar/B738/fmc1/Line04_L") or ""
-    if lineL == "" then
-        return nil
-    end
-
-    local upperX = lineX:upper()
-    if not upperX:find("/CRS", 1, true) then
-        return nil
-    end
-    local navType = nil
-    if upperX:find("ILS", 1, true) then
-        navType = def.NAVTYPEILS
-    elseif upperX:find("LDA", 1, true) then
-        navType = def.NAVTYPELDA
-    elseif upperX:find("LOC", 1, true) then
-        navType = def.NAVTYPELOC
-    elseif upperX:find("IGS", 1, true) then
-        navType = def.NAVTYPEIGS
-    elseif upperX:find("GLS", 1, true) then
-        navType = def.NAVTYPEGLS
-    elseif upperX:find("LPV", 1, true) then
-        navType = def.NAVTYPELPV
-    elseif upperX:find("RNAV", 1, true) or upperX:find("RNV", 1, true) or upperX:find("RNP", 1, true) then
-        navType = def.NAVTYPERNAV
-    else
-        return nil
-    end
-
-    local clean = lineL:gsub("[`]", "")
-    local left, courseStr = clean:match("^(.-)/%s*(%d%d%d)")
-    if not courseStr then
-        return nil
-    end
-    local course = tonumber(courseStr)
-    if not course then
-        return nil
-    end
-    local freqValue = nil
-    if left then
-        left = left:gsub("[^%d%.]", "")
-        if left ~= "" then
-            if isLocalizerNavType(navType) then
-                local freqFloat = tonumber(left)
-                if not freqFloat or freqFloat < 108.0 or freqFloat > 117.95 then
-                    return nil
-                end
-                freqValue = math.floor(freqFloat * 100 + 0.5)
-            else
-                local channel = tonumber(left)
-                if not channel or channel < 1000 then
-                    return nil
-                end
-                freqValue = math.floor(channel + 0.5)
-            end
-        end
-    end
-
-    return {
-        navType = navType,
-        course = course,
-        freq = freqValue
-    }
-end
-
-local function getFmcApproachRefFrequency(entryNavType)
-    local fmc = getFmcApproachRefData()
-    if not fmc or not fmc.freq then
-        return nil
-    end
-    if isLocalizerNavType(entryNavType) then
-        return isLocalizerNavType(fmc.navType) and fmc.freq or nil
-    end
-    if entryNavType == def.NAVTYPEGLS or entryNavType == def.NAVTYPELPV then
-        if isLocalizerNavType(fmc.navType) then
-            return nil
-        end
-        return fmc.freq
-    end
-    return nil
-end
-
 local function getNavEntryCourse(entry)
     if not entry then
         return nil
@@ -823,7 +736,8 @@ local function buildSetIlsPlan(loop)
         captTune = nil,
         foTune = nil,
         foNeedsDmeWarning = false,
-        primaryTuneMessage = nil
+        primaryTuneMessage = nil,
+        tuneSource = "navdata"
     }
     if not navdata then
         return plan
@@ -834,13 +748,6 @@ local function buildSetIlsPlan(loop)
     local isLP = plan.isLP
     local channelValue = navdata[def.DESTFREQ]
     local localizerFreq = navdata[def.DESTFREQ]
-    local fmcFreq = getFmcApproachRefFrequency(navType)
-    if isLocalizerNavType(navType) and fmcFreq then
-        localizerFreq = fmcFreq
-    end
-    if (navType == def.NAVTYPEGLS or navType == def.NAVTYPELPV) and fmcFreq then
-        channelValue = fmcFreq
-    end
 
     local function dmeTune()
         local dmeInfo = getSetIlsApproachDME(loop, navdata)
@@ -896,6 +803,44 @@ local function buildSetIlsPlan(loop)
         plan.primaryTuneMessage = "D M E " .. helpers.addspaces(helpers.formatILSFrequency(plan.foTune.value)) .. identText
     else
         plan.primaryTuneMessage = "Course guidance via F M C"
+    end
+
+    if loop then
+        local function describeTune(tune)
+            if not tune then
+                return "none"
+            end
+            return table.concat({
+                tostring(tune.type or ""),
+                tostring(tune.value or ""),
+                tostring(tune.mode or ""),
+                tostring(tune.ident or "")
+            }, ":")
+        end
+
+        local tuneLogKey = table.concat({
+            tostring(navType or ""),
+            tostring(navdata[def.DESTNAVID] or ""),
+            tostring(navdata[def.DESTRWY] or ""),
+            describeTune(plan.captTune),
+            describeTune(plan.foTune),
+            tostring(plan.primaryTuneMessage or ""),
+            tostring(plan.tuneSource or "")
+        }, "|")
+
+        if loop._setIlsTunePlanKey ~= tuneLogKey then
+            loop._setIlsTunePlanKey = tuneLogKey
+            helpers.logInfoTS(string.format(
+                "SetIlsTunePlan: navType=%s navId=%s rwy=%s captTune=%s foTune=%s primary=%s source=%s",
+                tostring(navType),
+                tostring(navdata[def.DESTNAVID] or ""),
+                tostring(navdata[def.DESTRWY] or ""),
+                describeTune(plan.captTune),
+                describeTune(plan.foTune),
+                tostring(plan.primaryTuneMessage),
+                tostring(plan.tuneSource)
+            ))
+        end
     end
 
     return plan
@@ -5472,15 +5417,6 @@ function M.fillProcedureTable()
                 ['view_fms'] = {
                     view = function(loop, procData) return P.configvalues[def.CONFIGVIEWFMS] end,
                     normalize = true, 
-                    nextStep = 'check_fms_page'
-                },
-                ['check_fms_page'] = {
-                    check = function(loop, procData)
-                        return helpers.fmcHeaderContains("APPROACH REF")
-                    end,
-                    action = function(loop, procData) helpers.command_once("laminar/B738/button/fmc1_init_ref") end,
-                    advice = "Open F M C Approach Reference Page",
-                    runActionInAdviceMode = true,
                     nextStep = 'find_navdata'
                 },
                 ['find_navdata'] = {
@@ -5537,6 +5473,7 @@ function M.fillProcedureTable()
                         loop.approachCourseMagZiboSource = nil
                         loop.approachCourseMagLegacy = nil
                         loop.approachCourseSource = nil
+                        loop._setIlsTunePlanKey = nil
                         loop.detectedApproach = detectedVariant
                         if detectedVariant and detectedVariant.navType then
                             local navType = detectedVariant.navType
