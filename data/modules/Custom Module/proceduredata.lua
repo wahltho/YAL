@@ -5420,14 +5420,22 @@ function M.fillProcedureTable()
                     nextStep = 'announce_approach_ref_page'
                 },
                 ['announce_approach_ref_page'] = {
+                    check = function(loop, procData)
+                        return helpers.fmcHeaderContains("APPROACH REF")
+                    end,
+                    fmcPage = true,
                     action = function(loop, procData)
                         if isFmcAutomationOn() then
                             helpers.command_once("laminar/B738/button/fmc1_init_ref")
                         end
                     end,
                     advice = "Open F M C Approach Reference Page",
-                    runActionInAdviceMode = true,
-                    nextStep = 'find_navdata'
+                    branch = function(loop, procData)
+                        if loop and loop.steprepeat then
+                            return 'find_navdata'
+                        end
+                        return false
+                    end
                 },
                 ['find_navdata'] = {
                     branch = function(loop, procData)
