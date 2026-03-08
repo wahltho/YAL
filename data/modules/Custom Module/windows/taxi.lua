@@ -3356,6 +3356,10 @@ local function reset_guidance_tracking(comp, reset_state)
     comp._guidanceMonotonicSegIdx = nil
     comp._guidanceTurnLockLabel = nil
     comp._guidanceTurnLockUntilSeg = nil
+    comp._guidanceInstruction = nil
+    comp._guidanceInstructionIssuedSeg = nil
+    comp._guidanceInstructionCommitSeg = nil
+    comp._guidanceInstructionCommitLabel = nil
     if reset_state then
         comp._guidanceState = "idle"
     end
@@ -7837,6 +7841,10 @@ local function updateTaxiState(comp, map)
                     comp._lastGuidanceAction = nil
                     comp._lastGuidanceVoiceText = nil
                     comp._lastGuidanceVoiceTime = nil
+                    comp._guidanceInstruction = nil
+                    comp._guidanceInstructionIssuedSeg = nil
+                    comp._guidanceInstructionCommitSeg = nil
+                    comp._guidanceInstructionCommitLabel = nil
                     U.clear_visual_guidance(comp, "route-recompute")
                     comp._visualGuidanceQueue = {}
                     comp._autoTaxiActiveRoute = route

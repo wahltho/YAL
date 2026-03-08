@@ -89,6 +89,39 @@ function M.attach(U, C, def, helpers, settings)
         helpers.speak(text)
     end
 
+    local function clone_guidance_info(info)
+        if not info then
+            return nil
+        end
+        local copy = {}
+        for k, v in pairs(info) do
+            copy[k] = v
+        end
+        return copy
+    end
+
+    local function clear_active_instruction(comp)
+        if not comp then
+            return
+        end
+        comp._guidanceInstruction = nil
+        comp._guidanceInstructionIssuedSeg = nil
+        comp._guidanceInstructionCommitSeg = nil
+        comp._guidanceInstructionCommitLabel = nil
+    end
+
+    local function is_transition_instruction(info)
+        local action = info and info.action or nil
+        return action == "TURN LEFT"
+            or action == "TURN RIGHT"
+            or action == "CROSS RWY"
+            or action == "HOLD SHORT"
+            or action == "ENTER RWY"
+            or action == "EXIT RWY"
+            or action == "LINE UP"
+            or action == "TAKEOFF"
+    end
+
     local function gate_target_key(comp, route)
         if not comp then
             return nil
@@ -233,6 +266,7 @@ function M.attach(U, C, def, helpers, settings)
                 comp._autoTaxiTargetSegIdx = nil
                 comp._autoTaxiTargetTime = nil
                 comp._autoTaxiTargetAction = nil
+                clear_active_instruction(comp)
             end
             if prev == "gate" and state ~= "gate" then
                 comp._gateGuidanceActive = false
@@ -1435,6 +1469,57 @@ function M.attach(U, C, def, helpers, settings)
             }
         end
 
+        local function current_segment_info(seg_idx)
+            local from_id = path[seg_idx]
+            local to_id = path[seg_idx + 1]
+            if not from_id or not to_id then
+                return nil
+            end
+            return guidance_label_info(from_id, to_id, nil, nil, true)
+        end
+
+        local function arm_active_instruction(info, seg_idx)
+            if not info or not is_transition_instruction(info) then
+                return
+            end
+            local active = clone_guidance_info(info)
+            local issued_seg = tonumber(seg_idx or 0) or 0
+            local commit_seg = tonumber(active.targetSegIdx or seg_idx or 0) or 0
+            if active.action == "TURN LEFT" or active.action == "TURN RIGHT" then
+                if commit_seg < (issued_seg + 1) then
+                    commit_seg = issued_seg + 1
+                end
+                active.targetSegIdx = commit_seg
+            end
+            comp._guidanceInstruction = active
+            comp._guidanceInstructionIssuedSeg = issued_seg
+            comp._guidanceInstructionCommitSeg = commit_seg
+            comp._guidanceInstructionCommitLabel = active.display
+        end
+
+        local function active_instruction_pending(seg_idx)
+            local active = comp._guidanceInstruction
+            if not active then
+                return nil
+            end
+            local issued_seg = tonumber(comp._guidanceInstructionIssuedSeg or active.targetSegIdx or seg_idx or 0) or 0
+            local commit_seg = tonumber(comp._guidanceInstructionCommitSeg or active.targetSegIdx or seg_idx or 0) or 0
+            local seg_info = current_segment_info(seg_idx)
+            local current_label = tostring(seg_info and seg_info.display or "")
+            local commit_label = tostring(comp._guidanceInstructionCommitLabel or active.display or "")
+            local committed = false
+            if seg_idx and seg_idx > commit_seg then
+                committed = true
+            elseif commit_label ~= "" and current_label == commit_label and seg_idx and seg_idx > issued_seg then
+                committed = true
+            end
+            if committed then
+                clear_active_instruction(comp)
+                return nil
+            end
+            return active
+        end
+
         local function maybe_skip_duplicate_guidance(new_info)
             if not new_info then
                 return nil
@@ -1587,16 +1672,19 @@ function M.attach(U, C, def, helpers, settings)
         end
 
         if guidance_state ~= "route" then
+            clear_active_instruction(comp)
             diag("not-route")
             return
         end
         if not route or not data or not path then
+            clear_active_instruction(comp)
             diag("no-path")
             return
         end
 
         local seg_idx, dist = find_nearest_segment(data, path, aircraft.east, aircraft.north)
         if not seg_idx or seg_idx >= #path then
+            clear_active_instruction(comp)
             diag("no-segment", string.format("seg=%s path=%s", tostring(seg_idx), tostring(path and #path or 0)))
             return
         end
@@ -1737,6 +1825,14 @@ function M.attach(U, C, def, helpers, settings)
         if comp._guidanceTurnLockUntilSeg and seg_idx and seg_idx > comp._guidanceTurnLockUntilSeg then
             comp._guidanceTurnLockLabel = nil
             comp._guidanceTurnLockUntilSeg = nil
+        end
+
+        do
+            local active_info = active_instruction_pending(seg_idx)
+            if active_info then
+                set_guidance(active_info)
+                return
+            end
         end
 
         local next_idx = seg_idx + 1
@@ -2278,6 +2374,11 @@ function M.attach(U, C, def, helpers, settings)
                     comp._lastGuidanceLabel = next_info.display
                     comp._lastGuidanceAction = next_info.action
                     comp._lastGuidanceTime = now
+                    if is_transition_instruction(next_info) then
+                        arm_active_instruction(next_info, seg_idx)
+                    else
+                        clear_active_instruction(comp)
+                    end
                     if next_info.action == "TURN LEFT" or next_info.action == "TURN RIGHT" then
                         comp._guidanceTurnLockLabel = next_info.display
                         comp._guidanceTurnLockUntilSeg = (next_info.targetSegIdx or seg_idx) + 2
@@ -2315,6 +2416,11 @@ function M.attach(U, C, def, helpers, settings)
                     comp._lastGuidanceLabel = info.display
                     comp._lastGuidanceAction = info.action
                     comp._lastGuidanceTime = now
+                    if is_transition_instruction(info) then
+                        arm_active_instruction(info, seg_idx)
+                    else
+                        clear_active_instruction(comp)
+                    end
                 end
                 return
             end
