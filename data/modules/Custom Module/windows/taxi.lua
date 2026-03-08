@@ -59,6 +59,8 @@ local function update_bounds(bounds, x, y)
     end
 end
 
+local compute_along_perp
+
 local function estimate_text_width(text, size)
     local len = string.len(text or "")
     return len * (size * 0.6)
