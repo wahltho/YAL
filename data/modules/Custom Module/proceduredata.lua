@@ -5417,6 +5417,16 @@ function M.fillProcedureTable()
                 ['view_fms'] = {
                     view = function(loop, procData) return P.configvalues[def.CONFIGVIEWFMS] end,
                     normalize = true, 
+                    nextStep = 'announce_approach_ref_page'
+                },
+                ['announce_approach_ref_page'] = {
+                    action = function(loop, procData)
+                        if isFmcAutomationOn() then
+                            helpers.command_once("laminar/B738/button/fmc1_init_ref")
+                        end
+                    end,
+                    advice = "Open F M C Approach Reference Page",
+                    runActionInAdviceMode = true,
                     nextStep = 'find_navdata'
                 },
                 ['find_navdata'] = {
