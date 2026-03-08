@@ -3344,6 +3344,41 @@ function P.aircraftonrwy(runwayType, distMeters, headingLimit)
     end
     return result
 end
+
+--------------------------------------------------------------------------------------------------------------
+function P.isArrivalRunwayRadioAltGateOpen(maxThresholdDistanceNm, maxHeadingDiff)
+
+    local aircraftlat = get(P.aircraftlatpos)
+    local aircraftlon = get(P.aircraftlonpos)
+    local rwystartlat = P.desrwylatstartpostemp
+    local rwystartlon = P.desrwylonstartpostemp
+    local runwayHeading = P.desrwyheadingtemp
+
+    if not aircraftlat or not aircraftlon or not rwystartlat or not rwystartlon then
+        return false
+    end
+    if aircraftlat == 0 or aircraftlon == 0 or rwystartlat == 0 or rwystartlon == 0 then
+        return false
+    end
+
+    local runwayDistanceNm = helpers.getdistance(aircraftlat, aircraftlon, rwystartlat, rwystartlon)
+    if not runwayDistanceNm or runwayDistanceNm > maxThresholdDistanceNm then
+        return false
+    end
+
+    if runwayHeading and runwayHeading ~= 0 then
+        local aircraftTrack = get(P.groundtrackmag)
+        if aircraftTrack and aircraftTrack ~= 0 then
+            local headingDiff = helpers.headingdiff(aircraftTrack, runwayHeading)
+            if headingDiff > maxHeadingDiff then
+                return false
+            end
+        end
+    end
+
+    return true
+end
+
 --------------------------------------------------------------------------------------------------------------
 function P.syncProceduresOnLoad()
     helpers.logInfoTS("SYNC: Resynchronizing procedure states with aircraft status...")
@@ -5362,22 +5397,42 @@ function P.duringdescent()
     end
     local radio_alt = get(P.radioaltitude) or 99999
 
-    local altitudeB2500Conditions = (height_above_field < 2500) or (radio_alt < 2500)
+    local radioAltGateB2500 = P.isArrivalRunwayRadioAltGateOpen(8, 60)
+    local radioAltGateB1000 = P.isArrivalRunwayRadioAltGateOpen(4, 40)
+    local altitudeB2500Conditions = (height_above_field < 2500) or ((radio_alt < 2500) and radioAltGateB2500)
+    local prevAltitudeB2500Conditions = P.prevAltitudeB2500Conditions == true
+    if altitudeB2500Conditions and not prevAltitudeB2500Conditions then
+        P.pendingAltitudeB2500Trigger = true
+    elseif not altitudeB2500Conditions then
+        P.pendingAltitudeB2500Trigger = false
+    end
+    P.prevAltitudeB2500Conditions = altitudeB2500Conditions
     local procB2500 = def.RADIOALTITUDEB2500PROCEDURE
     local loopB2500Index = P.proceduretable[procB2500].loop
     local isLoopB2500Free = (P.loopStateTables[loopB2500Index].lock == def.NOPROCEDURE)
-    if altitudeB2500Conditions and isLoopB2500Free then
+    if P.pendingAltitudeB2500Trigger and isLoopB2500Free then
         sasl.logDebug("Autofunctions triggering RADIOALTITUDEB2500PROCEDURE (Loop " .. loopB2500Index .. " is free).")
-        P.triggerprocedure(procB2500)
+        if P.triggerprocedure(procB2500) then
+            P.pendingAltitudeB2500Trigger = false
+        end
     end
 
-    local altitudeB1000Conditions = (height_above_field < 1000) or (radio_alt < 1000)
+    local altitudeB1000Conditions = (height_above_field < 1000) or ((radio_alt < 1000) and radioAltGateB1000)
+    local prevAltitudeB1000Conditions = P.prevAltitudeB1000Conditions == true
+    if altitudeB1000Conditions and not prevAltitudeB1000Conditions then
+        P.pendingAltitudeB1000Trigger = true
+    elseif not altitudeB1000Conditions then
+        P.pendingAltitudeB1000Trigger = false
+    end
+    P.prevAltitudeB1000Conditions = altitudeB1000Conditions
     local procB1000 = def.RADIOALTITUDEB1000PROCEDURE
     local loopB1000Index = P.proceduretable[procB1000].loop
     local isLoopB1000Free = (P.loopStateTables[loopB1000Index].lock == def.NOPROCEDURE)
-    if altitudeB1000Conditions and isLoopB1000Free then
+    if P.pendingAltitudeB1000Trigger and isLoopB1000Free then
         sasl.logDebug("Autofunctions triggering RADIOALTITUDEB1000PROCEDURE (Loop " .. loopB1000Index .. " is free).")
-        P.triggerprocedure(procB1000)
+        if P.triggerprocedure(procB1000) then
+            P.pendingAltitudeB1000Trigger = false
+        end
     end
 
     if P.configvalues[def.CONFIGAUTOFLAPS] == def.ON then
