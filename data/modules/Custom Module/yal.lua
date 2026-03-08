@@ -6065,7 +6065,6 @@ function P.runOneMainOngoingTask()
         idx = 7
     end
     local holdCurrent = false
-    clearTrimAdvicePopupState()
 
     local preflightGateOpen =
         (get(P.airgroundsensor) == def.ON) and
@@ -6079,11 +6078,14 @@ function P.runOneMainOngoingTask()
         if idx == 7 then
             local trimCalcRaw = tonumber(get(P.trimcalc)) or 0
             local trimTarget = helpers.round_to_step(trimCalcRaw, 0.25) or trimCalcRaw
+            local trimPopupActive = (P.configvalues[def.CONFIGTRIMADVICEPOPUP] == def.ON) and (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) and (trimTarget > 0) and (get(P.groundspeed) < 45)
+            if trimPopupActive then
+                setTrimAdvicePopupState(trimTarget)
+            else
+                clearTrimAdvicePopupState()
+            end
             local trimMismatch = (trimTarget > 0) and (not helpers.trimwheel_matches_trim_step(get(P.trimwheel), trimTarget, 0.25) and (get(P.groundspeed) < 45))
             if trimMismatch then
-                if (P.configvalues[def.CONFIGTRIMADVICEPOPUP] == def.ON) and (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                    setTrimAdvicePopupState(trimTarget)
-                end
                 if ((P.configvalues[def.CONFIGAUTOFUNCTIONS] == def.ON) and (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON)) then
                     P.settotrim(trimTarget)
                     local trimText = helpers.format_trim_quarter(trimTarget) or tostring(trimTarget)
@@ -6116,6 +6118,10 @@ function P.runOneMainOngoingTask()
         end
     elseif idx == 7 then
         idx = 10
+    end
+
+    if not (preflightGateOpen and idx == 7) then
+        clearTrimAdvicePopupState()
     end
 
     if idx == 10 then
