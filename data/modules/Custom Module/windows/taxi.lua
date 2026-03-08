@@ -1194,6 +1194,84 @@ local function compute_runway_landing_profile(data, runway_name, runway_lat, run
     }
 end
 
+local function infer_arrival_runway_from_aircraft(data, aircraft)
+    if not data or not data.runways or not aircraft then
+        return nil
+    end
+    if aircraft.east == nil or aircraft.north == nil then
+        return nil
+    end
+    local yalref = _G.yal
+    local track_mag = yalref and yalref.groundtrackmag and get(yalref.groundtrackmag) or nil
+    local hdg_true = yalref and yalref.localpositionpsi and get(yalref.localpositionpsi) or nil
+    local best = nil
+    for _, rwy in ipairs(data.runways) do
+        for side = 1, 2 do
+            local name = (side == 1) and rwy.rwy1 or rwy.rwy2
+            local lat = (side == 1) and rwy.lat1 or rwy.lat2
+            local lon = (side == 1) and rwy.lon1 or rwy.lon2
+            if name and name ~= "" and lat and lon then
+                local profile = compute_runway_landing_profile(data, name, lat, lon)
+                if profile then
+                    local along, perp = compute_along_perp(profile, aircraft)
+                    local corridor = runway_corridor_half_width(profile) + 10
+                    local len = tonumber(profile.length) or 0
+                    if along and perp and perp <= corridor and along >= -120 and along <= (len + 120) then
+                        local axis_heading_true = math.deg(math.atan2(profile.axis.x, profile.axis.y))
+                        if axis_heading_true < 0 then
+                            axis_heading_true = axis_heading_true + 360
+                        end
+                        local mag_var = nil
+                        if aircraft.lat and aircraft.lon then
+                            mag_var = sasl.getMagneticVariation(aircraft.lat, aircraft.lon)
+                        end
+                        if mag_var == nil then
+                            mag_var = sasl.getMagneticVariation(lat, lon)
+                        end
+                        mag_var = mag_var or 0
+                        local axis_heading_mag = (axis_heading_true - mag_var + 360) % 360
+                        local heading_diff = nil
+                        if track_mag ~= nil then
+                            heading_diff = helpers.headingdiff(track_mag, axis_heading_mag)
+                        end
+                        if hdg_true ~= nil then
+                            local hdg_mag = (hdg_true - mag_var + 360) % 360
+                            local diff = helpers.headingdiff(hdg_mag, axis_heading_mag)
+                            if heading_diff == nil or diff < heading_diff then
+                                heading_diff = diff
+                            end
+                        end
+                        local score = perp
+                        if heading_diff ~= nil then
+                            score = score + (heading_diff * 2)
+                        end
+                        if along < -30 or along > (len + 60) then
+                            score = score + 200
+                        end
+                        if (not best) or score < best.score then
+                            best = {
+                                name = name,
+                                lat = lat,
+                                lon = lon,
+                                profile = profile,
+                                side = side,
+                                heading_diff = heading_diff,
+                                along = along,
+                                perp = perp,
+                                score = score
+                            }
+                        end
+                    end
+                end
+            end
+        end
+    end
+    if best and best.heading_diff ~= nil and best.heading_diff > 90 then
+        return nil
+    end
+    return best
+end
+
 local function find_nearest_runway_node(data, east, north)
     if not data or not data.nodes or not data.runway_nodes then
         return nil
@@ -5200,6 +5278,7 @@ local function updateTaxiState(comp, map)
             end
         end
     else
+        local arr_runway_inferred = false
         runway_lat = yal.desrwylatstartpos and get(yal.desrwylatstartpos) or nil
         runway_lon = yal.desrwylonstartpos and get(yal.desrwylonstartpos) or nil
         if not U.is_valid_latlon(runway_lat, runway_lon) then
@@ -5220,7 +5299,34 @@ local function updateTaxiState(comp, map)
         elseif comp._lastArrivalRunwayName then
             runway_name = comp._lastArrivalRunwayName
         end
-        comp._arrRawRunwayMissing = (mode == 1 and onGroundSensor and raw_desrwy == "" and runway_name ~= "")
+        if data and onGroundSensor and raw_desrwy == "" and aircraft then
+            local inferred = infer_arrival_runway_from_aircraft(data, aircraft)
+            if inferred and inferred.name and inferred.name ~= "" then
+                if runway_name ~= inferred.name or (not U.is_valid_latlon(runway_lat, runway_lon)) then
+                    local infer_key = tostring(icao) .. "|ARR-INFER|" .. tostring(inferred.name)
+                        .. "|" .. tostring(math.floor((inferred.along or 0) + 0.5))
+                        .. "|" .. tostring(math.floor((inferred.perp or 0) + 0.5))
+                    if comp._lastArrInferLogKey ~= infer_key then
+                        comp._lastArrInferLogKey = infer_key
+                        helpers.logInfoTS(
+                            "Taxi: ARR runway inferred " .. tostring(inferred.name) ..
+                            " along=" .. string.format("%.1f", inferred.along or -1) ..
+                            " perp=" .. string.format("%.1f", inferred.perp or -1) ..
+                            " hdgDiff=" .. string.format("%.1f", inferred.heading_diff or -1)
+                        )
+                    end
+                end
+                runway_name = inferred.name
+                runway_lat = inferred.lat
+                runway_lon = inferred.lon
+                landing_profile = inferred.profile
+                comp._lastArrivalRunwayName = runway_name
+                comp._lastArrivalRunwayLat = runway_lat
+                comp._lastArrivalRunwayLon = runway_lon
+                arr_runway_inferred = true
+            end
+        end
+        comp._arrRawRunwayMissing = (mode == 1 and onGroundSensor and raw_desrwy == "" and runway_name ~= "" and (not arr_runway_inferred))
         comp._runwayName = runway_name
         if data and comp._runwayName and comp._runwayName ~= "" then
             local ref_lat = runway_lat
@@ -5250,7 +5356,7 @@ local function updateTaxiState(comp, map)
             end
             start_lat = runway_lat
             start_lon = runway_lon
-            landing_profile = U.compute_runway_landing_profile(data, comp._runwayName, runway_lat, runway_lon)
+            landing_profile = landing_profile or U.compute_runway_landing_profile(data, comp._runwayName, runway_lat, runway_lon)
             touchdown = landing_profile and landing_profile.touchdown or nil
             if landing_profile and touchdown and touchdown.east and touchdown.north then
                 if onGroundSensor and aircraft and aircraft.east ~= nil and aircraft.north ~= nil then
