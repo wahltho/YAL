@@ -4668,7 +4668,7 @@ function P.updatemetar()
     local depicaotmp = helpers.cleanstring(get(P.depicao))
     local desicaotmp = helpers.cleanstring(get(P.desicao))
 
-    if P.flightstate <= def.FLIGHTSTATEINITIALCLIMB then
+    if P.flightstate == def.FLIGHTSTATEPREFLIGHT then
         if helpers.isvalidicao(depicaotmp) then
             helpers.getMetar(depicaotmp, P.depmetar)
         end
