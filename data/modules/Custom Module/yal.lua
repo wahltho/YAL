@@ -6148,9 +6148,17 @@ function P.runOneMainOngoingTask()
         idx = 10
     end
 
-    if not (preflightGateOpen and idx == 7) then
-        clearTrimTargetLatch()
-        clearTrimAdvicePopupState()
+    do
+        local latchedTrimTarget = tonumber(P._ongoingTrimTargetLatched) or 0
+        local trimPopupAllowed =
+            (P.configvalues[def.CONFIGTRIMADVICEPOPUP] == def.ON) and
+            (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON)
+        if (not preflightGateOpen) or (latchedTrimTarget <= 0) then
+            clearTrimTargetLatch()
+            clearTrimAdvicePopupState()
+        elseif not trimPopupAllowed then
+            clearTrimAdvicePopupState()
+        end
     end
 
     if idx == 10 then
