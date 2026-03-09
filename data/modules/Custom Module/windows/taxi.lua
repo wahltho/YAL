@@ -3365,6 +3365,53 @@ local function reset_guidance_tracking(comp, reset_state)
     end
 end
 
+local function clear_pushback_join_hold(comp)
+    if not comp then
+        return
+    end
+    comp._pushbackJoinHoldUntil = nil
+    comp._pushbackJoinHoldSeg = nil
+end
+
+local function arm_pushback_join_hold(comp, now, seg_idx)
+    if not comp or not now then
+        return
+    end
+    local cooldown = (C and C.rerouteCooldown) or 6
+    comp._pushbackJoinHoldUntil = now + math.max(cooldown * 2, 12)
+    comp._pushbackJoinHoldSeg = (tonumber(seg_idx or 0) or 0) + 2
+end
+
+local function dep_terminal_sequence_locked(comp)
+    if not comp or comp.mode ~= 0 then
+        return false
+    end
+    return comp._depTerminalSequenceLock == true
+        or comp._depThresholdLatched == true
+        or comp._depThresholdReached == true
+        or comp._depRunwayEntryLock == true
+end
+
+local function pushback_join_hold_active(comp, now, dist, driftMeters, seg_idx)
+    if not comp or not comp._pushbackJoinHoldUntil then
+        return false
+    end
+    if not now or comp._pushbackJoinHoldUntil <= now then
+        clear_pushback_join_hold(comp)
+        return false
+    end
+    local hold_seg = tonumber(comp._pushbackJoinHoldSeg or 0) or 0
+    local current_seg = tonumber(seg_idx or 0) or 0
+    if hold_seg > 0 and current_seg > hold_seg then
+        clear_pushback_join_hold(comp)
+        return false
+    end
+    if dist and driftMeters and dist > (driftMeters * 2) then
+        return false
+    end
+    return true
+end
+
 local function dep_source_lock_active(comp, icao)
     if not comp or not icao or icao == "" then
         return false
@@ -4368,6 +4415,7 @@ U.maybe_dep_threshold_voice_callouts = function(comp, state, allow_voice)
     local thresholds = { 300, 150, 50, 20 }
     for i, threshold in ipairs(thresholds) do
         if dist <= threshold and stage < i then
+            comp._depTerminalSequenceLock = true
             speak_guidance_text(comp, "Threshold ahead in " .. tostring(threshold) .. " meters")
             comp._depThresholdCalloutStage = i
         end
@@ -4621,11 +4669,14 @@ local function updateTaxiState(comp, map)
         comp._guidanceMoveAnchor = nil
         comp._depEntryIssuedAt = nil
         comp._depRunwayEntryLock = false
+        comp._depTerminalSequenceLock = false
         comp._depHoldshortLatchedId = nil
         comp._depHoldshortLatchIcao = nil
         comp._depHoldshortLatchRunway = nil
         comp._beforeTaxiVoiceWarned = false
         comp._beforeTaxiVoiceWarnAt = nil
+        clear_pushback_join_hold(comp)
+        comp._lastPushbackJoinHoldLog = nil
         comp._offrouteDivergenceCount = 0
         comp._editTailSegments = nil
         comp._activeDataSource = nil
@@ -4700,8 +4751,11 @@ local function updateTaxiState(comp, map)
         comp._runwayCrossWarnedKey = nil
         comp._depEntryIssuedAt = nil
         comp._depRunwayEntryLock = false
+        comp._depTerminalSequenceLock = false
         comp._beforeTaxiVoiceWarned = false
         comp._beforeTaxiVoiceWarnAt = nil
+        clear_pushback_join_hold(comp)
+        comp._lastPushbackJoinHoldLog = nil
         comp._offrouteDivergenceCount = 0
         log_taxi(
             string.format(
@@ -4722,6 +4776,7 @@ local function updateTaxiState(comp, map)
         comp._rerouteOverrideHoldUntil = nil
         comp._depThresholdLatched = false
         comp._depRunwayEntryLock = false
+        comp._depTerminalSequenceLock = false
         comp._depSegmentReanchorDone = false
         comp._takeoffLatchSince = nil
         comp._autoEndRampLowSpeedSince = nil
@@ -5051,9 +5106,12 @@ local function updateTaxiState(comp, map)
                 comp._pushbackReanchorPending = false
                 comp._pushbackReanchorDone = true
                 comp._pushbackReanchorTime = nil
+                arm_pushback_join_hold(comp, now, seg_idx)
                 comp._rerouteOverride = nil
                 comp._rerouteOverrideHoldUntil = nil
                 comp._pendingRerouteEvent = nil
+                comp._depSegmentReanchorDone = true
+                comp._lastRerouteTime = now
                 reset_guidance_tracking(comp, false)
                 comp._autoTaxiActiveRoute = comp._route
                 comp._autoTaxiActiveSegIdx = seg_idx
@@ -5071,6 +5129,7 @@ local function updateTaxiState(comp, map)
                     )
                 end
             else
+                clear_pushback_join_hold(comp)
                 comp._rerouteOverride = { lat = aircraft.lat, lon = aircraft.lon }
                 if data and aircraft.east ~= nil and aircraft.north ~= nil then
                     local proj = U.find_nearest_edge_projection(data, aircraft.east, aircraft.north, { disallow_runway_edges = true })
@@ -6719,7 +6778,7 @@ local function updateTaxiState(comp, map)
             comp._lastEndKey = end_key
         elseif not (
             mode == 0
-            and (comp._depThresholdLatched or comp._depRunwayEntryLock)
+            and dep_terminal_sequence_locked(comp)
             and comp._route
             and (not in_edit)
             and (not comp._drawRoute)
@@ -6736,7 +6795,7 @@ local function updateTaxiState(comp, map)
             recompute_reason = nil
         end
     end
-    if mode == 0 and comp._depRunwayEntryLock and comp._route and (not in_edit) and (not comp._drawRoute) then
+    if mode == 0 and dep_terminal_sequence_locked(comp) and comp._route and (not in_edit) and (not comp._drawRoute) then
         comp._editDirty = false
         recompute_reason = nil
     end
@@ -6782,7 +6841,7 @@ local function updateTaxiState(comp, map)
     if taxi_complete_freeze then
         route_refresh_needed = comp._editDirty
     end
-    if mode == 0 and comp._depRunwayEntryLock and comp._route and (not in_edit) and (not comp._drawRoute) then
+    if mode == 0 and dep_terminal_sequence_locked(comp) and comp._route and (not in_edit) and (not comp._drawRoute) then
         route_refresh_needed = comp._editDirty
     end
     if route_refresh_needed then
@@ -8097,17 +8156,21 @@ local function updateTaxiState(comp, map)
     if mode ~= 0 then
         comp._depThresholdLatched = false
         comp._depRunwayEntryLock = false
+        comp._depTerminalSequenceLock = false
+        clear_pushback_join_hold(comp)
     elseif comp._depThresholdLatched then
         local yal = comp.yal or _G.yal
         local onGround = yal and yal.airgroundsensor and (get(yal.airgroundsensor) == def.ON)
         if not onGround then
             comp._depThresholdLatched = false
             comp._depRunwayEntryLock = false
+            comp._depTerminalSequenceLock = false
         elseif comp.yal and comp.yal.aircraftonrwy and U.is_valid_latlon(runway_lat, runway_lon) then
             local onRunway = comp.yal.aircraftonrwy(def.DEPARTURE, 40, 20)
             local gs = yal and yal.groundspeed and (get(yal.groundspeed) or 0) or 0
             if (not onRunway) and gs < 5 then
                 comp._depThresholdLatched = false
+                comp._depTerminalSequenceLock = false
             end
         end
     elseif comp._depRunwayEntryLock then
@@ -8115,11 +8178,13 @@ local function updateTaxiState(comp, map)
         local onGround = yal and yal.airgroundsensor and (get(yal.airgroundsensor) == def.ON)
         if not onGround then
             comp._depRunwayEntryLock = false
+            comp._depTerminalSequenceLock = false
         elseif comp.yal and comp.yal.aircraftonrwy and U.is_valid_latlon(runway_lat, runway_lon) then
             local onRunway = comp.yal.aircraftonrwy(def.DEPARTURE, 40, 20)
             local gs = yal and yal.groundspeed and (get(yal.groundspeed) or 0) or 0
             if (not onRunway) and gs < 5 then
                 comp._depRunwayEntryLock = false
+                comp._depTerminalSequenceLock = false
             end
         end
     end
@@ -8136,10 +8201,10 @@ local function updateTaxiState(comp, map)
             if comp._drawFreehand and comp._routeWaypoints and #comp._routeWaypoints > 0 then
                 skip_reroute = true
             end
-            if mode == 0 and (comp._depThresholdReached or comp._depThresholdLatched or comp._depRunwayEntryLock) then
+            if mode == 0 and dep_terminal_sequence_locked(comp) then
                 skip_reroute = true
             end
-            if onGround and tirespeed > 1 and not (mode == 0 and (comp._depThresholdLatched or comp._depRunwayEntryLock)) and (not skip_reroute) then
+            if onGround and tirespeed > 1 and not (mode == 0 and dep_terminal_sequence_locked(comp)) and (not skip_reroute) then
                 local lastReroute = comp._lastRerouteTime or 0
                 local offRunway = nil
                 if mode == 1 and U.is_valid_latlon(runway_lat, runway_lon) then
@@ -8211,6 +8276,25 @@ local function updateTaxiState(comp, map)
                 comp._lastRouteDist = dist
                 local driftMeters = (mode == 1 and C.arrRerouteDriftMeters) or C.rerouteDriftMeters
                 local skipReroute = false
+                local reroute_seg_idx = nil
+                if mode == 0 and dist and comp._route and comp._route.data and comp._route.path and #comp._route.path > 1 then
+                    reroute_seg_idx = U.find_nearest_segment(comp._route.data, comp._route.path, aircraft.east, aircraft.north)
+                    if pushback_join_hold_active(comp, now, dist, driftMeters, reroute_seg_idx) then
+                        skipReroute = true
+                        if (not comp._lastPushbackJoinHoldLog) or ((now - comp._lastPushbackJoinHoldLog) >= 3) then
+                            comp._lastPushbackJoinHoldLog = now
+                            log_taxi(
+                                string.format(
+                                    "TaxiRoute: reroute hold post-pushback seg=%s dist=%.1f",
+                                    tostring(reroute_seg_idx),
+                                    dist or -1
+                                )
+                            )
+                        end
+                    end
+                else
+                    clear_pushback_join_hold(comp)
+                end
                 if mode == 1 then
                     local lastCompute = comp._lastRouteComputeTime or 0
                     if lastCompute > 0 and (now - lastCompute) < 2 then
@@ -8225,7 +8309,7 @@ local function updateTaxiState(comp, map)
                     and (now - lastReroute) > C.rerouteCooldown
                     and (not comp._depSegmentReanchorDone)
                     and comp._route and comp._route.path and #comp._route.path > 6 then
-                    local seg_idx = U.find_nearest_segment(comp._route.data, comp._route.path, aircraft.east, aircraft.north)
+                    local seg_idx = reroute_seg_idx or U.find_nearest_segment(comp._route.data, comp._route.path, aircraft.east, aircraft.north)
                     if seg_idx and seg_idx >= 2 then
                         comp._depSegmentReanchorDone = true
                         set_reroute_override_from_aircraft(comp, data, aircraft, true)
@@ -8305,6 +8389,17 @@ local function updateTaxiState(comp, map)
                             )
                             do
                                 local path_len = comp._route and comp._route.path and #comp._route.path or 0
+                                if mode == 0 and dep_terminal_sequence_locked(comp) then
+                                    comp._lastRerouteTime = now
+                                    log_taxi(
+                                        string.format(
+                                            "TaxiRoute: offroute hold terminal seg=%s dist=%.1f",
+                                            tostring(seg_idx),
+                                            dist or -1
+                                        )
+                                    )
+                                    return
+                                end
                                 if mode == 0 and path_len > 1 and seg_idx >= (path_len - 1) then
                                     comp._lastRerouteTime = now
                                     log_taxi(
@@ -8427,6 +8522,7 @@ local function updateTaxiState(comp, map)
                             comp._depRunwayEntryAnnounced = true
                             comp._depEntryIssuedAt = now
                             comp._depRunwayEntryLock = true
+                            comp._depTerminalSequenceLock = true
                         end
                         if comp._depThresholdLatched or comp._depThresholdReached then
                             local entryIssuedAt = comp._depEntryIssuedAt or 0
@@ -8471,6 +8567,7 @@ local function updateTaxiState(comp, map)
                                     comp._depAlignPending = nil
                                     comp._autoTaxiForceRelease = "taxi-complete"
                                     comp._depRunwayEntryLock = false
+                                    comp._depTerminalSequenceLock = false
                                 end
                             end
                         end
@@ -8930,6 +9027,8 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
     comp._pushbackReanchorTime = nil
     comp._beforeTaxiVoiceWarned = false
     comp._beforeTaxiVoiceWarnAt = nil
+    clear_pushback_join_hold(comp)
+    comp._lastPushbackJoinHoldLog = nil
     comp._autoTaxiNext = nil
     comp._autoTaxiReady = false
     comp._lastRecomputeKey = nil
@@ -8938,6 +9037,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
     comp._rerouteOverrideHoldUntil = nil
     comp._depThresholdLatched = false
     comp._depRunwayEntryLock = false
+    comp._depTerminalSequenceLock = false
     comp._depSegmentReanchorDone = false
     comp._takeoffLatchSince = nil
     comp._aircraftPoint = nil

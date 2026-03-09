@@ -122,6 +122,27 @@ function M.attach(U, C, def, helpers, settings)
             or action == "TAKEOFF"
     end
 
+    local function is_generic_taxi_instruction(info)
+        local action = info and tostring(info.action or "") or ""
+        return action == "CONTINUE"
+            or action == "TAXI VIA"
+            or action == "TAXI TO"
+            or action == "TAXI"
+    end
+
+    local function dep_terminal_sequence_active(comp, seg_idx, path_len)
+        if not comp or comp.mode ~= 0 then
+            return false
+        end
+        if not (comp._depTerminalSequenceLock or comp._depRunwayEntryLock or comp._depThresholdLatched or comp._depThresholdReached) then
+            return false
+        end
+        if not seg_idx or not path_len or path_len < 2 then
+            return true
+        end
+        return seg_idx >= math.max(1, path_len - 5)
+    end
+
     local function gate_target_key(comp, route)
         if not comp then
             return nil
@@ -2206,6 +2227,17 @@ function M.attach(U, C, def, helpers, settings)
             end
         end
 
+        if next_info and dep_terminal_sequence_active(comp, seg_idx, #path) then
+            local last_action = tostring(comp._lastGuidanceAction or "")
+            if is_generic_taxi_instruction(next_info) then
+                next_info = nil
+            elseif next_info.action == "CROSS RWY"
+                and (last_action == "TURN LEFT" or last_action == "TURN RIGHT" or last_action == "ENTER RWY")
+                and comp._lastGuidanceSegment and seg_idx and seg_idx <= (comp._lastGuidanceSegment + 1) then
+                next_info = nil
+            end
+        end
+
         if next_info then
             if comp._lastGuidanceAction == "TURN LEFT" or comp._lastGuidanceAction == "TURN RIGHT" then
                 local last_seg = comp._lastGuidanceSegment
@@ -2394,6 +2426,10 @@ function M.attach(U, C, def, helpers, settings)
         if (not is_freehand) and (not next_info) and dist <= (C.guidanceTurnDistance * 0.5) then
             local info = build_guidance_from_segment(seg_idx)
             if info then
+                if dep_terminal_sequence_active(comp, seg_idx, #path) and is_generic_taxi_instruction(info) then
+                    diag("dep-terminal-hold")
+                    return
+                end
                 if is_visual_taxi_guidance_enabled() and info.visual ~= false then
                     local visual_delay = C.visualGuidanceSyncDelay
                     local action = info.action
@@ -2459,12 +2495,14 @@ function M.attach(U, C, def, helpers, settings)
                 comp._autoTaxiTargetSegIdx = info.targetSegIdx
                 comp._autoTaxiTargetTime = now
                 comp._autoTaxiTargetAction = info.action
+                comp._autoTaxiTargetLabel = info.display or info.label
                 if helpers and helpers.logInfoTS then
                     helpers.logInfoTS("AutoTaxiTarget: seg=" .. tostring(info.targetSegIdx) .. " action=" .. tostring(info.action or ""))
                 end
             else
                 comp._autoTaxiTargetTime = now
                 comp._autoTaxiTargetAction = info.action
+                comp._autoTaxiTargetLabel = info.display or info.label
             end
         end
         if is_visual_taxi_guidance_enabled() and info.visual ~= false then
