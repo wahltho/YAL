@@ -96,6 +96,15 @@ function M.newComponent(ctx)
         return os.time() or 0
     end
 
+    local function getGlobalMousePos()
+        local mx = sasl.getCSMouseXPos and sasl.getCSMouseXPos() or nil
+        local my = sasl.getCSMouseYPos and sasl.getCSMouseYPos() or nil
+        if mx == nil or my == nil then
+            return nil, nil
+        end
+        return mx, my
+    end
+
     function comp:tick()
         local yalref = self._yal or _G.yal
         local state = yalref and yalref.trimAdvicePopupState or nil
@@ -211,7 +220,17 @@ function M.newComponent(ctx)
             return false
         end
         local wx, wy, ww, hh = self._window:getPosition()
-        self._drag = { startX = x, startY = y, winX = wx, winY = wy, winW = ww, winH = hh }
+        local startMouseX, startMouseY = getGlobalMousePos()
+        self._drag = {
+            startMouseX = startMouseX,
+            startMouseY = startMouseY,
+            fallbackX = x,
+            fallbackY = y,
+            winX = wx,
+            winY = wy,
+            winW = ww,
+            winH = hh
+        }
         self._lastInputTs = nowSec()
         return true
     end
@@ -220,10 +239,18 @@ function M.newComponent(ctx)
         if not self._drag or not self._window then
             return false
         end
-        local dx = x - self._drag.startX
-        local dy = y - self._drag.startY
-        local newX = self._drag.winX + dx
-        local newY = self._drag.winY + dy
+        local mouseX, mouseY = getGlobalMousePos()
+        local dx = nil
+        local dy = nil
+        if mouseX ~= nil and mouseY ~= nil and self._drag.startMouseX ~= nil and self._drag.startMouseY ~= nil then
+            dx = mouseX - self._drag.startMouseX
+            dy = mouseY - self._drag.startMouseY
+        else
+            dx = x - (self._drag.fallbackX or x)
+            dy = y - (self._drag.fallbackY or y)
+        end
+        local newX = math.floor((self._drag.winX + dx) + 0.5)
+        local newY = math.floor((self._drag.winY + dy) + 0.5)
         self._window:setPosition(newX, newY, self._drag.winW, self._drag.winH)
         self._lastInputTs = nowSec()
         return true
