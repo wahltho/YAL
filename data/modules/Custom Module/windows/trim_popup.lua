@@ -163,6 +163,9 @@ function M.newComponent(ctx)
         }
 
         if self._window and self._window.isVisible and self._window:isVisible() then
+            if self._drag then
+                return
+            end
             if matched and self._targetReachedTs and (now - self._targetReachedTs) >= 5 then
                 self:clearStatus()
                 return
@@ -209,6 +212,7 @@ function M.newComponent(ctx)
         end
         local wx, wy, ww, hh = self._window:getPosition()
         self._drag = { startX = x, startY = y, winX = wx, winY = wy, winW = ww, winH = hh }
+        self._lastInputTs = nowSec()
         return true
     end
 
@@ -221,15 +225,13 @@ function M.newComponent(ctx)
         local newX = self._drag.winX + dx
         local newY = self._drag.winY + dy
         self._window:setPosition(newX, newY, self._drag.winW, self._drag.winH)
-        self._drag.startX = x
-        self._drag.startY = y
-        self._drag.winX = newX
-        self._drag.winY = newY
+        self._lastInputTs = nowSec()
         return true
     end
 
     function comp:onMouseUp(_, _, button)
         if (button == MB_LEFT or button == 1) and self._drag then
+            self._lastInputTs = nowSec()
             if self._window and self._window.getPosition and self._onMoveEnd then
                 local wx, wy = self._window:getPosition()
                 pcall(self._onMoveEnd, wx, wy)
