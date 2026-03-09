@@ -66,6 +66,24 @@ local function setTrimAdvicePopupState(target)
     P.trimAdvicePopupState = { active = true, target = value }
 end
 
+local function clearTrimTargetLatch()
+    P._ongoingTrimTargetLatched = nil
+end
+
+local function getLatchedTrimTarget()
+    local latched = tonumber(P._ongoingTrimTargetLatched)
+    if latched and latched > 0 then
+        return latched
+    end
+    local trimCalcRaw = tonumber(get(P.trimcalc)) or 0
+    local trimTarget = helpers.round_to_step(trimCalcRaw, 0.25) or trimCalcRaw
+    if trimTarget and trimTarget > 0 then
+        P._ongoingTrimTargetLatched = trimTarget
+        return trimTarget
+    end
+    return nil
+end
+
 local function isPeriodicAutoSaveDisabled()
     local raw = P.configvalues and tonumber(P.configvalues[def.CONFIGSAVETIME]) or nil
     if raw == nil then
@@ -6087,8 +6105,7 @@ function P.runOneMainOngoingTask()
 
     if preflightGateOpen then
         if idx == 7 then
-            local trimCalcRaw = tonumber(get(P.trimcalc)) or 0
-            local trimTarget = helpers.round_to_step(trimCalcRaw, 0.25) or trimCalcRaw
+            local trimTarget = getLatchedTrimTarget() or 0
             local trimPopupActive = (P.configvalues[def.CONFIGTRIMADVICEPOPUP] == def.ON) and (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) and (trimTarget > 0) and (get(P.groundspeed) < 45)
             if trimPopupActive then
                 setTrimAdvicePopupState(trimTarget)
@@ -6132,6 +6149,7 @@ function P.runOneMainOngoingTask()
     end
 
     if not (preflightGateOpen and idx == 7) then
+        clearTrimTargetLatch()
         clearTrimAdvicePopupState()
     end
 
