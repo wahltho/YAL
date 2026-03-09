@@ -200,6 +200,10 @@ function M.newComponent(ctx)
         if not (button == MB_LEFT or button == 1) then
             return false
         end
+        local _, h = getSize()
+        if y < (h - headerH) then
+            return false
+        end
         if not self._window or not self._window.getPosition then
             return false
         end
@@ -214,7 +218,13 @@ function M.newComponent(ctx)
         end
         local dx = x - self._drag.startX
         local dy = y - self._drag.startY
-        self._window:setPosition(self._drag.winX + dx, self._drag.winY + dy, self._drag.winW, self._drag.winH)
+        local newX = self._drag.winX + dx
+        local newY = self._drag.winY + dy
+        self._window:setPosition(newX, newY, self._drag.winW, self._drag.winH)
+        self._drag.startX = x
+        self._drag.startY = y
+        self._drag.winX = newX
+        self._drag.winY = newY
         return true
     end
 
