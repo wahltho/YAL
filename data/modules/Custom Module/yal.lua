@@ -5818,7 +5818,7 @@ function P.updateSharedVariables()
         P.ongoingpretaskindex = 3
     end
     local nearestIcaoNow = helpers.extractprimaryicao(get(P.nearesticao) or "")
-    if helpers.isvalidicao(nearestIcaoNow) then
+    if P.flightstate == def.FLIGHTSTATEPREFLIGHT and helpers.isvalidicao(nearestIcaoNow) then
         if nearestIcaoNow ~= P.lastNearIcao then
             P.lastNearIcao = nearestIcaoNow
             helpers.getMetar(nearestIcaoNow, P.nearmetar)
