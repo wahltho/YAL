@@ -5741,7 +5741,7 @@ function P.buildnavdatatable(navdatatable)
                         if raw_course >= 1000 then
                             true_course = raw_course % 1000
                         end
-                        local trueCourseNormalized = P.calccourse(true_course)
+                        local trueCourseNormalized = (true_course + 360) % 360
                         local mag_variation = sasl.getMagneticVariation(lat_val, lon_val) or 0
                         newEntry.truecourse = trueCourseNormalized
                         newEntry.isTrueCourse = true
