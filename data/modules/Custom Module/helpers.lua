@@ -5427,7 +5427,7 @@ function P.buildnavdatatable(navdatatable)
             end
         end
         f:close()
-        if idx_version ~= 1 then
+        if idx_version ~= 2 then
             P.logInfoTS("Navdata cache invalid (index version mismatch), rebuilding.")
             pcall(function() os.remove(NAV_IDX_FILE) end)
             return nil
@@ -5471,7 +5471,7 @@ function P.buildnavdatatable(navdatatable)
             sasl.logWarning("Navdata: failed to write nav index: " .. tostring(NAV_IDX_FILE))
             return false
         end
-        f:write("YALNAVIDX\t1\n")
+        f:write("YALNAVIDX\t2\n")
         f:write("EPOCH\t", tostring(tonumber(def.CACHE_EPOCH) or 1), "\n")
         f:write("PATH\t", tostring(path or ""), "\n")
         f:write("SIZE\t", tostring(size or 0), "\n")
