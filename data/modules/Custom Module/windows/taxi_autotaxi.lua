@@ -121,6 +121,56 @@ function M.attach(U, C, def, helpers, settings)
         return false
     end
 
+    local function guidance_action_needs_slow(action)
+        return action == "TURN LEFT"
+            or action == "TURN RIGHT"
+            or action == "ENTER RWY"
+            or action == "EXIT RWY"
+            or action == "CROSS RWY"
+            or action == "HOLD SHORT"
+            or action == "LINE UP"
+            or action == "TAKEOFF"
+    end
+
+    local function auto_taxi_guidance_target(comp, seg_idx)
+        if not comp then
+            return nil
+        end
+        local active = comp._guidanceInstruction
+        if active and active.action then
+            local target_seg = tonumber(active.targetSegIdx or 0) or 0
+            local commit_seg = tonumber(comp._guidanceInstructionCommitSeg or target_seg or 0) or 0
+            if commit_seg < target_seg then
+                commit_seg = target_seg
+            end
+            if commit_seg > 0 then
+                if seg_idx and seg_idx > commit_seg then
+                    return nil
+                end
+                local follow_seg = math.max(target_seg, commit_seg)
+                if seg_idx and follow_seg < seg_idx then
+                    follow_seg = seg_idx
+                end
+                return {
+                    targetSegIdx = follow_seg,
+                    commitSegIdx = commit_seg,
+                    action = active.action,
+                    display = tostring(active.display or comp._autoTaxiTargetLabel or "")
+                }
+            end
+        end
+        local target_seg = tonumber(comp._autoTaxiTargetSegIdx or 0) or 0
+        if target_seg <= 0 then
+            return nil
+        end
+        return {
+            targetSegIdx = target_seg,
+            commitSegIdx = target_seg,
+            action = comp._autoTaxiTargetAction,
+            display = tostring(comp._autoTaxiTargetLabel or "")
+        }
+    end
+
     local function auto_taxi_apply_overrides(comp, yal)
         if not comp or not yal or comp._autoTaxiOverrideActive then
             return
@@ -716,10 +766,18 @@ function M.attach(U, C, def, helpers, settings)
             end
             end
         end
-        if comp._autoTaxiTargetSegIdx and comp._autoTaxiTargetSegIdx <= seg_idx then
-            comp._autoTaxiTargetSegIdx = nil
-            comp._autoTaxiTargetTime = nil
-            comp._autoTaxiTargetAction = nil
+        local guidance_target = auto_taxi_guidance_target(comp, seg_idx)
+        if comp._autoTaxiTargetSegIdx then
+            local release_seg = guidance_target and guidance_target.commitSegIdx or comp._autoTaxiTargetSegIdx
+            if seg_idx > release_seg then
+                comp._autoTaxiTargetSegIdx = nil
+                comp._autoTaxiTargetTime = nil
+                comp._autoTaxiTargetAction = nil
+                comp._autoTaxiTargetLabel = nil
+                if not comp._guidanceInstruction then
+                    guidance_target = nil
+                end
+            end
         end
         local n1 = data.nodes[path[seg_idx]]
         local n2 = data.nodes[path[seg_idx + 1]]
@@ -783,32 +841,37 @@ function M.attach(U, C, def, helpers, settings)
             target_idx = comp._autoTaxiActiveTargetSegIdx
             target_reason = "hold"
         end
-        local gidx = comp._autoTaxiTargetSegIdx
+        local gidx = guidance_target and guidance_target.targetSegIdx or comp._autoTaxiTargetSegIdx
         local target_lead = lead_m
         local target_lead_cfg = (C and C.autoTaxiGuidanceTargetLeadMeters) or 0
         if target_lead_cfg > target_lead then
             target_lead = target_lead_cfg
         end
         local turn_lead_active = math.max(turn_lead, lead_m, lookahead_m)
-        if gidx and gidx > seg_idx and gidx <= (#path - 1) and dist_to_node <= target_lead then
+        if (not guidance_target) and gidx and gidx > seg_idx and gidx <= (#path - 1) and dist_to_node <= target_lead then
             local stale_sec = (C and C.autoTaxiGuidanceTargetStaleSec) or 12
             if comp._autoTaxiTargetTime and now and (now - comp._autoTaxiTargetTime) > stale_sec then
                 gidx = nil
             end
         end
         if (not target_idx) and gidx and gidx > seg_idx and gidx <= (#path - 1) and dist_to_node <= target_lead then
-            local h_curr = heading_deg_from_to(n1.east, n1.north, n2.east, n2.north)
-            local tn1 = data.nodes[path[gidx]]
-            local tn2 = data.nodes[path[gidx + 1]]
-            if h_curr and tn1 and tn2 and tn1.east and tn1.north and tn2.east and tn2.north then
-                local tdx = tn2.east - tn1.east
-                local tdy = tn2.north - tn1.north
-                local tlen = math.sqrt(tdx * tdx + tdy * tdy)
-                if tlen >= turn_min_seg then
-                    local h_tgt = heading_deg_from_to(tn1.east, tn1.north, tn2.east, tn2.north)
-                    if h_tgt and heading_diff_deg(h_curr, h_tgt) >= ((C and C.autoTaxiTurnAngleDeg) or 25) * 0.5 then
-                        target_idx = gidx
-                        target_reason = "guidance"
+            if guidance_target then
+                target_idx = gidx
+                target_reason = "guidance-transition"
+            else
+                local h_curr = heading_deg_from_to(n1.east, n1.north, n2.east, n2.north)
+                local tn1 = data.nodes[path[gidx]]
+                local tn2 = data.nodes[path[gidx + 1]]
+                if h_curr and tn1 and tn2 and tn1.east and tn1.north and tn2.east and tn2.north then
+                    local tdx = tn2.east - tn1.east
+                    local tdy = tn2.north - tn1.north
+                    local tlen = math.sqrt(tdx * tdx + tdy * tdy)
+                    if tlen >= turn_min_seg then
+                        local h_tgt = heading_deg_from_to(tn1.east, tn1.north, tn2.east, tn2.north)
+                        if h_tgt and heading_diff_deg(h_curr, h_tgt) >= ((C and C.autoTaxiTurnAngleDeg) or 25) * 0.5 then
+                            target_idx = gidx
+                            target_reason = "guidance"
+                        end
                     end
                 end
             end
@@ -958,7 +1021,16 @@ function M.attach(U, C, def, helpers, settings)
                 h2 = heading_deg_from_to(n2.east, n2.north, n3.east, n3.north)
             end
         end
-        if (target_reason == "geom-turn" or target_reason == "geom-scurve") and dist_to_node <= turn_lead then
+        local guidance_slow_active = guidance_target
+            and guidance_action_needs_slow(guidance_target.action)
+            and seg_idx <= (guidance_target.commitSegIdx or seg_idx)
+        if guidance_slow_active and dist_to_node <= turn_lead_active then
+            if not comp._autoTaxiTurnSlow then
+                comp._autoTaxiTurnSlow = true
+                comp._autoTaxiTurnSegIdx = seg_idx
+                auto_taxi_log_once(comp, now, "turnslow-on-guidance-" .. tostring(seg_idx), "turn slow on (guidance)")
+            end
+        elseif (target_reason == "geom-turn" or target_reason == "geom-scurve" or target_reason == "guidance-transition") and dist_to_node <= turn_lead then
             if not comp._autoTaxiTurnSlow then
                 comp._autoTaxiTurnSlow = true
                 comp._autoTaxiTurnSegIdx = seg_idx
@@ -967,7 +1039,7 @@ function M.attach(U, C, def, helpers, settings)
         end
         if comp._autoTaxiTurnSlow then
             local hyst = (C and C.autoTaxiTurnHysteresisFactor) or 0.6
-            if progressed >= turn_lead
+            if not guidance_slow_active and progressed >= turn_lead
                 and (not (h1 and h2) or heading_diff_deg(h1, h2) < (turn_angle * hyst)) then
                 auto_taxi_log_once(comp, now, "turnslow-off-" .. tostring(seg_idx), "turn slow off")
                 comp._autoTaxiTurnSlow = false
