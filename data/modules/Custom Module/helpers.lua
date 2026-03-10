@@ -6916,11 +6916,14 @@ local function parse_taxi_data(entry)
             end
             local best = nil
             local best_any = nil
+            local best_nearest_nonrunway = nil
             local best_heading = nil
             local best_forward = nil
             local heading = tonumber(ramp.heading)
             local dir_e = nil
             local dir_n = nil
+            local ramp_type = string.lower(tostring(ramp.ramp_type or ""))
+            local prefer_local_gate_link = (ramp_type == "gate" or ramp_type == "misc")
             if heading then
                 local rad = math.rad(heading % 360)
                 dir_e = math.sin(rad)
@@ -6951,6 +6954,9 @@ local function parse_taxi_data(entry)
                         local along = nil
                         local cross = nil
                         local score = d2
+                        if not best_nearest_nonrunway or d2 < best_nearest_nonrunway.d2 then
+                            best_nearest_nonrunway = entry
+                        end
                         if dir_e then
                             local vx = px - ramp.east
                             local vy = py - ramp.north
@@ -6992,15 +6998,22 @@ local function parse_taxi_data(entry)
                     end
                 end
             end
-            local choice = best_heading
-            local mode = "heading"
-            if not choice then
-                choice = best_forward
-                mode = "forward"
-            end
-            if not choice then
-                choice = best
-                mode = "nearest-nonrunway"
+            local choice = nil
+            local mode = nil
+            if prefer_local_gate_link then
+                choice = best_nearest_nonrunway or best
+                mode = "gate-nearest-nonrunway"
+            else
+                choice = best_heading
+                mode = "heading"
+                if not choice then
+                    choice = best_forward
+                    mode = "forward"
+                end
+                if not choice then
+                    choice = best
+                    mode = "nearest-nonrunway"
+                end
             end
             if not choice then
                 choice = best_any
