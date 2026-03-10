@@ -1,5 +1,5 @@
 # Yet Another Linda (YAL) for Zibo Mod - User Manual
-Version 4.6b9 (beta branch, based on features as of March 2026)
+Version 4.6b9
 (C) WAHLTHO 2023-2026
 VIRTUAL COPILOT PLUGIN FOR ZIBO MOD 738
 
@@ -188,129 +188,100 @@ The settings window allows detailed customization of all automatic features.
 ### Misc
 - Debug mode log: Enables verbose logging for troubleshooting.
 
-## 5. Taxi Map, Routing, Guidance and Auto Taxiing
+## 5. Taxi Map, Routing and Guidance
 ### Overview
-The Taxi Map provides airport layout, aircraft position, route planning, guidance and optional auto taxiing for departure and arrival. It can be used on the ground and in-flight for planning.
+The Taxi Map shows the airport layout, the aircraft position and the active taxi route. It can be used both on the ground and in flight to prepare a departure or arrival taxi plan.
 
 ### Opening the Taxi Map
-Use `Plugins -> Yet Another Linda -> Taxi Map` (or an assigned command) to open the map. The map can be used in-flight to pre-plan arrival taxi routes.
+Open the map via `Plugins -> Yet Another Linda -> Taxi Map` or an assigned command. The map can remain closed while taxi guidance continues through the popup and voice callouts.
 
 ### Toolbar and Controls
-- ARR / DEP: Select arrival or departure mode.
-- SRC AUTO / SRC SCN / SRC GLB: Select taxi data source policy.
-  - `AUTO`: normal policy, including quality-based fallback.
-  - `SCN`: force scenery/add-on apt.dat routing.
-  - `GLB`: force global apt.dat routing.
-- NORTH UP / HDG UP: Toggle map orientation.
-- ZOOM - / ZOOM +: Zoom out or in.
-- FIT: Fit the airport or current route.
-- CENTER / FOLLOW: Center once on the aircraft or toggle follow-aircraft mode on the ground.
-- AUTO: Return to automatic routing and clear manual edits/locks.
-- MANUAL: Lock the current route/waypoint route against automatic recompute.
-- EDIT / EDIT ON: Edit the current route with handles.
-- DRAW NEW / DRAWING: Create a freehand manual route.
-- UNDO: Undo the last edit/draw action.
-- A- / A+: Decrease or increase taxiway label font size.
+- ARR / DEP: Switch between arrival and departure mode.
+- SRC AUTO / SRC SCN / SRC GLB: Choose which taxi data source should be used.
+  - `AUTO`: lets YAL decide between scenery and global data.
+  - `SCN`: use scenery/add-on airport data.
+  - `GLB`: use global airport data.
+- NORTH UP / HDG UP: Change map orientation.
+- ZOOM - / ZOOM +: Change zoom level.
+- FIT: Fit the route or airport into the window.
+- CENTER / FOLLOW: Center once on the aircraft or follow it on the ground.
+- AUTO: Return to automatic routing and clear manual route edits.
+- MANUAL: Keep the current route and prevent automatic replacement.
+- EDIT / EDIT ON: Edit the current route.
+- DRAW NEW / DRAWING: Draw a new custom route.
+- UNDO: Undo the last edit or draw action.
+- A- / A+: Change taxiway label size.
 
 ### Automatic Routing
-- Departure routing leads to the selected runway entry/hold-short and supports runway-entry, threshold-ahead and backtrack situations.
-- Arrival routing leads to the selected gate or a suitable nearby gate.
-- YAL can reroute from the current aircraft position when the actual path diverges significantly from the original route.
-- BetterPushback plans are used to improve the departure start position when available.
-- Source switching between scenery and global apt data is supported and can be forced manually from the toolbar.
-- If the selected gate becomes implausible, YAL can switch to a clearly closer nearby gate automatically during arrival taxi.
+For departure, YAL routes from the current stand or pushback end position to the selected runway entry or hold-short point. For arrival, YAL routes from the runway exit area to the selected gate or another suitable nearby gate.
+
+If the aircraft deviates far enough from the planned route, YAL can recalculate from the current position. With BetterPushback installed, YAL can also use the pushback plan to improve the initial departure route.
 
 ### Manual Routing
 #### EDIT
-Use EDIT to adjust an existing route.
+Use EDIT to adjust an automatically generated or already existing route.
 - Drag handles to reshape the route.
-- Drag start/end handles to move the route start or end.
+- Drag the start or end handle to change the route start or destination.
 - Right-click a point to delete it.
-- Disable EDIT to resume normal guidance.
+- Turn EDIT off to resume normal guidance.
 
 #### DRAW NEW
-Use DRAW NEW to create a freehand custom route.
-- Click to create successive waypoints.
-- Drag waypoints to move them.
+Use DRAW NEW to create a custom freehand route.
+- Click to add waypoints.
+- Drag a waypoint to move it.
 - Right-click a waypoint to delete it.
-- Use MANUAL to keep the custom route locked.
-- Use AUTO to return to normal autorouting.
+- Use MANUAL if you want to keep the custom route.
+- Use AUTO to return to automatic routing.
 
-### Taxi Guidance (Voice + Visual)
-Taxi guidance can be delivered via audio callouts and/or the visual popup. The popup is independent of the map window and can stay active while the taxi map is closed.
-
-Typical guidance includes:
+### Taxi Guidance
+Taxi guidance can be spoken, shown in the taxi popup, or both. Typical guidance includes:
 - Turn left/right on Taxiway ...
 - Continue straight on Taxiway ...
 - Taxi via Taxiway ...
 - Leave RWY ... to left/right on Taxiway ...
 - Runway crossing warnings
-- Enter / turn left-right on departure runway ...
+- Enter departure runway ...
 - Threshold ahead in ... meters
 - Gate in ... meters / Stop
 - Taxi complete
 
-Additional notes:
-- Taxiway letters are spoken using NATO spelling where appropriate.
-- Guidance is stabilized around turns and crossings so voice and popup should remain aligned on the same active instruction.
-- The visual popup can be moved and its position is saved.
-- If BetterPushback is installed but no compatible plan is detected, update to a BPB build exposing `bp/plan_complete`.
+Taxiway letters are spoken using NATO spelling where appropriate. The taxi popup can be moved and its position is saved.
 
 ### Auto Taxiing (Experimental)
-Auto Taxiing uses the current taxi route and guidance state to steer and control taxi speed on supported routes.
-- Enable it via the settings window or the `Toggle Auto Taxiing` command/menu item.
-- Use `Toggle Auto Taxi Pause` to pause or resume it manually.
-- Auto Taxiing follows the same route that voice/visual taxi guidance uses, including runway-entry and threshold guidance.
-- It remains experimental and should be supervised by the pilot.
+Auto Taxiing uses the active taxi route to steer and control taxi speed.
+- Enable it with the setting `Auto Taxiing (Experimental)` or the `Toggle Auto Taxiing` command.
+- Use `Toggle Auto Taxi Pause` to pause or resume it.
+- Voice and visual taxi guidance can be used together with Auto Taxiing.
+- Auto Taxiing should always be monitored by the pilot.
 
 ### Arrival Gate Guidance
-When taxiing to the gate, YAL provides distance guidance and stop callouts. Taxiing is considered complete when the aircraft reaches the parking position and/or the parking brake is set near the target ramp.
+When taxiing to the gate, YAL can provide distance callouts and stop guidance. Taxiing is considered complete when the aircraft reaches the parking position and/or the parking brake is set near the destination ramp.
 
 ## 6. Navigation, Weather and Approach Handling
 ### SET ILS / Approach Setup
-`SET ILS` now resolves the selected approach internally instead of relying on parsing the FMC `APPROACH REF` page.
+YAL supports ILS, LOC, LDA, IGS, GLS, LPV and RNAV approach setup.
 
-Supported approach families include:
-- ILS / LOC
-- LDA / IGS
-- GLS / LPV
-- RNAV approaches, including LP differentiation where supported by navdata
-
-Current behavior:
-- In Auto mode, YAL can still open the relevant FMC page once if needed for cockpit workflow.
-- YAL no longer waits for the `APPROACH REF` page to be parsed before continuing.
-- Frequency/channel selection and course calculation are done internally from navdata/CIFP and zibo-like approach logic.
-- Captain and FO tuning/course setting still work in Auto mode.
-- In Voice Advice Only mode, the same targets are announced for manual pilot entry.
+In Auto mode, YAL can set the relevant frequencies, channels and courses automatically. In Voice Advice Only mode, YAL announces the targets for manual entry. A one-time FMC page reminder may still be given where useful, but the procedure no longer depends on the FMC page staying open.
 
 ### Approach Course Handling
-- Course logic distinguishes correctly between magnetic and true approaches.
-- RNAV / LPV / GLS handling follows zibo-like logic as closely as possible, with fallbacks to navdata and runway geometry only when needed.
-- LDA / LOC / IGS approaches are supported.
-- Runway-heading fallback is used only when no valid approach course can be resolved.
+YAL announces and sets approach courses according to the selected approach and runway. It correctly distinguishes between magnetic and true-course cases where required and supports non-ILS approach families such as LOC, LDA, IGS, GLS, LPV and RNAV.
 
 ### Weather / METAR Handling
-- Improved METAR parsing includes SLP and T-group temperatures, KM visibility, split SM fractions, P/M visibility markers and structured RVR parsing.
-- Speech uses runway-relevant RVR where available and respects local QNH unit conventions.
-- Departure and nearest-airport METAR refreshes are limited to preflight; destination METAR remains available for descent/arrival logic.
+YAL uses METAR data for weather-related advice such as QNH, visibility and runway-related RVR where available. Departure and nearest-airport METAR refreshes are limited to preflight. Destination METAR remains available for descent and arrival logic.
 
 ### Update Check
-If enabled, YAL checks for:
-- YAL updates (stable or beta depending on your settings)
-- Zibo mod updates
-
-An update popup is shown on startup if a newer version is detected.
+If enabled, YAL checks at startup whether newer YAL or Zibo versions are available and shows an update popup if appropriate.
 
 ## 7. Trim Advice Popup and Voice Advice Controls
 ### Trim Advice Popup
 The trim popup is intended to make manual takeoff-trim setting easier in Voice Advice Only mode.
-- It shows the current trim, the target trim (rounded to the same 0.25 logic YAL uses), and an up/down direction arrow.
-- It opens automatically when the trim step is active and the trim wheel is moved.
+- It shows the current trim, the target trim and an up/down direction arrow.
+- It opens automatically when the takeoff trim step is active and the trim wheel is moved.
 - It closes about 5 seconds after the target is reached or after the last trim input.
 - Its position is saved.
-- The `Toggle Trim Advice Window` command can open it manually while a valid takeoff-trim target exists; in that case it stays pinned until toggled off or the trim context ends.
+- The `Toggle Trim Advice Window` command can open it manually while a valid takeoff-trim target exists. In that case it remains open until toggled off or until the trim context ends.
 
 ### Voice Advice Repeat Controls
 - `Voice Advice Repeat Skip (cycles)` reduces how often the same advice is repeated.
-- `Voice Advice Max Repeats` prevents endless repetition. If the limit is reached, YAL skips that step automatically unless the setting is disabled with `0` or `99`.
-- `Step Once (Advice Only)` is intended for Voice Advice Only operation and executes exactly the current requested step once.
+- `Voice Advice Max Repeats` can stop endless repetition by automatically skipping a step after the configured number of identical repeats. Use `0` or `99` to disable this limit.
+- `Step Once (Advice Only)` executes exactly the current requested step once and is intended for use in Voice Advice Only mode.
