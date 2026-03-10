@@ -95,6 +95,13 @@ local function isTrimPopupContextActive()
     return onGround and noProcedure and powered and preflight and noTaxi and slow and (trimTarget > 0), trimTarget
 end
 
+local function isTrimPopupManualContextActive()
+    local onGround = (get(P.airgroundsensor) == def.ON)
+    local powered = (get(P.battery) == def.ON) and (get(P.mainbus) ~= def.OFF)
+    local trimTarget = getLatchedTrimTarget() or 0
+    return onGround and powered and (trimTarget > 0), trimTarget
+end
+
 local function isPeriodicAutoSaveDisabled()
     local raw = P.configvalues and tonumber(P.configvalues[def.CONFIGSAVETIME]) or nil
     if raw == nil then
@@ -2765,7 +2772,7 @@ sasl.registerCommandHandler(my_command_stepprocedureonce, 0, P.stepprocedureonce
 
 --------------------------------------------------------------------------------------------------------------
 function P.toggletrimpopup()
-    local contextActive, trimTarget = isTrimPopupContextActive()
+    local contextActive, trimTarget = isTrimPopupManualContextActive()
 
     if P._trimAdvicePopupPinned then
         P._trimAdvicePopupPinned = false
