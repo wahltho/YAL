@@ -1,5 +1,5 @@
 # Yet Another Linda (YAL) for Zibo Mod - User Manual
-Version 4.6b4 (based on features as of February 2026)
+Version 4.6b9 (beta branch, based on features as of March 2026)
 (C) WAHLTHO 2023-2026
 VIRTUAL COPILOT PLUGIN FOR ZIBO MOD 738
 
@@ -18,27 +18,30 @@ VIRTUAL COPILOT PLUGIN FOR ZIBO MOD 738
 - BetterPushback (pushback planning and plan hints). Full plan detection requires a BPB build exposing `bp/plan_complete`.
 - X-Camera (view switching).
 - Tobii eye tracker (supported; view changes are suppressed while active to avoid conflicts).
+- YAL Hoppie Helper (optional CPDLC/Hoppie bridge).
 
 **Please Note**
 - YAL has virtually no FPS impact as its main functions run once per second, not every frame.
-- When flying aircraft other than the Zibo B738, YAL remains idle and all its menus are inactive.
+- When flying aircraft other than the supported Zibo aircraft, YAL remains idle and all its menus are inactive.
 - All custom commands for key/joystick assignment can be found in the X-Plane keyboard/joystick settings under the `YAL/...` group.
 
 ## 2. Custom Commands
 These commands can be assigned to keyboard keys or joystick buttons in the X-Plane settings menu.
 
 ### Core Functions
-- Reset: Resynchronizes YAL's internal state with the current aircraft state. Use this if a procedure seems stuck or the plugin appears out of sync.
-- Reset for New Flight: Completely resets all procedure progress for a new flight. This should be used at the gate after landing to ensure a clean start for the next leg.
-- Cycle Through Procedures: Manually triggers the next logical, uncompleted procedure (e.g., from "Engine Start" to "Before Taxi").
+- Reset: Resynchronizes YAL's internal state with the current aircraft state.
+- Reset for New Flight: Completely resets procedure progress for the next leg.
+- Cycle Through Procedures: Manually triggers the next logical uncompleted procedure.
+- Step Once (Advice Only): In Voice Advice Only mode, executes the current step exactly once, then returns to advice-only behavior.
 - Skip Procedure Step: Skips the current active step in a running procedure.
+- Skip Procedure: Marks the whole current procedure as complete.
 - Abort Procedure: Immediately stops the currently active procedure.
 
 ### General Aircraft Control
-- Toggle Sim Freeze: Freezes the aircraft's motion but allows you to interact with cockpit controls.
+- Toggle Sim Freeze: Freezes aircraft motion while allowing cockpit interaction.
 - Master Caution + FMS CLR: Acknowledges Master Caution, clears FMC messages, and silences the altitude alert horn.
 - Sync AP Heading with Ground Track: Sets the MCP heading dial to the aircraft's current ground track.
-- Copy NAV1/MMR1 to NAV2/MMR2: Copies the active frequency and course from the captain's side to the first officer's side.
+- Copy NAV1/MMR1 to NAV2/MMR2: Copies active frequency/channel and course from the captain's side to the FO side.
 
 ### Lights & Wipers
 - Both Wipers Up / Down: Moves both wipers one step up or down.
@@ -58,186 +61,256 @@ These commands can be assigned to keyboard keys or joystick buttons in the X-Pla
 - Toggle Probe Heat: Toggles both probe heat switches on/off.
 - Toggle Ice Protection: Toggles wing and engine anti-ice systems on/off.
 
-### Plugin Control
-- Toggle Auto Functions: A master switch to enable or disable all automatic functions of YAL.
+### Plugin / Taxi Control
+- Toggle Auto Functions: Master switch for automatic YAL procedures and background tasks.
 - Toggle Voice Readback: Enables or disables voice confirmations for actions.
-- Toggle Voice Advice Only: Switches YAL between executing actions automatically and only giving verbal advice.
+- Toggle Voice Advice Only: Switches YAL between automatic execution and spoken guidance only.
 - Toggle View Changes: Enables/disables automatic cockpit view changes during procedures.
+- Toggle Auto Taxiing: Enables/disables auto taxiing.
+- Toggle Auto Taxi Pause: Temporarily pauses/resumes auto taxiing.
+- Toggle Trim Advice Window: Shows or hides the trim popup while a valid takeoff-trim target exists.
+- Speak Departure METAR / Speak Destination METAR: Reads the currently loaded METAR aloud.
 
 ## 3. Procedures
 ### Manually Triggered Procedures
 These checklists can be started at any time via the `Plugins -> Yet Another Linda` menu or by assigning their corresponding `YAL/...` command to a key.
 
-- Cold and Dark Startup: A full procedure from a completely powered-down state to a "Turnaround State" (APU running, systems ready for engine start).
-- Cockpit Initialization: Prepares the cockpit for a new flight by setting lights, displays, and systems according to your preferences. It also resets the FMC and can trigger a flight plan import if YANSH is installed.
-- APU Startup: Starts the APU and configures the electrical and bleed air systems.
-- Engine Startup: Performs the full two-engine start sequence. Requires the APU to be running and providing bleed air.
-- Engine Shutdown: A flexible procedure that can be used for a quick turnaround (leaving the APU running) or as part of a final shutdown.
-- Shutdown: Powers down all aircraft systems and returns the aircraft to a "Cold & Dark" state.
-- Tests: Executes a sequence of system tests (Fire, Stall Warning, etc.).
+- Cold and Dark Startup: Full procedure from a powered-down aircraft to a turnaround-ready state.
+- Cockpit Initialization: Prepares the cockpit for a new flight, resets the FMC, applies selected preferences, and can trigger a flight-plan import if YANSH is installed.
+- APU Startup: Starts the APU and configures electrical and bleed air systems.
+- Engine Startup: Performs the full two-engine start sequence.
+- Engine Shutdown: Flexible procedure for turnaround or final shutdown.
+- Shutdown: Returns the aircraft to a cold-and-dark state.
+- Tests: Executes a sequence of system tests.
+- Set ILS/GLS Freq/Course: Can be run manually and is also called automatically during approach setup.
+- Set Landing Flaps/VREF: Sets or verifies landing flap, VREF and autobrake targets.
+- Set Takeoff Flaps: Sets or verifies takeoff flap setting.
 
 ### Automatically Triggered Procedures
-These procedures are triggered automatically based on specific pilot actions or flight parameters.
-
 #### Before Taxi Procedure
-Trigger: Taxi lights are switched ON and both engines are running.
-Actions: Sets probe/window heat, starters to CONT, FDs on, etc.
+Trigger: Taxi lights ON and both engines running.
+Actions: Probe/window heat, starter mode, flight directors, and other standard taxi configuration.
 
 #### Before Takeoff Procedure
-Trigger: Aircraft is on the runway and aligned; speed is zero (TA/RA is no longer required).
-Actions: Sets position lights to STROBE, landing lights ON, autobrake to RTO.
+Trigger: Aircraft is on the departure runway, aligned, and stopped.
+Actions: Position lights to STROBE, landing lights ON, autobrake to RTO, and final departure configuration.
 
 #### After Takeoff Procedure
 Trigger: Automatically after liftoff.
-Actions: Retracts gear above 200 ft RA and disarms the autobrake.
+Actions: Retracts gear above 200 ft RA and disarms autobrake.
 
 #### During Climb Procedure
-Trigger: During the climb phase.
-Actions: Sets Baro to Standard above transition altitude, handles flap retraction according to FMC speeds.
+Trigger: During climb.
+Actions: Standard climb housekeeping, baro to standard above transition altitude, flap handling according to FMC speeds.
 
 #### Above 10,000 Feet Procedure
-Trigger: Climbing through the "Lower Airspace Altitude" (default 10,000 ft).
-Actions: Retracts landing lights, turns off seatbelt sign, sets engine starters to AUTO.
-
-#### SETWINDCORR Procedure
-Trigger: After ALTITUDEB10000, following SETVREF.
-Actions: Computes wind correction and provides wind-correction advice if enabled.
+Trigger: Climbing through the configured lower-airspace altitude.
+Actions: Retracts landing lights, turns off seatbelt sign, sets starters to AUTO.
 
 #### During Descent Procedure
-Trigger: During the descent phase.
-Actions: Sets speed restrictions in the FMC, sets local QNH below transition level, handles flap extension.
+Trigger: During descent.
+Actions: Descent housekeeping, speed restrictions/FMC support, local QNH below transition level, flap handling.
 
 #### Below 10,000 Feet Procedure
-Trigger: Descending through the "Lower Airspace Altitude".
-Actions: Turns on landing lights and seatbelt sign, sets the autobrake, and tunes ILS/GLS frequencies/courses.
+Trigger: Descending through the configured lower-airspace altitude.
+Actions: Landing lights, seatbelt sign, autobrake, and approach setup including `SET ILS` / `SET VREF` / wind-correction logic as configured.
 
-#### Below 2,500 Feet (RA) Procedure
-Trigger: Descending through 2,500 ft radio altitude.
-Actions: Sets starters to CONT, extends landing gear (if flaps are set accordingly).
-
-#### Below 1,000 Feet (RA) Procedure
-Trigger: Descending through 1,000 ft radio altitude.
-Actions: Sets final landing configuration (lights, speedbrake armed, landing flaps).
+#### Below 2,500 Feet / 1,000 Feet Procedures
+Trigger: Final approach gates using a mix of radio altitude and airfield-relative logic.
+Actions: Landing gear, starter CONT, final landing configuration, lights and speedbrake checks.
 
 #### After Landing Procedure
-Trigger: After vacating the runway.
-Actions: Configures the aircraft for taxiing to the gate (lights, transponder, flaps up, etc.).
+Trigger: After runway vacate.
+Actions: Taxi configuration, arrival taxi guidance/routing preparation, and post-landing cleanup.
 
 #### At Parking Position Procedure
-Trigger: Parking brake is set at the gate.
-Actions: Turns off taxi lights, seatbelt signs, and prepares for engine shutdown.
+Trigger: Parking brake set near the gate/parking position.
+Actions: Turns off taxi lights and seatbelt signs and prepares for engine shutdown.
 
 #### EEC/FADEC Check (Cockpit Init + Engine Start)
-If EEC/FADEC is OFF while engines are running, YAL prompts a check (voice-only unless Auto Functions are enabled). In Auto mode YAL sets both EECs ON. If EECs are already ON, the step is skipped (no delay).
+If EEC/FADEC is OFF while engines are running, YAL prompts a check (voice-only unless Auto Functions are enabled). In Auto mode YAL sets both EECs ON. If EECs are already ON, the step is skipped.
 
 ## 4. Settings
 The settings window allows detailed customization of all automatic features.
 
 ### General
-- Use Ground Power...: If available, the plugin will use ground power instead of starting the APU during the Cold & Dark startup.
-- Command Voice Readback: Provides voice announcements for most actions performed by the plugin.
-- Automatic Functions: A master switch for all automatic procedures and background tasks.
-- Voice Advice Only: When enabled, YAL only provides spoken guidance and does not perform actions.
-- FMC Automation: Allows YAL to automate FMC page changes and FMC data entries.
-- Heading Sync Interval: Repeats MCP heading sync at the given interval (seconds). Set 0 to disable.
-- Hoppie ID: Sets the Hoppie logon used by the in-sim Hoppie integration.
-- Sim exit after Pause at TOD: If the sim is paused at the Top of Descent, it will automatically save and quit after the specified number of seconds (9999 to disable).
-- Override Wake Effects: Suppresses wake turbulence effects from other aircraft.
-- Automatic Anti Icing: Automatically enables wing and engine anti-ice when icing is detected.
-- Automatic Wipers: Automatically controls wiper speed based on rain intensity.
-- Automatic Center Tank Handling: Manages the center tank fuel pumps automatically.
-- Automatic Baro Settings: Sets the altimeter to Standard or local QNH when passing transition altitude/level.
-- Automatic Fueling (requires YANSH): When Automatic Functions are enabled, this automatically refuels the aircraft to match the Simbrief flight plan's ramp fuel during the Cockpit Initialization Procedure.
-- View Changes during Procedures: Allows YAL to automatically switch to relevant cockpit views during procedures.
-- Auto Taxi Guidance (Voice): Enables spoken taxi callouts.
-- Auto Taxi Guidance (Visual): Enables the taxi guidance popup (independent of the taxi map window).
+- Use Ground Power when available instead APU: Prefer GPU over APU when available.
+- Command Voice Readback: Voice confirmations for actions performed by YAL.
+- Automatic Functions: Master switch for automatic procedures and background tasks.
+- FMC Automation: Allows YAL to automate FMC page changes and FMC data entries when a procedure supports it.
+- Voice Advice Only: YAL gives spoken guidance but does not perform cockpit actions automatically.
+- Voice Advice Repeat Skip (cycles): Only repeats the same advice every Nth cycle.
+- Voice Advice Max Repeats (0/99=off): Limits identical repeated advice for one step. When the limit is reached, the step is skipped automatically.
+- Voice Advice Trim Popup: Enables the trim popup during the takeoff trim advice step.
+- Auto Taxi Guidance (voice): Enables spoken taxi guidance.
+- Auto Taxi Guidance (Visual): Enables the independent taxi popup.
+- Auto Taxiing (Experimental): Enables YAL auto taxiing on supported routes.
+- ATIS/CPDLC to Voice: Speaks supported Hoppie/ATIS content if the helper plugin is installed.
+- BetterPushback Integration: Enables BPB plan detection and pushback-aware taxi routing logic.
+- YANSH Integration / YANSH Automatic Fueling: Enables YANSH integration and optional auto-fueling.
+- Hoppie ID: Callsign/login for Hoppie integration.
+- Show beta updates: Uses the beta update feed.
+- Check YAL/Zibo updates on startup: Checks for new YAL and Zibo versions during X-Plane startup and shows a popup if an update is available.
+- Sim exit after Pause at TOD (0-9999 sec): Delay before auto-save/quit after TOD pause.
+- Auto Flight Save Time (0 or 9999 = off): Periodic YAL flight save interval.
+- Auto Flight Save EFB Position(s) (ignored if save is off): Save slot/EFB target used by periodic YAL flight saves.
+- Disable XP Wake Effects: Suppresses X-Plane wake effects from other aircraft.
+- XP Runway Friction Clamp: Enables runway-friction clamp logic.
+- Automatic Anti Icing: Enables wing/engine anti-ice automatically when icing is detected.
+- Automatic Wipers: Controls wiper speed based on rain intensity.
+- Automatic Baro Settings: Sets local QNH or standard baro where appropriate.
+- Automatic Center Tank Handling: Manages center tank pumps automatically.
+- Automatic Chocks and Parking Brake: Applies automatic chocks/parking brake handling where supported.
+- Automatic Flap Handling: Enables automatic flap handling features.
+- View Changes during Procedures: Allows automatic cockpit view switching.
 
 ### Customising
-- Set Speed Restriction 250: Automatically sets the FMC speed restriction below 10,000 ft to 250 knots.
-- Set Vref 30: Automatically configures the FMC for a Flaps 30 landing.
-- Lower Airspace Altitude (feet): Sets the altitude for the "Above/Below 10000" procedures.
-- Maximum Bank Angle (1-4): Sets the bank angle selector during cockpit initialization.
-- Set Lower Display Unit: Configures the lower DU to your preferred setting on startup.
-- Default Transponder Code: Sets a default squawk code during initialization.
+- Set Speed Restriction 250: Applies the standard restriction below 10,000 ft.
+- Set Approach Flaps, Vref, Autobrake: Enables automatic landing flap/VREF/autobrake handling.
+- Custom Calculation for Flaps, Vref, Autobrake: Uses YAL's custom approach calculation logic instead of the basic preset path.
+- Lower Airspace Altitude (feet): Threshold used for above/below 10,000 procedures.
+- Maximum Bank Angle (1-4): Desired bank angle selector setting.
+- Packs Restore Altitude (ft AGL): Altitude gate for restoring packs after takeoff.
+- Set Lower Display Unit: Lower DU selection used during cockpit initialization.
+- Default Transponder Code: Default squawk used during initialization.
+- Gear Down Flaps: Flap setting that allows YAL to extend the landing gear automatically in final approach logic.
+- Hide Captain/FO EFBs: Hides the EFBs during cockpit initialization.
 
 ### Views
-- Assigns the corresponding X-Plane Quick Look or X-Camera view numbers for automatic view changes.
-- Apply QV0 to Default View: Updates the aircraft default view to match Quick View 0.
-- Adjust QVs + X-Camera after CG shift: Updates Quick Views (and X-Camera offsets, if installed) to reflect a changed CG.
-- When Tobii eye tracking is active, view changes are suppressed to avoid view-control conflicts.
-- During QuickViews CG updates, Tobii is temporarily disabled and restored afterward (if active).
+- Main Panel / Pedestal / Overhead / FMS / Throttle / Upper Overhead View: Quick Look or X-Camera view numbers used by procedure view changes.
+- Apply QV0 to Default View and CG-related quick-view tools remain available where supported.
+- When Tobii eye tracking is active, automatic view changes are suppressed.
 
 ### Instrument Panel Brightness
-- Allows you to pre-configure all panel and display brightness levels, which will be applied during the Cockpit Initialization procedure.
-- Ignore All Brightness Settings: Prevents YAL from making any changes to panel lighting.
+- Allows you to pre-configure panel/display brightness values used during cockpit initialization.
+- Ignore All Brightness Settings: Prevents YAL from changing panel lighting.
 
 ### Misc
-- Debug mode log: Enables verbose logging to the Log.txt file for troubleshooting.
+- Debug mode log: Enables verbose logging for troubleshooting.
 
-## 5. Taxi Map & Routing
+## 5. Taxi Map, Routing, Guidance and Auto Taxiing
 ### Overview
-The Taxi Map provides airport layout, aircraft position, and routing guidance for departure and arrival. It supports automatic routing as well as manual routing with edit and draw modes. Taxi guidance can be spoken and/or shown in the visual popup.
+The Taxi Map provides airport layout, aircraft position, route planning, guidance and optional auto taxiing for departure and arrival. It can be used on the ground and in-flight for planning.
 
 ### Opening the Taxi Map
-Use `Plugins -> Yet Another Linda -> Taxi Map` (or the assigned command) to open the map. The map can be used in-flight to pre-plan arrival taxi routes.
+Use `Plugins -> Yet Another Linda -> Taxi Map` (or an assigned command) to open the map. The map can be used in-flight to pre-plan arrival taxi routes.
 
 ### Toolbar and Controls
-- ARR / DEP: Toggle arrival or departure mode.
+- ARR / DEP: Select arrival or departure mode.
+- SRC AUTO / SRC SCN / SRC GLB: Select taxi data source policy.
+  - `AUTO`: normal policy, including quality-based fallback.
+  - `SCN`: force scenery/add-on apt.dat routing.
+  - `GLB`: force global apt.dat routing.
 - NORTH UP / HDG UP: Toggle map orientation.
 - ZOOM - / ZOOM +: Zoom out or in.
-- FIT: Fit the map to the current airport bounds.
-- CENTER: Center on the aircraft (or bounds if the aircraft is not valid).
-- AUTO: Return to automatic routing. Clears manual edits, draw route, undo history, and resets the route.
-- EDIT / EDIT ON: Toggle edit mode for the current route.
-- DRAW NEW / DRAWING: Start a new manual route (freehand draw).
-- UNDO: Undo the last edit or draw action.
+- FIT: Fit the airport or current route.
+- CENTER / FOLLOW: Center once on the aircraft or toggle follow-aircraft mode on the ground.
+- AUTO: Return to automatic routing and clear manual edits/locks.
+- MANUAL: Lock the current route/waypoint route against automatic recompute.
+- EDIT / EDIT ON: Edit the current route with handles.
+- DRAW NEW / DRAWING: Create a freehand manual route.
+- UNDO: Undo the last edit/draw action.
 - A- / A+: Decrease or increase taxiway label font size.
 
-### Automatic Routing (AUTO)
-AUTO computes a route using the airport taxiway network. For departure, the route leads to the selected runway entry/hold-short. For arrival, the route leads to the selected or nearest suitable gate. The route updates automatically if the destination or runway changes.
+### Automatic Routing
+- Departure routing leads to the selected runway entry/hold-short and supports runway-entry, threshold-ahead and backtrack situations.
+- Arrival routing leads to the selected gate or a suitable nearby gate.
+- YAL can reroute from the current aircraft position when the actual path diverges significantly from the original route.
+- BetterPushback plans are used to improve the departure start position when available.
+- Source switching between scenery and global apt data is supported and can be forced manually from the toolbar.
+- If the selected gate becomes implausible, YAL can switch to a clearly closer nearby gate automatically during arrival taxi.
 
-### Edit Mode (EDIT)
-Edit mode lets you adjust an existing route using handles. You can drag start/end handles and intermediate points to refine the route. Right-click deletes a point. Disable EDIT to resume normal guidance.
-
-### Draw Mode (DRAW NEW)
-Draw creates a freehand route that follows your clicked points.
-
-- Click to place the start point, then click successive points to extend the route.
-- A continuous line is drawn once there are at least two points.
-- Shift-click inserts a point between the two nearest existing points (if close to the line).
-- Drag points to move them.
+### Manual Routing
+#### EDIT
+Use EDIT to adjust an existing route.
+- Drag handles to reshape the route.
+- Drag start/end handles to move the route start or end.
 - Right-click a point to delete it.
-- Use AUTO to revert to automatic routing.
+- Disable EDIT to resume normal guidance.
+
+#### DRAW NEW
+Use DRAW NEW to create a freehand custom route.
+- Click to create successive waypoints.
+- Drag waypoints to move them.
+- Right-click a waypoint to delete it.
+- Use MANUAL to keep the custom route locked.
+- Use AUTO to return to normal autorouting.
 
 ### Taxi Guidance (Voice + Visual)
-Taxi guidance can be delivered via audio callouts and/or the visual popup. The popup is independent of the map window and can be shown even when the taxi map is closed.
+Taxi guidance can be delivered via audio callouts and/or the visual popup. The popup is independent of the map window and can stay active while the taxi map is closed.
 
-Typical callouts include:
+Typical guidance includes:
 - Turn left/right on Taxiway ...
 - Continue straight on Taxiway ...
+- Taxi via Taxiway ...
 - Leave RWY ... to left/right on Taxiway ...
 - Runway crossing warnings
-- Turn left/right on RWY ...
+- Enter / turn left-right on departure runway ...
+- Threshold ahead in ... meters
+- Gate in ... meters / Stop
 - Taxi complete
-- Gate proximity callouts (e.g., "Gate in 30 meters", "Gate in 10 meters", "Stop")
-- Taxiway labels are spoken using the NATO alphabet where appropriate.
 
-### Gate Guidance (Arrival)
-When taxiing to the gate, YAL provides distance callouts and shows a distance note in the popup. Taxiing is considered complete when the parking brake is set near a ramp.
+Additional notes:
+- Taxiway letters are spoken using NATO spelling where appropriate.
+- Guidance is stabilized around turns and crossings so voice and popup should remain aligned on the same active instruction.
+- The visual popup can be moved and its position is saved.
+- If BetterPushback is installed but no compatible plan is detected, update to a BPB build exposing `bp/plan_complete`.
 
-### Tips and Notes
-- While EDIT or DRAW is active, guidance may be suppressed to avoid conflicting callouts. Disable EDIT/DRAW to resume guidance.
-- If the map is blank after reloads, ensure a valid DEP/DES ICAO is set or use the nearest airport on the ground.
-- For arrival planning in-flight, use DRAW or EDIT to build a custom route before landing.
-- The taxi guidance popup can be moved and its position is saved.
-- When Tobii eye tracking is active, view changes are suppressed to avoid view-control conflicts.
-- If BetterPushback is installed but no plan is detected, update to a BPB build that exposes `bp/plan_complete`.
+### Auto Taxiing (Experimental)
+Auto Taxiing uses the current taxi route and guidance state to steer and control taxi speed on supported routes.
+- Enable it via the settings window or the `Toggle Auto Taxiing` command/menu item.
+- Use `Toggle Auto Taxi Pause` to pause or resume it manually.
+- Auto Taxiing follows the same route that voice/visual taxi guidance uses, including runway-entry and threshold guidance.
+- It remains experimental and should be supervised by the pilot.
 
-## 6. Navigation & Weather Enhancements (since 4.3)
-- Approach course handling: consistent true vs mag logic, with RNAV/LPV/GLS prioritizing FMS final-leg course; LDA/LOC/IGS approaches supported.
-- METAR parsing upgrades: SLP and T-group temps, KM and mixed SM visibility, structured RVR; speech uses active-runway RVR and respects QNH units.
+### Arrival Gate Guidance
+When taxiing to the gate, YAL provides distance guidance and stop callouts. Taxiing is considered complete when the aircraft reaches the parking position and/or the parking brake is set near the target ramp.
 
-## 7. Taxi Guidance Enhancements (since 4.3)
-- Runway-exit callouts include left/right ("Leave RWY ... to left/right") and runway-crossing warnings.
-- Departure runway entry callouts ("Turn left/right on departure RWY ...") with queueing so they are not overwritten by "Taxi complete".
-- Freehand routes can infer taxiway labels from nearby navdata edges for guidance.
+## 6. Navigation, Weather and Approach Handling
+### SET ILS / Approach Setup
+`SET ILS` now resolves the selected approach internally instead of relying on parsing the FMC `APPROACH REF` page.
+
+Supported approach families include:
+- ILS / LOC
+- LDA / IGS
+- GLS / LPV
+- RNAV approaches, including LP differentiation where supported by navdata
+
+Current behavior:
+- In Auto mode, YAL can still open the relevant FMC page once if needed for cockpit workflow.
+- YAL no longer waits for the `APPROACH REF` page to be parsed before continuing.
+- Frequency/channel selection and course calculation are done internally from navdata/CIFP and zibo-like approach logic.
+- Captain and FO tuning/course setting still work in Auto mode.
+- In Voice Advice Only mode, the same targets are announced for manual pilot entry.
+
+### Approach Course Handling
+- Course logic distinguishes correctly between magnetic and true approaches.
+- RNAV / LPV / GLS handling follows zibo-like logic as closely as possible, with fallbacks to navdata and runway geometry only when needed.
+- LDA / LOC / IGS approaches are supported.
+- Runway-heading fallback is used only when no valid approach course can be resolved.
+
+### Weather / METAR Handling
+- Improved METAR parsing includes SLP and T-group temperatures, KM visibility, split SM fractions, P/M visibility markers and structured RVR parsing.
+- Speech uses runway-relevant RVR where available and respects local QNH unit conventions.
+- Departure and nearest-airport METAR refreshes are limited to preflight; destination METAR remains available for descent/arrival logic.
+
+### Update Check
+If enabled, YAL checks for:
+- YAL updates (stable or beta depending on your settings)
+- Zibo mod updates
+
+An update popup is shown on startup if a newer version is detected.
+
+## 7. Trim Advice Popup and Voice Advice Controls
+### Trim Advice Popup
+The trim popup is intended to make manual takeoff-trim setting easier in Voice Advice Only mode.
+- It shows the current trim, the target trim (rounded to the same 0.25 logic YAL uses), and an up/down direction arrow.
+- It opens automatically when the trim step is active and the trim wheel is moved.
+- It closes about 5 seconds after the target is reached or after the last trim input.
+- Its position is saved.
+- The `Toggle Trim Advice Window` command can open it manually while a valid takeoff-trim target exists; in that case it stays pinned until toggled off or the trim context ends.
+
+### Voice Advice Repeat Controls
+- `Voice Advice Repeat Skip (cycles)` reduces how often the same advice is repeated.
+- `Voice Advice Max Repeats` prevents endless repetition. If the limit is reached, YAL skips that step automatically unless the setting is disabled with `0` or `99`.
+- `Step Once (Advice Only)` is intended for Voice Advice Only operation and executes exactly the current requested step once.
