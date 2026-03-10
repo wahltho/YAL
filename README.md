@@ -7,13 +7,15 @@ Virtual copilot plugin for the Zibo Mod 737 in X-Plane.
 
 ## Installation
 1. Copy the main `YAL` folder into `X-Plane/Resources/plugins/`.
-2. Start X-Plane and configure YAL via `Plugins -> Yet Another Linda -> Settings`.
+2. Start X-Plane.
+3. Configure YAL via `Plugins -> Yet Another Linda -> Settings`.
 
-### Optional: Skunkcrafts Beta Channel
+## Optional: Skunkcrafts Beta Channel
 1. Copy `skunkcrafts_updater_beta.cfg` into the aircraft directory that contains the Zibo aircraft.
 2. Start X-Plane, open Skunkcrafts Updater and refresh.
 3. In the YAL settings window enable `Show beta updates`.
 4. Run the `YAL Beta` updater entry to install beta builds.
+5. To return to stable builds, disable `Show beta updates` and use the normal updater entry again.
 
 ## Requirements
 - X-Plane 11 or 12
@@ -23,28 +25,133 @@ Virtual copilot plugin for the Zibo Mod 737 in X-Plane.
 - Optional: YANSH
 - Optional: YAL Hoppie Helper
 
-## Release Highlights (4.6b9 beta)
-- Extended taxi map and taxi routing: ARR/DEP planning, scenery/global apt source switching, manual route lock, improved rerouting, runway entry/backtrack handling and gate guidance.
-- Auto Taxiing and taxi guidance have been expanded and can now be used with voice and/or visual guidance.
-- `SET ILS` / approach setup no longer depends on parsing the FMC `APPROACH REF` page; approach selection, tuning and course calculation are resolved internally with zibo-like logic.
-- Approach handling now covers ILS/LOC/LDA/IGS/GLS/LPV/RNAV more consistently.
-- New trim advice popup for manual takeoff-trim setting in Voice Advice Only mode.
-- New startup update check for YAL and Zibo versions.
-- Voice advice controls now include repeat throttling and optional maximum repeats.
-- Periodic YAL autosave accepts `0` or `9999` as `off`.
+## What YAL Does
+YAL automates or advises normal cockpit flows for the Zibo 737 and provides additional support features such as:
+- Procedure automation from cold and dark through turnaround/shutdown
+- Voice Advice Only mode for manual operation with spoken guidance
+- FMC-related assistance for descent, approach and landing setup
+- Taxi map, taxi routing, taxi guidance and experimental auto taxiing
+- Weather, METAR and runway/RVR related assistance
+- Optional update checks for YAL and Zibo
+
+## Main Features in 4.6b9 Beta
+- Extended taxi map and taxi routing:
+  - ARR/DEP planning
+  - scenery/global apt source switching
+  - manual route locking
+  - improved rerouting from the current aircraft position
+  - runway entry, backtrack and threshold guidance
+  - gate guidance and gate switching logic
+- Expanded taxi guidance and Auto Taxiing with voice and visual guidance support
+- `SET ILS` / approach setup no longer depends on parsing the FMC `APPROACH REF` page
+- More consistent approach handling for ILS / LOC / LDA / IGS / GLS / LPV / RNAV
+- New trim advice popup for manual takeoff-trim setting in Voice Advice Only mode
+- Startup update check for both YAL and Zibo versions
+- Voice advice repeat throttling and optional maximum repeat protection
+- Periodic YAL autosave now accepts `0` or `9999` as `off`
+
+## Procedure Overview
+YAL supports both manually triggered and automatically triggered procedures.
+
+Typical manually triggered procedures:
+- Cold and Dark Startup
+- Cockpit Initialization
+- APU Startup
+- Engine Startup
+- Engine Shutdown / Shutdown
+- Set ILS / GLS Freq/Course
+- Set Landing Flaps / VREF
+- Set Takeoff Flaps
+- Tests
+
+Typical automatic procedures:
+- Before Taxi
+- Before Takeoff
+- After Takeoff
+- During Climb
+- Above 10,000 Feet
+- During Descent
+- Below 10,000 Feet
+- Final approach gates
+- After Landing
+- At Parking Position
+
+## Taxi Map, Taxi Guidance and Auto Taxiing
+The taxi system is one of the major YAL feature areas.
+
+Key capabilities:
+- Automatic departure and arrival taxi routing
+- Manual route drawing and route editing
+- Locking a manual route against automatic recompute
+- Spoken taxi guidance
+- Independent visual taxi guidance popup
+- Experimental Auto Taxiing following the active taxi route
+- Source switching between scenery and global `apt.dat`
+
+Useful commands:
+- `YAL/toggleautotaxiing`
+- `YAL/toggleautotaxipause`
+
+## Approach Setup / SET ILS
+`SET ILS` now resolves the selected approach internally.
+
+This means:
+- YAL no longer needs to parse the FMC `APPROACH REF` page to determine the selected approach
+- Approach tuning/channel/course logic is resolved internally from navdata/CIFP with zibo-like matching logic
+- Auto mode still sets frequencies/channels and courses
+- Voice Advice Only mode still announces the same targets for manual entry
+
+Supported approach families include:
+- ILS / LOC
+- LDA / IGS
+- GLS / LPV
+- RNAV, including LP differentiation where supported by navdata
+
+## Voice Advice Tools
+If you prefer manual flying and cockpit operation, YAL can run in `Voice Advice Only` mode.
+
+Useful related features:
+- `YAL/step_once`: execute exactly the current requested step once
+- `YAL/toggletrimpopup`: toggle the trim advice popup while a valid takeoff-trim target exists
+- `Voice Advice Repeat Skip (cycles)` setting
+- `Voice Advice Max Repeats (0/99=off)` setting
+
+## Update Check and Save Notes
+- YAL can check for both YAL and Zibo updates during X-Plane startup
+- `Show beta updates` switches the YAL update check to the beta feed
+- Periodic YAL flight save uses:
+  - `Auto Flight Save Time`
+  - `Auto Flight Save EFB Position(s)`
+- To disable periodic YAL autosave, use `0` or `9999` for `Auto Flight Save Time`
 
 ## Useful Commands
-- `YAL/step_once`: execute the current requested step once in Voice Advice Only mode.
-- `YAL/toggleautotaxiing`: toggle Auto Taxiing.
-- `YAL/toggleautotaxipause`: pause/resume Auto Taxiing.
-- `YAL/toggletrimpopup`: show or hide the trim advice popup while a valid trim target exists.
-- `YAL/setils`: run `SET ILS / GLS Freq/Course` manually.
+Commonly used assignable commands include:
+- `YAL/step_once`
+- `YAL/toggleautofunctions`
+- `YAL/toggleadviceonly`
+- `YAL/toggleviewchanges`
+- `YAL/toggleautotaxiing`
+- `YAL/toggleautotaxipause`
+- `YAL/toggletrimpopup`
+- `YAL/setils`
+- `YAL/setvref`
+- `YAL/cycleprocedures`
+- `YAL/skipprocedurestep`
+
+All assignable commands are available in the X-Plane keyboard/joystick settings under the `YAL/...` group.
 
 ## Documentation
-The full user documentation is in:
-- `Documentation/YAL Manual.md`
+The full user manual is included as:
+- `YAL Manual.pdf`
+
+Use the PDF for the complete reference, including:
+- all procedures
+- all settings
+- taxi map usage details
+- taxi guidance and auto taxiing details
+- SET ILS / approach handling details
+- trim popup details
 
 ## Notes
 - YAL remains largely idle when no supported aircraft is loaded.
-- All assignable commands are available in the X-Plane keyboard/joystick settings under the `YAL/...` group.
 - The plugin is designed to have very low FPS impact because the main logic runs on a timed loop rather than every frame.
