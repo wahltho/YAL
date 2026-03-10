@@ -2805,6 +2805,133 @@ local function ramp_key(ramp)
     return string.format("%.6f|%.6f", ramp and ramp.lat or 0, ramp and ramp.lon or 0)
 end
 
+local function find_ramp_by_key(data, key, filter_fn)
+    if not data or not data.ramps or not key or key == "" then
+        return nil
+    end
+    for _, ramp in ipairs(data.ramps) do
+        if (not filter_fn or filter_fn(ramp)) and ramp_key(ramp) == key then
+            return ramp
+        end
+    end
+    return nil
+end
+
+local function ramp_debug_suffix(ramp)
+    if not ramp then
+        return ""
+    end
+    local parts = {}
+    if ramp.link_mode and ramp.link_mode ~= "" then
+        parts[#parts + 1] = "mode=" .. tostring(ramp.link_mode)
+    end
+    if ramp.link_node_id then
+        parts[#parts + 1] = "to=" .. tostring(ramp.link_node_id)
+    end
+    if ramp.link_edge_label and ramp.link_edge_label ~= "" then
+        parts[#parts + 1] = "label=" .. tostring(normalize_taxiway_label(ramp.link_edge_label))
+    end
+    if ramp.link_distance_m then
+        parts[#parts + 1] = string.format("dist=%.1f", tonumber(ramp.link_distance_m) or -1)
+    end
+    if ramp.link_along ~= nil then
+        parts[#parts + 1] = string.format("along=%.1f", tonumber(ramp.link_along) or -1)
+    end
+    if ramp.link_cross ~= nil then
+        parts[#parts + 1] = string.format("cross=%.1f", tonumber(ramp.link_cross) or -1)
+    end
+    if #parts == 0 then
+        return ""
+    end
+    return " link[" .. table.concat(parts, " ") .. "]"
+end
+
+local function choose_departure_start_ramp(comp, data, icao, aircraft, heading_deg)
+    if not data or not aircraft or not is_valid_latlon(aircraft.lat, aircraft.lon) then
+        comp._startRampKey = nil
+        comp._startRampChoiceSource = nil
+        return nil, false
+    end
+    local filter_fn = helpers.isRampSuitableFor738
+    local max_dist = (C and C.startRampMaxMeters) or 80
+    local hold_dist = math.max(max_dist * 1.5, max_dist + 20)
+    local start_ramp = nil
+    local start_ramp_dist = nil
+    local source = nil
+    local latched = find_ramp_by_key(data, comp._startRampKey, filter_fn)
+    if latched and latched.lat and latched.lon then
+        local latched_dist = distance_meters_latlon(latched.lat, latched.lon, aircraft.lat, aircraft.lon)
+        if latched_dist and latched_dist <= hold_dist then
+            start_ramp = latched
+            start_ramp_dist = latched_dist
+            source = "latched"
+        end
+    end
+    if not start_ramp and U and U.select_best_ramp_for_aircraft then
+        start_ramp, start_ramp_dist = U.select_best_ramp_for_aircraft(
+            data,
+            aircraft,
+            {
+                filter = filter_fn,
+                heading_deg = heading_deg,
+                radius_m = math.max(max_dist, (C and C.gateSelectRadius) or max_dist)
+            }
+        )
+        if start_ramp and start_ramp_dist and start_ramp_dist > max_dist then
+            start_ramp = nil
+            start_ramp_dist = nil
+        end
+        if start_ramp then
+            source = "best"
+        end
+    end
+    if not start_ramp then
+        local nearest, nearest_d2 = helpers.getNearestRamp(
+            icao,
+            aircraft.lat,
+            aircraft.lon,
+            { filter = filter_fn, data = data }
+        )
+        if nearest then
+            local nearest_dist = nearest_d2 and math.sqrt(nearest_d2)
+                or (nearest.lat and nearest.lon and distance_meters_latlon(nearest.lat, nearest.lon, aircraft.lat, aircraft.lon))
+                or nil
+            if nearest_dist and nearest_dist <= max_dist then
+                start_ramp = nearest
+                start_ramp_dist = nearest_dist
+                source = "nearest"
+            end
+        end
+    end
+    local key = start_ramp and ramp_key(start_ramp) or nil
+    if start_ramp then
+        comp._startRampKey = key
+        if comp._startRampChoiceKey ~= key or comp._startRampChoiceSource ~= source then
+            log_taxi(
+                string.format(
+                    "TaxiRoute: start ramp %s key=%s label=%s node=%s dist=%.1f%s",
+                    tostring(source),
+                    tostring(key),
+                    tostring(short_ramp_label(start_ramp)),
+                    tostring(start_ramp.node_id or ""),
+                    tonumber(start_ramp_dist) or -1,
+                    ramp_debug_suffix(start_ramp)
+                )
+            )
+        end
+        comp._startRampChoiceKey = key
+        comp._startRampChoiceSource = source
+    else
+        if comp._startRampChoiceKey or comp._startRampChoiceSource then
+            log_taxi("TaxiRoute: start ramp released")
+        end
+        comp._startRampKey = nil
+        comp._startRampChoiceKey = nil
+        comp._startRampChoiceSource = nil
+    end
+    return start_ramp, source == "latched"
+end
+
 local function is_voice_enabled()
     local settingsTable = settings and settings.appSettings
     if not settingsTable then
@@ -4683,6 +4810,11 @@ local function updateTaxiState(comp, map)
         comp._activeSourceIcao = nil
         comp._activeSourceMode = nil
         comp._sourceSwitchPending = nil
+        comp._startRamp = nil
+        comp._startRampLabel = nil
+        comp._startRampKey = nil
+        comp._startRampChoiceKey = nil
+        comp._startRampChoiceSource = nil
         U.set_taxi_ref(nil)
         log_taxi("TaxiRoute: abort invalid-icao")
         return
@@ -4706,6 +4838,9 @@ local function updateTaxiState(comp, map)
         comp._endPoint = nil
         comp._startRamp = nil
         comp._startRampLabel = nil
+        comp._startRampKey = nil
+        comp._startRampChoiceKey = nil
+        comp._startRampChoiceSource = nil
         comp._endRamp = nil
         comp._lastStartKey = nil
         comp._lastEndKey = nil
@@ -5940,13 +6075,14 @@ local function updateTaxiState(comp, map)
     local start_is_aircraft = false
     if mode == 0 and aircraft and U.is_valid_latlon(aircraft.lat, aircraft.lon) then
         start_is_aircraft = true
-        start_ramp = helpers.getNearestRamp(icao, aircraft.lat, aircraft.lon, { filter = helpers.isRampSuitableFor738, data = data })
-        if start_ramp and start_ramp.lat and start_ramp.lon then
-            local d_m = U.distance_meters_latlon(start_ramp.lat, start_ramp.lon, aircraft.lat, aircraft.lon)
-            if d_m and d_m > C.startRampMaxMeters then
-                start_ramp = nil
-            end
+        local gate_heading = nil
+        if yal and yal.localpositionpsi then
+            gate_heading = get(yal.localpositionpsi)
         end
+        if type(gate_heading) ~= "number" then
+            gate_heading = aircraft.heading
+        end
+        start_ramp = choose_departure_start_ramp(comp, data, icao, aircraft, gate_heading)
     end
 
     if mode == 0 then
@@ -5955,6 +6091,9 @@ local function updateTaxiState(comp, map)
         end
     else
         comp._startRampLabel = nil
+        comp._startRampKey = nil
+        comp._startRampChoiceKey = nil
+        comp._startRampChoiceSource = nil
     end
 
     comp._startRamp = start_ramp
@@ -7194,7 +7333,14 @@ local function updateTaxiState(comp, map)
                 if not has_start_override and ramp_node_ok(start_ramp) then
                     opts.start_node_id = start_ramp.node_id
                     opts.allow_far_ramp = true
-                    log_taxi("TaxiRoute: start from ramp node id=" .. tostring(start_ramp.node_id))
+                    log_taxi(
+                        string.format(
+                            "TaxiRoute: start from ramp node id=%s label=%s%s",
+                            tostring(start_ramp.node_id),
+                            tostring(short_ramp_label(start_ramp)),
+                            ramp_debug_suffix(start_ramp)
+                        )
+                    )
                 end
                 set_dep_end_node(opts)
                 set_start_ramp_fallback(opts)
@@ -7212,7 +7358,14 @@ local function updateTaxiState(comp, map)
                 if not has_end_override and ramp_node_ok(end_ramp) then
                     opts.end_node_id = end_ramp.node_id
                     opts.allow_far_ramp = true
-                    log_taxi("TaxiRoute: end at ramp node id=" .. tostring(end_ramp.node_id))
+                    log_taxi(
+                        string.format(
+                            "TaxiRoute: end at ramp node id=%s label=%s%s",
+                            tostring(end_ramp.node_id),
+                            tostring(short_ramp_label(end_ramp)),
+                            ramp_debug_suffix(end_ramp)
+                        )
+                    )
                 end
                 set_end_ramp_fallback(opts)
             end
@@ -8955,6 +9108,9 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
     comp._endPoint = nil
     comp._startRamp = nil
     comp._startRampLabel = nil
+    comp._startRampKey = nil
+    comp._startRampChoiceKey = nil
+    comp._startRampChoiceSource = nil
     comp._endRamp = nil
     comp._startIsAircraft = false
     comp._selectedEndRampKey = nil

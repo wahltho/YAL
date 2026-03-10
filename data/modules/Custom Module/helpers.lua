@@ -6917,6 +6917,7 @@ local function parse_taxi_data(entry)
             local best = nil
             local best_any = nil
             local best_heading = nil
+            local best_forward = nil
             local heading = tonumber(ramp.heading)
             local dir_e = nil
             local dir_n = nil
@@ -6940,14 +6941,37 @@ local function parse_taxi_data(entry)
                         proj_east = px,
                         proj_north = py,
                         t = t,
-                        d2 = d2
+                        d2 = d2,
+                        score = d2
                     }
                     if not best_any or d2 < best_any.d2 then
                         best_any = entry
                     end
                     if not is_runway then
-                        if not best or d2 < best.d2 then
+                        local along = nil
+                        local cross = nil
+                        local score = d2
+                        if dir_e then
+                            local vx = px - ramp.east
+                            local vy = py - ramp.north
+                            along = vx * dir_e + vy * dir_n
+                            cross = math.abs(vx * dir_n - vy * dir_e)
+                            local behind = 0
+                            if along < 0 then
+                                behind = ((-along) * (-along)) * 4
+                            end
+                            score = d2 + (cross * cross) + behind
+                            entry.along = along
+                            entry.cross = cross
+                        end
+                        entry.score = score
+                        if not best or score < best.score then
                             best = entry
+                        end
+                        if dir_e and along ~= nil then
+                            if along >= -5 and (not best_forward or score < best_forward.score) then
+                                best_forward = entry
+                            end
                         end
                         if dir_e and d2 <= heading_radius2 then
                             local vx = px - ramp.east
@@ -6961,14 +6985,31 @@ local function parse_taxi_data(entry)
                                 local dot = (vx * dir_e + vy * dir_n) * inv_len
                                 ok = (dot >= heading_cos)
                             end
-                            if ok and (not best_heading or d2 < best_heading.d2) then
+                            if ok and along and along >= -5 and (not best_heading or score < best_heading.score) then
                                 best_heading = entry
                             end
                         end
                     end
                 end
             end
-            return best_heading or best or best_any
+            local choice = best_heading
+            local mode = "heading"
+            if not choice then
+                choice = best_forward
+                mode = "forward"
+            end
+            if not choice then
+                choice = best
+                mode = "nearest-nonrunway"
+            end
+            if not choice then
+                choice = best_any
+                mode = "nearest-any"
+            end
+            if choice then
+                choice.mode = mode
+            end
+            return choice
         end
 
         local function get_or_create_proj_node(best_edge)
@@ -7033,6 +7074,15 @@ local function parse_taxi_data(entry)
 
         for _, ramp in ipairs(ramps_tbl) do
             if ramp.x and ramp.z and ramp.east and ramp.north then
+                ramp.link_node_id = nil
+                ramp.link_edge_from = nil
+                ramp.link_edge_to = nil
+                ramp.link_edge_label = nil
+                ramp.link_distance_m = nil
+                ramp.link_score = nil
+                ramp.link_mode = nil
+                ramp.link_along = nil
+                ramp.link_cross = nil
                 local rid = next_id
                 next_id = next_id + 1
                 nodes_tbl[rid] = {
@@ -7056,6 +7106,15 @@ local function parse_taxi_data(entry)
                         if best_edge.d2 <= max_d2 then
                             near_links[#near_links + 1] = { from = rid, to = proj_id }
                         end
+                        ramp.link_node_id = proj_id
+                        ramp.link_edge_from = best_edge.edge and best_edge.edge.from or nil
+                        ramp.link_edge_to = best_edge.edge and best_edge.edge.to or nil
+                        ramp.link_edge_label = best_edge.edge and best_edge.edge.label or nil
+                        ramp.link_distance_m = math.sqrt(best_edge.d2 or 0)
+                        ramp.link_score = best_edge.score or best_edge.d2
+                        ramp.link_mode = best_edge.mode or "edge"
+                        ramp.link_along = best_edge.along
+                        ramp.link_cross = best_edge.cross
                         linked = true
                     end
                 end
@@ -7100,6 +7159,14 @@ local function parse_taxi_data(entry)
                         far_links[#far_links + 1] = { from = rid, to = link_id }
                         if link_d2 <= max_d2 then
                             near_links[#near_links + 1] = { from = rid, to = link_id }
+                        end
+                        ramp.link_node_id = link_id
+                        ramp.link_distance_m = math.sqrt(link_d2 or 0)
+                        ramp.link_score = link_d2
+                        if best_nr_id and link_id == best_nr_id then
+                            ramp.link_mode = "nearest-node-nonrunway"
+                        else
+                            ramp.link_mode = "nearest-node"
                         end
                     end
                 end
