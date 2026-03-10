@@ -5820,6 +5820,7 @@ function M.fillProcedureTable()
                 ['set_fo_course'] = {
                     skipIf = function(loop, procData)
                         local navdata = P.navdatatable[loop.navdatatableindex]
+                        if isLateralOnlyApproach(navdata) then return true end
                         if navdata[def.DESTNAVTYPE] == def.NAVTYPELPV then return true end
                         if isLocalizerNavType(navdata[def.DESTNAVTYPE]) and not navdata[def.DESTNAVDME] then return true end
                         return false 
