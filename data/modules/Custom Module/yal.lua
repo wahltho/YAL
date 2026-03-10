@@ -57,13 +57,13 @@ local function clearTrimAdvicePopupState()
     P.trimAdvicePopupState = nil
 end
 
-local function setTrimAdvicePopupState(target)
+local function setTrimAdvicePopupState(target, pinned)
     local value = tonumber(target)
     if not value or value <= 0 then
         P.trimAdvicePopupState = nil
         return
     end
-    P.trimAdvicePopupState = { active = true, target = value }
+    P.trimAdvicePopupState = { active = true, target = value, pinned = (pinned == true) }
 end
 
 local function clearTrimTargetLatch()
@@ -82,6 +82,17 @@ local function getLatchedTrimTarget()
         return trimTarget
     end
     return nil
+end
+
+local function isTrimPopupContextActive()
+    local onGround = (get(P.airgroundsensor) == def.ON)
+    local noProcedure = (P.procedureloop1.lock == def.NOPROCEDURE)
+    local powered = (get(P.battery) == def.ON) and (get(P.mainbus) ~= def.OFF)
+    local preflight = (P.flightstate == def.FLIGHTSTATEPREFLIGHT)
+    local noTaxi = (get(P.taxilight) == def.OFF)
+    local slow = (get(P.groundspeed) < 45)
+    local trimTarget = getLatchedTrimTarget() or 0
+    return onGround and noProcedure and powered and preflight and noTaxi and slow and (trimTarget > 0), trimTarget
 end
 
 local function isPeriodicAutoSaveDisabled()
@@ -2751,6 +2762,44 @@ end
 
 local my_command_stepprocedureonce = sasl.createCommand(def.APPNAMEPREFIX .. "/step_once", "Execute Current Procedure Step Once")
 sasl.registerCommandHandler(my_command_stepprocedureonce, 0, P.stepprocedureonce_)
+
+--------------------------------------------------------------------------------------------------------------
+function P.toggletrimpopup()
+    local contextActive, trimTarget = isTrimPopupContextActive()
+
+    if P._trimAdvicePopupPinned then
+        P._trimAdvicePopupPinned = false
+        if (P.configvalues[def.CONFIGTRIMADVICEPOPUP] == def.ON)
+            and (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON)
+            and contextActive and trimTarget and trimTarget > 0 then
+            setTrimAdvicePopupState(trimTarget, false)
+        else
+            clearTrimAdvicePopupState()
+        end
+        P.commandtableentry(def.TEXT, "Trim Window Off")
+        return true
+    end
+
+    if not contextActive then
+        P.commandtableentry(def.TEXT, "Trim Window unavailable")
+        return true
+    end
+
+    P._trimAdvicePopupPinned = true
+    setTrimAdvicePopupState(trimTarget, true)
+    P.commandtableentry(def.TEXT, "Trim Window On")
+    return true
+end
+
+function P.toggletrimpopup_(phase)
+    if phase == SASL_COMMAND_BEGIN then
+        P.toggletrimpopup()
+    end
+    return 0
+end
+
+local my_command_toggletrimpopup = sasl.createCommand(def.APPNAMEPREFIX .. "/toggletrimpopup", "Toggle Trim Advice Window")
+sasl.registerCommandHandler(my_command_toggletrimpopup, 0, P.toggletrimpopup_)
 
 --------------------------------------------------------------------------------------------------------------
 local QNH_HYSTERESIS_HPA = 0.3
@@ -6106,9 +6155,13 @@ function P.runOneMainOngoingTask()
     if preflightGateOpen then
         if idx == 7 then
             local trimTarget = getLatchedTrimTarget() or 0
-            local trimPopupActive = (P.configvalues[def.CONFIGTRIMADVICEPOPUP] == def.ON) and (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) and (trimTarget > 0) and (get(P.groundspeed) < 45)
-            if trimPopupActive then
-                setTrimAdvicePopupState(trimTarget)
+            local trimPopupAutoActive =
+                (P.configvalues[def.CONFIGTRIMADVICEPOPUP] == def.ON)
+                and (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON)
+                and (trimTarget > 0)
+                and (get(P.groundspeed) < 45)
+            if trimPopupAutoActive or (P._trimAdvicePopupPinned and trimTarget > 0) then
+                setTrimAdvicePopupState(trimTarget, P._trimAdvicePopupPinned == true)
             else
                 clearTrimAdvicePopupState()
             end
@@ -6154,9 +6207,10 @@ function P.runOneMainOngoingTask()
             (P.configvalues[def.CONFIGTRIMADVICEPOPUP] == def.ON) and
             (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON)
         if (not preflightGateOpen) or (latchedTrimTarget <= 0) then
+            P._trimAdvicePopupPinned = false
             clearTrimTargetLatch()
             clearTrimAdvicePopupState()
-        elseif not trimPopupAllowed then
+        elseif not trimPopupAllowed and not P._trimAdvicePopupPinned then
             clearTrimAdvicePopupState()
         end
     end

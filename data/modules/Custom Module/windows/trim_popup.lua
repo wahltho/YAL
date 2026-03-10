@@ -127,6 +127,7 @@ function M.newComponent(ctx)
             self:clearStatus()
             return
         end
+        local pinned = (state.pinned == true)
 
         if wheelMoved then
             self._lastInputTs = now
@@ -160,7 +161,7 @@ function M.newComponent(ctx)
             end
         end
 
-        if wheelMoved and self._window and self._window.isVisible and not self._window:isVisible() then
+        if self._window and self._window.isVisible and not self._window:isVisible() and (wheelMoved or pinned) then
             self._window:setIsVisible(true)
         end
 
@@ -168,11 +169,15 @@ function M.newComponent(ctx)
             currentText = helpers.format_trim_quarter(currentTrim) or tostring(currentTrim or ""),
             targetText = helpers.format_trim_quarter(target) or tostring(target),
             direction = direction,
-            matched = matched
+            matched = matched,
+            pinned = pinned
         }
 
         if self._window and self._window.isVisible and self._window:isVisible() then
             if self._drag then
+                return
+            end
+            if pinned then
                 return
             end
             if matched and self._targetReachedTs and (now - self._targetReachedTs) >= 5 then
