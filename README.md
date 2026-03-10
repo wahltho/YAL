@@ -19,7 +19,7 @@ Virtual copilot plugin for the Zibo Mod 737 in X-Plane.
 
 ## Requirements
 - X-Plane 11 or 12
-- Supported Zibo aircraft
+- Primary support target: Zibo B737-800
 - Optional: X-Camera
 - Optional: BetterPushback
 - Optional: YANSH
@@ -97,7 +97,7 @@ Useful commands:
 
 This means:
 - YAL no longer needs to parse the FMC `APPROACH REF` page to determine the selected approach
-- Approach tuning/channel/course logic is resolved internally from navdata/CIFP with zibo-like matching logic
+- YAL resolves the required tuning/channel/course targets internally
 - Auto mode still sets frequencies/channels and courses
 - Voice Advice Only mode still announces the same targets for manual entry
 
@@ -154,4 +154,5 @@ Use the PDF for the complete reference, including:
 
 ## Notes
 - YAL remains largely idle when no supported aircraft is loaded.
+- LevelUp 737 variants based on the Zibo systems should generally work in principle, but they are not part of the regular test scope.
 - The plugin is designed to have very low FPS impact because the main logic runs on a timed loop rather than every frame.

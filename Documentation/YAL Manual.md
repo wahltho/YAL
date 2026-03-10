@@ -10,7 +10,7 @@ VIRTUAL COPILOT PLUGIN FOR ZIBO MOD 738
 
 **Requirements**
 - X-Plane 11 or 12 (Windows, Mac/Intel/Arm, Linux)
-- Aircraft: B737-800 by Zibo
+- Primary support target: B737-800 by Zibo
 - Optional: X-Camera plugin (will be detected automatically)
 
 **Optional Integrations**
@@ -23,6 +23,7 @@ VIRTUAL COPILOT PLUGIN FOR ZIBO MOD 738
 **Please Note**
 - YAL has virtually no FPS impact as its main functions run once per second, not every frame.
 - When flying aircraft other than the supported Zibo aircraft, YAL remains idle and all its menus are inactive.
+- LevelUp 737 variants based on the Zibo systems should generally work in principle, but they are not part of the regular test scope.
 - All custom commands for key/joystick assignment can be found in the X-Plane keyboard/joystick settings under the `YAL/...` group.
 
 ## 2. Custom Commands
