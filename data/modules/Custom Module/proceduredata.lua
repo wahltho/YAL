@@ -846,6 +846,50 @@ local function buildSetIlsPlan(loop)
     return plan
 end
 
+local function buildSetIlsSupportNavaidMessage(loop)
+    if not loop then
+        return nil
+    end
+
+    local navdata = getSetIlsNavdata(loop)
+    if not navdata then
+        return nil
+    end
+
+    local plan = buildSetIlsPlan(loop)
+    if not plan or not plan.foTune or plan.foTune.type ~= "dme" then
+        return nil
+    end
+
+    local dmeInfo = loop.approachDME or getSetIlsApproachDME(loop, navdata)
+    if not dmeInfo then
+        return nil
+    end
+
+    local ident = dmeInfo[def.DESTDMEIDENT]
+    if not ident or ident == "" then
+        ident = dmeInfo[def.DESTNAVID] or ""
+    end
+
+    local freq = dmeInfo[def.DESTDMEFREQ]
+    if not freq or freq == 0 then
+        freq = dmeInfo[def.DESTFREQ]
+    end
+    if not freq or freq == 0 then
+        return nil
+    end
+
+    local supportKind = "D M E"
+    if dmeInfo[def.DESTNAVTYPE] == def.NAVTYPEVOR then
+        supportKind = "V O R"
+    end
+
+    return "Supporting " .. supportKind
+        .. " for Runway " .. helpers.formatRunwayDesignator(navdata[def.DESTRWY] or get(P.desrwy))
+        .. " is " .. helpers.spellNato(ident)
+        .. " with frequency " .. helpers.addspaces(helpers.formatILSFrequency(freq))
+end
+
 local function maybeWarnSetIlsNoFoDme(loop)
     if not loop or loop.noFODmeWarned then
         return
@@ -5584,23 +5628,6 @@ function M.fillProcedureTable()
                         end
                     end,
                     runActionInAdviceMode = true, 
-                    nextStep = 'find_nearest_vor'
-                },
-                ['find_nearest_vor'] = {
-                    action = function(loop, procData)
-                        local nearestvor = nil
-                        if (P.airportdatatable[get(P.desicao)] and P.airportdatatable[get(P.desicao)].latitude and P.airportdatatable[get(P.desicao)].longitude) then
-                            nearestvor = helpers.findnearestvor(P.navdatatable, P.airportdatatable[get(P.desicao)].latitude, P.airportdatatable[get(P.desicao)].longitude)
-                        elseif helpers.isvalidrwy(get(P.desrwy)) then
-                            nearestvor = helpers.findnearestvor(P.navdatatable, get(P.desrwylatstartpos), get(P.desrwylonstartpos))
-                        end       
-                        if (nearestvor == nil) then
-                            P.commandtableentry(def.TEXT, "No V O R near " .. helpers.spellNato(get(P.desicao)) .. " found")
-                        else
-                            P.commandtableentry(def.TEXT, "Nearest V O R for " .. helpers.spellNato(get(P.desicao)) .. " is " .. helpers.spellNato(nearestvor.navid) .. " with frequency " .. helpers.addspaces(helpers.formatILSFrequency(nearestvor.frequency)))
-                        end
-                    end,
-                    runActionInAdviceMode = true, 
                     nextStep = 'announce_heading_only'
                 },
                 ['announce_heading_only'] = {
@@ -5736,6 +5763,19 @@ function M.fillProcedureTable()
                             local altMessage = "Alternate option: " .. descriptor
                                 .. " (Ident " .. helpers.spellNato(ident) .. ") " .. freqMsg
                             P.commandtableentry(def.TEXT, altMessage)
+                        end
+                    end,
+                    runActionInAdviceMode = true,
+                    nextStep = 'announce_support_navaid'
+                },
+                ['announce_support_navaid'] = {
+                    skipIf = function(loop, procData)
+                        return buildSetIlsSupportNavaidMessage(loop) == nil
+                    end,
+                    action = function(loop, procData)
+                        local message = buildSetIlsSupportNavaidMessage(loop)
+                        if message then
+                            P.commandtableentry(def.TEXT, message)
                         end
                     end,
                     runActionInAdviceMode = true,
