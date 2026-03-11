@@ -4675,8 +4675,22 @@ function P.calcApproachCourseZibo(entry, ctx)
             return P.calccourse(entry[def.DESTCOURSE])
         end
     else
-        -- Zibo RNAV/FAC path: final-leg FMS course first, runway heading fallback second.
+        -- Detected-only RNAV entries are weaker than a matched navdata entry.
+        -- In this case prefer the destination runway heading over the live FMS leg
+        -- track, which can reflect an intercept/dogleg instead of the displayed FAC.
         if navType == def.NAVTYPERNAV then
+            if entry._detectedOnly then
+                local runwayMag = tonumber(ctx.runwayMag)
+                if runwayMag then
+                    markSource("RUNWAY_MAG")
+                    return P.calccourse(runwayMag)
+                end
+                local runwayTrue = tonumber(ctx.runwayTrue)
+                if runwayTrue then
+                    markSource("RUNWAY_TRUE")
+                    return P.calccourse(runwayTrue + magVar)
+                end
+            end
             local fmsMag = get_fms_final_mag_course()
             if fmsMag then
                 markSource("FMS")
