@@ -5479,7 +5479,8 @@ function M.fillProcedureTable()
                             return 'find_navdata'
                         end
                         return false
-                    end
+                    end,
+                    nextStep = 'find_navdata'
                 },
                 ['find_navdata'] = {
                     branch = function(loop, procData)
