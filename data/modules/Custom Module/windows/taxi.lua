@@ -8772,14 +8772,17 @@ local function updateTaxiState(comp, map)
                         end
                     end
                     local pb_dist = tuning.parkingBrakeCompleteDist or 35
+                    local final_gate_dist = U.gate_distance_meters and U.gate_distance_meters(comp, aircraft, comp._route, comp._data) or nil
+                    local final_gate_limit = math.max(10, pb_dist * 0.4)
                     local complete_ok = false
                     local complete_ramp = nil
                     if planned_ramp and planned_ramp_dist then
-                        if planned_ramp_dist <= pb_dist then
+                        if planned_ramp_dist <= pb_dist and (final_gate_dist == nil or final_gate_dist <= final_gate_limit) then
                             complete_ok = true
                             complete_ramp = planned_ramp
                         end
-                    elseif nearest_ramp and nearest_ramp_dist and nearest_ramp_dist <= pb_dist then
+                    elseif nearest_ramp and nearest_ramp_dist and nearest_ramp_dist <= pb_dist
+                        and (final_gate_dist == nil or final_gate_dist <= final_gate_limit) then
                         complete_ok = true
                         complete_ramp = nearest_ramp
                     end
@@ -8812,9 +8815,11 @@ local function updateTaxiState(comp, map)
                             comp._arrParkCompleteBlockedLogAt = now
                             log_taxi(
                                 string.format(
-                                    "TaxiRoute: parking brake complete blocked planned=%.1f nearest=%.1f limit=%.1f hasEnd=%s",
+                                    "TaxiRoute: parking brake complete blocked planned=%.1f nearest=%.1f gate=%.1f gateLimit=%.1f limit=%.1f hasEnd=%s",
                                     planned_ramp_dist or -1,
                                     nearest_ramp_dist or -1,
+                                    final_gate_dist or -1,
+                                    final_gate_limit or -1,
                                     pb_dist or -1,
                                     tostring(planned_ramp ~= nil)
                                 )
@@ -9153,6 +9158,8 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
     comp._gateGuidanceStop = false
     comp._gateGuidanceActive = false
     comp._gateGuidanceLastDist = nil
+    comp._gateActivationDist = nil
+    comp._gateCalloutDist = nil
     comp._guidanceState = "idle"
     comp._terminalGuidanceTime = nil
     comp._depRunwayEntryAnnounced = false

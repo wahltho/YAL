@@ -295,6 +295,8 @@ function M.attach(U, C, def, helpers, settings)
                 comp._gateGuidanceLastDir = nil
                 comp._gateGuidanceLastAction = nil
                 comp._gateGuidanceLastTime = nil
+                comp._gateActivationDist = nil
+                comp._gateCalloutDist = nil
                 comp._gateNote = nil
                 if comp._gateCalloutKey ~= nil then
                     reset_gate_callouts(comp, nil)
@@ -307,6 +309,8 @@ function M.attach(U, C, def, helpers, settings)
             if state == "complete" then
                 comp._gateGuidanceActive = false
                 comp._gateGuidanceStop = false
+                comp._gateActivationDist = nil
+                comp._gateCalloutDist = nil
                 comp._gateNote = nil
                 if comp._gateCalloutKey ~= nil then
                     reset_gate_callouts(comp, nil)
@@ -634,13 +638,11 @@ function M.attach(U, C, def, helpers, settings)
                 if gate_east ~= nil and gate_north ~= nil then
                     gate_geom_dist = math.sqrt(distance_sq(aircraft.east, aircraft.north, gate_east, gate_north))
                 end
-                local stop_dist = (comp._gateUseDgs and ((C and C.gateDgsGoodZPos) or 0.2)) or C.gateStopDistance
-                if comp._gateUseDgs and gate_dist and gate_dist <= stop_dist and gate_geom_dist and gate_geom_dist > gate_radius then
-                    gate_ref_dist = gate_geom_dist
-                elseif comp._gateUseDgs and gate_ref_dist and gate_geom_dist and gate_geom_dist > gate_ref_dist then
+                if gate_geom_dist ~= nil then
                     gate_ref_dist = gate_geom_dist
                 end
-                gate_dist = gate_ref_dist
+                comp._gateActivationDist = gate_ref_dist
+                comp._gateCalloutDist = gate_dist
 
                 if gate_ok and gs > gate_entry_speed and (not comp._gateGuidanceActive) then
                     if not (gate_ref_dist and gate_ref_dist <= gate_radius) then
@@ -697,7 +699,7 @@ function M.attach(U, C, def, helpers, settings)
                     end
                 end
 
-                comp._gateGuidanceLastDist = gate_dist
+                comp._gateGuidanceLastDist = gate_ref_dist
                 if comp._gateGuidanceActive then
                     guidance_state = "gate"
                 end
@@ -771,7 +773,7 @@ function M.attach(U, C, def, helpers, settings)
                 reset_gate_callouts(comp, gate_key)
             end
             if gate_key then
-                local dist = gate_dist or gate_distance_meters(comp, aircraft, route, data)
+                local dist = comp._gateCalloutDist or gate_dist or gate_distance_meters(comp, aircraft, route, data)
                 comp._gateNote = gate_note_text(dist, comp._gateUseDgs)
                 if dist then
                     local stop_dist = (comp._gateUseDgs and ((C and C.gateDgsGoodZPos) or 0.2)) or C.gateStopDistance
@@ -810,7 +812,14 @@ function M.attach(U, C, def, helpers, settings)
                     if not comp._gateGuidanceStop then
                         local gate_min_age = ((comp._tuning and comp._tuning.gateGuidanceCooldownSec) or (C and C.gateGuidanceCooldownSec) or 4)
                         local gate_age = (comp._gateGuidanceSince and now) and (now - comp._gateGuidanceSince) or gate_min_age
-                        local stop_ready = (comp._gateCalloutStop == true) or (gate_age >= gate_min_age)
+                        local near_stop_limit = math.max(
+                            10,
+                            (((comp._tuning and comp._tuning.gateGuidanceRadius) or (C and C.gateGuidanceRadius) or 60) * 0.25)
+                        )
+                        local stop_track_dist = comp._gateActivationDist or dist
+                        local stop_ready = ((comp._gateCalloutStop == true) or (gate_age >= gate_min_age))
+                            and stop_track_dist ~= nil
+                            and stop_track_dist <= near_stop_limit
                         if not stop_ready then
                             return
                         end

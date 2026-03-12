@@ -334,10 +334,27 @@ function M.attach(U, C, def, helpers)
                 local locgood = (math.abs(dgs.mw_x or 0) <= good_x)
                     and dgs.nw_z >= good_z_neg
                     and dgs.nw_z <= good_z_pos
+                local dgs_dist = 0
                 if locgood or dgs.nw_z < good_z_neg then
-                    best = 0
+                    dgs_dist = 0
                 else
-                    best = dgs.nw_z
+                    dgs_dist = math.max(0, dgs.nw_z)
+                end
+                if fallback_dist ~= nil then
+                    local blend_limit = 30
+                    local max_diff = 15
+                    if fallback_dist > blend_limit then
+                        best = fallback_dist
+                    else
+                        local diff = math.abs(fallback_dist - dgs_dist)
+                        if diff <= max_diff then
+                            best = dgs_dist
+                        else
+                            best = fallback_dist
+                        end
+                    end
+                else
+                    best = dgs_dist
                 end
             elseif fallback_dist then
                 best = fallback_dist
