@@ -7478,6 +7478,137 @@ local function parse_taxi_data(entry)
         return nil, nil
     end
 
+    local function compute_ref_latlon_all(nodes_tbl, ramps_tbl, runways_tbl, polys_tbl)
+        local sum_lat = 0
+        local sum_lon = 0
+        local count = 0
+        if nodes_tbl and next(nodes_tbl) ~= nil then
+            for _, node in pairs(nodes_tbl) do
+                if is_valid_latlon(node.lat, node.lon) then
+                    sum_lat = sum_lat + node.lat
+                    sum_lon = sum_lon + node.lon
+                    count = count + 1
+                end
+            end
+        end
+        if ramps_tbl and #ramps_tbl > 0 then
+            for _, ramp in ipairs(ramps_tbl) do
+                if is_valid_latlon(ramp.lat, ramp.lon) then
+                    sum_lat = sum_lat + ramp.lat
+                    sum_lon = sum_lon + ramp.lon
+                    count = count + 1
+                end
+            end
+        end
+        if runways_tbl and #runways_tbl > 0 then
+            for _, rwy in ipairs(runways_tbl) do
+                if is_valid_latlon(rwy.lat1, rwy.lon1) then
+                    sum_lat = sum_lat + rwy.lat1
+                    sum_lon = sum_lon + rwy.lon1
+                    count = count + 1
+                end
+                if is_valid_latlon(rwy.lat2, rwy.lon2) then
+                    sum_lat = sum_lat + rwy.lat2
+                    sum_lon = sum_lon + rwy.lon2
+                    count = count + 1
+                end
+            end
+        end
+        if polys_tbl and #polys_tbl > 0 then
+            for _, poly in ipairs(polys_tbl) do
+                for _, pt in ipairs(poly) do
+                    if is_valid_latlon(pt.lat, pt.lon) then
+                        sum_lat = sum_lat + pt.lat
+                        sum_lon = sum_lon + pt.lon
+                        count = count + 1
+                    end
+                end
+            end
+        end
+        if count > 0 then
+            return sum_lat / count, sum_lon / count
+        end
+        return nil, nil
+    end
+
+    local function reproject_all_geometry(ref_lat_new, ref_lon_new)
+        if not is_valid_latlon(ref_lat_new, ref_lon_new) then
+            return nil, nil, nil
+        end
+        local mlat_new, mlon_new = geo_scale(ref_lat_new)
+        local ref_new = {
+            ref_lat = ref_lat_new,
+            ref_lon = ref_lon_new,
+            ref_mlat = mlat_new,
+            ref_mlon = mlon_new
+        }
+        local new_bounds = { minX = nil, maxX = nil, minY = nil, maxY = nil }
+
+        for _, poly in ipairs(polygons) do
+            poly.points = {}
+        end
+        polygons = {}
+        for _, poly in ipairs(fallback_polys) do
+            local pts = {}
+            for _, pt in ipairs(poly) do
+                if is_valid_latlon(pt.lat, pt.lon) then
+                    local x, z = project_to_local(pt.lat, pt.lon, ref_new)
+                    pts[#pts + 1] = { east = x, north = -z }
+                end
+            end
+            if #pts >= 2 then
+                polygons[#polygons + 1] = { points = pts }
+            end
+        end
+
+        for _, node in pairs(nodes) do
+            local x, z = project_to_local(node.lat, node.lon, ref_new)
+            node.x = x
+            node.z = z
+            node.east = x
+            node.north = -z
+            update_bounds(new_bounds, node.east, node.north)
+        end
+        for _, ramp in ipairs(ramps) do
+            local x, z = project_to_local(ramp.lat, ramp.lon, ref_new)
+            ramp.x = x
+            ramp.z = z
+            ramp.east = x
+            ramp.north = -z
+            update_bounds(new_bounds, ramp.east, ramp.north)
+        end
+        for _, runway in ipairs(runways) do
+            local x1, z1 = project_to_local(runway.lat1, runway.lon1, ref_new)
+            local x2, z2 = project_to_local(runway.lat2, runway.lon2, ref_new)
+            runway.x1 = x1
+            runway.z1 = z1
+            runway.east1 = x1
+            runway.north1 = -z1
+            runway.x2 = x2
+            runway.z2 = z2
+            runway.east2 = x2
+            runway.north2 = -z2
+            update_bounds(new_bounds, runway.east1, runway.north1)
+            update_bounds(new_bounds, runway.east2, runway.north2)
+        end
+        for _, poly in ipairs(polygons) do
+            for _, pt in ipairs(poly.points or {}) do
+                update_bounds(new_bounds, pt.east or 0, pt.north or 0)
+            end
+        end
+
+        return ref_new, new_bounds, polygons
+    end
+
+    local function bounds_need_reprojection(bounds_tbl)
+        if not bounds_tbl or bounds_tbl.minX == nil or bounds_tbl.maxX == nil or bounds_tbl.minY == nil or bounds_tbl.maxY == nil then
+            return true
+        end
+        local width = math.abs((bounds_tbl.maxX or 0) - (bounds_tbl.minX or 0))
+        local height = math.abs((bounds_tbl.maxY or 0) - (bounds_tbl.minY or 0))
+        return width > 50000 or height > 50000
+    end
+
     local ref_lat, ref_lon = compute_ref_latlon(nodes, ramps, runways, fallback_polys)
     local ref_mlat, ref_mlon = nil, nil
     if ref_lat and ref_lon then
@@ -7531,6 +7662,37 @@ local function parse_taxi_data(entry)
     for _, poly in ipairs(polygons) do
         for _, pt in ipairs(poly.points or {}) do
             update_bounds(bounds, pt.east or 0, pt.north or 0)
+        end
+    end
+
+    if (not is_valid_latlon(ref_lat, ref_lon)) or bounds_need_reprojection(bounds) then
+        local ref_lat2, ref_lon2 = compute_ref_latlon_all(nodes, ramps, runways, fallback_polys)
+        local ref2, bounds2, polygons2 = reproject_all_geometry(ref_lat2, ref_lon2)
+        if ref2 and bounds2 and (not bounds_need_reprojection(bounds2)) then
+            ref_lat = ref2.ref_lat
+            ref_lon = ref2.ref_lon
+            ref_mlat = ref2.ref_mlat
+            ref_mlon = ref2.ref_mlon
+            ref = ref2
+            bounds = bounds2
+            polygons = polygons2 or polygons
+            P.logInfoTS(
+                "TaxiParse: reprojection sanity fallback icao="
+                    .. tostring(target_icao or entry.icao or "?")
+                    .. " width="
+                    .. string.format("%.1f", math.abs((bounds.maxX or 0) - (bounds.minX or 0)))
+                    .. " height="
+                    .. string.format("%.1f", math.abs((bounds.maxY or 0) - (bounds.minY or 0)))
+            )
+        elseif bounds_need_reprojection(bounds) then
+            P.logInfoTS(
+                "TaxiParse: reprojection sanity fallback failed icao="
+                    .. tostring(target_icao or entry.icao or "?")
+                    .. " ref="
+                    .. tostring(ref_lat2)
+                    .. "/"
+                    .. tostring(ref_lon2)
+            )
         end
     end
 

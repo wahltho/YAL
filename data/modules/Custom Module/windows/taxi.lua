@@ -3615,6 +3615,52 @@ local function get_taxi_source_mode(comp, icao)
     return "auto"
 end
 
+local function force_global_source(comp, icao, mode, reason, log_taxi)
+    if not comp or not icao or icao == "" then
+        return false
+    end
+    mark_source_switch_pending(comp, icao, mode, reason or "source-fallback")
+    comp._taxiSourceByIcao = comp._taxiSourceByIcao or {}
+    comp._taxiSourceByIcao[icao] = "global"
+    comp._taxiGlobalPending = comp._taxiGlobalPending or {}
+    comp._taxiGlobalPending[icao] = nil
+    clear_dep_source_lock(comp, reason or "source-fallback", log_taxi)
+    comp._data = nil
+    comp._dataErr = nil
+    comp._route = nil
+    comp._routeErr = nil
+    comp._routeLabels = nil
+    comp._routeLabelStats = nil
+    comp._routeExtraSegments = nil
+    comp._autoTaxiPath = nil
+    comp._autoTaxiPathRoute = nil
+    comp._lastStartKey = nil
+    comp._lastEndKey = nil
+    comp._routeStartAnchor = nil
+    comp._rerouteOverride = nil
+    comp._rerouteOverrideHoldUntil = nil
+    comp._pendingRerouteEvent = nil
+    comp._sCurveSkipNodeId = nil
+    comp._needsCenter = true
+    reset_guidance_tracking(comp, true)
+    clear_visual_guidance(comp, reason or "source-fallback")
+    comp._visualGuidanceQueue = {}
+    if U and U.set_taxi_ref then
+        U.set_taxi_ref(nil)
+    end
+    if log_taxi then
+        log_taxi(
+            "TaxiSource: force global icao="
+                .. tostring(icao)
+                .. " mode="
+                .. tostring(mode)
+                .. " reason="
+                .. tostring(reason or "source-fallback")
+        )
+    end
+    return true
+end
+
 local function set_taxi_source_mode(comp, icao, mode, reason, log_taxi)
     if not comp or not icao or icao == "" then
         return false
@@ -5694,6 +5740,22 @@ local function updateTaxiState(comp, map)
         local dep_side = nil
         if comp._runwayName and comp._runwayName ~= "" then
             dep_rwy, dep_side = U.find_runway_entry(data, comp._runwayName, runway_lat, runway_lon)
+            if (not dep_rwy)
+                and data.entry and data.entry.source == "addon"
+                and get_taxi_source_mode(comp, icao) == "auto" then
+                if helpers and helpers.requestGlobalAptIndex then
+                    helpers.requestGlobalAptIndex("addon-runway-mismatch")
+                end
+                log_taxi(
+                    "TaxiSource: addon runway mismatch icao="
+                        .. tostring(icao)
+                        .. " dep="
+                        .. tostring(comp._runwayName)
+                )
+                if force_global_source(comp, icao, mode, "addon-runway-mismatch", log_taxi) then
+                    return
+                end
+            end
         end
         if not dep_rwy then
             dep_rwy, dep_side = U.find_nearest_runway_entry_by_latlon(data, runway_lat, runway_lon)
