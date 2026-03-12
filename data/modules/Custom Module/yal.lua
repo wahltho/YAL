@@ -3844,16 +3844,43 @@ end
 
 function P.getTaxiPushbackDecisionState(requiredDiff, notRequiredDiff)
     local info = P.getTaxiPushbackDecision and P.getTaxiPushbackDecision() or nil
-    local diff = info and info.diff
-    if not diff then
+    local diff = info and (tonumber(info.diff) or tonumber(info.join_diff) or tonumber(info.route_diff))
+    if not info or not diff then
         return nil, nil, info
     end
     local req = tonumber(requiredDiff) or 120
     local no = tonumber(notRequiredDiff) or 70
+    local join_sector = info.join_sector
+    local join_dist = tonumber(info.join_dist)
+    local route_diff = tonumber(info.route_diff) or diff
+    local join_diff = tonumber(info.join_diff) or diff
+    local ramp_along = tonumber(info.ramp_link_along)
+    local ramp_cross = tonumber(info.ramp_link_cross)
+    if ramp_cross ~= nil then
+        ramp_cross = math.abs(ramp_cross)
+    end
+    if info.requires_reverse == true then
+        return "required", diff, info
+    end
+    if ramp_along ~= nil and ramp_cross ~= nil and ramp_along <= -8 and ramp_cross <= 35 then
+        return "required", diff, info
+    end
+    if join_sector == "rear" and join_dist and join_dist > 6 and join_diff >= math.max(100, no + 20) then
+        return "required", diff, info
+    end
+    if info.forward_roll_ok == true then
+        if (join_sector == nil or join_sector == "front" or (join_sector == "side" and join_dist and join_dist <= 8))
+            and route_diff <= math.max(no, 85) then
+            return "not_required", diff, info
+        end
+    end
+    if ramp_along ~= nil and ramp_cross ~= nil and ramp_along >= 0 and ramp_cross <= 20 and diff <= no then
+        return "not_required", diff, info
+    end
     if diff >= req then
         return "required", diff, info
     end
-    if diff <= no then
+    if diff <= no and join_sector == "front" and (not join_dist or join_dist <= 25) then
         return "not_required", diff, info
     end
     return "unknown", diff, info

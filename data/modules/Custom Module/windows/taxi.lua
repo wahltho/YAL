@@ -11294,6 +11294,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
         local data = comp._route and comp._route.data or nil
         local n1 = nil
         local n2 = nil
+        local target_label = nil
         if path and data and #path >= 2 then
             for i = 1, #path - 1 do
                 local a = data.nodes and data.nodes[path[i]] or nil
@@ -11311,6 +11312,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                     if dx ~= 0 or dy ~= 0 then
                         n1 = a
                         n2 = b
+                        target_label = raw_label or ""
                         break
                     end
                 end
@@ -11331,6 +11333,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                     if a and b and a.east and a.north and b.east and b.north then
                         n1 = a
                         n2 = b
+                        target_label = proj.edge.label or ""
                     end
                 end
             end
@@ -11349,9 +11352,43 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
         end
         local join_heading = nil
         local join_dist = nil
+        local join_east = nil
+        local join_north = nil
+        local join_relative = nil
+        local join_diff = nil
+        local join_sector = nil
+        local route_diff = nil
+        local forward_roll_ok = nil
+        local requires_reverse = nil
+        local start_ramp = comp._startRamp
+        local ramp_heading = tonumber(start_ramp and start_ramp.heading) or nil
+        local ramp_link_along = tonumber(start_ramp and start_ramp.link_along) or nil
+        local ramp_link_cross = tonumber(start_ramp and start_ramp.link_cross) or nil
+        if ramp_link_cross ~= nil then
+            ramp_link_cross = math.abs(ramp_link_cross)
+        end
+        local ramp_link_mode = start_ramp and start_ramp.link_mode or nil
+        local ramp_link_dist = tonumber(start_ramp and start_ramp.link_distance_m) or nil
+        local ramp_link_label = start_ramp and start_ramp.link_edge_label or nil
+        local release_m = ((C and C.pushbackReleaseMeters) or 5)
         if comp._aircraftPoint and comp._aircraftPoint.east and comp._aircraftPoint.north then
-            local jdx = n1.east - comp._aircraftPoint.east
-            local jdy = n1.north - comp._aircraftPoint.north
+            local px, py = project_point_to_segment(
+                comp._aircraftPoint.east,
+                comp._aircraftPoint.north,
+                n1.east,
+                n1.north,
+                n2.east,
+                n2.north
+            )
+            if px ~= nil and py ~= nil then
+                join_east = px
+                join_north = py
+            else
+                join_east = n1.east
+                join_north = n1.north
+            end
+            local jdx = join_east - comp._aircraftPoint.east
+            local jdy = join_north - comp._aircraftPoint.north
             if jdx ~= 0 or jdy ~= 0 then
                 join_dist = math.sqrt(jdx * jdx + jdy * jdy)
                 join_heading = math.deg(math.atan2(jdx, jdy))
@@ -11372,7 +11409,57 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
             ac_heading = get(yal.groundtrackmag)
         end
         if ac_heading == nil then
-            return { heading = heading }
+            return {
+                heading = heading,
+                route_heading = heading,
+                join_heading = join_heading,
+                join_dist = join_dist,
+                join_east = join_east,
+                join_north = join_north,
+                label = target_label,
+                ramp_heading = ramp_heading,
+                ramp_link_along = ramp_link_along,
+                ramp_link_cross = ramp_link_cross,
+                ramp_link_mode = ramp_link_mode,
+                ramp_link_dist = ramp_link_dist,
+                ramp_link_label = ramp_link_label
+            }
+        end
+        route_diff = math.abs(((heading - ac_heading + 540) % 360) - 180)
+        if join_heading ~= nil then
+            join_relative = ((join_heading - ac_heading + 540) % 360) - 180
+            join_diff = math.abs(join_relative)
+            if join_diff <= 75 then
+                join_sector = "front"
+            elseif join_diff >= 115 then
+                join_sector = "rear"
+            else
+                join_sector = "side"
+            end
+        end
+        local ramp_forward = nil
+        if ramp_link_along ~= nil and ramp_link_cross ~= nil then
+            if ramp_link_along <= -6 and ramp_link_cross <= 35 then
+                ramp_forward = false
+            elseif ramp_link_along >= -2 and ramp_link_cross <= 25 then
+                ramp_forward = true
+            end
+        end
+        if join_sector == "rear" and join_dist and join_dist > (release_m + 1) then
+            requires_reverse = true
+        elseif ramp_forward == false then
+            requires_reverse = true
+        end
+        if requires_reverse ~= true then
+            if ramp_forward == true and (join_sector == nil or join_sector ~= "rear") and route_diff <= 110 then
+                forward_roll_ok = true
+            elseif join_sector == "front" and (not join_dist or join_dist <= 30) and route_diff <= 95 then
+                forward_roll_ok = true
+            else
+                forward_roll_ok = false
+            end
+        else
+            forward_roll_ok = false
         end
         local diff = math.abs(((heading_use - ac_heading + 540) % 360) - 180)
         return {
@@ -11380,8 +11467,23 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
             route_heading = heading,
             join_heading = join_heading,
             join_dist = join_dist,
+            join_east = join_east,
+            join_north = join_north,
+            join_relative = join_relative,
+            join_diff = join_diff,
+            join_sector = join_sector,
+            route_diff = route_diff,
             aircraft = ac_heading,
-            diff = diff
+            diff = diff,
+            label = target_label,
+            ramp_heading = ramp_heading,
+            ramp_link_along = ramp_link_along,
+            ramp_link_cross = ramp_link_cross,
+            ramp_link_mode = ramp_link_mode,
+            ramp_link_dist = ramp_link_dist,
+            ramp_link_label = ramp_link_label,
+            requires_reverse = requires_reverse,
+            forward_roll_ok = forward_roll_ok
         }
     end
 
