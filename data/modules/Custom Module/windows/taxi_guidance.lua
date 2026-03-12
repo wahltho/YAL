@@ -670,7 +670,9 @@ function M.attach(U, C, def, helpers, settings)
                 else
                     comp._gateGuidanceActive = false
                 end
-                if offRunway ~= false and gate_ref_dist and gate_ref_dist <= gate_keep then
+                local gate_route_suppress_limit = math.max(12, gate_radius * 0.35)
+                if offRunway ~= false and gate_ref_dist
+                    and gate_ref_dist <= gate_route_suppress_limit then
                     gate_route_suppress = true
                 end
 
@@ -1397,6 +1399,22 @@ function M.attach(U, C, def, helpers, settings)
                 text = "Taxi to " .. tostring(gate_label),
                 direction = "straight",
                 action = "TAXI TO",
+                label = gate_label,
+                display = gate_label,
+                kind = "ramp",
+                targetSegIdx = seg_idx
+            }
+        end
+
+        local function build_guidance_for_gate_turn(seg_idx, label, turn_dir)
+            local gate_label = label
+            if not gate_label or gate_label == "" then
+                gate_label = "Gate"
+            end
+            return {
+                text = "Turn " .. turn_dir .. " to " .. tostring(gate_label),
+                direction = turn_dir,
+                action = (turn_dir == "left") and "TURN LEFT" or "TURN RIGHT",
                 label = gate_label,
                 display = gate_label,
                 kind = "ramp",
@@ -2169,7 +2187,11 @@ function M.attach(U, C, def, helpers, settings)
                             end
                         end
                     else
-                        next_info = build_guidance_for_gate(seg_idx, next_display)
+                        if turn_dir and turn_dir ~= "straight" and allow_turn then
+                            next_info = build_guidance_for_gate_turn(seg_idx, next_display, turn_dir)
+                        else
+                            next_info = build_guidance_for_gate(seg_idx, next_display)
+                        end
                     end
                 else
                     if comp._lastGuidanceAction then

@@ -287,6 +287,13 @@ function M.attach(U, C, def, helpers)
         if ramp_label == "" then
             ramp_label = "Ramp"
         end
+        if action ~= "STOP" then
+            if direction == "left" or direction == "right" then
+                text = "Turn " .. direction .. " to " .. tostring(ramp_label)
+            else
+                text = "Taxi to " .. tostring(ramp_label)
+            end
+        end
         local hold_dist = tuning.gatePopupHoldDist or (C and C.gatePopupHoldDist) or 30
         local display_dist = dist
         if type(display_dist) == "number" then
