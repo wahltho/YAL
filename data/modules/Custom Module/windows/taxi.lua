@@ -8708,6 +8708,34 @@ local function updateTaxiState(comp, map)
                             and (st.heading_diff <= hdg_limit)
                     end
                 end
+                if (not onRunway) and (not nearRunwayEntry) and comp._route and comp._route.path and comp._route.data
+                    and comp._route.data.nodes and #comp._route.path >= 3 then
+                    local path = comp._route.path
+                    local data = comp._route.data
+                    local dep_runway = U.normalize_runway_name(comp._runwayName or "")
+                    local final_idx = #path - 1
+                    for i = final_idx, math.max(1, final_idx - 6), -1 do
+                        local node = data.nodes[path[i + 1]]
+                        local node_label = tostring(node and node.label or "")
+                        local pair = U.normalize_runway_pair_label(node_label)
+                        if dep_runway ~= "" and pair ~= "" then
+                            local a, b = pair:match("^([^/]+)/([^/]+)$")
+                            if a == dep_runway or b == dep_runway then
+                                local prev = data.nodes[path[i]]
+                                local hold = node
+                                if prev and hold and prev.east and prev.north and hold.east and hold.north then
+                                    local dist_hold = math.sqrt(distance_sq(aircraft.east, aircraft.north, hold.east, hold.north))
+                                    local dist_prev = math.sqrt(distance_sq(aircraft.east, aircraft.north, prev.east, prev.north))
+                                    if dist_hold <= math.max(90, (C.depThresholdGateMeters or 45) * 2.5)
+                                        and dist_prev <= math.max(120, (C.depThresholdGateMeters or 45) * 3.0) then
+                                        nearRunwayEntry = true
+                                        break
+                                    end
+                                end
+                            end
+                        end
+                    end
+                end
                 if onRunway or nearRunwayEntry then
                     local gs = yal and yal.groundspeed and (get(yal.groundspeed) or 0) or 0
                     local takeoff_roll = gs >= ((C and C.depTakeoffLatchSpeed) or 25)

@@ -2558,6 +2558,7 @@ function M.attach(U, C, def, helpers, settings)
         if not path or not data or not data.nodes or not data.runway_nodes or #path < 2 then
             return nil
         end
+        local dep_runway = normalize_runway_name(dep_profile.runway_name or dep_profile.name or "")
         local ax = aircraft and aircraft.east or nil
         local ay = aircraft and aircraft.north or nil
         local best_i = nil
@@ -2568,6 +2569,21 @@ function M.attach(U, C, def, helpers, settings)
             local is1 = data.runway_nodes[id1] and true or false
             local is2 = data.runway_nodes[id2] and true or false
             if is1 ~= is2 then
+                local edge_label = get_edge_label(data, id1, id2)
+                local edge_runway = normalize_runway_name(edge_label or "")
+                local edge_pair = normalize_runway_pair_label(edge_label or "")
+                local matches_dep = false
+                if dep_runway ~= "" then
+                    if edge_runway == dep_runway then
+                        matches_dep = true
+                    elseif edge_pair ~= "" then
+                        local a, b = edge_pair:match("^([^/]+)/([^/]+)$")
+                        matches_dep = (a == dep_runway) or (b == dep_runway)
+                    end
+                end
+                if not matches_dep then
+                    goto continue
+                end
                 local n1 = data.nodes[id1]
                 local n2 = data.nodes[id2]
                 if n1 and n2 and n1.east and n1.north and n2.east and n2.north then
@@ -2585,9 +2601,52 @@ function M.attach(U, C, def, helpers, settings)
                     end
                 end
             end
+            ::continue::
         end
         if not best_i then
-            return nil
+            local final_idx = #path - 1
+            local hs_idx = nil
+            for i = final_idx, math.max(1, final_idx - 6), -1 do
+                local label = tostring(data.nodes[path[i + 1]] and data.nodes[path[i + 1]].label or "")
+                local hold = normalize_runway_pair_label(label)
+                if dep_runway ~= "" and hold ~= "" then
+                    local a, b = hold:match("^([^/]+)/([^/]+)$")
+                    if a == dep_runway or b == dep_runway then
+                        hs_idx = i
+                        break
+                    end
+                end
+            end
+            if not hs_idx then
+                return nil
+            end
+            local from_id = path[math.max(1, hs_idx - 1)]
+            local via_id = path[hs_idx]
+            local hold_id = path[hs_idx + 1]
+            local n0 = data.nodes[from_id]
+            local n1 = data.nodes[via_id]
+            local n2 = data.nodes[hold_id]
+            if not (n0 and n1 and n2 and n0.east and n0.north and n1.east and n1.north and n2.east and n2.north) then
+                return nil
+            end
+            local v1x = n1.east - n0.east
+            local v1y = n1.north - n0.north
+            local v2x = n2.east - n1.east
+            local v2y = n2.north - n1.north
+            local len1 = math.sqrt(v1x * v1x + v1y * v1y)
+            local len2 = math.sqrt(v2x * v2x + v2y * v2y)
+            if len1 <= 0.1 or len2 <= 0.1 then
+                return nil
+            end
+            local dot = (v1x * v2x + v1y * v2y) / (len1 * len2)
+            if dot > 1 then dot = 1 end
+            if dot < -1 then dot = -1 end
+            local angle = math.deg(math.acos(dot))
+            if angle < math.max(15, (C and C.guidanceTurnAngle) or 15) then
+                return nil
+            end
+            local cross = v1x * v2y - v1y * v2x
+            return (cross >= 0) and "left" or "right"
         end
         local id1 = path[best_i]
         local id2 = path[best_i + 1]
