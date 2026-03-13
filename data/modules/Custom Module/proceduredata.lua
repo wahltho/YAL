@@ -744,10 +744,15 @@ local function buildSetIlsPlan(loop)
     end
 
     local mmrInstalled = (get(P.mmrinstalled) == def.ON)
+    local lpvInstalled = (get(P.lpvinstalled) == def.ON)
+    local lpvCapable = mmrInstalled and lpvInstalled
     local navType = plan.navType
     local isLP = plan.isLP
     local channelValue = navdata[def.DESTFREQ]
     local localizerFreq = navdata[def.DESTFREQ]
+    plan.needsLpvInstallWarning = mmrInstalled and (channelValue ~= nil)
+        and (isLP or navType == def.NAVTYPELPV or navType == def.NAVTYPEGLS)
+        and (not lpvInstalled)
 
     local function dmeTune()
         local dmeInfo = getSetIlsApproachDME(loop, navdata)
@@ -764,7 +769,7 @@ local function buildSetIlsPlan(loop)
     end
 
     if isLP then
-        if mmrInstalled and channelValue then
+        if lpvCapable and channelValue then
             plan.captTune = { type = "mmr", value = channelValue, mode = def.MMRLPV }
         end
         plan.foTune = dmeTune()
@@ -778,12 +783,12 @@ local function buildSetIlsPlan(loop)
             end
         end
     elseif navType == def.NAVTYPEGLS then
-        if mmrInstalled and channelValue then
+        if lpvCapable and channelValue then
             plan.captTune = { type = "mmr", value = channelValue, mode = def.MMRGLS }
             plan.foTune = { type = "mmr", value = channelValue, mode = def.MMRGLS }
         end
     elseif navType == def.NAVTYPELPV then
-        if mmrInstalled and channelValue then
+        if lpvCapable and channelValue then
             plan.captTune = { type = "mmr", value = channelValue, mode = def.MMRLPV }
         end
         plan.foTune = dmeTune()
@@ -896,6 +901,14 @@ local function maybeWarnSetIlsNoFoDme(loop)
     end
     P.commandtableentry(def.TEXT, "No suitable D M E found for Copilot")
     loop.noFODmeWarned = true
+end
+
+local function maybeWarnSetIlsNoLpvInstall(loop, plan)
+    if not loop or loop.noLPVInstallWarned or not plan or not plan.needsLpvInstallWarning then
+        return
+    end
+    P.commandtableentry(def.TEXT, "L P V / G L S option not installed")
+    loop.noLPVInstallWarned = true
 end
 
 local function checkSetIlsCaptainTune(tune)
@@ -5789,6 +5802,7 @@ function M.fillProcedureTable()
                 ['set_capt_freq'] = {
                     skipIf = function(loop, procData)
                         local plan = buildSetIlsPlan(loop)
+                        maybeWarnSetIlsNoLpvInstall(loop, plan)
                         return (plan.captTune == nil)
                     end,
                     check = function(loop, procData)
