@@ -1024,6 +1024,37 @@ function M.attach(U, C, def, helpers, settings)
             return normalize_runway_name(resolve_runway_label(label))
         end
 
+        local function dep_direct_entry_context(seg_idx)
+            if not comp or comp.mode ~= 0 or not path or #path < 2 then
+                return false
+            end
+            local from_seg = math.max(1, tonumber(seg_idx) or 1)
+            local path_len = #path
+            local saw_dep_runway = false
+            for i = from_seg, path_len - 1 do
+                local lbl = get_edge_label(data, path[i], path[i + 1]) or ""
+                if lbl ~= "" then
+                    if is_runway_label(lbl) and label_matches_dep(lbl) then
+                        saw_dep_runway = true
+                    elseif saw_dep_runway and lbl ~= "RAMP" and (not is_runway_label(lbl)) then
+                        if i < (path_len - 2) then
+                            return false
+                        end
+                    end
+                end
+            end
+            if saw_dep_runway then
+                return true
+            end
+            return from_seg >= math.max(1, path_len - 3)
+        end
+
+        local function dep_same_runway_preentry(seg_idx, label)
+            return comp.mode == 0
+                and label_matches_dep(label)
+                and (not dep_direct_entry_context(seg_idx))
+        end
+
         local function guidance_label_info(from_id, to_id, fallback_label, ramp_hint, allow_missing)
             local raw_label = get_edge_label(data, from_id, to_id)
             if (not raw_label or raw_label == "") and is_freehand then
@@ -2010,37 +2041,45 @@ function M.attach(U, C, def, helpers, settings)
             end
         end
 
-        if raw_label and next_raw_label and raw_label ~= "" and next_raw_label ~= "" then
-            local raw_rwy = is_runway_label(raw_label)
-            local next_rwy = is_runway_label(next_raw_label)
-            if raw_rwy ~= next_rwy then
-                if raw_rwy and not next_rwy then
-                    local skip_exit = false
-                    if comp._lastGuidanceAction == "CROSS RWY" then
-                        local last_label = comp._lastGuidanceLabel or ""
-                        local raw_disp = normalize_runway_name(raw_label)
-                        if raw_disp ~= "" and last_label == raw_disp then
+            if raw_label and next_raw_label and raw_label ~= "" and next_raw_label ~= "" then
+                local raw_rwy = is_runway_label(raw_label)
+                local next_rwy = is_runway_label(next_raw_label)
+                if raw_rwy ~= next_rwy then
+                    if raw_rwy and not next_rwy then
+                        if dep_same_runway_preentry(seg_idx, raw_label) then
+                            next_info = build_guidance_for_runway_continue(seg_idx, raw_label)
+                        else
+                        local skip_exit = false
+                        if comp._lastGuidanceAction == "CROSS RWY" then
+                            local last_label = comp._lastGuidanceLabel or ""
+                            local raw_disp = normalize_runway_name(raw_label)
+                            if raw_disp ~= "" and last_label == raw_disp then
                             skip_exit = true
                         end
                     end
                     local exit_dir = turn_dir
-                    if not allow_turn then
-                        exit_dir = nil
+                        if not allow_turn then
+                            exit_dir = nil
+                        end
+                        if not skip_exit then
+                            next_info = build_guidance_for_exit(seg_idx, raw_label, exit_dir or "straight")
+                        end
+                        end
+                    elseif not raw_rwy and next_rwy then
+                        local entry_dir = turn_dir
+                        if not allow_turn then
+                            entry_dir = nil
+                        end
+                        if dep_same_runway_preentry(seg_idx, next_raw_label) then
+                            next_info = build_guidance_for_crossing_warning(seg_idx, next_raw_label)
+                        else
+                            next_info = build_guidance_for_entry(seg_idx, next_raw_label, entry_dir)
+                        end
                     end
-                    if not skip_exit then
-                        next_info = build_guidance_for_exit(seg_idx, raw_label, exit_dir or "straight")
-                    end
-                elseif not raw_rwy and next_rwy then
-                    local entry_dir = turn_dir
-                    if not allow_turn then
-                        entry_dir = nil
-                    end
-                    next_info = build_guidance_for_entry(seg_idx, next_raw_label, entry_dir)
-                end
             elseif raw_rwy and next_rwy and raw_label == next_raw_label then
                 next_info = build_guidance_for_runway_continue(seg_idx, raw_label)
             elseif raw_rwy and next_rwy and raw_label ~= next_raw_label then
-                if comp.mode == 0 and label_matches_dep(next_raw_label) and not comp._depRunwayEntryAnnounced then
+                if comp.mode == 0 and label_matches_dep(next_raw_label) and not comp._depRunwayEntryAnnounced and dep_direct_entry_context(seg_idx) then
                     local dep_turn = turn_dir
                     if not allow_turn then
                         dep_turn = nil
@@ -2069,7 +2108,7 @@ function M.attach(U, C, def, helpers, settings)
                 if not on_profile then
                     local _, cross_label = U.find_runway_crossing(data, n1, n2)
                     if cross_label and cross_label ~= "" then
-                        if not (comp.mode == 0 and label_matches_dep(cross_label) and not comp._depRunwayEntryAnnounced) then
+                        if not (comp.mode == 0 and label_matches_dep(cross_label) and not comp._depRunwayEntryAnnounced and dep_direct_entry_context(seg_idx)) then
                             next_info = build_guidance_for_crossing_warning(seg_idx, cross_label)
                         end
                     end
@@ -2086,7 +2125,7 @@ function M.attach(U, C, def, helpers, settings)
             if not on_profile then
                 local _, ahead_cross_label = U.find_runway_crossing(data, n2, n3)
                 if ahead_cross_label and ahead_cross_label ~= "" then
-                    if not (comp.mode == 0 and label_matches_dep(ahead_cross_label) and not comp._depRunwayEntryAnnounced) then
+                    if not (comp.mode == 0 and label_matches_dep(ahead_cross_label) and not comp._depRunwayEntryAnnounced and dep_direct_entry_context(seg_idx + 1)) then
                         next_info = build_guidance_for_crossing_warning(seg_idx + 1, ahead_cross_label)
                     end
                 end
