@@ -3302,6 +3302,21 @@ local function arrival_grace_active(comp, now)
     return t0 ~= nil and (now - t0) < C.qualityArrGraceSec
 end
 
+local function manual_end_ramp_retarget_hold_active(comp, now)
+    if not comp or comp.mode ~= 1 or not comp._selectedEndRampKey then
+        return false
+    end
+    local hold_until = comp._manualEndRampRetargetUntil
+    if not hold_until or not now then
+        return false
+    end
+    if now > hold_until then
+        comp._manualEndRampRetargetUntil = nil
+        return false
+    end
+    return true
+end
+
 local function after_landing_started(comp)
     local yal = comp and (comp.yal or _G.yal) or nil
     if not yal then
@@ -6959,6 +6974,7 @@ local function updateTaxiState(comp, map)
         and (not in_edit) and (not comp._drawRoute) and (not comp._manualRouteActive))
     local recompute_reason = nil
     local suppress_edit_recompute = false
+    local manual_end_ramp_hold = manual_end_ramp_retarget_hold_active(comp, now)
     if comp._editDirty and in_edit and (not comp._drawRoute) and (not comp._wpDrag)
         and (not comp._manualRouteActive)
         and (not has_start_override) and (not has_end_override)
@@ -6975,6 +6991,9 @@ local function updateTaxiState(comp, map)
         end
     elseif comp._lastStartKey ~= start_key or comp._lastEndKey ~= end_key then
         if comp._manualRouteActive and (not in_edit) and (not comp._drawRoute) and comp._route then
+            comp._lastStartKey = start_key
+            comp._lastEndKey = end_key
+        elseif mode == 1 and manual_end_ramp_hold and comp._route and (not in_edit) and (not comp._drawRoute) then
             comp._lastStartKey = start_key
             comp._lastEndKey = end_key
         elseif not (
@@ -7865,7 +7884,8 @@ local function updateTaxiState(comp, map)
             end
             if route and mode == 1 and landing_profile and data and arr_exit_id
                 and (not comp._drawFreehand) and (not comp._manualRouteActive)
-                and (not backtrack_required) then
+                and (not backtrack_required)
+                and (not manual_end_ramp_retarget_hold_active(comp, now)) then
                 local angle = route_first_taxi_angle(route, data, landing_profile)
                 if angle and angle > 120 then
                     local ref = landing_profile.touchdown
@@ -8517,6 +8537,9 @@ local function updateTaxiState(comp, map)
                         if dist and dist <= (driftMeters * 3) and gs < 25 then
                             skipReroute = true
                         end
+                    end
+                    if manual_end_ramp_hold and dist and dist <= (driftMeters * 3) then
+                        skipReroute = true
                     end
                 end
                 if mode == 0 and dist and dist <= driftMeters and (not skipReroute)
@@ -10409,6 +10432,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                 if comp._selectedEndRampKey == best.key then
                     comp._selectedEndRampKey = nil
                     comp._autoEndRampKey = nil
+                    comp._manualEndRampRetargetUntil = nil
                     log_taxi("TaxiEdit: end-ramp cleared")
                 else
                     comp._selectedEndRampKey = best.key
@@ -10416,6 +10440,13 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                     log_taxi("TaxiEdit: end-ramp selected key=" .. tostring(best.key))
                     if comp.mode == 1 and comp._data then
                         reroute_from_current_aircraft(comp, comp._data, "end-ramp-manual", true, log_taxi)
+                        local now = comp._timer and (sasl.getElapsedSeconds(comp._timer) or 0) or nil
+                        if now then
+                            local gate_cooldown = (comp._tuning and comp._tuning.autoGateSwitchCooldownSec) or 10.0
+                            local hold = math.max(gate_cooldown * 2, ((C and C.rerouteCooldown) or 6) * 3)
+                            comp._manualEndRampRetargetUntil = now + hold
+                            comp._rerouteOverrideHoldUntil = now + hold
+                        end
                     end
                 end
                 comp._lastEndKey = nil
