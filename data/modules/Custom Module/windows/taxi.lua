@@ -4556,7 +4556,7 @@ U.reset_gate_callouts = function(comp, key)
     comp._gateCalloutStop = false
 end
 
-U.maybe_gate_voice_callouts = function(comp, dist, allow_voice, use_dgs)
+U.maybe_gate_voice_callouts = function(comp, dist, allow_voice, use_dgs, allow_stop)
     if not comp or not dist then
         return
     end
@@ -4565,6 +4565,9 @@ U.maybe_gate_voice_callouts = function(comp, dist, allow_voice, use_dgs)
     end
     local stop_dist = use_dgs and ((C and C.gateDgsGoodZPos) or 0.2) or C.gateStopDistance
     if dist <= stop_dist then
+        if allow_stop == false then
+            return
+        end
         if not comp._gateCalloutStop then
             speak_guidance_text(comp, "Stop")
             comp._gateCalloutStop = true

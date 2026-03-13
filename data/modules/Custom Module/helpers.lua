@@ -7017,6 +7017,30 @@ local function parse_taxi_data(entry)
             if prefer_local_gate_link then
                 choice = best_nearest_nonrunway or best
                 mode = "gate-nearest-nonrunway"
+                if choice and dir_e then
+                    local choice_bad = false
+                    local choice_dist = math.sqrt(choice.d2 or 0)
+                    if choice_dist > 60 then
+                        choice_bad = true
+                    end
+                    if choice.along ~= nil and choice.along < -20 then
+                        choice_bad = true
+                    end
+                    if choice.cross ~= nil and choice.cross > 18 then
+                        choice_bad = true
+                    end
+                    local better = best_heading or best_forward or best
+                    if choice_bad and better and better ~= choice then
+                        choice = better
+                        if better == best_heading then
+                            mode = "gate-heading"
+                        elseif better == best_forward then
+                            mode = "gate-forward"
+                        else
+                            mode = "gate-scored"
+                        end
+                    end
+                end
             else
                 choice = best_heading
                 mode = "heading"

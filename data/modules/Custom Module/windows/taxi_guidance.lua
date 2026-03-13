@@ -660,6 +660,7 @@ function M.attach(U, C, def, helpers, settings)
                 local gate_entry_speed = math.max(3, math.min(gate_speed, gate_speed * 0.6))
                 local gate_radius = (comp._tuning and comp._tuning.gateGuidanceRadius) or (C and C.gateGuidanceRadius) or 60
                 local gate_keep = gate_radius * 1.6
+                local near_final_gate_segment = false
                 if gs > gate_speed and comp._gateGuidanceActive then
                     comp._gateGuidanceActive = false
                 end
@@ -686,9 +687,17 @@ function M.attach(U, C, def, helpers, settings)
                 end
                 comp._gateActivationDist = gate_ref_dist
                 comp._gateCalloutDist = gate_dist
+                if route and route.path and route.data and #route.path > 1 then
+                    local gate_seg = find_nearest_segment(route.data, route.path, aircraft.east, aircraft.north)
+                    if gate_seg and ((#route.path - gate_seg) <= 3) then
+                        near_final_gate_segment = true
+                    end
+                end
 
                 if gate_ok and gs > gate_entry_speed and (not comp._gateGuidanceActive) then
-                    if not (gate_ref_dist and gate_ref_dist <= gate_radius) then
+                    if near_final_gate_segment then
+                        gate_reason = "final-ramp-segment"
+                    elseif not (gate_ref_dist and gate_ref_dist <= gate_radius) then
                         gate_ok = false
                         gate_reason = "entry-speed"
                     else
@@ -697,7 +706,12 @@ function M.attach(U, C, def, helpers, settings)
                 end
 
                 if gate_ok then
-                    if gate_ref_dist and gate_ref_dist <= gate_radius then
+                    if near_final_gate_segment and gs <= gate_speed then
+                        comp._gateGuidanceActive = true
+                        if gate_reason == "ok" then
+                            gate_reason = "final-ramp-segment"
+                        end
+                    elseif gate_ref_dist and gate_ref_dist <= gate_radius then
                         comp._gateGuidanceActive = true
                     elseif comp._gateGuidanceActive and gate_ref_dist and gate_ref_dist <= gate_keep then
                         -- keep latch
@@ -787,7 +801,7 @@ function M.attach(U, C, def, helpers, settings)
                 if offRunway ~= false and gs <= gate_speed then
                     local stop_dist = (comp._gateUseDgs and ((C and C.gateDgsGoodZPos) or 0.2)) or C.gateStopDistance
                     if gs > 0.2 or dist <= stop_dist then
-                        maybe_gate_voice_callouts(comp, dist, auto_voice, comp._gateUseDgs)
+                        maybe_gate_voice_callouts(comp, dist, auto_voice, comp._gateUseDgs, false)
                     end
                 end
             end
@@ -841,7 +855,7 @@ function M.attach(U, C, def, helpers, settings)
                     end
                     if gs > 0.2 or dist <= stop_dist then
                         if not comp._arrTaxiCompleteAnnounced then
-                            maybe_gate_voice_callouts(comp, dist, auto_voice, comp._gateUseDgs)
+                            maybe_gate_voice_callouts(comp, dist, auto_voice, comp._gateUseDgs, true)
                         end
                     end
                 end
