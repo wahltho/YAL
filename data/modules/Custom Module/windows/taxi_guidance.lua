@@ -389,6 +389,38 @@ function M.attach(U, C, def, helpers, settings)
         return false
     end
 
+    local function guidance_pushback_release_ready(comp, yal, aircraft)
+        if not comp or comp.mode ~= 0 or not yal or not aircraft then
+            return false
+        end
+        if not comp._pushbackReanchorDone then
+            return false
+        end
+        if not before_taxi_started(comp) then
+            return false
+        end
+        if aircraft.east == nil or aircraft.north == nil then
+            return false
+        end
+        local speed_thresh = (C and C.pushbackReleaseSpeed) or 1.0
+        local driftMeters = (C and C.rerouteDriftMeters) or 40
+        local gs = (yal.groundspeed and (get(yal.groundspeed) or 0)) or 0
+        local ts = (yal.tirespeed and (get(yal.tirespeed) or 0)) or 0
+        local forward = (ts >= speed_thresh) or (math.abs(ts) < 0.1 and gs >= speed_thresh)
+        if not forward then
+            return false
+        end
+        local route = comp._route
+        if not (route and (not comp._routeErr) and route.data and route.path and #route.path > 1) then
+            return false
+        end
+        local _, dist = find_nearest_segment(route.data, route.path, aircraft.east, aircraft.north)
+        if not dist then
+            return false
+        end
+        return dist <= math.max(driftMeters * 1.5, 60)
+    end
+
     local function update_visual_guidance(comp, now, aircraft)
         if not comp or not comp._visualGuidance then
             return
@@ -483,6 +515,17 @@ function M.attach(U, C, def, helpers, settings)
         local gs = (yal and yal.groundspeed and (get(yal.groundspeed) or 0)) or 0
         if comp.mode == 0 then
             local block = U.update_pushback_state and U.update_pushback_state(comp, now, yal, aircraft) or false
+            if block and (comp._guidancePushbackReleased or guidance_pushback_release_ready(comp, yal, aircraft)) then
+                if not comp._guidancePushbackReleased then
+                    comp._guidancePushbackReleased = true
+                    if log_taxi then
+                        log_taxi("TaxiGuidance: release after pushback forward join")
+                    end
+                end
+                block = false
+            elseif not block then
+                comp._guidancePushbackReleased = nil
+            end
             if block then
                 comp._initialMoveAnchor = nil
                 comp._guidanceMoveAnchor = nil

@@ -4237,6 +4237,7 @@ U.update_pushback_state = function(comp, now, yal, aircraft)
             comp._pushbackActive = false
             comp._pushbackCompleted = false
             comp._pushbackPlanSeen = false
+            comp._guidancePushbackReleased = nil
             comp._pushbackReleaseAnchor = nil
             comp._pushbackReanchorPending = nil
             comp._pushbackReanchorDone = nil
@@ -4254,6 +4255,7 @@ U.update_pushback_state = function(comp, now, yal, aircraft)
         comp._pushbackActive = false
         comp._pushbackCompleted = false
         comp._pushbackPlanSeen = false
+        comp._guidancePushbackReleased = nil
         comp._pushbackReleaseAnchor = nil
         comp._pushbackReanchorPending = nil
         comp._pushbackReanchorDone = nil
@@ -4271,6 +4273,7 @@ U.update_pushback_state = function(comp, now, yal, aircraft)
         comp._pushbackActive = true
         comp._pushbackCompleted = false
         comp._pushbackPlanSeen = planOn or comp._pushbackPlanSeen
+        comp._guidancePushbackReleased = nil
         comp._pushbackReleaseAnchor = nil
         comp._pushbackReanchorPending = false
         comp._pushbackReanchorDone = false
@@ -4309,6 +4312,7 @@ U.update_pushback_state = function(comp, now, yal, aircraft)
                         comp._pushbackActive = false
                         comp._pushbackCompleted = true
                         comp._pushbackPlanSeen = false
+                        comp._guidancePushbackReleased = nil
                         comp._pushbackReleaseAnchor = nil
                         if not comp._pushbackReanchorDone and not comp._pushbackReanchorPending then
                             comp._pushbackReanchorPending = true
@@ -4335,6 +4339,7 @@ U.update_pushback_state = function(comp, now, yal, aircraft)
         end
         comp._pushbackActive = false
         comp._pushbackCompleted = true
+        comp._guidancePushbackReleased = nil
         if not comp._pushbackReanchorDone and not comp._pushbackReanchorPending then
             comp._pushbackReanchorPending = true
             comp._pushbackReanchorTime = now or 0
@@ -4345,6 +4350,7 @@ U.update_pushback_state = function(comp, now, yal, aircraft)
     comp._pushbackActive = false
     comp._pushbackCompleted = false
     comp._pushbackPlanSeen = planOn or comp._pushbackPlanSeen
+    comp._guidancePushbackReleased = nil
     if planOn then
         if plannerOpen then
             comp._pushbackReleaseAnchor = nil
@@ -4368,6 +4374,7 @@ U.update_pushback_state = function(comp, now, yal, aircraft)
             if dist >= meters_thresh and (now - (anchor.time or now)) >= secs_thresh then
                 comp._pushbackCompleted = true
                 comp._pushbackPlanSeen = false
+                comp._guidancePushbackReleased = nil
                 comp._pushbackReleaseAnchor = nil
                 if not comp._pushbackReanchorDone then
                     comp._pushbackReanchorPending = true
@@ -9297,6 +9304,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
     comp._pushbackActive = false
     comp._pushbackCompleted = false
     comp._pushbackPlanSeen = false
+    comp._guidancePushbackReleased = nil
     comp._pushbackReleaseAnchor = nil
     comp._pushbackReanchorPending = nil
     comp._pushbackReanchorDone = nil
