@@ -393,9 +393,6 @@ function M.attach(U, C, def, helpers, settings)
         if not comp or comp.mode ~= 0 or not yal or not aircraft then
             return false
         end
-        if not comp._pushbackReanchorDone then
-            return false
-        end
         if not before_taxi_started(comp) then
             return false
         end
