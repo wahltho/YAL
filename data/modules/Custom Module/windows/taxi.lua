@@ -2822,6 +2822,12 @@ local function ramp_debug_suffix(ramp)
         return ""
     end
     local parts = {}
+    if ramp.node_id then
+        parts[#parts + 1] = "display=" .. tostring(ramp.node_id)
+    end
+    if ramp.route_anchor_node_id and ramp.route_anchor_node_id ~= ramp.node_id then
+        parts[#parts + 1] = "anchor=" .. tostring(ramp.route_anchor_node_id)
+    end
     if ramp.link_mode and ramp.link_mode ~= "" then
         parts[#parts + 1] = "mode=" .. tostring(ramp.link_mode)
     end
@@ -2844,6 +2850,21 @@ local function ramp_debug_suffix(ramp)
         return ""
     end
     return " link[" .. table.concat(parts, " ") .. "]"
+end
+
+local function ramp_route_node_id(ramp)
+    if not ramp then
+        return nil
+    end
+    return ramp.route_anchor_node_id or ramp.link_node_id or ramp.node_id
+end
+
+local function ramp_route_node(data, ramp)
+    local node_id = ramp_route_node_id(ramp)
+    if not (data and data.nodes and node_id) then
+        return nil
+    end
+    return data.nodes[node_id]
 end
 
 local function choose_departure_start_ramp(comp, data, icao, aircraft, heading_deg)
@@ -2913,7 +2934,7 @@ local function choose_departure_start_ramp(comp, data, icao, aircraft, heading_d
                     tostring(source),
                     tostring(key),
                     tostring(short_ramp_label(start_ramp)),
-                    tostring(start_ramp.node_id or ""),
+                    tostring(ramp_route_node_id(start_ramp) or ""),
                     tonumber(start_ramp_dist) or -1,
                     ramp_debug_suffix(start_ramp)
                 )
@@ -7368,22 +7389,25 @@ local function updateTaxiState(comp, map)
             end
 
             local function ramp_node_ok(ramp)
-                if not ramp or not ramp.node_id then
+                local node_id = ramp_route_node_id(ramp)
+                if not node_id then
                     return false
                 end
-                return node_has_non_runway_edge(ramp.node_id)
+                return node_has_non_runway_edge(node_id)
             end
 
             local function set_start_ramp_fallback(opts)
-                if start_ramp and start_ramp.node_id and node_has_non_runway_edge(start_ramp.node_id) then
-                    opts._fallback_start_node_id = start_ramp.node_id
+                local node_id = ramp_route_node_id(start_ramp)
+                if node_id and node_has_non_runway_edge(node_id) then
+                    opts._fallback_start_node_id = node_id
                     opts.allow_far_ramp = true
                 end
             end
 
             local function set_end_ramp_fallback(opts)
-                if user_selected_end and end_ramp and end_ramp.node_id and node_has_non_runway_edge(end_ramp.node_id) then
-                    opts._fallback_end_node_id = end_ramp.node_id
+                local node_id = ramp_route_node_id(end_ramp)
+                if user_selected_end and node_id and node_has_non_runway_edge(node_id) then
+                    opts._fallback_end_node_id = node_id
                     opts.allow_far_ramp = true
                 end
             end
@@ -7422,12 +7446,12 @@ local function updateTaxiState(comp, map)
                 opts.disallow_runway_edges = not allow_runway_route
                 opts.avoid_runway_nodes = not allow_runway_route
                 if not has_start_override and ramp_node_ok(start_ramp) then
-                    opts.start_node_id = start_ramp.node_id
+                    opts.start_node_id = ramp_route_node_id(start_ramp)
                     opts.allow_far_ramp = true
                     log_taxi(
                         string.format(
                             "TaxiRoute: start from ramp node id=%s label=%s%s",
-                            tostring(start_ramp.node_id),
+                            tostring(ramp_route_node_id(start_ramp)),
                             tostring(short_ramp_label(start_ramp)),
                             ramp_debug_suffix(start_ramp)
                         )
@@ -7447,12 +7471,12 @@ local function updateTaxiState(comp, map)
                 opts.disallow_runway_edges = (not allow_runway_route) and (not backtrack_required)
                 opts.runway_penalty = allow_runway_route and 1 or 500
                 if not has_end_override and ramp_node_ok(end_ramp) then
-                    opts.end_node_id = end_ramp.node_id
+                    opts.end_node_id = ramp_route_node_id(end_ramp)
                     opts.allow_far_ramp = true
                     log_taxi(
                         string.format(
                             "TaxiRoute: end at ramp node id=%s label=%s%s",
-                            tostring(end_ramp.node_id),
+                            tostring(ramp_route_node_id(end_ramp)),
                             tostring(short_ramp_label(end_ramp)),
                             ramp_debug_suffix(end_ramp)
                         )
@@ -9916,8 +9940,8 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
         end
         if (not comp._drawFreehand) and routeData and routeData.nodes
             and comp._endRamp and comp._endRamp.east and comp._endRamp.north then
-            local endNode = nil
-            if comp._route and comp._route.path then
+            local endNode = ramp_route_node(routeData, comp._endRamp)
+            if (not endNode) and comp._route and comp._route.path then
                 local last_id = comp._route.path[#comp._route.path]
                 endNode = routeData.nodes[last_id]
             end
@@ -9940,30 +9964,36 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                 local rtype = string.lower(ramp.ramp_type or "")
                 if rtype == "gate" and ramp.east and ramp.north then
                     if ramp._draw_link_east == nil then
-                        local proj = nil
-                        if ramp.heading ~= nil then
-                            proj = find_heading_edge_projection(
-                                comp._data,
-                                ramp.east,
-                                ramp.north,
-                                ramp.heading,
-                                { disallow_runway_edges = true, radius_m = 150, angle_deg = 60 }
-                            )
-                        end
-                        if not proj then
-                            proj = find_nearest_edge_projection(
-                                comp._data,
-                                ramp.east,
-                                ramp.north,
-                                { disallow_runway_edges = true }
-                            )
-                        end
-                        if proj and proj.edge then
-                            ramp._draw_link_east = proj.proj_east
-                            ramp._draw_link_north = proj.proj_north
+                        local anchor = ramp_route_node(comp._data, ramp)
+                        if anchor and anchor.east ~= nil and anchor.north ~= nil then
+                            ramp._draw_link_east = anchor.east
+                            ramp._draw_link_north = anchor.north
                         else
-                            ramp._draw_link_east = false
-                            ramp._draw_link_north = false
+                            local proj = nil
+                            if ramp.heading ~= nil then
+                                proj = find_heading_edge_projection(
+                                    comp._data,
+                                    ramp.east,
+                                    ramp.north,
+                                    ramp.heading,
+                                    { disallow_runway_edges = true, radius_m = 150, angle_deg = 60 }
+                                )
+                            end
+                            if not proj then
+                                proj = find_nearest_edge_projection(
+                                    comp._data,
+                                    ramp.east,
+                                    ramp.north,
+                                    { disallow_runway_edges = true }
+                                )
+                            end
+                            if proj and proj.edge then
+                                ramp._draw_link_east = proj.proj_east
+                                ramp._draw_link_north = proj.proj_north
+                            else
+                                ramp._draw_link_east = false
+                                ramp._draw_link_north = false
+                            end
                         end
                     end
                     if ramp._draw_link_east and ramp._draw_link_north then

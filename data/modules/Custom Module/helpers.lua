@@ -6170,7 +6170,7 @@ function P.writetaxidatatable()
                 for _, ramp in ipairs(data.ramps or {}) do
                     write_line(
                         string.format(
-                            "RAMP %.6f %.6f heading=%.1f type=%s size=%s op=%s name=%s node=%s",
+                            "RAMP %.6f %.6f heading=%.1f type=%s size=%s op=%s name=%s node=%s anchor=%s",
                             tonumber(ramp.lat) or 0,
                             tonumber(ramp.lon) or 0,
                             tonumber(ramp.heading) or 0,
@@ -6178,7 +6178,8 @@ function P.writetaxidatatable()
                             tostring(ramp.ramp_size or ""),
                             tostring(ramp.ramp_operation or ""),
                             tostring(ramp.name or ""),
-                            tostring(ramp.node_id or "")
+                            tostring(ramp.node_id or ""),
+                            tostring(ramp.route_anchor_node_id or "")
                         )
                     )
                 end
@@ -7134,6 +7135,7 @@ local function parse_taxi_data(entry)
                 ramp.link_mode = nil
                 ramp.link_along = nil
                 ramp.link_cross = nil
+                ramp.route_anchor_node_id = nil
                 local rid = next_id
                 next_id = next_id + 1
                 nodes_tbl[rid] = {
@@ -7166,6 +7168,7 @@ local function parse_taxi_data(entry)
                         ramp.link_mode = best_edge.mode or "edge"
                         ramp.link_along = best_edge.along
                         ramp.link_cross = best_edge.cross
+                        ramp.route_anchor_node_id = proj_id
                         linked = true
                     end
                 end
@@ -7219,7 +7222,11 @@ local function parse_taxi_data(entry)
                         else
                             ramp.link_mode = "nearest-node"
                         end
+                        ramp.route_anchor_node_id = link_id
                     end
+                end
+                if not ramp.route_anchor_node_id then
+                    ramp.route_anchor_node_id = rid
                 end
             end
         end
