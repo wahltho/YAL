@@ -4125,6 +4125,47 @@ local my_command_togglefds = sasl.createCommand(def.APPNAMEPREFIX .. "/togglefds
 sasl.registerCommandHandler(my_command_togglefds, 0, P.togglefds_)
 
 --------------------------------------------------------------------------------------------------------------
+function P.togglebothefbs(state)
+
+    local cptHidden = (get(P.hidecptefb) == def.EFBHIDDEN)
+    local foHidden = (get(P.hidefoefb) == def.EFBHIDDEN)
+
+    if (state == nil) then
+        if cptHidden and foHidden then
+            state = def.ON
+        else
+            state = def.OFF
+        end
+    end
+
+    if (state == def.OFF) then
+        if not cptHidden then
+            helpers.command_once("laminar/B738/tab/toggle")
+        end
+        if not foHidden then
+            helpers.command_once("laminar/B738/tab/fo_toggle")
+        end
+    elseif (state == def.ON) then
+        if cptHidden then
+            helpers.command_once("laminar/B738/tab/toggle")
+        end
+        if foHidden then
+            helpers.command_once("laminar/B738/tab/fo_toggle")
+        end
+    end
+end
+
+function P.togglebothefbs_(phase)
+    if phase == SASL_COMMAND_BEGIN then
+        P.togglebothefbs(nil)
+    end
+    return 0
+end
+
+local my_command_togglebothefbs = sasl.createCommand(def.APPNAMEPREFIX .. "/togglebothefbs", "Toggle Both EFBs")
+sasl.registerCommandHandler(my_command_togglebothefbs, 0, P.togglebothefbs_)
+
+--------------------------------------------------------------------------------------------------------------
 function P.togglewx(state)
 
     if (state == nil) then
