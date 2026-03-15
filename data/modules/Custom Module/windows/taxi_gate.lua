@@ -112,6 +112,39 @@ function M.attach(U, C, def, helpers)
         }
     end
 
+    local function trusted_ramp_dgs(ramp, aircraft, fallback_dist, radius)
+        local dgs = ramp_dgs_values(ramp, aircraft)
+        if not dgs then
+            return nil
+        end
+        if fallback_dist and fallback_dist > radius then
+            return nil
+        end
+        if fallback_dist ~= nil and dgs.nw_z ~= nil then
+            local good_x = dgs.dgs_good_x or ((C and C.gateDgsGoodX) or 2.0)
+            local good_z_pos = dgs.dgs_good_z_pos or ((C and C.gateDgsGoodZPos) or 0.2)
+            local good_z_neg = dgs.dgs_good_z_neg or ((C and C.gateDgsGoodZNeg) or -0.5)
+            local locgood = (math.abs(dgs.mw_x or 0) <= good_x)
+                and dgs.nw_z >= good_z_neg
+                and dgs.nw_z <= good_z_pos
+            local dgs_dist = 0
+            if locgood or dgs.nw_z < good_z_neg then
+                dgs_dist = 0
+            else
+                dgs_dist = math.max(0, dgs.nw_z)
+            end
+            local blend_limit = 30
+            local max_diff = 15
+            if fallback_dist > blend_limit then
+                return nil
+            end
+            if math.abs(fallback_dist - dgs_dist) > max_diff then
+                return nil
+            end
+        end
+        return dgs
+    end
+
     local function select_best_ramp_for_aircraft(data, aircraft, opts)
         if not data or not data.ramps or not aircraft or aircraft.east == nil or aircraft.north == nil then
             return nil, nil
@@ -172,14 +205,12 @@ function M.attach(U, C, def, helpers)
         local ramp = comp._endRamp
         local local_x, local_z, ramp_hdg, fallback_dist = ramp_frame_values(ramp, aircraft)
         local dgs = ramp_dgs_values(ramp, aircraft)
+        dgs = trusted_ramp_dgs(ramp, aircraft, fallback_dist, radius)
         local direction = "straight"
         local action = "ALIGN"
         local text = "Continue straight"
         local dist = nil
         if dgs then
-            if fallback_dist and fallback_dist > radius then
-                return nil
-            end
             local cap_a = (C and C.gateDgsCapA) or 15
             local cap_z = (C and C.gateDgsCapZ) or 105
             local azi_a = (C and C.gateDgsAziA) or 15
@@ -329,10 +360,7 @@ function M.attach(U, C, def, helpers)
             local ramp = comp._endRamp
             local local_x, local_z, ramp_hdg, fallback_dist = ramp_frame_values(ramp, aircraft)
             local radius = (C and C.gateGuidanceRadius) or 60
-            local dgs = ramp_dgs_values(ramp, aircraft)
-            if dgs and fallback_dist and fallback_dist > radius then
-                dgs = nil
-            end
+            local dgs = trusted_ramp_dgs(ramp, aircraft, fallback_dist, radius)
             comp._gateUseDgs = dgs ~= nil
             if dgs and dgs.nw_z ~= nil then
                 local good_x = dgs.dgs_good_x or ((C and C.gateDgsGoodX) or 2.0)
