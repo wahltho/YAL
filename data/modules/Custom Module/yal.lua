@@ -6736,9 +6736,19 @@ function P.ongoingtasks()
                 local apuStatus = P.apurunning()
                 local gen1 = get(P.gen1pos)
                 local gen2 = get(P.gen2pos)
+                local apuPowerBus1 = get(P.apupowerbus1)
+                local apuPowerBus2 = get(P.apupowerbus2)
+                local sourceOff1 = get(P.announcsourceoff1)
+                local sourceOff2 = get(P.announcsourceoff2)
                 local enginesRunningBoth = P.enginesrunning(P.BOTH)
                 local bleed1 = get(P.bleedair1pos)
                 local bleed2 = get(P.bleedair2pos)
+                local apuSupplyingPower = ((apuPowerBus1 == def.ON) and (sourceOff1 == def.OFF))
+                    or ((apuPowerBus2 == def.ON) and (sourceOff2 == def.OFF))
+                local normalBleedConfig = enginesRunningBoth and (bleed1 == def.ON) and (bleed2 == def.ON)
+                    and (apuBleed == def.OFF)
+                    and (isolValve == def.ISOLVALVEAUTO)
+                local engineGenPowerReady = (gen1 == def.ON) and (gen2 == def.ON)
 
                 if battery == def.ON and posLights ~= nil and posLights ~= def.POSLIGHTSSTEADY and parkBrake == def.ON then
                     P.commandtableentry(def.TEXT, "Set Position Lights Steady")
@@ -6768,6 +6778,10 @@ function P.ongoingtasks()
                     P.commandtableentry(def.TEXT, "Set A P U Bleedair Off")
                 elseif (isolValve ~= nil and isolValve ~= def.ISOLVALVEAUTO and enginesRunningBoth and (bleed1 == def.ON or bleed2 == def.ON)) then
                     P.commandtableentry(def.TEXT, "Set Isolation Valve Auto")
+                elseif normalBleedConfig and engineGenPowerReady and apuSupplyingPower then
+                    P.commandtableentry(def.TEXT, "Set A P U Generator Off")
+                elseif normalBleedConfig and engineGenPowerReady and apuStatus ~= nil and apuStatus > def.APUOFF and not apuSupplyingPower then
+                    P.commandtableentry(def.TEXT, "Set A P U Off")
                 end
             end
         end
