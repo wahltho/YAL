@@ -1992,10 +1992,9 @@ function M.fillProcedureTable()
                 },
                 ['check_throttle_quadrant'] = { 
                     branch = function(loop, procData)
-                        local speedbrakeleverrounded = helpers.roundnumber(get(P.speedbrakelever), 1)
                         local engines_not_running = not P.enginesrunning(def.BOTH)
                         local mixture_not_cutoff = (get(P.mixture1pos) ~= def.OFF or get(P.mixture2pos) ~= def.OFF)
-                        local speedbrake_not_down = (speedbrakeleverrounded ~= def.SPEEDBRAKEDOWN)
+                        local speedbrake_not_down = not helpers.isSpeedbrakeDown()
                         if (engines_not_running and mixture_not_cutoff) or speedbrake_not_down then
                             return 'view_throttle' 
                         else
@@ -2018,8 +2017,8 @@ function M.fillProcedureTable()
                     nextStep = 'retract_speedbrake'
                 },
                 ['retract_speedbrake'] = { 
-                    skipIf = function() return helpers.roundnumber(get(P.speedbrakelever), 1) == def.SPEEDBRAKEDOWN end,
-                    check = function() return helpers.roundnumber(get(P.speedbrakelever), 1) == def.SPEEDBRAKEDOWN end,
+                    skipIf = function() return helpers.isSpeedbrakeDown() end,
+                    check = function() return helpers.isSpeedbrakeDown() end,
                     action = function() set(P.speedbrakelever, def.OFF) end,
                     advice = "Retract Speed Brakes",
                     nextStep = 'view_main_panel_3'
@@ -4703,7 +4702,7 @@ function M.fillProcedureTable()
                     nextStep = 'speedbrake_down'
                 },
                 ['speedbrake_down'] = {
-                    check = function() return helpers.roundnumber(get(P.speedbrakelever), 1) == def.SPEEDBRAKEDOWN end,
+                    check = function() return helpers.isSpeedbrakeDown() end,
                     action = function() set(P.speedbrakelever, def.OFF) end,
                     advice = "Retract Speed Brakes",
                     confirm = "Speedbrakes Up and Retracted",

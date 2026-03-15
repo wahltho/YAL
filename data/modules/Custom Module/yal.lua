@@ -1396,6 +1396,8 @@ function P.initDataref()
 
     P.flapleverpos = globalProperty("laminar/B738/flt_ctrls/flap_lever")
     P.speedbrakelever = globalProperty("laminar/B738/flt_ctrls/speedbrake_lever")
+    P.speedbrakeleveranim = globalProperty("laminar/B738/flt_ctrls/speedbrake_lever_anim")
+    P.speedbrakeratio = globalProperty("sim/cockpit2/controls/speedbrake_ratio")
 
     P.flapsupspeed = globalProperty("laminar/B738/pfd/flaps_up")
     P.flaps1speed = globalProperty("laminar/B738/pfd/flaps_1")

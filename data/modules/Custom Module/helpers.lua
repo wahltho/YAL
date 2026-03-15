@@ -1583,6 +1583,17 @@ function P.trimwheel_matches_trim_step(trimwheel, trim_value, step)
 end
 
 --------------------------------------------------------------------------------------------------------------
+function P.isSpeedbrakeDown()
+
+    local lever = tonumber(get(P.speedbrakelever)) or 0
+    local ratio = tonumber(get(P.speedbrakeratio)) or 0
+    local anim = tonumber(get(P.speedbrakeleveranim)) or 0
+
+    return (lever < 0.05) and (math.abs(ratio) < 0.05) and (anim == 0)
+
+end
+
+--------------------------------------------------------------------------------------------------------------
 function P.convflaplevertoflappos(flaplever)
 
     local returnvalue = 0
