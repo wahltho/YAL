@@ -112,7 +112,7 @@ function M.attach(U, C, def, helpers)
         }
     end
 
-    local function trusted_ramp_dgs(ramp, aircraft, fallback_dist, radius)
+    local function trusted_ramp_dgs(ramp, aircraft, fallback_dist, radius, ref_dist)
         local dgs = ramp_dgs_values(ramp, aircraft)
         if not dgs then
             return nil
@@ -120,7 +120,7 @@ function M.attach(U, C, def, helpers)
         if fallback_dist and fallback_dist > radius then
             return nil
         end
-        if fallback_dist ~= nil and dgs.nw_z ~= nil then
+        if dgs.nw_z ~= nil then
             local good_x = dgs.dgs_good_x or ((C and C.gateDgsGoodX) or 2.0)
             local good_z_pos = dgs.dgs_good_z_pos or ((C and C.gateDgsGoodZPos) or 0.2)
             local good_z_neg = dgs.dgs_good_z_neg or ((C and C.gateDgsGoodZNeg) or -0.5)
@@ -133,13 +133,25 @@ function M.attach(U, C, def, helpers)
             else
                 dgs_dist = math.max(0, dgs.nw_z)
             end
-            local blend_limit = 30
-            local max_diff = 15
-            if fallback_dist > blend_limit then
-                return nil
+            if fallback_dist ~= nil then
+                local blend_limit = 30
+                local max_diff = 15
+                if fallback_dist > blend_limit then
+                    return nil
+                end
+                if math.abs(fallback_dist - dgs_dist) > max_diff then
+                    return nil
+                end
             end
-            if math.abs(fallback_dist - dgs_dist) > max_diff then
-                return nil
+            if ref_dist ~= nil then
+                local ref_stop_limit = math.max(15, radius * 0.5)
+                local ref_max_diff = math.max(20, radius * 0.45)
+                if ref_dist > ref_stop_limit and dgs_dist <= (good_z_pos + 1.0) then
+                    return nil
+                end
+                if (ref_dist - dgs_dist) > ref_max_diff then
+                    return nil
+                end
             end
         end
         return dgs
@@ -205,7 +217,7 @@ function M.attach(U, C, def, helpers)
         local ramp = comp._endRamp
         local local_x, local_z, ramp_hdg, fallback_dist = ramp_frame_values(ramp, aircraft)
         local dgs = ramp_dgs_values(ramp, aircraft)
-        dgs = trusted_ramp_dgs(ramp, aircraft, fallback_dist, radius)
+        dgs = trusted_ramp_dgs(ramp, aircraft, fallback_dist, radius, comp and comp._gateActivationDist or nil)
         local direction = "straight"
         local action = "ALIGN"
         local text = "Continue straight"
@@ -360,7 +372,7 @@ function M.attach(U, C, def, helpers)
             local ramp = comp._endRamp
             local local_x, local_z, ramp_hdg, fallback_dist = ramp_frame_values(ramp, aircraft)
             local radius = (C and C.gateGuidanceRadius) or 60
-            local dgs = trusted_ramp_dgs(ramp, aircraft, fallback_dist, radius)
+            local dgs = trusted_ramp_dgs(ramp, aircraft, fallback_dist, radius, comp and comp._gateActivationDist or nil)
             comp._gateUseDgs = dgs ~= nil
             if dgs and dgs.nw_z ~= nil then
                 local good_x = dgs.dgs_good_x or ((C and C.gateDgsGoodX) or 2.0)

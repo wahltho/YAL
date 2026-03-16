@@ -1250,6 +1250,24 @@ function M.attach(U, C, def, helpers, settings)
             }
         end
 
+        local function build_guidance_for_vacate(seg_idx, runway_label, taxiway_label)
+            local display = runway_display(runway_label)
+            local taxiway = normalize_taxiway_label(taxiway_label)
+            if not taxiway or taxiway == "" then
+                return nil
+            end
+            local text = "Vacate " .. runway_voice(runway_label) .. " via " .. taxiway_label_voice(taxiway)
+            return {
+                text = text,
+                direction = "straight",
+                action = "EXIT RWY",
+                label = build_visual_label("runway", display),
+                display = display,
+                kind = "runway",
+                targetSegIdx = seg_idx
+            }
+        end
+
         local function build_guidance_for_entry(seg_idx, label, turn_dir)
             local display = runway_display(label)
             local text = "Enter " .. runway_voice(label)
@@ -2116,7 +2134,11 @@ function M.attach(U, C, def, helpers, settings)
                             exit_dir = nil
                         end
                         if not skip_exit then
-                            next_info = build_guidance_for_exit(seg_idx, raw_label, exit_dir or "straight")
+                            if exit_dir then
+                                next_info = build_guidance_for_exit(seg_idx, raw_label, exit_dir)
+                            else
+                                next_info = build_guidance_for_vacate(seg_idx, raw_label, next_raw_label)
+                            end
                         end
                         end
                     elseif not raw_rwy and next_rwy then

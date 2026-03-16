@@ -7912,6 +7912,21 @@ local function updateTaxiState(comp, map)
                     end
                 end
             end
+            if (not route) and rerr == "no-path" and mode == 1
+                and (not in_edit) and (not comp._drawRoute)
+                and comp._route and (not comp._routeErr) and comp._route.data == data
+                and comp._route.path and #comp._route.path > 1 then
+                local gate_keep_limit = (((comp._tuning and comp._tuning.gateGuidanceRadius) or (C and C.gateGuidanceRadius) or 60) * 2)
+                local keep_gate = comp._gateGuidanceActive == true
+                if (not keep_gate) and comp._gateActivationDist and comp._gateActivationDist <= gate_keep_limit then
+                    keep_gate = true
+                end
+                if keep_gate then
+                    route = comp._route
+                    rerr = nil
+                    log_taxi("TaxiRoute: keep last-good (arr-gate)")
+                end
+            end
             if route and route.path and #route.path < 2 then
                 route = nil
                 rerr = "no-path"
