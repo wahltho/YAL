@@ -126,6 +126,49 @@ local function navTypeFromSelectedApproachId(selectedAppId)
     return nil
 end
 
+local lastSpeedbrakeStateLogKey = nil
+
+local function logSpeedbrakeState(context, isDown)
+    local lever = tonumber(get(P.speedbrakelever)) or 0
+    local ratio = tonumber(get(P.speedbrakeratio)) or 0
+    local anim = tonumber(get(P.speedbrakeleveranim)) or 0
+    local armed = tonumber(get(P.speedbrakearmedannunc)) or 0
+    local extend = tonumber(get(P.speedbrakeextendannunc)) or 0
+    local servo = tonumber(get(P.speedbrakeservostatus)) or 0
+    local target = tonumber(get(P.speedbrakeservotarget)) or 0
+    local gs = tonumber(get(P.groundspeed)) or 0
+
+    local key = table.concat({
+        tostring(context or "?"),
+        tostring(isDown and 1 or 0),
+        string.format("%.3f", lever),
+        string.format("%.3f", ratio),
+        string.format("%.3f", anim),
+        string.format("%.3f", armed),
+        string.format("%.3f", extend),
+        string.format("%.3f", servo),
+        string.format("%.3f", target),
+        string.format("%.1f", gs)
+    }, "|")
+
+    if key ~= lastSpeedbrakeStateLogKey then
+        lastSpeedbrakeStateLogKey = key
+        helpers.logInfoTS(string.format(
+            "SpeedbrakeState[%s]: down=%s lever=%.4f ratio=%.4f anim=%.4f armed=%.4f extend=%.4f servo=%.4f target=%.4f gs=%.1f",
+            tostring(context or "?"),
+            tostring(isDown),
+            lever,
+            ratio,
+            anim,
+            armed,
+            extend,
+            servo,
+            target,
+            gs
+        ))
+    end
+end
+
 local function normalizeSelectedApproachId(selectedAppId)
     if type(selectedAppId) ~= "string" then
         return nil
@@ -2018,7 +2061,11 @@ function M.fillProcedureTable()
                 },
                 ['retract_speedbrake'] = { 
                     skipIf = function() return helpers.isSpeedbrakeDown() end,
-                    check = function() return helpers.isSpeedbrakeDown() end,
+                    check = function()
+                        local isDown = helpers.isSpeedbrakeDown()
+                        logSpeedbrakeState("shutdown_retract", isDown)
+                        return isDown
+                    end,
                     action = function() set(P.speedbrakelever, def.OFF) end,
                     advice = "Retract Speed Brakes",
                     nextStep = 'view_main_panel_3'
@@ -4702,7 +4749,11 @@ function M.fillProcedureTable()
                     nextStep = 'speedbrake_down'
                 },
                 ['speedbrake_down'] = {
-                    check = function() return helpers.isSpeedbrakeDown() end,
+                    check = function()
+                        local isDown = helpers.isSpeedbrakeDown()
+                        logSpeedbrakeState("after_landing", isDown)
+                        return isDown
+                    end,
                     action = function() set(P.speedbrakelever, def.OFF) end,
                     advice = "Retract Speed Brakes",
                     confirm = "Speedbrakes Up and Retracted",
