@@ -129,6 +129,11 @@ end
 local lastSpeedbrakeStateLogKey = nil
 
 local function logSpeedbrakeState(context, isDown)
+    local axis = tonumber(get(P.speedbrakeaxis)) or 0
+    local cust = tonumber(get(P.speedbrakecust)) or 0
+    local armDetent = tonumber(get(P.speedbrakearmdetent)) or 0
+    local flightDetent = tonumber(get(P.speedbrakeflightdetent)) or 0
+    local raw = tonumber(get(P.speedbrakeraw)) or 0
     local lever = tonumber(get(P.speedbrakelever)) or 0
     local ratio = tonumber(get(P.speedbrakeratio)) or 0
     local anim = tonumber(get(P.speedbrakeleveranim)) or 0
@@ -141,6 +146,11 @@ local function logSpeedbrakeState(context, isDown)
     local key = table.concat({
         tostring(context or "?"),
         tostring(isDown and 1 or 0),
+        string.format("%.3f", axis),
+        string.format("%.3f", cust),
+        string.format("%.3f", armDetent),
+        string.format("%.3f", flightDetent),
+        string.format("%.3f", raw),
         string.format("%.3f", lever),
         string.format("%.3f", ratio),
         string.format("%.3f", anim),
@@ -154,9 +164,14 @@ local function logSpeedbrakeState(context, isDown)
     if key ~= lastSpeedbrakeStateLogKey then
         lastSpeedbrakeStateLogKey = key
         helpers.logInfoTS(string.format(
-            "SpeedbrakeState[%s]: down=%s lever=%.4f ratio=%.4f anim=%.4f armed=%.4f extend=%.4f servo=%.4f target=%.4f gs=%.1f",
+            "SpeedbrakeState[%s]: down=%s axis=%.4f cust=%.4f armDetent=%.4f flightDetent=%.4f raw=%.4f lever=%.4f ratio=%.4f anim=%.4f armed=%.4f extend=%.4f servo=%.4f target=%.4f gs=%.1f",
             tostring(context or "?"),
             tostring(isDown),
+            axis,
+            cust,
+            armDetent,
+            flightDetent,
+            raw,
             lever,
             ratio,
             anim,
