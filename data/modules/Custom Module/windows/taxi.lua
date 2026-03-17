@@ -7913,6 +7913,19 @@ local function updateTaxiState(comp, map)
                 end
             end
             if (not route) and rerr == "no-path" and mode == 1
+                and start_node_id and end_node_id and start_node_id == end_node_id
+                and (not comp._manualRouteActive)
+                and comp._route and (not comp._routeErr) and comp._route.data == data
+                and comp._route.path and #comp._route.path > 1 then
+                route = comp._route
+                rerr = nil
+                local keep_key = "arr:" .. tostring(start_node_id)
+                if comp._lastStartEndKeepKey ~= keep_key then
+                    comp._lastStartEndKeepKey = keep_key
+                    log_taxi("TaxiRoute: keep last-good (arr start=end) id=" .. tostring(start_node_id))
+                end
+            end
+            if (not route) and rerr == "no-path" and mode == 1
                 and (not in_edit) and (not comp._drawRoute)
                 and comp._route and (not comp._routeErr) and comp._route.data == data
                 and comp._route.path and #comp._route.path > 1 then
@@ -7950,6 +7963,10 @@ local function updateTaxiState(comp, map)
                         local best_route = nil
                         local best_exit = nil
                         local best_angle = nil
+                        local current_route_dist = nil
+                        if aircraft and aircraft.east and aircraft.north then
+                            current_route_dist = U.distance_to_route(data, route.path, aircraft.east, aircraft.north)
+                        end
                         for _, cand in ipairs(candidates) do
                             local cid = cand.id
                             if cid and cid ~= arr_exit_id and data.nodes and data.nodes[cid] then
@@ -7968,9 +7985,28 @@ local function updateTaxiState(comp, map)
                                     route_waypoints
                                 )
                                 if alt_route and alt_route.path and #alt_route.path >= 2 then
+                                    local alt_route_dist = nil
+                                    if aircraft and aircraft.east and aircraft.north then
+                                        alt_route_dist = U.distance_to_route(data, alt_route.path, aircraft.east, aircraft.north)
+                                    end
                                     local alt_angle = route_first_taxi_angle(alt_route, data, landing_profile)
                                     if alt_angle and alt_angle <= 120 then
-                                        if (not best_angle) or alt_angle < best_angle then
+                                        local accept_alt = true
+                                        if alt_route_dist then
+                                            local dist_limit = math.max(180, driftMeters * 2.5)
+                                            if current_route_dist then
+                                                dist_limit = math.max(dist_limit, current_route_dist + 25)
+                                            end
+                                            if alt_route_dist > dist_limit then
+                                                accept_alt = false
+                                                log_taxi(
+                                                    "TaxiRoute: ARR exit angle reject exit=" .. tostring(cid)
+                                                        .. " dist=" .. string.format("%.1f", alt_route_dist)
+                                                        .. " limit=" .. string.format("%.1f", dist_limit)
+                                                )
+                                            end
+                                        end
+                                        if accept_alt and ((not best_angle) or alt_angle < best_angle) then
                                             best_angle = alt_angle
                                             best_route = alt_route
                                             best_exit = cid

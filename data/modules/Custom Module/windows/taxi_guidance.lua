@@ -657,7 +657,9 @@ function M.attach(U, C, def, helpers, settings)
                 local gate_entry_speed = math.max(3, math.min(gate_speed, gate_speed * 0.6))
                 local gate_radius = (comp._tuning and comp._tuning.gateGuidanceRadius) or (C and C.gateGuidanceRadius) or 60
                 local gate_keep = gate_radius * 1.6
+                local final_gate_limit = math.max(gate_radius, gate_radius * 1.6)
                 local near_final_gate_segment = false
+                local near_final_gate_ready = false
                 if gs > gate_speed and comp._gateGuidanceActive then
                     comp._gateGuidanceActive = false
                 end
@@ -690,10 +692,16 @@ function M.attach(U, C, def, helpers, settings)
                         near_final_gate_segment = true
                     end
                 end
+                if near_final_gate_segment and gate_ref_dist and gate_ref_dist <= final_gate_limit then
+                    near_final_gate_ready = true
+                end
 
                 if gate_ok and gs > gate_entry_speed and (not comp._gateGuidanceActive) then
-                    if near_final_gate_segment then
+                    if near_final_gate_ready then
                         gate_reason = "final-ramp-segment"
+                    elseif near_final_gate_segment then
+                        gate_ok = false
+                        gate_reason = "final-ramp-too-far"
                     elseif not (gate_ref_dist and gate_ref_dist <= gate_radius) then
                         gate_ok = false
                         gate_reason = "entry-speed"
@@ -703,7 +711,7 @@ function M.attach(U, C, def, helpers, settings)
                 end
 
                 if gate_ok then
-                    if near_final_gate_segment and gs <= gate_speed then
+                    if near_final_gate_ready and gs <= gate_speed then
                         comp._gateGuidanceActive = true
                         if gate_reason == "ok" then
                             gate_reason = "final-ramp-segment"
