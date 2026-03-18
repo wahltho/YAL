@@ -2190,7 +2190,7 @@ function M.attach(U, C, def, helpers, settings)
                     next_info = build_guidance_for_entry(seg_idx, next_raw_label, dep_turn)
                 else
                     if turn_dir and turn_dir ~= "straight" and allow_turn then
-                        next_info = build_guidance_for_runway_turn(turn_dir, next_raw_label)
+                        next_info = build_guidance_for_turning_runway(seg_idx, next_raw_label, turn_dir)
                     else
                         next_info = build_guidance_for_crossing_warning(seg_idx, next_raw_label)
                     end
@@ -2316,7 +2316,7 @@ function M.attach(U, C, def, helpers, settings)
                     end
                 elseif next_kind == "runway" then
                     if turn_dir and turn_dir ~= "straight" and allow_turn then
-                        next_info = build_guidance_for_runway_turn(turn_dir, next_display)
+                        next_info = build_guidance_for_turning_runway(seg_idx, next_display, turn_dir)
                     else
                         next_info = build_guidance_for_runway_entry(seg_idx, next_display)
                     end
@@ -2404,8 +2404,7 @@ function M.attach(U, C, def, helpers, settings)
                         early_turn_dist = threshold
                     end
                     if early_turn_dir and dist_to_look_node and dist_to_look_node <= early_turn_dist then
-                        next_info = build_guidance_for_runway_turn(early_turn_dir, look_raw_label)
-                        next_info.targetSegIdx = seg_idx + 1
+                        next_info = build_guidance_for_turning_runway(seg_idx + 1, look_raw_label, early_turn_dir)
                     end
                 end
             end
