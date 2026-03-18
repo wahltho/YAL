@@ -3378,6 +3378,135 @@ local function runway_exit_along(profile, data, exit_id)
     return along
 end
 
+local function node_distance_to_aircraft(data, node_id, aircraft)
+    if not data or not data.nodes or not node_id or not aircraft then
+        return nil
+    end
+    if aircraft.east == nil or aircraft.north == nil then
+        return nil
+    end
+    local node = data.nodes[node_id]
+    if not node or node.east == nil or node.north == nil then
+        return nil
+    end
+    return math.sqrt(distance_sq(node.east, node.north, aircraft.east, aircraft.north))
+end
+
+local function evaluate_arrival_route_validity(route, data, aircraft, landing_profile, arr_exit_id, drift_meters, off_runway)
+    local info = {
+        valid = true,
+        severe = false,
+        reason = "ok",
+        route_dist = nil,
+        start_gap = nil,
+        exit_gap = nil
+    }
+    if not route or not data or not aircraft or aircraft.east == nil or aircraft.north == nil then
+        return info
+    end
+    local route_data = route.data or data
+    if route.path and #route.path > 1 then
+        info.route_dist = distance_to_route(route_data, route.path, aircraft.east, aircraft.north)
+    end
+    local start_id = route.start_id or (route.path and route.path[1]) or nil
+    info.start_gap = node_distance_to_aircraft(route_data, start_id, aircraft)
+    info.exit_gap = node_distance_to_aircraft(route_data, arr_exit_id, aircraft)
+    local on_runway = (off_runway == false)
+    local route_limit = on_runway and math.max(220, drift_meters * 4) or math.max(180, drift_meters * 3)
+    local severe_limit = on_runway and math.max(320, drift_meters * 6) or math.max(260, drift_meters * 4.5)
+    local node_limit = on_runway and math.max(120, drift_meters * 2.5) or math.max(90, drift_meters * 2)
+    local start_bad = info.start_gap and info.start_gap > node_limit
+    local exit_bad = info.exit_gap and info.exit_gap > node_limit
+    if info.route_dist and info.route_dist > route_limit then
+        if start_bad or exit_bad then
+            info.valid = false
+            info.reason = (start_bad and exit_bad) and "route-detached" or (start_bad and "start-detached" or "exit-detached")
+            info.severe = info.route_dist > severe_limit
+        end
+    elseif start_bad and info.route_dist and info.route_dist > math.max(120, drift_meters * 2.2) then
+        info.valid = false
+        info.reason = "start-detached"
+    end
+    return info
+end
+
+local function choose_or_keep_arrival_exit(comp, landing_profile, data, proposed_exit_id, proposed_backtrack, aircraft, off_runway, start_lat, start_lon, log_taxi)
+    local exit_id = proposed_exit_id
+    local backtrack_required = proposed_backtrack and true or false
+    local exit_along = nil
+    if landing_profile and exit_id then
+        exit_along = runway_exit_along(landing_profile, data, exit_id)
+    end
+
+    local function apply_exit_start(node_id)
+        if backtrack_required or not node_id or not data or not data.nodes or not data.nodes[node_id] then
+            return start_lat, start_lon
+        end
+        local node = data.nodes[node_id]
+        if U.is_valid_latlon(node.lat, node.lon) then
+            return node.lat, node.lon
+        end
+        return start_lat, start_lon
+    end
+
+    if off_runway == false and comp._arrExitLockedId and exit_id and exit_id ~= comp._arrExitLockedId then
+        local locked_exit = comp._arrExitLockedId
+        local locked_along = comp._arrExitLockedAlong
+        exit_id = locked_exit
+        if locked_along ~= nil then
+            exit_along = locked_along
+        elseif landing_profile and data and locked_exit then
+            exit_along = runway_exit_along(landing_profile, data, locked_exit)
+        end
+        backtrack_required = comp._arrBacktrackRequired and true or false
+        start_lat, start_lon = apply_exit_start(locked_exit)
+        log_taxi("TaxiRoute: ARR exit lock keep=" .. tostring(locked_exit))
+        return exit_id, exit_along, backtrack_required, start_lat, start_lon
+    end
+
+    if off_runway == false and comp._arrExitId and exit_id
+        and exit_id ~= comp._arrExitId
+        and comp._arrExitAlong ~= nil and exit_along ~= nil
+        and (not backtrack_required) and (not comp._arrBacktrackRequired)
+        and exit_along < comp._arrExitAlong then
+        local aircraft_along = nil
+        if landing_profile and aircraft then
+            aircraft_along = U.compute_along_perp(landing_profile, aircraft)
+        end
+        local prev_exit = comp._arrExitId
+        local prev_along = comp._arrExitAlong
+        local prev_gap = node_distance_to_aircraft(data, prev_exit, aircraft)
+        local new_gap = node_distance_to_aircraft(data, exit_id, aircraft)
+        local keep_prev = true
+        if aircraft_along and aircraft_along >= (prev_along - 40) then
+            keep_prev = false
+        elseif prev_gap and new_gap and (new_gap + 30) < prev_gap then
+            keep_prev = false
+        end
+        if keep_prev then
+            local new_along = exit_along
+            exit_id = prev_exit
+            exit_along = prev_along
+            backtrack_required = comp._arrBacktrackRequired and true or false
+            start_lat, start_lon = apply_exit_start(prev_exit)
+            log_taxi(
+                string.format(
+                    "TaxiRoute: ARR exit ownership keep=%s oldAlong=%.1f newAlong=%.1f oldGap=%.1f newGap=%.1f",
+                    tostring(prev_exit),
+                    prev_along or -1,
+                    new_along or -1,
+                    prev_gap or -1,
+                    new_gap or -1
+                )
+            )
+            return exit_id, exit_along, backtrack_required, start_lat, start_lon
+        end
+    end
+
+    start_lat, start_lon = apply_exit_start(exit_id)
+    return exit_id, exit_along, backtrack_required, start_lat, start_lon
+end
+
 local function set_reroute_override_from_aircraft(comp, data, aircraft, disallow_runway_edges)
     if not comp or not aircraft or not is_valid_latlon(aircraft.lat, aircraft.lon) then
         return false
@@ -6082,56 +6211,20 @@ local function updateTaxiState(comp, map)
         end
     end
     local arr_exit_along = nil
-    if mode == 1 and landing_profile and arr_exit_id then
-        arr_exit_along = runway_exit_along(landing_profile, data, arr_exit_id)
-    end
-    if mode == 1 and comp._arrOffRunway == false
-        and comp._arrExitLockedId and arr_exit_id and arr_exit_id ~= comp._arrExitLockedId then
-        local locked_exit = comp._arrExitLockedId
-        local locked_along = comp._arrExitLockedAlong
-        arr_exit_id = locked_exit
-        if locked_along ~= nil then
-            arr_exit_along = locked_along
-        elseif landing_profile and data and locked_exit then
-            arr_exit_along = runway_exit_along(landing_profile, data, locked_exit)
-        end
-        backtrack_required = comp._arrBacktrackRequired and true or false
-        if data and data.nodes and data.nodes[locked_exit] and (not backtrack_required) then
-            local locked_node = data.nodes[locked_exit]
-            if U.is_valid_latlon(locked_node.lat, locked_node.lon) then
-                start_lat = locked_node.lat
-                start_lon = locked_node.lon
-            end
-        end
-        log_taxi("TaxiRoute: ARR exit lock keep=" .. tostring(locked_exit))
-    end
-    if mode == 1 and onGroundSensor and comp._arrOffRunway == false
-        and comp._arrExitId and arr_exit_id
-        and arr_exit_id ~= comp._arrExitId
-        and comp._arrExitAlong ~= nil and arr_exit_along ~= nil
-        and (not backtrack_required) and (not comp._arrBacktrackRequired)
-        and arr_exit_along < comp._arrExitAlong then
-        local new_along = arr_exit_along
-        local prev_exit = comp._arrExitId
-        local prev_along = comp._arrExitAlong
-        arr_exit_id = prev_exit
-        arr_exit_along = prev_along
-        backtrack_required = comp._arrBacktrackRequired and true or false
-        if data and data.nodes and data.nodes[prev_exit] and (not backtrack_required) then
-            local prev_node = data.nodes[prev_exit]
-            if U.is_valid_latlon(prev_node.lat, prev_node.lon) then
-                start_lat = prev_node.lat
-                start_lon = prev_node.lon
-            end
-        end
-        log_taxi(
-            string.format(
-                "TaxiRoute: ARR exit rollback blocked keep=%s oldAlong=%.1f newAlong=%.1f",
-                tostring(prev_exit),
-                prev_along or -1,
-                new_along or -1
+    if mode == 1 then
+        arr_exit_id, arr_exit_along, backtrack_required, start_lat, start_lon =
+            choose_or_keep_arrival_exit(
+                comp,
+                landing_profile,
+                data,
+                arr_exit_id,
+                backtrack_required,
+                aircraft,
+                comp._arrOffRunway,
+                start_lat,
+                start_lon,
+                log_taxi
             )
-        )
     end
     if mode == 1 then
         comp._arrProfile = landing_profile
@@ -8038,6 +8131,77 @@ local function updateTaxiState(comp, map)
                     end
                 end
             end
+            if route and mode == 1 and onGroundSensor and aircraft
+                and (not in_edit) and (not comp._drawRoute) and (not comp._manualRouteActive) then
+                local arr_validity = evaluate_arrival_route_validity(
+                    route,
+                    data,
+                    aircraft,
+                    landing_profile,
+                    arr_exit_id,
+                    driftMeters,
+                    comp._arrOffRunway
+                )
+                if not arr_validity.valid then
+                    local kept_prev = false
+                    local prev_validity = nil
+                    if comp._route and (not comp._routeErr) and comp._route.data == data
+                        and comp._route.path and #comp._route.path > 1 then
+                        prev_validity = evaluate_arrival_route_validity(
+                            comp._route,
+                            data,
+                            aircraft,
+                            landing_profile,
+                            comp._arrExitId,
+                            driftMeters,
+                            comp._arrOffRunway
+                        )
+                        if prev_validity.valid
+                            and prev_validity.route_dist
+                            and arr_validity.route_dist
+                            and prev_validity.route_dist + 25 < arr_validity.route_dist then
+                            route = comp._route
+                            rerr = nil
+                            arr_validity = prev_validity
+                            kept_prev = true
+                            log_taxi(
+                                string.format(
+                                    "TaxiRoute: keep last-good (arr validity) reason=%s dist=%.1f prev=%.1f",
+                                    tostring(arr_validity.reason or "?"),
+                                    arr_validity.route_dist or -1,
+                                    prev_validity.route_dist or -1
+                                )
+                            )
+                        end
+                    end
+                    if not kept_prev then
+                        log_taxi(
+                            string.format(
+                                "TaxiRoute: reject invalid arrival route reason=%s route=%.1f start=%.1f exit=%.1f",
+                                tostring(arr_validity.reason or "?"),
+                                arr_validity.route_dist or -1,
+                                arr_validity.start_gap or -1,
+                                arr_validity.exit_gap or -1
+                            )
+                        )
+                        if set_reroute_override_from_aircraft(comp, data, aircraft, true) then
+                            comp._routeStartAnchor = nil
+                        end
+                        if (not arrival_grace_active(comp, now)) or arr_validity.severe then
+                            comp._pendingRerouteEvent = true
+                        end
+                        comp._lastRerouteTime = now
+                        comp._lastStartKey = nil
+                        route = nil
+                        rerr = nil
+                    end
+                end
+                comp._arrRouteValidity = arr_validity
+            elseif mode ~= 1 then
+                comp._arrRouteValidity = nil
+            else
+                comp._arrRouteValidity = nil
+            end
             if (not route) and rerr == "no-path" and mode == 0
                 and start_node_id and end_node_id and start_node_id == end_node_id
                 and (not comp._manualRouteActive)
@@ -8747,15 +8911,27 @@ local function updateTaxiState(comp, map)
                                     return
                                 end
                                 if mode == 1 and path_len > 2 and comp._endRamp and seg_idx >= (path_len - 2) then
-                                    comp._lastRerouteTime = now
-                                    log_taxi(
-                                        string.format(
-                                            "TaxiRoute: offroute reanchor only (arr near end) seg=%s dist=%.1f",
-                                            tostring(seg_idx),
-                                            dist or -1
+                                    local arr_validity = comp._arrRouteValidity
+                                    local route_plausible = true
+                                    if arr_validity then
+                                        if arr_validity.valid == false then
+                                            route_plausible = false
+                                        elseif arr_validity.route_dist
+                                            and arr_validity.route_dist > math.max(driftMeters * 2.5, 180) then
+                                            route_plausible = false
+                                        end
+                                    end
+                                    if route_plausible then
+                                        comp._lastRerouteTime = now
+                                        log_taxi(
+                                            string.format(
+                                                "TaxiRoute: offroute reanchor only (arr near end) seg=%s dist=%.1f",
+                                                tostring(seg_idx),
+                                                dist or -1
+                                            )
                                         )
-                                    )
-                                    return
+                                        return
+                                    end
                                 end
                             end
                         end
