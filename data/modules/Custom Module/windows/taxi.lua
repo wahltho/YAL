@@ -4104,6 +4104,9 @@ local function maybe_force_global_for_quality(comp, now, icao, mode, data, helpe
                     comp._gateGuidanceLastTime = nil
                     comp._gateGuidanceStop = false
                     comp._gateGuidanceActive = false
+                    comp._gateFinalTurnUntil = nil
+                    comp._gateFinalTurnKey = nil
+                    comp._gateFinalTurnPending = false
                     U.reset_gate_callouts(comp, cand_key)
                     if comp._quality then
                         comp._quality.badSince = nil
@@ -6104,6 +6107,11 @@ local function updateTaxiState(comp, map)
                             and ((not comp._lastRerouteTime)
                                 or ((now - comp._lastRerouteTime) >= gate_cooldown))
                         if d_cand and d_plan and cooldown_ok then
+                            local gate_radius = (tuning.gateGuidanceRadius or (C and C.gateGuidanceRadius) or 60)
+                            local gate_final_locked = (comp._gateGuidanceActive == true)
+                                or (comp._gateFinalTurnPending == true)
+                                or (comp._gateFinalTurnUntil and now and now <= comp._gateFinalTurnUntil)
+                                or (d_plan <= gate_radius)
                             local route_tail_ok = false
                             if comp._route and comp._route.path and #comp._route.path > 2
                                 and comp._route.data == data
@@ -6119,7 +6127,7 @@ local function updateTaxiState(comp, map)
                             local clearly_closer = (d_plan - d_cand >= gate_delta)
                                 or (d_cand <= (d_plan * gate_ratio))
                             local moving_switch_ok = (gs < math.max(gate_speed * 4, 12))
-                            local should_switch = switch_context_ok and ((close_enough and clearly_closer)
+                            local should_switch = (not gate_final_locked) and switch_context_ok and ((close_enough and clearly_closer)
                                 or (moving_switch_ok and (d_plan - d_cand >= (gate_delta * 1.5)))
                             )
                             if should_switch then
@@ -6148,6 +6156,9 @@ local function updateTaxiState(comp, map)
                                 comp._gateGuidanceLastAction = nil
                                 comp._gateGuidanceLastTime = nil
                                 comp._gateGuidanceStop = false
+                                comp._gateFinalTurnUntil = nil
+                                comp._gateFinalTurnKey = nil
+                                comp._gateFinalTurnPending = false
                                 U.reset_gate_callouts(comp, cand_key)
                                 log_taxi(
                                     string.format(
@@ -9531,6 +9542,9 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
     comp._gateGuidanceLastTime = nil
     comp._gateGuidanceStop = false
     comp._gateGuidanceActive = false
+    comp._gateFinalTurnUntil = nil
+    comp._gateFinalTurnKey = nil
+    comp._gateFinalTurnPending = false
     comp._gateGuidanceLastDist = nil
     comp._gateActivationDist = nil
     comp._gateCalloutDist = nil

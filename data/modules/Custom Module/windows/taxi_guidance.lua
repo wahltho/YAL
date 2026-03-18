@@ -614,6 +614,11 @@ function M.attach(U, C, def, helpers, settings)
         local data = (route and route.data) or comp._data
         local is_freehand = (route and route.data and route.data.route_source == "freehand") or false
         local log_taxi = comp._logTaxi or (helpers and helpers.logInfoTS)
+        if comp._gateFinalTurnUntil and now and now > comp._gateFinalTurnUntil then
+            comp._gateFinalTurnUntil = nil
+            comp._gateFinalTurnKey = nil
+        end
+        comp._gateFinalTurnPending = false
         local function maybe_keep_gate_popup(info)
             if not info or info.kind ~= "ramp" then
                 return
@@ -837,8 +842,19 @@ function M.attach(U, C, def, helpers, settings)
                 reset_gate_callouts(comp, gate_key)
             end
             if gate_key then
+                local gate_turn_latched = false
+                if comp._gateFinalTurnUntil and now and now <= comp._gateFinalTurnUntil then
+                    if (not comp._gateFinalTurnKey) or comp._gateFinalTurnKey == gate_key then
+                        gate_turn_latched = true
+                    end
+                end
+                comp._gateFinalTurnPending = gate_turn_latched
                 local dist = comp._gateCalloutDist or gate_dist or gate_distance_meters(comp, aircraft, route, data)
                 comp._gateNote = gate_note_text(dist, comp._gateUseDgs)
+                if gate_turn_latched then
+                    diag("gate-turn-latched")
+                    return
+                end
                 if dist then
                     local stop_dist = (comp._gateUseDgs and ((C and C.gateDgsGoodZPos) or 0.2)) or C.gateStopDistance
                     if helpers and helpers.logInfoTS then
@@ -1863,6 +1879,9 @@ function M.attach(U, C, def, helpers, settings)
             comp._lastCrossingLabel = nil
             comp._lastCrossingSeg = nil
             comp._lastCrossingTime = nil
+            comp._gateFinalTurnUntil = nil
+            comp._gateFinalTurnKey = nil
+            comp._gateFinalTurnPending = false
         end
         local active_seg = comp._guidanceActiveSegIdx
         if active_seg and active_seg >= #path then
@@ -2262,26 +2281,37 @@ function M.attach(U, C, def, helpers, settings)
                         label_changed = (rn ~= "" and nn ~= "" and rn ~= nn)
                     end
                     local forced_turn = turn_dir
-                    if (not forced_turn) and label_changed and turn_angle
-                        and turn_angle >= math.max(8, (C.guidanceTurnAngle or 15) * 0.6)
-                        and n1 and n2 and n3
-                        and n1.east and n1.north and n2.east and n2.north and n3.east and n3.north then
-                        local v1x = n2.east - n1.east
-                        local v1y = n2.north - n1.north
-                        local v2x = n3.east - n2.east
-                        local v2y = n3.north - n2.north
-                        local cross = v1x * v2y - v1y * v2x
-                        forced_turn = (cross >= 0) and "left" or "right"
-                    end
-                    if forced_turn and forced_turn ~= "straight" and allow_turn then
-                        if next_display and next_display ~= "" then
-                            next_info = build_guidance_for_turning(seg_idx, next_display, forced_turn)
-                        elseif is_freehand then
-                            next_info = build_guidance_for_generic_turn(forced_turn)
+                    local next_info_raw = guidance_label_info(path[seg_idx + 1], path[seg_idx + 2], nil, nil, true)
+                    if next_info_raw and next_info_raw.kind == "ramp" then
+                        local gate_label = next_info_raw.display
+                        if turn_dir and turn_dir ~= "straight" and allow_turn then
+                            next_info = build_guidance_for_gate_turn(seg_idx, gate_label, turn_dir)
+                        elseif not is_freehand then
+                            next_info = build_guidance_for_gate(seg_idx, gate_label)
                         end
-                    else
-                        if not is_freehand or first_guidance then
-                            next_info = build_guidance_for_taxi(seg_idx, next_display)
+                    end
+                    if not next_info then
+                        if (not forced_turn) and label_changed and turn_angle
+                            and turn_angle >= math.max(8, (C.guidanceTurnAngle or 15) * 0.6)
+                            and n1 and n2 and n3
+                            and n1.east and n1.north and n2.east and n2.north and n3.east and n3.north then
+                            local v1x = n2.east - n1.east
+                            local v1y = n2.north - n1.north
+                            local v2x = n3.east - n2.east
+                            local v2y = n3.north - n2.north
+                            local cross = v1x * v2y - v1y * v2x
+                            forced_turn = (cross >= 0) and "left" or "right"
+                        end
+                        if forced_turn and forced_turn ~= "straight" and allow_turn then
+                            if next_display and next_display ~= "" then
+                                next_info = build_guidance_for_turning(seg_idx, next_display, forced_turn)
+                            elseif is_freehand then
+                                next_info = build_guidance_for_generic_turn(forced_turn)
+                            end
+                        else
+                            if not is_freehand or first_guidance then
+                                next_info = build_guidance_for_taxi(seg_idx, next_display)
+                            end
                         end
                     end
                 elseif next_kind == "runway" then
@@ -2560,6 +2590,11 @@ function M.attach(U, C, def, helpers, settings)
                     comp._lastGuidanceLabel = next_info.display
                     comp._lastGuidanceAction = next_info.action
                     comp._lastGuidanceTime = now
+                    if comp.mode == 1 and next_info.kind == "ramp"
+                        and (next_info.action == "TURN LEFT" or next_info.action == "TURN RIGHT") then
+                        comp._gateFinalTurnUntil = (now or 0) + ((C and C.guidanceCooldown) or 8)
+                        comp._gateFinalTurnKey = gate_target_key(comp, route)
+                    end
                     if is_transition_instruction(next_info) then
                         arm_active_instruction(next_info, seg_idx)
                     else
