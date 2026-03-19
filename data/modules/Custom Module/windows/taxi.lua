@@ -2867,6 +2867,58 @@ local function ramp_route_node(data, ramp)
     return data.nodes[node_id]
 end
 
+local function departure_start_ramp_validity(data, ramp, aircraft, max_dist)
+    if not ramp or not data or not aircraft or aircraft.east == nil or aircraft.north == nil then
+        return false, "invalid", nil
+    end
+    local anchor = ramp_route_node(data, ramp)
+    if not anchor or anchor.east == nil or anchor.north == nil then
+        return false, "no-anchor", nil
+    end
+    local anchor_dist = math.sqrt(distance_sq(aircraft.east, aircraft.north, anchor.east, anchor.north))
+    local dist_base = tonumber(max_dist or 80) or 80
+    local anchor_limit = math.max(dist_base * 2.0, 140)
+    if anchor_dist > anchor_limit then
+        return false, "anchor-too-far", anchor_dist
+    end
+    local link_dist = tonumber(ramp.link_distance_m or 0) or 0
+    local cross = math.abs(tonumber(ramp.link_cross or 0) or 0)
+    local link_limit = math.max(dist_base * 2.0, 160)
+    local cross_limit = math.max(dist_base * 1.5, 120)
+    if link_dist > link_limit and cross > cross_limit then
+        return false, "link-geometry", anchor_dist
+    end
+    return true, nil, anchor_dist
+end
+
+local function log_rejected_start_ramp(comp, source, ramp, ramp_dist, anchor_dist, reason)
+    if not ramp then
+        return
+    end
+    local reject_key = tostring(source or "")
+        .. "|" .. tostring(ramp_key(ramp))
+        .. "|" .. tostring(reason or "")
+    if comp and comp._startRampRejectKey == reject_key then
+        return
+    end
+    log_taxi(
+        string.format(
+            "TaxiRoute: reject start ramp %s key=%s label=%s node=%s dist=%.1f anchor=%.1f reason=%s%s",
+            tostring(source or ""),
+            tostring(ramp_key(ramp)),
+            tostring(short_ramp_label(ramp)),
+            tostring(ramp_route_node_id(ramp) or ""),
+            tonumber(ramp_dist) or -1,
+            tonumber(anchor_dist) or -1,
+            tostring(reason or ""),
+            ramp_debug_suffix(ramp)
+        )
+    )
+    if comp then
+        comp._startRampRejectKey = reject_key
+    end
+end
+
 local function choose_departure_start_ramp(comp, data, icao, aircraft, heading_deg)
     if not data or not aircraft or not is_valid_latlon(aircraft.lat, aircraft.lon) then
         comp._startRampKey = nil
@@ -2883,9 +2935,14 @@ local function choose_departure_start_ramp(comp, data, icao, aircraft, heading_d
     if latched and latched.lat and latched.lon then
         local latched_dist = distance_meters_latlon(latched.lat, latched.lon, aircraft.lat, aircraft.lon)
         if latched_dist and latched_dist <= hold_dist then
-            start_ramp = latched
-            start_ramp_dist = latched_dist
-            source = "latched"
+            local ok, reason, anchor_dist = departure_start_ramp_validity(data, latched, aircraft, max_dist)
+            if ok then
+                start_ramp = latched
+                start_ramp_dist = latched_dist
+                source = "latched"
+            else
+                log_rejected_start_ramp(comp, "latched", latched, latched_dist, anchor_dist, reason)
+            end
         end
     end
     if not start_ramp and U and U.select_best_ramp_for_aircraft then
@@ -2903,7 +2960,14 @@ local function choose_departure_start_ramp(comp, data, icao, aircraft, heading_d
             start_ramp_dist = nil
         end
         if start_ramp then
-            source = "best"
+            local ok, reason, anchor_dist = departure_start_ramp_validity(data, start_ramp, aircraft, max_dist)
+            if ok then
+                source = "best"
+            else
+                log_rejected_start_ramp(comp, "best", start_ramp, start_ramp_dist, anchor_dist, reason)
+                start_ramp = nil
+                start_ramp_dist = nil
+            end
         end
     end
     if not start_ramp then
@@ -2918,14 +2982,20 @@ local function choose_departure_start_ramp(comp, data, icao, aircraft, heading_d
                 or (nearest.lat and nearest.lon and distance_meters_latlon(nearest.lat, nearest.lon, aircraft.lat, aircraft.lon))
                 or nil
             if nearest_dist and nearest_dist <= max_dist then
-                start_ramp = nearest
-                start_ramp_dist = nearest_dist
-                source = "nearest"
+                local ok, reason, anchor_dist = departure_start_ramp_validity(data, nearest, aircraft, max_dist)
+                if ok then
+                    start_ramp = nearest
+                    start_ramp_dist = nearest_dist
+                    source = "nearest"
+                else
+                    log_rejected_start_ramp(comp, "nearest", nearest, nearest_dist, anchor_dist, reason)
+                end
             end
         end
     end
     local key = start_ramp and ramp_key(start_ramp) or nil
     if start_ramp then
+        comp._startRampRejectKey = nil
         comp._startRampKey = key
         if comp._startRampChoiceKey ~= key or comp._startRampChoiceSource ~= source then
             log_taxi(
@@ -2946,6 +3016,7 @@ local function choose_departure_start_ramp(comp, data, icao, aircraft, heading_d
         if comp._startRampChoiceKey or comp._startRampChoiceSource then
             log_taxi("TaxiRoute: start ramp released")
         end
+        comp._startRampRejectKey = nil
         comp._startRampKey = nil
         comp._startRampChoiceKey = nil
         comp._startRampChoiceSource = nil
@@ -5037,6 +5108,7 @@ local function updateTaxiState(comp, map)
         comp._startRamp = nil
         comp._startRampLabel = nil
         comp._startRampKey = nil
+        comp._startRampRejectKey = nil
         comp._startRampChoiceKey = nil
         comp._startRampChoiceSource = nil
         U.set_taxi_ref(nil)
@@ -5063,6 +5135,7 @@ local function updateTaxiState(comp, map)
         comp._startRamp = nil
         comp._startRampLabel = nil
         comp._startRampKey = nil
+        comp._startRampRejectKey = nil
         comp._startRampChoiceKey = nil
         comp._startRampChoiceSource = nil
         comp._endRamp = nil
@@ -6304,6 +6377,7 @@ local function updateTaxiState(comp, map)
     else
         comp._startRampLabel = nil
         comp._startRampKey = nil
+        comp._startRampRejectKey = nil
         comp._startRampChoiceKey = nil
         comp._startRampChoiceSource = nil
     end
@@ -9499,6 +9573,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
     comp._startRamp = nil
     comp._startRampLabel = nil
     comp._startRampKey = nil
+    comp._startRampRejectKey = nil
     comp._startRampChoiceKey = nil
     comp._startRampChoiceSource = nil
     comp._endRamp = nil
