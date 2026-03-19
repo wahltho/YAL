@@ -3470,7 +3470,8 @@ local function evaluate_arrival_route_validity(route, data, aircraft, landing_pr
         reason = "ok",
         route_dist = nil,
         start_gap = nil,
-        exit_gap = nil
+        exit_gap = nil,
+        future_exit_gap = nil
     }
     if not route or not data or not aircraft or aircraft.east == nil or aircraft.north == nil then
         return info
@@ -3486,6 +3487,21 @@ local function evaluate_arrival_route_validity(route, data, aircraft, landing_pr
     local route_limit = on_runway and math.max(220, drift_meters * 4) or math.max(180, drift_meters * 3)
     local severe_limit = on_runway and math.max(320, drift_meters * 6) or math.max(260, drift_meters * 4.5)
     local node_limit = on_runway and math.max(120, drift_meters * 2.5) or math.max(90, drift_meters * 2)
+    if on_runway and landing_profile and arr_exit_id then
+        local aircraft_along = U.compute_along_perp(landing_profile, aircraft)
+        local exit_along = runway_exit_along(landing_profile, route_data, arr_exit_id)
+        if aircraft_along and exit_along then
+            local forward_gap = exit_along - aircraft_along
+            if forward_gap > 25 then
+                info.future_exit_gap = forward_gap
+                local route_slack = math.max(90, drift_meters * 1.8)
+                local node_slack = math.max(60, drift_meters * 1.2)
+                route_limit = math.max(route_limit, forward_gap + route_slack)
+                severe_limit = math.max(severe_limit, forward_gap + route_slack + math.max(120, drift_meters * 2.5))
+                node_limit = math.max(node_limit, forward_gap + node_slack)
+            end
+        end
+    end
     local start_bad = info.start_gap and info.start_gap > node_limit
     local exit_bad = info.exit_gap and info.exit_gap > node_limit
     if info.route_dist and info.route_dist > route_limit then
