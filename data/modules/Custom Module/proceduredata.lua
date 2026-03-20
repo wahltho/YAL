@@ -40,6 +40,15 @@ local function get_inflight_restart_context(loop)
     }
 end
 
+local function apuStarterEngaged()
+    local pos = get(P.apustarterpos)
+    return (pos == def.STARTERON) or (pos == def.STARTERPRESSED)
+end
+
+local function pressApuStarter()
+    helpers.command_once("laminar/B738/spring_toggle_switch/APU_start_pos_dn")
+end
+
 local function inflight_restart_auto_enabled()
     return (P.configvalues[def.CONFIGAUTOFUNCTIONS] == def.ON) and (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON)
 end
@@ -1231,14 +1240,14 @@ function M.fillProcedureTable()
                     nextStep = 'start_apu'
                 },
                 ['start_apu'] = {
-                    check = function() return get(P.apustarterpos) == def.ON end,
-                    action = function() helpers.command_once("laminar/B738/spring_toggle_switch/APU_start_pos_dn") end,
+                    check = function() return apuStarterEngaged() end,
+                    action = function() pressApuStarter() end,
                     advice = "Start A P U",
                     confirm = "A P U checked and Started",
                     nextStep = 'start_apu_2'
                 },                
                 ['start_apu_2'] = {
-                    action = function() helpers.command_once("laminar/B738/spring_toggle_switch/APU_start_pos_dn") end,
+                    action = function() pressApuStarter() end,
                     nextStep = 'wait_apu_runup'
                 },          
                 ['wait_apu_runup'] = {
@@ -2298,14 +2307,14 @@ function M.fillProcedureTable()
                     nextStep = 'start_apu'
                 },
                 ['start_apu'] = {
-                    check = function() return get(P.apustarterpos) == def.ON end,
-                    action = function() helpers.command_once("laminar/B738/spring_toggle_switch/APU_start_pos_dn") end,
+                    check = function() return apuStarterEngaged() end,
+                    action = function() pressApuStarter() end,
                     advice = "Start A P U",
                     confirm = "A P U checked and Started",
                     nextStep = 'start_apu_2'
                 },                
                 ['start_apu_2'] = {
-                    action = function() helpers.command_once("laminar/B738/spring_toggle_switch/APU_start_pos_dn") end,
+                    action = function() pressApuStarter() end,
                     nextStep = 'wait_apu_runup'
                 },
                 ['wait_apu_runup'] = {
@@ -4932,14 +4941,14 @@ function M.fillProcedureTable()
                     nextStep = 'verify_power_source_ready'
                 },
                 ['start_apu'] = {
-                    check = function() return get(P.apustarterpos) == def.ON end,
-                    action = function() helpers.command_once("laminar/B738/spring_toggle_switch/APU_start_pos_dn") end,
+                    check = function() return apuStarterEngaged() end,
+                    action = function() pressApuStarter() end,
                     advice = "Start A P U",
                     confirm = "A P U checked and Started",
                     nextStep = 'start_apu_2'
                 },                
                 ['start_apu_2'] = {
-                    action = function() helpers.command_once("laminar/B738/spring_toggle_switch/APU_start_pos_dn") end,
+                    action = function() pressApuStarter() end,
                     nextStep = 'wait_apu_runup'
                 },          
                 ['wait_apu_runup'] = {
