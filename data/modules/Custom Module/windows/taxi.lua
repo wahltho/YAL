@@ -1557,33 +1557,41 @@ end
 
 local function apply_dep_turnaround_stub(comp, route, data, profile, runway_label)
     if not comp or not route or not data or not profile or not route.path or #route.path < 1 then
-        return false
+        return nil
     end
     if comp._depTurnaroundApplied then
-        return false
+        return nil
     end
     if not data.nodes or not profile.threshold or not profile.axis then
-        return false
+        return nil
     end
     local last_id = route.path[#route.path]
     local last_node = data.nodes[last_id]
     if not last_node or last_node.east == nil or last_node.north == nil then
-        return false
+        return nil
     end
     local threshold = profile.threshold
     local dist2 = distance_sq(last_node.east, last_node.north, threshold.east, threshold.north)
     if dist2 > (35 * 35) then
         local along, perp = compute_along_perp(profile, last_node)
         if not along or not perp then
-            return false
+            return nil
         end
         local corridor = runway_corridor_half_width(profile)
         local max_along = math.max(120, C.depThresholdGateMeters * 2.5)
-        if perp > (corridor + 8) then
-            return false
+        if perp > (corridor + 8) or along < -10 then
+            return nil
         end
-        if along < -10 or along > max_along then
-            return false
+        if along > max_along then
+            local segments = build_runway_backtrack_segments(data, profile, last_id, threshold)
+            if not segments or #segments == 0 then
+                return nil
+            end
+            if not apply_backtrack_segments_to_route(comp, route, data, last_id, segments, runway_label) then
+                return nil
+            end
+            comp._depTurnaroundApplied = true
+            return "backtrack"
         end
     end
     local half = runway_corridor_half_width(profile)
@@ -1624,7 +1632,7 @@ local function apply_dep_turnaround_stub(comp, route, data, profile, runway_labe
         update_bounds(route.bounds, lineup_e, lineup_n)
     end
     comp._depTurnaroundApplied = true
-    return true
+    return "turnaround"
 end
 
 local collect_runway_exit_candidates
@@ -8366,8 +8374,11 @@ local function updateTaxiState(comp, map)
                             runway_label = U.runway_pair_label(rwy)
                         end
                     end
-                    if apply_dep_turnaround_stub(comp, route, data, profile, runway_label) then
+                    local dep_backtrack_apply = apply_dep_turnaround_stub(comp, route, data, profile, runway_label)
+                    if dep_backtrack_apply == "turnaround" then
                         log_taxi("TaxiRoute: dep turnaround stub applied")
+                    elseif dep_backtrack_apply == "backtrack" then
+                        log_taxi("TaxiRoute: dep backtrack tail applied")
                     end
                 end
             end
