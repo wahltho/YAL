@@ -3602,6 +3602,89 @@ local function choose_or_keep_arrival_exit(comp, landing_profile, data, proposed
     return exit_id, exit_along, backtrack_required, start_lat, start_lon
 end
 
+local function get_route_start_anchor(route, data, fallback_lat, fallback_lon)
+    local route_data = route and (route.data or data) or data
+    local start_id = route and (route.start_id or (route.path and route.path[1])) or nil
+    if start_id and route_data and route_data.nodes then
+        local node = route_data.nodes[start_id]
+        if node and U.is_valid_latlon(node.lat, node.lon) then
+            return start_id, node.lat, node.lon
+        end
+    end
+    return start_id, fallback_lat, fallback_lon
+end
+
+local function clear_arrival_route_context(comp)
+    if not comp then
+        return
+    end
+    comp._routeContext = nil
+    comp._arrProfile = nil
+    comp._arrBacktrackRequired = nil
+    comp._arrExitLockedId = nil
+    comp._arrExitLockedAlong = nil
+    comp._arrExitLockReleasedLogged = nil
+    comp._arrExitId = nil
+    comp._arrExitAlong = nil
+    comp._arrRunwayExitAnnounced = false
+    comp._arrRunwayCrossWarned = nil
+end
+
+local function build_arrival_route_context(route, data, icao, runway_name, start_lat, start_lon, arr_exit_id, backtrack_required, landing_profile)
+    if not route then
+        return nil
+    end
+    local route_data = route.data or data
+    local ctx = {
+        mode = 1,
+        icao = icao,
+        runway_name = runway_name or "",
+        backtrack_required = backtrack_required and true or false,
+        profile = landing_profile
+    }
+    ctx.start_node_id, ctx.start_lat, ctx.start_lon = get_route_start_anchor(route, route_data, start_lat, start_lon)
+    ctx.arr_exit_id = arr_exit_id
+    local inferred_exit_id = infer_arrival_exit_from_route(route, route_data)
+    if inferred_exit_id then
+        ctx.arr_exit_id = inferred_exit_id
+    end
+    if landing_profile and ctx.arr_exit_id then
+        ctx.arr_exit_along = runway_exit_along(landing_profile, route_data, ctx.arr_exit_id)
+    end
+    return ctx
+end
+
+local function commit_arrival_route_context(comp, ctx, off_runway, log_taxi)
+    if not comp then
+        return
+    end
+    if not ctx then
+        clear_arrival_route_context(comp)
+        return
+    end
+    comp._routeContext = ctx
+    comp._arrProfile = ctx.profile
+    comp._arrBacktrackRequired = ctx.backtrack_required
+    if comp._arrOffRunwayHandled and off_runway == false and (not comp._arrExitLockedId) and ctx.arr_exit_id then
+        comp._arrExitLockedId = ctx.arr_exit_id
+        comp._arrExitLockedAlong = ctx.arr_exit_along
+        comp._arrExitLockReleasedLogged = nil
+    elseif off_runway and comp._arrExitLockedId then
+        if log_taxi and (not comp._arrExitLockReleasedLogged) then
+            log_taxi("TaxiRoute: ARR exit lock released off-runway")
+            comp._arrExitLockReleasedLogged = true
+        end
+        comp._arrExitLockedId = nil
+        comp._arrExitLockedAlong = nil
+    end
+    if comp._arrExitId ~= ctx.arr_exit_id then
+        comp._arrRunwayExitAnnounced = false
+        comp._arrRunwayCrossWarned = nil
+    end
+    comp._arrExitId = ctx.arr_exit_id
+    comp._arrExitAlong = ctx.arr_exit_along
+end
+
 local function set_reroute_override_from_aircraft(comp, data, aircraft, disallow_runway_edges)
     if not comp or not aircraft or not is_valid_latlon(aircraft.lat, aircraft.lon) then
         return false
@@ -5053,6 +5136,7 @@ local function updateTaxiState(comp, map)
         comp._arrExitAlong = nil
         comp._arrProfile = nil
         comp._arrBacktrackRequired = nil
+        comp._routeContext = nil
         comp._arrRunwayStartNodeLatched = nil
         comp._arrRunwayStartNodeIcao = nil
         comp._arrRunwayStartNodeRunway = nil
@@ -6284,44 +6368,8 @@ local function updateTaxiState(comp, map)
                 log_taxi
             )
     end
-    if mode == 1 then
-        comp._arrProfile = landing_profile
-        comp._arrBacktrackRequired = backtrack_required
-        if comp._arrOffRunwayHandled and comp._arrOffRunway == false
-            and (not comp._arrExitLockedId) and comp._arrExitId then
-            comp._arrExitLockedId = comp._arrExitId
-            comp._arrExitLockedAlong = comp._arrExitAlong
-            comp._arrExitLockReleasedLogged = nil
-        elseif comp._arrOffRunway and comp._arrExitLockedId then
-            if not comp._arrExitLockReleasedLogged then
-                log_taxi("TaxiRoute: ARR exit lock released off-runway")
-                comp._arrExitLockReleasedLogged = true
-            end
-            comp._arrExitLockedId = nil
-            comp._arrExitLockedAlong = nil
-        end
-        if comp._arrExitId ~= arr_exit_id then
-            comp._arrExitId = arr_exit_id
-            comp._arrRunwayExitAnnounced = false
-            comp._arrRunwayCrossWarned = nil
-        end
-        if arr_exit_id then
-            if arr_exit_along ~= nil then
-                comp._arrExitAlong = arr_exit_along
-            end
-        else
-            comp._arrExitAlong = nil
-        end
-    else
-        comp._arrProfile = nil
-        comp._arrBacktrackRequired = nil
-        comp._arrExitLockedId = nil
-        comp._arrExitLockedAlong = nil
-        comp._arrExitLockReleasedLogged = nil
-        comp._arrExitId = nil
-        comp._arrExitAlong = nil
-        comp._arrRunwayExitAnnounced = false
-        comp._arrRunwayCrossWarned = nil
+    if mode ~= 1 then
+        clear_arrival_route_context(comp)
         comp._offrouteDivergenceCount = 0
     end
     if mode == 1 and (not comp._drawFreehand)
@@ -8303,6 +8351,28 @@ local function updateTaxiState(comp, map)
             comp._routeErr = rerr
             comp._routeLabels = nil
             comp._routeLabelStats = nil
+            if mode == 1 then
+                local route_ctx = build_arrival_route_context(
+                    route,
+                    data,
+                    icao,
+                    comp._runwayName,
+                    start_lat,
+                    start_lon,
+                    arr_exit_id,
+                    backtrack_required,
+                    landing_profile
+                )
+                commit_arrival_route_context(comp, route_ctx, comp._arrOffRunway, log_taxi)
+                if route_ctx then
+                    arr_exit_id = route_ctx.arr_exit_id
+                    arr_exit_along = route_ctx.arr_exit_along
+                    backtrack_required = route_ctx.backtrack_required
+                    start_node_id = route_ctx.start_node_id or start_node_id
+                    start_lat = route_ctx.start_lat or start_lat
+                    start_lon = route_ctx.start_lon or start_lon
+                end
+            end
             if in_edit and route then
                 if comp._editDirty then
                     log_taxi("TaxiEdit: clean")
@@ -8403,6 +8473,8 @@ local function updateTaxiState(comp, map)
                 else
                     comp._routeStartAnchor = nil
                 end
+            elseif not route then
+                comp._routeStartAnchor = nil
             end
             if route and route.path then
                 local rlen = #route.path
@@ -8534,25 +8606,6 @@ local function updateTaxiState(comp, map)
             end
             if route and route.bounds then
                 comp._fitBounds = route.bounds
-            end
-            if mode == 1 and route and route.path and route.data and route.data ~= nil then
-                local exit_id = infer_arrival_exit_from_route(route, route.data)
-                if exit_id and exit_id ~= comp._arrExitId then
-                    comp._arrExitId = exit_id
-                    if comp._arrProfile then
-                        comp._arrExitAlong = runway_exit_along(comp._arrProfile, route.data, exit_id)
-                    end
-                    local on_runway_now = false
-                    if comp._arrProfile and aircraft then
-                        on_runway_now = is_on_runway_profile(comp._arrProfile, aircraft, 60, 5)
-                    elseif comp.yal and comp.yal.aircraftonrwy then
-                        on_runway_now = not comp.yal.aircraftonrwy(def.ARRIVAL, 40, 20)
-                    end
-                    if not on_runway_now or (not comp._arrRunwayExitAnnounced) then
-                        comp._arrRunwayExitAnnounced = false
-                    end
-                    comp._arrRunwayCrossWarned = nil
-                end
             end
             if route and route.data and route.data.route_source == "freehand" then
                 comp._freehandLabelCache = nil
@@ -9356,6 +9409,15 @@ local function updateTaxiState(comp, map)
     comp._startPoint = nil
     local sp_lat = (in_edit and start_vis_lat) or start_lat
     local sp_lon = (in_edit and start_vis_lon) or start_lon
+    if (not in_edit) and (not comp._manualRouteActive)
+        and comp._routeContext
+        and comp._routeContext.mode == mode
+        and comp._routeContext.icao == icao
+        and comp._routeContext.runway_name == (comp._runwayName or "")
+        and U.is_valid_latlon(comp._routeContext.start_lat, comp._routeContext.start_lon) then
+        sp_lat = comp._routeContext.start_lat
+        sp_lon = comp._routeContext.start_lon
+    end
     if U.is_valid_latlon(sp_lat, sp_lon) then
         local sx, sy = U.latlon_to_local(sp_lat, sp_lon)
         comp._startPoint = { east = sx, north = sy }
@@ -9548,6 +9610,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
     comp._routeErr = nil
     comp._dataErr = nil
     comp._routeLabels = nil
+    comp._routeContext = nil
     comp._startPoint = nil
     comp._endPoint = nil
     comp._startRamp = nil
