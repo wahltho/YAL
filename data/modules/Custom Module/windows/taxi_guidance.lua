@@ -875,13 +875,14 @@ function M.attach(U, C, def, helpers, settings)
                             comp._lastGateDiagTime = now
                             helpers.logInfoTS(
                                 string.format(
-                                    "GateDiag: dist=%.1f stop=%.1f gs=%.1f stage=%s stopCalled=%s dgs=%s",
+                                    "GateDiag: dist=%.1f stop=%.1f gs=%.1f stage=%s stopCalled=%s dgs=%s final=%s",
                                     dist,
                                     stop_dist or -1,
                                     gs or 0,
                                     tostring(comp._gateCalloutStage or 0),
                                     tostring(comp._gateCalloutStop),
-                                    tostring(comp._gateUseDgs)
+                                    tostring(comp._gateUseDgs),
+                                    tostring(comp._gateFinalState)
                                 )
                             )
                         end

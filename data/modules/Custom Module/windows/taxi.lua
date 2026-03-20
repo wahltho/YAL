@@ -4744,117 +4744,33 @@ U.push_undo = function(comp, reason)
 end
 
 U.gate_distance_meters = function(comp, aircraft, route, data)
-    if not comp or not aircraft or aircraft.east == nil or aircraft.north == nil then
-        return nil
+    local fn = U._core_gate_distance_meters
+    if fn then
+        return fn(comp, aircraft, route, data)
     end
-    local best = nil
-    local ax = aircraft.east
-    local ay = aircraft.north
-    if aircraft.heading and type(aircraft.heading) == "number" then
-        local offset = aircraft.nose_offset or (C and C.gateStopOffsetMeters or 10)
-        local rad = math.rad(aircraft.heading % 360)
-        ax = ax + math.sin(rad) * offset
-        ay = ay + math.cos(rad) * offset
-    end
-    if comp._endRamp then
-        local ramp = comp._endRamp
-        local east = ramp.east
-        local north = ramp.north
-        if (east == nil or north == nil) and is_valid_latlon(ramp.lat, ramp.lon) then
-            east, north = latlon_to_local(ramp.lat, ramp.lon)
-        end
-        local ramp_dist = nil
-        if east ~= nil and north ~= nil then
-            ramp_dist = math.sqrt(distance_sq(ax, ay, east, north))
-        end
-        local dgs = U.ramp_dgs_values(ramp, aircraft)
-        local use_dgs = dgs ~= nil
-        if ramp_dist ~= nil then
-            local dgs_max = (comp._tuning and comp._tuning.gateGuidanceRadius) or (C and C.gateGuidanceRadius) or 60
-            dgs_max = dgs_max * 1.6
-            if ramp_dist > dgs_max then
-                use_dgs = false
-            end
-        end
-        comp._gateUseDgs = use_dgs
-        if use_dgs and dgs and dgs.nw_z ~= nil then
-            local good_x = dgs.dgs_good_x or ((C and C.gateDgsGoodX) or 2.0)
-            local good_z_pos = dgs.dgs_good_z_pos or ((C and C.gateDgsGoodZPos) or 0.2)
-            local good_z_neg = dgs.dgs_good_z_neg or ((C and C.gateDgsGoodZNeg) or -0.5)
-            local locgood = (math.abs(dgs.mw_x or 0) <= good_x)
-                and dgs.nw_z >= good_z_neg
-                and dgs.nw_z <= good_z_pos
-            if locgood or dgs.nw_z < good_z_neg then
-                best = 0
-            else
-                best = dgs.nw_z
-            end
-        elseif ramp_dist ~= nil then
-            best = ramp_dist
-        end
-    else
-        comp._gateUseDgs = false
-    end
-    if (not comp._endRamp) and route and data and route.path and #route.path > 0 and data.nodes then
-        local node = data.nodes[route.path[#route.path]]
-        if node and node.east ~= nil and node.north ~= nil then
-            local d = math.sqrt(distance_sq(ax, ay, node.east, node.north))
-            if best == nil or d < best then
-                best = d
-            end
-        end
-    end
-    return best
+    return nil
 end
 
 U.gate_note_text = function(dist, use_dgs)
-    if not dist then
-        return nil
-    end
-    local stop_dist = use_dgs and ((C and C.gateDgsGoodZPos) or 0.2) or C.gateStopDistance
-    if dist <= stop_dist then
-        return "Stop"
-    end
-    if dist <= 80 then
-        return string.format("Gate in %d m", math.floor(dist + 0.5))
+    local fn = U._core_gate_note_text
+    if fn then
+        return fn(dist, use_dgs)
     end
     return nil
 end
 
 U.reset_gate_callouts = function(comp, key)
-    if not comp then
+    local fn = U._core_reset_gate_callouts
+    if fn then
+        fn(comp, key)
         return
     end
-    comp._gateCalloutKey = key
-    comp._gateCalloutStage = 0
-    comp._gateCalloutStop = false
 end
 
 U.maybe_gate_voice_callouts = function(comp, dist, allow_voice, use_dgs, allow_stop)
-    if not comp or not dist then
-        return
-    end
-    if not allow_voice or not is_voice_enabled() then
-        return
-    end
-    local stop_dist = use_dgs and ((C and C.gateDgsGoodZPos) or 0.2) or C.gateStopDistance
-    if dist <= stop_dist then
-        if allow_stop == false then
-            return
-        end
-        if not comp._gateCalloutStop then
-            speak_guidance_text(comp, "Stop")
-            comp._gateCalloutStop = true
-        end
-        return
-    end
-    local stage = comp._gateCalloutStage or 0
-    local thresholds = { 30, 10, 5 }
-    for i, threshold in ipairs(thresholds) do
-        if dist <= threshold and stage < i then
-            speak_guidance_text(comp, "Gate in " .. tostring(threshold) .. " meters")
-            comp._gateCalloutStage = i
-        end
+    local fn = U._core_maybe_gate_voice_callouts
+    if fn then
+        fn(comp, dist, allow_voice, use_dgs, allow_stop)
     end
 end
 

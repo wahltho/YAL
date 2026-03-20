@@ -112,9 +112,41 @@ function M.attach(U, C, def, helpers)
         }
     end
 
+    local function gate_final_thresholds(radius)
+        local final_limit = math.max(15, math.min(30, (radius or 60) * 0.5))
+        local stop_limit = math.max((C and C.gateStopDistance) or 2, math.min(8, final_limit * 0.35))
+        return final_limit, stop_limit
+    end
+
+    local function gate_tracking_distance(comp, fallback_dist, radius)
+        local ref_dist = comp and comp._gateActivationDist or nil
+        local track_dist = ref_dist
+        if track_dist == nil or (fallback_dist ~= nil and fallback_dist > track_dist) then
+            track_dist = fallback_dist
+        end
+        local final_limit, stop_limit = gate_final_thresholds(radius)
+        local stage = "approach"
+        if track_dist ~= nil then
+            if track_dist <= stop_limit then
+                stage = "stop"
+            elseif track_dist <= final_limit then
+                stage = "final"
+            end
+        end
+        return track_dist, stage, final_limit, stop_limit
+    end
+
     local function trusted_ramp_dgs(ramp, aircraft, fallback_dist, radius, ref_dist)
         local dgs = ramp_dgs_values(ramp, aircraft)
         if not dgs then
+            return nil
+        end
+        local track_dist = ref_dist
+        if track_dist == nil or (fallback_dist ~= nil and fallback_dist > track_dist) then
+            track_dist = fallback_dist
+        end
+        local final_limit = gate_final_thresholds(radius)
+        if track_dist and track_dist > final_limit then
             return nil
         end
         if fallback_dist and fallback_dist > radius then
@@ -216,13 +248,14 @@ function M.attach(U, C, def, helpers)
         local behind_limit = tuning.gateGuidanceBehindLimit or (C and C.gateGuidanceBehindLimit) or -5
         local ramp = comp._endRamp
         local local_x, local_z, ramp_hdg, fallback_dist = ramp_frame_values(ramp, aircraft)
-        local dgs = ramp_dgs_values(ramp, aircraft)
-        dgs = trusted_ramp_dgs(ramp, aircraft, fallback_dist, radius, comp and comp._gateActivationDist or nil)
+        local track_dist, stage, _, stop_limit = gate_tracking_distance(comp, fallback_dist, radius)
+        local dgs = trusted_ramp_dgs(ramp, aircraft, fallback_dist, radius, comp and comp._gateActivationDist or nil)
         local direction = "straight"
         local action = "ALIGN"
         local text = "Continue straight"
         local dist = nil
-        if dgs then
+        comp._gateFinalState = stage
+        if dgs and stage ~= "approach" then
             local cap_a = (C and C.gateDgsCapA) or 15
             local cap_z = (C and C.gateDgsCapZ) or 105
             local azi_a = (C and C.gateDgsAziA) or 15
@@ -272,7 +305,7 @@ function M.attach(U, C, def, helpers)
             end
             comp._gateDgsState = state
 
-            if state == "GOOD" or state == "BAD" or locgood or dist < good_z_neg then
+            if stage == "stop" and (state == "GOOD" or state == "BAD" or locgood or dist < good_z_neg) then
                 action = "STOP"
                 text = "Stop"
             else
@@ -304,6 +337,9 @@ function M.attach(U, C, def, helpers)
                     end
                 end
             end
+            if track_dist ~= nil and (dist == nil or track_dist > dist) then
+                dist = track_dist
+            end
         else
             if not local_x or not local_z or not fallback_dist then
                 return nil
@@ -311,12 +347,12 @@ function M.attach(U, C, def, helpers)
             if fallback_dist > radius then
                 return nil
             end
-            dist = fallback_dist
+            dist = track_dist or fallback_dist
             local stop_dist = (C and C.gateStopDistance) or 2
-            if ramp_hdg and local_z < behind_limit then
+            if stage == "stop" and ramp_hdg and local_z < behind_limit then
                 action = "STOP"
                 text = "Stop"
-            elseif local_z <= stop_dist then
+            elseif stage == "stop" and local_z <= math.max(stop_dist, stop_limit or stop_dist) then
                 action = "STOP"
                 text = "Stop"
             else
@@ -372,9 +408,11 @@ function M.attach(U, C, def, helpers)
             local ramp = comp._endRamp
             local local_x, local_z, ramp_hdg, fallback_dist = ramp_frame_values(ramp, aircraft)
             local radius = (C and C.gateGuidanceRadius) or 60
+            local track_dist, stage = gate_tracking_distance(comp, fallback_dist, radius)
             local dgs = trusted_ramp_dgs(ramp, aircraft, fallback_dist, radius, comp and comp._gateActivationDist or nil)
             comp._gateUseDgs = dgs ~= nil
-            if dgs and dgs.nw_z ~= nil then
+            comp._gateFinalState = stage
+            if dgs and dgs.nw_z ~= nil and stage ~= "approach" then
                 local good_x = dgs.dgs_good_x or ((C and C.gateDgsGoodX) or 2.0)
                 local good_z_pos = dgs.dgs_good_z_pos or ((C and C.gateDgsGoodZPos) or 0.2)
                 local good_z_neg = dgs.dgs_good_z_neg or ((C and C.gateDgsGoodZNeg) or -0.5)
@@ -387,7 +425,7 @@ function M.attach(U, C, def, helpers)
                 else
                     dgs_dist = math.max(0, dgs.nw_z)
                 end
-                if fallback_dist ~= nil then
+                if stage == "stop" and fallback_dist ~= nil then
                     local blend_limit = 30
                     local max_diff = 15
                     if fallback_dist > blend_limit then
@@ -400,14 +438,17 @@ function M.attach(U, C, def, helpers)
                             best = fallback_dist
                         end
                     end
-                else
+                elseif stage == "stop" then
                     best = dgs_dist
+                else
+                    best = track_dist or dgs_dist
                 end
-            elseif fallback_dist then
-                best = fallback_dist
+            elseif track_dist then
+                best = track_dist
             end
         else
             comp._gateUseDgs = false
+            comp._gateFinalState = nil
         end
         if (not comp._endRamp) and route and data and route.path and #route.path > 0 and data.nodes then
             local node = data.nodes[route.path[#route.path]]
@@ -473,6 +514,10 @@ function M.attach(U, C, def, helpers)
     U.ramp_frame_values = ramp_frame_values
     U.ramp_dgs_values = ramp_dgs_values
     U.select_best_ramp_for_aircraft = select_best_ramp_for_aircraft
+    U._core_gate_distance_meters = gate_distance_meters
+    U._core_gate_note_text = gate_note_text
+    U._core_reset_gate_callouts = reset_gate_callouts
+    U._core_maybe_gate_voice_callouts = maybe_gate_voice_callouts
     U.gate_alignment_info = gate_alignment_info
     U.gate_distance_meters = gate_distance_meters
     U.gate_note_text = gate_note_text
