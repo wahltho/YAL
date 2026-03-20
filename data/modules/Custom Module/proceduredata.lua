@@ -61,6 +61,26 @@ local function toggleExternalStartAir()
     helpers.command_once("laminar/B738/asu_toggle")
 end
 
+local function engineStartElectricalAvailable()
+    return (((get(P.battery) == def.ON) and (get(P.mainbus) ~= def.OFF))
+        or (get(P.gpuon) == def.ON)
+        or (P.apurunning() == def.APUONBUS))
+end
+
+local function getEngineStartApuSourceStep()
+    local apuState = P.apurunning()
+    if apuState == def.APUOFF then
+        return 'set_apu_fuel_pump_on'
+    elseif apuState == def.APUSTARTED then
+        return 'wait_apu_runup'
+    elseif apuState == def.APUOFFBUS then
+        return 'set_apu_gen'
+    elseif get(P.bleedairapupos) ~= def.ON then
+        return 'set_apu_bleed_on'
+    end
+    return 'set_isol_valve_open'
+end
+
 local function inflight_restart_auto_enabled()
     return (P.configvalues[def.CONFIGAUTOFUNCTIONS] == def.ON) and (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON)
 end
@@ -2410,10 +2430,8 @@ function M.fillProcedureTable()
             requiredFlightstate = def.FLIGHTSTATEPREFLIGHT, 
             skipCondition = function() return P.enginesrunning(def.BOTH) end,
             prerequisiteChecks = {
-                { check = function()
-                        return useExternalStartAirWhenAvailable() or (P.apurunning() == def.APUONBUS)
-                    end,
-                  failMsg = "Procedure not possible, A P U not running" },
+                { check = function() return engineStartElectricalAvailable() end,
+                  failMsg = "Procedure not possible, no electrical power available" },
                 { check = function() return not P.enginesrunning(def.BOTH) end, 
                   failMsg = "Procedure aborted, Engines already running", setonabort = true }
             },
@@ -2459,16 +2477,9 @@ function M.fillProcedureTable()
                                 loop.extairRequested = true
                                 return 'set_external_air_on'
                             end
-                            if P.apurunning() == def.APUONBUS then
-                                loop.start_air_source = 'apu'
-                                return 'set_apu_bleed_on'
-                            end
-                            loop.procedurenotpossible = true
-                            P.commandtableentry(def.TEXT, P.proceduretable[def.ENGINESTARTPROCEDURE].name .. " Procedure not possible, External Start Air unavailable and A P U not running")
-                            return nil
                         end
                         loop.start_air_source = 'apu'
-                        return 'set_apu_bleed_on'
+                        return getEngineStartApuSourceStep()
                     end
                 },
                 ['set_external_air_on'] = {
@@ -2477,6 +2488,43 @@ function M.fillProcedureTable()
                     end,
                     advice = "Set External Start Air On",
                     nextStep = 'select_start_air_source'
+                },
+                ['set_apu_fuel_pump_on'] = {
+                    check = function() return get(P.lefttanklswitch) == def.ON end,
+                    action = function() set(P.lefttanklswitch, def.ON) end,
+                    advice = "Set Left After Fuel Pump On",
+                    confirm = "Left After Fuel Pump checked On",
+                    nextStep = 'start_apu'
+                },
+                ['start_apu'] = {
+                    check = function() return apuStarterEngaged() end,
+                    action = function() pressApuStarter() end,
+                    advice = "Start A P U",
+                    confirm = "A P U checked and Started",
+                    nextStep = 'start_apu_2'
+                },
+                ['start_apu_2'] = {
+                    action = function() pressApuStarter() end,
+                    nextStep = 'wait_apu_runup'
+                },
+                ['wait_apu_runup'] = {
+                    check = function() return P.apurunning() >= def.APUOFFBUS end,
+                    confirm = "A P U Running Up",
+                    nextStep = 'set_apu_gen'
+                },
+                ['set_apu_gen'] = {
+                    check = function() return P.apurunning() == def.APUONBUS end,
+                    action = function()
+                        if not((get(P.apupowerbus1) == def.ON) and (get(P.announcsourceoff1) == def.OFF)) then
+                            helpers.command_once("laminar/B738/toggle_switch/apu_gen1_dn")
+                        end
+                        if not((get(P.apupowerbus2) == def.ON) and (get(P.announcsourceoff2) == def.OFF)) then
+                            helpers.command_once("laminar/B738/toggle_switch/apu_gen2_dn")
+                        end
+                    end,
+                    advice = "Set A P U Generator On",
+                    confirm = "A P U Generator checked On",
+                    nextStep = 'set_apu_bleed_on'
                 },
                 ['set_apu_bleed_on'] = {
                     check = function() return get(P.bleedairapupos) == def.ON end,
