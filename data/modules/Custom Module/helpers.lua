@@ -4927,23 +4927,24 @@ local function collectLegNameSet(legs_string, lat_array, lon_array)
     return names
 end
 
-local function normalizeSelectedApproachId(selectedAppId, expectedRunway)
+local function parseSelectedApproachId(selectedAppId, expectedRunway)
     if type(selectedAppId) ~= "string" then return nil end
-    local trimmed = trimString(selectedAppId):upper()
+    local trimmed = trimString(selectedAppId):upper():gsub("%s+", "")
     if trimmed == "" or trimmed == "------" then return nil end
 
+    local id = trimmed
     local navType = nil
     local runwayPart = nil
     local suffix = nil
 
-    if string.sub(trimmed, 1, 3) == def.NAVTYPELDA then
+    if string.sub(id, 1, 3) == def.NAVTYPELDA then
         navType = def.NAVTYPELDA
-        local rest = string.sub(trimmed, 4)
-        runwayPart, suffix = rest:match("^(%d%d%a?)(%a*)")
+        local rest = string.sub(id, 4)
+        runwayPart, suffix = rest:match("^(%d%d%a?)[%-]?([%a]*)$")
     else
-        -- Pattern: first char = type, then runway (e.g. 08, 08L), optional suffix (Y/Z/etc.)
+        -- Pattern: first char = type, then runway (e.g. 08, 08L), optional hyphen + suffix (Y/Z/etc.)
         local typeChar
-        typeChar, runwayPart, suffix = trimmed:match("^(%a)(%d%d%a?)(%a*)")
+        typeChar, runwayPart, suffix = id:match("^(%a)(%d%d%a?)[%-]?([%a]*)$")
         if not typeChar or not runwayPart then return nil end
 
         local navTypeMap = {
@@ -4962,10 +4963,14 @@ local function normalizeSelectedApproachId(selectedAppId, expectedRunway)
     end
 
     return {
+        id = id,
         navType = navType,
+        runway = runwayPart,
         suffix = suffix and suffix ~= "" and suffix or nil
     }
 end
+
+P.parseSelectedApproachId = parseSelectedApproachId
 
 function P.detectCIFPApproachVariant(icao, runway, legs_string, lat_array, lon_array, selectedAppId)
     if not (P.isvalidicao(icao) and P.isvalidrwy(runway)) then
@@ -4978,7 +4983,7 @@ function P.detectCIFPApproachVariant(icao, runway, legs_string, lat_array, lon_a
     end
 
     runway = string.upper(runway)
-    local selectedInfo = normalizeSelectedApproachId(selectedAppId, runway)
+    local selectedInfo = parseSelectedApproachId(selectedAppId, runway)
     if selectedInfo then
         local entries = cifpData[selectedInfo.navType] and cifpData[selectedInfo.navType][runway]
         if entries and #entries > 0 then

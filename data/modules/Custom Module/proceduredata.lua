@@ -107,7 +107,10 @@ local function isLateralOnlyApproach(navdata)
     return false
 end
 
-local function navTypeFromSelectedApproachId(selectedAppId)
+local function parseSelectedApproachId(selectedAppId)
+    if helpers and helpers.parseSelectedApproachId then
+        return helpers.parseSelectedApproachId(selectedAppId)
+    end
     local id = type(selectedAppId) == "string" and selectedAppId:gsub("%s+", ""):upper() or nil
     if not id then
         return nil
@@ -115,26 +118,33 @@ local function navTypeFromSelectedApproachId(selectedAppId)
     if id == "" or id == "------" then
         return nil
     end
+    local navType = nil
     if id:sub(1, 3) == def.NAVTYPELDA then
-        return def.NAVTYPELDA
+        navType = def.NAVTYPELDA
+    else
+        local prefix = id:sub(1, 1)
+        if prefix == "I" then navType = def.NAVTYPEILS end
+        if prefix == "L" then navType = def.NAVTYPELOC end
+        if prefix == "R" then navType = def.NAVTYPERNAV end
+        if prefix == "G" then navType = def.NAVTYPEGLS end
     end
-    local prefix = id:sub(1, 1)
-    if prefix == "I" then return def.NAVTYPEILS end
-    if prefix == "L" then return def.NAVTYPELOC end
-    if prefix == "R" then return def.NAVTYPERNAV end
-    if prefix == "G" then return def.NAVTYPEGLS end
-    return nil
+    if not navType then
+        return nil
+    end
+    return {
+        id = id,
+        navType = navType
+    }
+end
+
+local function navTypeFromSelectedApproachId(selectedAppId)
+    local parsed = parseSelectedApproachId(selectedAppId)
+    return parsed and parsed.navType or nil
 end
 
 local function normalizeSelectedApproachId(selectedAppId)
-    if type(selectedAppId) ~= "string" then
-        return nil
-    end
-    local id = selectedAppId:gsub("%s+", ""):upper()
-    if id == "" or id == "------" then
-        return nil
-    end
-    return id
+    local parsed = parseSelectedApproachId(selectedAppId)
+    return parsed and parsed.id or nil
 end
 
 local function addSetIlsCandidateType(candidateTypes, seen, navType)
