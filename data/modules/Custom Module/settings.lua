@@ -29,6 +29,7 @@ local settingsDefinition = {
     [def.CONFIGAUTOFLAPS] = { dvalue = 1 , type = "number", min = 0, max = 1 },
     [def.CONFIGAUTOCHOCKSPB] = { dvalue = 1 , type = "number", min = 0, max = 1 },
     [def.CONFIGUSEGROUNDPOWER] = { dvalue = 1 , type = "number", min = 0, max = 1 },
+    [def.CONFIGUSEEXTERNALAIR] = { dvalue = 0 , type = "number", min = 0, max = 1 },
 
     [def.CONFIGSPDRESTR250] = { dvalue = 1 , type = "number", min = 0, max = 1 },
     [def.CONFIGVREF30SET] = { dvalue = 1 , type = "number", min = 0, max = 1 },

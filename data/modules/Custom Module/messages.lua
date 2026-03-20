@@ -41,6 +41,7 @@ local english = {
     AUTOFLAPS = 'Automatic Flap Handling',
     VIEWCHANGES = 'View Changes during Procedures',
     USEGROUNDPOWER = 'Use Ground Power when available instead APU',
+    USEEXTERNALAIR = 'Use External Start Air when Available',
 
     CUSTOMIZE = 'Customising',
     SPEEDRESTR250 = 'Set Speed Restriction 250',

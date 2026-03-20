@@ -49,6 +49,18 @@ local function pressApuStarter()
     helpers.command_once("laminar/B738/spring_toggle_switch/APU_start_pos_dn")
 end
 
+local function useExternalStartAirWhenAvailable()
+    return P.configvalues[def.CONFIGUSEEXTERNALAIR] == def.ON
+end
+
+local function externalStartAirConnected()
+    return get(P.engineairstart) == def.ON
+end
+
+local function toggleExternalStartAir()
+    helpers.command_once("laminar/B738/asu_toggle")
+end
+
 local function inflight_restart_auto_enabled()
     return (P.configvalues[def.CONFIGAUTOFUNCTIONS] == def.ON) and (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON)
 end
@@ -2398,7 +2410,9 @@ function M.fillProcedureTable()
             requiredFlightstate = def.FLIGHTSTATEPREFLIGHT, 
             skipCondition = function() return P.enginesrunning(def.BOTH) end,
             prerequisiteChecks = {
-                { check = function() return P.apurunning() == def.APUONBUS end, 
+                { check = function()
+                        return useExternalStartAirWhenAvailable() or (P.apurunning() == def.APUONBUS)
+                    end,
                   failMsg = "Procedure not possible, A P U not running" },
                 { check = function() return not P.enginesrunning(def.BOTH) end, 
                   failMsg = "Procedure aborted, Engines already running", setonabort = true }
@@ -2432,7 +2446,37 @@ function M.fillProcedureTable()
                     action = function() set(P.packlpos, def.PACKOFF); set(P.packrpos, def.PACKOFF) end,
                     advice = "Set Packs Off",
                     confirm = "Packs checked Off",
-                    nextStep = 'set_apu_bleed_on'
+                    nextStep = 'select_start_air_source'
+                },
+                ['select_start_air_source'] = {
+                    branch = function(loop)
+                        if useExternalStartAirWhenAvailable() then
+                            loop.start_air_source = 'extair'
+                            if externalStartAirConnected() then
+                                return 'set_isol_valve_open'
+                            end
+                            if not loop.extairRequested then
+                                loop.extairRequested = true
+                                return 'set_external_air_on'
+                            end
+                            if P.apurunning() == def.APUONBUS then
+                                loop.start_air_source = 'apu'
+                                return 'set_apu_bleed_on'
+                            end
+                            loop.procedurenotpossible = true
+                            P.commandtableentry(def.TEXT, P.proceduretable[def.ENGINESTARTPROCEDURE].name .. " Procedure not possible, External Start Air unavailable and A P U not running")
+                            return nil
+                        end
+                        loop.start_air_source = 'apu'
+                        return 'set_apu_bleed_on'
+                    end
+                },
+                ['set_external_air_on'] = {
+                    action = function()
+                        toggleExternalStartAir()
+                    end,
+                    advice = "Set External Start Air On",
+                    nextStep = 'select_start_air_source'
                 },
                 ['set_apu_bleed_on'] = {
                     check = function() return get(P.bleedairapupos) == def.ON end,
@@ -2589,6 +2633,19 @@ function M.fillProcedureTable()
                     end,
                     advice = "Set Trim Air and Recirc Fans On",
                     confirm = "Trim Air and Recirc Fans checked On",
+                    branch = function(loop)
+                        if loop and loop.start_air_source == 'extair' then
+                            return 'set_external_air_off'
+                        end
+                        return 'set_apu_bleed_off'
+                    end
+                },
+                ['set_external_air_off'] = {
+                    skipIf = function() return not externalStartAirConnected() end,
+                    check = function() return not externalStartAirConnected() end,
+                    action = function() toggleExternalStartAir() end,
+                    advice = "Set External Start Air Off",
+                    confirm = "External Start Air checked Off",
                     nextStep = 'set_apu_bleed_off'
                 },
                 ['set_apu_bleed_off'] = {

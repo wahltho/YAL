@@ -1228,6 +1228,7 @@ function P.initDataref()
     P.jetwaypoweravailable = globalProperty("laminar/B738/jetway_power")
     P.autogategpu = globalProperty("laminar/B738/autogate_gpu")
     P.gpuon = globalProperty("sim/cockpit/electrical/gpu_on")
+    P.engineairstart = globalProperty("laminar/B738/engine/engine_air_start")
 
     P.apustarterpos = globalProperty("laminar/B738/spring_toggle_switch/APU_start_pos")
     P.apupsi = globalProperty("laminar/B738/air/apu_psi")

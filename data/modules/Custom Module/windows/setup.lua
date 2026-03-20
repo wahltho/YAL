@@ -99,6 +99,7 @@ end
 
 -- Left column (all settings up to Gear Down Flaps)
 addCheckbox('USEGROUNDPOWER','USEGROUNDPOWER')
+addCheckbox('USEEXTERNALAIR','USEEXTERNALAIR')
 addCheckbox('VOICEREADBACK','VOICEREADBACK')
 addCheckbox('AUTOFUNCTIONS','AUTOFUNCTIONS')
 addCheckbox('FMCAUTOMATION','FMCAUTOMATION')
