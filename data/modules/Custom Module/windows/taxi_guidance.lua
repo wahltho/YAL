@@ -114,10 +114,12 @@ function M.attach(U, C, def, helpers, settings)
         local action = info and info.action or nil
         return action == "TURN LEFT"
             or action == "TURN RIGHT"
+            or action == "BACKTRACK RWY"
             or action == "CROSS RWY"
             or action == "HOLD SHORT"
             or action == "ENTER RWY"
             or action == "EXIT RWY"
+            or action == "ALIGN RWY"
             or action == "LINE UP"
             or action == "TAKEOFF"
     end
@@ -141,6 +143,16 @@ function M.attach(U, C, def, helpers, settings)
             return true
         end
         return seg_idx >= math.max(1, path_len - 5)
+    end
+
+    local function dep_backtrack_sequence_active(comp)
+        if not comp or comp.mode ~= 0 then
+            return false
+        end
+        if not comp._depBacktrackRequired then
+            return false
+        end
+        return not (comp._depThresholdLatched or comp._depThresholdReached)
     end
 
     local function gate_target_key(comp, route)
@@ -1133,6 +1145,19 @@ function M.attach(U, C, def, helpers, settings)
                 and (not dep_direct_entry_context(seg_idx))
         end
 
+        local function dep_backtrack_context(seg_idx, label)
+            if not dep_backtrack_sequence_active(comp) then
+                return false
+            end
+            if not label or not label_matches_dep(label) then
+                return false
+            end
+            if dep_same_runway_preentry(seg_idx, label) then
+                return false
+            end
+            return true
+        end
+
         local function guidance_label_info(from_id, to_id, fallback_label, ramp_hint, allow_missing)
             local raw_label = get_edge_label(data, from_id, to_id)
             if (not raw_label or raw_label == "") and is_freehand then
@@ -1285,6 +1310,39 @@ function M.attach(U, C, def, helpers, settings)
                 text = text,
                 direction = "straight",
                 action = "EXIT RWY",
+                label = build_visual_label("runway", display),
+                display = display,
+                kind = "runway",
+                targetSegIdx = seg_idx
+            }
+        end
+
+        local function build_guidance_for_dep_backtrack(seg_idx, label, turn_dir)
+            local display = runway_display(label)
+            local text = "Backtrack on departure " .. runway_voice(label)
+            local action = "BACKTRACK RWY"
+            if turn_dir == "left" then
+                text = "Turn left to backtrack on departure " .. runway_voice(label)
+            elseif turn_dir == "right" then
+                text = "Turn right to backtrack on departure " .. runway_voice(label)
+            end
+            return {
+                text = text,
+                direction = turn_dir or "straight",
+                action = action,
+                label = build_visual_label("runway", display),
+                display = display,
+                kind = "runway",
+                targetSegIdx = seg_idx
+            }
+        end
+
+        local function build_guidance_for_dep_backtrack_continue(seg_idx, label)
+            local display = runway_display(label)
+            return {
+                text = "Backtrack on departure " .. runway_voice(label),
+                direction = "straight",
+                action = "BACKTRACK RWY",
                 label = build_visual_label("runway", display),
                 display = display,
                 kind = "runway",
@@ -2145,6 +2203,9 @@ function M.attach(U, C, def, helpers, settings)
                 local next_rwy = is_runway_label(next_raw_label)
                 if raw_rwy ~= next_rwy then
                     if raw_rwy and not next_rwy then
+                        if dep_backtrack_context(seg_idx, raw_label) then
+                            next_info = build_guidance_for_dep_backtrack_continue(seg_idx, raw_label)
+                        else
                         if dep_same_runway_preentry(seg_idx, raw_label) then
                             next_info = build_guidance_for_runway_continue(seg_idx, raw_label)
                         else
@@ -2168,21 +2229,30 @@ function M.attach(U, C, def, helpers, settings)
                             end
                         end
                         end
+                        end
                     elseif not raw_rwy and next_rwy then
                         local entry_dir = turn_dir
                         if not allow_turn then
                             entry_dir = nil
                         end
-                        if dep_same_runway_preentry(seg_idx, next_raw_label) then
+                        if dep_backtrack_context(seg_idx, next_raw_label) then
+                            next_info = build_guidance_for_dep_backtrack(seg_idx, next_raw_label, entry_dir)
+                        elseif dep_same_runway_preentry(seg_idx, next_raw_label) then
                             next_info = build_guidance_for_crossing_warning(seg_idx, next_raw_label)
                         else
                             next_info = build_guidance_for_entry(seg_idx, next_raw_label, entry_dir)
                         end
                     end
             elseif raw_rwy and next_rwy and raw_label == next_raw_label then
-                next_info = build_guidance_for_runway_continue(seg_idx, raw_label)
+                if dep_backtrack_context(seg_idx, raw_label) then
+                    next_info = build_guidance_for_dep_backtrack_continue(seg_idx, raw_label)
+                else
+                    next_info = build_guidance_for_runway_continue(seg_idx, raw_label)
+                end
             elseif raw_rwy and next_rwy and raw_label ~= next_raw_label then
-                if comp.mode == 0 and label_matches_dep(next_raw_label) and not comp._depRunwayEntryAnnounced and dep_direct_entry_context(seg_idx) then
+                if dep_backtrack_context(seg_idx, next_raw_label) then
+                    next_info = build_guidance_for_dep_backtrack(seg_idx, next_raw_label, turn_dir and allow_turn and turn_dir or nil)
+                elseif comp.mode == 0 and label_matches_dep(next_raw_label) and not comp._depRunwayEntryAnnounced and dep_direct_entry_context(seg_idx) then
                     local dep_turn = turn_dir
                     if not allow_turn then
                         dep_turn = nil
@@ -2315,7 +2385,9 @@ function M.attach(U, C, def, helpers, settings)
                         end
                     end
                 elseif next_kind == "runway" then
-                    if turn_dir and turn_dir ~= "straight" and allow_turn then
+                    if dep_backtrack_context(seg_idx, next_display) then
+                        next_info = build_guidance_for_dep_backtrack(seg_idx, next_display, turn_dir and turn_dir ~= "straight" and allow_turn and turn_dir or nil)
+                    elseif turn_dir and turn_dir ~= "straight" and allow_turn then
                         next_info = build_guidance_for_turning_runway(seg_idx, next_display, turn_dir)
                     else
                         next_info = build_guidance_for_runway_entry(seg_idx, next_display)

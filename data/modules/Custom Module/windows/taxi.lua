@@ -3656,7 +3656,37 @@ local function record_reroute_event(comp, now)
     comp._quality.rerouteEvents = events
 end
 
-local function assess_route_quality(comp, now, dist)
+local function has_quality_reason(reasons, needle)
+    if not reasons or not needle then
+        return false
+    end
+    for i = 1, #reasons do
+        if reasons[i] == needle then
+            return true
+        end
+    end
+    return false
+end
+
+local function is_dep_runway_stub_route(comp, data)
+    if not comp or comp.mode ~= 0 or not data then
+        return false
+    end
+    local src = data.entry and data.entry.source or nil
+    if src ~= "addon" then
+        return false
+    end
+    if not comp._depBacktrackRequired or not comp._depTurnaroundApplied then
+        return false
+    end
+    local stats = comp._routeLabelStats
+    if not stats then
+        return false
+    end
+    return (stats.taxi_edges or 0) == 0
+end
+
+local function assess_route_quality(comp, now, dist, data)
     local reasons = {}
     if not comp or not now then
         return false, reasons
@@ -3684,6 +3714,9 @@ local function assess_route_quality(comp, now, dist)
         elseif (stats.none_ratio or 0) >= C.qualityNoneLabelRatio then
             reasons[#reasons + 1] = "label-none"
         end
+    end
+    if is_dep_runway_stub_route(comp, data) then
+        reasons[#reasons + 1] = "dep-stub"
     end
     return #reasons > 0, reasons
 end
@@ -4093,7 +4126,8 @@ local function maybe_force_global_for_quality(comp, now, icao, mode, data, helpe
     if get_taxi_source_mode(comp, icao) ~= "auto" then
         return false
     end
-    if mode == 0 and dep_source_lock_active(comp, icao) then
+    local dep_stub = is_dep_runway_stub_route(comp, data)
+    if mode == 0 and dep_source_lock_active(comp, icao) and (not dep_stub) then
         return false
     end
     if mode == 1 and arrival_grace_active(comp, now) then
@@ -4115,7 +4149,7 @@ local function maybe_force_global_for_quality(comp, now, icao, mode, data, helpe
         return false
     end
 
-    local bad, reasons = assess_route_quality(comp, now, comp._lastRouteDist)
+    local bad, reasons = assess_route_quality(comp, now, comp._lastRouteDist, data)
     if not bad then
         if comp._quality then
             comp._quality.badSince = nil
@@ -4130,7 +4164,7 @@ local function maybe_force_global_for_quality(comp, now, icao, mode, data, helpe
         return false
     end
     comp._quality.badReasons = reasons
-    if (now - comp._quality.badSince) < C.qualityBadHoldSec then
+    if (not has_quality_reason(reasons, "dep-stub")) and (now - comp._quality.badSince) < C.qualityBadHoldSec then
         return false
     end
 
@@ -9125,19 +9159,22 @@ local function updateTaxiState(comp, map)
                     local gs = yal and yal.groundspeed and (get(yal.groundspeed) or 0) or 0
                     local takeoff_roll = gs >= ((C and C.depTakeoffLatchSpeed) or 25)
                         and (comp._depThresholdLatched or comp._depThresholdReached)
-                    if not takeoff_roll then
-                        if not comp._depRunwayEntryAnnounced then
-                            local rwy_phrase = runway_label_voice(comp._runwayName)
-                            local entry_text = "Enter departure " .. rwy_phrase
-                            local entry_action = "ENTER RWY"
-                            local entry_direction = "straight"
-                            local entry_label = build_visual_label("runway", U.normalize_runway_name(comp._runwayName))
-                            if comp._route and dep_profile and dep_profile.axis and U.dep_entry_turn_from_route then
-                                local turn = U.dep_entry_turn_from_route(comp._route, dep_profile, aircraft)
-                                if turn == "left" or turn == "right" then
-                                    entry_text = "Turn " .. turn .. " on departure " .. rwy_phrase
-                                    entry_action = (turn == "left") and "TURN LEFT" or "TURN RIGHT"
-                                    entry_direction = turn
+                        if not takeoff_roll then
+                            if not comp._depRunwayEntryAnnounced then
+                                local rwy_phrase = runway_label_voice(comp._runwayName)
+                                local entry_text = "Enter departure " .. rwy_phrase
+                                local entry_action = "ENTER RWY"
+                                local entry_direction = "straight"
+                                local entry_label = build_visual_label("runway", U.normalize_runway_name(comp._runwayName))
+                                if comp._depBacktrackRequired and onRunway then
+                                    entry_text = "Align with departure " .. rwy_phrase
+                                    entry_action = "ALIGN RWY"
+                                elseif comp._route and dep_profile and dep_profile.axis and U.dep_entry_turn_from_route then
+                                    local turn = U.dep_entry_turn_from_route(comp._route, dep_profile, aircraft)
+                                    if turn == "left" or turn == "right" then
+                                        entry_text = "Turn " .. turn .. " on departure " .. rwy_phrase
+                                        entry_action = (turn == "left") and "TURN LEFT" or "TURN RIGHT"
+                                        entry_direction = turn
                                 end
                             end
                             emit_guidance(comp, now, {
