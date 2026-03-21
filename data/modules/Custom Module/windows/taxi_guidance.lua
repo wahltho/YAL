@@ -1115,6 +1115,99 @@ function M.attach(U, C, def, helpers, settings)
             return normalize_runway_name(resolve_runway_label(label))
         end
 
+        local function parse_runway_parts(label)
+            local clean = normalize_runway_name(label)
+            if clean == "" then
+                return nil, ""
+            end
+            local len = #clean
+            local i = 1
+            while i <= len do
+                local b = string.byte(clean, i)
+                if not b or b < 48 or b > 57 then
+                    break
+                end
+                i = i + 1
+            end
+            if i == 1 then
+                return nil, ""
+            end
+            local num = tonumber(string.sub(clean, 1, i - 1))
+            local suffix = ""
+            if i <= len then
+                suffix = string.sub(clean, i, len)
+            end
+            return num, suffix
+        end
+
+        local function reciprocal_runway_suffix(suffix)
+            if not suffix or suffix == "" then
+                return ""
+            end
+            local out = {}
+            local len = #suffix
+            for i = 1, len do
+                local ch = string.sub(suffix, i, i)
+                if ch == "L" then
+                    out[#out + 1] = "R"
+                elseif ch == "R" then
+                    out[#out + 1] = "L"
+                else
+                    out[#out + 1] = ch
+                end
+            end
+            return table.concat(out)
+        end
+
+        local function reciprocal_runway_name(label)
+            local num, suffix = parse_runway_parts(label)
+            if not num then
+                return normalize_runway_name(label)
+            end
+            local opposite = num + 18
+            if opposite > 36 then
+                opposite = opposite - 36
+            end
+            local formatted = string.format("%02d", opposite)
+            local reciprocal_suffix = reciprocal_runway_suffix(suffix)
+            if reciprocal_suffix ~= "" then
+                formatted = formatted .. reciprocal_suffix
+            end
+            return formatted
+        end
+
+        local function backtrack_runway_label(label)
+            local dep_runway = normalize_runway_name(comp._runwayName or comp._depProfileLabel or "")
+            local pair = normalize_runway_pair_label(label or dep_runway)
+            if pair ~= "" and string.find(pair, "/", 1, true) then
+                local parts = {}
+                for part in string.gmatch(pair, "[^/]+") do
+                    if part and part ~= "" then
+                        parts[#parts + 1] = part
+                    end
+                end
+                if #parts >= 2 then
+                    if dep_runway ~= "" then
+                        if parts[1] == dep_runway then
+                            return parts[2]
+                        end
+                        if parts[2] == dep_runway then
+                            return parts[1]
+                        end
+                    end
+                    return parts[2]
+                end
+            end
+            if dep_runway ~= "" then
+                return reciprocal_runway_name(dep_runway)
+            end
+            return reciprocal_runway_name(label)
+        end
+
+        local function backtrack_runway_voice(label)
+            return runway_label_voice(backtrack_runway_label(label))
+        end
+
         local function dep_direct_entry_context(seg_idx)
             if not comp or comp.mode ~= 0 or not path or #path < 2 then
                 return false
@@ -1319,13 +1412,13 @@ function M.attach(U, C, def, helpers, settings)
         end
 
         local function build_guidance_for_dep_backtrack(seg_idx, label, turn_dir)
-            local display = runway_display(label)
-            local text = "Backtrack on departure " .. runway_voice(label)
+            local display = backtrack_runway_label(label)
+            local text = "Backtrack on " .. backtrack_runway_voice(label)
             local action = "BACKTRACK RWY"
             if turn_dir == "left" then
-                text = "Turn left to backtrack on departure " .. runway_voice(label)
+                text = "Turn left to backtrack on " .. backtrack_runway_voice(label)
             elseif turn_dir == "right" then
-                text = "Turn right to backtrack on departure " .. runway_voice(label)
+                text = "Turn right to backtrack on " .. backtrack_runway_voice(label)
             end
             return {
                 text = text,
@@ -1339,9 +1432,9 @@ function M.attach(U, C, def, helpers, settings)
         end
 
         local function build_guidance_for_dep_backtrack_continue(seg_idx, label)
-            local display = runway_display(label)
+            local display = backtrack_runway_label(label)
             return {
-                text = "Backtrack on departure " .. runway_voice(label),
+                text = "Backtrack on " .. backtrack_runway_voice(label),
                 direction = "straight",
                 action = "BACKTRACK RWY",
                 label = build_visual_label("runway", display),
