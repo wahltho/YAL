@@ -3188,6 +3188,53 @@ local function route_first_taxi_angle(route, data, profile)
     return nil
 end
 
+local function route_initial_runway_progress(route, data, profile)
+    if not route or not data or not profile then
+        return nil
+    end
+    local path = route.path
+    if not path or #path < 2 or not data.nodes then
+        return nil
+    end
+    local first_idx = nil
+    local last_idx = nil
+    for i = 1, (#path - 1) do
+        local from_id = path[i]
+        local to_id = path[i + 1]
+        local label = get_edge_label(data, from_id, to_id)
+        local is_rwy = (label and is_runway_label(label))
+            or (data.runway_nodes and data.runway_nodes[from_id] and data.runway_nodes[to_id])
+        if is_rwy then
+            if not first_idx then
+                first_idx = i
+            end
+            last_idx = i + 1
+        elseif first_idx then
+            break
+        end
+    end
+    if not first_idx or not last_idx or last_idx <= first_idx then
+        return nil
+    end
+    local first_node = data.nodes[path[first_idx]]
+    local last_node = data.nodes[path[last_idx]]
+    if not first_node or not last_node then
+        return nil
+    end
+    local start_along = compute_along_perp(profile, first_node)
+    local end_along = compute_along_perp(profile, last_node)
+    if start_along == nil or end_along == nil then
+        return nil
+    end
+    return {
+        start_along = start_along,
+        end_along = end_along,
+        delta = end_along - start_along,
+        first_node_id = path[first_idx],
+        last_node_id = path[last_idx]
+    }
+end
+
 local function compute_route_label_stats(data, path)
     local stats = { taxi_edges = 0, missing = 0, none = 0 }
     if not data or not path or #path < 2 then
@@ -3479,7 +3526,8 @@ local function evaluate_arrival_route_validity(route, data, aircraft, landing_pr
         route_dist = nil,
         start_gap = nil,
         exit_gap = nil,
-        future_exit_gap = nil
+        future_exit_gap = nil,
+        runway_progress = nil
     }
     if not route or not data or not aircraft or aircraft.east == nil or aircraft.north == nil then
         return info
@@ -3507,6 +3555,19 @@ local function evaluate_arrival_route_validity(route, data, aircraft, landing_pr
                 route_limit = math.max(route_limit, forward_gap + route_slack)
                 severe_limit = math.max(severe_limit, forward_gap + route_slack + math.max(120, drift_meters * 2.5))
                 node_limit = math.max(node_limit, forward_gap + node_slack)
+            end
+        end
+    end
+    if on_runway and landing_profile then
+        local runway_progress = route_initial_runway_progress(route, route_data, landing_profile)
+        info.runway_progress = runway_progress
+        if runway_progress then
+            local reverse_limit = math.max(30, drift_meters * 0.6)
+            if runway_progress.delta < -reverse_limit then
+                info.valid = false
+                info.severe = true
+                info.reason = "runway-backward"
+                return info
             end
         end
     end
@@ -3542,6 +3603,26 @@ local function choose_or_keep_arrival_exit(comp, landing_profile, data, proposed
             return node.lat, node.lon
         end
         return start_lat, start_lon
+    end
+
+    if off_runway == false and comp._route and comp._arrExitId and exit_id and exit_id ~= comp._arrExitId then
+        local validity = comp._arrRouteValidity
+        local keep_committed = validity == nil or validity.valid ~= false
+        if keep_committed then
+            local committed_exit = comp._arrExitId
+            exit_id = committed_exit
+            exit_along = comp._arrExitAlong
+            backtrack_required = comp._arrBacktrackRequired and true or false
+            start_lat, start_lon = apply_exit_start(committed_exit)
+            log_taxi(
+                string.format(
+                    "TaxiRoute: ARR exit commit keep=%s new=%s",
+                    tostring(committed_exit),
+                    tostring(proposed_exit_id)
+                )
+            )
+            return exit_id, exit_along, backtrack_required, start_lat, start_lon
+        end
     end
 
     if off_runway == false and comp._arrExitLockedId and exit_id and exit_id ~= comp._arrExitLockedId then
@@ -3645,7 +3726,8 @@ local function build_arrival_route_context(route, data, icao, runway_name, start
     ctx.start_node_id, ctx.start_lat, ctx.start_lon = get_route_start_anchor(route, route_data, start_lat, start_lon)
     ctx.arr_exit_id = arr_exit_id
     local inferred_exit_id = infer_arrival_exit_from_route(route, route_data)
-    if inferred_exit_id then
+    ctx.route_exit_id = inferred_exit_id or arr_exit_id
+    if (not ctx.arr_exit_id) and inferred_exit_id then
         ctx.arr_exit_id = inferred_exit_id
     end
     if landing_profile and ctx.arr_exit_id then
