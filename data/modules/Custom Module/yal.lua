@@ -840,6 +840,7 @@ function P.YalinitGlobal()
         procedureskipstep = false,
         procedurenotpossible = false,
         triggeredmanually = false,
+        triggeredat = 0,
         setonabort = false,
         lastStepName = "",
         skipConfirmForStep = nil,
@@ -1651,6 +1652,7 @@ function P.resetLoopState(loopTable)
     loopTable.lastStepName = nil                           -- Explizit nil setzen
     loopTable.procedurenotpossible = cleanTemplate.procedurenotpossible -- Setzt auf false
     loopTable.triggeredmanually = cleanTemplate.triggeredmanually -- Setzt auf false (Standard)
+    loopTable.triggeredat = 0
     loopTable.skipConfirmForStep = nil
     loopTable.adviceRepeatKey = nil
     loopTable.adviceRepeatCount = 0
@@ -3158,6 +3160,7 @@ function P.triggerprocedure(procedureKey, isManual)
         targetLoopObject.lock = procedureKey
         P.resetLoopState(targetLoopObject)
         targetLoopObject.triggeredmanually = isManual
+        targetLoopObject.triggeredat = os.time()
 
         sasl.logDebug("Loop " .. loopIndex .. " state explicitly reset upon trigger.")
 
