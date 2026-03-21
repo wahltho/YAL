@@ -4217,6 +4217,71 @@ local function formatCIFPApproachName(typeChar, runwayPart, suffix)
     return string.format("%s %s%s", prefix, formattedRunway, suffixPart)
 end
 
+local function parseApproachCode(code, expectedRunway)
+    if type(code) ~= "string" then
+        return nil
+    end
+
+    local id = trimString(code):upper():gsub("%s+", "")
+    if id == "" or id == "------" then
+        return nil
+    end
+
+    local navType = nil
+    local typeTag = nil
+    local rest = nil
+
+    if string.sub(id, 1, 3) == def.NAVTYPELDA then
+        navType = def.NAVTYPELDA
+        typeTag = def.NAVTYPELDA
+        rest = string.sub(id, 4)
+    else
+        local typeChar = string.sub(id, 1, 1)
+        local navTypeMap = {
+            I = def.NAVTYPEILS,
+            G = def.NAVTYPEGLS,
+            L = def.NAVTYPELPV,
+            R = def.NAVTYPERNAV
+        }
+        navType = navTypeMap[typeChar]
+        typeTag = navType and typeChar or nil
+        rest = string.sub(id, 2)
+    end
+
+    if not navType then
+        return nil
+    end
+
+    local runwayPart = nil
+    local suffix = nil
+    if rest and rest ~= "" then
+        runwayPart, suffix = rest:match("^(%d%d%a?)[%-]?([%a]*)$")
+    end
+
+    if runwayPart then
+        runwayPart = string.upper(runwayPart)
+        if expectedRunway and string.upper(expectedRunway) ~= runwayPart then
+            return nil
+        end
+    elseif navType ~= def.NAVTYPELDA then
+        return nil
+    else
+        suffix = rest
+    end
+
+    if suffix == "" then
+        suffix = nil
+    end
+
+    return {
+        id = id,
+        navType = navType,
+        typeTag = typeTag,
+        runway = runwayPart,
+        suffix = suffix
+    }
+end
+
 function P.loadCIFP(icao)
     if type(icao) ~= "string" or #icao < 3 then
         return nil
@@ -4318,43 +4383,22 @@ function P.loadCIFP(icao)
             local code = parts[3]
             if code and code ~= "" then
                 code = string.upper(code)
-                local typeTag
-                local navType
-                if string.sub(code, 1, 3) == def.NAVTYPELDA then
-                    typeTag = def.NAVTYPELDA
-                    navType = def.NAVTYPELDA
-                else
-                    local typeChar = string.sub(code, 1, 1)
-                    if typeChar == "I" then
-                        typeTag = typeChar
-                        navType = def.NAVTYPEILS
-                    elseif typeChar == "G" then
-                        typeTag = typeChar
-                        navType = def.NAVTYPEGLS
-                    elseif typeChar == "L" then
-                        typeTag = typeChar
-                        navType = def.NAVTYPELPV
-                    elseif typeChar == "R" then
-                        typeTag = typeChar
-                        navType = def.NAVTYPERNAV
-                    end
-                end
+                local parsed = parseApproachCode(code)
+                local typeTag = parsed and parsed.typeTag or nil
+                local navType = parsed and parsed.navType or nil
 
                 if navType then
                     local entry = entryByCode[code]
                     if not entry then
-                        local prefixLen = typeTag and #typeTag or 1
-                        local rest = string.sub(code, prefixLen + 1)
-                        local runwayPart, suffix = rest:match("^(%d%d%a?)(%a*)$")
+                        local runwayPart = parsed and parsed.runway or nil
+                        local suffix = parsed and parsed.suffix or nil
                         if runwayPart then
-                            runwayPart = string.upper(runwayPart)
-                            suffix = suffix or ""
                             entry = {
                                 code = code,
                                 navType = navType,
                                 typeChar = typeTag,
                                 runway = runwayPart,
-                                suffix = suffix,
+                                suffix = suffix or "",
                                 displayName = nil,
                                 course = nil,
                                 finalFixIdent = nil,
@@ -4365,13 +4409,12 @@ function P.loadCIFP(icao)
                             entryByCode[code] = entry
                             addEntryToApproaches(entry, navType, runwayPart)
                         elseif navType == def.NAVTYPELDA then
-                            suffix = suffix or rest or ""
                             entry = {
                                 code = code,
                                 navType = navType,
                                 typeChar = typeTag,
                                 runway = nil,
-                                suffix = suffix,
+                                suffix = suffix or "",
                                 displayName = nil,
                                 course = nil,
                                 finalFixIdent = nil,
@@ -4928,46 +4971,11 @@ local function collectLegNameSet(legs_string, lat_array, lon_array)
 end
 
 local function parseSelectedApproachId(selectedAppId, expectedRunway)
-    if type(selectedAppId) ~= "string" then return nil end
-    local trimmed = trimString(selectedAppId):upper():gsub("%s+", "")
-    if trimmed == "" or trimmed == "------" then return nil end
-
-    local id = trimmed
-    local navType = nil
-    local runwayPart = nil
-    local suffix = nil
-
-    if string.sub(id, 1, 3) == def.NAVTYPELDA then
-        navType = def.NAVTYPELDA
-        local rest = string.sub(id, 4)
-        runwayPart, suffix = rest:match("^(%d%d%a?)[%-]?([%a]*)$")
-    else
-        -- Pattern: first char = type, then runway (e.g. 08, 08L), optional hyphen + suffix (Y/Z/etc.)
-        local typeChar
-        typeChar, runwayPart, suffix = id:match("^(%a)(%d%d%a?)[%-]?([%a]*)$")
-        if not typeChar or not runwayPart then return nil end
-
-        local navTypeMap = {
-            I = def.NAVTYPEILS,
-            L = def.NAVTYPELOC,
-            R = def.NAVTYPERNAV,
-            G = def.NAVTYPEGLS
-        }
-        navType = navTypeMap[typeChar]
-    end
-    if not navType or not runwayPart then return nil end
-
-    if expectedRunway and string.upper(expectedRunway) ~= runwayPart then
-        -- Different runway, don't apply
+    local parsed = parseApproachCode(selectedAppId, expectedRunway)
+    if not parsed or not parsed.runway then
         return nil
     end
-
-    return {
-        id = id,
-        navType = navType,
-        runway = runwayPart,
-        suffix = suffix and suffix ~= "" and suffix or nil
-    }
+    return parsed
 end
 
 P.parseSelectedApproachId = parseSelectedApproachId

@@ -209,11 +209,31 @@ local function addSetIlsCandidateFamily(candidateTypes, seen, navType)
     addSetIlsCandidateType(candidateTypes, seen, navType)
 end
 
+local function getSetIlsFamily(navType)
+    if navType == def.NAVTYPEILS or navType == def.NAVTYPELOC then
+        return "ils"
+    end
+    if navType == def.NAVTYPELPV or navType == def.NAVTYPERNAV or navType == def.NAVTYPEGLS then
+        return "rnav"
+    end
+    return navType
+end
+
 local function buildSetIlsCandidateTypes(selectedNavType, detectedNavType)
     local candidateTypes = {}
     local seen = {}
-    addSetIlsCandidateFamily(candidateTypes, seen, detectedNavType)
-    addSetIlsCandidateFamily(candidateTypes, seen, selectedNavType)
+    local selectedFamily = getSetIlsFamily(selectedNavType)
+    local detectedFamily = getSetIlsFamily(detectedNavType)
+
+    if selectedNavType then
+        addSetIlsCandidateFamily(candidateTypes, seen, selectedNavType)
+        if detectedNavType and detectedFamily == selectedFamily then
+            addSetIlsCandidateFamily(candidateTypes, seen, detectedNavType)
+        end
+    else
+        addSetIlsCandidateFamily(candidateTypes, seen, detectedNavType)
+    end
+
     if #candidateTypes == 0 then
         addSetIlsCandidateType(candidateTypes, seen, def.NAVTYPEILS)
         addSetIlsCandidateType(candidateTypes, seen, def.NAVTYPEGLS)
