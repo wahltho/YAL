@@ -2310,7 +2310,11 @@ function M.fillProcedureTable()
             end,
             allowedState = def.GROUNDONLY, 
             requiredFlightstate = def.FLIGHTSTATEPREFLIGHT, 
-            skipCondition = function() return (P.apurunning() == def.APUONBUS) or P.enginesrunning(def.BOTH) end,
+            skipCondition = function()
+                return useExternalStartAirWhenAvailable()
+                    or (P.apurunning() == def.APUONBUS)
+                    or P.enginesrunning(def.BOTH)
+            end,
             prerequisiteChecks = {
                 { check = function() return (get(P.battery) == def.ON) or (get(P.mainbus) == def.ON) end, 
                   failMsg = "Procedure aborted, Battery is Off" },
