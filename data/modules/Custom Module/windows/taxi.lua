@@ -3705,6 +3705,10 @@ local function clear_arrival_route_context(comp)
     comp._arrExitLockedId = nil
     comp._arrExitLockedAlong = nil
     comp._arrExitLockReleasedLogged = nil
+    comp._arrPlannedExitId = nil
+    comp._arrPlannedExitAlong = nil
+    comp._arrActiveExitId = nil
+    comp._arrActiveExitAlong = nil
     comp._arrExitId = nil
     comp._arrExitAlong = nil
     comp._arrRunwayExitAnnounced = false
@@ -3724,14 +3728,17 @@ local function build_arrival_route_context(route, data, icao, runway_name, start
         profile = landing_profile
     }
     ctx.start_node_id, ctx.start_lat, ctx.start_lon = get_route_start_anchor(route, route_data, start_lat, start_lon)
-    ctx.arr_exit_id = arr_exit_id
+    ctx.planned_exit_id = arr_exit_id
     local inferred_exit_id = infer_arrival_exit_from_route(route, route_data)
-    ctx.route_exit_id = inferred_exit_id or arr_exit_id
-    if (not ctx.arr_exit_id) and inferred_exit_id then
-        ctx.arr_exit_id = inferred_exit_id
+    ctx.route_exit_id = inferred_exit_id or ctx.start_node_id or arr_exit_id
+    ctx.active_exit_id = ctx.route_exit_id or ctx.planned_exit_id
+    ctx.arr_exit_id = ctx.planned_exit_id
+    if landing_profile and ctx.planned_exit_id then
+        ctx.planned_exit_along = runway_exit_along(landing_profile, route_data, ctx.planned_exit_id)
+        ctx.arr_exit_along = ctx.planned_exit_along
     end
-    if landing_profile and ctx.arr_exit_id then
-        ctx.arr_exit_along = runway_exit_along(landing_profile, route_data, ctx.arr_exit_id)
+    if landing_profile and ctx.active_exit_id then
+        ctx.active_exit_along = runway_exit_along(landing_profile, route_data, ctx.active_exit_id)
     end
     return ctx
 end
@@ -3763,6 +3770,10 @@ local function commit_arrival_route_context(comp, ctx, off_runway, log_taxi)
         comp._arrRunwayExitAnnounced = false
         comp._arrRunwayCrossWarned = nil
     end
+    comp._arrPlannedExitId = ctx.planned_exit_id
+    comp._arrPlannedExitAlong = ctx.planned_exit_along
+    comp._arrActiveExitId = ctx.active_exit_id
+    comp._arrActiveExitAlong = ctx.active_exit_along
     comp._arrExitId = ctx.arr_exit_id
     comp._arrExitAlong = ctx.arr_exit_along
 end
@@ -4398,6 +4409,7 @@ local function maybe_force_global_for_quality(comp, now, icao, mode, data, helpe
                     comp._gateGuidanceLastTime = nil
                     comp._gateGuidanceStop = false
                     comp._gateGuidanceActive = false
+                    comp._gateFinalOwned = false
                     comp._gateFinalTurnUntil = nil
                     comp._gateFinalTurnKey = nil
                     comp._gateFinalTurnPending = false
@@ -5210,10 +5222,15 @@ local function updateTaxiState(comp, map)
         comp._runwayName = nil
         U.clear_visual_guidance(comp, "invalid-icao")
         comp._visualGuidanceQueue = {}
+        comp._gateFinalOwned = false
         comp._drawFreehand = false
         comp._arrOffRunwayHandled = false
         comp._arrExitLockedId = nil
         comp._arrExitLockedAlong = nil
+        comp._arrPlannedExitId = nil
+        comp._arrPlannedExitAlong = nil
+        comp._arrActiveExitId = nil
+        comp._arrActiveExitAlong = nil
         comp._arrExitId = nil
         comp._arrExitAlong = nil
         comp._arrProfile = nil
@@ -5300,9 +5317,14 @@ local function updateTaxiState(comp, map)
         comp._lastOffNetworkEndKey = nil
         comp._lastAutoRouteLogKey = nil
         comp._drawFreehand = false
+        comp._gateFinalOwned = false
         comp._arrOffRunwayHandled = false
         comp._arrExitLockedId = nil
         comp._arrExitLockedAlong = nil
+        comp._arrPlannedExitId = nil
+        comp._arrPlannedExitAlong = nil
+        comp._arrActiveExitId = nil
+        comp._arrActiveExitAlong = nil
         comp._arrExitId = nil
         comp._arrExitAlong = nil
         comp._arrProfile = nil
@@ -5461,6 +5483,11 @@ local function updateTaxiState(comp, map)
         comp._runwayName = nil
         comp._routeExtraSegments = nil
         comp._editTailSegments = nil
+        comp._gateFinalOwned = false
+        comp._arrPlannedExitId = nil
+        comp._arrPlannedExitAlong = nil
+        comp._arrActiveExitId = nil
+        comp._arrActiveExitAlong = nil
         comp._arrExitId = nil
         comp._arrExitAlong = nil
         comp._arrProfile = nil
@@ -6281,11 +6308,23 @@ local function updateTaxiState(comp, map)
         local gate_dist = tuning.autoGateSwitchDist or 35
         local gate_delta = tuning.autoGateSwitchDelta or 20
         local gate_ratio = tuning.autoGateSwitchRatio or 0.6
-        if onGround and gs < gate_speed then
-            if not comp._autoEndRampLowSpeedSince then
-                comp._autoEndRampLowSpeedSince = now
+        local gate_final_owned = (comp._gateFinalOwned == true)
+            or (comp._gateGuidanceActive == true)
+            or (comp._gateFinalTurnPending == true)
+            or (comp._gateFinalTurnUntil and now and now <= comp._gateFinalTurnUntil)
+        local gate_auto_ready = false
+        if onGround and (gs < gate_speed or gate_final_owned) then
+            if gate_final_owned then
+                gate_auto_ready = true
+            else
+                if not comp._autoEndRampLowSpeedSince then
+                    comp._autoEndRampLowSpeedSince = now
+                end
+                if (now - comp._autoEndRampLowSpeedSince) >= gate_hold then
+                    gate_auto_ready = true
+                end
             end
-            if (now - comp._autoEndRampLowSpeedSince) >= gate_hold then
+            if gate_auto_ready then
                 if not nearest_ramp then
                     local gate_heading = yalref and yalref.groundtrackmag and get(yalref.groundtrackmag) or nil
                     local gate_radius = tuning.gateSelectRadius or (C and C.gateSelectRadius) or 120
@@ -6340,9 +6379,13 @@ local function updateTaxiState(comp, map)
                             local clearly_closer = (d_plan - d_cand >= gate_delta)
                                 or (d_cand <= (d_plan * gate_ratio))
                             local moving_switch_ok = (gs < math.max(gate_speed * 4, 12))
-                            local should_switch = (not gate_final_locked) and switch_context_ok and ((close_enough and clearly_closer)
-                                or (moving_switch_ok and (d_plan - d_cand >= (gate_delta * 1.5)))
-                            )
+                            local final_retarget = gate_final_owned
+                                and (not comp._selectedEndRampKey)
+                                and d_cand <= gate_switch_plan_max
+                                and ((d_plan - d_cand) >= math.max(8, gate_delta * 0.4))
+                            local should_switch = (switch_context_ok and (not gate_final_locked) and ((close_enough and clearly_closer)
+                                or (moving_switch_ok and (d_plan - d_cand >= (gate_delta * 1.5)))))
+                                or final_retarget
                             if should_switch then
                                 comp._autoEndRampKey = cand_key
                                 comp._autoEndRampSwitchTime = now
@@ -6372,6 +6415,7 @@ local function updateTaxiState(comp, map)
                                 comp._gateFinalTurnUntil = nil
                                 comp._gateFinalTurnKey = nil
                                 comp._gateFinalTurnPending = false
+                                comp._gateFinalOwned = false
                                 U.reset_gate_callouts(comp, cand_key)
                                 log_taxi(
                                     string.format(
@@ -6393,7 +6437,8 @@ local function updateTaxiState(comp, map)
         comp._autoEndRampLowSpeedSince = nil
     end
 
-    if mode == 1 and landing_profile and end_ramp and U.is_valid_latlon(end_ramp.lat, end_ramp.lon) then
+    if mode == 1 and landing_profile and end_ramp and U.is_valid_latlon(end_ramp.lat, end_ramp.lon)
+        and (not comp._arrOffRunwayHandled) then
         local pref_east = end_ramp.east
         local pref_north = end_ramp.north
         if (pref_east == nil or pref_north == nil) and U.is_valid_latlon(end_ramp.lat, end_ramp.lon) then
@@ -9742,6 +9787,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
     comp._gateGuidanceLastTime = nil
     comp._gateGuidanceStop = false
     comp._gateGuidanceActive = false
+    comp._gateFinalOwned = false
     comp._gateFinalTurnUntil = nil
     comp._gateFinalTurnKey = nil
     comp._gateFinalTurnPending = false
@@ -9756,6 +9802,10 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
     comp._arrTaxiCompleteFreeze = false
     comp._arrExitLockedId = nil
     comp._arrExitLockedAlong = nil
+    comp._arrPlannedExitId = nil
+    comp._arrPlannedExitAlong = nil
+    comp._arrActiveExitId = nil
+    comp._arrActiveExitAlong = nil
     comp._arrExitId = nil
     comp._arrExitAlong = nil
     comp._arrRunwayStartNodeLatched = nil

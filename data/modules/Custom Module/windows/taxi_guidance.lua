@@ -659,9 +659,15 @@ function M.attach(U, C, def, helpers, settings)
         if comp._routeErr == "taxi-complete" or comp._arrTaxiCompleteAnnounced or comp._depTaxiCompleteAnnounced then
             guidance_state = "complete"
             comp._gateGuidanceActive = false
+            comp._gateFinalOwned = false
             comp._gateGuidanceLastDist = nil
         else
-            if comp.mode == 1 and yal and yal.flightstate ~= def.FLIGHTSTATETAXITOGATE then
+            local gate_final_hold = (comp._gateFinalOwned == true)
+                or (comp._gateGuidanceActive == true)
+                or (comp._gateFinalTurnPending == true)
+                or (comp._gateFinalTurnUntil and now and now <= comp._gateFinalTurnUntil)
+            if comp.mode == 1 and yal and yal.flightstate ~= def.FLIGHTSTATETAXITOGATE and not gate_final_hold then
+                comp._gateFinalOwned = false
                 clear_visual_guidance(comp, "after-landing")
                 set_guidance_state(comp, "idle", "after-landing", log_taxi)
                 diag("after-landing")
@@ -670,6 +676,7 @@ function M.attach(U, C, def, helpers, settings)
             if comp.mode == 1 and comp._endRamp then
                 local gate_ok = true
                 local gate_reason = "ok"
+                local gate_final_owned = (comp._gateFinalOwned == true)
                 local gate_speed = (comp._tuning and comp._tuning.gateGuidanceMaxSpeed) or (C and C.gateGuidanceMaxSpeed) or 12
                 local gate_entry_speed = math.max(3, math.min(gate_speed, gate_speed * 0.6))
                 local gate_radius = (comp._tuning and comp._tuning.gateGuidanceRadius) or (C and C.gateGuidanceRadius) or 60
@@ -688,6 +695,7 @@ function M.attach(U, C, def, helpers, settings)
                 end
                 if offRunway == false then
                     gate_ok = false
+                    gate_final_owned = false
                     gate_reason = "on-runway"
                 end
 
@@ -712,9 +720,12 @@ function M.attach(U, C, def, helpers, settings)
                 if near_final_gate_segment and gate_ref_dist and gate_ref_dist <= final_gate_limit then
                     near_final_gate_ready = true
                 end
+                if near_final_gate_ready then
+                    gate_final_owned = true
+                end
 
                 if gate_ok and gs > gate_entry_speed and (not comp._gateGuidanceActive) then
-                    if near_final_gate_ready then
+                    if gate_final_owned then
                         gate_reason = "final-ramp-segment"
                     elseif near_final_gate_segment then
                         gate_ok = false
@@ -728,7 +739,7 @@ function M.attach(U, C, def, helpers, settings)
                 end
 
                 if gate_ok then
-                    if near_final_gate_ready and gs <= gate_speed then
+                    if gate_final_owned and gate_ref_dist and gate_ref_dist <= gate_keep and gs <= gate_speed then
                         comp._gateGuidanceActive = true
                         if gate_reason == "ok" then
                             gate_reason = "final-ramp-segment"
@@ -739,15 +750,18 @@ function M.attach(U, C, def, helpers, settings)
                         -- keep latch
                     else
                         comp._gateGuidanceActive = false
+                        gate_final_owned = false
                         gate_reason = "out-of-radius"
                     end
                     if comp._gateGuidanceActive and gate_ref_dist and comp._gateGuidanceLastDist
                         and gate_ref_dist > (comp._gateGuidanceLastDist + 5) and gate_ref_dist > gate_radius then
                         comp._gateGuidanceActive = false
+                        gate_final_owned = false
                         gate_reason = "distance-increasing"
                     end
                 else
                     comp._gateGuidanceActive = false
+                    gate_final_owned = false
                 end
                 local gate_route_suppress_limit = math.max(12, gate_radius * 0.35)
                 if offRunway ~= false and gate_ref_dist
@@ -781,11 +795,13 @@ function M.attach(U, C, def, helpers, settings)
                 end
 
                 comp._gateGuidanceLastDist = gate_ref_dist
+                comp._gateFinalOwned = gate_final_owned and (comp._gateGuidanceActive == true)
                 if comp._gateGuidanceActive then
                     guidance_state = "gate"
                 end
             else
                 comp._gateGuidanceActive = false
+                comp._gateFinalOwned = false
                 comp._gateGuidanceLastDist = nil
             end
             if guidance_state ~= "gate" and comp._route and comp._route.path then
@@ -837,10 +853,14 @@ function M.attach(U, C, def, helpers, settings)
                 local on_ramp = node and (node.is_ramp or node.ramp_name or node.ramp_id) or false
                 local gate_radius = (comp._tuning and comp._tuning.gateGuidanceRadius) or (C and C.gateGuidanceRadius) or 60
                 local defer_gate = true
-                if gate_dist and gate_radius and gate_dist <= gate_radius then
+                local defer_limit = gate_radius
+                if comp._gateFinalOwned then
+                    defer_limit = math.max(gate_radius, gate_radius * 1.6)
+                end
+                if gate_dist and defer_limit and gate_dist <= defer_limit then
                     defer_gate = false
                 end
-                if (not on_ramp) and gate_seg < (#route.path - 1) and defer_gate then
+                if (not on_ramp) and gate_seg < (#route.path - 1) and defer_gate and (not comp._gateFinalOwned) then
                     comp._gateGuidanceActive = false
                     guidance_state = "route"
                     set_guidance_state(comp, guidance_state, "gate-defer", log_taxi)
