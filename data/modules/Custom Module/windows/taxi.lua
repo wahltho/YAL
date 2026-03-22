@@ -2143,6 +2143,8 @@ local function copy_opts(opts)
     return out
 end
 
+local route_first_taxi_angle
+
 local function route_with_waypoints(icao, start_lat, start_lon, end_lat, end_lon, opts, waypoint_ids, waypoints)
     if not waypoint_ids or #waypoint_ids == 0 then
         return helpers.getTaxiRoute(icao, start_lat, start_lon, end_lat, end_lon, opts)
@@ -3424,7 +3426,7 @@ local function infer_arrival_exit_from_route(route, data)
     return nil
 end
 
-local function route_first_taxi_angle(route, data, profile)
+route_first_taxi_angle = function(route, data, profile)
     if not route or not data or not profile or not profile.axis then
         return nil
     end
