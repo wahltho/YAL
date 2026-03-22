@@ -4980,6 +4980,302 @@ end
 
 P.parseSelectedApproachId = parseSelectedApproachId
 
+local function isApproachLocalizerType(navType)
+    return navType == def.NAVTYPEILS
+        or navType == def.NAVTYPELOC
+        or navType == def.NAVTYPELDA
+        or navType == def.NAVTYPEIGS
+end
+
+P.isLocalizerNavType = isApproachLocalizerType
+
+local function isApproachLateralOnly(entry)
+    if not entry then
+        return false
+    end
+    if entry.isLateralOnly or entry.serviceLevel == "LP" then
+        return true
+    end
+    if entry[def.DESTNAVTYPE] == def.NAVTYPERNAV
+        and entry[def.DESTSRCRECTYPE] == def.NAVDATARECTYPELPV then
+        return true
+    end
+    return false
+end
+
+P.isLateralOnlyApproach = isApproachLateralOnly
+
+local function addUniqueApproachType(target, seen, navType)
+    if navType and not seen[navType] then
+        table.insert(target, navType)
+        seen[navType] = true
+    end
+end
+
+local function addApproachCandidateFamily(target, seen, navType)
+    if navType == def.NAVTYPEILS or navType == def.NAVTYPELOC then
+        addUniqueApproachType(target, seen, def.NAVTYPEILS)
+        addUniqueApproachType(target, seen, def.NAVTYPELOC)
+        return
+    end
+    if navType == def.NAVTYPELPV then
+        addUniqueApproachType(target, seen, def.NAVTYPELPV)
+        addUniqueApproachType(target, seen, def.NAVTYPERNAV)
+        return
+    end
+    if navType == def.NAVTYPEGLS then
+        addUniqueApproachType(target, seen, def.NAVTYPEGLS)
+        return
+    end
+    addUniqueApproachType(target, seen, navType)
+end
+
+function P.buildApproachCandidateNavTypes(selectedNavType, detectedNavType)
+    local candidateTypes = {}
+    local seen = {}
+
+    if selectedNavType then
+        addApproachCandidateFamily(candidateTypes, seen, selectedNavType)
+        if detectedNavType == selectedNavType then
+            addApproachCandidateFamily(candidateTypes, seen, detectedNavType)
+        end
+    elseif detectedNavType then
+        addApproachCandidateFamily(candidateTypes, seen, detectedNavType)
+    end
+
+    if #candidateTypes == 0 then
+        addUniqueApproachType(candidateTypes, seen, def.NAVTYPEILS)
+        addUniqueApproachType(candidateTypes, seen, def.NAVTYPELOC)
+        addUniqueApproachType(candidateTypes, seen, def.NAVTYPEGLS)
+        addUniqueApproachType(candidateTypes, seen, def.NAVTYPELPV)
+        addUniqueApproachType(candidateTypes, seen, def.NAVTYPELDA)
+        addUniqueApproachType(candidateTypes, seen, def.NAVTYPEIGS)
+        addUniqueApproachType(candidateTypes, seen, def.NAVTYPERNAV)
+    end
+
+    return candidateTypes
+end
+
+local approachPfdModeInfo = {
+    [1] = { label = "I L S", lateral = "LOC", vertical = "GS" },
+    [3] = { label = "L O C / V N A V", lateral = "LOC", vertical = "VNAV" },
+    [4] = { label = "F A C / G P", lateral = "FAC", vertical = "GP" },
+    [5] = { label = "L O C / G P", lateral = "LOC", vertical = "GP" },
+    [6] = { label = "G L S", lateral = "GLS", vertical = "GP" },
+    [7] = { label = "F A C / V N A V", lateral = "FAC", vertical = "VNAV" },
+    [8] = { label = "L P V", lateral = "LPV", vertical = "GP" }
+}
+
+function P.getApproachPfdModeInfo(mode)
+    local numericMode = tonumber(mode) or 0
+    return approachPfdModeInfo[numericMode]
+end
+
+function P.getApproachPfdModeLabel(mode)
+    local info = P.getApproachPfdModeInfo(mode)
+    return info and info.label or nil
+end
+
+function P.getCurrentApproachModeLabel(side)
+    local yal = _G.yal
+    if not yal then
+        return nil
+    end
+
+    local useFo = (side == 2 or side == "fo")
+    local pfdModeRef = useFo and yal.autopilotpfdmodefo or yal.autopilotpfdmode
+    if pfdModeRef then
+        local label = P.getApproachPfdModeLabel(get(pfdModeRef))
+        if label then
+            return label
+        end
+    end
+
+    local glsLocRef = yal.apglsloccapturedstat
+    local glsGsRef = yal.apglsgscapturedstat
+    local lpvLocRef = yal.aplpvloccapturedstat
+    local lpvGsRef = yal.aplpvgscapturedstat
+    local facLocRef = yal.apfacloccapturedstat
+    local facGsRef = yal.apfacgscapturedstat
+    local locRef = yal.aploccapturedstat
+    local gsRef = yal.apgscapturedstat
+
+    if glsLocRef and glsGsRef and (get(glsLocRef) ~= 0 or get(glsGsRef) ~= 0) then
+        return "G L S"
+    end
+    if lpvLocRef and lpvGsRef and (get(lpvLocRef) ~= 0 or get(lpvGsRef) ~= 0) then
+        return "L P V"
+    end
+    if facLocRef and get(facLocRef) ~= 0 then
+        if facGsRef and get(facGsRef) ~= 0 then
+            return "F A C / G P"
+        end
+        return "F A C"
+    end
+    if locRef and gsRef and (get(locRef) ~= 0 or get(gsRef) ~= 0) then
+        return "I L S"
+    end
+
+    return nil
+end
+
+function P.resolveApproachGuidanceCapabilities(context)
+    context = context or {}
+
+    local yal = _G.yal
+    local navdata = context.navdata
+    local detectedVariant = context.detectedVariant
+    local selectedAppId = context.selectedAppId
+    if selectedAppId == nil and yal and yal.fmsselectedapp then
+        selectedAppId = get(yal.fmsselectedapp)
+    end
+
+    local runway = context.runway or (navdata and navdata[def.DESTRWY]) or nil
+    local selectedInfo = parseSelectedApproachId(selectedAppId, runway)
+    local selectedNavType = context.selectedNavType or (selectedInfo and selectedInfo.navType) or nil
+    local detectedNavType = context.detectedNavType or (detectedVariant and detectedVariant.navType) or nil
+    local resolvedNavType = context.navType
+        or (navdata and navdata[def.DESTNAVTYPE])
+        or detectedNavType
+        or selectedNavType
+    local lateralOnly = (context.isLateralOnly == true) or isApproachLateralOnly(navdata)
+
+    local mmrInstalled = context.mmrInstalled
+    if mmrInstalled == nil and yal and yal.mmrinstalled then
+        mmrInstalled = (get(yal.mmrinstalled) == def.ON)
+    else
+        mmrInstalled = (mmrInstalled == true)
+    end
+
+    local lpvInstalled = context.lpvInstalled
+    if lpvInstalled == nil and yal and yal.lpvinstalled then
+        lpvInstalled = (get(yal.lpvinstalled) == def.ON)
+    else
+        lpvInstalled = (lpvInstalled == true)
+    end
+
+    local ianInfo = context.ianInfo
+    if ianInfo == nil and yal and yal.ianinfo then
+        ianInfo = get(yal.ianinfo)
+    end
+    ianInfo = tonumber(ianInfo) or 0
+
+    local pfdMode = context.pfdMode
+    if pfdMode == nil and yal and yal.autopilotpfdmode then
+        pfdMode = get(yal.autopilotpfdmode)
+    end
+    pfdMode = tonumber(pfdMode) or 0
+
+    local fmsIlsDisable = context.fmsIlsDisable
+    if fmsIlsDisable == nil and yal and yal.fmsilsdisable then
+        fmsIlsDisable = get(yal.fmsilsdisable)
+    end
+    fmsIlsDisable = tonumber(fmsIlsDisable) or 0
+
+    local effectiveNavType = resolvedNavType
+    if effectiveNavType == def.NAVTYPERNAV and (selectedNavType == def.NAVTYPELPV or selectedNavType == def.NAVTYPEGLS) then
+        effectiveNavType = selectedNavType
+    end
+
+    local guidanceFamily = nil
+    if effectiveNavType == def.NAVTYPEGLS then
+        guidanceFamily = "gls"
+    elseif effectiveNavType == def.NAVTYPELPV then
+        guidanceFamily = "lpv"
+    elseif effectiveNavType == def.NAVTYPERNAV then
+        guidanceFamily = "rnav"
+    elseif isApproachLocalizerType(effectiveNavType) then
+        guidanceFamily = "localizer"
+    end
+
+    local channelCapable = mmrInstalled and lpvInstalled
+    local facPossible = (guidanceFamily == "rnav") and (ianInfo ~= 0)
+    local gpPossible = facPossible and (not lateralOnly)
+    local locGpPossible = (guidanceFamily == "localizer") and (ianInfo ~= 0) and (fmsIlsDisable ~= 0)
+    local lpvPossible = (guidanceFamily == "lpv") and channelCapable
+    local glsPossible = (guidanceFamily == "gls") and channelCapable
+
+    local expectedLateralMode = nil
+    local expectedVerticalMode = nil
+    local tuningKind = "none"
+    local captainTuneMode = nil
+    local guidanceSummary = nil
+
+    if guidanceFamily == "localizer" then
+        expectedLateralMode = "LOC"
+        expectedVerticalMode = (effectiveNavType == def.NAVTYPEILS) and "GS" or "NONE"
+        tuningKind = "localizer"
+        captainTuneMode = def.MMRILS
+        if effectiveNavType == def.NAVTYPEILS then
+            guidanceSummary = "Expected I L S guidance"
+        elseif locGpPossible then
+            guidanceSummary = "L O C / G P available with I A N"
+        else
+            guidanceSummary = "Expected localizer guidance"
+        end
+    elseif guidanceFamily == "gls" then
+        expectedLateralMode = "GLS"
+        expectedVerticalMode = "GP"
+        tuningKind = "mmr"
+        captainTuneMode = def.MMRGLS
+        guidanceSummary = "Expected G L S guidance"
+    elseif guidanceFamily == "lpv" then
+        expectedLateralMode = "LPV"
+        expectedVerticalMode = lateralOnly and "NONE" or "GP"
+        tuningKind = "mmr"
+        captainTuneMode = def.MMRLPV
+        if lateralOnly then
+            guidanceSummary = "Expected L P V lateral guidance only"
+        else
+            guidanceSummary = "Expected L P V guidance"
+        end
+    elseif guidanceFamily == "rnav" then
+        expectedLateralMode = facPossible and "FAC" or "LNAV"
+        if lateralOnly then
+            expectedVerticalMode = "NONE"
+            guidanceSummary = facPossible and "Expected F A C lateral guidance only" or "Expected lateral F M C guidance only"
+        else
+            expectedVerticalMode = gpPossible and "GP" or "VNAV"
+            if gpPossible then
+                guidanceSummary = "Expected F A C / G P guidance"
+            else
+                guidanceSummary = "Expected L N A V / V N A V guidance"
+            end
+        end
+        tuningKind = "fmc"
+    end
+
+    local pfdInfo = P.getApproachPfdModeInfo(pfdMode)
+
+    return {
+        selectedNavType = selectedNavType,
+        detectedNavType = detectedNavType,
+        resolvedNavType = resolvedNavType,
+        effectiveNavType = effectiveNavType,
+        approachFamily = guidanceFamily,
+        isLateralOnly = lateralOnly,
+        mmrInstalled = mmrInstalled,
+        lpvInstalled = lpvInstalled,
+        channelCapable = channelCapable,
+        tuningKind = tuningKind,
+        captainTuneMode = captainTuneMode,
+        facPossible = facPossible,
+        gpPossible = gpPossible,
+        facGpPossible = facPossible and gpPossible,
+        facVnavPossible = facPossible and (not gpPossible) and (not lateralOnly),
+        locGpPossible = locGpPossible,
+        lpvPossible = lpvPossible,
+        glsPossible = glsPossible,
+        ianInfo = ianInfo,
+        pfdMode = pfdMode,
+        pfdModeLabel = pfdInfo and pfdInfo.label or nil,
+        expectedLateralMode = expectedLateralMode,
+        expectedVerticalMode = expectedVerticalMode,
+        guidanceSummary = guidanceSummary,
+        candidateNavTypes = P.buildApproachCandidateNavTypes(selectedNavType, detectedNavType)
+    }
+end
+
 function P.detectCIFPApproachVariant(icao, runway, legs_string, lat_array, lon_array, selectedAppId)
     if not (P.isvalidicao(icao) and P.isvalidrwy(runway)) then
         return nil

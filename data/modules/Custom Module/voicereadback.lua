@@ -452,10 +452,18 @@ local function complex_check(P)
     if simple_check(get(P.apappstat), "apappstattemp", P) then
         if get(P.apappstat) == def.ON then
              if (get(P.aponstat) == def.ON) then
-                if ((get(P.apgscapturedstat) == def.ARMED) and (get(P.aploccapturedstat) == def.ARMED)) then P.commandtableentry(def.TEXT, "Approach Armed")
-                elseif ((get(P.aplpvgscapturedstat) == def.ARMED) and (get(P.aplpvloccapturedstat) == def.ARMED)) then P.commandtableentry(def.TEXT, "L P V Approach Armed")
-                elseif ((get(P.apglsgscapturedstat) == def.ARMED) and (get(P.apglsloccapturedstat) == def.ARMED)) then P.commandtableentry(def.TEXT, "G L S Approach Armed")
-                elseif ((get(P.apfacgscapturedstat) == def.ARMED) and (get(P.apfacloccapturedstat) == def.ARMED)) then P.commandtableentry(def.TEXT, "F A C Approach Armed") end
+                local approachModeLabel = helpers.getCurrentApproachModeLabel(1)
+                if approachModeLabel then
+                    P.commandtableentry(def.TEXT, approachModeLabel .. " Approach Armed")
+                elseif ((get(P.apgscapturedstat) == def.ARMED) and (get(P.aploccapturedstat) == def.ARMED)) then
+                    P.commandtableentry(def.TEXT, "Approach Armed")
+                elseif ((get(P.aplpvgscapturedstat) == def.ARMED) and (get(P.aplpvloccapturedstat) == def.ARMED)) then
+                    P.commandtableentry(def.TEXT, "L P V Approach Armed")
+                elseif ((get(P.apglsgscapturedstat) == def.ARMED) and (get(P.apglsloccapturedstat) == def.ARMED)) then
+                    P.commandtableentry(def.TEXT, "G L S Approach Armed")
+                elseif ((get(P.apfacgscapturedstat) == def.ARMED) and (get(P.apfacloccapturedstat) == def.ARMED)) then
+                    P.commandtableentry(def.TEXT, "F A C / G P Approach Armed")
+                end
              else P.commandtableentry(def.TEXT, "Approach Armed") end
         elseif (get(P.aponstat) == def.ON and get(P.apgscapturedstat) ~= def.CAPTURED and get(P.aploccapturedstat) ~= def.CAPTURED and get(P.aphdgselstat) ~= def.ON and get(P.aplnavstat) ~= def.ON) then P.commandtableentry(def.TEXT, "Approach Off") end
     end

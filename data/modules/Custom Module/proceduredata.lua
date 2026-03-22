@@ -127,6 +127,9 @@ local function getRunwayTrueFromEndpoints()
 end
 
 local function isLocalizerNavType(navType)
+    if helpers and helpers.isLocalizerNavType then
+        return helpers.isLocalizerNavType(navType)
+    end
     return navType == def.NAVTYPEILS
         or navType == def.NAVTYPELOC
         or navType == def.NAVTYPELDA
@@ -134,6 +137,9 @@ local function isLocalizerNavType(navType)
 end
 
 local function isLateralOnlyApproach(navdata)
+    if helpers and helpers.isLateralOnlyApproach then
+        return helpers.isLateralOnlyApproach(navdata)
+    end
     if not navdata then
         return false
     end
@@ -220,6 +226,13 @@ local function getSetIlsFamily(navType)
 end
 
 local function buildSetIlsCandidateTypes(selectedNavType, detectedNavType)
+    if helpers and helpers.buildApproachCandidateNavTypes then
+        local built = helpers.buildApproachCandidateNavTypes(selectedNavType, detectedNavType)
+        if built and #built > 0 then
+            return built
+        end
+    end
+
     local candidateTypes = {}
     local seen = {}
     local selectedFamily = getSetIlsFamily(selectedNavType)
@@ -800,30 +813,40 @@ end
 
 local function buildSetIlsPlan(loop)
     local navdata = getSetIlsNavdata(loop)
+    local selectedAppId = nil
+    if P.fmsselectedapp then
+        selectedAppId = get(P.fmsselectedapp)
+    end
+    local guidanceProfile = helpers.resolveApproachGuidanceCapabilities({
+        navdata = navdata,
+        detectedVariant = loop and loop.detectedApproach or nil,
+        selectedAppId = selectedAppId
+    })
     local plan = {
         navdata = navdata,
-        navType = navdata and navdata[def.DESTNAVTYPE] or nil,
-        isLP = navdata and isLateralOnlyApproach(navdata) or false,
+        navType = (guidanceProfile and guidanceProfile.resolvedNavType) or (navdata and navdata[def.DESTNAVTYPE] or nil),
+        isLP = guidanceProfile and guidanceProfile.isLateralOnly or (navdata and isLateralOnlyApproach(navdata) or false),
+        guidanceProfile = guidanceProfile,
         captTune = nil,
         foTune = nil,
         foNeedsDmeWarning = false,
         primaryTuneMessage = nil,
+        guidanceMessage = guidanceProfile and guidanceProfile.guidanceSummary or nil,
         tuneSource = "navdata"
     }
     if not navdata then
         return plan
     end
 
-    local mmrInstalled = (get(P.mmrinstalled) == def.ON)
-    local lpvInstalled = (get(P.lpvinstalled) == def.ON)
-    local lpvCapable = mmrInstalled and lpvInstalled
     local navType = plan.navType
     local isLP = plan.isLP
+    local lpvCapable = guidanceProfile and guidanceProfile.channelCapable or ((get(P.mmrinstalled) == def.ON) and (get(P.lpvinstalled) == def.ON))
     local channelValue = navdata[def.DESTFREQ]
     local localizerFreq = navdata[def.DESTFREQ]
-    plan.needsLpvInstallWarning = mmrInstalled and (channelValue ~= nil)
-        and (isLP or navType == def.NAVTYPELPV or navType == def.NAVTYPEGLS)
-        and (not lpvInstalled)
+    plan.needsLpvInstallWarning = (guidanceProfile and guidanceProfile.mmrInstalled or (get(P.mmrinstalled) == def.ON))
+        and (channelValue ~= nil)
+        and ((guidanceProfile and (guidanceProfile.approachFamily == "lpv" or guidanceProfile.approachFamily == "gls")) or isLP or navType == def.NAVTYPELPV or navType == def.NAVTYPEGLS)
+        and not (guidanceProfile and guidanceProfile.channelCapable or false)
 
     local function dmeTune()
         local dmeInfo = getSetIlsApproachDME(loop, navdata)
@@ -839,7 +862,21 @@ local function buildSetIlsPlan(loop)
         }
     end
 
-    if isLP then
+    if guidanceProfile and guidanceProfile.approachFamily == "gls" then
+        if lpvCapable and channelValue then
+            plan.captTune = { type = "mmr", value = channelValue, mode = def.MMRGLS }
+            plan.foTune = { type = "mmr", value = channelValue, mode = def.MMRGLS }
+        end
+    elseif guidanceProfile and guidanceProfile.approachFamily == "lpv" then
+        if lpvCapable and channelValue then
+            plan.captTune = { type = "mmr", value = channelValue, mode = def.MMRLPV }
+        end
+        if isLP then
+            plan.foTune = dmeTune()
+        else
+            plan.foTune = dmeTune()
+        end
+    elseif isLP then
         if lpvCapable and channelValue then
             plan.captTune = { type = "mmr", value = channelValue, mode = def.MMRLPV }
         end
@@ -853,16 +890,6 @@ local function buildSetIlsPlan(loop)
                 plan.foTune = dmeTune()
             end
         end
-    elseif navType == def.NAVTYPEGLS then
-        if lpvCapable and channelValue then
-            plan.captTune = { type = "mmr", value = channelValue, mode = def.MMRGLS }
-            plan.foTune = { type = "mmr", value = channelValue, mode = def.MMRGLS }
-        end
-    elseif navType == def.NAVTYPELPV then
-        if lpvCapable and channelValue then
-            plan.captTune = { type = "mmr", value = channelValue, mode = def.MMRLPV }
-        end
-        plan.foTune = dmeTune()
     elseif navType == def.NAVTYPERNAV then
         plan.foTune = dmeTune()
     end
@@ -916,6 +943,18 @@ local function buildSetIlsPlan(loop)
                 tostring(plan.primaryTuneMessage),
                 tostring(plan.tuneSource)
             ))
+            if guidanceProfile then
+                helpers.logInfoTS(string.format(
+                    "SetIlsGuidance: family=%s selected=%s detected=%s expected=%s/%s current=%s ian=%s",
+                    tostring(guidanceProfile.approachFamily),
+                    tostring(guidanceProfile.selectedNavType),
+                    tostring(guidanceProfile.detectedNavType),
+                    tostring(guidanceProfile.expectedLateralMode),
+                    tostring(guidanceProfile.expectedVerticalMode),
+                    tostring(guidanceProfile.pfdModeLabel),
+                    tostring(guidanceProfile.ianInfo)
+                ))
+            end
         end
     end
 
@@ -5865,6 +5904,9 @@ function M.fillProcedureTable()
                         local message = "Runway " .. helpers.formatRunwayDesignator(navdata[def.DESTRWY])
                             .. " has " .. approachDescriptor .. " (Ident " .. helpers.spellNato(ident) .. ") "
                             .. freqMsg
+                        if plan.guidanceMessage and plan.guidanceMessage ~= "" then
+                            message = message .. ". " .. plan.guidanceMessage
+                        end
                         P.commandtableentry(def.TEXT, message)
                     end,
                     runActionInAdviceMode = true, 
