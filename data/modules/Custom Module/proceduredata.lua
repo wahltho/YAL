@@ -5817,7 +5817,20 @@ function M.fillProcedureTable()
                 ['announce_no_approach'] = {
                     action = function(loop, procData) 
                         local runwayFormatted = helpers.formatRunwayDesignator(get(P.desrwy))
-                        P.commandtableentry(def.TEXT, "Runway " .. runwayFormatted .. " has no Precision Approach")
+                        local selectedAppId = nil
+                        if P.fmsselectedapp then
+                            selectedAppId = normalizeSelectedApproachId(get(P.fmsselectedapp))
+                        end
+                        local selectedNavType = navTypeFromSelectedApproachId(selectedAppId)
+                        local detectedNavType = loop and loop.detectedApproach and loop.detectedApproach.navType or nil
+                        local requestedNavType = selectedNavType or detectedNavType
+                        local noApproachText = "Runway " .. runwayFormatted .. " has no Precision Approach"
+                        if requestedNavType == def.NAVTYPERNAV
+                            or requestedNavType == def.NAVTYPELPV
+                            or requestedNavType == def.NAVTYPEGLS then
+                            noApproachText = "Runway " .. runwayFormatted .. " has no tunable approach frequency or channel"
+                        end
+                        P.commandtableentry(def.TEXT, noApproachText)
 
                         local destinationIcao = get(P.desicao)
                         local runwayRaw = get(P.desrwy)
@@ -5846,14 +5859,12 @@ function M.fillProcedureTable()
                 },
                 ['announce_heading_only'] = {
                     action = function(loop, procData)
-                        local runway = get(P.desrwy)
-                        local runwayFormatted = helpers.formatRunwayDesignator(runway)
                         local course = getCachedApproachCourse(loop)
 
                         if course then
-                            P.commandtableentry(def.TEXT, "Runway " .. runwayFormatted .. " course " .. helpers.addspaces(helpers.padNumberWithZerosStrict(course, 3)))
+                            P.commandtableentry(def.TEXT, "Final approach course " .. helpers.addspaces(helpers.padNumberWithZerosStrict(course, 3)))
                         else
-                            P.commandtableentry(def.TEXT, "Runway " .. runwayFormatted .. " course unavailable")
+                            P.commandtableentry(def.TEXT, "Final approach course unavailable")
                         end
                     end,
                     runActionInAdviceMode = true, 
