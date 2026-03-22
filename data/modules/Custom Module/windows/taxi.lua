@@ -8527,7 +8527,7 @@ local function updateTaxiState(comp, map)
                 route = nil
                 rerr = "no-path"
             end
-            if route and mode == 1 and landing_profile and data and arr_exit_id
+            if route and mode == 1 and arrival_active_context and landing_profile and data and arr_exit_id
                 and (not comp._drawFreehand) and (not comp._manualRouteActive)
                 and (not backtrack_required)
                 and (not manual_end_ramp_retarget_hold_active(comp, now)) then
