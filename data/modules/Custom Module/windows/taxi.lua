@@ -2587,6 +2587,14 @@ local function mark_edit_dirty(comp)
     comp._lastStartKey = nil
     comp._lastEndKey = nil
     comp._lastUpdate = nil
+    if comp and comp.mode == 1 then
+        local yalref = comp.yal or _G.yal
+        local on_ground = yalref and yalref.airgroundsensor and (get(yalref.airgroundsensor) == def.ON)
+        if not on_ground and comp._manualArrGroundHandoffPending ~= true then
+            comp._manualArrGroundHandoffPending = true
+            log_taxi("TaxiEdit: arr-ground-handoff pending")
+        end
+    end
     if not was_dirty then
         log_taxi("TaxiEdit: dirty")
     end
@@ -2823,6 +2831,54 @@ local function find_ramp_by_key(data, key, filter_fn)
         end
     end
     return nil
+end
+
+local function manual_end_intent_point(comp, fallback_lat, fallback_lon)
+    if not comp then
+        return nil, nil
+    end
+    local end_override = comp._editEndOverride
+    if end_override and is_valid_latlon(end_override.lat, end_override.lon) then
+        return end_override.lat, end_override.lon
+    end
+    if comp._drawFreehand and comp._routeWaypoints and #comp._routeWaypoints > 0 then
+        local last_wp = comp._routeWaypoints[#comp._routeWaypoints]
+        local lat, lon = ensure_waypoint_latlon(last_wp)
+        if is_valid_latlon(lat, lon) then
+            return lat, lon
+        end
+    end
+    if comp._editEndOverride and is_valid_latlon(fallback_lat, fallback_lon) then
+        return fallback_lat, fallback_lon
+    end
+    return nil, nil
+end
+
+local function resolve_manual_end_ramp_intent(comp, data, icao, fallback_lat, fallback_lon)
+    if not comp or comp.mode ~= 1 or not data or not icao or icao == "" then
+        return nil, nil, nil
+    end
+    local lat, lon = manual_end_intent_point(comp, fallback_lat, fallback_lon)
+    if not is_valid_latlon(lat, lon) then
+        return nil, nil, nil
+    end
+    local ramp = helpers.getNearestRamp(
+        icao,
+        lat,
+        lon,
+        { filter = helpers.isRampSuitableFor738, data = data }
+    )
+    if not ramp or not is_valid_latlon(ramp.lat, ramp.lon) then
+        return nil, lat, lon
+    end
+    local dist = distance_meters_latlon(lat, lon, ramp.lat, ramp.lon)
+    local gate_radius = (comp._tuning and comp._tuning.gateGuidanceRadius) or (C and C.gateGuidanceRadius) or 60
+    local select_radius = (comp._tuning and comp._tuning.gateSelectRadius) or (C and C.gateSelectRadius) or 120
+    local intent_limit = math.max(math.min(select_radius, 90), gate_radius, 35)
+    if dist and dist <= intent_limit then
+        return ramp, lat, lon, dist
+    end
+    return nil, lat, lon, dist
 end
 
 local function ramp_debug_suffix(ramp)
@@ -5313,6 +5369,7 @@ local function updateTaxiState(comp, map)
         comp._editDirty = false
         comp._editStartOverride = nil
         comp._editEndOverride = nil
+        comp._manualArrGroundHandoffPending = nil
         comp._lastOffNetworkStartKey = nil
         comp._lastOffNetworkEndKey = nil
         comp._lastAutoRouteLogKey = nil
@@ -5799,7 +5856,27 @@ local function updateTaxiState(comp, map)
         comp._manualRouteActive = manual_active
         log_taxi("TaxiEdit: manual-route=" .. tostring(manual_active))
     end
-    if mode == 1 and comp._arrGroundRecomputePending
+    if mode ~= 1 or (not manual_active and not comp._manualRouteLock) then
+        comp._manualArrGroundHandoffPending = nil
+    end
+    if mode == 1 and comp._manualArrGroundHandoffPending
+        and onGroundSensor and aircraft and (not in_edit) and (not comp._drawRoute)
+        and after_landing_started(comp) then
+        local prev_start_override = comp._editStartOverride
+        comp._manualArrGroundHandoffPending = nil
+        comp._manualRouteSnapshot = nil
+        if prev_start_override then
+            comp._editStartOverride = nil
+            if comp._routeWaypoints and #comp._routeWaypoints > 0
+                and waypoint_matches_override(comp._routeWaypoints[1], prev_start_override) then
+                table.remove(comp._routeWaypoints, 1)
+                log_taxi("TaxiEdit: arr-ground-handoff drop start waypoint")
+            end
+            log_taxi("TaxiEdit: arr-ground-handoff clear start override")
+        end
+        comp._arrGroundRecomputePending = nil
+        force_arrival_recompute(comp, data, aircraft, now, "arr-manual-ground-handoff", log_taxi)
+    elseif mode == 1 and comp._arrGroundRecomputePending
         and onGroundSensor and aircraft and (not in_edit)
         and (not manual_active) and (not comp._drawFreehand)
         and (not comp._editStartOverride) and (not comp._editEndOverride)
@@ -6263,6 +6340,23 @@ local function updateTaxiState(comp, map)
                 end
             end
         end
+        local manual_end_network = false
+        if not end_ramp and manual_active then
+            local inferred_ramp, manual_end_lat, manual_end_lon = resolve_manual_end_ramp_intent(
+                comp,
+                data,
+                icao,
+                end_vis_lat,
+                end_vis_lon
+            )
+            if inferred_ramp then
+                end_ramp = inferred_ramp
+                user_selected_end = true
+            elseif U.is_valid_latlon(manual_end_lat, manual_end_lon) then
+                manual_end_network = true
+                comp._autoEndRampKey = nil
+            end
+        end
         if not end_ramp and comp._autoEndRampKey and data and data.ramps then
             for _, ramp in ipairs(data.ramps) do
                 if helpers.isRampSuitableFor738(ramp) and U.ramp_key(ramp) == comp._autoEndRampKey then
@@ -6274,7 +6368,7 @@ local function updateTaxiState(comp, map)
                 comp._autoEndRampKey = nil
             end
         end
-        if not end_ramp and onGroundSensor and aircraft then
+        if not end_ramp and (not manual_end_network) and onGroundSensor and aircraft then
             local gate_heading = yal and yal.groundtrackmag and get(yal.groundtrackmag) or nil
             local gate_radius = tuning.gateSelectRadius or (C and C.gateSelectRadius) or 120
             end_ramp = U.select_best_ramp_for_aircraft(
@@ -6286,7 +6380,7 @@ local function updateTaxiState(comp, map)
                 comp._autoEndRampKey = U.ramp_key(end_ramp)
             end
         end
-        if not end_ramp then
+        if not end_ramp and (not manual_end_network) then
             end_ramp = helpers.getNearestRamp(icao, ramp_ref_lat, ramp_ref_lon, { filter = helpers.isRampSuitableFor738, data = data })
             if end_ramp then
                 comp._autoEndRampKey = U.ramp_key(end_ramp)
@@ -9812,6 +9906,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
     comp._arrRunwayStartNodeIcao = nil
     comp._arrRunwayStartNodeRunway = nil
     comp._arrGroundRecomputePending = nil
+    comp._manualArrGroundHandoffPending = nil
     comp._offrouteDivergenceCount = 0
     comp._initialGuidanceDone = false
     comp._initialMoveAnchor = nil
@@ -10819,11 +10914,20 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                 elseif b.action == "toggle_manual" then
                     if comp._manualRouteLock then
                         comp._manualRouteLock = false
+                        comp._manualArrGroundHandoffPending = nil
                         comp._manualRouteSnapshot = nil
                         log_taxi("TaxiEdit: manual-lock=false")
                     else
                         if (comp._routeWaypoints and #comp._routeWaypoints > 0) or comp._route then
                             comp._manualRouteLock = true
+                            if comp.mode == 1 then
+                                local yalref = comp.yal or _G.yal
+                                local on_ground = yalref and yalref.airgroundsensor and (get(yalref.airgroundsensor) == def.ON)
+                                if not on_ground then
+                                    comp._manualArrGroundHandoffPending = true
+                                    log_taxi("TaxiEdit: arr-ground-handoff pending")
+                                end
+                            end
                             log_taxi(
                                 string.format(
                                     "TaxiEdit: manual-lock=true wps=%d route=%s",
@@ -10965,10 +11069,26 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                     comp._selectedEndRampKey = nil
                     comp._autoEndRampKey = nil
                     comp._manualEndRampRetargetUntil = nil
+                    if comp.mode == 1 then
+                        local yalref = comp.yal or _G.yal
+                        local on_ground = yalref and yalref.airgroundsensor and (get(yalref.airgroundsensor) == def.ON)
+                        if not on_ground then
+                            comp._manualArrGroundHandoffPending = true
+                            log_taxi("TaxiEdit: arr-ground-handoff pending")
+                        end
+                    end
                     log_taxi("TaxiEdit: end-ramp cleared")
                 else
                     comp._selectedEndRampKey = best.key
                     comp._autoEndRampKey = nil
+                    if comp.mode == 1 then
+                        local yalref = comp.yal or _G.yal
+                        local on_ground = yalref and yalref.airgroundsensor and (get(yalref.airgroundsensor) == def.ON)
+                        if not on_ground then
+                            comp._manualArrGroundHandoffPending = true
+                            log_taxi("TaxiEdit: arr-ground-handoff pending")
+                        end
+                    end
                     log_taxi("TaxiEdit: end-ramp selected key=" .. tostring(best.key))
                     if comp.mode == 1 and comp._data then
                         reroute_from_current_aircraft(comp, comp._data, "end-ramp-manual", true, log_taxi)
