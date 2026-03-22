@@ -4036,6 +4036,32 @@ local function get_route_start_anchor(route, data, fallback_lat, fallback_lon)
     return start_id, fallback_lat, fallback_lon
 end
 
+local function compute_arrival_preview_visual_start(route_data, landing_profile, exit_id, fallback_lat, fallback_lon)
+    if not route_data or not route_data.nodes or not landing_profile or not exit_id then
+        return fallback_lat, fallback_lon, nil, nil
+    end
+    local node = route_data.nodes[exit_id]
+    local threshold = landing_profile.threshold
+    local axis = landing_profile.axis
+    if not node or node.east == nil or node.north == nil or not threshold or not axis then
+        return fallback_lat, fallback_lon, nil, nil
+    end
+    local along = compute_along_perp(landing_profile, node)
+    if not along then
+        return fallback_lat, fallback_lon, nil, nil
+    end
+    if landing_profile.length then
+        along = clamp(along, 0, landing_profile.length)
+    end
+    local east = threshold.east + axis.x * along
+    local north = threshold.north + axis.y * along
+    local lat, lon = local_to_latlon(east, north)
+    if U.is_valid_latlon(lat, lon) then
+        return lat, lon, east, north
+    end
+    return fallback_lat, fallback_lon, east, north
+end
+
 local function clear_arrival_route_context(comp)
     if not comp then
         return
@@ -4072,6 +4098,8 @@ local function build_arrival_route_context(route, data, icao, runway_name, start
         preview_only = not active_context
     }
     ctx.start_node_id, ctx.start_lat, ctx.start_lon = get_route_start_anchor(route, route_data, start_lat, start_lon)
+    ctx.route_start_lat = ctx.start_lat
+    ctx.route_start_lon = ctx.start_lon
     ctx.planned_exit_id = arr_exit_id
     local inferred_exit_id = infer_arrival_exit_from_route(route, route_data)
     ctx.route_exit_id = inferred_exit_id or ctx.start_node_id or arr_exit_id
@@ -4084,6 +4112,20 @@ local function build_arrival_route_context(route, data, icao, runway_name, start
         ctx.active_exit_along = runway_exit_along(landing_profile, route_data, ctx.active_exit_id)
     end
     ctx.arr_exit_along = ctx.active_exit_along or ctx.planned_exit_along
+    if ctx.preview_only then
+        local preview_start_id = ctx.active_exit_id or ctx.planned_exit_id or ctx.start_node_id
+        local vlat, vlon, ve, vn = compute_arrival_preview_visual_start(
+            route_data,
+            landing_profile,
+            preview_start_id,
+            ctx.start_lat,
+            ctx.start_lon
+        )
+        ctx.visual_start_lat = vlat
+        ctx.visual_start_lon = vlon
+        ctx.visual_start_east = ve
+        ctx.visual_start_north = vn
+    end
     return ctx
 end
 
@@ -10013,20 +10055,51 @@ local function updateTaxiState(comp, map)
     end
 
     comp._startPoint = nil
+    comp._previewLeadSegments = nil
     local sp_lat = (in_edit and start_vis_lat) or start_lat
     local sp_lon = (in_edit and start_vis_lon) or start_lon
     if (not in_edit) and (not comp._manualRouteActive)
         and comp._routeContext
         and comp._routeContext.mode == mode
         and comp._routeContext.icao == icao
-        and comp._routeContext.runway_name == (comp._runwayName or "")
-        and U.is_valid_latlon(comp._routeContext.start_lat, comp._routeContext.start_lon) then
-        sp_lat = comp._routeContext.start_lat
-        sp_lon = comp._routeContext.start_lon
+        and comp._routeContext.runway_name == (comp._runwayName or "") then
+        if comp._routeContext.preview_only
+            and U.is_valid_latlon(comp._routeContext.visual_start_lat, comp._routeContext.visual_start_lon) then
+            sp_lat = comp._routeContext.visual_start_lat
+            sp_lon = comp._routeContext.visual_start_lon
+        elseif U.is_valid_latlon(comp._routeContext.start_lat, comp._routeContext.start_lon) then
+            sp_lat = comp._routeContext.start_lat
+            sp_lon = comp._routeContext.start_lon
+        end
     end
     if U.is_valid_latlon(sp_lat, sp_lon) then
         local sx, sy = U.latlon_to_local(sp_lat, sp_lon)
         comp._startPoint = { east = sx, north = sy }
+    end
+    if comp._routeContext and comp._routeContext.preview_only
+        and comp._route and comp._route.path and #comp._route.path > 0
+        and routeData and routeData.nodes
+        and comp._routeContext.visual_start_east ~= nil and comp._routeContext.visual_start_north ~= nil then
+        local first_id = comp._route.path[1]
+        local first_node = first_id and routeData.nodes[first_id] or nil
+        if first_node and first_node.east ~= nil and first_node.north ~= nil then
+            local lead_len = math.sqrt(distance_sq(
+                comp._routeContext.visual_start_east,
+                comp._routeContext.visual_start_north,
+                first_node.east,
+                first_node.north
+            ))
+            if lead_len >= 3 then
+                comp._previewLeadSegments = {
+                    {
+                        east1 = comp._routeContext.visual_start_east,
+                        north1 = comp._routeContext.visual_start_north,
+                        east2 = first_node.east,
+                        north2 = first_node.north
+                    }
+                }
+            end
+        end
     end
     comp._endPoint = nil
     local ep_lat = (in_edit and end_vis_lat) or end_lat
@@ -10239,6 +10312,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
     comp._lastEndKey = nil
     comp._routeStartAnchor = nil
     comp._routeExtraSegments = nil
+    comp._previewLeadSegments = nil
     comp._followAircraft = true
     comp._lastArrivalIcao = nil
     comp._lastArrivalRunwayName = nil
@@ -10873,6 +10947,14 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                         sasl.gl.drawLine(x1 + 1, y1 + 1, x2 + 1, y2 + 1, routeColor)
                     end
                 end
+            end
+        end
+        if comp._previewLeadSegments then
+            for _, seg in ipairs(comp._previewLeadSegments) do
+                local x1, y1 = project(seg.east1, seg.north1)
+                local x2, y2 = project(seg.east2, seg.north2)
+                sasl.gl.drawLine(x1, y1, x2, y2, routeShadow)
+                sasl.gl.drawLine(x1 + 1, y1 + 1, x2 + 1, y2 + 1, routeColor)
             end
         end
         if comp._routeExtraSegments then
