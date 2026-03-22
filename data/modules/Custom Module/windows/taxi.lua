@@ -3692,7 +3692,7 @@ local function evaluate_arrival_route_validity(route, data, aircraft, landing_pr
     local route_limit = on_runway and math.max(220, drift_meters * 4) or math.max(180, drift_meters * 3)
     local severe_limit = on_runway and math.max(320, drift_meters * 6) or math.max(260, drift_meters * 4.5)
     local node_limit = on_runway and math.max(120, drift_meters * 2.5) or math.max(90, drift_meters * 2)
-    if landing_profile and not backtrack_required then
+    if active_context and landing_profile and not backtrack_required then
         local first_angle = route_first_taxi_angle(route, route_data, landing_profile)
         info.first_angle = first_angle
         if first_angle and first_angle > 120 then
