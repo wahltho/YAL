@@ -2332,6 +2332,143 @@ local function try_route_to_candidates(icao, data, start_lat, start_lon, candida
     return nil, "no-path"
 end
 
+local function route_path_length(data, path)
+    if not data or not data.nodes or not path or #path < 2 then
+        return nil
+    end
+    local total = 0
+    for i = 1, (#path - 1) do
+        local n1 = data.nodes[path[i]]
+        local n2 = data.nodes[path[i + 1]]
+        if n1 and n2 and n1.east and n1.north and n2.east and n2.north then
+            local dx = n2.east - n1.east
+            local dy = n2.north - n1.north
+            total = total + math.sqrt(dx * dx + dy * dy)
+        end
+    end
+    return total
+end
+
+local function collect_non_runway_successors(data, node_id)
+    local out = {}
+    if not data or not data.adjacency_any or not data.nodes or not node_id then
+        return out
+    end
+    local seen = {}
+    local edges = data.adjacency_any[node_id]
+    if not edges then
+        return out
+    end
+    for _, edge in ipairs(edges) do
+        local to_id = edge.to
+        if to_id and data.nodes[to_id] and not seen[to_id] then
+            local is_rwy = (data.runway_nodes and data.runway_nodes[to_id])
+                or (edge.label and is_runway_label(edge.label))
+            if not is_rwy then
+                seen[to_id] = true
+                out[#out + 1] = to_id
+            end
+        end
+    end
+    return out
+end
+
+local function build_route_with_forced_first_node(icao, data, exit_id, next_id, end_lat, end_lon, opts, waypoint_ids, waypoints)
+    if not data or not data.nodes or not exit_id or not next_id then
+        return nil, "no-path"
+    end
+    local exit_node = data.nodes[exit_id]
+    local next_node = data.nodes[next_id]
+    if (not exit_node) or (not next_node) or (not is_valid_latlon(next_node.lat, next_node.lon)) then
+        return nil, "no-path"
+    end
+    local local_opts = copy_opts(opts) or {}
+    local_opts.start_node_id = next_id
+    local route, rerr = route_with_waypoints(
+        icao,
+        next_node.lat,
+        next_node.lon,
+        end_lat,
+        end_lon,
+        local_opts,
+        waypoint_ids,
+        waypoints
+    )
+    if not route or not route.path or #route.path < 1 then
+        return nil, rerr
+    end
+    if route.path[1] ~= next_id then
+        return nil, "branch-mismatch"
+    end
+    local path = { exit_id }
+    for i = 1, #route.path do
+        path[#path + 1] = route.path[i]
+    end
+    local bounds = route.bounds and {
+        minX = route.bounds.minX,
+        maxX = route.bounds.maxX,
+        minY = route.bounds.minY,
+        maxY = route.bounds.maxY
+    } or nil
+    if exit_node.east and exit_node.north then
+        update_bounds(bounds, exit_node.east, exit_node.north)
+    end
+    return {
+        data = route.data or data,
+        start_id = exit_id,
+        end_id = route.end_id,
+        path = path,
+        bounds = bounds
+    }, nil
+end
+
+local function refine_arrival_preview_route(icao, route, data, landing_profile, arr_exit_id, end_lat, end_lon, opts, waypoint_ids, waypoints)
+    if not route or not data or not landing_profile or not arr_exit_id then
+        return route, nil, nil
+    end
+    local successors = collect_non_runway_successors(data, arr_exit_id)
+    if #successors < 2 then
+        return route, nil, nil
+    end
+    local best_route = route
+    local best_next = route.path and route.path[2] or nil
+    local best_data = route.data or data
+    local best_angle = route_first_taxi_angle(route, best_data, landing_profile) or 999
+    local best_length = route_path_length(best_data, route.path) or 1e12
+    for _, next_id in ipairs(successors) do
+        local cand_route = nil
+        if best_next == next_id then
+            cand_route = route
+        else
+            cand_route = select(1, build_route_with_forced_first_node(
+                icao,
+                data,
+                arr_exit_id,
+                next_id,
+                end_lat,
+                end_lon,
+                opts,
+                waypoint_ids,
+                waypoints
+            ))
+        end
+        if cand_route and cand_route.path and #cand_route.path >= 2 then
+            local cand_data = cand_route.data or data
+            local cand_angle = route_first_taxi_angle(cand_route, cand_data, landing_profile) or 999
+            local cand_length = route_path_length(cand_data, cand_route.path) or 1e12
+            local angle_better = cand_angle + 5 < best_angle
+            local length_better = math.abs(cand_angle - best_angle) <= 5 and (cand_length + 30 < best_length)
+            if angle_better or length_better then
+                best_route = cand_route
+                best_next = next_id
+                best_angle = cand_angle
+                best_length = cand_length
+            end
+        end
+    end
+    return best_route, best_next, best_angle
+end
+
 local function collect_nearest_nodes(data, ref_east, ref_north, max_candidates)
     if not data or not data.nodes then
         return {}
@@ -4781,6 +4918,7 @@ U = {
     route_with_waypoints = route_with_waypoints,
     try_route_from_candidates = try_route_from_candidates,
     try_route_to_candidates = try_route_to_candidates,
+    refine_arrival_preview_route = refine_arrival_preview_route,
     collect_nearest_nodes = collect_nearest_nodes,
     normalize_icao = normalize_icao,
     build_route_labels = build_route_labels,
@@ -8526,6 +8664,37 @@ local function updateTaxiState(comp, map)
             if route and route.path and #route.path < 2 then
                 route = nil
                 rerr = "no-path"
+            end
+            if route and mode == 1 and (not arrival_active_context) and landing_profile and data and arr_exit_id
+                and (not comp._drawFreehand) and (not comp._manualRouteActive)
+                and (not backtrack_required) then
+                local preview_route, preview_next, preview_angle = U.refine_arrival_preview_route(
+                    icao,
+                    route,
+                    data,
+                    landing_profile,
+                    arr_exit_id,
+                    end_lat,
+                    end_lon,
+                    opts,
+                    proj_waypoint_ids,
+                    route_waypoints
+                )
+                if preview_route and preview_route ~= route then
+                    route = preview_route
+                    start_node_id = arr_exit_id
+                    start_node_dist = 0
+                    local exit_node = data.nodes and data.nodes[arr_exit_id] or nil
+                    if exit_node and U.is_valid_latlon(exit_node.lat, exit_node.lon) then
+                        start_lat = exit_node.lat
+                        start_lon = exit_node.lon
+                    end
+                    log_taxi(
+                        "TaxiRoute: ARR preview branch reroute exit=" .. tostring(arr_exit_id)
+                            .. " next=" .. tostring(preview_next)
+                            .. " angle=" .. string.format("%.1f", preview_angle or -1)
+                    )
+                end
             end
             if route and mode == 1 and arrival_active_context and landing_profile and data and arr_exit_id
                 and (not comp._drawFreehand) and (not comp._manualRouteActive)
