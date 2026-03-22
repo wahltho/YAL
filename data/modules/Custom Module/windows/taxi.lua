@@ -3597,6 +3597,20 @@ local function manual_end_ramp_retarget_hold_active(comp, now)
     return true
 end
 
+local function arrival_route_local_context(aircraft, landing_profile)
+    if not aircraft or aircraft.east == nil or aircraft.north == nil or not landing_profile then
+        return false, nil, nil
+    end
+    local ref = landing_profile.touchdown or landing_profile.threshold
+    if not ref or ref.east == nil or ref.north == nil then
+        return false, nil, nil
+    end
+    local dist = math.sqrt(distance_sq(aircraft.east, aircraft.north, ref.east, ref.north))
+    local rollout = tonumber(landing_profile.roll or 0) or 0
+    local local_limit = math.max(75000, rollout + 5000)
+    return dist <= local_limit, dist, local_limit
+end
+
 local function after_landing_started(comp)
     local yal = comp and (comp.yal or _G.yal) or nil
     if not yal then
@@ -3723,6 +3737,7 @@ local function choose_or_keep_arrival_exit(comp, landing_profile, data, proposed
     local exit_id = proposed_exit_id
     local backtrack_required = proposed_backtrack and true or false
     local exit_along = nil
+    local local_context = arrival_route_local_context(aircraft, landing_profile)
     if landing_profile and exit_id then
         exit_along = runway_exit_along(landing_profile, data, exit_id)
     end
@@ -3738,7 +3753,7 @@ local function choose_or_keep_arrival_exit(comp, landing_profile, data, proposed
         return start_lat, start_lon
     end
 
-    if off_runway == false and comp._route and comp._arrExitId and exit_id and exit_id ~= comp._arrExitId then
+    if local_context and off_runway == false and comp._route and comp._arrExitId and exit_id and exit_id ~= comp._arrExitId then
         local validity = comp._arrRouteValidity
         local keep_committed = validity == nil or validity.valid ~= false
         if keep_committed then
@@ -3758,7 +3773,7 @@ local function choose_or_keep_arrival_exit(comp, landing_profile, data, proposed
         end
     end
 
-    if off_runway == false and comp._arrExitLockedId and exit_id and exit_id ~= comp._arrExitLockedId then
+    if local_context and off_runway == false and comp._arrExitLockedId and exit_id and exit_id ~= comp._arrExitLockedId then
         local locked_exit = comp._arrExitLockedId
         local locked_along = comp._arrExitLockedAlong
         exit_id = locked_exit
@@ -3773,7 +3788,7 @@ local function choose_or_keep_arrival_exit(comp, landing_profile, data, proposed
         return exit_id, exit_along, backtrack_required, start_lat, start_lon
     end
 
-    if off_runway == false and comp._arrExitId and exit_id
+    if local_context and off_runway == false and comp._arrExitId and exit_id
         and exit_id ~= comp._arrExitId
         and comp._arrExitAlong ~= nil and exit_along ~= nil
         and (not backtrack_required) and (not comp._arrBacktrackRequired)
@@ -8448,6 +8463,7 @@ local function updateTaxiState(comp, map)
                 and (not manual_end_ramp_retarget_hold_active(comp, now)) then
                 local angle = route_first_taxi_angle(route, data, landing_profile)
                 if angle and angle > 120 then
+                    local angle_local_context = arrival_route_local_context(aircraft, landing_profile)
                     local ref = landing_profile.touchdown
                     if not (ref and ref.east and ref.north) and landing_profile.threshold then
                         ref = landing_profile.threshold
@@ -8462,7 +8478,7 @@ local function updateTaxiState(comp, map)
                         local best_exit = nil
                         local best_angle = nil
                         local current_route_dist = nil
-                        if aircraft and aircraft.east and aircraft.north then
+                        if angle_local_context and aircraft and aircraft.east and aircraft.north then
                             current_route_dist = U.distance_to_route(data, route.path, aircraft.east, aircraft.north)
                         end
                         for _, cand in ipairs(candidates) do
@@ -8484,13 +8500,13 @@ local function updateTaxiState(comp, map)
                                 )
                                 if alt_route and alt_route.path and #alt_route.path >= 2 then
                                     local alt_route_dist = nil
-                                    if aircraft and aircraft.east and aircraft.north then
+                                    if angle_local_context and aircraft and aircraft.east and aircraft.north then
                                         alt_route_dist = U.distance_to_route(data, alt_route.path, aircraft.east, aircraft.north)
                                     end
                                     local alt_angle = route_first_taxi_angle(alt_route, data, landing_profile)
                                     if alt_angle and alt_angle <= 120 then
                                         local accept_alt = true
-                                        if alt_route_dist then
+                                        if angle_local_context and alt_route_dist then
                                             local dist_limit = math.max(180, driftMeters * 2.5)
                                             if current_route_dist then
                                                 dist_limit = math.max(dist_limit, current_route_dist + 25)
