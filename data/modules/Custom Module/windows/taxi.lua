@@ -596,6 +596,42 @@ local function parse_runway_parts(name)
     return tonumber(num), suffix
 end
 
+local function reciprocal_runway_suffix(suffix)
+    if not suffix or suffix == "" then
+        return ""
+    end
+    local out = {}
+    local len = #suffix
+    for i = 1, len do
+        local ch = string.sub(suffix, i, i)
+        if ch == "L" then
+            out[#out + 1] = "R"
+        elseif ch == "R" then
+            out[#out + 1] = "L"
+        else
+            out[#out + 1] = ch
+        end
+    end
+    return table.concat(out)
+end
+
+local function reciprocal_runway_name(label)
+    local num, suffix = parse_runway_parts(label)
+    if not num then
+        return normalize_runway_name(label)
+    end
+    local opposite = num + 18
+    if opposite > 36 then
+        opposite = opposite - 36
+    end
+    local formatted = string.format("%02d", opposite)
+    local reciprocal_suffix = reciprocal_runway_suffix(suffix)
+    if reciprocal_suffix ~= "" then
+        formatted = formatted .. reciprocal_suffix
+    end
+    return formatted
+end
+
 local function normalize_runway_pair_label(label)
     if not label or label == "" then
         return ""
@@ -674,6 +710,25 @@ local function normalize_runway_pair_label(label)
         end
     end
     return table.concat(parts, "/")
+end
+
+local function canonical_runway_edge_label(label)
+    local pair = normalize_runway_pair_label(label)
+    if pair == "" then
+        local dep = normalize_runway_name(label)
+        if dep ~= "" then
+            local reciprocal = reciprocal_runway_name(dep)
+            if reciprocal ~= "" and reciprocal ~= dep then
+                pair = dep .. "/" .. reciprocal
+            else
+                pair = dep
+            end
+        end
+    end
+    if pair == "" then
+        return ""
+    end
+    return "RWY " .. pair
 end
 
 local function runway_label_voice(label)
@@ -1521,7 +1576,10 @@ local function apply_backtrack_segments_to_route(comp, route, data, backtrack_no
         data.runway_nodes[entry_id] = true
         data.runway_nodes[target_id] = true
     end
-    if runway_label and runway_label ~= "" then
+    runway_label = canonical_runway_edge_label(runway_label)
+    if runway_label ~= "" then
+        add_temp_edge_label(comp, data, backtrack_node_id, entry_id, runway_label)
+        add_temp_edge_label(comp, data, entry_id, backtrack_node_id, runway_label)
         add_temp_edge_label(comp, data, target_id, entry_id, runway_label)
         add_temp_edge_label(comp, data, entry_id, target_id, runway_label)
     end
@@ -1618,7 +1676,8 @@ local function apply_dep_turnaround_stub(comp, route, data, profile, runway_labe
         data.runway_nodes[turn_id] = true
         data.runway_nodes[lineup_id] = true
     end
-    if runway_label and runway_label ~= "" then
+    runway_label = canonical_runway_edge_label(runway_label)
+    if runway_label ~= "" then
         add_temp_edge_label(comp, data, last_id, turn_id, runway_label)
         add_temp_edge_label(comp, data, turn_id, lineup_id, runway_label)
         add_temp_edge_label(comp, data, turn_id, last_id, runway_label)
@@ -2316,14 +2375,32 @@ local function build_route_labels(data, path)
     for i = 1, #path - 1 do
         local from_id = path[i]
         local to_id = path[i + 1]
-        local neighbors = data.adjacency[from_id] or {}
-        for _, edge in ipairs(neighbors) do
-            if edge.to == to_id and edge.label and edge.label ~= "" then
-                if labels[#labels] ~= edge.label then
-                    labels[#labels + 1] = edge.label
+        local label = ""
+        if data._tempEdgeLabels then
+            label = data._tempEdgeLabels[tostring(from_id) .. ":" .. tostring(to_id)] or ""
+        end
+        if label == "" then
+            local neighbors = data.adjacency[from_id] or {}
+            for _, edge in ipairs(neighbors) do
+                if edge.to == to_id and edge.label and edge.label ~= "" then
+                    label = edge.label
+                    break
                 end
-                break
             end
+        end
+        if label == "" then
+            local neighbors_any = data.adjacency_any and data.adjacency_any[from_id] or nil
+            if neighbors_any then
+                for _, edge in ipairs(neighbors_any) do
+                    if edge.to == to_id and edge.label and edge.label ~= "" then
+                        label = edge.label
+                        break
+                    end
+                end
+            end
+        end
+        if label ~= "" and labels[#labels] ~= label then
+            labels[#labels + 1] = label
         end
     end
     return labels
