@@ -2375,7 +2375,21 @@ local function collect_non_runway_successors(data, node_id)
     return out
 end
 
-local function build_route_with_forced_first_node(icao, data, exit_id, next_id, end_lat, end_lon, opts, waypoint_ids, waypoints)
+local function prefix_path_to_node(path, node_id)
+    if not path or not node_id then
+        return nil
+    end
+    local prefix = {}
+    for i = 1, #path do
+        prefix[#prefix + 1] = path[i]
+        if path[i] == node_id then
+            return prefix
+        end
+    end
+    return nil
+end
+
+local function build_route_with_forced_first_node(icao, data, base_route, exit_id, next_id, end_lat, end_lon, opts, waypoint_ids, waypoints)
     if not data or not data.nodes or not exit_id or not next_id then
         return nil, "no-path"
     end
@@ -2402,7 +2416,11 @@ local function build_route_with_forced_first_node(icao, data, exit_id, next_id, 
     if route.path[1] ~= next_id then
         return nil, "branch-mismatch"
     end
-    local path = { exit_id }
+    local prefix = prefix_path_to_node(base_route and base_route.path, exit_id) or { exit_id }
+    local path = {}
+    for i = 1, #prefix do
+        path[#path + 1] = prefix[i]
+    end
     for i = 1, #route.path do
         path[#path + 1] = route.path[i]
     end
@@ -2412,19 +2430,22 @@ local function build_route_with_forced_first_node(icao, data, exit_id, next_id, 
         minY = route.bounds.minY,
         maxY = route.bounds.maxY
     } or nil
-    if exit_node.east and exit_node.north then
-        update_bounds(bounds, exit_node.east, exit_node.north)
+    for i = 1, #prefix do
+        local node = data.nodes[prefix[i]]
+        if node and node.east and node.north then
+            update_bounds(bounds, node.east, node.north)
+        end
     end
     return {
         data = route.data or data,
-        start_id = exit_id,
+        start_id = path[1],
         end_id = route.end_id,
         path = path,
         bounds = bounds
     }, nil
 end
 
-local function refine_arrival_preview_route(icao, route, data, landing_profile, arr_exit_id, end_lat, end_lon, opts, waypoint_ids, waypoints)
+local function refine_arrival_route_branch(icao, route, data, landing_profile, arr_exit_id, end_lat, end_lon, opts, waypoint_ids, waypoints)
     if not route or not data or not landing_profile or not arr_exit_id then
         return route, nil, nil
     end
@@ -2432,10 +2453,15 @@ local function refine_arrival_preview_route(icao, route, data, landing_profile, 
     if #successors < 2 then
         return route, nil, nil
     end
+    local prefix = prefix_path_to_node(route.path, arr_exit_id)
+    if (not prefix) and ((not route.path) or route.path[1] ~= arr_exit_id) then
+        return route, nil, nil
+    end
+    local exit_idx = prefix and #prefix or 1
     local best_route = route
-    local best_next = route.path and route.path[2] or nil
+    local best_next = route.path and route.path[exit_idx + 1] or nil
     local best_data = route.data or data
-    local best_angle = route_first_taxi_angle(route, best_data, landing_profile) or 999
+    local best_angle = route_first_taxi_angle(route, best_data, landing_profile, arr_exit_id) or 999
     local best_length = route_path_length(best_data, route.path) or 1e12
     for _, next_id in ipairs(successors) do
         local cand_route = nil
@@ -2445,6 +2471,7 @@ local function refine_arrival_preview_route(icao, route, data, landing_profile, 
             cand_route = select(1, build_route_with_forced_first_node(
                 icao,
                 data,
+                route,
                 arr_exit_id,
                 next_id,
                 end_lat,
@@ -2456,7 +2483,7 @@ local function refine_arrival_preview_route(icao, route, data, landing_profile, 
         end
         if cand_route and cand_route.path and #cand_route.path >= 2 then
             local cand_data = cand_route.data or data
-            local cand_angle = route_first_taxi_angle(cand_route, cand_data, landing_profile) or 999
+            local cand_angle = route_first_taxi_angle(cand_route, cand_data, landing_profile, arr_exit_id) or 999
             local cand_length = route_path_length(cand_data, cand_route.path) or 1e12
             local angle_better = cand_angle + 5 < best_angle
             local length_better = math.abs(cand_angle - best_angle) <= 5 and (cand_length + 30 < best_length)
@@ -3426,7 +3453,7 @@ local function infer_arrival_exit_from_route(route, data)
     return nil
 end
 
-route_first_taxi_angle = function(route, data, profile)
+route_first_taxi_angle = function(route, data, profile, anchor_node_id)
     if not route or not data or not profile or not profile.axis then
         return nil
     end
@@ -3438,14 +3465,28 @@ route_first_taxi_angle = function(route, data, profile)
     if axis_heading < 0 then
         axis_heading = axis_heading + 360
     end
+    local start_idx = 1
     local saw_runway = false
-    for i = 1, (#path - 1) do
+    if anchor_node_id then
+        local anchor_idx = nil
+        for i = 1, #path do
+            if path[i] == anchor_node_id then
+                anchor_idx = i
+                break
+            end
+        end
+        if anchor_idx and anchor_idx < #path then
+            start_idx = anchor_idx
+            saw_runway = true
+        end
+    end
+    for i = start_idx, (#path - 1) do
         local label = get_edge_label(data, path[i], path[i + 1])
         local is_rwy = label and is_runway_label(label)
         if is_rwy then
             saw_runway = true
         else
-            if saw_runway or i == 1 then
+            if saw_runway or i == start_idx then
                 local n1 = data.nodes and data.nodes[path[i]] or nil
                 local n2 = data.nodes and data.nodes[path[i + 1]] or nil
                 if n1 and n2 and n1.east and n1.north and n2.east and n2.north then
@@ -3832,7 +3873,7 @@ local function evaluate_arrival_route_validity(route, data, aircraft, landing_pr
     local severe_limit = on_runway and math.max(320, drift_meters * 6) or math.max(260, drift_meters * 4.5)
     local node_limit = on_runway and math.max(120, drift_meters * 2.5) or math.max(90, drift_meters * 2)
     if active_context and landing_profile and not backtrack_required then
-        local first_angle = route_first_taxi_angle(route, route_data, landing_profile)
+        local first_angle = route_first_taxi_angle(route, route_data, landing_profile, arr_exit_id)
         info.first_angle = first_angle
         if first_angle and first_angle > 120 then
             info.valid = false
@@ -4920,7 +4961,7 @@ U = {
     route_with_waypoints = route_with_waypoints,
     try_route_from_candidates = try_route_from_candidates,
     try_route_to_candidates = try_route_to_candidates,
-    refine_arrival_preview_route = refine_arrival_preview_route,
+    refine_arrival_route_branch = refine_arrival_route_branch,
     collect_nearest_nodes = collect_nearest_nodes,
     normalize_icao = normalize_icao,
     build_route_labels = build_route_labels,
@@ -8667,10 +8708,10 @@ local function updateTaxiState(comp, map)
                 route = nil
                 rerr = "no-path"
             end
-            if route and mode == 1 and (not arrival_active_context) and landing_profile and data and arr_exit_id
+            if route and mode == 1 and landing_profile and data and arr_exit_id
                 and (not comp._drawFreehand) and (not comp._manualRouteActive)
                 and (not backtrack_required) then
-                local preview_route, preview_next, preview_angle = U.refine_arrival_preview_route(
+                local branch_route, branch_next, branch_angle = U.refine_arrival_route_branch(
                     icao,
                     route,
                     data,
@@ -8682,19 +8723,20 @@ local function updateTaxiState(comp, map)
                     proj_waypoint_ids,
                     route_waypoints
                 )
-                if preview_route and preview_route ~= route then
-                    route = preview_route
-                    start_node_id = arr_exit_id
-                    start_node_dist = 0
-                    local exit_node = data.nodes and data.nodes[arr_exit_id] or nil
-                    if exit_node and U.is_valid_latlon(exit_node.lat, exit_node.lon) then
-                        start_lat = exit_node.lat
-                        start_lon = exit_node.lon
+                if branch_route and branch_route ~= route then
+                    route = branch_route
+                    local refined_start_id = route.start_id or (route.path and route.path[1]) or start_node_id
+                    start_node_id = refined_start_id
+                    local start_node = refined_start_id and data.nodes and data.nodes[refined_start_id] or nil
+                    if start_node and U.is_valid_latlon(start_node.lat, start_node.lon) then
+                        start_lat = start_node.lat
+                        start_lon = start_node.lon
                     end
+                    local branch_kind = arrival_active_context and "active" or "preview"
                     log_taxi(
-                        "TaxiRoute: ARR preview branch reroute exit=" .. tostring(arr_exit_id)
-                            .. " next=" .. tostring(preview_next)
-                            .. " angle=" .. string.format("%.1f", preview_angle or -1)
+                        "TaxiRoute: ARR " .. branch_kind .. " branch reroute exit=" .. tostring(arr_exit_id)
+                            .. " next=" .. tostring(branch_next)
+                            .. " angle=" .. string.format("%.1f", branch_angle or -1)
                     )
                 end
             end
@@ -8702,7 +8744,7 @@ local function updateTaxiState(comp, map)
                 and (not comp._drawFreehand) and (not comp._manualRouteActive)
                 and (not backtrack_required)
                 and (not manual_end_ramp_retarget_hold_active(comp, now)) then
-                local angle = route_first_taxi_angle(route, data, landing_profile)
+                local angle = route_first_taxi_angle(route, data, landing_profile, arr_exit_id)
                 if angle and angle > 120 then
                     local angle_local_context = arrival_route_local_context(aircraft, landing_profile)
                     local ref = landing_profile.touchdown
@@ -8744,7 +8786,7 @@ local function updateTaxiState(comp, map)
                                     if angle_local_context and aircraft and aircraft.east and aircraft.north then
                                         alt_route_dist = U.distance_to_route(data, alt_route.path, aircraft.east, aircraft.north)
                                     end
-                                    local alt_angle = route_first_taxi_angle(alt_route, data, landing_profile)
+                                    local alt_angle = route_first_taxi_angle(alt_route, data, landing_profile, cid)
                                     if alt_angle and alt_angle <= 120 then
                                         local accept_alt = true
                                         if angle_local_context and alt_route_dist then
