@@ -4399,6 +4399,98 @@ local function reset_guidance_tracking(comp, reset_state)
     end
 end
 
+local function reset_gate_guidance_state(comp, reason)
+    if not comp then
+        return
+    end
+    if clear_visual_guidance then
+        clear_visual_guidance(comp, reason or "gate-reset")
+    end
+    comp._visualGuidanceQueue = {}
+    comp._gateGuidanceLastDir = nil
+    comp._gateGuidanceLastAction = nil
+    comp._gateGuidanceLastTime = nil
+    comp._gateGuidanceStop = false
+    comp._gateGuidanceActive = false
+    comp._gateFinalTurnUntil = nil
+    comp._gateFinalTurnKey = nil
+    comp._gateFinalTurnPending = false
+    comp._gateFinalOwned = false
+    comp._gateGuidanceLastDist = nil
+    comp._gateGuidanceSince = nil
+    comp._gateActivationDist = nil
+    comp._gateCalloutDist = nil
+    comp._gateNote = nil
+    if set_guidance_state then
+        set_guidance_state(comp, "idle", reason or "gate-reset", log_taxi)
+    end
+end
+
+local function should_force_gate_retarget(planned_dist, cand_dist, near_limit, diff_min)
+    if cand_dist == nil or near_limit == nil or diff_min == nil then
+        return false
+    end
+    if cand_dist > near_limit then
+        return false
+    end
+    if planned_dist == nil then
+        return true
+    end
+    if planned_dist <= cand_dist then
+        return false
+    end
+    if planned_dist <= near_limit and planned_dist <= (cand_dist + (diff_min * 0.5)) then
+        return false
+    end
+    return planned_dist >= (cand_dist + diff_min)
+end
+
+local function retarget_end_ramp(comp, now, data, aircraft, ramp, reason, cand_dist, planned_dist, opts)
+    if not comp or not ramp then
+        return false
+    end
+    local cand_key = ramp_key(ramp)
+    if not cand_key or cand_key == "" then
+        return false
+    end
+    opts = opts or {}
+    comp._autoEndRampKey = cand_key
+    comp._autoEndRampSwitchTime = now
+    comp._endRamp = ramp
+    if opts.clear_manual then
+        comp._selectedEndRampKey = nil
+    end
+    if opts.reroute and data and aircraft then
+        set_reroute_override_from_aircraft(comp, data, aircraft, true)
+        comp._rerouteOverrideHoldUntil = now + math.max((opts.cooldown or 0), ((C and C.rerouteCooldown) or 6))
+        comp._routeStartAnchor = nil
+        comp._route = nil
+        comp._routeErr = nil
+        comp._routeLabels = nil
+        comp._routeLabelStats = nil
+        comp._lastEndKey = nil
+        comp._lastStartKey = nil
+        comp._pendingRerouteEvent = true
+        reset_guidance_tracking(comp, true)
+        comp._sCurveSkipNodeId = nil
+    end
+    reset_gate_guidance_state(comp, reason or "end-ramp-switch")
+    U.reset_gate_callouts(comp, cand_key)
+    if log_taxi then
+        log_taxi(
+            string.format(
+                "TaxiRoute: %s key=%s dist=%.1f plan=%.1f manual=%s",
+                tostring(reason or "end-ramp-switch"),
+                tostring(cand_key),
+                cand_dist or -1,
+                planned_dist or -1,
+                tostring(opts.clear_manual == true)
+            )
+        )
+    end
+    return true
+end
+
 local function clear_pushback_join_hold(comp)
     if not comp then
         return
@@ -6774,11 +6866,12 @@ local function updateTaxiState(comp, map)
             end_lon = end_ramp.lon
         end
     end
-    if mode == 1 and (not comp._drawFreehand) and (not user_selected_end) and (not comp._manualRouteActive)
+    if mode == 1 and (not comp._drawFreehand) and (not comp._manualRouteActive)
         and data and aircraft and U.is_valid_latlon(aircraft.lat, aircraft.lon) then
         local yalref = comp.yal or _G.yal
         local onGround = yalref and yalref.airgroundsensor and (get(yalref.airgroundsensor) == def.ON)
         local gs = yalref and yalref.groundspeed and (get(yalref.groundspeed) or 0) or 0
+        local manual_selected_end = (comp._selectedEndRampKey ~= nil)
         local gate_speed = tuning.autoGateSwitchSpeed or 5
         local gate_hold = tuning.autoGateSwitchHoldSec or 2.0
         local gate_cooldown = tuning.autoGateSwitchCooldownSec or 10.0
@@ -6856,51 +6949,41 @@ local function updateTaxiState(comp, map)
                             local clearly_closer = (d_plan - d_cand >= gate_delta)
                                 or (d_cand <= (d_plan * gate_ratio))
                             local moving_switch_ok = (gs < math.max(gate_speed * 4, 12))
+                            local manual_final_override = comp._selectedEndRampKey
+                                and should_force_gate_retarget(
+                                    d_plan,
+                                    d_cand,
+                                    math.max(12, gate_radius * 0.5),
+                                    math.max(10, gate_delta * 0.5)
+                                )
                             local final_retarget = gate_final_owned
-                                and (not comp._selectedEndRampKey)
+                                and ((not comp._selectedEndRampKey) or manual_final_override)
                                 and d_cand <= gate_switch_plan_max
                                 and ((d_plan - d_cand) >= math.max(8, gate_delta * 0.4))
-                            local should_switch = (switch_context_ok and (not gate_final_locked) and ((close_enough and clearly_closer)
-                                or (moving_switch_ok and (d_plan - d_cand >= (gate_delta * 1.5)))))
+                            local should_switch = (
+                                ((not manual_selected_end) and switch_context_ok and (not gate_final_locked)
+                                    and ((close_enough and clearly_closer)
+                                        or (moving_switch_ok and (d_plan - d_cand >= (gate_delta * 1.5)))))
                                 or final_retarget
+                            )
                             if should_switch then
-                                comp._autoEndRampKey = cand_key
-                                comp._autoEndRampSwitchTime = now
                                 end_ramp = nearest_ramp
                                 end_lat = end_ramp.lat
                                 end_lon = end_ramp.lon
-                                set_reroute_override_from_aircraft(comp, data, aircraft, true)
-                                comp._rerouteOverrideHoldUntil = now + math.max(gate_cooldown, ((C and C.rerouteCooldown) or 6))
-                                comp._routeStartAnchor = nil
-                                comp._route = nil
-                                comp._routeErr = nil
-                                comp._routeLabels = nil
-                                comp._routeLabelStats = nil
-                                comp._lastEndKey = nil
-                                comp._lastStartKey = nil
-                                comp._pendingRerouteEvent = true
-                                comp._lastGuidanceNodeId = nil
-                                comp._lastGuidanceLabel = nil
-                                comp._lastGuidanceTime = nil
-                                comp._sCurveSkipNodeId = nil
-                                U.clear_visual_guidance(comp, "end-ramp-switch")
-                                comp._visualGuidanceQueue = {}
-                                comp._gateGuidanceLastDir = nil
-                                comp._gateGuidanceLastAction = nil
-                                comp._gateGuidanceLastTime = nil
-                                comp._gateGuidanceStop = false
-                                comp._gateFinalTurnUntil = nil
-                                comp._gateFinalTurnKey = nil
-                                comp._gateFinalTurnPending = false
-                                comp._gateFinalOwned = false
-                                U.reset_gate_callouts(comp, cand_key)
-                                log_taxi(
-                                    string.format(
-                                        "TaxiRoute: auto end-ramp switch key=%s dist=%.1f plan=%.1f",
-                                        tostring(cand_key),
-                                        d_cand or -1,
-                                        d_plan or -1
-                                    )
+                                retarget_end_ramp(
+                                    comp,
+                                    now,
+                                    data,
+                                    aircraft,
+                                    nearest_ramp,
+                                    manual_final_override and "auto end-ramp override" or "auto end-ramp switch",
+                                    d_cand,
+                                    d_plan,
+                                    {
+                                        clear_manual = (manual_final_override == true),
+                                        reroute = true,
+                                        cooldown = gate_cooldown
+                                    }
                                 )
                             end
                         end
@@ -9914,10 +9997,37 @@ local function updateTaxiState(comp, map)
                     local pb_dist = tuning.parkingBrakeCompleteDist or 35
                     local final_gate_dist = U.gate_distance_meters and U.gate_distance_meters(comp, aircraft, comp._route, comp._data) or nil
                     local final_gate_limit = math.max(10, pb_dist * 0.4)
+                    local nearest_override = false
+                    if nearest_ramp and nearest_ramp_dist then
+                        local planned_key = planned_ramp and U.ramp_key(planned_ramp) or nil
+                        local nearest_key = U.ramp_key(nearest_ramp)
+                        if nearest_key and nearest_key ~= planned_key then
+                            local override_limit = math.max(12, pb_dist * 0.5)
+                            local override_margin = math.max(8, pb_dist * 0.3)
+                            if should_force_gate_retarget(planned_ramp_dist, nearest_ramp_dist, override_limit, override_margin) then
+                                nearest_override = retarget_end_ramp(
+                                    comp,
+                                    now,
+                                    comp._data,
+                                    aircraft,
+                                    nearest_ramp,
+                                    "parking brake end-ramp override",
+                                    nearest_ramp_dist,
+                                    planned_ramp_dist,
+                                    { clear_manual = true, reroute = false }
+                                )
+                                if nearest_override then
+                                    planned_ramp = nearest_ramp
+                                    planned_ramp_dist = nearest_ramp_dist
+                                    final_gate_dist = nil
+                                end
+                            end
+                        end
+                    end
                     local complete_ok = false
                     local complete_ramp = nil
                     if planned_ramp and planned_ramp_dist then
-                        if planned_ramp_dist <= pb_dist and (final_gate_dist == nil or final_gate_dist <= final_gate_limit) then
+                        if planned_ramp_dist <= pb_dist and (nearest_override or final_gate_dist == nil or final_gate_dist <= final_gate_limit) then
                             complete_ok = true
                             complete_ramp = planned_ramp
                         end

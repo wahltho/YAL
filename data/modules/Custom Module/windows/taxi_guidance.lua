@@ -17,6 +17,7 @@ function M.attach(U, C, def, helpers, settings)
     local heading_diff_deg = U.heading_diff_deg
     local project_point_to_segment = U.project_point_to_segment
     local distance_sq = U.distance_sq
+    local distance_meters_latlon = U.distance_meters_latlon
     local is_runway_label = U.is_runway_label
     local get_edge_label = U.get_edge_label
     local arrival_grace_active = U.arrival_grace_active
@@ -626,6 +627,7 @@ function M.attach(U, C, def, helpers, settings)
         local data = (route and route.data) or comp._data
         local is_freehand = (route and route.data and route.data.route_source == "freehand") or false
         local log_taxi = comp._logTaxi or (helpers and helpers.logInfoTS)
+        local park = (yal and yal.parkingbrakepos and get(yal.parkingbrakepos)) or nil
         if comp._gateFinalTurnUntil and now and now > comp._gateFinalTurnUntil then
             comp._gateFinalTurnUntil = nil
             comp._gateFinalTurnKey = nil
@@ -651,6 +653,37 @@ function M.attach(U, C, def, helpers, settings)
             end
             if dist and dist <= hold_dist then
                 info.keepOpen = true
+            end
+        end
+        if comp.mode == 1 and park == def.ON and gs < 1 and aircraft and is_valid_latlon(aircraft.lat, aircraft.lon) then
+            local park_icao = comp._lastArrivalIcao or comp._lastIcao
+            local park_limit = (comp._tuning and comp._tuning.parkingBrakeCompleteDist) or 35
+            if helpers and helpers.isvalidicao and helpers.isvalidicao(park_icao or "") and data then
+                local parked_ramp = helpers.getNearestRamp(
+                    park_icao,
+                    aircraft.lat,
+                    aircraft.lon,
+                    { filter = helpers.isRampSuitableFor738, data = data }
+                )
+                if parked_ramp and is_valid_latlon(parked_ramp.lat, parked_ramp.lon) then
+                    local parked_dist = distance_meters_latlon(
+                        parked_ramp.lat,
+                        parked_ramp.lon,
+                        aircraft.lat,
+                        aircraft.lon
+                    )
+                    if parked_dist and parked_dist <= park_limit then
+                        comp._gateGuidanceActive = false
+                        comp._gateFinalOwned = false
+                        comp._gateGuidanceLastDist = nil
+                        comp._gateGuidanceSince = nil
+                        comp._gateGuidanceStop = false
+                        clear_visual_guidance(comp, "parked-ramp")
+                        set_guidance_state(comp, "idle", "parked-ramp", log_taxi)
+                        diag("parked-ramp")
+                        return
+                    end
+                end
             end
         end
         local guidance_state = comp._guidanceState or "idle"
