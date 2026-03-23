@@ -1305,6 +1305,24 @@ function M.attach(U, C, def, helpers, settings)
             return true
         end
 
+        local function dep_gate_taxi_start_context(seg_idx)
+            if not comp or comp.mode ~= 0 or comp._depGateStartDone then
+                return false
+            end
+            if not first_guidance or not path or #path < 2 or not data or not data.nodes then
+                return false
+            end
+            local idx = tonumber(seg_idx) or 1
+            if idx > 2 then
+                return false
+            end
+            local start_node = data.nodes[path[1]]
+            if not start_node then
+                return false
+            end
+            return (start_node.is_ramp or start_node.ramp_name or start_node.ramp_id) and true or false
+        end
+
         local function guidance_label_info(from_id, to_id, fallback_label, ramp_hint, allow_missing)
             local raw_label = get_edge_label(data, from_id, to_id)
             if (not raw_label or raw_label == "") and is_freehand then
@@ -2499,6 +2517,17 @@ function M.attach(U, C, def, helpers, settings)
                     end
                     local forced_turn = turn_dir
                     local next_info_raw = guidance_label_info(path[seg_idx + 1], path[seg_idx + 2], nil, nil, true)
+                    if not next_info and dep_gate_taxi_start_context(seg_idx) then
+                        local initial_label = next_display
+                        if next_info_raw and next_info_raw.kind == "taxiway"
+                            and next_info_raw.display and next_info_raw.display ~= "" then
+                            initial_label = next_info_raw.display
+                        end
+                        if initial_label and initial_label ~= "" then
+                            next_info = build_guidance_for_initial(seg_idx, initial_label)
+                            comp._depGateStartDone = true
+                        end
+                    end
                     if next_info_raw and next_info_raw.kind == "ramp" then
                         local gate_label = next_info_raw.display
                         if turn_dir and turn_dir ~= "straight" and allow_turn then
