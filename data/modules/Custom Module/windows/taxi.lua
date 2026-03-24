@@ -4809,6 +4809,81 @@ local function reroute_from_current_aircraft(comp, data, reason, disallow_runway
     return true
 end
 
+local function reset_route_after_reanchor(comp)
+    if not comp then
+        return
+    end
+    comp._routeStartAnchor = nil
+    comp._lastStartKey = nil
+    comp._route = nil
+    comp._routeErr = nil
+    comp._routeLabels = nil
+    comp._routeLabelStats = nil
+    comp._routeExtraSegments = nil
+    comp._autoTaxiPath = nil
+    comp._autoTaxiPathRoute = nil
+end
+
+local function trigger_departure_reanchor(comp, data, aircraft, now, reason, log_taxi, opts)
+    if not comp or not data or not aircraft or not is_valid_latlon(aircraft.lat, aircraft.lon) then
+        return false
+    end
+    local disallow_runway_edges = not (opts and opts.allow_runway_edges)
+    if not set_reroute_override_from_aircraft(comp, data, aircraft, disallow_runway_edges) then
+        return false
+    end
+    reset_route_after_reanchor(comp)
+    comp._pendingRerouteEvent = true
+    comp._lastRerouteTime = now or comp._lastRerouteTime
+    if comp._lastRerouteTime then
+        comp._rerouteOverrideHoldUntil = comp._lastRerouteTime + ((C and C.rerouteCooldown) or 6)
+    end
+    if opts == nil or opts.reselect ~= false then
+        comp._depEntryReselectPending = true
+    end
+    local node_id = nil
+    local node_dist = nil
+    if comp._rerouteOverride and is_valid_latlon(comp._rerouteOverride.lat, comp._rerouteOverride.lon) then
+        node_id, node_dist = nearest_non_runway_node(data, comp._rerouteOverride.lat, comp._rerouteOverride.lon)
+    end
+    if log_taxi then
+        log_taxi(
+            string.format(
+                "TaxiRoute: dep reanchor reason=%s node=%s dist=%.1f disallow_runway_edges=%s dep_only=true",
+                tostring(reason or "unknown"),
+                tostring(node_id),
+                node_dist or -1,
+                tostring(disallow_runway_edges)
+            )
+        )
+    end
+    return true
+end
+
+local function maybe_recover_dep_no_path(comp, data, aircraft, now, start_node_dist, log_taxi)
+    if not comp or not aircraft or not now then
+        return false
+    end
+    local count = 1
+    if comp._depNoPathLastAt and (now - comp._depNoPathLastAt) <= 5 then
+        count = (comp._depNoPathCount or 0) + 1
+    end
+    comp._depNoPathCount = count
+    comp._depNoPathLastAt = now
+    if count < 3 then
+        return false
+    end
+    if (not comp._rerouteOverride) or (not start_node_dist) or start_node_dist <= 20 then
+        return false
+    end
+    if not trigger_departure_reanchor(comp, data, aircraft, now, "no-path-recover", log_taxi, { reselect = true }) then
+        return false
+    end
+    comp._depNoPathCount = 0
+    comp._depNoPathLastAt = now
+    return true
+end
+
 local function maybe_reselect_dep_entry(comp, data, aircraft, force, log_taxi)
     if not comp or not data or not data.nodes or not aircraft then
         return false
@@ -6301,25 +6376,10 @@ local function updateTaxiState(comp, map)
                 end
             else
                 clear_pushback_join_hold(comp)
-                set_reroute_override_from_aircraft(comp, data, aircraft, true)
-                comp._routeStartAnchor = nil
-                comp._lastStartKey = nil
-                comp._route = nil
-                comp._routeErr = nil
-                comp._routeLabels = nil
-                comp._routeLabelStats = nil
-                comp._autoTaxiPath = nil
-                comp._autoTaxiPathRoute = nil
-                comp._pendingRerouteEvent = true
+                trigger_departure_reanchor(comp, data, aircraft, now, "pushback", log_taxi, { reselect = true })
                 comp._pushbackReanchorPending = false
                 comp._pushbackReanchorDone = true
                 comp._pushbackReanchorTime = nil
-                comp._depEntryReselectPending = true
-                if log_taxi then
-                    log_taxi("TaxiRoute: pushback reanchor")
-                elseif helpers and helpers.logInfoTS then
-                    helpers.logInfoTS("TaxiRoute: pushback reanchor")
-                end
             end
         end
     end
@@ -6707,17 +6767,7 @@ local function updateTaxiState(comp, map)
             comp._beforeTaxiReanchorDone = true
             comp._beforeTaxiReanchorIcao = icao
             comp._beforeTaxiReanchorRunway = runway_name
-            set_reroute_override_from_aircraft(comp, data, aircraft, true)
-            comp._routeStartAnchor = nil
-            comp._lastStartKey = nil
-            comp._route = nil
-            comp._routeErr = nil
-            comp._routeLabels = nil
-            comp._routeLabelStats = nil
-            comp._autoTaxiPath = nil
-            comp._autoTaxiPathRoute = nil
-            comp._pendingRerouteEvent = true
-            log_taxi("TaxiRoute: before-taxi reanchor")
+            trigger_departure_reanchor(comp, data, aircraft, now, "before-taxi", log_taxi, { reselect = true })
         end
     end
     maybe_warn_before_taxi_not_started(comp, now, mode, onGroundSensor, in_edit, yal)
@@ -9156,6 +9206,10 @@ local function updateTaxiState(comp, map)
             comp._route = route
             comp._lastRouteComputeTime = now
             comp._routeErr = rerr
+            if route and mode == 0 then
+                comp._depNoPathCount = 0
+                comp._depNoPathLastAt = nil
+            end
             comp._routeLabels = nil
             comp._routeLabelStats = nil
             if mode == 1 then
@@ -9388,6 +9442,12 @@ local function updateTaxiState(comp, map)
                     comp._pendingRerouteEvent = nil
                 end
             elseif rerr then
+                local dep_no_path_rearmed = false
+                if mode == 0 and (not in_edit) and (not comp._drawRoute) and (not comp._manualRouteActive)
+                    and maybe_recover_dep_no_path(comp, data, aircraft, now, start_node_dist, log_taxi) then
+                    dep_no_path_rearmed = true
+                    helpers.logInfoTS("TaxiRoute: dep no-path recovery armed")
+                end
                 helpers.logInfoTS("Taxi: route error " .. tostring(icao) .. " mode=" .. tostring(mode) .. " err=" .. tostring(rerr))
                 helpers.logInfoTS(
                     string.format(
@@ -9410,7 +9470,9 @@ local function updateTaxiState(comp, map)
                         tostring(comp._drawRoute)
                     )
                 )
-                comp._pendingRerouteEvent = nil
+                if not dep_no_path_rearmed then
+                    comp._pendingRerouteEvent = nil
+                end
             end
             if route and route.bounds then
                 comp._fitBounds = route.bounds
@@ -9722,16 +9784,7 @@ local function updateTaxiState(comp, map)
                     local seg_idx = reroute_seg_idx or U.find_nearest_segment(comp._route.data, comp._route.path, aircraft.east, aircraft.north)
                     if seg_idx and seg_idx >= 2 then
                         comp._depSegmentReanchorDone = true
-                        set_reroute_override_from_aircraft(comp, data, aircraft, true)
-                        comp._routeStartAnchor = nil
-                        comp._pendingRerouteEvent = true
-                        comp._lastRerouteTime = now
-                        comp._lastStartKey = nil
-                        comp._route = nil
-                        comp._routeErr = nil
-                        comp._routeLabels = nil
-                        comp._routeLabelStats = nil
-                        comp._depEntryReselectPending = true
+                        trigger_departure_reanchor(comp, data, aircraft, now, "dep-segment", log_taxi, { reselect = true })
                         log_taxi(
                             string.format(
                                 "TaxiRoute: dep segment reanchor seg=%s dist=%.1f",
