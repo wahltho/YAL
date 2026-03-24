@@ -5303,14 +5303,19 @@ function P.detectCIFPApproachVariant(icao, runway, legs_string, lat_array, lon_a
                         }
                     end
                 end
+                -- Do not blindly fall back to the first entry of the selected
+                -- family when the explicit suffix did not match. Let the later
+                -- leg-based variant detection resolve the correct family/variant
+                -- (e.g. RNAV Z selected but LPV Z available).
+            else
+                return {
+                    navType = selectedInfo.navType,
+                    entry = entries[1],
+                    score = math.huge,
+                    priority = 0,
+                    fromSelection = true
+                }
             end
-            return {
-                navType = selectedInfo.navType,
-                entry = entries[1],
-                score = math.huge,
-                priority = 0,
-                fromSelection = true
-            }
         end
     end
 
