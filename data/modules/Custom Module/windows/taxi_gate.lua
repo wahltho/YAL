@@ -244,6 +244,11 @@ function M.attach(U, C, def, helpers)
         end
         local tuning = comp._tuning or {}
         local radius = tuning.gateGuidanceRadius or (C and C.gateGuidanceRadius) or 60
+        local gate_keep = radius * 1.6
+        local guidance_limit = radius
+        if comp._gateGuidanceActive or comp._gateFinalOwned or comp._gateFinalTurnPending then
+            guidance_limit = math.max(radius, gate_keep)
+        end
         local deadzone = tuning.gateGuidanceDeadzone or (C and C.gateGuidanceDeadzone) or 0.8
         local behind_limit = tuning.gateGuidanceBehindLimit or (C and C.gateGuidanceBehindLimit) or -5
         local ramp = comp._endRamp
@@ -344,7 +349,7 @@ function M.attach(U, C, def, helpers)
             if not local_x or not local_z or not fallback_dist then
                 return nil
             end
-            if fallback_dist > radius then
+            if fallback_dist > guidance_limit then
                 return nil
             end
             dist = track_dist or fallback_dist
