@@ -2001,6 +2001,12 @@ local function select_runway_exit_node(data, profile, preferred_side, airborne)
     local length = profile.length or 0
     local width = profile.width or 0
     local perp_limit = math.max(180, width * 4)
+    local function backtrack_needed(along_value)
+        if td_along ~= nil and along_value ~= nil and along_value >= (td_along - tol) then
+            return false
+        end
+        return true
+    end
     local function pick(require_side)
         local best_forward = nil
         local best_forward_cost = nil
@@ -2066,14 +2072,10 @@ local function select_runway_exit_node(data, profile, preferred_side, airborne)
             return bf, false
         end
         if (not bf) and bb and airborne and best_any then
-            return best_any, false
+            return best_any, backtrack_needed(best_any_along)
         end
         if bb then
-            local backtrack = true
-            if td_along ~= nil and bb_along ~= nil and bb_along >= (td_along - tol) then
-                backtrack = false
-            end
-            return bb, backtrack
+            return bb, backtrack_needed(bb_along)
         end
     end
 
@@ -2086,14 +2088,10 @@ local function select_runway_exit_node(data, profile, preferred_side, airborne)
         return bf, false
     end
     if (not bf) and bb and airborne and best_any then
-        return best_any, false
+        return best_any, backtrack_needed(best_any_along)
     end
     if bb then
-        local backtrack = true
-        if td_along ~= nil and bb_along ~= nil and bb_along >= (td_along - tol) then
-            backtrack = false
-        end
-        return bb, backtrack
+        return bb, backtrack_needed(bb_along)
     end
     return find_nearest_runway_node(data, td.east, td.north), true
 end
