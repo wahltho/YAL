@@ -7093,25 +7093,44 @@ local function updateTaxiState(comp, map)
                 local pref_side = (cross >= 0) and 1 or -1
                 local exit_id, backtrack = U.select_runway_exit_node(data, landing_profile, pref_side, airborne)
                 if exit_id and (exit_id ~= arr_exit_id or backtrack ~= backtrack_required) then
-                    arr_exit_id = exit_id
-                    backtrack_required = backtrack
-                    comp._lastArrExitLogKey = nil
-                    if backtrack_required then
-                        if U.is_valid_latlon(runway_lat, runway_lon) then
-                            start_lat = runway_lat
-                            start_lon = runway_lon
-                        elseif touchdown and touchdown.east and touchdown.north then
-                            local tlat, tlon = local_to_latlon(touchdown.east, touchdown.north)
-                            if U.is_valid_latlon(tlat, tlon) then
-                                start_lat = tlat
-                                start_lon = tlon
-                            end
+                    local keep_existing_backtrack = false
+                    if backtrack_required and backtrack and arr_exit_id and landing_profile then
+                        local current_along = runway_exit_along(landing_profile, data, arr_exit_id)
+                        local new_along = runway_exit_along(landing_profile, data, exit_id)
+                        if current_along and new_along and new_along < (current_along - 20) then
+                            keep_existing_backtrack = true
+                            log_taxi(
+                                string.format(
+                                    "TaxiRoute: ARR keep later backtrack exit=%s pref=%s oldAlong=%.1f newAlong=%.1f",
+                                    tostring(arr_exit_id),
+                                    tostring(exit_id),
+                                    current_along,
+                                    new_along
+                                )
+                            )
                         end
-                    elseif exit_id and data.nodes and data.nodes[exit_id] then
-                        local exit_node = data.nodes[exit_id]
-                        if U.is_valid_latlon(exit_node.lat, exit_node.lon) then
-                            start_lat = exit_node.lat
-                            start_lon = exit_node.lon
+                    end
+                    if not keep_existing_backtrack then
+                        arr_exit_id = exit_id
+                        backtrack_required = backtrack
+                        comp._lastArrExitLogKey = nil
+                        if backtrack_required then
+                            if U.is_valid_latlon(runway_lat, runway_lon) then
+                                start_lat = runway_lat
+                                start_lon = runway_lon
+                            elseif touchdown and touchdown.east and touchdown.north then
+                                local tlat, tlon = local_to_latlon(touchdown.east, touchdown.north)
+                                if U.is_valid_latlon(tlat, tlon) then
+                                    start_lat = tlat
+                                    start_lon = tlon
+                                end
+                            end
+                        elseif exit_id and data.nodes and data.nodes[exit_id] then
+                            local exit_node = data.nodes[exit_id]
+                            if U.is_valid_latlon(exit_node.lat, exit_node.lon) then
+                                start_lat = exit_node.lat
+                                start_lon = exit_node.lon
+                            end
                         end
                     end
                 end
