@@ -2658,6 +2658,38 @@ function M.attach(U, C, def, helpers, settings)
             end
         end
 
+        if next_info and comp.mode == 0 and dep_backtrack_sequence_active(comp) and next_info.kind == "runway" then
+            local info_label = next_info.display or ""
+            local action = tostring(next_info.action or "")
+            local turn_dir_override = nil
+            if action == "TURN LEFT" then
+                turn_dir_override = "left"
+            elseif action == "TURN RIGHT" then
+                turn_dir_override = "right"
+            end
+            if action == "TURN LEFT" or action == "TURN RIGHT" or action == "ENTER RWY" then
+                local backtrack_label = nil
+                if next_raw_label and dep_backtrack_context(seg_idx, next_raw_label) then
+                    backtrack_label = next_raw_label
+                elseif info_label ~= "" and dep_backtrack_context(seg_idx, info_label) then
+                    backtrack_label = info_label
+                end
+                if backtrack_label then
+                    next_info = build_guidance_for_dep_backtrack(seg_idx, backtrack_label, turn_dir_override)
+                end
+            elseif action == "CONTINUE" or action == "TAXI VIA" then
+                local backtrack_label = nil
+                if raw_label and dep_backtrack_context(seg_idx, raw_label) then
+                    backtrack_label = raw_label
+                elseif info_label ~= "" and dep_backtrack_context(seg_idx, info_label) then
+                    backtrack_label = info_label
+                end
+                if backtrack_label then
+                    next_info = build_guidance_for_dep_backtrack_continue(seg_idx, backtrack_label)
+                end
+            end
+        end
+
         if next_info and dep_terminal_sequence_active(comp, seg_idx, #path) then
             local last_action = tostring(comp._lastGuidanceAction or "")
             if is_generic_taxi_instruction(next_info) then
