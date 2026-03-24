@@ -2498,6 +2498,45 @@ local function refine_arrival_route_branch(icao, route, data, landing_profile, a
     return best_route, best_next, best_angle
 end
 
+local function maybe_build_dep_taxi_only_route(icao, route, data, start_lat, start_lon, dep_end_node_id, dep_end_dist, opts, waypoint_ids, waypoints)
+    if not route or not data or not data.nodes or not dep_end_node_id or not opts then
+        return nil, nil
+    end
+    if route.end_id == dep_end_node_id then
+        return nil, nil
+    end
+    local end_node = data.nodes[dep_end_node_id]
+    if not end_node or not is_valid_latlon(end_node.lat, end_node.lon) then
+        return nil, "no-end-node"
+    end
+    local local_opts = copy_opts(opts) or {}
+    local_opts.end_node_id = dep_end_node_id
+    local_opts.avoid_runway_end = true
+    local_opts.disallow_runway_edges = true
+    local_opts.avoid_runway_nodes = true
+    local_opts.runway_penalty = math.max(tonumber(local_opts.runway_penalty) or 0, 500)
+    local local_route, local_err = route_with_waypoints(
+        icao,
+        start_lat,
+        start_lon,
+        end_node.lat,
+        end_node.lon,
+        local_opts,
+        waypoint_ids,
+        waypoints
+    )
+    if not local_route or not local_route.path or #local_route.path < 2 then
+        return nil, local_err
+    end
+    local current_length = route_path_length(route.data or data, route.path) or 1e12
+    local local_length = route_path_length(local_route.data or data, local_route.path) or 1e12
+    local detour_limit = math.max(400, (tonumber(dep_end_dist) or 0) * 2.5)
+    if local_length > (current_length + detour_limit) then
+        return nil, "detour-too-long"
+    end
+    return local_route, nil
+end
+
 local function collect_nearest_nodes(data, ref_east, ref_north, max_candidates)
     if not data or not data.nodes then
         return {}
@@ -5096,6 +5135,7 @@ U = {
     try_route_from_candidates = try_route_from_candidates,
     try_route_to_candidates = try_route_to_candidates,
     refine_arrival_route_branch = refine_arrival_route_branch,
+    maybe_build_dep_taxi_only_route = maybe_build_dep_taxi_only_route,
     collect_nearest_nodes = collect_nearest_nodes,
     normalize_icao = normalize_icao,
     build_route_labels = build_route_labels,
@@ -8827,6 +8867,52 @@ local function updateTaxiState(comp, map)
                     route = comp._route
                     rerr = nil
                     log_taxi("TaxiRoute: keep last-good (arr-gate)")
+                end
+            end
+            if route and mode == 0 and dep_backtrack_required
+                and dep_end_node_id and (not has_end_override)
+                and (not manual_active) and (comp._selectedDepEntryManual ~= true) then
+                local dep_taxi_route, dep_taxi_err = U.maybe_build_dep_taxi_only_route(
+                    icao,
+                    route,
+                    data,
+                    start_lat,
+                    start_lon,
+                    dep_end_node_id,
+                    dep_end_node_dist,
+                    opts,
+                    proj_waypoint_ids,
+                    route_waypoints
+                )
+                if dep_taxi_route then
+                    route = dep_taxi_route
+                    rerr = nil
+                    allow_runway_route = false
+                    dep_backtrack_required = false
+                    if data.nodes and data.nodes[dep_end_node_id] then
+                        local dep_end_node = data.nodes[dep_end_node_id]
+                        end_node_id = dep_end_node_id
+                        end_node_dist = 0
+                        if U.is_valid_latlon(dep_end_node.lat, dep_end_node.lon) then
+                            end_lat = dep_end_node.lat
+                            end_lon = dep_end_node.lon
+                        end
+                    end
+                    if comp._depBacktrackRequired then
+                        comp._depBacktrackRequired = false
+                    end
+                    log_taxi(
+                        "TaxiRoute: dep taxi-only preferred end=" .. tostring(dep_end_node_id)
+                    )
+                elseif dep_taxi_err and dep_taxi_err ~= "detour-too-long" then
+                    local dep_key = tostring(icao) .. "|dep-taxi-only|" .. tostring(dep_end_node_id) .. "|" .. tostring(dep_taxi_err)
+                    if comp._lastDepTaxiOnlyErrKey ~= dep_key then
+                        comp._lastDepTaxiOnlyErrKey = dep_key
+                        log_taxi(
+                            "TaxiRoute: dep taxi-only reject end=" .. tostring(dep_end_node_id)
+                                .. " err=" .. tostring(dep_taxi_err)
+                        )
+                    end
                 end
             end
             if route and route.path and #route.path < 2 then
