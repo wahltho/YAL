@@ -3207,10 +3207,57 @@ function M.fillProcedureTable()
                 },
                 ['transponder_tara'] = {
                     skipIf = function() return P.configvalues[def.CONFIGTRANSPONDER] == 0 end,
-                    check = function() return get(P.transponderpos) == def.TARA end,
-                    action = function() P.toggletransponder(def.TARA) end,
-                    advice = "Set Transponder T A R A",
-                    confirm = "Transponder checked and T A R A",
+                    check = function(loop)
+                        local pos = get(P.transponderpos)
+                        local ok = (pos == def.TARA)
+                        if helpers and helpers.logInfoTS then
+                            helpers.logInfoTS(string.format(
+                                "BeforeTakeoff TARA check: pos=%s expected=%s ok=%s steprepeat=%s q=%d",
+                                tostring(pos),
+                                tostring(def.TARA),
+                                tostring(ok),
+                                tostring(loop and loop.steprepeat or nil),
+                                #(P.commandtable or {})
+                            ))
+                        end
+                        return ok
+                    end,
+                    action = function(loop)
+                        local pos = get(P.transponderpos)
+                        if helpers and helpers.logInfoTS then
+                            helpers.logInfoTS(string.format(
+                                "BeforeTakeoff TARA action: pos_before=%s steprepeat=%s",
+                                tostring(pos),
+                                tostring(loop and loop.steprepeat or nil)
+                            ))
+                        end
+                        P.toggletransponder(def.TARA)
+                    end,
+                    advice = function(loop)
+                        local pos = get(P.transponderpos)
+                        if helpers and helpers.logInfoTS then
+                            helpers.logInfoTS(string.format(
+                                "BeforeTakeoff TARA advice queued: pos=%s expected=%s steprepeat=%s q=%d",
+                                tostring(pos),
+                                tostring(def.TARA),
+                                tostring(loop and loop.steprepeat or nil),
+                                #(P.commandtable or {})
+                            ))
+                        end
+                        return "Set Transponder T A R A"
+                    end,
+                    confirm = function(loop)
+                        local pos = get(P.transponderpos)
+                        if helpers and helpers.logInfoTS then
+                            helpers.logInfoTS(string.format(
+                                "BeforeTakeoff TARA confirm queued: pos=%s steprepeat=%s q=%d",
+                                tostring(pos),
+                                tostring(loop and loop.steprepeat or nil),
+                                #(P.commandtable or {})
+                            ))
+                        end
+                        return "Transponder checked and T A R A"
+                    end,
                     nextStep = 'view_overhead'
                 },
                 ['view_overhead'] = {
