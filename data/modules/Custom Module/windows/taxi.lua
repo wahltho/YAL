@@ -6301,16 +6301,7 @@ local function updateTaxiState(comp, map)
                 end
             else
                 clear_pushback_join_hold(comp)
-                comp._rerouteOverride = { lat = aircraft.lat, lon = aircraft.lon }
-                if data and aircraft.east ~= nil and aircraft.north ~= nil then
-                    local proj = U.find_nearest_edge_projection(data, aircraft.east, aircraft.north, { disallow_runway_edges = true })
-                    if proj and proj.proj_east and proj.proj_north then
-                        local plat, plon = local_to_latlon(proj.proj_east, proj.proj_north)
-                        if U.is_valid_latlon(plat, plon) then
-                            comp._rerouteOverride = { lat = plat, lon = plon }
-                        end
-                    end
-                end
+                set_reroute_override_from_aircraft(comp, data, aircraft, true)
                 comp._routeStartAnchor = nil
                 comp._lastStartKey = nil
                 comp._route = nil
@@ -6716,7 +6707,7 @@ local function updateTaxiState(comp, map)
             comp._beforeTaxiReanchorDone = true
             comp._beforeTaxiReanchorIcao = icao
             comp._beforeTaxiReanchorRunway = runway_name
-            comp._rerouteOverride = { lat = aircraft.lat, lon = aircraft.lon }
+            set_reroute_override_from_aircraft(comp, data, aircraft, true)
             comp._routeStartAnchor = nil
             comp._lastStartKey = nil
             comp._route = nil
