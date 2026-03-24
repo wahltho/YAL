@@ -3203,16 +3203,6 @@ function M.fillProcedureTable()
                 ['view_pedestal'] = {
                     view = function() return P.configvalues[def.CONFIGVIEWPEDESTAL] end,
                     normalize = true,
-                    nextStep = 'transponder_tara_stabilize'
-                },
-                ['transponder_tara_stabilize'] = {
-                    check = function(loop)
-                        if loop == nil or loop.triggeredmanually then
-                            return true
-                        end
-                        local triggeredAt = tonumber(loop.triggeredat) or 0
-                        return (os.time() - triggeredAt) >= 1
-                    end,
                     nextStep = 'transponder_tara'
                 },
                 ['transponder_tara'] = {
