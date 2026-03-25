@@ -6780,7 +6780,7 @@ local function global_apt_path()
         .. def.OSSEPARATOR .. "Earth nav data" .. def.OSSEPARATOR .. "apt.dat"
 end
 
-local GLOBAL_APT_INDEX_VERSION = 8
+local GLOBAL_APT_INDEX_VERSION = 9
 local GLOBAL_APT_INDEX_FILE = def.PLUGINOUTPUTPATH .. "apt_global.yalidx"
 local GLOBAL_APT_META_REFRESH_SEC = 30
 local GLOBAL_APT_INDEX_STEP_LINES = 10000
@@ -6918,7 +6918,7 @@ local function is_icao_token(token)
     end
     local t = string.upper(token)
     local len = #t
-    if len < 3 or len > 4 then
+    if len < 3 or len > 7 then
         return false
     end
     for i = 1, len do
@@ -7637,15 +7637,13 @@ local function parse_taxi_data(entry)
         if not line then
             break
         end
-        if extended then
-            local header_icao = parse_airport_header_icao(line)
-            if header_icao then
-                header_icao = string.upper(header_icao)
-                if not target_icao then
-                    target_icao = header_icao
-                elseif header_icao ~= target_icao then
-                    break
-                end
+        local header_icao = parse_airport_header_icao(line)
+        if header_icao then
+            header_icao = string.upper(header_icao)
+            if not target_icao then
+                target_icao = header_icao
+            elseif header_icao ~= target_icao then
+                break
             end
         end
         local code = next_token(line, 1)
