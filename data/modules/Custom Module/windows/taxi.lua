@@ -7289,18 +7289,6 @@ local function updateTaxiState(comp, map)
             end
         end
     end
-    if comp._drawRoute and comp._routeWaypoints and #comp._routeWaypoints > 0 then
-        local first_wp = comp._routeWaypoints[1]
-        local last_wp = comp._routeWaypoints[#comp._routeWaypoints]
-        local slat, slon = ensure_waypoint_latlon(first_wp)
-        local elat, elon = ensure_waypoint_latlon(last_wp)
-        if slat and slon then
-            comp._editStartOverride = { lat = slat, lon = slon, mode = mode, icao = icao }
-        end
-        if elat and elon then
-            comp._editEndOverride = { lat = elat, lon = elon, mode = mode, icao = icao }
-        end
-    end
     comp._depHoldshortNodeId = dep_holdshort_id
     comp._depEntryCandidates = nil
     comp._depEntryLabels = nil
@@ -7963,6 +7951,8 @@ local function updateTaxiState(comp, map)
             if U.is_valid_latlon(first.lat, first.lon) then
                 start_lat = first.lat
                 start_lon = first.lon
+                start_vis_lat = first.lat
+                start_vis_lon = first.lon
             end
         end
         if last then
@@ -7970,6 +7960,8 @@ local function updateTaxiState(comp, map)
             if U.is_valid_latlon(last.lat, last.lon) then
                 end_lat = last.lat
                 end_lon = last.lon
+                end_vis_lat = last.lat
+                end_vis_lon = last.lon
             end
         end
     end
@@ -11852,6 +11844,55 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                 end
             end
             if best then
+                if comp._drawRoute and comp._drawFreehand and is_left and comp._data and comp._data.ramps then
+                    local selected_ramp = nil
+                    for _, ramp in ipairs(comp._data.ramps) do
+                        if ramp_key(ramp) == best.key then
+                            selected_ramp = ramp
+                            break
+                        end
+                    end
+                    if selected_ramp and is_valid_latlon(selected_ramp.lat, selected_ramp.lon) then
+                        if not comp._routeWaypoints then
+                            comp._routeWaypoints = {}
+                        end
+                        local last_wp = comp._routeWaypoints[#comp._routeWaypoints]
+                        local last_lat, last_lon = ensure_waypoint_latlon(last_wp)
+                        local duplicate = false
+                        if is_valid_latlon(last_lat, last_lon) then
+                            local d = distance_meters_latlon(last_lat, last_lon, selected_ramp.lat, selected_ramp.lon)
+                            duplicate = d ~= nil and d < 1.0
+                        end
+                        U.push_undo(comp, "draw-end-ramp")
+                        if not duplicate then
+                            table.insert(comp._routeWaypoints, {
+                                lat = selected_ramp.lat,
+                                lon = selected_ramp.lon,
+                                east = selected_ramp.east,
+                                north = selected_ramp.north,
+                                segment_idx = nil
+                            })
+                        end
+                        comp._selectedEndRampKey = best.key
+                        comp._autoEndRampKey = nil
+                        comp._manualEndRampRetargetUntil = nil
+                        mark_edit_dirty(comp)
+                        comp._lastEndKey = nil
+                        comp._route = nil
+                        comp._routeErr = nil
+                        comp._lastUpdate = nil
+                        log_draw_endpoints(comp, "end-ramp")
+                        log_taxi(
+                            string.format(
+                                "TaxiDraw: end-ramp point key=%s duplicate=%s total=%d",
+                                tostring(best.key),
+                                tostring(duplicate),
+                                #comp._routeWaypoints
+                            )
+                        )
+                        return true
+                    end
+                end
                 if comp._selectedEndRampKey == best.key then
                     comp._selectedEndRampKey = nil
                     comp._autoEndRampKey = nil
@@ -12473,13 +12514,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                             handle.lon = wlon
                         end
                         if drag.kind == "start" then
-                            local prev_start = comp._editStartOverride
-                            comp._editStartOverride = { lat = wlat, lon = wlon, mode = comp.mode, icao = comp._lastIcao }
-                            local sync_start = comp._drawRoute
-                            if not sync_start and prev_start and comp._routeWaypoints and #comp._routeWaypoints > 0 then
-                                sync_start = waypoint_matches_override(comp._routeWaypoints[1], prev_start)
-                            end
-                            if sync_start and comp._routeWaypoints and #comp._routeWaypoints > 0 then
+                            if use_freehand and comp._routeWaypoints and #comp._routeWaypoints > 0 then
                                 local wp = comp._routeWaypoints[1]
                                 if wp then
                                     wp.lat = wlat
@@ -12488,15 +12523,26 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                                     wp.north = target_north
                                     wp.segment_idx = nil
                                 end
+                            else
+                                local prev_start = comp._editStartOverride
+                                comp._editStartOverride = { lat = wlat, lon = wlon, mode = comp.mode, icao = comp._lastIcao }
+                                local sync_start = comp._drawRoute
+                                if not sync_start and prev_start and comp._routeWaypoints and #comp._routeWaypoints > 0 then
+                                    sync_start = waypoint_matches_override(comp._routeWaypoints[1], prev_start)
+                                end
+                                if sync_start and comp._routeWaypoints and #comp._routeWaypoints > 0 then
+                                    local wp = comp._routeWaypoints[1]
+                                    if wp then
+                                        wp.lat = wlat
+                                        wp.lon = wlon
+                                        wp.east = target_east
+                                        wp.north = target_north
+                                        wp.segment_idx = nil
+                                    end
+                                end
                             end
                         elseif drag.kind == "end" then
-                            local prev_end = comp._editEndOverride
-                            comp._editEndOverride = { lat = wlat, lon = wlon, mode = comp.mode, icao = comp._lastIcao }
-                            local sync_end = comp._drawRoute
-                            if not sync_end and prev_end and comp._routeWaypoints and #comp._routeWaypoints > 0 then
-                                sync_end = waypoint_matches_override(comp._routeWaypoints[#comp._routeWaypoints], prev_end)
-                            end
-                            if sync_end and comp._routeWaypoints and #comp._routeWaypoints > 0 then
+                            if use_freehand and comp._routeWaypoints and #comp._routeWaypoints > 0 then
                                 local wp = comp._routeWaypoints[#comp._routeWaypoints]
                                 if wp then
                                     wp.lat = wlat
@@ -12504,6 +12550,23 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                                     wp.east = target_east
                                     wp.north = target_north
                                     wp.segment_idx = nil
+                                end
+                            else
+                                local prev_end = comp._editEndOverride
+                                comp._editEndOverride = { lat = wlat, lon = wlon, mode = comp.mode, icao = comp._lastIcao }
+                                local sync_end = comp._drawRoute
+                                if not sync_end and prev_end and comp._routeWaypoints and #comp._routeWaypoints > 0 then
+                                    sync_end = waypoint_matches_override(comp._routeWaypoints[#comp._routeWaypoints], prev_end)
+                                end
+                                if sync_end and comp._routeWaypoints and #comp._routeWaypoints > 0 then
+                                    local wp = comp._routeWaypoints[#comp._routeWaypoints]
+                                    if wp then
+                                        wp.lat = wlat
+                                        wp.lon = wlon
+                                        wp.east = target_east
+                                        wp.north = target_north
+                                        wp.segment_idx = nil
+                                    end
                                 end
                             end
                         else
