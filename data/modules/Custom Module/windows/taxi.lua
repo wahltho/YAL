@@ -9312,6 +9312,38 @@ local function updateTaxiState(comp, map)
                     end
                 end
             end
+            if route and mode == 1 and landing_profile and data and arr_exit_id
+                and backtrack_required
+                and (not comp._drawFreehand) and (not comp._manualRouteActive) then
+                local branch_route, branch_next, branch_angle = U.refine_arrival_route_branch(
+                    icao,
+                    route,
+                    data,
+                    landing_profile,
+                    arr_exit_id,
+                    end_lat,
+                    end_lon,
+                    opts,
+                    proj_waypoint_ids,
+                    route_waypoints
+                )
+                if branch_route and branch_route ~= route then
+                    route = branch_route
+                    local refined_start_id = route.start_id or (route.path and route.path[1]) or start_node_id
+                    start_node_id = refined_start_id
+                    local start_node = refined_start_id and data.nodes and data.nodes[refined_start_id] or nil
+                    if start_node and U.is_valid_latlon(start_node.lat, start_node.lon) then
+                        start_lat = start_node.lat
+                        start_lon = start_node.lon
+                    end
+                    local branch_kind = arrival_active_context and "active" or "preview"
+                    log_taxi(
+                        "TaxiRoute: ARR " .. branch_kind .. " post-backtrack branch reroute exit=" .. tostring(arr_exit_id)
+                            .. " next=" .. tostring(branch_next)
+                            .. " angle=" .. string.format("%.1f", branch_angle or -1)
+                    )
+                end
+            end
             if mode == 0 and dep_backtrack_required and route and data then
                 local profile = dep_profile or U.compute_runway_landing_profile(data, comp._runwayName, runway_lat, runway_lon)
                 if profile then
