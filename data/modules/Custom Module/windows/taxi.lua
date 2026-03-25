@@ -3983,6 +3983,27 @@ local function choose_or_keep_arrival_exit(comp, landing_profile, data, proposed
         return start_lat, start_lon
     end
 
+    if active_context and off_runway == true and comp._arrActiveExitId then
+        local committed_exit = comp._arrActiveExitId
+        local committed_along = comp._arrActiveExitAlong
+        if committed_along == nil then
+            committed_along = comp._arrExitAlong
+        end
+        if exit_id ~= committed_exit or backtrack_required ~= (comp._arrBacktrackRequired and true or false) then
+            log_taxi(
+                string.format(
+                    "TaxiRoute: ARR offrunway keep local=%s new=%s",
+                    tostring(committed_exit),
+                    tostring(proposed_exit_id)
+                )
+            )
+        end
+        exit_id = committed_exit
+        exit_along = committed_along
+        backtrack_required = comp._arrBacktrackRequired and true or false
+        return exit_id, exit_along, backtrack_required, start_lat, start_lon
+    end
+
     if active_context and off_runway == false and comp._route and comp._arrExitId and exit_id and exit_id ~= comp._arrExitId then
         local validity = comp._arrRouteValidity
         local keep_committed = validity == nil or validity.valid ~= false
