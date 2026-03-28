@@ -106,6 +106,19 @@ local function parse_version_string(str)
     }
 end
 
+function P.getVersionPrereleaseType(version)
+    local parsed = parse_version_string(version)
+    if not parsed.valid then
+        return nil
+    end
+    return parsed.prereleaseType
+end
+
+function P.isPrereleaseVersion(version)
+    local prereleaseType = P.getVersionPrereleaseType(version)
+    return prereleaseType ~= nil and prereleaseType ~= "release"
+end
+
 local function is_version_newer(newVersion, currentVersion)
     local orderMap = {
         alpha = 0,

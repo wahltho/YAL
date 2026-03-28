@@ -511,8 +511,7 @@ local function armStartupUpdateCheck()
 end
 
 local function is_yal_beta_version()
-    local v = tostring(def.VERSION or ""):lower()
-    return (v:find("beta", 1, true) ~= nil) or (v:find("b", 1, true) ~= nil)
+    return helpers.isPrereleaseVersion(def.VERSION)
 end
 
 local function maybeRunStartupUpdateCheck()

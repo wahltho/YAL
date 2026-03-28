@@ -14,8 +14,7 @@ local helpers = require("helpers")
 local ziboReleaseDr = globalProperty("laminar/B738/release")
 
 local function isYalBetaVersion()
-    local v = tostring(def.VERSION or ""):lower()
-    return (v:find("beta", 1, true) ~= nil) or (v:find("b", 1, true) ~= nil)
+    return helpers.isPrereleaseVersion(def.VERSION)
 end
 
 local fallbackStableChecked = false
