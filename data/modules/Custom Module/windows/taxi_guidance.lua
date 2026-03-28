@@ -2683,6 +2683,10 @@ function M.attach(U, C, def, helpers, settings)
                     backtrack_label = raw_label
                 elseif info_label ~= "" and dep_backtrack_context(seg_idx, info_label) then
                     backtrack_label = info_label
+                elseif raw_label and label_matches_dep(raw_label) then
+                    backtrack_label = raw_label
+                elseif info_label ~= "" and label_matches_dep(info_label) then
+                    backtrack_label = info_label
                 end
                 if backtrack_label then
                     next_info = build_guidance_for_dep_backtrack_continue(seg_idx, backtrack_label)
