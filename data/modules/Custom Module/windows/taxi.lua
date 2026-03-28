@@ -3585,6 +3585,90 @@ local function route_initial_runway_progress(route, data, profile)
     }
 end
 
+local function compute_route_bounds_for_path(data, path)
+    if not data or not data.nodes or not path or #path == 0 then
+        return nil
+    end
+    local bounds = nil
+    for i = 1, #path do
+        local node = data.nodes[path[i]]
+        if node and node.east ~= nil and node.north ~= nil then
+            if not bounds then
+                bounds = {
+                    minX = node.east,
+                    maxX = node.east,
+                    minY = node.north,
+                    maxY = node.north
+                }
+            else
+                update_bounds(bounds, node.east, node.north)
+            end
+        end
+    end
+    return bounds
+end
+
+local function find_departure_runway_detour(route, data)
+    if not route or not route.path or #route.path < 3 or not data then
+        return nil
+    end
+    local path = route.path
+    local first_idx = nil
+    local last_idx = nil
+    for i = 1, (#path - 1) do
+        local raw = get_edge_label(data, path[i], path[i + 1])
+        local is_rwy = (raw and is_runway_label(raw))
+            or (data.runway_nodes and data.runway_nodes[path[i]] and data.runway_nodes[path[i + 1]])
+        if is_rwy then
+            if not first_idx then
+                first_idx = i
+            end
+            last_idx = i
+        end
+    end
+    if not first_idx or not last_idx then
+        return nil
+    end
+    if first_idx <= 1 then
+        return nil
+    end
+    if last_idx >= (#path - 1) then
+        return nil
+    end
+    return {
+        first_idx = first_idx,
+        last_idx = last_idx,
+        entry_id = path[first_idx],
+        exit_id = path[last_idx + 1]
+    }
+end
+
+local function repair_departure_runway_detour(comp, route, data, profile, runway_label)
+    if not comp or not route or not data or not profile then
+        return nil, nil
+    end
+    local detour = find_departure_runway_detour(route, data)
+    if not detour or not detour.entry_id then
+        return nil, nil
+    end
+    local prefix = prefix_path_to_node(route.path, detour.entry_id)
+    if not prefix or #prefix < 1 then
+        return nil, nil
+    end
+    route.path = prefix
+    route.start_id = prefix[1]
+    route.end_id = prefix[#prefix]
+    route.bounds = compute_route_bounds_for_path(data, prefix)
+    local apply_kind = apply_dep_turnaround_stub(comp, route, data, profile, runway_label)
+    if not apply_kind then
+        return nil, nil
+    end
+    comp._selectedDepEntryId = detour.entry_id
+    comp._selectedDepEntryManual = false
+    comp._depBacktrackRequired = true
+    return apply_kind, detour
+end
+
 local function compute_route_label_stats(data, path)
     local stats = { taxi_edges = 0, missing = 0, none = 0 }
     if not data or not path or #path < 2 then
@@ -6862,6 +6946,14 @@ local function updateTaxiState(comp, map)
             allow_runway_route = true
         end
     end
+    if mode == 0 and (not dep_backtrack_required)
+        and comp._depBacktrackRequired
+        and comp._selectedDepEntryId
+        and data and data.nodes and data.nodes[comp._selectedDepEntryId]
+        and (not has_end_override) and (not manual_active) then
+        dep_backtrack_required = true
+        allow_runway_route = true
+    end
     if mode == 0 then
         if comp._depBacktrackRequired ~= dep_backtrack_required then
             comp._depBacktrackRequired = dep_backtrack_required
@@ -7644,6 +7736,7 @@ local function updateTaxiState(comp, map)
     if mode == 0 and dep_holdshort_id
         and comp._runwayName and comp._runwayName ~= ""
         and comp._selectedDepEntryId
+        and (not comp._depBacktrackRequired)
         and (comp._selectedDepEntryManual ~= true) then
         log_taxi(
             string.format(
@@ -8414,6 +8507,12 @@ local function updateTaxiState(comp, map)
 
             local function set_dep_end_node(opts)
                 if not opts or mode ~= 0 or has_end_override then
+                    return
+                end
+                if dep_backtrack_required
+                    and comp._selectedDepEntryId
+                    and data.nodes and data.nodes[comp._selectedDepEntryId] then
+                    opts.end_node_id = comp._selectedDepEntryId
                     return
                 end
                 if allow_runway_route and dep_runway_end_id and data.nodes and data.nodes[dep_runway_end_id] then
@@ -9355,6 +9454,34 @@ local function updateTaxiState(comp, map)
                             .. " next=" .. tostring(branch_next)
                             .. " angle=" .. string.format("%.1f", branch_angle or -1)
                     )
+                end
+            end
+            if mode == 0 and route and data and (not dep_backtrack_required)
+                and (not has_end_override) and (not manual_active) then
+                local profile = dep_profile or U.compute_runway_landing_profile(data, comp._runwayName, runway_lat, runway_lon)
+                if profile then
+                    local runway_label = (comp._runwayName and comp._runwayName ~= "" and U.normalize_runway_name(comp._runwayName)) or (comp._depProfileLabel or "")
+                    if runway_label == "" and U.is_valid_latlon(runway_lat, runway_lon) then
+                        local rwy, side = U.find_nearest_runway_entry_by_latlon(data, runway_lat, runway_lon)
+                        runway_label = U.runway_end_label(rwy, side)
+                        if runway_label == "" then
+                            runway_label = U.runway_pair_label(rwy)
+                        end
+                    end
+                    local repaired_kind, detour = repair_departure_runway_detour(comp, route, data, profile, runway_label)
+                    if repaired_kind and detour then
+                        dep_backtrack_required = true
+                        allow_runway_route = true
+                        if repaired_kind == "turnaround" then
+                            log_taxi(
+                                "TaxiRoute: dep detour repaired as turnaround entry=" .. tostring(detour.entry_id)
+                            )
+                        elseif repaired_kind == "backtrack" then
+                            log_taxi(
+                                "TaxiRoute: dep detour repaired as backtrack entry=" .. tostring(detour.entry_id)
+                            )
+                        end
+                    end
                 end
             end
             if mode == 0 and dep_backtrack_required and route and data then
