@@ -714,7 +714,8 @@ function M.attach(U, C, def, helpers, settings)
                 local gate_entry_speed = math.max(3, math.min(gate_speed, gate_speed * 0.6))
                 local gate_radius = (comp._tuning and comp._tuning.gateGuidanceRadius) or (C and C.gateGuidanceRadius) or 60
                 local gate_keep = gate_radius * 1.6
-                local final_gate_limit = math.max(gate_radius, gate_radius * 1.6)
+                local gate_approach_limit = math.max(gate_keep, gate_radius * 2.2)
+                local final_gate_limit = gate_approach_limit
                 local near_final_gate_segment = false
                 local near_final_gate_ready = false
                 if gs > gate_speed and comp._gateGuidanceActive then
@@ -772,7 +773,7 @@ function M.attach(U, C, def, helpers, settings)
                 end
 
                 if gate_ok then
-                    if gate_final_owned and gate_ref_dist and gate_ref_dist <= gate_keep and gs <= gate_speed then
+                    if gate_final_owned and gate_ref_dist and gate_ref_dist <= gate_approach_limit and gs <= gate_speed then
                         comp._gateGuidanceActive = true
                         if gate_reason == "ok" then
                             gate_reason = "final-ramp-segment"
@@ -880,16 +881,17 @@ function M.attach(U, C, def, helpers, settings)
             comp._gateNote = nil
         end
         if guidance_state == "gate" and route and route.path and route.data and route.data.nodes then
-            local gate_seg = comp._autoTaxiLastSegIdx or comp._guidanceActiveSegIdx
-            if gate_seg and gate_seg >= 1 and gate_seg < #route.path then
-                local node = route.data.nodes[route.path[gate_seg + 1]]
-                local on_ramp = node and (node.is_ramp or node.ramp_name or node.ramp_id) or false
-                local gate_radius = (comp._tuning and comp._tuning.gateGuidanceRadius) or (C and C.gateGuidanceRadius) or 60
-                local defer_gate = true
-                local defer_limit = gate_radius
-                if comp._gateFinalOwned then
-                    defer_limit = math.max(gate_radius, gate_radius * 1.6)
-                end
+                local gate_seg = comp._autoTaxiLastSegIdx or comp._guidanceActiveSegIdx
+                if gate_seg and gate_seg >= 1 and gate_seg < #route.path then
+                    local node = route.data.nodes[route.path[gate_seg + 1]]
+                    local on_ramp = node and (node.is_ramp or node.ramp_name or node.ramp_id) or false
+                    local gate_radius = (comp._tuning and comp._tuning.gateGuidanceRadius) or (C and C.gateGuidanceRadius) or 60
+                    local gate_approach_limit = math.max(gate_radius * 1.6, gate_radius * 2.2)
+                    local defer_gate = true
+                    local defer_limit = gate_radius
+                    if comp._gateFinalOwned then
+                        defer_limit = math.max(gate_radius, gate_approach_limit)
+                    end
                 if gate_dist and defer_limit and gate_dist <= defer_limit then
                     defer_gate = false
                 end

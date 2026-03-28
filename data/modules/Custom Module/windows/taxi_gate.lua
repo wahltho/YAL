@@ -247,7 +247,7 @@ function M.attach(U, C, def, helpers)
         local gate_keep = radius * 1.6
         local guidance_limit = radius
         if comp._gateGuidanceActive or comp._gateFinalOwned or comp._gateFinalTurnPending then
-            guidance_limit = math.max(radius, gate_keep)
+            guidance_limit = math.max(radius, gate_keep, radius * 2.2)
         end
         local deadzone = tuning.gateGuidanceDeadzone or (C and C.gateGuidanceDeadzone) or 0.8
         local behind_limit = tuning.gateGuidanceBehindLimit or (C and C.gateGuidanceBehindLimit) or -5
