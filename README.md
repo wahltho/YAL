@@ -14,7 +14,7 @@ Virtual copilot plugin for the Zibo Mod 737 in X-Plane.
 1. Copy `skunkcrafts_updater_beta.cfg` into the aircraft directory that contains the Zibo aircraft.
 2. Start X-Plane, open Skunkcrafts Updater and refresh.
 3. In the YAL settings window enable `Show beta updates`.
-4. Run the `YAL Beta` updater entry to install beta builds.
+4. Run the `YAL Beta` updater entry to install prerelease builds from the beta/RC feed.
 5. To return to stable builds, disable `Show beta updates` and use the normal updater entry again.
 
 ## Requirements
@@ -34,17 +34,21 @@ YAL automates or advises normal cockpit flows for the Zibo 737 and provides addi
 - Weather, METAR and runway/RVR related assistance
 - Optional update checks for YAL and Zibo
 
-## Main Features in 4.6b9 Beta
+## Main Features in the 4.6 Prerelease Cycle
 - Extended taxi map and taxi routing:
   - ARR/DEP planning
   - scenery/global apt source switching
   - manual route locking
-  - improved rerouting from the current aircraft position
-  - runway entry, backtrack and threshold guidance
-  - gate guidance and gate switching logic
+  - improved rerouting and source failover from the current aircraft position
+  - runway entry, backtrack, align and threshold guidance
+  - gate guidance, gate switching and routeable end-ramp validation
+- Manual route drawing/editing now follows route order more naturally:
+  - start first
+  - then point-by-point along the route
+  - optional gate/ramp selection as the final point
 - Expanded taxi guidance and Auto Taxiing with voice and visual guidance support
 - `SET ILS` / approach setup no longer depends on parsing the FMC `APPROACH REF` page
-- More consistent approach handling for ILS / LOC / LDA / IGS / GLS / LPV / RNAV
+- More consistent approach handling for ILS / LOC / LDA / IGS / GLS / LPV / RNAV, including non-tunable RNAV cases
 - New trim advice popup for manual takeoff-trim setting in Voice Advice Only mode
 - Startup update check for both YAL and Zibo versions
 - Voice advice repeat throttling and optional maximum repeat protection
@@ -86,7 +90,7 @@ Key capabilities:
 - Spoken taxi guidance
 - Independent visual taxi guidance popup
 - Experimental Auto Taxiing following the active taxi route
-- Source switching between scenery and global `apt.dat`
+- Source switching between scenery and global `apt.dat`, with `AUTO` fallback when one source is invalid
 
 Useful commands:
 - `YAL/toggleautotaxiing`
@@ -100,6 +104,7 @@ This means:
 - YAL resolves the required tuning/channel/course targets internally
 - Auto mode still sets frequencies/channels and courses
 - Voice Advice Only mode still announces the same targets for manual entry
+- For RNAV approaches without a tunable frequency/channel, YAL announces that explicitly and then provides the final approach course
 
 Supported approach families include:
 - ILS / LOC
@@ -118,7 +123,7 @@ Useful related features:
 
 ## Update Check and Save Notes
 - YAL can check for both YAL and Zibo updates during X-Plane startup
-- `Show beta updates` switches the YAL update check to the beta feed
+- `Show beta updates` switches the YAL update check to the prerelease beta/RC feed
 - Periodic YAL flight save uses:
   - `Auto Flight Save Time`
   - `Auto Flight Save EFB Position(s)`

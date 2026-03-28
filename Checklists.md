@@ -140,7 +140,7 @@ Checklist
 ## Before Takeoff
 
 Checklist
-- [ ] Transponder TARA (if configured)
+- [ ] Transponder TA/RA (if configured)
 - [ ] Position Lights STROBE
 - [ ] Landing Lights ON
 - [ ] Taxi Lights OFF
@@ -181,7 +181,7 @@ Checklist
 - [ ] Position Lights STROBE
 - [ ] Runway Turnoff Lights OFF
 - [ ] Taxi Lights OFF
-- [ ] Transponder TARA (if configured)
+- [ ] Transponder TA/RA (if configured)
 - [ ] QNH STANDARD at transition altitude
 
 <div style="page-break-after: always;"></div>
@@ -214,7 +214,7 @@ Checklist
 - [ ] Landing Lights ON
 - [ ] Starters FLIGHT
 - [ ] Logo Lights ON
-- [ ] ILS/Approach SET
+- [ ] Approach tuned / channel / course set as applicable
 - [ ] VREF SET
 - [ ] Wind Correction SET
 - [ ] Autobrake SET

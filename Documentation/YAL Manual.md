@@ -150,7 +150,7 @@ The settings window allows detailed customization of all automatic features.
 - BetterPushback Integration: Enables BPB plan detection and pushback-aware taxi routing logic.
 - YANSH Integration / YANSH Automatic Fueling: Enables YANSH integration and optional auto-fueling.
 - Hoppie ID: Callsign/login for Hoppie integration.
-- Show beta updates: Uses the beta update feed.
+- Show beta updates: Uses the prerelease update feed (beta/RC channel).
 - Check YAL/Zibo updates on startup: Checks for new YAL and Zibo versions during X-Plane startup and shows a popup if an update is available.
 - Sim exit after Pause at TOD (0-9999 sec): Delay before auto-save/quit after TOD pause.
 - Auto Flight Save Time (0 or 9999 = off): Periodic YAL flight save interval.
@@ -216,7 +216,7 @@ Open the map via `Plugins -> Yet Another Linda -> Taxi Map` or an assigned comma
 ### Automatic Routing
 For departure, YAL routes from the current stand or pushback end position to the selected runway entry or hold-short point. For arrival, YAL routes from the runway exit area to the selected gate or another suitable nearby gate.
 
-If the aircraft deviates far enough from the planned route, YAL can recalculate from the current position. With BetterPushback installed, YAL can also use the pushback plan to improve the initial departure route.
+If the aircraft deviates far enough from the planned route, YAL can recalculate from the current position. With BetterPushback installed, YAL can also use the pushback plan to improve the initial departure route. In `AUTO` source mode, YAL may also fall back between scenery/add-on and global airport data if one source produces an invalid route.
 
 ### Manual Routing
 #### EDIT
@@ -228,7 +228,9 @@ Use EDIT to adjust an automatically generated or already existing route.
 
 #### DRAW NEW
 Use DRAW NEW to create a custom freehand route.
-- Click to add waypoints.
+- Click to add points in the order of the route.
+- The first point becomes the route start, each further click extends the route, and the last point is the current route end.
+- If the last click hits a ramp/gate marker, YAL treats it as the route end ramp/gate.
 - Drag a waypoint to move it.
 - Right-click a waypoint to delete it.
 - Use MANUAL if you want to keep the custom route.
@@ -242,7 +244,11 @@ Taxi guidance can be spoken, shown in the taxi popup, or both. Typical guidance 
 - Leave RWY ... to left/right on Taxiway ...
 - Runway crossing warnings
 - Enter departure runway ...
+- Turn to backtrack on Runway ...
+- Backtrack on Runway ...
+- Align with departure Runway ...
 - Threshold ahead in ... meters
+- Taxi to Gate ...
 - Gate in ... meters / Stop
 - Taxi complete
 
@@ -256,13 +262,15 @@ Auto Taxiing uses the active taxi route to steer and control taxi speed.
 - Auto Taxiing should always be monitored by the pilot.
 
 ### Arrival Gate Guidance
-When taxiing to the gate, YAL can provide distance callouts and stop guidance. Taxiing is considered complete when the aircraft reaches the parking position and/or the parking brake is set near the destination ramp.
+When taxiing to the gate, YAL can provide an initial `Taxi to Gate ...` call, later turn/distance callouts and stop guidance. Taxiing is considered complete when the aircraft reaches the parking position and/or the parking brake is set near the destination ramp. If the planned stand is clearly wrong and another nearby stand is obviously the one being used, YAL may retarget to the nearer stand.
 
 ## 6. Navigation, Weather and Approach Handling
 ### SET ILS / Approach Setup
 YAL supports ILS, LOC, LDA, IGS, GLS, LPV and RNAV approach setup.
 
 In Auto mode, YAL can set the relevant frequencies, channels and courses automatically. In Voice Advice Only mode, YAL announces the targets for manual entry. A one-time FMC page reminder may still be given where useful, but the procedure no longer depends on the FMC page staying open.
+
+Not every approach has a tunable frequency or channel. For RNAV approaches, YAL may explicitly report that no tunable approach frequency/channel exists and then announce the final approach course instead.
 
 ### Approach Course Handling
 YAL announces and sets approach courses according to the selected approach and runway. It correctly distinguishes between magnetic and true-course cases where required and supports non-ILS approach families such as LOC, LDA, IGS, GLS, LPV and RNAV.
@@ -271,7 +279,7 @@ YAL announces and sets approach courses according to the selected approach and r
 YAL uses METAR data for weather-related advice such as QNH, visibility and runway-related RVR where available. Departure and nearest-airport METAR refreshes are limited to preflight. Destination METAR remains available for descent and arrival logic.
 
 ### Update Check
-If enabled, YAL checks at startup whether newer YAL or Zibo versions are available and shows an update popup if appropriate.
+If enabled, YAL checks at startup whether newer YAL or Zibo versions are available and shows an update popup if appropriate. The `Show beta updates` setting switches YAL to the prerelease feed used for beta/RC builds.
 
 ## 7. Trim Advice Popup and Voice Advice Controls
 ### Trim Advice Popup
