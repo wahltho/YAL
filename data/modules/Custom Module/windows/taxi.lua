@@ -2535,6 +2535,34 @@ local function maybe_build_dep_taxi_only_route(icao, route, data, start_lat, sta
     return local_route, nil
 end
 
+local function can_route_arrival_end_ramp(icao, data, aircraft, ramp)
+    if not icao or not data or not aircraft or not ramp then
+        return false
+    end
+    if not is_valid_latlon(aircraft.lat, aircraft.lon) or not is_valid_latlon(ramp.lat, ramp.lon) then
+        return false
+    end
+    local opts = {
+        allow_far_ramp = true,
+        disallow_runway_edges = true,
+        avoid_runway_nodes = true,
+        runway_penalty = 500
+    }
+    local ramp_node_id = ramp_route_node_id(ramp)
+    if ramp_node_id and data.nodes and data.nodes[ramp_node_id] then
+        opts.end_node_id = ramp_node_id
+    end
+    local route = select(1, route_with_waypoints(
+        icao,
+        aircraft.lat,
+        aircraft.lon,
+        ramp.lat,
+        ramp.lon,
+        opts
+    ))
+    return route ~= nil and route.path ~= nil and #route.path >= 2
+end
+
 local function collect_nearest_nodes(data, ref_east, ref_north, max_candidates)
     if not data or not data.nodes then
         return {}
@@ -3990,6 +4018,7 @@ local function evaluate_arrival_route_validity(route, data, aircraft, landing_pr
     info.exit_gap = node_distance_to_aircraft(route_data, arr_exit_id, aircraft)
     local on_runway = (off_runway == false)
     local enforce_attachment = (active_context == true)
+        and not (on_runway and backtrack_required)
     local route_limit = on_runway and math.max(220, drift_meters * 4) or math.max(180, drift_meters * 3)
     local severe_limit = on_runway and math.max(320, drift_meters * 6) or math.max(260, drift_meters * 4.5)
     local node_limit = on_runway and math.max(120, drift_meters * 2.5) or math.max(90, drift_meters * 2)
@@ -5229,6 +5258,36 @@ local function maybe_force_global_for_quality(comp, now, icao, mode, data, helpe
         helpers.logInfoTS("TaxiQuality: global pending " .. log_info)
     end
     return false
+end
+
+local function maybe_force_global_for_arrival_invalid(comp, now, icao, mode, data, reason, log_taxi)
+    if not comp or not now or mode ~= 1 or not icao or icao == "" or not data then
+        return false
+    end
+    if data.entry and data.entry.source ~= "addon" then
+        return false
+    end
+    if get_taxi_source_mode(comp, icao) ~= "auto" then
+        return false
+    end
+    if reason ~= "start-detached" and reason ~= "route-detached" and reason ~= "runway-backward" then
+        return false
+    end
+    local st = comp._arrInvalidSourceFallback or {}
+    local same_key = st.icao == icao
+        and st.reason == reason
+        and st.last_at
+        and (now - st.last_at) <= 8
+    st.icao = icao
+    st.reason = reason
+    st.last_at = now
+    st.count = same_key and ((st.count or 0) + 1) or 1
+    comp._arrInvalidSourceFallback = st
+    if st.count < 3 then
+        return false
+    end
+    comp._arrInvalidSourceFallback = nil
+    return force_global_source(comp, icao, mode, "arr-invalid-" .. tostring(reason), log_taxi)
 end
 
 local function find_nearest_segment(data, path, east, north)
@@ -6704,7 +6763,7 @@ local function updateTaxiState(comp, map)
         elseif comp._lastArrivalRunwayName then
             runway_name = comp._lastArrivalRunwayName
         end
-        if data and onGroundSensor and raw_desrwy == "" and aircraft then
+        if data and onGroundSensor and raw_desrwy == "" and aircraft and runway_name == "" then
             local inferred = infer_arrival_runway_from_aircraft(data, aircraft)
             if inferred and inferred.name and inferred.name ~= "" then
                 if runway_name ~= inferred.name or (not U.is_valid_latlon(runway_lat, runway_lon)) then
@@ -7158,6 +7217,13 @@ local function updateTaxiState(comp, map)
                                         or (moving_switch_ok and (d_plan - d_cand >= (gate_delta * 1.5)))))
                                 or final_retarget
                             )
+                            if should_switch and not can_route_arrival_end_ramp(icao, data, aircraft, nearest_ramp) then
+                                should_switch = false
+                                log_taxi(
+                                    "TaxiRoute: skip end-ramp switch no-path key=" .. tostring(cand_key)
+                                        .. " dist=" .. string.format("%.1f", d_cand or -1)
+                                )
+                            end
                             if should_switch then
                                 end_ramp = nearest_ramp
                                 end_lat = end_ramp.lat
@@ -9275,6 +9341,18 @@ local function updateTaxiState(comp, map)
                                 tostring(arrival_active_context)
                             )
                         )
+                        if arrival_active_context
+                            and maybe_force_global_for_arrival_invalid(
+                                comp,
+                                now,
+                                icao,
+                                mode,
+                                data,
+                                arr_validity.reason,
+                                log_taxi
+                            ) then
+                            return
+                        end
                         if arrival_active_context then
                             if set_reroute_override_from_aircraft(comp, data, aircraft, true) then
                                 comp._routeStartAnchor = nil
@@ -9288,6 +9366,8 @@ local function updateTaxiState(comp, map)
                         route = nil
                         rerr = nil
                     end
+                elseif mode == 1 then
+                    comp._arrInvalidSourceFallback = nil
                 end
                 comp._arrRouteValidity = arr_validity
             elseif mode ~= 1 then
