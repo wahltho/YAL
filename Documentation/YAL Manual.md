@@ -1,5 +1,5 @@
 # Yet Another Linda (YAL) for Zibo Mod - User Manual
-Version 4.6b9
+Version 4.6rc1
 (C) WAHLTHO 2023-2026
 VIRTUAL COPILOT PLUGIN FOR ZIBO MOD 738
 
