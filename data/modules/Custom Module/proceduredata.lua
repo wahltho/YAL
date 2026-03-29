@@ -5932,7 +5932,9 @@ function M.fillProcedureTable()
 
                         if destinationIcao and destinationIcao ~= "" then
                             local cifpName
-                            if useDetected and detectedVariant.entry and detectedVariant.entry.displayName then
+                            if useDetected and detectedVariant and detectedVariant.displayName then
+                                cifpName = detectedVariant.displayName
+                            elseif useDetected and detectedVariant.entry and detectedVariant.entry.displayName then
                                 cifpName = detectedVariant.entry.displayName
                             else
                                 cifpName = helpers.getCIFPApproachName(destinationIcao, navtype, runwayDesignator)

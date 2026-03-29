@@ -4230,6 +4230,37 @@ local function formatCIFPApproachName(typeChar, runwayPart, suffix)
     return string.format("%s %s%s", prefix, formattedRunway, suffixPart)
 end
 
+local function getApproachTypeTagForNavType(navType, fallbackTypeTag)
+    if navType == def.NAVTYPELDA then
+        return def.NAVTYPELDA
+    end
+    if navType == def.NAVTYPEILS then
+        return "I"
+    end
+    if navType == def.NAVTYPEGLS then
+        return "G"
+    end
+    if navType == def.NAVTYPELPV then
+        return "L"
+    end
+    if navType == def.NAVTYPERNAV then
+        return "R"
+    end
+    return fallbackTypeTag
+end
+
+local function getCIFPEntryDisplayName(entry, navType)
+    if not entry then
+        return nil
+    end
+    local typeTag = getApproachTypeTagForNavType(navType, entry.typeChar)
+    local runway = entry.runway
+    if not runway or runway == "" then
+        return entry.displayName
+    end
+    return formatCIFPApproachName(typeTag, runway, entry.suffix or "")
+end
+
 local function parseApproachCode(code, expectedRunway)
     if type(code) ~= "string" then
         return nil
@@ -4334,18 +4365,62 @@ function P.loadCIFP(icao)
     local approaches = {}
     local entryByCode = {}
     local runwayMap = nil
+    local activeApproachCode = nil
 
     local function addEntryToApproaches(entry, navType, runwayPart)
         if not entry or not navType or not runwayPart or runwayPart == "" then
             return
         end
         local runwayKey = string.upper(runwayPart)
+        entry.registeredFamilies = entry.registeredFamilies or {}
+        if entry.registeredFamilies[navType] then
+            return
+        end
         approaches[navType] = approaches[navType] or {}
         approaches[navType][runwayKey] = approaches[navType][runwayKey] or {}
         entry.runway = runwayKey
         entry.displayName = formatCIFPApproachName(entry.typeChar, runwayKey, entry.suffix or "")
+        entry.registeredFamilies[navType] = true
         entry.registered = true
         table.insert(approaches[navType][runwayKey], entry)
+    end
+
+    local function applyPrdatToEntry(entry, parts)
+        if not entry or type(parts) ~= "table" then
+            return
+        end
+
+        local hasLPV = false
+        local hasGLS = false
+        local hasLP = false
+
+        for _, token in ipairs(parts) do
+            local upper = string.upper(trimString(token or ""))
+            if upper == "LPV" then
+                hasLPV = true
+            elseif upper == "GLS" then
+                hasGLS = true
+            elseif upper == "LP" then
+                hasLP = true
+            end
+        end
+
+        if hasGLS then
+            entry.cifpHasGLS = true
+            entry.serviceLevel = "GLS"
+            addEntryToApproaches(entry, def.NAVTYPEGLS, entry.runway)
+        end
+        if hasLPV then
+            entry.cifpHasLPV = true
+            entry.serviceLevel = "LPV"
+            addEntryToApproaches(entry, def.NAVTYPELPV, entry.runway)
+        end
+        if hasLP and not hasLPV then
+            entry.isLateralOnly = true
+            if not entry.serviceLevel then
+                entry.serviceLevel = "LP"
+            end
+        end
     end
 
     local function resolveLdaEntry(entry)
@@ -4396,6 +4471,7 @@ function P.loadCIFP(icao)
             local code = parts[3]
             if code and code ~= "" then
                 code = string.upper(code)
+                activeApproachCode = code
                 local parsed = parseApproachCode(code)
                 local typeTag = parsed and parsed.typeTag or nil
                 local navType = parsed and parsed.navType or nil
@@ -4507,6 +4583,15 @@ function P.loadCIFP(icao)
                     end
                 end
             end
+        elseif string.sub(line, 1, 6) == "PRDAT:" and activeApproachCode then
+            local entry = entryByCode[activeApproachCode]
+            if entry then
+                local parts = {}
+                for token in string.gmatch(line, "([^,]+)") do
+                    table.insert(parts, trimString(token))
+                end
+                applyPrdatToEntry(entry, parts)
+            end
         end
     end
 
@@ -4529,6 +4614,35 @@ function P.loadCIFP(icao)
     return nil
 end
 
+local function cifpEntrySupportsNavType(entry, navType)
+    if not entry or not navType then
+        return false
+    end
+    if entry.navType == navType then
+        return true
+    end
+    if navType == def.NAVTYPELPV and entry.navType == def.NAVTYPERNAV then
+        return entry.cifpHasLPV == true or entry.serviceLevel == "LPV"
+    end
+    if navType == def.NAVTYPEGLS and entry.navType == def.NAVTYPERNAV then
+        return entry.cifpHasGLS == true or entry.serviceLevel == "GLS"
+    end
+    return false
+end
+
+local function getPreferredCIFPEntryNavType(entry, fallbackNavType)
+    if not entry then
+        return fallbackNavType
+    end
+    if cifpEntrySupportsNavType(entry, def.NAVTYPEGLS) then
+        return def.NAVTYPEGLS
+    end
+    if cifpEntrySupportsNavType(entry, def.NAVTYPELPV) then
+        return def.NAVTYPELPV
+    end
+    return fallbackNavType or entry.navType
+end
+
 function P.getCIFPApproach(icao, navType, runway)
     if type(icao) ~= "string" or type(navType) ~= "string" or type(runway) ~= "string" then
         return nil
@@ -4540,23 +4654,35 @@ function P.getCIFPApproach(icao, navType, runway)
     end
 
     local navEntries = cifpData[navType]
-    if not navEntries then
-        return nil
-    end
-
     local rwy = string.upper(runway)
     rwy = rwy:gsub("^RW", "")
-    local candidates = navEntries[rwy]
-    if not candidates or #candidates == 0 then
-        return nil
+    local candidates = navEntries and navEntries[rwy] or nil
+    if candidates and #candidates > 0 then
+        return candidates[1]
     end
 
-    return candidates[1]
+    if navType == def.NAVTYPELPV or navType == def.NAVTYPEGLS then
+        local rnEntries = cifpData[def.NAVTYPERNAV]
+        local rnCandidates = rnEntries and rnEntries[rwy] or nil
+        if rnCandidates then
+            for _, entry in ipairs(rnCandidates) do
+                if cifpEntrySupportsNavType(entry, navType) then
+                    return entry
+                end
+            end
+        end
+    end
+
+    return nil
 end
 
 function P.getCIFPApproachName(icao, navType, runway)
     local entry = P.getCIFPApproach(icao, navType, runway)
-    return entry and entry.displayName or nil
+    if not entry then
+        return nil
+    end
+    local typeTag = getApproachTypeTagForNavType(navType, entry.typeChar)
+    return formatCIFPApproachName(typeTag, entry.runway or runway, entry.suffix or "")
 end
 
 function P.getCIFPApproachCourse(icao, navType, runway)
@@ -5031,7 +5157,7 @@ local function addApproachCandidateFamily(target, seen, navType)
         addUniqueApproachType(target, seen, def.NAVTYPELOC)
         return
     end
-    if navType == def.NAVTYPELPV then
+    if navType == def.NAVTYPELPV or navType == def.NAVTYPERNAV then
         addUniqueApproachType(target, seen, def.NAVTYPELPV)
         addUniqueApproachType(target, seen, def.NAVTYPERNAV)
         return
@@ -5307,9 +5433,11 @@ function P.detectCIFPApproachVariant(icao, runway, legs_string, lat_array, lon_a
             if selectedInfo.suffix then
                 for _, entry in ipairs(entries) do
                     if entry.suffix and string.upper(entry.suffix) == selectedInfo.suffix then
+                        local effectiveNavType = getPreferredCIFPEntryNavType(entry, selectedInfo.navType)
                         return {
-                            navType = selectedInfo.navType,
+                            navType = effectiveNavType,
                             entry = entry,
+                            displayName = getCIFPEntryDisplayName(entry, effectiveNavType),
                             score = math.huge,
                             priority = 0,
                             fromSelection = true
@@ -5321,9 +5449,12 @@ function P.detectCIFPApproachVariant(icao, runway, legs_string, lat_array, lon_a
                 -- leg-based variant detection resolve the correct family/variant
                 -- (e.g. RNAV Z selected but LPV Z available).
             else
+                local entry = entries[1]
+                local effectiveNavType = getPreferredCIFPEntryNavType(entry, selectedInfo.navType)
                 return {
-                    navType = selectedInfo.navType,
-                    entry = entries[1],
+                    navType = effectiveNavType,
+                    entry = entry,
+                    displayName = getCIFPEntryDisplayName(entry, effectiveNavType),
                     score = math.huge,
                     priority = 0,
                     fromSelection = true
@@ -5376,6 +5507,7 @@ function P.detectCIFPApproachVariant(icao, runway, legs_string, lat_array, lon_a
                         bestMatch = {
                             navType = navType,
                             entry = entry,
+                            displayName = getCIFPEntryDisplayName(entry, navType),
                             score = matchScore,
                             priority = currentPriority
                         }
