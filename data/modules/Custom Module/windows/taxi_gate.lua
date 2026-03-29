@@ -121,8 +121,15 @@ function M.attach(U, C, def, helpers)
     local function gate_tracking_distance(comp, fallback_dist, radius)
         local ref_dist = comp and comp._gateActivationDist or nil
         local track_dist = ref_dist
-        if track_dist == nil or (fallback_dist ~= nil and fallback_dist > track_dist) then
+        local prefer_ref = comp and (comp._gateGuidanceActive or comp._gateFinalOwned or comp._gateFinalTurnPending)
+        if track_dist == nil then
             track_dist = fallback_dist
+        elseif fallback_dist ~= nil then
+            if prefer_ref then
+                track_dist = math.min(track_dist, fallback_dist)
+            elseif fallback_dist > track_dist then
+                track_dist = fallback_dist
+            end
         end
         local final_limit, stop_limit = gate_final_thresholds(radius)
         local stage = "approach"
@@ -136,14 +143,22 @@ function M.attach(U, C, def, helpers)
         return track_dist, stage, final_limit, stop_limit
     end
 
-    local function trusted_ramp_dgs(ramp, aircraft, fallback_dist, radius, ref_dist)
+    local function trusted_ramp_dgs(comp, ramp, aircraft, fallback_dist, radius, ref_dist)
         local dgs = ramp_dgs_values(ramp, aircraft)
         if not dgs then
             return nil
         end
+        local prefer_ref = comp and (comp._gateGuidanceActive or comp._gateFinalOwned or comp._gateFinalTurnPending)
+        local active_final = comp and (comp._gateFinalOwned or comp._gateFinalState == "final" or comp._gateFinalState == "stop")
         local track_dist = ref_dist
-        if track_dist == nil or (fallback_dist ~= nil and fallback_dist > track_dist) then
+        if track_dist == nil then
             track_dist = fallback_dist
+        elseif fallback_dist ~= nil then
+            if prefer_ref then
+                track_dist = math.min(track_dist, fallback_dist)
+            elseif fallback_dist > track_dist then
+                track_dist = fallback_dist
+            end
         end
         local final_limit = gate_final_thresholds(radius)
         if track_dist and track_dist > final_limit then
@@ -166,8 +181,8 @@ function M.attach(U, C, def, helpers)
                 dgs_dist = math.max(0, dgs.nw_z)
             end
             if fallback_dist ~= nil then
-                local blend_limit = 30
-                local max_diff = 15
+                local blend_limit = active_final and 45 or 30
+                local max_diff = active_final and 25 or 15
                 if fallback_dist > blend_limit then
                     return nil
                 end
@@ -254,7 +269,7 @@ function M.attach(U, C, def, helpers)
         local ramp = comp._endRamp
         local local_x, local_z, ramp_hdg, fallback_dist = ramp_frame_values(ramp, aircraft)
         local track_dist, stage, _, stop_limit = gate_tracking_distance(comp, fallback_dist, radius)
-        local dgs = trusted_ramp_dgs(ramp, aircraft, fallback_dist, radius, comp and comp._gateActivationDist or nil)
+        local dgs = trusted_ramp_dgs(comp, ramp, aircraft, fallback_dist, radius, comp and comp._gateActivationDist or nil)
         local direction = "straight"
         local action = "ALIGN"
         local text = "Continue straight"
@@ -414,7 +429,7 @@ function M.attach(U, C, def, helpers)
             local local_x, local_z, ramp_hdg, fallback_dist = ramp_frame_values(ramp, aircraft)
             local radius = (C and C.gateGuidanceRadius) or 60
             local track_dist, stage, final_limit, stop_limit = gate_tracking_distance(comp, fallback_dist, radius)
-            local dgs = trusted_ramp_dgs(ramp, aircraft, fallback_dist, radius, comp and comp._gateActivationDist or nil)
+            local dgs = trusted_ramp_dgs(comp, ramp, aircraft, fallback_dist, radius, comp and comp._gateActivationDist or nil)
             comp._gateUseDgs = dgs ~= nil
             comp._gateFinalState = stage
             if dgs and dgs.nw_z ~= nil and stage ~= "approach" then
@@ -446,9 +461,15 @@ function M.attach(U, C, def, helpers)
                 elseif stage == "stop" then
                     best = dgs_dist
                 elseif stage == "final" and track_dist ~= nil then
-                    local blend_den = math.max(1, (final_limit or 0) - (stop_limit or 0))
-                    local blend_w = clamp((track_dist - (stop_limit or 0)) / blend_den, 0, 1)
-                    best = (blend_w * track_dist) + ((1 - blend_w) * dgs_dist)
+                    local dgs_direct_limit = math.max(10, (stop_limit or 0) + 8)
+                    if dgs_dist <= dgs_direct_limit then
+                        best = dgs_dist
+                    else
+                        local blend_anchor = math.max(stop_limit or 0, dgs_direct_limit)
+                        local blend_den = math.max(1, (final_limit or 0) - blend_anchor)
+                        local blend_w = clamp((track_dist - blend_anchor) / blend_den, 0, 1)
+                        best = (blend_w * track_dist) + ((1 - blend_w) * dgs_dist)
+                    end
                 else
                     best = track_dist or dgs_dist
                 end
