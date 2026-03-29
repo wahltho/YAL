@@ -267,6 +267,7 @@ function M.attach(U, C, def, helpers)
         local deadzone = tuning.gateGuidanceDeadzone or (C and C.gateGuidanceDeadzone) or 0.8
         local behind_limit = tuning.gateGuidanceBehindLimit or (C and C.gateGuidanceBehindLimit) or -5
         local ramp = comp._endRamp
+        local reverse_guidance = (ramp.link_mode == "gate-backward")
         local local_x, local_z, ramp_hdg, fallback_dist = ramp_frame_values(ramp, aircraft)
         local track_dist, stage, _, stop_limit = gate_tracking_distance(comp, fallback_dist, radius)
         local dgs = trusted_ramp_dgs(comp, ramp, aircraft, fallback_dist, radius, comp and comp._gateActivationDist or nil)
@@ -380,6 +381,13 @@ function M.attach(U, C, def, helpers)
                     direction = (local_x > 0) and "left" or "right"
                     text = (direction == "left") and "Slight left" or "Slight right"
                 end
+            end
+        end
+        if reverse_guidance and action ~= "STOP" then
+            if direction == "left" then
+                direction = "right"
+            elseif direction == "right" then
+                direction = "left"
             end
         end
         local ramp_label = short_ramp_label(ramp)
