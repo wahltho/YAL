@@ -8797,6 +8797,26 @@ function P.isRampSuitableFor738(ramp)
     return true
 end
 
+function P.isRampSuitableForActiveArrivalRetarget(ramp)
+    if not ramp then
+        return false
+    end
+    local rtype = string.lower(tostring(ramp.ramp_type or ""))
+    if rtype == "tie-down" or rtype == "tiedown" or rtype == "hangar" then
+        return false
+    end
+    if rtype ~= "gate" and rtype ~= "misc" then
+        return false
+    end
+    local name = string.lower(tostring(ramp.name or ""))
+    if string.find(name, "hangar", 1, true)
+        or string.find(name, "heli", 1, true)
+        or string.find(name, "helipad", 1, true) then
+        return false
+    end
+    return true
+end
+
 local function find_nearest_ramp(data, lat, lon, filter_fn)
     if not data or not data.ramps or not lat or not lon then
         return nil

@@ -3396,6 +3396,45 @@ local function choose_departure_start_ramp(comp, data, icao, aircraft, heading_d
     return start_ramp, source == "latched"
 end
 
+local function choose_active_arrival_retarget_ramp(data, icao, aircraft, heading_deg, radius_m)
+    if not data or not aircraft or not is_valid_latlon(aircraft.lat, aircraft.lon) then
+        return nil, nil, nil
+    end
+    local filter_fn = helpers.isRampSuitableForActiveArrivalRetarget or helpers.isRampSuitableFor738
+    local ramp = nil
+    local ramp_dist = nil
+    if U and U.select_best_ramp_for_aircraft then
+        ramp, ramp_dist = U.select_best_ramp_for_aircraft(
+            data,
+            aircraft,
+            { filter = filter_fn, heading_deg = heading_deg, radius_m = radius_m }
+        )
+    end
+    if not ramp then
+        local nearest, nearest_d2 = helpers.getNearestRamp(
+            icao,
+            aircraft.lat,
+            aircraft.lon,
+            { filter = filter_fn, data = data }
+        )
+        if nearest then
+            ramp = nearest
+            ramp_dist = nearest_d2 and math.sqrt(nearest_d2)
+                or (nearest.lat and nearest.lon and distance_meters_latlon(nearest.lat, nearest.lon, aircraft.lat, aircraft.lon))
+                or nil
+        end
+    end
+    local source = nil
+    if ramp then
+        if helpers.isRampSuitableFor738 and helpers.isRampSuitableFor738(ramp) then
+            source = "738"
+        else
+            source = "active"
+        end
+    end
+    return ramp, ramp_dist, source
+end
+
 local function is_voice_enabled()
     local settingsTable = settings and settings.appSettings
     if not settingsTable then
@@ -5135,14 +5174,16 @@ local function maybe_force_global_for_quality(comp, now, icao, mode, data, helpe
             return false
         end
         local gate_radius = (comp._tuning and comp._tuning.gateSelectRadius) or (C and C.gateSelectRadius) or 120
-        local nearest_ramp = helpers.getNearestRamp(
+        local nearest_ramp, nearest_ramp_dist, nearest_source = choose_active_arrival_retarget_ramp(
+            data,
             icao,
-            aircraft.lat,
-            aircraft.lon,
-            { filter = helpers.isRampSuitableFor738, data = data }
+            aircraft,
+            nil,
+            gate_radius
         )
         if nearest_ramp and is_valid_latlon(nearest_ramp.lat, nearest_ramp.lon) then
-            local d = distance_meters_latlon(nearest_ramp.lat, nearest_ramp.lon, aircraft.lat, aircraft.lon)
+            local d = nearest_ramp_dist
+                or distance_meters_latlon(nearest_ramp.lat, nearest_ramp.lon, aircraft.lat, aircraft.lon)
             if d and d <= gate_radius then
                 local cand_key = ramp_key(nearest_ramp)
                 local planned_key = comp._autoEndRampKey or (comp._endRamp and ramp_key(comp._endRamp)) or nil
@@ -5198,9 +5239,10 @@ local function maybe_force_global_for_quality(comp, now, icao, mode, data, helpe
                     if helpers and helpers.logInfoTS then
                         helpers.logInfoTS(
                             string.format(
-                                "TaxiQuality: dist-only retarget end-ramp key=%s dist=%.1f",
+                                "TaxiQuality: dist-only retarget end-ramp key=%s dist=%.1f source=%s",
                                 tostring(cand_key),
-                                d or -1
+                                d or -1,
+                                tostring(nearest_source or "")
                             )
                         )
                     end
@@ -7149,19 +7191,13 @@ local function updateTaxiState(comp, map)
                 if not nearest_ramp then
                     local gate_heading = yalref and yalref.groundtrackmag and get(yalref.groundtrackmag) or nil
                     local gate_radius = tuning.gateSelectRadius or (C and C.gateSelectRadius) or 120
-                    nearest_ramp, nearest_ramp_dist = U.select_best_ramp_for_aircraft(
+                    nearest_ramp, nearest_ramp_dist = choose_active_arrival_retarget_ramp(
                         data,
+                        icao,
                         aircraft,
-                        { filter = helpers.isRampSuitableFor738, heading_deg = gate_heading, radius_m = gate_radius }
+                        gate_heading,
+                        gate_radius
                     )
-                    if nearest_ramp_dist == nil and nearest_ramp and U.is_valid_latlon(nearest_ramp.lat, nearest_ramp.lon) then
-                        nearest_ramp_dist = U.distance_meters_latlon(
-                            nearest_ramp.lat,
-                            nearest_ramp.lon,
-                            aircraft.lat,
-                            aircraft.lon
-                        )
-                    end
                 end
                 if nearest_ramp and end_ramp and U.is_valid_latlon(end_ramp.lat, end_ramp.lon) then
                     local cand_key = U.ramp_key(nearest_ramp)
@@ -10413,20 +10449,13 @@ local function updateTaxiState(comp, map)
                         )
                     end
                     if not nearest_ramp then
-                        nearest_ramp = helpers.getNearestRamp(
+                        nearest_ramp, nearest_ramp_dist = choose_active_arrival_retarget_ramp(
+                            comp._data,
                             icao,
-                            aircraft.lat,
-                            aircraft.lon,
-                            { filter = helpers.isRampSuitableFor738, data = comp._data }
+                            aircraft,
+                            nil,
+                            (tuning.gateSelectRadius or (C and C.gateSelectRadius) or 120)
                         )
-                        if nearest_ramp and U.is_valid_latlon(nearest_ramp.lat, nearest_ramp.lon) then
-                            nearest_ramp_dist = U.distance_meters_latlon(
-                                nearest_ramp.lat,
-                                nearest_ramp.lon,
-                                aircraft.lat,
-                                aircraft.lon
-                            )
-                        end
                     end
                     local pb_dist = tuning.parkingBrakeCompleteDist or 35
                     local final_gate_dist = U.gate_distance_meters and U.gate_distance_meters(comp, aircraft, comp._route, comp._data) or nil
