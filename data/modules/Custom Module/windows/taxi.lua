@@ -3435,6 +3435,20 @@ local function choose_active_arrival_retarget_ramp(data, icao, aircraft, heading
     return ramp, ramp_dist, source
 end
 
+local function is_fallback_only_taxi_data(data)
+    return data
+        and data.route_source == "fallback"
+        and data.has_fallback == true
+        and data.has_routes ~= true
+end
+
+local function should_degrade_fallback_arrival_auto_route(data, manual_active, end_ramp, manual_end_network)
+    return is_fallback_only_taxi_data(data)
+        and (not manual_active)
+        and (not end_ramp)
+        and (not manual_end_network)
+end
+
 local function is_voice_enabled()
     local settingsTable = settings and settings.appSettings
     if not settingsTable then
@@ -7098,6 +7112,7 @@ local function updateTaxiState(comp, map)
 
     local end_ramp = nil
     local user_selected_end = false
+    local arrival_fallback_auto_suppressed = false
     if mode == 1 and (not comp._drawFreehand) and U.is_valid_latlon(ramp_ref_lat, ramp_ref_lon) then
         if comp._selectedEndRampKey and data and data.ramps then
             for _, ramp in ipairs(data.ramps) do
@@ -7153,6 +7168,28 @@ local function updateTaxiState(comp, map)
             if end_ramp then
                 comp._autoEndRampKey = U.ramp_key(end_ramp)
             end
+        end
+        arrival_fallback_auto_suppressed = should_degrade_fallback_arrival_auto_route(
+            data,
+            manual_active,
+            end_ramp,
+            manual_end_network
+        ) or false
+        if arrival_fallback_auto_suppressed then
+            comp._autoEndRampKey = nil
+            if comp._arrFallbackAutoSuppressedIcao ~= icao then
+                log_taxi(
+                    "TaxiRoute: ARR fallback auto suppressed icao="
+                        .. tostring(icao)
+                        .. " routeSrc="
+                        .. tostring(data and data.route_source or "?")
+                        .. " reason=no-suitable-end-ramp"
+                )
+            end
+            comp._arrFallbackAutoSuppressedIcao = icao
+        elseif comp._arrFallbackAutoSuppressedIcao == icao then
+            log_taxi("TaxiRoute: ARR fallback auto restored icao=" .. tostring(icao))
+            comp._arrFallbackAutoSuppressedIcao = nil
         end
         if end_ramp and U.is_valid_latlon(end_ramp.lat, end_ramp.lon) then
             end_lat = end_ramp.lat
@@ -7373,8 +7410,10 @@ local function updateTaxiState(comp, map)
     if mode ~= 1 then
         clear_arrival_route_context(comp)
         comp._offrouteDivergenceCount = 0
+        comp._arrFallbackAutoSuppressedIcao = nil
     end
     if mode == 1 and (not comp._drawFreehand)
+        and (not arrival_fallback_auto_suppressed)
         and (not U.is_valid_latlon(end_lat, end_lon)) and U.is_valid_latlon(ramp_ref_lat, ramp_ref_lon) then
         end_lat = ramp_ref_lat
         end_lon = ramp_ref_lon
@@ -9814,7 +9853,11 @@ local function updateTaxiState(comp, map)
                 )
             )
             comp._route = nil
-            comp._routeErr = canRoute and "route-endpoints-missing" or "no-routes"
+            if mode == 1 and arrival_fallback_auto_suppressed then
+                comp._routeErr = "fallback-no-arrival-stand"
+            else
+                comp._routeErr = canRoute and "route-endpoints-missing" or "no-routes"
+            end
             comp._routeLabels = nil
             comp._autoTaxiPath = nil
             comp._autoTaxiPathRoute = nil
