@@ -9583,6 +9583,10 @@ local function updateTaxiState(comp, map)
                     end
                 end
             end
+            if mode == 0 and comp._depBacktrackRequired ~= dep_backtrack_required then
+                comp._depBacktrackRequired = dep_backtrack_required
+                log_taxi("TaxiRoute: dep backtrack final=" .. tostring(dep_backtrack_required))
+            end
             if route then
                 comp._routeLabels = U.build_route_labels(route.data, route.path)
                 comp._routeLabelStats = U.compute_route_label_stats(route.data, route.path)
