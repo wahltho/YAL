@@ -3435,20 +3435,6 @@ local function choose_active_arrival_retarget_ramp(data, icao, aircraft, heading
     return ramp, ramp_dist, source
 end
 
-local function is_fallback_only_taxi_data(data)
-    return data
-        and data.route_source == "fallback"
-        and data.has_fallback == true
-        and data.has_routes ~= true
-end
-
-local function should_degrade_fallback_arrival_auto_route(data, manual_active, end_ramp, manual_end_network)
-    return is_fallback_only_taxi_data(data)
-        and (not manual_active)
-        and (not end_ramp)
-        and (not manual_end_network)
-end
-
 local function is_voice_enabled()
     local settingsTable = settings and settings.appSettings
     if not settingsTable then
@@ -7169,12 +7155,12 @@ local function updateTaxiState(comp, map)
                 comp._autoEndRampKey = U.ramp_key(end_ramp)
             end
         end
-        arrival_fallback_auto_suppressed = should_degrade_fallback_arrival_auto_route(
-            data,
-            manual_active,
-            end_ramp,
-            manual_end_network
-        ) or false
+        arrival_fallback_auto_suppressed = (data and data.route_source == "fallback"
+            and data.has_fallback == true
+            and data.has_routes ~= true
+            and (not manual_active)
+            and (not end_ramp)
+            and (not manual_end_network)) or false
         if arrival_fallback_auto_suppressed then
             comp._autoEndRampKey = nil
             if comp._arrFallbackAutoSuppressedIcao ~= icao then
