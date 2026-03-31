@@ -7386,7 +7386,8 @@ local function updateTaxiState(comp, map)
         end
     end
     local arr_exit_along = nil
-    local arrival_active_context = (mode == 1 and onGroundSensor == true)
+    local arrival_active_context = (mode == 1 and onGroundSensor == true
+        and not (helpers.isvalidicao(nearestIcao or "") and nearestIcao ~= icao))
     if mode == 1 then
         arr_exit_id, arr_exit_along, backtrack_required, start_lat, start_lon =
             choose_or_keep_arrival_exit(

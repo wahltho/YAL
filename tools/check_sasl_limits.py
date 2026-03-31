@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import pathlib
 import re
 import subprocess
@@ -66,8 +67,13 @@ class FileReport:
 
 
 def run_luac(args: List[str], file_path: pathlib.Path) -> str:
+    cmd = ["luac"]
+    if "-l" in args:
+        cmd.extend(["-o", os.devnull])
+    cmd.extend(args)
+    cmd.append(str(file_path))
     result = subprocess.run(
-        ["luac", *args, str(file_path)],
+        cmd,
         cwd=ROOT,
         text=True,
         capture_output=True,
