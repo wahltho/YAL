@@ -11,6 +11,13 @@ local clear_visual_guidance
 local set_guidance_state
 local update_visual_guidance
 local emit_guidance
+-- High-risk forward declarations: keep helpers referenced by updateTaxiState or
+-- newComponentImpl declared here and define them later via `name = function(...)`.
+-- That avoids late-definition regressions and keeps the dependency surface visible.
+local route_first_taxi_angle
+local choose_departure_start_ramp
+local choose_active_arrival_retarget_ramp
+local evaluate_arrival_route_validity
 
 local def = require("definitions")
 local settings = require("settings")
@@ -2141,8 +2148,6 @@ local function copy_opts(opts)
     return out
 end
 
-local route_first_taxi_angle
-
 local function route_with_waypoints(icao, start_lat, start_lon, end_lat, end_lon, opts, waypoint_ids, waypoints)
     if not waypoint_ids or #waypoint_ids == 0 then
         return helpers.getTaxiRoute(icao, start_lat, start_lon, end_lat, end_lon, opts)
@@ -3291,7 +3296,7 @@ local function log_rejected_start_ramp(comp, source, ramp, ramp_dist, anchor_dis
     end
 end
 
-local function choose_departure_start_ramp(comp, data, icao, aircraft, heading_deg)
+choose_departure_start_ramp = function(comp, data, icao, aircraft, heading_deg)
     if not data or not aircraft or not is_valid_latlon(aircraft.lat, aircraft.lon) then
         comp._startRampKey = nil
         comp._startRampChoiceSource = nil
@@ -3396,7 +3401,7 @@ local function choose_departure_start_ramp(comp, data, icao, aircraft, heading_d
     return start_ramp, source == "latched"
 end
 
-local function choose_active_arrival_retarget_ramp(data, icao, aircraft, heading_deg, radius_m)
+choose_active_arrival_retarget_ramp = function(data, icao, aircraft, heading_deg, radius_m)
     if not data or not aircraft or not is_valid_latlon(aircraft.lat, aircraft.lon) then
         return nil, nil, nil
     end
@@ -4033,7 +4038,7 @@ local function node_distance_to_aircraft(data, node_id, aircraft)
     return math.sqrt(distance_sq(node.east, node.north, aircraft.east, aircraft.north))
 end
 
-local function evaluate_arrival_route_validity(route, data, aircraft, landing_profile, arr_exit_id, drift_meters, off_runway, backtrack_required, active_context)
+evaluate_arrival_route_validity = function(route, data, aircraft, landing_profile, arr_exit_id, drift_meters, off_runway, backtrack_required, active_context)
     local info = {
         valid = true,
         severe = false,
@@ -5897,6 +5902,9 @@ local function maybe_warn_before_taxi_not_started(comp, now, mode, on_ground, in
     end
 end
 
+-- Guardrail: this function sits near the SASL upvalue ceiling. Prefer U.* wrappers
+-- or local inline state over new direct file-scope helper captures, then run
+-- `python3 tools/check_sasl_limits.py` before commit.
 local function updateTaxiState(comp, map)
     local U = comp._U or {}
     local C = comp._C or {}
