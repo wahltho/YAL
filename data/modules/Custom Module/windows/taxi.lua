@@ -6070,6 +6070,24 @@ local function updateTaxiState(comp, map)
             icao = nearestIcao
         end
     end
+    local remoteArrivalPreview = mode == 1
+        and onGroundSensor
+        and helpers.isvalidicao(icao or "")
+        and helpers.isvalidicao(nearestIcao or "")
+        and nearestIcao ~= icao
+
+    if remoteArrivalPreview then
+        local preview_key = tostring(nearestIcao) .. "|" .. tostring(icao)
+        if comp._lastRemoteArrivalPreviewKey ~= preview_key then
+            comp._lastRemoteArrivalPreviewKey = preview_key
+            comp._needsCenter = true
+        end
+        if comp._followAircraft and (not in_edit) then
+            comp._followAircraft = false
+        end
+    else
+        comp._lastRemoteArrivalPreviewKey = nil
+    end
 
     if not helpers.isvalidicao(icao or "") then
         U.clear_temp_route_overlay(comp, comp._data)
@@ -10783,7 +10801,7 @@ local function updateTaxiState(comp, map)
     end
 
     if comp._planCenterPending then
-        if (not in_edit) and comp.mode == 1 and onGround == false then
+        if (not in_edit) and comp.mode == 1 and (onGround == false or remoteArrivalPreview) then
             local b = comp._fitBounds
             if b then
                 local cx, cy = U.compute_bounds_center(b)
@@ -10793,7 +10811,7 @@ local function updateTaxiState(comp, map)
                     comp._planCenterPending = false
                 end
             end
-        elseif onGround or comp.mode ~= 1 then
+        elseif comp.mode ~= 1 or (onGround and (not remoteArrivalPreview)) then
             comp._planCenterPending = false
         end
     end
@@ -11924,6 +11942,17 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                     comp.mode = (comp.mode == 1) and 0 or 1
                     comp.modeOverride = true
                     comp._needsCenter = true
+                    if comp.mode == 1 then
+                        local yalref = comp.yal or _G.yal
+                        local onGround = yalref and yalref.airgroundsensor and (get(yalref.airgroundsensor) == def.ON)
+                        if onGround and yalref and yalref.desicao and yalref.nearesticao then
+                            local des = U.normalize_icao(get(yalref.desicao) or "")
+                            local nearest = U.normalize_icao(get(yalref.nearesticao) or "")
+                            if helpers.isvalidicao(des) and helpers.isvalidicao(nearest) and des ~= nearest then
+                                comp._followAircraft = false
+                            end
+                        end
+                    end
                     comp._lastUpdate = nil
                     log_taxi(
                         "TaxiMode: mode="
