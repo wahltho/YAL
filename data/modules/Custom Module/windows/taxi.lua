@@ -6010,17 +6010,10 @@ local function updateTaxiState(comp, map)
             comp.mode = 1
         end
     end
-    local keepGroundArrivalPreviewOverride = (comp.modeOverride == true)
-        and comp.mode == 1
-        and onGroundSensor
-        and helpers.isvalidicao(desIcao or "")
-        and helpers.isvalidicao(nearestIcao or "")
-        and nearestIcao ~= desIcao
-
     comp.autoMode = autoMode
     if not comp.modeOverride then
         comp.mode = autoMode
-    elseif comp.mode == autoMode and (not keepGroundArrivalPreviewOverride) then
+    elseif comp.mode == autoMode and (not onGroundSensor) then
         comp.modeOverride = false
     end
 
