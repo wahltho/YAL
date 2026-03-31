@@ -5977,6 +5977,13 @@ local function updateTaxiState(comp, map)
     end
     local onGroundSensor = yal.airgroundsensor and (get(yal.airgroundsensor) == def.ON)
     local airborne = yal.airgroundsensor and (get(yal.airgroundsensor) == def.OFF)
+    local nearestIcao = nil
+    if yal.nearesticao then
+        local nearest = U.normalize_icao(get(yal.nearesticao) or "")
+        if helpers.isvalidicao(nearest) then
+            nearestIcao = nearest
+        end
+    end
     if yal.flightstate == def.FLIGHTSTATEPREFLIGHT and depIcao then
         comp._lastArrivalIcao = nil
         comp._lastArrivalRunwayName = nil
@@ -6003,10 +6010,17 @@ local function updateTaxiState(comp, map)
             comp.mode = 1
         end
     end
+    local keepGroundArrivalPreviewOverride = (comp.modeOverride == true)
+        and comp.mode == 1
+        and onGroundSensor
+        and helpers.isvalidicao(desIcao or "")
+        and helpers.isvalidicao(nearestIcao or "")
+        and nearestIcao ~= desIcao
+
     comp.autoMode = autoMode
     if not comp.modeOverride then
         comp.mode = autoMode
-    elseif comp.mode == autoMode then
+    elseif comp.mode == autoMode and (not keepGroundArrivalPreviewOverride) then
         comp.modeOverride = false
     end
 
@@ -6046,13 +6060,6 @@ local function updateTaxiState(comp, map)
                 comp._routeErr = nil
             end
             log_taxi("TaxiRoute: taxi-complete freeze released")
-        end
-    end
-    local nearestIcao = nil
-    if yal.nearesticao then
-        local nearest = U.normalize_icao(get(yal.nearesticao) or "")
-        if helpers.isvalidicao(nearest) then
-            nearestIcao = nearest
         end
     end
     local icao = nil
@@ -11925,6 +11932,13 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                     comp.modeOverride = true
                     comp._needsCenter = true
                     comp._lastUpdate = nil
+                    log_taxi(
+                        "TaxiMode: mode="
+                            .. tostring(comp.mode)
+                            .. " auto="
+                            .. tostring(comp.autoMode)
+                            .. " reason=button"
+                    )
                 elseif b.action == "cycle_source" then
                     local icao = comp._lastIcao
                     if not helpers.isvalidicao(icao or "") then
