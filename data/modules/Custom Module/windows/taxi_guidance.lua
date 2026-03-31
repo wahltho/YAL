@@ -146,11 +146,22 @@ function M.attach(U, C, def, helpers, settings)
         return seg_idx >= math.max(1, path_len - 5)
     end
 
+    local function dep_backtrack_tail_present(comp)
+        local route = comp and comp._route or nil
+        local path = route and route.path or nil
+        if not path or #path < 2 then
+            return false
+        end
+        local last_id = path[#path]
+        local prev_id = path[#path - 1]
+        return last_id == -1 or last_id == -2 or prev_id == -1 or prev_id == -2
+    end
+
     local function dep_backtrack_sequence_active(comp)
         if not comp or comp.mode ~= 0 then
             return false
         end
-        if not comp._depBacktrackRequired then
+        if not comp._depBacktrackRequired and not dep_backtrack_tail_present(comp) then
             return false
         end
         return not (comp._depThresholdLatched or comp._depThresholdReached)
@@ -1301,10 +1312,35 @@ function M.attach(U, C, def, helpers, settings)
             if not label or not label_matches_dep(label) then
                 return false
             end
-            if dep_same_runway_preentry(seg_idx, label) then
+            if dep_same_runway_preentry(seg_idx, label) and not dep_backtrack_tail_present(comp) then
                 return false
             end
             return true
+        end
+
+        local function dep_backtrack_owner_label(seg_idx, raw_label, next_raw_label, info_label)
+            if not dep_backtrack_sequence_active(comp) then
+                return nil
+            end
+            if next_raw_label and next_raw_label ~= "" then
+                if dep_backtrack_context(seg_idx, next_raw_label) or label_matches_dep(next_raw_label) then
+                    return next_raw_label
+                end
+            end
+            if raw_label and raw_label ~= "" then
+                if dep_backtrack_context(seg_idx, raw_label) or label_matches_dep(raw_label) then
+                    return raw_label
+                end
+            end
+            if info_label and info_label ~= "" then
+                if dep_backtrack_context(seg_idx, info_label) or label_matches_dep(info_label) then
+                    return info_label
+                end
+            end
+            if comp._lastGuidanceAction == "BACKTRACK RWY" then
+                return comp._runwayName or info_label or next_raw_label or raw_label
+            end
+            return nil
         end
 
         local function dep_gate_taxi_start_context(seg_idx)
@@ -1323,6 +1359,30 @@ function M.attach(U, C, def, helpers, settings)
                 return false
             end
             return (start_node.is_ramp or start_node.ramp_name or start_node.ramp_id) and true or false
+        end
+
+        local function initial_same_taxiway_context(seg_idx, current_display, next_display)
+            if not first_guidance or not path or #path < 3 or not data or not data.nodes then
+                return false
+            end
+            local idx = tonumber(seg_idx) or 1
+            if idx > 1 then
+                return false
+            end
+            if not current_display or current_display == "" or not next_display or next_display == "" then
+                return false
+            end
+            if normalize_taxiway_label(current_display) ~= normalize_taxiway_label(next_display) then
+                return false
+            end
+            local start_node = data.nodes[path[1]]
+            if not start_node then
+                return false
+            end
+            if start_node.is_ramp or start_node.ramp_name or start_node.ramp_id then
+                return false
+            end
+            return true
         end
 
         local function guidance_label_info(from_id, to_id, fallback_label, ramp_hint, allow_missing)
@@ -2485,7 +2545,9 @@ function M.attach(U, C, def, helpers, settings)
                     local same = normalize_taxiway_label(next_display) == normalize_taxiway_label(next_info_raw.display)
                     if same then
                         local strong_turn = turn_angle and (turn_angle >= (C.guidanceTurnAngle * 1.5))
-                        if turn_dir and turn_dir ~= "straight" and allow_turn then
+                        if initial_same_taxiway_context(seg_idx, next_display, next_info_raw.display) then
+                            next_info = build_guidance_for_initial(seg_idx, next_info_raw.display)
+                        elseif turn_dir and turn_dir ~= "straight" and allow_turn then
                             if strong_turn then
                                 next_info = build_guidance_for_turn_text(turn_dir, next_info_raw.display)
                             elseif not is_freehand then
@@ -2669,27 +2731,12 @@ function M.attach(U, C, def, helpers, settings)
             elseif action == "TURN RIGHT" then
                 turn_dir_override = "right"
             end
+            local backtrack_label = dep_backtrack_owner_label(seg_idx, raw_label, next_raw_label, info_label)
             if action == "TURN LEFT" or action == "TURN RIGHT" or action == "ENTER RWY" then
-                local backtrack_label = nil
-                if next_raw_label and dep_backtrack_context(seg_idx, next_raw_label) then
-                    backtrack_label = next_raw_label
-                elseif info_label ~= "" and dep_backtrack_context(seg_idx, info_label) then
-                    backtrack_label = info_label
-                end
                 if backtrack_label then
                     next_info = build_guidance_for_dep_backtrack(seg_idx, backtrack_label, turn_dir_override)
                 end
             elseif action == "CONTINUE" or action == "TAXI VIA" then
-                local backtrack_label = nil
-                if raw_label and dep_backtrack_context(seg_idx, raw_label) then
-                    backtrack_label = raw_label
-                elseif info_label ~= "" and dep_backtrack_context(seg_idx, info_label) then
-                    backtrack_label = info_label
-                elseif raw_label and label_matches_dep(raw_label) then
-                    backtrack_label = raw_label
-                elseif info_label ~= "" and label_matches_dep(info_label) then
-                    backtrack_label = info_label
-                end
                 if backtrack_label then
                     next_info = build_guidance_for_dep_backtrack_continue(seg_idx, backtrack_label)
                 end

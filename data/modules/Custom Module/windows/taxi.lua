@@ -10375,6 +10375,15 @@ local function updateTaxiState(comp, map)
                         nearRunwayEntry = true
                     end
                 end
+                local dep_backtrack_active = comp._depBacktrackRequired
+                if (not dep_backtrack_active) and comp._route and comp._route.path and #comp._route.path >= 2 then
+                    local bt_last = comp._route.path[#comp._route.path]
+                    local bt_prev = comp._route.path[#comp._route.path - 1]
+                    dep_backtrack_active = (bt_last == -1 or bt_last == -2 or bt_prev == -1 or bt_prev == -2)
+                end
+                if dep_backtrack_active and not onRunway then
+                    nearRunwayEntry = false
+                end
                 if onRunway or nearRunwayEntry then
                     local gs = yal and yal.groundspeed and (get(yal.groundspeed) or 0) or 0
                     local takeoff_roll = gs >= ((C and C.depTakeoffLatchSpeed) or 25)
@@ -10386,7 +10395,7 @@ local function updateTaxiState(comp, map)
                                 local entry_action = "ENTER RWY"
                                 local entry_direction = "straight"
                                 local entry_label = build_visual_label("runway", U.normalize_runway_name(comp._runwayName))
-                                if comp._depBacktrackRequired and onRunway then
+                                if dep_backtrack_active and onRunway then
                                     entry_text = "Align with departure " .. rwy_phrase
                                     entry_action = "ALIGN RWY"
                                 elseif comp._route and dep_profile and dep_profile.axis and U.dep_entry_turn_from_route then
