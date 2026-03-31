@@ -5174,7 +5174,7 @@ local function maybe_force_global_for_quality(comp, now, icao, mode, data, helpe
             return false
         end
         local gate_radius = (comp._tuning and comp._tuning.gateSelectRadius) or (C and C.gateSelectRadius) or 120
-        local nearest_ramp, nearest_ramp_dist, nearest_source = choose_active_arrival_retarget_ramp(
+        local nearest_ramp, nearest_ramp_dist, nearest_source = U.choose_active_arrival_retarget_ramp(
             data,
             icao,
             aircraft,
@@ -5436,6 +5436,8 @@ U = {
     normalize_words = normalize_words,
     short_ramp_label = short_ramp_label,
     ramp_key = ramp_key,
+    choose_departure_start_ramp = choose_departure_start_ramp,
+    choose_active_arrival_retarget_ramp = choose_active_arrival_retarget_ramp,
     is_voice_enabled = is_voice_enabled,
     is_auto_taxi_guidance_enabled = is_auto_taxi_guidance_enabled,
     is_visual_taxi_guidance_enabled = is_visual_taxi_guidance_enabled,
@@ -7214,7 +7216,7 @@ local function updateTaxiState(comp, map)
                 if not nearest_ramp then
                     local gate_heading = yalref and yalref.groundtrackmag and get(yalref.groundtrackmag) or nil
                     local gate_radius = tuning.gateSelectRadius or (C and C.gateSelectRadius) or 120
-                    nearest_ramp, nearest_ramp_dist = choose_active_arrival_retarget_ramp(
+                    nearest_ramp, nearest_ramp_dist = U.choose_active_arrival_retarget_ramp(
                         data,
                         icao,
                         aircraft,
@@ -7416,7 +7418,7 @@ local function updateTaxiState(comp, map)
         if type(gate_heading) ~= "number" then
             gate_heading = aircraft.heading
         end
-        start_ramp = choose_departure_start_ramp(comp, data, icao, aircraft, gate_heading)
+        start_ramp = U.choose_departure_start_ramp(comp, data, icao, aircraft, gate_heading)
     end
 
     if mode == 0 then
@@ -10478,7 +10480,7 @@ local function updateTaxiState(comp, map)
                         )
                     end
                     if not nearest_ramp then
-                        nearest_ramp, nearest_ramp_dist = choose_active_arrival_retarget_ramp(
+                        nearest_ramp, nearest_ramp_dist = U.choose_active_arrival_retarget_ramp(
                             comp._data,
                             icao,
                             aircraft,
