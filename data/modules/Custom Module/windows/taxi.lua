@@ -6539,15 +6539,30 @@ local function updateTaxiState(comp, map)
                 or (comp._route and comp._route.path and #comp._route.path > 1)
             )
         local switched = false
+        local preserved_dep_start = false
         if onGroundSensor and aircraft and U.is_valid_latlon(aircraft.lat, aircraft.lon)
             and (not in_edit) and (not comp._drawRoute) and (not comp._drawFreehand)
             and (not has_manual_route) then
-            switched = reroute_from_current_aircraft(comp, data, "source-switch", true, log_taxi)
+            local source_yal = comp.yal or _G.yal
+            local gs_now = source_yal and source_yal.groundspeed and (get(source_yal.groundspeed) or 0) or 0
+            if mode == 0 and gs_now <= 3
+                and (comp._startRampChoiceKey or comp._startRampKey) then
+                preserved_dep_start = true
+                comp._rerouteOverride = nil
+                comp._rerouteOverrideHoldUntil = nil
+                comp._depEntryReselectPending = true
+                log_taxi(
+                    "TaxiSource: preserve dep start ramp on switch key="
+                    .. tostring(comp._startRampChoiceKey or comp._startRampKey or "")
+                )
+            else
+                switched = reroute_from_current_aircraft(comp, data, "source-switch", true, log_taxi)
+            end
             if switched and mode == 0 then
                 comp._depEntryReselectPending = true
             end
         end
-        if not switched then
+        if (not switched) and (not preserved_dep_start) then
             log_taxi(
                 "TaxiSource: migrate skipped onGround="
                 .. tostring(onGroundSensor == true)
@@ -9195,9 +9210,26 @@ local function updateTaxiState(comp, map)
                     log_taxi("TaxiRoute: keep last-good (arr-gate)")
                 end
             end
+            local dep_taxi_only_ok = true
+            local dep_taxi_only_limit = 300
+            if mode == 0 and dep_backtrack_required and tonumber(dep_end_node_dist) and dep_end_node_dist > dep_taxi_only_limit then
+                dep_taxi_only_ok = false
+                local dep_taxi_only_block_key = table.concat({
+                    tostring(icao),
+                    tostring(dep_end_node_id or ""),
+                    tostring(math.floor((dep_end_node_dist or 0) + 0.5))
+                }, "|")
+                if comp._lastDepTaxiOnlyBlockKey ~= dep_taxi_only_block_key then
+                    comp._lastDepTaxiOnlyBlockKey = dep_taxi_only_block_key
+                    log_taxi(
+                        "TaxiRoute: dep taxi-only blocked dist=" .. tostring(math.floor((dep_end_node_dist or 0) + 0.5))
+                    )
+                end
+            end
             if route and mode == 0 and dep_backtrack_required
                 and dep_end_node_id and (not has_end_override)
-                and (not manual_active) and (comp._selectedDepEntryManual ~= true) then
+                and (not manual_active) and (comp._selectedDepEntryManual ~= true)
+                and dep_taxi_only_ok then
                 local dep_taxi_route, dep_taxi_err = U.maybe_build_dep_taxi_only_route(
                     icao,
                     route,
