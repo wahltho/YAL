@@ -1599,6 +1599,42 @@ function M.attach(U, C, def, helpers, settings)
             }
         end
 
+        local function normalize_dep_backtrack_guidance(seg_idx, info, raw_label, next_raw_label)
+            if not info or not dep_backtrack_sequence_active(comp) or comp.mode ~= 0 then
+                return info
+            end
+            local action = tostring(info.action or "")
+            local info_label = tostring(info.display or "")
+            local runway_context = info.kind == "runway"
+                or (raw_label and is_runway_label(raw_label))
+                or (next_raw_label and is_runway_label(next_raw_label))
+                or (info_label ~= "" and label_matches_dep(info_label))
+            if not runway_context then
+                return info
+            end
+            local backtrack_label = dep_backtrack_owner_label(seg_idx, raw_label, next_raw_label, info_label)
+            if not backtrack_label then
+                return info
+            end
+            local turn_dir_override = nil
+            if action == "TURN LEFT" then
+                turn_dir_override = "left"
+            elseif action == "TURN RIGHT" then
+                turn_dir_override = "right"
+            end
+            if action == "TURN LEFT" or action == "TURN RIGHT" or action == "ENTER RWY" then
+                return build_guidance_for_dep_backtrack(seg_idx, backtrack_label, turn_dir_override)
+            end
+            if action == "CONTINUE"
+                or action == "TAXI VIA"
+                or action == "TAXI"
+                or action == "EXIT RWY"
+                or action == "ALIGN RWY" then
+                return build_guidance_for_dep_backtrack_continue(seg_idx, backtrack_label)
+            end
+            return info
+        end
+
         local function build_guidance_for_runway_entry(seg_idx, label, turn_dir)
             local display = runway_display(label)
             local text = "Taxi via " .. runway_voice(label)
@@ -2722,26 +2758,7 @@ function M.attach(U, C, def, helpers, settings)
             end
         end
 
-        if next_info and comp.mode == 0 and dep_backtrack_sequence_active(comp) and next_info.kind == "runway" then
-            local info_label = next_info.display or ""
-            local action = tostring(next_info.action or "")
-            local turn_dir_override = nil
-            if action == "TURN LEFT" then
-                turn_dir_override = "left"
-            elseif action == "TURN RIGHT" then
-                turn_dir_override = "right"
-            end
-            local backtrack_label = dep_backtrack_owner_label(seg_idx, raw_label, next_raw_label, info_label)
-            if action == "TURN LEFT" or action == "TURN RIGHT" or action == "ENTER RWY" then
-                if backtrack_label then
-                    next_info = build_guidance_for_dep_backtrack(seg_idx, backtrack_label, turn_dir_override)
-                end
-            elseif action == "CONTINUE" or action == "TAXI VIA" then
-                if backtrack_label then
-                    next_info = build_guidance_for_dep_backtrack_continue(seg_idx, backtrack_label)
-                end
-            end
-        end
+        next_info = normalize_dep_backtrack_guidance(seg_idx, next_info, raw_label, next_raw_label)
 
         if next_info and dep_terminal_sequence_active(comp, seg_idx, #path) then
             local last_action = tostring(comp._lastGuidanceAction or "")
@@ -2947,6 +2964,9 @@ function M.attach(U, C, def, helpers, settings)
         if (not is_freehand) and (not next_info) and dist <= (C.guidanceTurnDistance * 0.5) then
             local info = build_guidance_from_segment(seg_idx)
             if info then
+                local seg_raw_label = get_edge_label(data, path[seg_idx], path[seg_idx + 1])
+                local seg_next_raw_label = get_edge_label(data, path[seg_idx + 1], path[seg_idx + 2])
+                info = normalize_dep_backtrack_guidance(seg_idx, info, seg_raw_label, seg_next_raw_label)
                 if dep_terminal_sequence_active(comp, seg_idx, #path) and is_generic_taxi_instruction(info) then
                     diag("dep-terminal-hold")
                     return
