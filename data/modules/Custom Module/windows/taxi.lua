@@ -18,6 +18,7 @@ local route_first_taxi_angle
 local choose_departure_start_ramp
 local choose_active_arrival_retarget_ramp
 local evaluate_arrival_route_validity
+local ramp_route_node_id
 
 local def = require("definitions")
 local settings = require("settings")
@@ -3250,7 +3251,7 @@ local function ramp_debug_suffix(ramp)
     return " link[" .. table.concat(parts, " ") .. "]"
 end
 
-local function ramp_route_node_id(ramp)
+ramp_route_node_id = function(ramp)
     if not ramp then
         return nil
     end
