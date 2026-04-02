@@ -1371,7 +1371,11 @@ local function find_nearest_runway_node(data, east, north)
     local best_d2 = nil
     local tie_eps = 0.000001
     for id, node in pairs(data.nodes) do
-        if data.runway_nodes[id] and node.east and node.north then
+        local id_num = tonumber(id)
+        if data.runway_nodes[id]
+            and node.east and node.north
+            and (not node.is_temp)
+            and ((not id_num) or id_num >= 0) then
             local dx = node.east - east
             local dy = node.north - north
             local d2 = dx * dx + dy * dy
@@ -2121,18 +2125,25 @@ collect_runway_exit_candidates = function(data, ref_east, ref_north, max_candida
     local candidates = {}
     local seen = {}
     for rwy_id, _ in pairs(data.runway_nodes) do
-        local neighbors = adj[rwy_id]
-        if neighbors then
-            for _, edge in ipairs(neighbors) do
-                local nid = edge.to
-                if nid and (not data.runway_nodes[nid]) and (not seen[nid]) then
-                    local node = data.nodes[nid]
-                    if node and node.east and node.north then
-                        local dx = node.east - ref_east
-                        local dy = node.north - ref_north
-                        local d2 = dx * dx + dy * dy
-                        candidates[#candidates + 1] = { id = nid, d2 = d2 }
-                        seen[nid] = true
+        local rwy_node = data.nodes[rwy_id]
+        local rwy_id_num = tonumber(rwy_id)
+        if rwy_node and (not rwy_node.is_temp) and ((not rwy_id_num) or rwy_id_num >= 0) then
+            local neighbors = adj[rwy_id]
+            if neighbors then
+                for _, edge in ipairs(neighbors) do
+                    local nid = edge.to
+                    if nid and (not data.runway_nodes[nid]) and (not seen[nid]) then
+                        local node = data.nodes[nid]
+                        local nid_num = tonumber(nid)
+                        if node and node.east and node.north
+                            and (not node.is_temp)
+                            and ((not nid_num) or nid_num >= 0) then
+                            local dx = node.east - ref_east
+                            local dy = node.north - ref_north
+                            local d2 = dx * dx + dy * dy
+                            candidates[#candidates + 1] = { id = nid, d2 = d2 }
+                            seen[nid] = true
+                        end
                     end
                 end
             end
@@ -3554,20 +3565,20 @@ local function infer_arrival_exit_from_route(route, data)
                 local next_is_rwy = next_label and is_runway_label(next_label)
                 if not next_is_rwy then
                     local cand = next_non_temp(i + 1)
-                    return cand or path[i + 1]
+                    return cand
                 end
             else
                 local cand = next_non_temp(i + 1)
-                return cand or path[i + 1]
+                return cand
             end
         elseif saw_runway then
             local cand = next_non_temp(i)
-            return cand or path[i]
+            return cand
         end
     end
     if not saw_runway then
         local cand = next_non_temp(1)
-        return cand or path[1]
+        return cand
     end
     return nil
 end
@@ -4134,6 +4145,12 @@ end
 local function choose_or_keep_arrival_exit(comp, landing_profile, data, proposed_exit_id, proposed_backtrack, aircraft, off_runway, active_context, start_lat, start_lon, log_taxi)
     local exit_id = proposed_exit_id
     local backtrack_required = proposed_backtrack and true or false
+    local exit_node = exit_id and data and data.nodes and data.nodes[exit_id] or nil
+    local exit_num = tonumber(exit_id)
+    if exit_id and ((exit_node and exit_node.is_temp) or (exit_num and exit_num < 0)) then
+        exit_id = nil
+        backtrack_required = false
+    end
     local exit_along = nil
     if landing_profile and exit_id then
         exit_along = runway_exit_along(landing_profile, data, exit_id)
@@ -4152,6 +4169,14 @@ local function choose_or_keep_arrival_exit(comp, landing_profile, data, proposed
 
     if active_context and off_runway == true and comp._arrActiveExitId then
         local committed_exit = comp._arrActiveExitId
+        local committed_node = committed_exit and data and data.nodes and data.nodes[committed_exit] or nil
+        local committed_num = tonumber(committed_exit)
+        if (committed_node and committed_node.is_temp) or (committed_num and committed_num < 0) then
+            committed_exit = nil
+        end
+        if not committed_exit then
+            return exit_id, exit_along, backtrack_required, start_lat, start_lon
+        end
         local committed_along = comp._arrActiveExitAlong
         if committed_along == nil then
             committed_along = comp._arrExitAlong
@@ -4172,6 +4197,11 @@ local function choose_or_keep_arrival_exit(comp, landing_profile, data, proposed
     end
 
     if active_context and off_runway == false and comp._route and comp._arrExitId and exit_id and exit_id ~= comp._arrExitId then
+        local committed_node = data and data.nodes and data.nodes[comp._arrExitId] or nil
+        local committed_num = tonumber(comp._arrExitId)
+        if (committed_node and committed_node.is_temp) or (committed_num and committed_num < 0) then
+            goto skip_committed_keep
+        end
         local validity = comp._arrRouteValidity
         local keep_committed = validity == nil or validity.valid ~= false
         if keep_committed then
@@ -4190,9 +4220,15 @@ local function choose_or_keep_arrival_exit(comp, landing_profile, data, proposed
             return exit_id, exit_along, backtrack_required, start_lat, start_lon
         end
     end
+    ::skip_committed_keep::
 
     if active_context and off_runway == false and comp._arrExitLockedId and exit_id and exit_id ~= comp._arrExitLockedId then
         local locked_exit = comp._arrExitLockedId
+        local locked_node = data and data.nodes and data.nodes[locked_exit] or nil
+        local locked_num = tonumber(locked_exit)
+        if (locked_node and locked_node.is_temp) or (locked_num and locked_num < 0) then
+            goto skip_locked_keep
+        end
         local locked_along = comp._arrExitLockedAlong
         exit_id = locked_exit
         if locked_along ~= nil then
@@ -4205,6 +4241,7 @@ local function choose_or_keep_arrival_exit(comp, landing_profile, data, proposed
         log_taxi("TaxiRoute: ARR exit lock keep=" .. tostring(locked_exit))
         return exit_id, exit_along, backtrack_required, start_lat, start_lon
     end
+    ::skip_locked_keep::
 
     if active_context and off_runway == false and comp._arrExitId and exit_id
         and exit_id ~= comp._arrExitId
@@ -4325,9 +4362,21 @@ local function build_arrival_route_context(route, data, icao, runway_name, start
     ctx.start_node_id, ctx.start_lat, ctx.start_lon = get_route_start_anchor(route, route_data, start_lat, start_lon)
     ctx.route_start_lat = ctx.start_lat
     ctx.route_start_lon = ctx.start_lon
-    ctx.planned_exit_id = arr_exit_id
+    local planned_exit_id = arr_exit_id
+    local planned_node = planned_exit_id and route_data and route_data.nodes and route_data.nodes[planned_exit_id] or nil
+    local planned_num = tonumber(planned_exit_id)
+    if planned_exit_id and ((planned_node and planned_node.is_temp) or (planned_num and planned_num < 0)) then
+        planned_exit_id = nil
+    end
+    ctx.planned_exit_id = planned_exit_id
     local inferred_exit_id = infer_arrival_exit_from_route(route, route_data)
-    ctx.route_exit_id = inferred_exit_id or ctx.start_node_id or arr_exit_id
+    local start_exit_id = ctx.start_node_id
+    local start_node = start_exit_id and route_data and route_data.nodes and route_data.nodes[start_exit_id] or nil
+    local start_num = tonumber(start_exit_id)
+    if start_exit_id and ((start_node and start_node.is_temp) or (start_num and start_num < 0)) then
+        start_exit_id = nil
+    end
+    ctx.route_exit_id = inferred_exit_id or start_exit_id or planned_exit_id
     ctx.active_exit_id = ctx.route_exit_id or ctx.planned_exit_id
     ctx.arr_exit_id = ctx.active_exit_id
     if landing_profile and ctx.planned_exit_id then
@@ -9614,7 +9663,11 @@ local function updateTaxiState(comp, map)
                     local backtrack_node = nil
                     local backtrack_target = nil
                     if mode == 1 and backtrack_required and (not comp._arrOffRunwayHandled) then
-                        backtrack_node = arr_exit_id or route.path[1]
+                        local arr_exit_node = arr_exit_id and data and data.nodes and data.nodes[arr_exit_id] or nil
+                        local arr_exit_num = tonumber(arr_exit_id)
+                        if arr_exit_id and not ((arr_exit_node and arr_exit_node.is_temp) or (arr_exit_num and arr_exit_num < 0)) then
+                            backtrack_node = arr_exit_id
+                        end
                         if aircraft and is_on_runway_profile(profile, aircraft, 60, 5) then
                             backtrack_target = { east = aircraft.east, north = aircraft.north }
                         else
