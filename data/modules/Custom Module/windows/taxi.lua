@@ -2007,9 +2007,13 @@ local function select_runway_exit_node(data, profile, preferred_side, airborne)
     local tol = 80
     local length = profile.length or 0
     local width = profile.width or 0
+    local forward_tol = math.max(tol, math.min(260, math.max(140, width * 4)))
     local perp_limit = math.max(180, width * 4)
     local function backtrack_needed(along_value)
-        if td_along ~= nil and along_value ~= nil and along_value >= (td_along - tol) then
+        if along_value ~= nil and along_value >= (rollout - forward_tol) then
+            return false
+        end
+        if td_along ~= nil and along_value ~= nil and along_value >= (td_along - forward_tol) then
             return false
         end
         return true
@@ -2051,7 +2055,7 @@ local function select_runway_exit_node(data, profile, preferred_side, airborne)
                     best_any_along = along
                     best_any = cand.id
                 end
-                if along >= (rollout - tol) then
+                if along >= (rollout - forward_tol) then
                     local cost = math.abs(along - rollout)
                     if not best_forward_cost or cost < best_forward_cost then
                         best_forward_cost = cost
@@ -2078,6 +2082,9 @@ local function select_runway_exit_node(data, profile, preferred_side, airborne)
         if bf then
             return bf, false
         end
+        if (not bf) and best_any and best_any_along and best_any_along >= (rollout - forward_tol) then
+            return best_any, false
+        end
         if (not bf) and bb and airborne and best_any then
             return best_any, backtrack_needed(best_any_along)
         end
@@ -2093,6 +2100,9 @@ local function select_runway_exit_node(data, profile, preferred_side, airborne)
     end
     if bf then
         return bf, false
+    end
+    if (not bf) and best_any and best_any_along and best_any_along >= (rollout - forward_tol) then
+        return best_any, false
     end
     if (not bf) and bb and airborne and best_any then
         return best_any, backtrack_needed(best_any_along)
