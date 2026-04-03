@@ -4091,7 +4091,18 @@ evaluate_arrival_route_validity = function(route, data, aircraft, landing_profil
     if active_context and landing_profile and not backtrack_required then
         local first_angle = route_first_taxi_angle(route, route_data, landing_profile, arr_exit_id)
         info.first_angle = first_angle
-        if first_angle and first_angle > 120 then
+        local enforce_first_angle = not on_runway
+        if on_runway and arr_exit_id then
+            local aircraft_along = U.compute_along_perp(landing_profile, aircraft)
+            local exit_along = runway_exit_along(landing_profile, route_data, arr_exit_id)
+            if aircraft_along and exit_along then
+                local forward_gap = exit_along - aircraft_along
+                if forward_gap <= math.max(60, drift_meters * 1.2) then
+                    enforce_first_angle = true
+                end
+            end
+        end
+        if enforce_first_angle and first_angle and first_angle > 120 then
             info.valid = false
             info.severe = true
             info.reason = "steep-first-turn"

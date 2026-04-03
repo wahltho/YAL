@@ -964,10 +964,12 @@ function M.attach(U, C, def, helpers, settings)
             end
             local gate_info = (U and gate_alignment_info) and gate_alignment_info(comp, aircraft) or nil
             if gate_info then
+                local park_brake_hold = helpers and helpers.isParkingBrakeSet and helpers.isParkingBrakeSet() and (gs or 0) <= 0.2
                 local cooldown = (comp._tuning and comp._tuning.gateGuidanceCooldownSec) or (C and C.gateGuidanceCooldownSec) or 4
                 local last_time = comp._gateGuidanceLastTime or 0
                 local same = (gate_info.direction == comp._gateGuidanceLastDir) and (gate_info.action == comp._gateGuidanceLastAction)
                 if gate_info.action == "STOP" then
+                    comp._gateGuidanceParkHold = nil
                     if not comp._gateGuidanceStop then
                         local gate_min_age = ((comp._tuning and comp._tuning.gateGuidanceCooldownSec) or (C and C.gateGuidanceCooldownSec) or 4)
                         local gate_age = (comp._gateGuidanceSince and now) and (now - comp._gateGuidanceSince) or gate_min_age
@@ -995,6 +997,14 @@ function M.attach(U, C, def, helpers, settings)
                     end
                     return
                 end
+                if park_brake_hold then
+                    if not comp._gateGuidanceParkHold then
+                        comp._gateGuidanceParkHold = true
+                        diag("gate-park-hold")
+                    end
+                    return
+                end
+                comp._gateGuidanceParkHold = nil
                 comp._gateGuidanceStop = false
                 if (not same) or ((now - last_time) >= cooldown) then
                     maybe_keep_gate_popup(gate_info)
