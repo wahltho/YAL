@@ -771,6 +771,9 @@ function P.YalinitGlobal()
     P.lastHoppiePollCount = nil
     P.lastHoppieVoiceMsg = nil
     P.lastHoppieVoiceTime = nil
+    P.optionalZiboBindRetryAt = 0
+    P.optionalZiboBindLoggedWaiting = false
+    P.ziborelease = nil
 
     P.savetimer = nil
 
@@ -881,6 +884,64 @@ end
 
 --------------------------------------------------------------------------------------------------------------
 -- Datarefs
+
+local function has_valid_property(dr)
+    return dr and isProperty(dr)
+end
+
+local function bind_optional_zibo_dataref(path)
+    local handle = globalProperty(path)
+    if handle and isProperty(handle) then
+        return handle
+    end
+    return nil
+end
+
+function P.tryLatchOptionalZiboDatarefs(force)
+    if not helpers.isZibo() then
+        return false
+    end
+    local now = os.time() or 0
+    local retryAt = P.optionalZiboBindRetryAt or 0
+    if not force and retryAt > 0 and now < retryAt then
+        return false
+    end
+
+    local parkingLatched = has_valid_property(P.parkingbrakepos)
+    if not parkingLatched then
+        P.parkingbrakepos = bind_optional_zibo_dataref("laminar/B738/parking_brake_pos")
+        parkingLatched = has_valid_property(P.parkingbrakepos)
+        if parkingLatched then
+            helpers.logInfoTS("Deferred Zibo dataref latched: laminar/B738/parking_brake_pos")
+        end
+    end
+
+    local releaseLatched = has_valid_property(P.ziborelease)
+    if not releaseLatched then
+        P.ziborelease = bind_optional_zibo_dataref("laminar/B738/release")
+        releaseLatched = has_valid_property(P.ziborelease)
+        if releaseLatched then
+            helpers.logInfoTS("Deferred Zibo dataref latched: laminar/B738/release")
+        end
+    end
+
+    if parkingLatched and releaseLatched then
+        P.optionalZiboBindRetryAt = 0
+        P.optionalZiboBindLoggedWaiting = false
+        return true
+    end
+
+    P.optionalZiboBindRetryAt = now + 30
+    if not P.optionalZiboBindLoggedWaiting then
+        helpers.logInfoTS(string.format(
+            "Deferred Zibo datarefs still waiting: parking_brake_pos=%s release=%s",
+            tostring(parkingLatched),
+            tostring(releaseLatched)
+        ))
+        P.optionalZiboBindLoggedWaiting = true
+    end
+    return false
+end
 
 function P.initDataref()
 
@@ -1105,8 +1166,20 @@ function P.initDataref()
     P.mastercautionannunc = globalProperty("sim/cockpit/warnings/annunciators/master_caution")
 
     P.mainbus = globalProperty("laminar/B738/electric/main_bus")
-    P.parkingbrakepos = globalProperty("laminar/B738/parking_brake_pos")
     P.simparkingbrakeratio = globalProperty("sim/cockpit2/controls/parking_brake_ratio")
+    if not has_valid_property(P.parkingbrakepos) then
+        P.parkingbrakepos = nil
+    end
+    if not has_valid_property(P.ziborelease) then
+        P.ziborelease = nil
+    end
+    if not (has_valid_property(P.parkingbrakepos) and has_valid_property(P.ziborelease)) then
+        P.optionalZiboBindRetryAt = (os.time() or 0) + (def.LONGWAIT or 0)
+        P.optionalZiboBindLoggedWaiting = false
+    else
+        P.optionalZiboBindRetryAt = 0
+        P.optionalZiboBindLoggedWaiting = false
+    end
     P.override_throttles = globalProperty("sim/operation/override/override_throttles")
     P.override_wheel_steer = globalProperty("sim/operation/override/override_wheel_steer")
     P.override_toe_brakes = globalProperty("sim/operation/override/override_toe_brakes")
@@ -2082,7 +2155,7 @@ function P.yalreset()
         helpers.logInfoTS("State from procedures ("..stateFromProcs..") implausible after reset sync. Falling back.")
         -- Fallback
         if aircraftIsOnGround then
-            if get(P.parkingbrakepos) == def.ON then
+            if helpers.isParkingBrakeSet() then
                 finalState = def.FLIGHTSTATESHUTDOWN
             else
                 finalState = def.FLIGHTSTATETAXITOGATE
@@ -5849,7 +5922,7 @@ function P.autofunctions()
         if not stateIsPlausible then
             helpers.logInfoTS("State from procedures ("..stateFromProcs..") is implausible for current ground/air status (" .. (aircraftIsOnGround and "GROUND" or "AIR") .. "). Falling back.")
             if aircraftIsOnGround then
-                if get(P.parkingbrakepos) == def.ON then
+                if helpers.isParkingBrakeSet() then
                     finalState = def.FLIGHTSTATESHUTDOWN
                 else
                     finalState = def.FLIGHTSTATETAXITOGATE
@@ -5900,7 +5973,7 @@ function P.autofunctions()
         end
 
 
-        local triggerConditionsMet_AP = (get(P.parkingbrakepos) == def.ON) and (P.flightstate == def.FLIGHTSTATETAXITOGATE or P.flightstate == def.FLIGHTSTATESHUTDOWN)
+        local triggerConditionsMet_AP = helpers.isParkingBrakeSet() and (P.flightstate == def.FLIGHTSTATETAXITOGATE or P.flightstate == def.FLIGHTSTATESHUTDOWN)
         if triggerConditionsMet_AP then
             P.triggerprocedure(def.ATPARKINGPOSITIONPROCEDURE)
         end
@@ -6735,7 +6808,7 @@ function P.ongoingtasks()
 
                 local battery = get(P.battery)
                 local posLights = get(P.positionlights)
-                local parkBrake = get(P.parkingbrakepos)
+                local parkBrakeSet = helpers.isParkingBrakeSet()
                 local starter1 = get(P.starter1pos)
                 local starter2 = get(P.starter2pos)
                 local beaconLights = get(P.beaconlights)
@@ -6768,7 +6841,7 @@ function P.ongoingtasks()
                     and (isolValve == def.ISOLVALVEAUTO)
                 local engineGenPowerReady = (gen1 == def.ON) and (gen2 == def.ON)
 
-                if battery == def.ON and posLights ~= nil and posLights ~= def.POSLIGHTSSTEADY and parkBrake == def.ON then
+                if battery == def.ON and posLights ~= nil and posLights ~= def.POSLIGHTSSTEADY and parkBrakeSet then
                     P.commandtableentry(def.TEXT, "Set Position Lights Steady")
                 elseif ((starter1 == def.GROUND or starter2 == def.GROUND)) and beaconLights == def.OFF then
                     P.commandtableentry(def.TEXT, "Set Collision Lights On")
@@ -7544,6 +7617,8 @@ function P.do_yal()
         end
         P.needstempinit = false
     end
+
+    P.tryLatchOptionalZiboDatarefs(false)
 
     P.updateSharedVariables()
 

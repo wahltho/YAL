@@ -173,7 +173,6 @@ ffi.cdef [[
 local acf_tailnum = globalProperty("sim/aircraft/view/acf_tailnum")
 local acf_relative_path = globalProperty("sim/aircraft/view/acf_relative_path")
 local onground_any = globalProperty("sim/flightmodel/failures/onground_any")
-local parking_brake_pos = globalProperty("laminar/B738/parking_brake_pos")
 local parking_brake_ratio = globalProperty("sim/cockpit2/controls/parking_brake_ratio")
 local pilots_head_x = globalProperty("sim/graphics/view/pilots_head_x")
 local pilots_head_y = globalProperty("sim/graphics/view/pilots_head_y")
@@ -380,9 +379,37 @@ local function get_flightstate()
     return get(P._flightstate_dr)
 end
 
+function P.isParkingBrakeSet()
+    local yalref = rawget(_G, "yal")
+    local zibo_dr = yalref and yalref.parkingbrakepos or nil
+    if zibo_dr and isProperty(zibo_dr) then
+        local ok, value = pcall(get, zibo_dr)
+        if ok and value == def.ON then
+            return true
+        end
+    end
+    return get(parking_brake_ratio) >= 0.9
+end
+
+function P.getLatchedZiboRelease()
+    local yalref = rawget(_G, "yal")
+    local dr = yalref and yalref.ziborelease or nil
+    if not (dr and isProperty(dr)) then
+        return ""
+    end
+    local ok, raw = pcall(get, dr)
+    if not ok then
+        return ""
+    end
+    if P.forceCleanString then
+        return P.forceCleanString(tostring(raw or ""))
+    end
+    return tostring(raw or "")
+end
+
 local function views_change_allowed()
     local on_ground = get(onground_any) == def.ON
-    local park_set = (get(parking_brake_pos) == def.ON) or (get(parking_brake_ratio) >= 0.9)
+    local park_set = P.isParkingBrakeSet()
     local state = get_flightstate()
     return on_ground and park_set and (state == def.FLIGHTSTATEPREFLIGHT)
 end

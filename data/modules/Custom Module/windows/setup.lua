@@ -11,7 +11,6 @@ local def = require("definitions")
 local settings = require("settings")
 local messages = require("messages")
 local helpers = require("helpers")
-local ziboReleaseDr = globalProperty("laminar/B738/release")
 
 local function isYalBetaVersion()
     return helpers.isPrereleaseVersion(def.VERSION)
@@ -189,11 +188,7 @@ local function truncateTextByWidth(text, maxWidth)
 end
 
 local function ziboHeaderText()
-    if not ziboReleaseDr or not isProperty(ziboReleaseDr) then
-        return nil
-    end
-    local raw = tostring(get(ziboReleaseDr) or "")
-    raw = helpers.forceCleanString(raw)
+    local raw = helpers.getLatchedZiboRelease()
     raw = raw:gsub("^%s+", ""):gsub("%s+$", "")
     if raw == "" then
         return nil

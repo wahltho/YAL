@@ -24,7 +24,6 @@ local startupUpdateCheckEarliest = 0
 local startupUpdateCheckPerformed = false
 local menu_taxi = nil
 local taxiGateLastLogTime = 0
-local ziboReleaseDr = globalProperty("laminar/B738/release")
 
 local function normalize_zibo_release(raw)
     local s = helpers.forceCleanString(tostring(raw or ""))
@@ -507,7 +506,7 @@ local function armStartupUpdateCheck()
         return
     end
     startupUpdateCheckDone = false
-    startupUpdateCheckEarliest = (os.time() or 0) + 2
+    startupUpdateCheckEarliest = (os.time() or 0) + math.max(2, (def.LONGWAIT or 0) + 1)
 end
 
 local function is_yal_beta_version()
@@ -525,10 +524,7 @@ local function maybeRunStartupUpdateCheck()
     if startupUpdateCheckEarliest > 0 and now < startupUpdateCheckEarliest then
         return
     end
-    local ziboRelease = ""
-    if ziboReleaseDr and isProperty(ziboReleaseDr) then
-        ziboRelease = helpers.forceCleanString(tostring(get(ziboReleaseDr) or ""))
-    end
+    local ziboRelease = helpers.getLatchedZiboRelease()
     helpers.logInfoTS(string.format(
         "Zibo installed version: v%s",
         tostring((normalize_zibo_release(ziboRelease) ~= "") and normalize_zibo_release(ziboRelease) or "?")
