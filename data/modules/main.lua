@@ -520,6 +520,9 @@ local function maybeRunStartupUpdateCheck()
     if not settings or not settings.appSettings then
         return
     end
+    if not (yal and yal.externalDatarefsPostStartupDone) then
+        return
+    end
     local now = os.time() or 0
     if startupUpdateCheckEarliest > 0 and now < startupUpdateCheckEarliest then
         return

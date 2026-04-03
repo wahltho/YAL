@@ -771,9 +771,10 @@ function P.YalinitGlobal()
     P.lastHoppiePollCount = nil
     P.lastHoppieVoiceMsg = nil
     P.lastHoppieVoiceTime = nil
-    P.optionalZiboBindRetryAt = 0
-    P.optionalZiboBindLoggedWaiting = false
     P.ziborelease = nil
+    P.needsPostStartupDatarefRebind = false
+    P.externalDatarefsPostStartupDone = false
+    P.initialExternalDatarefMissingCount = 0
 
     P.savetimer = nil
 
@@ -885,62 +886,516 @@ end
 --------------------------------------------------------------------------------------------------------------
 -- Datarefs
 
-local function has_valid_property(dr)
-    return dr and isProperty(dr)
-end
-
-local function bind_optional_zibo_dataref(path)
-    local handle = globalProperty(path)
-    if handle and isProperty(handle) then
-        return handle
-    end
-    return nil
-end
-
-function P.tryLatchOptionalZiboDatarefs(force)
-    if not helpers.isZibo() then
-        return false
-    end
-    local now = os.time() or 0
-    local retryAt = P.optionalZiboBindRetryAt or 0
-    if not force and retryAt > 0 and now < retryAt then
-        return false
+local function probe_external_dataref(name, kind)
+    if kind == "fae" then
+        return sasl.findDataRef(name, TYPE_FLOAT_ARRAY, true) ~= nil
+            or sasl.findDataRef(name, TYPE_INT_ARRAY, true) ~= nil
+    elseif kind == "iae" or kind == "ia" then
+        return sasl.findDataRef(name, TYPE_INT_ARRAY, true) ~= nil
+            or sasl.findDataRef(name, TYPE_FLOAT_ARRAY, true) ~= nil
     end
 
-    local parkingLatched = has_valid_property(P.parkingbrakepos)
-    if not parkingLatched then
-        P.parkingbrakepos = bind_optional_zibo_dataref("laminar/B738/parking_brake_pos")
-        parkingLatched = has_valid_property(P.parkingbrakepos)
-        if parkingLatched then
-            helpers.logInfoTS("Deferred Zibo dataref latched: laminar/B738/parking_brake_pos")
-        end
-    end
-
-    local releaseLatched = has_valid_property(P.ziborelease)
-    if not releaseLatched then
-        P.ziborelease = bind_optional_zibo_dataref("laminar/B738/release")
-        releaseLatched = has_valid_property(P.ziborelease)
-        if releaseLatched then
-            helpers.logInfoTS("Deferred Zibo dataref latched: laminar/B738/release")
-        end
-    end
-
-    if parkingLatched and releaseLatched then
-        P.optionalZiboBindRetryAt = 0
-        P.optionalZiboBindLoggedWaiting = false
+    local ref = sasl.findDataRef(name, TYPE_UNKNOWN, true)
+    if ref then
         return true
     end
-
-    P.optionalZiboBindRetryAt = now + 30
-    if not P.optionalZiboBindLoggedWaiting then
-        helpers.logInfoTS(string.format(
-            "Deferred Zibo datarefs still waiting: parking_brake_pos=%s release=%s",
-            tostring(parkingLatched),
-            tostring(releaseLatched)
-        ))
-        P.optionalZiboBindLoggedWaiting = true
+    local sname, _ = string.match(name, '(.+)%[(%d+)%]$')
+    if sname then
+        return sasl.findDataRef(sname, TYPE_UNKNOWN, true) ~= nil
     end
     return false
+end
+
+local function bind_external_dataref(name, kind, index, silentMissing)
+    if silentMissing and not probe_external_dataref(name, kind) then
+        return nil, true
+    end
+    if kind == "fae" then
+        return globalPropertyfae(name, index), false
+    elseif kind == "iae" then
+        return globalPropertyiae(name, index), false
+    elseif kind == "ia" then
+        return globalPropertyia(name), false
+    end
+    return globalProperty(name), false
+end
+
+function P.bindExternalDatarefs(silentMissing)
+    local missingCount = 0
+
+    local function GP(name)
+        local dr, missing = bind_external_dataref(name, nil, nil, silentMissing)
+        if missing then missingCount = missingCount + 1 end
+        return dr
+    end
+
+    local function GPIA(name)
+        local dr, missing = bind_external_dataref(name, "ia", nil, silentMissing)
+        if missing then missingCount = missingCount + 1 end
+        return dr
+    end
+
+    local function GPIAE(name, index)
+        local dr, missing = bind_external_dataref(name, "iae", index, silentMissing)
+        if missing then missingCount = missingCount + 1 end
+        return dr
+    end
+
+    local function GPFAE(name, index)
+        local dr, missing = bind_external_dataref(name, "fae", index, silentMissing)
+        if missing then missingCount = missingCount + 1 end
+        return dr
+    end
+    P.simpaused = GP("sim/time/paused")
+    P.simfreezed = GPFAE("sim/operation/override/override_planepath", 1)
+    P.battery = GP("laminar/B738/electric/battery_pos")
+    P.batteryswitchcover = GPFAE("laminar/B738/cover", 3)
+    P.emergencylights = GP("laminar/B738/toggle_switch/emer_exit_lights")
+    P.emergencylightcover = GPFAE("laminar/B738/cover", 10)
+    P.windowiceaddeddelta = GP("sim/flightmodel/failures/window_ice_added_delta")
+    P.windowiceunheated = GP("sim/flightmodel/failures/window_ice_unheated")
+
+    P.apgoaround = GP("laminar/B738/autopilot/ap_goaround")
+
+    P.localpositionx = GP("sim/flightmodel/position/local_x")
+    P.localpositiony = GP("sim/flightmodel/position/local_y")
+    P.localpositionz = GP("sim/flightmodel/position/local_z")
+    P.localpositionpsi = GP("sim/flightmodel/position/psi")
+    P.acf_cg_z = GP("sim/aircraft/weight/acf_cgZ_original")
+    P.gear_znose = GPFAE("sim/aircraft/parts/acf_gear_znodef", 1)
+    P.gear_zmain = GPFAE("sim/aircraft/parts/acf_gear_znodef", 2)
+
+    P.fueltank1 = GP("sim/flightmodel/weight/m_fuel1")
+    P.fueltank2 = GP("sim/flightmodel/weight/m_fuel2")
+    P.fueltank3 = GP("sim/flightmodel/weight/m_fuel3")
+
+    P.mastercautionannunc = GP("sim/cockpit/warnings/annunciators/master_caution")
+
+    P.mainbus = GP("laminar/B738/electric/main_bus")
+    P.simparkingbrakeratio = GP("sim/cockpit2/controls/parking_brake_ratio")
+    P.override_throttles = GP("sim/operation/override/override_throttles")
+    P.override_wheel_steer = GP("sim/operation/override/override_wheel_steer")
+    P.override_toe_brakes = GP("sim/operation/override/override_toe_brakes")
+    P.zibo_throttle_override = GP("laminar/B738/throttle_override")
+    P.zibo_nosewheel_steer_override = GP("laminar/B738/nosewheel_steer_override")
+    P.zibo_toe_brake_override = GP("laminar/B738/toe_brake_override")
+    P.yoke_heading_ratio = GP("sim/joystick/yoke_heading_ratio")
+    P.yoke_heading_ratio_cockpit = GP("sim/cockpit2/controls/yoke_heading_ratio")
+    P.left_brake_ratio = GP("sim/cockpit2/controls/left_brake_ratio")
+    P.right_brake_ratio = GP("sim/cockpit2/controls/right_brake_ratio")
+    P.throttle_use_1 = GPFAE("sim/flightmodel/engine/ENGN_thro_use", 1)
+    P.throttle_use_2 = GPFAE("sim/flightmodel/engine/ENGN_thro_use", 2)
+    P.hardware_throttle_1 = GPFAE("sim/cockpit2/engine/actuators/hardware_throttle_ratio", 1)
+    P.hardware_throttle_2 = GPFAE("sim/cockpit2/engine/actuators/hardware_throttle_ratio", 2)
+    P.tire_steer_cmd = GPFAE("sim/flightmodel2/gear/tire_steer_command_deg", 1)
+    P.zibo_axis_throttle1 = GP("laminar/B738/axis/throttle1")
+    P.zibo_axis_throttle2 = GP("laminar/B738/axis/throttle2")
+    P.zibo_axis_nosewheel = GP("laminar/B738/axis/nosewheel")
+    P.zibo_axis_nosewheel2 = GP("laminar/B738/axis/nosewheel2")
+    P.zibo_axis_nosewheel3 = GP("laminar/B738/axis/nosewheel3")
+    P.zibo_axis_heading = GP("laminar/B738/axis/heading")
+    P.zibo_axis_left_toe_brake = GP("laminar/B738/axis/left_toe_brake")
+    P.zibo_axis_right_toe_brake = GP("laminar/B738/axis/right_toe_brake")
+
+    P.pausetod = GP("laminar/B738/fms/pause_td")
+
+    P.vnavtoddist = GP("laminar/B738/fms/vnav_td_dist")
+    P.distdest = GP("laminar/B738/FMS/dist_dest")
+    P.vnavtocdist = GP("laminar/B738/fms/vnav_tc_dist")
+
+    P.hidecptefb = GP("laminar/B738/tab/static")
+    P.hidefoefb = GP("laminar/B738/tab/fo_static")
+
+    P.chockstatus = GP("laminar/B738/fms/chock_status")
+    P.enginenorunningstate = GP("laminar/B738/fms/engine_no_running_state")
+
+    P.wakeoverride = GP("sim/operation/override/override_wake_turbulence")
+    P.runwayfriction = GP("sim/weather/region/runway_friction")
+
+    P.aponstat = GP("laminar/autopilot/ap_on")
+    P.apdiscpos = GP("laminar/B738/autopilot/disconnect_pos")
+
+    P.apcmdastat = GP("laminar/B738/autopilot/cmd_a_status")
+    P.apcmdbstat = GP("laminar/B738/autopilot/cmd_b_status")
+
+    P.apvnavstat = GP("laminar/B738/autopilot/vnav_status1")
+    P.aplnavstat = GP("laminar/B738/autopilot/lnav_status")
+    P.apappstat = GP("laminar/B738/autopilot/app_status")
+    P.apvorlocstat = GP("laminar/B738/autopilot/vorloc_status")
+    P.apalthldstat = GP("laminar/B738/autopilot/alt_hld_status")
+    P.aphdgselstat = GP("laminar/B738/autopilot/hdg_sel_status")
+    P.apvsstat = GP("laminar/B738/autopilot/vs_status")
+    P.aplvlchgstat = GP("laminar/B738/autopilot/lvl_chg_status")
+    P.apvnavaltmode = GP("laminar/B738/autopilot/vnav_alt_mode")
+
+    P.mmrinstalled = GP("laminar/B738/fms/mmr")
+    P.lpvinstalled = GP("laminar/B738/lpv_install")
+    P.mmrcptactmode = GP("laminar/B738/mmr/cpt/act_mode")
+    P.mmrcptactvalue = GP("laminar/B738/mmr/cpt/act_value")
+    P.mmrcptstdbymode = GP("laminar/B738/mmr/cpt/stby_mode")
+    P.mmrcptglsstbyvalue = GPIA("laminar/B738/mmr/cpt/gls_stby_value")
+    P.mmrcptilsstbyvalue = GPIA("laminar/B738/mmr/cpt/ils_stby_value")
+    P.mmrcptilsstbyvalue2 = GPIA("laminar/B738/mmr/cpt/ils_stby_value2")
+    P.mmrcptvorstbyvalue = GPIA("laminar/B738/mmr/cpt/vor_stby_value")
+    P.mmrcptvorstbyvalue2 = GPIA("laminar/B738/mmr/cpt/vor_stby_value2")
+    P.mmrcptstbyvalue = GPIA("laminar/B738/mmr/cpt/stby_value")
+    P.mmrfoactmode = GP("laminar/B738/mmr/fo/act_mode")
+    P.mmrfoactvalue = GP("laminar/B738/mmr/fo/act_value")
+    P.mmrfostdbymode = GP("laminar/B738/mmr/fo/stby_mode")
+    P.mmrfoglsstbyvalue = GPIA("laminar/B738/mmr/fo/gls_stby_value")
+    P.mmrfoilsstbyvalue = GPIA("laminar/B738/mmr/fo/ils_stby_value")
+    P.mmrfoilsstbyvalue2 = GPIA("laminar/B738/mmr/fo/ils_stby_value2")
+    P.mmrfovorstbyvalue = GPIA("laminar/B738/mmr/fo/vor_stby_value")
+    P.mmrfovorstbyvalue2 = GPIA("laminar/B738/mmr/fo/vor_stby_value2")
+    P.mmrfostbyvalue = GPIA("laminar/B738/mmr/fo/stby_value")
+
+    P.apgscapturedstat = GPFAE("laminar/B738/ap/glideslope_status", 1)
+    P.aploccapturedstat = GPFAE("laminar/B738/ap/approach_status", 1)
+    P.aprolloutstat = GPFAE("laminar/B738/ap/rollout_status", 1)
+    P.apflarestat = GPFAE("laminar/B738/ap/flare_status", 1)
+
+    P.aplpvgscapturedstat = GPFAE("laminar/B738/ap/lpv_gs_status", 1)
+    P.aplpvnavcapturedstat = GPFAE("laminar/B738/ap/lpv_nav_status", 1)
+    P.aplpvloccapturedstat = GPFAE("laminar/B738/ap/lpv_app_status", 1)
+
+    P.apglsgscapturedstat = GPFAE("laminar/B738/ap/gls_gs_status", 1)
+    P.apglsnavcapturedstat = GPFAE("laminar/B738/ap/gls_nav_status", 1)
+    P.apglsloccapturedstat = GPFAE("laminar/B738/ap/gls_app_status", 1)
+
+    P.apfacgscapturedstat = GPFAE("laminar/B738/ap/gp_status", 1)
+    P.apfacloccapturedstat = GPFAE("laminar/B738/ap/fac_status", 1)
+    P.ianinfo = GP("laminar/B738/fms/ian_info")
+    P.ianinfofo = GP("laminar/B738/fms/ian_info_fo")
+    P.autopilotpfdmode = GP("laminar/B738/autopilot/pfd_mode")
+    P.autopilotpfdmodefo = GP("laminar/B738/autopilot/pfd_mode_fo")
+    P.scalepfdmode = GP("laminar/B738/autopilot/scale_pfd_mode")
+    P.scalepfdmodefo = GP("laminar/B738/autopilot/scale_pfd_mode_fo")
+    P.fmsilsdisable = GP("laminar/B738/FMS/ils_disable")
+    P.faccrs = GP("laminar/B738/fms/fac_crs")
+    P.gppthalt = GP("laminar/B738/fms/gp_pth_alt")
+    P.vnavgpactive = GP("laminar/B738/fms/vnav_gp_active")
+
+    P.aphdgmode = GP("laminar/B738/autopilot/heading_mode")
+    P.apaltmode = GP("laminar/B738/autopilot/altitude_mode")
+
+    P.atarmpos = GP("laminar/B738/autopilot/autothrottle_arm_pos")
+    P.atn1stat = GP("laminar/B738/autopilot/n1_status")
+    P.atspeedstat = GP("laminar/B738/autopilot/speed_status1")
+    P.atspeedintvstat = GP("laminar/B738/autopilot/spd_interv_status")
+    P.atn1mode = GP("laminar/B738/FMS/N1_mode")
+    P.atn1modetoselection = GP("laminar/B738/FMS/N1_mode_to_sel")
+    P.atthrottlelock = GP("laminar/B738/autopilot/lock_throttle")
+
+    P.atspeedmode = GP("laminar/B738/autopilot/speed_mode")
+
+    P.gearhandlepos = GP("laminar/B738/controls/gear_handle_down")
+    P.lgeardeployed = GPFAE("sim/aircraft/parts/acf_gear_deploy", 1)
+    P.ngeardeployed = GPFAE("sim/aircraft/parts/acf_gear_deploy", 2)
+    P.rgeardeployed = GPFAE("sim/aircraft/parts/acf_gear_deploy", 3)
+
+    P.altitude = GP("laminar/B738/autopilot/altitude")
+    P.altitude_ft = GP("sim/cockpit2/gauges/indicators/altitude_ft_pilot")
+    P.fmccruisealt = GP("laminar/B738/autopilot/fmc_cruise_alt")
+    P.radioaltitude = GP("sim/cockpit2/gauges/indicators/radio_altimeter_height_ft_pilot")
+
+    P.groundtrackmag = GP("sim/cockpit2/gauges/indicators/ground_track_mag_pilot")
+
+    P.trimwheel = GP("laminar/B738/flt_ctrls/trim_wheel")
+    P.trimcalc = GP("laminar/B738/FMS/trim_calc")
+
+    P.gpuavailable = GP("laminar/B738/gpu_available")
+    P.jetwaypoweravailable = GP("laminar/B738/jetway_power")
+    P.autogategpu = GP("laminar/B738/autogate_gpu")
+    P.gpuon = GP("sim/cockpit/electrical/gpu_on")
+    P.engineairstart = GP("laminar/B738/engine/engine_air_start")
+
+    P.apustarterpos = GP("laminar/B738/spring_toggle_switch/APU_start_pos")
+    P.apupsi = GP("laminar/B738/air/apu_psi")
+    P.apugenoffbus = GP("laminar/B738/annunciator/apu_gen_off_bus")
+    P.apupowerbus1 = GP("laminar/B738/electrical/apu_power_bus1")
+    P.apupowerbus2 = GP("laminar/B738/electrical/apu_power_bus2")
+
+    P.announcsourceoff1 = GP("laminar/B738/annunciator/source_off1")
+    P.announcsourceoff2 = GP("laminar/B738/annunciator/source_off2")
+
+    P.gen1pos = GPIAE("sim/cockpit/electrical/generator_on", 1)
+    P.gen2pos = GPIAE("sim/cockpit/electrical/generator_on", 2)
+
+    P.bleedair1pos = GP("laminar/B738/toggle_switch/bleed_air_1_pos")
+    P.bleedair2pos = GP("laminar/B738/toggle_switch/bleed_air_2_pos")
+    P.bleedairapupos = GP("laminar/B738/toggle_switch/bleed_air_apu_pos")
+    P.isolvalvepos = GP("laminar/B738/air/isolation_valve_pos")
+    P.packlpos = GP("laminar/B738/air/l_pack_pos")
+    P.packrpos = GP("laminar/B738/air/r_pack_pos")
+    P.trimairpos = GP("laminar/B738/air/trim_air_pos")
+    P.lrecircfanpos = GP("laminar/B738/air/l_recirc_fan_pos")
+    P.rrecircfanpos = GP("laminar/B738/air/r_recirc_fan_pos")
+
+    P.starterauto = GP("laminar/B738/engine_start_auto")
+    P.starter1pos = GP("laminar/B738/engine/starter1_pos")
+    P.starter2pos = GP("laminar/B738/engine/starter2_pos")
+
+    P.mixture1pos = GP("laminar/B738/engine/mixture_ratio1")
+    P.mixture2pos = GP("laminar/B738/engine/mixture_ratio2")
+
+    P.reverser1pos = GP("laminar/B738/flt_ctrls/reverse_lever1")
+    P.reverser2pos = GP("laminar/B738/flt_ctrls/reverse_lever2")
+
+    P.totalfuellbs = GP("laminar/B738/fuel/total_tank_lbs")
+    P.totalfuelkgs = GP("laminar/B738/fuel/total_tank_kgs")
+    P.fuelunit = GP("laminar/B738/FMS/fmc_units")
+
+    P.totalweightkgs = GP("sim/flightmodel/weight/m_total")
+
+    P.centertanklbs = GP("laminar/B738/fuel/center_tank_lbs")
+    P.centertanklpress = GP("laminar/B738/system/fuel_press_c1")
+    P.centertankrpress = GP("laminar/B738/system/fuel_press_c2")
+    P.centertanklswitch = GP("laminar/B738/fuel/fuel_tank_pos_ctr1")
+    P.centertankrswitch = GP("laminar/B738/fuel/fuel_tank_pos_ctr2")
+    P.centertankstat = GP("laminar/B738/fuel/center_status")
+    P.lefttanklbs = GP("laminar/B738/fuel/left_tank_lbs")
+    P.lefttanklswitch = GP("laminar/B738/fuel/fuel_tank_pos_lft1")
+    P.lefttankrswitch = GP("laminar/B738/fuel/fuel_tank_pos_lft2")
+    P.righttanklbs = GP("laminar/B738/fuel/right_tank_lbs")
+    P.righttanklswitch = GP("laminar/B738/fuel/fuel_tank_pos_rgt2")
+    P.righttankrswitch = GP("laminar/B738/fuel/fuel_tank_pos_rgt1")
+
+    P.eng1n1ratio = GP("laminar/B738/FMS/eng1_N1_ratio")
+    P.eng2n1ratio = GP("laminar/B738/FMS/eng2_N1_ratio")
+    P.eng1n1percent = GPFAE("sim/flightmodel2/engines/N1_percent", 1)
+    P.eng2n1percent = GPFAE("sim/flightmodel2/engines/N1_percent", 2)
+    P.eng1n2percent = GPFAE("sim/flightmodel2/engines/N2_percent", 1)
+    P.eng2n2percent = GPFAE("sim/flightmodel2/engines/N2_percent", 2)
+    P.fadec1on = GPFAE("sim/cockpit2/engine/actuators/fadec_on", 1)
+    P.fadec2on = GPFAE("sim/cockpit2/engine/actuators/fadec_on", 2)
+    P.fuel_flow_kg_sec_1 = GPFAE("laminar/B738/engine/fuel_flow_kg_sec", 1)
+    P.fuel_flow_kg_sec_2 = GPFAE("laminar/B738/engine/fuel_flow_kg_sec", 2)
+
+    P.eng1heatpos = GP("laminar/B738/ice/eng1_heat_pos")
+    P.eng2heatpos = GP("laminar/B738/ice/eng2_heat_pos")
+    P.wingheatpos = GP("laminar/B738/ice/wing_heat_pos")
+
+    P.hydro1pos = GP("laminar/B738/toggle_switch/hydro_pumps1_pos")
+    P.hydro2pos = GP("laminar/B738/toggle_switch/hydro_pumps2_pos")
+    P.elechydro1pos = GP("laminar/B738/toggle_switch/electric_hydro_pumps1_pos")
+    P.elechydro2pos = GP("laminar/B738/toggle_switch/electric_hydro_pumps2_pos")
+
+    P.airgroundsensor = GP("laminar/B738/air_ground_sensor")
+    P.autobrakepos = GP("laminar/B738/autobrake/autobrake_pos")
+    P.autobrakedisarm = GP("laminar/B738/autobrake/autobrake_disarm")
+
+    P.fmsflightphase = GP("laminar/B738/FMS/flight_phase")
+    P.tobiiEyetracker = GP("sim/graphics/view/eq_tobii_eyetracker")
+
+    P.fmctransalt = GP("laminar/B738/FMS/fmc_trans_alt")
+    P.fmctranslvl = GP("laminar/B738/FMS/fmc_trans_lvl")
+
+    P.bankanglepos = GP("laminar/B738/autopilot/bank_angle_pos")
+
+    P.baropilot = GP("laminar/B738/EFIS/baro_sel_in_hg_pilot")
+    P.barostd = GP("laminar/B738/EFIS/baro_set_std_pilot")
+    P.baroinhpa = GP("laminar/B738/EFIS_control/capt/baro_in_hpa")
+    P.baroregionpas = GP("sim/weather/region/qnh_pas")
+
+    P.frameice = GP("sim/flightmodel/failures/frm_ice")
+    P.tatdegc = GP("laminar/B738/systems/temperature/tat_degc")
+
+    P.cabincruisealt = GP("sim/cockpit/pressure/max_allowable_altitude")
+    P.cabinlandingalt = GP("laminar/B738/pressurization/knobs/landing_alt")
+    P.missedappalt = GP("laminar/B738/fms/missed_app_alt")
+
+    P.llights1 = GPFAE("sim/cockpit2/switches/landing_lights_switch", 1)
+    P.llights2 = GPFAE("sim/cockpit2/switches/landing_lights_switch", 2)
+    P.llights3 = GPFAE("sim/cockpit2/switches/landing_lights_switch", 3)
+    P.llights4 = GPFAE("sim/cockpit2/switches/landing_lights_switch", 4)
+    P.ledlightsvariant = GP("laminar/B738/led_lights")
+
+    P.taxilight = GP("laminar/B738/toggle_switch/taxi_light_brightness_pos")
+    P.positionlights = GP("laminar/B738/toggle_switch/position_light_pos")
+    P.beaconlights = GP("sim/cockpit/electrical/beacon_lights_on")
+    P.rwylightl = GP("laminar/B738/toggle_switch/rwy_light_left")
+    P.rwylightr = GP("laminar/B738/toggle_switch/rwy_light_right")
+    P.logolighton = GP("laminar/B738/toggle_switch/logo_light")
+
+    P.transponderpos = GP("laminar/B738/knob/transponder_pos")
+    P.transpondercode = GP("sim/cockpit/radios/transponder_code")
+
+    P.fdpilotpos = GP("laminar/B738/autopilot/flight_director_pos")
+    P.fdfopos = GP("laminar/B738/autopilot/flight_director_fo_pos")
+
+    P.efiswxpilotpos = GP("laminar/B738/EFIS/EFIS_wx_on")
+    P.efiswxfopos = GP("laminar/B738/EFIS/fo/EFIS_wx_on")
+    P.efisterrpilotpos = GP("laminar/B738/EFIS_control/capt/terr_on")
+    P.efisterrfopos = GP("laminar/B738/EFIS_control/fo/terr_on")
+    P.efisfixpilotpos = GP("laminar/B738/EFIS/EFIS_fix_on")
+    P.efisfixfopos = GP("laminar/B738/EFIS/fo/EFIS_fix_on")
+    P.efisdatapilotpos = GP("laminar/B738/EFIS/capt/data_status")
+    P.efisdatafopos = GP("laminar/B738/EFIS/fo/data_status")
+    P.efisairportpilotpos = GP("laminar/B738/EFIS/EFIS_airport_on")
+    P.efisairportfopos = GP("laminar/B738/EFIS/fo/EFIS_airport_on")
+    P.efispospilotpos = GP("laminar/B738/pfd/gps1_pos_show")
+    P.efisposfopos = GP("laminar/B738/pfd/gps1_pos_fo_show")
+    P.efisvorpilotpos = GP("laminar/B738/EFIS/EFIS_vor_on")
+    P.efisvorfopos = GP("laminar/B738/EFIS/fo/EFIS_vor_on")
+
+    P.n1setsource = GP("laminar/B738/toggle_switch/n1_set_source")
+
+    P.dhpilot = GP("laminar/B738/pfd/dh_pilot")
+
+    P.elevation = GP("sim/flightmodel/position/elevation")
+
+    P.depicao = GP("laminar/B738/fms/ref_icao")
+    P.deprwyheading = GP("laminar/B738/fms/ref_runway_crs_mod")
+    P.deprwylen = GP("laminar/B738/fms/ref_runway_len")
+    P.deprwylatstartpos = GP("laminar/B738/fms/ref_runway_start_lat_mod")
+    P.deprwylonstartpos = GP("laminar/B738/fms/ref_runway_start_lon_mod")
+    P.deprwylatendpos = GP("laminar/B738/fms/ref_runway_end_lat_mod")
+    P.deprwylonendpos = GP("laminar/B738/fms/ref_runway_end_lon_mod")
+    P.deprwy = GP("laminar/B738/fms/ref_runway")
+
+    P.desicao = GP("laminar/B738/fms/dest_icao")
+    P.desrwyheading = GP("laminar/B738/fms/dest_runway_crs")
+    P.desrwylatstartpos = GP("laminar/B738/fms/dest_runway_start_lat_mod")
+    P.desrwylonstartpos = GP("laminar/B738/fms/dest_runway_start_lon_mod")
+    P.desrwylatendpos = GP("laminar/B738/fms/dest_runway_end_lat_mod")
+    P.desrwylonendpos = GP("laminar/B738/fms/dest_runway_end_lon_mod")
+    P.desrwyalt = GP("laminar/B738/pfd/des_rwy_altitude")
+    P.desrwylen = GP("laminar/B738/fms/dest_runway_len")
+    P.desrwy = GP("laminar/B738/fms/dest_runway")
+ 
+    P.nearesticao = GP("laminar/B738/near_apt_icao")
+
+    P.fmslegs = GP("laminar/B738/fms/legs")
+    P.fmslegslat = GP("laminar/B738/fms/legs_lat")
+    P.fmslegslon = GP("laminar/B738/fms/legs_lon")
+
+    P.aircraftlatpos = GP("sim/flightmodel/position/latitude")
+    P.aircraftlonpos = GP("sim/flightmodel/position/longitude")
+
+    P.sunpitchdegrees = GP("sim/graphics/scenery/sun_pitch_degrees")
+
+    P.flapleverpos = GP("laminar/B738/flt_ctrls/flap_lever")
+    P.speedbrakelever = GP("laminar/B738/flt_ctrls/speedbrake_lever")
+    P.speedbrakeleveranim = GP("laminar/B738/flt_ctrls/speedbrake_lever_anim")
+    P.speedbrakeratio = GP("sim/cockpit2/controls/speedbrake_ratio")
+
+    P.flapsupspeed = GP("laminar/B738/pfd/flaps_up")
+    P.flaps1speed = GP("laminar/B738/pfd/flaps_1")
+    P.flaps2speed = GP("laminar/B738/pfd/flaps_2")
+    P.flaps5speed = GP("laminar/B738/pfd/flaps_5")
+    P.flaps10speed = GP("laminar/B738/pfd/flaps_10")
+    P.flaps15speed = GP("laminar/B738/pfd/flaps_15")
+    P.flaps25speed = GP("laminar/B738/pfd/flaps_25")
+
+    P.toflaps = GP("laminar/B738/FMS/takeoff_flaps")
+    P.toflapsset = GP("laminar/B738/FMS/takeoff_flaps_set")
+    P.appflaps = GP("laminar/B738/FMS/approach_flaps")
+    P.appflapsset = GP("laminar/B738/FMS/approach_flaps_set")
+
+    P.airspeed = GP("laminar/B738/autopilot/airspeed")
+    P.ias_kts = GP("sim/cockpit2/gauges/indicators/airspeed_kts_pilot")
+    P.tas_kts = GP("sim/flightmodel/position/true_airspeed")
+    P.tas_kts_is_ms = true
+    P.groundspeed = GP("laminar/b738/fmodpack/real_groundspeed")
+    P.tirespeed = GP("laminar/B738/systems/tire_speed0")
+    P.verticalspeed = GPFAE("sim/cockpit2/tcas/targets/position/vertical_speed", 1)
+
+    P.v1speed = GP("laminar/B738/FMS/v1")
+    P.v2speed = GP("laminar/B738/FMS/v2")
+    P.vrspeed = GP("laminar/B738/FMS/vr")
+
+    P.v1calcspeed = GP("laminar/B738/FMS/v1_calc")
+    P.v2calcspeed = GP("laminar/B738/FMS/v2_calc")
+    P.vrcalcspeed = GP("laminar/B738/FMS/vr_calc")
+
+    P.v1setspeed = GP("laminar/B738/FMS/v1_set")
+    P.v2setspeed = GP("laminar/B738/FMS/v2_set")
+    P.vrsetspeed = GP("laminar/B738/FMS/vr_set")
+
+    P.fmccg = GP("laminar/B738/FMS/fmc_cg")
+    P.tabcg = GP("laminar/B738/tab/cg_pos")
+    P.calctakeoffcg = GP("laminar/B738/fms/calc_to_cg")
+
+    P.speedrestr = GP("laminar/B738/autopilot/fmc_descent_r_speed1")
+
+    P.vref = GP("laminar/B738/FMS/vref")
+    P.vref15 = GP("laminar/B738/FMS/vref_15")
+    P.vref25 = GP("laminar/B738/FMS/vref_25")
+    P.vref30 = GP("laminar/B738/FMS/vref_30")
+    P.vref40 = GP("laminar/B738/FMS/vref_40")
+    P.vrefapproachwindcorr = GP("laminar/B738/FMS/approach_wind_corr")
+    P.fmclandinggw = GP("laminar/B738/FMS/fmc_gw_app")
+    P.fmctakeoffgw = GP("laminar/B738/FMS/fmc_gw")
+    P.fmcseltemp = GP("laminar/B738/FMS/fmc_sel_temp")
+    P.fmcoattemp = GP("laminar/B738/FMS/fmc_oat_temp")
+    P.b737variant = GP("zibomod/b737_variant")
+    P.runwaywinddir = GP("laminar/B738/fms/rw_wind_dir")
+    P.runwaywindspd = GP("laminar/B738/fms/rw_wind_spd")
+    P.runwayslope = GP("laminar/B738/fms/rw_slope")
+    P.runwayheadingfmc = GP("laminar/B738/fms/rw_hdg")
+    P.fueltemp = GP("laminar/B738/engine/fuel_temp_real")
+    P.glscourse = GP("laminar/B738/nav/gls1_crs")
+
+    P.rain = GP("sim/weather/view/rain_ratio")
+
+    P.lwiperpos = GP("laminar/B738/switches/left_wiper_pos")
+    P.rwiperpos = GP("laminar/B738/switches/right_wiper_pos")
+
+    P.mfdsyspos = GP("laminar/B738/buttons/mfd_sys_pos")
+    P.lowerdupage = GP("laminar/B738/systems/lowerDU_page")
+    P.lowerdupage2 = GP("laminar/B738/systems/lowerDU_page2")
+
+    P.nav1freq = GP("sim/cockpit/radios/nav1_freq_hz")
+    P.nav1stdbyfreq = GP("sim/cockpit/radios/nav1_stdby_freq_hz")
+    P.nav2freq = GP("sim/cockpit/radios/nav2_freq_hz")
+    P.nav2stdbyfreq = GP("sim/cockpit/radios/nav2_stdby_freq_hz")
+    P.mcppilotcourse = GP("laminar/B738/autopilot/course_pilot")
+    P.mcpcopilotcourse = GP("laminar/B738/autopilot/course_copilot")
+    P.mcpheading = GP("laminar/B738/autopilot/mcp_hdg_dial")
+    P.mcpspeed = GP("laminar/B738/autopilot/mcp_speed_dial_kts_mach")
+    P.mcpaltitude = GP("laminar/B738/autopilot/mcp_alt_dial")
+    P.mcpvsspeed = GP("sim/cockpit/autopilot/vertical_velocity")
+
+    P.domelightpos = GP("laminar/B738/toggle_switch/cockpit_dome_pos")
+
+    P.seatbeltsignpos = GP("laminar/B738/toggle_switch/seatbelt_sign_pos")
+    P.nosmokingsignpos = GP("laminar/B738/toggle_switch/no_smoking_pos")
+
+    P.brightmainpanel = GPFAE("laminar/B738/electric/panel_brightness", 1)
+    P.brightcopilotmainpanel = GPFAE("laminar/B738/electric/panel_brightness", 2)
+    P.brightoverhead = GPFAE("laminar/B738/electric/panel_brightness", 3)
+    P.brightpedestral = GPFAE("laminar/B738/electric/panel_brightness", 4)
+
+    P.genbrightbackground = GPFAE("laminar/B738/electric/generic_brightness", 7)
+    P.genbrightafdsflood = GPFAE("laminar/B738/electric/generic_brightness", 8)
+    P.genbrightpedestralflood = GPFAE("laminar/B738/electric/generic_brightness", 9)
+
+    P.instrbrightoutbddu = GPFAE("laminar/B738/electric/instrument_brightness", 1)
+    P.instrbrightcopilotoutbddu = GPFAE("laminar/B738/electric/instrument_brightness", 2)
+    P.instrbrightinbddu = GPFAE("laminar/B738/electric/instrument_brightness", 3)
+    P.instrbrightcopilotinbddu = GPFAE("laminar/B738/electric/instrument_brightness", 4)
+    P.instrbrightupperdu = GPFAE("laminar/B738/electric/instrument_brightness", 5)
+    P.instrbrightlowdu = GPFAE("laminar/B738/electric/instrument_brightness", 6)
+    P.instrbrightinbdduS = GPFAE("laminar/B738/electric/instrument_brightness", 25)
+    P.instrbrightlowduS = GPFAE("laminar/B738/electric/instrument_brightness", 26)
+    P.instrbrightcopilotinbdduS = GPFAE("laminar/B738/electric/instrument_brightness", 27)
+
+    P.captainprobepos = GP("laminar/B738/toggle_switch/capt_probes_pos")
+    P.foprobepos = GP("laminar/B738/toggle_switch/fo_probes_pos")
+    P.wheatlfwdpos = GP("laminar/B738/ice/window_heat_l_fwd_pos")
+    P.wheatrfwdpos = GP("laminar/B738/ice/window_heat_r_fwd_pos")
+    P.wheatlsidepos = GP("laminar/B738/ice/window_heat_l_side_pos")
+    P.wheatrsidepos = GP("laminar/B738/ice/window_heat_r_side_pos")
+
+    P.irsleftpos = GP("laminar/B738/toggle_switch/irs_left")
+    P.irsrightpos = GP("laminar/B738/toggle_switch/irs_right")
+    P.irsalignleft = GP("laminar/B738/annunciator/irs_align_left2")
+    P.irsalignright = GP("laminar/B738/annunciator/irs_align_right2")
+    P.irsposset = GP("laminar/B738/irs/irs_pos_set")
+
+    P.yawdamperswitch = GP("laminar/B738/toggle_switch/yaw_dumper_pos")
+ 
+    return missingCount
 end
 
 function P.initDataref()
@@ -1140,469 +1595,15 @@ function P.initDataref()
     P.flightstate = get(P.flightstatedr)
     helpers.logInfoTS("Flightstate restored to: " .. P.flightstate)
 
-    P.simpaused = globalProperty("sim/time/paused")
-    P.simfreezed = globalPropertyfae("sim/operation/override/override_planepath", 1)
-    P.battery = globalProperty("laminar/B738/electric/battery_pos")
-    P.batteryswitchcover = globalPropertyfae("laminar/B738/cover", 3)
-    P.emergencylights = globalProperty("laminar/B738/toggle_switch/emer_exit_lights")
-    P.emergencylightcover = globalPropertyfae("laminar/B738/cover", 10)
-    P.windowiceaddeddelta = globalProperty("sim/flightmodel/failures/window_ice_added_delta")
-    P.windowiceunheated = globalProperty("sim/flightmodel/failures/window_ice_unheated")
-
-    P.apgoaround = globalProperty("laminar/B738/autopilot/ap_goaround")
-
-    P.localpositionx = globalProperty("sim/flightmodel/position/local_x")
-    P.localpositiony = globalProperty("sim/flightmodel/position/local_y")
-    P.localpositionz = globalProperty("sim/flightmodel/position/local_z")
-    P.localpositionpsi = globalProperty("sim/flightmodel/position/psi")
-    P.acf_cg_z = globalProperty("sim/aircraft/weight/acf_cgZ_original")
-    P.gear_znose = globalPropertyfae("sim/aircraft/parts/acf_gear_znodef", 1)
-    P.gear_zmain = globalPropertyfae("sim/aircraft/parts/acf_gear_znodef", 2)
-
-    P.fueltank1 = globalProperty("sim/flightmodel/weight/m_fuel1")
-    P.fueltank2 = globalProperty("sim/flightmodel/weight/m_fuel2")
-    P.fueltank3 = globalProperty("sim/flightmodel/weight/m_fuel3")
-
-    P.mastercautionannunc = globalProperty("sim/cockpit/warnings/annunciators/master_caution")
-
-    P.mainbus = globalProperty("laminar/B738/electric/main_bus")
-    P.simparkingbrakeratio = globalProperty("sim/cockpit2/controls/parking_brake_ratio")
-    if not has_valid_property(P.parkingbrakepos) then
-        P.parkingbrakepos = nil
+    P.initialExternalDatarefMissingCount = P.bindExternalDatarefs(true)
+    P.needsPostStartupDatarefRebind = true
+    P.externalDatarefsPostStartupDone = false
+    if P.initialExternalDatarefMissingCount > 0 then
+        helpers.logInfoTS("Initial external dataref bind deferred for " .. tostring(P.initialExternalDatarefMissingCount) .. " handles")
     end
-    if not has_valid_property(P.ziborelease) then
-        P.ziborelease = nil
+    if P.n1setsource and isProperty(P.n1setsource) then
+        set(P.n1setsource, 0)
     end
-    if not (has_valid_property(P.parkingbrakepos) and has_valid_property(P.ziborelease)) then
-        P.optionalZiboBindRetryAt = (os.time() or 0) + (def.LONGWAIT or 0)
-        P.optionalZiboBindLoggedWaiting = false
-    else
-        P.optionalZiboBindRetryAt = 0
-        P.optionalZiboBindLoggedWaiting = false
-    end
-    P.override_throttles = globalProperty("sim/operation/override/override_throttles")
-    P.override_wheel_steer = globalProperty("sim/operation/override/override_wheel_steer")
-    P.override_toe_brakes = globalProperty("sim/operation/override/override_toe_brakes")
-    P.zibo_throttle_override = globalProperty("laminar/B738/throttle_override")
-    P.zibo_nosewheel_steer_override = globalProperty("laminar/B738/nosewheel_steer_override")
-    P.zibo_toe_brake_override = globalProperty("laminar/B738/toe_brake_override")
-    P.yoke_heading_ratio = globalProperty("sim/joystick/yoke_heading_ratio")
-    P.yoke_heading_ratio_cockpit = globalProperty("sim/cockpit2/controls/yoke_heading_ratio")
-    P.left_brake_ratio = globalProperty("sim/cockpit2/controls/left_brake_ratio")
-    P.right_brake_ratio = globalProperty("sim/cockpit2/controls/right_brake_ratio")
-    P.throttle_use_1 = globalPropertyfae("sim/flightmodel/engine/ENGN_thro_use", 1)
-    P.throttle_use_2 = globalPropertyfae("sim/flightmodel/engine/ENGN_thro_use", 2)
-    P.hardware_throttle_1 = globalPropertyfae("sim/cockpit2/engine/actuators/hardware_throttle_ratio", 1)
-    P.hardware_throttle_2 = globalPropertyfae("sim/cockpit2/engine/actuators/hardware_throttle_ratio", 2)
-    P.tire_steer_cmd = globalPropertyfae("sim/flightmodel2/gear/tire_steer_command_deg", 1)
-    P.zibo_axis_throttle1 = globalProperty("laminar/B738/axis/throttle1")
-    P.zibo_axis_throttle2 = globalProperty("laminar/B738/axis/throttle2")
-    P.zibo_axis_nosewheel = globalProperty("laminar/B738/axis/nosewheel")
-    P.zibo_axis_nosewheel2 = globalProperty("laminar/B738/axis/nosewheel2")
-    P.zibo_axis_nosewheel3 = globalProperty("laminar/B738/axis/nosewheel3")
-    P.zibo_axis_heading = globalProperty("laminar/B738/axis/heading")
-    P.zibo_axis_left_toe_brake = globalProperty("laminar/B738/axis/left_toe_brake")
-    P.zibo_axis_right_toe_brake = globalProperty("laminar/B738/axis/right_toe_brake")
-
-    P.pausetod = globalProperty("laminar/B738/fms/pause_td")
-
-    P.vnavtoddist = globalProperty("laminar/B738/fms/vnav_td_dist")
-    P.distdest = globalProperty("laminar/B738/FMS/dist_dest")
-    P.vnavtocdist = globalProperty("laminar/B738/fms/vnav_tc_dist")
-
-    P.hidecptefb = globalProperty("laminar/B738/tab/static")
-    P.hidefoefb = globalProperty("laminar/B738/tab/fo_static")
-
-    P.chockstatus = globalProperty("laminar/B738/fms/chock_status")
-    P.enginenorunningstate = globalProperty("laminar/B738/fms/engine_no_running_state")
-
-    P.wakeoverride = globalProperty("sim/operation/override/override_wake_turbulence")
-    P.runwayfriction = globalProperty("sim/weather/region/runway_friction")
-
-    P.aponstat = globalProperty("laminar/autopilot/ap_on")
-    P.apdiscpos = globalProperty("laminar/B738/autopilot/disconnect_pos")
-
-    P.apcmdastat = globalProperty("laminar/B738/autopilot/cmd_a_status")
-    P.apcmdbstat = globalProperty("laminar/B738/autopilot/cmd_b_status")
-
-    P.apvnavstat = globalProperty("laminar/B738/autopilot/vnav_status1")
-    P.aplnavstat = globalProperty("laminar/B738/autopilot/lnav_status")
-    P.apappstat = globalProperty("laminar/B738/autopilot/app_status")
-    P.apvorlocstat = globalProperty("laminar/B738/autopilot/vorloc_status")
-    P.apalthldstat = globalProperty("laminar/B738/autopilot/alt_hld_status")
-    P.aphdgselstat = globalProperty("laminar/B738/autopilot/hdg_sel_status")
-    P.apvsstat = globalProperty("laminar/B738/autopilot/vs_status")
-    P.aplvlchgstat = globalProperty("laminar/B738/autopilot/lvl_chg_status")
-    P.apvnavaltmode = globalProperty("laminar/B738/autopilot/vnav_alt_mode")
-
-    P.mmrinstalled = globalProperty("laminar/B738/fms/mmr")
-    P.lpvinstalled = globalProperty("laminar/B738/lpv_install")
-    P.mmrcptactmode = globalProperty("laminar/B738/mmr/cpt/act_mode")
-    P.mmrcptactvalue = globalProperty("laminar/B738/mmr/cpt/act_value")
-    P.mmrcptstdbymode = globalProperty("laminar/B738/mmr/cpt/stby_mode")
-    P.mmrcptglsstbyvalue = globalPropertyia("laminar/B738/mmr/cpt/gls_stby_value")
-    P.mmrcptilsstbyvalue = globalPropertyia("laminar/B738/mmr/cpt/ils_stby_value")
-    P.mmrcptilsstbyvalue2 = globalPropertyia("laminar/B738/mmr/cpt/ils_stby_value2")
-    P.mmrcptvorstbyvalue = globalPropertyia("laminar/B738/mmr/cpt/vor_stby_value")
-    P.mmrcptvorstbyvalue2 = globalPropertyia("laminar/B738/mmr/cpt/vor_stby_value2")
-    P.mmrcptstbyvalue = globalPropertyia("laminar/B738/mmr/cpt/stby_value")
-    P.mmrfoactmode = globalProperty("laminar/B738/mmr/fo/act_mode")
-    P.mmrfoactvalue = globalProperty("laminar/B738/mmr/fo/act_value")
-    P.mmrfostdbymode = globalProperty("laminar/B738/mmr/fo/stby_mode")
-    P.mmrfoglsstbyvalue = globalPropertyia("laminar/B738/mmr/fo/gls_stby_value")
-    P.mmrfoilsstbyvalue = globalPropertyia("laminar/B738/mmr/fo/ils_stby_value")
-    P.mmrfoilsstbyvalue2 = globalPropertyia("laminar/B738/mmr/fo/ils_stby_value2")
-    P.mmrfovorstbyvalue = globalPropertyia("laminar/B738/mmr/fo/vor_stby_value")
-    P.mmrfovorstbyvalue2 = globalPropertyia("laminar/B738/mmr/fo/vor_stby_value2")
-    P.mmrfostbyvalue = globalPropertyia("laminar/B738/mmr/fo/stby_value")
-
-    P.apgscapturedstat = globalPropertyfae("laminar/B738/ap/glideslope_status", 1)
-    P.aploccapturedstat = globalPropertyfae("laminar/B738/ap/approach_status", 1)
-    P.aprolloutstat = globalPropertyfae("laminar/B738/ap/rollout_status", 1)
-    P.apflarestat = globalPropertyfae("laminar/B738/ap/flare_status", 1)
-
-    P.aplpvgscapturedstat = globalPropertyfae("laminar/B738/ap/lpv_gs_status", 1)
-    P.aplpvnavcapturedstat = globalPropertyfae("laminar/B738/ap/lpv_nav_status", 1)
-    P.aplpvloccapturedstat = globalPropertyfae("laminar/B738/ap/lpv_app_status", 1)
-
-    P.apglsgscapturedstat = globalPropertyfae("laminar/B738/ap/gls_gs_status", 1)
-    P.apglsnavcapturedstat = globalPropertyfae("laminar/B738/ap/gls_nav_status", 1)
-    P.apglsloccapturedstat = globalPropertyfae("laminar/B738/ap/gls_app_status", 1)
-
-    P.apfacgscapturedstat = globalPropertyfae("laminar/B738/ap/gp_status", 1)
-    P.apfacloccapturedstat = globalPropertyfae("laminar/B738/ap/fac_status", 1)
-    P.ianinfo = globalProperty("laminar/B738/fms/ian_info")
-    P.ianinfofo = globalProperty("laminar/B738/fms/ian_info_fo")
-    P.autopilotpfdmode = globalProperty("laminar/B738/autopilot/pfd_mode")
-    P.autopilotpfdmodefo = globalProperty("laminar/B738/autopilot/pfd_mode_fo")
-    P.scalepfdmode = globalProperty("laminar/B738/autopilot/scale_pfd_mode")
-    P.scalepfdmodefo = globalProperty("laminar/B738/autopilot/scale_pfd_mode_fo")
-    P.fmsilsdisable = globalProperty("laminar/B738/FMS/ils_disable")
-    P.faccrs = globalProperty("laminar/B738/fms/fac_crs")
-    P.gppthalt = globalProperty("laminar/B738/fms/gp_pth_alt")
-    P.vnavgpactive = globalProperty("laminar/B738/fms/vnav_gp_active")
-
-    P.aphdgmode = globalProperty("laminar/B738/autopilot/heading_mode")
-    P.apaltmode = globalProperty("laminar/B738/autopilot/altitude_mode")
-
-    P.atarmpos = globalProperty("laminar/B738/autopilot/autothrottle_arm_pos")
-    P.atn1stat = globalProperty("laminar/B738/autopilot/n1_status")
-    P.atspeedstat = globalProperty("laminar/B738/autopilot/speed_status1")
-    P.atspeedintvstat = globalProperty("laminar/B738/autopilot/spd_interv_status")
-    P.atn1mode = globalProperty("laminar/B738/FMS/N1_mode")
-    P.atn1modetoselection = globalProperty("laminar/B738/FMS/N1_mode_to_sel")
-    P.atthrottlelock = globalProperty("laminar/B738/autopilot/lock_throttle")
-
-    P.atspeedmode = globalProperty("laminar/B738/autopilot/speed_mode")
-
-    P.gearhandlepos = globalProperty("laminar/B738/controls/gear_handle_down")
-    P.lgeardeployed = globalPropertyfae("sim/aircraft/parts/acf_gear_deploy", 1)
-    P.ngeardeployed = globalPropertyfae("sim/aircraft/parts/acf_gear_deploy", 2)
-    P.rgeardeployed = globalPropertyfae("sim/aircraft/parts/acf_gear_deploy", 3)
-
-    P.altitude = globalProperty("laminar/B738/autopilot/altitude")
-    P.altitude_ft = globalProperty("sim/cockpit2/gauges/indicators/altitude_ft_pilot")
-    P.fmccruisealt = globalProperty("laminar/B738/autopilot/fmc_cruise_alt")
-    P.radioaltitude = globalProperty("sim/cockpit2/gauges/indicators/radio_altimeter_height_ft_pilot")
-
-    P.groundtrackmag = globalProperty("sim/cockpit2/gauges/indicators/ground_track_mag_pilot")
-
-    P.trimwheel = globalProperty("laminar/B738/flt_ctrls/trim_wheel")
-    P.trimcalc = globalProperty("laminar/B738/FMS/trim_calc")
-
-    P.gpuavailable = globalProperty("laminar/B738/gpu_available")
-    P.jetwaypoweravailable = globalProperty("laminar/B738/jetway_power")
-    P.autogategpu = globalProperty("laminar/B738/autogate_gpu")
-    P.gpuon = globalProperty("sim/cockpit/electrical/gpu_on")
-    P.engineairstart = globalProperty("laminar/B738/engine/engine_air_start")
-
-    P.apustarterpos = globalProperty("laminar/B738/spring_toggle_switch/APU_start_pos")
-    P.apupsi = globalProperty("laminar/B738/air/apu_psi")
-    P.apugenoffbus = globalProperty("laminar/B738/annunciator/apu_gen_off_bus")
-    P.apupowerbus1 = globalProperty("laminar/B738/electrical/apu_power_bus1")
-    P.apupowerbus2 = globalProperty("laminar/B738/electrical/apu_power_bus2")
-
-    P.announcsourceoff1 = globalProperty("laminar/B738/annunciator/source_off1")
-    P.announcsourceoff2 = globalProperty("laminar/B738/annunciator/source_off2")
-
-    P.gen1pos = globalPropertyiae("sim/cockpit/electrical/generator_on", 1)
-    P.gen2pos = globalPropertyiae("sim/cockpit/electrical/generator_on", 2)
-
-    P.bleedair1pos = globalProperty("laminar/B738/toggle_switch/bleed_air_1_pos")
-    P.bleedair2pos = globalProperty("laminar/B738/toggle_switch/bleed_air_2_pos")
-    P.bleedairapupos = globalProperty("laminar/B738/toggle_switch/bleed_air_apu_pos")
-    P.isolvalvepos = globalProperty("laminar/B738/air/isolation_valve_pos")
-    P.packlpos = globalProperty("laminar/B738/air/l_pack_pos")
-    P.packrpos = globalProperty("laminar/B738/air/r_pack_pos")
-    P.trimairpos = globalProperty("laminar/B738/air/trim_air_pos")
-    P.lrecircfanpos = globalProperty("laminar/B738/air/l_recirc_fan_pos")
-    P.rrecircfanpos = globalProperty("laminar/B738/air/r_recirc_fan_pos")
-
-    P.starterauto = globalProperty("laminar/B738/engine_start_auto")
-    P.starter1pos = globalProperty("laminar/B738/engine/starter1_pos")
-    P.starter2pos = globalProperty("laminar/B738/engine/starter2_pos")
-
-    P.mixture1pos = globalProperty("laminar/B738/engine/mixture_ratio1")
-    P.mixture2pos = globalProperty("laminar/B738/engine/mixture_ratio2")
-
-    P.reverser1pos = globalProperty("laminar/B738/flt_ctrls/reverse_lever1")
-    P.reverser2pos = globalProperty("laminar/B738/flt_ctrls/reverse_lever2")
-
-    P.totalfuellbs = globalProperty("laminar/B738/fuel/total_tank_lbs")
-    P.totalfuelkgs = globalProperty("laminar/B738/fuel/total_tank_kgs")
-    P.fuelunit = globalProperty("laminar/B738/FMS/fmc_units")
-
-    P.totalweightkgs = globalProperty("sim/flightmodel/weight/m_total")
-
-    P.centertanklbs = globalProperty("laminar/B738/fuel/center_tank_lbs")
-    P.centertanklpress = globalProperty("laminar/B738/system/fuel_press_c1")
-    P.centertankrpress = globalProperty("laminar/B738/system/fuel_press_c2")
-    P.centertanklswitch = globalProperty("laminar/B738/fuel/fuel_tank_pos_ctr1")
-    P.centertankrswitch = globalProperty("laminar/B738/fuel/fuel_tank_pos_ctr2")
-    P.centertankstat = globalProperty("laminar/B738/fuel/center_status")
-    P.lefttanklbs = globalProperty("laminar/B738/fuel/left_tank_lbs")
-    P.lefttanklswitch = globalProperty("laminar/B738/fuel/fuel_tank_pos_lft1")
-    P.lefttankrswitch = globalProperty("laminar/B738/fuel/fuel_tank_pos_lft2")
-    P.righttanklbs = globalProperty("laminar/B738/fuel/right_tank_lbs")
-    P.righttanklswitch = globalProperty("laminar/B738/fuel/fuel_tank_pos_rgt2")
-    P.righttankrswitch = globalProperty("laminar/B738/fuel/fuel_tank_pos_rgt1")
-
-    P.eng1n1ratio = globalProperty("laminar/B738/FMS/eng1_N1_ratio")
-    P.eng2n1ratio = globalProperty("laminar/B738/FMS/eng2_N1_ratio")
-    P.eng1n1percent = globalPropertyfae("sim/flightmodel2/engines/N1_percent", 1)
-    P.eng2n1percent = globalPropertyfae("sim/flightmodel2/engines/N1_percent", 2)
-    P.eng1n2percent = globalPropertyfae("sim/flightmodel2/engines/N2_percent", 1)
-    P.eng2n2percent = globalPropertyfae("sim/flightmodel2/engines/N2_percent", 2)
-    P.fadec1on = globalPropertyfae("sim/cockpit2/engine/actuators/fadec_on", 1)
-    P.fadec2on = globalPropertyfae("sim/cockpit2/engine/actuators/fadec_on", 2)
-    P.fuel_flow_kg_sec_1 = globalPropertyfae("laminar/B738/engine/fuel_flow_kg_sec", 1)
-    P.fuel_flow_kg_sec_2 = globalPropertyfae("laminar/B738/engine/fuel_flow_kg_sec", 2)
-
-    P.eng1heatpos = globalProperty("laminar/B738/ice/eng1_heat_pos")
-    P.eng2heatpos = globalProperty("laminar/B738/ice/eng2_heat_pos")
-    P.wingheatpos = globalProperty("laminar/B738/ice/wing_heat_pos")
-
-    P.hydro1pos = globalProperty("laminar/B738/toggle_switch/hydro_pumps1_pos")
-    P.hydro2pos = globalProperty("laminar/B738/toggle_switch/hydro_pumps2_pos")
-    P.elechydro1pos = globalProperty("laminar/B738/toggle_switch/electric_hydro_pumps1_pos")
-    P.elechydro2pos = globalProperty("laminar/B738/toggle_switch/electric_hydro_pumps2_pos")
-
-    P.airgroundsensor = globalProperty("laminar/B738/air_ground_sensor")
-    P.autobrakepos = globalProperty("laminar/B738/autobrake/autobrake_pos")
-    P.autobrakedisarm = globalProperty("laminar/B738/autobrake/autobrake_disarm")
-
-    P.fmsflightphase = globalProperty("laminar/B738/FMS/flight_phase")
-    P.tobiiEyetracker = globalProperty("sim/graphics/view/eq_tobii_eyetracker")
-
-    P.fmctransalt = globalProperty("laminar/B738/FMS/fmc_trans_alt")
-    P.fmctranslvl = globalProperty("laminar/B738/FMS/fmc_trans_lvl")
-
-    P.bankanglepos = globalProperty("laminar/B738/autopilot/bank_angle_pos")
-
-    P.baropilot = globalProperty("laminar/B738/EFIS/baro_sel_in_hg_pilot")
-    P.barostd = globalProperty("laminar/B738/EFIS/baro_set_std_pilot")
-    P.baroinhpa = globalProperty("laminar/B738/EFIS_control/capt/baro_in_hpa")
-    P.baroregionpas = globalProperty("sim/weather/region/qnh_pas")
-
-    P.frameice = globalProperty("sim/flightmodel/failures/frm_ice")
-    P.tatdegc = globalProperty("laminar/B738/systems/temperature/tat_degc")
-
-    P.cabincruisealt = globalProperty("sim/cockpit/pressure/max_allowable_altitude")
-    P.cabinlandingalt = globalProperty("laminar/B738/pressurization/knobs/landing_alt")
-    P.missedappalt = globalProperty("laminar/B738/fms/missed_app_alt")
-
-    P.llights1 = globalPropertyfae("sim/cockpit2/switches/landing_lights_switch", 1)
-    P.llights2 = globalPropertyfae("sim/cockpit2/switches/landing_lights_switch", 2)
-    P.llights3 = globalPropertyfae("sim/cockpit2/switches/landing_lights_switch", 3)
-    P.llights4 = globalPropertyfae("sim/cockpit2/switches/landing_lights_switch", 4)
-    P.ledlightsvariant = globalProperty("laminar/B738/led_lights")
-
-    P.taxilight = globalProperty("laminar/B738/toggle_switch/taxi_light_brightness_pos")
-    P.positionlights = globalProperty("laminar/B738/toggle_switch/position_light_pos")
-    P.beaconlights = globalProperty("sim/cockpit/electrical/beacon_lights_on")
-    P.rwylightl = globalProperty("laminar/B738/toggle_switch/rwy_light_left")
-    P.rwylightr = globalProperty("laminar/B738/toggle_switch/rwy_light_right")
-    P.logolighton = globalProperty("laminar/B738/toggle_switch/logo_light")
-
-    P.transponderpos = globalProperty("laminar/B738/knob/transponder_pos")
-    P.transpondercode = globalProperty("sim/cockpit/radios/transponder_code")
-
-    P.fdpilotpos = globalProperty("laminar/B738/autopilot/flight_director_pos")
-    P.fdfopos = globalProperty("laminar/B738/autopilot/flight_director_fo_pos")
-
-    P.efiswxpilotpos = globalProperty("laminar/B738/EFIS/EFIS_wx_on")
-    P.efiswxfopos = globalProperty("laminar/B738/EFIS/fo/EFIS_wx_on")
-    P.efisterrpilotpos = globalProperty("laminar/B738/EFIS_control/capt/terr_on")
-    P.efisterrfopos = globalProperty("laminar/B738/EFIS_control/fo/terr_on")
-    P.efisfixpilotpos = globalProperty("laminar/B738/EFIS/EFIS_fix_on")
-    P.efisfixfopos = globalProperty("laminar/B738/EFIS/fo/EFIS_fix_on")
-    P.efisdatapilotpos = globalProperty("laminar/B738/EFIS/capt/data_status")
-    P.efisdatafopos = globalProperty("laminar/B738/EFIS/fo/data_status")
-    P.efisairportpilotpos = globalProperty("laminar/B738/EFIS/EFIS_airport_on")
-    P.efisairportfopos = globalProperty("laminar/B738/EFIS/fo/EFIS_airport_on")
-    P.efispospilotpos = globalProperty("laminar/B738/pfd/gps1_pos_show")
-    P.efisposfopos = globalProperty("laminar/B738/pfd/gps1_pos_fo_show")
-    P.efisvorpilotpos = globalProperty("laminar/B738/EFIS/EFIS_vor_on")
-    P.efisvorfopos = globalProperty("laminar/B738/EFIS/fo/EFIS_vor_on")
-
-    P.n1setsource = globalProperty("laminar/B738/toggle_switch/n1_set_source")
-
-    P.dhpilot = globalProperty("laminar/B738/pfd/dh_pilot")
-
-    P.elevation = globalProperty("sim/flightmodel/position/elevation")
-
-    P.depicao = globalProperty("laminar/B738/fms/ref_icao")
-    P.deprwyheading = globalProperty("laminar/B738/fms/ref_runway_crs_mod")
-    P.deprwylen = globalProperty("laminar/B738/fms/ref_runway_len")
-    P.deprwylatstartpos = globalProperty("laminar/B738/fms/ref_runway_start_lat_mod")
-    P.deprwylonstartpos = globalProperty("laminar/B738/fms/ref_runway_start_lon_mod")
-    P.deprwylatendpos = globalProperty("laminar/B738/fms/ref_runway_end_lat_mod")
-    P.deprwylonendpos = globalProperty("laminar/B738/fms/ref_runway_end_lon_mod")
-    P.deprwy = globalProperty("laminar/B738/fms/ref_runway")
-
-    P.desicao = globalProperty("laminar/B738/fms/dest_icao")
-    P.desrwyheading = globalProperty("laminar/B738/fms/dest_runway_crs")
-    P.desrwylatstartpos = globalProperty("laminar/B738/fms/dest_runway_start_lat_mod")
-    P.desrwylonstartpos = globalProperty("laminar/B738/fms/dest_runway_start_lon_mod")
-    P.desrwylatendpos = globalProperty("laminar/B738/fms/dest_runway_end_lat_mod")
-    P.desrwylonendpos = globalProperty("laminar/B738/fms/dest_runway_end_lon_mod")
-    P.desrwyalt = globalProperty("laminar/B738/pfd/des_rwy_altitude")
-    P.desrwylen = globalProperty("laminar/B738/fms/dest_runway_len")
-    P.desrwy = globalProperty("laminar/B738/fms/dest_runway")
- 
-    P.nearesticao = globalProperty("laminar/B738/near_apt_icao")
-
-    P.fmslegs = globalProperty("laminar/B738/fms/legs")
-    P.fmslegslat = globalProperty("laminar/B738/fms/legs_lat")
-    P.fmslegslon = globalProperty("laminar/B738/fms/legs_lon")
-
-    P.aircraftlatpos = globalProperty("sim/flightmodel/position/latitude")
-    P.aircraftlonpos = globalProperty("sim/flightmodel/position/longitude")
-
-    P.sunpitchdegrees = globalProperty("sim/graphics/scenery/sun_pitch_degrees")
-
-    P.flapleverpos = globalProperty("laminar/B738/flt_ctrls/flap_lever")
-    P.speedbrakelever = globalProperty("laminar/B738/flt_ctrls/speedbrake_lever")
-    P.speedbrakeleveranim = globalProperty("laminar/B738/flt_ctrls/speedbrake_lever_anim")
-    P.speedbrakeratio = globalProperty("sim/cockpit2/controls/speedbrake_ratio")
-
-    P.flapsupspeed = globalProperty("laminar/B738/pfd/flaps_up")
-    P.flaps1speed = globalProperty("laminar/B738/pfd/flaps_1")
-    P.flaps2speed = globalProperty("laminar/B738/pfd/flaps_2")
-    P.flaps5speed = globalProperty("laminar/B738/pfd/flaps_5")
-    P.flaps10speed = globalProperty("laminar/B738/pfd/flaps_10")
-    P.flaps15speed = globalProperty("laminar/B738/pfd/flaps_15")
-    P.flaps25speed = globalProperty("laminar/B738/pfd/flaps_25")
-
-    P.toflaps = globalProperty("laminar/B738/FMS/takeoff_flaps")
-    P.toflapsset = globalProperty("laminar/B738/FMS/takeoff_flaps_set")
-    P.appflaps = globalProperty("laminar/B738/FMS/approach_flaps")
-    P.appflapsset = globalProperty("laminar/B738/FMS/approach_flaps_set")
-
-    P.airspeed = globalProperty("laminar/B738/autopilot/airspeed")
-    P.ias_kts = globalProperty("sim/cockpit2/gauges/indicators/airspeed_kts_pilot")
-    P.tas_kts = globalProperty("sim/flightmodel/position/true_airspeed")
-    P.tas_kts_is_ms = true
-    P.groundspeed = globalProperty("laminar/b738/fmodpack/real_groundspeed")
-    P.tirespeed = globalProperty("laminar/B738/systems/tire_speed0")
-    P.verticalspeed = globalPropertyfae("sim/cockpit2/tcas/targets/position/vertical_speed", 1)
-
-    P.v1speed = globalProperty("laminar/B738/FMS/v1")
-    P.v2speed = globalProperty("laminar/B738/FMS/v2")
-    P.vrspeed = globalProperty("laminar/B738/FMS/vr")
-
-    P.v1calcspeed = globalProperty("laminar/B738/FMS/v1_calc")
-    P.v2calcspeed = globalProperty("laminar/B738/FMS/v2_calc")
-    P.vrcalcspeed = globalProperty("laminar/B738/FMS/vr_calc")
-
-    P.v1setspeed = globalProperty("laminar/B738/FMS/v1_set")
-    P.v2setspeed = globalProperty("laminar/B738/FMS/v2_set")
-    P.vrsetspeed = globalProperty("laminar/B738/FMS/vr_set")
-
-    P.fmccg = globalProperty("laminar/B738/FMS/fmc_cg")
-    P.tabcg = globalProperty("laminar/B738/tab/cg_pos")
-    P.calctakeoffcg = globalProperty("laminar/B738/fms/calc_to_cg")
-
-    P.speedrestr = globalProperty("laminar/B738/autopilot/fmc_descent_r_speed1")
-
-    P.vref = globalProperty("laminar/B738/FMS/vref")
-    P.vref15 = globalProperty("laminar/B738/FMS/vref_15")
-    P.vref25 = globalProperty("laminar/B738/FMS/vref_25")
-    P.vref30 = globalProperty("laminar/B738/FMS/vref_30")
-    P.vref40 = globalProperty("laminar/B738/FMS/vref_40")
-    P.vrefapproachwindcorr = globalProperty("laminar/B738/FMS/approach_wind_corr")
-    P.fmclandinggw = globalProperty("laminar/B738/FMS/fmc_gw_app")
-    P.fmctakeoffgw = globalProperty("laminar/B738/FMS/fmc_gw")
-    P.fmcseltemp = globalProperty("laminar/B738/FMS/fmc_sel_temp")
-    P.fmcoattemp = globalProperty("laminar/B738/FMS/fmc_oat_temp")
-    P.b737variant = globalProperty("zibomod/b737_variant")
-    P.runwaywinddir = globalProperty("laminar/B738/fms/rw_wind_dir")
-    P.runwaywindspd = globalProperty("laminar/B738/fms/rw_wind_spd")
-    P.runwayslope = globalProperty("laminar/B738/fms/rw_slope")
-    P.runwayheadingfmc = globalProperty("laminar/B738/fms/rw_hdg")
-    P.fueltemp = globalProperty("laminar/B738/engine/fuel_temp_real")
-    P.glscourse = globalProperty("laminar/B738/nav/gls1_crs")
-
-    P.rain = globalProperty("sim/weather/view/rain_ratio")
-
-    P.lwiperpos = globalProperty("laminar/B738/switches/left_wiper_pos")
-    P.rwiperpos = globalProperty("laminar/B738/switches/right_wiper_pos")
-
-    P.mfdsyspos = globalProperty("laminar/B738/buttons/mfd_sys_pos")
-    P.lowerdupage = globalProperty("laminar/B738/systems/lowerDU_page")
-    P.lowerdupage2 = globalProperty("laminar/B738/systems/lowerDU_page2")
-
-    P.nav1freq = globalProperty("sim/cockpit/radios/nav1_freq_hz")
-    P.nav1stdbyfreq = globalProperty("sim/cockpit/radios/nav1_stdby_freq_hz")
-    P.nav2freq = globalProperty("sim/cockpit/radios/nav2_freq_hz")
-    P.nav2stdbyfreq = globalProperty("sim/cockpit/radios/nav2_stdby_freq_hz")
-    P.mcppilotcourse = globalProperty("laminar/B738/autopilot/course_pilot")
-    P.mcpcopilotcourse = globalProperty("laminar/B738/autopilot/course_copilot")
-    P.mcpheading = globalProperty("laminar/B738/autopilot/mcp_hdg_dial")
-    P.mcpspeed = globalProperty("laminar/B738/autopilot/mcp_speed_dial_kts_mach")
-    P.mcpaltitude = globalProperty("laminar/B738/autopilot/mcp_alt_dial")
-    P.mcpvsspeed = globalProperty("sim/cockpit/autopilot/vertical_velocity")
-
-    P.domelightpos = globalProperty("laminar/B738/toggle_switch/cockpit_dome_pos")
-
-    P.seatbeltsignpos = globalProperty("laminar/B738/toggle_switch/seatbelt_sign_pos")
-    P.nosmokingsignpos = globalProperty("laminar/B738/toggle_switch/no_smoking_pos")
-
-    P.brightmainpanel = globalPropertyfae("laminar/B738/electric/panel_brightness", 1)
-    P.brightcopilotmainpanel = globalPropertyfae("laminar/B738/electric/panel_brightness", 2)
-    P.brightoverhead = globalPropertyfae("laminar/B738/electric/panel_brightness", 3)
-    P.brightpedestral = globalPropertyfae("laminar/B738/electric/panel_brightness", 4)
-
-    P.genbrightbackground = globalPropertyfae("laminar/B738/electric/generic_brightness", 7)
-    P.genbrightafdsflood = globalPropertyfae("laminar/B738/electric/generic_brightness", 8)
-    P.genbrightpedestralflood = globalPropertyfae("laminar/B738/electric/generic_brightness", 9)
-
-    P.instrbrightoutbddu = globalPropertyfae("laminar/B738/electric/instrument_brightness", 1)
-    P.instrbrightcopilotoutbddu = globalPropertyfae("laminar/B738/electric/instrument_brightness", 2)
-    P.instrbrightinbddu = globalPropertyfae("laminar/B738/electric/instrument_brightness", 3)
-    P.instrbrightcopilotinbddu = globalPropertyfae("laminar/B738/electric/instrument_brightness", 4)
-    P.instrbrightupperdu = globalPropertyfae("laminar/B738/electric/instrument_brightness", 5)
-    P.instrbrightlowdu = globalPropertyfae("laminar/B738/electric/instrument_brightness", 6)
-    P.instrbrightinbdduS = globalPropertyfae("laminar/B738/electric/instrument_brightness", 25)
-    P.instrbrightlowduS = globalPropertyfae("laminar/B738/electric/instrument_brightness", 26)
-    P.instrbrightcopilotinbdduS = globalPropertyfae("laminar/B738/electric/instrument_brightness", 27)
-
-    P.captainprobepos = globalProperty("laminar/B738/toggle_switch/capt_probes_pos")
-    P.foprobepos = globalProperty("laminar/B738/toggle_switch/fo_probes_pos")
-    P.wheatlfwdpos = globalProperty("laminar/B738/ice/window_heat_l_fwd_pos")
-    P.wheatrfwdpos = globalProperty("laminar/B738/ice/window_heat_r_fwd_pos")
-    P.wheatlsidepos = globalProperty("laminar/B738/ice/window_heat_l_side_pos")
-    P.wheatrsidepos = globalProperty("laminar/B738/ice/window_heat_r_side_pos")
-
-    P.irsleftpos = globalProperty("laminar/B738/toggle_switch/irs_left")
-    P.irsrightpos = globalProperty("laminar/B738/toggle_switch/irs_right")
-    P.irsalignleft = globalProperty("laminar/B738/annunciator/irs_align_left2")
-    P.irsalignright = globalProperty("laminar/B738/annunciator/irs_align_right2")
-    P.irsposset = globalProperty("laminar/B738/irs/irs_pos_set")
-
-    P.yawdamperswitch = globalProperty("laminar/B738/toggle_switch/yaw_dumper_pos")
- 
-    set(P.n1setsource, 0)
 
     P.fmsselectedsid = nil
     P.fmsselectedstar = nil
@@ -7618,7 +7619,16 @@ function P.do_yal()
         P.needstempinit = false
     end
 
-    P.tryLatchOptionalZiboDatarefs(false)
+    if P.needsPostStartupDatarefRebind then
+        local missingCount = P.bindExternalDatarefs(true)
+        P.needsPostStartupDatarefRebind = false
+        P.externalDatarefsPostStartupDone = true
+        if missingCount > 0 then
+            helpers.logInfoTS("Post-startup external dataref rebind finished with " .. tostring(missingCount) .. " unresolved handles")
+        else
+            helpers.logInfoTS("Post-startup external dataref rebind finished")
+        end
+    end
 
     P.updateSharedVariables()
 
