@@ -5502,6 +5502,47 @@ U = {
     heading_deg_from_to = heading_deg_from_to,
     heading_diff_deg = heading_diff_deg,
     heading_diff_signed = heading_diff_signed,
+    compute_dep_backtrack_lineup_turn = function(comp, profile, runway_lat, runway_lon, aircraft)
+        local state = compute_dep_threshold_state(comp, profile, runway_lat, runway_lon, aircraft)
+        if not state or not state.axis_heading_mag or not state.dist then
+            return nil, state
+        end
+        local max_dist = math.max(120, (C.depThresholdGateMeters or 55) * 2.5)
+        if state.dist > max_dist then
+            return nil, state
+        end
+        if not state.heading_diff then
+            return nil, state
+        end
+        local min_turn_diff = (C.depThresholdHeadingLimit or 25) + 20
+        if state.heading_diff <= min_turn_diff or state.heading_diff >= 170 then
+            return nil, state
+        end
+        local mag_var = nil
+        if aircraft and aircraft.lat and aircraft.lon then
+            mag_var = sasl.getMagneticVariation(aircraft.lat, aircraft.lon)
+        end
+        if (mag_var == nil) and runway_lat and runway_lon then
+            mag_var = sasl.getMagneticVariation(runway_lat, runway_lon)
+        end
+        mag_var = mag_var or 0
+        local yal = comp and (comp.yal or _G.yal) or nil
+        local current_heading_mag = aircraft and aircraft.heading or nil
+        if current_heading_mag == nil and yal and yal.localpositionpsi then
+            local hdg_true = get(yal.localpositionpsi)
+            if hdg_true ~= nil then
+                current_heading_mag = (hdg_true - mag_var + 360) % 360
+            end
+        end
+        if current_heading_mag == nil then
+            return nil, state
+        end
+        local signed = heading_diff_signed(state.axis_heading_mag, current_heading_mag)
+        if math.abs(signed) < 8 then
+            return nil, state
+        end
+        return (signed > 0) and "right" or "left", state
+    end,
     clamp = clamp,
     getFont = getFont,
     drawText = drawText,
@@ -10515,7 +10556,10 @@ local function updateTaxiState(comp, map)
                     local takeoff_roll = gs >= ((C and C.depTakeoffLatchSpeed) or 25)
                         and (comp._depThresholdLatched or comp._depThresholdReached)
                         local backtrack_lineup_turn = nil
-                        if dep_backtrack_active and comp._route and U.dep_backtrack_lineup_turn_from_route then
+                        if dep_backtrack_active and onRunway and dep_profile and U.compute_dep_backtrack_lineup_turn then
+                            backtrack_lineup_turn = U.compute_dep_backtrack_lineup_turn(comp, dep_profile, runway_lat, runway_lon, aircraft)
+                        end
+                        if (not backtrack_lineup_turn) and dep_backtrack_active and comp._route and U.dep_backtrack_lineup_turn_from_route then
                             backtrack_lineup_turn = U.dep_backtrack_lineup_turn_from_route(comp._route)
                         end
                         if not takeoff_roll then
