@@ -1635,10 +1635,11 @@ function M.attach(U, C, def, helpers, settings)
                 and lineup_node.east and lineup_node.north) then
                 return nil
             end
-            if not ((turn_node.is_temp or lineup_node.is_temp)
-                and data.runway_nodes
+            local temp_tail = turn_id < 0 or lineup_id < 0 or turn_node.is_temp or lineup_node.is_temp
+            local runway_tail = data.runway_nodes
                 and data.runway_nodes[turn_id]
-                and data.runway_nodes[lineup_id]) then
+                and data.runway_nodes[lineup_id]
+            if not (temp_tail or runway_tail) then
                 return nil
             end
             local v1x = turn_node.east - prev_node.east
@@ -1654,7 +1655,7 @@ function M.attach(U, C, def, helpers, settings)
             if dot > 1 then dot = 1 end
             if dot < -1 then dot = -1 end
             local angle = math.deg(math.acos(dot))
-            if angle < math.max(15, (C and C.guidanceTurnAngle) or 15) then
+            if angle < math.max(8, math.min(15, (C and C.guidanceTurnAngle) or 15)) then
                 return nil
             end
             local cross = v1x * v2y - v1y * v2x
@@ -3286,10 +3287,11 @@ function M.attach(U, C, def, helpers, settings)
             and lineup_node.east and lineup_node.north) then
             return nil
         end
-        if not ((turn_node.is_temp or lineup_node.is_temp)
-            and data.runway_nodes
+        local temp_tail = turn_id < 0 or lineup_id < 0 or turn_node.is_temp or lineup_node.is_temp
+        local runway_tail = data.runway_nodes
             and data.runway_nodes[turn_id]
-            and data.runway_nodes[lineup_id]) then
+            and data.runway_nodes[lineup_id]
+        if not (temp_tail or runway_tail) then
             return nil
         end
         local v1x = turn_node.east - prev_node.east
@@ -3305,7 +3307,7 @@ function M.attach(U, C, def, helpers, settings)
         if dot > 1 then dot = 1 end
         if dot < -1 then dot = -1 end
         local angle = math.deg(math.acos(dot))
-        if angle < math.max(15, (C and C.guidanceTurnAngle) or 15) then
+        if angle < math.max(8, math.min(15, (C and C.guidanceTurnAngle) or 15)) then
             return nil
         end
         local cross = v1x * v2y - v1y * v2x
