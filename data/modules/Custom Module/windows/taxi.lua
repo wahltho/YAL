@@ -10514,6 +10514,10 @@ local function updateTaxiState(comp, map)
                     local gs = yal and yal.groundspeed and (get(yal.groundspeed) or 0) or 0
                     local takeoff_roll = gs >= ((C and C.depTakeoffLatchSpeed) or 25)
                         and (comp._depThresholdLatched or comp._depThresholdReached)
+                        local backtrack_lineup_turn = nil
+                        if dep_backtrack_active and comp._route and U.dep_backtrack_lineup_turn_from_route then
+                            backtrack_lineup_turn = U.dep_backtrack_lineup_turn_from_route(comp._route)
+                        end
                         if not takeoff_roll then
                             if not comp._depRunwayEntryAnnounced then
                                 local rwy_phrase = runway_label_voice(comp._runwayName)
@@ -10522,8 +10526,14 @@ local function updateTaxiState(comp, map)
                                 local entry_direction = "straight"
                                 local entry_label = build_visual_label("runway", U.normalize_runway_name(comp._runwayName))
                                 if dep_backtrack_active and onRunway then
-                                    entry_text = "Align with departure " .. rwy_phrase
-                                    entry_action = "ALIGN RWY"
+                                    if backtrack_lineup_turn == "left" or backtrack_lineup_turn == "right" then
+                                        entry_text = "Turn " .. backtrack_lineup_turn .. " to line up on departure " .. rwy_phrase
+                                        entry_action = "LINE UP"
+                                        entry_direction = backtrack_lineup_turn
+                                    else
+                                        entry_text = "Align with departure " .. rwy_phrase
+                                        entry_action = "ALIGN RWY"
+                                    end
                                 elseif comp._route and dep_profile and dep_profile.axis and U.dep_entry_turn_from_route then
                                     local turn = U.dep_entry_turn_from_route(comp._route, dep_profile, aircraft)
                                     if turn == "left" or turn == "right" then
@@ -10563,10 +10573,18 @@ local function updateTaxiState(comp, map)
                                     local cooldown = (C and C.autoTaxiAlignCooldownSec) or 3
                                     if (not now) or (now - last) >= cooldown then
                                         local rwy_phrase = runway_label_voice(comp._runwayName)
+                                        local align_text = "Align with departure " .. rwy_phrase
+                                        local align_action = "ALIGN RWY"
+                                        local align_direction = "straight"
+                                        if dep_backtrack_active and (backtrack_lineup_turn == "left" or backtrack_lineup_turn == "right") then
+                                            align_text = "Turn " .. backtrack_lineup_turn .. " to line up on departure " .. rwy_phrase
+                                            align_action = "LINE UP"
+                                            align_direction = backtrack_lineup_turn
+                                        end
                                         emit_guidance(comp, now, {
-                                            text = "Align with departure " .. rwy_phrase,
-                                            direction = "straight",
-                                            action = "ALIGN RWY",
+                                            text = align_text,
+                                            direction = align_direction,
+                                            action = align_action,
                                             label = build_visual_label("runway", U.normalize_runway_name(comp._runwayName)),
                                             kind = "runway"
                                         }, U.is_auto_taxi_guidance_enabled())

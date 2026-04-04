@@ -1554,6 +1554,8 @@ function M.attach(U, C, def, helpers, settings)
             }
         end
 
+        local build_guidance_for_line_up
+
         local function build_guidance_for_dep_backtrack(seg_idx, label, turn_dir)
             local display = backtrack_runway_label(label)
             local text = "Backtrack on " .. backtrack_runway_voice(label)
@@ -1609,6 +1611,56 @@ function M.attach(U, C, def, helpers, settings)
             }
         end
 
+        local function dep_backtrack_lineup_turn(seg_idx)
+            if not dep_backtrack_sequence_active(comp) or comp.mode ~= 0 then
+                return nil
+            end
+            if not path or not data or not data.nodes or #path < 3 then
+                return nil
+            end
+            local idx = tonumber(seg_idx) or 1
+            if idx < math.max(1, #path - 3) then
+                return nil
+            end
+            local prev_id = path[#path - 2]
+            local turn_id = path[#path - 1]
+            local lineup_id = path[#path]
+            local prev_node = data.nodes[prev_id]
+            local turn_node = data.nodes[turn_id]
+            local lineup_node = data.nodes[lineup_id]
+            if not (prev_node and turn_node and lineup_node) then
+                return nil
+            end
+            if not (prev_node.east and prev_node.north and turn_node.east and turn_node.north
+                and lineup_node.east and lineup_node.north) then
+                return nil
+            end
+            if not ((turn_node.is_temp or lineup_node.is_temp)
+                and data.runway_nodes
+                and data.runway_nodes[turn_id]
+                and data.runway_nodes[lineup_id]) then
+                return nil
+            end
+            local v1x = turn_node.east - prev_node.east
+            local v1y = turn_node.north - prev_node.north
+            local v2x = lineup_node.east - turn_node.east
+            local v2y = lineup_node.north - turn_node.north
+            local len1 = math.sqrt(v1x * v1x + v1y * v1y)
+            local len2 = math.sqrt(v2x * v2x + v2y * v2y)
+            if len1 <= 0.1 or len2 <= 0.1 then
+                return nil
+            end
+            local dot = (v1x * v2x + v1y * v2y) / (len1 * len2)
+            if dot > 1 then dot = 1 end
+            if dot < -1 then dot = -1 end
+            local angle = math.deg(math.acos(dot))
+            if angle < math.max(15, (C and C.guidanceTurnAngle) or 15) then
+                return nil
+            end
+            local cross = v1x * v2y - v1y * v2x
+            return (cross >= 0) and "left" or "right"
+        end
+
         local function normalize_dep_backtrack_guidance(seg_idx, info, raw_label, next_raw_label)
             if not info or not dep_backtrack_sequence_active(comp) or comp.mode ~= 0 then
                 return info
@@ -1635,11 +1687,17 @@ function M.attach(U, C, def, helpers, settings)
             if action == "TURN LEFT" or action == "TURN RIGHT" or action == "ENTER RWY" then
                 return build_guidance_for_dep_backtrack(seg_idx, backtrack_label, turn_dir_override)
             end
+            if action == "ALIGN RWY" then
+                local lineup_turn = dep_backtrack_lineup_turn(seg_idx)
+                if lineup_turn == "left" or lineup_turn == "right" then
+                    return build_guidance_for_line_up(seg_idx, comp._runwayName or backtrack_label, lineup_turn)
+                end
+                return build_guidance_for_dep_backtrack_continue(seg_idx, backtrack_label)
+            end
             if action == "CONTINUE"
                 or action == "TAXI VIA"
                 or action == "TAXI"
-                or action == "EXIT RWY"
-                or action == "ALIGN RWY" then
+                or action == "EXIT RWY" then
                 return build_guidance_for_dep_backtrack_continue(seg_idx, backtrack_label)
             end
             return info
@@ -1899,12 +1957,15 @@ function M.attach(U, C, def, helpers, settings)
             }
         end
 
-        local function build_guidance_for_line_up(seg_idx, label)
+        build_guidance_for_line_up = function(seg_idx, label, turn_dir)
             local display = runway_display(label)
             local text = "Line up on " .. runway_voice(label)
+            if turn_dir == "left" or turn_dir == "right" then
+                text = "Turn " .. turn_dir .. " to line up on " .. runway_voice(label)
+            end
             return {
                 text = text,
-                direction = "straight",
+                direction = turn_dir or "straight",
                 action = "LINE UP",
                 label = build_visual_label("runway", display),
                 display = display,
@@ -3203,6 +3264,54 @@ function M.attach(U, C, def, helpers, settings)
         return (cross >= 0) and "left" or "right"
     end
 
+    local function dep_backtrack_lineup_turn_from_route(route)
+        if not route or not route.path or not route.data or not route.data.nodes then
+            return nil
+        end
+        local path = route.path
+        local data = route.data
+        if #path < 3 then
+            return nil
+        end
+        local prev_id = path[#path - 2]
+        local turn_id = path[#path - 1]
+        local lineup_id = path[#path]
+        local prev_node = data.nodes[prev_id]
+        local turn_node = data.nodes[turn_id]
+        local lineup_node = data.nodes[lineup_id]
+        if not (prev_node and turn_node and lineup_node) then
+            return nil
+        end
+        if not (prev_node.east and prev_node.north and turn_node.east and turn_node.north
+            and lineup_node.east and lineup_node.north) then
+            return nil
+        end
+        if not ((turn_node.is_temp or lineup_node.is_temp)
+            and data.runway_nodes
+            and data.runway_nodes[turn_id]
+            and data.runway_nodes[lineup_id]) then
+            return nil
+        end
+        local v1x = turn_node.east - prev_node.east
+        local v1y = turn_node.north - prev_node.north
+        local v2x = lineup_node.east - turn_node.east
+        local v2y = lineup_node.north - turn_node.north
+        local len1 = math.sqrt(v1x * v1x + v1y * v1y)
+        local len2 = math.sqrt(v2x * v2x + v2y * v2y)
+        if len1 <= 0.1 or len2 <= 0.1 then
+            return nil
+        end
+        local dot = (v1x * v2x + v1y * v2y) / (len1 * len2)
+        if dot > 1 then dot = 1 end
+        if dot < -1 then dot = -1 end
+        local angle = math.deg(math.acos(dot))
+        if angle < math.max(15, (C and C.guidanceTurnAngle) or 15) then
+            return nil
+        end
+        local cross = v1x * v2y - v1y * v2x
+        return (cross >= 0) and "left" or "right"
+    end
+
     U.guidance_distance_for_speed = guidance_distance_for_speed
     U.speak_guidance_text = speak_guidance_text
     U.build_visual_label = build_visual_label
@@ -3215,6 +3324,7 @@ function M.attach(U, C, def, helpers, settings)
     U.maybe_speak_guidance = maybe_speak_guidance
     U.emit_guidance = emit_guidance
     U.dep_entry_turn_from_route = dep_entry_turn_from_route
+    U.dep_backtrack_lineup_turn_from_route = dep_backtrack_lineup_turn_from_route
 end
 
 return M
