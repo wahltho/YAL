@@ -967,12 +967,37 @@ local function buildSetIlsSupportNavaidMessage(loop)
     end
 
     local navdata = getSetIlsNavdata(loop)
-    if not navdata then
-        return nil
-    end
-
     local plan = buildSetIlsPlan(loop)
     if not plan or not plan.foTune or plan.foTune.type ~= "dme" then
+        local selectedAppId = nil
+        if P.fmsselectedapp then
+            selectedAppId = normalizeSelectedApproachId(get(P.fmsselectedapp))
+        end
+        local supportNavType = (plan and plan.navType)
+            or (loop.detectedApproach and loop.detectedApproach.navType)
+            or navTypeFromSelectedApproachId(selectedAppId)
+        local runway = (navdata and navdata[def.DESTRWY]) or get(P.desrwy)
+        local supportRefs = helpers.getCIFPApproachSupportNavaids(
+            get(P.desicao),
+            supportNavType,
+            runway,
+            P.navdatatable
+        )
+        if not supportRefs or not supportRefs[1] then
+            return nil
+        end
+
+        local support = supportRefs[1]
+        local message = "Supporting " .. tostring(support.kindLabel or "navaid")
+            .. " for Runway " .. helpers.formatRunwayDesignator(runway)
+            .. " is " .. helpers.spellNato(support.ident or "")
+        if support.freq and support.freq ~= 0 then
+            message = message .. " with frequency " .. helpers.addspaces(helpers.formatILSFrequency(support.freq))
+        end
+        return message
+    end
+
+    if not navdata then
         return nil
     end
 
@@ -5905,7 +5930,20 @@ function M.fillProcedureTable()
                         end
                     end,
                     runActionInAdviceMode = true, 
-                    nextStep = nil 
+                    nextStep = 'announce_support_navaid_only'
+                },
+                ['announce_support_navaid_only'] = {
+                    skipIf = function(loop, procData)
+                        return buildSetIlsSupportNavaidMessage(loop) == nil
+                    end,
+                    action = function(loop, procData)
+                        local message = buildSetIlsSupportNavaidMessage(loop)
+                        if message then
+                            P.commandtableentry(def.TEXT, message)
+                        end
+                    end,
+                    runActionInAdviceMode = true,
+                    nextStep = nil
                 },
                 ['announce_approach_type'] = {
                     action = function(loop, procData)

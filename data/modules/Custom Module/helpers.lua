@@ -4488,6 +4488,53 @@ function P.loadCIFP(icao)
         end
     end
 
+    local function addSupportRef(entry, ident, region, sectionCode, subSection)
+        if not entry then
+            return
+        end
+
+        ident = string.upper(trimString(ident or ""))
+        region = string.upper(trimString(region or ""))
+        sectionCode = string.upper(trimString(sectionCode or ""))
+        subSection = string.upper(trimString(subSection or ""))
+
+        if ident == "" or string.sub(ident, 1, 2) == "RW" then
+            return
+        end
+        if sectionCode ~= "D" then
+            return
+        end
+
+        entry.supportRefs = entry.supportRefs or {}
+        entry.supportRefKeys = entry.supportRefKeys or {}
+
+        local key = table.concat({ident, region, sectionCode, subSection}, "|")
+        if entry.supportRefKeys[key] then
+            return
+        end
+
+        entry.supportRefKeys[key] = true
+        table.insert(entry.supportRefs, {
+            ident = ident,
+            region = region,
+            sectionCode = sectionCode,
+            subSection = subSection
+        })
+    end
+
+    local function parseSupportRefSlot(entry, parts, identIndex, regionIndex, sectionIndex, subSectionIndex)
+        if not entry or type(parts) ~= "table" then
+            return
+        end
+        addSupportRef(
+            entry,
+            parts[identIndex],
+            parts[regionIndex],
+            parts[sectionIndex],
+            parts[subSectionIndex]
+        )
+    end
+
     for line in file:lines() do
         if string.sub(line, 1, 6) == "APPCH:" then
             local parts = {}
@@ -4600,6 +4647,9 @@ function P.loadCIFP(icao)
                         else
                             register_fix(parts[14])
                         end
+
+                        parseSupportRefSlot(entry, parts, 13, 14, 15, 16)
+                        parseSupportRefSlot(entry, parts, 30, 31, 32, 33)
 
                         if entry.navType == def.NAVTYPELDA and not entry.registered then
                             local identCandidate = trimString(parts[14] or "")
@@ -4729,6 +4779,138 @@ function P.getCIFPApproachCourseInfo(icao, navType, runway)
         return entry.course, false
     end
     return nil, nil
+end
+
+local function resolveCIFPSupportRef(navdatatable, ref)
+    if type(navdatatable) ~= "table" or type(ref) ~= "table" then
+        return nil
+    end
+
+    local bestEntry = nil
+    local bestScore = math.huge
+
+    for _, entry in ipairs(navdatatable) do
+        local navType = entry[def.DESTNAVTYPE]
+        local navId = string.upper(trimString(entry[def.DESTNAVID] or ""))
+        local dmeId = string.upper(trimString(entry[def.DESTDMEIDENT] or ""))
+        local matchesIdent = (navId ~= "" and navId == ref.ident) or (dmeId ~= "" and dmeId == ref.ident)
+
+        if matchesIdent then
+            local score = 0
+            local region = string.upper(trimString(entry[def.DESTICAO] or ""))
+            if ref.region ~= "" then
+                if region == ref.region then
+                    score = score - 100
+                else
+                    score = score + 250
+                end
+            end
+
+            if navType == def.NAVTYPEVOR then
+                score = score - 40
+                if entry[def.DESTNAVDME] then
+                    score = score - 10
+                end
+            elseif navType == def.NAVTYPEDME then
+                score = score - 30
+            elseif navType == def.NAVTYPEILS or navType == def.NAVTYPELOC
+                or navType == def.NAVTYPELDA or navType == def.NAVTYPEIGS then
+                score = score + 200
+            else
+                score = score + 100
+            end
+
+            if ref.subSection == "B" then
+                score = score + 25
+            end
+
+            if score < bestScore then
+                bestScore = score
+                bestEntry = entry
+            end
+        end
+    end
+
+    return bestEntry
+end
+
+local function buildCIFPSupportNavaidInfo(navdatatable, ref)
+    if type(ref) ~= "table" or not ref.ident or ref.ident == "" then
+        return nil
+    end
+
+    local resolved = resolveCIFPSupportRef(navdatatable, ref)
+    local kindLabel = "navaid"
+    local freq = nil
+
+    if resolved then
+        local navType = resolved[def.DESTNAVTYPE]
+        if navType == def.NAVTYPEVOR then
+            if resolved[def.DESTNAVDME] then
+                kindLabel = "V O R / D M E"
+                freq = tonumber(resolved[def.DESTDMEFREQ]) or tonumber(resolved[def.DESTFREQ]) or nil
+            else
+                kindLabel = "V O R"
+                freq = tonumber(resolved[def.DESTFREQ]) or nil
+            end
+        elseif navType == def.NAVTYPEDME then
+            kindLabel = "D M E"
+            freq = tonumber(resolved[def.DESTDMEFREQ]) or tonumber(resolved[def.DESTFREQ]) or nil
+        else
+            kindLabel = "navaid"
+        end
+    elseif ref.subSection == "B" then
+        kindLabel = "N D B"
+    end
+
+    return {
+        ident = ref.ident,
+        region = ref.region,
+        kindLabel = kindLabel,
+        freq = freq,
+        resolved = resolved,
+        raw = ref
+    }
+end
+
+function P.getCIFPApproachSupportNavaids(icao, navType, runway, navdatatable)
+    local entry = P.getCIFPApproach(icao, navType, runway)
+    if not entry or type(entry.supportRefs) ~= "table" or #entry.supportRefs == 0 then
+        return nil
+    end
+
+    local results = {}
+    local seen = {}
+
+    for _, ref in ipairs(entry.supportRefs) do
+        local info = buildCIFPSupportNavaidInfo(navdatatable, ref)
+        if info then
+            local key = table.concat({
+                tostring(info.ident or ""),
+                tostring(info.kindLabel or ""),
+                tostring(info.freq or "")
+            }, "|")
+            if not seen[key] then
+                seen[key] = true
+                table.insert(results, info)
+            end
+        end
+    end
+
+    if #results == 0 then
+        return nil
+    end
+
+    table.sort(results, function(a, b)
+        local aResolved = a.resolved ~= nil
+        local bResolved = b.resolved ~= nil
+        if aResolved ~= bResolved then
+            return aResolved
+        end
+        return tostring(a.ident or "") < tostring(b.ident or "")
+    end)
+
+    return results
 end
 
 function P.calcApproachCourseZibo(entry, ctx)
