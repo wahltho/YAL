@@ -82,6 +82,7 @@ local settingsDefinition = {
     [def.CONFIGAUTOTAXIING] = { dvalue = 0 , type = "number", min = 0, max = 1 },
     [def.CONFIGHOPPIEVOICE] = { dvalue = 0 , type = "number", min = 0, max = 1 },
     [def.CONFIGAUTORESTARTDEV] = { dvalue = 0 , type = "number", min = 0, max = 1 },
+    [def.CONFIGGEARPROTECTION] = { dvalue = 0 , type = "number", min = 0, max = 1 },
     [def.CONFIGTRIMADVICEPOPUPX] = { dvalue = -1 , type = "number", min = -10000, max = 20000 },
     [def.CONFIGTRIMADVICEPOPUPY] = { dvalue = -1 , type = "number", min = -10000, max = 20000 },
 

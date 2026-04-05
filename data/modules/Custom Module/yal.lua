@@ -53,6 +53,97 @@ local function hoppieVoiceEnabled()
     return (tonumber(P.configvalues[def.CONFIGHOPPIEVOICE] or 0) == def.ON)
 end
 
+local function gearProtectionEnabled()
+    if not P.configvalues then
+        return false
+    end
+    return (tonumber(P.configvalues[def.CONFIGGEARPROTECTION] or 0) == def.ON)
+end
+
+local function clearGearProtectionState()
+    P.gearProtectionWasAirborne = false
+    P.gearProtectionArmedUntil = nil
+    P.gearProtectionActiveUntil = nil
+    P.gearProtectionLastOnGround = nil
+end
+
+local function clearGearProtectionFailure(dataref, neutralValue, label)
+    if not dataref or not isProperty(dataref) then
+        return false
+    end
+    local currentValue = tonumber(get(dataref))
+    if currentValue == nil or currentValue == neutralValue then
+        return false
+    end
+    set(dataref, neutralValue)
+    helpers.logInfoTS("GearProtection: cleared " .. label .. " (" .. tostring(currentValue) .. " -> " .. tostring(neutralValue) .. ")")
+    return true
+end
+
+local function updateGearProtection()
+    if not gearProtectionEnabled() then
+        clearGearProtectionState()
+        return
+    end
+
+    local now = os.time() or 0
+    local onGround = (get(P.airgroundsensor) == def.ON)
+    local groundspeed = tonumber(get(P.groundspeed)) or 0
+    local radioAlt = tonumber(get(P.radioaltitude)) or 99999
+    local fmsFlightPhase = tonumber(get(P.fmsflightphase)) or -1
+    local inApproachContext = (P.flightstate == def.FLIGHTSTATEAPPROACH)
+        or (fmsFlightPhase == def.FMSFLIGHTPHASE_APPROACH)
+        or (fmsFlightPhase == def.FMSFLIGHTPHASE_GO_AROUND_ARMED)
+
+    if not onGround and groundspeed > 80 then
+        P.gearProtectionWasAirborne = true
+    end
+
+    if (not onGround)
+        and P.gearProtectionWasAirborne
+        and inApproachContext
+        and (groundspeed > 100)
+        and (radioAlt > 0)
+        and (radioAlt < 500) then
+        local shouldLogArm = (P.gearProtectionArmedUntil == nil) or (P.gearProtectionArmedUntil < now)
+        P.gearProtectionArmedUntil = now + 20
+        if shouldLogArm then
+            helpers.logInfoTS("GearProtection: touchdown armed ra=" .. tostring(math.floor(radioAlt + 0.5)) .. " gs=" .. tostring(math.floor(groundspeed + 0.5)))
+        end
+    end
+
+    if onGround
+        and (P.gearProtectionLastOnGround == false)
+        and P.gearProtectionWasAirborne
+        and P.gearProtectionArmedUntil
+        and (P.gearProtectionArmedUntil >= now)
+        and (groundspeed > 80) then
+        P.gearProtectionActiveUntil = now + 20
+        helpers.logInfoTS("GearProtection: active gs=" .. tostring(math.floor(groundspeed + 0.5)))
+    end
+
+    if P.gearProtectionActiveUntil and (P.gearProtectionActiveUntil >= now) then
+        clearGearProtectionFailure(P.rel_collapse1, 6, "rel_collapse1")
+        clearGearProtectionFailure(P.rel_tire1, 0, "rel_tire1")
+        if onGround and groundspeed < 40 then
+            helpers.logInfoTS("GearProtection: window closed slow-taxi gs=" .. tostring(math.floor(groundspeed + 0.5)))
+            P.gearProtectionActiveUntil = nil
+            P.gearProtectionArmedUntil = nil
+            P.gearProtectionWasAirborne = false
+        end
+    elseif P.gearProtectionActiveUntil and (P.gearProtectionActiveUntil < now) then
+        helpers.logInfoTS("GearProtection: window closed timeout")
+        P.gearProtectionActiveUntil = nil
+    end
+
+    if onGround and (not P.gearProtectionActiveUntil) and groundspeed < 40 then
+        P.gearProtectionArmedUntil = nil
+        P.gearProtectionWasAirborne = false
+    end
+
+    P.gearProtectionLastOnGround = onGround
+end
+
 local function clearTrimAdvicePopupState()
     P.trimAdvicePopupState = nil
 end
@@ -775,6 +866,10 @@ function P.YalinitGlobal()
     P.needsPostStartupDatarefRebind = false
     P.externalDatarefsPostStartupDone = false
     P.initialExternalDatarefMissingCount = 0
+    P.gearProtectionWasAirborne = false
+    P.gearProtectionArmedUntil = nil
+    P.gearProtectionActiveUntil = nil
+    P.gearProtectionLastOnGround = nil
 
     P.savetimer = nil
 
@@ -1094,6 +1189,8 @@ function P.bindExternalDatarefs(silentMissing)
     P.lgeardeployed = GPFAE("sim/aircraft/parts/acf_gear_deploy", 1)
     P.ngeardeployed = GPFAE("sim/aircraft/parts/acf_gear_deploy", 2)
     P.rgeardeployed = GPFAE("sim/aircraft/parts/acf_gear_deploy", 3)
+    P.rel_collapse1 = GP("sim/operation/failures/rel_collapse1")
+    P.rel_tire1 = GP("sim/operation/failures/rel_tire1")
 
     P.altitude = GP("laminar/B738/autopilot/altitude")
     P.altitude_ft = GP("sim/cockpit2/gauges/indicators/altitude_ft_pilot")
@@ -7633,6 +7730,7 @@ function P.do_yal()
     end
 
     P.updateSharedVariables()
+    updateGearProtection()
 
     local next_recommended_wait_step = def.STANDARDWAIT
 
