@@ -68,6 +68,7 @@ local function clearGearProtectionState()
     P.gearProtectionArmedUntil = nil
     P.gearProtectionActiveUntil = nil
     P.gearProtectionLastOnGround = nil
+    P.gearProtectionObservedFailures = nil
 end
 
 local function clearGearProtectionFailure(dataref, neutralValue, label)
@@ -81,6 +82,36 @@ local function clearGearProtectionFailure(dataref, neutralValue, label)
     set(dataref, neutralValue)
     helpers.logInfoTS("GearProtection: cleared " .. label .. " (" .. tostring(currentValue) .. " -> " .. tostring(neutralValue) .. ")")
     return true
+end
+
+local function logGearProtectionObservedFailure(label, dataref)
+    if not dataref or not isProperty(dataref) then
+        return
+    end
+    local currentValue = tonumber(get(dataref))
+    if currentValue == nil then
+        return
+    end
+    local observed = P.gearProtectionObservedFailures
+    if not observed then
+        observed = {}
+        P.gearProtectionObservedFailures = observed
+    end
+    if observed[label] == currentValue then
+        return
+    end
+    observed[label] = currentValue
+    helpers.logInfoTS("GearProtection: observed " .. label .. "=" .. tostring(currentValue))
+end
+
+local function logGearProtectionObservedFailures()
+    logGearProtectionObservedFailure("rel_collapse1", P.rel_collapse1)
+    logGearProtectionObservedFailure("rel_collapse2", P.rel_collapse2)
+    logGearProtectionObservedFailure("rel_collapse3", P.rel_collapse3)
+    logGearProtectionObservedFailure("rel_tire1", P.rel_tire1)
+    logGearProtectionObservedFailure("rel_tire2", P.rel_tire2)
+    logGearProtectionObservedFailure("rel_tire3", P.rel_tire3)
+    logGearProtectionObservedFailure("rel_gear_act", P.rel_gear_act)
 end
 
 function P.updateGearProtectionFast()
@@ -123,6 +154,7 @@ function P.updateGearProtectionFast()
     end
 
     if P.gearProtectionActiveUntil and (P.gearProtectionActiveUntil >= now) then
+        logGearProtectionObservedFailures()
         clearGearProtectionFailure(P.rel_collapse1, 6, "rel_collapse1")
         clearGearProtectionFailure(P.rel_tire1, 0, "rel_tire1")
         if onGround and groundspeed < 40 then
@@ -870,6 +902,7 @@ function P.YalinitGlobal()
     P.gearProtectionArmedUntil = nil
     P.gearProtectionActiveUntil = nil
     P.gearProtectionLastOnGround = nil
+    P.gearProtectionObservedFailures = nil
 
     P.savetimer = nil
 
@@ -1190,7 +1223,12 @@ function P.bindExternalDatarefs(silentMissing)
     P.ngeardeployed = GPFAE("sim/aircraft/parts/acf_gear_deploy", 2)
     P.rgeardeployed = GPFAE("sim/aircraft/parts/acf_gear_deploy", 3)
     P.rel_collapse1 = GP("sim/operation/failures/rel_collapse1")
+    P.rel_collapse2 = GP("sim/operation/failures/rel_collapse2")
+    P.rel_collapse3 = GP("sim/operation/failures/rel_collapse3")
     P.rel_tire1 = GP("sim/operation/failures/rel_tire1")
+    P.rel_tire2 = GP("sim/operation/failures/rel_tire2")
+    P.rel_tire3 = GP("sim/operation/failures/rel_tire3")
+    P.rel_gear_act = GP("sim/operation/failures/rel_gear_act")
 
     P.altitude = GP("laminar/B738/autopilot/altitude")
     P.altitude_ft = GP("sim/cockpit2/gauges/indicators/altitude_ft_pilot")
