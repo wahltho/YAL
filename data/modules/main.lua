@@ -691,6 +691,9 @@ end
 function update()
     if helpers.isZibo() then
         maybeInitDebugOverlay()
+        if yal and yal.updateGearProtectionFast then
+            yal.updateGearProtectionFast()
+        end
         maybeRunStartupUpdateCheck()
         local autoTaxiEnabled = false
         local autoTaxiingEnabled = false

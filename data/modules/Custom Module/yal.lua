@@ -54,6 +54,9 @@ local function hoppieVoiceEnabled()
 end
 
 local function gearProtectionEnabled()
+    if settings and settings.appSettings and settings.appSettings[def.CONFIGGEARPROTECTION] ~= nil then
+        return (tonumber(settings.appSettings[def.CONFIGGEARPROTECTION] or 0) == def.ON)
+    end
     if not P.configvalues then
         return false
     end
@@ -80,7 +83,7 @@ local function clearGearProtectionFailure(dataref, neutralValue, label)
     return true
 end
 
-local function updateGearProtection()
+function P.updateGearProtectionFast()
     if not gearProtectionEnabled() then
         clearGearProtectionState()
         return
@@ -90,10 +93,7 @@ local function updateGearProtection()
     local onGround = (get(P.airgroundsensor) == def.ON)
     local groundspeed = tonumber(get(P.groundspeed)) or 0
     local radioAlt = tonumber(get(P.radioaltitude)) or 99999
-    local fmsFlightPhase = tonumber(get(P.fmsflightphase)) or -1
-    local inApproachContext = (P.flightstate == def.FLIGHTSTATEAPPROACH)
-        or (fmsFlightPhase == def.FMSFLIGHTPHASE_APPROACH)
-        or (fmsFlightPhase == def.FMSFLIGHTPHASE_GO_AROUND_ARMED)
+    local verticalSpeed = tonumber(get(P.verticalspeed)) or 0
 
     if not onGround and groundspeed > 80 then
         P.gearProtectionWasAirborne = true
@@ -101,14 +101,14 @@ local function updateGearProtection()
 
     if (not onGround)
         and P.gearProtectionWasAirborne
-        and inApproachContext
-        and (groundspeed > 100)
+        and (groundspeed > 80)
         and (radioAlt > 0)
-        and (radioAlt < 500) then
+        and (radioAlt < 1200)
+        and (verticalSpeed < -150) then
         local shouldLogArm = (P.gearProtectionArmedUntil == nil) or (P.gearProtectionArmedUntil < now)
         P.gearProtectionArmedUntil = now + 20
         if shouldLogArm then
-            helpers.logInfoTS("GearProtection: touchdown armed ra=" .. tostring(math.floor(radioAlt + 0.5)) .. " gs=" .. tostring(math.floor(groundspeed + 0.5)))
+            helpers.logInfoTS("GearProtection: touchdown armed ra=" .. tostring(math.floor(radioAlt + 0.5)) .. " gs=" .. tostring(math.floor(groundspeed + 0.5)) .. " vs=" .. tostring(math.floor(verticalSpeed + 0.5)))
         end
     end
 
@@ -117,7 +117,7 @@ local function updateGearProtection()
         and P.gearProtectionWasAirborne
         and P.gearProtectionArmedUntil
         and (P.gearProtectionArmedUntil >= now)
-        and (groundspeed > 80) then
+        and (groundspeed > 40) then
         P.gearProtectionActiveUntil = now + 20
         helpers.logInfoTS("GearProtection: active gs=" .. tostring(math.floor(groundspeed + 0.5)))
     end
@@ -7730,7 +7730,6 @@ function P.do_yal()
     end
 
     P.updateSharedVariables()
-    updateGearProtection()
 
     local next_recommended_wait_step = def.STANDARDWAIT
 
