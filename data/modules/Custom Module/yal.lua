@@ -63,6 +63,8 @@ local function gearProtectionEnabled()
     return (tonumber(P.configvalues[def.CONFIGGEARPROTECTION] or 0) == def.ON)
 end
 
+local GEAR_PROTECTION_HEALTHY_FAILURE_VALUE = 0
+
 local function clearGearProtectionState()
     P.gearProtectionWasAirborne = false
     P.gearProtectionArmedUntil = nil
@@ -155,8 +157,8 @@ function P.updateGearProtectionFast()
 
     if P.gearProtectionActiveUntil and (P.gearProtectionActiveUntil >= now) then
         logGearProtectionObservedFailures()
-        clearGearProtectionFailure(P.rel_collapse1, 6, "rel_collapse1")
-        clearGearProtectionFailure(P.rel_tire1, 0, "rel_tire1")
+        clearGearProtectionFailure(P.rel_collapse1, GEAR_PROTECTION_HEALTHY_FAILURE_VALUE, "rel_collapse1")
+        clearGearProtectionFailure(P.rel_tire1, GEAR_PROTECTION_HEALTHY_FAILURE_VALUE, "rel_tire1")
         if onGround and groundspeed < 40 then
             helpers.logInfoTS("GearProtection: window closed slow-taxi gs=" .. tostring(math.floor(groundspeed + 0.5)))
             P.gearProtectionActiveUntil = nil
