@@ -6456,7 +6456,20 @@ function P.runOneMainOngoingTask()
         (P.flightstate == def.FLIGHTSTATEPREFLIGHT) and
         (get(P.taxilight) == def.OFF)
 
-    if preflightGateOpen then
+    local takeoffReadinessGuardOpen =
+        (get(P.airgroundsensor) == def.ON) and
+        (get(P.battery) == def.ON) and
+        (get(P.mainbus) ~= def.OFF) and
+        (P.flightstate == def.FLIGHTSTATEPREFLIGHT) and
+        (get(P.groundspeed) < 45) and
+        (
+            (P.procedureloop1.lock == def.BEFORETAKEOFFPROCEDURE)
+            or ((P.proceduretable[def.BEFORETAKEOFFPROCEDURE] ~= nil) and P.proceduretable[def.BEFORETAKEOFFPROCEDURE].set)
+            or (get(P.positionlights) == def.POSLIGHTSSTROBE)
+            or P.aircraftonrwy(def.DEPARTURE, 40, 20)
+        )
+
+    if preflightGateOpen or takeoffReadinessGuardOpen then
         if idx == 7 then
             local trimTarget = getLatchedTrimTarget() or 0
             local trimPopupAutoActive =
@@ -6464,7 +6477,7 @@ function P.runOneMainOngoingTask()
                 and (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON)
                 and (trimTarget > 0)
                 and (get(P.groundspeed) < 45)
-            if trimPopupAutoActive or (P._trimAdvicePopupPinned and trimTarget > 0) then
+            if preflightGateOpen and (trimPopupAutoActive or (P._trimAdvicePopupPinned and trimTarget > 0)) then
                 setTrimAdvicePopupState(trimTarget, P._trimAdvicePopupPinned == true)
             else
                 clearTrimAdvicePopupState()

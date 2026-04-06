@@ -3170,6 +3170,38 @@ function M.fillProcedureTable()
                             return false
                         end
                     end,
+                    nextStep = 'check_takeoff_trim'
+                },
+                ['check_takeoff_trim'] = {
+                    skipIf = function()
+                        local target = tonumber(get(P.totrim)) or 0
+                        return target <= 0
+                    end,
+                    check = function()
+                        local target = tonumber(get(P.totrim)) or 0
+                        if target <= 0 then
+                            return true
+                        end
+                        return helpers.trimwheel_matches_trim_step(get(P.trimwheel), target, 0.25)
+                    end,
+                    action = function()
+                        if P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON then
+                            local target = tonumber(get(P.totrim)) or 0
+                            if target > 0 then
+                                P.settotrim(target)
+                            end
+                        end
+                    end,
+                    advice = function()
+                        local target = tonumber(get(P.totrim)) or 0
+                        local trimText = helpers.format_trim_quarter(target) or tostring(target)
+                        return "Set Trim " .. trimText
+                    end,
+                    confirm = function()
+                        local target = tonumber(get(P.totrim)) or 0
+                        local trimText = helpers.format_trim_quarter(target) or tostring(target)
+                        return "Trim checked " .. trimText
+                    end,
                     nextStep = 'release_parking_brake'
                 },
                 ['release_parking_brake'] = {
@@ -3338,6 +3370,32 @@ function M.fillProcedureTable()
                     action = function() P.setautobrake(def.AUTOBRAKERTO) end,
                     advice = "Set Auto Brake R T O",
                     confirm = "Auto Brake checked and R T O",
+                    nextStep = 'check_mcp_speed'
+                },
+                ['check_mcp_speed'] = {
+                    skipIf = function() return (tonumber(get(P.v2speed)) or 0) <= 0 end,
+                    check = function()
+                        local target = tonumber(get(P.v2speed)) or 0
+                        if target <= 0 then
+                            return true
+                        end
+                        return get(P.mcpspeed) == target
+                    end,
+                    action = function()
+                        if P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON then
+                            local target = tonumber(get(P.v2speed)) or 0
+                            if target > 0 then
+                                set(P.mcpspeed, target)
+                            end
+                        end
+                    end,
+                    advice = function()
+                        local target = tonumber(get(P.v2speed)) or 0
+                        return "Set M C P Speed " .. helpers.addspaces(target)
+                    end,
+                    confirm = function()
+                        return "M C P Speed checked " .. helpers.addspaces(get(P.mcpspeed))
+                    end,
                     nextStep = 'check_mcp_heading'
                 },
                 ['check_mcp_heading'] = {
