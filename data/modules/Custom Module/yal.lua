@@ -903,6 +903,10 @@ function P.YalinitGlobal()
     P.gearProtectionActiveUntil = nil
     P.gearProtectionLastOnGround = nil
     P.gearProtectionObservedFailures = nil
+    P.cruiseAltMismatchKey = nil
+    P.cruiseAltMismatchFirstSeenAt = nil
+    P.cruiseAltMismatchLastWarnAt = nil
+    P.cruiseAltMismatchVnavAltWarned = false
 
     P.savetimer = nil
 
@@ -6948,6 +6952,73 @@ function P.ongoingtasks()
     elseif (P.altitudetimer ~= nil) then
         sasl.stopTimer(P.altitudetimer)
         P.altitudetimer = nil
+    end
+
+    do
+        local inAir = (get(P.airgroundsensor) == def.OFF)
+        local flightState = P.flightstate or 0
+        local fmsPhase = get(P.fmsflightphase) or 0
+        local currentAlt = get(P.altitude) or 0
+        local lowAirspaceAlt = tonumber(P.configvalues[def.CONFIGLOWEAIRSPACEALT] or 0) or 0
+        local fmcCruiseAlt = helpers.roundnumber((get(P.fmccruisealt) or 0) / 100, 0) * 100
+        local mcpAlt = helpers.roundnumber((get(P.mcpaltitude) or 0) / 100, 0) * 100
+        local cruiseGap = fmcCruiseAlt - mcpAlt
+        local likelyTypoMismatch =
+            (fmcCruiseAlt > lowAirspaceAlt) and
+            (mcpAlt > lowAirspaceAlt) and
+            (cruiseGap >= (def.CRUISE_ALT_MISMATCH_FT - def.CRUISE_ALT_MISMATCH_TOLERANCE_FT)) and
+            (cruiseGap <= (def.CRUISE_ALT_MISMATCH_FT + def.CRUISE_ALT_MISMATCH_TOLERANCE_FT))
+        local climbOrCruise =
+            (flightState == def.FLIGHTSTATECLIMB) or
+            (flightState == def.FLIGHTSTATECRUISE) or
+            (fmsPhase == def.FMSFLIGHTPHASE_CLIMB) or
+            (fmsPhase == def.FMSFLIGHTPHASE_CRUISE) or
+            (fmsPhase == def.FMSFLIGHTPHASE_CRZ_CLB)
+        local nearSelectedLevel = currentAlt >= math.max(lowAirspaceAlt, mcpAlt - def.CRUISE_ALT_MISMATCH_ARM_BAND_FT)
+        local vnavAltActive = (get(P.apvnavaltmode) == def.ON)
+        local guardEligible = inAir and climbOrCruise and likelyTypoMismatch and nearSelectedLevel
+
+        if guardEligible then
+            local mismatchKey = tostring(fmcCruiseAlt) .. ":" .. tostring(mcpAlt)
+            local now = os.time()
+            if P.cruiseAltMismatchKey ~= mismatchKey then
+                P.cruiseAltMismatchKey = mismatchKey
+                P.cruiseAltMismatchFirstSeenAt = now
+                P.cruiseAltMismatchLastWarnAt = nil
+                P.cruiseAltMismatchVnavAltWarned = false
+            elseif P.cruiseAltMismatchFirstSeenAt == nil then
+                P.cruiseAltMismatchFirstSeenAt = now
+            end
+
+            local shouldWarn = false
+            local urgentWarn = false
+            if vnavAltActive and (not P.cruiseAltMismatchVnavAltWarned) then
+                shouldWarn = true
+                urgentWarn = true
+            elseif (P.cruiseAltMismatchFirstSeenAt ~= nil) and ((now - P.cruiseAltMismatchFirstSeenAt) >= def.CRUISE_ALT_MISMATCH_GRACE_SEC) then
+                if (P.cruiseAltMismatchLastWarnAt == nil) or ((now - P.cruiseAltMismatchLastWarnAt) >= def.CRUISE_ALT_MISMATCH_REPEAT_SEC) then
+                    shouldWarn = true
+                end
+            end
+
+            if shouldWarn then
+                local message
+                if urgentWarn then
+                    message = "V N A V Alt active. Check M C P altitude. Planned cruise altitude is " .. helpers.addspaces(fmcCruiseAlt) .. " feet. M C P altitude is " .. helpers.addspaces(mcpAlt) .. " feet."
+                    P.cruiseAltMismatchVnavAltWarned = true
+                else
+                    message = "Check M C P altitude. Planned cruise altitude is " .. helpers.addspaces(fmcCruiseAlt) .. " feet. M C P altitude is " .. helpers.addspaces(mcpAlt) .. " feet."
+                end
+                helpers.logInfoTS(string.format("CruiseAltGuard: fmc=%d mcp=%d alt=%d vnavAlt=%s", fmcCruiseAlt, mcpAlt, currentAlt, tostring(vnavAltActive)))
+                P.commandtableentry(def.TEXT, message)
+                P.cruiseAltMismatchLastWarnAt = now
+            end
+        else
+            P.cruiseAltMismatchKey = nil
+            P.cruiseAltMismatchFirstSeenAt = nil
+            P.cruiseAltMismatchLastWarnAt = nil
+            P.cruiseAltMismatchVnavAltWarned = false
+        end
     end
 
     local airGroundSensor = get(P.airgroundsensor)
