@@ -186,7 +186,30 @@ local function setTrimAdvicePopupState(target, pinned)
         P.trimAdvicePopupState = nil
         return
     end
-    P.trimAdvicePopupState = { active = true, target = value, pinned = (pinned == true) }
+    local prev = P.trimAdvicePopupState
+    local requestOpenId = prev and tonumber(prev.requestOpenId) or 0
+    P.trimAdvicePopupState = {
+        active = true,
+        target = value,
+        pinned = (pinned == true),
+        requestOpenId = requestOpenId
+    }
+end
+
+local function requestTrimAdvicePopupOpen(target, pinned)
+    local value = tonumber(target)
+    if not value or value <= 0 then
+        P.trimAdvicePopupState = nil
+        return
+    end
+    local prev = P.trimAdvicePopupState
+    local requestOpenId = (prev and tonumber(prev.requestOpenId) or 0) + 1
+    P.trimAdvicePopupState = {
+        active = true,
+        target = value,
+        pinned = (pinned == true),
+        requestOpenId = requestOpenId
+    }
 end
 
 local function clearTrimTargetLatch()
@@ -3025,7 +3048,7 @@ function P.toggletrimpopup()
     end
 
     P._trimAdvicePopupPinned = true
-    setTrimAdvicePopupState(trimTarget, true)
+    requestTrimAdvicePopupOpen(trimTarget, true)
     P.commandtableentry(def.TEXT, "Trim Window On")
     return true
 end
@@ -6472,27 +6495,29 @@ function P.runOneMainOngoingTask()
             or (get(P.positionlights) == def.POSLIGHTSSTROBE)
             or P.aircraftonrwy(def.DEPARTURE, 40, 20)
         )
+    local trimAdviceGuardOpen = preflightGateOpen or takeoffReadinessGuardOpen
 
-    if preflightGateOpen or takeoffReadinessGuardOpen then
+    if trimAdviceGuardOpen then
         if idx == 7 then
             local trimTarget = getLatchedTrimTarget() or 0
-            local trimPopupAutoActive =
+            local trimPopupFeatureEnabled =
                 (P.configvalues[def.CONFIGTRIMADVICEPOPUP] == def.ON)
                 and (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON)
-                and (trimTarget > 0)
-                and (get(P.groundspeed) < 45)
-            if preflightGateOpen and (trimPopupAutoActive or (P._trimAdvicePopupPinned and trimTarget > 0)) then
+            local trimMismatch = (trimTarget > 0) and (not helpers.trimwheel_matches_trim_step(get(P.trimwheel), trimTarget, 0.25) and (get(P.groundspeed) < 45))
+            if trimAdviceGuardOpen and (((trimPopupFeatureEnabled) or P._trimAdvicePopupPinned) and trimTarget > 0) then
                 setTrimAdvicePopupState(trimTarget, P._trimAdvicePopupPinned == true)
             else
                 clearTrimAdvicePopupState()
             end
-            local trimMismatch = (trimTarget > 0) and (not helpers.trimwheel_matches_trim_step(get(P.trimwheel), trimTarget, 0.25) and (get(P.groundspeed) < 45))
             if trimMismatch then
                 if ((P.configvalues[def.CONFIGAUTOFUNCTIONS] == def.ON) and (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON)) then
                     P.settotrim(trimTarget)
                     local trimText = helpers.format_trim_quarter(trimTarget) or tostring(trimTarget)
                     P.commandtableentry(def.TEXT, "Trim " .. trimText)
                 elseif (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
+                    if trimPopupFeatureEnabled then
+                        requestTrimAdvicePopupOpen(trimTarget, P._trimAdvicePopupPinned == true)
+                    end
                     local trimText = helpers.format_trim_quarter(trimTarget) or tostring(trimTarget)
                     P.commandtableentry(def.TEXT, "Set Trim " .. trimText)
                 end
@@ -6527,7 +6552,7 @@ function P.runOneMainOngoingTask()
         local trimPopupAllowed =
             (P.configvalues[def.CONFIGTRIMADVICEPOPUP] == def.ON) and
             (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON)
-        if (not preflightGateOpen) or (latchedTrimTarget <= 0) then
+        if (not trimAdviceGuardOpen) or (latchedTrimTarget <= 0) then
             P._trimAdvicePopupPinned = false
             clearTrimTargetLatch()
             clearTrimAdvicePopupState()

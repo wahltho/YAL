@@ -69,6 +69,7 @@ function M.newComponent(ctx)
     comp._lastTrimWheel = nil
     comp._lastInputTs = nil
     comp._targetReachedTs = nil
+    comp._lastRequestOpenId = 0
 
     function comp:setWindow(win)
         self._window = win
@@ -128,8 +129,13 @@ function M.newComponent(ctx)
             return
         end
         local pinned = (state.pinned == true)
+        local requestOpenId = tonumber(state.requestOpenId) or 0
+        local requestOpen = (requestOpenId > 0) and (requestOpenId ~= self._lastRequestOpenId)
 
         if wheelMoved then
+            self._lastInputTs = now
+        end
+        if requestOpen then
             self._lastInputTs = now
         end
 
@@ -161,8 +167,11 @@ function M.newComponent(ctx)
             end
         end
 
-        if self._window and self._window.isVisible and not self._window:isVisible() and (wheelMoved or pinned) then
+        if self._window and self._window.isVisible and not self._window:isVisible() and (wheelMoved or pinned or requestOpen) then
             self._window:setIsVisible(true)
+        end
+        if requestOpen then
+            self._lastRequestOpenId = requestOpenId
         end
 
         self._status = {
