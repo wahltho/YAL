@@ -150,18 +150,8 @@ function M.newComponent(ctx)
             self._targetReachedTs = nil
         end
 
-        local targetWheel = helpers.trimvalue_to_trimwheel(target)
-        local currentWheel = trimwheel * -100
         local direction = "center"
-        if targetWheel ~= nil then
-            if math.abs(currentWheel - targetWheel) > 0.5 then
-                if currentWheel > targetWheel then
-                    direction = "up"
-                else
-                    direction = "down"
-                end
-            end
-        elseif currentTrim ~= nil and target ~= nil then
+        if currentTrim ~= nil and target ~= nil then
             if math.abs(currentTrim - target) > 0.01 then
                 direction = (currentTrim < target) and "up" or "down"
             end
