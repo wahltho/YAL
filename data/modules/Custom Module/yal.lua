@@ -180,6 +180,10 @@ local function clearTrimAdvicePopupState()
     P.trimAdvicePopupState = nil
 end
 
+local function getTrimPopupNowSec()
+    return os.time() or 0
+end
+
 local function setTrimAdvicePopupState(target, pinned)
     local value = tonumber(target)
     if not value or value <= 0 then
@@ -188,11 +192,13 @@ local function setTrimAdvicePopupState(target, pinned)
     end
     local prev = P.trimAdvicePopupState
     local requestOpenId = prev and tonumber(prev.requestOpenId) or 0
+    local holdUntilTs = prev and tonumber(prev.holdUntilTs) or nil
     P.trimAdvicePopupState = {
         active = true,
         target = value,
         pinned = (pinned == true),
-        requestOpenId = requestOpenId
+        requestOpenId = requestOpenId,
+        holdUntilTs = holdUntilTs
     }
 end
 
@@ -204,12 +210,40 @@ local function requestTrimAdvicePopupOpen(target, pinned)
     end
     local prev = P.trimAdvicePopupState
     local requestOpenId = (prev and tonumber(prev.requestOpenId) or 0) + 1
+    local holdUntilTs = nil
+    if pinned == true then
+        holdUntilTs = prev and tonumber(prev.holdUntilTs) or nil
+    else
+        holdUntilTs = getTrimPopupNowSec() + 5
+    end
     P.trimAdvicePopupState = {
         active = true,
         target = value,
         pinned = (pinned == true),
-        requestOpenId = requestOpenId
+        requestOpenId = requestOpenId,
+        holdUntilTs = holdUntilTs
     }
+end
+
+local function maybeRequestTrimAdvicePopupForSpeech(entry_type, entry_text)
+    if entry_type ~= def.TEXT or type(entry_text) ~= "string" then
+        return
+    end
+    if string.sub(entry_text, 1, 9) ~= "Set Trim " then
+        return
+    end
+    if (P.configvalues[def.CONFIGTRIMADVICEPOPUP] ~= def.ON)
+        or (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
+        return
+    end
+
+    local target = tonumber(string.sub(entry_text, 10))
+    if (not target or target <= 0) and P.trimAdvicePopupState and P.trimAdvicePopupState.active == true then
+        target = tonumber(P.trimAdvicePopupState.target)
+    end
+    if target and target > 0 then
+        requestTrimAdvicePopupOpen(target, P._trimAdvicePopupPinned == true)
+    end
 end
 
 local function clearTrimTargetLatch()
@@ -6520,9 +6554,6 @@ function P.runOneMainOngoingTask()
                     local trimText = helpers.format_trim_quarter(trimTarget) or tostring(trimTarget)
                     P.commandtableentry(def.TEXT, "Trim " .. trimText)
                 elseif (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                    if trimPopupFeatureEnabled then
-                        requestTrimAdvicePopupOpen(trimTarget, P._trimAdvicePopupPinned == true)
-                    end
                     local trimText = helpers.format_trim_quarter(trimTarget) or tostring(trimTarget)
                     P.commandtableentry(def.TEXT, "Set Trim " .. trimText)
                 end
@@ -6557,11 +6588,14 @@ function P.runOneMainOngoingTask()
         local trimPopupAllowed =
             (P.configvalues[def.CONFIGTRIMADVICEPOPUP] == def.ON) and
             (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON)
-        if (not trimAdviceGuardOpen) or (latchedTrimTarget <= 0) then
+        local popupState = P.trimAdvicePopupState
+        local popupHoldUntilTs = popupState and tonumber(popupState.holdUntilTs) or 0
+        local popupHoldActive = popupHoldUntilTs > getTrimPopupNowSec()
+        if ((not trimAdviceGuardOpen) or (latchedTrimTarget <= 0)) and (not popupHoldActive) then
             P._trimAdvicePopupPinned = false
             clearTrimTargetLatch()
             clearTrimAdvicePopupState()
-        elseif not trimPopupAllowed and not P._trimAdvicePopupPinned then
+        elseif (not trimPopupAllowed) and (not P._trimAdvicePopupPinned) and (not popupHoldActive) then
             clearTrimAdvicePopupState()
         end
     end
@@ -7238,6 +7272,7 @@ function P.commandtableloop()
             local entry_text = P.commandtable[entry_index][2]
             if (entry_type == def.TEXT) or (entry_type == def.TAXI) then
                 if voice_enabled then
+                    maybeRequestTrimAdvicePopupForSpeech(entry_type, entry_text)
                     if entry_type == def.TAXI then
                         helpers.logInfoTS("SpeakString TAXI: " .. tostring(entry_text))
                     else
