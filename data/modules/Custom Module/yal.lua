@@ -6504,7 +6504,12 @@ function P.runOneMainOngoingTask()
                 (P.configvalues[def.CONFIGTRIMADVICEPOPUP] == def.ON)
                 and (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON)
             local trimMismatch = (trimTarget > 0) and (not helpers.trimwheel_matches_trim_step(get(P.trimwheel), trimTarget, 0.25) and (get(P.groundspeed) < 45))
-            if trimAdviceGuardOpen and (((trimPopupFeatureEnabled) or P._trimAdvicePopupPinned) and trimTarget > 0) then
+            local trimPopupAutoActive =
+                trimPopupFeatureEnabled
+                and trimAdviceGuardOpen
+                and trimTarget > 0
+                and (trimMismatch or (P.trimAdvicePopupState and P.trimAdvicePopupState.active == true and P.trimAdvicePopupState.pinned ~= true))
+            if trimAdviceGuardOpen and trimTarget > 0 and (trimPopupAutoActive or P._trimAdvicePopupPinned) then
                 setTrimAdvicePopupState(trimTarget, P._trimAdvicePopupPinned == true)
             else
                 clearTrimAdvicePopupState()

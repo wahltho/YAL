@@ -157,7 +157,7 @@ function M.newComponent(ctx)
             end
         end
 
-        if self._window and self._window.isVisible and not self._window:isVisible() and (wheelMoved or pinned or requestOpen) then
+        if self._window and self._window.isVisible and not self._window:isVisible() and (pinned or requestOpen) then
             self._window:setIsVisible(true)
         end
         if requestOpen then
