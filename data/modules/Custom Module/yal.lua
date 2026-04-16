@@ -156,7 +156,11 @@ function P.updateGearProtectionFast()
     if P.gearProtectionActiveUntil and (P.gearProtectionActiveUntil >= now) then
         logGearProtectionObservedFailures()
         clearGearProtectionFailure(P.rel_collapse1, def.FAILURE_HEALTHY, "rel_collapse1")
+        clearGearProtectionFailure(P.rel_collapse2, def.FAILURE_HEALTHY, "rel_collapse2")
+        clearGearProtectionFailure(P.rel_collapse3, def.FAILURE_HEALTHY, "rel_collapse3")
         clearGearProtectionFailure(P.rel_tire1, def.FAILURE_HEALTHY, "rel_tire1")
+        clearGearProtectionFailure(P.rel_tire2, def.FAILURE_HEALTHY, "rel_tire2")
+        clearGearProtectionFailure(P.rel_tire3, def.FAILURE_HEALTHY, "rel_tire3")
         if onGround and groundspeed < 40 then
             helpers.logInfoTS("GearProtection: window closed slow-taxi gs=" .. tostring(math.floor(groundspeed + 0.5)))
             P.gearProtectionActiveUntil = nil
