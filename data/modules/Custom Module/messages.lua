@@ -30,7 +30,7 @@ local english = {
     AUTOUPDATECHECK = 'Check YAL/Zibo updates on startup',
     TODPAUSEQUITTIME = 'Sim exit after Pause at TOD (0-9999 sec)',
     SAVETIME = 'Auto Flight Save Time (0 or 9999 = off)',
-    SAVENUMBER = 'Auto Flight Save EFB Position(s) (ignored if save is off)',
+    SAVENUMBER = 'Auto Flight Save EFB Position(s)',
     WAKEOVERRIDE = 'Disable XP Wake Effects',
     RUNWAYFRICTIONCLAMP = 'XP Runway Friction Clamp',
     AUTOANTIICE = 'Automatic Anti Icing',
