@@ -250,6 +250,92 @@ local function maybeRequestTrimAdvicePopupForSpeech(entry_type, entry_text)
     end
 end
 
+local TAKEOFF_N1_40_MESSAGE = "Both Engine N 1 at 40 Percent"
+
+local function isTakeoffN1CalloutProcedureContext()
+    if not P.procedureloop1 then
+        return false
+    end
+    return (P.procedureloop1.lock == def.NOPROCEDURE)
+        or (P.procedureloop1.lock == def.BEFORETAKEOFFPROCEDURE)
+end
+
+local function isTakeoffAutothrottleActiveNow()
+    local throttleHold = (P.atthrottlehold and get(P.atthrottlehold)) or 0
+    local throttleLock = (P.atthrottlelock and get(P.atthrottlelock)) or 0
+    return (tonumber(throttleHold) or 0) > 0
+        or (tonumber(throttleLock) or 0) > 0
+end
+
+local function isTakeoffN140CalloutEligible()
+    if not isTakeoffN1CalloutProcedureContext() then
+        return false
+    end
+
+    local atArmPos = get(P.atarmpos)
+    local eng1N1 = get(P.eng1n1percent)
+    local eng2N1 = get(P.eng2n1percent)
+
+    if atArmPos ~= def.ARMED then
+        return false
+    end
+    if get(P.airgroundsensor) ~= def.ON then
+        return false
+    end
+    if eng1N1 == nil or eng2N1 == nil then
+        return false
+    end
+    if eng1N1 <= 40 or eng2N1 <= 40 then
+        return false
+    end
+    if isTakeoffAutothrottleActiveNow() then
+        return false
+    end
+    return true
+end
+
+local function shouldResetTakeoffN140CalloutLatch()
+    if not P._takeoffN140CalloutLatched then
+        return false
+    end
+
+    local atArmPos = get(P.atarmpos)
+    local eng1N1 = get(P.eng1n1percent) or 0
+    local eng2N1 = get(P.eng2n1percent) or 0
+
+    if atArmPos ~= def.ARMED then
+        return true
+    end
+    if get(P.airgroundsensor) ~= def.ON then
+        return true
+    end
+    if not isTakeoffN1CalloutProcedureContext() then
+        return true
+    end
+    if eng1N1 < 35 and eng2N1 < 35 then
+        return true
+    end
+    return false
+end
+
+local function resetTakeoffN140CalloutState()
+    P._takeoffN140CalloutLatched = false
+end
+
+local function maybeQueueTakeoffN140Callout()
+    if shouldResetTakeoffN140CalloutLatch() then
+        resetTakeoffN140CalloutState()
+    end
+    if P._takeoffN140CalloutLatched then
+        return
+    end
+    if not isTakeoffN140CalloutEligible() then
+        return
+    end
+    P.commandtableentry(def.TEXT, TAKEOFF_N1_40_MESSAGE)
+    P._takeoffN140CalloutLatched = true
+end
+
 local function clearTrimTargetLatch()
     P._ongoingTrimTargetLatched = nil
 end
@@ -991,6 +1077,7 @@ function P.YalinitGlobal()
     P.todDiscontinuityWarned10 = false
     P.routeEndsEarlyWarned = false
     P.todResetMcpAdviceState = { key = nil, count = 0, spoken = 0 }
+    P._takeoffN140CalloutLatched = false
 
     P.windshieldIcingStarted = false
     P.windshieldIcingApplied = false
@@ -1278,6 +1365,7 @@ function P.bindExternalDatarefs(silentMissing)
     P.atn1stat = GP("laminar/B738/autopilot/n1_status")
     P.atspeedstat = GP("laminar/B738/autopilot/speed_status1")
     P.atspeedintvstat = GP("laminar/B738/autopilot/spd_interv_status")
+    P.atthrottlehold = GP("laminar/autopilot/at_throttle_hold")
     P.atn1mode = GP("laminar/B738/FMS/N1_mode")
     P.atn1modetoselection = GP("laminar/B738/FMS/N1_mode_to_sel")
     P.atthrottlelock = GP("laminar/B738/autopilot/lock_throttle")
@@ -7244,18 +7332,7 @@ function P.ongoingtasks()
             end
         end
 
-        if P.procedureloop1 and (P.procedureloop1.lock == def.NOPROCEDURE or P.procedureloop1.lock == def.BEFORETAKEOFFPROCEDURE) then
-            local atArmPos = get(P.atarmpos)
-            local atN1Stat = get(P.atn1stat)
-            local atThrottleLock = get(P.atthrottlelock)
-            local eng1N1 = get(P.eng1n1percent)
-            local eng2N1 = get(P.eng2n1percent)
-
-
-            if (atArmPos == def.ARMED and atN1Stat == def.OFF and atThrottleLock == def.OFF and eng1N1 ~= nil and eng1N1 > 40 and eng2N1 ~= nil and eng2N1 > 40) then
-                P.commandtableentry(def.TEXT, "Both Engine N 1 at 40 Percent")
-            end
-        end
+        maybeQueueTakeoffN140Callout()
     end
 
     P.runOnePreOngoingTask()
@@ -7352,6 +7429,12 @@ function P.commandtableloop()
             local entry_type = P.commandtable[entry_index][1]
             local entry_text = P.commandtable[entry_index][2]
             if (entry_type == def.TEXT) or (entry_type == def.TAXI) then
+                if entry_type == def.TEXT and entry_text == TAKEOFF_N1_40_MESSAGE and not isTakeoffN140CalloutEligible() then
+                    helpers.logInfoTS("SpeakString TEXT dropped stale: " .. tostring(entry_text))
+                    table.remove(P.commandtable, entry_index)
+                    processedentry = true
+                    goto continue_commandtableloop
+                end
                 if voice_enabled then
                     maybeRequestTrimAdvicePopupForSpeech(entry_type, entry_text)
                     if entry_type == def.TAXI then
@@ -7371,6 +7454,8 @@ function P.commandtableloop()
             end
             table.remove(P.commandtable, entry_index)
         end
+
+        ::continue_commandtableloop::
 
     end
 
