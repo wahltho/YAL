@@ -990,6 +990,7 @@ function P.YalinitGlobal()
     P.todDiscontinuityWarned30 = false
     P.todDiscontinuityWarned10 = false
     P.routeEndsEarlyWarned = false
+    P.todResetMcpAdviceState = { key = nil, count = 0, spoken = 0 }
 
     P.windshieldIcingStarted = false
     P.windshieldIcingApplied = false
@@ -2662,6 +2663,69 @@ function P.shouldQueueVoiceAdvice(loop, stepName, adviceText)
     end
 
     loop.adviceRepeatCount = currentCount + 1
+    return false, "repeat-skip"
+end
+
+--------------------------------------------------------------------------------------------------------------
+local function resetVoiceAdviceRepeatState(state)
+    if not state then
+        return
+    end
+    state.key = nil
+    state.count = 0
+    state.spoken = 0
+end
+
+--------------------------------------------------------------------------------------------------------------
+local function shouldQueueStandaloneVoiceAdvice(state, adviceKey, adviceText)
+    if type(adviceText) ~= "string" or adviceText == "" then
+        return false, "invalid"
+    end
+
+    local key = tostring(adviceKey or adviceText)
+    if type(state) ~= "table" then
+        return true, nil
+    end
+
+    local skipCount = tonumber(P.configvalues[def.CONFIGVOICEADVICEREPEATSKIP]) or 0
+    if skipCount < 0 then
+        skipCount = 0
+    end
+
+    local maxRepeats = tonumber(P.configvalues[def.CONFIGVOICEADVICEMAXREPEATS]) or 0
+    if maxRepeats < 0 then
+        maxRepeats = 0
+    end
+    if maxRepeats >= 99 then
+        maxRepeats = 0
+    end
+
+    if state.key ~= key then
+        state.key = key
+        state.count = 0
+        state.spoken = 1
+        return true, nil
+    end
+
+    local spokenCount = tonumber(state.spoken) or 0
+    if maxRepeats > 0 and spokenCount >= maxRepeats then
+        return false, "max-reached"
+    end
+
+    local currentCount = tonumber(state.count) or 0
+    if skipCount <= 0 then
+        state.count = currentCount + 1
+        state.spoken = spokenCount + 1
+        return true, nil
+    end
+
+    if currentCount >= skipCount then
+        state.count = 0
+        state.spoken = spokenCount + 1
+        return true, nil
+    end
+
+    state.count = currentCount + 1
     return false, "repeat-skip"
 end
 
@@ -6750,13 +6814,26 @@ function P.runOneMainOngoingTask()
             local fmcCruiseRounded = helpers.roundnumber(fmcCruiseAlt / 100, 0) * 100
             local withinTolerance = (mcpAlt >= (fmcCruiseRounded - 100))
             if withinTolerance and (get(P.vnavtoddist) < 20) then
-                P.commandtableentry(def.TEXT, "Approaching Top of Descent, Reset M C P Altitude")
-                if (get(P.pausetod) == def.ON) and (not P.pauseTodAutoDisabled) and (not P.pauseTodMonitorActive) then
-                    P.pauseTodMonitorActive = true
-                    P.pauseTodMcpAltAtPrompt = mcpAlt
+                local queueTodAdvice, todAdviceReason = shouldQueueStandaloneVoiceAdvice(
+                    P.todResetMcpAdviceState,
+                    "TOD_RESET_MCP_ALTITUDE",
+                    "Approaching Top of Descent, Reset M C P Altitude"
+                )
+                if queueTodAdvice then
+                    P.commandtableentry(def.TEXT, "Approaching Top of Descent, Reset M C P Altitude")
+                    if (get(P.pausetod) == def.ON) and (not P.pauseTodAutoDisabled) and (not P.pauseTodMonitorActive) then
+                        P.pauseTodMonitorActive = true
+                        P.pauseTodMcpAltAtPrompt = mcpAlt
+                    end
+                elseif todAdviceReason == "max-reached" then
+                    holdCurrent = true
                 end
                 holdCurrent = true
+            else
+                resetVoiceAdviceRepeatState(P.todResetMcpAdviceState)
             end
+        else
+            resetVoiceAdviceRepeatState(P.todResetMcpAdviceState)
         end
     end
 
