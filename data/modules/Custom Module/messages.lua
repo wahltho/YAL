@@ -14,7 +14,7 @@ local english = {
     FMCAUTOMATION = 'FMC Automation',
     HEADINGSYNCINTERVAL = 'Heading Sync Interval (sec, 0=off)',
     VOICEADVICEONLY = 'Voice Advice Only',
-    VOICEADVICEREPEATSKIP = 'Voice Advice Repeat Skip (cycles)',
+    VOICEADVICEREPEATSKIP = 'Voice Advice Repeat Skip (0=all)',
     VOICEADVICEMAXREPEATS = 'Voice Advice Max Repeats (0/99=off)',
     TRIMADVICEPOPUP = 'Voice Advice Trim Popup',
     AUTOTAXIGUIDANCE = 'Auto Taxi Guidance (voice)',
