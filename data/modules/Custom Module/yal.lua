@@ -40,8 +40,8 @@ local function devReloadEnabled()
     if tonumber(P.configvalues[def.CONFIGDEBUGOVERLAY] or 0) ~= def.ON then
         return false
     end
-    if P.HoppieHelperIsInstalled then
-        return P.HoppieHelperIsInstalled()
+    if P.YalMaintenanceExecutorIsInstalled then
+        return P.YalMaintenanceExecutorIsInstalled()
     end
     return false
 end
@@ -983,7 +983,7 @@ end
 
 function P.devreload()
     if not devReloadEnabled() then
-        helpers.logInfoTS("DevReload: unavailable (missing hoppiehelper or debug overlay off)")
+        helpers.logInfoTS("DevReload: unavailable (missing reload executor or debug overlay off)")
         return false
     end
     backupSaslLog()
@@ -2275,6 +2275,21 @@ function P.HoppieHelperIsInstalled()
 
     P.HoppieHelperPluginID = NO_PLUGIN_ID
     return false
+end
+
+--------------------------------------------------------------------------------------------------------------
+function P.YalMaintenanceExecutorIsInstalled()
+    local hasHoppieHelper = false
+    local hasIvaoMonitor = false
+
+    if P.HoppieHelperIsInstalled then
+        hasHoppieHelper = P.HoppieHelperIsInstalled()
+    end
+    if P.IVAOMonitorIsInstalled then
+        hasIvaoMonitor = P.IVAOMonitorIsInstalled()
+    end
+
+    return hasHoppieHelper or hasIvaoMonitor
 end
 
 --------------------------------------------------------------------------------------------------------------
