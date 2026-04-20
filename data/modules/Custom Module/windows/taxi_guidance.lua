@@ -302,6 +302,7 @@ function M.attach(U, C, def, helpers, settings)
         local prev = comp._guidanceState or "idle"
         if prev ~= state then
             comp._guidanceState = state
+            comp._lastGuidanceLogKey = nil
             comp._terminalGuidanceKey = nil
             comp._terminalGuidanceTime = nil
             if state ~= "route" then
@@ -814,19 +815,9 @@ function M.attach(U, C, def, helpers, settings)
                     gate_route_suppress = true
                 end
 
-                if helpers and helpers.logInfoTS and now then
-                    local log_now = false
+                if helpers and helpers.logInfoTS then
                     local active_changed = (comp._lastGateGuidanceActive ~= comp._gateGuidanceActive)
                     if active_changed then
-                        log_now = true
-                    else
-                        local last_diag = comp._lastGateRouteDiagTime or 0
-                        if (now - last_diag) >= 5 then
-                            log_now = true
-                        end
-                    end
-                    if log_now then
-                        comp._lastGateRouteDiagTime = now
                         comp._lastGateGuidanceActive = comp._gateGuidanceActive
                         local dist_txt = gate_ref_dist and string.format("%.1f", gate_ref_dist) or "nil"
                         helpers.logInfoTS(
@@ -3090,7 +3081,14 @@ function M.attach(U, C, def, helpers, settings)
         else
             comp._terminalGuidanceKey = nil
         end
-        if helpers and helpers.logInfoTS then
+        local guidance_log_key = tostring(terminal_key or "")
+            .. "|" .. tostring(info.text)
+            .. "|" .. tostring(info.action or "")
+            .. "|" .. tostring(info.direction or "")
+            .. "|" .. tostring(info.kind or "")
+            .. "|" .. tostring(info.targetSegIdx or "")
+        if helpers and helpers.logInfoTS and comp._lastGuidanceLogKey ~= guidance_log_key then
+            comp._lastGuidanceLogKey = guidance_log_key
             local msg = "TaxiGuide: " .. tostring(info.text)
             if info.action or info.direction or info.kind then
                 msg = msg

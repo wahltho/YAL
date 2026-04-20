@@ -2955,6 +2955,9 @@ local function drawText(font, x, y, text, size, align, color)
 end
 
 local function log_full_route_state(comp, data, mode, icao, vals)
+    if not (U and U.taxi_verbose_logging_enabled and U.taxi_verbose_logging_enabled()) then
+        return
+    end
     local function fmt_latlon(latv, lonv)
         if not latv or not lonv then
             return "nil/nil"
@@ -5470,6 +5473,24 @@ U = {
     build_projected_data = build_projected_data,
     distance_to_route = distance_to_route,
     distance_to_segments = distance_to_segments,
+    taxi_verbose_logging_enabled = function()
+        local cfg = settings and settings.appSettings or nil
+        if not cfg then
+            return false
+        end
+        return tonumber(cfg[def.CONFIGDEBUGOVERLAY] or 0) == def.ON
+    end,
+    log_taxi_once = function(comp, key, message)
+        if not comp or not message then
+            return
+        end
+        comp._taxiOnceLogKeys = comp._taxiOnceLogKeys or {}
+        if comp._taxiOnceLogKeys[key] == message then
+            return
+        end
+        comp._taxiOnceLogKeys[key] = message
+        log_taxi(message)
+    end,
     normalize_runway_name = normalize_runway_name,
     normalize_runway_pair_label = normalize_runway_pair_label,
     format_runway_designator_text = format_runway_designator_text,
@@ -9957,36 +9978,27 @@ local function updateTaxiState(comp, map)
                 if mode == 0 and (not in_edit) and (not comp._drawRoute) and (not comp._manualRouteActive)
                     and maybe_recover_dep_no_path(comp, data, aircraft, now, start_node_dist, log_taxi) then
                     dep_no_path_rearmed = true
-                    helpers.logInfoTS("TaxiRoute: dep no-path recovery armed")
+                    U.log_taxi_once(comp, "route-recover", "TaxiRoute: dep no-path recovery armed")
                 end
-                helpers.logInfoTS("Taxi: route error " .. tostring(icao) .. " mode=" .. tostring(mode) .. " err=" .. tostring(rerr))
-                helpers.logInfoTS(
-                    string.format(
-                        "TaxiRoute: fail-details err=%s start=%s end=%s allow_runway=%s disallow_runway_edges=%s ignore_oneway=%s avoid_runway_nodes=%s runway_penalty=%s",
-                        tostring(rerr),
-                        tostring((opts and opts.start_node_id) or start_node_id),
-                        tostring((opts and opts.end_node_id) or end_node_id),
-                        tostring(allow_runway_route),
-                        tostring(opts and opts.disallow_runway_edges),
-                        tostring(opts and opts.ignore_oneway),
-                        tostring(opts and opts.avoid_runway_nodes),
-                        tostring(opts and opts.runway_penalty)
-                    )
+                local route_error_msg = string.format(
+                    "TaxiRoute: error icao=%s mode=%s err=%s edit=%s draw=%s",
+                    tostring(icao),
+                    tostring(mode),
+                    tostring(rerr),
+                    tostring(in_edit),
+                    tostring(comp._drawRoute)
                 )
-                log_taxi(
-                    string.format(
-                        "TaxiRoute: error=%s edit=%s draw=%s",
-                        tostring(rerr),
-                        tostring(in_edit),
-                        tostring(comp._drawRoute)
-                    )
-                )
+                U.log_taxi_once(comp, "route-error", route_error_msg)
                 if not dep_no_path_rearmed then
                     comp._pendingRerouteEvent = nil
                 end
             end
             if route and route.bounds then
                 comp._fitBounds = route.bounds
+            end
+            if comp._taxiOnceLogKeys then
+                comp._taxiOnceLogKeys["route-error"] = nil
+                comp._taxiOnceLogKeys["route-skip"] = nil
             end
             if route and route.data and route.data.route_source == "freehand" then
                 comp._freehandLabelCache = nil
@@ -9996,25 +10008,15 @@ local function updateTaxiState(comp, map)
             comp._lastGuidanceTime = nil
             comp._sCurveSkipNodeId = nil
         else
-            helpers.logInfoTS(
-                "TaxiDiag: route-skip icao=" .. tostring(icao) ..
-                " mode=" .. tostring(mode) ..
-                " canRoute=" .. tostring(canRoute) ..
-                " start_valid=" .. tostring(U.is_valid_latlon(start_lat, start_lon)) ..
-                " end_valid=" .. tostring(U.is_valid_latlon(end_lat, end_lon))
+            local route_skip_msg = string.format(
+                "TaxiRoute: skipped icao=%s mode=%s canRoute=%s start_valid=%s end_valid=%s",
+                tostring(icao),
+                tostring(mode),
+                tostring(canRoute),
+                tostring(U.is_valid_latlon(start_lat, start_lon)),
+                tostring(U.is_valid_latlon(end_lat, end_lon))
             )
-            helpers.logInfoTS(
-                string.format(
-                    "TaxiRoute: skip-details start=%s end=%s allow_runway=%s disallow_runway_edges=%s ignore_oneway=%s avoid_runway_nodes=%s runway_penalty=%s",
-                    tostring(start_node_id),
-                    tostring(end_node_id),
-                    tostring(allow_runway_route),
-                    tostring((mode == 0 and (not allow_runway_route)) or (mode == 1 and (not allow_runway_route) and (not backtrack_required))),
-                    tostring(false),
-                    tostring(mode == 0 and (not allow_runway_route) or nil),
-                    tostring((allow_runway_route and 1) or 500)
-                )
-            )
+            U.log_taxi_once(comp, "route-skip", route_skip_msg)
             comp._route = nil
             if mode == 1 and arrival_fallback_auto_suppressed then
                 comp._routeErr = "fallback-no-arrival-stand"
