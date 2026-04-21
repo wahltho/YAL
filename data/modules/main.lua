@@ -528,10 +528,21 @@ local function maybeRunStartupUpdateCheck()
         return
     end
     local ziboRelease = helpers.getLatchedZiboRelease()
-    helpers.logInfoTS(string.format(
-        "Zibo installed version: v%s",
-        tostring((normalize_zibo_release(ziboRelease) ~= "") and normalize_zibo_release(ziboRelease) or "?")
-    ))
+    local lvlupRelease = helpers.getLatchedLevelUpRelease()
+    local lvlupFm = helpers.getLatchedLevelUpFm()
+    local isLevelUp = helpers.isLevelUp()
+    if isLevelUp then
+        helpers.logInfoTS(string.format(
+            "LevelUp detected (release %s, flight model %s)",
+            tostring(lvlupRelease ~= "" and lvlupRelease or "?"),
+            tostring(lvlupFm ~= "" and lvlupFm or "?")
+        ))
+    else
+        helpers.logInfoTS(string.format(
+            "Zibo installed version: v%s",
+            tostring((normalize_zibo_release(ziboRelease) ~= "") and normalize_zibo_release(ziboRelease) or "?")
+        ))
+    end
     if tonumber(settings.appSettings[def.CONFIGAUTOUPDATECHECK] or 0) ~= def.ON then
         startupUpdateCheckDone = true
         startupUpdateCheckPerformed = true
@@ -557,11 +568,16 @@ local function maybeRunStartupUpdateCheck()
     local _, yalStable = helpers.checkForUpdate(false)
     local _, yalBeta = helpers.checkForUpdate(true)
 
-    local ziboAvailable, ziboLatest, ziboLocal = helpers.checkForZiboUpdate(ziboRelease)
-    helpers.logInfoTS(string.format(
-        "Zibo feed latest version: v%s",
-        tostring((ziboLatest and ziboLatest ~= "") and ziboLatest or "?")
-    ))
+    local ziboAvailable, ziboLatest, ziboLocal = false, "", ""
+    if isLevelUp then
+        helpers.logInfoTS("Zibo update check skipped (LevelUp detected)")
+    else
+        ziboAvailable, ziboLatest, ziboLocal = helpers.checkForZiboUpdate(ziboRelease)
+        helpers.logInfoTS(string.format(
+            "Zibo feed latest version: v%s",
+            tostring((ziboLatest and ziboLatest ~= "") and ziboLatest or "?")
+        ))
+    end
 
     helpers.startupUpdateInfo = {
         ts = now,

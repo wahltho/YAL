@@ -407,6 +407,34 @@ function P.getLatchedZiboRelease()
     return tostring(raw or "")
 end
 
+local function getLatchedYalStringDataref(key)
+    local yalref = rawget(_G, "yal")
+    local dr = yalref and yalref[key] or nil
+    if not (dr and isProperty(dr)) then
+        return ""
+    end
+    local ok, raw = pcall(get, dr)
+    if not ok then
+        return ""
+    end
+    if P.forceCleanString then
+        return P.forceCleanString(tostring(raw or ""))
+    end
+    return tostring(raw or "")
+end
+
+function P.getLatchedLevelUpRelease()
+    return getLatchedYalStringDataref("lvluprelease")
+end
+
+function P.getLatchedLevelUpFm()
+    return getLatchedYalStringDataref("lvlupfm")
+end
+
+function P.isLevelUp()
+    return P.getLatchedLevelUpRelease() ~= "" or P.getLatchedLevelUpFm() ~= ""
+end
+
 local function views_change_allowed()
     local on_ground = get(onground_any) == def.ON
     local park_set = P.isParkingBrakeSet()
