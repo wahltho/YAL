@@ -188,7 +188,12 @@ local function truncateTextByWidth(text, maxWidth)
 end
 
 local function ziboHeaderText()
+    local prefix = "Zibo "
     local raw = helpers.getLatchedZiboRelease()
+    if helpers.isLevelUp and helpers.isLevelUp() then
+        prefix = "LevelUp "
+        raw = helpers.getLatchedLevelUpRelease()
+    end
     raw = raw:gsub("^%s+", ""):gsub("%s+$", "")
     if raw == "" then
         return nil
@@ -196,17 +201,17 @@ local function ziboHeaderText()
     local ver = raw:match("([Vv]%d[%w%.%-]*)")
     if not ver then
         ver = raw:match("(%d[%w%.%-]*)")
-        if ver then
+        if ver and prefix == "Zibo " then
             ver = "v" .. ver
         end
     end
     if not ver then
-        return "Zibo " .. raw
+        return prefix .. raw
     end
     if string.sub(ver, 1, 1) == "V" then
         ver = "v" .. string.sub(ver, 2)
     end
-    return "Zibo " .. ver
+    return prefix .. ver
 end
 
 local function drawCheckbox(font, x, y, label, checked)
