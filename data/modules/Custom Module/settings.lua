@@ -139,6 +139,39 @@ local function normalizeSaveNumber(val)
     return nil
 end
 
+local function normalizeNumericValue(defn, val)
+    local num = val
+    if type(num) == "string" then
+        num = num:gsub("^%s+", ""):gsub("%s+$", "")
+        if num == "" then
+            return nil
+        end
+        num = tonumber(num)
+    end
+    if type(num) ~= "number" then
+        return nil
+    end
+    if defn.min ~= nil and num < defn.min then
+        num = defn.min
+    end
+    if defn.max ~= nil and num > defn.max then
+        num = defn.max
+    end
+    return num
+end
+
+function P.normalizeNumberSettingValue(key, value)
+    local defn = settingsDefinition[key]
+    if not defn or defn.type ~= "number" then
+        return value
+    end
+    local normalized = normalizeNumericValue(defn, value)
+    if normalized == nil then
+        return defn.dvalue
+    end
+    return normalized
+end
+
  
 
 local function checkSettings(tableTocheck)
@@ -185,11 +218,15 @@ local function checkSettings(tableTocheck)
                 end
             end
         else
-            if tableTocheck[k] == nil or type(tableTocheck[k]) ~= defn.type or tableTocheck[k] < defn.min 
-                or tableTocheck[k] > defn.max then
-                     sasl.logDebug("key: " .. k .. " missing or incorrect, setting value to default: " .. tostring(defn.dvalue))
-                     tableTocheck[k] = defn.dvalue
-                     result = true
+            local current = tableTocheck[k]
+            local normalized = normalizeNumericValue(defn, current)
+            if normalized == nil then
+                sasl.logDebug("key: " .. k .. " missing or incorrect, setting value to default: " .. tostring(defn.dvalue))
+                tableTocheck[k] = defn.dvalue
+                result = true
+            elseif type(current) ~= "number" or current ~= normalized then
+                tableTocheck[k] = normalized
+                result = true
             end
         end
     end
@@ -197,6 +234,7 @@ local function checkSettings(tableTocheck)
 end
 
 function P.writeSettings(currentSetting)
+    P.appSettings = currentSetting
     if sasl.writeConfig(settingPath, settingFormat, currentSetting) == false then
         sasl.logWarning("Unable to write settings to disk")
     end
@@ -214,7 +252,8 @@ function P.getSettings()
     if result == true then
         P.writeSettings(currentSetting)
     end
-    
+
+    P.appSettings = currentSetting
     return currentSetting
 end
 

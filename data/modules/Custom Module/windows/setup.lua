@@ -615,13 +615,13 @@ function M.newComponent(ctx)
                     elseif hit.kind == "slider_minus" then
                         local val = tonumber(settings.appSettings[item.key]) or item.minVal or 0
                         val = math.max(item.minVal or val, val - (item.step or 1))
-                        settings.appSettings[item.key] = tostring(val)
+                        settings.appSettings[item.key] = val
                         settings.writeSettings(settings.appSettings)
                         return true
                     elseif hit.kind == "slider_plus" then
                         local val = tonumber(settings.appSettings[item.key]) or item.minVal or 0
                         val = math.min(item.maxVal or val, val + (item.step or 1))
-                        settings.appSettings[item.key] = tostring(val)
+                        settings.appSettings[item.key] = val
                         settings.writeSettings(settings.appSettings)
                         return true
                     end
@@ -698,7 +698,11 @@ function M.newComponent(ctx)
             local minL = self._focus.minLen or (kind == "number" and 1 or 0)
             local maxL = self._focus.maxLen or 10
             if #txt >= minL and #txt <= maxL then
-                settings.appSettings[self._focus.key] = txt
+                if kind == "number" then
+                    settings.appSettings[self._focus.key] = settings.normalizeNumberSettingValue(self._focus.key, txt)
+                else
+                    settings.appSettings[self._focus.key] = txt
+                end
                 settings.writeSettings(settings.appSettings)
             end
             self._focus = nil
