@@ -19,6 +19,7 @@ local trimPopupComponent
 local updatePopupWindow
 local updatePopupInitialized = false
 local updatePopupComponent
+local remember_ignored_updates
 local startupUpdateCheckDone = false
 local startupUpdateCheckEarliest = 0
 local startupUpdateCheckPerformed = false
@@ -403,7 +404,10 @@ local function maybeInitUpdatePopupWindow()
         def = def,
         helpers = helpers,
         onAcknowledge = function()
-            helpers.logInfoTS("Startup update popup acknowledged")
+            helpers.logInfoTS("Startup update popup snoozed")
+        end,
+        onIgnore = function(payload)
+            remember_ignored_updates(payload)
         end,
         onSettings = function()
             helpers.logInfoTS("Startup update popup opened settings")
@@ -552,6 +556,48 @@ local function get_update_popup_title(yalAvailable, ziboAvailable, betaUpdateAva
     return "Update Status"
 end
 
+local function choose_yal_ignore_version(yalInfo)
+    if not yalInfo or not yalInfo.detectedAvailable then
+        return ""
+    end
+    local candidate = ""
+    if yalInfo.channelAvailable and yalInfo.latest and yalInfo.latest ~= "" then
+        candidate = tostring(yalInfo.latest)
+    end
+    if yalInfo.checkBeta and yalInfo.stableAvailable and yalInfo.latestStable and yalInfo.latestStable ~= "" then
+        if candidate == "" or (helpers.isVersionNewer and helpers.isVersionNewer(yalInfo.latestStable, candidate)) then
+            candidate = tostring(yalInfo.latestStable)
+        end
+    end
+    return candidate
+end
+
+local function is_ignored_update(version, ignoredVersion)
+    return version and version ~= "" and ignoredVersion and ignoredVersion ~= "" and tostring(version) == tostring(ignoredVersion)
+end
+
+remember_ignored_updates = function(payload)
+    if not settings or not settings.appSettings or not payload then
+        return
+    end
+    local changed = false
+    local yalInfo = payload.yal
+    if yalInfo and yalInfo.available and yalInfo.ignoreVersion and yalInfo.ignoreVersion ~= "" then
+        settings.appSettings[def.CONFIGIGNOREDYALUPDATEVERSION] = tostring(yalInfo.ignoreVersion)
+        changed = true
+        helpers.logInfoTS("Ignored YAL update version v" .. tostring(yalInfo.ignoreVersion))
+    end
+    local ziboInfo = payload.zibo
+    if ziboInfo and ziboInfo.available and ziboInfo.ignoreVersion and ziboInfo.ignoreVersion ~= "" then
+        settings.appSettings[def.CONFIGIGNOREDZIBOUPDATEVERSION] = tostring(ziboInfo.ignoreVersion)
+        changed = true
+        helpers.logInfoTS("Ignored Zibo update version v" .. tostring(ziboInfo.ignoreVersion))
+    end
+    if changed and settings.writeSettings then
+        settings.writeSettings(settings.appSettings)
+    end
+end
+
 local function maybeRunStartupUpdateCheck()
     if startupUpdateCheckDone then
         return
@@ -607,7 +653,7 @@ local function maybeRunStartupUpdateCheck()
     local yalChannelAvailable, yalLatest = helpers.checkForUpdate(checkBeta)
     local yalStableAvailable, yalStable = helpers.checkForUpdate(false)
     local yalBetaAvailable, yalBeta = helpers.checkForUpdate(true)
-    local yalAvailable = yalChannelAvailable or (checkBeta and yalStableAvailable)
+    local yalDetectedAvailable = yalChannelAvailable or (checkBeta and yalStableAvailable)
     local feedComparison = get_yal_feed_comparison(yalStable, yalBeta)
     local channelReason = "stable setting"
     if showBetaUpdates then
@@ -616,15 +662,52 @@ local function maybeRunStartupUpdateCheck()
         channelReason = "installed prerelease"
     end
 
-    local ziboAvailable, ziboLatest, ziboLocal = false, "", ""
+    local ziboDetectedAvailable, ziboLatest, ziboLocal = false, "", ""
     if isLevelUp then
         helpers.logInfoTS("Zibo update check skipped (LevelUp detected)")
     else
-        ziboAvailable, ziboLatest, ziboLocal = helpers.checkForZiboUpdate(ziboRelease)
+        ziboDetectedAvailable, ziboLatest, ziboLocal = helpers.checkForZiboUpdate(ziboRelease)
         helpers.logInfoTS(string.format(
             "Zibo feed latest version: v%s",
             tostring((ziboLatest and ziboLatest ~= "") and ziboLatest or "?")
         ))
+    end
+
+    local ignoredYalVersion = tostring(settings.appSettings[def.CONFIGIGNOREDYALUPDATEVERSION] or "")
+    local ignoredZiboVersion = tostring(settings.appSettings[def.CONFIGIGNOREDZIBOUPDATEVERSION] or "")
+    local yalInfo = {
+        checkBeta = checkBeta,
+        detectedAvailable = yalDetectedAvailable,
+        channelAvailable = yalChannelAvailable,
+        stableAvailable = yalStableAvailable,
+        betaAvailable = yalBetaAvailable,
+        latest = yalLatest,
+        latestStable = yalStable,
+        latestBeta = yalBeta,
+        current = tostring(def.VERSION or ""),
+    }
+    yalInfo.ignoreVersion = choose_yal_ignore_version(yalInfo)
+    yalInfo.ignored = is_ignored_update(yalInfo.ignoreVersion, ignoredYalVersion)
+    yalInfo.available = yalDetectedAvailable and not yalInfo.ignored
+
+    local ziboInfo = {
+        detectedAvailable = ziboDetectedAvailable,
+        latest = ziboLatest,
+        current = isLevelUp and tostring(lvlupRelease or "") or ziboLocal,
+        skipped = isLevelUp,
+        skippedReason = isLevelUp and "LevelUp detected" or "",
+        levelUpRelease = lvlupRelease,
+        levelUpFlightModel = lvlupFm,
+        ignoreVersion = ziboLatest,
+    }
+    ziboInfo.ignored = is_ignored_update(ziboInfo.ignoreVersion, ignoredZiboVersion)
+    ziboInfo.available = ziboDetectedAvailable and not ziboInfo.ignored
+
+    if yalInfo.ignored then
+        helpers.logInfoTS("Startup update check: ignored YAL update v" .. tostring(yalInfo.ignoreVersion))
+    end
+    if ziboInfo.ignored then
+        helpers.logInfoTS("Startup update check: ignored Zibo update v" .. tostring(ziboInfo.ignoreVersion))
     end
 
     helpers.startupUpdateInfo = {
@@ -636,42 +719,28 @@ local function maybeRunStartupUpdateCheck()
             showBetaUpdates = showBetaUpdates,
             installedPrerelease = installedPrerelease,
         },
-        yal = {
-            checkBeta = checkBeta,
-            available = yalAvailable,
-            channelAvailable = yalChannelAvailable,
-            stableAvailable = yalStableAvailable,
-            betaAvailable = yalBetaAvailable,
-            latest = yalLatest,
-            latestStable = yalStable,
-            latestBeta = yalBeta,
-            current = tostring(def.VERSION or ""),
-        },
-        zibo = {
-            available = ziboAvailable,
-            latest = ziboLatest,
-            current = isLevelUp and tostring(lvlupRelease or "") or ziboLocal,
-            skipped = isLevelUp,
-            skippedReason = isLevelUp and "LevelUp detected" or "",
-            levelUpRelease = lvlupRelease,
-            levelUpFlightModel = lvlupFm,
-        },
+        yal = yalInfo,
+        zibo = ziboInfo,
     }
 
-    if not yalAvailable and not ziboAvailable then
-        helpers.logInfoTS("Startup update check: no updates available")
+    if not yalInfo.available and not ziboInfo.available then
+        if yalInfo.ignored or ziboInfo.ignored then
+            helpers.logInfoTS("Startup update check: all available updates ignored")
+        else
+            helpers.logInfoTS("Startup update check: no updates available")
+        end
         return
     end
 
     maybeInitUpdatePopupWindow()
     if updatePopupComponent and updatePopupComponent.setPayload then
         updatePopupComponent:setPayload({
-            title = get_update_popup_title(yalAvailable, ziboAvailable, checkBeta and yalChannelAvailable),
+            title = get_update_popup_title(yalInfo.available, ziboInfo.available, checkBeta and yalChannelAvailable),
             checkedAt = now,
             channel = helpers.startupUpdateInfo.channel,
             yal = helpers.startupUpdateInfo.yal,
             zibo = helpers.startupUpdateInfo.zibo,
-            okLabel = "OK",
+            laterLabel = "Later",
             settingsLabel = "Settings",
         })
     end

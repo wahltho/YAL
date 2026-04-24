@@ -71,6 +71,8 @@ local settingsDefinition = {
     [def.CONFIGHIDEEFBS] = { dvalue = 1 , type = "number", min = 0, max = 1 },
     [def.CONFIGSHOWBETAUPDATES] = { dvalue = 0 , type = "number", min = 0, max = 1 },
     [def.CONFIGAUTOUPDATECHECK] = { dvalue = 1 , type = "number", min = 0, max = 1 },
+    [def.CONFIGIGNOREDYALUPDATEVERSION] = { dvalue = "" , type = "string", minLen = 0, maxLen = 32 },
+    [def.CONFIGIGNOREDZIBOUPDATEVERSION] = { dvalue = "" , type = "string", minLen = 0, maxLen = 32 },
     [def.CONFIGJITLUAON] = { dvalue = 0 , type = "number", min = 0, max = 1 },
     [def.CONFIGZIBOISMODDED] = { dvalue = 0 , type = "number", min = 0, max = 1 },
     [def.CONFIGDEBUGOVERLAY] = { dvalue = 0 , type = "number", min = 0, max = 1 },

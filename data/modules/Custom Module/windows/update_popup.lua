@@ -87,9 +87,12 @@ local function feedComparisonText(channel)
     return "Compare unavailable"
 end
 
-local function statusText(available, skipped)
+local function statusText(available, skipped, ignored)
     if skipped then
         return "Skipped"
+    end
+    if ignored then
+        return "Ignored"
     end
     if available then
         return "Update available"
@@ -97,9 +100,12 @@ local function statusText(available, skipped)
     return "Up to date"
 end
 
-local function statusColor(available, skipped)
+local function statusColor(available, skipped, ignored)
     if skipped then
         return {0.78, 0.78, 0.82, 1}
+    end
+    if ignored then
+        return {0.72, 0.76, 0.88, 1}
     end
     if available then
         return {1.0, 0.78, 0.32, 1}
@@ -181,6 +187,30 @@ local function legacyRows(payload)
     return rows
 end
 
+local function hasActionableUpdate(payload)
+    local yalInfo = payload and payload.yal or nil
+    local ziboInfo = payload and payload.zibo or nil
+    return (yalInfo and yalInfo.available) or (ziboInfo and ziboInfo.available)
+end
+
+local function getIgnoreLabel(payload)
+    local yalInfo = payload and payload.yal or nil
+    local ziboInfo = payload and payload.zibo or nil
+    local count = 0
+    if yalInfo and yalInfo.available then count = count + 1 end
+    if ziboInfo and ziboInfo.available then count = count + 1 end
+    if count > 1 then
+        return "Ignore versions"
+    end
+    if yalInfo and yalInfo.available then
+        return "Ignore YAL"
+    end
+    if ziboInfo and ziboInfo.available then
+        return "Ignore Zibo"
+    end
+    return "Ignore"
+end
+
 function M.windowSize()
     return defaultW, defaultH
 end
@@ -204,6 +234,7 @@ function M.newComponent(ctx)
     comp._buttons = {}
     comp._drag = nil
     comp._onAcknowledge = ctx and ctx.onAcknowledge or nil
+    comp._onIgnore = ctx and ctx.onIgnore or nil
     comp._onSettings = ctx and ctx.onSettings or nil
 
     function comp:setWindow(win)
@@ -240,7 +271,7 @@ function M.newComponent(ctx)
         local w, h = getSize()
         local font = getSafeFont()
         local title = tostring(self._payload.title or "Update available")
-        local okLabel = tostring(self._payload.okLabel or "OK")
+        local laterLabel = tostring(self._payload.laterLabel or self._payload.okLabel or "Later")
         local settingsLabel = tostring(self._payload.settingsLabel or "Settings")
         local yalInfo = self._payload.yal
         local ziboInfo = self._payload.zibo
@@ -289,8 +320,8 @@ function M.newComponent(ctx)
 
             drawSection(
                 font, leftX, top, colW, sectionH, "YAL",
-                statusText(yalInfo and yalInfo.available, false),
-                statusColor(yalInfo and yalInfo.available, false),
+                statusText(yalInfo and yalInfo.available, false, yalInfo and yalInfo.ignored),
+                statusColor(yalInfo and yalInfo.available, false, yalInfo and yalInfo.ignored),
                 yalRows
             )
             drawSection(
@@ -301,8 +332,8 @@ function M.newComponent(ctx)
             )
             drawSection(
                 font, leftX, top - sectionH - 12, w - padding * 2, 76, "Zibo / LevelUp",
-                statusText(ziboInfo and ziboInfo.available, ziboInfo and ziboInfo.skipped),
-                statusColor(ziboInfo and ziboInfo.available, ziboInfo and ziboInfo.skipped),
+                statusText(ziboInfo and ziboInfo.available, ziboInfo and ziboInfo.skipped, ziboInfo and ziboInfo.ignored),
+                statusColor(ziboInfo and ziboInfo.available, ziboInfo and ziboInfo.skipped, ziboInfo and ziboInfo.ignored),
                 ziboRows
             )
         else
@@ -323,18 +354,30 @@ function M.newComponent(ctx)
             end
         end
 
-        local btnW = 92
         local btnH = 20
         local gap = 10
+        local laterW = 82
+        local ignoreW = 126
         local settingsW = 112
-        local totalW = btnW + gap + settingsW
+        local showIgnore = hasActionableUpdate(self._payload)
+        local totalW = laterW + gap + settingsW
+        if showIgnore then
+            totalW = totalW + gap + ignoreW
+        end
         local btnX = math.floor((w - totalW) * 0.5)
         local btnY = 12
-        self._buttons = {
-            ok = { x = btnX, y = btnY, w = btnW, h = btnH },
-            settings = { x = btnX + btnW + gap, y = btnY, w = settingsW, h = btnH },
-        }
-        drawButton(font, self._buttons.ok, okLabel, true)
+        self._buttons = {}
+        self._buttons.later = { x = btnX, y = btnY, w = laterW, h = btnH }
+        local nextX = btnX + laterW + gap
+        if showIgnore then
+            self._buttons.ignore = { x = nextX, y = btnY, w = ignoreW, h = btnH }
+            nextX = nextX + ignoreW + gap
+        end
+        self._buttons.settings = { x = nextX, y = btnY, w = settingsW, h = btnH }
+        drawButton(font, self._buttons.later, laterLabel, true)
+        if showIgnore then
+            drawButton(font, self._buttons.ignore, tostring(self._payload.ignoreLabel or getIgnoreLabel(self._payload)), false)
+        end
         drawButton(font, self._buttons.settings, settingsLabel, false)
     end
 
@@ -342,10 +385,18 @@ function M.newComponent(ctx)
         if not (button == MB_LEFT or button == 1) then
             return false
         end
-        local btn = self._buttons and self._buttons.ok or nil
+        local btn = self._buttons and self._buttons.later or nil
         if btn and x >= btn.x and x <= (btn.x + btn.w) and y >= btn.y and y <= (btn.y + btn.h) then
             if self._onAcknowledge then
                 pcall(self._onAcknowledge, self._payload)
+            end
+            self:clearPayload()
+            return true
+        end
+        btn = self._buttons and self._buttons.ignore or nil
+        if btn and x >= btn.x and x <= (btn.x + btn.w) and y >= btn.y and y <= (btn.y + btn.h) then
+            if self._onIgnore then
+                pcall(self._onIgnore, self._payload)
             end
             self:clearPayload()
             return true
