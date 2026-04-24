@@ -404,6 +404,13 @@ local function maybeInitUpdatePopupWindow()
         helpers = helpers,
         onAcknowledge = function()
             helpers.logInfoTS("Startup update popup acknowledged")
+        end,
+        onSettings = function()
+            helpers.logInfoTS("Startup update popup opened settings")
+            maybeInitSetupWindow()
+            if setupWindow then
+                setupWindow:setIsVisible(true)
+            end
         end
     })
     updatePopupComponent = comp
@@ -413,7 +420,7 @@ local function maybeInitUpdatePopupWindow()
     local posY = yRoot + math.max(0, (hRoot - h) * 0.25)
 
     updatePopupWindow = contextWindow {
-        name = "YAL Updates",
+        name = "YAL Update Status",
         position = { posX, posY, w, h },
         saveState = true,
         visible = false,
@@ -513,6 +520,38 @@ local function is_yal_beta_version()
     return helpers.isPrereleaseVersion(def.VERSION)
 end
 
+local function get_yal_feed_comparison(stableVersion, betaVersion)
+    if not stableVersion or stableVersion == "" or not betaVersion or betaVersion == "" then
+        return "unknown"
+    end
+    if tostring(stableVersion) == tostring(betaVersion) then
+        return "same"
+    end
+    if helpers.isVersionNewer and helpers.isVersionNewer(betaVersion, stableVersion) then
+        return "beta-newer"
+    end
+    if helpers.isVersionNewer and helpers.isVersionNewer(stableVersion, betaVersion) then
+        return "stable-newer"
+    end
+    return "unknown"
+end
+
+local function get_update_popup_title(yalAvailable, ziboAvailable, betaUpdateAvailable)
+    if yalAvailable and ziboAvailable then
+        return "YAL and Zibo Updates Available"
+    end
+    if yalAvailable then
+        if betaUpdateAvailable then
+            return "YAL Beta Update Available"
+        end
+        return "YAL Update Available"
+    end
+    if ziboAvailable then
+        return "Zibo Update Available"
+    end
+    return "Update Status"
+end
+
 local function maybeRunStartupUpdateCheck()
     if startupUpdateCheckDone then
         return
@@ -563,10 +602,19 @@ local function maybeRunStartupUpdateCheck()
     startupUpdateCheckPerformed = true
 
     local showBetaUpdates = tonumber(settings.appSettings[def.CONFIGSHOWBETAUPDATES] or 0) == def.ON
-    local checkBeta = showBetaUpdates or is_yal_beta_version()
-    local yalAvailable, yalLatest = helpers.checkForUpdate(checkBeta)
-    local _, yalStable = helpers.checkForUpdate(false)
-    local _, yalBeta = helpers.checkForUpdate(true)
+    local installedPrerelease = is_yal_beta_version()
+    local checkBeta = showBetaUpdates or installedPrerelease
+    local yalChannelAvailable, yalLatest = helpers.checkForUpdate(checkBeta)
+    local yalStableAvailable, yalStable = helpers.checkForUpdate(false)
+    local yalBetaAvailable, yalBeta = helpers.checkForUpdate(true)
+    local yalAvailable = yalChannelAvailable or (checkBeta and yalStableAvailable)
+    local feedComparison = get_yal_feed_comparison(yalStable, yalBeta)
+    local channelReason = "stable setting"
+    if showBetaUpdates then
+        channelReason = "setting enabled"
+    elseif installedPrerelease then
+        channelReason = "installed prerelease"
+    end
 
     local ziboAvailable, ziboLatest, ziboLocal = false, "", ""
     if isLevelUp then
@@ -581,9 +629,19 @@ local function maybeRunStartupUpdateCheck()
 
     helpers.startupUpdateInfo = {
         ts = now,
+        channel = {
+            active = checkBeta and "beta" or "stable",
+            reason = channelReason,
+            stableVsBeta = feedComparison,
+            showBetaUpdates = showBetaUpdates,
+            installedPrerelease = installedPrerelease,
+        },
         yal = {
             checkBeta = checkBeta,
             available = yalAvailable,
+            channelAvailable = yalChannelAvailable,
+            stableAvailable = yalStableAvailable,
+            betaAvailable = yalBetaAvailable,
             latest = yalLatest,
             latestStable = yalStable,
             latestBeta = yalBeta,
@@ -592,7 +650,11 @@ local function maybeRunStartupUpdateCheck()
         zibo = {
             available = ziboAvailable,
             latest = ziboLatest,
-            current = ziboLocal,
+            current = isLevelUp and tostring(lvlupRelease or "") or ziboLocal,
+            skipped = isLevelUp,
+            skippedReason = isLevelUp and "LevelUp detected" or "",
+            levelUpRelease = lvlupRelease,
+            levelUpFlightModel = lvlupFm,
         },
     }
 
@@ -601,25 +663,16 @@ local function maybeRunStartupUpdateCheck()
         return
     end
 
-    local lines = {}
-    if yalAvailable then
-        lines[#lines + 1] = string.format("YAL update available: v%s (installed v%s)", tostring(yalLatest or "?"), tostring(def.VERSION or "?"))
-    end
-    if checkBeta and yalStable and yalStable ~= "" then
-        lines[#lines + 1] = string.format("Latest stable YAL: v%s", tostring(yalStable))
-    elseif (not checkBeta) and yalBeta and yalBeta ~= "" then
-        lines[#lines + 1] = string.format("Latest beta YAL: v%s", tostring(yalBeta))
-    end
-    if ziboAvailable then
-        lines[#lines + 1] = string.format("Zibo update available: v%s (installed v%s)", tostring(ziboLatest or "?"), tostring(ziboLocal or "?"))
-    end
-
     maybeInitUpdatePopupWindow()
     if updatePopupComponent and updatePopupComponent.setPayload then
         updatePopupComponent:setPayload({
-            title = "Update available",
-            lines = lines,
+            title = get_update_popup_title(yalAvailable, ziboAvailable, checkBeta and yalChannelAvailable),
+            checkedAt = now,
+            channel = helpers.startupUpdateInfo.channel,
+            yal = helpers.startupUpdateInfo.yal,
+            zibo = helpers.startupUpdateInfo.zibo,
             okLabel = "OK",
+            settingsLabel = "Settings",
         })
     end
 end

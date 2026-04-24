@@ -155,6 +155,10 @@ local function is_version_newer(newVersion, currentVersion)
     return false
 end
 
+function P.isVersionNewer(newVersion, currentVersion)
+    return is_version_newer(newVersion, currentVersion)
+end
+
 P.cifpCache = P.cifpCache or {}
 
 local ffi = require("ffi")
