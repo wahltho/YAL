@@ -380,6 +380,22 @@ local function isPeriodicAutoSaveDisabled()
     return (raw == 0) or (raw == 9999)
 end
 
+function P.isautosaveblockedbycrash()
+    if not P.hascrashed then
+        return false
+    end
+    local crashed = (tonumber(get(P.hascrashed)) or 0) ~= 0
+    if crashed then
+        if P.autosavecrashskiplogged ~= true then
+            helpers.logInfoTS("AutoSave skipped: aircraft crash detected.")
+            P.autosavecrashskiplogged = true
+        end
+        return true
+    end
+    P.autosavecrashskiplogged = false
+    return false
+end
+
 local function getAutoSaveSlot()
     local raw = P.configvalues and P.configvalues[def.CONFIGSAVENUMBER] or nil
     if raw == 0 or raw == "0" then
@@ -1229,6 +1245,7 @@ function P.bindExternalDatarefs(silentMissing)
     end
     P.simpaused = GP("sim/time/paused")
     P.simfreezed = GPFAE("sim/operation/override/override_planepath", 1)
+    P.hascrashed = GP("sim/flightmodel2/misc/has_crashed")
     P.battery = GP("laminar/B738/electric/battery_pos")
     P.batteryswitchcover = GPFAE("laminar/B738/cover", 3)
     P.emergencylights = GP("laminar/B738/toggle_switch/emer_exit_lights")
@@ -7089,7 +7106,9 @@ function P.ongoingtasks()
                 P.pausetodtimer = sasl.createTimer()
                 sasl.startTimer(P.pausetodtimer)
             elseif (sasl.getElapsedSeconds(P.pausetodtimer) > P.configvalues[def.CONFIGTODPAUSEQUITTIME]) then
-                helpers.command_once("laminar/B738/tab/save_flight" .. tostring(getAutoSaveSlot()))
+                if not P.isautosaveblockedbycrash() then
+                    helpers.command_once("laminar/B738/tab/save_flight" .. tostring(getAutoSaveSlot()))
+                end
                 helpers.command_once("sim/operation/quit")
             end
         elseif (P.pausetodtimer ~= nil) then
@@ -7106,7 +7125,9 @@ function P.ongoingtasks()
             P.savetimer = sasl.createTimer()
             sasl.startTimer(P.savetimer)
         elseif (sasl.getElapsedSeconds(P.savetimer) > P.configvalues[def.CONFIGSAVETIME]) then
-            helpers.command_once("laminar/B738/tab/save_flight" .. tostring(getAutoSaveSlot()))
+            if not P.isautosaveblockedbycrash() then
+                helpers.command_once("laminar/B738/tab/save_flight" .. tostring(getAutoSaveSlot()))
+            end
             sasl.startTimer(P.savetimer)
         end
     elseif (P.savetimer ~= nil) then
