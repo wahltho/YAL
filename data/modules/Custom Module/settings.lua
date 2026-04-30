@@ -235,12 +235,14 @@ local function checkSettings(tableTocheck)
     return tableTocheck, result
 end
 
-function P.writeSettings(currentSetting)
+function P.writeSettings(currentSetting, suppressReload)
     P.appSettings = currentSetting
     if sasl.writeConfig(settingPath, settingFormat, currentSetting) == false then
         sasl.logWarning("Unable to write settings to disk")
     end
-    P.newSettingsAvailable = true
+    if suppressReload ~= true then
+        P.newSettingsAvailable = true
+    end
 end
 
 function P.getSettings()
@@ -252,7 +254,7 @@ function P.getSettings()
     )
     local currentSetting, result = checkSettings(lSettings)
     if result == true then
-        P.writeSettings(currentSetting)
+        P.writeSettings(currentSetting, true)
     end
 
     P.appSettings = currentSetting

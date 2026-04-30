@@ -465,7 +465,7 @@ local function getAutoSaveSlot()
         if settings and settings.appSettings then
             settings.appSettings[def.CONFIGSAVELAST] = slot
             if settings.writeSettings then
-                settings.writeSettings(settings.appSettings)
+                settings.writeSettings(settings.appSettings, true)
             end
         end
     end
