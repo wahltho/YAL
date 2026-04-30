@@ -6932,10 +6932,11 @@ function P.runOneMainOngoingTask()
         end
 
         if (P.flightstate == def.FLIGHTSTATECRUISE) and (get(P.fmsflightphase) == def.FMSFLIGHTPHASE_CRUISE) and not suppressDiscoWarnings then
-            local fmcCruiseAlt = get(P.fmccruisealt) or 0
+            local todDistanceForMcpAdvice = tonumber(get(P.vnavtoddist)) or 0
+            local fmcCruiseAlt = tonumber(get(P.fmccruisealt)) or 0
             local fmcCruiseRounded = helpers.roundnumber(fmcCruiseAlt / 100, 0) * 100
-            local withinTolerance = (mcpAlt >= (fmcCruiseRounded - 100))
-            if withinTolerance and (get(P.vnavtoddist) < 20) then
+            local withinTolerance = (fmcCruiseAlt > 0) and (mcpAlt >= (fmcCruiseRounded - 100))
+            if withinTolerance and (todDistanceForMcpAdvice > 0) and (todDistanceForMcpAdvice < 20) then
                 local queueTodAdvice, todAdviceReason = shouldQueueStandaloneVoiceAdvice(
                     P.todResetMcpAdviceState,
                     "TOD_RESET_MCP_ALTITUDE",
