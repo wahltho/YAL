@@ -340,13 +340,24 @@ local function clearTrimTargetLatch()
     P._ongoingTrimTargetLatched = nil
 end
 
+function P.getTakeoffTrimAdviceTarget()
+    if not P.trimcalc then
+        return nil
+    end
+    local trimCalcRaw = tonumber(get(P.trimcalc)) or 0
+    local trimTarget = helpers.round_to_step(trimCalcRaw, 0.25) or trimCalcRaw
+    if trimTarget and trimTarget > 0 then
+        return trimTarget
+    end
+    return nil
+end
+
 local function getLatchedTrimTarget()
     local latched = tonumber(P._ongoingTrimTargetLatched)
     if latched and latched > 0 then
         return latched
     end
-    local trimCalcRaw = tonumber(get(P.trimcalc)) or 0
-    local trimTarget = helpers.round_to_step(trimCalcRaw, 0.25) or trimCalcRaw
+    local trimTarget = P.getTakeoffTrimAdviceTarget()
     if trimTarget and trimTarget > 0 then
         P._ongoingTrimTargetLatched = trimTarget
         return trimTarget
@@ -6714,6 +6725,7 @@ function P.runOneMainOngoingTask()
     if trimAdviceGuardOpen then
         if idx == 7 then
             local trimTarget = getLatchedTrimTarget() or 0
+            local beforeTakeoffProcedureActive = (P.procedureloop1.lock == def.BEFORETAKEOFFPROCEDURE)
             local trimPopupFeatureEnabled =
                 (P.configvalues[def.CONFIGTRIMADVICEPOPUP] == def.ON)
                 and (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON)
@@ -6728,7 +6740,7 @@ function P.runOneMainOngoingTask()
             else
                 clearTrimAdvicePopupState()
             end
-            if trimMismatch then
+            if trimMismatch and not beforeTakeoffProcedureActive then
                 if ((P.configvalues[def.CONFIGAUTOFUNCTIONS] == def.ON) and (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON)) then
                     P.settotrim(trimTarget)
                     local trimText = helpers.format_trim_quarter(trimTarget) or tostring(trimTarget)
