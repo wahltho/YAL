@@ -1940,16 +1940,6 @@ function P.initDataref()
         end
         return handle
     end
-    local function findHoppieOptional(path)
-        local handle = globalProperty(path)
-        if not isProperty(handle) then
-            helpers.logInfoTS("Optional dataref '" .. path .. "' not found.")
-            return nil
-        end
-        helpers.logInfoTS("Found existing dataref: '" .. path .. "'")
-        return handle
-    end
-
     P.hoppie = {}
     P.hoppie.send_queue = ensureHoppieString("hoppiebridge/send_queue", "")
     P.hoppie.send_message_to = ensureHoppieString("hoppiebridge/send_message_to", "")
@@ -1972,8 +1962,8 @@ function P.initDataref()
     P.hoppie.last_http = ensureHoppieString(def.APPNAMEPREFIX .. "/hoppie/last_http", "")
     P.hoppie.send_count = ensureHoppieNumber(def.APPNAMEPREFIX .. "/hoppie/send_count", 0)
     P.hoppie.poll_count = ensureHoppieNumber(def.APPNAMEPREFIX .. "/hoppie/poll_count", 0)
-    P.hoppie.voice_seq = findHoppieOptional(def.APPNAMEPREFIX .. "/hoppie/voice_seq")
-    P.hoppie.voice_text = findHoppieOptional(def.APPNAMEPREFIX .. "/hoppie/voice_text")
+    P.hoppie.voice_seq = ensureHoppieNumber(def.APPNAMEPREFIX .. "/hoppie/voice_seq", 0)
+    P.hoppie.voice_text = ensureHoppieString(def.APPNAMEPREFIX .. "/hoppie/voice_text", "")
 
     if P.hoppie.debug_level then
         local level = sasl.getLogLevel() == LOG_DEBUG and 3 or 1
