@@ -11,16 +11,53 @@ local def = require("definitions")
 local settings = require("settings")
 local messages = require("messages")
 local helpers = require("helpers")
-local showBetaUpdates = toboolean(settings.appSettings.SHOWBETAUPDATES)
-local updateAvailable, newVersion = helpers.checkForUpdate(showBetaUpdates)
-local stableAvailable, stableVersion = helpers.checkForUpdate(false)
-local wTitle = string.format("%s v%s", def.APPNAMEPREFIXLONG, def.VERSION)
-if updateAvailable then
-    wTitle = wTitle .. "   " .. (messages.translation['UPDATEAVAILABLE'] or "Update") .. " v" .. (newVersion or "")
+
+local function isYalBetaVersion()
+    return helpers.isPrereleaseVersion(def.VERSION)
 end
-local isBeta = tostring(def.VERSION or ""):lower():find("b") or tostring(def.VERSION or ""):lower():find("beta")
-if isBeta and stableVersion and stableVersion ~= "" then
-    wTitle = wTitle .. "  •  Last Stable v" .. stableVersion
+
+local fallbackStableChecked = false
+local fallbackStableVersion = nil
+
+local function getFallbackStableVersion()
+    if fallbackStableChecked then
+        return fallbackStableVersion
+    end
+    fallbackStableChecked = true
+    local ok, _, version = pcall(helpers.checkForUpdate, false)
+    if ok and version and version ~= "" then
+        fallbackStableVersion = tostring(version)
+    end
+    return fallbackStableVersion
+end
+
+local function getWindowTitle()
+    local title = string.format("%s v%s", def.APPNAMEPREFIXLONG, def.VERSION)
+    local info = helpers.startupUpdateInfo
+    local yalInfo = (type(info) == "table") and info.yal or nil
+    if type(yalInfo) == "table" then
+        if yalInfo.available and yalInfo.latest and yalInfo.latest ~= "" then
+            title = title .. "   " .. (messages.translation['UPDATEAVAILABLE'] or "Update") .. " v" .. tostring(yalInfo.latest)
+        end
+        local checkBeta = yalInfo.checkBeta
+        if checkBeta == nil then
+            checkBeta = isYalBetaVersion()
+        end
+        if checkBeta and yalInfo.latestStable and yalInfo.latestStable ~= "" then
+            title = title .. "  •  Last Stable v" .. tostring(yalInfo.latestStable)
+        elseif (not checkBeta) and yalInfo.latestBeta and yalInfo.latestBeta ~= "" then
+            title = title .. "  •  Beta v" .. tostring(yalInfo.latestBeta)
+        end
+        return title
+    end
+
+    if isYalBetaVersion() then
+        local stable = getFallbackStableVersion()
+        if stable and stable ~= "" then
+            title = title .. "  •  Last Stable v" .. tostring(stable)
+        end
+    end
+    return title
 end
 
 local function getSafeFont()
@@ -32,6 +69,7 @@ end
 
 -- Build items list (flattened) ------------------------------------------------
 local items = {}
+local leftColumnCount = 0
 local function addCheckbox(labelKey, key)
     items[#items + 1] = {type = "checkbox", label = messages.translation[labelKey] or labelKey, key = key}
 end
@@ -59,32 +97,41 @@ end
 
 -- Left column (all settings up to Gear Down Flaps)
 addCheckbox('USEGROUNDPOWER','USEGROUNDPOWER')
+addCheckbox('USEEXTERNALAIR','USEEXTERNALAIR')
 addCheckbox('VOICEREADBACK','VOICEREADBACK')
 addCheckbox('AUTOFUNCTIONS','AUTOFUNCTIONS')
 addCheckbox('FMCAUTOMATION','FMCAUTOMATION')
 addCheckbox('VOICEADVICEONLY','VOICEADVICEONLY')
+addCheckbox('TRIMADVICEPOPUP','TRIMADVICEPOPUP')
 addCheckbox('WAKEOVERRIDE','WAKEOVERRIDE')
+addCheckbox('RUNWAYFRICTIONCLAMP','RUNWAYFRICTIONCLAMP')
 addCheckbox('AUTOANTIICE','AUTOANTIICE')
 addCheckbox('AUTOWIPER','AUTOWIPER')
 addCheckbox('AUTOCENTERTANKHANDLING','AUTOCENTERTANKHANDLING')
 addCheckbox('AUTOFLAPS','AUTOFLAPS')
 addCheckbox('AUTOBARO','AUTOBARO')
 addCheckbox('VIEWCHANGES','VIEWCHANGES')
+addCheckbox('AUTOTAXIGUIDANCE','AUTOTAXIGUIDANCE')
+addCheckbox('VISUALTAXIGUIDANCE','VISUALTAXIGUIDANCE')
+addCheckbox('AUTOTAXIING','AUTOTAXIING')
 addCheckbox('AUTOCHOCKSPB','AUTOCHOCKSPB')
 addCheckbox('SPEEDRESTR250','SPEEDRESTR250')
 addCheckbox('VREF30','VREF30')
 addCheckbox('CUSTOMAPPROACHCALC','CUSTOMAPPROACHCALC')
 addCheckbox('LOWERDU','LOWERDU')
 addCheckbox('HIDEEFBS','HIDEEFBS')
+addNumber('VOICEADVICEREPEATSKIP','VOICEADVICEREPEATSKIP',1,2)
+addNumber('VOICEADVICEMAXREPEATS','VOICEADVICEMAXREPEATS',1,2)
 addNumber('HEADINGSYNCINTERVAL','HEADINGSYNCINTERVAL',1,4)
 addNumber('TODPAUSEQUITTIME','TODPAUSEQUITTIME',1,5)
 addNumber('SAVETIME','SAVETIME',1,5)
-addNumber('SAVENUMBER','SAVENUMBER',1,5)
+addText('SAVENUMBER','SAVENUMBER',1,5)
 addNumber('LOWERAIRSPACEALT','LOWERAIRSPACEALT',1,5)
 addNumber('PACKSRESTOREALT','PACKSRESTOREALT',1,5)
-addSlider('BANKANGLEMAX','BANKANGLEMAX',1,4,1)
 addNumber('TRANSPONDERCODE','TRANSPONDERCODE',4,4)
 addNumber('GEARDOWNFLAPS','GEARDOWNFLAPS',1,2)
+addSlider('BANKANGLEMAX','BANKANGLEMAX',1,4,1)
+leftColumnCount = #items
 
 -- Right column (views, brightness, misc)
 addNumber('VIEWMAINPANEL','VIEWMAINPANEL')
@@ -109,6 +156,8 @@ addCheckbox('BPBINTEGRATION','BPBINTEGRATION')
 addCheckbox('YANSHINTEGRATION','YANSHINTEGRATION')
 addCheckbox('AUTOFUELING','AUTOFUELING')
 addText('HOPPIEID','HOPPIEID',0,16)
+addCheckbox('HOPPIEVOICE','HOPPIEVOICE')
+addCheckbox('AUTOUPDATECHECK','AUTOUPDATECHECK')
 addCheckbox('SHOWBETAUPDATES','SHOWBETAUPDATES')
 addCheckbox('DEBUGMODE','DEBUGMODE')
 
@@ -117,6 +166,52 @@ local function not_(v) return (v == 0 or v == false) and 1 or 0 end
 
 local function drawTextLine(font, x, y, text, color)
     sasl.gl.drawTextI(font, x, y, tostring(text or ""), TEXT_ALIGN_LEFT, color)
+end
+
+local function estimateTextWidth(text)
+    return string.len(tostring(text or "")) * 7
+end
+
+local function truncateTextByWidth(text, maxWidth)
+    local t = tostring(text or "")
+    if t == "" or maxWidth <= 0 then
+        return ""
+    end
+    if estimateTextWidth(t) <= maxWidth then
+        return t
+    end
+    local maxChars = math.max(3, math.floor(maxWidth / 7) - 3)
+    if maxChars >= string.len(t) then
+        return t
+    end
+    return string.sub(t, 1, maxChars) .. "..."
+end
+
+local function ziboHeaderText()
+    local prefix = "Zibo "
+    local raw = helpers.getLatchedZiboRelease()
+    if helpers.isLevelUp and helpers.isLevelUp() then
+        prefix = "LevelUp "
+        raw = helpers.getLatchedLevelUpRelease()
+    end
+    raw = raw:gsub("^%s+", ""):gsub("%s+$", "")
+    if raw == "" then
+        return nil
+    end
+    local ver = raw:match("([Vv]%d[%w%.%-]*)")
+    if not ver then
+        ver = raw:match("(%d[%w%.%-]*)")
+        if ver and prefix == "Zibo " then
+            ver = "v" .. ver
+        end
+    end
+    if not ver then
+        return prefix .. raw
+    end
+    if string.sub(ver, 1, 1) == "V" then
+        ver = "v" .. string.sub(ver, 2)
+    end
+    return prefix .. ver
 end
 
 local function drawCheckbox(font, x, y, label, checked)
@@ -154,10 +249,6 @@ function M.newComponent(ctx)
     end
 
     local function getSize()
-        if comp._window and comp._window.getPosition then
-            local _, _, ww, hh = comp._window:getPosition()
-            return ww or defaultW, hh or defaultH
-        end
         local p = get(comp.position)
         return p[3] or defaultW, p[4] or defaultH
     end
@@ -173,8 +264,8 @@ function M.newComponent(ctx)
         local textBoxWidthLeft = 90
         local colHitW = w / 2 - 20
         local textBoxWidthRight = math.max(80, colHitW - rightLabelWidth - 12)
-        local buttonH = lineHeight + 4
-        local buttonW = colHitW
+        local buttonH = lineHeight + 2
+        local buttonW = math.max(240, colHitW - 40)
         local layout = {
             hits = {},
             close = { x = w - 80, y = h - headerH - 4, w = 80, h = headerH + 8 },
@@ -187,7 +278,7 @@ function M.newComponent(ctx)
         drawRectangle(0, h - headerH, w, headerH, {0.12, 0.12, 0.12, 0.95})
 
         -- Layout: two columns, with a fixed split (leftCount items on the left)
-        local leftCount = 27
+        local leftCount = leftColumnCount
         local half = leftCount
         local spacing = lineHeight + 6
         local leftX = 16
@@ -254,6 +345,9 @@ function M.newComponent(ctx)
                     local labelText = (item.label or "") .. ":"
                     local boxX = x + leftLabelWidth
                     local boxW = textBoxWidthLeft
+                    if item.key == def.CONFIGSAVENUMBER then
+                        boxW = numberBoxWidthLeft
+                    end
                     drawTextLine(font, x, yRow, labelText, color)
                     drawRectangle(boxX, yRow - 2, boxW, lineHeight, {0.08,0.08,0.08,0.8})
                     drawFrame(boxX, yRow - 2, boxW, lineHeight, isFocus and {0.95,0.95,0.3,1} or {0.8,0.8,0.8,0.9})
@@ -384,24 +478,37 @@ function M.newComponent(ctx)
         end
 
         -- Header with status and close
-        drawTextLine(font, 10, h - headerH + 4, wTitle, color)
-        drawTextLine(font, w - 18, h - headerH + 4, "X", color)
+        local closeX = w - 18
+        local headerY = h - headerH + 4
+        local titleText = getWindowTitle()
+        local ziboText = ziboHeaderText()
+        if ziboText and ziboText ~= "" then
+            local ziboW = estimateTextWidth(ziboText)
+            local ziboX = closeX - 10 - ziboW
+            if ziboX > 120 then
+                local maxTitleW = ziboX - 16
+                titleText = truncateTextByWidth(titleText, maxTitleW)
+                drawTextLine(font, ziboX, headerY, ziboText, {0.75, 0.85, 0.95, 1})
+            end
+        end
+        drawTextLine(font, 10, headerY, titleText, color)
+        drawTextLine(font, closeX, headerY, "X", color)
 
         -- Buttons (anchored bottom-right, do not affect list layout)
         local btnX = rightX
         local btnY = 6
         layout.buttons = {
             {
-                id = "apply_qv0",
-                label = "Apply QV0 to Default View (WILL RELOAD A/C)",
+                id = "adjust_qv_xcam_cg",
+                label = "Adjust QVs + X-Camera after CG shift",
                 x = btnX,
                 y = btnY + buttonH + 6,
                 w = buttonW,
                 h = buttonH
             },
             {
-                id = "adjust_qv_cg",
-                label = "Adjust QVs after CG shift (WILL RELOAD A/C)",
+                id = "apply_qv0",
+                label = "Apply QV0 to Default View",
                 x = btnX,
                 y = btnY,
                 w = buttonW,
@@ -443,7 +550,8 @@ function M.newComponent(ctx)
         local layout = self._layout
         if not layout then return false end
 
-        if button == MB_LEFT then
+        local leftClick = (button == MB_LEFT or button == 1)
+        if leftClick then
             -- Close
             if layout.close and x >= layout.close.x and x <= (layout.close.x + layout.close.w) and y >= layout.close.y and y <= (layout.close.y + layout.close.h) then
                 if self._window then self._window:setIsVisible(false) end
@@ -469,8 +577,8 @@ function M.newComponent(ctx)
             end
             for _, btn in ipairs(layout.buttons or {}) do
                 if x >= btn.x and x <= (btn.x + btn.w) and y >= btn.y and y <= (btn.y + btn.h) then
-                    if btn.id == "adjust_qv_cg" then
-                        helpers.adjustQuickViewsForCgChange()
+                    if btn.id == "adjust_qv_xcam_cg" then
+                        helpers.adjustQuickViewsAndXCameraForCgChange()
                         return true
                     elseif btn.id == "apply_qv0" then
                         helpers.applyDefaultViewFromQV0()
@@ -507,13 +615,13 @@ function M.newComponent(ctx)
                     elseif hit.kind == "slider_minus" then
                         local val = tonumber(settings.appSettings[item.key]) or item.minVal or 0
                         val = math.max(item.minVal or val, val - (item.step or 1))
-                        settings.appSettings[item.key] = tostring(val)
+                        settings.appSettings[item.key] = val
                         settings.writeSettings(settings.appSettings)
                         return true
                     elseif hit.kind == "slider_plus" then
                         local val = tonumber(settings.appSettings[item.key]) or item.minVal or 0
                         val = math.min(item.maxVal or val, val + (item.step or 1))
-                        settings.appSettings[item.key] = tostring(val)
+                        settings.appSettings[item.key] = val
                         settings.writeSettings(settings.appSettings)
                         return true
                     end
@@ -534,7 +642,8 @@ function M.newComponent(ctx)
     end
 
     function comp:onMouseUp(_, _, button)
-        if button == MB_LEFT and self.scrollDrag then
+        local leftClick = (button == MB_LEFT or button == 1)
+        if leftClick and self.scrollDrag then
             self.scrollDrag = nil
             return true
         end
@@ -589,7 +698,11 @@ function M.newComponent(ctx)
             local minL = self._focus.minLen or (kind == "number" and 1 or 0)
             local maxL = self._focus.maxLen or 10
             if #txt >= minL and #txt <= maxL then
-                settings.appSettings[self._focus.key] = txt
+                if kind == "number" then
+                    settings.appSettings[self._focus.key] = settings.normalizeNumberSettingValue(self._focus.key, txt)
+                else
+                    settings.appSettings[self._focus.key] = txt
+                end
                 settings.writeSettings(settings.appSettings)
             end
             self._focus = nil

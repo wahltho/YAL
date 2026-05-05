@@ -13,6 +13,9 @@ local settingsDefinition = {
     [def.CONFIGFMCAUTOMATION] = { dvalue = 1 , type = "number", min = 0, max = 1 },
     [def.CONFIGHEADINGSYNCINTERVAL] = { dvalue = 0 , type = "number", min = 0, max = 9999 },
     [def.CONFIGVOICEADVICEONLY] = { dvalue = 1 , type = "number", min = 0, max = 1 },
+    [def.CONFIGVOICEADVICEREPEATSKIP] = { dvalue = 1 , type = "number", min = 0, max = 10 },
+    [def.CONFIGVOICEADVICEMAXREPEATS] = { dvalue = 0 , type = "number", min = 0, max = 99 },
+    [def.CONFIGTRIMADVICEPOPUP] = { dvalue = 0 , type = "number", min = 0, max = 1 },
     [def.CONFIGAUTOFUELING] = { dvalue = 0 , type = "number", min = 0, max = 1 },
     [def.CONFIGHOPPIEID] = { dvalue = "" , type = "string", minLen = 0, maxLen = 16 },
     [def.CONFIGCUSTOMAPPROACHCALC] = { dvalue = 0 , type = "number", min = 0, max = 1 },
@@ -26,6 +29,7 @@ local settingsDefinition = {
     [def.CONFIGAUTOFLAPS] = { dvalue = 1 , type = "number", min = 0, max = 1 },
     [def.CONFIGAUTOCHOCKSPB] = { dvalue = 1 , type = "number", min = 0, max = 1 },
     [def.CONFIGUSEGROUNDPOWER] = { dvalue = 1 , type = "number", min = 0, max = 1 },
+    [def.CONFIGUSEEXTERNALAIR] = { dvalue = 0 , type = "number", min = 0, max = 1 },
 
     [def.CONFIGSPDRESTR250] = { dvalue = 1 , type = "number", min = 0, max = 1 },
     [def.CONFIGVREF30SET] = { dvalue = 1 , type = "number", min = 0, max = 1 },
@@ -58,21 +62,116 @@ local settingsDefinition = {
     [def.CONFIGINSTRBRIGHTLOWDUS] = { dvalue = 0.5 , type = "number", min = 0, max = 1 },
 
     [def.CONFIGWAKEOVERRIDE] = { dvalue = 1 , type = "number", min = 0, max = 1 },
+    [def.CONFIGRUNWAYFRICTIONCLAMP] = { dvalue = 0 , type = "number", min = 0, max = 1 },
     [def.CONFIGTODPAUSEQUITTIME] = { dvalue = 1800 , type = "number", min = 0, max = 9999 },
     [def.CONFIGSAVETIME] = { dvalue = 300 , type = "number", min = 0, max = 9999 },
-    [def.CONFIGSAVENUMBER] = { dvalue = 1 , type = "number", min = 1, max = 8 },
+    [def.CONFIGSAVENUMBER] = { dvalue = "1" , type = "string", minLen = 1, maxLen = 5 },
+    [def.CONFIGSAVELAST] = { dvalue = 1 , type = "number", min = 1, max = 8 },
     [def.CONFIGIGNOREALLBRIGHTHNESSSETTINGS] = { dvalue = 0 , type = "number", min = 0, max = 1 },
     [def.CONFIGHIDEEFBS] = { dvalue = 1 , type = "number", min = 0, max = 1 },
     [def.CONFIGSHOWBETAUPDATES] = { dvalue = 0 , type = "number", min = 0, max = 1 },
+    [def.CONFIGAUTOUPDATECHECK] = { dvalue = 1 , type = "number", min = 0, max = 1 },
+    [def.CONFIGIGNOREDYALUPDATEVERSION] = { dvalue = "" , type = "string", minLen = 0, maxLen = 32 },
+    [def.CONFIGIGNOREDZIBOUPDATEVERSION] = { dvalue = "" , type = "string", minLen = 0, maxLen = 32 },
     [def.CONFIGJITLUAON] = { dvalue = 0 , type = "number", min = 0, max = 1 },
     [def.CONFIGZIBOISMODDED] = { dvalue = 0 , type = "number", min = 0, max = 1 },
     [def.CONFIGDEBUGOVERLAY] = { dvalue = 0 , type = "number", min = 0, max = 1 },
+    [def.CONFIGTAXIMAPORIENT] = { dvalue = 0 , type = "number", min = 0, max = 1 },
+    [def.CONFIGTAXIMAPFONTSIZE] = { dvalue = 12 , type = "number", min = 8, max = 24 },
+    [def.CONFIGTAXIMAPZOOM] = { dvalue = 1.0 , type = "number", min = 0.2, max = 5 },
+    [def.CONFIGAUTOTAXIGUIDANCE] = { dvalue = 0 , type = "number", min = 0, max = 1 },
+    [def.CONFIGVISUALTAXIGUIDANCE] = { dvalue = 0 , type = "number", min = 0, max = 1 },
+    [def.CONFIGAUTOTAXIING] = { dvalue = 0 , type = "number", min = 0, max = 1 },
+    [def.CONFIGHOPPIEVOICE] = { dvalue = 0 , type = "number", min = 0, max = 1 },
+    [def.CONFIGAUTORESTARTDEV] = { dvalue = 0 , type = "number", min = 0, max = 1 },
+    [def.CONFIGGEARPROTECTION] = { dvalue = 0 , type = "number", min = 0, max = 1 },
+    [def.CONFIGTRIMADVICEPOPUPX] = { dvalue = -1 , type = "number", min = -10000, max = 20000 },
+    [def.CONFIGTRIMADVICEPOPUPY] = { dvalue = -1 , type = "number", min = -10000, max = 20000 },
 
 }   
 
 local defaultSettings = {}
 for k, v in pairs(settingsDefinition) do
     defaultSettings[k] = settingsDefinition[k].dvalue
+end
+
+local function normalizeSaveNumber(val)
+    if val == nil then
+        return nil
+    end
+    if type(val) == "number" then
+        local num = math.floor(val)
+        if num == 0 then
+            return "0"
+        end
+        if num < 1 or num > 8 then
+            return nil
+        end
+        return tostring(num)
+    end
+    if type(val) ~= "string" then
+        return nil
+    end
+    local s = val:gsub("%s+", "")
+    if s == "" then
+        return nil
+    end
+    if s == "0" then
+        return "0"
+    end
+    local a, b = s:match("^(%d+)%-(%d+)$")
+    if a and b then
+        local n1 = tonumber(a)
+        local n2 = tonumber(b)
+        if not n1 or not n2 then
+            return nil
+        end
+        if n1 < 1 or n1 > 8 or n2 < 1 or n2 > 8 then
+            return nil
+        end
+        if n1 > n2 then
+            n1, n2 = n2, n1
+        end
+        return tostring(n1) .. "-" .. tostring(n2)
+    end
+    local n = tonumber(s)
+    if n and n >= 1 and n <= 8 then
+        return tostring(math.floor(n))
+    end
+    return nil
+end
+
+local function normalizeNumericValue(defn, val)
+    local num = val
+    if type(num) == "string" then
+        num = num:gsub("^%s+", ""):gsub("%s+$", "")
+        if num == "" then
+            return nil
+        end
+        num = tonumber(num)
+    end
+    if type(num) ~= "number" then
+        return nil
+    end
+    if defn.min ~= nil and num < defn.min then
+        num = defn.min
+    end
+    if defn.max ~= nil and num > defn.max then
+        num = defn.max
+    end
+    return num
+end
+
+function P.normalizeNumberSettingValue(key, value)
+    local defn = settingsDefinition[key]
+    if not defn or defn.type ~= "number" then
+        return value
+    end
+    local normalized = normalizeNumericValue(defn, value)
+    if normalized == nil then
+        return defn.dvalue
+    end
+    return normalized
 end
 
  
@@ -86,7 +185,27 @@ local function checkSettings(tableTocheck)
     local result = false
     for k, v in pairs(settingsDefinition) do
         local defn = settingsDefinition[k]
-        if defn.type == "string" then
+        if k == def.CONFIGSAVENUMBER then
+            local cur = tableTocheck[k]
+            if type(cur) == "number" then
+                local num = math.floor(cur + 0.00001)
+                if num < 1 or num > 8 or math.abs(cur - num) > 0.0001 then
+                    sasl.logDebug("key: " .. k .. " missing or incorrect, setting value to default: " .. tostring(defn.dvalue))
+                    tableTocheck[k] = defn.dvalue
+                    result = true
+                end
+            else
+                local normalized = normalizeSaveNumber(cur)
+                if not normalized then
+                    sasl.logDebug("key: " .. k .. " missing or incorrect, setting value to default: " .. tostring(defn.dvalue))
+                    tableTocheck[k] = defn.dvalue
+                    result = true
+                elseif cur ~= normalized then
+                    tableTocheck[k] = normalized
+                    result = true
+                end
+            end
+        elseif defn.type == "string" then
             local val = tableTocheck[k]
             if type(val) ~= "string" then
                 sasl.logDebug("key: " .. k .. " missing or incorrect, setting value to default: " .. tostring(defn.dvalue))
@@ -101,22 +220,29 @@ local function checkSettings(tableTocheck)
                 end
             end
         else
-            if tableTocheck[k] == nil or type(tableTocheck[k]) ~= defn.type or tableTocheck[k] < defn.min 
-                or tableTocheck[k] > defn.max then
-                     sasl.logDebug("key: " .. k .. " missing or incorrect, setting value to default: " .. tostring(defn.dvalue))
-                     tableTocheck[k] = defn.dvalue
-                     result = true
+            local current = tableTocheck[k]
+            local normalized = normalizeNumericValue(defn, current)
+            if normalized == nil then
+                sasl.logDebug("key: " .. k .. " missing or incorrect, setting value to default: " .. tostring(defn.dvalue))
+                tableTocheck[k] = defn.dvalue
+                result = true
+            elseif type(current) ~= "number" or current ~= normalized then
+                tableTocheck[k] = normalized
+                result = true
             end
         end
     end
     return tableTocheck, result
 end
 
-function P.writeSettings(currentSetting)
+function P.writeSettings(currentSetting, suppressReload)
+    P.appSettings = currentSetting
     if sasl.writeConfig(settingPath, settingFormat, currentSetting) == false then
         sasl.logWarning("Unable to write settings to disk")
     end
-    P.newSettingsAvailable = true
+    if suppressReload ~= true then
+        P.newSettingsAvailable = true
+    end
 end
 
 function P.getSettings()
@@ -128,12 +254,29 @@ function P.getSettings()
     )
     local currentSetting, result = checkSettings(lSettings)
     if result == true then
-        P.writeSettings(currentSetting)
+        P.writeSettings(currentSetting, true)
     end
-    
+
+    P.appSettings = currentSetting
     return currentSetting
 end
 
+
+function P.getSettingNumber(key, default)
+    local tbl = P.appSettings
+    if not tbl then
+        return default
+    end
+    local val = tbl[key]
+    if val == nil then
+        return default
+    end
+    val = tonumber(val)
+    if val == nil then
+        return default
+    end
+    return val
+end
 
 
 P.appSettings = P.getSettings()

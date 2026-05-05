@@ -210,6 +210,13 @@ VR.config = {
           elseif type=="one"then if v1==def.ON then P.commandtableentry(def.TEXT,"Pilot Terrain Radar On")elseif get(P.efiswxpilotpos)==def.OFF then P.commandtableentry(def.TEXT,"Pilot Terrain Radar Off")end
           elseif type=="two"then if v2==def.ON then P.commandtableentry(def.TEXT,"Copilot Terrain Radar On")elseif get(P.efiswxfopos)==def.OFF then P.commandtableentry(def.TEXT,"Copilot Terrain Radar Off")end end
       end },
+    { dr1 = "fadec1on", t1 = "fadec1ontemp", dr2 = "fadec2on", t2 = "fadec2ontemp", check = paired_check,
+      format = function(type, v1, v2)
+          local function state(v) return (v == def.ON) and "On" or "Off" end
+          if type=="both"then return "Both E E C " .. state(v1)
+          elseif type=="one"then return "Engine 1 E E C " .. state(v1)
+          elseif type=="two"then return "Engine 2 E E C " .. state(v2) end
+      end },
 
     -- ## Paired Switch Checks (Debounced) ##
     { dr1 = "irsleftpos", t1 = "irsleftpostemp", dr2 = "irsrightpos", t2 = "irsrightpostemp", check = paired_check, isDebounced = true,
@@ -445,10 +452,18 @@ local function complex_check(P)
     if simple_check(get(P.apappstat), "apappstattemp", P) then
         if get(P.apappstat) == def.ON then
              if (get(P.aponstat) == def.ON) then
-                if ((get(P.apgscapturedstat) == def.ARMED) and (get(P.aploccapturedstat) == def.ARMED)) then P.commandtableentry(def.TEXT, "Approach Armed")
-                elseif ((get(P.aplpvgscapturedstat) == def.ARMED) and (get(P.aplpvloccapturedstat) == def.ARMED)) then P.commandtableentry(def.TEXT, "L P V Approach Armed")
-                elseif ((get(P.apglsgscapturedstat) == def.ARMED) and (get(P.apglsloccapturedstat) == def.ARMED)) then P.commandtableentry(def.TEXT, "G L S Approach Armed")
-                elseif ((get(P.apfacgscapturedstat) == def.ARMED) and (get(P.apfacloccapturedstat) == def.ARMED)) then P.commandtableentry(def.TEXT, "F A C Approach Armed") end
+                local approachModeLabel = helpers.getCurrentApproachModeLabel(1)
+                if approachModeLabel then
+                    P.commandtableentry(def.TEXT, approachModeLabel .. " Approach Armed")
+                elseif ((get(P.apgscapturedstat) == def.ARMED) and (get(P.aploccapturedstat) == def.ARMED)) then
+                    P.commandtableentry(def.TEXT, "Approach Armed")
+                elseif ((get(P.aplpvgscapturedstat) == def.ARMED) and (get(P.aplpvloccapturedstat) == def.ARMED)) then
+                    P.commandtableentry(def.TEXT, "L P V Approach Armed")
+                elseif ((get(P.apglsgscapturedstat) == def.ARMED) and (get(P.apglsloccapturedstat) == def.ARMED)) then
+                    P.commandtableentry(def.TEXT, "G L S Approach Armed")
+                elseif ((get(P.apfacgscapturedstat) == def.ARMED) and (get(P.apfacloccapturedstat) == def.ARMED)) then
+                    P.commandtableentry(def.TEXT, "F A C / G P Approach Armed")
+                end
              else P.commandtableentry(def.TEXT, "Approach Armed") end
         elseif (get(P.aponstat) == def.ON and get(P.apgscapturedstat) ~= def.CAPTURED and get(P.aploccapturedstat) ~= def.CAPTURED and get(P.aphdgselstat) ~= def.ON and get(P.aplnavstat) ~= def.ON) then P.commandtableentry(def.TEXT, "Approach Off") end
     end

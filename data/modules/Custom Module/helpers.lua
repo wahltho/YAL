@@ -3,6 +3,62 @@ helpers = P -- package name
 
 local def = require("definitions")
 
+function P.mmrBuildDigits(value)
+    local val = tonumber(value) or 0
+    val = math.floor(math.abs(val))
+    local digits = {}
+    for i = 1, 5 do
+        digits[i] = val % 10
+        val = math.floor(val / 10)
+    end
+    return digits
+end
+
+function P.mmrCopyActToStby(side)
+    local yal = _G.yal
+    if not yal or not yal.mmrinstalled or get(yal.mmrinstalled) ~= def.ON then
+        return
+    end
+    local actMode, actValue, stbyModeRef
+    local stbyArrILS, stbyArrILS2, stbyArrGLS, stbyArrVOR, stbyArrVOR2, stbyArrGeneric
+    if side == def.MMRCAPTAIN then
+        actMode = get(yal.mmrcptactmode)
+        actValue = get(yal.mmrcptactvalue)
+        stbyModeRef = yal.mmrcptstdbymode
+        stbyArrILS = yal.mmrcptilsstbyvalue
+        stbyArrILS2 = yal.mmrcptilsstbyvalue2
+        stbyArrGLS = yal.mmrcptglsstbyvalue
+        stbyArrVOR = yal.mmrcptvorstbyvalue
+        stbyArrVOR2 = yal.mmrcptvorstbyvalue2
+        stbyArrGeneric = yal.mmrcptstbyvalue
+    else
+        actMode = get(yal.mmrfoactmode)
+        actValue = get(yal.mmrfoactvalue)
+        stbyModeRef = yal.mmrfostdbymode
+        stbyArrILS = yal.mmrfoilsstbyvalue
+        stbyArrILS2 = yal.mmrfoilsstbyvalue2
+        stbyArrGLS = yal.mmrfoglsstbyvalue
+        stbyArrVOR = yal.mmrfovorstbyvalue
+        stbyArrVOR2 = yal.mmrfovorstbyvalue2
+        stbyArrGeneric = yal.mmrfostbyvalue
+    end
+    if not actMode or not stbyModeRef then
+        return
+    end
+    set(stbyModeRef, actMode)
+    local digits = P.mmrBuildDigits(actValue)
+    if stbyArrGeneric then set(stbyArrGeneric, digits) end
+    if actMode == def.MMRILS or actMode == def.MMRLOC then
+        if stbyArrILS then set(stbyArrILS, digits) end
+        if stbyArrILS2 then set(stbyArrILS2, digits) end
+    elseif actMode == def.MMRGLS or actMode == def.MMRLPV then
+        if stbyArrGLS then set(stbyArrGLS, digits) end
+    else
+        if stbyArrVOR then set(stbyArrVOR, digits) end
+        if stbyArrVOR2 then set(stbyArrVOR2, digits) end
+    end
+end
+
 local function parse_version_string(str)
     str = tostring(str or "")
     str = str:match("^%s*(.-)%s*$") or ""
@@ -50,6 +106,19 @@ local function parse_version_string(str)
     }
 end
 
+function P.getVersionPrereleaseType(version)
+    local parsed = parse_version_string(version)
+    if not parsed.valid then
+        return nil
+    end
+    return parsed.prereleaseType
+end
+
+function P.isPrereleaseVersion(version)
+    local prereleaseType = P.getVersionPrereleaseType(version)
+    return prereleaseType ~= nil and prereleaseType ~= "release"
+end
+
 local function is_version_newer(newVersion, currentVersion)
     local orderMap = {
         alpha = 0,
@@ -86,6 +155,10 @@ local function is_version_newer(newVersion, currentVersion)
     return false
 end
 
+function P.isVersionNewer(newVersion, currentVersion)
+    return is_version_newer(newVersion, currentVersion)
+end
+
 P.cifpCache = P.cifpCache or {}
 
 local ffi = require("ffi")
@@ -102,9 +175,16 @@ ffi.cdef [[
 
 --------------------------------------------------------------------------------------------------------------
 local acf_tailnum = globalProperty("sim/aircraft/view/acf_tailnum")
+local acf_relative_path = globalProperty("sim/aircraft/view/acf_relative_path")
 local onground_any = globalProperty("sim/flightmodel/failures/onground_any")
-local parking_brake_pos = globalProperty("laminar/B738/parking_brake_pos")
 local parking_brake_ratio = globalProperty("sim/cockpit2/controls/parking_brake_ratio")
+local pilots_head_x = globalProperty("sim/graphics/view/pilots_head_x")
+local pilots_head_y = globalProperty("sim/graphics/view/pilots_head_y")
+local pilots_head_z = globalProperty("sim/graphics/view/pilots_head_z")
+local pilots_head_psi = globalProperty("sim/graphics/view/pilots_head_psi")
+local pilots_head_the = globalProperty("sim/graphics/view/pilots_head_the")
+local pilots_head_phi = globalProperty("sim/graphics/view/pilots_head_phi")
+local tobii_eq = globalProperty("sim/graphics/view/eq_tobii_eyetracker")
 
 
 P.xpVersion = sasl.getXPVersion()
@@ -124,6 +204,7 @@ function P.isZibo()
         if (string.sub(tailnum, 1, 5) == "ZB738")
             or (string.sub(tailnum, 1, 4) == "B736")
             or (string.sub(tailnum, 1, 4) == "B737")
+            or (string.sub(tailnum, 1, 4) == "B738")
             or (string.sub(tailnum, 1, 4) == "738")
             or (string.sub(tailnum, 1, 4) == "B739") then
             return true
@@ -131,6 +212,157 @@ function P.isZibo()
     end
 
     return false
+end
+
+--------------------------------------------------------------------------------------------------------------
+local zibo_failure_categories = {
+    "electric",
+    "hydraulic",
+    "system",
+    "pressurisation",
+    "engine"
+}
+
+P.ziboFailureDefs = P.ziboFailureDefs or {
+    electric = {
+        [0] = "AC Transfer Bus 1",
+        [1] = "AC Transfer Bus 2",
+        [2] = "AC Main Bus 1",
+        [3] = "AC Main Bus 2",
+        [4] = "AC Standby Bus",
+        [5] = "AC Ground Service Bus 1",
+        [6] = "AC Ground Service Bus 2",
+        [7] = "DC Hot Battery Bus",
+        [8] = "DC Switched Hot Battery Bus",
+        [9] = "DC Battery Bus",
+        [10] = "DC Bus 1",
+        [11] = "DC Bus 2",
+        [12] = "DC Ground Service Bus",
+        [13] = "DC Standby Bus",
+        [14] = "TR1 unit",
+        [15] = "TR2 unit",
+        [16] = "TR3 unit",
+        [17] = "IDG1 / Engine Generator 1",
+        [18] = "IDG2 / Engine Generator 2",
+        [19] = "APU Generator",
+        [20] = "BPCU",
+        [21] = "Relay BTB1",
+        [22] = "Relay BTB2",
+        [23] = "Relay TRU3"
+    },
+    hydraulic = {
+        [0] = "System A malfunction",
+        [1] = "System B malfunction",
+        [2] = "System Standby malfunction",
+        [3] = "System A leak",
+        [4] = "System B leak"
+    },
+    system = {
+        [0] = "Autoland Land2",
+        [1] = "Autoland Land3",
+        [2] = "GPS signal (jamming)",
+        [3] = "GPS L",
+        [4] = "GPS R"
+    },
+    pressurisation = {
+        [0] = "Rapid depressurization",
+        [1] = "Slow depressurization",
+        [2] = "Outflow valve",
+        [3] = "L Pack valve",
+        [4] = "R Pack valve",
+        [5] = "Isolation valve",
+        [6] = "APU bleed valve",
+        [7] = "Eng1 bleed valve",
+        [8] = "Eng2 bleed valve",
+        [9] = "Primary pressurization unit",
+        [10] = "Alternate pressurization unit",
+        [11] = "Eng1 high stage valve",
+        [12] = "Eng2 high stage valve",
+        [13] = "Eng1 precooler valve",
+        [14] = "Eng2 precooler valve",
+        [15] = "APU pressurization"
+    },
+    engine = {
+        [0] = "L Engine fire",
+        [1] = "R Engine fire",
+        [2] = "L Engine flameout",
+        [3] = "R Engine flameout",
+        [4] = "L Engine damage",
+        [5] = "R Engine damage",
+        [6] = "L Engine separate",
+        [7] = "R Engine separate",
+        [8] = "L Engine generator",
+        [9] = "R Engine generator",
+        [10] = "L Engine oil pump",
+        [11] = "R Engine oil pump",
+        [12] = "L Engine oil qty",
+        [13] = "R Engine oil qty",
+        [14] = "EEC1 Flight data",
+        [15] = "EEC2 Flight data",
+        [16] = "EEC1 Main unit",
+        [17] = "EEC2 Main unit",
+        [18] = "APU fire",
+        [19] = "APU starting/running",
+        [20] = "APU overspeed",
+        [21] = "APU low oil quantity",
+        [22] = "APU low oil pressure"
+    }
+}
+
+local function get_zibo_failure_dr(category, index)
+    if not P.isZibo() then
+        return nil
+    end
+    if type(category) ~= "string" then
+        return nil
+    end
+    if type(index) ~= "number" or index < 0 or index ~= math.floor(index) then
+        return nil
+    end
+
+    P._ziboFailureDr = P._ziboFailureDr or {}
+    local cat = P._ziboFailureDr[category]
+    if not cat then
+        cat = {}
+        P._ziboFailureDr[category] = cat
+    end
+
+    local dr_index = index + 1 -- SASL uses 1-based array element access
+    local dr = cat[dr_index]
+    if not dr then
+        local ok, new_dr = pcall(globalPropertyfae, "laminar/B738/failure/" .. category, dr_index)
+        if not ok then
+            return nil
+        end
+        dr = new_dr
+        cat[dr_index] = dr
+    end
+    return dr
+end
+
+function P.getZiboFailureValue(category, index)
+    local dr = get_zibo_failure_dr(category, index)
+    if not dr then
+        return nil
+    end
+    return get(dr)
+end
+
+function P.isZiboFailureActive(category, index)
+    local value = P.getZiboFailureValue(category, index)
+    return value == 1
+end
+
+function P.getZiboFailureName(category, index)
+    local cat = P.ziboFailureDefs and P.ziboFailureDefs[category]
+    if not cat then
+        return nil
+    end
+    return cat[index]
+end
+
+function P.getZiboFailureCategories()
+    return zibo_failure_categories
 end
 
 --------------------------------------------------------------------------------------------------------------
@@ -151,9 +383,65 @@ local function get_flightstate()
     return get(P._flightstate_dr)
 end
 
+function P.isParkingBrakeSet()
+    local yalref = rawget(_G, "yal")
+    local zibo_dr = yalref and yalref.parkingbrakepos or nil
+    if zibo_dr and isProperty(zibo_dr) then
+        local ok, value = pcall(get, zibo_dr)
+        if ok and value == def.ON then
+            return true
+        end
+    end
+    return get(parking_brake_ratio) >= 0.9
+end
+
+function P.getLatchedZiboRelease()
+    local yalref = rawget(_G, "yal")
+    local dr = yalref and yalref.ziborelease or nil
+    if not (dr and isProperty(dr)) then
+        return ""
+    end
+    local ok, raw = pcall(get, dr)
+    if not ok then
+        return ""
+    end
+    if P.forceCleanString then
+        return P.forceCleanString(tostring(raw or ""))
+    end
+    return tostring(raw or "")
+end
+
+local function getLatchedYalStringDataref(key)
+    local yalref = rawget(_G, "yal")
+    local dr = yalref and yalref[key] or nil
+    if not (dr and isProperty(dr)) then
+        return ""
+    end
+    local ok, raw = pcall(get, dr)
+    if not ok then
+        return ""
+    end
+    if P.forceCleanString then
+        return P.forceCleanString(tostring(raw or ""))
+    end
+    return tostring(raw or "")
+end
+
+function P.getLatchedLevelUpRelease()
+    return getLatchedYalStringDataref("lvluprelease")
+end
+
+function P.getLatchedLevelUpFm()
+    return getLatchedYalStringDataref("lvlupfm")
+end
+
+function P.isLevelUp()
+    return P.getLatchedLevelUpRelease() ~= "" or P.getLatchedLevelUpFm() ~= ""
+end
+
 local function views_change_allowed()
     local on_ground = get(onground_any) == def.ON
-    local park_set = (get(parking_brake_pos) == def.ON) or (get(parking_brake_ratio) >= 0.9)
+    local park_set = P.isParkingBrakeSet()
     local state = get_flightstate()
     return on_ground and park_set and (state == def.FLIGHTSTATEPREFLIGHT)
 end
@@ -182,6 +470,113 @@ function P.checkForUpdate(showBeta)
         P.logInfoTS("Check for Update FAILED")
     end
     return updateAvailable, newVersion
+end
+
+local function parse_zibo_version_triplet(text)
+    local s = tostring(text or "")
+    local major, minor, patch = s:match("(%d+)%.(%d+)%.(%d+)")
+    if major then
+        return {
+            major = tonumber(major) or 0,
+            minor = tonumber(minor) or 0,
+            patch = tonumber(patch) or 0,
+        }
+    end
+    major, minor = s:match("(%d+)%.(%d+)")
+    if major then
+        return {
+            major = tonumber(major) or 0,
+            minor = tonumber(minor) or 0,
+            patch = 0,
+        }
+    end
+    return nil
+end
+
+local function compare_zibo_triplet(a, b)
+    if not a and not b then
+        return 0
+    end
+    if not a then
+        return -1
+    end
+    if not b then
+        return 1
+    end
+    if a.major ~= b.major then
+        return (a.major > b.major) and 1 or -1
+    end
+    if a.minor ~= b.minor then
+        return (a.minor > b.minor) and 1 or -1
+    end
+    if a.patch ~= b.patch then
+        return (a.patch > b.patch) and 1 or -1
+    end
+    return 0
+end
+
+local function format_zibo_triplet(v)
+    if not v then
+        return ""
+    end
+    return string.format("%d.%02d.%02d", v.major or 0, v.minor or 0, v.patch or 0)
+end
+
+local function parse_zibo_feed_latest(feed_xml)
+    local best = nil
+    for title in string.gmatch(tostring(feed_xml or ""), "<title>([^<]+)</title>") do
+        local a, b, c = title:match("B738X_XP%d+_(%d+)_(%d+)_(%d+)%.zip")
+        if not a then
+            a, b, c = title:match("B738X_(%d+)_(%d+)_(%d+)%.zip")
+        end
+        if not a then
+            a, b = title:match("B737%-800X_XP%d+_(%d+)_(%d+)_full%.zip")
+            c = "0"
+        end
+        if not a then
+            a, b = title:match("B737%-800X_(%d+)_(%d+)_full%.zip")
+            c = "0"
+        end
+        if a then
+            local v = {
+                major = tonumber(a) or 0,
+                minor = tonumber(b) or 0,
+                patch = tonumber(c) or 0,
+                title = title,
+            }
+            if (not best) or compare_zibo_triplet(v, best) > 0 then
+                best = v
+            end
+        end
+    end
+    return best
+end
+
+function P.checkForZiboUpdate(localReleaseText)
+    local localVersion = parse_zibo_version_triplet(localReleaseText)
+    local localVersionText = format_zibo_triplet(localVersion)
+    local downloadResult, contents = sasl.net.downloadFileContentsSync(def.ZIBOUPDATEFEEDURL)
+    if not downloadResult or not contents or contents == "" then
+        P.logInfoTS("Check for Zibo Update FAILED")
+        return false, "", localVersionText
+    end
+    local latest = parse_zibo_feed_latest(contents)
+    if not latest then
+        P.logInfoTS("Check for Zibo Update FAILED (no version in feed)")
+        return false, "", localVersionText
+    end
+    local latestText = format_zibo_triplet(latest)
+    if not localVersion then
+        P.logInfoTS("Check for Zibo Update skipped (local release not parseable)")
+        return false, latestText, localVersionText
+    end
+    local updateAvailable = compare_zibo_triplet(latest, localVersion) > 0
+    if updateAvailable then
+        P.logInfoTS(string.format("New Zibo version available v%s (installed v%s)", latestText, localVersionText))
+    else
+        P.logInfoTS(string.format("Zibo is up to date (installed v%s, latest v%s)", localVersionText, latestText))
+    end
+    return updateAvailable, latestText, localVersionText
 end
 
 -------------------------------------------------------------------------------------------------------------- 
@@ -650,6 +1045,42 @@ function P.addspaces(input)
 end
 
 --------------------------------------------------------------------------------------------------------------
+function P.spellNato(input)
+    if input == nil then
+        return ""
+    end
+    local nato = {
+        A = "Alpha", B = "Bravo", C = "Charlie", D = "Delta", E = "Echo", F = "Foxtrot",
+        G = "Golf", H = "Hotel", I = "India", J = "Juliet", K = "Kilo", L = "Lima",
+        M = "Mike", N = "November", O = "Oscar", P = "Papa", Q = "Quebec", R = "Romeo",
+        S = "Sierra", T = "Tango", U = "Uniform", V = "Victor", W = "Whiskey", X = "X-ray",
+        Y = "Yankee", Z = "Zulu"
+    }
+    local text = tostring(input)
+    local words = {}
+    local len = #text
+    local i = 1
+    while i <= len do
+        local b = string.byte(text, i)
+        if b then
+            if b >= 65 and b <= 90 then
+                local ch = string.sub(text, i, i)
+                local w = nato[ch] or ch
+                words[#words + 1] = w
+            elseif b >= 97 and b <= 122 then
+                local ch = string.upper(string.sub(text, i, i))
+                local w = nato[ch] or ch
+                words[#words + 1] = w
+            elseif b >= 48 and b <= 57 then
+                words[#words + 1] = string.sub(text, i, i)
+            end
+        end
+        i = i + 1
+    end
+    return table.concat(words, " ")
+end
+
+--------------------------------------------------------------------------------------------------------------
 function P.replaceRunwayPrefix(input)
     if type(input) ~= "string" then
         return input
@@ -678,7 +1109,10 @@ function P.cleanstring(str)
     local result = ""
     for i = 1, #str do
         local char = string.sub(str, i, i)
-        if string.match(char, "%a") or string.match(char, "%d") then
+        local b = string.byte(char, 1)
+        local is_digit = (b and b >= 48 and b <= 57)
+        local is_alpha = (b and ((b >= 65 and b <= 90) or (b >= 97 and b <= 122)))
+        if is_alpha or is_digit then
             result = result .. char
         end
     end
@@ -759,15 +1193,69 @@ function P.isvalidicao(icao)
 end
 
 --------------------------------------------------------------------------------------------------------------
+function P.extractprimaryicao(value)
+    local text = tostring(value or "")
+    text = P.forceCleanString(text)
+    if text == "" then
+        return ""
+    end
+    text = string.upper(text)
+
+    local len = #text
+    if len >= 4 then
+        local function is_alpha_byte(b)
+            return b and b >= 65 and b <= 90
+        end
+        for i = 1, (len - 3) do
+            local b1 = string.byte(text, i)
+            local b2 = string.byte(text, i + 1)
+            local b3 = string.byte(text, i + 2)
+            local b4 = string.byte(text, i + 3)
+            if is_alpha_byte(b1) and is_alpha_byte(b2) and is_alpha_byte(b3) and is_alpha_byte(b4) then
+                local candidate = string.sub(text, i, i + 3)
+                if P.isvalidicao(candidate) then
+                    return candidate
+                end
+            end
+        end
+    end
+
+    local cleaned = string.upper(P.cleanstring(text))
+    if #cleaned >= 4 then
+        local fallback = string.sub(cleaned, 1, 4)
+        if P.isvalidicao(fallback) then
+            return fallback
+        end
+    end
+    return ""
+end
+
+--------------------------------------------------------------------------------------------------------------
 function P.isvalidrwy(runway)
     if type(runway) ~= "string" then
         return false
     end
 
-    local pattern = "^(%d?%d)([LRCT]?)$"
-
-    local number, suffix = string.match(runway, pattern)
-
+    local len = #runway
+    local i = 1
+    while i <= len do
+        local b = string.byte(runway, i)
+        if not b or b < 48 or b > 57 then
+            break
+        end
+        i = i + 1
+    end
+    local number = nil
+    local suffix = ""
+    if i > 1 then
+        number = string.sub(runway, 1, i - 1)
+        if i <= len then
+            local b = string.byte(runway, i)
+            if b and (b == 76 or b == 82 or b == 67 or b == 84) then -- L R C T
+                suffix = string.sub(runway, i, i)
+            end
+        end
+    end
     if not number then
         return false
     end
@@ -781,15 +1269,58 @@ function P.isvalidrwy(runway)
 end
 
 --------------------------------------------------------------------------------------------------------------
+function P.before_taxi_started(yal)
+    if not yal then
+        return false
+    end
+    local proc = yal.proceduretable and yal.proceduretable[def.BEFORETAXIPROCEDURE]
+    if proc and proc.set then
+        return true
+    end
+    if yal.loopStateTables then
+        for i = 1, #yal.loopStateTables do
+            local loop = yal.loopStateTables[i]
+            if loop and loop.lock == def.BEFORETAXIPROCEDURE then
+                return true
+            end
+        end
+    else
+        local l1 = yal.procedureloop1
+        local l2 = yal.procedureloop2
+        local l3 = yal.procedureloop3
+        if (l1 and l1.lock == def.BEFORETAXIPROCEDURE)
+            or (l2 and l2.lock == def.BEFORETAXIPROCEDURE)
+            or (l3 and l3.lock == def.BEFORETAXIPROCEDURE) then
+            return true
+        end
+    end
+    return false
+end
+
+--------------------------------------------------------------------------------------------------------------
 function P.adjustrwy(runway, increment)
     
     if not P.isvalidrwy(runway) then
         return nil
     end
 
-    local number, suffix = string.match(runway, "^(%d+)(%a*)$")
-
-    number = tonumber(number)
+    local len = #runway
+    local i = 1
+    while i <= len do
+        local b = string.byte(runway, i)
+        if not b or b < 48 or b > 57 then
+            break
+        end
+        i = i + 1
+    end
+    if i == 1 then
+        return nil
+    end
+    local number = tonumber(string.sub(runway, 1, i - 1))
+    local suffix = ""
+    if i <= len then
+        suffix = string.sub(runway, i, len)
+    end
 
     increment = increment or 1
     number = number + increment
@@ -838,8 +1369,30 @@ end
 
 --------------------------------------------------------------------------------------------------------------
 function P.getoppositerwy(runway)
-    local number = tonumber(string.match(runway, "%d+"))
-    local letter = string.match(runway, "%a") or ""
+    local len = #runway
+    local i = 1
+    while i <= len do
+        local b = string.byte(runway, i)
+        if not b or b < 48 or b > 57 then
+            break
+        end
+        i = i + 1
+    end
+    local number = nil
+    if i > 1 then
+        number = tonumber(string.sub(runway, 1, i - 1))
+    end
+    local letter = ""
+    local j = i
+    while j <= len do
+        local b = string.byte(runway, j)
+        local is_alpha = (b and ((b >= 65 and b <= 90) or (b >= 97 and b <= 122)))
+        if is_alpha then
+            letter = string.sub(runway, j, j)
+            break
+        end
+        j = j + 1
+    end
 
     local oppositeNumber = (number + 18) % 36
     if (oppositeNumber == 0) then
@@ -881,6 +1434,33 @@ function P.roundnumber(num, decimalPlaces)
     else
         return (math.ceil(num * power - 0.5) / power)
     end
+end
+
+--------------------------------------------------------------------------------------------------------------
+function P.round_to_step(value, step)
+
+    local v = tonumber(value)
+    local s = tonumber(step)
+    if not v or not s or s <= 0 then
+        return nil
+    end
+    local scaled = v / s
+    local rounded = P.roundnumber(scaled, 0)
+    return rounded * s
+
+end
+
+--------------------------------------------------------------------------------------------------------------
+function P.format_trim_quarter(value)
+
+    local rounded = P.round_to_step(value, 0.25)
+    if rounded == nil then
+        return nil
+    end
+    local text = string.format("%.2f", rounded)
+    text = text:gsub("%.?0+$", "")
+    return text
+
 end
 
 --------------------------------------------------------------------------------------------------------------
@@ -988,6 +1568,104 @@ function P.gettrim(trimwheel)
 end
 
 --------------------------------------------------------------------------------------------------------------
+function P.trimvalue_to_trimwheel(trim_value)
+
+    local t = tonumber(trim_value)
+    if not t then
+        return nil
+    end
+    if not P._trimwheel_map then
+        P._trimwheel_map = {
+            {3.00, 65},
+            {3.25, 61},
+            {3.50, 58},
+            {3.75, 55},
+            {4.00, 52},
+            {4.25, 48},
+            {4.50, 45},
+            {4.75, 42},
+            {5.00, 40},
+            {5.25, 34},
+            {5.50, 32},
+            {5.75, 30},
+            {6.00, 27},
+            {6.25, 24},
+            {6.50, 21}
+        }
+    end
+    local map = P._trimwheel_map
+    local first = map[1]
+    local last = map[#map]
+    if t <= first[1] then
+        return first[2]
+    end
+    if t >= last[1] then
+        return last[2]
+    end
+    for i = 1, (#map - 1) do
+        local t1 = map[i][1]
+        local t2 = map[i + 1][1]
+        if t >= t1 and t <= t2 then
+            local w1 = map[i][2]
+            local w2 = map[i + 1][2]
+            local frac = (t - t1) / (t2 - t1)
+            return w1 + (w2 - w1) * frac
+        end
+    end
+    return last[2]
+
+end
+
+--------------------------------------------------------------------------------------------------------------
+function P.trimwheel_matches_target(trimwheel, trim_value, tol)
+
+    local target = P.trimvalue_to_trimwheel(trim_value)
+    if not target then
+        return false
+    end
+    local tw = tonumber(trimwheel)
+    if not tw then
+        return false
+    end
+    local actual = tw * -100
+    local tolerance = tonumber(tol) or 0.5
+    return math.abs(actual - target) <= tolerance
+
+end
+
+--------------------------------------------------------------------------------------------------------------
+function P.trimwheel_matches_trim_step(trimwheel, trim_value, step)
+
+    local tw = tonumber(trimwheel)
+    local tv = tonumber(trim_value)
+    local s = tonumber(step) or 0.25
+    if (not tw) or (not tv) or (s <= 0) then
+        return false
+    end
+
+    local currentTrim = P.gettrim(tw)
+    local currentStep = P.round_to_step(currentTrim, s)
+    local targetStep = P.round_to_step(tv, s)
+    if (currentStep == nil) or (targetStep == nil) then
+        return false
+    end
+
+    return math.abs(currentStep - targetStep) < 0.01
+
+end
+
+--------------------------------------------------------------------------------------------------------------
+function P.isSpeedbrakeDown()
+
+    local lever = tonumber(get(P.speedbrakelever)) or 0
+    local ratio = tonumber(get(P.speedbrakeratio)) or 0
+    local anim = tonumber(get(P.speedbrakeleveranim)) or 0
+
+    return (lever < 0.05) and (math.abs(ratio) < 0.05) and (anim == 0)
+
+end
+
+--------------------------------------------------------------------------------------------------------------
 function P.convflaplevertoflappos(flaplever)
 
     local returnvalue = 0
@@ -1079,12 +1757,35 @@ function P.decodemetar(metar)
     local parts = {}
 
     sasl.logDebug("Starting METAR parsing")
+    local function push_part(part)
+        if type(part) ~= "string" or part == "" then
+            return
+        end
+        local cleaned = {}
+        for i = 1, #part do
+            local byte = string.byte(part, i)
+            if byte and byte >= 32 and byte <= 126 then
+                cleaned[#cleaned + 1] = string.char(byte)
+            end
+        end
+        part = table.concat(cleaned)
+        part = part:gsub("^%s+", ""):gsub("%s+$", "")
+        if part == "" then
+            return
+        end
+        part = part:gsub("[=%$]+$", "")
+        if part == "" then
+            return
+        end
+        table.insert(parts, part)
+    end
+
     local current_part = ""
     for i = 1, #metar do
         local c = string.sub(metar, i, i)
-        if (c == " ") then
+        if (c == " " or c == "\r" or c == "\n" or c == "\t") then
             if (#current_part > 0) then
-                table.insert(parts, current_part)
+                push_part(current_part)
                 current_part = ""
             end
         else
@@ -1092,12 +1793,19 @@ function P.decodemetar(metar)
         end
     end
     if (#current_part > 0) then
-        table.insert(parts, current_part)
+        push_part(current_part)
     end
 
     sasl.logDebug("METAR parts:")
     for idx, part_val in ipairs(parts) do
         sasl.logDebug(string.format("   [%d] = %s", idx, part_val))
+    end
+
+    if #parts >= 1 then
+        local first = parts[1]
+        if first == "METAR" or first == "SPECI" or first == "TAF" then
+            table.remove(parts, 1)
+        end
     end
 
     if (#parts >= 1) then
@@ -1232,7 +1940,36 @@ function P.decodemetar(metar)
         end
         if vis_index and vis_index + 1 <= #parts then
             local next_part = parts[vis_index + 1]
-            local dir_vis_val, dir_code = string.match(next_part, "^(%d%d%d%d)([NSEW][EW]?)$")
+            local dir_vis_val, dir_code = nil, nil
+            local len = #next_part
+            if len >= 5 then
+                local is_digits = true
+                for i = 1, 4 do
+                    local b = string.byte(next_part, i)
+                    if not b or b < 48 or b > 57 then
+                        is_digits = false
+                        break
+                    end
+                end
+                if is_digits then
+                    local code = string.sub(next_part, 5, len)
+                    if code ~= "" then
+                        local ok = true
+                        for i = 1, #code do
+                            local b = string.byte(code, i)
+                            local is_card = (b == 78 or b == 83 or b == 69 or b == 87) -- N S E W
+                            if not is_card then
+                                ok = false
+                                break
+                            end
+                        end
+                        if ok then
+                            dir_vis_val = string.sub(next_part, 1, 4)
+                            dir_code = code
+                        end
+                    end
+                end
+            end
             if dir_vis_val and dir_code then
                 result.visibility.directional = {
                     value = tonumber(dir_vis_val),
@@ -1510,7 +2247,24 @@ function P.decodemetar(metar)
             end
 
             if (not visibility_parsed) then
-                local ndv_value = string.match(part, "^(%d%d%d%d)NDV$")
+                local ndv_value = nil
+                local len = #part
+                if len >= 7 then
+                    local suffix = string.sub(part, len - 2, len)
+                    if suffix == "NDV" then
+                        local ok = true
+                        for i = 1, len - 3 do
+                            local b = string.byte(part, i)
+                            if not b or b < 48 or b > 57 then
+                                ok = false
+                                break
+                            end
+                        end
+                        if ok then
+                            ndv_value = string.sub(part, 1, len - 3)
+                        end
+                    end
+                end
                 if ndv_value then
                     local numeric_val = tonumber(ndv_value)
                     local meters = (ndv_value == "9999") and 10000 or numeric_val
@@ -1780,8 +2534,10 @@ function P.getMetar(icaocode, metarTable)
     end
 end
 --------------------------------------------------------------------------------------------------------------
-function P.isGroundIcingCondition(wx_in)
-    if not wx_in then return false end
+function P.isGroundIcingCondition(wx_in, tat_c)
+    if not wx_in and tat_c == nil then
+        return false
+    end
 
     local function normalize_temp(v)
         if v == nil then
@@ -1802,16 +2558,24 @@ function P.isGroundIcingCondition(wx_in)
         return nil
     end
 
-    local temp_c = normalize_temp(wx_in.temp) or normalize_temp(wx_in.temperature)
+    local temp_c = nil
+    if wx_in then
+        temp_c = normalize_temp(wx_in.temp) or normalize_temp(wx_in.temperature)
+    end
+    if temp_c == nil and tat_c ~= nil then
+        temp_c = tat_c
+    end
     if temp_c == nil then
         return false
     end
 
     local precip = false
-    if wx_in.precipitation then precip = true end
-    if wx_in.freezing then precip = true end
+    if wx_in then
+        if wx_in.precipitation then precip = true end
+        if wx_in.freezing then precip = true end
+    end
 
-    if (not precip) and wx_in.weather and type(wx_in.weather) == "table" then
+    if (not precip) and wx_in and wx_in.weather and type(wx_in.weather) == "table" then
         for _, w in ipairs(wx_in.weather) do
             local phenomenon = nil
             if type(w) == "string" then
@@ -1828,6 +2592,10 @@ function P.isGroundIcingCondition(wx_in)
                 if upper:find("RA", 1, true)
                 or upper:find("SN", 1, true)
                 or upper:find("DZ", 1, true)
+                or upper:find("PL", 1, true)
+                or upper:find("GR", 1, true)
+                or upper:find("GS", 1, true)
+                or upper:find("IC", 1, true)
                 or upper:find("BR", 1, true)
                 or upper:find("FG", 1, true)
                 or upper:find("FZ", 1, true) then
@@ -1838,8 +2606,42 @@ function P.isGroundIcingCondition(wx_in)
         end
     end
 
+    local dew_c = nil
+    if wx_in then
+        dew_c = normalize_temp(wx_in.dew_point)
+    end
+    local dew_spread = nil
+    if dew_c ~= nil then
+        dew_spread = math.abs(temp_c - dew_c)
+    end
+
+    local low_cloud = false
+    if wx_in and wx_in.clouds and type(wx_in.clouds) == "table" then
+        for _, c in ipairs(wx_in.clouds) do
+            local alt = c and c.altitude or nil
+            if alt and alt > 0 and alt <= 1500 then
+                low_cloud = true
+                break
+            end
+        end
+    end
+
+    local vis_m = nil
+    if wx_in and wx_in.visibility then
+        if type(wx_in.visibility) == "table" then
+            vis_m = wx_in.visibility.value
+        else
+            vis_m = wx_in.visibility
+        end
+    end
+
+    local visible_moisture = precip
+        or low_cloud
+        or (vis_m and vis_m <= 5000)
+        or (dew_spread and dew_spread <= 2)
+
     if temp_c <= 10 then
-        if precip or temp_c <= 5 then
+        if visible_moisture or temp_c <= 5 then
             return true
         end
     end
@@ -1873,7 +2675,26 @@ local function normalizeRunwayIdForRvr(runwayDesignator)
         return nil
     end
 
-    local num_str, suffix = string.match(runwayDesignator, "^(%d%d?)(%a?)$")
+    local num_str, suffix = nil, ""
+    local len = #runwayDesignator
+    local i = 1
+    while i <= len do
+        local b = string.byte(runwayDesignator, i)
+        if not b or b < 48 or b > 57 then
+            break
+        end
+        i = i + 1
+    end
+    if i > 1 and i <= 3 then
+        num_str = string.sub(runwayDesignator, 1, i - 1)
+        if i <= len then
+            local b = string.byte(runwayDesignator, i)
+            local is_alpha = (b and ((b >= 65 and b <= 90) or (b >= 97 and b <= 122)))
+            if is_alpha then
+                suffix = string.sub(runwayDesignator, i, i)
+            end
+        end
+    end
     if not num_str then
         return nil
     end
@@ -2069,7 +2890,7 @@ function P.formatMetarSpeechSummary(metar, runwayName)
     local metar_data = metar.decodedmetar
 
     if icaocode and #icaocode > 0 then
-        table.insert(parts, P.addspaces(icaocode))
+        table.insert(parts, P.spellNato(icaocode))
     end
 
     -- NEU: Heading aus Runway-Namen ableiten, nur wenn gültig
@@ -2077,7 +2898,14 @@ function P.formatMetarSpeechSummary(metar, runwayName)
     -- *** VERBESSERUNG: Prüfe mit P.isvalidrwy ***
     if P.isvalidrwy(runwayName) then
         -- Versuche, die ersten zwei Ziffern zu extrahieren
-        local rwyNumStr = string.match(runwayName, "^(%d%d)")
+        local rwyNumStr = nil
+        if #runwayName >= 2 then
+            local b1 = string.byte(runwayName, 1)
+            local b2 = string.byte(runwayName, 2)
+            if b1 and b2 and b1 >= 48 and b1 <= 57 and b2 >= 48 and b2 <= 57 then
+                rwyNumStr = string.sub(runwayName, 1, 2)
+            end
+        end
         if rwyNumStr then
             local rwyNum = tonumber(rwyNumStr)
             if rwyNum then
@@ -2095,7 +2923,7 @@ function P.formatMetarSpeechSummary(metar, runwayName)
                  P.logInfoTS("formatMetarSpeechSummary: Konnte Ziffern '" .. rwyNumStr .. "' aus Runway '" .. runwayName .. "' nicht in Zahl umwandeln.") -- Geändert zu logInfo
             end
         else
-             P.logInfoTS("formatMetarSpeechSummary: Konnte keine Heading-Zahl aus gültiger Runway '" .. runwayName .. "' extrahieren (string.match fehlgeschlagen).") -- Geändert zu logInfo
+             P.logInfoTS("formatMetarSpeechSummary: Konnte keine Heading-Zahl aus gültiger Runway '" .. runwayName .. "' extrahieren (Parsing fehlgeschlagen).") -- Geändert zu logInfo
         end
     else
          -- Log optional, wenn ungültige Namen übergeben werden könnten
@@ -2316,7 +3144,14 @@ function P.formatMetarSpeechSummary(metar, runwayName)
         end
     end
 
-    return table.concat(parts, ". ") -- Punkt als Trenner
+    local filtered_parts = {}
+    for _, part in ipairs(parts) do
+        if type(part) == "string" and part:find("%w") then
+            table.insert(filtered_parts, part)
+        end
+    end
+
+    return table.concat(filtered_parts, ". ") -- Punkt als Trenner
 end
 
 --------------------------------------------------------------------------------------------------------------
@@ -2412,7 +3247,7 @@ function P.calculateWindComponents(windDirectionDegrees, runwayHeadingDegrees, w
     end
 
     -- 1. Calculate relative angle (wind relative to runway)
-    local relativeAngle = windDirectionDegrees - runwayHeadingDegrees
+    local relativeAngle = runwayHeadingDegrees - windDirectionDegrees
 
     -- 2. Normalize angle to +/- 180 degrees
     --    Ensures the angle represents the shortest way around the compass
@@ -3132,6 +3967,7 @@ function P.getdistancealongroute(detailed_route, currentLat, currentLon)
     local cumulativeDistance = 0
     local totalWaypoints = #detailed_route
     local foundSegment = false
+    local onroute_tolerance_nm = 0.5
 
     for i = 1, totalWaypoints - 1 do
         local wp1 = detailed_route[i]
@@ -3141,7 +3977,7 @@ function P.getdistancealongroute(detailed_route, currentLat, currentLon)
         local distFromAircraftToStart = P.getdistance(currentLat, currentLon, wp1.latitude, wp1.longitude)
         local distFromAircraftToEnd = P.getdistance(currentLat, currentLon, wp2.latitude, wp2.longitude)
 
-        if math.abs(distFromAircraftToStart + distFromAircraftToEnd - segmentDistance) < 0.1 then
+        if math.abs(distFromAircraftToStart + distFromAircraftToEnd - segmentDistance) < onroute_tolerance_nm then
             cumulativeDistance = cumulativeDistance + distFromAircraftToStart
             foundSegment = true
             return cumulativeDistance, foundSegment
@@ -3199,44 +4035,82 @@ function P.getpointonroute(detailed_route, currentLat, currentLon, distanceInNM)
 end
 
 --------------------------------------------------------------------------------------------------------------
-function P.estimatefuelattod(currentLeftLbs, currentRightLbs, currentCenterLbs, distanceToTODNM)
-    -- ANGENOMMENE WERTE
-    local assumed_cruise_speed_knots = 450      -- Durchschnittliche Geschwindigkeit im Reiseflug (NM/h)
-    local assumed_cruise_fuel_flow_lbs_hr = 5000 -- Treibstofffluss im Reiseflug (lbs/h)
+function P.estimatefuelattod(currentLeftLbs, currentRightLbs, currentCenterLbs, distanceToTODNM, opts)
+    local assumed_cruise_speed_knots = 450
+    local assumed_cruise_fuel_flow_lbs_hr = 5000
 
-    -- Geschätzter Treibstoffverbrauch von der aktuellen Position bis zum T/D
-    local estimated_flight_time_hours = distanceToTODNM / assumed_cruise_speed_knots
-    local estimated_fuel_burn_lbs = estimated_flight_time_hours * assumed_cruise_fuel_flow_lbs_hr
-    
-    -- Kopien der aktuellen Tankstände, um mit der Berechnung zu beginnen
+    local dist_nm = tonumber(distanceToTODNM) or 0
+    if dist_nm < 0 then
+        dist_nm = 0
+    end
+
+    local finalLeftLbs = tonumber(currentLeftLbs) or 0
+    local finalRightLbs = tonumber(currentRightLbs) or 0
+    local finalCenterLbs = tonumber(currentCenterLbs) or 0
+
+    local fuel_flow_lbs_hr = nil
+    local speed_kt = nil
+    local phase = 1
+    local alt_ft = nil
+    local ias_kt = nil
+    local tas_kt = nil
+    local gs_kt = nil
+    local wc_speed = 0
+    local isa_dev_c = 0
+
+    if type(opts) == "table" then
+        fuel_flow_lbs_hr = tonumber(opts.fuel_flow_lbs_hr)
+        phase = tonumber(opts.phase) or phase
+        alt_ft = tonumber(opts.alt_ft)
+        ias_kt = tonumber(opts.ias_kt)
+        tas_kt = tonumber(opts.tas_kt)
+        gs_kt = tonumber(opts.gs_kt)
+        wc_speed = tonumber(opts.wc_speed) or 0
+        isa_dev_c = tonumber(opts.isa_dev_c) or 0
+    end
+
+    if not fuel_flow_lbs_hr or fuel_flow_lbs_hr <= 0 then
+        if alt_ft and ias_kt and ias_kt > 0 then
+            fuel_flow_lbs_hr = P.estimateFuelFlow(phase, alt_ft, alt_ft, ias_kt, wc_speed, isa_dev_c)
+        else
+            fuel_flow_lbs_hr = assumed_cruise_fuel_flow_lbs_hr
+        end
+    end
+
+    if gs_kt and gs_kt > 0 then
+        speed_kt = gs_kt
+    elseif tas_kt and tas_kt > 0 then
+        speed_kt = tas_kt
+    elseif ias_kt and ias_kt > 0 and alt_ft then
+        speed_kt = P.atmoIasToTas(ias_kt, alt_ft)
+    end
+    if not speed_kt or speed_kt <= 0 then
+        speed_kt = assumed_cruise_speed_knots
+    end
+
+    local estimated_flight_time_hours = dist_nm / speed_kt
+    local estimated_fuel_burn_lbs = estimated_flight_time_hours * fuel_flow_lbs_hr
+
     local remainingBurn = estimated_fuel_burn_lbs
-    local finalLeftLbs = currentLeftLbs
-    local finalRightLbs = currentRightLbs
-    local finalCenterLbs = currentCenterLbs
-    
-    -- Verbrauchslogik simulieren (Center-Tank zuerst)
+
     if finalCenterLbs > 1000 and remainingBurn > 0 then
         local centerToBurn = finalCenterLbs - 1000
-        
+
         if remainingBurn >= centerToBurn then
-            -- Den gesamten verfügbaren Treibstoff aus dem Center-Tank verbrauchen
             finalCenterLbs = 1000
             remainingBurn = remainingBurn - centerToBurn
         else
-            -- Nur den benötigten Treibstoff aus dem Center-Tank verbrauchen
             finalCenterLbs = finalCenterLbs - remainingBurn
             remainingBurn = 0
         end
     end
-    
-    -- Restlichen Verbrauch auf die Wing-Tanks aufteilen
+
     if remainingBurn > 0 then
         local wingBurn = remainingBurn / 2
         finalLeftLbs = finalLeftLbs - wingBurn
         finalRightLbs = finalRightLbs - wingBurn
     end
-    
-    -- Ergebnis-Tabelle mit den geschätzten finalen Tankinhalten
+
     return {
         left = finalLeftLbs,
         right = finalRightLbs,
@@ -3330,11 +4204,11 @@ local function getLocalizerRunwayMap(icao)
         return P.localizerRunwayCache[icao] or nil
     end
 
-    local srcnavdatafile = io.open("Custom Data/earth_nav.dat", "r")
+    local srcnavdatafile = io.open("Custom Data/earth_nav.dat", "rb")
     if not srcnavdatafile then
-        srcnavdatafile = io.open("Custom Scenery/Global Airports/Earth nav data/earth_nav.dat", "r")
+        srcnavdatafile = io.open("Custom Scenery/Global Airports/Earth nav data/earth_nav.dat", "rb")
         if not srcnavdatafile then
-            srcnavdatafile = io.open("Resources/default data/earth_nav.dat", "r")
+            srcnavdatafile = io.open("Resources/default data/earth_nav.dat", "rb")
         end
     end
 
@@ -3409,10 +4283,106 @@ local function formatCIFPApproachName(typeChar, runwayPart, suffix)
     local formattedRunway = P.formatRunwayDesignator(runwayPart)
     local suffixPart = ""
     if suffix and suffix ~= "" then
-        suffixPart = " " .. P.addspaces(suffix)
+        suffixPart = " " .. P.spellNato(suffix)
     end
 
     return string.format("%s %s%s", prefix, formattedRunway, suffixPart)
+end
+
+local function getApproachTypeTagForNavType(navType, fallbackTypeTag)
+    if navType == def.NAVTYPELDA then
+        return def.NAVTYPELDA
+    end
+    if navType == def.NAVTYPEILS then
+        return "I"
+    end
+    if navType == def.NAVTYPEGLS then
+        return "G"
+    end
+    if navType == def.NAVTYPELPV then
+        return "L"
+    end
+    if navType == def.NAVTYPERNAV then
+        return "R"
+    end
+    return fallbackTypeTag
+end
+
+local function getCIFPEntryDisplayName(entry, navType)
+    if not entry then
+        return nil
+    end
+    local typeTag = getApproachTypeTagForNavType(navType, entry.typeChar)
+    local runway = entry.runway
+    if not runway or runway == "" then
+        return entry.displayName
+    end
+    return formatCIFPApproachName(typeTag, runway, entry.suffix or "")
+end
+
+local function parseApproachCode(code, expectedRunway)
+    if type(code) ~= "string" then
+        return nil
+    end
+
+    local id = trimString(code):upper():gsub("%s+", "")
+    if id == "" or id == "------" then
+        return nil
+    end
+
+    local navType = nil
+    local typeTag = nil
+    local rest = nil
+
+    if string.sub(id, 1, 3) == def.NAVTYPELDA then
+        navType = def.NAVTYPELDA
+        typeTag = def.NAVTYPELDA
+        rest = string.sub(id, 4)
+    else
+        local typeChar = string.sub(id, 1, 1)
+        local navTypeMap = {
+            I = def.NAVTYPEILS,
+            G = def.NAVTYPEGLS,
+            L = def.NAVTYPELPV,
+            R = def.NAVTYPERNAV
+        }
+        navType = navTypeMap[typeChar]
+        typeTag = navType and typeChar or nil
+        rest = string.sub(id, 2)
+    end
+
+    if not navType then
+        return nil
+    end
+
+    local runwayPart = nil
+    local suffix = nil
+    if rest and rest ~= "" then
+        runwayPart, suffix = rest:match("^(%d%d%a?)[%-]?([%a]*)$")
+    end
+
+    if runwayPart then
+        runwayPart = string.upper(runwayPart)
+        if expectedRunway and string.upper(expectedRunway) ~= runwayPart then
+            return nil
+        end
+    elseif navType ~= def.NAVTYPELDA then
+        return nil
+    else
+        suffix = rest
+    end
+
+    if suffix == "" then
+        suffix = nil
+    end
+
+    return {
+        id = id,
+        navType = navType,
+        typeTag = typeTag,
+        runway = runwayPart,
+        suffix = suffix
+    }
 end
 
 function P.loadCIFP(icao)
@@ -3454,18 +4424,62 @@ function P.loadCIFP(icao)
     local approaches = {}
     local entryByCode = {}
     local runwayMap = nil
+    local activeApproachCode = nil
 
     local function addEntryToApproaches(entry, navType, runwayPart)
         if not entry or not navType or not runwayPart or runwayPart == "" then
             return
         end
         local runwayKey = string.upper(runwayPart)
+        entry.registeredFamilies = entry.registeredFamilies or {}
+        if entry.registeredFamilies[navType] then
+            return
+        end
         approaches[navType] = approaches[navType] or {}
         approaches[navType][runwayKey] = approaches[navType][runwayKey] or {}
         entry.runway = runwayKey
         entry.displayName = formatCIFPApproachName(entry.typeChar, runwayKey, entry.suffix or "")
+        entry.registeredFamilies[navType] = true
         entry.registered = true
         table.insert(approaches[navType][runwayKey], entry)
+    end
+
+    local function applyPrdatToEntry(entry, parts)
+        if not entry or type(parts) ~= "table" then
+            return
+        end
+
+        local hasLPV = false
+        local hasGLS = false
+        local hasLP = false
+
+        for _, token in ipairs(parts) do
+            local upper = string.upper(trimString(token or ""))
+            if upper == "LPV" then
+                hasLPV = true
+            elseif upper == "GLS" then
+                hasGLS = true
+            elseif upper == "LP" then
+                hasLP = true
+            end
+        end
+
+        if hasGLS then
+            entry.cifpHasGLS = true
+            entry.serviceLevel = "GLS"
+            addEntryToApproaches(entry, def.NAVTYPEGLS, entry.runway)
+        end
+        if hasLPV then
+            entry.cifpHasLPV = true
+            entry.serviceLevel = "LPV"
+            addEntryToApproaches(entry, def.NAVTYPELPV, entry.runway)
+        end
+        if hasLP and not hasLPV then
+            entry.isLateralOnly = true
+            if not entry.serviceLevel then
+                entry.serviceLevel = "LP"
+            end
+        end
     end
 
     local function resolveLdaEntry(entry)
@@ -3506,6 +4520,53 @@ function P.loadCIFP(icao)
         end
     end
 
+    local function addSupportRef(entry, ident, region, sectionCode, subSection)
+        if not entry then
+            return
+        end
+
+        ident = string.upper(trimString(ident or ""))
+        region = string.upper(trimString(region or ""))
+        sectionCode = string.upper(trimString(sectionCode or ""))
+        subSection = string.upper(trimString(subSection or ""))
+
+        if ident == "" or string.sub(ident, 1, 2) == "RW" then
+            return
+        end
+        if sectionCode ~= "D" then
+            return
+        end
+
+        entry.supportRefs = entry.supportRefs or {}
+        entry.supportRefKeys = entry.supportRefKeys or {}
+
+        local key = table.concat({ident, region, sectionCode, subSection}, "|")
+        if entry.supportRefKeys[key] then
+            return
+        end
+
+        entry.supportRefKeys[key] = true
+        table.insert(entry.supportRefs, {
+            ident = ident,
+            region = region,
+            sectionCode = sectionCode,
+            subSection = subSection
+        })
+    end
+
+    local function parseSupportRefSlot(entry, parts, identIndex, regionIndex, sectionIndex, subSectionIndex)
+        if not entry or type(parts) ~= "table" then
+            return
+        end
+        addSupportRef(
+            entry,
+            parts[identIndex],
+            parts[regionIndex],
+            parts[sectionIndex],
+            parts[subSectionIndex]
+        )
+    end
+
     for line in file:lines() do
         if string.sub(line, 1, 6) == "APPCH:" then
             local parts = {}
@@ -3516,43 +4577,23 @@ function P.loadCIFP(icao)
             local code = parts[3]
             if code and code ~= "" then
                 code = string.upper(code)
-                local typeTag
-                local navType
-                if string.sub(code, 1, 3) == def.NAVTYPELDA then
-                    typeTag = def.NAVTYPELDA
-                    navType = def.NAVTYPELDA
-                else
-                    local typeChar = string.sub(code, 1, 1)
-                    if typeChar == "I" then
-                        typeTag = typeChar
-                        navType = def.NAVTYPEILS
-                    elseif typeChar == "G" then
-                        typeTag = typeChar
-                        navType = def.NAVTYPEGLS
-                    elseif typeChar == "L" then
-                        typeTag = typeChar
-                        navType = def.NAVTYPELPV
-                    elseif typeChar == "R" then
-                        typeTag = typeChar
-                        navType = def.NAVTYPERNAV
-                    end
-                end
+                activeApproachCode = code
+                local parsed = parseApproachCode(code)
+                local typeTag = parsed and parsed.typeTag or nil
+                local navType = parsed and parsed.navType or nil
 
                 if navType then
                     local entry = entryByCode[code]
                     if not entry then
-                        local prefixLen = typeTag and #typeTag or 1
-                        local rest = string.sub(code, prefixLen + 1)
-                        local runwayPart, suffix = rest:match("^(%d%d%a?)(%a*)$")
+                        local runwayPart = parsed and parsed.runway or nil
+                        local suffix = parsed and parsed.suffix or nil
                         if runwayPart then
-                            runwayPart = string.upper(runwayPart)
-                            suffix = suffix or ""
                             entry = {
                                 code = code,
                                 navType = navType,
                                 typeChar = typeTag,
                                 runway = runwayPart,
-                                suffix = suffix,
+                                suffix = suffix or "",
                                 displayName = nil,
                                 course = nil,
                                 finalFixIdent = nil,
@@ -3563,13 +4604,12 @@ function P.loadCIFP(icao)
                             entryByCode[code] = entry
                             addEntryToApproaches(entry, navType, runwayPart)
                         elseif navType == def.NAVTYPELDA then
-                            suffix = suffix or rest or ""
                             entry = {
                                 code = code,
                                 navType = navType,
                                 typeChar = typeTag,
                                 runway = nil,
-                                suffix = suffix,
+                                suffix = suffix or "",
                                 displayName = nil,
                                 course = nil,
                                 finalFixIdent = nil,
@@ -3595,18 +4635,40 @@ function P.loadCIFP(icao)
                         register_fix(parts[5])
 
                         local pathTerminator = trimString(parts[12] or "")
+                        local segmentType = trimString(parts[9] or "")
                         local fixIdent = trimString(parts[5] or "")
                         local isRunwayLeg = fixIdent ~= "" and string.sub(fixIdent, 1, 2) == "RW"
                         local isFinalLeg = (pathTerminator == "CF") or (pathTerminator == "TF")
+
+                        if segmentType == "M" and (pathTerminator == "CA" or pathTerminator == "VA") then
+                            local alt1 = tonumber(trimString(parts[24] or "")) or 0
+                            local alt2 = tonumber(trimString(parts[25] or "")) or 0
+                            local missAlt = (alt1 > 0) and alt1 or ((alt2 > 0) and alt2 or nil)
+                            if missAlt and not entry.missedAlt then
+                                entry.missedAlt = missAlt
+                            end
+                        end
 
                         if isRunwayLeg and isFinalLeg then
                             if not entry.course then
                                 local courseField = trimString(parts[21] or "")
                                 local courseValue = tonumber(courseField)
+                                local courseIsTrue = false
+                                if not courseValue and courseField ~= "" then
+                                    local upper = string.upper(courseField)
+                                    if string.sub(upper, -1) == "T" then
+                                        courseIsTrue = true
+                                        courseValue = tonumber(string.sub(upper, 1, -2))
+                                    end
+                                end
                                 if courseValue then
-                                    -- ARINC: course stored in 1/10 deg. Always divide by 10.
-                                    local magneticCourse = P.calccourse(courseValue / 10.0)
-                                    entry.course = magneticCourse
+                                    -- ARINC: course stored in 1/10 deg. "T" indicates true course.
+                                    local courseDeg = P.calccourse(courseValue / 10.0)
+                                    entry.course_raw = courseDeg
+                                    entry.course_is_true = courseIsTrue
+                                    if not courseIsTrue then
+                                        entry.course = courseDeg
+                                    end
                                 end
                             end
 
@@ -3618,6 +4680,9 @@ function P.loadCIFP(icao)
                             register_fix(parts[14])
                         end
 
+                        parseSupportRefSlot(entry, parts, 13, 14, 15, 16)
+                        parseSupportRefSlot(entry, parts, 30, 31, 32, 33)
+
                         if entry.navType == def.NAVTYPELDA and not entry.registered then
                             local identCandidate = trimString(parts[14] or "")
                             if identCandidate ~= "" and not entry.localizerIdent then
@@ -3626,6 +4691,15 @@ function P.loadCIFP(icao)
                         end
                     end
                 end
+            end
+        elseif string.sub(line, 1, 6) == "PRDAT:" and activeApproachCode then
+            local entry = entryByCode[activeApproachCode]
+            if entry then
+                local parts = {}
+                for token in string.gmatch(line, "([^,]+)") do
+                    table.insert(parts, trimString(token))
+                end
+                applyPrdatToEntry(entry, parts)
             end
         end
     end
@@ -3649,6 +4723,35 @@ function P.loadCIFP(icao)
     return nil
 end
 
+local function cifpEntrySupportsNavType(entry, navType)
+    if not entry or not navType then
+        return false
+    end
+    if entry.navType == navType then
+        return true
+    end
+    if navType == def.NAVTYPELPV and entry.navType == def.NAVTYPERNAV then
+        return entry.cifpHasLPV == true or entry.serviceLevel == "LPV"
+    end
+    if navType == def.NAVTYPEGLS and entry.navType == def.NAVTYPERNAV then
+        return entry.cifpHasGLS == true or entry.serviceLevel == "GLS"
+    end
+    return false
+end
+
+local function getPreferredCIFPEntryNavType(entry, fallbackNavType)
+    if not entry then
+        return fallbackNavType
+    end
+    if cifpEntrySupportsNavType(entry, def.NAVTYPEGLS) then
+        return def.NAVTYPEGLS
+    end
+    if cifpEntrySupportsNavType(entry, def.NAVTYPELPV) then
+        return def.NAVTYPELPV
+    end
+    return fallbackNavType or entry.navType
+end
+
 function P.getCIFPApproach(icao, navType, runway)
     if type(icao) ~= "string" or type(navType) ~= "string" or type(runway) ~= "string" then
         return nil
@@ -3660,28 +4763,443 @@ function P.getCIFPApproach(icao, navType, runway)
     end
 
     local navEntries = cifpData[navType]
-    if not navEntries then
-        return nil
-    end
-
     local rwy = string.upper(runway)
     rwy = rwy:gsub("^RW", "")
-    local candidates = navEntries[rwy]
-    if not candidates or #candidates == 0 then
-        return nil
+    local candidates = navEntries and navEntries[rwy] or nil
+    if candidates and #candidates > 0 then
+        return candidates[1]
     end
 
-    return candidates[1]
+    if navType == def.NAVTYPELPV or navType == def.NAVTYPEGLS then
+        local rnEntries = cifpData[def.NAVTYPERNAV]
+        local rnCandidates = rnEntries and rnEntries[rwy] or nil
+        if rnCandidates then
+            for _, entry in ipairs(rnCandidates) do
+                if cifpEntrySupportsNavType(entry, navType) then
+                    return entry
+                end
+            end
+        end
+    end
+
+    return nil
 end
 
 function P.getCIFPApproachName(icao, navType, runway)
     local entry = P.getCIFPApproach(icao, navType, runway)
-    return entry and entry.displayName or nil
+    if not entry then
+        return nil
+    end
+    local typeTag = getApproachTypeTagForNavType(navType, entry.typeChar)
+    return formatCIFPApproachName(typeTag, entry.runway or runway, entry.suffix or "")
 end
 
 function P.getCIFPApproachCourse(icao, navType, runway)
     local entry = P.getCIFPApproach(icao, navType, runway)
     return entry and entry.course or nil
+end
+
+function P.getCIFPApproachCourseInfo(icao, navType, runway)
+    local entry = P.getCIFPApproach(icao, navType, runway)
+    if not entry then
+        return nil, nil
+    end
+    if entry.course_raw ~= nil then
+        return entry.course_raw, entry.course_is_true == true
+    end
+    if entry.course ~= nil then
+        return entry.course, false
+    end
+    return nil, nil
+end
+
+local function resolveCIFPSupportRef(navdatatable, ref)
+    if type(navdatatable) ~= "table" or type(ref) ~= "table" then
+        return nil
+    end
+
+    local bestEntry = nil
+    local bestScore = math.huge
+
+    for _, entry in ipairs(navdatatable) do
+        local navType = entry[def.DESTNAVTYPE]
+        local navId = string.upper(trimString(entry[def.DESTNAVID] or ""))
+        local dmeId = string.upper(trimString(entry[def.DESTDMEIDENT] or ""))
+        local matchesIdent = (navId ~= "" and navId == ref.ident) or (dmeId ~= "" and dmeId == ref.ident)
+
+        if matchesIdent then
+            local score = 0
+            local region = string.upper(trimString(entry[def.DESTICAO] or ""))
+            if ref.region ~= "" then
+                if region == ref.region then
+                    score = score - 100
+                else
+                    score = score + 250
+                end
+            end
+
+            if navType == def.NAVTYPEVOR then
+                score = score - 40
+                if entry[def.DESTNAVDME] then
+                    score = score - 10
+                end
+            elseif navType == def.NAVTYPEDME then
+                score = score - 30
+            elseif navType == def.NAVTYPEILS or navType == def.NAVTYPELOC
+                or navType == def.NAVTYPELDA or navType == def.NAVTYPEIGS then
+                score = score + 200
+            else
+                score = score + 100
+            end
+
+            if ref.subSection == "B" then
+                score = score + 25
+            end
+
+            if score < bestScore then
+                bestScore = score
+                bestEntry = entry
+            end
+        end
+    end
+
+    return bestEntry
+end
+
+local function buildCIFPSupportNavaidInfo(navdatatable, ref)
+    if type(ref) ~= "table" or not ref.ident or ref.ident == "" then
+        return nil
+    end
+
+    local resolved = resolveCIFPSupportRef(navdatatable, ref)
+    local kindLabel = "navaid"
+    local freq = nil
+
+    if resolved then
+        local navType = resolved[def.DESTNAVTYPE]
+        if navType == def.NAVTYPEVOR then
+            if resolved[def.DESTNAVDME] then
+                kindLabel = "V O R / D M E"
+                freq = tonumber(resolved[def.DESTDMEFREQ]) or tonumber(resolved[def.DESTFREQ]) or nil
+            else
+                kindLabel = "V O R"
+                freq = tonumber(resolved[def.DESTFREQ]) or nil
+            end
+        elseif navType == def.NAVTYPEDME then
+            kindLabel = "D M E"
+            freq = tonumber(resolved[def.DESTDMEFREQ]) or tonumber(resolved[def.DESTFREQ]) or nil
+        else
+            kindLabel = "navaid"
+        end
+    elseif ref.subSection == "B" then
+        kindLabel = "N D B"
+    end
+
+    return {
+        ident = ref.ident,
+        region = ref.region,
+        kindLabel = kindLabel,
+        freq = freq,
+        resolved = resolved,
+        raw = ref
+    }
+end
+
+function P.getCIFPApproachSupportNavaids(icao, navType, runway, navdatatable)
+    local entry = P.getCIFPApproach(icao, navType, runway)
+    if not entry or type(entry.supportRefs) ~= "table" or #entry.supportRefs == 0 then
+        return nil
+    end
+
+    local results = {}
+    local seen = {}
+
+    for _, ref in ipairs(entry.supportRefs) do
+        local info = buildCIFPSupportNavaidInfo(navdatatable, ref)
+        if info then
+            local key = table.concat({
+                tostring(info.ident or ""),
+                tostring(info.kindLabel or ""),
+                tostring(info.freq or "")
+            }, "|")
+            if not seen[key] then
+                seen[key] = true
+                table.insert(results, info)
+            end
+        end
+    end
+
+    if #results == 0 then
+        return nil
+    end
+
+    table.sort(results, function(a, b)
+        local aResolved = a.resolved ~= nil
+        local bResolved = b.resolved ~= nil
+        if aResolved ~= bResolved then
+            return aResolved
+        end
+        return tostring(a.ident or "") < tostring(b.ident or "")
+    end)
+
+    return results
+end
+
+function P.calcApproachCourseZibo(entry, ctx)
+    if not entry then
+        return nil
+    end
+    ctx = ctx or {}
+
+    local navType = entry[def.DESTNAVTYPE]
+    local icao = ctx.icao or entry[def.DESTICAO]
+    local runway = ctx.runway or entry[def.DESTRWY]
+    local function markSource(source)
+        if ctx then
+            ctx.source = source
+        end
+    end
+
+    local appId = ctx.appId
+    if type(appId) == "string" then
+        appId = appId:gsub("%s+", ""):upper()
+    end
+    if appId and ctx.navdatatable and ctx.navIndices
+        and (navType == def.NAVTYPEGLS or navType == def.NAVTYPELPV or navType == def.NAVTYPERNAV) then
+        for _, idx in ipairs(ctx.navIndices) do
+            local cand = ctx.navdatatable[idx]
+            if cand and cand[def.DESTNAVTYPE] == navType then
+                local candId = cand[def.DESTNAVID]
+                local candIdUpper = type(candId) == "string" and candId:upper() or candId
+                local appIdUpper = appId
+                local altId = cand.alt_id
+                local altIdUpper = type(altId) == "string" and altId:upper() or altId
+                local appIdStored = cand.app_id
+                local appIdStoredUpper = type(appIdStored) == "string" and appIdStored:upper() or appIdStored
+                if (appIdUpper and candIdUpper == appIdUpper)
+                    or (appIdUpper and altIdUpper == appIdUpper)
+                    or (appIdUpper and appIdStoredUpper == appIdUpper) then
+                    entry = cand
+                    navType = cand[def.DESTNAVTYPE]
+                    break
+                end
+            end
+        end
+    end
+    local magVar = ctx.magVar
+    if magVar == nil then
+        magVar = entry[def.DESTMAGVAR]
+        if magVar == nil then
+            local lat = entry[def.DESTLATPOS]
+            local lon = entry[def.DESTLONPOS]
+            if lat and lon and lat ~= 0 and lon ~= 0 then
+                magVar = sasl.getMagneticVariation(lat, lon)
+            end
+        end
+    end
+    magVar = tonumber(magVar) or 0
+
+    local function decode_raw_course(raw)
+        local rawVal = tonumber(raw)
+        if not rawVal then
+            return nil, nil, false
+        end
+        if rawVal > 360 then
+            local mag = math.floor(rawVal / 360)
+            local trueC = rawVal - mag
+            return P.calccourse(trueC), P.calccourse(mag), true
+        end
+        return P.calccourse(rawVal), nil, false
+    end
+
+    local function clean_leg_token(token)
+        if type(token) ~= "string" then
+            return ""
+        end
+        return token:gsub("[%(%)]", ""):gsub("%s+", "")
+    end
+
+    local function is_runway_leg(token)
+        local clean = clean_leg_token(token)
+        return clean:upper():match("^RW%d%d?[LRC]?") ~= nil
+    end
+
+    local function matches_dest_runway(token, destRunway)
+        if not token or not destRunway then
+            return false
+        end
+        local cleanToken = clean_leg_token(token):upper():gsub("^RW", "")
+        local cleanDest = clean_leg_token(destRunway):upper():gsub("^RW", "")
+        return cleanToken == cleanDest
+    end
+
+    local function get_fms_final_mag_course()
+        local legsStr = ctx.fmslegs
+        local latArr = ctx.fmslegslat
+        local lonArr = ctx.fmslegslon
+        if type(legsStr) ~= "string" or not latArr or not lonArr then
+            return nil
+        end
+        local waypoints = P.buildlegstable(legsStr, latArr, lonArr)
+        if not waypoints or #waypoints < 2 then
+            return nil
+        end
+        local destRunway = runway
+        local selectedCourse = nil
+        if destRunway and P.isvalidrwy(destRunway) then
+            for i = #waypoints - 1, 1, -1 do
+                local nxt = waypoints[i + 1]
+                if nxt and nxt.name and matches_dest_runway(nxt.name, destRunway) then
+                    selectedCourse = waypoints[i].magnetic_course
+                    break
+                end
+            end
+        else
+            for i = #waypoints - 1, 1, -1 do
+                local nxt = waypoints[i + 1]
+                if nxt and nxt.name and is_runway_leg(nxt.name) then
+                    selectedCourse = waypoints[i].magnetic_course
+                    break
+                end
+            end
+        end
+        if selectedCourse and selectedCourse ~= 0 then
+            return P.calccourse(selectedCourse)
+        end
+        return nil
+    end
+
+    local function cifp_course_mag(candidateType)
+        if not (icao and runway and candidateType) then
+            return nil
+        end
+        local course, isTrue = P.getCIFPApproachCourseInfo(icao, candidateType, runway)
+        if course == nil then
+            return nil
+        end
+        if isTrue then
+            return P.calccourse(course + magVar)
+        end
+        return P.calccourse(course)
+    end
+
+    if navType == def.NAVTYPEILS or navType == def.NAVTYPELOC
+        or navType == def.NAVTYPELDA or navType == def.NAVTYPEIGS then
+        local raw = entry[def.DESTRAWBEARING]
+        local trueC, magC, hasMag = decode_raw_course(raw)
+        if hasMag and magC then
+            markSource("RAW_MAG")
+            return P.calccourse(magC)
+        end
+        if trueC then
+            markSource("RAW_TRUE")
+            return P.calccourse(trueC + magVar)
+        end
+        if entry[def.DESTCOURSE] ~= nil then
+            markSource("NAV")
+            return P.calccourse(entry[def.DESTCOURSE])
+        end
+    elseif navType == def.NAVTYPEGLS then
+        if entry.isTrueCourse and entry.truecourse then
+            markSource("NAV_TRUE")
+            return P.calccourse(entry.truecourse + magVar)
+        end
+        if entry[def.DESTCOURSE] ~= nil then
+            markSource("NAV")
+            return P.calccourse(entry[def.DESTCOURSE])
+        end
+    else
+        -- Detected-only RNAV entries are weaker than a matched navdata entry.
+        -- In this case prefer the destination runway heading over the live FMS leg
+        -- track, which can reflect an intercept/dogleg instead of the displayed FAC.
+        if navType == def.NAVTYPERNAV then
+            if entry._detectedOnly then
+                local runwayMag = tonumber(ctx.runwayMag)
+                if runwayMag then
+                    markSource("RUNWAY_MAG")
+                    return P.calccourse(runwayMag)
+                end
+                local runwayTrue = tonumber(ctx.runwayTrue)
+                if runwayTrue then
+                    markSource("RUNWAY_TRUE")
+                    return P.calccourse(runwayTrue + magVar)
+                end
+            end
+            local fmsMag = get_fms_final_mag_course()
+            if fmsMag then
+                markSource("FMS")
+                return P.calccourse(fmsMag)
+            end
+            local runwayMag = tonumber(ctx.runwayMag)
+            if runwayMag then
+                markSource("RUNWAY_MAG")
+                return P.calccourse(runwayMag)
+            end
+            local runwayTrue = tonumber(ctx.runwayTrue)
+            if runwayTrue then
+                markSource("RUNWAY_TRUE")
+                return P.calccourse(runwayTrue + magVar)
+            end
+        end
+        if entry.isTrueCourse and entry.truecourse then
+            markSource("NAV_TRUE")
+            return P.calccourse(entry.truecourse + magVar)
+        end
+        local entryCourse = tonumber(entry[def.DESTCOURSE])
+        if entryCourse and entryCourse > 0 then
+            markSource("NAV")
+            return P.calccourse(entryCourse)
+        end
+        local candidateTypes = { navType }
+        if navType == def.NAVTYPELPV or navType == def.NAVTYPEGLS then
+            candidateTypes = { navType, def.NAVTYPERNAV }
+        end
+        for _, candidateType in ipairs(candidateTypes) do
+            local cifpMag = cifp_course_mag(candidateType)
+            if cifpMag then
+                markSource("CIFP")
+                return cifpMag
+            end
+        end
+        local fmsMag = get_fms_final_mag_course()
+        if fmsMag then
+            markSource("FMS")
+            return P.calccourse(fmsMag)
+        end
+    end
+
+    local runwayMag = tonumber(ctx.runwayMag)
+    if runwayMag then
+        markSource("RUNWAY_MAG")
+        return P.calccourse(runwayMag)
+    end
+    local runwayTrue = tonumber(ctx.runwayTrue)
+    if runwayTrue then
+        markSource("RUNWAY_TRUE")
+        return P.calccourse(runwayTrue + magVar)
+    end
+    markSource("NONE")
+    return nil
+end
+
+function P.getCIFPMissedApproachAltitude(icao, navType, runway, detectedApproach)
+    if detectedApproach and detectedApproach.entry and detectedApproach.entry.missedAlt and detectedApproach.entry.missedAlt > 0 then
+        return detectedApproach.entry.missedAlt
+    end
+    if type(navType) ~= "string" and detectedApproach and type(detectedApproach.navType) == "string" then
+        navType = detectedApproach.navType
+    end
+    if type(icao) ~= "string" or type(runway) ~= "string" or type(navType) ~= "string" then
+        return nil
+    end
+    if navType == def.NAVTYPELOC or navType == def.NAVTYPEIGS then
+        navType = def.NAVTYPEILS
+    end
+    local entry = P.getCIFPApproach(icao, navType, runway)
+    if not entry and (navType == def.NAVTYPELPV or navType == def.NAVTYPEGLS) then
+        entry = P.getCIFPApproach(icao, def.NAVTYPERNAV, runway)
+    end
+    return entry and entry.missedAlt or nil
 end
 
 function P.findApproachDME(navdatatable, icao, runway, refLat, refLon, refIdent, options)
@@ -3832,43 +5350,309 @@ local function collectLegNameSet(legs_string, lat_array, lon_array)
     return names
 end
 
-local function normalizeSelectedApproachId(selectedAppId, expectedRunway)
-    if type(selectedAppId) ~= "string" then return nil end
-    local trimmed = trimString(selectedAppId):upper()
-    if trimmed == "" or trimmed == "------" then return nil end
-
-    local navType = nil
-    local runwayPart = nil
-    local suffix = nil
-
-    if string.sub(trimmed, 1, 3) == def.NAVTYPELDA then
-        navType = def.NAVTYPELDA
-        local rest = string.sub(trimmed, 4)
-        runwayPart, suffix = rest:match("^(%d%d%a?)(%a*)")
-    else
-        -- Pattern: first char = type, then runway (e.g. 08, 08L), optional suffix (Y/Z/etc.)
-        local typeChar
-        typeChar, runwayPart, suffix = trimmed:match("^(%a)(%d%d%a?)(%a*)")
-        if not typeChar or not runwayPart then return nil end
-
-        local navTypeMap = {
-            I = def.NAVTYPEILS,
-            L = def.NAVTYPELOC,
-            R = def.NAVTYPERNAV,
-            G = def.NAVTYPEGLS
-        }
-        navType = navTypeMap[typeChar]
+local function parseSelectedApproachId(selectedAppId, expectedRunway)
+    local parsed = parseApproachCode(selectedAppId, expectedRunway)
+    if not parsed or not parsed.runway then
+        return nil
     end
-    if not navType or not runwayPart then return nil end
+    return parsed
+end
 
-    if expectedRunway and string.upper(expectedRunway) ~= runwayPart then
-        -- Different runway, don't apply
+P.parseSelectedApproachId = parseSelectedApproachId
+
+local function isApproachLocalizerType(navType)
+    return navType == def.NAVTYPEILS
+        or navType == def.NAVTYPELOC
+        or navType == def.NAVTYPELDA
+        or navType == def.NAVTYPEIGS
+end
+
+P.isLocalizerNavType = isApproachLocalizerType
+
+local function isApproachLateralOnly(entry)
+    if not entry then
+        return false
+    end
+    if entry.isLateralOnly or entry.serviceLevel == "LP" then
+        return true
+    end
+    if entry[def.DESTNAVTYPE] == def.NAVTYPERNAV
+        and entry[def.DESTSRCRECTYPE] == def.NAVDATARECTYPELPV then
+        return true
+    end
+    return false
+end
+
+P.isLateralOnlyApproach = isApproachLateralOnly
+
+local function addUniqueApproachType(target, seen, navType)
+    if navType and not seen[navType] then
+        table.insert(target, navType)
+        seen[navType] = true
+    end
+end
+
+local function addApproachCandidateFamily(target, seen, navType)
+    if navType == def.NAVTYPEILS or navType == def.NAVTYPELOC then
+        addUniqueApproachType(target, seen, def.NAVTYPEILS)
+        addUniqueApproachType(target, seen, def.NAVTYPELOC)
+        return
+    end
+    if navType == def.NAVTYPELPV or navType == def.NAVTYPERNAV then
+        addUniqueApproachType(target, seen, def.NAVTYPELPV)
+        addUniqueApproachType(target, seen, def.NAVTYPERNAV)
+        return
+    end
+    if navType == def.NAVTYPEGLS then
+        addUniqueApproachType(target, seen, def.NAVTYPEGLS)
+        return
+    end
+    addUniqueApproachType(target, seen, navType)
+end
+
+function P.buildApproachCandidateNavTypes(selectedNavType, detectedNavType)
+    local candidateTypes = {}
+    local seen = {}
+
+    if selectedNavType then
+        addApproachCandidateFamily(candidateTypes, seen, selectedNavType)
+        if detectedNavType == selectedNavType then
+            addApproachCandidateFamily(candidateTypes, seen, detectedNavType)
+        end
+    elseif detectedNavType then
+        addApproachCandidateFamily(candidateTypes, seen, detectedNavType)
+    end
+
+    if #candidateTypes == 0 then
+        addUniqueApproachType(candidateTypes, seen, def.NAVTYPEILS)
+        addUniqueApproachType(candidateTypes, seen, def.NAVTYPELOC)
+        addUniqueApproachType(candidateTypes, seen, def.NAVTYPEGLS)
+        addUniqueApproachType(candidateTypes, seen, def.NAVTYPELPV)
+        addUniqueApproachType(candidateTypes, seen, def.NAVTYPELDA)
+        addUniqueApproachType(candidateTypes, seen, def.NAVTYPEIGS)
+        addUniqueApproachType(candidateTypes, seen, def.NAVTYPERNAV)
+    end
+
+    return candidateTypes
+end
+
+local approachPfdModeInfo = {
+    [1] = { label = "I L S", lateral = "LOC", vertical = "GS" },
+    [3] = { label = "L O C / V N A V", lateral = "LOC", vertical = "VNAV" },
+    [4] = { label = "F A C / G P", lateral = "FAC", vertical = "GP" },
+    [5] = { label = "L O C / G P", lateral = "LOC", vertical = "GP" },
+    [6] = { label = "G L S", lateral = "GLS", vertical = "GP" },
+    [7] = { label = "F A C / V N A V", lateral = "FAC", vertical = "VNAV" },
+    [8] = { label = "L P V", lateral = "LPV", vertical = "GP" }
+}
+
+function P.getApproachPfdModeInfo(mode)
+    local numericMode = tonumber(mode) or 0
+    return approachPfdModeInfo[numericMode]
+end
+
+function P.getApproachPfdModeLabel(mode)
+    local info = P.getApproachPfdModeInfo(mode)
+    return info and info.label or nil
+end
+
+function P.getCurrentApproachModeLabel(side)
+    local yal = _G.yal
+    if not yal then
         return nil
     end
 
+    local useFo = (side == 2 or side == "fo")
+    local pfdModeRef = useFo and yal.autopilotpfdmodefo or yal.autopilotpfdmode
+    if pfdModeRef then
+        local label = P.getApproachPfdModeLabel(get(pfdModeRef))
+        if label then
+            return label
+        end
+    end
+
+    local glsLocRef = yal.apglsloccapturedstat
+    local glsGsRef = yal.apglsgscapturedstat
+    local lpvLocRef = yal.aplpvloccapturedstat
+    local lpvGsRef = yal.aplpvgscapturedstat
+    local facLocRef = yal.apfacloccapturedstat
+    local facGsRef = yal.apfacgscapturedstat
+    local locRef = yal.aploccapturedstat
+    local gsRef = yal.apgscapturedstat
+
+    if glsLocRef and glsGsRef and (get(glsLocRef) ~= 0 or get(glsGsRef) ~= 0) then
+        return "G L S"
+    end
+    if lpvLocRef and lpvGsRef and (get(lpvLocRef) ~= 0 or get(lpvGsRef) ~= 0) then
+        return "L P V"
+    end
+    if facLocRef and get(facLocRef) ~= 0 then
+        if facGsRef and get(facGsRef) ~= 0 then
+            return "F A C / G P"
+        end
+        return "F A C"
+    end
+    if locRef and gsRef and (get(locRef) ~= 0 or get(gsRef) ~= 0) then
+        return "I L S"
+    end
+
+    return nil
+end
+
+function P.resolveApproachGuidanceCapabilities(context)
+    context = context or {}
+
+    local yal = _G.yal
+    local navdata = context.navdata
+    local detectedVariant = context.detectedVariant
+    local selectedAppId = context.selectedAppId
+    if selectedAppId == nil and yal and yal.fmsselectedapp then
+        selectedAppId = get(yal.fmsselectedapp)
+    end
+
+    local runway = context.runway or (navdata and navdata[def.DESTRWY]) or nil
+    local selectedInfo = parseSelectedApproachId(selectedAppId, runway)
+    local selectedNavType = context.selectedNavType or (selectedInfo and selectedInfo.navType) or nil
+    local detectedNavType = context.detectedNavType or (detectedVariant and detectedVariant.navType) or nil
+    local resolvedNavType = context.navType
+        or (navdata and navdata[def.DESTNAVTYPE])
+        or detectedNavType
+        or selectedNavType
+    local lateralOnly = (context.isLateralOnly == true) or isApproachLateralOnly(navdata)
+
+    local mmrInstalled = context.mmrInstalled
+    if mmrInstalled == nil and yal and yal.mmrinstalled then
+        mmrInstalled = (get(yal.mmrinstalled) == def.ON)
+    else
+        mmrInstalled = (mmrInstalled == true)
+    end
+
+    local lpvInstalled = context.lpvInstalled
+    if lpvInstalled == nil and yal and yal.lpvinstalled then
+        lpvInstalled = (get(yal.lpvinstalled) == def.ON)
+    else
+        lpvInstalled = (lpvInstalled == true)
+    end
+
+    local ianInfo = context.ianInfo
+    if ianInfo == nil and yal and yal.ianinfo then
+        ianInfo = get(yal.ianinfo)
+    end
+    ianInfo = tonumber(ianInfo) or 0
+
+    local pfdMode = context.pfdMode
+    if pfdMode == nil and yal and yal.autopilotpfdmode then
+        pfdMode = get(yal.autopilotpfdmode)
+    end
+    pfdMode = tonumber(pfdMode) or 0
+
+    local fmsIlsDisable = context.fmsIlsDisable
+    if fmsIlsDisable == nil and yal and yal.fmsilsdisable then
+        fmsIlsDisable = get(yal.fmsilsdisable)
+    end
+    fmsIlsDisable = tonumber(fmsIlsDisable) or 0
+
+    local effectiveNavType = resolvedNavType
+    if effectiveNavType == def.NAVTYPERNAV and (selectedNavType == def.NAVTYPELPV or selectedNavType == def.NAVTYPEGLS) then
+        effectiveNavType = selectedNavType
+    end
+
+    local guidanceFamily = nil
+    if effectiveNavType == def.NAVTYPEGLS then
+        guidanceFamily = "gls"
+    elseif effectiveNavType == def.NAVTYPELPV then
+        guidanceFamily = "lpv"
+    elseif effectiveNavType == def.NAVTYPERNAV then
+        guidanceFamily = "rnav"
+    elseif isApproachLocalizerType(effectiveNavType) then
+        guidanceFamily = "localizer"
+    end
+
+    local channelCapable = mmrInstalled and lpvInstalled
+    local facPossible = (guidanceFamily == "rnav") and (ianInfo ~= 0)
+    local gpPossible = facPossible and (not lateralOnly)
+    local locGpPossible = (guidanceFamily == "localizer") and (ianInfo ~= 0) and (fmsIlsDisable ~= 0)
+    local lpvPossible = (guidanceFamily == "lpv") and channelCapable
+    local glsPossible = (guidanceFamily == "gls") and channelCapable
+
+    local expectedLateralMode = nil
+    local expectedVerticalMode = nil
+    local tuningKind = "none"
+    local captainTuneMode = nil
+    local guidanceSummary = nil
+
+    if guidanceFamily == "localizer" then
+        expectedLateralMode = "LOC"
+        expectedVerticalMode = (effectiveNavType == def.NAVTYPEILS) and "GS" or "NONE"
+        tuningKind = "localizer"
+        captainTuneMode = def.MMRILS
+        if effectiveNavType == def.NAVTYPEILS then
+            guidanceSummary = "Expected I L S guidance"
+        elseif locGpPossible then
+            guidanceSummary = "L O C / G P available with I A N"
+        else
+            guidanceSummary = "Expected localizer guidance"
+        end
+    elseif guidanceFamily == "gls" then
+        expectedLateralMode = "GLS"
+        expectedVerticalMode = "GP"
+        tuningKind = "mmr"
+        captainTuneMode = def.MMRGLS
+        guidanceSummary = "Expected G L S guidance"
+    elseif guidanceFamily == "lpv" then
+        expectedLateralMode = "LPV"
+        expectedVerticalMode = lateralOnly and "NONE" or "GP"
+        tuningKind = "mmr"
+        captainTuneMode = def.MMRLPV
+        if lateralOnly then
+            guidanceSummary = "Expected L P V lateral guidance only"
+        else
+            guidanceSummary = "Expected L P V guidance"
+        end
+    elseif guidanceFamily == "rnav" then
+        expectedLateralMode = facPossible and "FAC" or "LNAV"
+        if lateralOnly then
+            expectedVerticalMode = "NONE"
+            guidanceSummary = facPossible and "Expected F A C lateral guidance only" or "Expected lateral F M C guidance only"
+        else
+            expectedVerticalMode = gpPossible and "GP" or "VNAV"
+            if gpPossible then
+                guidanceSummary = "Expected F A C / G P guidance"
+            else
+                guidanceSummary = "Expected L N A V / V N A V guidance"
+            end
+        end
+        tuningKind = "fmc"
+    end
+
+    local pfdInfo = P.getApproachPfdModeInfo(pfdMode)
+
     return {
-        navType = navType,
-        suffix = suffix and suffix ~= "" and suffix or nil
+        selectedNavType = selectedNavType,
+        detectedNavType = detectedNavType,
+        resolvedNavType = resolvedNavType,
+        effectiveNavType = effectiveNavType,
+        approachFamily = guidanceFamily,
+        isLateralOnly = lateralOnly,
+        mmrInstalled = mmrInstalled,
+        lpvInstalled = lpvInstalled,
+        channelCapable = channelCapable,
+        tuningKind = tuningKind,
+        captainTuneMode = captainTuneMode,
+        facPossible = facPossible,
+        gpPossible = gpPossible,
+        facGpPossible = facPossible and gpPossible,
+        facVnavPossible = facPossible and (not gpPossible) and (not lateralOnly),
+        locGpPossible = locGpPossible,
+        lpvPossible = lpvPossible,
+        glsPossible = glsPossible,
+        ianInfo = ianInfo,
+        pfdMode = pfdMode,
+        pfdModeLabel = pfdInfo and pfdInfo.label or nil,
+        expectedLateralMode = expectedLateralMode,
+        expectedVerticalMode = expectedVerticalMode,
+        guidanceSummary = guidanceSummary,
+        candidateNavTypes = P.buildApproachCandidateNavTypes(selectedNavType, detectedNavType)
     }
 end
 
@@ -3883,30 +5667,40 @@ function P.detectCIFPApproachVariant(icao, runway, legs_string, lat_array, lon_a
     end
 
     runway = string.upper(runway)
-    local selectedInfo = normalizeSelectedApproachId(selectedAppId, runway)
+    local selectedInfo = parseSelectedApproachId(selectedAppId, runway)
     if selectedInfo then
         local entries = cifpData[selectedInfo.navType] and cifpData[selectedInfo.navType][runway]
         if entries and #entries > 0 then
             if selectedInfo.suffix then
                 for _, entry in ipairs(entries) do
                     if entry.suffix and string.upper(entry.suffix) == selectedInfo.suffix then
+                        local effectiveNavType = getPreferredCIFPEntryNavType(entry, selectedInfo.navType)
                         return {
-                            navType = selectedInfo.navType,
+                            navType = effectiveNavType,
                             entry = entry,
+                            displayName = getCIFPEntryDisplayName(entry, effectiveNavType),
                             score = math.huge,
                             priority = 0,
                             fromSelection = true
                         }
                     end
                 end
+                -- Do not blindly fall back to the first entry of the selected
+                -- family when the explicit suffix did not match. Let the later
+                -- leg-based variant detection resolve the correct family/variant
+                -- (e.g. RNAV Z selected but LPV Z available).
+            else
+                local entry = entries[1]
+                local effectiveNavType = getPreferredCIFPEntryNavType(entry, selectedInfo.navType)
+                return {
+                    navType = effectiveNavType,
+                    entry = entry,
+                    displayName = getCIFPEntryDisplayName(entry, effectiveNavType),
+                    score = math.huge,
+                    priority = 0,
+                    fromSelection = true
+                }
             end
-            return {
-                navType = selectedInfo.navType,
-                entry = entries[1],
-                score = math.huge,
-                priority = 0,
-                fromSelection = true
-            }
         end
     end
 
@@ -3954,6 +5748,7 @@ function P.detectCIFPApproachVariant(icao, runway, legs_string, lat_array, lon_a
                         bestMatch = {
                             navType = navType,
                             entry = entry,
+                            displayName = getCIFPEntryDisplayName(entry, navType),
                             score = matchScore,
                             priority = currentPriority
                         }
@@ -4180,23 +5975,278 @@ function P.buildnavdatatable(navdatatable)
 
     for i = #navdatatable, 1, -1 do table.remove(navdatatable, i) end
 
-    -- ... (Datei-Öffnen-Logik bleibt unverändert) ...
-    local srcnavdatafile = io.open("Custom Data/earth_nav.dat", "r")
-    if not srcnavdatafile then
-        srcnavdatafile = io.open("Custom Scenery/Global Airports/Earth nav data/earth_nav.dat", "r")
-        if not srcnavdatafile then
-            srcnavdatafile = io.open("Resources/default data/earth_nav.dat", "r")
-            if not srcnavdatafile then
-                sasl.logError("No Navdatabase Source: Could not find earth_nav.dat!")
-                return false
-            else
-                P.logInfoTS("Navdatabase Sourse: Resources/default data/earth_nav.dat")
-            end
-        else
-            P.logInfoTS("Navdatabase Sourse: Custom Scenery/Global Airports/Earth nav data/earth_nav.dat")
+    local NAV_IDX_FILE = def.PLUGINOUTPUTPATH .. "nav_global.yalidx"
+
+    local function stat_file_size(path)
+        local f = io.open(path, "rb")
+        if not f then
+            return 0
         end
-    else
-        P.logInfoTS("Navdatabase Sourse: Custom Data/earth_nav.dat")
+        local size = 0
+        local ok_seek, end_pos = pcall(function()
+            return f:seek("end")
+        end)
+        if ok_seek and end_pos then
+            size = tonumber(end_pos) or 0
+        end
+        f:close()
+        return size
+    end
+
+    local nav_path = nil
+    local nav_size = 0
+    local nav_label = nil
+    local nav_candidates = {
+        { path = "Custom Data/earth_nav.dat", label = "Custom Data/earth_nav.dat" },
+        { path = "Custom Scenery/Global Airports/Earth nav data/earth_nav.dat", label = "Custom Scenery/Global Airports/Earth nav data/earth_nav.dat" },
+        { path = "Resources/default data/earth_nav.dat", label = "Resources/default data/earth_nav.dat" }
+    }
+    for i = 1, #nav_candidates do
+        local cand = nav_candidates[i]
+        local sz = stat_file_size(cand.path)
+        if sz > 0 then
+            nav_path = cand.path
+            nav_size = sz
+            nav_label = cand.label
+            break
+        end
+    end
+    if not nav_path then
+        sasl.logError("No Navdatabase Source: Could not find earth_nav.dat!")
+        return false
+    end
+
+    P.logInfoTS("Navdatabase Sourse: " .. tostring(nav_label or nav_path))
+
+    local function split_tabs_simple(line, max_parts)
+        local parts = {}
+        if not line then
+            return parts
+        end
+        local start = 1
+        local line_len = string.len(line)
+        while start <= line_len do
+            local tab = string.find(line, "\t", start, true)
+            if not tab then
+                parts[#parts + 1] = string.sub(line, start)
+                break
+            end
+            parts[#parts + 1] = string.sub(line, start, tab - 1)
+            start = tab + 1
+            if max_parts and #parts >= (max_parts - 1) then
+                parts[#parts + 1] = string.sub(line, start)
+                break
+            end
+        end
+        if #parts == 0 then
+            parts[1] = ""
+        end
+        return parts
+    end
+
+    local function strip_cr(line)
+        if not line then
+            return line
+        end
+        local len = #line
+        if len > 0 and string.byte(line, len) == 13 then
+            return string.sub(line, 1, len - 1)
+        end
+        return line
+    end
+
+    local function load_nav_index(path, size)
+        local f = io.open(NAV_IDX_FILE, "rb")
+        if not f then
+            return nil
+        end
+        local cache_epoch = tonumber(def.CACHE_EPOCH) or 1
+        local idx_version = nil
+        local idx_epoch = nil
+        local idx_path = nil
+        local idx_size = nil
+        local entries = {}
+        local first_line = strip_cr(f:read("*l"))
+        if not first_line then
+            f:close()
+            return nil
+        end
+        do
+            local first_parts = split_tabs_simple(first_line, 2)
+            if first_parts[1] == "YALNAVIDX" then
+                idx_version = tonumber(first_parts[2]) or 0
+            else
+                f:close()
+                pcall(function() os.remove(NAV_IDX_FILE) end)
+                return nil
+            end
+        end
+        for line in f:lines() do
+            line = strip_cr(line)
+            if string.sub(line, 1, 6) == "EPOCH\t" then
+                idx_epoch = tonumber(string.sub(line, 7)) or 0
+            elseif string.sub(line, 1, 5) == "PATH\t" then
+                idx_path = string.sub(line, 6)
+            elseif string.sub(line, 1, 5) == "SIZE\t" then
+                idx_size = tonumber(string.sub(line, 6)) or 0
+            else
+                local parts = split_tabs_simple(line, 34)
+                local icao = parts[1]
+                if icao and icao ~= "" then
+                    local entry = {}
+                    entry[def.DESTICAO] = parts[1] or ""
+                    entry[def.DESTRWY] = parts[2] or ""
+                    entry[def.DESTNAVTYPE] = parts[3] or ""
+                    entry[def.DESTNAVID] = parts[4] or ""
+                    entry[def.DESTFREQ] = tonumber(parts[5]) or 0
+                    entry[def.DESTLATPOS] = tonumber(parts[6]) or 0
+                    entry[def.DESTLONPOS] = tonumber(parts[7]) or 0
+                    entry[def.DESTCOURSE] = tonumber(parts[8]) or 0
+                    entry[def.DESTNAVDME] = (parts[9] == "1")
+                    entry[def.DESTELEVATION] = tonumber(parts[10]) or 0
+                    entry[def.DESTRANGE] = tonumber(parts[11]) or 0
+                    entry[def.DESTRAWBEARING] = tonumber(parts[12]) or 0
+                    entry[def.DESTMAGVAR] = tonumber(parts[13]) or 0
+                    entry[def.DESTFACILITYNAME] = parts[14] or ""
+                    entry[def.DESTSRCRECTYPE] = parts[15] or ""
+                    entry[def.DESTDMELAT] = tonumber(parts[16]) or 0
+                    entry[def.DESTDMELON] = tonumber(parts[17]) or 0
+                    entry[def.DESTDMEELEVATION] = tonumber(parts[18]) or 0
+                    entry[def.DESTDMERANGE] = tonumber(parts[19]) or 0
+                    entry[def.DESTGSLAT] = tonumber(parts[20]) or 0
+                    entry[def.DESTGSLON] = tonumber(parts[21]) or 0
+                    entry[def.DESTGSELEVATION] = tonumber(parts[22]) or 0
+                    entry[def.DESTGSRANGE] = tonumber(parts[23]) or 0
+                    entry[def.DESTGSSLOPE] = tonumber(parts[24]) or 0
+                    entry[def.DESTGSRAWBEARING] = tonumber(parts[25]) or 0
+                    entry[def.DESTDMEIDENT] = parts[26] or ""
+                    entry[def.DESTDMEFREQ] = tonumber(parts[27]) or 0
+                    entry.truecourse = tonumber(parts[28]) or nil
+                    entry.isTrueCourse = (parts[29] == "1")
+                    local app_id = parts[30]
+                    if app_id ~= nil and app_id ~= "" then
+                        entry.app_id = app_id
+                    end
+                    local alt_id = parts[31]
+                    if alt_id ~= nil and alt_id ~= "" then
+                        entry.alt_id = alt_id
+                    end
+                    local service_level = parts[32]
+                    if service_level ~= nil and service_level ~= "" then
+                        entry.serviceLevel = tostring(service_level):upper()
+                    end
+                    entry.isLateralOnly = (parts[33] == "1")
+                    -- Backward compatibility for older caches that did not persist LP flags.
+                    if (not entry.isLateralOnly)
+                        and entry[def.DESTNAVTYPE] == def.NAVTYPERNAV
+                        and entry[def.DESTSRCRECTYPE] == def.NAVDATARECTYPELPV then
+                        entry.isLateralOnly = true
+                    end
+                    if (not entry.serviceLevel)
+                        and entry.isLateralOnly
+                        and entry[def.DESTSRCRECTYPE] == def.NAVDATARECTYPELPV then
+                        entry.serviceLevel = "LP"
+                    end
+                    table.insert(entries, entry)
+                end
+            end
+        end
+        f:close()
+        if idx_version ~= 2 then
+            P.logInfoTS("Navdata cache invalid (index version mismatch), rebuilding.")
+            pcall(function() os.remove(NAV_IDX_FILE) end)
+            return nil
+        end
+        if idx_epoch ~= cache_epoch then
+            P.logInfoTS(
+                "Navdata cache invalid (cache epoch "
+                    .. tostring(idx_epoch)
+                    .. " != "
+                    .. tostring(cache_epoch)
+                    .. "), rebuilding."
+            )
+            pcall(function() os.remove(NAV_IDX_FILE) end)
+            return nil
+        end
+        if idx_path ~= path or (idx_size or 0) ~= (size or 0) then
+            return nil
+        end
+        if #entries == 0 then
+            return nil
+        end
+        return entries
+    end
+
+    local cached = load_nav_index(nav_path, nav_size)
+    if cached then
+        for i = 1, #cached do
+            navdatatable[i] = cached[i]
+        end
+        P.logInfoTS(
+            "Global Airports Navdata Table loaded from cache, "
+                .. tostring(#navdatatable)
+                .. " entries."
+        )
+        return true
+    end
+
+    local function write_nav_index(path, size, entries)
+        local f = io.open(NAV_IDX_FILE, "w")
+        if not f then
+            sasl.logWarning("Navdata: failed to write nav index: " .. tostring(NAV_IDX_FILE))
+            return false
+        end
+        f:write("YALNAVIDX\t2\n")
+        f:write("EPOCH\t", tostring(tonumber(def.CACHE_EPOCH) or 1), "\n")
+        f:write("PATH\t", tostring(path or ""), "\n")
+        f:write("SIZE\t", tostring(size or 0), "\n")
+        for i = 1, #entries do
+            local e = entries[i]
+            local fields = {
+                tostring(e[def.DESTICAO] or ""),
+                tostring(e[def.DESTRWY] or ""),
+                tostring(e[def.DESTNAVTYPE] or ""),
+                tostring(e[def.DESTNAVID] or ""),
+                tostring(tonumber(e[def.DESTFREQ]) or 0),
+                tostring(tonumber(e[def.DESTLATPOS]) or 0),
+                tostring(tonumber(e[def.DESTLONPOS]) or 0),
+                tostring(tonumber(e[def.DESTCOURSE]) or 0),
+                (e[def.DESTNAVDME] and "1" or "0"),
+                tostring(tonumber(e[def.DESTELEVATION]) or 0),
+                tostring(tonumber(e[def.DESTRANGE]) or 0),
+                tostring(tonumber(e[def.DESTRAWBEARING]) or 0),
+                tostring(tonumber(e[def.DESTMAGVAR]) or 0),
+                tostring(e[def.DESTFACILITYNAME] or ""),
+                tostring(e[def.DESTSRCRECTYPE] or ""),
+                tostring(tonumber(e[def.DESTDMELAT]) or 0),
+                tostring(tonumber(e[def.DESTDMELON]) or 0),
+                tostring(tonumber(e[def.DESTDMEELEVATION]) or 0),
+                tostring(tonumber(e[def.DESTDMERANGE]) or 0),
+                tostring(tonumber(e[def.DESTGSLAT]) or 0),
+                tostring(tonumber(e[def.DESTGSLON]) or 0),
+                tostring(tonumber(e[def.DESTGSELEVATION]) or 0),
+                tostring(tonumber(e[def.DESTGSRANGE]) or 0),
+                tostring(tonumber(e[def.DESTGSSLOPE]) or 0),
+                tostring(tonumber(e[def.DESTGSRAWBEARING]) or 0),
+                tostring(e[def.DESTDMEIDENT] or ""),
+                tostring(tonumber(e[def.DESTDMEFREQ]) or 0),
+                tostring(tonumber(e.truecourse) or ""),
+                (e.isTrueCourse and "1" or "0"),
+                tostring(e.app_id or ""),
+                tostring(e.alt_id or ""),
+                tostring(e.serviceLevel or ""),
+                (e.isLateralOnly and "1" or "0")
+            }
+            f:write(table.concat(fields, "\t"), "\n")
+        end
+        f:close()
+        return true
+    end
+
+    local srcnavdatafile = io.open(nav_path, "rb")
+    if not srcnavdatafile then
+        sasl.logError("Could not open " .. tostring(nav_path))
+        return false
     end
 
     for i = 1, 3 do local _ = srcnavdatafile:read() end
@@ -4381,27 +6431,46 @@ function P.buildnavdatatable(navdatatable)
                     newEntry[def.DESTLATPOS] = lat_val
                     newEntry[def.DESTLONPOS] = lon_val
                     newEntry[def.DESTNAVDME] = true
+                    local service_level = navdataitems[#navdataitems]
+                    if service_level then
+                        service_level = tostring(service_level):upper()
+                        if service_level == "LP" or service_level == "LPV" or service_level == "GLS" then
+                            newEntry.serviceLevel = service_level
+                        else
+                            service_level = nil
+                        end
+                    end
 
                     if record_type_str == def.NAVDATARECTYPELPV then
-                        newEntry[def.DESTNAVTYPE] = def.NAVTYPELPV
+                        if service_level == "LP" then
+                            newEntry[def.DESTNAVTYPE] = def.NAVTYPERNAV
+                            newEntry.isLateralOnly = true
+                        else
+                            newEntry[def.DESTNAVTYPE] = def.NAVTYPELPV
+                        end
                     else
                         newEntry[def.DESTNAVTYPE] = def.NAVTYPEGLS
                     end
                     newEntry[def.DESTNAVID] = navdataitems[def.NAVSRC_COL_IDENT]
+                    newEntry.app_id = navdataitems[def.NAVSRC_COL_IDENT]
+                    local alt_id = navdataitems[def.NAVSRC_COL_NAME]
+                    if alt_id and alt_id ~= "" then
+                        newEntry.alt_id = alt_id
+                    end
                     
                     local raw_course_str = navdataitems[def.NAVSRC_COL_BEARING]
                     local raw_course = tonumber(raw_course_str)
                     if raw_course then
-                        -- LPV/GLS: bearing encodes true course; values >= 1000 include a prefix.
+                        -- LP/LPV/GLS: bearing encodes true course; values >= 1000 include a prefix.
                         local true_course = raw_course
                         if raw_course >= 1000 then
                             true_course = raw_course % 1000
                         end
-                        local trueCourseNormalized = P.calccourse(true_course)
+                        local trueCourseNormalized = (true_course + 360) % 360
                         local mag_variation = sasl.getMagneticVariation(lat_val, lon_val) or 0
                         newEntry.truecourse = trueCourseNormalized
                         newEntry.isTrueCourse = true
-                        newEntry[def.DESTCOURSE] = P.calccourse(trueCourseNormalized - mag_variation)
+                        newEntry[def.DESTCOURSE] = P.calccourse(trueCourseNormalized + mag_variation)
                         newEntry[def.DESTMAGVAR] = mag_variation
                     else
                         P.logInfoTS("Could not read true course for LPV/GLS (column NAVSRC_COL_BEARING): " .. navdatarecord)
@@ -4461,7 +6530,9 @@ function P.buildnavdatatable(navdatatable)
         end
     end
 
-P.logInfoTS("Navdata Table created, " .. #navdatatable .. " entries.")
+    write_nav_index(nav_path, nav_size, navdatatable)
+
+    P.logInfoTS("Global Airports Navdata Table created, " .. #navdatatable .. " entries.")
     return true
 end
 --------------------------------------------------------------------------------------------------------------
@@ -4488,13 +6559,165 @@ function P.writenavdatatable(navdatatable)
 end
 
 --------------------------------------------------------------------------------------------------------------
+local AIRPORT_META_PATH = "Resources/default data/earth_aptmeta.dat"
+local AIRPORT_META_IDX_FILE = def.PLUGINOUTPUTPATH .. "airport_meta.yalidx"
+
 function P.buildairportdatatable(airport_db)
-  
-    local file = io.open("Resources/default data/earth_aptmeta.dat", "r")
+    if not airport_db then
+        return false
+    end
+
+    for k in pairs(airport_db) do
+        airport_db[k] = nil
+    end
+
+    local function stat_file_size(path)
+        local f = io.open(path, "rb")
+        if not f then
+            return 0
+        end
+        local size = 0
+        local ok_seek, end_pos = pcall(function()
+            return f:seek("end")
+        end)
+        if ok_seek and end_pos then
+            size = tonumber(end_pos) or 0
+        end
+        f:close()
+        return size
+    end
+
+    local function compute_airport_meta()
+        local size = stat_file_size(AIRPORT_META_PATH)
+        if size <= 0 then
+            return nil
+        end
+        return {
+            path = AIRPORT_META_PATH,
+            size = size
+        }
+    end
+
+    local function write_airport_meta_index(meta, db)
+        if not meta or not db then
+            return false
+        end
+        local file = io.open(AIRPORT_META_IDX_FILE, "w")
+        if not file then
+            sasl.logWarning("Airportdata: failed to write airport meta index: " .. tostring(AIRPORT_META_IDX_FILE))
+            return false
+        end
+        file:write("YALAPTMETAIDX\t1\n")
+        file:write("EPOCH\t", tostring(tonumber(def.CACHE_EPOCH) or 1), "\n")
+        file:write("PATH\t", tostring(meta.path or ""), "\n")
+        file:write("SIZE\t", tostring(meta.size or 0), "\n")
+        for icao, data in pairs(db) do
+            local latitude = tonumber(data.latitude) or 0
+            local longitude = tonumber(data.longitude) or 0
+            local elevation = tonumber(data.elevation_ft) or 0
+            local airport_type = tostring(data.airport_type or "")
+            local max_rwy_ft = tonumber(data.max_rwy_ft) or 0
+            local has_ils = (data.has_ils and 1) or 0
+            file:write(
+                tostring(icao), "\t",
+                string.format("%.6f", latitude), "\t",
+                string.format("%.6f", longitude), "\t",
+                tostring(elevation), "\t",
+                airport_type, "\t",
+                tostring(max_rwy_ft), "\t",
+                tostring(has_ils), "\n"
+            )
+        end
+        file:close()
+        return true
+    end
+
+    local function load_airport_meta_index(meta)
+        local file = io.open(AIRPORT_META_IDX_FILE, "rb")
+        if not file then
+            return nil
+        end
+        local cache_epoch = tonumber(def.CACHE_EPOCH) or 1
+        local idx_version = nil
+        local idx_epoch = nil
+        local idx_path = nil
+        local idx_size = nil
+        local entries = {}
+        for line in file:lines() do
+            local len = #line
+            if len > 0 and string.byte(line, len) == 13 then
+                line = string.sub(line, 1, len - 1)
+            end
+            if string.sub(line, 1, 14) == "YALAPTMETAIDX\t" then
+                idx_version = tonumber(string.sub(line, 15)) or 0
+            elseif string.sub(line, 1, 6) == "EPOCH\t" then
+                idx_epoch = tonumber(string.sub(line, 7)) or 0
+            elseif string.sub(line, 1, 5) == "PATH\t" then
+                idx_path = string.sub(line, 6)
+            elseif string.sub(line, 1, 5) == "SIZE\t" then
+                idx_size = tonumber(string.sub(line, 6)) or 0
+            else
+                local icao, lat, lon, elev, atype, rwy, ils =
+                    line:match("^(%S+)\t([-%d%.]+)\t([-%d%.]+)\t([-%d]+)\t([^\t]*)\t([-%d]+)\t([01])$")
+                if icao then
+                    entries[icao] = {
+                        latitude = tonumber(lat),
+                        longitude = tonumber(lon),
+                        elevation_ft = tonumber(elev),
+                        airport_type = atype,
+                        max_rwy_ft = tonumber(rwy),
+                        has_ils = (ils == "1")
+                    }
+                end
+            end
+        end
+        file:close()
+        if idx_version ~= 1 then
+            P.logInfoTS("Airportdata cache invalid (index version mismatch), rebuilding.")
+            pcall(function() os.remove(AIRPORT_META_IDX_FILE) end)
+            return nil
+        end
+        if idx_epoch ~= cache_epoch then
+            P.logInfoTS(
+                "Airportdata cache invalid (cache epoch "
+                    .. tostring(idx_epoch)
+                    .. " != "
+                    .. tostring(cache_epoch)
+                    .. "), rebuilding."
+            )
+            pcall(function() os.remove(AIRPORT_META_IDX_FILE) end)
+            return nil
+        end
+        if not meta or idx_path ~= meta.path or (idx_size or 0) ~= (meta.size or 0) then
+            return nil
+        end
+        return entries
+    end
+
+    local meta = compute_airport_meta()
+    if not meta then
+        sasl.logError("Could not stat " .. tostring(AIRPORT_META_PATH))
+        return false
+    end
+
+    local cached = load_airport_meta_index(meta)
+    if cached and next(cached) ~= nil then
+        for icao, entry in pairs(cached) do
+            airport_db[icao] = entry
+        end
+        P.logInfoTS(
+            "Global Airports Airportdata Table loaded from cache, "
+                .. tostring(P.getTableSize(airport_db))
+                .. " entries."
+        )
+        return true
+    end
+
+    local file = io.open(AIRPORT_META_PATH, "rb")
 
 
     if not file then
-        sasl.logError("Could not open Resources/default data/earth_aptmeta.dat")
+        sasl.logError("Could not open " .. tostring(AIRPORT_META_PATH))
         return false
     end
 
@@ -4520,8 +6743,10 @@ function P.buildairportdatatable(airport_db)
 
     -- Datei wieder schließen
     file:close()
-    
-    P.logInfoTS("Airport Data Table created, " .. line_count .. " entries.")
+
+    write_airport_meta_index(meta, airport_db)
+
+    P.logInfoTS("Global Airports Airportdata Table created, " .. line_count .. " entries.")
 
     return true
 end
@@ -4559,6 +6784,3097 @@ function P.writeairportdatatable(airport_db)
     destairportfile:close()
 
     return true
+end
+
+--------------------------------------------------------------------------------------------------------------
+function P.writetaxidatatable()
+    if not (P.global_apt_index_ready == true and P.global_apt_index and next(P.global_apt_index) ~= nil) then
+        P.logInfoTS("Global Airports Taxidata Table dump skipped (index not ready).")
+        return false
+    end
+
+    local basePath = def.PLUGINOUTPUTPATH
+    local destfile = io.open(basePath .. "yal_taxi.dat", "w")
+    if not destfile then
+        sasl.logError("Could not open " .. basePath .. "yal_taxi.dat")
+        return false
+    end
+
+    local function write_line(text)
+        destfile:write(tostring(text or "") .. "\n")
+    end
+
+    local keys = {}
+    for icao, _ in pairs(P.global_apt_index) do
+        keys[#keys + 1] = icao
+    end
+    table.sort(keys)
+
+    write_line("YAL Taxidata Dump")
+    write_line("Entries: " .. tostring(#keys))
+
+    local function sorted_node_ids(nodes)
+        local ids = {}
+        for id, _ in pairs(nodes or {}) do
+            ids[#ids + 1] = id
+        end
+        table.sort(ids, function(a, b)
+            return (tonumber(a) or 0) < (tonumber(b) or 0)
+        end)
+        return ids
+    end
+
+    for _, icao in ipairs(keys) do
+        local entry = P.global_apt_index[icao]
+        if entry then
+            entry.icao = icao
+            write_line("")
+            write_line("ICAO " .. tostring(icao))
+            write_line(
+                "ENTRY path=" .. tostring(entry.path)
+                    .. " offset=" .. tostring(entry.offset)
+                    .. " length=" .. tostring(entry.length)
+                    .. " has_routes=" .. tostring(entry.has_routes)
+                    .. " source=" .. tostring(entry.source)
+            )
+            local data, err = parse_taxi_data(entry)
+            if not data then
+                write_line("ERROR " .. tostring(err))
+            else
+                write_line(
+                    "META route_source=" .. tostring(data.route_source)
+                        .. " has_routes=" .. tostring(data.has_routes)
+                        .. " has_fallback=" .. tostring(data.has_fallback)
+                )
+                write_line("NODES " .. tostring(P.getTableSize(data.nodes or {})))
+                for _, id in ipairs(sorted_node_ids(data.nodes)) do
+                    local node = data.nodes[id]
+                    if node then
+                        write_line(
+                            string.format(
+                                "NODE %s %.6f %.6f %.2f %.2f ramp=%s",
+                                tostring(id),
+                                tonumber(node.lat) or 0,
+                                tonumber(node.lon) or 0,
+                                tonumber(node.east) or 0,
+                                tonumber(node.north) or 0,
+                                node.is_ramp and "1" or "0"
+                            )
+                        )
+                    end
+                end
+
+                write_line("EDGES " .. tostring(#(data.edges or {})))
+                for _, edge in ipairs(data.edges or {}) do
+                    write_line(
+                        string.format(
+                            "EDGE %s %s %s %s",
+                            tostring(edge.from),
+                            tostring(edge.to),
+                            tostring(edge.dir or ""),
+                            tostring(edge.label or "")
+                        )
+                    )
+                end
+
+                write_line("RAMPS " .. tostring(#(data.ramps or {})))
+                for _, ramp in ipairs(data.ramps or {}) do
+                    write_line(
+                        string.format(
+                            "RAMP %.6f %.6f heading=%.1f type=%s size=%s op=%s name=%s node=%s anchor=%s",
+                            tonumber(ramp.lat) or 0,
+                            tonumber(ramp.lon) or 0,
+                            tonumber(ramp.heading) or 0,
+                            tostring(ramp.ramp_type or ""),
+                            tostring(ramp.ramp_size or ""),
+                            tostring(ramp.ramp_operation or ""),
+                            tostring(ramp.name or ""),
+                            tostring(ramp.node_id or ""),
+                            tostring(ramp.route_anchor_node_id or "")
+                        )
+                    )
+                end
+
+                write_line("RUNWAYS " .. tostring(#(data.runways or {})))
+                for _, rwy in ipairs(data.runways or {}) do
+                    write_line(
+                        string.format(
+                            "RWY %s %.6f %.6f %s %.6f %.6f width=%.1f",
+                            tostring(rwy.rwy1 or ""),
+                            tonumber(rwy.lat1) or 0,
+                            tonumber(rwy.lon1) or 0,
+                            tostring(rwy.rwy2 or ""),
+                            tonumber(rwy.lat2) or 0,
+                            tonumber(rwy.lon2) or 0,
+                            tonumber(rwy.width) or 0
+                        )
+                    )
+                end
+
+                write_line("POLYGONS " .. tostring(#(data.polygons or {})))
+                for i, poly in ipairs(data.polygons or {}) do
+                    local pts = poly.points or {}
+                    write_line("POLY " .. tostring(i) .. " points=" .. tostring(#pts))
+                    for _, pt in ipairs(pts) do
+                        write_line(
+                            string.format(
+                                "PT %.2f %.2f",
+                                tonumber(pt.east) or 0,
+                                tonumber(pt.north) or 0
+                            )
+                        )
+                    end
+                end
+            end
+        end
+    end
+
+    destfile:close()
+    P.logInfoTS("Global Airports Taxidata Table dump created.")
+    return true
+end
+
+--------------------------------------------------------------------------------------------------------------
+-- Taxi routing: apt.dat locator
+
+local function is_space_byte(byte)
+    return byte == 32 or byte == 9 or byte == 10 or byte == 13
+end
+
+local function trim_ascii(text)
+    if not text then
+        return ""
+    end
+    local start_idx = 1
+    local end_idx = #text
+    while start_idx <= end_idx do
+        local b = string.byte(text, start_idx)
+        if b and not is_space_byte(b) then
+            break
+        end
+        start_idx = start_idx + 1
+    end
+    while end_idx >= start_idx do
+        local b = string.byte(text, end_idx)
+        if b and not is_space_byte(b) then
+            break
+        end
+        end_idx = end_idx - 1
+    end
+    if end_idx < start_idx then
+        return ""
+    end
+    return string.sub(text, start_idx, end_idx)
+end
+
+local function next_token(line, pos)
+    local len = #line
+    local i = pos or 1
+    while i <= len do
+        local b = string.byte(line, i)
+        if b and not is_space_byte(b) then
+            break
+        end
+        i = i + 1
+    end
+    if i > len then
+        return nil, len + 1
+    end
+    local start_idx = i
+    i = i + 1
+    while i <= len do
+        local b = string.byte(line, i)
+        if b and is_space_byte(b) then
+            break
+        end
+        i = i + 1
+    end
+    return string.sub(line, start_idx, i - 1), i
+end
+
+local function split_pipe(line)
+    local parts = {}
+    local start_idx = 1
+    for i = 1, #line do
+        if string.byte(line, i) == 124 then
+            parts[#parts + 1] = string.sub(line, start_idx, i - 1)
+            start_idx = i + 1
+        end
+    end
+    parts[#parts + 1] = string.sub(line, start_idx)
+    return parts
+end
+
+local function tokenize_line(line)
+    local tokens = {}
+    local pos = 1
+    while true do
+        local tok
+        tok, pos = next_token(line, pos)
+        if not tok then
+            break
+        end
+        tokens[#tokens + 1] = tok
+    end
+    return tokens
+end
+
+local function get_file_size(path)
+    local file = io.open(path, "rb")
+    if not file then
+        return nil
+    end
+    local size = file:seek("end")
+    file:close()
+    return size
+end
+
+local lfs_ok, lfs = pcall(require, "lfs")
+
+local function get_file_mtime(path)
+    if not lfs_ok or not lfs or not path then
+        return nil
+    end
+    local ok, attr = pcall(lfs.attributes, path)
+    if not ok or not attr then
+        return nil
+    end
+    local mtime = attr.modification
+    if type(mtime) ~= "number" then
+        return nil
+    end
+    return math.floor(mtime)
+end
+
+local FNV_OFFSET = 2166136261
+local FNV_PRIME = 16777619
+local FNV_MOD = 4294967296
+
+local bit_ok, bit = pcall(require, "bit")
+if not bit_ok then
+    bit = _G.bit
+end
+local bit32_ok, bit32 = pcall(require, "bit32")
+if not bit32_ok then
+    bit32 = _G.bit32
+end
+local bxor = (bit and bit.bxor) or (bit32 and bit32.bxor) or nil
+
+local function xor32(a, b)
+    if bxor then
+        return bxor(a, b)
+    end
+    -- Portable (but slower) XOR fallback for small samples.
+    local res = 0
+    local bitval = 1
+    local aa = math.floor(a or 0)
+    local bb = math.floor(b or 0)
+    for _ = 1, 32 do
+        local abit = aa % 2
+        local bbit = bb % 2
+        if abit ~= bbit then
+            res = res + bitval
+        end
+        aa = (aa - abit) / 2
+        bb = (bb - bbit) / 2
+        bitval = bitval * 2
+    end
+    return res
+end
+
+local function fnv1a_update(hash, chunk)
+    if not chunk or chunk == "" then
+        return hash
+    end
+    local h = hash or FNV_OFFSET
+    for i = 1, #chunk do
+        local b = string.byte(chunk, i)
+        if b then
+            h = xor32(h, b)
+            h = (h * FNV_PRIME) % FNV_MOD
+        end
+    end
+    return h
+end
+
+local function compute_file_fingerprint(path, size, sample_bytes)
+    if not path then
+        return nil
+    end
+    local file = io.open(path, "rb")
+    if not file then
+        return nil
+    end
+    local ok = true
+    local function read_at(offset, bytes)
+        if not ok then
+            return ""
+        end
+        local o = offset or 0
+        if o < 0 then
+            o = 0
+        end
+        ok = file:seek("set", o) ~= nil
+        if not ok then
+            return ""
+        end
+        return file:read(bytes) or ""
+    end
+
+    local sz = size or get_file_size(path) or 0
+    local bytes = math.floor(sample_bytes or 2048)
+    if bytes < 256 then
+        bytes = 256
+    end
+    if sz > 0 and bytes > sz then
+        bytes = sz
+    end
+    if bytes <= 0 then
+        file:close()
+        return nil
+    end
+
+    local max_offset = math.max(0, sz - bytes)
+    local half = math.floor(bytes / 2)
+    local positions = {
+        0,
+        math.max(0, math.floor(sz * 0.25) - half),
+        math.max(0, math.floor(sz * 0.50) - half),
+        math.max(0, math.floor(sz * 0.75) - half),
+        max_offset
+    }
+    local seen = {}
+    local hash = FNV_OFFSET
+    for _, pos in ipairs(positions) do
+        local p = pos
+        if p > max_offset then
+            p = max_offset
+        end
+        if not seen[p] then
+            seen[p] = true
+            local chunk = read_at(p, bytes)
+            hash = fnv1a_update(hash, chunk)
+        end
+    end
+    file:close()
+    local out = math.floor(hash % FNV_MOD)
+    return string.format("%08x", out)
+end
+
+local function global_apt_path()
+    return sasl.getXPlanePath() .. def.OSSEPARATOR .. "Global Scenery" .. def.OSSEPARATOR .. "Global Airports"
+        .. def.OSSEPARATOR .. "Earth nav data" .. def.OSSEPARATOR .. "apt.dat"
+end
+
+local GLOBAL_APT_INDEX_VERSION = 9
+local GLOBAL_APT_INDEX_FILE = def.PLUGINOUTPUTPATH .. "apt_global.yalidx"
+local GLOBAL_APT_META_REFRESH_SEC = 30
+local GLOBAL_APT_INDEX_STEP_LINES = 10000
+local GLOBAL_APT_INDEX_STEP_SEC = 0.0015
+local GLOBAL_APT_FINGERPRINT_BYTES = 2048
+local GLOBAL_APT_INDEX_FAST_LINES = 20000000
+
+local function is_global_apt(path)
+    if not path then
+        return false
+    end
+    return path == global_apt_path()
+end
+
+local function is_absolute_path(path)
+    if not path or path == "" then
+        return false
+    end
+    local first = string.sub(path, 1, 1)
+    if first == "/" or first == "\\" then
+        return true
+    end
+    if #path >= 2 and string.sub(path, 2, 2) == ":" then
+        return true
+    end
+    return false
+end
+
+local function ensure_trailing_sep(path)
+    local last = string.sub(path, -1)
+    if last == "/" or last == "\\" then
+        return path
+    end
+    return path .. def.OSSEPARATOR
+end
+
+local function normalize_pack_path(path)
+    path = trim_ascii(path)
+    if path == "" then
+        return nil
+    end
+    if string.sub(path, 1, 1) == "\"" and string.sub(path, -1) == "\"" then
+        path = string.sub(path, 2, -2)
+    end
+    if not is_absolute_path(path) then
+        path = sasl.getXPlanePath() .. def.OSSEPARATOR .. path
+    end
+    return ensure_trailing_sep(path)
+end
+
+local function get_active_scenery_packs()
+    local packs = {}
+    local ini_path = sasl.getXPlanePath() .. def.OSSEPARATOR .. "Custom Scenery" .. def.OSSEPARATOR .. "scenery_packs.ini"
+    local file = io.open(ini_path, "r")
+    if not file then
+        return packs
+    end
+    for line in file:lines() do
+        local token, pos = next_token(line, 1)
+        if token == "SCENERY_PACK" then
+            local rest = trim_ascii(string.sub(line, pos))
+            if rest ~= "" then
+                local full_path = normalize_pack_path(rest)
+                if full_path then
+                    packs[#packs + 1] = full_path
+                end
+            end
+        end
+    end
+    file:close()
+    return packs
+end
+
+local function build_apt_search_paths(include_global)
+    if include_global == nil then
+        include_global = false
+    end
+    local paths = {}
+    local seen = {}
+    local packs = get_active_scenery_packs()
+    for _, pack_path in ipairs(packs) do
+        local apt_path = pack_path .. "Earth nav data" .. def.OSSEPARATOR .. "apt.dat"
+        if not seen[apt_path] and P.file_exists_v2(apt_path) then
+            seen[apt_path] = true
+            paths[#paths + 1] = apt_path
+        end
+    end
+    if include_global then
+        local global_apt = global_apt_path()
+        if not seen[global_apt] and P.file_exists_v2(global_apt) then
+            seen[global_apt] = true
+            paths[#paths + 1] = global_apt
+        end
+    end
+    return paths
+end
+
+P.addon_apt_cache = P.addon_apt_cache or {}
+
+local function get_addon_apt_paths()
+    local paths = build_apt_search_paths(false)
+    local key = table.concat(paths, "|")
+    if key ~= (P.addon_apt_cache_key or "") then
+        P.addon_apt_cache_key = key
+        P.addon_apt_cache = {}
+    end
+    return paths, key
+end
+
+local function is_int_token(token)
+    if not token or token == "" then
+        return false
+    end
+    local len = #token
+    local i = 1
+    if string.byte(token, 1) == 45 then
+        if len == 1 then
+            return false
+        end
+        i = 2
+    end
+    while i <= len do
+        local b = string.byte(token, i)
+        if not b or b < 48 or b > 57 then
+            return false
+        end
+        i = i + 1
+    end
+    return true
+end
+
+local function is_icao_token(token)
+    if not token or token == "" then
+        return false
+    end
+    local t = string.upper(token)
+    local len = #t
+    if len < 3 or len > 7 then
+        return false
+    end
+    for i = 1, len do
+        local b = string.byte(t, i)
+        if not b then
+            return false
+        end
+        local is_digit = (b >= 48 and b <= 57)
+        local is_alpha = (b >= 65 and b <= 90)
+        if not is_digit and not is_alpha then
+            return false
+        end
+    end
+    return true
+end
+
+local function parse_airport_header_icao(line)
+    local token, pos = next_token(line, 1)
+    if token ~= "1" and token ~= "16" and token ~= "17" then
+        return nil
+    end
+    local t2, t3, t4, t5 = nil, nil, nil, nil
+    t2, pos = next_token(line, pos)
+    t3, pos = next_token(line, pos)
+    t4, pos = next_token(line, pos)
+    t5, pos = next_token(line, pos)
+    if not (t2 and t3 and t4 and t5) then
+        return nil
+    end
+    if not (is_int_token(t2) and is_int_token(t3) and is_int_token(t4)) then
+        return nil
+    end
+    if not is_icao_token(t5) then
+        return nil
+    end
+    return t5
+end
+
+local function scan_apt_for_icao(apt_path, target_icao)
+    local file = io.open(apt_path, "rb")
+    if not file then
+        return nil, "open-failed"
+    end
+    local found_offset = nil
+    local has_routes = false
+    local block_end = nil
+    while true do
+        local line_pos = file:seek()
+        local line = file:read("*l")
+        if not line then
+            break
+        end
+        local header_icao = parse_airport_header_icao(line)
+        if header_icao then
+            header_icao = string.upper(header_icao)
+            if found_offset then
+                block_end = line_pos
+                break
+            end
+            if header_icao == target_icao then
+                found_offset = line_pos
+                has_routes = false
+            end
+        elseif found_offset then
+            local code = next_token(line, 1)
+            if code == "1201" or code == "1202" or code == "1206" then
+                has_routes = true
+            end
+        end
+    end
+    local size = file:seek("end")
+    file:close()
+    if not found_offset then
+        return nil, "not-found"
+    end
+    if not block_end then
+        block_end = size or found_offset
+    end
+    return {
+        icao = target_icao,
+        path = apt_path,
+        offset = found_offset,
+        length = block_end - found_offset,
+        size = size or 0,
+        has_routes = has_routes
+    }
+end
+
+
+local function build_taxi_label(tokens)
+    if #tokens < 5 then
+        return ""
+    end
+    local kind = tokens[5]
+    if not kind then
+        return ""
+    end
+    if kind == "runway" then
+        local rwy = tokens[6] or ""
+        if rwy ~= "" then
+            return "RWY " .. rwy
+        end
+        return "RWY"
+    end
+    if kind:sub(1, 8) == "taxiway" then
+        local name = kind:gsub("^taxiway[_%-]*", "")
+        local suffix = tokens[6] or ""
+        if name == "" then
+            name = suffix
+            suffix = ""
+        end
+        local label = name
+        if suffix ~= "" and suffix ~= name then
+            local name_trim = trim_ascii(name)
+            local suffix_trim = trim_ascii(suffix)
+            if #name_trim == 1 and suffix_trim ~= "" then
+                label = suffix_trim
+            else
+                label = name_trim .. " " .. suffix_trim
+            end
+        end
+        return trim_ascii(label)
+    end
+    return trim_ascii(table.concat(tokens, " ", 5))
+end
+
+local function is_runway_label(label)
+    if not label or label == "" then
+        return false
+    end
+    return string.sub(label, 1, 3) == "RWY"
+end
+
+local function geo_scale(ref_lat)
+    if not ref_lat then
+        return nil, nil
+    end
+    local lat_rad = math.rad(ref_lat)
+    local m_per_deg_lat = 111132.92 - 559.82 * math.cos(2 * lat_rad) + 1.175 * math.cos(4 * lat_rad) - 0.0023 * math.cos(6 * lat_rad)
+    local m_per_deg_lon = 111412.84 * math.cos(lat_rad) - 93.5 * math.cos(3 * lat_rad) + 0.118 * math.cos(5 * lat_rad)
+    return m_per_deg_lat, m_per_deg_lon
+end
+
+function P.geoScale(ref_lat)
+    return geo_scale(ref_lat)
+end
+
+function P.projectLatLon(lat, lon, ref_lat, ref_lon, mlat, mlon)
+    if not (ref_lat and ref_lon and lat and lon) then
+        return nil, nil
+    end
+    if not (mlat and mlon) then
+        mlat, mlon = geo_scale(ref_lat)
+    end
+    if not (mlat and mlon) then
+        return nil, nil
+    end
+    local east = (lon - ref_lon) * mlon
+    local north = (lat - ref_lat) * mlat
+    return east, north
+end
+
+function P.localToLatLon(east, north, ref_lat, ref_lon, mlat, mlon)
+    if not (ref_lat and ref_lon and east ~= nil and north ~= nil) then
+        return nil, nil
+    end
+    if not (mlat and mlon) then
+        mlat, mlon = geo_scale(ref_lat)
+    end
+    if not (mlat and mlon) then
+        return nil, nil
+    end
+    local lat = ref_lat + (north / mlat)
+    local lon = ref_lon + (east / mlon)
+    return lat, lon
+end
+
+local function project_to_local(lat, lon, ref_lat, ref_lon, mlat, mlon)
+    if type(ref_lat) == "table" then
+        local ref = ref_lat
+        ref_lat = ref.ref_lat
+        ref_lon = ref.ref_lon
+        mlat = ref.ref_mlat
+        mlon = ref.ref_mlon
+    end
+    if ref_lat and ref_lon then
+        local east, north = P.projectLatLon(lat, lon, ref_lat, ref_lon, mlat, mlon)
+        if east ~= nil and north ~= nil then
+            return east, -north
+        end
+    end
+    local x, _, z = sasl.worldToLocal(lat, lon, 0)
+    return x, z
+end
+
+local function update_bounds(bounds, x, y)
+    if not bounds.minX or x < bounds.minX then bounds.minX = x end
+    if not bounds.maxX or x > bounds.maxX then bounds.maxX = x end
+    if not bounds.minY or y < bounds.minY then bounds.minY = y end
+    if not bounds.maxY or y > bounds.maxY then bounds.maxY = y end
+end
+
+local function parse_taxi_data(entry)
+    if not entry or not entry.path or not entry.offset then
+        return nil, "invalid-entry"
+    end
+    local file = io.open(entry.path, "rb")
+    if not file then
+        return nil, "open-failed"
+    end
+    file:seek("set", entry.offset)
+    local limit = entry.offset + (entry.length or 0)
+    local strict_limit = limit > entry.offset
+    local allow_extend = entry.source == "global-index"
+    local extended = false
+    local target_icao = entry.icao
+    if allow_extend and entry.has_routes == false then
+        strict_limit = false
+        extended = true
+    end
+    local nodes = {}
+    local edges = {}
+    local ramps = {}
+    local runways = {}
+    local polygons = {}
+    local has_routes = false
+    local fallback_polys = {}
+    local current_poly = nil
+    local last_ramp = nil
+
+    local function finalize_poly()
+        if current_poly and #current_poly >= 2 then
+            fallback_polys[#fallback_polys + 1] = current_poly
+        end
+        current_poly = nil
+    end
+
+    local function add_poly_point(poly, lat, lon)
+        if not poly or not lat or not lon then
+            return
+        end
+        local last = poly[#poly]
+        if last and math.abs(last.lat - lat) < 1e-7 and math.abs(last.lon - lon) < 1e-7 then
+            return
+        end
+        poly[#poly + 1] = { lat = lat, lon = lon }
+    end
+
+    local function build_fallback_graph(polys)
+        local f_nodes = {}
+        local f_edges = {}
+        local node_by_key = {}
+        local next_id = 1
+        local function node_key(lat, lon)
+            return string.format("%.6f|%.6f", lat, lon)
+        end
+        local function add_node(lat, lon)
+            local key = node_key(lat, lon)
+            local id = node_by_key[key]
+            if not id then
+                id = next_id
+                next_id = next_id + 1
+                node_by_key[key] = id
+                f_nodes[id] = { id = id, lat = lat, lon = lon }
+            end
+            return id
+        end
+        for _, poly in ipairs(polys) do
+            local first_id = nil
+            local prev_id = nil
+            for _, pt in ipairs(poly) do
+                if pt.lat and pt.lon then
+                    local id = add_node(pt.lat, pt.lon)
+                    if not first_id then
+                        first_id = id
+                    end
+                    if prev_id and prev_id ~= id then
+                        f_edges[#f_edges + 1] = { from = prev_id, to = id, dir = "both", label = "TWY" }
+                    end
+                    prev_id = id
+                end
+            end
+            -- Do not close the polygon loop (last -> first). For taxiway polygons
+            -- this creates artificial long edges and spaghetti routes.
+        end
+        return f_nodes, f_edges
+    end
+
+    local function add_ramp_links(nodes_tbl, ramps_tbl, runway_nodes_tbl, max_dist, edge_nodes_tbl, edges_tbl)
+        local near_links = {}
+        local far_links = {}
+        if not nodes_tbl or not ramps_tbl or max_dist <= 0 then
+            return near_links, far_links, edges_tbl
+        end
+        local max_id = 0
+        for id, _ in pairs(nodes_tbl) do
+            if type(id) == "number" and id > max_id then
+                max_id = id
+            end
+        end
+        local next_id = max_id + 1
+        local max_d2 = max_dist * max_dist
+        local has_edge_filter = edge_nodes_tbl and next(edge_nodes_tbl) ~= nil
+
+        local EDGE_PROJ_REUSE_M = 8
+        local EDGE_PROJ_ENDPOINT_SNAP_M = 3
+        local HEADING_RADIUS_M = 150
+        local HEADING_ANGLE_DEG = 60
+        local reuse_d2 = EDGE_PROJ_REUSE_M * EDGE_PROJ_REUSE_M
+        local endpoint_d2 = EDGE_PROJ_ENDPOINT_SNAP_M * EDGE_PROJ_ENDPOINT_SNAP_M
+        local heading_radius2 = HEADING_RADIUS_M * HEADING_RADIUS_M
+        local heading_cos = math.cos(math.rad(HEADING_ANGLE_DEG))
+
+        local edge_projections = {}
+
+        local function project_point_to_segment(px, py, x1, y1, x2, y2)
+            local dx = x2 - x1
+            local dy = y2 - y1
+            local len2 = dx * dx + dy * dy
+            if len2 <= 1e-6 then
+                return x1, y1, 0
+            end
+            local t = ((px - x1) * dx + (py - y1) * dy) / len2
+            if t < 0 then
+                t = 0
+            elseif t > 1 then
+                t = 1
+            end
+            return x1 + dx * t, y1 + dy * t, t
+        end
+
+        local function find_best_edge(ramp)
+            if not edges_tbl then
+                return nil
+            end
+            local best = nil
+            local best_any = nil
+            local best_nearest_nonrunway = nil
+            local best_gate_backward = nil
+            local best_heading = nil
+            local best_forward = nil
+            local heading = tonumber(ramp.heading)
+            local dir_e = nil
+            local dir_n = nil
+            local ramp_type = string.lower(tostring(ramp.ramp_type or ""))
+            local is_gate = (ramp_type == "gate")
+            local prefer_local_misc_link = (ramp_type == "misc")
+            if heading then
+                local rad = math.rad(heading % 360)
+                dir_e = math.sin(rad)
+                dir_n = math.cos(rad)
+            end
+            for idx, edge in ipairs(edges_tbl) do
+                local n1 = nodes_tbl[edge.from]
+                local n2 = nodes_tbl[edge.to]
+                if n1 and n2 and n1.east and n1.north and n2.east and n2.north then
+                    local px, py, t = project_point_to_segment(ramp.east, ramp.north, n1.east, n1.north, n2.east, n2.north)
+                    local dx = ramp.east - px
+                    local dy = ramp.north - py
+                    local d2 = dx * dx + dy * dy
+                    local is_runway = is_runway_label(edge.label or "")
+                    local entry = {
+                        edge = edge,
+                        edge_index = idx,
+                        proj_east = px,
+                        proj_north = py,
+                        t = t,
+                        d2 = d2,
+                        score = d2
+                    }
+                    if not best_any or d2 < best_any.d2 then
+                        best_any = entry
+                    end
+                    if not is_runway then
+                        local along = nil
+                        local cross = nil
+                        local score = d2
+                        if not best_nearest_nonrunway or d2 < best_nearest_nonrunway.d2 then
+                            best_nearest_nonrunway = entry
+                        end
+                        if dir_e then
+                            local vx = px - ramp.east
+                            local vy = py - ramp.north
+                            along = vx * dir_e + vy * dir_n
+                            cross = math.abs(vx * dir_n - vy * dir_e)
+                            local behind = 0
+                            if along < 0 then
+                                behind = ((-along) * (-along)) * 4
+                            end
+                            score = d2 + (cross * cross) + behind
+                            entry.along = along
+                            entry.cross = cross
+                        end
+                        entry.score = score
+                        if is_gate then
+                            local gate_cross = cross or 0
+                            local gate_score = d2 + (gate_cross * gate_cross)
+                            local ahead = 0
+                            if along and along > 5 then
+                                ahead = ((along - 5) * (along - 5)) * 4
+                            end
+                            gate_score = gate_score + ahead
+                            entry.gate_score = gate_score
+                            if not best_gate_backward or gate_score < best_gate_backward.gate_score then
+                                best_gate_backward = entry
+                            end
+                        end
+                        if not best or score < best.score then
+                            best = entry
+                        end
+                        if dir_e and along ~= nil then
+                            if along >= -5 and (not best_forward or score < best_forward.score) then
+                                best_forward = entry
+                            end
+                        end
+                        if dir_e and d2 <= heading_radius2 then
+                            local vx = px - ramp.east
+                            local vy = py - ramp.north
+                            local v2 = vx * vx + vy * vy
+                            local ok = false
+                            if v2 <= 1e-6 then
+                                ok = true
+                            else
+                                local inv_len = 1 / math.sqrt(v2)
+                                local dot = (vx * dir_e + vy * dir_n) * inv_len
+                                ok = (dot >= heading_cos)
+                            end
+                            if ok and along and along >= -5 and (not best_heading or score < best_heading.score) then
+                                best_heading = entry
+                            end
+                        end
+                    end
+                end
+            end
+            local choice = nil
+            local mode = nil
+            if is_gate then
+                choice = best_gate_backward or best_nearest_nonrunway
+                if choice == best_gate_backward and dir_e then
+                    mode = "gate-backward"
+                else
+                    mode = "gate-nearest-nonrunway"
+                end
+            elseif prefer_local_misc_link then
+                choice = best_nearest_nonrunway or best
+                mode = "misc-nearest-nonrunway"
+                if choice and dir_e then
+                    local choice_bad = false
+                    local choice_dist = math.sqrt(choice.d2 or 0)
+                    if choice_dist > 60 then
+                        choice_bad = true
+                    end
+                    if choice.along ~= nil and choice.along < -20 then
+                        choice_bad = true
+                    end
+                    if choice.cross ~= nil and choice.cross > 18 then
+                        choice_bad = true
+                    end
+                    local better = best_heading or best_forward or best
+                    if choice_bad and better and better ~= choice then
+                        choice = better
+                        if better == best_heading then
+                            mode = "misc-heading"
+                        elseif better == best_forward then
+                            mode = "misc-forward"
+                        else
+                            mode = "misc-scored"
+                        end
+                    end
+                end
+            else
+                choice = best_heading
+                mode = "heading"
+                if not choice then
+                    choice = best_forward
+                    mode = "forward"
+                end
+                if not choice then
+                    choice = best
+                    mode = "nearest-nonrunway"
+                end
+            end
+            if not choice then
+                choice = best_any
+                mode = "nearest-any"
+            end
+            if choice then
+                choice.mode = mode
+            end
+            return choice
+        end
+
+        local function get_or_create_proj_node(best_edge)
+            if not best_edge or not best_edge.edge then
+                return nil
+            end
+            local edge = best_edge.edge
+            local idx = best_edge.edge_index
+            local n1 = nodes_tbl[edge.from]
+            local n2 = nodes_tbl[edge.to]
+            if not (n1 and n2 and n1.east and n1.north and n2.east and n2.north) then
+                return nil
+            end
+            local px = best_edge.proj_east
+            local py = best_edge.proj_north
+            local t = best_edge.t or 0
+
+            local dx1 = px - n1.east
+            local dy1 = py - n1.north
+            if (dx1 * dx1 + dy1 * dy1) <= endpoint_d2 then
+                return edge.from
+            end
+            local dx2 = px - n2.east
+            local dy2 = py - n2.north
+            if (dx2 * dx2 + dy2 * dy2) <= endpoint_d2 then
+                return edge.to
+            end
+
+            local list = edge_projections[idx]
+            if list then
+                for _, proj in ipairs(list) do
+                    local dx = proj.east - px
+                    local dy = proj.north - py
+                    if (dx * dx + dy * dy) <= reuse_d2 then
+                        return proj.node_id
+                    end
+                end
+            end
+
+            local proj_id = next_id
+            next_id = next_id + 1
+            local lat = nil
+            local lon = nil
+            if n1.lat and n1.lon and n2.lat and n2.lon then
+                lat = n1.lat + (n2.lat - n1.lat) * t
+                lon = n1.lon + (n2.lon - n1.lon) * t
+            end
+            nodes_tbl[proj_id] = {
+                id = proj_id,
+                lat = lat,
+                lon = lon,
+                x = px,
+                z = -py,
+                east = px,
+                north = py,
+                is_ramp_link = true
+            }
+            edge_projections[idx] = edge_projections[idx] or {}
+            edge_projections[idx][#edge_projections[idx] + 1] = { node_id = proj_id, t = t, east = px, north = py }
+            return proj_id
+        end
+
+        for _, ramp in ipairs(ramps_tbl) do
+            if ramp.x and ramp.z and ramp.east and ramp.north then
+                ramp.link_node_id = nil
+                ramp.link_edge_from = nil
+                ramp.link_edge_to = nil
+                ramp.link_edge_label = nil
+                ramp.link_distance_m = nil
+                ramp.link_score = nil
+                ramp.link_mode = nil
+                ramp.link_along = nil
+                ramp.link_cross = nil
+                ramp.route_anchor_node_id = nil
+                local rid = next_id
+                next_id = next_id + 1
+                nodes_tbl[rid] = {
+                    id = rid,
+                    lat = ramp.lat,
+                    lon = ramp.lon,
+                    x = ramp.x,
+                    z = ramp.z,
+                    east = ramp.east,
+                    north = ramp.north,
+                    is_ramp = true
+                }
+                ramp.node_id = rid
+
+                local linked = false
+                local best_edge = find_best_edge(ramp)
+                if best_edge and best_edge.d2 then
+                    local proj_id = get_or_create_proj_node(best_edge)
+                    if proj_id then
+                        far_links[#far_links + 1] = { from = rid, to = proj_id }
+                        if best_edge.d2 <= max_d2 then
+                            near_links[#near_links + 1] = { from = rid, to = proj_id }
+                        end
+                        ramp.link_node_id = proj_id
+                        ramp.link_edge_from = best_edge.edge and best_edge.edge.from or nil
+                        ramp.link_edge_to = best_edge.edge and best_edge.edge.to or nil
+                        ramp.link_edge_label = best_edge.edge and best_edge.edge.label or nil
+                        ramp.link_distance_m = math.sqrt(best_edge.d2 or 0)
+                        ramp.link_score = best_edge.score or best_edge.d2
+                        ramp.link_mode = best_edge.mode or "edge"
+                        ramp.link_along = best_edge.along
+                        ramp.link_cross = best_edge.cross
+                        ramp.route_anchor_node_id = proj_id
+                        linked = true
+                    end
+                end
+
+                if not linked then
+                    local function find_best(require_edge)
+                        local best_id = nil
+                        local best_d2 = nil
+                        local best_nr_id = nil
+                        local best_nr_d2 = nil
+                        for id, node in pairs(nodes_tbl) do
+                            if node and not node.is_ramp and not node.is_ramp_link and node.x and node.z then
+                                if require_edge and (not edge_nodes_tbl or not edge_nodes_tbl[id]) then
+                                    goto continue
+                                end
+                                local dx = node.x - ramp.x
+                                local dz = node.z - ramp.z
+                                local d2 = dx * dx + dz * dz
+                                if not best_d2 or d2 < best_d2 then
+                                    best_d2 = d2
+                                    best_id = id
+                                end
+                                if runway_nodes_tbl and not runway_nodes_tbl[id] then
+                                    if not best_nr_d2 or d2 < best_nr_d2 then
+                                        best_nr_d2 = d2
+                                        best_nr_id = id
+                                    end
+                                end
+                            end
+                            ::continue::
+                        end
+                        return best_id, best_d2, best_nr_id, best_nr_d2
+                    end
+
+                    local best_id, best_d2, best_nr_id, best_nr_d2 = find_best(has_edge_filter)
+                    if not best_id and not best_nr_id and has_edge_filter then
+                        best_id, best_d2, best_nr_id, best_nr_d2 = find_best(false)
+                    end
+                    local link_id = best_nr_id or best_id
+                    local link_d2 = best_nr_id and best_nr_d2 or best_d2
+                    if link_id and link_d2 then
+                        far_links[#far_links + 1] = { from = rid, to = link_id }
+                        if link_d2 <= max_d2 then
+                            near_links[#near_links + 1] = { from = rid, to = link_id }
+                        end
+                        ramp.link_node_id = link_id
+                        ramp.link_distance_m = math.sqrt(link_d2 or 0)
+                        ramp.link_score = link_d2
+                        if best_nr_id and link_id == best_nr_id then
+                            ramp.link_mode = "nearest-node-nonrunway"
+                        else
+                            ramp.link_mode = "nearest-node"
+                        end
+                        ramp.route_anchor_node_id = link_id
+                    end
+                end
+                if not ramp.route_anchor_node_id then
+                    ramp.route_anchor_node_id = rid
+                end
+            end
+        end
+
+        local edges_out = edges_tbl
+        if edges_tbl and next(edge_projections) ~= nil then
+            local new_edges = {}
+            for idx, edge in ipairs(edges_tbl) do
+                local projs = edge_projections[idx]
+                if projs and #projs > 0 then
+                    table.sort(projs, function(a, b)
+                        return (a.t or 0) < (b.t or 0)
+                    end)
+                    local prev = edge.from
+                    for _, proj in ipairs(projs) do
+                        if proj.node_id and proj.node_id ~= prev then
+                            new_edges[#new_edges + 1] = { from = prev, to = proj.node_id, dir = edge.dir, label = edge.label }
+                            prev = proj.node_id
+                        end
+                    end
+                    if prev ~= edge.to then
+                        new_edges[#new_edges + 1] = { from = prev, to = edge.to, dir = edge.dir, label = edge.label }
+                    end
+                else
+                    new_edges[#new_edges + 1] = edge
+                end
+            end
+            edges_out = new_edges
+        end
+
+        return near_links, far_links, edges_out
+    end
+
+    local debug_icao = (target_icao == "KCAE")
+    if debug_icao and not (P.taxi_debug_once and P.taxi_debug_once[target_icao]) then
+        P.taxi_debug_once = P.taxi_debug_once or {}
+        P.taxi_debug_once[target_icao] = true
+        helpers.logInfoTS(
+            "TaxiParse: " .. tostring(target_icao)
+                .. " path=" .. tostring(entry.path)
+                .. " offset=" .. tostring(entry.offset)
+                .. " length=" .. tostring(entry.length)
+                .. " has_routes=" .. tostring(entry.has_routes)
+                .. " strict_limit=" .. tostring(strict_limit)
+                .. " extended=" .. tostring(extended)
+        )
+    end
+    local debug_1201 = 0
+    while true do
+        local pos = file:seek()
+        if not pos then break end
+        if strict_limit and pos >= limit then
+            if allow_extend and not has_routes then
+                strict_limit = false
+                extended = true
+            else
+                break
+            end
+        end
+        local line = file:read("*l")
+        if not line then
+            break
+        end
+        local header_icao = parse_airport_header_icao(line)
+        if header_icao then
+            header_icao = string.upper(header_icao)
+            if not target_icao then
+                target_icao = header_icao
+            elseif header_icao ~= target_icao then
+                break
+            end
+        end
+        local code = next_token(line, 1)
+        if code ~= "1201" and code ~= "1202" and code ~= "1206" then
+            local i = 1
+            local len = #line
+            while i <= len do
+                local b = string.byte(line, i)
+                if b and not is_space_byte(b) then
+                    break
+                end
+                i = i + 1
+            end
+            if i <= len then
+                local prefix = string.sub(line, i, i + 3)
+                if prefix == "1201" or prefix == "1202" or prefix == "1206" then
+                    code = prefix
+                end
+            end
+        end
+        if code == "110" then
+            finalize_poly()
+            current_poly = {}
+        elseif current_poly and (code == "111" or code == "112" or code == "113" or code == "114") then
+            local tokens = tokenize_line(line)
+            local lat = nil
+            local lon = nil
+            if code == "111" or code == "113" then
+                lat = tonumber(tokens[2])
+                lon = tonumber(tokens[3])
+            else
+                lat = tonumber(tokens[4]) or tonumber(tokens[2])
+                lon = tonumber(tokens[5]) or tonumber(tokens[3])
+            end
+            add_poly_point(current_poly, lat, lon)
+        elseif current_poly and code and code ~= "" then
+            finalize_poly()
+        end
+        if code == "100" then
+            last_ramp = nil
+            local tokens = tokenize_line(line)
+            local width = tonumber(tokens[2])
+            local rwy1 = tokens[9]
+            local lat1 = tonumber(tokens[10])
+            local lon1 = tonumber(tokens[11])
+            local rwy2 = tokens[18]
+            local lat2 = tonumber(tokens[19])
+            local lon2 = tonumber(tokens[20])
+            if lat1 and lon1 and lat2 and lon2 then
+                runways[#runways + 1] = {
+                    width = width or 0,
+                    rwy1 = rwy1 or "",
+                    rwy2 = rwy2 or "",
+                    lat1 = lat1,
+                    lon1 = lon1,
+                    lat2 = lat2,
+                    lon2 = lon2
+                }
+            end
+        elseif code == "1201" then
+            last_ramp = nil
+            local tokens = tokenize_line(line)
+            local lat = tonumber(tokens[2])
+            local lon = tonumber(tokens[3])
+            local id = tonumber(tokens[5]) or tonumber(tokens[#tokens])
+            if lat and lon and id then
+                nodes[id] = { id = id, lat = lat, lon = lon }
+                has_routes = true
+                if debug_icao and debug_1201 < 3 then
+                    debug_1201 = debug_1201 + 1
+                    helpers.logInfoTS("TaxiParse: " .. tostring(target_icao) .. " saw 1201 node id=" .. tostring(id))
+                end
+            end
+        elseif code == "1202" then
+            last_ramp = nil
+            local tokens = tokenize_line(line)
+            local from_id = tonumber(tokens[2])
+            local to_id = tonumber(tokens[3])
+            local dir = tokens[4] or ""
+            if from_id and to_id then
+                edges[#edges + 1] = {
+                    from = from_id,
+                    to = to_id,
+                    dir = dir,
+                    label = build_taxi_label(tokens)
+                }
+                has_routes = true
+            end
+        elseif code == "1206" then
+            has_routes = true
+        elseif code == "1300" then
+            local tokens = tokenize_line(line)
+            local lat = tonumber(tokens[2])
+            local lon = tonumber(tokens[3])
+            if lat and lon then
+                local heading = tonumber(tokens[4]) or 0
+                local ramp_type = tokens[5] or ""
+                local ramp_operation = ""
+                local name_start = 6
+                local op_token = tokens[6]
+                if op_token then
+                    local op = string.lower(op_token)
+                    if op == "airline" or op == "cargo" or op == "general_aviation" or op == "military" or op == "none" then
+                        ramp_operation = op
+                        name_start = 7
+                    end
+                end
+                local name = ""
+                if #tokens >= name_start then
+                    name = table.concat(tokens, " ", name_start)
+                end
+                local ramp = {
+                    lat = lat,
+                    lon = lon,
+                    heading = heading,
+                    ramp_type = ramp_type,
+                    ramp_operation = ramp_operation,
+                    name = name
+                }
+                ramps[#ramps + 1] = ramp
+                last_ramp = ramp
+            end
+        elseif code == "1301" then
+            if last_ramp then
+                local tokens = tokenize_line(line)
+                local size = tokens[2]
+                local op = tokens[3]
+                if size and size ~= "" then
+                    last_ramp.ramp_size = size
+                end
+                if op then
+                    local op_clean = string.lower(op)
+                    if op_clean == "airline" or op_clean == "cargo"
+                        or op_clean == "general_aviation" or op_clean == "military" or op_clean == "none" then
+                        last_ramp.ramp_operation = op_clean
+                    end
+                end
+            end
+        end
+    end
+    file:close()
+    finalize_poly()
+
+    local atc_routes = has_routes
+    local has_fallback = false
+    local route_source = "none"
+    if atc_routes and next(nodes) ~= nil then
+        route_source = "atc"
+    else
+        local f_nodes, f_edges = build_fallback_graph(fallback_polys)
+        if f_nodes and next(f_nodes) ~= nil then
+            nodes = f_nodes
+            edges = f_edges
+            has_fallback = true
+            route_source = "fallback"
+        end
+    end
+
+    local function is_valid_latlon(lat, lon)
+        return lat ~= nil and lon ~= nil and lat >= -90 and lat <= 90 and lon >= -180 and lon <= 180
+    end
+
+    local function compute_ref_latlon(nodes_tbl, ramps_tbl, runways_tbl, polys_tbl)
+        local sum_lat = 0
+        local sum_lon = 0
+        local count = 0
+        if runways_tbl and #runways_tbl > 0 then
+            for _, rwy in ipairs(runways_tbl) do
+                if is_valid_latlon(rwy.lat1, rwy.lon1) and is_valid_latlon(rwy.lat2, rwy.lon2) then
+                    sum_lat = sum_lat + (rwy.lat1 + rwy.lat2) * 0.5
+                    sum_lon = sum_lon + (rwy.lon1 + rwy.lon2) * 0.5
+                    count = count + 1
+                end
+            end
+        end
+        if count == 0 and ramps_tbl and #ramps_tbl > 0 then
+            for _, ramp in ipairs(ramps_tbl) do
+                if is_valid_latlon(ramp.lat, ramp.lon) then
+                    sum_lat = sum_lat + ramp.lat
+                    sum_lon = sum_lon + ramp.lon
+                    count = count + 1
+                end
+            end
+        end
+        if count == 0 and nodes_tbl and next(nodes_tbl) ~= nil then
+            for _, node in pairs(nodes_tbl) do
+                if is_valid_latlon(node.lat, node.lon) then
+                    sum_lat = sum_lat + node.lat
+                    sum_lon = sum_lon + node.lon
+                    count = count + 1
+                end
+            end
+        end
+        if count == 0 and polys_tbl and #polys_tbl > 0 then
+            for _, poly in ipairs(polys_tbl) do
+                for _, pt in ipairs(poly) do
+                    if is_valid_latlon(pt.lat, pt.lon) then
+                        sum_lat = sum_lat + pt.lat
+                        sum_lon = sum_lon + pt.lon
+                        count = count + 1
+                    end
+                end
+            end
+        end
+        if count > 0 then
+            return sum_lat / count, sum_lon / count
+        end
+        return nil, nil
+    end
+
+    local function compute_ref_latlon_all(nodes_tbl, ramps_tbl, runways_tbl, polys_tbl)
+        local sum_lat = 0
+        local sum_lon = 0
+        local count = 0
+        if nodes_tbl and next(nodes_tbl) ~= nil then
+            for _, node in pairs(nodes_tbl) do
+                if is_valid_latlon(node.lat, node.lon) then
+                    sum_lat = sum_lat + node.lat
+                    sum_lon = sum_lon + node.lon
+                    count = count + 1
+                end
+            end
+        end
+        if ramps_tbl and #ramps_tbl > 0 then
+            for _, ramp in ipairs(ramps_tbl) do
+                if is_valid_latlon(ramp.lat, ramp.lon) then
+                    sum_lat = sum_lat + ramp.lat
+                    sum_lon = sum_lon + ramp.lon
+                    count = count + 1
+                end
+            end
+        end
+        if runways_tbl and #runways_tbl > 0 then
+            for _, rwy in ipairs(runways_tbl) do
+                if is_valid_latlon(rwy.lat1, rwy.lon1) then
+                    sum_lat = sum_lat + rwy.lat1
+                    sum_lon = sum_lon + rwy.lon1
+                    count = count + 1
+                end
+                if is_valid_latlon(rwy.lat2, rwy.lon2) then
+                    sum_lat = sum_lat + rwy.lat2
+                    sum_lon = sum_lon + rwy.lon2
+                    count = count + 1
+                end
+            end
+        end
+        if polys_tbl and #polys_tbl > 0 then
+            for _, poly in ipairs(polys_tbl) do
+                for _, pt in ipairs(poly) do
+                    if is_valid_latlon(pt.lat, pt.lon) then
+                        sum_lat = sum_lat + pt.lat
+                        sum_lon = sum_lon + pt.lon
+                        count = count + 1
+                    end
+                end
+            end
+        end
+        if count > 0 then
+            return sum_lat / count, sum_lon / count
+        end
+        return nil, nil
+    end
+
+    local function reproject_all_geometry(ref_lat_new, ref_lon_new)
+        if not is_valid_latlon(ref_lat_new, ref_lon_new) then
+            return nil, nil, nil
+        end
+        local mlat_new, mlon_new = geo_scale(ref_lat_new)
+        local ref_new = {
+            ref_lat = ref_lat_new,
+            ref_lon = ref_lon_new,
+            ref_mlat = mlat_new,
+            ref_mlon = mlon_new
+        }
+        local new_bounds = { minX = nil, maxX = nil, minY = nil, maxY = nil }
+
+        for _, poly in ipairs(polygons) do
+            poly.points = {}
+        end
+        polygons = {}
+        for _, poly in ipairs(fallback_polys) do
+            local pts = {}
+            for _, pt in ipairs(poly) do
+                if is_valid_latlon(pt.lat, pt.lon) then
+                    local x, z = project_to_local(pt.lat, pt.lon, ref_new)
+                    pts[#pts + 1] = { east = x, north = -z }
+                end
+            end
+            if #pts >= 2 then
+                polygons[#polygons + 1] = { points = pts }
+            end
+        end
+
+        for _, node in pairs(nodes) do
+            local x, z = project_to_local(node.lat, node.lon, ref_new)
+            node.x = x
+            node.z = z
+            node.east = x
+            node.north = -z
+            update_bounds(new_bounds, node.east, node.north)
+        end
+        for _, ramp in ipairs(ramps) do
+            local x, z = project_to_local(ramp.lat, ramp.lon, ref_new)
+            ramp.x = x
+            ramp.z = z
+            ramp.east = x
+            ramp.north = -z
+            update_bounds(new_bounds, ramp.east, ramp.north)
+        end
+        for _, runway in ipairs(runways) do
+            local x1, z1 = project_to_local(runway.lat1, runway.lon1, ref_new)
+            local x2, z2 = project_to_local(runway.lat2, runway.lon2, ref_new)
+            runway.x1 = x1
+            runway.z1 = z1
+            runway.east1 = x1
+            runway.north1 = -z1
+            runway.x2 = x2
+            runway.z2 = z2
+            runway.east2 = x2
+            runway.north2 = -z2
+            update_bounds(new_bounds, runway.east1, runway.north1)
+            update_bounds(new_bounds, runway.east2, runway.north2)
+        end
+        for _, poly in ipairs(polygons) do
+            for _, pt in ipairs(poly.points or {}) do
+                update_bounds(new_bounds, pt.east or 0, pt.north or 0)
+            end
+        end
+
+        return ref_new, new_bounds, polygons
+    end
+
+    local function bounds_need_reprojection(bounds_tbl)
+        if not bounds_tbl or bounds_tbl.minX == nil or bounds_tbl.maxX == nil or bounds_tbl.minY == nil or bounds_tbl.maxY == nil then
+            return true
+        end
+        local width = math.abs((bounds_tbl.maxX or 0) - (bounds_tbl.minX or 0))
+        local height = math.abs((bounds_tbl.maxY or 0) - (bounds_tbl.minY or 0))
+        return width > 50000 or height > 50000
+    end
+
+    local ref_lat, ref_lon = compute_ref_latlon(nodes, ramps, runways, fallback_polys)
+    local ref_mlat, ref_mlon = nil, nil
+    if ref_lat and ref_lon then
+        ref_mlat, ref_mlon = geo_scale(ref_lat)
+    end
+    local ref = { ref_lat = ref_lat, ref_lon = ref_lon, ref_mlat = ref_mlat, ref_mlon = ref_mlon }
+
+    local bounds = { minX = nil, maxX = nil, minY = nil, maxY = nil }
+    for _, poly in ipairs(fallback_polys) do
+        local pts = {}
+        for _, pt in ipairs(poly) do
+            if pt.lat and pt.lon then
+                local x, z = project_to_local(pt.lat, pt.lon, ref)
+                pts[#pts + 1] = { east = x, north = -z }
+            end
+        end
+        if #pts >= 2 then
+            polygons[#polygons + 1] = { points = pts }
+        end
+    end
+    for _, node in pairs(nodes) do
+        local x, z = project_to_local(node.lat, node.lon, ref)
+        node.x = x
+        node.z = z
+        node.east = x
+        node.north = -z
+        update_bounds(bounds, node.east, node.north)
+    end
+    for _, ramp in ipairs(ramps) do
+        local x, z = project_to_local(ramp.lat, ramp.lon, ref)
+        ramp.x = x
+        ramp.z = z
+        ramp.east = x
+        ramp.north = -z
+        update_bounds(bounds, ramp.east, ramp.north)
+    end
+    for _, runway in ipairs(runways) do
+        local x1, z1 = project_to_local(runway.lat1, runway.lon1, ref)
+        local x2, z2 = project_to_local(runway.lat2, runway.lon2, ref)
+        runway.x1 = x1
+        runway.z1 = z1
+        runway.east1 = x1
+        runway.north1 = -z1
+        runway.x2 = x2
+        runway.z2 = z2
+        runway.east2 = x2
+        runway.north2 = -z2
+        update_bounds(bounds, runway.east1, runway.north1)
+        update_bounds(bounds, runway.east2, runway.north2)
+    end
+    for _, poly in ipairs(polygons) do
+        for _, pt in ipairs(poly.points or {}) do
+            update_bounds(bounds, pt.east or 0, pt.north or 0)
+        end
+    end
+
+    if (not is_valid_latlon(ref_lat, ref_lon)) or bounds_need_reprojection(bounds) then
+        local ref_lat2, ref_lon2 = compute_ref_latlon_all(nodes, ramps, runways, fallback_polys)
+        local ref2, bounds2, polygons2 = reproject_all_geometry(ref_lat2, ref_lon2)
+        if ref2 and bounds2 and (not bounds_need_reprojection(bounds2)) then
+            ref_lat = ref2.ref_lat
+            ref_lon = ref2.ref_lon
+            ref_mlat = ref2.ref_mlat
+            ref_mlon = ref2.ref_mlon
+            ref = ref2
+            bounds = bounds2
+            polygons = polygons2 or polygons
+            P.logInfoTS(
+                "TaxiParse: reprojection sanity fallback icao="
+                    .. tostring(target_icao or entry.icao or "?")
+                    .. " width="
+                    .. string.format("%.1f", math.abs((bounds.maxX or 0) - (bounds.minX or 0)))
+                    .. " height="
+                    .. string.format("%.1f", math.abs((bounds.maxY or 0) - (bounds.minY or 0)))
+            )
+        elseif bounds_need_reprojection(bounds) then
+            P.logInfoTS(
+                "TaxiParse: reprojection sanity fallback failed icao="
+                    .. tostring(target_icao or entry.icao or "?")
+                    .. " ref="
+                    .. tostring(ref_lat2)
+                    .. "/"
+                    .. tostring(ref_lon2)
+            )
+        end
+    end
+
+    local runway_nodes = {}
+    for _, edge in ipairs(edges) do
+        if is_runway_label(edge.label) then
+            runway_nodes[edge.from] = true
+            runway_nodes[edge.to] = true
+        end
+    end
+
+    local edge_nodes = {}
+    for _, edge in ipairs(edges) do
+        if edge.from and edge.to then
+            edge_nodes[edge.from] = true
+            edge_nodes[edge.to] = true
+        end
+    end
+
+    local RAMP_LINK_MAX_METERS = 150
+    local ramp_links, ramp_links_far, edges_after_ramps = add_ramp_links(
+        nodes,
+        ramps,
+        runway_nodes,
+        RAMP_LINK_MAX_METERS,
+        edge_nodes,
+        edges
+    )
+    if edges_after_ramps then
+        edges = edges_after_ramps
+    end
+
+    local adjacency = {}
+    local adjacency_any = {}
+    for _, edge in ipairs(edges) do
+        local n1 = nodes[edge.from]
+        local n2 = nodes[edge.to]
+        if n1 and n2 then
+            local dx = (n2.x or 0) - (n1.x or 0)
+            local dz = (n2.z or 0) - (n1.z or 0)
+            local dist = math.sqrt(dx * dx + dz * dz)
+            adjacency[edge.from] = adjacency[edge.from] or {}
+            adjacency[edge.from][#adjacency[edge.from] + 1] = { to = edge.to, dist = dist, label = edge.label }
+            if edge.dir ~= "oneway" then
+                adjacency[edge.to] = adjacency[edge.to] or {}
+                adjacency[edge.to][#adjacency[edge.to] + 1] = { to = edge.from, dist = dist, label = edge.label }
+            end
+            adjacency_any[edge.from] = adjacency_any[edge.from] or {}
+            adjacency_any[edge.from][#adjacency_any[edge.from] + 1] = { to = edge.to, dist = dist, label = edge.label }
+            adjacency_any[edge.to] = adjacency_any[edge.to] or {}
+            adjacency_any[edge.to][#adjacency_any[edge.to] + 1] = { to = edge.from, dist = dist, label = edge.label }
+        end
+    end
+    for _, link in ipairs(ramp_links) do
+        local n1 = nodes[link.from]
+        local n2 = nodes[link.to]
+        if n1 and n2 then
+            local dx = (n2.x or 0) - (n1.x or 0)
+            local dz = (n2.z or 0) - (n1.z or 0)
+            local dist = math.sqrt(dx * dx + dz * dz)
+            adjacency[link.from] = adjacency[link.from] or {}
+            adjacency[link.from][#adjacency[link.from] + 1] = { to = link.to, dist = dist, label = "RAMP" }
+            adjacency[link.to] = adjacency[link.to] or {}
+            adjacency[link.to][#adjacency[link.to] + 1] = { to = link.from, dist = dist, label = "RAMP" }
+            adjacency_any[link.from] = adjacency_any[link.from] or {}
+            adjacency_any[link.from][#adjacency_any[link.from] + 1] = { to = link.to, dist = dist, label = "RAMP" }
+            adjacency_any[link.to] = adjacency_any[link.to] or {}
+            adjacency_any[link.to][#adjacency_any[link.to] + 1] = { to = link.from, dist = dist, label = "RAMP" }
+        end
+    end
+
+    local function clone_adjacency(src)
+        local dst = {}
+        for from, list in pairs(src or {}) do
+            local copy = {}
+            for i = 1, #list do
+                copy[i] = list[i]
+            end
+            dst[from] = copy
+        end
+        return dst
+    end
+
+    local adjacency_relaxed = clone_adjacency(adjacency)
+    local adjacency_any_relaxed = clone_adjacency(adjacency_any)
+    if ramp_links_far and #ramp_links_far > 0 then
+        for _, link in ipairs(ramp_links_far) do
+            local n1 = nodes[link.from]
+            local n2 = nodes[link.to]
+            if n1 and n2 then
+                local dx = (n2.x or 0) - (n1.x or 0)
+                local dz = (n2.z or 0) - (n1.z or 0)
+                local dist = math.sqrt(dx * dx + dz * dz)
+                adjacency_relaxed[link.from] = adjacency_relaxed[link.from] or {}
+                adjacency_relaxed[link.from][#adjacency_relaxed[link.from] + 1] = { to = link.to, dist = dist, label = "RAMP" }
+                adjacency_relaxed[link.to] = adjacency_relaxed[link.to] or {}
+                adjacency_relaxed[link.to][#adjacency_relaxed[link.to] + 1] = { to = link.from, dist = dist, label = "RAMP" }
+                adjacency_any_relaxed[link.from] = adjacency_any_relaxed[link.from] or {}
+                adjacency_any_relaxed[link.from][#adjacency_any_relaxed[link.from] + 1] = { to = link.to, dist = dist, label = "RAMP" }
+                adjacency_any_relaxed[link.to] = adjacency_any_relaxed[link.to] or {}
+                adjacency_any_relaxed[link.to][#adjacency_any_relaxed[link.to] + 1] = { to = link.from, dist = dist, label = "RAMP" }
+            end
+        end
+    end
+
+    local function has_links(adj, node_id)
+        local list = adj and adj[node_id]
+        return list and #list > 0
+    end
+
+    local function add_relaxed_link(from_id, to_id)
+        local n1 = nodes[from_id]
+        local n2 = nodes[to_id]
+        if not n1 or not n2 then
+            return
+        end
+        local dx = (n2.x or 0) - (n1.x or 0)
+        local dz = (n2.z or 0) - (n1.z or 0)
+        local dist = math.sqrt(dx * dx + dz * dz)
+        adjacency_relaxed[from_id] = adjacency_relaxed[from_id] or {}
+        adjacency_relaxed[from_id][#adjacency_relaxed[from_id] + 1] = { to = to_id, dist = dist, label = "RAMP" }
+        adjacency_relaxed[to_id] = adjacency_relaxed[to_id] or {}
+        adjacency_relaxed[to_id][#adjacency_relaxed[to_id] + 1] = { to = from_id, dist = dist, label = "RAMP" }
+        adjacency_any_relaxed[from_id] = adjacency_any_relaxed[from_id] or {}
+        adjacency_any_relaxed[from_id][#adjacency_any_relaxed[from_id] + 1] = { to = to_id, dist = dist, label = "RAMP" }
+        adjacency_any_relaxed[to_id] = adjacency_any_relaxed[to_id] or {}
+        adjacency_any_relaxed[to_id][#adjacency_any_relaxed[to_id] + 1] = { to = from_id, dist = dist, label = "RAMP" }
+    end
+
+    local ramp_nodes = {}
+    for id, node in pairs(nodes) do
+        if node and node.is_ramp then
+            ramp_nodes[#ramp_nodes + 1] = id
+        end
+    end
+    if #ramp_nodes > 0 then
+        local connected_nodes = {}
+        for id, _ in pairs(adjacency_relaxed) do
+            if has_links(adjacency_relaxed, id) then
+                connected_nodes[#connected_nodes + 1] = id
+            end
+        end
+        for _, rid in ipairs(ramp_nodes) do
+            if not has_links(adjacency_relaxed, rid) then
+                local rnode = nodes[rid]
+                local best_id = nil
+                local best_d2 = nil
+                if rnode and rnode.x and rnode.z then
+                    for _, cid in ipairs(connected_nodes) do
+                        if cid ~= rid then
+                            local cnode = nodes[cid]
+                            if cnode and cnode.x and cnode.z then
+                                local dx = cnode.x - rnode.x
+                                local dz = cnode.z - rnode.z
+                                local d2 = dx * dx + dz * dz
+                                if not best_d2 or d2 < best_d2 then
+                                    best_d2 = d2
+                                    best_id = cid
+                                end
+                            end
+                        end
+                    end
+                end
+                if best_id then
+                    add_relaxed_link(rid, best_id)
+                end
+            end
+        end
+    end
+
+    return {
+        nodes = nodes,
+        edges = edges,
+        ramps = ramps,
+        runways = runways,
+        polygons = polygons,
+        bounds = bounds,
+        ref_lat = ref_lat,
+        ref_lon = ref_lon,
+        ref_mlat = ref_mlat,
+        ref_mlon = ref_mlon,
+        adjacency = adjacency,
+        adjacency_any = adjacency_any,
+        adjacency_relaxed = adjacency_relaxed,
+        adjacency_any_relaxed = adjacency_any_relaxed,
+        runway_nodes = runway_nodes,
+        has_routes = atc_routes,
+        has_fallback = has_fallback,
+        route_source = route_source,
+        can_route = (atc_routes or has_fallback),
+        route_cache = {}
+    }
+end
+
+local function taxi_label_trim(label)
+    return trim_ascii(tostring(label or ""))
+end
+
+local function distance_sq(x1, y1, x2, y2)
+    local dx = (x2 or 0) - (x1 or 0)
+    local dy = (y2 or 0) - (y1 or 0)
+    return dx * dx + dy * dy
+end
+
+local function taxi_label_missing(label)
+    local s = taxi_label_trim(label)
+    if s == "" then
+        return true
+    end
+    local u = string.upper(s)
+    return u == "NONE"
+end
+
+local function taxi_label_usable(label)
+    if taxi_label_missing(label) then
+        return false
+    end
+    local s = taxi_label_trim(label)
+    if s == "" then
+        return false
+    end
+    local u = string.upper(s)
+    if u == "RAMP" then
+        return false
+    end
+    return not is_runway_label(u)
+end
+
+local function segment_heading_deg(x1, y1, x2, y2)
+    local dx = (x2 or 0) - (x1 or 0)
+    local dy = (y2 or 0) - (y1 or 0)
+    if dx == 0 and dy == 0 then
+        return nil
+    end
+    local h = math.deg(math.atan2(dx, dy))
+    if h < 0 then
+        h = h + 360
+    end
+    return h
+end
+
+local function heading_diff_deg(h1, h2)
+    if not h1 or not h2 then
+        return 180
+    end
+    local diff = math.abs(((h1 - h2 + 180) % 360) - 180)
+    if diff > 90 then
+        diff = 180 - diff
+    end
+    return diff
+end
+
+local function build_global_edge_index(data, cell_size)
+    local grid = {}
+    local list = {}
+    if not data or not data.edges or not data.nodes then
+        return { grid = grid, cell = cell_size, list = list }
+    end
+    for _, edge in ipairs(data.edges) do
+        if edge and edge.from and edge.to and taxi_label_usable(edge.label) then
+            local n1 = data.nodes[edge.from]
+            local n2 = data.nodes[edge.to]
+            if n1 and n2 and n1.east and n1.north and n2.east and n2.north then
+                local x1 = n1.east
+                local y1 = n1.north
+                local x2 = n2.east
+                local y2 = n2.north
+                local dx = x2 - x1
+                local dy = y2 - y1
+                local len = math.sqrt(dx * dx + dy * dy)
+                if len > 0 then
+                    local mx = (x1 + x2) * 0.5
+                    local my = (y1 + y2) * 0.5
+                    local h = segment_heading_deg(x1, y1, x2, y2)
+                    local entry = {
+                        x1 = x1,
+                        y1 = y1,
+                        x2 = x2,
+                        y2 = y2,
+                        len = len,
+                        heading = h,
+                        label = edge.label
+                    }
+                    list[#list + 1] = entry
+                    local cx = math.floor(mx / cell_size)
+                    local cy = math.floor(my / cell_size)
+                    local key = tostring(cx) .. ":" .. tostring(cy)
+                    grid[key] = grid[key] or {}
+                    grid[key][#grid[key] + 1] = entry
+                end
+            end
+        end
+    end
+    return { grid = grid, cell = cell_size, list = list }
+end
+
+local function normalize_runway_name(name)
+    local n = taxi_label_trim(name)
+    n = string.upper(n)
+    n = n:gsub("^RWY", "")
+    n = trim_ascii(n)
+    return n
+end
+
+local function build_runway_end_map(runways)
+    local map = {}
+    for _, rwy in ipairs(runways or {}) do
+        if rwy and rwy.lat1 and rwy.lon1 and rwy.lat2 and rwy.lon2 then
+            local n1 = normalize_runway_name(rwy.rwy1 or "")
+            local n2 = normalize_runway_name(rwy.rwy2 or "")
+            if n1 ~= "" and not map[n1] then
+                map[n1] = { lat = rwy.lat1, lon = rwy.lon1 }
+            end
+            if n2 ~= "" and not map[n2] then
+                map[n2] = { lat = rwy.lat2, lon = rwy.lon2 }
+            end
+        end
+    end
+    return map
+end
+
+local function runways_compatible(addonData, globalData, max_dist_m)
+    if not addonData or not globalData or not addonData.runways or not globalData.runways then
+        return false
+    end
+    local addon_map = build_runway_end_map(addonData.runways)
+    local global_map = build_runway_end_map(globalData.runways)
+    local max_d = max_dist_m or 150
+    for name, aend in pairs(addon_map) do
+        local gend = global_map[name]
+        if gend and aend.lat and aend.lon and gend.lat and gend.lon then
+            local d = P.getdistance(aend.lat, aend.lon, gend.lat, gend.lon)
+            if d and d * 1852 <= max_d then
+                return true
+            end
+        end
+    end
+    return false
+end
+
+local function update_adj_label(adj, from_id, to_id, new_label, old_label)
+    local list = adj and adj[from_id]
+    if not list then
+        return
+    end
+    for _, edge in ipairs(list) do
+        if edge.to == to_id then
+            if not old_label or edge.label == old_label or taxi_label_missing(edge.label) then
+                edge.label = new_label
+            end
+        end
+    end
+end
+
+local function patch_addon_labels(addonData, globalIndex, opts)
+    local patched = 0
+    local edges = addonData.edges or {}
+    local nodes = addonData.nodes or {}
+    for idx, edge in ipairs(edges) do
+        if edge and edge.from and edge.to and taxi_label_missing(edge.label) then
+            local n1 = nodes[edge.from]
+            local n2 = nodes[edge.to]
+            if n1 and n2 and n1.east and n1.north and n2.east and n2.north then
+                local ax1 = n1.east
+                local ay1 = n1.north
+                local ax2 = n2.east
+                local ay2 = n2.north
+                local dx = ax2 - ax1
+                local dy = ay2 - ay1
+                local len_a = math.sqrt(dx * dx + dy * dy)
+                if len_a > 0 then
+                    local a_heading = segment_heading_deg(ax1, ay1, ax2, ay2)
+                    local mx = (ax1 + ax2) * 0.5
+                    local my = (ay1 + ay2) * 0.5
+                    local cell = globalIndex.cell
+                    local cx = math.floor(mx / cell)
+                    local cy = math.floor(my / cell)
+                    local best_label = nil
+                    local best_dist = nil
+                    for ox = -1, 1 do
+                        for oy = -1, 1 do
+                            local key = tostring(cx + ox) .. ":" .. tostring(cy + oy)
+                            local bucket = globalIndex.grid[key]
+                            if bucket then
+                                for _, cand in ipairs(bucket) do
+                                    local len_ratio = cand.len > 0 and (len_a / cand.len) or 0
+                                    if len_ratio >= opts.len_ratio_min and len_ratio <= opts.len_ratio_max then
+                                        local hdiff = heading_diff_deg(a_heading, cand.heading)
+                                        if hdiff <= opts.heading_max_deg then
+                                            local d11 = distance_sq(ax1, ay1, cand.x1, cand.y1)
+                                            local d22 = distance_sq(ax2, ay2, cand.x2, cand.y2)
+                                            local d12 = distance_sq(ax1, ay1, cand.x2, cand.y2)
+                                            local d21 = distance_sq(ax2, ay2, cand.x1, cand.y1)
+                                            local max_d2 = nil
+                                            if (d11 + d22) <= (d12 + d21) then
+                                                max_d2 = math.max(d11, d22)
+                                            else
+                                                max_d2 = math.max(d12, d21)
+                                            end
+                                            local max_d = math.sqrt(max_d2 or 0)
+                                            if max_d <= opts.endpoint_max_m then
+                                                if not best_dist or max_d < best_dist then
+                                                    best_dist = max_d
+                                                    best_label = cand.label
+                                                end
+                                            end
+                                        end
+                                    end
+                                end
+                            end
+                        end
+                    end
+                    if best_label then
+                        addonData._labelBackup = addonData._labelBackup or {}
+                        if addonData._labelBackup[idx] == nil then
+                            addonData._labelBackup[idx] = edge.label
+                        end
+                        local old_label = edge.label
+                        edge.label = best_label
+                        update_adj_label(addonData.adjacency, edge.from, edge.to, best_label, old_label)
+                        update_adj_label(addonData.adjacency_relaxed, edge.from, edge.to, best_label, old_label)
+                        update_adj_label(addonData.adjacency_any, edge.from, edge.to, best_label, old_label)
+                        update_adj_label(addonData.adjacency_any, edge.to, edge.from, best_label, old_label)
+                        update_adj_label(addonData.adjacency_any_relaxed, edge.from, edge.to, best_label, old_label)
+                        update_adj_label(addonData.adjacency_any_relaxed, edge.to, edge.from, best_label, old_label)
+                        patched = patched + 1
+                    end
+                end
+            end
+        end
+    end
+    return patched
+end
+
+function P.patchTaxiLabelsFromGlobal(addonData, globalData, opts)
+    if not addonData or not globalData then
+        return 0, "invalid-data"
+    end
+    if addonData._labelsPatched then
+        return 0, "already-patched"
+    end
+    if addonData.entry and addonData.entry.source == "global-index" then
+        return 0, "global-source"
+    end
+    if not addonData.has_routes or not globalData.has_routes then
+        return 0, "no-routes"
+    end
+    local options = opts or {}
+    local endpoint_max_m = tonumber(options.endpoint_max_m) or 30
+    local heading_max_deg = tonumber(options.heading_max_deg) or 25
+    local len_ratio_min = tonumber(options.len_ratio_min) or 0.6
+    local len_ratio_max = tonumber(options.len_ratio_max) or 1.6
+    local cell_size = tonumber(options.cell_size_m) or 50
+    local runway_max_m = tonumber(options.runway_max_m) or 150
+
+    if not runways_compatible(addonData, globalData, runway_max_m) then
+        return 0, "runway-mismatch"
+    end
+
+    local index = build_global_edge_index(globalData, cell_size)
+    local patched = patch_addon_labels(addonData, index, {
+        endpoint_max_m = endpoint_max_m,
+        heading_max_deg = heading_max_deg,
+        len_ratio_min = len_ratio_min,
+        len_ratio_max = len_ratio_max
+    })
+    addonData._labelsPatched = true
+    addonData._labelsPatchedCount = patched
+    addonData._labelPatchSource = globalData.entry and globalData.entry.source or "global"
+    if options.log then
+        P.logInfoTS(
+            "TaxiPatch: labels patched=" .. tostring(patched) ..
+            " src=" .. tostring(addonData._labelPatchSource) ..
+            " icao=" .. tostring(addonData.entry and addonData.entry.icao or "?")
+        )
+    end
+    return patched, nil
+end
+
+function P.patchTaxiLabelsFromGlobalForIcao(addonData, icao, opts)
+    if not addonData or not icao then
+        return 0, "invalid-data"
+    end
+    if addonData._labelsPatched then
+        return 0, "already-patched"
+    end
+    if not addonData.entry or addonData.entry.source ~= "addon" then
+        return 0, "not-addon"
+    end
+    local gentry, gerr = P.findAptDatForIcaoWithPolicy(icao, "global")
+    if not gentry then
+        if gerr == "global-index-pending" then
+            addonData._labelsPatchPending = true
+            P.requestGlobalAptIndex("label-patch")
+            return 0, "global-index-pending"
+        end
+        return 0, gerr or "global-not-found"
+    end
+    local gdata, gperr = parse_taxi_data(gentry)
+    if not gdata then
+        return 0, gperr or "global-parse-failed"
+    end
+    gdata.entry = gentry
+    local patched, perr = P.patchTaxiLabelsFromGlobal(addonData, gdata, opts)
+    addonData._labelsPatchPending = nil
+    return patched, perr
+end
+
+local function find_nearest_node(data, lat, lon, avoid_runway)
+    if not data or not data.nodes or not lat or not lon then
+        return nil
+    end
+    local x, z = project_to_local(lat, lon, data)
+    local best_id = nil
+    local best_dist = nil
+    local found_non_runway = false
+    for id, node in pairs(data.nodes) do
+        if avoid_runway and data.runway_nodes and data.runway_nodes[id] then
+            goto continue
+        end
+        if node.x and node.z then
+            local dx = node.x - x
+            local dz = node.z - z
+            local d2 = dx * dx + dz * dz
+            if not best_dist or d2 < best_dist then
+                best_dist = d2
+                best_id = id
+            end
+            found_non_runway = true
+        end
+        ::continue::
+    end
+    if avoid_runway and not best_id and not found_non_runway then
+        return find_nearest_node(data, lat, lon, false)
+    end
+    return best_id
+end
+
+local function ramp_name_has_excluded(text)
+    if not text or text == "" then
+        return false
+    end
+    local cleaned = string.lower(text)
+    cleaned = string.gsub(cleaned, "[^%w]+", " ")
+    if string.find(cleaned, "class b", 1, true) then
+        return true
+    end
+    if string.find(cleaned, "cargo", 1, true) or string.find(cleaned, "freight", 1, true) then
+        return true
+    end
+    for token in string.gmatch(cleaned, "%S+") do
+        if token == "cargo" or token == "freight" or token == "mil" or token == "military"
+            or token == "ga" or token == "hangar" or token == "heli" or token == "helipad" then
+            return true
+        end
+    end
+    return false
+end
+
+function P.isRampSuitableFor738(ramp)
+    if not ramp then
+        return false
+    end
+    local rtype = string.lower(tostring(ramp.ramp_type or ""))
+    if rtype == "tie-down" or rtype == "tiedown" or rtype == "hangar" then
+        return false
+    end
+    if string.find(rtype, "cargo", 1, true) or string.find(rtype, "freight", 1, true) then
+        return false
+    end
+    if rtype ~= "gate" and rtype ~= "misc" then
+        return false
+    end
+    local op = string.lower(tostring(ramp.ramp_operation or ""))
+    if op == "cargo" or op == "general_aviation" or op == "military" then
+        return false
+    end
+    if ramp_name_has_excluded(ramp.name) then
+        return false
+    end
+    return true
+end
+
+function P.isRampSuitableForActiveArrivalRetarget(ramp)
+    if not ramp then
+        return false
+    end
+    local rtype = string.lower(tostring(ramp.ramp_type or ""))
+    if rtype == "tie-down" or rtype == "tiedown" or rtype == "hangar" then
+        return false
+    end
+    if rtype ~= "gate" and rtype ~= "misc" then
+        return false
+    end
+    local name = string.lower(tostring(ramp.name or ""))
+    if string.find(name, "hangar", 1, true)
+        or string.find(name, "heli", 1, true)
+        or string.find(name, "helipad", 1, true) then
+        return false
+    end
+    return true
+end
+
+local function find_nearest_ramp(data, lat, lon, filter_fn)
+    if not data or not data.ramps or not lat or not lon then
+        return nil
+    end
+    local x, z = project_to_local(lat, lon, data)
+    local best = nil
+    local best_dist = nil
+    for _, ramp in ipairs(data.ramps) do
+        if ramp.x and ramp.z then
+            if filter_fn and not filter_fn(ramp) then
+                goto continue
+            end
+            local dx = ramp.x - x
+            local dz = ramp.z - z
+            local d2 = dx * dx + dz * dz
+            if not best_dist or d2 < best_dist then
+                best_dist = d2
+                best = ramp
+            end
+        end
+        ::continue::
+    end
+    return best, best_dist
+end
+
+local function astar_route(data, start_id, goal_id, opts)
+    if not data or not data.adjacency then
+        return nil
+    end
+    local adjacency = data.adjacency
+    local runway_nodes = data.runway_nodes
+    if opts and opts.allow_far_ramp and data.adjacency_relaxed then
+        adjacency = data.adjacency_relaxed
+    end
+    if opts and opts.ignore_oneway then
+        if opts.allow_far_ramp and data.adjacency_any_relaxed then
+            adjacency = data.adjacency_any_relaxed
+        elseif data.adjacency_any then
+            adjacency = data.adjacency_any
+        end
+    end
+    if start_id == goal_id then
+        return { start_id }
+    end
+    local nodes = data.nodes
+    local open = { start_id }
+    local open_set = { [start_id] = true }
+    local came = {}
+    local g = { [start_id] = 0 }
+    local f = {}
+
+    local function heuristic(a, b)
+        local na = nodes[a]
+        local nb = nodes[b]
+        if not na or not nb then return 0 end
+        local dx = (na.x or 0) - (nb.x or 0)
+        local dz = (na.z or 0) - (nb.z or 0)
+        return math.sqrt(dx * dx + dz * dz)
+    end
+
+    f[start_id] = heuristic(start_id, goal_id)
+
+    while #open > 0 do
+        local current_idx = 1
+        local current = open[1]
+        local best_f = f[current] or math.huge
+        for i = 2, #open do
+            local node_id = open[i]
+            local score = f[node_id] or math.huge
+            if score < best_f then
+                best_f = score
+                current = node_id
+                current_idx = i
+            end
+        end
+
+        if current == goal_id then
+            local path = { current }
+            while came[current] do
+                current = came[current]
+                table.insert(path, 1, current)
+            end
+            return path
+        end
+
+        table.remove(open, current_idx)
+        open_set[current] = nil
+
+        local neighbors = adjacency[current] or {}
+        for _, edge in ipairs(neighbors) do
+            if opts and opts.disallow_runway_edges and is_runway_label(edge.label) then
+                goto continue
+            end
+            if opts and opts.avoid_runway_nodes and runway_nodes and runway_nodes[edge.to] and edge.to ~= goal_id then
+                goto continue
+            end
+            local edge_cost = edge.dist or 0
+            if opts and opts.runway_penalty and is_runway_label(edge.label) then
+                edge_cost = edge_cost * opts.runway_penalty
+            end
+            local tentative = (g[current] or math.huge) + edge_cost
+            if tentative < (g[edge.to] or math.huge) then
+                came[edge.to] = current
+                g[edge.to] = tentative
+                f[edge.to] = tentative + heuristic(edge.to, goal_id)
+                if not open_set[edge.to] then
+                    open[#open + 1] = edge.to
+                    open_set[edge.to] = true
+                end
+            end
+            ::continue::
+        end
+    end
+    return nil
+end
+
+function P.getTaxiData(icao)
+    local code = trim_ascii(tostring(icao or ""))
+    code = string.upper(code)
+    if code == "" then
+        return nil, "invalid-icao"
+    end
+    local entry, err = P.findAptDatForIcao(code)
+    if not entry then
+        return nil, err or "apt-not-found"
+    end
+    local data, perr = parse_taxi_data(entry)
+    if not data then
+        return nil, perr or "parse-failed"
+    end
+    data.entry = entry
+    return data
+end
+
+function P.getTaxiRoute(icao, start_lat, start_lon, end_lat, end_lon, opts)
+    local data = opts and opts.data or nil
+    local err = nil
+    if not data then
+        data, err = P.getTaxiData(icao)
+    end
+    if not data then
+        return nil, err
+    end
+    if not data.can_route then
+        return nil, "no-routes"
+    end
+    local avoid_start = opts and opts.avoid_runway_start
+    local avoid_end = opts and opts.avoid_runway_end
+    local start_id = opts and opts.start_node_id or nil
+    local end_id = opts and opts.end_node_id or nil
+    if start_id and (not data.nodes or not data.nodes[start_id]) then
+        start_id = nil
+    end
+    if end_id and (not data.nodes or not data.nodes[end_id]) then
+        end_id = nil
+    end
+    if not start_id then
+        start_id = find_nearest_node(data, start_lat, start_lon, avoid_start)
+    end
+    if not end_id then
+        end_id = find_nearest_node(data, end_lat, end_lon, avoid_end)
+    end
+    if not start_id or not end_id then
+        return nil, "no-nodes"
+    end
+    local key = tostring(start_id) .. "->" .. tostring(end_id)
+    if opts and opts.runway_penalty then
+        key = key .. "|rp=" .. tostring(opts.runway_penalty)
+    end
+    if opts and opts.ignore_oneway then
+        key = key .. "|io=1"
+    end
+    if opts and opts.allow_far_ramp then
+        key = key .. "|far=1"
+    end
+    if opts and opts.start_node_id then
+        key = key .. "|sn=" .. tostring(opts.start_node_id)
+    end
+    if opts and opts.end_node_id then
+        key = key .. "|en=" .. tostring(opts.end_node_id)
+    end
+    if data.route_cache[key] then
+        return data.route_cache[key]
+    end
+    local path = astar_route(data, start_id, end_id, opts)
+    if not path then
+        return nil, "no-path"
+    end
+    local bounds = { minX = nil, maxX = nil, minY = nil, maxY = nil }
+    for _, node_id in ipairs(path) do
+        local node = data.nodes[node_id]
+        if node then
+            update_bounds(bounds, node.east or 0, node.north or 0)
+        end
+    end
+    local route = {
+        data = data,
+        start_id = start_id,
+        end_id = end_id,
+        path = path,
+        bounds = bounds
+    }
+    data.route_cache[key] = route
+    return route
+end
+
+function P.getNearestRamp(icao, lat, lon, opts)
+    local data = opts and opts.data or nil
+    local err = nil
+    if not data then
+        data, err = P.getTaxiData(icao)
+    end
+    if not data then
+        return nil, err
+    end
+    local filter_fn = opts and opts.filter
+    return find_nearest_ramp(data, lat, lon, filter_fn)
+end
+
+local function split_kv_tab(line)
+    if not line then
+        return nil, nil
+    end
+    local tab = string.find(line, "\t", 1, true)
+    if not tab then
+        return line, ""
+    end
+    local key = string.sub(line, 1, tab - 1)
+    local value = string.sub(line, tab + 1)
+    return key, value
+end
+
+local function split_tabs(line, max_parts)
+    local parts = {}
+    if not line then
+        return parts
+    end
+    local start = 1
+    local line_len = string.len(line)
+    while start <= line_len do
+        local tab = string.find(line, "\t", start, true)
+        if not tab then
+            parts[#parts + 1] = string.sub(line, start)
+            break
+        end
+        parts[#parts + 1] = string.sub(line, start, tab - 1)
+        start = tab + 1
+        if max_parts and #parts >= (max_parts - 1) then
+            parts[#parts + 1] = string.sub(line, start)
+            break
+        end
+    end
+    if #parts == 0 then
+        parts[1] = ""
+    end
+    return parts
+end
+
+local function global_meta_key(meta)
+    if not meta then
+        return ""
+    end
+    return tostring(meta.path or "") .. "|" .. tostring(meta.size or 0) .. "|" .. tostring(meta.fingerprint or "-")
+end
+
+local function compute_global_meta()
+    local path = global_apt_path()
+    if not P.file_exists_v2(path) then
+        return nil
+    end
+    local size = get_file_size(path) or 0
+    local mtime = get_file_mtime(path)
+    local fingerprint = compute_file_fingerprint(path, size, GLOBAL_APT_FINGERPRINT_BYTES)
+    return {
+        path = path,
+        size = size,
+        mtime = mtime,
+        fingerprint = fingerprint,
+        checked_at = os.time()
+    }
+end
+
+local function get_global_meta(force)
+    local now = os.time()
+    local meta = P.global_apt_meta
+    if not force and P.global_apt_index_job and meta then
+        return meta
+    end
+    if not force and meta and meta.checked_at and (now - meta.checked_at) < GLOBAL_APT_META_REFRESH_SEC then
+        return meta
+    end
+    meta = compute_global_meta()
+    P.global_apt_meta = meta
+    return meta
+end
+
+local function meta_matches(idx_meta, cur_meta)
+    if not idx_meta or not cur_meta then
+        return false
+    end
+    if idx_meta.path ~= cur_meta.path then
+        return false
+    end
+    if (idx_meta.size or 0) ~= (cur_meta.size or 0) then
+        return false
+    end
+    if idx_meta.fingerprint and cur_meta.fingerprint then
+        return idx_meta.fingerprint == cur_meta.fingerprint
+    end
+    if idx_meta.mtime and cur_meta.mtime then
+        return idx_meta.mtime == cur_meta.mtime
+    end
+    return true
+end
+
+local function load_global_index(meta)
+    local file = io.open(GLOBAL_APT_INDEX_FILE, "r")
+    if not file then
+        return nil
+    end
+    local line1 = file:read("*l")
+    local tag, version_str = split_kv_tab(line1)
+    if tag ~= "YALAPTIDX" or tonumber(version_str) ~= GLOBAL_APT_INDEX_VERSION then
+        if tag == "YALAPTIDX" then
+            helpers.logInfoTS("Global Airports Taxidata Table cache invalid (version " .. tostring(version_str) .. " != " .. tostring(GLOBAL_APT_INDEX_VERSION) .. ")")
+        end
+        file:close()
+        return nil
+    end
+
+    local idx_meta = { path = nil, size = nil, mtime = nil, fingerprint = nil }
+    while true do
+        local line = file:read("*l")
+        if not line then
+            file:close()
+            return nil
+        end
+        if line == "DATA" then
+            break
+        end
+        local key, value = split_kv_tab(line)
+        if key == "PATH" then
+            idx_meta.path = value
+        elseif key == "SIZE" then
+            idx_meta.size = tonumber(value) or 0
+        elseif key == "MTIME" then
+            if value ~= "-" and value ~= "" then
+                idx_meta.mtime = tonumber(value)
+            end
+        elseif key == "FINGERPRINT" then
+            if value ~= "" and value ~= "-" then
+                idx_meta.fingerprint = value
+            end
+        elseif key == "EPOCH" then
+            idx_meta.epoch = tonumber(value)
+        end
+    end
+
+    local cache_epoch = tonumber(def.CACHE_EPOCH) or 1
+    if (idx_meta.epoch or -1) ~= cache_epoch then
+        helpers.logInfoTS(
+            "Global Airports Taxidata Table cache invalid (cache epoch "
+                .. tostring(idx_meta.epoch)
+                .. " != "
+                .. tostring(cache_epoch)
+                .. ")"
+        )
+        file:close()
+        pcall(function() os.remove(GLOBAL_APT_INDEX_FILE) end)
+        return nil
+    end
+
+    if not meta_matches(idx_meta, meta) then
+        file:close()
+        return nil
+    end
+
+    local entries = {}
+    while true do
+        local line = file:read("*l")
+        if not line then
+            break
+        end
+        local parts = split_tabs(line, 4)
+        local icao = parts[1]
+        if icao and icao ~= "" then
+            entries[icao] = {
+                icao = icao,
+                path = meta.path,
+                offset = tonumber(parts[2]) or 0,
+                length = tonumber(parts[3]) or 0,
+                size = meta.size,
+                has_routes = tonumber(parts[4]) == 1,
+                source = "global-index"
+            }
+        end
+    end
+    file:close()
+    return entries
+end
+
+local function write_global_index(meta, entries)
+    if not meta or not entries then
+        return false
+    end
+    P.check_create_path(def.PLUGINOUTPUTPATH)
+    local file = io.open(GLOBAL_APT_INDEX_FILE, "w")
+    if not file then
+        sasl.logWarning("Taxi: failed to write global apt index: " .. tostring(GLOBAL_APT_INDEX_FILE))
+        return false
+    end
+    file:write("YALAPTIDX\t", tostring(GLOBAL_APT_INDEX_VERSION), "\n")
+    file:write("EPOCH\t", tostring(tonumber(def.CACHE_EPOCH) or 1), "\n")
+    file:write("PATH\t", tostring(meta.path or ""), "\n")
+    file:write("MTIME\t", meta.mtime and tostring(meta.mtime) or "-", "\n")
+    file:write("SIZE\t", tostring(meta.size or 0), "\n")
+    file:write("FINGERPRINT\t", meta.fingerprint and tostring(meta.fingerprint) or "-", "\n")
+    file:write("DATA\n")
+
+    for icao, entry in pairs(entries) do
+        if icao and entry and entry.offset then
+            local has_routes = entry.has_routes and 1 or 0
+            file:write(tostring(icao), "\t", tostring(entry.offset or 0), "\t", tostring(entry.length or 0), "\t", tostring(has_routes), "\n")
+        end
+    end
+    file:close()
+    return true
+end
+
+local function close_global_job(job)
+    if job and job.file then
+        pcall(function()
+            job.file:close()
+        end)
+    end
+end
+
+local function finalize_job_airport(job, block_end)
+    if not job or not job.current_icao or not job.current_offset then
+        return
+    end
+    local length = (block_end or 0) - job.current_offset
+    if length < 0 then
+        length = 0
+    end
+    job.entries[job.current_icao] = {
+        path = job.meta.path,
+        offset = job.current_offset,
+        length = length,
+        size = job.meta.size,
+        has_routes = job.current_has_routes,
+        source = "global-index"
+    }
+end
+
+local function start_global_index_job(meta, reason)
+    close_global_job(P.global_apt_index_job)
+    local file = io.open(meta.path, "rb")
+    if not file then
+        sasl.logWarning("Taxi: cannot open global apt.dat for indexing: " .. tostring(meta.path))
+        return false
+    end
+    P.global_apt_index = {}
+    P.global_apt_index_meta = meta
+    P.global_apt_index_key = global_meta_key(meta)
+    P.global_apt_index_ready = false
+    P.global_apt_index_job = {
+        file = file,
+        meta = meta,
+        entries = P.global_apt_index,
+        current_icao = nil,
+        current_offset = nil,
+        current_has_routes = false,
+        lines = 0,
+        last_log_time = os.time(),
+        reason = reason or "startup"
+    }
+    helpers.logInfoTS(
+        "Global Airports Taxidata Table build started (" .. tostring(P.global_apt_index_job.reason) .. ")"
+    )
+    return true
+end
+
+local function step_global_index_job(job, max_lines, max_sec)
+    if not job or not job.file then
+        return true
+    end
+    local lines_budget = max_lines or GLOBAL_APT_INDEX_STEP_LINES
+    local sec_budget = max_sec or GLOBAL_APT_INDEX_STEP_SEC
+    local size = job.meta and job.meta.size or 0
+    local lines = 0
+    if sec_budget and sec_budget > 0 then
+        if not P.global_index_timer then
+            P.global_index_timer = sasl.createTimer()
+        end
+        sasl.startTimer(P.global_index_timer)
+    end
+
+    while lines < lines_budget do
+        local pos = job.file:seek()
+        if not pos then
+            return true
+        end
+        local line = job.file:read("*l")
+        if not line then
+            local end_size = size
+            if end_size <= 0 then
+                end_size = get_file_size(job.meta.path) or 0
+            end
+            finalize_job_airport(job, end_size)
+            return true
+        end
+        lines = lines + 1
+        job.lines = job.lines + 1
+
+        local header_icao = parse_airport_header_icao(line)
+        if header_icao then
+            header_icao = string.upper(header_icao)
+            if job.current_icao and job.current_offset then
+                finalize_job_airport(job, pos)
+            end
+            job.current_icao = header_icao
+            job.current_offset = pos
+            job.current_has_routes = false
+        elseif job.current_icao then
+            local code = next_token(line, 1)
+            if code == "1201" or code == "1202" or code == "1206" then
+                job.current_has_routes = true
+            else
+                -- Fallback: guard against odd whitespace or token parsing issues.
+                local i = 1
+                local len = #line
+                while i <= len do
+                    local b = string.byte(line, i)
+                    if b and not is_space_byte(b) then
+                        break
+                    end
+                    i = i + 1
+                end
+                if i <= len then
+                    local prefix = string.sub(line, i, i + 3)
+                    if prefix == "1201" or prefix == "1202" or prefix == "1206" then
+                        job.current_has_routes = true
+                    end
+                end
+            end
+        end
+
+        if (lines % 50 == 0) then
+            local now_pos = job.file:seek() or pos
+            if job.last_pos and now_pos <= job.last_pos then
+                job.stall_count = (job.stall_count or 0) + 1
+            else
+                job.stall_count = 0
+            end
+            job.last_pos = now_pos
+
+            -- Guard against pathological no-progress loops near EOF.
+            if size > 0 then
+                local near_end = (now_pos / size) >= 0.9995
+                if near_end and (job.stall_count or 0) >= 5 then
+                    finalize_job_airport(job, size)
+                    return true
+                end
+            end
+
+            if sec_budget and sec_budget > 0 then
+                local elapsed = sasl.getElapsedSeconds(P.global_index_timer) or 0
+                if elapsed >= sec_budget then
+                    break
+                end
+            end
+        end
+    end
+
+    local now = os.time()
+    if now and job.last_log_time and (now - job.last_log_time) >= 5 then
+        job.last_log_time = now
+        local bytes = job.file:seek() or 0
+        if size > 0 then
+            local pct = math.floor((bytes / size) * 100)
+            helpers.logInfoTS("Global Airports Taxidata Table indexing " .. tostring(pct) .. "%% (" .. tostring(job.lines) .. " lines)")
+        else
+            helpers.logInfoTS("Global Airports Taxidata Table indexing lines " .. tostring(job.lines))
+        end
+    end
+
+    return false
+end
+
+local function finalize_global_index_job(job)
+    if not job then
+        return
+    end
+    close_global_job(job)
+    P.global_apt_index_job = nil
+    P.global_apt_index_ready = true
+    write_global_index(P.global_apt_index_meta, P.global_apt_index)
+    helpers.logInfoTS(
+        "Global Airports Taxidata Table ready, "
+            .. tostring(P.getTableSize(P.global_apt_index or {}))
+            .. " entries (" .. tostring(job.lines or 0) .. " lines)"
+    )
+    if (sasl.getLogLevel() == LOG_DEBUG) then
+        P.writetaxidatatable()
+    end
+end
+
+local function ensure_global_index(reason)
+    local meta = get_global_meta(false)
+    if not meta then
+        return nil, "global-apt-missing"
+    end
+    local key = global_meta_key(meta)
+    if key ~= (P.global_apt_index_key or "") then
+        close_global_job(P.global_apt_index_job)
+        P.global_apt_index_job = nil
+        P.global_apt_index = {}
+        P.global_apt_index_ready = false
+        P.global_apt_index_key = key
+        P.global_apt_index_meta = meta
+    end
+    if P.global_apt_index_ready and P.global_apt_index and next(P.global_apt_index) ~= nil then
+        return meta, nil
+    end
+    if (not P.global_apt_index_job) and (not P.global_apt_index_ready) then
+        local loaded = load_global_index(meta)
+        if loaded and next(loaded) ~= nil then
+            P.global_apt_index = loaded
+            P.global_apt_index_meta = meta
+            P.global_apt_index_ready = true
+            helpers.logInfoTS(
+                "Global Airports Taxidata Table loaded from cache, "
+                    .. tostring(P.getTableSize(P.global_apt_index or {}))
+                    .. " entries"
+            )
+            return meta, nil
+        end
+        local started = start_global_index_job(meta, reason)
+        if not started then
+            return nil, "global-index-start-failed"
+        end
+    end
+    return meta, "global-index-pending"
+end
+
+function P.requestGlobalAptIndex(reason)
+    local _, err = ensure_global_index(reason or "request")
+    return err == nil
+end
+
+function P.updateGlobalAptIndex(step_lines, fast_mode)
+    local job = P.global_apt_index_job
+    if not job then
+        return
+    end
+    local done = false
+    if fast_mode and not job.fast_attempted then
+        job.fast_attempted = true
+        helpers.logInfoTS("Global Airports Taxidata Table fast build started")
+        done = step_global_index_job(job, GLOBAL_APT_INDEX_FAST_LINES, nil)
+    else
+        done = step_global_index_job(job, step_lines, GLOBAL_APT_INDEX_STEP_SEC)
+    end
+    if done then
+        finalize_global_index_job(job)
+    end
+end
+
+function P.isGlobalAptIndexReady()
+    return P.global_apt_index_ready == true and P.global_apt_index and next(P.global_apt_index) ~= nil
+end
+
+function P.isGlobalAptIndexRunning()
+    return P.global_apt_index_job ~= nil
+end
+
+local function get_global_index_entry(icao, reason)
+    local meta, err = ensure_global_index(reason or "demand")
+    if not meta then
+        return nil, err
+    end
+    local entry = P.global_apt_index and P.global_apt_index[icao] or nil
+    if entry then
+        return entry
+    end
+    if err == "global-index-pending" then
+        return nil, err
+    end
+    return nil, "not-found"
+end
+
+local function scan_addon_for_icao(code)
+    local paths, cache_key = get_addon_apt_paths()
+    local cached = P.addon_apt_cache and P.addon_apt_cache[code] or nil
+    if cached and cached.key == cache_key then
+        return cached.entry
+    end
+    local best = nil
+    for _, apt_path in ipairs(paths) do
+        local entry = scan_apt_for_icao(apt_path, code)
+        if entry then
+            if not entry.source then
+                entry.source = "addon"
+            end
+            if entry.has_routes then
+                best = entry
+                break
+            end
+            if not best then
+                best = entry
+            end
+        end
+    end
+    P.addon_apt_cache[code] = { key = cache_key, entry = best }
+    return best
+end
+
+function P.findAptDatForIcao(icao)
+    local code = trim_ascii(tostring(icao or ""))
+    code = string.upper(code)
+    if code == "" then
+        return nil, "invalid-icao"
+    end
+
+    local addon_entry = scan_addon_for_icao(code)
+    if addon_entry and addon_entry.has_routes then
+        return addon_entry
+    end
+
+    local global_entry, gerr = get_global_index_entry(code, "find-icao")
+    if global_entry and global_entry.has_routes then
+        return global_entry
+    end
+
+    if gerr == "global-index-pending" and (not addon_entry or not addon_entry.has_routes) then
+        return nil, gerr
+    end
+
+    -- Prefer global apt.dat for taxi routing when addon has no ATC routes,
+    -- because global data often carries the ATC taxi graph.
+    if global_entry then
+        return global_entry
+    end
+    if addon_entry then
+        return addon_entry
+    end
+    return nil, gerr or "not-found"
+end
+
+function P.findAptDatForIcaoWithPolicy(icao, policy)
+    local code = trim_ascii(tostring(icao or ""))
+    code = string.upper(code)
+    if code == "" then
+        return nil, "invalid-icao"
+    end
+
+    local pref = tostring(policy or "auto")
+    local addon_entry = scan_addon_for_icao(code)
+    local global_entry, gerr = get_global_index_entry(code, "find-icao")
+
+    if pref == "addon" then
+        if addon_entry then
+            return addon_entry
+        end
+        if global_entry then
+            return global_entry
+        end
+        return nil, gerr or "not-found"
+    end
+
+    if pref == "global" then
+        if global_entry then
+            return global_entry
+        end
+        if addon_entry then
+            return addon_entry
+        end
+        return nil, gerr or "not-found"
+    end
+
+    return P.findAptDatForIcao(code)
+end
+
+function P.getTaxiDataWithPolicy(icao, policy)
+    local entry, err = P.findAptDatForIcaoWithPolicy(icao, policy)
+    if not entry then
+        return nil, err or "apt-not-found"
+    end
+    local data, perr = parse_taxi_data(entry)
+    if not data then
+        return nil, perr or "parse-failed"
+    end
+    data.entry = entry
+    if entry.source == "addon" then
+        local patched, perr_patch = P.patchTaxiLabelsFromGlobalForIcao(data, entry.icao or icao, { log = true })
+        if perr_patch == "global-index-pending" then
+            data._labelsPatchPending = true
+        elseif perr_patch and perr_patch ~= "already-patched" and perr_patch ~= "no-routes" and perr_patch ~= "runway-mismatch" then
+            P.logInfoTS("TaxiPatch: label patch skipped (" .. tostring(perr_patch) .. ")")
+        elseif patched and patched > 0 then
+            -- labels patched; keep data in memory only
+        end
+    end
+    return data
+end
+
+function P.clearTaxiIndexCache()
+    close_global_job(P.global_apt_index_job)
+    P.global_apt_index_job = nil
+    P.global_apt_index = {}
+    P.global_apt_index_ready = false
+    P.addon_apt_cache = {}
+    if P.global_index_timer then
+        sasl.stopTimer(P.global_index_timer)
+        P.global_index_timer = nil
+    end
 end
 
 --------------------------------------------------------------------------------------------------------------
@@ -4722,7 +10038,7 @@ function P.getrwyheadingfromnavdata(navdatatable, icao, rwy)
                 end
             end
             magVar = magVar or 0
-            return P.calccourse(entry.truecourse - magVar)
+            return P.calccourse(entry.truecourse + magVar)
         end
         return entry[def.DESTCOURSE]
     end
@@ -5166,6 +10482,44 @@ local function get_zibo_base_path()
     return sasl.getXPlanePath() .. def.OSSEPARATOR .. "Aircraft" .. def.OSSEPARATOR .. "B737-800X" .. def.OSSEPARATOR
 end
 
+local QV_UPDATE_STAGE_SELECT = 0
+local QV_UPDATE_STAGE_SAVE = 1
+local DEFAULT_VIEW_STAGE_NORMALIZE = 0
+local DEFAULT_VIEW_STAGE_SELECT = 1
+local DEFAULT_VIEW_STAGE_APPLY = 2
+
+P.quickViewCgUpdateJob = P.quickViewCgUpdateJob or nil
+P.defaultViewUpdateJob = P.defaultViewUpdateJob or nil
+
+local function get_current_zibo_variant()
+    local rel = get(acf_relative_path)
+    if type(rel) ~= "string" or rel == "" then
+        return nil, "aircraft path not available"
+    end
+    local rel_lower = string.lower(rel)
+    if string.find(rel_lower, "b738_4k.acf", 1, true) then
+        return {
+            name = "4k",
+            acf = "b738_4k.acf",
+            prefs = "b738_4k_prefs.txt",
+            xcamera = "X-Camera_b738_4k.csv",
+            keyY = "CG_BASE_4K_Y",
+            keyZ = "CG_BASE_4K_Z"
+        }
+    end
+    if string.find(rel_lower, "b738.acf", 1, true) then
+        return {
+            name = "2k",
+            acf = "b738.acf",
+            prefs = "b738_prefs.txt",
+            xcamera = "X-Camera_b738.csv",
+            keyY = "CG_BASE_2K_Y",
+            keyZ = "CG_BASE_2K_Z"
+        }
+    end
+    return nil, "unsupported aircraft: " .. tostring(rel)
+end
+
 local function read_acf_cg(path)
     local file, err = io.open(path, "r")
     if not file then
@@ -5237,6 +10591,118 @@ local function read_qv0(path)
     return qv
 end
 
+local function read_quickview_indices(path)
+    local file, err = io.open(path, "r")
+    if not file then
+        return nil, err
+    end
+    local seen = {}
+    local list = {}
+    for line in file:lines() do
+        local idx = line:match("^_iql_pe_z_(%d+)%s")
+        if idx then
+            local num = tonumber(idx)
+            if num and not seen[num] then
+                seen[num] = true
+                list[#list + 1] = num
+            end
+        end
+    end
+    file:close()
+    table.sort(list)
+    if #list == 0 then
+        return nil, "no quick views found"
+    end
+    return list
+end
+
+local function read_quickview_data(path)
+    local file, err = io.open(path, "r")
+    if not file then
+        return nil, err
+    end
+    local data = {}
+    for line in file:lines() do
+        local idx, val = line:match("^_iql_pe_x_(%d+)%s+([-%d%.]+)")
+        if idx then
+            local i = tonumber(idx)
+            data[i] = data[i] or {}
+            data[i].x = tonumber(val)
+        else
+            idx, val = line:match("^_iql_pe_y_(%d+)%s+([-%d%.]+)")
+            if idx then
+                local i = tonumber(idx)
+                data[i] = data[i] or {}
+                data[i].y = tonumber(val)
+            else
+                idx, val = line:match("^_iql_pe_z_(%d+)%s+([-%d%.]+)")
+                if idx then
+                    local i = tonumber(idx)
+                    data[i] = data[i] or {}
+                    data[i].z = tonumber(val)
+                else
+                    idx, val = line:match("^_iql_look_os_psi_(%d+)%s+([-%d%.]+)")
+                    if idx then
+                        local i = tonumber(idx)
+                        data[i] = data[i] or {}
+                        data[i].psi = tonumber(val)
+                    else
+                        idx, val = line:match("^_iql_look_os_the_(%d+)%s+([-%d%.]+)")
+                        if idx then
+                            local i = tonumber(idx)
+                            data[i] = data[i] or {}
+                            data[i].the = tonumber(val)
+                        else
+                            idx, val = line:match("^_iql_look_os_phi_(%d+)%s+([-%d%.]+)")
+                            if idx then
+                                local i = tonumber(idx)
+                                data[i] = data[i] or {}
+                                data[i].phi = tonumber(val)
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+    file:close()
+
+    local list = {}
+    for i, v in pairs(data) do
+        if v and v.x ~= nil and v.y ~= nil and v.z ~= nil then
+            list[#list + 1] = i
+        end
+    end
+    table.sort(list)
+    if #list == 0 then
+        return nil, "no quick views found"
+    end
+    return list, data
+end
+
+local function capture_pilots_head()
+    return {
+        x = get(pilots_head_x),
+        y = get(pilots_head_y),
+        z = get(pilots_head_z),
+        psi = get(pilots_head_psi),
+        the = get(pilots_head_the),
+        phi = get(pilots_head_phi)
+    }
+end
+
+local function restore_pilots_head(state)
+    if not state then
+        return
+    end
+    if state.x ~= nil then set(pilots_head_x, state.x) end
+    if state.y ~= nil then set(pilots_head_y, state.y) end
+    if state.z ~= nil then set(pilots_head_z, state.z) end
+    if state.psi ~= nil then set(pilots_head_psi, state.psi) end
+    if state.the ~= nil then set(pilots_head_the, state.the) end
+    if state.phi ~= nil then set(pilots_head_phi, state.phi) end
+end
+
 local function approx_equal(a, b, tol)
     tol = tol or 0.0001
     if a == nil or b == nil then return false end
@@ -5263,6 +10729,27 @@ local function backup_file(path)
     infile:close()
     outfile:close()
     return true, backup_path
+end
+
+local function backup_yal_prefs(context, job)
+    if job and job.settings_backup_done then
+        return
+    end
+    local prefs_path = def.PREFFILE
+    local infile = io.open(prefs_path, "rb")
+    if not infile then
+        P.logInfoTS((context or "YAL prefs") .. ": YAL prefs not found, skipping backup (" .. tostring(prefs_path) .. ")")
+        if job then job.settings_backup_done = true end
+        return
+    end
+    infile:close()
+    local ok, backup_or_err = backup_file(prefs_path)
+    if ok then
+        P.logInfoTS((context or "YAL prefs") .. ": YAL prefs backup created at " .. tostring(backup_or_err))
+    else
+        P.logInfoTS((context or "YAL prefs") .. ": YAL prefs backup failed (" .. tostring(backup_or_err) .. ")")
+    end
+    if job then job.settings_backup_done = true end
 end
 
 local function rewrite_file(path, line_fn)
@@ -5315,11 +10802,137 @@ local function shift_quickviews_z(prefs_path, delta_m)
     end)
 end
 
-local function apply_default_view_from_qv0(acf_path, prefs_path)
-    local qv, err = read_qv0(prefs_path)
-    if not qv then
+local function trim_csv_field(text)
+    return (text or ""):gsub("^%s+", ""):gsub("%s+$", "")
+end
+
+local function split_csv_line(line)
+    local fields = {}
+    local i = 1
+    local len = #line
+    local in_quotes = false
+    local field = ""
+    while i <= len do
+        local ch = string.sub(line, i, i)
+        if ch == '"' then
+            local next_ch = string.sub(line, i + 1, i + 1)
+            if in_quotes and next_ch == '"' then
+                field = field .. '"'
+                i = i + 1
+            else
+                in_quotes = not in_quotes
+            end
+        elseif ch == "," and not in_quotes then
+            fields[#fields + 1] = field
+            field = ""
+        else
+            field = field .. ch
+        end
+        i = i + 1
+    end
+    fields[#fields + 1] = field
+    return fields
+end
+
+local function csv_escape(value)
+    local text = tostring(value or "")
+    if text:find("[,\"]") then
+        text = '"' .. text:gsub("\"", "\"\"") .. '"'
+    end
+    return text
+end
+
+local function join_csv_line(fields)
+    local out = {}
+    for i = 1, #fields do
+        out[i] = csv_escape(fields[i])
+    end
+    return table.concat(out, ",")
+end
+
+local function update_xcamera_cg_offsets(path, delta_m_y, delta_m_z)
+    local infile, err = io.open(path, "r")
+    if not infile then
         return false, err
     end
+    local header_line = infile:read("*l")
+    if not header_line then
+        infile:close()
+        return false, "empty file"
+    end
+    local header = split_csv_line(header_line)
+    local idx = {}
+    for i = 1, #header do
+        idx[trim_csv_field(header[i])] = i
+    end
+    local idx_category = idx["Category Name"]
+    if not idx_category then
+        infile:close()
+        return false, "missing Category Name column"
+    end
+    local idx_cgy = idx["CGY Offset"]
+    local idx_cgz = idx["CGZ Offset"]
+    local idx_y = idx["Y"]
+    local idx_z = idx["Z"]
+    local idx_origin = idx["Camera Origin"]
+    if idx_y == nil or idx_z == nil then
+        infile:close()
+        return false, "missing Y/Z columns"
+    end
+
+    local rows = {}
+    local updated = 0
+    local offsets_reset = 0
+    for line in infile:lines() do
+        local fields = split_csv_line(line)
+        while #fields < #header do
+            fields[#fields + 1] = ""
+        end
+        local category = trim_csv_field(fields[idx_category] or "")
+        local origin = trim_csv_field(fields[idx_origin] or "")
+        local should_update
+        if idx_origin then
+            should_update = (origin == "" or origin == "0")
+        else
+            should_update = (category == "Cockpit")
+        end
+        if should_update then
+            local old_y = tonumber(fields[idx_y])
+            local old_z = tonumber(fields[idx_z])
+            if old_y ~= nil and old_z ~= nil then
+                fields[idx_y] = string.format("%.6f", old_y - delta_m_y)
+                fields[idx_z] = string.format("%.6f", old_z - delta_m_z)
+                updated = updated + 1
+            end
+            if idx_cgy ~= nil and idx_cgz ~= nil then
+                local off_y = tonumber(fields[idx_cgy])
+                local off_z = tonumber(fields[idx_cgz])
+                if off_y ~= nil and off_z ~= nil then
+                    if approx_equal(off_y, -delta_m_y) and approx_equal(off_z, -delta_m_z) then
+                        fields[idx_cgy] = "0.000000"
+                        fields[idx_cgz] = "0.000000"
+                        offsets_reset = offsets_reset + 1
+                    end
+                end
+            end
+        end
+        rows[#rows + 1] = fields
+    end
+    infile:close()
+
+    local outfile, err2 = io.open(path, "w")
+    if not outfile then
+        return false, err2
+    end
+    outfile:write(header_line .. "\n")
+    for i = 1, #rows do
+        outfile:write(join_csv_line(rows[i]) .. "\n")
+    end
+    outfile:close()
+    return true, updated, false, offsets_reset
+end
+
+local function apply_default_view_from_qv0_data(acf_path, qv)
     local cg, err2 = read_acf_cg(acf_path)
     if not cg then
         return false, err2
@@ -5353,102 +10966,416 @@ local function apply_default_view_from_qv0(acf_path, prefs_path)
     end)
 end
 
+local function queue_quickview_cg_job(variant, cg, delta_y, delta_z, indices, qv_data)
+    local delta_m_z = delta_z * 0.3048
+    local delta_m_y = delta_y * 0.3048
+    P.quickViewCgUpdateJob = {
+        variant = variant,
+        indices = indices,
+        index_pos = 1,
+        qv_data = qv_data,
+        delta_m_z = delta_m_z,
+        delta_m_y = delta_m_y,
+        delta_z = delta_z,
+        delta_y = delta_y,
+        total = #indices,
+        stage = QV_UPDATE_STAGE_SELECT,
+        snapshot = capture_pilots_head(),
+        target_cg_vert = cg.vert,
+        target_cg_long = cg.long,
+        settings_backup_done = false
+    }
+    P.logInfoTS(string.format("QuickViews CG update queued: %s (%d views, deltaY %.4f ft, deltaZ %.4f ft)", variant.name, #indices, delta_y, delta_z))
+end
+
 function P.adjustQuickViewsForCgChange()
     local settings = require("settings")
     if not views_change_allowed() then
         P.logInfoTS("QuickViews CG update blocked (requires preflight, on ground, parking brake set)")
         return
     end
-    local base = get_zibo_base_path()
-    local variants = {
-        { name = "4k", acf = "b738_4k.acf", prefs = "b738_4k_prefs.txt", keyY = "CG_BASE_4K_Y", keyZ = "CG_BASE_4K_Z" },
-        { name = "2k", acf = "b738.acf", prefs = "b738_prefs.txt", keyY = "CG_BASE_2K_Y", keyZ = "CG_BASE_2K_Z" },
-    }
-    local cg_map = {}
-    local did_adjust = false
+    if P.defaultViewUpdateJob then
+        P.logInfoTS("QuickViews CG update blocked (default view update in progress)")
+        return
+    end
+    if P.quickViewCgUpdateJob then
+        P.logInfoTS("QuickViews CG update already in progress")
+        return
+    end
+    local variant, v_err = get_current_zibo_variant()
+    if not variant then
+        P.logInfoTS("QuickViews CG update: " .. tostring(v_err))
+        return
+    end
 
-    for _, v in ipairs(variants) do
-        local acf_path = base .. v.acf
-        local prefs_path = base .. v.prefs
-        local cg, err = read_acf_cg(acf_path)
-        if not cg then
-            P.logInfoTS("QuickViews CG update: failed to read " .. v.name .. " CG (" .. tostring(err) .. ")")
-        else
-            cg_map[v.name] = cg
-            local stored_y = tonumber(settings.appSettings[v.keyY])
-            local stored_z = tonumber(settings.appSettings[v.keyZ])
-            if stored_y == nil or stored_z == nil then
-                settings.appSettings[v.keyY] = cg.vert
-                settings.appSettings[v.keyZ] = cg.long
-                settings.writeSettings(settings.appSettings)
-                P.logInfoTS("QuickViews CG update: stored baseline for " .. v.name .. " (no adjustment performed)")
-            else
-                local delta_z = cg.long - stored_z
-                if math.abs(delta_z) < 0.0001 then
-                    if cg.vert ~= stored_y then
-                        settings.appSettings[v.keyY] = cg.vert
-                        settings.appSettings[v.keyZ] = cg.long
-                        settings.writeSettings(settings.appSettings)
-                    end
-                    P.logInfoTS("QuickViews CG update: no CG change for " .. v.name)
-                else
-                    local delta_m = delta_z * 0.3048
-                    local ok, err2 = shift_quickviews_z(prefs_path, delta_m)
-                    if ok then
-                        did_adjust = true
-                        settings.appSettings[v.keyY] = cg.vert
-                        settings.appSettings[v.keyZ] = cg.long
-                        settings.writeSettings(settings.appSettings)
-                        P.logInfoTS(string.format("QuickViews CG update: %s adjusted (deltaZ %.4f ft)", v.name, delta_z))
-                    else
-                        P.logInfoTS("QuickViews CG update: failed to write " .. v.name .. " prefs (" .. tostring(err2) .. ")")
-                    end
-                end
+    local base = get_zibo_base_path()
+    local acf_path = base .. variant.acf
+    local prefs_path = base .. variant.prefs
+    local cg, err = read_acf_cg(acf_path)
+    if not cg then
+        P.logInfoTS("QuickViews CG update: failed to read " .. variant.name .. " CG (" .. tostring(err) .. ")")
+        return
+    end
+
+    local stored_y = tonumber(settings.appSettings[variant.keyY])
+    local stored_z = tonumber(settings.appSettings[variant.keyZ])
+    if stored_y == nil or stored_z == nil then
+        settings.appSettings[variant.keyY] = cg.vert
+        settings.appSettings[variant.keyZ] = cg.long
+        backup_yal_prefs("QuickViews CG update")
+        settings.writeSettings(settings.appSettings)
+        P.logInfoTS("QuickViews CG update: stored baseline for " .. variant.name .. " (no adjustment performed)")
+        return
+    end
+
+    local delta_z = cg.long - stored_z
+    local delta_y = cg.vert - stored_y
+    if math.abs(delta_z) < 0.0001 and math.abs(delta_y) < 0.0001 then
+        P.logInfoTS("QuickViews CG update: no CG change for " .. variant.name)
+        return
+    end
+
+    local indices, qv_data = read_quickview_data(prefs_path)
+    if not indices then
+        P.logInfoTS("QuickViews CG update: failed to read quick views (" .. tostring(qv_data) .. ")")
+        return
+    end
+
+    local ok_backup, backup_or_err = backup_file(prefs_path)
+    if not ok_backup then
+        P.logInfoTS("QuickViews CG update: backup failed (" .. tostring(backup_or_err) .. ")")
+        return
+    end
+    P.logInfoTS("QuickViews CG update: backup created at " .. tostring(backup_or_err))
+
+    queue_quickview_cg_job(variant, cg, delta_y, delta_z, indices, qv_data)
+end
+
+function P.adjustQuickViewsAndXCameraForCgChange()
+    local settings = require("settings")
+    if not views_change_allowed() then
+        P.logInfoTS("QuickViews+X-Camera CG update blocked (requires preflight, on ground, parking brake set)")
+        return
+    end
+    if P.defaultViewUpdateJob then
+        P.logInfoTS("QuickViews+X-Camera CG update blocked (default view update in progress)")
+        return
+    end
+    if P.quickViewCgUpdateJob then
+        P.logInfoTS("QuickViews+X-Camera CG update already in progress")
+        return
+    end
+    local variant, v_err = get_current_zibo_variant()
+    if not variant then
+        P.logInfoTS("QuickViews+X-Camera CG update: " .. tostring(v_err))
+        return
+    end
+
+    local base = get_zibo_base_path()
+    local acf_path = base .. variant.acf
+    local prefs_path = base .. variant.prefs
+    local xcamera_path = base .. variant.xcamera
+    local cg, err = read_acf_cg(acf_path)
+    if not cg then
+        P.logInfoTS("QuickViews+X-Camera CG update: failed to read " .. variant.name .. " CG (" .. tostring(err) .. ")")
+        return
+    end
+
+    local stored_y = tonumber(settings.appSettings[variant.keyY])
+    local stored_z = tonumber(settings.appSettings[variant.keyZ])
+    if stored_y == nil or stored_z == nil then
+        settings.appSettings[variant.keyY] = cg.vert
+        settings.appSettings[variant.keyZ] = cg.long
+        backup_yal_prefs("QuickViews+X-Camera CG update")
+        settings.writeSettings(settings.appSettings)
+        P.logInfoTS("QuickViews+X-Camera CG update: stored baseline for " .. variant.name .. " (no adjustment performed)")
+        return
+    end
+
+    local delta_z = cg.long - stored_z
+    local delta_y = cg.vert - stored_y
+    if math.abs(delta_z) < 0.0001 and math.abs(delta_y) < 0.0001 then
+        P.logInfoTS("QuickViews+X-Camera CG update: no CG change for " .. variant.name)
+        return
+    end
+
+    local indices, qv_data = read_quickview_data(prefs_path)
+    if not indices then
+        P.logInfoTS("QuickViews+X-Camera CG update: failed to read quick views (" .. tostring(qv_data) .. ")")
+        return
+    end
+
+    local ok_backup, backup_or_err = backup_file(prefs_path)
+    if not ok_backup then
+        P.logInfoTS("QuickViews+X-Camera CG update: prefs backup failed (" .. tostring(backup_or_err) .. ")")
+        return
+    end
+    P.logInfoTS("QuickViews+X-Camera CG update: prefs backup created at " .. tostring(backup_or_err))
+
+    local xcam_file = io.open(xcamera_path, "r")
+    if not xcam_file then
+        P.logInfoTS("QuickViews+X-Camera CG update: X-Camera file not found (" .. tostring(xcamera_path) .. ")")
+        return
+    end
+    xcam_file:close()
+
+    local ok_xcam_backup, xcam_backup_or_err = backup_file(xcamera_path)
+    if not ok_xcam_backup then
+        P.logInfoTS("QuickViews+X-Camera CG update: X-Camera backup failed (" .. tostring(xcam_backup_or_err) .. ")")
+        return
+    end
+    P.logInfoTS("QuickViews+X-Camera CG update: X-Camera backup created at " .. tostring(xcam_backup_or_err))
+
+    local delta_m_y = delta_y * 0.3048
+    local delta_m_z = delta_z * 0.3048
+    local ok_xcam, updated, used_offsets, offsets_reset = update_xcamera_cg_offsets(xcamera_path, delta_m_y, delta_m_z)
+    if not ok_xcam then
+        P.logInfoTS("QuickViews+X-Camera CG update: X-Camera update failed (" .. tostring(updated) .. ")")
+        return
+    end
+    local mode = used_offsets and "offsets" or "positions"
+    local reset_note = ""
+    if offsets_reset and offsets_reset > 0 then
+        reset_note = string.format(", %d offset resets", offsets_reset)
+    end
+    P.logInfoTS(string.format("QuickViews+X-Camera CG update: X-Camera updated (%d views, %s, origin=0 filter%s)", updated or 0, mode, reset_note))
+
+    queue_quickview_cg_job(variant, cg, delta_y, delta_z, indices, qv_data)
+end
+
+function P.stepQuickViewsCgUpdate()
+    local job = P.quickViewCgUpdateJob
+    if not job then
+        return false
+    end
+
+    if not views_change_allowed() then
+        restore_pilots_head(job.snapshot)
+        if job.tobiiWasOn and tobii_eq then
+            local tobii_now = get(tobii_eq)
+            if tobii_now == 0 then
+                P.command_once("sim/view/tobii_eyetracker_toggle")
             end
         end
+        P.quickViewCgUpdateJob = nil
+        P.logInfoTS("QuickViews CG update aborted (view change no longer allowed)")
+        return false
     end
 
-    if cg_map["4k"] and cg_map["2k"] then
-        local diff_z = math.abs(cg_map["4k"].long - cg_map["2k"].long)
-        local diff_y = math.abs(cg_map["4k"].vert - cg_map["2k"].vert)
-        if diff_z > 0.0001 or diff_y > 0.0001 then
-            P.logInfoTS(string.format("CG mismatch 4k vs 2k: dZ=%.4f ft, dY=%.4f ft", diff_z, diff_y))
+    if tobii_eq then
+        local tobii_on = (get(tobii_eq) == 1)
+        if job.tobiiWasOn == nil then
+            job.tobiiWasOn = tobii_on
+        end
+        if job.tobiiWasOn and tobii_on then
+            if not job.tobiiDisableRequested then
+                P.command_once("sim/view/tobii_eyetracker_toggle")
+                job.tobiiDisableRequested = true
+                P.logInfoTS("QuickViews CG update: Tobii active, disabling")
+            end
+            return true
         end
     end
 
-    if did_adjust then
-        P.logInfoTS("QuickViews CG update: reloading aircraft to persist changes")
-        P.command_once("sim/operation/reload_aircraft")
+    local idx = job.indices[job.index_pos]
+    if not idx then
+        local settings = require("settings")
+        settings.appSettings[job.variant.keyY] = job.target_cg_vert
+        settings.appSettings[job.variant.keyZ] = job.target_cg_long
+        backup_yal_prefs("QuickViews CG update", job)
+        settings.writeSettings(settings.appSettings)
+        restore_pilots_head(job.snapshot)
+        if job.tobiiWasOn and tobii_eq then
+            local tobii_now = get(tobii_eq)
+            if tobii_now == 0 then
+                P.command_once("sim/view/tobii_eyetracker_toggle")
+                P.logInfoTS("QuickViews CG update: Tobii restored")
+            end
+        end
+        P.quickViewCgUpdateJob = nil
+        P.logInfoTS(string.format("QuickViews CG update completed: %s (%d views, deltaY %.4f ft, deltaZ %.4f ft)", job.variant.name, job.total, job.delta_y, job.delta_z))
+        return false
     end
+
+    if job.stage == QV_UPDATE_STAGE_SELECT then
+        P.command_once("sim/view/quick_look_" .. tostring(idx))
+        job.stage = QV_UPDATE_STAGE_SAVE
+        return true
+    end
+
+    local qv = job.qv_data and job.qv_data[idx] or nil
+    if not qv then
+        P.logInfoTS("QuickViews CG update: missing prefs data for quick view " .. tostring(idx))
+    else
+        local ok = false
+        if qv.x ~= nil then
+            set(pilots_head_x, qv.x)
+            ok = true
+        else
+            P.logInfoTS("QuickViews CG update: missing head X for quick view " .. tostring(idx))
+        end
+        if qv.y ~= nil then
+            set(pilots_head_y, qv.y - job.delta_m_y)
+            ok = true
+        else
+            P.logInfoTS("QuickViews CG update: missing head Y for quick view " .. tostring(idx))
+        end
+        if qv.z ~= nil then
+            set(pilots_head_z, qv.z - job.delta_m_z)
+            ok = true
+        else
+            P.logInfoTS("QuickViews CG update: missing head Z for quick view " .. tostring(idx))
+        end
+        if qv.psi ~= nil then set(pilots_head_psi, qv.psi) end
+        if qv.the ~= nil then set(pilots_head_the, qv.the) end
+        if qv.phi ~= nil then set(pilots_head_phi, qv.phi) end
+        if ok then
+            P.command_once("sim/view/quick_look_" .. tostring(idx) .. "_mem")
+        end
+    end
+
+    job.index_pos = job.index_pos + 1
+    job.stage = QV_UPDATE_STAGE_SELECT
+    if job.index_pos > job.total then
+        local settings = require("settings")
+        settings.appSettings[job.variant.keyY] = job.target_cg_vert
+        settings.appSettings[job.variant.keyZ] = job.target_cg_long
+        backup_yal_prefs("QuickViews CG update", job)
+        settings.writeSettings(settings.appSettings)
+        restore_pilots_head(job.snapshot)
+        P.quickViewCgUpdateJob = nil
+        P.logInfoTS(string.format("QuickViews CG update completed: %s (%d views, deltaY %.4f ft, deltaZ %.4f ft)", job.variant.name, job.total, job.delta_y, job.delta_z))
+        return false
+    end
+
+    return true
 end
 
 function P.applyDefaultViewFromQV0()
-    if not views_change_allowed() then
-        P.logInfoTS("Default view update blocked (requires preflight, on ground, parking brake set)")
+    if P.quickViewCgUpdateJob then
+        P.logInfoTS("Default view update blocked (QuickViews CG update in progress)")
+        return
+    end
+    local variant, v_err = get_current_zibo_variant()
+    if not variant then
+        P.logInfoTS("Default view update: " .. tostring(v_err))
         return
     end
     local base = get_zibo_base_path()
-    local variants = {
-        { name = "4k", acf = "b738_4k.acf", prefs = "b738_4k_prefs.txt" },
-        { name = "2k", acf = "b738.acf", prefs = "b738_prefs.txt" },
-    }
-    local did_adjust = false
-    for _, v in ipairs(variants) do
-        local ok, err = apply_default_view_from_qv0(base .. v.acf, base .. v.prefs)
-        if ok then
-            if err == "no-change" then
-                P.logInfoTS("Default view already matches QV0 (" .. v.name .. ")")
-            else
-                did_adjust = true
-                P.logInfoTS("Default view updated from QV0 (" .. v.name .. ")")
-            end
-        else
-            P.logInfoTS("Default view update failed (" .. v.name .. "): " .. tostring(err))
-        end
+    local qv, qv_err = read_qv0(base .. variant.prefs)
+    if not qv then
+        P.logInfoTS("Default view update failed: " .. tostring(qv_err))
+        return
     end
+    local ok, err = apply_default_view_from_qv0_data(base .. variant.acf, qv)
+    if ok then
+        if err == "no-change" then
+            P.logInfoTS("Default view already matches QV0 (" .. variant.name .. ")")
+        else
+            P.logInfoTS("Default view updated from QV0 (" .. variant.name .. ")")
+            P.logInfoTS("Default view update: ACF updated (reload not performed)")
+        end
+    else
+        P.logInfoTS("Default view update failed (" .. variant.name .. "): " .. tostring(err))
+    end
+end
+
+function P.stepDefaultViewUpdate()
+    local job = P.defaultViewUpdateJob
+    if not job then
+        return false
+    end
+    if P.quickViewCgUpdateJob then
+        restore_pilots_head(job.snapshot)
+        P.defaultViewUpdateJob = nil
+        P.logInfoTS("Default view update aborted (QuickViews CG update in progress)")
+        return false
+    end
+    if not views_change_allowed() then
+        restore_pilots_head(job.snapshot)
+        P.defaultViewUpdateJob = nil
+        P.logInfoTS("Default view update aborted (view change no longer allowed)")
+        return false
+    end
+
+    if job.stage == DEFAULT_VIEW_STAGE_NORMALIZE then
+        P.command_once("sim/view/default_view")
+        job.stage = DEFAULT_VIEW_STAGE_SELECT
+        return true
+    end
+
+    if job.stage == DEFAULT_VIEW_STAGE_SELECT then
+        P.command_once("sim/view/quick_look_0")
+        job.stage = DEFAULT_VIEW_STAGE_APPLY
+        return true
+    end
+
+    local qv = {
+        lat = get(pilots_head_x),
+        vert = get(pilots_head_y),
+        long = get(pilots_head_z),
+        pitch = get(pilots_head_the)
+    }
+    restore_pilots_head(job.snapshot)
+    if qv.lat == nil or qv.vert == nil or qv.long == nil or qv.pitch == nil then
+        P.defaultViewUpdateJob = nil
+        P.logInfoTS("Default view update failed: current QV0 values not found")
+        return false
+    end
+
+    local base = get_zibo_base_path()
+    local did_adjust = false
+    local ok, err = apply_default_view_from_qv0_data(base .. job.variant.acf, qv)
+    if ok then
+        if err == "no-change" then
+            P.logInfoTS("Default view already matches QV0 (" .. job.variant.name .. ")")
+        else
+            did_adjust = true
+            P.logInfoTS("Default view updated from QV0 (" .. job.variant.name .. ")")
+        end
+    else
+        P.logInfoTS("Default view update failed (" .. job.variant.name .. "): " .. tostring(err))
+    end
+    P.defaultViewUpdateJob = nil
     if did_adjust then
-        P.logInfoTS("Default view update: reloading aircraft to persist changes")
-        P.command_once("sim/operation/reload_aircraft")
+        P.logInfoTS("Default view update: ACF updated (reload not performed)")
+    end
+    return false
+end
+
+local function check_default_view_matches_qv0(variant, base)
+    local acf_path = base .. variant.acf
+    local prefs_path = base .. variant.prefs
+    local qv, qv_err = read_qv0(prefs_path)
+    if not qv then
+        P.logInfoTS("Default view check failed (" .. variant.name .. "): " .. tostring(qv_err))
+        return
+    end
+    local cg, cg_err = read_acf_cg(acf_path)
+    if not cg then
+        P.logInfoTS("Default view check failed (" .. variant.name .. "): " .. tostring(cg_err))
+        return
+    end
+    local current_view, view_err = read_acf_default_view(acf_path)
+    if not current_view then
+        P.logInfoTS("Default view check failed (" .. variant.name .. "): " .. tostring(view_err))
+        return
+    end
+    local meters_to_feet = 3.28084
+    local new_lat = (cg.lat or 0.0) + (qv.lat * meters_to_feet)
+    local new_vert = cg.vert + (qv.vert * meters_to_feet)
+    local new_long = cg.long + (qv.long * meters_to_feet)
+    local new_pitch = qv.pitch
+    if approx_equal(current_view.lat, new_lat) and approx_equal(current_view.vert, new_vert)
+        and approx_equal(current_view.long, new_long) and approx_equal(current_view.pitch, new_pitch) then
+        P.logInfoTS("Default view matches QV0 (" .. variant.name .. ")")
+    else
+        P.logInfoTS(string.format(
+            "Default view mismatch vs QV0 (%s): def %.6f/%.6f/%.6f/%.6f vs qv0 %.6f/%.6f/%.6f/%.6f",
+            variant.name,
+            current_view.lat, current_view.vert, current_view.long, current_view.pitch,
+            new_lat, new_vert, new_long, new_pitch
+        ))
     end
 end
 
@@ -5483,6 +11410,17 @@ function P.checkCgBaselineAtStartup()
                 end
             end
         end
+    end
+end
+
+function P.checkDefaultViewAtStartup()
+    local base = get_zibo_base_path()
+    local variants = {
+        { name = "4k", acf = "b738_4k.acf", prefs = "b738_4k_prefs.txt" },
+        { name = "2k", acf = "b738.acf", prefs = "b738_prefs.txt" },
+    }
+    for _, v in ipairs(variants) do
+        check_default_view_matches_qv0(v, base)
     end
 end
 

@@ -140,7 +140,7 @@ Checklist
 ## Before Takeoff
 
 Checklist
-- [ ] Transponder TARA (if configured)
+- [ ] Transponder TA/RA (if configured)
 - [ ] Position Lights STROBE
 - [ ] Landing Lights ON
 - [ ] Taxi Lights OFF
@@ -181,7 +181,7 @@ Checklist
 - [ ] Position Lights STROBE
 - [ ] Runway Turnoff Lights OFF
 - [ ] Taxi Lights OFF
-- [ ] Transponder TARA (if configured)
+- [ ] Transponder TA/RA (if configured)
 - [ ] QNH STANDARD at transition altitude
 
 <div style="page-break-after: always;"></div>
@@ -214,7 +214,7 @@ Checklist
 - [ ] Landing Lights ON
 - [ ] Starters FLIGHT
 - [ ] Logo Lights ON
-- [ ] ILS/Approach SET
+- [ ] Approach tuned / channel / course set as applicable
 - [ ] VREF SET
 - [ ] Wind Correction SET
 - [ ] Autobrake SET
@@ -252,6 +252,25 @@ Checklist
 - [ ] Missed Approach Altitude SET
 - [ ] Flaps 15
 - [ ] Go Around Cleanup: accelerate, retract flaps, LNAV/VNAV or HDG/ALT
+
+<div style="page-break-after: always;"></div>
+
+## Engine In-Flight Restart
+
+Checklist
+- [ ] Preconditions CHECKED (no fire, N1 rotation, no abnormal vibration, start envelope)
+- [ ] Thrust Lever CLOSED (affected engine)
+- [ ] Start Lever CUTOFF (affected engine)
+- [ ] Start Switch FLT (windmill) or PACK OFF + Duct Pressure 30 PSI + Start Switch GRD (crossbleed)
+- [ ] N2 >= 11 percent
+- [ ] Start Lever IDLE (affected engine)
+- [ ] EGT MONITORED (abort if no rise within 30 seconds)
+- [ ] Engine RUNNING
+- [ ] Generator ON (affected engine)
+- [ ] Pack AUTO (affected side)
+- [ ] Start Switch AUTO
+- [ ] APU AS NEEDED
+- [ ] Transponder TA/RA
 
 <div style="page-break-after: always;"></div>
 
