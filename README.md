@@ -123,11 +123,13 @@ Useful related features:
 
 ## Update Check and Save Notes
 - YAL can check for both YAL and Zibo updates during X-Plane startup
+- Stable builds use the stable YAL update feed by default
 - `Show beta updates` switches the YAL update check to the prerelease beta/RC feed
 - Periodic YAL flight save uses:
   - `Auto Flight Save Time`
   - `Auto Flight Save EFB Position(s)`
 - To disable periodic YAL autosave, use `0` or `9999` for `Auto Flight Save Time`
+- Autosave is skipped when X-Plane reports that the aircraft has crashed
 
 ## Useful Commands
 Commonly used assignable commands include:

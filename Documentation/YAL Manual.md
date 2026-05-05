@@ -1,5 +1,5 @@
 # Yet Another Linda (YAL) for Zibo Mod - User Manual
-Version 4.6rc1
+Version 4.6
 (C) WAHLTHO 2023-2026
 VIRTUAL COPILOT PLUGIN FOR ZIBO MOD 738
 
@@ -94,7 +94,7 @@ Actions: Probe/window heat, starter mode, flight directors, and other standard t
 
 #### Before Takeoff Procedure
 Trigger: Aircraft is on the departure runway, aligned, and stopped.
-Actions: Position lights to STROBE, landing lights ON, autobrake to RTO, and final departure configuration.
+Actions: Position lights to STROBE, landing lights ON, taxi lights OFF, autobrake to RTO, final takeoff-trim check, MCP speed/heading checks, LNAV/VNAV/A/T checks, and wind report.
 
 #### After Takeoff Procedure
 Trigger: Automatically after liftoff.
@@ -150,10 +150,10 @@ The settings window allows detailed customization of all automatic features.
 - BetterPushback Integration: Enables BPB plan detection and pushback-aware taxi routing logic.
 - YANSH Integration / YANSH Automatic Fueling: Enables YANSH integration and optional auto-fueling.
 - Hoppie ID: Callsign/login for Hoppie integration.
-- Show beta updates: Uses the prerelease update feed (beta/RC channel).
+- Show beta updates: Uses the prerelease update feed for beta/RC builds. Keep it off for the stable channel.
 - Check YAL/Zibo updates on startup: Checks for new YAL and Zibo versions during X-Plane startup and shows a popup if an update is available.
 - Sim exit after Pause at TOD (0-9999 sec): Delay before auto-save/quit after TOD pause.
-- Auto Flight Save Time (0 or 9999 = off): Periodic YAL flight save interval.
+- Auto Flight Save Time (0 or 9999 = off): Periodic YAL flight save interval. Autosave is skipped after an aircraft crash state is reported by X-Plane.
 - Auto Flight Save EFB Position(s) (ignored if save is off): Save slot/EFB target used by periodic YAL flight saves.
 - Disable XP Wake Effects: Suppresses X-Plane wake effects from other aircraft.
 - XP Runway Friction Clamp: Enables runway-friction clamp logic.
@@ -279,13 +279,13 @@ YAL announces and sets approach courses according to the selected approach and r
 YAL uses METAR data for weather-related advice such as QNH, visibility and runway-related RVR where available. Departure and nearest-airport METAR refreshes are limited to preflight. Destination METAR remains available for descent and arrival logic.
 
 ### Update Check
-If enabled, YAL checks at startup whether newer YAL or Zibo versions are available and shows an update popup if appropriate. The `Show beta updates` setting switches YAL to the prerelease feed used for beta/RC builds.
+If enabled, YAL checks at startup whether newer YAL or Zibo versions are available and shows an update popup if appropriate. Stable builds use the stable YAL feed by default; the `Show beta updates` setting switches YAL to the prerelease feed used for beta/RC builds.
 
 ## 7. Trim Advice Popup and Voice Advice Controls
 ### Trim Advice Popup
 The trim popup is intended to make manual takeoff-trim setting easier in Voice Advice Only mode.
 - It shows the current trim, the target trim and an up/down direction arrow.
-- It opens automatically when the takeoff trim step is active and the trim wheel is moved.
+- It opens automatically with the Before Takeoff takeoff-trim advice in Voice Advice Only mode.
 - It closes about 5 seconds after the target is reached or after the last trim input.
 - Its position is saved.
 - The `Toggle Trim Advice Window` command can open it manually while a valid takeoff-trim target exists. In that case it remains open until toggled off or until the trim context ends.

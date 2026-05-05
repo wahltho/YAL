@@ -146,6 +146,7 @@ Checklist
 - [ ] Taxi Lights OFF
 - [ ] Runway Turnoff Lights OFF
 - [ ] Autobrake RTO
+- [ ] Takeoff Trim SET
 - [ ] MCP Heading SET (voice advice)
 - [ ] L NAV or HDG Select ARMED (voice advice)
 - [ ] V NAV ARMED (voice advice)
