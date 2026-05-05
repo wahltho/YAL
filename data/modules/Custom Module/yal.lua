@@ -1081,6 +1081,13 @@ function P.YalinitGlobal()
     P.cruiseAltMismatchFirstSeenAt = nil
     P.cruiseAltMismatchLastWarnAt = nil
     P.cruiseAltMismatchVnavAltWarned = false
+    P.descentTriggerPhase = nil
+    P.descentTriggerSince = nil
+    P.descentTriggerHoldLogged = false
+    P.descentTriggerBlockedLogged = false
+    P.descentTriggerRestoreHoldUntil = nil
+    P.descentLastPositiveTodDistance = nil
+    P.descentLastPositiveTodSeenAt = nil
 
     P.savetimer = nil
 
@@ -6108,6 +6115,151 @@ function P.inflightrestoreactions()
 end
 
 --------------------------------------------------------------------------------------------------------------
+function P.resetDescentTriggerState(clearTodHistory)
+    P.descentTriggerPhase = nil
+    P.descentTriggerSince = nil
+    P.descentTriggerHoldLogged = false
+    P.descentTriggerBlockedLogged = false
+    if clearTodHistory then
+        P.descentLastPositiveTodDistance = nil
+        P.descentLastPositiveTodSeenAt = nil
+    end
+end
+
+--------------------------------------------------------------------------------------------------------------
+function P.armDescentTriggerRestoreHold(reason)
+    local now = os.time()
+    P.descentTriggerRestoreHoldUntil = now + def.DESCENT_TRIGGER_RESTORE_HOLD_SEC
+    P.resetDescentTriggerState(true)
+    helpers.logInfoTS("DescentTrigger: armed restore guard for " .. tostring(def.DESCENT_TRIGGER_RESTORE_HOLD_SEC) .. " seconds" .. (reason and (" (" .. reason .. ")") or ""))
+end
+
+--------------------------------------------------------------------------------------------------------------
+function P.clearStaleDescentRestoreState(restoredFlightState, aircraftIsOnGround)
+    if aircraftIsOnGround or restoredFlightState ~= def.FLIGHTSTATECRUISE then
+        return false
+    end
+
+    local fmsPhase = tonumber(get(P.fmsflightphase)) or 0
+    if fmsPhase ~= def.FMSFLIGHTPHASE_CRUISE then
+        return false
+    end
+
+    local procId = def.DURINGDESCENTPROCEDURE
+    local cleared = false
+    for idx, loop in ipairs(P.loopStateTables or {}) do
+        if loop and loop.lock == procId then
+            helpers.logInfoTS("InflightRestore: clearing stale During Descent loop " .. tostring(idx) .. " at step '" .. tostring(loop.currentStepName) .. "' while restored state and FMS phase are CRUISE")
+            loop.lock = def.NOPROCEDURE
+            P.resetLoopState(loop)
+            P.saveLoopState(loop, idx)
+            cleared = true
+        end
+    end
+
+    if P.proceduretable[procId] and P.proceduretable[procId].set then
+        helpers.logInfoTS("InflightRestore: clearing stale During Descent set flag while restored state and FMS phase are CRUISE")
+        P.proceduretable[procId].set = false
+        if P.ProcSetStatusarraydr then
+            set(P.ProcSetStatusarraydr, 0, procId)
+        end
+        cleared = true
+    end
+
+    if cleared then
+        P.armDescentTriggerRestoreHold("stale descent restore state cleared")
+    end
+    return cleared
+end
+
+--------------------------------------------------------------------------------------------------------------
+function P.updateDescentTodHistory(fmsPhase, todDistance, now)
+    local tod = tonumber(todDistance)
+    if not tod or tod <= 1 then
+        return
+    end
+
+    if fmsPhase == def.FMSFLIGHTPHASE_CRUISE or fmsPhase == def.FMSFLIGHTPHASE_CRZ_DES then
+        P.descentLastPositiveTodDistance = tod
+        P.descentLastPositiveTodSeenAt = now
+    end
+end
+
+--------------------------------------------------------------------------------------------------------------
+function P.hasActualDescentEvidence()
+    local vs = tonumber(get(P.verticalspeed)) or 0
+    local altitude = tonumber(get(P.altitude)) or 0
+    local fmcCruiseAlt = tonumber(get(P.fmccruisealt)) or 0
+    local belowCruise = (fmcCruiseAlt > 0) and (altitude < (fmcCruiseAlt - def.DESCENT_TRIGGER_BELOW_CRUISE_FT))
+    return (vs <= def.DESCENT_TRIGGER_DESCENT_VS_FPM) or belowCruise, vs, altitude, fmcCruiseAlt
+end
+
+--------------------------------------------------------------------------------------------------------------
+function P.shouldEnterDescentFromFms(fmsPhase, todDistance)
+    local now = os.time()
+    local tod = tonumber(todDistance) or 0
+    P.updateDescentTodHistory(fmsPhase, tod, now)
+
+    if fmsPhase < def.FMSFLIGHTPHASE_DESCENT then
+        P.resetDescentTriggerState(false)
+        return false
+    end
+
+    if P.descentTriggerPhase ~= fmsPhase then
+        P.descentTriggerPhase = fmsPhase
+        P.descentTriggerSince = now
+        P.descentTriggerHoldLogged = false
+        P.descentTriggerBlockedLogged = false
+        return false
+    elseif P.descentTriggerSince == nil then
+        P.descentTriggerSince = now
+        return false
+    end
+
+    local stableFor = now - P.descentTriggerSince
+    if stableFor < def.DESCENT_TRIGGER_STABLE_SEC then
+        return false
+    end
+
+    local descentEvidence, vs, altitude, fmcCruiseAlt = P.hasActualDescentEvidence()
+    local restoreHoldActive = (P.descentTriggerRestoreHoldUntil ~= nil) and (now < P.descentTriggerRestoreHoldUntil)
+    if restoreHoldActive and not descentEvidence then
+        if not P.descentTriggerHoldLogged then
+            helpers.logInfoTS(string.format("DescentTrigger: holding after restore fmsPhase=%s tod=%.1f stable=%ds vs=%d alt=%d fmcCruise=%d",
+                tostring(fmsPhase), tod, stableFor, helpers.roundnumber(vs), helpers.roundnumber(altitude), helpers.roundnumber(fmcCruiseAlt)))
+            P.descentTriggerHoldLogged = true
+        end
+        return false
+    end
+
+    local todAtOrPast = tod >= 0 and tod <= 1
+    local recentTodHistory =
+        (P.descentLastPositiveTodSeenAt ~= nil) and
+        ((now - P.descentLastPositiveTodSeenAt) <= def.DESCENT_TRIGGER_RECENT_TOD_SEC) and
+        ((P.descentLastPositiveTodDistance or 0) > 1)
+
+    if descentEvidence or (todAtOrPast and recentTodHistory) then
+        helpers.logInfoTS(string.format("DescentTrigger: accepted fmsPhase=%s tod=%.1f stable=%ds recentTod=%s lastTod=%.1f vs=%d alt=%d fmcCruise=%d",
+            tostring(fmsPhase),
+            tod,
+            stableFor,
+            tostring(recentTodHistory),
+            tonumber(P.descentLastPositiveTodDistance or 0) or 0,
+            helpers.roundnumber(vs),
+            helpers.roundnumber(altitude),
+            helpers.roundnumber(fmcCruiseAlt)))
+        return true
+    end
+
+    if not P.descentTriggerBlockedLogged then
+        helpers.logInfoTS(string.format("DescentTrigger: blocked fmsPhase=%s tod=%.1f stable=%ds recentTod=%s vs=%d alt=%d fmcCruise=%d",
+            tostring(fmsPhase), tod, stableFor, tostring(recentTodHistory), helpers.roundnumber(vs), helpers.roundnumber(altitude), helpers.roundnumber(fmcCruiseAlt)))
+        P.descentTriggerBlockedLogged = true
+    end
+    return false
+end
+
+--------------------------------------------------------------------------------------------------------------
 function P.syncProceduresToFlightState()
     local currentFlightState = P.flightstate
     if currentFlightState == 0 then
@@ -6289,6 +6441,13 @@ function P.autofunctions()
     local currentFlightState = P.flightstate
 
     if P.isReloadWithinSession then
+        if not aircraftIsOnGround and currentFlightState == def.FLIGHTSTATECRUISE then
+            local staleDescentCleared = P.clearStaleDescentRestoreState(currentFlightState, aircraftIsOnGround)
+            if not staleDescentCleared then
+                P.armDescentTriggerRestoreHold("inflight restore while CRUISE")
+            end
+        end
+
         local stateFromProcs = P.determineFlightStateFromProcedures()
         local stateIsPlausible = false
         local finalState = stateFromProcs
@@ -6347,6 +6506,8 @@ function P.autofunctions()
     currentFlightState = P.flightstate
 
     if aircraftIsOnGround then
+        P.resetDescentTriggerState(true)
+
         local taxiTriggerConditions = ((get(P.taxilight) ~= def.OFF) and P.enginesrunning(def.BOTH) and (get(P.groundspeed) < 45) and P.flightstate == def.FLIGHTSTATEPREFLIGHT)
         if taxiTriggerConditions then
             P.triggerprocedure(def.BEFORETAXIPROCEDURE)
@@ -6370,9 +6531,10 @@ function P.autofunctions()
 
     else
         local fmsPhase = get(P.fmsflightphase) or 0
+        local todDistance = get(P.vnavtoddist)
         local targetFlightState = P.flightstate
 
-        if ((fmsPhase >= def.FMSFLIGHTPHASE_DESCENT) and (get(P.vnavtoddist) <= 1)) then
+        if (P.flightstate < def.FLIGHTSTATEAPPROACH) and P.shouldEnterDescentFromFms(fmsPhase, todDistance) then
             targetFlightState = def.FLIGHTSTATEAPPROACH
         elseif (fmsPhase == def.FMSFLIGHTPHASE_CRUISE) then
             targetFlightState = def.FLIGHTSTATECRUISE
