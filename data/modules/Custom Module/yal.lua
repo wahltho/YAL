@@ -1626,7 +1626,7 @@ function P.bindExternalDatarefs(silentMissing)
     P.tas_kts_is_ms = true
     P.groundspeed = GP("laminar/b738/fmodpack/real_groundspeed")
     P.tirespeed = GP("laminar/B738/systems/tire_speed0")
-    P.verticalspeed = GPFAE("sim/cockpit2/tcas/targets/position/vertical_speed", 1)
+    P.verticalspeed = GP("sim/cockpit2/gauges/indicators/vvi_fpm_pilot")
 
     P.v1speed = GP("laminar/B738/FMS/v1")
     P.v2speed = GP("laminar/B738/FMS/v2")
