@@ -6829,20 +6829,8 @@ function P.runOneCoreOngoingTask()
         if ((get(P.airgroundsensor) == def.ON) and (P.procedureloop1.lock == def.NOPROCEDURE) and (get(P.battery) == def.ON) and (get(P.mainbus) ~= def.OFF) and (P.flightstate == def.FLIGHTSTATEPREFLIGHT) and (get(P.taxilight) == def.OFF)) then
             if ((P.configvalues[def.CONFIGAUTOBARO] == def.ON) and (get(P.groundspeed) < 45)) then
                 local baroinchtmp, baropastmp = P.getlocalqnh(def.DEPARTURE)
-                local baropilotRaw = get(P.baropilot)
-                local baropilotRounded = helpers.roundnumber(baropilotRaw, 2)
-                local qnhDiff = helpers.roundnumber(math.abs(baropilotRounded - baroinchtmp), 2)
-                if (qnhDiff > 0.01) then
-                    helpers.logInfoTS(
-                        "Ongoing QNH pending: barostd=" .. tostring(get(P.barostd)) ..
-                        " baroinhpa=" .. tostring(get(P.baroinhpa)) ..
-                        " baropilot=" .. tostring(baropilotRaw) ..
-                        " baropilotRounded=" .. tostring(baropilotRounded) ..
-                        " currentHpa=" .. tostring(helpers.convertpressure(baropilotRaw)) ..
-                        " targetInHg=" .. tostring(baroinchtmp) ..
-                        " targetHpa=" .. tostring(baropastmp) ..
-                        " diffInHg=" .. tostring(qnhDiff)
-                    )
+                local current_hpa = helpers.convertpressure(get(P.baropilot))
+                if (not current_hpa) or (not baropastmp) or (math.abs(current_hpa - baropastmp) > 1) then
                     if ((P.configvalues[def.CONFIGAUTOFUNCTIONS] == def.ON) and (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON)) then
                         set(P.baropilot, baroinchtmp)
                     elseif (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
