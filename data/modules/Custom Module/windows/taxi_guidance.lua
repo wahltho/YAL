@@ -345,7 +345,7 @@ function M.attach(U, C, def, helpers, settings)
                 end
                 comp._visualGuidanceQueue = {}
             end
-            local logger = log_taxi or comp._logTaxi or (comp._helpers and comp._helpers.logInfoTS)
+            local logger = log_taxi or comp._logTaxi or (comp._helpers and comp._helpers.logDebugTS)
             if logger then
                 if reason and reason ~= "" then
                     logger("TaxiGuideState: " .. tostring(prev) .. " -> " .. tostring(state) .. " | " .. tostring(reason))
@@ -518,7 +518,7 @@ function M.attach(U, C, def, helpers, settings)
                     end
                 end
             end
-            helpers.logInfoTS(msg)
+            helpers.logDebugTS(msg)
         end
         local auto_voice = is_auto_taxi_guidance_enabled()
         local visual_enabled = is_visual_taxi_guidance_enabled()
@@ -607,7 +607,7 @@ function M.attach(U, C, def, helpers, settings)
                     elseif on_ground then
                         clear_visual_guidance(comp, "takeoff-roll")
                         comp._visualGuidanceQueue = {}
-                        local logger = comp._logTaxi or (helpers and helpers.logInfoTS)
+                        local logger = comp._logTaxi or (helpers and helpers.logDebugTS)
                         set_guidance_state(comp, "complete", "takeoff-roll", logger)
                         diag("takeoff-roll")
                         return
@@ -627,7 +627,7 @@ function M.attach(U, C, def, helpers, settings)
                         comp._takeoffRollGuidance = true
                         clear_visual_guidance(comp, "takeoff-roll")
                         comp._visualGuidanceQueue = {}
-                        local logger = comp._logTaxi or (helpers and helpers.logInfoTS)
+                        local logger = comp._logTaxi or (helpers and helpers.logDebugTS)
                         set_guidance_state(comp, "complete", "takeoff-roll", logger)
                         diag("takeoff-roll")
                         return
@@ -638,7 +638,7 @@ function M.attach(U, C, def, helpers, settings)
         local route = comp._route
         local data = (route and route.data) or comp._data
         local is_freehand = (route and route.data and route.data.route_source == "freehand") or false
-        local log_taxi = comp._logTaxi or (helpers and helpers.logInfoTS)
+        local log_taxi = comp._logTaxi or (helpers and helpers.logDebugTS)
         local park = (yal and yal.parkingbrakepos and get(yal.parkingbrakepos)) or nil
         if comp._gateFinalTurnUntil and now and now > comp._gateFinalTurnUntil then
             comp._gateFinalTurnUntil = nil
@@ -815,12 +815,12 @@ function M.attach(U, C, def, helpers, settings)
                     gate_route_suppress = true
                 end
 
-                if helpers and helpers.logInfoTS then
+                if helpers and helpers.logDebugTS then
                     local active_changed = (comp._lastGateGuidanceActive ~= comp._gateGuidanceActive)
                     if active_changed then
                         comp._lastGateGuidanceActive = comp._gateGuidanceActive
                         local dist_txt = gate_ref_dist and string.format("%.1f", gate_ref_dist) or "nil"
-                        helpers.logInfoTS(
+                        helpers.logDebugTS(
                             "GateRoute: active=" .. tostring(comp._gateGuidanceActive)
                             .. " reason=" .. tostring(gate_reason)
                             .. " dist=" .. tostring(dist_txt)
@@ -926,11 +926,11 @@ function M.attach(U, C, def, helpers, settings)
                 end
                 if dist then
                     local stop_dist = (comp._gateUseDgs and ((C and C.gateDgsGoodZPos) or 0.2)) or C.gateStopDistance
-                    if helpers and helpers.logInfoTS then
+                    if helpers and helpers.logDebugTS then
                         local last_gate_diag = comp._lastGateDiagTime or 0
                         if (now - last_gate_diag) >= 5 then
                             comp._lastGateDiagTime = now
-                            helpers.logInfoTS(
+                            helpers.logDebugTS(
                                 string.format(
                                     "GateDiag: dist=%.1f stop=%.1f gs=%.1f stage=%s stopCalled=%s dgs=%s final=%s",
                                     dist,
@@ -1023,8 +1023,8 @@ function M.attach(U, C, def, helpers, settings)
             end
             if not comp._gateRouteSuppress then
                 comp._gateRouteSuppress = true
-                if helpers and helpers.logInfoTS then
-                    helpers.logInfoTS("TaxiGuide: route guidance suppressed near gate")
+                if helpers and helpers.logDebugTS then
+                    helpers.logDebugTS("TaxiGuide: route guidance suppressed near gate")
                 end
             end
             diag("gate-approach-suppress")
@@ -2930,8 +2930,8 @@ function M.attach(U, C, def, helpers, settings)
                     local cooldown = (C and C.guidanceCooldown) or 8
                     local recent = now and comp._lastGuidanceTime and ((now - comp._lastGuidanceTime) < cooldown)
                     if same_label and near_seg and recent then
-                        if helpers and helpers.logInfoTS then
-                            helpers.logInfoTS(
+                        if helpers and helpers.logDebugTS then
+                            helpers.logDebugTS(
                                 "TaxiGuide: suppress opposite turn flip label=" .. tostring(next_info.display or "")
                             )
                         end
@@ -2949,8 +2949,8 @@ function M.attach(U, C, def, helpers, settings)
                 local new_is_basic = (new_action == "CONTINUE" or new_action == "TAXI VIA" or new_action == "TAXI")
                 if last_was_turn and new_is_basic and last_seg and seg_idx and seg_idx <= (last_seg + 1)
                     and last_label and new_label and tostring(new_label) ~= tostring(last_label) then
-                    if helpers and helpers.logInfoTS then
-                        helpers.logInfoTS(
+                    if helpers and helpers.logDebugTS then
+                        helpers.logDebugTS(
                             "TaxiGuide: suppress post-turn label flip from="
                                 .. tostring(last_label)
                                 .. " to="
@@ -2966,8 +2966,8 @@ function M.attach(U, C, def, helpers, settings)
                 local label = tostring(next_info.display or "")
                 if basic and label ~= "" and label ~= tostring(comp._guidanceTurnLockLabel)
                     and seg_idx and seg_idx <= comp._guidanceTurnLockUntilSeg then
-                    if helpers and helpers.logInfoTS then
-                        helpers.logInfoTS(
+                    if helpers and helpers.logDebugTS then
+                        helpers.logDebugTS(
                             "TaxiGuide: suppress turn-lock flip from="
                                 .. tostring(comp._guidanceTurnLockLabel)
                                 .. " to="
@@ -3087,7 +3087,7 @@ function M.attach(U, C, def, helpers, settings)
             .. "|" .. tostring(info.direction or "")
             .. "|" .. tostring(info.kind or "")
             .. "|" .. tostring(info.targetSegIdx or "")
-        if helpers and helpers.logInfoTS and comp._lastGuidanceLogKey ~= guidance_log_key then
+        if helpers and helpers.logDebugTS and comp._lastGuidanceLogKey ~= guidance_log_key then
             comp._lastGuidanceLogKey = guidance_log_key
             local msg = "TaxiGuide: " .. tostring(info.text)
             if info.action or info.direction or info.kind then
@@ -3096,7 +3096,7 @@ function M.attach(U, C, def, helpers, settings)
                     .. " dir=" .. tostring(info.direction or "")
                     .. " kind=" .. tostring(info.kind or "")
             end
-            helpers.logInfoTS(msg)
+            helpers.logDebugTS(msg)
         end
         if allow_voice and is_voice_enabled() then
             speak_guidance_text(comp, info.text)
@@ -3107,8 +3107,8 @@ function M.attach(U, C, def, helpers, settings)
                 comp._autoTaxiTargetTime = now
                 comp._autoTaxiTargetAction = info.action
                 comp._autoTaxiTargetLabel = info.display or info.label
-                if helpers and helpers.logInfoTS then
-                    helpers.logInfoTS("AutoTaxiTarget: seg=" .. tostring(info.targetSegIdx) .. " action=" .. tostring(info.action or ""))
+                if helpers and helpers.logDebugTS then
+                    helpers.logDebugTS("AutoTaxiTarget: seg=" .. tostring(info.targetSegIdx) .. " action=" .. tostring(info.action or ""))
                 end
             else
                 comp._autoTaxiTargetTime = now

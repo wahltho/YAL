@@ -371,6 +371,11 @@ function P.logInfoTS(message)
     sasl.logInfo(string.format("%s %s", timestamp, tostring(message)))
 end
 
+function P.logDebugTS(message)
+    local timestamp = string.format("[%s]", os.date("%H:%M:%S"))
+    sasl.logDebug(string.format("%s %s", timestamp, tostring(message)))
+end
+
 local function get_flightstate()
     if not P._flightstate_dr then
         local ok, dr = pcall(globalProperty, "YAL/state/flightstate")
