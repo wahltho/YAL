@@ -4069,9 +4069,10 @@ function M.fillProcedureTable()
                         local tl = get(P.fmctranslvl)
                         if (tl == nil) or (tl <= 0) or (tl > 25000) then return false end 
                         if (get(P.altitude) >= tl) then return false end 
-                        local baroinchtmp, _ = P.getlocalqnh(def.ARRIVAL)
+                        local _, baropastmp = P.getlocalqnh(def.ARRIVAL)
                         if (get(P.barostd) == def.ON) then return false end 
-                        if (helpers.roundnumber(math.abs(helpers.roundnumber(get(P.baropilot), 2) - baroinchtmp), 2) > 0.01) then return false end 
+                        local current_hpa = helpers.convertpressure(get(P.baropilot))
+                        if (not current_hpa) or (not baropastmp) or (math.abs(current_hpa - baropastmp) > 1) then return false end
                         return true
                     end,
                     advice = function()
