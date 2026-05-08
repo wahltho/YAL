@@ -233,6 +233,17 @@ VR.config = {
 }
 
 --------------------------------------------------------------------------------------------------------------
+local function get_current_baro_inhg(P)
+    local value = nil
+    if P.getcaptainbaroinhg then
+        value = P.getcaptainbaroinhg()
+    else
+        value = get(P.baropilot)
+    end
+    return value and helpers.roundnumber(value, 4) or value
+end
+
+--------------------------------------------------------------------------------------------------------------
 local function complex_check(P)
     -- Fuel Check (with threshold)
     if (math.abs(get(P.totalfuellbs) - P.totalfuellbstemp) > 200) then
@@ -245,25 +256,26 @@ local function complex_check(P)
     else P.totalfuellbstemp = get(P.totalfuellbs) end
 
     -- Baro Check (multiple dataref dependencies)
-    if ((get(P.baropilot) ~= P.baropilottemp) or (get(P.barostd) ~= P.barostdtemp)) then
-        if (get(P.baropilot) ~= P.baropilottemp2) then P.baropilottemp2 = get(P.baropilot)
+    local baro_inhg = get_current_baro_inhg(P)
+    if ((baro_inhg ~= P.baropilottemp) or (get(P.barostd) ~= P.barostdtemp)) then
+        if (baro_inhg ~= P.baropilottemp2) then P.baropilottemp2 = baro_inhg
         else
             if ((get(P.barostd) == def.ON) and (get(P.barostd) ~= P.barostdtemp)) then P.commandtableentry(def.TEXT, "Q N H Standard")
             else
                 if (get(P.baroinhpa) == def.ON) then
-                    local qnhValue = helpers.convertpressure(get(P.baropilot))
+                    local qnhValue = helpers.convertpressure(baro_inhg)
                     local qnhText = helpers.formatQnhValue(qnhValue, true)
                     if qnhText then
                         P.commandtableentry(def.TEXT, "Q N H " .. helpers.addspaces(qnhText))
                     end
                 else
-                    local qnhText = helpers.formatQnhValue(get(P.baropilot), false)
+                    local qnhText = helpers.formatQnhValue(baro_inhg, false)
                     if qnhText then
                         P.commandtableentry(def.TEXT, "Q N H " .. helpers.addspaces(qnhText))
                     end
                 end
             end
-            P.baropilottemp = get(P.baropilot); P.baropilottemp2 = get(P.baropilot); P.barostdtemp = get(P.barostd)
+            P.baropilottemp = baro_inhg; P.baropilottemp2 = baro_inhg; P.barostdtemp = get(P.barostd)
         end
     end
     
@@ -532,7 +544,8 @@ function VR.initialize(P)
     -- Initialize temp vars for the legacy complex_check function
     -- Fuel & Baro
     P.totalfuellbstemp = get(P.totalfuellbs); P.totalfuellbstemp2 = get(P.totalfuellbs)
-    P.barostdtemp = get(P.barostd); P.baropilottemp = get(P.baropilot); P.baropilottemp2 = get(P.baropilot)
+    local baro_inhg = get_current_baro_inhg(P)
+    P.barostdtemp = get(P.barostd); P.baropilottemp = baro_inhg; P.baropilottemp2 = baro_inhg
 
     -- Lights
     P.llights1temp = get(P.llights1); P.llights2temp = get(P.llights2); P.llights3temp = get(P.llights3); P.llights4temp = get(P.llights4)

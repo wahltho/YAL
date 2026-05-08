@@ -1227,6 +1227,8 @@ local function bind_external_dataref(name, kind, index, silentMissing)
     end
     if kind == "fae" then
         return globalPropertyfae(name, index), false
+    elseif kind == "f" then
+        return globalPropertyf(name), false
     elseif kind == "iae" then
         return globalPropertyiae(name, index), false
     elseif kind == "ia" then
@@ -1240,6 +1242,12 @@ function P.bindExternalDatarefs(silentMissing)
 
     local function GP(name)
         local dr, missing = bind_external_dataref(name, nil, nil, silentMissing)
+        if missing then missingCount = missingCount + 1 end
+        return dr
+    end
+
+    local function GPF(name)
+        local dr, missing = bind_external_dataref(name, "f", nil, silentMissing)
         if missing then missingCount = missingCount + 1 end
         return dr
     end
@@ -1520,7 +1528,8 @@ function P.bindExternalDatarefs(silentMissing)
 
     P.bankanglepos = GP("laminar/B738/autopilot/bank_angle_pos")
 
-    P.baropilot = GP("laminar/B738/EFIS/baro_sel_in_hg_pilot")
+    P.baropilot = GPF("laminar/B738/EFIS/baro_sel_in_hg_pilot")
+    P.baropilotactual = GPF("sim/cockpit2/gauges/actuators/barometer_setting_in_hg_pilot")
     P.barostd = GP("laminar/B738/EFIS/baro_set_std_pilot")
     P.baroinhpa = GP("laminar/B738/EFIS_control/capt/baro_in_hpa")
     P.baroregionpas = GP("sim/weather/region/qnh_pas")
@@ -3388,6 +3397,27 @@ function P.getlocalqnh(deparr)
     sasl.logDebug("GETLOCALQNH: INCH " .. tostring(localqnhinch) .. " PAS " .. tostring(localqnhpas))
 
     return localqnhinch, localqnhpas
+end
+
+--------------------------------------------------------------------------------------------------------------
+
+function P.getcaptainbaroinhg()
+    local sim_baro = P.baropilotactual and get(P.baropilotactual) or nil
+    if sim_baro and sim_baro > 0 then
+        return sim_baro, "sim"
+    end
+    return get(P.baropilot), "laminar"
+end
+
+function P.getcaptainbarohpa()
+    local baro_inhg, source = P.getcaptainbaroinhg()
+    return helpers.convertpressure(baro_inhg), baro_inhg, source
+end
+
+function P.setcaptainbaroinhg(value)
+    if value == nil then return end
+    if P.baropilot then set(P.baropilot, value) end
+    if P.baropilotactual then set(P.baropilotactual, value) end
 end
 
 --------------------------------------------------------------------------------------------------------------
@@ -6108,7 +6138,7 @@ function P.inflightrestoreactions()
         if ((get(P.altitude) < get(P.fmctranslvl)) and (get(P.barostd) == def.ON)) then
             helpers.command_once("laminar/B738/EFIS_control/capt/push_button/std_press")
             local baroinchtmp, baropastemp = P.getlocalqnh(def.ARRIVAL)
-            set(P.baropilot, baroinchtmp)
+            P.setcaptainbaroinhg(baroinchtmp)
         end
     end
 
@@ -6829,14 +6859,16 @@ function P.runOneCoreOngoingTask()
         if ((get(P.airgroundsensor) == def.ON) and (P.procedureloop1.lock == def.NOPROCEDURE) and (get(P.battery) == def.ON) and (get(P.mainbus) ~= def.OFF) and (P.flightstate == def.FLIGHTSTATEPREFLIGHT) and (get(P.taxilight) == def.OFF)) then
             if ((P.configvalues[def.CONFIGAUTOBARO] == def.ON) and (get(P.groundspeed) < 45)) then
                 local baroinchtmp, baropastmp = P.getlocalqnh(def.DEPARTURE)
-                local raw_baropilot = get(P.baropilot)
-                local current_hpa = helpers.convertpressure(raw_baropilot)
+                local current_hpa, raw_baropilot, baro_source = P.getcaptainbarohpa()
                 if (not current_hpa) or (not baropastmp) or (math.abs(current_hpa - baropastmp) > 1) then
                     local qnh_diff = (current_hpa and baropastmp) and (current_hpa - baropastmp) or nil
-                    helpers.logInfoTS(
+                    helpers.logDebugTS(
                         "Ongoing QNH pending: barostd=" .. tostring(get(P.barostd)) ..
                         " baroinhpa=" .. tostring(get(P.baroinhpa)) ..
+                        " baroSource=" .. tostring(baro_source) ..
                         " baropilot=" .. tostring(raw_baropilot) ..
+                        " laminarBaro=" .. tostring(get(P.baropilot)) ..
+                        " simBaro=" .. tostring(P.baropilotactual and get(P.baropilotactual) or nil) ..
                         " currentHpa=" .. tostring(current_hpa) ..
                         " targetInHg=" .. tostring(baroinchtmp) ..
                         " targetHpa=" .. tostring(baropastmp) ..
@@ -6847,7 +6879,7 @@ function P.runOneCoreOngoingTask()
                         " gs=" .. tostring(get(P.groundspeed))
                     )
                     if ((P.configvalues[def.CONFIGAUTOFUNCTIONS] == def.ON) and (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON)) then
-                        set(P.baropilot, baroinchtmp)
+                        P.setcaptainbaroinhg(baroinchtmp)
                     elseif (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
                         local qnhText = nil
                         if (get(P.baroinhpa) == def.ON) then

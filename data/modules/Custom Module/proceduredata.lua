@@ -4071,7 +4071,7 @@ function M.fillProcedureTable()
                         if (get(P.altitude) >= tl) then return false end 
                         local _, baropastmp = P.getlocalqnh(def.ARRIVAL)
                         if (get(P.barostd) == def.ON) then return false end 
-                        local current_hpa = helpers.convertpressure(get(P.baropilot))
+                        local current_hpa = P.getcaptainbarohpa()
                         if (not current_hpa) or (not baropastmp) or (math.abs(current_hpa - baropastmp) > 1) then return false end
                         return true
                     end,
@@ -4092,7 +4092,7 @@ function M.fillProcedureTable()
                         if (get(P.altitude) >= tl) then return end 
                         local baroinchtmp, _ = P.getlocalqnh(def.ARRIVAL)
                         helpers.command_once("laminar/B738/EFIS_control/capt/push_button/std_press")
-                        set(P.baropilot, baroinchtmp)
+                        P.setcaptainbaroinhg(baroinchtmp)
                     end,
                     confirm = function()
                         local baroinchtmp, baropastmp = P.getlocalqnh(def.ARRIVAL)
