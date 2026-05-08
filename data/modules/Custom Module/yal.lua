@@ -1550,6 +1550,10 @@ function P.bindExternalDatarefs(silentMissing)
     P.llights3 = GPFAE("sim/cockpit2/switches/landing_lights_switch", 3)
     P.llights4 = GPFAE("sim/cockpit2/switches/landing_lights_switch", 4)
     P.ledlightsvariant = GP("laminar/B738/led_lights")
+    P.landlightsretleftpos = GP("laminar/B738/switch/land_lights_ret_left_pos")
+    P.landlightsretrightpos = GP("laminar/B738/switch/land_lights_ret_right_pos")
+    P.landlightsleftpos = GP("laminar/B738/switch/land_lights_left_pos")
+    P.landlightsrightpos = GP("laminar/B738/switch/land_lights_right_pos")
 
     P.taxilight = GP("laminar/B738/toggle_switch/taxi_light_brightness_pos")
     P.positionlights = GP("laminar/B738/toggle_switch/position_light_pos")
@@ -4440,20 +4444,63 @@ local my_command_togglecollisionlights = sasl.createCommand(def.APPNAMEPREFIX ..
 sasl.registerCommandHandler(my_command_togglecollisionlights, 0, P.togglecollisionlights_)
 
 --------------------------------------------------------------------------------------------------------------
-function P.togglelandinglights(state)
+function P.readlandinglightpos(prop)
+    if prop == nil then return def.OFF end
+    local value = tonumber(get(prop)) or 0
+    return math.floor(value + 0.5)
+end
+
+function P.getlandinglightsstate()
     local ledVariant = (get(P.ledlightsvariant) == def.ON)
-    local ledOffThreshold = def.LEDLLIGHTSOFF or 0
+    local retLeft = P.readlandinglightpos(P.landlightsretleftpos)
+    local retRight = P.readlandinglightpos(P.landlightsretrightpos)
+    local fixedLeft = P.readlandinglightpos(P.landlightsleftpos)
+    local fixedRight = P.readlandinglightpos(P.landlightsrightpos)
 
-    if state == nil then
-        local anyOn = false
-        if ledVariant then
-            anyOn = (get(P.llights1) > ledOffThreshold) or (get(P.llights4) > ledOffThreshold)
-        else
-            anyOn = (get(P.llights1) ~= def.OFF) or (get(P.llights2) ~= def.OFF) or
-                    (get(P.llights3) ~= def.OFF) or (get(P.llights4) ~= def.OFF)
+    if ledVariant then
+        if (fixedLeft ~= def.OFF) and (fixedRight ~= def.OFF) then
+            return def.ON
+        elseif (fixedLeft == def.OFF) and (fixedRight == def.OFF) then
+            return def.OFF
         end
+        return nil
+    end
 
-        if anyOn then
+    if (retLeft == 2) and (retRight == 2) and (fixedLeft ~= def.OFF) and (fixedRight ~= def.OFF) then
+        return def.ON
+    elseif (retLeft == def.OFF) and (retRight == def.OFF) and (fixedLeft == def.OFF) and (fixedRight == def.OFF) then
+        return def.OFF
+    end
+
+    return nil
+end
+
+function P.landinglightsallon()
+    return P.getlandinglightsstate() == def.ON
+end
+
+function P.landinglightsalloff()
+    return P.getlandinglightsstate() == def.OFF
+end
+
+function P.landinglightsanyon()
+    local ledVariant = (get(P.ledlightsvariant) == def.ON)
+    local fixedLeft = P.readlandinglightpos(P.landlightsleftpos)
+    local fixedRight = P.readlandinglightpos(P.landlightsrightpos)
+
+    if ledVariant then
+        return (fixedLeft ~= def.OFF) or (fixedRight ~= def.OFF)
+    end
+
+    return (P.readlandinglightpos(P.landlightsretleftpos) == 2)
+        or (P.readlandinglightpos(P.landlightsretrightpos) == 2)
+        or (fixedLeft ~= def.OFF)
+        or (fixedRight ~= def.OFF)
+end
+
+function P.togglelandinglights(state)
+    if state == nil then
+        if P.landinglightsanyon() then
             helpers.command_once("sim/lights/landing_lights_off")
         else
             helpers.command_once("sim/lights/landing_lights_on")

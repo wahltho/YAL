@@ -2021,18 +2021,7 @@ function M.fillProcedureTable()
                     nextStep = 'set_landing_lights_off'
                 },
                 ['set_landing_lights_off'] = {
-                    check = function()
-                        local ledVariant = (get(P.ledlightsvariant) == def.ON)
-                        local thr = def.LEDLLIGHTSOFF or 0
-                        if ledVariant then
-                            return (get(P.llights1) <= thr) and (get(P.llights4) <= thr)
-                        else
-                            return (get(P.llights1) == def.OFF)
-                                and (get(P.llights2) == def.OFF)
-                                and (get(P.llights3) == def.OFF)
-                                and (get(P.llights4) == def.OFF)
-                        end
-                    end,
+                    check = function() return P.landinglightsalloff() end,
                     advice = "Set Landing Lights Off",
                     action = function() P.togglelandinglights(def.OFF) end,
                     confirm = "Landing Lights checked Off",
@@ -3304,19 +3293,7 @@ function M.fillProcedureTable()
                     nextStep = 'landing_lights_on'
                 },
                 ['landing_lights_on'] = {
-                    check = function()
-                        local ledVariant = (get(P.ledlightsvariant) == def.ON)
-                        local thr = def.LEDLLIGHTSOFF or 0
-                        if ledVariant then
-                            return (get(P.llights1) > thr)
-                                and (get(P.llights4) > thr)
-                        else
-                            return  (get(P.llights1) ~= def.OFF)
-                                and (get(P.llights2) ~= def.OFF)
-                                and (get(P.llights3) ~= def.OFF)
-                                and (get(P.llights4) ~= def.OFF)
-                        end
-                    end,
+                    check = function() return P.landinglightsallon() end,
                     action = function() P.togglelandinglights(def.ON) end,
                     advice = "Set Landing Lights On",
                     confirm = "Landing Lights checked On",
@@ -3820,18 +3797,7 @@ function M.fillProcedureTable()
                     nextStep = 'set_landing_lights_off'
                 },
                 ['set_landing_lights_off'] = {
-                    check = function()
-                        local ledVariant = (get(P.ledlightsvariant) == def.ON)
-                        local thr = def.LEDLLIGHTSOFF or 0
-                        if ledVariant then
-                            return (get(P.llights1) <= thr) and (get(P.llights4) <= thr)
-                        else
-                            return (get(P.llights1) == def.OFF)
-                                and (get(P.llights2) == def.OFF)
-                                and (get(P.llights3) == def.OFF)
-                                and (get(P.llights4) == def.OFF)
-                        end
-                    end,
+                    check = function() return P.landinglightsalloff() end,
                     advice = "Set Landing Lights Off",
                     action = function() P.togglelandinglights(def.OFF) end,
                     confirm = "Landing Lights checked Off",
@@ -4149,16 +4115,7 @@ function M.fillProcedureTable()
                     nextStep = 'set_landing_lights_on'
                 },
                 ['set_landing_lights_on'] = {
-                    check = function()
-                        local ledVariant = (get(P.ledlightsvariant) == def.ON)
-                        local thr = def.LEDLLIGHTSOFF or 0
-                        if ledVariant then
-                            return (get(P.llights1) > thr) and (get(P.llights4) > thr)
-                        else
-                            return (get(P.llights1) ~= def.OFF) and (get(P.llights2) ~= def.OFF)
-                                and (get(P.llights3) ~= def.OFF) and (get(P.llights4) ~= def.OFF)
-                        end
-                    end,
+                    check = function() return P.landinglightsallon() end,
                     advice = "Set Landing Lights On",
                     action = function() P.togglelandinglights(def.ON) end,
                     confirm = "Landing Lights checked On",
@@ -4973,18 +4930,7 @@ function M.fillProcedureTable()
                     nextStep = 'set_landing_lights_off'
                 },
                 ['set_landing_lights_off'] = {
-                    check = function()
-                        local ledVariant = (get(P.ledlightsvariant) == def.ON)
-                        local thr = def.LEDLLIGHTSOFF or 0
-                        if ledVariant then
-                            return (get(P.llights1) <= thr) and (get(P.llights4) <= thr)
-                        else
-                            return (get(P.llights1) == def.OFF)
-                                and (get(P.llights2) == def.OFF)
-                                and (get(P.llights3) == def.OFF)
-                                and (get(P.llights4) == def.OFF)
-                        end
-                    end,
+                    check = function() return P.landinglightsalloff() end,
                     advice = "Set Landing Lights Off",
                     action = function() P.togglelandinglights(def.OFF) end,
                     confirm = "Landing Lights checked Off",

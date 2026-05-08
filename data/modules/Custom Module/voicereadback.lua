@@ -279,41 +279,15 @@ local function complex_check(P)
         end
     end
     
-    -- Landing Lights (variant-aware check)
-    local ledVariant = (get(P.ledlightsvariant) == def.ON)
-    local threshold = def.LEDLLIGHTSOFF or 0
-    local current1 = get(P.llights1)
-    local current2 = get(P.llights2)
-    local current3 = get(P.llights3)
-    local current4 = get(P.llights4)
-
-    local temp1 = P.llights1temp
-    local temp2 = P.llights2temp
-    local temp3 = P.llights3temp
-    local temp4 = P.llights4temp
-
-    local changed = (current1 ~= temp1) or (current2 ~= temp2) or (current3 ~= temp3) or (current4 ~= temp4)
-    if changed then
-        if ledVariant then
-            -- LED: nur 1 und 4 relevant
-            if (current1 <= threshold and current4 <= threshold) then
-                P.commandtableentry(def.TEXT, "Landing Lights Off")
-            elseif (temp1 <= threshold and temp4 <= threshold) and (current1 > threshold and current4 > threshold) then
-                P.commandtableentry(def.TEXT, "Landing Lights On")
-            end
-        else
-            -- Halogen: alle vier relevant
-            if (current1 == def.OFF and current2 == def.OFF and current3 == def.OFF and current4 == def.OFF) then
-                P.commandtableentry(def.TEXT, "Landing Lights Off")
-            elseif (temp1 == def.OFF and temp2 == def.OFF and temp3 == def.OFF and temp4 == def.OFF)
-                and (current1 ~= def.OFF and current2 ~= def.OFF and current3 ~= def.OFF and current4 ~= def.OFF) then
-                P.commandtableentry(def.TEXT, "Landing Lights On")
-            end
+    -- Landing Lights
+    local landingLightsState = P.getlandinglightsstate()
+    if (landingLightsState ~= nil) and (landingLightsState ~= P.landinglightsstatetemp) then
+        if landingLightsState == def.OFF then
+            P.commandtableentry(def.TEXT, "Landing Lights Off")
+        elseif landingLightsState == def.ON then
+            P.commandtableentry(def.TEXT, "Landing Lights On")
         end
-        P.llights1temp = current1
-        P.llights2temp = current2
-        P.llights3temp = current3
-        P.llights4temp = current4
+        P.landinglightsstatetemp = landingLightsState
     end
     
     -- Reversers Check (state transition)
@@ -548,7 +522,7 @@ function VR.initialize(P)
     P.barostdtemp = get(P.barostd); P.baropilottemp = baro_inhg; P.baropilottemp2 = baro_inhg
 
     -- Lights
-    P.llights1temp = get(P.llights1); P.llights2temp = get(P.llights2); P.llights3temp = get(P.llights3); P.llights4temp = get(P.llights4)
+    P.landinglightsstatetemp = P.getlandinglightsstate()
 
     -- Systems
     P.reverser1postemp = get(P.reverser1pos); P.reverser2postemp = get(P.reverser2pos)
