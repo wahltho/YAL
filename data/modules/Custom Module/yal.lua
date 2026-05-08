@@ -5042,6 +5042,14 @@ local my_command_togglevoicereadback = sasl.createCommand(def.APPNAMEPREFIX .. "
 sasl.registerCommandHandler(my_command_togglevoicereadback, 0, P.togglevoicereadback_)
 
 --------------------------------------------------------------------------------------------------------------
+function P.resetflapsupadvicestate()
+    if type(P.flapsUpAdviceState) == "table" then
+        P.flapsUpAdviceState.target = nil
+        P.flapsUpAdviceState.currentFlaps = nil
+    end
+end
+
+--------------------------------------------------------------------------------------------------------------
 function P.flapsuphandling()
     local current_speed = get(P.airspeed)
     local current_flaps = get(P.flapleverpos)
@@ -5078,7 +5086,29 @@ function P.flapsuphandling()
         }
 
         if P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON then
-            P.commandtableentry(def.TEXT, text_map[target_flaps])
+            local adviceText = text_map[target_flaps]
+            if adviceText then
+                if type(P.flapsUpAdviceState) ~= "table" then
+                    P.flapsUpAdviceState = {}
+                end
+                local state = P.flapsUpAdviceState
+                if state.target ~= target_flaps or state.currentFlaps ~= current_flaps then
+                    for i = #P.commandtable, 1, -1 do
+                        local queuedText = P.commandtable[i][2]
+                        if P.commandtable[i][1] == def.TEXT and
+                           (queuedText == text_map[def.FLAPSUP] or
+                            queuedText == text_map[def.FLAPS1] or
+                            queuedText == text_map[def.FLAPS5] or
+                            queuedText == text_map[def.FLAPS10] or
+                            queuedText == text_map[def.FLAPS15]) then
+                            table.remove(P.commandtable, i)
+                        end
+                    end
+                    P.commandtableentry(def.TEXT, adviceText)
+                    state.target = target_flaps
+                    state.currentFlaps = current_flaps
+                end
+            end
         else
             local cmd = command_map[target_flaps]
             if cmd then
@@ -5088,6 +5118,40 @@ function P.flapsuphandling()
     end
 
     return true
+end
+
+--------------------------------------------------------------------------------------------------------------
+function P.autoflapsuphandling()
+    if P.configvalues[def.CONFIGAUTOFLAPS] ~= def.ON then
+        P.resetflapsupadvicestate()
+        return false
+    end
+
+    if get(P.airgroundsensor) ~= def.OFF then
+        P.resetflapsupadvicestate()
+        return false
+    end
+
+    if P.flightstate ~= def.FLIGHTSTATEINITIALCLIMB and P.flightstate ~= def.FLIGHTSTATECLIMB then
+        P.resetflapsupadvicestate()
+        return false
+    end
+
+    if (get(P.flapleverpos) or def.FLAPSUP) <= def.FLAPSUP then
+        P.resetflapsupadvicestate()
+        return false
+    end
+
+    if P.flightstate == def.FLIGHTSTATEINITIALCLIMB then
+        if (get(P.radioaltitude) or 0) <= 200 then
+            return false
+        end
+        if get(P.gearhandlepos) == def.GEARDOWN then
+            return false
+        end
+    end
+
+    return P.flapsuphandling()
 end
 
 --------------------------------------------------------------------------------------------------------------
@@ -5987,9 +6051,7 @@ function P.duringclimb()
         P.triggerprocedure(def.ALTITUDEA10000PROCEDURE)
     end
 
-    if (P.configvalues[def.CONFIGAUTOFLAPS] == def.ON) and (get(P.flapleverpos) > def.FLAPSUP) then
-        P.flapsuphandling()
-    end
+    P.autoflapsuphandling()
 end
 
 --------------------------------------------------------------------------------------------------------------
@@ -6585,6 +6647,7 @@ function P.autofunctions()
 
         if P.flightstate == def.FLIGHTSTATEINITIALCLIMB then
             P.triggerprocedure(def.AFTERTAKEOFFPROCEDURE)
+            P.autoflapsuphandling()
         elseif P.flightstate == def.FLIGHTSTATECLIMB then
             P.duringclimb()
         elseif P.flightstate == def.FLIGHTSTATEAPPROACH then
