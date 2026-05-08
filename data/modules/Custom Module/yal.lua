@@ -1109,7 +1109,11 @@ function P.YalinitGlobal()
 
     P.todDiscontinuityWarned30 = false
     P.todDiscontinuityWarned10 = false
-    P.routeEndsEarlyWarned = false
+    P.routeMayEndEarlyWarned = false
+    P.routeMayEndEarlyTimer = nil
+    P.routeMayEndEarlyBadCount = 0
+    P.routeMayEndEarlyLastDiff = nil
+    P.routeEndsBeforeTodWarned = false
     P.todResetMcpAdviceState = { key = nil, count = 0, spoken = 0 }
     P._takeoffN140CalloutLatched = false
 
@@ -6903,6 +6907,48 @@ function P.runOneCoreOngoingTask()
 end
 
 --------------------------------------------------------------------------------------------------------------
+
+local function resetRouteMayEndEarlyCandidate(clearWarning)
+    if P.routeMayEndEarlyTimer then
+        sasl.stopTimer(P.routeMayEndEarlyTimer)
+    end
+    P.routeMayEndEarlyTimer = nil
+    P.routeMayEndEarlyBadCount = 0
+    P.routeMayEndEarlyLastDiff = nil
+    if clearWarning then
+        P.routeMayEndEarlyWarned = false
+    end
+end
+
+local function updateRouteMayEndEarlyCandidate(diff, distDest, remainingDistance, todDistance, fmsPhase)
+    if not P.routeMayEndEarlyTimer then
+        P.routeMayEndEarlyTimer = sasl.createTimer()
+        sasl.startTimer(P.routeMayEndEarlyTimer)
+        P.routeMayEndEarlyBadCount = 0
+    end
+
+    P.routeMayEndEarlyBadCount = (P.routeMayEndEarlyBadCount or 0) + 1
+    P.routeMayEndEarlyLastDiff = diff
+
+    local elapsed = sasl.getElapsedSeconds(P.routeMayEndEarlyTimer) or 0
+    if not P.routeMayEndEarlyWarned
+        and elapsed >= def.ROUTE_ENDS_EARLY_STABLE_SEC
+        and P.routeMayEndEarlyBadCount >= def.ROUTE_ENDS_EARLY_MIN_BAD_SAMPLES then
+        P.commandtableentry(def.TEXT, "Warning: Route may end too early. Check Arrival / Approach setup.")
+        P.routeMayEndEarlyWarned = true
+        helpers.logDebugTS(
+            "RouteEndsEarly warning: diff=" .. tostring(diff) ..
+            " distDest=" .. tostring(distDest) ..
+            " remaining=" .. tostring(remainingDistance) ..
+            " tod=" .. tostring(todDistance) ..
+            " fmsPhase=" .. tostring(fmsPhase) ..
+            " samples=" .. tostring(P.routeMayEndEarlyBadCount) ..
+            " elapsed=" .. tostring(helpers.roundnumber(elapsed, 1))
+        )
+    end
+end
+
+--------------------------------------------------------------------------------------------------------------
 function P.runOneMainOngoingTask()
     local idx = tonumber(P.ongoingtaskstepindex) or 7
     if idx < 7 or idx > 11 then
@@ -7006,13 +7052,15 @@ function P.runOneMainOngoingTask()
         local todDistance = get(P.vnavtoddist)
         local aircraftInAir = (get(P.airgroundsensor) == def.OFF)
         local radioAltitude = get(P.radioaltitude)
+        local fmsPhase = get(P.fmsflightphase)
         local suppressDiscoWarnings =
             (P.flightstate == def.FLIGHTSTATEAPPROACH) and
             radioAltitude and (radioAltitude >= 0) and (radioAltitude < 1000)
-        local flightStateEligible =
-            (P.flightstate == def.FLIGHTSTATECLIMB) or
-            (P.flightstate == def.FLIGHTSTATECRUISE) or
-            (P.flightstate == def.FLIGHTSTATEAPPROACH)
+        local routeMayEndEarlyEligible =
+            ((P.flightstate == def.FLIGHTSTATECRUISE) and (fmsPhase == def.FMSFLIGHTPHASE_CRUISE)) or
+            ((P.flightstate == def.FLIGHTSTATEAPPROACH) and
+                (fmsPhase == def.FMSFLIGHTPHASE_DESCENT or fmsPhase == def.FMSFLIGHTPHASE_APPROACH) and
+                radioAltitude and (radioAltitude > def.ROUTE_ENDS_EARLY_APPROACH_MIN_RA_FT))
         local mcpAlt = get(P.mcpaltitude) or 0
 
         if P.pauseTodMonitorActive then
@@ -7027,8 +7075,8 @@ function P.runOneMainOngoingTask()
             end
         end
 
-        if aircraftInAir and flightStateEligible and not suppressDiscoWarnings then
-            if (not todDistance) or (todDistance <= 0) then
+        if aircraftInAir and routeMayEndEarlyEligible and not suppressDiscoWarnings then
+            if (type(todDistance) == "number") and (todDistance <= 0) then
                 local remainingDistance, _, onRoute = helpers.getRemainingRouteDistance(
                     get(P.fmslegs),
                     get(P.fmslegslat),
@@ -7041,23 +7089,24 @@ function P.runOneMainOngoingTask()
                 if remainingDistance and distDest and (remainingDistance > 0) and (distDest > 0) then
                     if onRoute == true then
                         local diff = distDest - remainingDistance
-                        if diff > 50 then
-                            if not P.routeEndsEarlyWarned then
-                                P.commandtableentry(def.TEXT, "Warning: Route may end too early. Check Arrival / Approach setup.")
-                                P.routeEndsEarlyWarned = true
-                            end
+                        if diff > def.ROUTE_ENDS_EARLY_DIFF_NM then
+                            updateRouteMayEndEarlyCandidate(diff, distDest, remainingDistance, todDistance, fmsPhase)
+                        elseif diff <= def.ROUTE_ENDS_EARLY_RESET_DIFF_NM then
+                            resetRouteMayEndEarlyCandidate(true)
                         else
-                            P.routeEndsEarlyWarned = false
+                            resetRouteMayEndEarlyCandidate(false)
                         end
                     else
-                        P.routeEndsEarlyWarned = false
+                        resetRouteMayEndEarlyCandidate(false)
                     end
+                else
+                    resetRouteMayEndEarlyCandidate(false)
                 end
             else
-                P.routeEndsEarlyWarned = false
+                resetRouteMayEndEarlyCandidate(true)
             end
         else
-            P.routeEndsEarlyWarned = false
+            resetRouteMayEndEarlyCandidate(true)
         end
 
         if todDistance and todDistance > 0 and aircraftInAir and not suppressDiscoWarnings then
@@ -7115,32 +7164,32 @@ function P.runOneMainOngoingTask()
 
                 if hasRemaining then
                     if todDistance > (remainingDistance + routeWarningTolerance) then
-                        if not P.routeEndsEarlyWarned then
+                        if not P.routeEndsBeforeTodWarned then
                             P.commandtableentry(def.TEXT, "Warning: Route may end before Top of Descent, check Arrival setup")
-                            P.routeEndsEarlyWarned = true
+                            P.routeEndsBeforeTodWarned = true
                         end
-                    elseif P.routeEndsEarlyWarned and todDistance <= (remainingDistance + routeWarningTolerance * 0.2) then
-                        P.routeEndsEarlyWarned = false
+                    elseif P.routeEndsBeforeTodWarned and todDistance <= (remainingDistance + routeWarningTolerance * 0.2) then
+                        P.routeEndsBeforeTodWarned = false
                     end
                 elseif hasDestDistance then
                     if todDistance > (distDest + routeWarningTolerance) then
-                        if not P.routeEndsEarlyWarned then
+                        if not P.routeEndsBeforeTodWarned then
                             P.commandtableentry(def.TEXT, "Warning: Route may end before Top of Descent, check Arrival setup")
-                            P.routeEndsEarlyWarned = true
+                            P.routeEndsBeforeTodWarned = true
                         end
-                    elseif P.routeEndsEarlyWarned and todDistance <= (distDest + routeWarningTolerance * 0.2) then
-                        P.routeEndsEarlyWarned = false
+                    elseif P.routeEndsBeforeTodWarned and todDistance <= (distDest + routeWarningTolerance * 0.2) then
+                        P.routeEndsBeforeTodWarned = false
                     end
                 else
-                    P.routeEndsEarlyWarned = false
+                    P.routeEndsBeforeTodWarned = false
                 end
             else
-                P.routeEndsEarlyWarned = false
+                P.routeEndsBeforeTodWarned = false
             end
         else
             P.todDiscontinuityWarned30 = false
             P.todDiscontinuityWarned10 = false
-            P.routeEndsEarlyWarned = false
+            P.routeEndsBeforeTodWarned = false
         end
 
         if (P.flightstate == def.FLIGHTSTATECRUISE) and (get(P.fmsflightphase) == def.FMSFLIGHTPHASE_CRUISE) and not suppressDiscoWarnings then
