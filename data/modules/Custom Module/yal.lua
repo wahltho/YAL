@@ -6829,8 +6829,23 @@ function P.runOneCoreOngoingTask()
         if ((get(P.airgroundsensor) == def.ON) and (P.procedureloop1.lock == def.NOPROCEDURE) and (get(P.battery) == def.ON) and (get(P.mainbus) ~= def.OFF) and (P.flightstate == def.FLIGHTSTATEPREFLIGHT) and (get(P.taxilight) == def.OFF)) then
             if ((P.configvalues[def.CONFIGAUTOBARO] == def.ON) and (get(P.groundspeed) < 45)) then
                 local baroinchtmp, baropastmp = P.getlocalqnh(def.DEPARTURE)
-                local current_hpa = helpers.convertpressure(get(P.baropilot))
+                local raw_baropilot = get(P.baropilot)
+                local current_hpa = helpers.convertpressure(raw_baropilot)
                 if (not current_hpa) or (not baropastmp) or (math.abs(current_hpa - baropastmp) > 1) then
+                    local qnh_diff = (current_hpa and baropastmp) and (current_hpa - baropastmp) or nil
+                    helpers.logInfoTS(
+                        "Ongoing QNH pending: barostd=" .. tostring(get(P.barostd)) ..
+                        " baroinhpa=" .. tostring(get(P.baroinhpa)) ..
+                        " baropilot=" .. tostring(raw_baropilot) ..
+                        " currentHpa=" .. tostring(current_hpa) ..
+                        " targetInHg=" .. tostring(baroinchtmp) ..
+                        " targetHpa=" .. tostring(baropastmp) ..
+                        " diffHpa=" .. tostring(qnh_diff) ..
+                        " autobar=" .. tostring(P.configvalues[def.CONFIGAUTOBARO]) ..
+                        " autofunctions=" .. tostring(P.configvalues[def.CONFIGAUTOFUNCTIONS]) ..
+                        " voiceAdviceOnly=" .. tostring(P.configvalues[def.CONFIGVOICEADVICEONLY]) ..
+                        " gs=" .. tostring(get(P.groundspeed))
+                    )
                     if ((P.configvalues[def.CONFIGAUTOFUNCTIONS] == def.ON) and (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON)) then
                         set(P.baropilot, baroinchtmp)
                     elseif (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
