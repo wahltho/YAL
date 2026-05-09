@@ -10990,7 +10990,22 @@ local function queue_quickview_cg_job(variant, cg, delta_y, delta_z, indices, qv
         target_cg_long = cg.long,
         settings_backup_done = false
     }
-    P.logInfoTS(string.format("QuickViews CG update queued: %s (%d views, deltaY %.4f ft, deltaZ %.4f ft)", variant.name, #indices, delta_y, delta_z))
+    local message = string.format("QuickViews CG update queued: %s (%d views, deltaY %.4f ft, deltaZ %.4f ft)", variant.name, #indices, delta_y, delta_z)
+    P.logInfoTS(message)
+    return message
+end
+
+local function add_quickview_action_message(messages, message)
+    messages[#messages + 1] = message
+    P.logInfoTS(message)
+    return message
+end
+
+local function finish_quickview_action_messages(messages)
+    if #messages == 1 then
+        return messages[1]
+    end
+    return messages
 end
 
 function P.adjustQuickViewsForCgChange()
@@ -11058,22 +11073,19 @@ end
 
 function P.adjustQuickViewsAndXCameraForCgChange()
     local settings = require("settings")
+    local messages = {}
     if not views_change_allowed() then
-        P.logInfoTS("QuickViews+X-Camera CG update blocked (requires preflight, on ground, parking brake set)")
-        return
+        return add_quickview_action_message(messages, "QuickViews+X-Camera CG update blocked (requires preflight, on ground, parking brake set)")
     end
     if P.defaultViewUpdateJob then
-        P.logInfoTS("QuickViews+X-Camera CG update blocked (default view update in progress)")
-        return
+        return add_quickview_action_message(messages, "QuickViews+X-Camera CG update blocked (default view update in progress)")
     end
     if P.quickViewCgUpdateJob then
-        P.logInfoTS("QuickViews+X-Camera CG update already in progress")
-        return
+        return add_quickview_action_message(messages, "QuickViews+X-Camera CG update already in progress")
     end
     local variant, v_err = get_current_zibo_variant()
     if not variant then
-        P.logInfoTS("QuickViews+X-Camera CG update: " .. tostring(v_err))
-        return
+        return add_quickview_action_message(messages, "QuickViews+X-Camera CG update: " .. tostring(v_err))
     end
 
     local base = get_zibo_base_path()
@@ -11082,8 +11094,7 @@ function P.adjustQuickViewsAndXCameraForCgChange()
     local xcamera_path = base .. variant.xcamera
     local cg, err = read_acf_cg(acf_path)
     if not cg then
-        P.logInfoTS("QuickViews+X-Camera CG update: failed to read " .. variant.name .. " CG (" .. tostring(err) .. ")")
-        return
+        return add_quickview_action_message(messages, "QuickViews+X-Camera CG update: failed to read " .. variant.name .. " CG (" .. tostring(err) .. ")")
     end
 
     local stored_y = tonumber(settings.appSettings[variant.keyY])
@@ -11093,59 +11104,56 @@ function P.adjustQuickViewsAndXCameraForCgChange()
         settings.appSettings[variant.keyZ] = cg.long
         backup_yal_prefs("QuickViews+X-Camera CG update")
         settings.writeSettings(settings.appSettings)
-        P.logInfoTS("QuickViews+X-Camera CG update: stored baseline for " .. variant.name .. " (no adjustment performed)")
-        return
+        return add_quickview_action_message(messages, "QuickViews+X-Camera CG update: stored baseline for " .. variant.name .. " (no adjustment performed)")
     end
 
     local delta_z = cg.long - stored_z
     local delta_y = cg.vert - stored_y
     if math.abs(delta_z) < 0.0001 and math.abs(delta_y) < 0.0001 then
-        P.logInfoTS("QuickViews+X-Camera CG update: no CG change for " .. variant.name)
-        return
+        return add_quickview_action_message(messages, "QuickViews+X-Camera CG update: no CG change for " .. variant.name)
     end
 
     local indices, qv_data = read_quickview_data(prefs_path)
     if not indices then
-        P.logInfoTS("QuickViews+X-Camera CG update: failed to read quick views (" .. tostring(qv_data) .. ")")
-        return
+        return add_quickview_action_message(messages, "QuickViews+X-Camera CG update: failed to read quick views (" .. tostring(qv_data) .. ")")
     end
 
     local ok_backup, backup_or_err = backup_file(prefs_path)
     if not ok_backup then
-        P.logInfoTS("QuickViews+X-Camera CG update: prefs backup failed (" .. tostring(backup_or_err) .. ")")
-        return
+        return add_quickview_action_message(messages, "QuickViews+X-Camera CG update: prefs backup failed (" .. tostring(backup_or_err) .. ")")
     end
-    P.logInfoTS("QuickViews+X-Camera CG update: prefs backup created at " .. tostring(backup_or_err))
+    add_quickview_action_message(messages, "QuickViews+X-Camera CG update: prefs backup created at " .. tostring(backup_or_err))
 
     local xcam_file = io.open(xcamera_path, "r")
     if not xcam_file then
-        P.logInfoTS("QuickViews+X-Camera CG update: X-Camera file not found (" .. tostring(xcamera_path) .. ")")
-        return
+        add_quickview_action_message(messages, "QuickViews+X-Camera CG update: X-Camera file not found (" .. tostring(xcamera_path) .. ")")
+        return finish_quickview_action_messages(messages)
     end
     xcam_file:close()
 
     local ok_xcam_backup, xcam_backup_or_err = backup_file(xcamera_path)
     if not ok_xcam_backup then
-        P.logInfoTS("QuickViews+X-Camera CG update: X-Camera backup failed (" .. tostring(xcam_backup_or_err) .. ")")
-        return
+        add_quickview_action_message(messages, "QuickViews+X-Camera CG update: X-Camera backup failed (" .. tostring(xcam_backup_or_err) .. ")")
+        return finish_quickview_action_messages(messages)
     end
-    P.logInfoTS("QuickViews+X-Camera CG update: X-Camera backup created at " .. tostring(xcam_backup_or_err))
+    add_quickview_action_message(messages, "QuickViews+X-Camera CG update: X-Camera backup created at " .. tostring(xcam_backup_or_err))
 
     local delta_m_y = delta_y * 0.3048
     local delta_m_z = delta_z * 0.3048
     local ok_xcam, updated, used_offsets, offsets_reset = update_xcamera_cg_offsets(xcamera_path, delta_m_y, delta_m_z)
     if not ok_xcam then
-        P.logInfoTS("QuickViews+X-Camera CG update: X-Camera update failed (" .. tostring(updated) .. ")")
-        return
+        add_quickview_action_message(messages, "QuickViews+X-Camera CG update: X-Camera update failed (" .. tostring(updated) .. ")")
+        return finish_quickview_action_messages(messages)
     end
     local mode = used_offsets and "offsets" or "positions"
     local reset_note = ""
     if offsets_reset and offsets_reset > 0 then
         reset_note = string.format(", %d offset resets", offsets_reset)
     end
-    P.logInfoTS(string.format("QuickViews+X-Camera CG update: X-Camera updated (%d views, %s, origin=0 filter%s)", updated or 0, mode, reset_note))
+    add_quickview_action_message(messages, string.format("QuickViews+X-Camera CG update: X-Camera updated (%d views, %s, origin=0 filter%s)", updated or 0, mode, reset_note))
 
-    queue_quickview_cg_job(variant, cg, delta_y, delta_z, indices, qv_data)
+    messages[#messages + 1] = queue_quickview_cg_job(variant, cg, delta_y, delta_z, indices, qv_data)
+    return finish_quickview_action_messages(messages)
 end
 
 function P.stepQuickViewsCgUpdate()
@@ -11257,32 +11265,31 @@ function P.stepQuickViewsCgUpdate()
 end
 
 function P.applyDefaultViewFromQV0()
+    local messages = {}
     if P.quickViewCgUpdateJob then
-        P.logInfoTS("Default view update blocked (QuickViews CG update in progress)")
-        return
+        return add_quickview_action_message(messages, "Default view update blocked (QuickViews CG update in progress)")
     end
     local variant, v_err = get_current_zibo_variant()
     if not variant then
-        P.logInfoTS("Default view update: " .. tostring(v_err))
-        return
+        return add_quickview_action_message(messages, "Default view update: " .. tostring(v_err))
     end
     local base = get_zibo_base_path()
     local qv, qv_err = read_qv0(base .. variant.prefs)
     if not qv then
-        P.logInfoTS("Default view update failed: " .. tostring(qv_err))
-        return
+        return add_quickview_action_message(messages, "Default view update failed: " .. tostring(qv_err))
     end
     local ok, err = apply_default_view_from_qv0_data(base .. variant.acf, qv)
     if ok then
         if err == "no-change" then
-            P.logInfoTS("Default view already matches QV0 (" .. variant.name .. ")")
+            add_quickview_action_message(messages, "Default view already matches QV0 (" .. variant.name .. ")")
         else
-            P.logInfoTS("Default view updated from QV0 (" .. variant.name .. ")")
-            P.logInfoTS("Default view update: ACF updated (reload not performed)")
+            add_quickview_action_message(messages, "Default view updated from QV0 (" .. variant.name .. ")")
+            add_quickview_action_message(messages, "Default view update: ACF updated (reload not performed)")
         end
     else
-        P.logInfoTS("Default view update failed (" .. variant.name .. "): " .. tostring(err))
+        add_quickview_action_message(messages, "Default view update failed (" .. variant.name .. "): " .. tostring(err))
     end
+    return finish_quickview_action_messages(messages)
 end
 
 function P.stepDefaultViewUpdate()
