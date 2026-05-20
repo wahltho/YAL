@@ -193,8 +193,11 @@ P.isXp12 = (P.xpVersion >= 12000 and P.xpVersion < 13000)
 
 --------------------------------------------------------------------------------------------------------------
 function P.isZibo()
-    local signature = "zibomod.by.Zibo"
-    local pluginID = sasl.findPluginBySignature(signature)
+    local pluginID = sasl.findPluginBySignature("zibomod.by.Zibo")
+    if pluginID == NO_PLUGIN_ID then
+        pluginID = sasl.findPluginBySignature("wahlthomod.by.wahltho")
+    end
+
     if pluginID == NO_PLUGIN_ID then
         return false
     end
