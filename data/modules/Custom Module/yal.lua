@@ -7850,7 +7850,8 @@ function P.runProcedureLoop(loopIndex)
 
     -- Sicherstellen, dass loop.lock einen gültigen Index hat oder NOPROCEDURE ist
     if loop.lock == nil then loop.lock = def.NOPROCEDURE end
-    local procData = P.proceduretable[loop.lock] -- procData kann nil sein, wenn lock=NOPROCEDURE
+    local activeProcKey = loop.lock
+    local procData = P.proceduretable[activeProcKey] -- procData kann nil sein, wenn lock=NOPROCEDURE
     local transition_occurred = false -- Flag für erkannte Zustandsübergänge
 
     sasl.logDebug("=== runProcedureLoop(" .. loopIndex .. ") - Lock: " .. tostring(loop.lock) .. " ===")
@@ -8370,7 +8371,7 @@ function P.runProcedureLoop(loopIndex)
     -- ==========================================================
     -- Behandlung für frühe Abbrüche (z.B. durch allowedState ODER manuellen Abort)
     -- ==========================================================
-    elseif loop.procedureabort then
+    elseif loop.procedureabort and not transition_occurred then
         helpers.logInfoTS("Procedure aborted (likely manual or state change before engine). Resetting loop lock.") -- Bleibt Info fürs Log
 
         -- *** NEU: Meldung für den Benutzer hinzufügen ***
@@ -8384,10 +8385,10 @@ function P.runProcedureLoop(loopIndex)
         end
         -- *** ENDE NEU ***
 
-        if procData and loop.setonabort then
-             sasl.logDebug("Setting procedure " .. loop.lock .. " as completed due to setonabort flag during early abort.")
-             P.proceduretable[loop.lock].set = true
-             set(P.ProcSetStatusarraydr, 1, loop.lock)
+        if procData and loop.setonabort and P.proceduretable[activeProcKey] then
+             sasl.logDebug("Setting procedure " .. activeProcKey .. " as completed due to setonabort flag during early abort.")
+             P.proceduretable[activeProcKey].set = true
+             set(P.ProcSetStatusarraydr, 1, activeProcKey)
         end
         loop.lock = def.NOPROCEDURE
         -- Flags zurücksetzen, da Abbruch behandelt wurde
