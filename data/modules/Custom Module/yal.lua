@@ -1172,6 +1172,8 @@ function P.YalinitGlobal()
         adviceRepeatSpoken = 0,
         stepOnceRequested = false,
         stepOnceTargetStep = nil,
+        parentLoopIndex = nil,
+        parentProcId = nil,
         debugPaused = false,
         debugStepOnce = false,
         debugBreakpoints = {}
@@ -2080,6 +2082,8 @@ function P.resetLoopState(loopTable)
     loopTable.adviceRepeatSpoken = 0
     loopTable.stepOnceRequested = false
     loopTable.stepOnceTargetStep = nil
+    loopTable.parentLoopIndex = nil
+    loopTable.parentProcId = nil
     loopTable.debugPaused = false
     loopTable.debugStepOnce = false
     loopTable.debugBreakpoints = {}
@@ -2088,6 +2092,35 @@ function P.resetLoopState(loopTable)
     P.deleteCustomData(loopTable) -- Entfernt vref, navindex etc.
 
     sasl.logDebug("... Loop state transient flags and custom data reset.") -- Optional: Debug Log
+end
+
+--------------------------------------------------------------------------------------------------------------
+function P.stopChildProceduresForParent(parentLoopIndex, parentProcId, markSkipped)
+    if not (parentLoopIndex and parentProcId and P.loopStateTables) then return end
+
+    for childLoopIndex, childLoop in ipairs(P.loopStateTables) do
+        if childLoop
+            and childLoop.lock ~= def.NOPROCEDURE
+            and childLoop.parentLoopIndex == parentLoopIndex
+            and childLoop.parentProcId == parentProcId then
+
+            local alreadyStopping = childLoop.procedureabort == true and childLoop.procedureskipped == (markSkipped == true)
+            if not alreadyStopping then
+                local childProcId = childLoop.lock
+                local childName = (P.proceduretable[childProcId] and P.proceduretable[childProcId].name) or tostring(childProcId)
+                local parentName = (P.proceduretable[parentProcId] and P.proceduretable[parentProcId].name) or tostring(parentProcId)
+                helpers.logInfoTS(
+                    "Stopping child procedure '" .. tostring(childName) .. "' on loop " .. tostring(childLoopIndex) ..
+                    " because parent '" .. tostring(parentName) .. "' was " .. (markSkipped and "skipped." or "aborted.")
+                )
+            end
+
+            childLoop.procedureabort = true
+            childLoop.procedureskipped = markSkipped == true
+            childLoop.procedureskipstep = false
+            childLoop.setonabort = markSkipped == true
+        end
+    end
 end
 
 --------------------------------------------------------------------------------------------------------------
@@ -3165,22 +3198,25 @@ sasl.registerCommandHandler(my_command_toggleautotaxipause, 0, P.toggleautotaxip
 --------------------------------------------------------------------------------------------------------------
 function P.findMostRecentLoop()
     local mostRecentLoop = nil
+    local mostRecentLoopIndex = nil
     local latestTime = 0
 
     for i, loopObj in ipairs(P.loopStateTables) do
         if loopObj.lock ~= def.NOPROCEDURE and loopObj.lastActiveTime > latestTime then
             latestTime = loopObj.lastActiveTime
             mostRecentLoop = loopObj
+            mostRecentLoopIndex = i
         end
     end
 
-    return mostRecentLoop
+    return mostRecentLoop, mostRecentLoopIndex
 end
 
 --------------------------------------------------------------------------------------------------------------
 function P.abortprocedure()
-    local loop = P.findMostRecentLoop()
+    local loop, loopIndex = P.findMostRecentLoop()
     if loop then
+        P.stopChildProceduresForParent(loopIndex, loop.lock, false)
         loop.procedureabort = true
         loop.procedureskipped = false
         loop.procedureskipstep = false
@@ -3201,8 +3237,9 @@ sasl.registerCommandHandler(my_command_abortprocedure, 0, P.abortprocedure_)
 
 --------------------------------------------------------------------------------------------------------------
 function P.skipprocedure()
-    local loop = P.findMostRecentLoop()
+    local loop, loopIndex = P.findMostRecentLoop()
     if loop then
+        P.stopChildProceduresForParent(loopIndex, loop.lock, true)
         loop.procedureabort = true
         loop.procedureskipped = true
         loop.setonabort = true -- Das Signal an die Engine, .set = true zu setzen
@@ -3565,7 +3602,7 @@ function P.canTriggerProcedureForCycle(procedureKey)
 end
 
 --------------------------------------------------------------------------------------------------------------
-function P.triggerprocedure(procedureKey, isManual)
+function P.triggerprocedure(procedureKey, isManual, parentLoopIndex, parentProcId)
     isManual = isManual or false -- Standardwert, falls isManual nicht übergeben wird
 
     local procedureData = P.proceduretable[procedureKey]
@@ -3681,6 +3718,8 @@ function P.triggerprocedure(procedureKey, isManual)
         P.resetLoopState(targetLoopObject)
         targetLoopObject.triggeredmanually = isManual
         targetLoopObject.triggeredat = os.time()
+        targetLoopObject.parentLoopIndex = parentLoopIndex
+        targetLoopObject.parentProcId = parentProcId
 
         sasl.logDebug("Loop " .. loopIndex .. " state explicitly reset upon trigger.")
 
@@ -3708,6 +3747,14 @@ function P.triggerprocedure(procedureKey, isManual)
         return false -- Loop besetzt
     end -- Ende if targetLoopObject.lock == def.NOPROCEDURE / else
 end -- Ende function P.triggerprocedure
+
+--------------------------------------------------------------------------------------------------------------
+function P.triggerChildProcedure(parentLoopIndex, parentProcId, childProcId, isManual)
+    if not (parentLoopIndex and parentProcId and childProcId) then
+        return false
+    end
+    return P.triggerprocedure(childProcId, isManual, parentLoopIndex, parentProcId)
+end
 
 --------------------------------------------------------------------------------------------------------------
 function P.cycleprocedures()
@@ -7894,6 +7941,7 @@ function P.runProcedureLoop(loopIndex)
 
                     local transition_message = procData.name .. " Procedure skipped."
                     P.commandtableentry(def.TEXT, transition_message)
+                    P.stopChildProceduresForParent(loopIndex, activeProcKey, true)
 
                     -- 1. Prozedur als erledigt markieren
                     P.proceduretable[loop.lock].set = true
@@ -7982,6 +8030,7 @@ function P.runProcedureLoop(loopIndex)
                      -- *** FIX msg END ***
                 end
                 helpers.logInfoTS(procData.name .. " " .. msg_abort .. " at " .. timestring)
+                P.stopChildProceduresForParent(loopIndex, activeProcKey, loop.procedureskipped == true)
 
                 if loop.setonabort then
                     sasl.logDebug("Setting procedure " .. loop.lock .. " as completed due to setonabort flag.")
@@ -8384,6 +8433,8 @@ function P.runProcedureLoop(loopIndex)
              P.commandtableentry(def.TEXT, abort_label)
         end
         -- *** ENDE NEU ***
+
+        P.stopChildProceduresForParent(loopIndex, activeProcKey, loop.procedureskipped == true)
 
         if procData and loop.setonabort and P.proceduretable[activeProcKey] then
              sasl.logDebug("Setting procedure " .. activeProcKey .. " as completed due to setonabort flag during early abort.")

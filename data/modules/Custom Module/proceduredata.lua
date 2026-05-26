@@ -1944,7 +1944,7 @@ function M.fillProcedureTable()
                         local legs = get(P.fmslegs)
                         return not helpers.isFMSPlanLoaded(get(P.depicao), get(P.desicao), legs)
                     end,
-                    action = function()
+                    action = function(loop, procData)
                         local procId = def.SETTOFLAPSPROCEDURE
                         local loopIndex = P.proceduretable[procId].loop
                         local loopInfo = P.loopStateTables[loopIndex]
@@ -1957,7 +1957,7 @@ function M.fillProcedureTable()
                         end
 
                         if loopInfo and loopInfo.lock == def.NOPROCEDURE then
-                            P.triggerprocedure(procId)
+                            P.triggerChildProcedure((procData and procData.loop) or 1, def.COCKPITINITPROCEDURE, procId)
                         end
                     end,
                     nextStep = 'wait_settoflaps_done'
@@ -3575,10 +3575,10 @@ function M.fillProcedureTable()
                     nextStep = 'trigger_packs_restore'
                 },
                 ['trigger_packs_restore'] = {
-                    action = function()
+                    action = function(loop, procData)
                         local loopInfo = P.loopStateTables[3]
                         if loopInfo and loopInfo.lock == def.NOPROCEDURE and not P.proceduretable[def.PACKSRESTOREPROCEDURE].set then
-                            P.triggerprocedure(def.PACKSRESTOREPROCEDURE)
+                            P.triggerChildProcedure((procData and procData.loop) or 2, def.AFTERTAKEOFFPROCEDURE, def.PACKSRESTOREPROCEDURE)
                         end
                     end,
                     nextStep = nil
