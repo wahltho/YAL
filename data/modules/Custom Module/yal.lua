@@ -2124,6 +2124,30 @@ function P.stopChildProceduresForParent(parentLoopIndex, parentProcId, markSkipp
 end
 
 --------------------------------------------------------------------------------------------------------------
+function P.stopParentProcedureForChild(childLoopIndex, childLoop, markSkipped)
+    if not (childLoop and childLoop.parentLoopIndex and childLoop.parentProcId and P.loopStateTables) then return end
+
+    local parentLoop = P.loopStateTables[childLoop.parentLoopIndex]
+    if not parentLoop or parentLoop.lock ~= childLoop.parentProcId then return end
+
+    local alreadyStopping = parentLoop.procedureabort == true and parentLoop.procedureskipped == (markSkipped == true)
+    if not alreadyStopping then
+        local childName = (P.proceduretable[childLoop.lock] and P.proceduretable[childLoop.lock].name) or tostring(childLoop.lock)
+        local parentName = (P.proceduretable[childLoop.parentProcId] and P.proceduretable[childLoop.parentProcId].name) or tostring(childLoop.parentProcId)
+        helpers.logInfoTS(
+            "Stopping parent procedure '" .. tostring(parentName) .. "' on loop " .. tostring(childLoop.parentLoopIndex) ..
+            " because child '" .. tostring(childName) .. "' on loop " .. tostring(childLoopIndex) ..
+            " was " .. (markSkipped and "skipped." or "aborted.")
+        )
+    end
+
+    parentLoop.procedureabort = true
+    parentLoop.procedureskipped = markSkipped == true
+    parentLoop.procedureskipstep = false
+    parentLoop.setonabort = markSkipped == true
+end
+
+--------------------------------------------------------------------------------------------------------------
 function P.XCameraIsInstalled()
     local signature = "SRS.X-Camera"
     local pluginID = sasl.findPluginBySignature(signature)
@@ -3217,6 +3241,7 @@ function P.abortprocedure()
     local loop, loopIndex = P.findMostRecentLoop()
     if loop then
         P.stopChildProceduresForParent(loopIndex, loop.lock, false)
+        P.stopParentProcedureForChild(loopIndex, loop, false)
         loop.procedureabort = true
         loop.procedureskipped = false
         loop.procedureskipstep = false
@@ -3240,6 +3265,7 @@ function P.skipprocedure()
     local loop, loopIndex = P.findMostRecentLoop()
     if loop then
         P.stopChildProceduresForParent(loopIndex, loop.lock, true)
+        P.stopParentProcedureForChild(loopIndex, loop, true)
         loop.procedureabort = true
         loop.procedureskipped = true
         loop.setonabort = true -- Das Signal an die Engine, .set = true zu setzen
