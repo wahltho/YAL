@@ -7893,8 +7893,9 @@ function P.ongoingtasks()
                     and (apuBleed == def.OFF)
                     and (isolValve == def.ISOLVALVEAUTO)
                 local engineGenPowerReady = (gen1 == def.ON) and (gen2 == def.ON)
+                local beforeTaxiDone = (P.proceduretable[def.BEFORETAXIPROCEDURE] ~= nil) and P.proceduretable[def.BEFORETAXIPROCEDURE].set
 
-                if battery == def.ON and posLights ~= nil and posLights ~= def.POSLIGHTSSTEADY and parkBrakeSet then
+                if battery == def.ON and posLights ~= nil and posLights ~= def.POSLIGHTSSTEADY and parkBrakeSet and (not beforeTaxiDone) then
                     P.commandtableentry(def.TEXT, "Set Position Lights Steady")
                 elseif ((starter1 == def.GROUND or starter2 == def.GROUND)) and beaconLights == def.OFF then
                     P.commandtableentry(def.TEXT, "Set Collision Lights On")
