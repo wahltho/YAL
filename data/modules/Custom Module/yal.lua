@@ -7100,6 +7100,20 @@ local function updateRouteMayEndEarlyCandidate(diff, distDest, remainingDistance
 end
 
 --------------------------------------------------------------------------------------------------------------
+local SPEEDBRAKE_FORGOTTEN_TEXT = "Speedbrakes still extended"
+
+local function removeQueuedSpeedbrakeForgottenWarnings()
+    if type(P.commandtable) ~= "table" then
+        return
+    end
+    for i = #P.commandtable, 1, -1 do
+        local entry = P.commandtable[i]
+        if entry and entry[1] == def.TEXT and entry[2] == SPEEDBRAKE_FORGOTTEN_TEXT then
+            table.remove(P.commandtable, i)
+        end
+    end
+end
+
 local function resetSpeedbrakeForgottenMonitor()
     P.speedbrakeForgottenUseStartedAt = nil
     P.speedbrakeForgottenUseLatched = false
@@ -7107,16 +7121,16 @@ local function resetSpeedbrakeForgottenMonitor()
     P.speedbrakeForgottenCandidateReason = nil
     P.speedbrakeForgottenLastWarnAt = nil
     P.speedbrakeForgottenClearStartedAt = nil
+    removeQueuedSpeedbrakeForgottenWarnings()
 end
 
 local function getSpeedbrakeForgottenExtendedState()
     local lever = tonumber(get(P.speedbrakelever)) or 0
     local ratio = tonumber(get(P.speedbrakeratio)) or 0
     local anim = tonumber(get(P.speedbrakeleveranim)) or 0
-    local extended =
-        (lever > def.SPEEDBRAKE_FORGOTTEN_LEVER_MIN) or
-        (math.abs(ratio) > def.SPEEDBRAKE_FORGOTTEN_RATIO_MIN) or
-        (anim > def.SPEEDBRAKE_FORGOTTEN_ANIM_MIN)
+    local leverExtended = lever > def.SPEEDBRAKE_FORGOTTEN_LEVER_MIN
+    local ratioExtended = ratio > def.SPEEDBRAKE_FORGOTTEN_RATIO_MIN
+    local extended = leverExtended or ratioExtended
     return extended, lever, ratio, anim
 end
 
@@ -7139,6 +7153,7 @@ function P.checkSpeedbrakeForgotten()
     end
 
     if not extended then
+        removeQueuedSpeedbrakeForgottenWarnings()
         P.speedbrakeForgottenUseStartedAt = nil
         P.speedbrakeForgottenCandidateStartedAt = nil
         P.speedbrakeForgottenCandidateReason = nil
@@ -7230,7 +7245,7 @@ function P.checkSpeedbrakeForgotten()
 
     if (P.speedbrakeForgottenLastWarnAt == nil)
         or ((now - P.speedbrakeForgottenLastWarnAt) >= def.SPEEDBRAKE_FORGOTTEN_REPEAT_SEC) then
-        P.commandtableentry(def.TEXT, "Speedbrakes still extended")
+        P.commandtableentry(def.TEXT, SPEEDBRAKE_FORGOTTEN_TEXT)
         P.speedbrakeForgottenLastWarnAt = now
         helpers.logInfoTS(
             "SpeedbrakeForgotten: warning reason=" .. tostring(reason) ..
