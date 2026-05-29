@@ -7100,6 +7100,152 @@ local function updateRouteMayEndEarlyCandidate(diff, distDest, remainingDistance
 end
 
 --------------------------------------------------------------------------------------------------------------
+local function resetSpeedbrakeForgottenMonitor()
+    P.speedbrakeForgottenUseStartedAt = nil
+    P.speedbrakeForgottenUseLatched = false
+    P.speedbrakeForgottenCandidateStartedAt = nil
+    P.speedbrakeForgottenCandidateReason = nil
+    P.speedbrakeForgottenLastWarnAt = nil
+    P.speedbrakeForgottenClearStartedAt = nil
+end
+
+local function getSpeedbrakeForgottenExtendedState()
+    local lever = tonumber(get(P.speedbrakelever)) or 0
+    local ratio = tonumber(get(P.speedbrakeratio)) or 0
+    local anim = tonumber(get(P.speedbrakeleveranim)) or 0
+    local extended =
+        (lever > def.SPEEDBRAKE_FORGOTTEN_LEVER_MIN) or
+        (math.abs(ratio) > def.SPEEDBRAKE_FORGOTTEN_RATIO_MIN) or
+        (anim > def.SPEEDBRAKE_FORGOTTEN_ANIM_MIN)
+    return extended, lever, ratio, anim
+end
+
+local function speedbrakeForgottenMonitorEligible(flightState, fmsPhase)
+    return (flightState == def.FLIGHTSTATECRUISE)
+        or (flightState == def.FLIGHTSTATEAPPROACH)
+        or (fmsPhase == def.FMSFLIGHTPHASE_CRZ_DES)
+        or (fmsPhase == def.FMSFLIGHTPHASE_DESCENT)
+        or (fmsPhase == def.FMSFLIGHTPHASE_APPROACH)
+end
+
+function P.checkSpeedbrakeForgotten()
+    local now = os.time() or 0
+    local inAir = (get(P.airgroundsensor) == def.OFF)
+    local extended, lever, ratio, anim = getSpeedbrakeForgottenExtendedState()
+
+    if not inAir then
+        resetSpeedbrakeForgottenMonitor()
+        return
+    end
+
+    if not extended then
+        P.speedbrakeForgottenUseStartedAt = nil
+        P.speedbrakeForgottenCandidateStartedAt = nil
+        P.speedbrakeForgottenCandidateReason = nil
+        if P.speedbrakeForgottenClearStartedAt == nil then
+            P.speedbrakeForgottenClearStartedAt = now
+        elseif (now - P.speedbrakeForgottenClearStartedAt) >= def.SPEEDBRAKE_FORGOTTEN_CLEAR_SEC then
+            resetSpeedbrakeForgottenMonitor()
+        end
+        return
+    end
+
+    P.speedbrakeForgottenClearStartedAt = nil
+
+    local flightState = P.flightstate or 0
+    local fmsPhase = tonumber(get(P.fmsflightphase)) or 0
+    local eligible = speedbrakeForgottenMonitorEligible(flightState, fmsPhase)
+    local radioAlt = tonumber(get(P.radioaltitude)) or 99999
+    local urgentLow = (radioAlt >= 0) and (radioAlt < def.SPEEDBRAKE_FORGOTTEN_URGENT_RA_FT)
+
+    if not P.speedbrakeForgottenUseLatched then
+        if eligible then
+            if P.speedbrakeForgottenUseStartedAt == nil then
+                P.speedbrakeForgottenUseStartedAt = now
+            elseif (now - P.speedbrakeForgottenUseStartedAt) >= def.SPEEDBRAKE_FORGOTTEN_USE_LATCH_SEC then
+                P.speedbrakeForgottenUseLatched = true
+                helpers.logDebugTS(
+                    "SpeedbrakeForgotten: latched lever=" .. tostring(helpers.roundnumber(lever, 2)) ..
+                    " ratio=" .. tostring(helpers.roundnumber(ratio, 2)) ..
+                    " anim=" .. tostring(helpers.roundnumber(anim, 2)) ..
+                    " flightState=" .. tostring(flightState) ..
+                    " fmsPhase=" .. tostring(fmsPhase)
+                )
+            end
+        else
+            P.speedbrakeForgottenUseStartedAt = nil
+        end
+    end
+
+    if (not P.speedbrakeForgottenUseLatched) and (not urgentLow) then
+        P.speedbrakeForgottenCandidateStartedAt = nil
+        P.speedbrakeForgottenCandidateReason = nil
+        return
+    end
+
+    local verticalSpeed = tonumber(get(P.verticalspeed)) or 0
+    local altitude = tonumber(get(P.altitude_ft)) or 0
+    local mcpAltitude = tonumber(get(P.mcpaltitude)) or 0
+    local flapLever = tonumber(get(P.flapleverpos)) or 0
+    local gearHandle = tonumber(get(P.gearhandlepos)) or 0
+    local nearMcpAltitude =
+        (altitude > 0) and
+        (mcpAltitude > 0) and
+        (math.abs(altitude - mcpAltitude) <= def.SPEEDBRAKE_FORGOTTEN_ALT_CAPTURE_BAND_FT)
+    local levelOrNearlyLevel = verticalSpeed > def.SPEEDBRAKE_FORGOTTEN_LEVEL_VS_FPM
+    local configuredForApproach = (flapLever > def.FLAPSUP) or (gearHandle == def.GEARDOWN)
+    local lowRadioAltitude = (radioAlt >= 0) and (radioAlt < def.SPEEDBRAKE_FORGOTTEN_LOW_RA_FT)
+
+    local reason = nil
+    local stableSec = def.SPEEDBRAKE_FORGOTTEN_STABLE_SEC
+    if urgentLow then
+        reason = "urgent-low-ra"
+        stableSec = 1
+    elseif lowRadioAltitude then
+        reason = "low-ra"
+    elseif configuredForApproach then
+        reason = "approach-config"
+    elseif levelOrNearlyLevel or nearMcpAltitude then
+        reason = "level-off"
+    end
+
+    if not reason then
+        P.speedbrakeForgottenCandidateStartedAt = nil
+        P.speedbrakeForgottenCandidateReason = nil
+        return
+    end
+
+    if P.speedbrakeForgottenCandidateReason ~= reason then
+        P.speedbrakeForgottenCandidateReason = reason
+        P.speedbrakeForgottenCandidateStartedAt = now
+        return
+    elseif P.speedbrakeForgottenCandidateStartedAt == nil then
+        P.speedbrakeForgottenCandidateStartedAt = now
+        return
+    end
+
+    if (now - P.speedbrakeForgottenCandidateStartedAt) < stableSec then
+        return
+    end
+
+    if (P.speedbrakeForgottenLastWarnAt == nil)
+        or ((now - P.speedbrakeForgottenLastWarnAt) >= def.SPEEDBRAKE_FORGOTTEN_REPEAT_SEC) then
+        P.commandtableentry(def.TEXT, "Speedbrakes still extended")
+        P.speedbrakeForgottenLastWarnAt = now
+        helpers.logInfoTS(
+            "SpeedbrakeForgotten: warning reason=" .. tostring(reason) ..
+            " lever=" .. tostring(helpers.roundnumber(lever, 2)) ..
+            " ratio=" .. tostring(helpers.roundnumber(ratio, 2)) ..
+            " anim=" .. tostring(helpers.roundnumber(anim, 2)) ..
+            " ra=" .. tostring(helpers.roundnumber(radioAlt, 0)) ..
+            " vs=" .. tostring(helpers.roundnumber(verticalSpeed, 0)) ..
+            " alt=" .. tostring(helpers.roundnumber(altitude, 0)) ..
+            " mcp=" .. tostring(helpers.roundnumber(mcpAltitude, 0))
+        )
+    end
+end
+
+--------------------------------------------------------------------------------------------------------------
 function P.runOneMainOngoingTask()
     local idx = tonumber(P.ongoingtaskstepindex) or 7
     if idx < 7 or idx > 11 then
@@ -7454,6 +7600,7 @@ function P.ongoingtasks()
 
     checkAutoRestart()
     checkHoppieVoiceMessages()
+    P.checkSpeedbrakeForgotten()
 
     if (P.updatemetartimer == nil) then
         P.updatemetartimer = sasl.createTimer()
