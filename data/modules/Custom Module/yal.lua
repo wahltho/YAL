@@ -365,6 +365,50 @@ local function getLatchedTrimTarget()
     return nil
 end
 
+local function maybeRequestTrimAdvicePopupForGroundTrim()
+    if P.configvalues[def.CONFIGTRIMADVICEPOPUP] ~= def.ON then
+        P.trimAdvicePopupLastGroundTrimWheel = nil
+        return
+    end
+
+    local eligible =
+        (get(P.airgroundsensor) == def.ON) and
+        (get(P.battery) == def.ON) and
+        (get(P.mainbus) ~= def.OFF) and
+        (P.flightstate == def.FLIGHTSTATEPREFLIGHT) and
+        ((tonumber(get(P.groundspeed)) or 0) < 45)
+    if not eligible then
+        P.trimAdvicePopupLastGroundTrimWheel = nil
+        return
+    end
+
+    local trimWheel = tonumber(get(P.trimwheel))
+    if trimWheel == nil then
+        P.trimAdvicePopupLastGroundTrimWheel = nil
+        return
+    end
+
+    local lastTrimWheel = tonumber(P.trimAdvicePopupLastGroundTrimWheel)
+    P.trimAdvicePopupLastGroundTrimWheel = trimWheel
+    if lastTrimWheel == nil or math.abs(trimWheel - lastTrimWheel) <= 0.0001 then
+        return
+    end
+
+    local trimTarget = getLatchedTrimTarget() or 0
+    if trimTarget <= 0 or helpers.trimwheel_matches_trim_step(trimWheel, trimTarget, 0.25) then
+        return
+    end
+
+    local now = getTrimPopupNowSec()
+    if P.trimAdvicePopupLastGroundTrimRequestAt and (now - P.trimAdvicePopupLastGroundTrimRequestAt) < 1 then
+        return
+    end
+
+    requestTrimAdvicePopupOpen(trimTarget, P._trimAdvicePopupPinned == true)
+    P.trimAdvicePopupLastGroundTrimRequestAt = now
+    helpers.logDebugTS("Trim popup requested by ground trim movement. target=" .. tostring(trimTarget))
+end
+
 local function isTrimPopupContextActive()
     local onGround = (get(P.airgroundsensor) == def.ON)
     local noProcedure = (P.procedureloop1.lock == def.NOPROCEDURE)
@@ -7616,6 +7660,7 @@ function P.ongoingtasks()
     checkAutoRestart()
     checkHoppieVoiceMessages()
     P.checkSpeedbrakeForgotten()
+    maybeRequestTrimAdvicePopupForGroundTrim()
 
     if (P.updatemetartimer == nil) then
         P.updatemetartimer = sasl.createTimer()
