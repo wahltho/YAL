@@ -365,48 +365,70 @@ local function getLatchedTrimTarget()
     return nil
 end
 
-local function maybeRequestTrimAdvicePopupForGroundTrim()
-    if P.configvalues[def.CONFIGTRIMADVICEPOPUP] ~= def.ON then
-        P.trimAdvicePopupLastGroundTrimWheel = nil
-        return
+local function getGroundTrimPopupTarget(requireMismatch)
+    if (not P.configvalues) or P.configvalues[def.CONFIGTRIMADVICEPOPUP] ~= def.ON then
+        return nil, nil
+    end
+    if not (P.airgroundsensor and P.battery and P.mainbus and P.groundspeed and P.trimwheel) then
+        return nil, nil
     end
 
     local eligible =
         (get(P.airgroundsensor) == def.ON) and
         (get(P.battery) == def.ON) and
         (get(P.mainbus) ~= def.OFF) and
-        (P.flightstate == def.FLIGHTSTATEPREFLIGHT) and
         ((tonumber(get(P.groundspeed)) or 0) < 45)
     if not eligible then
-        P.trimAdvicePopupLastGroundTrimWheel = nil
-        return
+        return nil, nil
     end
 
     local trimWheel = tonumber(get(P.trimwheel))
     if trimWheel == nil then
+        return nil, nil
+    end
+
+    local trimTarget = getLatchedTrimTarget() or 0
+    if trimTarget <= 0 then
+        return nil, nil
+    end
+    if requireMismatch and helpers.trimwheel_matches_trim_step(trimWheel, trimTarget, 0.25) then
+        return nil, nil
+    end
+
+    return trimTarget, trimWheel
+end
+
+local function requestTrimAdvicePopupForGroundTrim(reason, requireMismatch)
+    local trimTarget = getGroundTrimPopupTarget(requireMismatch == true)
+    if not trimTarget then
+        return false
+    end
+
+    local now = getTrimPopupNowSec()
+    if P.trimAdvicePopupLastGroundTrimRequestAt and (now - P.trimAdvicePopupLastGroundTrimRequestAt) < 1 then
+        return false
+    end
+
+    requestTrimAdvicePopupOpen(trimTarget, P._trimAdvicePopupPinned == true)
+    P.trimAdvicePopupLastGroundTrimRequestAt = now
+    helpers.logDebugTS("Trim popup requested by ground trim " .. tostring(reason or "event") .. ". target=" .. tostring(trimTarget))
+    return true
+end
+
+local function maybeRequestTrimAdvicePopupForGroundTrim()
+    local trimTarget, trimWheel = getGroundTrimPopupTarget(true)
+    if not trimTarget then
         P.trimAdvicePopupLastGroundTrimWheel = nil
         return
     end
 
-    local lastTrimWheel = tonumber(P.trimAdvicePopupLastGroundTrimWheel)
+    local lastTrimWheel = P.trimAdvicePopupLastGroundTrimWheel
     P.trimAdvicePopupLastGroundTrimWheel = trimWheel
     if lastTrimWheel == nil or math.abs(trimWheel - lastTrimWheel) <= 0.0001 then
         return
     end
 
-    local trimTarget = getLatchedTrimTarget() or 0
-    if trimTarget <= 0 or helpers.trimwheel_matches_trim_step(trimWheel, trimTarget, 0.25) then
-        return
-    end
-
-    local now = getTrimPopupNowSec()
-    if P.trimAdvicePopupLastGroundTrimRequestAt and (now - P.trimAdvicePopupLastGroundTrimRequestAt) < 1 then
-        return
-    end
-
-    requestTrimAdvicePopupOpen(trimTarget, P._trimAdvicePopupPinned == true)
-    P.trimAdvicePopupLastGroundTrimRequestAt = now
-    helpers.logDebugTS("Trim popup requested by ground trim movement. target=" .. tostring(trimTarget))
+    requestTrimAdvicePopupForGroundTrim("movement", true)
 end
 
 local function isTrimPopupContextActive()
@@ -3380,6 +3402,44 @@ end
 
 local my_command_stepprocedureonce = sasl.createCommand(def.APPNAMEPREFIX .. "/step_once", "Execute Current Procedure Step Once")
 sasl.registerCommandHandler(my_command_stepprocedureonce, 0, P.stepprocedureonce_)
+
+--------------------------------------------------------------------------------------------------------------
+function P.trimrockerpopup_(phase)
+    if phase == SASL_COMMAND_BEGIN then
+        requestTrimAdvicePopupForGroundTrim("command")
+    end
+    return 0
+end
+
+local trim_popup_command_paths = {
+    "laminar/B738/flight_controls/pitch_trim_up",
+    "laminar/B738/flight_controls/pitch_trim_down",
+    "laminar/B738/flight_controls/fo_pitch_trim_up",
+    "laminar/B738/flight_controls/fo_pitch_trim_down",
+    "sim/flight_controls/pitch_trim_up",
+    "sim/flight_controls/pitch_trim_down",
+    "sim/flight_controls/pitch_trim_up_mech",
+    "sim/flight_controls/pitch_trim_down_mech"
+}
+
+local trim_popup_command_hooks = {}
+local trim_popup_command_missing_logged = {}
+
+local function ensureTrimPopupCommandHooks()
+    for _, trimCommandPath in ipairs(trim_popup_command_paths) do
+        if not trim_popup_command_hooks[trimCommandPath] then
+            local ok, trimCommand = pcall(sasl.findCommand, trimCommandPath)
+            if ok and trimCommand then
+                sasl.registerCommandHandler(trimCommand, 0, P.trimrockerpopup_)
+                trim_popup_command_hooks[trimCommandPath] = true
+            elseif not trim_popup_command_missing_logged[trimCommandPath] then
+                sasl.logDebug("Trim popup command hook not registered, command not found: " .. tostring(trimCommandPath))
+                trim_popup_command_missing_logged[trimCommandPath] = true
+            end
+        end
+    end
+end
+ensureTrimPopupCommandHooks()
 
 --------------------------------------------------------------------------------------------------------------
 function P.toggletrimpopup()
@@ -7659,6 +7719,7 @@ function P.ongoingtasks()
 
     checkAutoRestart()
     checkHoppieVoiceMessages()
+    ensureTrimPopupCommandHooks()
     P.checkSpeedbrakeForgotten()
     maybeRequestTrimAdvicePopupForGroundTrim()
 
