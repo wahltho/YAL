@@ -3670,14 +3670,24 @@ function P.calculateApproachWindCorrection(runwayHeadingMag, metar)
     local headwind = 0
     headwind = P.calculateWindComponents(magneticWindDirection, runwayHeading, windSpeed)
 
-    local gustIncrement = 0
-    if gust > windSpeed then
-        gustIncrement = gust - windSpeed
+    if headwind <= 0 then
+        sasl.logDebug(string.format("Approach Wind Correction: TrueWind=%s@%.0fkt G%.0f, MagVar=%.1f, MagWind=%03.0f@%.0fkt, RwyHdg=%.0f -> no headwind component (%.1f kt), no correction",
+            tostring(rawDir), windSpeed, gust, magVar, math.floor(magneticWindDirection + 0.5), windSpeed, runwayHeading, headwind))
+        return 0
     end
 
-    local additive = math.max(headwind / 2, 0) + gustIncrement
+    local gustIncrement = 0
+    if gust > windSpeed then
+        local gustHeadwind = P.calculateWindComponents(magneticWindDirection, runwayHeading, gust)
+        gustIncrement = math.max(gustHeadwind - headwind, 0)
+    end
+
+    local additive = (headwind / 2) + gustIncrement
     additive = math.max(additive, 0)
     additive = math.min(additive, 20) -- Boeing cap
+
+    sasl.logDebug(string.format("Approach Wind Correction: TrueWind=%s@%.0fkt G%.0f, MagVar=%.1f, MagWind=%03.0f@%.0fkt, RwyHdg=%.0f -> Headwind=%.1f kt, GustInc=%.1f kt, Add=%d kt",
+        tostring(rawDir), windSpeed, gust, magVar, math.floor(magneticWindDirection + 0.5), windSpeed, runwayHeading, headwind, gustIncrement, math.floor(additive + 0.5)))
 
     return math.floor(additive + 0.5)
 end
