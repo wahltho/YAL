@@ -480,13 +480,134 @@ local function landingKindForEntry(entry)
     return nil
 end
 
-local function queryLandingForEntry(entry)
+local function isFinalApproachKind(kind)
+    return kind == "GLS" or kind == "LPV" or kind == "LP"
+end
+
+local function entryAppId(entry, context)
+    local appId = cleanText(entry and entry.app_id or "")
+    if appId ~= "" then
+        return appId
+    end
+    appId = cleanText(context and context.selectedAppId or "")
+    if appId ~= "" then
+        return appId
+    end
+    return cleanText(entry and entry[def.DESTNAVID] or "")
+end
+
+local function serviceLevelForEntry(entry)
+    return cleanText(entry and entry.serviceLevel or "")
+end
+
+local function frequencyMatches(entry, api)
+    local yFreq = tonumber(entry and entry[def.DESTFREQ])
+    local aFreq = tonumber(api and api.frequency)
+    return yFreq ~= nil and aFreq ~= nil and math.abs(yFreq - aFreq) <= 0.5
+end
+
+local function courseMatches(entry, api)
+    if not (entry and api) then
+        return false
+    end
+    local course = entry.isTrueCourse and entry.truecourse or entry[def.DESTCOURSE]
+    local diff = headingDiff(course, api.course_deg)
+    return diff ~= nil and diff <= 1
+end
+
+local function scoreFinalLandingMatch(entry, context, api)
+    if not api then
+        return -1000000
+    end
+    local score = 0
+    local appId = entryAppId(entry, context)
+    local ident = cleanText(entry and entry[def.DESTNAVID] or "")
+    local service = serviceLevelForEntry(entry)
+    local apiAppId = cleanText(api.app_id)
+    local apiIdent = cleanText(api.result_ident)
+    local apiService = cleanText(api.service_level)
+
+    if appId ~= "" then
+        if apiAppId == appId then
+            score = score + 1000
+        elseif apiIdent == appId then
+            score = score + 400
+        else
+            score = score - 100
+        end
+    end
+    if ident ~= "" and apiIdent == ident then
+        score = score + 250
+    end
+    if frequencyMatches(entry, api) then
+        score = score + 100
+    end
+    if service ~= "" and apiService == service then
+        score = score + 50
+    end
+    if courseMatches(entry, api) then
+        score = score + 25
+    end
+    return score
+end
+
+local function queryFinalLandingForEntry(entry, context, kind)
+    local icao = entry and entry[def.DESTICAO]
+    local runway = entry and entry[def.DESTRWY]
+    local first = queryLandingNav({
+        icao = icao,
+        runway = runway,
+        kind = kind,
+        ident = "",
+        match_index = 0
+    })
+    if not first then
+        return nil
+    end
+
+    local best = first
+    local bestScore = scoreFinalLandingMatch(entry, context, first)
+    local matchCount = tonumber(first.match_count) or 1
+    if matchCount > 1 then
+        local maxIndex = math.min(matchCount - 1, 49)
+        for index = 1, maxIndex do
+            local candidate = queryLandingNav({
+                icao = icao,
+                runway = runway,
+                kind = kind,
+                ident = "",
+                match_index = index,
+                silentStatus = true
+            })
+            local candidateScore = scoreFinalLandingMatch(entry, context, candidate)
+            if candidateScore > bestScore then
+                best = candidate
+                bestScore = candidateScore
+            end
+        end
+        if matchCount > 50 then
+            logOnce(
+                "landing-nav-match-cap-" .. cleanText(icao) .. "-" .. cleanText(runway) .. "-" .. tostring(kind),
+                "RefdataCompare: landing_nav match enumeration capped at 50 of " .. tostring(matchCount)
+                    .. " for " .. cleanText(icao) .. " " .. cleanText(runway) .. " " .. tostring(kind),
+                false
+            )
+        end
+    end
+    return best
+end
+
+local function queryLandingForEntry(entry, context)
     local icao = entry and entry[def.DESTICAO]
     local runway = entry and entry[def.DESTRWY]
     local kind = landingKindForEntry(entry)
     local ident = entry and entry[def.DESTNAVID]
     if not kind then
         return nil
+    end
+
+    if isFinalApproachKind(kind) then
+        return queryFinalLandingForEntry(entry, context, kind), kind
     end
 
     local api = queryLandingNav({
@@ -513,7 +634,7 @@ local function compareLandingEntry(entry, context)
     if not entry then
         return
     end
-    local api, kind = queryLandingForEntry(entry)
+    local api, kind = queryLandingForEntry(entry, context)
     if not api then
         return
     end
@@ -523,7 +644,12 @@ local function compareLandingEntry(entry, context)
     local ident = tostring(entry[def.DESTNAVID] or "")
     local key = icao .. " " .. runway .. " " .. navType .. " " .. ident
 
-    diffLog("LANDING_NAV", key, "ident", ident, api.result_ident, nil)
+    if isFinalApproachKind(kind) then
+        diffLog("LANDING_NAV", key, "app_id", entryAppId(entry, context), api.app_id, nil)
+    else
+        diffLog("LANDING_NAV", key, "ident", ident, api.result_ident, nil)
+        diffLog("LANDING_NAV", key, "app_id", tostring(entry.app_id or ""), api.app_id, nil)
+    end
     diffLog("LANDING_NAV", key, "airport", icao, api.airport, nil)
     diffLog("LANDING_NAV", key, "runway", runway, api.runway, nil)
     diffLog("LANDING_NAV", key, "kind", kind, api.kind, nil)
@@ -537,7 +663,6 @@ local function compareLandingEntry(entry, context)
     diffLog("LANDING_NAV", key, "lon", tonumber(entry[def.DESTLONPOS]), api.lon, 0.001)
     diffLog("LANDING_NAV", key, "height_ft", tonumber(entry[def.DESTELEVATION]), api.height_ft, 5)
     diffLog("LANDING_NAV", key, "service_level", tostring(entry.serviceLevel or ""), api.service_level, nil)
-    diffLog("LANDING_NAV", key, "app_id", tostring(entry.app_id or ""), api.app_id, nil)
 
     local yHasGs = (tonumber(entry[def.DESTGSSLOPE]) or 0) > 0
         or (tonumber(entry[def.DESTGSRANGE]) or 0) > 0
