@@ -5,6 +5,7 @@ local def = require("definitions")
 require("settings")
 local PD = require("proceduredata")
 local VR = require("voicereadback")
+local refdata = require("refdata")
 
 --------------------------------------------------------------------------------------------------------------
 
@@ -1280,6 +1281,8 @@ local function probe_external_dataref(name, kind)
     elseif kind == "iae" or kind == "ia" then
         return sasl.findDataRef(name, TYPE_INT_ARRAY, true) ~= nil
             or sasl.findDataRef(name, TYPE_FLOAT_ARRAY, true) ~= nil
+    elseif kind == "s" then
+        return sasl.findDataRef(name, TYPE_STRING, true) ~= nil
     end
 
     local ref = sasl.findDataRef(name, TYPE_UNKNOWN, true)
@@ -1305,6 +1308,8 @@ local function bind_external_dataref(name, kind, index, silentMissing)
         return globalPropertyiae(name, index), false
     elseif kind == "ia" then
         return globalPropertyia(name), false
+    elseif kind == "s" then
+        return globalPropertys(name), false
     end
     return globalProperty(name), false
 end
@@ -1341,6 +1346,85 @@ function P.bindExternalDatarefs(silentMissing)
         if missing then missingCount = missingCount + 1 end
         return dr
     end
+
+    local function GPS(name)
+        local dr, missing = bind_external_dataref(name, "s", nil, silentMissing)
+        if missing then missingCount = missingCount + 1 end
+        return dr
+    end
+
+    local function bindRefdataCategory(base, strings, numbers, queryStrings, queryNumbers)
+        local cat = { query = {} }
+        for _, field in ipairs(numbers or {}) do
+            cat[field] = GP(base .. field)
+        end
+        for _, field in ipairs(strings or {}) do
+            cat[field] = GPS(base .. field)
+        end
+        local qbase = base .. "query/3/"
+        for _, field in ipairs(queryNumbers or {}) do
+            cat.query[field] = GP(qbase .. field)
+        end
+        for _, field in ipairs(queryStrings or {}) do
+            cat.query[field] = GPS(qbase .. field)
+        end
+        return cat
+    end
+
+    local function bindRefdataRefs()
+        P.refdata = { nav = {} }
+        if silentMissing and not probe_external_dataref("laminar/B738/refdata/nav/available") then
+            return
+        end
+        local navAvailable = GP("laminar/B738/refdata/nav/available")
+        P.refdata.nav.available = navAvailable
+        if not (navAvailable and isProperty(navAvailable)) then
+            return
+        end
+
+        P.refdata.apt = bindRefdataCategory(
+            "laminar/B738/refdata/apt/",
+            { "source_path" },
+            { "available", "row_count" },
+            { "icao" },
+            {
+                "request_seq", "result_seq", "status",
+                "lat", "lon", "transition_altitude_ft", "transition_level_ft",
+                "longest_runway_m", "elevation_ft", "airport_type", "has_ils", "max_rwy_ft"
+            }
+        )
+        P.refdata.rnw = bindRefdataCategory(
+            "laminar/B738/refdata/rnw/",
+            { "source_path" },
+            { "available", "row_count" },
+            { "icao", "runway" },
+            {
+                "request_seq", "result_seq", "status",
+                "start_lat", "start_lon", "end_lat", "end_lon", "length_m", "course_deg"
+            }
+        )
+        P.refdata.landing_nav = bindRefdataCategory(
+            "laminar/B738/refdata/landing_nav/",
+            { "source_path" },
+            { "available", "row_count" },
+            {
+                "ident", "region_filter", "airport_filter", "runway_filter", "kind_filter",
+                "result_ident", "region", "airport", "runway", "kind", "app_id",
+                "service_level", "name", "dme_ident"
+            },
+            {
+                "frequency_filter", "match_index", "request_seq", "result_seq", "status",
+                "match_count", "kind_code", "source_parse_type", "lat", "lon", "gs_lat",
+                "gs_lon", "frequency", "course_deg", "mag_course", "slope_deg",
+                "height_ft", "has_gs", "dme_lat", "dme_lon", "dme_elevation_ft",
+                "dme_range_nm", "dme_bias_nm", "dme_frequency", "gs_range_nm",
+                "gs_raw_bearing", "has_dme"
+            }
+        )
+    end
+
+    bindRefdataRefs()
+
     P.simpaused = GP("sim/time/paused")
     P.simfreezed = GPFAE("sim/operation/override/override_planepath", 1)
     P.hascrashed = GP("sim/flightmodel2/misc/has_crashed")
@@ -2472,6 +2556,8 @@ function P.initializeScript()
 
     P.initDataref()
 
+    refdata.initialize(P, helpers)
+
     P.readconfig()
 
     helpers.checkCgBaselineAtStartup()
@@ -2479,6 +2565,7 @@ function P.initializeScript()
 
     helpers.buildnavdatatable(P.navdatatable)
     helpers.buildairportdatatable(P.airportdatatable)
+    refdata.compareActive(true)
     if P.configvalues[def.CONFIGAUTOTAXIGUIDANCE] == def.ON then
         helpers.requestGlobalAptIndex("startup")
     end
@@ -2513,6 +2600,7 @@ function P.yalresetForNewFlight()
     PD.fillProcedureTable()
     P.buildProcedureLabelMaps()
     P.initDataref()
+    refdata.initialize(P, helpers)
     P.readconfig()
 
     -- Reset locks explicitly for a new flight
@@ -2545,6 +2633,7 @@ function P.yalresetForNewFlight()
 
     helpers.buildnavdatatable(P.navdatatable)
     helpers.buildairportdatatable(P.airportdatatable)
+    refdata.compareActive(true)
     P.zibocalctable = helpers.loadZiboReferenceTables() or {}
     if (sasl.getLogLevel() == LOG_DEBUG) then
         helpers.writenavdatatable(P.navdatatable)
@@ -2673,6 +2762,7 @@ function P.yalreset()
     -- Rest (NavData bauen etc.)
     helpers.buildnavdatatable(P.navdatatable)
     helpers.buildairportdatatable(P.airportdatatable)
+    refdata.compareActive(true)
     P.zibocalctable = helpers.loadZiboReferenceTables() or {}
     if (sasl.getLogLevel() == LOG_DEBUG) then
         helpers.writenavdatatable(P.navdatatable)
@@ -6900,6 +6990,7 @@ function P.updateSharedVariables()
     if ((get(P.desrwylonendpos) ~= P.desrwylonendpostemp) and (get(P.desrwylonendpos) ~= 0)) then
         P.desrwylonendpostemp = get(P.desrwylonendpos)
     end
+    refdata.compareActive(false)
 end
 
 --------------------------------------------------------------------------------------------------------------
@@ -8814,6 +8905,7 @@ function P.do_yal()
         local missingCount = P.bindExternalDatarefs(true)
         P.needsPostStartupDatarefRebind = false
         P.externalDatarefsPostStartupDone = true
+        refdata.initialize(P, helpers)
         if missingCount > 0 then
             helpers.logInfoTS("Post-startup external dataref rebind finished with " .. tostring(missingCount) .. " unresolved handles")
         else

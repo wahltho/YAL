@@ -1,5 +1,6 @@
 local def = require("definitions")
 local helpers = require("helpers")
+local refdata = require("refdata")
 local P = yal
 
 local function getTakeoffTrimAdviceTarget()
@@ -5905,6 +5906,13 @@ function M.fillProcedureTable()
                             tostring(chosenEntry and chosenEntry[def.DESTNAVID] or nil),
                             tostring(chosenEntry and chosenEntry[def.DESTRWY] or nil)
                         ))
+                        if chosenEntry and refdata and refdata.compareLandingNavForEntry then
+                            refdata.compareLandingNavForEntry(P, chosenEntry, {
+                                selectedAppId = selectedAppId,
+                                selectedNavType = selectedNavType,
+                                detectedNavType = detectedNavType
+                            })
+                        end
 
                         if loop.navdatatableindex ~= nil and P.navdatatable[loop.navdatatableindex] ~= nil then
                             return 'announce_approach_type' 
