@@ -5779,6 +5779,18 @@ function P.detectCIFPApproachVariant(icao, runway, legs_string, lat_array, lon_a
     return bestMatch
 end
 
+function P.withMissedApproachDiscontinuitySuppression(options, missedStartIndex, missedEndIndex)
+    local opts = options or {}
+    local startIndex = toNumber(missedStartIndex, nil)
+    if startIndex and startIndex > 1 then
+        local endIndex = toNumber(missedEndIndex, nil)
+        if (not endIndex) or endIndex <= 0 or endIndex >= startIndex then
+            opts.ignoreDiscontinuitiesAtOrAfterIndex = math.floor(startIndex + 0.5)
+        end
+    end
+    return opts
+end
+
 function P.detectFMSDiscontinuity(legs_string, lat_array, lon_array, aircraftLat, aircraftLon, options)
     if type(legs_string) ~= "string" then
         return nil
@@ -5880,6 +5892,13 @@ function P.detectFMSDiscontinuity(legs_string, lat_array, lon_array, aircraftLat
     end
 
     local maxAheadNm = options and options.maxAheadNm
+    local ignoreDiscontinuitiesAtOrAfterIndex = toNumber(options and options.ignoreDiscontinuitiesAtOrAfterIndex, nil)
+    if ignoreDiscontinuitiesAtOrAfterIndex then
+        ignoreDiscontinuitiesAtOrAfterIndex = math.floor(ignoreDiscontinuitiesAtOrAfterIndex + 0.5)
+        if ignoreDiscontinuitiesAtOrAfterIndex <= 1 or ignoreDiscontinuitiesAtOrAfterIndex > #tokens then
+            ignoreDiscontinuitiesAtOrAfterIndex = nil
+        end
+    end
 
     for idx, token in ipairs(tokens) do
         local upperToken = normalizeToken(token)
@@ -5888,6 +5907,9 @@ function P.detectFMSDiscontinuity(legs_string, lat_array, lon_array, aircraftLat
             local nextLeg = findNextUsable(idx + 1)
 
             local skip = false
+            if ignoreDiscontinuitiesAtOrAfterIndex and idx >= ignoreDiscontinuitiesAtOrAfterIndex then
+                skip = true
+            end
             if positionFilterActive and tokenDistances and distanceFromStart and prevLeg then
                 local prevIndex = idx - 1
                 while prevIndex > 0 do

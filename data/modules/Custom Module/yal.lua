@@ -1612,6 +1612,8 @@ function P.bindExternalDatarefs(silentMissing)
     P.cabincruisealt = GP("sim/cockpit/pressure/max_allowable_altitude")
     P.cabinlandingalt = GP("laminar/B738/pressurization/knobs/landing_alt")
     P.missedappalt = GP("laminar/B738/fms/missed_app_alt")
+    P.missedappwptidx = GP("laminar/B738/fms/missed_app_wpt_idx")
+    P.missedappwptidx2 = GP("laminar/B738/fms/missed_app_wpt_idx2")
 
     P.llights1 = GPFAE("sim/cockpit2/switches/landing_lights_switch", 1)
     P.llights2 = GPFAE("sim/cockpit2/switches/landing_lights_switch", 2)
@@ -7203,6 +7205,18 @@ local function updateRouteMayEndEarlyCandidate(diff, distDest, remainingDistance
     end
 end
 
+local function buildFMSDiscontinuityOptions(options)
+    local missedStartIndex = nil
+    local missedEndIndex = nil
+    if P.missedappwptidx and isProperty(P.missedappwptidx) then
+        missedStartIndex = tonumber(get(P.missedappwptidx))
+    end
+    if P.missedappwptidx2 and isProperty(P.missedappwptidx2) then
+        missedEndIndex = tonumber(get(P.missedappwptidx2))
+    end
+    return helpers.withMissedApproachDiscontinuitySuppression(options or {}, missedStartIndex, missedEndIndex)
+end
+
 --------------------------------------------------------------------------------------------------------------
 local SPEEDBRAKE_FORGOTTEN_TEXT = "Speedbrakes still extended"
 
@@ -7532,7 +7546,7 @@ function P.runOneMainOngoingTask()
                 get(P.fmslegslon),
                 get(P.aircraftlatpos),
                 get(P.aircraftlonpos),
-                { maxAheadNm = 20 }
+                buildFMSDiscontinuityOptions({ maxAheadNm = 20 })
             )
             if discontinuity then
                 local prevLegText = ""

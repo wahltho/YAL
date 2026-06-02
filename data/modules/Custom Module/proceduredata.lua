@@ -101,6 +101,24 @@ local function isRunwayToMissedDiscontinuity(prevLeg, nextLeg)
     return isRunwayLeg(prevLeg) and isMissedApproachLeg(nextLeg)
 end
 
+local function getMissedApproachStartIndex()
+    if P.missedappwptidx and isProperty(P.missedappwptidx) then
+        return tonumber(get(P.missedappwptidx))
+    end
+    return nil
+end
+
+local function getMissedApproachEndIndex()
+    if P.missedappwptidx2 and isProperty(P.missedappwptidx2) then
+        return tonumber(get(P.missedappwptidx2))
+    end
+    return nil
+end
+
+local function buildFMSDiscontinuityOptions(options)
+    return helpers.withMissedApproachDiscontinuitySuppression(options or {}, getMissedApproachStartIndex(), getMissedApproachEndIndex())
+end
+
 local function runwayUsesTrue(runway)
     if type(runway) ~= "string" then
         return false
@@ -1883,7 +1901,7 @@ function M.fillProcedureTable()
                 },
                 ['check_fmc_route_continuity'] = {
                     check = function()
-                        local discoOptions = { maxAheadNm = 100 }
+                        local discoOptions = buildFMSDiscontinuityOptions({ maxAheadNm = 100 })
                         local depIcao = get(P.depicao)
                         local aircraftLat = get(P.aircraftlatpos)
                         local aircraftLon = get(P.aircraftlonpos)
@@ -3964,7 +3982,8 @@ function M.fillProcedureTable()
                             get(P.fmslegslat),
                             get(P.fmslegslon),
                             get(P.aircraftlatpos),
-                            get(P.aircraftlonpos)
+                            get(P.aircraftlonpos),
+                            buildFMSDiscontinuityOptions()
                         )
                         if discontinuity then
                             local prevLegRaw = discontinuity.previous
