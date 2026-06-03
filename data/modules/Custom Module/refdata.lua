@@ -156,6 +156,77 @@ local function headingDiff(a, b)
     return diff
 end
 
+local function normalizeDegrees(value)
+    value = tonumber(value)
+    if not value then
+        return nil
+    end
+    return (value + 360) % 360
+end
+
+local function validLatLon(lat, lon)
+    lat = tonumber(lat)
+    lon = tonumber(lon)
+    return lat ~= nil and lon ~= nil
+        and math.abs(lat) > 0.000001
+        and math.abs(lon) > 0.000001
+end
+
+local function readMagVarAt(lat, lon)
+    lat = tonumber(lat)
+    lon = tonumber(lon)
+    if not validLatLon(lat, lon) then
+        return nil
+    end
+    if not (sasl and sasl.getMagneticVariation) then
+        return nil
+    end
+    local ok, value = pcall(sasl.getMagneticVariation, lat, lon)
+    if ok then
+        return tonumber(value)
+    end
+    return nil
+end
+
+local function magneticToTrue(magnetic, magVar)
+    magnetic = tonumber(magnetic)
+    magVar = tonumber(magVar)
+    if not (magnetic and magVar) then
+        return nil
+    end
+    return normalizeDegrees(magnetic - magVar)
+end
+
+local function entryMagCourse(entry)
+    return tonumber(entry and entry[def.DESTCOURSE])
+end
+
+local function entryMagVar(entry)
+    local magVar = tonumber(entry and entry[def.DESTMAGVAR])
+    if magVar ~= nil then
+        return magVar
+    end
+    return readMagVarAt(entry and entry[def.DESTLATPOS], entry and entry[def.DESTLONPOS])
+end
+
+local function entryTrueCourse(entry)
+    if not entry then
+        return nil
+    end
+    if entry.isTrueCourse and entry.truecourse then
+        return normalizeDegrees(entry.truecourse)
+    end
+    return magneticToTrue(entryMagCourse(entry), entryMagVar(entry))
+end
+
+local function apiMagCourse(api)
+    local course = tonumber(api and api.mag_course)
+    if course ~= nil and course >= 0 then
+        return normalizeDegrees(course)
+    end
+    return nil
+end
+
 local function boolValue(value)
     if type(value) == "boolean" then
         return value
@@ -435,7 +506,7 @@ local function compareRunway(label, icao, runway, yalRwy)
     yalRwy = yalRwy or {}
     local key = label .. " " .. icao .. " " .. runway
     local length = tonumber(yalRwy.length_m)
-    local course = tonumber(yalRwy.course_deg)
+    local courseMag = tonumber(yalRwy.course_deg)
     local startLat = tonumber(yalRwy.start_lat)
     local startLon = tonumber(yalRwy.start_lon)
     local endLat = tonumber(yalRwy.end_lat)
@@ -443,8 +514,12 @@ local function compareRunway(label, icao, runway, yalRwy)
     if length and length > 0 then
         diffLog("RNW", key, "length_m", length, api.length_m, 5)
     end
-    if course and course > 0 then
-        diffLog("RNW", key, "course_deg", course, api.course_deg, 1, "heading")
+    if courseMag and courseMag >= 0 then
+        local magVar = readMagVarAt(startLat, startLon) or readMagVarAt(api.start_lat, api.start_lon)
+        local courseTrue = magneticToTrue(courseMag, magVar)
+        if courseTrue then
+            diffLog("RNW", key, "course_deg_true", courseTrue, api.course_deg, 1, "heading")
+        end
     end
     if startLat and math.abs(startLat) > 0.000001 then
         diffLog("RNW", key, "start_lat", startLat, api.start_lat, 0.005)
@@ -484,6 +559,14 @@ local function isFinalApproachKind(kind)
     return kind == "GLS" or kind == "LPV" or kind == "LP"
 end
 
+local function isLocalizerKind(kind)
+    return kind == "ILS"
+        or kind == "IGS"
+        or kind == "LOC"
+        or kind == "LOC_GS"
+        or kind == "LDA"
+end
+
 local function entryAppId(entry, context)
     local appId = cleanText(entry and entry.app_id or "")
     if appId ~= "" then
@@ -510,8 +593,14 @@ local function courseMatches(entry, api)
     if not (entry and api) then
         return false
     end
-    local course = entry.isTrueCourse and entry.truecourse or entry[def.DESTCOURSE]
-    local diff = headingDiff(course, api.course_deg)
+    local apiMag = apiMagCourse(api)
+    if apiMag then
+        local diffMag = headingDiff(entryMagCourse(entry), apiMag)
+        if diffMag ~= nil and diffMag <= 1 then
+            return true
+        end
+    end
+    local diff = headingDiff(entryTrueCourse(entry), api.course_deg)
     return diff ~= nil and diff <= 1
 end
 
@@ -654,8 +743,11 @@ local function compareLandingEntry(entry, context)
     diffLog("LANDING_NAV", key, "runway", runway, api.runway, nil)
     diffLog("LANDING_NAV", key, "kind", kind, api.kind, nil)
     diffLog("LANDING_NAV", key, "frequency", tonumber(entry[def.DESTFREQ]), api.frequency, 0)
-    if entry.isTrueCourse and entry.truecourse then
-        diffLog("LANDING_NAV", key, "course_deg_true", tonumber(entry.truecourse), api.course_deg, 1, "heading")
+    local courseTrue = entryTrueCourse(entry)
+    if isLocalizerKind(kind) then
+        diffLog("LANDING_NAV", key, "mag_course", entryMagCourse(entry), apiMagCourse(api), 1, "heading")
+    elseif courseTrue then
+        diffLog("LANDING_NAV", key, "course_deg_true", courseTrue, api.course_deg, 1, "heading")
     else
         diffLog("LANDING_NAV", key, "course_deg", tonumber(entry[def.DESTCOURSE]), api.course_deg, 1, "heading")
     end
