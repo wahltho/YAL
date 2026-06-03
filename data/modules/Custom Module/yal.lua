@@ -3516,14 +3516,24 @@ local trim_popup_command_paths = {
 
 local trim_popup_command_hooks = {}
 local trim_popup_command_missing_logged = {}
+local trim_popup_command_attempts = {}
+local trim_popup_command_next_retry_at = {}
+local TRIM_POPUP_COMMAND_RETRY_SECONDS = 10
+local TRIM_POPUP_COMMAND_MAX_ATTEMPTS = 3
 
 local function ensureTrimPopupCommandHooks()
+    local now = os.time() or 0
     for _, trimCommandPath in ipairs(trim_popup_command_paths) do
-        if not trim_popup_command_hooks[trimCommandPath] then
+        if not trim_popup_command_hooks[trimCommandPath]
+            and ((tonumber(trim_popup_command_attempts[trimCommandPath]) or 0) < TRIM_POPUP_COMMAND_MAX_ATTEMPTS)
+            and (now >= (tonumber(trim_popup_command_next_retry_at[trimCommandPath]) or 0)) then
+            trim_popup_command_attempts[trimCommandPath] = (tonumber(trim_popup_command_attempts[trimCommandPath]) or 0) + 1
+            trim_popup_command_next_retry_at[trimCommandPath] = now + TRIM_POPUP_COMMAND_RETRY_SECONDS
             local ok, trimCommand = pcall(sasl.findCommand, trimCommandPath)
             if ok and trimCommand then
                 sasl.registerCommandHandler(trimCommand, 0, P.trimrockerpopup_)
                 trim_popup_command_hooks[trimCommandPath] = true
+                trim_popup_command_next_retry_at[trimCommandPath] = nil
             elseif not trim_popup_command_missing_logged[trimCommandPath] then
                 sasl.logDebug("Trim popup command hook not registered, command not found: " .. tostring(trimCommandPath))
                 trim_popup_command_missing_logged[trimCommandPath] = true
@@ -3531,7 +3541,6 @@ local function ensureTrimPopupCommandHooks()
         end
     end
 end
-ensureTrimPopupCommandHooks()
 
 --------------------------------------------------------------------------------------------------------------
 function P.toggletrimpopup()
