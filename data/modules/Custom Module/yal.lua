@@ -1423,7 +1423,30 @@ function P.bindExternalDatarefs(silentMissing)
         )
     end
 
+    local function bindSpeakStringSinkRefs()
+        P.speakstringSink = nil
+        if silentMissing and not probe_external_dataref("laminar/B738/speakstring_sink/version") then
+            if helpers.configureSpeakStringSink then
+                helpers.configureSpeakStringSink(nil)
+            end
+            return
+        end
+
+        P.speakstringSink = {
+            version = GP("laminar/B738/speakstring_sink/version"),
+            request_text = GPS("laminar/B738/speakstring_sink/request_text"),
+            request_priority = GP("laminar/B738/speakstring_sink/request_priority"),
+            request_seq = GP("laminar/B738/speakstring_sink/request_seq"),
+            accepted_seq = GP("laminar/B738/speakstring_sink/accepted_seq"),
+            queue_depth = GP("laminar/B738/speakstring_sink/queue_depth")
+        }
+        if helpers.configureSpeakStringSink then
+            helpers.configureSpeakStringSink(P.speakstringSink)
+        end
+    end
+
     bindRefdataRefs()
+    bindSpeakStringSinkRefs()
 
     P.simpaused = GP("sim/time/paused")
     P.simfreezed = GPFAE("sim/operation/override/override_planepath", 1)
@@ -8276,7 +8299,7 @@ function P.commandtableloop()
                     else
                         helpers.logInfoTS("SpeakString TEXT: " .. tostring(entry_text))
                     end
-                    helpers.speak(entry_text)
+                    helpers.speak(entry_text, P.getSpeakStringPriority(entry_type, entry_text))
                     P.lastCommandWasSpeech = true
                     if (string.len(entry_text) > def.VERYLONGSPEAK) then
                         next_recommended_wait_step = def.LONGWAIT
@@ -8893,6 +8916,20 @@ function P.runProcedureLoop(loopIndex)
 
     return true
 end -- Ende function P.runProcedureLoop
+
+--------------------------------------------------------------------------------------------------------------
+function P.getSpeakStringPriority(entry_type, entry_text)
+    if entry_type == def.TAXI then
+        return 20
+    end
+
+    local text = tostring(entry_text or "")
+    if string.sub(text, 1, 7) == "Warning" or string.sub(text, 1, 7) == "Caution" then
+        return 50
+    end
+
+    return 10
+end
 
 --------------------------------------------------------------------------------------------------------------
 function P.do_yal()

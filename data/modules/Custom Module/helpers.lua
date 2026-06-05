@@ -896,11 +896,67 @@ function P.remove_directory(dirname)
 end
 
 --------------------------------------------------------------------------------------------------------------
-function P.speak(text)
+function P.speak(text, priority)
+    if P.speakViaZiboSink and P.speakViaZiboSink(text, priority) then
+        return
+    end
 
+    text = tostring(text or "")
     local c_str = ffi.new("char[?]", #text + 1)
     ffi.copy(c_str, text)
     xplm.XPLMSpeakString(c_str)
+end
+
+function P.configureSpeakStringSink(refs)
+    P.speakStringSink = refs
+    P.speakStringSinkSeq = P.speakStringSinkSeq or 0
+end
+
+function P.speakViaZiboSink(text, priority)
+    local sink = P.speakStringSink
+    if type(sink) ~= "table" then
+        return false
+    end
+    if not (sink.version and sink.request_text and sink.request_priority and sink.request_seq) then
+        return false
+    end
+    if not (isProperty(sink.version) and isProperty(sink.request_text) and isProperty(sink.request_priority) and isProperty(sink.request_seq)) then
+        return false
+    end
+
+    local ok, version = pcall(get, sink.version)
+    if not ok or (tonumber(version) or 0) < 1 then
+        return false
+    end
+
+    local speechText = tostring(text or "")
+    if speechText == "" then
+        return false
+    end
+    if #speechText > 511 then
+        speechText = string.sub(speechText, 1, 511)
+    end
+
+    ok = pcall(set, sink.request_text, speechText)
+    if not ok then
+        ok = pcall(set, sink.request_text, speechText, 0, #speechText)
+        if not ok then
+            return false
+        end
+    end
+
+    ok = pcall(set, sink.request_priority, tonumber(priority) or 10)
+    if not ok then
+        return false
+    end
+
+    P.speakStringSinkSeq = (tonumber(P.speakStringSinkSeq) or 0) + 1
+    if P.speakStringSinkSeq > 2147480000 then
+        P.speakStringSinkSeq = 1
+    end
+
+    ok = pcall(set, sink.request_seq, P.speakStringSinkSeq)
+    return ok == true
 end
 
 --------------------------------------------------------------------------------------------------------------

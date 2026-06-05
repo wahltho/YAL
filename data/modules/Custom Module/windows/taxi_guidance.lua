@@ -87,7 +87,7 @@ function M.attach(U, C, def, helpers, settings)
             yal.commandtableentry(def.TAXI, text)
             return
         end
-        helpers.speak(text)
+        helpers.speak(text, 20)
     end
 
     local function clone_guidance_info(info)

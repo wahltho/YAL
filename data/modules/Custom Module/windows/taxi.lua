@@ -5614,7 +5614,7 @@ do
     if not U.speak_guidance_text then
         U.speak_guidance_text = function(_, text)
             if helpers and helpers.speak then
-                helpers.speak(text)
+                helpers.speak(text, 20)
             end
         end
     end
@@ -6031,7 +6031,7 @@ local function maybe_warn_before_taxi_not_started(comp, now, mode, on_ground, in
         )
     end
     if comp._helpers and comp._helpers.speak then
-        comp._helpers.speak("Warning, before taxi procedure not started")
+        comp._helpers.speak("Warning, before taxi procedure not started", 50)
     end
 end
 
