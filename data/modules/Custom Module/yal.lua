@@ -2200,6 +2200,193 @@ function P.initializeSharedVariables()
 end
 
 --------------------------------------------------------------------------------------------------------------
+local function validRefNumber(value)
+    value = tonumber(value)
+    if value == nil then
+        return nil
+    end
+    return value
+end
+
+local function validPositiveRefNumber(value)
+    value = tonumber(value)
+    if value and value > 0 then
+        return value
+    end
+    return nil
+end
+
+local function cleanRefIcao(value)
+    return string.upper(helpers.cleanstring(tostring(value or "")))
+end
+
+local function cleanRefRunway(value)
+    return string.upper(helpers.cleanstring(tostring(value or "")))
+end
+
+local REF_FT_TO_M = 0.3048
+
+local function fallbackAirportRefdata(icao)
+    icao = cleanRefIcao(icao)
+    local entry = P.airportdatatable and P.airportdatatable[icao] or nil
+    if not entry then
+        return nil
+    end
+    return {
+        icao = icao,
+        latitude = validRefNumber(entry.latitude),
+        longitude = validRefNumber(entry.longitude),
+        elevation_ft = validRefNumber(entry.elevation_ft),
+        max_rwy_ft = validRefNumber(entry.max_rwy_ft),
+        has_ils = entry.has_ils == true,
+        _source = "yal_cache"
+    }
+end
+
+function P.getAirportRefdata(icao)
+    icao = cleanRefIcao(icao)
+    if not helpers.isvalidicao(icao) then
+        return nil
+    end
+    if refdata and refdata.getAirport then
+        local api = refdata.getAirport(icao)
+        if api then
+            local fallback = fallbackAirportRefdata(icao)
+            if fallback then
+                if api.latitude == nil then api.latitude = fallback.latitude end
+                if api.longitude == nil then api.longitude = fallback.longitude end
+                if api.elevation_ft == nil then api.elevation_ft = fallback.elevation_ft end
+                if api.max_rwy_ft == nil then api.max_rwy_ft = fallback.max_rwy_ft end
+                if api.has_ils == nil then api.has_ils = fallback.has_ils end
+            end
+            return api
+        end
+    end
+    return fallbackAirportRefdata(icao)
+end
+
+function P.getAirportElevationFt(icao, fallbackFt)
+    local airport = P.getAirportRefdata(icao)
+    local elevation = validRefNumber(airport and airport.elevation_ft)
+    if elevation ~= nil then
+        return elevation, airport and airport._source or nil
+    end
+    return validRefNumber(fallbackFt), "fallback"
+end
+
+function P.getDepartureAirportElevationFt()
+    local aircraftElevationM = validRefNumber(get(P.elevation))
+    local fallbackFt = aircraftElevationM and (aircraftElevationM / REF_FT_TO_M) or nil
+    return P.getAirportElevationFt(get(P.depicao), fallbackFt)
+end
+
+function P.getDepartureAirportElevationM()
+    local elevationFt = P.getDepartureAirportElevationFt()
+    if elevationFt == nil then
+        return nil
+    end
+    return elevationFt * REF_FT_TO_M
+end
+
+function P.getDestinationAirportElevationFt()
+    local rwyAlt = validRefNumber(get(P.desrwyalt))
+    local fallbackFt = (rwyAlt and rwyAlt > -1000) and rwyAlt or nil
+    return P.getAirportElevationFt(get(P.desicao), fallbackFt)
+end
+
+local function fallbackRunwayRefdata(icao, runway, fallback)
+    fallback = fallback or {}
+    return {
+        icao = cleanRefIcao(icao),
+        runway = cleanRefRunway(runway),
+        start_lat = validRefNumber(fallback.start_lat),
+        start_lon = validRefNumber(fallback.start_lon),
+        end_lat = validRefNumber(fallback.end_lat),
+        end_lon = validRefNumber(fallback.end_lon),
+        length_m = validPositiveRefNumber(fallback.length_m),
+        course_deg_mag = validRefNumber(fallback.course_deg_mag),
+        _source = "fms"
+    }
+end
+
+function P.getRunwayRefdata(icao, runway, fallback)
+    icao = cleanRefIcao(icao)
+    runway = cleanRefRunway(runway)
+    if not (helpers.isvalidicao(icao) and helpers.isvalidrwy(runway)) then
+        return fallbackRunwayRefdata(icao, runway, fallback)
+    end
+    if refdata and refdata.getRunway then
+        local api = refdata.getRunway(icao, runway)
+        if api then
+            local fallbackEntry = fallbackRunwayRefdata(icao, runway, fallback)
+            if api.start_lat == nil then api.start_lat = fallbackEntry.start_lat end
+            if api.start_lon == nil then api.start_lon = fallbackEntry.start_lon end
+            if api.end_lat == nil then api.end_lat = fallbackEntry.end_lat end
+            if api.end_lon == nil then api.end_lon = fallbackEntry.end_lon end
+            if api.length_m == nil then api.length_m = fallbackEntry.length_m end
+            if api.course_deg_mag == nil then api.course_deg_mag = fallbackEntry.course_deg_mag end
+            return api
+        end
+    end
+    return fallbackRunwayRefdata(icao, runway, fallback)
+end
+
+function P.getDepartureRunwayRefdata()
+    return P.getRunwayRefdata(get(P.depicao), get(P.deprwy), {
+        start_lat = get(P.deprwylatstartpos),
+        start_lon = get(P.deprwylonstartpos),
+        end_lat = get(P.deprwylatendpos),
+        end_lon = get(P.deprwylonendpos),
+        length_m = get(P.deprwylen),
+        course_deg_mag = get(P.deprwyheading)
+    })
+end
+
+function P.getDestinationRunwayRefdata(useTemp)
+    return P.getRunwayRefdata(get(P.desicao), get(P.desrwy), {
+        start_lat = useTemp and P.desrwylatstartpostemp or get(P.desrwylatstartpos),
+        start_lon = useTemp and P.desrwylonstartpostemp or get(P.desrwylonstartpos),
+        end_lat = useTemp and P.desrwylatendpostemp or get(P.desrwylatendpos),
+        end_lon = useTemp and P.desrwylonendpostemp or get(P.desrwylonendpos),
+        length_m = get(P.desrwylen),
+        course_deg_mag = useTemp and P.desrwyheadingtemp or get(P.desrwyheading)
+    })
+end
+
+function P.getDepartureRunwayLengthM()
+    local runway = P.getDepartureRunwayRefdata()
+    return validPositiveRefNumber(runway and runway.length_m)
+end
+
+function P.getDepartureRunwayHeadingMag()
+    local runway = P.getDepartureRunwayRefdata()
+    return validRefNumber(runway and runway.course_deg_mag)
+end
+
+function P.getDestinationRunwayLengthM()
+    local runway = P.getDestinationRunwayRefdata(false)
+    return validPositiveRefNumber(runway and runway.length_m)
+end
+
+function P.getDestinationRunwayHeadingMag(useTemp)
+    local runway = P.getDestinationRunwayRefdata(useTemp == true)
+    return validRefNumber(runway and runway.course_deg_mag)
+end
+
+function P.getDestinationRunwayTrueCourse(useTemp)
+    local runway = P.getDestinationRunwayRefdata(useTemp == true)
+    local trueCourse = validRefNumber(runway and runway.course_deg_true)
+    if trueCourse ~= nil then
+        return trueCourse
+    end
+    if runway and runway.start_lat and runway.start_lon and runway.end_lat and runway.end_lon
+        and runway.start_lat ~= 0 and runway.start_lon ~= 0 and runway.end_lat ~= 0 and runway.end_lon ~= 0 then
+        return helpers.getbearing(runway.start_lat, runway.start_lon, runway.end_lat, runway.end_lon)
+    end
+    return nil
+end
+
+--------------------------------------------------------------------------------------------------------------
 function P.buildProcedureLabelMaps()
     helpers.logInfoTS("Initializing procedure step access functions (get_index)...") -- Log message slightly adjusted
 
@@ -4174,17 +4361,19 @@ function P.aircraftonrwy(runwayType, distMeters, headingLimit)
     local runwayHeading
 
     if runwayType == def.DEPARTURE then
-        rwystartlat = get(P.deprwylatstartpos)
-        rwystartlon = get(P.deprwylonstartpos)
-        rwyendlat = get(P.deprwylatendpos)
-        rwyendlon = get(P.deprwylonendpos)
-        runwayHeading = get(P.deprwyheading)
+        local runway = P.getDepartureRunwayRefdata()
+        rwystartlat = runway and runway.start_lat or nil
+        rwystartlon = runway and runway.start_lon or nil
+        rwyendlat = runway and runway.end_lat or nil
+        rwyendlon = runway and runway.end_lon or nil
+        runwayHeading = runway and runway.course_deg_mag or nil
     elseif runwayType == def.ARRIVAL then
-        rwystartlat = P.desrwylatstartpostemp
-        rwystartlon = P.desrwylonstartpostemp
-        rwyendlat = P.desrwylatendpostemp
-        rwyendlon = P.desrwylonendpostemp
-        runwayHeading = P.desrwyheadingtemp
+        local runway = P.getDestinationRunwayRefdata(true)
+        rwystartlat = runway and runway.start_lat or nil
+        rwystartlon = runway and runway.start_lon or nil
+        rwyendlat = runway and runway.end_lat or nil
+        rwyendlon = runway and runway.end_lon or nil
+        runwayHeading = runway and runway.course_deg_mag or nil
     else
         return false
     end
@@ -4201,6 +4390,11 @@ function P.aircraftonrwy(runwayType, distMeters, headingLimit)
         return false
     end
     if (aircraftlat == nil) or (aircraftlon == nil) then
+        return false
+    end
+    if runwayHeading == nil then
+        if runwayType == def.DEPARTURE then return false end
+        if runwayType == def.ARRIVAL then return false end
         return false
     end
 
@@ -4275,9 +4469,10 @@ function P.isArrivalRunwayRadioAltGateOpen(maxThresholdDistanceNm, maxHeadingDif
 
     local aircraftlat = get(P.aircraftlatpos)
     local aircraftlon = get(P.aircraftlonpos)
-    local rwystartlat = P.desrwylatstartpostemp
-    local rwystartlon = P.desrwylonstartpostemp
-    local runwayHeading = P.desrwyheadingtemp
+    local runway = P.getDestinationRunwayRefdata(true)
+    local rwystartlat = runway and runway.start_lat or nil
+    local rwystartlon = runway and runway.start_lon or nil
+    local runwayHeading = runway and runway.course_deg_mag or nil
 
     if not aircraftlat or not aircraftlon or not rwystartlat or not rwystartlon then
         return false
@@ -6449,13 +6644,7 @@ function P.duringdescent()
         P.triggerprocedure(procB10k)
     end
 
-    local destination_icao = get(P.desicao)
-    local destination_altitude = nil
-    if P.airportdatatable[destination_icao] and P.airportdatatable[destination_icao].elevation_ft then
-        destination_altitude = P.airportdatatable[destination_icao].elevation_ft
-    else
-        destination_altitude = get(P.desrwyalt)
-    end
+    local destination_altitude = P.getDestinationAirportElevationFt()
 
     local height_above_field = 99999
     if destination_altitude and destination_altitude > -1000 then
@@ -7074,8 +7263,9 @@ function P.runOnePreOngoingTask()
             local deslandingalttmp = 0
             local haslandingalt = false
 
-            if P.airportdatatable[destination_icao] and P.airportdatatable[destination_icao].elevation_ft then
-                deslandingalttmp = helpers.roundnumber(P.airportdatatable[destination_icao].elevation_ft / 50) * 50
+            local airportElevationFt = P.getDestinationAirportElevationFt()
+            if airportElevationFt then
+                deslandingalttmp = helpers.roundnumber(airportElevationFt / 50) * 50
                 haslandingalt = true
             elseif get(P.desrwyalt) > -1000 then
                 deslandingalttmp = helpers.roundnumber(get(P.desrwyalt) / 50) * 50
@@ -7569,8 +7759,9 @@ function P.runOneMainOngoingTask()
             end
         elseif idx == 9 then
             local headingrounded = nil
-            if (helpers.isvalidicao(get(P.depicao)) and helpers.isvalidrwy(get(P.deprwy)) and tonumber(get(P.deprwyheading))) then
-                headingrounded = helpers.roundnumber(get(P.deprwyheading))
+            local depRunwayHeading = P.getDepartureRunwayHeadingMag()
+            if (helpers.isvalidicao(get(P.depicao)) and helpers.isvalidrwy(get(P.deprwy)) and tonumber(depRunwayHeading)) then
+                headingrounded = helpers.roundnumber(depRunwayHeading)
             end
             if (headingrounded and (headingrounded ~= get(P.mcpheading)) and (get(P.groundspeed) < 45)) then
                 if ((P.configvalues[def.CONFIGAUTOFUNCTIONS] == def.ON) and (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON)) then

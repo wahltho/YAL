@@ -11,6 +11,7 @@ local S = {
     categories = {},
     seq = { apt = 0, rnw = 0, landing_nav = 0 },
     lastActiveKey = nil,
+    adapterCache = { apt = {}, rnw = {} },
     logged = {}
 }
 
@@ -435,6 +436,63 @@ local function queryRnw(icao, runway)
             course_deg = readNumber(q.course_deg)
         }
     end, "RNW " .. icao .. " " .. runway)
+end
+
+local function apiAirportValid(api)
+    return api ~= nil and validLatLon(api.lat, api.lon)
+end
+
+local function apiRunwayValid(api)
+    if not api then
+        return false
+    end
+    return validLatLon(api.start_lat, api.start_lon)
+        and validLatLon(api.end_lat, api.end_lon)
+        and (tonumber(api.length_m) or 0) > 0
+end
+
+local function apiAirportEntry(icao, api)
+    if not apiAirportValid(api) then
+        return nil
+    end
+    return {
+        icao = cleanText(icao),
+        latitude = tonumber(api.lat),
+        longitude = tonumber(api.lon),
+        transition_altitude_ft = tonumber(api.transition_altitude_ft),
+        transition_level_ft = tonumber(api.transition_level_ft),
+        longest_runway_m = tonumber(api.longest_runway_m),
+        elevation_ft = tonumber(api.elevation_ft),
+        airport_type = tonumber(api.airport_type),
+        has_ils = boolValue(api.has_ils),
+        max_rwy_ft = tonumber(api.max_rwy_ft),
+        _source = "zibo_api"
+    }
+end
+
+local function apiRunwayEntry(icao, runway, api)
+    if not apiRunwayValid(api) then
+        return nil
+    end
+    local magVar = readMagVarAt(api.start_lat, api.start_lon)
+    local courseTrue = normalizeDegrees(api.course_deg)
+    local courseMag = nil
+    if courseTrue and magVar then
+        courseMag = trueToMagnetic(courseTrue, magVar)
+    end
+    return {
+        icao = cleanText(icao),
+        runway = cleanText(runway),
+        start_lat = tonumber(api.start_lat),
+        start_lon = tonumber(api.start_lon),
+        end_lat = tonumber(api.end_lat),
+        end_lon = tonumber(api.end_lon),
+        length_m = tonumber(api.length_m),
+        course_deg_true = courseTrue,
+        course_deg_mag = courseMag,
+        mag_var = magVar,
+        _source = "zibo_api"
+    }
 end
 
 local function queryLandingNav(opts)
@@ -1066,7 +1124,76 @@ function M.initialize(yalRef, helpersRef)
     S.available = false
     S.probeCountdown = 0
     S.lastActiveKey = nil
+    S.adapterCache = { apt = {}, rnw = {} }
     probe()
+end
+
+function M.getAirport(icao)
+    if not S.initialized then
+        return nil
+    end
+    icao = cleanText(icao)
+    if not validIcao(icao) then
+        return nil
+    end
+    if not ensureReady() then
+        return nil
+    end
+    S.adapterCache.apt = S.adapterCache.apt or {}
+    local cached = S.adapterCache.apt[icao]
+    if cached then
+        return cached
+    end
+    local entry = apiAirportEntry(icao, queryApt(icao))
+    if not entry then
+        return nil
+    end
+    S.adapterCache.apt[icao] = entry
+    logOnce(
+        "airport-adapter-selected-" .. icao,
+        "RefdataAdapter Airport selected source=zibo_api icao=" .. icao
+            .. " lat=" .. tostring(entry.latitude)
+            .. " lon=" .. tostring(entry.longitude)
+            .. " elev_ft=" .. tostring(entry.elevation_ft)
+            .. " max_rwy_ft=" .. tostring(entry.max_rwy_ft),
+        false
+    )
+    return entry
+end
+
+function M.getRunway(icao, runway)
+    if not S.initialized then
+        return nil
+    end
+    icao = cleanText(icao)
+    runway = cleanText(runway)
+    if not (validIcao(icao) and validRunway(runway)) then
+        return nil
+    end
+    if not ensureReady() then
+        return nil
+    end
+    S.adapterCache.rnw = S.adapterCache.rnw or {}
+    local key = icao .. "|" .. runway
+    local cached = S.adapterCache.rnw[key]
+    if cached then
+        return cached
+    end
+    local entry = apiRunwayEntry(icao, runway, queryRnw(icao, runway))
+    if not entry then
+        return nil
+    end
+    S.adapterCache.rnw[key] = entry
+    logOnce(
+        "runway-adapter-selected-" .. key,
+        "RefdataAdapter Runway selected source=zibo_api icao=" .. icao
+            .. " runway=" .. runway
+            .. " length_m=" .. tostring(entry.length_m)
+            .. " course_true=" .. tostring(entry.course_deg_true)
+            .. " course_mag=" .. tostring(entry.course_deg_mag),
+        false
+    )
+    return entry
 end
 
 function M.compareActive(force)

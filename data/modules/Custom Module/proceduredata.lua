@@ -141,6 +141,12 @@ local function getEntryMagVar(entry)
 end
 
 local function getRunwayTrueFromEndpoints()
+    if P.getDestinationRunwayTrueCourse then
+        local trueCourse = P.getDestinationRunwayTrueCourse(false)
+        if trueCourse then
+            return trueCourse
+        end
+    end
     local latStart = get(P.desrwylatstartpos)
     local lonStart = get(P.desrwylonstartpos)
     local latEnd = get(P.desrwylatendpos)
@@ -150,6 +156,59 @@ local function getRunwayTrueFromEndpoints()
         return helpers.getbearing(latStart, lonStart, latEnd, lonEnd)
     end
     return nil
+end
+
+local function getDepartureRunwayLengthM()
+    if P.getDepartureRunwayLengthM then
+        return P.getDepartureRunwayLengthM()
+    end
+    return get(P.deprwylen)
+end
+
+local function getDepartureRunwayHeadingMag()
+    if P.getDepartureRunwayHeadingMag then
+        return P.getDepartureRunwayHeadingMag()
+    end
+    return get(P.deprwyheading)
+end
+
+local function getDestinationRunwayLengthM()
+    if P.getDestinationRunwayLengthM then
+        return P.getDestinationRunwayLengthM()
+    end
+    return get(P.desrwylen)
+end
+
+local function getDestinationRunwayHeadingMag()
+    if P.getDestinationRunwayHeadingMag then
+        return P.getDestinationRunwayHeadingMag(false)
+    end
+    return get(P.desrwyheading)
+end
+
+local function getDepartureAirportElevationM()
+    if P.getDepartureAirportElevationM then
+        return P.getDepartureAirportElevationM()
+    end
+    return get(P.elevation)
+end
+
+local function getDepartureAirportElevationFt()
+    if P.getDepartureAirportElevationFt then
+        return P.getDepartureAirportElevationFt()
+    end
+    local depIcao = get(P.depicao)
+    if depIcao and P.airportdatatable and P.airportdatatable[depIcao] then
+        return P.airportdatatable[depIcao].elevation_ft
+    end
+    return nil
+end
+
+local function getAirportRefdata(icao)
+    if P.getAirportRefdata then
+        return P.getAirportRefdata(icao)
+    end
+    return P.airportdatatable and P.airportdatatable[icao] or nil
 end
 
 local function isLocalizerNavType(navType)
@@ -315,7 +374,7 @@ local function getNavEntryCourse(entry)
         or (navType == def.NAVTYPEGLS)
     local magVar = getEntryMagVar(entry)
 
-    local runwayMag = tonumber(get(P.desrwyheading))
+    local runwayMag = tonumber(getDestinationRunwayHeadingMag())
     local runwayTrue = getRunwayTrueFromEndpoints()
     if not runwayTrue and runwayMag and magVar then
         runwayTrue = helpers.calccourse(runwayMag + magVar)
@@ -624,7 +683,7 @@ local function build_zibo_course_ctx(loop)
     return {
         icao = get(P.desicao),
         runway = get(P.desrwy),
-        runwayMag = tonumber(get(P.desrwyheading)),
+        runwayMag = tonumber(getDestinationRunwayHeadingMag()),
         runwayTrue = getRunwayTrueFromEndpoints(),
         fmslegs = get(P.fmslegs),
         fmslegslat = get(P.fmslegslat),
@@ -762,7 +821,7 @@ local function getCachedApproachCourse(loop)
     elseif legacyCourse then
         selectedSource = "legacy"
     else
-        local runwayHeading = tonumber(get(P.desrwyheading))
+        local runwayHeading = tonumber(getDestinationRunwayHeadingMag())
         if runwayHeading then
             course = helpers.roundnumber(runwayHeading)
             selectedSource = "runway"
@@ -800,8 +859,9 @@ end
 
 local function getMcpHeadingTarget()
     local headingrounded = nil
-    if (helpers.isvalidicao(get(P.desicao)) and helpers.isvalidrwy(get(P.desrwy)) and tonumber(get(P.desrwyheading))) then
-        headingrounded = helpers.roundnumber(get(P.desrwyheading))
+    local destRunwayHeading = getDestinationRunwayHeadingMag()
+    if (helpers.isvalidicao(get(P.desicao)) and helpers.isvalidrwy(get(P.desrwy)) and tonumber(destRunwayHeading)) then
+        headingrounded = helpers.roundnumber(destRunwayHeading)
     end
     local cached = getCachedApproachCourseForHeading(headingrounded)
     if cached then
@@ -1247,9 +1307,9 @@ local function getTakeoffFlapsTarget(autoMode)
     end
     local computed = helpers.determineTakeoffFlapsSetting(
         get(P.totalweightkgs),
-        get(P.deprwylen),
-        get(P.deprwyheading),
-        get(P.elevation),
+        getDepartureRunwayLengthM(),
+        getDepartureRunwayHeadingMag(),
+        getDepartureAirportElevationM(),
         P.depmetar,
         get(P.toflapsset) or target
     )
@@ -1920,8 +1980,8 @@ function M.fillProcedureTable()
                         local depIcao = get(P.depicao)
                         local aircraftLat = get(P.aircraftlatpos)
                         local aircraftLon = get(P.aircraftlonpos)
-                        if depIcao and P.airportdatatable and P.airportdatatable[depIcao] then
-                            local originData = P.airportdatatable[depIcao]
+                        local originData = getAirportRefdata(depIcao)
+                        if depIcao and originData then
                             local originLat = originData.latitude
                             local originLon = originData.longitude
                             if originLat and originLon and aircraftLat and aircraftLon then
@@ -3425,8 +3485,9 @@ function M.fillProcedureTable()
                     skipIf = function() return P.configvalues[def.CONFIGVOICEADVICEONLY] == def.OFF end,
                     check = function() 
                         local headingrounded = nil
-                        if (helpers.isvalidicao(get(P.depicao)) and helpers.isvalidrwy(get(P.deprwy)) and tonumber(get(P.deprwyheading))) then
-                            headingrounded = helpers.roundnumber(get(P.deprwyheading))
+                        local depRunwayHeading = getDepartureRunwayHeadingMag()
+                        if (helpers.isvalidicao(get(P.depicao)) and helpers.isvalidrwy(get(P.deprwy)) and tonumber(depRunwayHeading)) then
+                            headingrounded = helpers.roundnumber(depRunwayHeading)
                         end
                         if headingrounded then
                             return get(P.mcpheading) == headingrounded
@@ -3435,8 +3496,9 @@ function M.fillProcedureTable()
                     end,
                     advice = function() 
                         local headingrounded = nil
-                        if (helpers.isvalidicao(get(P.depicao)) and helpers.isvalidrwy(get(P.deprwy)) and tonumber(get(P.deprwyheading))) then
-                            headingrounded = helpers.roundnumber(get(P.deprwyheading))
+                        local depRunwayHeading = getDepartureRunwayHeadingMag()
+                        if (helpers.isvalidicao(get(P.depicao)) and helpers.isvalidrwy(get(P.deprwy)) and tonumber(depRunwayHeading)) then
+                            headingrounded = helpers.roundnumber(depRunwayHeading)
                         end
                         if headingrounded then
                             return "Set M C P Heading " .. helpers.addspaces(helpers.padNumberWithZerosStrict(headingrounded, 3))
@@ -3523,10 +3585,16 @@ function M.fillProcedureTable()
                 ['speak_wind'] = {
                     action = function() 
                         local windreport = nil
-                        if (P.depmetar and P.airportdatatable[get(P.depicao)] and P.airportdatatable[get(P.depicao)].latitude and P.airportdatatable[get(P.depicao)].longitude) then
-                            windreport = helpers.formatWindSpeechSummary(P.depmetar, P.airportdatatable[get(P.depicao)].latitude, P.airportdatatable[get(P.depicao)].longitude)
+                        local depAirport = getAirportRefdata(get(P.depicao))
+                        if (P.depmetar and depAirport and depAirport.latitude and depAirport.longitude) then
+                            windreport = helpers.formatWindSpeechSummary(P.depmetar, depAirport.latitude, depAirport.longitude)
                         elseif (P.depmetar and helpers.isvalidrwy(get(P.deprwy))) then
-                            windreport = helpers.formatWindSpeechSummary(P.depmetar, get(P.deprwylatstartpos), get(P.deprwylonstartpos))
+                            local depRunway = P.getDepartureRunwayRefdata and P.getDepartureRunwayRefdata() or nil
+                            windreport = helpers.formatWindSpeechSummary(
+                                P.depmetar,
+                                (depRunway and depRunway.start_lat) or get(P.deprwylatstartpos),
+                                (depRunway and depRunway.start_lon) or get(P.deprwylonstartpos)
+                            )
                         end
                         if (windreport ~= nil) then
                             P.commandtableentry(def.TEXT, windreport)
@@ -3637,11 +3705,7 @@ function M.fillProcedureTable()
                             return get(P.flapleverpos) <= def.FLAPSUP
                         end
 
-                        local departure_altitude = 0
-                        local dep_icao = get(P.depicao)
-                        if dep_icao ~= "" and P.airportdatatable[dep_icao] and P.airportdatatable[dep_icao].elevation_ft then
-                            departure_altitude = P.airportdatatable[dep_icao].elevation_ft
-                        end
+                        local departure_altitude = getDepartureAirportElevationFt() or 0
 
                         local height_above_field = get(P.altitude) - departure_altitude
                         if height_above_field < 0 then
@@ -4187,7 +4251,7 @@ function M.fillProcedureTable()
                             return current > def.AUTOBRAKEOFF
                         end
                         if current > def.AUTOBRAKEOFF then return true end
-                        local autobrake = helpers.calcautobrake(get(P.vref), get(P.totalweightkgs), get(P.desrwylen), P.desmetar, true)
+                        local autobrake = helpers.calcautobrake(get(P.vref), get(P.totalweightkgs), getDestinationRunwayLengthM(), P.desmetar, true)
                         return current == autobrake
                     end,
                     advice = function()
@@ -4195,7 +4259,7 @@ function M.fillProcedureTable()
                         if P.configvalues[def.CONFIGCUSTOMAPPROACHCALC] ~= def.ON then
                             return "Set Auto Brake"
                         end
-                        local autobrake = helpers.calcautobrake(get(P.vref), get(P.totalweightkgs), get(P.desrwylen), P.desmetar, true)
+                        local autobrake = helpers.calcautobrake(get(P.vref), get(P.totalweightkgs), getDestinationRunwayLengthM(), P.desmetar, true)
                         if (autobrake < def.AUTOBRAKEMAX) then return "Set Auto Brake " .. tostring(autobrake - 1)
                         else return "Set Auto Brake Maximum" end
                     end,
@@ -4204,7 +4268,7 @@ function M.fillProcedureTable()
                         if P.configvalues[def.CONFIGCUSTOMAPPROACHCALC] ~= def.ON then
                             return
                         end
-                        local autobrake = helpers.calcautobrake(get(P.vref), get(P.totalweightkgs), get(P.desrwylen), P.desmetar, true)
+                        local autobrake = helpers.calcautobrake(get(P.vref), get(P.totalweightkgs), getDestinationRunwayLengthM(), P.desmetar, true)
                         P.setautobrake(autobrake)
                     end,
                     confirm = function()
@@ -4446,10 +4510,16 @@ function M.fillProcedureTable()
                 ['announce_wind'] = {
                     action = function()
                         local windreport = nil
-                        if (P.desmetar and P.airportdatatable[get(P.desicao)] and P.airportdatatable[get(P.desicao)].latitude and P.airportdatatable[get(P.desicao)].longitude) then
-                            windreport = helpers.formatWindSpeechSummary(P.desmetar, P.airportdatatable[get(P.desicao)].latitude, P.airportdatatable[get(P.desicao)].longitude)
+                        local destAirport = getAirportRefdata(get(P.desicao))
+                        if (P.desmetar and destAirport and destAirport.latitude and destAirport.longitude) then
+                            windreport = helpers.formatWindSpeechSummary(P.desmetar, destAirport.latitude, destAirport.longitude)
                         elseif (P.desmetar and helpers.isvalidrwy(get(P.desrwy))) then
-                            windreport = helpers.formatWindSpeechSummary(P.desmetar, get(P.desrwylatstartpos), get(P.desrwylonstartpos))
+                            local destRunway = P.getDestinationRunwayRefdata and P.getDestinationRunwayRefdata(false) or nil
+                            windreport = helpers.formatWindSpeechSummary(
+                                P.desmetar,
+                                (destRunway and destRunway.start_lat) or get(P.desrwylatstartpos),
+                                (destRunway and destRunway.start_lon) or get(P.desrwylonstartpos)
+                            )
                         end
                         if (windreport ~= nil) then
                             P.commandtableentry(def.TEXT, windreport)
@@ -6315,8 +6385,8 @@ function M.fillProcedureTable()
                             local vrefInput = ziboVref or baseVref
                             local appflapscalc, appvrefcalc = helpers.calcappflapsvref(
                                 get(P.totalweightkgs),
-                                get(P.desrwylen),
-                                get(P.desrwyheading),
+                                getDestinationRunwayLengthM(),
+                                getDestinationRunwayHeadingMag(),
                                 vrefInput,
                                 P.desmetar,
                                 baseFlaps
@@ -6511,7 +6581,7 @@ function M.fillProcedureTable()
                         loop.appwindcorr = nil
                         loop.appwindcorrstring = nil
                         if not customCalcOn then
-                            local windcorr = helpers.calculateApproachWindCorrection(get(P.desrwyheading), P.desmetar)
+                            local windcorr = helpers.calculateApproachWindCorrection(getDestinationRunwayHeadingMag(), P.desmetar)
                             if windcorr ~= nil then
                                 if windcorr <= 0 then
                                     loop.appwindcorr = nil
@@ -6733,9 +6803,9 @@ function M.fillProcedureTable()
                         if useCustomCalc then
                             computedFlaps = helpers.determineTakeoffFlapsSetting(
                                 get(P.totalweightkgs),
-                                get(P.deprwylen),
-                                get(P.deprwyheading),
-                                get(P.elevation),
+                                getDepartureRunwayLengthM(),
+                                getDepartureRunwayHeadingMag(),
+                                getDepartureAirportElevationM(),
                                 P.depmetar,
                                 get(P.toflaps) or get(P.toflapsset)
                             )
