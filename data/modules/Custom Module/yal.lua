@@ -1164,6 +1164,8 @@ function P.YalinitGlobal()
     P.approachNavType = nil
 
     P.xluaLoggingEnabled = nil
+    P.xluaJitEnabled = nil
+    P.xluaControlsMissingLogged = false
 
     P.centertankoffset = false
 
@@ -1312,6 +1314,25 @@ local function bind_external_dataref(name, kind, index, silentMissing)
         return globalPropertys(name), false
     end
     return globalProperty(name), false
+end
+
+local function bind_optional_xlua_control(name)
+    if not probe_external_dataref(name) then
+        if not P.xluaControlsMissingLogged then
+            P.xluaControlsMissingLogged = true
+            if helpers and helpers.logDebugTS then
+                helpers.logDebugTS("XLua controls not available, skipping XLua debug/JIT controls")
+            else
+                sasl.logDebug("XLua controls not available, skipping XLua debug/JIT controls")
+            end
+        end
+        return nil
+    end
+    local handle = globalProperty(name)
+    if isProperty(handle) then
+        return handle
+    end
+    return nil
 end
 
 function P.bindExternalDatarefs(silentMissing)
@@ -1924,12 +1945,7 @@ function P.initDataref()
 
     local debug_dataref_path = def.APPNAMEPREFIX .. "/state/debuglevel"
     local handle = globalProperty(debug_dataref_path)
-    local xluaLogHandle = globalProperty("xlua/logging_enabled")
-    if isProperty(xluaLogHandle) then
-        P.xluaLoggingEnabled = xluaLogHandle
-    else
-        P.xluaLoggingEnabled = nil
-    end
+    P.xluaLoggingEnabled = bind_optional_xlua_control("xlua/logging_enabled")
 
     if not isProperty(handle) then
         helpers.logInfoTS("Dataref '" .. debug_dataref_path .. "' not found. Creating it now.")
@@ -3025,12 +3041,14 @@ function P.readconfig()
     end
 
     if sasl.getOS() == 'Windows' and P.configvalues[def.CONFIGJITLUAON] == def.ON then
-        local jitDr = globalProperty("xlua/jit_enabled")
-        if isProperty(jitDr) then
-            set(jitDr, 1)
+        if not P.xluaJitEnabled then
+            P.xluaJitEnabled = bind_optional_xlua_control("xlua/jit_enabled")
+        end
+        if P.xluaJitEnabled and isProperty(P.xluaJitEnabled) then
+            set(P.xluaJitEnabled, 1)
             helpers.logInfoTS("JITLUAON active: xlua/jit_enabled set to 1")
         else
-            helpers.logInfoTS("JITLUAON requested but xlua/jit_enabled not found")
+            helpers.logDebugTS("JITLUAON requested but xlua/jit_enabled not available")
         end
     end
 
