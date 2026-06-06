@@ -197,6 +197,30 @@ local function magneticToTrue(magnetic, magVar)
     return normalizeDegrees(magnetic - magVar)
 end
 
+local function trueToMagnetic(trueCourse, magVar)
+    trueCourse = tonumber(trueCourse)
+    magVar = tonumber(magVar)
+    if not (trueCourse and magVar) then
+        return nil
+    end
+    return normalizeDegrees(trueCourse + magVar)
+end
+
+local function calcCourse(value)
+    value = normalizeDegrees(value)
+    if value == nil then
+        return nil
+    end
+    if S.helpers and S.helpers.calccourse then
+        return S.helpers.calccourse(value)
+    end
+    local rounded = math.floor(value + 0.5)
+    if rounded >= 360 then
+        rounded = 0
+    end
+    return rounded
+end
+
 local function entryMagCourse(entry)
     return tonumber(entry and entry[def.DESTCOURSE])
 end
@@ -719,6 +743,260 @@ local function queryLandingForEntry(entry, context)
     return api, kind
 end
 
+local function navTypeForLandingKind(kind)
+    kind = cleanText(kind)
+    if kind == "ILS" then return def.NAVTYPEILS end
+    if kind == "IGS" then return def.NAVTYPEIGS end
+    if kind == "LDA" then return def.NAVTYPELDA end
+    if kind == "LOC" or kind == "LOC_GS" or kind == "LOC/GS" then return def.NAVTYPELOC end
+    if kind == "GLS" then return def.NAVTYPEGLS end
+    if kind == "LPV" then return def.NAVTYPELPV end
+    if kind == "LP" then return def.NAVTYPERNAV end
+    return nil
+end
+
+local function addLandingKind(target, seen, kind)
+    kind = cleanText(kind)
+    if kind ~= "" and not seen[kind] then
+        table.insert(target, kind)
+        seen[kind] = true
+    end
+end
+
+local function addLandingKindsForNavType(target, seen, navType)
+    if navType == def.NAVTYPEILS then
+        addLandingKind(target, seen, "ILS")
+        return
+    end
+    if navType == def.NAVTYPELOC then
+        addLandingKind(target, seen, "LOC")
+        addLandingKind(target, seen, "LOC_GS")
+        return
+    end
+    if navType == def.NAVTYPELDA then
+        addLandingKind(target, seen, "LDA")
+        return
+    end
+    if navType == def.NAVTYPEIGS then
+        addLandingKind(target, seen, "IGS")
+        return
+    end
+    if navType == def.NAVTYPEGLS then
+        addLandingKind(target, seen, "GLS")
+        return
+    end
+    if navType == def.NAVTYPELPV then
+        addLandingKind(target, seen, "LPV")
+        return
+    end
+    if navType == def.NAVTYPERNAV then
+        addLandingKind(target, seen, "LPV")
+        addLandingKind(target, seen, "LP")
+    end
+end
+
+local function selectedInfoFromContext(context)
+    local selectedAppId = context and context.selectedAppId
+    if S.helpers and S.helpers.parseSelectedApproachId then
+        return S.helpers.parseSelectedApproachId(selectedAppId)
+    end
+    return nil
+end
+
+local function landingKindCandidates(context)
+    local kinds = {}
+    local seen = {}
+    local selectedInfo = selectedInfoFromContext(context)
+    addLandingKindsForNavType(kinds, seen, selectedInfo and selectedInfo.navType or nil)
+    addLandingKindsForNavType(kinds, seen, context and context.selectedNavType or nil)
+    addLandingKindsForNavType(kinds, seen, context and context.detectedNavType or nil)
+    if context and type(context.candidateTypes) == "table" then
+        for _, navType in ipairs(context.candidateTypes) do
+            addLandingKindsForNavType(kinds, seen, navType)
+        end
+    end
+    if #kinds == 0 then
+        addLandingKind(kinds, seen, "ILS")
+        addLandingKind(kinds, seen, "GLS")
+        addLandingKind(kinds, seen, "LPV")
+        addLandingKind(kinds, seen, "LDA")
+        addLandingKind(kinds, seen, "LOC")
+        addLandingKind(kinds, seen, "IGS")
+        addLandingKind(kinds, seen, "LP")
+    end
+    return kinds, selectedInfo
+end
+
+local function scoreLandingApiForContext(api, kind, context, selectedInfo)
+    if not api then
+        return -1000000
+    end
+    local score = 0
+    local fallbackEntry = context and context.fallbackEntry or nil
+    local selectedId = cleanText(selectedInfo and selectedInfo.id or context and context.selectedAppId or "")
+    local selectedRunway = cleanText(selectedInfo and selectedInfo.runway or "")
+    local apiAppId = cleanText(api.app_id)
+    local apiIdent = cleanText(api.result_ident)
+    local apiRunway = cleanText(api.runway)
+    local apiKind = cleanText(api.kind)
+
+    if apiKind == cleanText(kind) then
+        score = score + 200
+    end
+    if selectedRunway ~= "" and apiRunway == selectedRunway then
+        score = score + 200
+    end
+    if selectedId ~= "" then
+        if apiAppId == selectedId then
+            score = score + 1000
+        elseif apiIdent == selectedId then
+            score = score + 400
+        end
+    end
+    if fallbackEntry then
+        local fallbackIdent = cleanText(fallbackEntry[def.DESTNAVID])
+        local fallbackAppId = entryAppId(fallbackEntry, context)
+        if fallbackIdent ~= "" and apiIdent == fallbackIdent then
+            score = score + 500
+        end
+        if fallbackAppId ~= "" and apiAppId == fallbackAppId then
+            score = score + 500
+        end
+        if frequencyMatches(fallbackEntry, api) then
+            score = score + 100
+        end
+        if courseMatches(fallbackEntry, api) then
+            score = score + 50
+        end
+    end
+    return score
+end
+
+local function queryBestLandingForKind(context, kind, runway, selectedInfo)
+    local first = queryLandingNav({
+        icao = context and context.icao,
+        runway = runway,
+        kind = kind,
+        ident = "",
+        match_index = 0,
+        silentStatus = true
+    })
+    if not first then
+        return nil, nil
+    end
+
+    local best = first
+    local bestScore = scoreLandingApiForContext(first, kind, context, selectedInfo)
+    local matchCount = tonumber(first.match_count) or 1
+    if matchCount > 1 then
+        local maxIndex = math.min(matchCount - 1, 49)
+        for index = 1, maxIndex do
+            local candidate = queryLandingNav({
+                icao = context and context.icao,
+                runway = runway,
+                kind = kind,
+                ident = "",
+                match_index = index,
+                silentStatus = true
+            })
+            local candidateScore = scoreLandingApiForContext(candidate, kind, context, selectedInfo)
+            if candidateScore > bestScore then
+                best = candidate
+                bestScore = candidateScore
+            end
+        end
+        if matchCount > 50 then
+            logOnce(
+                "landing-nav-adapter-match-cap-" .. cleanText(context and context.icao or "") .. "-" .. cleanText(runway) .. "-" .. tostring(kind),
+                "RefdataAdapter: landing_nav match enumeration capped at 50 of " .. tostring(matchCount)
+                    .. " for " .. cleanText(context and context.icao or "") .. " " .. cleanText(runway) .. " " .. tostring(kind),
+                false
+            )
+        end
+    end
+    return best, bestScore
+end
+
+local function apiLandingToNavEntry(api, context)
+    if not api then
+        return nil
+    end
+    local kind = cleanText(api.kind)
+    local navType = navTypeForLandingKind(kind)
+    if not navType then
+        return nil
+    end
+
+    local entry = {}
+    local lat = tonumber(api.lat) or 0
+    local lon = tonumber(api.lon) or 0
+    local magVar = readMagVarAt(lat, lon) or 0
+    local apiMag = apiMagCourse(api)
+    local trueCourse = normalizeDegrees(api.course_deg)
+    local courseMag = nil
+    if apiMag then
+        courseMag = apiMag
+    elseif trueCourse then
+        courseMag = trueToMagnetic(trueCourse, magVar)
+    end
+
+    entry[def.DESTICAO] = cleanText(api.airport) ~= "" and cleanText(api.airport) or cleanText(context and context.icao or "")
+    entry[def.DESTRWY] = cleanText(api.runway) ~= "" and cleanText(api.runway) or cleanText(context and context.runway or "")
+    entry[def.DESTNAVTYPE] = navType
+    if isFinalApproachKind(kind) then
+        entry[def.DESTNAVID] = cleanText(api.app_id) ~= "" and cleanText(api.app_id) or cleanText(api.result_ident)
+    else
+        entry[def.DESTNAVID] = cleanText(api.result_ident)
+    end
+    entry[def.DESTFREQ] = tonumber(api.frequency) or 0
+    entry[def.DESTCOURSE] = calcCourse(courseMag) or 0
+    entry[def.DESTNAVDME] = boolValue(api.has_dme)
+    entry[def.DESTLATPOS] = lat
+    entry[def.DESTLONPOS] = lon
+    entry[def.DESTELEVATION] = tonumber(api.height_ft) or 0
+    entry[def.DESTRANGE] = tonumber(api.gs_range_nm) or tonumber(api.dme_range_nm) or 0
+    if apiMag then
+        entry[def.DESTRAWBEARING] = apiMag * 360
+    else
+        entry[def.DESTRAWBEARING] = tonumber(api.gs_raw_bearing) or tonumber(api.course_deg) or 0
+    end
+    entry[def.DESTMAGVAR] = magVar
+    entry[def.DESTFACILITYNAME] = tostring(api.name or "")
+    entry[def.DESTSRCRECTYPE] = tostring(api.source_parse_type or "")
+    entry[def.DESTDMELAT] = tonumber(api.dme_lat) or 0
+    entry[def.DESTDMELON] = tonumber(api.dme_lon) or 0
+    entry[def.DESTDMEELEVATION] = tonumber(api.dme_elevation_ft) or 0
+    entry[def.DESTDMERANGE] = tonumber(api.dme_range_nm) or 0
+    entry[def.DESTGSLAT] = tonumber(api.gs_lat) or 0
+    entry[def.DESTGSLON] = tonumber(api.gs_lon) or 0
+    entry[def.DESTGSELEVATION] = 0
+    entry[def.DESTGSRANGE] = tonumber(api.gs_range_nm) or 0
+    entry[def.DESTGSSLOPE] = tonumber(api.slope_deg) or 0
+    entry[def.DESTGSRAWBEARING] = tonumber(api.gs_raw_bearing) or 0
+    entry[def.DESTDMEIDENT] = cleanText(api.dme_ident)
+    entry[def.DESTDMEFREQ] = tonumber(api.dme_frequency) or 0
+    entry.app_id = cleanText(api.app_id)
+    entry.alt_id = cleanText(api.result_ident)
+    entry.serviceLevel = cleanText(api.service_level)
+    entry._source = "zibo_api"
+    entry._apiKind = kind
+    entry._apiResultIdent = cleanText(api.result_ident)
+    entry._apiAppId = cleanText(api.app_id)
+    entry._apiMatchCount = tonumber(api.match_count) or 0
+    entry._apiCourseDeg = tonumber(api.course_deg)
+    entry._apiMagCourse = tonumber(api.mag_course)
+
+    if isFinalApproachKind(kind) and trueCourse then
+        entry.isTrueCourse = true
+        entry.truecourse = trueCourse
+    end
+    if kind == "LP" then
+        entry.isLateralOnly = true
+        entry.serviceLevel = "LP"
+    end
+    return entry
+end
+
 local function compareLandingEntry(entry, context)
     if not entry then
         return
@@ -854,6 +1132,72 @@ function M.compareLandingNavForEntry(_, entry, context)
         return
     end
     compareLandingEntry(entry, context)
+end
+
+function M.getLandingNavForApproach(context)
+    if not S.initialized then
+        return nil
+    end
+    context = context or {}
+    context.icao = cleanText(context.icao)
+    context.runway = cleanText(context.runway)
+    if not validIcao(context.icao) then
+        return nil
+    end
+    if not ensureReady() then
+        return nil
+    end
+
+    local kinds, selectedInfo = landingKindCandidates(context)
+    local queryRunway = cleanText(selectedInfo and selectedInfo.runway or "")
+    if queryRunway == "" then
+        queryRunway = context.runway
+    end
+    if not validRunway(queryRunway) then
+        return nil
+    end
+
+    local best = nil
+    local bestKind = nil
+    local bestScore = -1000000
+    for _, kind in ipairs(kinds) do
+        local api, score = queryBestLandingForKind(context, kind, queryRunway, selectedInfo)
+        if api and score and score > bestScore then
+            best = api
+            bestKind = kind
+            bestScore = score
+        end
+    end
+    if not best then
+        return nil
+    end
+
+    local entry = apiLandingToNavEntry(best, {
+        icao = context.icao,
+        runway = queryRunway
+    })
+    if not entry then
+        return nil
+    end
+
+    logOnce(
+        "landing-nav-adapter-selected-" .. context.icao .. "-" .. queryRunway .. "-" .. tostring(bestKind)
+            .. "-" .. tostring(entry[def.DESTNAVID]) .. "-" .. tostring(entry._apiResultIdent),
+        "RefdataAdapter LandingNav selected source=zibo_api icao=" .. context.icao
+            .. " fmcRwy=" .. tostring(context.runway)
+            .. " queryRwy=" .. tostring(queryRunway)
+            .. " kind=" .. tostring(bestKind)
+            .. " navType=" .. tostring(entry[def.DESTNAVTYPE])
+            .. " ident=" .. tostring(entry[def.DESTNAVID])
+            .. " resultIdent=" .. tostring(entry._apiResultIdent)
+            .. " appId=" .. tostring(entry._apiAppId)
+            .. " freq=" .. tostring(entry[def.DESTFREQ])
+            .. " course=" .. tostring(entry[def.DESTCOURSE])
+            .. " trueCourse=" .. tostring(entry.truecourse)
+            .. " score=" .. tostring(bestScore),
+        false
+    )
+    return entry
 end
 
 return M

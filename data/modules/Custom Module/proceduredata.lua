@@ -729,11 +729,13 @@ local function cacheApproachCourse(loop, entry, course, selectedSource, ziboCour
     end
 end
 
+local getSetIlsNavdata
+
 local function getCachedApproachCourse(loop)
     if loop and loop.approachCourseMag then
         return loop.approachCourseMag
     end
-    local entry = loop and loop.navdatatableindex and P.navdatatable[loop.navdatatableindex] or nil
+    local entry = getSetIlsNavdata(loop)
     if not entry then
         entry = build_detected_approach_nav_entry(loop)
         if entry and loop and not loop._loggedDetectedApproachFallback then
@@ -808,8 +810,14 @@ local function getMcpHeadingTarget()
     return headingrounded
 end
 
-local function getSetIlsNavdata(loop)
-    if not loop or not loop.navdatatableindex then
+getSetIlsNavdata = function(loop)
+    if not loop then
+        return nil
+    end
+    if loop.apiNavdata then
+        return loop.apiNavdata
+    end
+    if not loop.navdatatableindex then
         return nil
     end
     return P.navdatatable[loop.navdatatableindex]
@@ -818,6 +826,12 @@ end
 local function getSetIlsApproachDME(loop, navdata)
     if not loop or not navdata then
         return nil
+    end
+    if navdata._source == "zibo_api" then
+        if (tonumber(navdata[def.DESTDMEFREQ]) or 0) > 0
+            or (navdata[def.DESTDMEIDENT] and navdata[def.DESTDMEIDENT] ~= "") then
+            return navdata
+        end
     end
     local key = tostring(loop.navdatatableindex or "") .. "|" .. tostring(get(P.desicao) or "") .. "|" .. tostring(get(P.desrwy) or "")
     if loop._setIlsDmeKey == key and loop._setIlsDmeReady then
@@ -858,7 +872,7 @@ local function buildSetIlsPlan(loop)
         foNeedsDmeWarning = false,
         primaryTuneMessage = nil,
         guidanceMessage = guidanceProfile and guidanceProfile.guidanceSummary or nil,
-        tuneSource = "navdata"
+        tuneSource = navdata and navdata._source or "navdata"
     }
     if not navdata then
         return plan
@@ -5850,6 +5864,7 @@ function M.fillProcedureTable()
                         loop.approachCourseMagLegacy = nil
                         loop.approachCourseSource = nil
                         loop._setIlsTunePlanKey = nil
+                        loop.apiNavdata = nil
                         loop.detectedApproach = detectedVariant
                         if detectedVariant and detectedVariant.navType then
                             local navType = detectedVariant.navType
@@ -5894,27 +5909,46 @@ function M.fillProcedureTable()
                             loop.detectedApproach = nil
                         end
 
-                        local chosenEntry = loop.navdatatableindex and P.navdatatable[loop.navdatatableindex] or nil
+                        local localEntry = loop.navdatatableindex and P.navdatatable[loop.navdatatableindex] or nil
+                        if refdata and refdata.getLandingNavForApproach then
+                            loop.apiNavdata = refdata.getLandingNavForApproach({
+                                icao = get(P.desicao),
+                                runway = get(P.desrwy),
+                                selectedAppId = selectedAppId,
+                                selectedNavType = selectedNavType,
+                                detectedNavType = detectedNavType,
+                                candidateTypes = candidateTypes,
+                                fallbackEntry = localEntry
+                            })
+                        end
+                        local chosenEntry = getSetIlsNavdata(loop)
+                        local chosenSource = "none"
+                        if loop.apiNavdata then
+                            chosenSource = "zibo_api"
+                        elseif localEntry then
+                            chosenSource = "yal_cache"
+                        end
                         helpers.logInfoTS(string.format(
-                            "SetIlsResolve: selectedApp=%s selectedNavType=%s detectedNavType=%s candidateTypes=%s navCount=%d chosenType=%s chosenId=%s chosenRwy=%s",
+                            "SetIlsResolve: selectedApp=%s selectedNavType=%s detectedNavType=%s candidateTypes=%s navCount=%d source=%s chosenType=%s chosenId=%s chosenRwy=%s",
                             tostring(selectedAppId),
                             tostring(selectedNavType),
                             tostring(detectedNavType),
                             table.concat(candidateTypes, ","),
                             #(loop.navdatatableindices or {}),
+                            tostring(chosenSource),
                             tostring(chosenEntry and chosenEntry[def.DESTNAVTYPE] or nil),
                             tostring(chosenEntry and chosenEntry[def.DESTNAVID] or nil),
                             tostring(chosenEntry and chosenEntry[def.DESTRWY] or nil)
                         ))
-                        if chosenEntry and refdata and refdata.compareLandingNavForEntry then
-                            refdata.compareLandingNavForEntry(P, chosenEntry, {
+                        if localEntry and refdata and refdata.compareLandingNavForEntry then
+                            refdata.compareLandingNavForEntry(P, localEntry, {
                                 selectedAppId = selectedAppId,
                                 selectedNavType = selectedNavType,
                                 detectedNavType = detectedNavType
                             })
                         end
 
-                        if loop.navdatatableindex ~= nil and P.navdatatable[loop.navdatatableindex] ~= nil then
+                        if chosenEntry ~= nil then
                             return 'announce_approach_type' 
                         else
                             return 'announce_no_approach'
@@ -5992,7 +6026,7 @@ function M.fillProcedureTable()
                 },
                 ['announce_approach_type'] = {
                     action = function(loop, procData)
-                        local navdata = P.navdatatable[loop.navdatatableindex]
+                        local navdata = getSetIlsNavdata(loop)
                         if not navdata then
                             return
                         end
@@ -6058,7 +6092,7 @@ function M.fillProcedureTable()
                             return 99
                         end
 
-                        local primary = P.navdatatable[loop.navdatatableindex]
+                        local primary = getSetIlsNavdata(loop)
                         local primaryRank = primary and navRank(primary[def.DESTNAVTYPE]) or 99
 
                         local primaryRunway = primary and primary[def.DESTRWY] or nil
