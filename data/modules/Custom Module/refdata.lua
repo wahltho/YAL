@@ -51,6 +51,11 @@ local function logOnce(key, message, debugOnly)
     end
 end
 
+local function debugOnlyDiff(scope)
+    scope = tostring(scope or "")
+    return scope == "APT" or scope == "RNW"
+end
+
 local function stripNulls(value)
     value = tostring(value or "")
     local len = #value
@@ -288,7 +293,7 @@ local function probe()
         refs = S.yal and S.yal.refdata
     end
     if not (refs and refs.nav and refs.nav.available and isProperty(refs.nav.available)) then
-        logOnce("api-missing", "RefdataCompare: Zibo refdata API unavailable", false)
+        logOnce("api-missing", "RefdataCompare: Zibo refdata API unavailable", true)
         return false
     end
 
@@ -304,7 +309,7 @@ local function probe()
                 true
             )
         else
-            logOnce("category-unavailable-" .. name, "RefdataCompare: " .. name .. " unavailable", false)
+            logOnce("category-unavailable-" .. name, "RefdataCompare: " .. name .. " unavailable", true)
         end
     end
     return true
@@ -391,7 +396,11 @@ local function diffLog(scope, key, field, yalValue, apiValue, tolerance, mode)
     if different then
         local message = "RefdataCompare " .. tostring(scope) .. " " .. tostring(key)
             .. " diff " .. tostring(field) .. " yal=" .. fmt(yalValue) .. " api=" .. fmt(apiValue)
-        logOnce("diff-" .. tostring(scope) .. "-" .. tostring(key) .. "-" .. tostring(field) .. "-" .. fmt(yalValue) .. "-" .. fmt(apiValue), message, false)
+        logOnce(
+            "diff-" .. tostring(scope) .. "-" .. tostring(key) .. "-" .. tostring(field) .. "-" .. fmt(yalValue) .. "-" .. fmt(apiValue),
+            message,
+            debugOnlyDiff(scope)
+        )
     end
 end
 
@@ -1156,7 +1165,7 @@ function M.getAirport(icao)
             .. " lon=" .. tostring(entry.longitude)
             .. " elev_ft=" .. tostring(entry.elevation_ft)
             .. " max_rwy_ft=" .. tostring(entry.max_rwy_ft),
-        false
+        true
     )
     return entry
 end
@@ -1191,7 +1200,7 @@ function M.getRunway(icao, runway)
             .. " length_m=" .. tostring(entry.length_m)
             .. " course_true=" .. tostring(entry.course_deg_true)
             .. " course_mag=" .. tostring(entry.course_deg_mag),
-        false
+        true
     )
     return entry
 end
@@ -1322,7 +1331,7 @@ function M.getLandingNavForApproach(context)
             .. " course=" .. tostring(entry[def.DESTCOURSE])
             .. " trueCourse=" .. tostring(entry.truecourse)
             .. " score=" .. tostring(bestScore),
-        false
+        true
     )
     return entry
 end
