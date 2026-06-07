@@ -887,7 +887,7 @@ local function compareCifp(label, icao)
         "RefdataCompare CIFP " .. keyPrefix .. " compared entries=" .. tostring(fileCount)
             .. " source=" .. tostring(normalizedApiPath)
             .. " lines=" .. tostring(apiPayload and #apiPayload.lines or 0),
-        true
+        false
     )
 end
 
