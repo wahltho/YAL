@@ -5206,6 +5206,36 @@ function P.calcApproachCourseZibo(entry, ctx)
         return P.calccourse(course)
     end
 
+    local function entry_nav_course()
+        if entry.isTrueCourse and entry.truecourse then
+            return "NAV_TRUE", P.calccourse(entry.truecourse + magVar)
+        end
+        local entryCourse = tonumber(entry[def.DESTCOURSE])
+        if entryCourse and entryCourse > 0 then
+            return "NAV", P.calccourse(entryCourse)
+        end
+        return nil, nil
+    end
+
+    local function is_real_rnav_landing_nav_entry()
+        if entry._detectedOnly then
+            return false
+        end
+        if navType ~= def.NAVTYPERNAV and navType ~= def.NAVTYPELPV and navType ~= def.NAVTYPEGLS then
+            return false
+        end
+        if entry._source == "zibo_api" then
+            return true
+        end
+        local recType = tostring(entry[def.DESTSRCRECTYPE] or "")
+        if recType == def.NAVDATARECTYPELPV or recType == def.NAVDATARECTYPEGLS
+            or recType == def.NAVDATARECTYPEWAAS then
+            return true
+        end
+        local serviceLevel = type(entry.serviceLevel) == "string" and entry.serviceLevel:upper() or ""
+        return entry.isLateralOnly == true or serviceLevel == "LP" or serviceLevel == "LPV" or serviceLevel == "GLS"
+    end
+
     if navType == def.NAVTYPEILS or navType == def.NAVTYPELOC
         or navType == def.NAVTYPELDA or navType == def.NAVTYPEIGS then
         local raw = entry[def.DESTRAWBEARING]
@@ -5248,6 +5278,13 @@ function P.calcApproachCourseZibo(entry, ctx)
                     return P.calccourse(runwayTrue + magVar)
                 end
             end
+            if is_real_rnav_landing_nav_entry() then
+                local entrySource, entryCourse = entry_nav_course()
+                if entryCourse then
+                    markSource(entrySource)
+                    return entryCourse
+                end
+            end
             local fmsMag = get_fms_final_mag_course()
             if fmsMag then
                 markSource("FMS")
@@ -5264,14 +5301,10 @@ function P.calcApproachCourseZibo(entry, ctx)
                 return P.calccourse(runwayTrue + magVar)
             end
         end
-        if entry.isTrueCourse and entry.truecourse then
-            markSource("NAV_TRUE")
-            return P.calccourse(entry.truecourse + magVar)
-        end
-        local entryCourse = tonumber(entry[def.DESTCOURSE])
-        if entryCourse and entryCourse > 0 then
-            markSource("NAV")
-            return P.calccourse(entryCourse)
+        local entrySource, entryCourse = entry_nav_course()
+        if entryCourse then
+            markSource(entrySource)
+            return entryCourse
         end
         local candidateTypes = { navType }
         if navType == def.NAVTYPELPV or navType == def.NAVTYPEGLS then

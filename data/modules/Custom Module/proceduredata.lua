@@ -508,6 +508,42 @@ local function getNavEntryCourse(entry)
         return candidate
     end
 
+    local function isRealRnavLandingNavEntry()
+        if entry._detectedOnly then
+            return false
+        end
+        if not isRnavNav then
+            return false
+        end
+        if entry._source == "zibo_api" then
+            return true
+        end
+        local recType = tostring(entry[def.DESTSRCRECTYPE] or "")
+        if recType == def.NAVDATARECTYPELPV or recType == def.NAVDATARECTYPEGLS
+            or recType == def.NAVDATARECTYPEWAAS then
+            return true
+        end
+        local serviceLevel = type(entry.serviceLevel) == "string" and entry.serviceLevel:upper() or ""
+        return entry.isLateralOnly == true or serviceLevel == "LP" or serviceLevel == "LPV" or serviceLevel == "GLS"
+    end
+
+    local function getNormalizedNavEntryCourse()
+        if entry.isTrueCourse and entry.truecourse then
+            local normalized = sanityCheck(normalizeCourse(entry.truecourse, true), "NAVTRUE")
+            if normalized then
+                return normalized
+            end
+        end
+        local navCourse = tonumber(entry[def.DESTCOURSE])
+        if navCourse and navCourse > 0 then
+            local normalized = sanityCheck(normalizeCourse(navCourse, false), "NAV")
+            if normalized then
+                return normalized
+            end
+        end
+        return nil
+    end
+
     local function getFMSFinalMagCourse()
         if not (P and P.fmslegs and P.fmslegslat and P.fmslegslon) then return nil end
         local legsStr = get(P.fmslegs)
@@ -565,6 +601,13 @@ local function getNavEntryCourse(entry)
             return helpers.calccourse(selectedCourse)
         end
         return nil
+    end
+
+    if isRealRnavLandingNavEntry() then
+        local navEntryCourse = getNormalizedNavEntryCourse()
+        if navEntryCourse then
+            return navEntryCourse
+        end
     end
 
     -- RNAV/LPV/GLS: prefer FMC final-leg course only when it matches CIFP within tolerance
@@ -648,18 +691,9 @@ local function getNavEntryCourse(entry)
         end
     end
 
-    if entry.isTrueCourse and entry.truecourse then
-        local normalized = sanityCheck(normalizeCourse(entry.truecourse, true), "NAVTRUE")
-        if normalized then
-            return normalized
-        end
-    end
-    local navCourse = entry[def.DESTCOURSE]
-    if navCourse then
-        local normalized = sanityCheck(normalizeCourse(navCourse, false), "NAV")
-        if normalized then
-            return normalized
-        end
+    local navEntryCourse = getNormalizedNavEntryCourse()
+    if navEntryCourse then
+        return navEntryCourse
     end
 
     -- Fallback: runway heading if available
