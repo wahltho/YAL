@@ -9,11 +9,13 @@ local S = {
     available = false,
     probeCountdown = 0,
     categories = {},
-    seq = { apt = 0, rnw = 0, landing_nav = 0 },
+    seq = { apt = 0, rnw = 0, landing_nav = 0, cifp = 0 },
     lastActiveKey = nil,
-    adapterCache = { apt = {}, rnw = {} },
+    adapterCache = { apt = {}, rnw = {}, cifp = {} },
     logged = {}
 }
+
+local MAX_CIFP_LINES = 5000
 
 local STATUS_NAMES = {
     [0] = "idle",
@@ -299,7 +301,7 @@ local function probe()
 
     S.categories = refs
     S.available = true
-    for _, name in ipairs({ "apt", "rnw", "landing_nav" }) do
+    for _, name in ipairs({ "apt", "rnw", "landing_nav", "cifp" }) do
         local cat = S.categories[name]
         if categoryAvailable(name) then
             logOnce(
@@ -559,6 +561,117 @@ local function queryLandingNav(opts)
     end, "LANDING_NAV " .. icao .. " " .. runway .. " " .. kind .. " " .. ident, opts.silentStatus)
 end
 
+local function queryCifpLine(icao, tagFilter, matchIndex, silentStatus)
+    icao = cleanText(icao)
+    if not validIcao(icao) then
+        return nil
+    end
+    tagFilter = cleanText(tagFilter or "")
+    matchIndex = tonumber(matchIndex) or 0
+    return runQuery("cifp", function(q)
+        writeString(q.icao, icao)
+        writeString(q.tag_filter, tagFilter)
+        writeNumber(q.match_index, matchIndex)
+    end, function(q)
+        return {
+            match_count = readNumber(q.match_count),
+            source_path = readString(q.source_path),
+            tag = readString(q.tag),
+            line = readString(q.line)
+        }
+    end, "CIFP " .. icao .. " " .. tagFilter .. " " .. tostring(matchIndex), silentStatus)
+end
+
+local function queryCifpLines(icao)
+    icao = cleanText(icao)
+    if not validIcao(icao) then
+        return nil
+    end
+    local first = queryCifpLine(icao, "", 0, true)
+    if not first then
+        return nil
+    end
+    local matchCount = math.floor((tonumber(first.match_count) or 0) + 0.5)
+    if matchCount <= 0 then
+        return nil
+    end
+
+    local lines = {}
+    local sourcePath = tostring(first.source_path or "")
+    if tostring(first.line or "") ~= "" then
+        table.insert(lines, tostring(first.line))
+    end
+
+    local maxIndex = math.min(matchCount - 1, MAX_CIFP_LINES - 1)
+    for index = 1, maxIndex do
+        local record = queryCifpLine(icao, "", index, true)
+        if record then
+            if sourcePath == "" then
+                sourcePath = tostring(record.source_path or "")
+            end
+            if tostring(record.line or "") ~= "" then
+                table.insert(lines, tostring(record.line))
+            end
+        end
+    end
+
+    if matchCount > MAX_CIFP_LINES then
+        logOnce(
+            "cifp-line-cap-" .. icao,
+            "RefdataCompare: cifp line enumeration capped at " .. tostring(MAX_CIFP_LINES)
+                .. " of " .. tostring(matchCount) .. " for " .. icao,
+            false
+        )
+    end
+
+    if #lines == 0 then
+        return nil
+    end
+    return {
+        icao = icao,
+        lines = lines,
+        source_path = sourcePath,
+        match_count = matchCount
+    }
+end
+
+local function getApiCifpApproaches(icao)
+    icao = cleanText(icao)
+    if not validIcao(icao) then
+        return nil
+    end
+    if not (S.helpers and S.helpers.parseCIFPLines) then
+        return nil
+    end
+    if not ensureReady() or not categoryAvailable("cifp") then
+        return nil
+    end
+
+    S.adapterCache.cifp = S.adapterCache.cifp or {}
+    if S.adapterCache.cifp[icao] ~= nil then
+        local cached = S.adapterCache.cifp[icao]
+        return cached and cached.data or nil, cached and cached.payload or nil
+    end
+
+    local payload = queryCifpLines(icao)
+    if not payload then
+        S.adapterCache.cifp[icao] = false
+        return nil
+    end
+
+    local data = S.helpers.parseCIFPLines(icao, payload.lines, payload.source_path)
+    if not data then
+        S.adapterCache.cifp[icao] = false
+        return nil, payload
+    end
+
+    S.adapterCache.cifp[icao] = {
+        data = data,
+        payload = payload
+    }
+    return data, payload
+end
+
 local function compareAirport(label, icao)
     local P = S.yal
     if not (P and P.airportdatatable) then
@@ -624,6 +737,158 @@ local function compareRunway(label, icao, runway, yalRwy)
     if endLon and math.abs(endLon) > 0.000001 then
         diffLog("RNW", key, "end_lon", endLon, api.end_lon, 0.005)
     end
+end
+
+local function normalizeSourcePath(path)
+    local text = tostring(path or "")
+    text = string.gsub(text, "\\", "/")
+    for _, marker in ipairs({ "Custom Data/CIFP/", "Resources/default data/CIFP/" }) do
+        local startIndex = string.find(text, marker, 1, true)
+        if startIndex then
+            return string.sub(text, startIndex)
+        end
+    end
+    return text
+end
+
+local function cifpFlags(entry)
+    local flags = {}
+    if entry and entry.cifpHasLPV then table.insert(flags, "LPV") end
+    if entry and entry.cifpHasGLS then table.insert(flags, "GLS") end
+    if entry and entry.isLateralOnly then table.insert(flags, "LP") end
+    return table.concat(flags, "/")
+end
+
+local function summarizeCifpApproaches(data)
+    local summary = {}
+    local count = 0
+    if type(data) ~= "table" then
+        return summary, count
+    end
+    for navType, byRunway in pairs(data) do
+        if type(byRunway) == "table" then
+            for runway, entries in pairs(byRunway) do
+                if type(entries) == "table" then
+                    for index, entry in ipairs(entries) do
+                        local baseKey = cleanText(navType) .. "|" .. cleanText(runway)
+                            .. "|" .. cleanText(entry and entry.code or "")
+                        local key = baseKey
+                        if summary[key] then
+                            key = baseKey .. "#" .. tostring(index)
+                        end
+                        summary[key] = {
+                            navType = cleanText(navType),
+                            runway = cleanText(runway),
+                            code = cleanText(entry and entry.code or ""),
+                            suffix = cleanText(entry and entry.suffix or ""),
+                            displayName = tostring(entry and entry.displayName or ""),
+                            finalFixIdent = cleanText(entry and entry.finalFixIdent or ""),
+                            course = tonumber(entry and entry.course),
+                            course_raw = tonumber(entry and entry.course_raw),
+                            course_is_true = entry and entry.course_is_true == true,
+                            serviceLevel = cleanText(entry and entry.serviceLevel or ""),
+                            missedAlt = tonumber(entry and entry.missedAlt),
+                            localizerIdent = cleanText(entry and entry.localizerIdent or ""),
+                            flags = cifpFlags(entry)
+                        }
+                        count = count + 1
+                    end
+                end
+            end
+        end
+    end
+    return summary, count
+end
+
+local function compareCifpEntry(keyPrefix, entryKey, fileEntry, apiEntry)
+    local key = keyPrefix .. " " .. entryKey
+    diffLog("CIFP", key, "navType", fileEntry.navType, apiEntry.navType, nil)
+    diffLog("CIFP", key, "runway", fileEntry.runway, apiEntry.runway, nil)
+    diffLog("CIFP", key, "code", fileEntry.code, apiEntry.code, nil)
+    diffLog("CIFP", key, "suffix", fileEntry.suffix, apiEntry.suffix, nil)
+    diffLog("CIFP", key, "displayName", fileEntry.displayName, apiEntry.displayName, nil)
+    diffLog("CIFP", key, "finalFixIdent", fileEntry.finalFixIdent, apiEntry.finalFixIdent, nil)
+    diffLog("CIFP", key, "course", fileEntry.course, apiEntry.course, 0)
+    diffLog("CIFP", key, "course_raw", fileEntry.course_raw, apiEntry.course_raw, 0)
+    diffLog("CIFP", key, "course_is_true", fileEntry.course_is_true, apiEntry.course_is_true, nil, "bool")
+    diffLog("CIFP", key, "serviceLevel", fileEntry.serviceLevel, apiEntry.serviceLevel, nil)
+    diffLog("CIFP", key, "missedAlt", fileEntry.missedAlt, apiEntry.missedAlt, 0)
+    diffLog("CIFP", key, "localizerIdent", fileEntry.localizerIdent, apiEntry.localizerIdent, nil)
+    diffLog("CIFP", key, "flags", fileEntry.flags, apiEntry.flags, nil)
+end
+
+local function compareCifp(label, icao)
+    icao = cleanText(icao)
+    if not validIcao(icao) then
+        return
+    end
+    if not (S.helpers and S.helpers.loadCIFP and S.helpers.getCIFPSourcePath) then
+        return
+    end
+    if not categoryAvailable("cifp") then
+        return
+    end
+
+    local fileData = S.helpers.loadCIFP(icao)
+    local filePath = S.helpers.getCIFPSourcePath(icao)
+    local apiData, apiPayload = getApiCifpApproaches(icao)
+    local keyPrefix = label .. " " .. icao
+
+    if (fileData ~= nil) ~= (apiData ~= nil) then
+        logOnce(
+            "cifp-availability-" .. keyPrefix,
+            "RefdataCompare CIFP " .. keyPrefix
+                .. " diff availability yal=" .. tostring(fileData ~= nil)
+                .. " api=" .. tostring(apiData ~= nil)
+                .. " yalSource=" .. tostring(filePath or "")
+                .. " apiSource=" .. tostring(apiPayload and apiPayload.source_path or ""),
+            false
+        )
+        return
+    end
+    if not (fileData and apiData) then
+        return
+    end
+
+    local apiPath = apiPayload and apiPayload.source_path or ""
+    local normalizedFilePath = normalizeSourcePath(filePath)
+    local normalizedApiPath = normalizeSourcePath(apiPath)
+    diffLog("CIFP", keyPrefix, "source_path", normalizedFilePath, normalizedApiPath, nil)
+
+    local fileSummary, fileCount = summarizeCifpApproaches(fileData)
+    local apiSummary, apiCount = summarizeCifpApproaches(apiData)
+    diffLog("CIFP", keyPrefix, "approach_count", fileCount, apiCount, 0)
+
+    for entryKey, fileEntry in pairs(fileSummary) do
+        local apiEntry = apiSummary[entryKey]
+        if not apiEntry then
+            logOnce(
+                "cifp-missing-api-" .. keyPrefix .. "-" .. entryKey,
+                "RefdataCompare CIFP " .. keyPrefix .. " missing api entry " .. entryKey,
+                false
+            )
+        else
+            compareCifpEntry(keyPrefix, entryKey, fileEntry, apiEntry)
+        end
+    end
+
+    for entryKey in pairs(apiSummary) do
+        if not fileSummary[entryKey] then
+            logOnce(
+                "cifp-extra-api-" .. keyPrefix .. "-" .. entryKey,
+                "RefdataCompare CIFP " .. keyPrefix .. " extra api entry " .. entryKey,
+                false
+            )
+        end
+    end
+
+    logOnce(
+        "cifp-compared-" .. keyPrefix .. "-" .. tostring(fileCount) .. "-" .. tostring(apiCount),
+        "RefdataCompare CIFP " .. keyPrefix .. " compared entries=" .. tostring(fileCount)
+            .. " source=" .. tostring(normalizedApiPath)
+            .. " lines=" .. tostring(apiPayload and #apiPayload.lines or 0),
+        true
+    )
 end
 
 local function landingKindForEntry(entry)
@@ -1133,7 +1398,7 @@ function M.initialize(yalRef, helpersRef)
     S.available = false
     S.probeCountdown = 0
     S.lastActiveKey = nil
-    S.adapterCache = { apt = {}, rnw = {} }
+    S.adapterCache = { apt = {}, rnw = {}, cifp = {} }
     probe()
 end
 
@@ -1205,6 +1470,14 @@ function M.getRunway(icao, runway)
     return entry
 end
 
+function M.getCIFPApproaches(icao)
+    if not S.initialized then
+        return nil
+    end
+    local data = getApiCifpApproaches(icao)
+    return data
+end
+
 function M.compareActive(force)
     if not S.initialized then
         return
@@ -1258,6 +1531,7 @@ function M.compareActive(force)
         end_lat = P.desrwylatendpos and get(P.desrwylatendpos) or nil,
         end_lon = P.desrwylonendpos and get(P.desrwylonendpos) or nil
     })
+    compareCifp("DEST", desIcao)
 end
 
 function M.compareLandingNavForEntry(_, entry, context)

@@ -4459,41 +4459,13 @@ local function parseApproachCode(code, expectedRunway)
     }
 end
 
-function P.loadCIFP(icao)
-    if type(icao) ~= "string" or #icao < 3 then
+local function parseCIFPLines(icao, nextLine, sourceLabel)
+    if type(icao) ~= "string" or type(nextLine) ~= "function" then
         return nil
     end
 
     icao = string.upper(icao)
-    P.cifpCache = P.cifpCache or {}
-
-    if P.cifpCache[icao] ~= nil then
-        return P.cifpCache[icao] or nil
-    end
-
-    local searchPaths = {
-        string.format("Custom Data/CIFP/%s.dat", icao),
-        string.format("Resources/default data/CIFP/%s.dat", icao)
-    }
-
-    local file
-    local usedPath
-    for _, candidate in ipairs(searchPaths) do
-        local handle = io.open(candidate, "r")
-        if handle then
-            file = handle
-            usedPath = candidate
-            break
-        end
-    end
-
-    if not file then
-        sasl.logDebug(string.format("CIFP: No file for %s (checked Custom & Default)", icao))
-        P.cifpCache[icao] = false
-        return nil
-    end
-
-    sasl.logDebug(string.format("CIFP: Loaded %s from %s", icao, usedPath))
+    sourceLabel = tostring(sourceLabel or "")
 
     local approaches = {}
     local entryByCode = {}
@@ -4641,7 +4613,11 @@ function P.loadCIFP(icao)
         )
     end
 
-    for line in file:lines() do
+    while true do
+        local line = nextLine()
+        if line == nil then
+            break
+        end
         if string.sub(line, 1, 6) == "APPCH:" then
             local parts = {}
             for token in string.gmatch(line, "([^,]+)") do
@@ -4778,22 +4754,95 @@ function P.loadCIFP(icao)
         end
     end
 
-    file:close()
-
     for _, entry in pairs(entryByCode) do
         if entry.navType == def.NAVTYPELDA and not entry.registered then
             resolveLdaEntry(entry)
             if not entry.registered then
-                sasl.logDebug(string.format("CIFP: LDA approach %s missing runway; skipping.", entry.code or "?"))
+                sasl.logDebug(string.format("CIFP: LDA approach %s missing runway; skipping. source=%s", entry.code or "?", sourceLabel))
             end
         end
     end
 
-    P.cifpCache[icao] = approaches
     if approaches and next(approaches) then
         return approaches
     end
+    return nil
+end
+
+function P.parseCIFPLines(icao, lines, sourceLabel)
+    if type(lines) ~= "table" then
+        return nil
+    end
+    local index = 0
+    return parseCIFPLines(icao, function()
+        index = index + 1
+        return lines[index]
+    end, sourceLabel)
+end
+
+function P.getCIFPSourcePath(icao)
+    if type(icao) ~= "string" or #icao < 3 then
+        return nil
+    end
+    icao = string.upper(icao)
+    P.cifpSourcePathCache = P.cifpSourcePathCache or {}
+    if P.cifpSourcePathCache[icao] == nil then
+        P.loadCIFP(icao)
+    end
+    return P.cifpSourcePathCache[icao] or nil
+end
+
+function P.loadCIFP(icao)
+    if type(icao) ~= "string" or #icao < 3 then
+        return nil
+    end
+
+    icao = string.upper(icao)
+    P.cifpCache = P.cifpCache or {}
+    P.cifpSourcePathCache = P.cifpSourcePathCache or {}
+
+    if P.cifpCache[icao] ~= nil then
+        return P.cifpCache[icao] or nil
+    end
+
+    local searchPaths = {
+        string.format("Custom Data/CIFP/%s.dat", icao),
+        string.format("Resources/default data/CIFP/%s.dat", icao)
+    }
+
+    local file
+    local usedPath
+    for _, candidate in ipairs(searchPaths) do
+        local handle = io.open(candidate, "r")
+        if handle then
+            file = handle
+            usedPath = candidate
+            break
+        end
+    end
+
+    if not file then
+        sasl.logDebug(string.format("CIFP: No file for %s (checked Custom & Default)", icao))
+        P.cifpCache[icao] = false
+        P.cifpSourcePathCache[icao] = false
+        return nil
+    end
+
+    sasl.logDebug(string.format("CIFP: Loaded %s from %s", icao, usedPath))
+
+    local approaches = parseCIFPLines(icao, function()
+        return file:read("*l")
+    end, usedPath)
+    file:close()
+
+    if approaches then
+        P.cifpCache[icao] = approaches
+        P.cifpSourcePathCache[icao] = usedPath
+        return approaches
+    end
+
     P.cifpCache[icao] = false
+    P.cifpSourcePathCache[icao] = usedPath or false
     return nil
 end
 

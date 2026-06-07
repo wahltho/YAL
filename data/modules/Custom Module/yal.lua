@@ -1442,6 +1442,15 @@ function P.bindExternalDatarefs(silentMissing)
                 "gs_raw_bearing", "has_dme"
             }
         )
+        if (not silentMissing) or probe_external_dataref("laminar/B738/refdata/cifp/available") then
+            P.refdata.cifp = bindRefdataCategory(
+                "laminar/B738/refdata/cifp/",
+                { "source_root" },
+                { "available" },
+                { "icao", "tag_filter", "source_path", "tag", "line" },
+                { "match_index", "request_seq", "result_seq", "status", "match_count" }
+            )
+        end
     end
 
     local function bindSpeakStringSinkRefs()
