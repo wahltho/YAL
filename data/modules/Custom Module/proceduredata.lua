@@ -31,6 +31,34 @@ local function matchesDestRunway(token, destRunway)
     return cleanToken == cleanDest
 end
 
+local function normalizeRunwayForCompare(runway)
+    local clean = tostring(runway or ""):gsub("[%(%)]", ""):gsub("%s+", ""):upper():gsub("^RW", "")
+    if clean == "" then
+        return clean
+    end
+    local len = #clean
+    local i = 1
+    while i <= len do
+        local b = string.byte(clean, i)
+        if not b or b < 48 or b > 57 then
+            break
+        end
+        i = i + 1
+    end
+    if i == 1 then
+        return clean
+    end
+    local number = tonumber(string.sub(clean, 1, i - 1))
+    if not number then
+        return clean
+    end
+    local suffix = ""
+    if i <= len then
+        suffix = string.sub(clean, i)
+    end
+    return string.format("%02d", number) .. suffix
+end
+
 local function get_inflight_restart_context(loop)
     local engine = (loop and loop.engine == def.ENGINE2) and def.ENGINE2 or def.ENGINE1
     local isEng2 = engine == def.ENGINE2
@@ -6134,7 +6162,7 @@ function M.fillProcedureTable()
                         if not navdata then
                             return
                         end
-                        if (get(P.desrwy) ~= navdata[def.DESTRWY]) then
+                        if normalizeRunwayForCompare(get(P.desrwy)) ~= normalizeRunwayForCompare(navdata[def.DESTRWY]) then
                             helpers.logInfoTS("Destination Runway Diff FMC: " .. tostring(get(P.desrwy)) .. " Navdata: " .. tostring(navdata[def.DESTRWY]))
                         end
                         local navtype = navdata[def.DESTNAVTYPE] or ""

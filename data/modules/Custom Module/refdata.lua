@@ -151,6 +151,34 @@ local function validRunway(value)
     return type(value) == "string" and value ~= ""
 end
 
+local function normalizeRunwayForCompare(value)
+    local text = cleanText(value):gsub("^RW", "")
+    if text == "" then
+        return text
+    end
+    local len = #text
+    local i = 1
+    while i <= len do
+        local b = string.byte(text, i)
+        if not b or b < 48 or b > 57 then
+            break
+        end
+        i = i + 1
+    end
+    if i == 1 then
+        return text
+    end
+    local num = tonumber(string.sub(text, 1, i - 1))
+    if not num then
+        return text
+    end
+    local suffix = ""
+    if i <= len then
+        suffix = string.sub(text, i)
+    end
+    return string.format("%02d", num) .. suffix
+end
+
 local function headingDiff(a, b)
     a = tonumber(a)
     b = tonumber(b)
@@ -803,7 +831,7 @@ end
 local function compareCifpEntry(keyPrefix, entryKey, fileEntry, apiEntry)
     local key = keyPrefix .. " " .. entryKey
     diffLog("CIFP", key, "navType", fileEntry.navType, apiEntry.navType, nil)
-    diffLog("CIFP", key, "runway", fileEntry.runway, apiEntry.runway, nil)
+    diffLog("CIFP", key, "runway", normalizeRunwayForCompare(fileEntry.runway), normalizeRunwayForCompare(apiEntry.runway), nil)
     diffLog("CIFP", key, "code", fileEntry.code, apiEntry.code, nil)
     diffLog("CIFP", key, "suffix", fileEntry.suffix, apiEntry.suffix, nil)
     diffLog("CIFP", key, "displayName", fileEntry.displayName, apiEntry.displayName, nil)
@@ -887,7 +915,7 @@ local function compareCifp(label, icao)
         "RefdataCompare CIFP " .. keyPrefix .. " compared entries=" .. tostring(fileCount)
             .. " source=" .. tostring(normalizedApiPath)
             .. " lines=" .. tostring(apiPayload and #apiPayload.lines or 0),
-        false
+        true
     )
 end
 
@@ -1350,7 +1378,7 @@ local function compareLandingEntry(entry, context)
         diffLog("LANDING_NAV", key, "app_id", tostring(entry.app_id or ""), api.app_id, nil)
     end
     diffLog("LANDING_NAV", key, "airport", icao, api.airport, nil)
-    diffLog("LANDING_NAV", key, "runway", runway, api.runway, nil)
+    diffLog("LANDING_NAV", key, "runway", normalizeRunwayForCompare(runway), normalizeRunwayForCompare(api.runway), nil)
     diffLog("LANDING_NAV", key, "kind", kind, api.kind, nil)
     diffLog("LANDING_NAV", key, "frequency", tonumber(entry[def.DESTFREQ]), api.frequency, 0)
     local courseTrue = entryTrueCourse(entry)
