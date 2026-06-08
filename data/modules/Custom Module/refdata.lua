@@ -850,15 +850,15 @@ local function compareCifp(label, icao)
     if not validIcao(icao) then
         return
     end
-    if not (S.helpers and S.helpers.loadCIFP and S.helpers.getCIFPSourcePath) then
+    if not (S.helpers and S.helpers.loadLegacyCIFP and S.helpers.getLegacyCIFPSourcePath) then
         return
     end
     if not categoryAvailable("cifp") then
         return
     end
 
-    local fileData = S.helpers.loadCIFP(icao)
-    local filePath = S.helpers.getCIFPSourcePath(icao)
+    local fileData = S.helpers.loadLegacyCIFP(icao)
+    local filePath = S.helpers.getLegacyCIFPSourcePath(icao)
     local apiData, apiPayload = getApiCifpApproaches(icao)
     local keyPrefix = label .. " " .. icao
 
@@ -1428,6 +1428,12 @@ function M.initialize(yalRef, helpersRef)
     S.lastActiveKey = nil
     S.adapterCache = { apt = {}, rnw = {}, cifp = {} }
     probe()
+    if S.helpers and S.helpers.configureCIFPProvider then
+        S.helpers.configureCIFPProvider(function(icao)
+            local data, payload = getApiCifpApproaches(icao)
+            return data, payload and payload.source_path or nil
+        end)
+    end
 end
 
 function M.getAirport(icao)

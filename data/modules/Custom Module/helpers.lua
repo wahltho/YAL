@@ -160,6 +160,9 @@ function P.isVersionNewer(newVersion, currentVersion)
 end
 
 P.cifpCache = P.cifpCache or {}
+P.cifpSourcePathCache = P.cifpSourcePathCache or {}
+P.cifpLegacyCache = P.cifpLegacyCache or {}
+P.cifpLegacySourcePathCache = P.cifpLegacySourcePathCache or {}
 
 local ffi = require("ffi")
 local xplm_lib = {
@@ -4780,11 +4783,40 @@ function P.parseCIFPLines(icao, lines, sourceLabel)
     end, sourceLabel)
 end
 
-function P.getCIFPSourcePath(icao)
+function P.configureCIFPProvider(provider)
+    if type(provider) == "function" then
+        P.cifpProvider = provider
+    else
+        P.cifpProvider = nil
+    end
+    P.cifpCache = {}
+    P.cifpSourcePathCache = {}
+end
+
+local function normalizeCIFPIcao(icao)
     if type(icao) ~= "string" or #icao < 3 then
         return nil
     end
-    icao = string.upper(icao)
+    return string.upper(icao)
+end
+
+function P.getLegacyCIFPSourcePath(icao)
+    icao = normalizeCIFPIcao(icao)
+    if not icao then
+        return nil
+    end
+    P.cifpLegacySourcePathCache = P.cifpLegacySourcePathCache or {}
+    if P.cifpLegacySourcePathCache[icao] == nil then
+        P.loadLegacyCIFP(icao)
+    end
+    return P.cifpLegacySourcePathCache[icao] or nil
+end
+
+function P.getCIFPSourcePath(icao)
+    icao = normalizeCIFPIcao(icao)
+    if not icao then
+        return nil
+    end
     P.cifpSourcePathCache = P.cifpSourcePathCache or {}
     if P.cifpSourcePathCache[icao] == nil then
         P.loadCIFP(icao)
@@ -4792,17 +4824,17 @@ function P.getCIFPSourcePath(icao)
     return P.cifpSourcePathCache[icao] or nil
 end
 
-function P.loadCIFP(icao)
-    if type(icao) ~= "string" or #icao < 3 then
+function P.loadLegacyCIFP(icao)
+    icao = normalizeCIFPIcao(icao)
+    if not icao then
         return nil
     end
 
-    icao = string.upper(icao)
-    P.cifpCache = P.cifpCache or {}
-    P.cifpSourcePathCache = P.cifpSourcePathCache or {}
+    P.cifpLegacyCache = P.cifpLegacyCache or {}
+    P.cifpLegacySourcePathCache = P.cifpLegacySourcePathCache or {}
 
-    if P.cifpCache[icao] ~= nil then
-        return P.cifpCache[icao] or nil
+    if P.cifpLegacyCache[icao] ~= nil then
+        return P.cifpLegacyCache[icao] or nil
     end
 
     local searchPaths = {
@@ -4823,12 +4855,12 @@ function P.loadCIFP(icao)
 
     if not file then
         sasl.logDebug(string.format("CIFP: No file for %s (checked Custom & Default)", icao))
-        P.cifpCache[icao] = false
-        P.cifpSourcePathCache[icao] = false
+        P.cifpLegacyCache[icao] = false
+        P.cifpLegacySourcePathCache[icao] = false
         return nil
     end
 
-    sasl.logDebug(string.format("CIFP: Loaded %s from %s", icao, usedPath))
+    sasl.logDebug(string.format("CIFP legacy: Loaded %s from %s", icao, usedPath))
 
     local approaches = parseCIFPLines(icao, function()
         return file:read("*l")
@@ -4836,13 +4868,49 @@ function P.loadCIFP(icao)
     file:close()
 
     if approaches then
-        P.cifpCache[icao] = approaches
-        P.cifpSourcePathCache[icao] = usedPath
+        P.cifpLegacyCache[icao] = approaches
+        P.cifpLegacySourcePathCache[icao] = usedPath
         return approaches
     end
 
+    P.cifpLegacyCache[icao] = false
+    P.cifpLegacySourcePathCache[icao] = usedPath or false
+    return nil
+end
+
+function P.loadCIFP(icao)
+    icao = normalizeCIFPIcao(icao)
+    if not icao then
+        return nil
+    end
+
+    P.cifpCache = P.cifpCache or {}
+    P.cifpSourcePathCache = P.cifpSourcePathCache or {}
+
+    if P.cifpCache[icao] ~= nil then
+        return P.cifpCache[icao] or nil
+    end
+
+    if type(P.cifpProvider) == "function" then
+        local ok, data, sourcePath = pcall(P.cifpProvider, icao)
+        if ok and data then
+            P.cifpCache[icao] = data
+            P.cifpSourcePathCache[icao] = sourcePath or "refdata_api"
+            return data
+        elseif not ok then
+            sasl.logDebug(string.format("CIFP API provider failed for %s: %s", icao, tostring(data)))
+        end
+    end
+
+    local legacy = P.loadLegacyCIFP(icao)
+    if legacy then
+        P.cifpCache[icao] = legacy
+        P.cifpSourcePathCache[icao] = P.getLegacyCIFPSourcePath(icao) or "legacy"
+        return legacy
+    end
+
     P.cifpCache[icao] = false
-    P.cifpSourcePathCache[icao] = usedPath or false
+    P.cifpSourcePathCache[icao] = false
     return nil
 end
 
