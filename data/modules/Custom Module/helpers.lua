@@ -2467,7 +2467,7 @@ function P.decodemetar(metar)
                 sasl.logDebug(string.format("Parsed pressure: %d hPa", result.pressure.qnh_hpa))
             elseif (string.sub(part, 1, 1) == "A") then
                 local inHg = tonumber(val_str) / 100
-                result.pressure = { qnh_hpa = math.floor(inHg * 33.8639) }
+                result.pressure = { qnh_hpa = P.roundnumber(inHg * def.INCHTOPAS, 0) }
                 sasl.logDebug(string.format("Parsed pressure: %.2f inHg, converted to %d hPa", inHg, result.pressure.qnh_hpa))
             end
             parsed = true
