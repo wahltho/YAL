@@ -249,8 +249,8 @@ local function complex_check(P)
     if (math.abs(get(P.totalfuellbs) - P.totalfuellbstemp) > 200) then
         if (get(P.totalfuellbs) ~= P.totalfuellbstemp2) then P.totalfuellbstemp2 = get(P.totalfuellbs)
         else
-            if (get(P.fuelunit) == def.LBS) then P.commandtableentry(def.TEXT, "Fuel quantity " .. tostring(get(P.totalfuellbs)) .. "L B S")
-            else P.commandtableentry(def.TEXT, "Fuel quantity " .. tostring(get(P.totalfuelkgs)) .. "K G") end
+            if (get(P.fuelunit) == def.LBS) then P.commandtableentry(def.TEXT, "Fuel quantity " .. tostring(get(P.totalfuellbs)) .. " pounds")
+            else P.commandtableentry(def.TEXT, "Fuel quantity " .. tostring(get(P.totalfuelkgs)) .. " kilograms") end
             P.totalfuellbstemp = get(P.totalfuellbs)
         end
     else P.totalfuellbstemp = get(P.totalfuellbs) end

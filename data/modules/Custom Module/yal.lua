@@ -2613,7 +2613,7 @@ function P.checkYANSHFuel()
         local maxTotal = maxCenter + (2 * maxWing)
 
         if plannedFuelLbs > maxTotal then
-            local unitSuffix = (get(P.fuelunit) == def.KG) and "K G" or "L B S"
+            local unitSuffix = (get(P.fuelunit) == def.KG) and "kilograms" or "pounds"
             local plannedDisplay = (get(P.fuelunit) == def.KG) and helpers.roundnumber(plannedFuelLbs * def.LBSTOKG) or helpers.roundnumber(plannedFuelLbs)
             local maxDisplay = (get(P.fuelunit) == def.KG) and helpers.roundnumber(maxTotal * def.LBSTOKG) or helpers.roundnumber(maxTotal)
             P.commandtableentry(def.TEXT, string.format("Planned fuel %s exceeds max capacity %s %s", tostring(plannedDisplay), tostring(maxDisplay), unitSuffix))
@@ -2623,11 +2623,11 @@ function P.checkYANSHFuel()
         if (get(P.fuelunit) == def.KG) then
             plannedForDisplay = helpers.roundnumber(plannedFuelLbs * def.LBSTOKG)
             currentForDisplay = helpers.roundnumber(currentFuelLbs * def.LBSTOKG)
-            unitForDisplay = "K G"
+            unitForDisplay = "kilograms"
         else
             plannedForDisplay = helpers.roundnumber(plannedFuelLbs)
             currentForDisplay = helpers.roundnumber(currentFuelLbs)
-            unitForDisplay = "L B S"
+            unitForDisplay = "pounds"
         end
 
         local difference = currentFuelLbs - plannedFuelLbs
@@ -4361,10 +4361,10 @@ function P.refuelAircraft(totalFuelLbs)
 
     if (get(P.fuelunit) == def.KG) then
         fuelForDisplay = helpers.roundnumber(totalSetFuelLbs * def.LBSTOKG)
-        unitForDisplay = "K G"
+        unitForDisplay = "kilograms"
     else
         fuelForDisplay = totalSetFuelLbs
-        unitForDisplay = "L B S"
+        unitForDisplay = "pounds"
     end
 
     P.commandtableentry(def.TEXT, actionText .. " complete. Total fuel " .. fuelForDisplay .. " " .. unitForDisplay .. ".")
@@ -7431,7 +7431,7 @@ function P.runOneCoreOngoingTask()
                         end
                     elseif (get(P.tatdegc) > 10) then
                         if ((get(P.eng1heatpos) == def.ON) or (get(P.eng2heatpos) == def.ON) or (get(P.wingheatpos) == def.ON)) then
-                            P.commandtableentry(def.TEXT, "T A T above 10 degree, Switch Anti Icing Off")
+                            P.commandtableentry(def.TEXT, "T A T above 10 degrees, Switch Anti Icing Off")
                         end
                     end
                 end
@@ -7897,10 +7897,10 @@ function P.runOneMainOngoingTask()
 
                 if (get(P.fmccruisealt) or 0) > 0 then
                     if todDistance <= 10 and not P.todDiscontinuityWarned10 then
-                        P.commandtableentry(def.TEXT, "Warning: Route still contains a Discontinuity" .. prevLegText .. " about 10 NM before Top of Descent")
+                        P.commandtableentry(def.TEXT, "Warning: Route still contains a Discontinuity" .. prevLegText .. " about 10 nautical miles before Top of Descent")
                         P.todDiscontinuityWarned10 = true
                     elseif todDistance <= 30 and not P.todDiscontinuityWarned30 then
-                        P.commandtableentry(def.TEXT, "Warning: Route still contains a Discontinuity" .. prevLegText .. " about 30 NM before Top of Descent")
+                        P.commandtableentry(def.TEXT, "Warning: Route still contains a Discontinuity" .. prevLegText .. " about 30 nautical miles before Top of Descent")
                         P.todDiscontinuityWarned30 = true
                     end
                 end
