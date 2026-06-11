@@ -1202,6 +1202,7 @@ function P.YalinitGlobal()
     P.configvalues = {}
 
     P.commandtable = {}
+    P.forceImmediateCycle = false
 
     -------------------------------------------------------------------------------------------------------------- 
 
@@ -3641,6 +3642,7 @@ function P.abortprocedure()
         loop.procedureskipped = false
         loop.procedureskipstep = false
         loop.setonabort = false -- Explizit sicherstellen, dass sie wiederholbar bleibt
+        P.forceImmediateCycle = true
     end
     return true
 end
@@ -3665,6 +3667,7 @@ function P.skipprocedure()
         loop.procedureskipped = true
         loop.setonabort = true -- Das Signal an die Engine, .set = true zu setzen
         loop.procedureskipstep = false
+        P.forceImmediateCycle = true
     end
     return true
 end
@@ -3685,6 +3688,7 @@ function P.skipprocedurestep()
     if loop then
         loop.procedureskipstep = true
         loop.procedureabort = false
+        P.forceImmediateCycle = true
     end
     return true
 end

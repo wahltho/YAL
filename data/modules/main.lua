@@ -883,8 +883,13 @@ function update()
             trimPopupComponent:tick()
         end
         local current_elapsed_time = sasl.getElapsedSeconds(oneSecTimer)
+        local forceImmediateCycle = yal and yal.forceImmediateCycle == true
 
-        if current_elapsed_time >= waitstep then
+        if current_elapsed_time >= waitstep or forceImmediateCycle then
+            if forceImmediateCycle then
+                yal.forceImmediateCycle = false
+                sasl.logDebug("UPDATE: Immediate do_yal() cycle requested.")
+            end
             sasl.startTimer(oneSecTimer)
 
             local next_recommended_wait_step = yal.do_yal()
