@@ -8523,10 +8523,13 @@ function P.commandtableloop()
                     end
                     helpers.speak(entry_text, P.getSpeakStringPriority(entry_type, entry_text))
                     P.lastCommandWasSpeech = true
-                    if (string.len(entry_text) > def.VERYLONGSPEAK) then
-                        next_recommended_wait_step = def.LONGWAIT
-                    elseif (string.len(entry_text) > def.LONGSPEAK) then
-                        next_recommended_wait_step = def.MEDIUMWAIT
+                    local ziboSinkActive = helpers.isSpeakStringSinkActive and helpers.isSpeakStringSinkActive()
+                    if not ziboSinkActive then
+                        if (string.len(entry_text) > def.VERYLONGSPEAK) then
+                            next_recommended_wait_step = def.LONGWAIT
+                        elseif (string.len(entry_text) > def.LONGSPEAK) then
+                            next_recommended_wait_step = def.MEDIUMWAIT
+                        end
                     end
                     processedentry = true
                 end

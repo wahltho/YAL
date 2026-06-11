@@ -915,6 +915,16 @@ function P.configureSpeakStringSink(refs)
     P.speakStringSinkSeq = P.speakStringSinkSeq or 0
 end
 
+function P.isSpeakStringSinkActive()
+    local sink = P.speakStringSink
+    if type(sink) ~= "table" or not sink.version or not isProperty(sink.version) then
+        return false
+    end
+
+    local ok, version = pcall(get, sink.version)
+    return ok and (tonumber(version) or 0) >= 1
+end
+
 function P.speakViaZiboSink(text, priority)
     local sink = P.speakStringSink
     if type(sink) ~= "table" then
