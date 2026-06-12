@@ -3459,13 +3459,13 @@ function M.fillProcedureTable()
                     action = function() P.toggletaxilights(def.OFF) end,
                     advice = "Set Taxi Lights Off",
                     confirm = "Taxi Lights checked Off",
-                    nextStep = 'rwy_lights_off'
+                    nextStep = 'rwy_lights_on'
                 },
-                ['rwy_lights_off'] = {
-                    check = function() return (get(P.rwylightl) == def.OFF) and (get(P.rwylightr) == def.OFF) end,
-                    action = function() P.togglerwylights(def.OFF) end,
-                    advice = "Set Runway Turnoff Lights Off",
-                    confirm = "Runway Turnoff Lights checked Off",
+                ['rwy_lights_on'] = {
+                    check = function() return (get(P.rwylightl) ~= def.OFF) and (get(P.rwylightr) ~= def.OFF) end,
+                    action = function() P.togglerwylights(def.ON) end,
+                    advice = "Set Runway Turnoff Lights On",
+                    confirm = "Runway Turnoff Lights checked On",
                     nextStep = 'view_main_panel'
                 },
                 ['view_main_panel'] = {
@@ -3859,11 +3859,6 @@ function M.fillProcedureTable()
                 ['set_pos_lights_strobe'] = {
                     skipIf = function() return P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON end,
                     action = function() P.togglepositionlights(def.POSLIGHTSSTROBE) end,
-                    nextStep = 'set_rwy_lights_off'
-                },
-                ['set_rwy_lights_off'] = {
-                    skipIf = function() return P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON end,
-                    action = function() P.togglerwylights(def.OFF) end,
                     nextStep = 'set_taxi_lights_off'
                 },
                 ['set_taxi_lights_off'] = {
@@ -3960,6 +3955,13 @@ function M.fillProcedureTable()
                     advice = "Set Landing Lights Off",
                     action = function() P.togglelandinglights(def.OFF) end,
                     confirm = "Landing Lights checked Off",
+                    nextStep = 'set_rwy_lights_off'
+                },
+                ['set_rwy_lights_off'] = {
+                    check = function() return (get(P.rwylightl) == def.OFF) and (get(P.rwylightr) == def.OFF) end,
+                    advice = "Set Runway Turnoff Lights Off",
+                    action = function() P.togglerwylights(def.OFF) end,
+                    confirm = "Runway Turnoff Lights checked Off",
                     nextStep = 'set_logo_lights_off'
                 },
                 ['set_logo_lights_off'] = {
@@ -4279,6 +4281,13 @@ function M.fillProcedureTable()
                     advice = "Set Landing Lights On",
                     action = function() P.togglelandinglights(def.ON) end,
                     confirm = "Landing Lights checked On",
+                    nextStep = 'set_rwy_lights_on'
+                },
+                ['set_rwy_lights_on'] = {
+                    check = function() return (get(P.rwylightl) ~= def.OFF) and (get(P.rwylightr) ~= def.OFF) end,
+                    advice = "Set Runway Turnoff Lights On",
+                    action = function() P.togglerwylights(def.ON) end,
+                    confirm = "Runway Turnoff Lights checked On",
                     nextStep = 'set_starters_flight'
                 },
                 ['set_starters_flight'] = {
@@ -4414,13 +4423,6 @@ function M.fillProcedureTable()
                     advice = "Set Taxi Lights On",
                     action = function() P.toggletaxilights(def.ON) end,
                     confirm = "Taxi Lights checked On",
-                    nextStep = 'set_rwy_lights_on'
-                },
-                ['set_rwy_lights_on'] = {
-                    check = function() return (get(P.rwylightl) ~= def.OFF) and (get(P.rwylightr) ~= def.OFF) end,
-                    advice = "Set Runway Turnoff Lights On",
-                    action = function() P.togglerwylights(def.ON) end,
-                    confirm = "Runway Turnoff Lights checked On",
                     nextStep = 'set_gear_down'
                 },
                 ['set_gear_down'] = {
