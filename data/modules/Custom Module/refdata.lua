@@ -312,6 +312,20 @@ local function categoryAvailable(name)
     return (tonumber(readNumber(cat.available)) or 0) == 1
 end
 
+local function categoryConnectSummary(name)
+    local cat = S.categories[name]
+    if not cat then
+        return name .. "=missing"
+    end
+    if not categoryAvailable(name) then
+        return name .. "=unavailable"
+    end
+    if cat.row_count then
+        return name .. "=available(rows=" .. tostring(readNumber(cat.row_count) or "?") .. ")"
+    end
+    return name .. "=available"
+end
+
 local function probe()
     S.categories = {}
     S.available = false
@@ -329,6 +343,17 @@ local function probe()
 
     S.categories = refs
     S.available = true
+    logOnce(
+        "api-connected",
+        "Zibo Refdata Cache API connected version=n/a categories="
+            .. table.concat({
+                categoryConnectSummary("apt"),
+                categoryConnectSummary("rnw"),
+                categoryConnectSummary("landing_nav"),
+                categoryConnectSummary("cifp")
+            }, " "),
+        false
+    )
     for _, name in ipairs({ "apt", "rnw", "landing_nav", "cifp" }) do
         local cat = S.categories[name]
         if categoryAvailable(name) then

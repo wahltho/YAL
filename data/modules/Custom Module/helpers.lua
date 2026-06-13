@@ -933,6 +933,29 @@ function P.configureSpeakStringSink(refs)
     P.speakStringSink = refs
     P.speakStringSinkSeq = P.speakStringSinkSeq or 0
     P.speakStringSinkControlSeq = P.speakStringSinkControlSeq or 0
+
+    if type(refs) ~= "table" or not refs.version or not isProperty(refs.version) then
+        return
+    end
+
+    local ok, version = pcall(get, refs.version)
+    version = ok and tonumber(version) or 0
+    if version < 1 then
+        return
+    end
+
+    local queueControl = version >= 4
+        and refs.request_source_id and refs.request_message_key and refs.request_policy
+        and refs.control_source_id and refs.control_message_key and refs.control_seq
+        and isProperty(refs.request_source_id) and isProperty(refs.request_message_key)
+        and isProperty(refs.request_policy) and isProperty(refs.control_source_id)
+        and isProperty(refs.control_message_key) and isProperty(refs.control_seq)
+    local logKey = tostring(version) .. "|" .. tostring(queueControl == true)
+    if P._speakStringSinkConnectLogKey ~= logKey then
+        P._speakStringSinkConnectLogKey = logKey
+        P.logInfoTS("Zibo SpeakString Sink API connected version=" .. tostring(version)
+            .. " queueControl=" .. tostring(queueControl == true))
+    end
 end
 
 function P.isSpeakStringSinkActive()
