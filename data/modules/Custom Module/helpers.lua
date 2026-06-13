@@ -900,7 +900,7 @@ end
 
 --------------------------------------------------------------------------------------------------------------
 local function write_sink_string(prop, value)
-    if not prop or not isProperty(prop) then
+    if not prop then
         return false
     end
 
@@ -947,9 +947,7 @@ function P.configureSpeakStringSink(refs)
     local queueControl = version >= 4
         and refs.request_source_id and refs.request_message_key and refs.request_policy
         and refs.control_source_id and refs.control_message_key and refs.control_seq
-        and isProperty(refs.request_source_id) and isProperty(refs.request_message_key)
-        and isProperty(refs.request_policy) and isProperty(refs.control_source_id)
-        and isProperty(refs.control_message_key) and isProperty(refs.control_seq)
+        and isProperty(refs.request_policy) and isProperty(refs.control_seq)
     local logKey = tostring(version) .. "|" .. tostring(queueControl == true)
     if P._speakStringSinkConnectLogKey ~= logKey then
         P._speakStringSinkConnectLogKey = logKey
@@ -999,7 +997,7 @@ function P.speakViaZiboSink(text, priority, message_key, policy)
     local requestPolicy = nil
     if (tonumber(version) or 0) >= 4
         and sink.request_source_id and sink.request_message_key and sink.request_policy
-        and isProperty(sink.request_source_id) and isProperty(sink.request_message_key) and isProperty(sink.request_policy) then
+        and isProperty(sink.request_policy) then
         local key = tostring(message_key or "")
         if #key > 511 then
             key = string.sub(key, 1, 511)
@@ -1040,7 +1038,7 @@ function P.clearSpeakStringSink(message_key)
     if not (sink.version and sink.control_source_id and sink.control_message_key and sink.control_seq) then
         return false
     end
-    if not (isProperty(sink.version) and isProperty(sink.control_source_id) and isProperty(sink.control_message_key) and isProperty(sink.control_seq)) then
+    if not (isProperty(sink.version) and isProperty(sink.control_seq)) then
         return false
     end
 
