@@ -1470,9 +1470,6 @@ function P.bindExternalDatarefs(silentMissing)
         end
 
         local function optionalGPS(name)
-            if not probe_external_dataref(name) then
-                return nil
-            end
             return globalPropertys(name)
         end
 
