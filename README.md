@@ -1,5 +1,5 @@
 # Yet Another Linda (YAL)
-**Version 4.7b1** (beta channel)
+**Version 4.7b2** (beta channel)
 
 *(C) WAHLTHO 2023-2026*
 
