@@ -1398,6 +1398,9 @@ function P.bindExternalDatarefs(silentMissing)
         if silentMissing and not probe_external_dataref("laminar/B738/refdata/nav/available") then
             return
         end
+        if probe_external_dataref("laminar/B738/refdata/api_version") then
+            P.refdata.api_version = GP("laminar/B738/refdata/api_version")
+        end
         local navAvailable = GP("laminar/B738/refdata/nav/available")
         P.refdata.nav.available = navAvailable
         if not (navAvailable and isProperty(navAvailable)) then

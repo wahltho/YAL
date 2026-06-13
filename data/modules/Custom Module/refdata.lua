@@ -8,6 +8,7 @@ local S = {
     initialized = false,
     available = false,
     probeCountdown = 0,
+    apiVersion = nil,
     categories = {},
     seq = { apt = 0, rnw = 0, landing_nav = 0, cifp = 0 },
     lastActiveKey = nil,
@@ -329,6 +330,7 @@ end
 local function probe()
     S.categories = {}
     S.available = false
+    S.apiVersion = nil
 
     local refs = S.yal and S.yal.refdata
     if not (refs and refs.nav and refs.nav.available and isProperty(refs.nav.available))
@@ -342,10 +344,12 @@ local function probe()
     end
 
     S.categories = refs
+    S.apiVersion = readNumber(refs.api_version)
     S.available = true
     logOnce(
         "api-connected",
-        "Zibo Refdata Cache API connected categories="
+        "Zibo Refdata Cache API connected version=" .. tostring(S.apiVersion or "n/a")
+            .. " categories="
             .. table.concat({
                 categoryConnectSummary("apt"),
                 categoryConnectSummary("rnw"),
