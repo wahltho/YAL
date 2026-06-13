@@ -1835,6 +1835,32 @@ function M.fillProcedureTable()
                     end,
                     advice = "Activate Flight Plan in F M C",
                     confirm = "Flight Plan in F M C Checked Activated",
+                    branch = function(loop)
+                        local depIcao = get(P.depicao)
+                        local destIcao = get(P.desicao)
+                        local fmsLegs = get(P.fmslegs)
+                        if helpers.isFMSPlanLoaded(depIcao, destIcao, fmsLegs) then
+                            if loop then loop.activateFmcPlanPromptAt = nil end
+                            return 'check_departure_airport_match'
+                        end
+
+                        if P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON then
+                            return false
+                        end
+
+                        local now = os.time() or 0
+                        local lastPromptAt = loop and (tonumber(loop.activateFmcPlanPromptAt) or 0) or 0
+                        if (lastPromptAt == 0) or ((now - lastPromptAt) >= 30) then
+                            P.commandtableentry(def.TEXT, "Activate Flight Plan in F M C")
+                            helpers.logInfoTS(
+                                "Cockpit Init waiting for active FMC plan: dep=" .. tostring(depIcao) ..
+                                " dest=" .. tostring(destIcao) ..
+                                " legsLen=" .. tostring(string.len(tostring(fmsLegs or "")))
+                            )
+                            if loop then loop.activateFmcPlanPromptAt = now end
+                        end
+                        return true
+                    end,
                     nextStep = 'check_departure_airport_match'
                 },
                 ['check_departure_airport_match'] = {
