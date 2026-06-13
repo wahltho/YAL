@@ -3929,7 +3929,7 @@ function M.fillProcedureTable()
                     check = function() return P.isbarostandardset() end,
                     advice = "Set Q N H to Standard",
                     action = function() P.setbarostandard() end,
-                    confirm = "Q N H checked and Standard",
+                    confirm = "Q N H checked Standard",
                     nextStep = nil
                 }
             }
