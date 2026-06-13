@@ -841,7 +841,7 @@ local function cacheApproachCourse(loop, entry, course, selectedSource, ziboCour
         if legacyCourse and ziboCourse then
             diff_legacy_zibo = math.abs(helpers.headingdiff(legacyCourse, ziboCourse))
         end
-        helpers.logInfoTS(string.format(
+        helpers.logDebugTS(string.format(
             "ApproachCourseCompare: selected=%s selectedSource=%s legacy=%s zibo=%s ziboSource=%s diffSelectedZibo=%s diffLegacyZibo=%s navType=%s rwy=%s navId=%s appId=%s",
             tostring(course), tostring(selectedSource), tostring(legacyCourse), tostring(ziboCourse), tostring(ziboSource),
             tostring(diff_selected_zibo), tostring(diff_legacy_zibo), tostring(navType),
@@ -1095,7 +1095,7 @@ local function buildSetIlsPlan(loop)
 
         if loop._setIlsTunePlanKey ~= tuneLogKey then
             loop._setIlsTunePlanKey = tuneLogKey
-            helpers.logInfoTS(string.format(
+            helpers.logDebugTS(string.format(
                 "SetIlsTunePlan: navType=%s navId=%s rwy=%s captTune=%s foTune=%s primary=%s source=%s",
                 tostring(navType),
                 tostring(navdata[def.DESTNAVID] or ""),
@@ -1106,7 +1106,7 @@ local function buildSetIlsPlan(loop)
                 tostring(plan.tuneSource)
             ))
             if guidanceProfile then
-                helpers.logInfoTS(string.format(
+                helpers.logDebugTS(string.format(
                     "SetIlsGuidance: family=%s selected=%s detected=%s expected=%s/%s current=%s ian=%s",
                     tostring(guidanceProfile.approachFamily),
                     tostring(guidanceProfile.selectedNavType),
@@ -6084,7 +6084,7 @@ function M.fillProcedureTable()
                         elseif localEntry then
                             chosenSource = "yal_cache"
                         end
-                        helpers.logInfoTS(string.format(
+                        helpers.logDebugTS(string.format(
                             "SetIlsResolve: selectedApp=%s selectedNavType=%s detectedNavType=%s candidateTypes=%s navCount=%d source=%s chosenType=%s chosenId=%s chosenRwy=%s",
                             tostring(selectedAppId),
                             tostring(selectedNavType),
