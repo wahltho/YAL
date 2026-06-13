@@ -387,6 +387,23 @@ local function ensureReady()
     return ok
 end
 
+function M.isAvailable()
+    if not S.initialized then
+        return false
+    end
+    return ensureReady() == true
+end
+
+function M.isCategoryAvailable(name)
+    if not S.initialized then
+        return false
+    end
+    if not ensureReady() then
+        return false
+    end
+    return categoryAvailable(name)
+end
+
 local function nextSeq(name)
     local value = (tonumber(S.seq[name]) or 0) + 1
     if value > 1000000000 then

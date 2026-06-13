@@ -1207,8 +1207,15 @@ function P.YalinitGlobal()
     -------------------------------------------------------------------------------------------------------------- 
 
     P.navdatatable = {}
+    P.legacyNavdataLoaded = false
+    P.legacyNavdataBuildAttempted = false
 
     P.airportdatatable = {}
+    P.legacyAirportdataLoaded = false
+    P.legacyAirportdataBuildAttempted = false
+    P.refdataNavApiReady = false
+    P.refdataAirportApiReady = false
+    P.refdataLegacyTablesLatched = false
 
     P.zibocalctable = {}
 
@@ -2271,8 +2278,11 @@ end
 
 local REF_FT_TO_M = 0.3048
 
-local function fallbackAirportRefdata(icao)
+local function fallbackAirportRefdata(icao, allowBuild)
     icao = cleanRefIcao(icao)
+    if allowBuild and P.ensureLegacyAirportdataTable then
+        P.ensureLegacyAirportdataTable("airport-refdata-fallback")
+    end
     local entry = P.airportdatatable and P.airportdatatable[icao] or nil
     if not entry then
         return nil
@@ -2296,7 +2306,7 @@ function P.getAirportRefdata(icao)
     if refdata and refdata.getAirport then
         local api = refdata.getAirport(icao)
         if api then
-            local fallback = fallbackAirportRefdata(icao)
+            local fallback = fallbackAirportRefdata(icao, false)
             if fallback then
                 if api.latitude == nil then api.latitude = fallback.latitude end
                 if api.longitude == nil then api.longitude = fallback.longitude end
@@ -2307,7 +2317,7 @@ function P.getAirportRefdata(icao)
             return api
         end
     end
-    return fallbackAirportRefdata(icao)
+    return fallbackAirportRefdata(icao, true)
 end
 
 function P.getAirportElevationFt(icao, fallbackFt)
@@ -2801,6 +2811,71 @@ function P.YalMaintenanceExecutorIsInstalled()
 end
 
 --------------------------------------------------------------------------------------------------------------
+function P.ensureLegacyNavdataTable(reason)
+    if type(P.navdatatable) ~= "table" then
+        P.navdatatable = {}
+    end
+    if #P.navdatatable > 0 then
+        P.legacyNavdataLoaded = true
+        return true
+    end
+    if P.legacyNavdataBuildAttempted then
+        return false
+    end
+    P.legacyNavdataBuildAttempted = true
+    helpers.logInfoTS("Legacy Navdata Table load requested: " .. tostring(reason or "fallback"))
+    local ok = helpers.buildnavdatatable(P.navdatatable)
+    P.legacyNavdataLoaded = ok == true and #P.navdatatable > 0
+    return P.legacyNavdataLoaded
+end
+
+--------------------------------------------------------------------------------------------------------------
+function P.ensureLegacyAirportdataTable(reason)
+    if type(P.airportdatatable) ~= "table" then
+        P.airportdatatable = {}
+    end
+    if helpers.getTableSize(P.airportdatatable) > 0 then
+        P.legacyAirportdataLoaded = true
+        return true
+    end
+    if P.legacyAirportdataBuildAttempted then
+        return false
+    end
+    P.legacyAirportdataBuildAttempted = true
+    helpers.logInfoTS("Legacy Airportdata Table load requested: " .. tostring(reason or "fallback"))
+    local ok = helpers.buildairportdatatable(P.airportdatatable)
+    P.legacyAirportdataLoaded = ok == true and helpers.getTableSize(P.airportdatatable) > 0
+    return P.legacyAirportdataLoaded
+end
+
+--------------------------------------------------------------------------------------------------------------
+function P.prepareRefdataLegacyTables(reason)
+    reason = tostring(reason or "startup")
+    local navApiReady = refdata and refdata.isCategoryAvailable and refdata.isCategoryAvailable("landing_nav") == true
+    local airportApiReady = refdata and refdata.isCategoryAvailable and refdata.isCategoryAvailable("apt") == true
+
+    P.refdataNavApiReady = navApiReady
+    P.refdataAirportApiReady = airportApiReady
+    P.refdataLegacyTablesLatched = true
+
+    if navApiReady then
+        helpers.logDebugTS("Zibo Refdata landing_nav API available; legacy Navdata Table load skipped (" .. reason .. ")")
+    else
+        P.ensureLegacyNavdataTable(reason)
+    end
+
+    if airportApiReady then
+        helpers.logDebugTS("Zibo Refdata apt API available; legacy Airportdata Table load skipped (" .. reason .. ")")
+    else
+        P.ensureLegacyAirportdataTable(reason)
+    end
+
+    if refdata and refdata.compareActive then
+        refdata.compareActive(true)
+    end
+end
+
+--------------------------------------------------------------------------------------------------------------
 function P.initializeScript()
 
     P.YalinitGlobal()
@@ -2818,16 +2893,17 @@ function P.initializeScript()
     helpers.checkCgBaselineAtStartup()
     helpers.checkDefaultViewAtStartup()
 
-    helpers.buildnavdatatable(P.navdatatable)
-    helpers.buildairportdatatable(P.airportdatatable)
-    refdata.compareActive(true)
     if P.configvalues[def.CONFIGAUTOTAXIGUIDANCE] == def.ON then
         helpers.requestGlobalAptIndex("startup")
     end
     P.zibocalctable = helpers.loadZiboReferenceTables() or {}
     if (sasl.getLogLevel() == LOG_DEBUG) then
-        helpers.writenavdatatable(P.navdatatable)
-        helpers.writeairportdatatable(P.airportdatatable)
+        if P.legacyNavdataLoaded then
+            helpers.writenavdatatable(P.navdatatable)
+        end
+        if P.legacyAirportdataLoaded then
+            helpers.writeairportdatatable(P.airportdatatable)
+        end
         helpers.writeZiboCalcTable(P.zibocalctable)
         helpers.writetaxidatatable()
     end
@@ -2886,13 +2962,15 @@ function P.yalresetForNewFlight()
     end
     set( P.ProcSetStatusarraydr, statusArray)
 
-    helpers.buildnavdatatable(P.navdatatable)
-    helpers.buildairportdatatable(P.airportdatatable)
-    refdata.compareActive(true)
+    P.prepareRefdataLegacyTables("new-flight-reset")
     P.zibocalctable = helpers.loadZiboReferenceTables() or {}
     if (sasl.getLogLevel() == LOG_DEBUG) then
-        helpers.writenavdatatable(P.navdatatable)
-        helpers.writeairportdatatable(P.airportdatatable)
+        if P.legacyNavdataLoaded then
+            helpers.writenavdatatable(P.navdatatable)
+        end
+        if P.legacyAirportdataLoaded then
+            helpers.writeairportdatatable(P.airportdatatable)
+        end
         helpers.writeZiboCalcTable(P.zibocalctable)
     end
 
@@ -3014,14 +3092,16 @@ function P.yalreset()
         P.saveLoopState(P.loopStateTables[i], i)
     end
 
-    -- Rest (NavData bauen etc.)
-    helpers.buildnavdatatable(P.navdatatable)
-    helpers.buildairportdatatable(P.airportdatatable)
-    refdata.compareActive(true)
+    -- Rest (Refdata/Legacy fallback vorbereiten etc.)
+    P.prepareRefdataLegacyTables("yal-reset")
     P.zibocalctable = helpers.loadZiboReferenceTables() or {}
     if (sasl.getLogLevel() == LOG_DEBUG) then
-        helpers.writenavdatatable(P.navdatatable)
-        helpers.writeairportdatatable(P.airportdatatable)
+        if P.legacyNavdataLoaded then
+            helpers.writenavdatatable(P.navdatatable)
+        end
+        if P.legacyAirportdataLoaded then
+            helpers.writeairportdatatable(P.airportdatatable)
+        end
     end
 
     P.commandtableentry(def.TEXT, "YAL Reset done")
@@ -9368,6 +9448,7 @@ function P.do_yal()
         P.needsPostStartupDatarefRebind = false
         P.externalDatarefsPostStartupDone = true
         refdata.initialize(P, helpers)
+        P.prepareRefdataLegacyTables("post-startup")
         if missingCount > 0 then
             helpers.logInfoTS("Post-startup external dataref rebind finished with " .. tostring(missingCount) .. " unresolved handles")
         else

@@ -5983,6 +5983,10 @@ function M.fillProcedureTable()
                         local selectedNavType = navTypeFromSelectedApproachId(selectedAppId)
                         local detectedNavType = detectedVariant and detectedVariant.navType or nil
                         local candidateTypes = buildSetIlsCandidateTypes(selectedNavType, detectedNavType)
+                        local landingNavApiReady = refdata and refdata.isCategoryAvailable and refdata.isCategoryAvailable("landing_nav") == true
+                        if not landingNavApiReady and P.ensureLegacyNavdataTable then
+                            P.ensureLegacyNavdataTable("set-ils")
+                        end
                         local navIndices = helpers.getnavdataindices(P.navdatatable, get(P.desicao), get(P.desrwy), candidateTypes) or {}
 
                         if selectedAppId and #navIndices > 1 then
