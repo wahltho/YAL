@@ -1463,34 +1463,24 @@ function P.bindExternalDatarefs(silentMissing)
             return
         end
 
-        local function optionalGP(name)
-            local dr = nil
-            dr = select(1, bind_external_dataref(name, nil, nil, true))
-            return dr
-        end
-
-        local function optionalGPS(name)
-            return globalPropertys(name)
-        end
-
         P.speakstringSink = {
             version = GP("laminar/B738/speakstring_sink/version"),
             request_text = GPS("laminar/B738/speakstring_sink/request_text"),
-            request_source_id = optionalGPS("laminar/B738/speakstring_sink/request_source_id"),
-            request_message_key = optionalGPS("laminar/B738/speakstring_sink/request_message_key"),
+            request_source_id = GPS("laminar/B738/speakstring_sink/request_source_id"),
+            request_message_key = GPS("laminar/B738/speakstring_sink/request_message_key"),
             request_priority = GP("laminar/B738/speakstring_sink/request_priority"),
-            request_policy = optionalGP("laminar/B738/speakstring_sink/request_policy"),
+            request_policy = GP("laminar/B738/speakstring_sink/request_policy"),
             request_seq = GP("laminar/B738/speakstring_sink/request_seq"),
             accepted_seq = GP("laminar/B738/speakstring_sink/accepted_seq"),
             queue_depth = GP("laminar/B738/speakstring_sink/queue_depth"),
-            request_result_seq = optionalGP("laminar/B738/speakstring_sink/request_result_seq"),
-            request_result_code = optionalGP("laminar/B738/speakstring_sink/request_result_code"),
-            control_source_id = optionalGPS("laminar/B738/speakstring_sink/control_source_id"),
-            control_message_key = optionalGPS("laminar/B738/speakstring_sink/control_message_key"),
-            control_seq = optionalGP("laminar/B738/speakstring_sink/control_seq"),
-            control_result_seq = optionalGP("laminar/B738/speakstring_sink/control_result_seq"),
-            control_result_code = optionalGP("laminar/B738/speakstring_sink/control_result_code"),
-            control_removed_count = optionalGP("laminar/B738/speakstring_sink/control_removed_count")
+            request_result_seq = GP("laminar/B738/speakstring_sink/request_result_seq"),
+            request_result_code = GP("laminar/B738/speakstring_sink/request_result_code"),
+            control_source_id = GPS("laminar/B738/speakstring_sink/control_source_id"),
+            control_message_key = GPS("laminar/B738/speakstring_sink/control_message_key"),
+            control_seq = GP("laminar/B738/speakstring_sink/control_seq"),
+            control_result_seq = GP("laminar/B738/speakstring_sink/control_result_seq"),
+            control_result_code = GP("laminar/B738/speakstring_sink/control_result_code"),
+            control_removed_count = GP("laminar/B738/speakstring_sink/control_removed_count")
         }
         if helpers.configureSpeakStringSink then
             helpers.configureSpeakStringSink(P.speakstringSink)
