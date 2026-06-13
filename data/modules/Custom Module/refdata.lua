@@ -345,7 +345,7 @@ local function probe()
     S.available = true
     logOnce(
         "api-connected",
-        "Zibo Refdata Cache API connected version=n/a categories="
+        "Zibo Refdata Cache API connected categories="
             .. table.concat({
                 categoryConnectSummary("apt"),
                 categoryConnectSummary("rnw"),

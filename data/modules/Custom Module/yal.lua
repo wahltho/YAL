@@ -1470,9 +1470,10 @@ function P.bindExternalDatarefs(silentMissing)
         end
 
         local function optionalGPS(name)
-            local dr = nil
-            dr = select(1, bind_external_dataref(name, "s", nil, true))
-            return dr
+            if not probe_external_dataref(name) then
+                return nil
+            end
+            return globalPropertys(name)
         end
 
         P.speakstringSink = {
