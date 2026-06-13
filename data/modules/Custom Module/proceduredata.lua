@@ -3926,9 +3926,9 @@ function M.fillProcedureTable()
                     skipIf = function() 
                         return (P.configvalues[def.CONFIGAUTOBARO] == def.OFF) or (get(P.fmccruisealt) <= get(P.fmctransalt))
                     end,
-                    check = function() return get(P.barostd) == def.ON end,
+                    check = function() return P.isbarostandardset() end,
                     advice = "Set Q N H to Standard",
-                    action = function() helpers.command_once("laminar/B738/EFIS_control/capt/push_button/std_press") end,
+                    action = function() P.setbarostandard() end,
                     confirm = "Q N H checked and Standard",
                     nextStep = nil
                 }
@@ -4224,10 +4224,7 @@ function M.fillProcedureTable()
                         if (tl == nil) or (tl <= 0) or (tl > 25000) then return false end 
                         if (get(P.altitude) >= tl) then return false end 
                         local _, baropastmp = P.getlocalqnh(def.ARRIVAL)
-                        if (get(P.barostd) == def.ON) then return false end 
-                        local current_hpa = P.getcaptainbarohpa()
-                        if (not current_hpa) or (not baropastmp) or (math.abs(current_hpa - baropastmp) > 1) then return false end
-                        return true
+                        return P.isbarolocalqnhset(baropastmp)
                     end,
                     advice = function()
                         local tl = get(P.fmctranslvl)
@@ -4245,8 +4242,7 @@ function M.fillProcedureTable()
                         if (tl == nil) or (tl <= 0) or (tl > 25000) then return end 
                         if (get(P.altitude) >= tl) then return end 
                         local baroinchtmp, _ = P.getlocalqnh(def.ARRIVAL)
-                        helpers.command_once("laminar/B738/EFIS_control/capt/push_button/std_press")
-                        P.setcaptainbaroinhg(baroinchtmp)
+                        P.setbarolocalinhg(baroinchtmp)
                     end,
                     confirm = function()
                         local baroinchtmp, baropastmp = P.getlocalqnh(def.ARRIVAL)
