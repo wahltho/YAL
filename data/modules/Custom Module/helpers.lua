@@ -899,8 +899,27 @@ function P.remove_directory(dirname)
 end
 
 --------------------------------------------------------------------------------------------------------------
-function P.speak(text, priority)
-    if P.speakViaZiboSink and P.speakViaZiboSink(text, priority) then
+local function write_sink_string(prop, value)
+    if not prop or not isProperty(prop) then
+        return false
+    end
+
+    local text = tostring(value or "")
+    if #text > 511 then
+        text = string.sub(text, 1, 511)
+    end
+
+    local ok = pcall(set, prop, text)
+    if ok then
+        return true
+    end
+
+    ok = pcall(set, prop, text, 0, #text)
+    return ok == true
+end
+
+function P.speak(text, priority, message_key, policy)
+    if P.speakViaZiboSink and P.speakViaZiboSink(text, priority, message_key, policy) then
         return
     end
 
@@ -913,6 +932,7 @@ end
 function P.configureSpeakStringSink(refs)
     P.speakStringSink = refs
     P.speakStringSinkSeq = P.speakStringSinkSeq or 0
+    P.speakStringSinkControlSeq = P.speakStringSinkControlSeq or 0
 end
 
 function P.isSpeakStringSinkActive()
@@ -925,7 +945,7 @@ function P.isSpeakStringSinkActive()
     return ok and (tonumber(version) or 0) >= 1
 end
 
-function P.speakViaZiboSink(text, priority)
+function P.speakViaZiboSink(text, priority, message_key, policy)
     local sink = P.speakStringSink
     if type(sink) ~= "table" then
         return false
@@ -950,11 +970,23 @@ function P.speakViaZiboSink(text, priority)
         speechText = string.sub(speechText, 1, 511)
     end
 
-    ok = pcall(set, sink.request_text, speechText)
-    if not ok then
-        ok = pcall(set, sink.request_text, speechText, 0, #speechText)
-        if not ok then
-            return false
+    ok = write_sink_string(sink.request_text, speechText)
+    if not ok then return false end
+
+    local requestPolicy = nil
+    if (tonumber(version) or 0) >= 4
+        and sink.request_source_id and sink.request_message_key and sink.request_policy
+        and isProperty(sink.request_source_id) and isProperty(sink.request_message_key) and isProperty(sink.request_policy) then
+        local key = tostring(message_key or "")
+        if #key > 511 then
+            key = string.sub(key, 1, 511)
+        end
+        if not write_sink_string(sink.request_source_id, "YAL") then return false end
+        if not write_sink_string(sink.request_message_key, key) then return false end
+
+        requestPolicy = 0
+        if key ~= "" then
+            requestPolicy = tonumber(policy) or 2
         end
     end
 
@@ -963,12 +995,46 @@ function P.speakViaZiboSink(text, priority)
         return false
     end
 
+    if requestPolicy ~= nil then
+        ok = pcall(set, sink.request_policy, requestPolicy)
+        if not ok then return false end
+    end
+
     P.speakStringSinkSeq = (tonumber(P.speakStringSinkSeq) or 0) + 1
     if P.speakStringSinkSeq > 2147480000 then
         P.speakStringSinkSeq = 1
     end
 
     ok = pcall(set, sink.request_seq, P.speakStringSinkSeq)
+    return ok == true
+end
+
+function P.clearSpeakStringSink(message_key)
+    local sink = P.speakStringSink
+    if type(sink) ~= "table" then
+        return false
+    end
+    if not (sink.version and sink.control_source_id and sink.control_message_key and sink.control_seq) then
+        return false
+    end
+    if not (isProperty(sink.version) and isProperty(sink.control_source_id) and isProperty(sink.control_message_key) and isProperty(sink.control_seq)) then
+        return false
+    end
+
+    local ok, version = pcall(get, sink.version)
+    if not ok or (tonumber(version) or 0) < 4 then
+        return false
+    end
+
+    if not write_sink_string(sink.control_source_id, "YAL") then return false end
+    if not write_sink_string(sink.control_message_key, tostring(message_key or "")) then return false end
+
+    P.speakStringSinkControlSeq = (tonumber(P.speakStringSinkControlSeq) or 0) + 1
+    if P.speakStringSinkControlSeq > 2147480000 then
+        P.speakStringSinkControlSeq = 1
+    end
+
+    ok = pcall(set, sink.control_seq, P.speakStringSinkControlSeq)
     return ok == true
 end
 

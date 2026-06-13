@@ -1463,13 +1463,36 @@ function P.bindExternalDatarefs(silentMissing)
             return
         end
 
+        local function optionalGP(name)
+            local dr = nil
+            dr = select(1, bind_external_dataref(name, nil, nil, true))
+            return dr
+        end
+
+        local function optionalGPS(name)
+            local dr = nil
+            dr = select(1, bind_external_dataref(name, "s", nil, true))
+            return dr
+        end
+
         P.speakstringSink = {
             version = GP("laminar/B738/speakstring_sink/version"),
             request_text = GPS("laminar/B738/speakstring_sink/request_text"),
+            request_source_id = optionalGPS("laminar/B738/speakstring_sink/request_source_id"),
+            request_message_key = optionalGPS("laminar/B738/speakstring_sink/request_message_key"),
             request_priority = GP("laminar/B738/speakstring_sink/request_priority"),
+            request_policy = optionalGP("laminar/B738/speakstring_sink/request_policy"),
             request_seq = GP("laminar/B738/speakstring_sink/request_seq"),
             accepted_seq = GP("laminar/B738/speakstring_sink/accepted_seq"),
-            queue_depth = GP("laminar/B738/speakstring_sink/queue_depth")
+            queue_depth = GP("laminar/B738/speakstring_sink/queue_depth"),
+            request_result_seq = optionalGP("laminar/B738/speakstring_sink/request_result_seq"),
+            request_result_code = optionalGP("laminar/B738/speakstring_sink/request_result_code"),
+            control_source_id = optionalGPS("laminar/B738/speakstring_sink/control_source_id"),
+            control_message_key = optionalGPS("laminar/B738/speakstring_sink/control_message_key"),
+            control_seq = optionalGP("laminar/B738/speakstring_sink/control_seq"),
+            control_result_seq = optionalGP("laminar/B738/speakstring_sink/control_result_seq"),
+            control_result_code = optionalGP("laminar/B738/speakstring_sink/control_result_code"),
+            control_removed_count = optionalGP("laminar/B738/speakstring_sink/control_removed_count")
         }
         if helpers.configureSpeakStringSink then
             helpers.configureSpeakStringSink(P.speakstringSink)
@@ -3199,15 +3222,81 @@ function P.applyRunwayFrictionClamp()
 end
 
 --------------------------------------------------------------------------------------------------------------
-function P.commandtableentry(state, text)
+local function starts_with_text(value, prefix)
+    return type(value) == "string" and string.sub(value, 1, #prefix) == prefix
+end
+
+local function normalize_speech_key(value)
+    local key = tostring(value or "")
+    if #key > 480 then
+        key = string.sub(key, 1, 480)
+    end
+    return key
+end
+
+function P.procedureSpeechKey(procId, stepName, kind)
+    return normalize_speech_key("procedure:" .. tostring(procId or 0) .. ":" .. tostring(stepName or "") .. ":" .. tostring(kind or "step"))
+end
+
+function P.defaultSpeakStringKey(entryType, text)
+    local msg = tostring(text or "")
+    if entryType == def.TAXI then
+        return "taxi:guidance"
+    end
+    if starts_with_text(msg, "Set M C P Heading ") then
+        return "advice:mcp_heading"
+    elseif starts_with_text(msg, "Set M C P Speed ") then
+        return "advice:mcp_speed"
+    elseif starts_with_text(msg, "Set Q N H ") or starts_with_text(msg, "Q N H checked") or msg == "Q N H Standard" then
+        return "advice:qnh"
+    elseif starts_with_text(msg, "Set Trim ") or starts_with_text(msg, "Trim ") then
+        return "advice:trim"
+    elseif msg == "Monitor Taxi Speed" then
+        return "advice:taxi_speed"
+    elseif starts_with_text(msg, "Warning: Route") then
+        return "warning:route"
+    elseif starts_with_text(msg, "Warning:") then
+        return normalize_speech_key("warning:" .. msg)
+    elseif starts_with_text(msg, "Caution") then
+        return normalize_speech_key("caution:" .. msg)
+    end
+    return normalize_speech_key("text:" .. msg)
+end
+
+function P.clearYalQueuedSpeech(messageKey)
+    for i = #P.commandtable, 1, -1 do
+        local entry = P.commandtable[i]
+        if entry and (entry[1] == def.TEXT or entry[1] == def.TAXI) then
+            local entryKey = entry[3] or P.defaultSpeakStringKey(entry[1], entry[2])
+            if messageKey == nil or entryKey == messageKey then
+                table.remove(P.commandtable, i)
+            end
+        end
+    end
+
+    if helpers.clearSpeakStringSink then
+        helpers.clearSpeakStringSink(messageKey)
+    end
+end
+
+--------------------------------------------------------------------------------------------------------------
+function P.commandtableentry(state, text, speechKey, speechPolicy)
 
     local index = 1
     local duplicateentryfound = false
+    local duplicateindex = nil
+    local effectiveSpeechKey = speechKey
+    if (state ~= def.COMMAND) and effectiveSpeechKey == nil then
+        effectiveSpeechKey = P.defaultSpeakStringKey(state, text)
+    end
 
     if (state ~= def.COMMAND) then
         while (index <= #P.commandtable) do
-            if ((P.commandtable[index][1] == state) and (P.commandtable[index][2] == text)) then
+            if (P.commandtable[index][1] == state)
+                and ((P.commandtable[index][2] == text)
+                    or (effectiveSpeechKey ~= nil and P.commandtable[index][3] == effectiveSpeechKey)) then
                 duplicateentryfound = true
+                duplicateindex = index
             end
             index = index + 1
         end
@@ -3218,6 +3307,12 @@ function P.commandtableentry(state, text)
         P.commandtable[newentryindex] = {}
         P.commandtable[newentryindex][1] = state
         P.commandtable[newentryindex][2] = text
+        P.commandtable[newentryindex][3] = effectiveSpeechKey
+        P.commandtable[newentryindex][4] = speechPolicy
+    elseif duplicateindex ~= nil then
+        P.commandtable[duplicateindex][2] = text
+        if effectiveSpeechKey ~= nil then P.commandtable[duplicateindex][3] = effectiveSpeechKey end
+        if speechPolicy ~= nil then P.commandtable[duplicateindex][4] = speechPolicy end
     end
 
 end
@@ -3641,6 +3736,7 @@ end
 function P.abortprocedure()
     local loop, loopIndex = P.findMostRecentLoop()
     if loop then
+        P.clearYalQueuedSpeech()
         P.stopChildProceduresForParent(loopIndex, loop.lock, false)
         P.stopParentProcedureForChild(loopIndex, loop, false)
         loop.procedureabort = true
@@ -3666,6 +3762,7 @@ sasl.registerCommandHandler(my_command_abortprocedure, 0, P.abortprocedure_)
 function P.skipprocedure()
     local loop, loopIndex = P.findMostRecentLoop()
     if loop then
+        P.clearYalQueuedSpeech()
         P.stopChildProceduresForParent(loopIndex, loop.lock, true)
         P.stopParentProcedureForChild(loopIndex, loop, true)
         loop.procedureabort = true
@@ -3691,6 +3788,7 @@ sasl.registerCommandHandler(my_command_skipprocedure, 0, P.skipprocedure_)
 function P.skipprocedurestep()
     local loop = P.findMostRecentLoop()
     if loop then
+        P.clearYalQueuedSpeech()
         loop.procedureskipstep = true
         loop.procedureabort = false
         P.forceImmediateCycle = true
@@ -8601,6 +8699,8 @@ function P.commandtableloop()
             end
             local entry_type = P.commandtable[entry_index][1]
             local entry_text = P.commandtable[entry_index][2]
+            local entry_key = P.commandtable[entry_index][3] or P.defaultSpeakStringKey(entry_type, entry_text)
+            local entry_policy = P.commandtable[entry_index][4] or 2
             if (entry_type == def.TEXT) or (entry_type == def.TAXI) then
                 if entry_type == def.TEXT and entry_text == TAKEOFF_N1_40_MESSAGE and not isTakeoffN140CalloutEligible() then
                     helpers.logInfoTS("SpeakString TEXT dropped stale: " .. tostring(entry_text))
@@ -8615,7 +8715,7 @@ function P.commandtableloop()
                     else
                         helpers.logInfoTS("SpeakString TEXT: " .. tostring(entry_text))
                     end
-                    helpers.speak(entry_text, P.getSpeakStringPriority(entry_type, entry_text))
+                    helpers.speak(entry_text, P.getSpeakStringPriority(entry_type, entry_text), entry_key, entry_policy)
                     P.lastCommandWasSpeech = true
                     local ziboSinkActive = helpers.isSpeakStringSinkActive and helpers.isSpeakStringSinkActive()
                     if not ziboSinkActive then
@@ -8689,9 +8789,10 @@ function P.runProcedureLoop(loopIndex)
             for _, transCond in ipairs(procData.transitionConditions) do
                 if transCond.condition() then
                     helpers.logInfoTS("Skipping '" .. procData.name .. "' due to met transition condition.")
+                    P.clearYalQueuedSpeech()
 
                     local transition_message = procData.name .. " Procedure skipped."
-                    P.commandtableentry(def.TEXT, transition_message)
+                    P.commandtableentry(def.TEXT, transition_message, P.procedureSpeechKey(activeProcKey, "status", "transition"), 2)
                     P.stopChildProceduresForParent(loopIndex, activeProcKey, true)
 
                     -- 1. Prozedur als erledigt markieren
@@ -8727,7 +8828,7 @@ function P.runProcedureLoop(loopIndex)
                 -- *** FIX msg START ***
                 if procData.speakname then
                     local proc_name_text = procData.name .. " Procedure"
-                    if type(proc_name_text) == "string" then P.commandtableentry(def.TEXT, proc_name_text) end
+                    if type(proc_name_text) == "string" then P.commandtableentry(def.TEXT, proc_name_text, P.procedureSpeechKey(activeProcKey, "status", "start"), 2) end
                 end
                  -- *** FIX msg END ***
                 helpers.logInfoTS(procData.name .. " Procedure (Data-Driven) started at " .. timestring)
@@ -8739,7 +8840,7 @@ function P.runProcedureLoop(loopIndex)
                             sasl.logDebug("Prereq #" .. i .. " FAILED.")
                              -- *** FIX msg START ***
                             if prereq.failMsg and type(prereq.failMsg) == "string" and prereq.failMsg ~= "" then
-                                P.commandtableentry(def.TEXT, prereq.failMsg)
+                                P.commandtableentry(def.TEXT, prereq.failMsg, P.procedureSpeechKey(activeProcKey, "prereq" .. tostring(i), "fail"), 2)
                             end
                              -- *** FIX msg END ***
                             loop.procedurenotpossible = true
@@ -8773,10 +8874,13 @@ function P.runProcedureLoop(loopIndex)
                 end
                 sasl.logDebug("Engine A - Handling Abort/NotPossible. Message: " .. msg_abort)
                 if loop.procedureabort then
+                    P.clearYalQueuedSpeech()
+                end
+                if loop.procedureabort then
                       -- *** FIX msg START ***
                     local abort_text = procData.name .. " " .. msg_abort
                     if type(abort_text) == "string" and abort_text ~= "" then
-                        P.commandtableentry(def.TEXT, abort_text)
+                        P.commandtableentry(def.TEXT, abort_text, P.procedureSpeechKey(activeProcKey, "status", "abort"), 2)
                     end
                      -- *** FIX msg END ***
                 end
@@ -8794,7 +8898,8 @@ function P.runProcedureLoop(loopIndex)
             -- A3. SKIP-HANDLING (Benutzeraktion)
             elseif loop.procedureskipstep then
                 sasl.logDebug("Engine A - Handling Skip Step.")
-                P.commandtableentry(def.TEXT, "Procedure Step Skipped") -- Sicher, da String-Literal
+                P.clearYalQueuedSpeech()
+                P.commandtableentry(def.TEXT, "Procedure Step Skipped", P.procedureSpeechKey(activeProcKey, tostring(loop.currentStepName or "step"), "skip"), 2) -- Sicher, da String-Literal
                 loop.procedureskipstep = false
                 local currentStepData = procData.steps[loop.currentStepName]
                 if currentStepData and currentStepData.nextStep then
@@ -8813,7 +8918,7 @@ function P.runProcedureLoop(loopIndex)
                       -- *** FIX msg START ***
                     local complete_text = procData.name .. " Procedure Complete"
                     if type(complete_text) == "string" and complete_text ~= "" then
-                        P.commandtableentry(def.TEXT, complete_text)
+                        P.commandtableentry(def.TEXT, complete_text, P.procedureSpeechKey(activeProcKey, "status", "complete"), 2)
                     end
                      -- *** FIX msg END ***
                 end
@@ -8981,7 +9086,7 @@ function P.runProcedureLoop(loopIndex)
                                         end
                                         -- Nur hinzufügen, wenn es ein gültiger String ist
                                         if type(confirm_msg_raw) == "string" and confirm_msg_raw ~= "" then
-                                            P.commandtableentry(def.TEXT, confirm_msg_raw)
+                                            P.commandtableentry(def.TEXT, confirm_msg_raw, P.procedureSpeechKey(activeProcKey, stepName, "step"), 2)
                                             sasl.logDebug("Confirmation message: " .. confirm_msg_raw)
                                         end
                                     end
@@ -9034,7 +9139,7 @@ function P.runProcedureLoop(loopIndex)
                                                 if type(advice_msg_raw) == "string" and advice_msg_raw ~= "" then
                                                     local queueAdvice, adviceReason = P.shouldQueueVoiceAdvice(loop, stepName, advice_msg_raw)
                                                     if queueAdvice then
-                                                        P.commandtableentry(def.TEXT, advice_msg_raw)
+                                                        P.commandtableentry(def.TEXT, advice_msg_raw, P.procedureSpeechKey(activeProcKey, stepName, "step"), 2)
                                                         sasl.logDebug("Advice message: " .. advice_msg_raw)
                                                     elseif adviceReason == "max-reached" then
                                                         loop.procedureskipstep = true
@@ -9086,7 +9191,7 @@ function P.runProcedureLoop(loopIndex)
                                                 if type(advice_msg_raw) == "string" and advice_msg_raw ~= "" then
                                                     local queueAdvice, adviceReason = P.shouldQueueVoiceAdvice(loop, stepName, advice_msg_raw)
                                                     if queueAdvice then
-                                                        P.commandtableentry(def.TEXT, advice_msg_raw)
+                                                        P.commandtableentry(def.TEXT, advice_msg_raw, P.procedureSpeechKey(activeProcKey, stepName, "step"), 2)
                                                         sasl.logDebug("Advice message: " .. advice_msg_raw)
                                                     elseif adviceReason == "max-reached" then
                                                         loop.procedureskipstep = true
@@ -9146,7 +9251,7 @@ function P.runProcedureLoop(loopIndex)
                                         end
                                         -- Nur hinzufügen, wenn es ein gültiger String ist
                                         if type(confirm_msg_raw) == "string" and confirm_msg_raw ~= "" then
-                                            P.commandtableentry(def.TEXT, confirm_msg_raw)
+                                            P.commandtableentry(def.TEXT, confirm_msg_raw, P.procedureSpeechKey(activeProcKey, stepName, "step"), 2)
                                             sasl.logDebug("Confirmation message (no-check step): " .. confirm_msg_raw)
                                         end
                                     end
@@ -9173,15 +9278,16 @@ function P.runProcedureLoop(loopIndex)
     -- ==========================================================
     elseif loop.procedureabort and not transition_occurred then
         helpers.logInfoTS("Procedure aborted (likely manual or state change before engine). Resetting loop lock.") -- Bleibt Info fürs Log
+        P.clearYalQueuedSpeech()
 
         -- *** NEU: Meldung für den Benutzer hinzufügen ***
         local abort_label = loop.procedureskipped and "Procedure Skipped" or "Procedure Aborted"
         if procData and procData.name then -- Sicherstellen, dass wir einen Namen haben
              local abort_message = procData.name .. " " .. abort_label
-             P.commandtableentry(def.TEXT, abort_message)
+             P.commandtableentry(def.TEXT, abort_message, P.procedureSpeechKey(activeProcKey, "status", "abort"), 2)
         else
              -- Fallback, falls procData aus irgendeinem Grund nil ist
-             P.commandtableentry(def.TEXT, abort_label)
+             P.commandtableentry(def.TEXT, abort_label, P.procedureSpeechKey(activeProcKey, "status", "abort"), 2)
         end
         -- *** ENDE NEU ***
 
