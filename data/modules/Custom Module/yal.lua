@@ -1442,7 +1442,8 @@ function P.bindExternalDatarefs(silentMissing)
             {
                 "ident", "region_filter", "airport_filter", "runway_filter", "kind_filter",
                 "result_ident", "region", "airport", "runway", "kind", "app_id",
-                "service_level", "name", "dme_ident"
+                "service_level", "name", "dme_ident", "support_nav_ident",
+                "support_nav_kind", "support_nav_role"
             },
             {
                 "frequency_filter", "match_index", "request_seq", "result_seq", "status",
@@ -1450,7 +1451,9 @@ function P.bindExternalDatarefs(silentMissing)
                 "gs_lon", "frequency", "course_deg", "mag_course", "slope_deg",
                 "height_ft", "has_gs", "dme_lat", "dme_lon", "dme_elevation_ft",
                 "dme_range_nm", "dme_bias_nm", "dme_frequency", "gs_range_nm",
-                "gs_raw_bearing", "has_dme"
+                "gs_raw_bearing", "has_dme", "support_nav_type", "support_nav_frequency",
+                "support_nav_lat", "support_nav_lon", "support_nav_elevation_ft",
+                "support_nav_range_nm", "has_support_nav"
             }
         )
         if (not silentMissing) or probe_external_dataref("laminar/B738/refdata/cifp/available") then

@@ -624,6 +624,16 @@ local function queryLandingNav(opts)
             gs_range_nm = readNumber(q.gs_range_nm),
             gs_raw_bearing = readNumber(q.gs_raw_bearing),
             has_dme = readNumber(q.has_dme),
+            support_nav_ident = readString(q.support_nav_ident),
+            support_nav_kind = readString(q.support_nav_kind),
+            support_nav_role = readString(q.support_nav_role),
+            support_nav_type = readNumber(q.support_nav_type),
+            support_nav_frequency = readNumber(q.support_nav_frequency),
+            support_nav_lat = readNumber(q.support_nav_lat),
+            support_nav_lon = readNumber(q.support_nav_lon),
+            support_nav_elevation_ft = readNumber(q.support_nav_elevation_ft),
+            support_nav_range_nm = readNumber(q.support_nav_range_nm),
+            has_support_nav = readNumber(q.has_support_nav),
             region = readString(q.region),
             airport = readString(q.airport),
             runway = readString(q.runway),
@@ -1391,6 +1401,16 @@ local function apiLandingToNavEntry(api, context)
     entry._apiMatchCount = tonumber(api.match_count) or 0
     entry._apiCourseDeg = tonumber(api.course_deg)
     entry._apiMagCourse = tonumber(api.mag_course)
+    entry._supportNavIdent = cleanText(api.support_nav_ident)
+    entry._supportNavKind = cleanText(api.support_nav_kind)
+    entry._supportNavRole = cleanText(api.support_nav_role)
+    entry._supportNavType = tonumber(api.support_nav_type) or 0
+    entry._supportNavFrequency = tonumber(api.support_nav_frequency) or 0
+    entry._supportNavLat = tonumber(api.support_nav_lat) or 0
+    entry._supportNavLon = tonumber(api.support_nav_lon) or 0
+    entry._supportNavElevationFt = tonumber(api.support_nav_elevation_ft) or 0
+    entry._supportNavRangeNm = tonumber(api.support_nav_range_nm) or 0
+    entry._hasSupportNav = boolValue(api.has_support_nav)
 
     if isFinalApproachKind(kind) and trueCourse then
         entry.isTrueCourse = true

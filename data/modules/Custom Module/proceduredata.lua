@@ -954,6 +954,31 @@ local function getSetIlsApproachDME(loop, navdata)
             or (navdata[def.DESTDMEIDENT] and navdata[def.DESTDMEIDENT] ~= "") then
             return navdata
         end
+        if navdata._hasSupportNav and (tonumber(navdata._supportNavFrequency) or 0) > 0
+            and navdata._supportNavIdent and navdata._supportNavIdent ~= "" then
+            local supportType = def.NAVTYPEDME
+            if navdata._supportNavKind == "VOR" or navdata._supportNavKind == "VORDME" then
+                supportType = def.NAVTYPEVOR
+            end
+            return {
+                [def.DESTICAO] = navdata[def.DESTICAO],
+                [def.DESTRWY] = navdata[def.DESTRWY],
+                [def.DESTNAVTYPE] = supportType,
+                [def.DESTNAVID] = navdata._supportNavIdent,
+                [def.DESTFREQ] = tonumber(navdata._supportNavFrequency) or 0,
+                [def.DESTNAVDME] = true,
+                [def.DESTLATPOS] = tonumber(navdata._supportNavLat) or 0,
+                [def.DESTLONPOS] = tonumber(navdata._supportNavLon) or 0,
+                [def.DESTELEVATION] = tonumber(navdata._supportNavElevationFt) or 0,
+                [def.DESTRANGE] = tonumber(navdata._supportNavRangeNm) or 0,
+                [def.DESTDMEIDENT] = navdata._supportNavIdent,
+                [def.DESTDMEFREQ] = tonumber(navdata._supportNavFrequency) or 0,
+                _source = "zibo_api_support_nav",
+                _supportNavKind = navdata._supportNavKind,
+                _supportNavRole = navdata._supportNavRole
+            }
+        end
+        return nil
     end
     local key = tostring(loop.navdatatableindex or "") .. "|" .. tostring(get(P.desicao) or "") .. "|" .. tostring(get(P.desrwy) or "")
     if loop._setIlsDmeKey == key and loop._setIlsDmeReady then
