@@ -1195,6 +1195,8 @@ function P.YalinitGlobal()
     P.lastQnhHpaArr = nil
     P.lastQnhSourceDep = nil
     P.lastQnhSourceArr = nil
+    P.lastQnhSourceKeyDep = nil
+    P.lastQnhSourceKeyArr = nil
 
 
     --------------------------------------------------------------------------------------------------------------
@@ -4022,6 +4024,19 @@ local function stabilize_qnh_hpa(raw_hpa, last_hpa)
     return last_hpa
 end
 
+local function get_metar_qnh_hpa_for_icao(metar, icao)
+    if not (helpers.isvalidicao(icao) and metar and metar.metarfound and metar.icaocode) then
+        return nil
+    end
+    if string.upper(tostring(metar.icaocode or "")) ~= icao then
+        return nil
+    end
+    if not (metar.decodedmetar and metar.decodedmetar.pressure and metar.decodedmetar.pressure.qnh_hpa) then
+        return nil
+    end
+    return tonumber(metar.decodedmetar.pressure.qnh_hpa)
+end
+
 function P.getlocalqnh(deparr)
 
     local region_pas = get(P.baroregionpas)
@@ -4029,33 +4044,35 @@ function P.getlocalqnh(deparr)
 
     local metar_altim_in_hpa_val = nil
     local qnh_source = "region"
+    local qnh_source_key = "region"
 
     if (deparr == def.DEPARTURE) then
         local depIcaoNow = string.upper(helpers.cleanstring(get(P.depicao) or ""))
-        local depIcaoOk = helpers.isvalidicao(depIcaoNow)
-        if depIcaoOk
-            and P.depmetar and P.depmetar.metarfound
-            and P.depmetar.icaocode
-            and string.upper(P.depmetar.icaocode) == depIcaoNow
-            and P.depmetar.decodedmetar and P.depmetar.decodedmetar.pressure and P.depmetar.decodedmetar.pressure.qnh_hpa then
-            metar_altim_in_hpa_val = tonumber(P.depmetar.decodedmetar.pressure.qnh_hpa)
+        local nearestIcao = helpers.extractprimaryicao(get(P.nearesticao) or "")
+        local preferNearest = (P.flightstate == def.FLIGHTSTATEPREFLIGHT)
+            and helpers.isvalidicao(nearestIcao)
+            and nearestIcao ~= depIcaoNow
+        local nearestQnh = get_metar_qnh_hpa_for_icao(P.nearmetar, nearestIcao)
+        local depQnh = get_metar_qnh_hpa_for_icao(P.depmetar, depIcaoNow)
+
+        if preferNearest and nearestQnh ~= nil then
+            metar_altim_in_hpa_val = nearestQnh
+            qnh_source = "nearestmetar"
+            qnh_source_key = qnh_source .. ":" .. nearestIcao
+        elseif (not preferNearest) and depQnh ~= nil then
+            metar_altim_in_hpa_val = depQnh
             qnh_source = "depmetar"
-        end
-        if metar_altim_in_hpa_val == nil then
-            local nearestIcao = helpers.extractprimaryicao(get(P.nearesticao) or "")
-            if helpers.isvalidicao(nearestIcao)
-                and P.nearmetar and P.nearmetar.metarfound
-                and P.nearmetar.icaocode
-                and string.upper(P.nearmetar.icaocode) == nearestIcao
-                and P.nearmetar.decodedmetar and P.nearmetar.decodedmetar.pressure and P.nearmetar.decodedmetar.pressure.qnh_hpa then
-                metar_altim_in_hpa_val = tonumber(P.nearmetar.decodedmetar.pressure.qnh_hpa)
-                qnh_source = "nearestmetar"
-            end
+            qnh_source_key = qnh_source .. ":" .. depIcaoNow
+        elseif nearestQnh ~= nil then
+            metar_altim_in_hpa_val = nearestQnh
+            qnh_source = "nearestmetar"
+            qnh_source_key = qnh_source .. ":" .. nearestIcao
         end
     elseif (deparr == def.ARRIVAL) then
         if P.desmetar.metarfound and P.desmetar.decodedmetar and P.desmetar.decodedmetar.pressure and P.desmetar.decodedmetar.pressure.qnh_hpa then
             metar_altim_in_hpa_val = tonumber(P.desmetar.decodedmetar.pressure.qnh_hpa)
             qnh_source = "desmetar"
+            qnh_source_key = qnh_source .. ":" .. tostring(P.desmetar.icaocode or "")
         end
     end
 
@@ -4065,9 +4082,17 @@ function P.getlocalqnh(deparr)
 
     local localqnhpas = nil
     if (deparr == def.DEPARTURE) then
+        if P.lastQnhSourceKeyDep ~= qnh_source_key then
+            P.lastQnhHpaDep = nil
+            P.lastQnhSourceKeyDep = qnh_source_key
+        end
         P.lastQnhHpaDep = stabilize_qnh_hpa(localqnhraw, P.lastQnhHpaDep)
         localqnhpas = P.lastQnhHpaDep
     elseif (deparr == def.ARRIVAL) then
+        if P.lastQnhSourceKeyArr ~= qnh_source_key then
+            P.lastQnhHpaArr = nil
+            P.lastQnhSourceKeyArr = qnh_source_key
+        end
         P.lastQnhHpaArr = stabilize_qnh_hpa(localqnhraw, P.lastQnhHpaArr)
         localqnhpas = P.lastQnhHpaArr
     else
@@ -4077,14 +4102,16 @@ function P.getlocalqnh(deparr)
     local localqnhinch = localqnhpas and helpers.convertpressure(localqnhpas) or nil
 
     if deparr == def.DEPARTURE then
-        if P.lastQnhSourceDep ~= qnh_source then
-            P.lastQnhSourceDep = qnh_source
-            helpers.logInfoTS("QNH source DEP: " .. tostring(qnh_source))
+        if P.lastQnhSourceDep ~= qnh_source_key then
+            P.lastQnhSourceDep = qnh_source_key
+            local sourceIcao = string.match(qnh_source_key, ":(.+)$")
+            helpers.logInfoTS("QNH source DEP: " .. tostring(qnh_source) .. (sourceIcao and (" " .. sourceIcao) or ""))
         end
     elseif deparr == def.ARRIVAL then
-        if P.lastQnhSourceArr ~= qnh_source then
-            P.lastQnhSourceArr = qnh_source
-            helpers.logInfoTS("QNH source ARR: " .. tostring(qnh_source))
+        if P.lastQnhSourceArr ~= qnh_source_key then
+            P.lastQnhSourceArr = qnh_source_key
+            local sourceIcao = string.match(qnh_source_key, ":(.+)$")
+            helpers.logInfoTS("QNH source ARR: " .. tostring(qnh_source) .. (sourceIcao and (" " .. sourceIcao) or ""))
         end
     end
 
