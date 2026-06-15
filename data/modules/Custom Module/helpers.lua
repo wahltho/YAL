@@ -918,9 +918,45 @@ local function write_sink_string(prop, value)
     return ok == true
 end
 
-function P.speak(text, priority, message_key, policy)
-    if P.speakViaZiboSink and P.speakViaZiboSink(text, priority, message_key, policy) then
+local function speak_sink_result_name(code)
+    code = tonumber(code) or 0
+    if code == 1 then return "accepted" end
+    if code == 2 then return "rejected_disabled" end
+    if code == 3 then return "rejected_empty_text" end
+    if code == 4 then return "rejected_duplicate" end
+    if code == 5 then return "accepted_replaced" end
+    if code == 6 then return "rejected_queue_full" end
+    return "none"
+end
+
+local function log_speak_sink_drop(reason, text, message_key)
+    P.speakStringSinkDropCount = (tonumber(P.speakStringSinkDropCount) or 0) + 1
+    local count = P.speakStringSinkDropCount
+    if count > 5 and (count % 20) ~= 0 then
         return
+    end
+
+    local preview = tostring(text or "")
+    if #preview > 90 then
+        preview = string.sub(preview, 1, 90) .. "..."
+    end
+    P.logInfoTS("Zibo SpeakString Sink write failed after activation; direct fallback suppressed"
+        .. " reason=" .. tostring(reason or "unknown")
+        .. " key=" .. tostring(message_key or "")
+        .. " count=" .. tostring(count)
+        .. " text=" .. preview)
+end
+
+function P.speak(text, priority, message_key, policy)
+    if P.speakViaZiboSink then
+        local ok, reason = P.speakViaZiboSink(text, priority, message_key, policy)
+        if ok then
+            return
+        end
+        if P.speakStringSinkEverActive then
+            log_speak_sink_drop(reason, text, message_key)
+            return
+        end
     end
 
     text = tostring(text or "")
@@ -943,6 +979,7 @@ function P.configureSpeakStringSink(refs)
     if version < 1 then
         return
     end
+    P.speakStringSinkEverActive = true
 
     local queueControl = version >= 4
         and refs.request_source_id and refs.request_message_key and refs.request_policy
@@ -970,30 +1007,30 @@ end
 function P.speakViaZiboSink(text, priority, message_key, policy)
     local sink = P.speakStringSink
     if type(sink) ~= "table" then
-        return false
+        return false, "missing_sink_table"
     end
     if not (sink.version and sink.request_text and sink.request_priority and sink.request_seq) then
-        return false
+        return false, "missing_required_refs"
     end
     if not (isProperty(sink.version) and isProperty(sink.request_text) and isProperty(sink.request_priority) and isProperty(sink.request_seq)) then
-        return false
+        return false, "invalid_required_refs"
     end
 
     local ok, version = pcall(get, sink.version)
     if not ok or (tonumber(version) or 0) < 1 then
-        return false
+        return false, "sink_version_unavailable"
     end
 
     local speechText = tostring(text or "")
     if speechText == "" then
-        return false
+        return false, "empty_text"
     end
     if #speechText > 511 then
         speechText = string.sub(speechText, 1, 511)
     end
 
     ok = write_sink_string(sink.request_text, speechText)
-    if not ok then return false end
+    if not ok then return false, "write_text_failed" end
 
     local requestPolicy = nil
     if (tonumber(version) or 0) >= 4
@@ -1003,8 +1040,8 @@ function P.speakViaZiboSink(text, priority, message_key, policy)
         if #key > 511 then
             key = string.sub(key, 1, 511)
         end
-        if not write_sink_string(sink.request_source_id, "YAL") then return false end
-        if not write_sink_string(sink.request_message_key, key) then return false end
+        if not write_sink_string(sink.request_source_id, "YAL") then return false, "write_source_failed" end
+        if not write_sink_string(sink.request_message_key, key) then return false, "write_key_failed" end
 
         requestPolicy = 0
         if key ~= "" then
@@ -1014,12 +1051,12 @@ function P.speakViaZiboSink(text, priority, message_key, policy)
 
     ok = pcall(set, sink.request_priority, tonumber(priority) or 10)
     if not ok then
-        return false
+        return false, "write_priority_failed"
     end
 
     if requestPolicy ~= nil then
         ok = pcall(set, sink.request_policy, requestPolicy)
-        if not ok then return false end
+        if not ok then return false, "write_policy_failed" end
     end
 
     P.speakStringSinkSeq = (tonumber(P.speakStringSinkSeq) or 0) + 1
@@ -1028,7 +1065,34 @@ function P.speakViaZiboSink(text, priority, message_key, policy)
     end
 
     ok = pcall(set, sink.request_seq, P.speakStringSinkSeq)
-    return ok == true
+    if not ok then
+        return false, "write_seq_failed"
+    end
+
+    local requestSeq = P.speakStringSinkSeq
+    if sink.accepted_seq and isProperty(sink.accepted_seq) then
+        local acceptedSeq = nil
+        ok, acceptedSeq = pcall(get, sink.accepted_seq)
+        if ok and tonumber(acceptedSeq) == requestSeq then
+            return true
+        end
+    end
+
+    if sink.request_result_seq and sink.request_result_code
+        and isProperty(sink.request_result_seq) and isProperty(sink.request_result_code) then
+        local okSeq, resultSeq = pcall(get, sink.request_result_seq)
+        local okCode, resultCode = pcall(get, sink.request_result_code)
+        resultSeq = okSeq and tonumber(resultSeq) or nil
+        resultCode = okCode and tonumber(resultCode) or 0
+        if resultSeq == requestSeq and resultCode and resultCode ~= 0 then
+            if resultCode == 1 or resultCode == 5 then
+                return true
+            end
+            return false, "sink_" .. speak_sink_result_name(resultCode)
+        end
+    end
+
+    return true
 end
 
 function P.clearSpeakStringSink(message_key)
