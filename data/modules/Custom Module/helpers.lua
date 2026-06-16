@@ -5492,17 +5492,11 @@ function P.calcApproachCourseZibo(entry, ctx)
             return P.calccourse(entry[def.DESTCOURSE])
         end
     else
+        -- Detected-only RNAV entries are weaker than a matched navdata entry.
+        -- In this case prefer the destination runway heading over the live FMS leg
+        -- track, which can reflect an intercept/dogleg instead of the displayed FAC.
         if navType == def.NAVTYPERNAV then
             if entry._detectedOnly then
-                local entrySource, entryCourse = entry_nav_course()
-                if entryCourse then
-                    markSource(entrySource == "NAV_TRUE" and "DETECTED_NAV_TRUE" or "DETECTED_NAV")
-                    return entryCourse
-                end
-
-                -- Detected-only RNAV without an explicit CIFP course is weaker than
-                -- matched navdata. Prefer runway heading over live FMS leg track,
-                -- which can reflect an intercept/dogleg instead of the displayed FAC.
                 local runwayMag = tonumber(ctx.runwayMag)
                 if runwayMag then
                     markSource("RUNWAY_MAG")
