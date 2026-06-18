@@ -2756,6 +2756,10 @@ function P.getMetar(icaocode, metarTable)
         local tempFilePath = def.YALCACHEPATH .. icaocode .. "_metar.txt"
         metarTable.icaocode = icaocode
 
+        if not P.check_create_path(def.YALCACHEPATH) then
+            P.logInfoTS("Could not create METAR temp folder for " .. icaocode .. ". Web download skipped.")
+            return
+        end
 
         sasl.net.downloadFileAsync(metarUrl, tempFilePath, function(url, path, isOk, responseCodeOrError)
             P.onMetarDownloaded(url, path, isOk, responseCodeOrError, metarTable)

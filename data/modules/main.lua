@@ -132,16 +132,6 @@ sasl.options.setAircraftPanelRendering(false)
 sasl.options.set3DRendering(false)
 sasl.options.setInteractivity(true)
 
-if helpers.check_create_path(def.XPCACHESPATH) then
-    if not helpers.check_create_path(def.YALCACHEPATH) then
-        sasl.logWarning("Failed to create cache folder, reverting to legacy folder")
-        def.YALCACHESPATH = def.XPOUTPUTPATH
-    end
-else
-    sasl.logWarning("Failed to create cache folder, reverting to legacy folder")
-    def.YALCACHESPATH = def.XPOUTPUTPATH
-end
-
 include "keyboard_handler"
 local menu_settings = nil
 
