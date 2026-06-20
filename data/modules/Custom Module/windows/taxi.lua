@@ -5577,6 +5577,30 @@ U = {
     choose_departure_start_ramp = choose_departure_start_ramp,
     choose_active_arrival_retarget_ramp = choose_active_arrival_retarget_ramp,
     is_voice_enabled = is_voice_enabled,
+    is_raas_duplicate_voice_suppressed = function(comp, info)
+        if not comp or not info then
+            return false
+        end
+        local action = tostring(info.action or "")
+        if action ~= "CROSS RWY" then
+            return false
+        end
+        local yalref = comp.yal or _G.yal
+        if not (yalref and yalref.isZiboRaasFeatureActive) then
+            return false
+        end
+        if not yalref.isZiboRaasFeatureActive("approaching_runway") then
+            return false
+        end
+        local key = tostring(action) .. "|" .. tostring(info.display or info.label or info.text or "")
+        if comp._lastRaasSuppressedVoiceKey ~= key then
+            comp._lastRaasSuppressedVoiceKey = key
+            if helpers and helpers.logDebugTS then
+                helpers.logDebugTS("TaxiGuide: RAAS duplicate voice suppressed " .. tostring(info.text or ""))
+            end
+        end
+        return true
+    end,
     is_auto_taxi_guidance_enabled = is_auto_taxi_guidance_enabled,
     is_visual_taxi_guidance_enabled = is_visual_taxi_guidance_enabled,
     find_runway_entry_label = find_runway_entry_label,

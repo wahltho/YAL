@@ -26,6 +26,14 @@ function M.attach(U, C, def, helpers, settings)
     local distance_to_segments = U.distance_to_segments
     local runway_label_voice = U.runway_label_voice
 
+    local function raas_duplicate_voice_suppressed(comp, info)
+        local fn = U.is_raas_duplicate_voice_suppressed
+        if fn then
+            return fn(comp, info) == true
+        end
+        return false
+    end
+
     local function gate_distance_meters(comp, aircraft, route, data)
         local fn = U.gate_distance_meters
         if fn then
@@ -2173,7 +2181,8 @@ function M.attach(U, C, def, helpers, settings)
             local voice_queued = false
             local voice_active = auto_voice and is_voice_enabled()
             local voice_text_ok = voice_active and info.text and info.text ~= ""
-            if voice_text_ok then
+            local voice_suppressed_by_raas = voice_text_ok and raas_duplicate_voice_suppressed(comp, info)
+            if voice_text_ok and not voice_suppressed_by_raas then
                 local last_text = comp._lastGuidanceVoiceText
                 local last_time = comp._lastGuidanceVoiceTime or 0
                 local cooldown = (C and C.guidanceCooldown) or 8
@@ -2197,7 +2206,7 @@ function M.attach(U, C, def, helpers, settings)
                 )
                 local allow_visual = true
                 local current_visual = comp._visualGuidance
-                if voice_text_ok and (not voice_queued) then
+                if voice_text_ok and (not voice_queued) and not voice_suppressed_by_raas then
                     -- Keep popup strictly in sync with the emitted voice event.
                     allow_visual = false
                 end
@@ -3098,7 +3107,7 @@ function M.attach(U, C, def, helpers, settings)
             end
             helpers.logDebugTS(msg)
         end
-        if allow_voice and is_voice_enabled() then
+        if allow_voice and is_voice_enabled() and not raas_duplicate_voice_suppressed(comp, info) then
             speak_guidance_text(comp, info.text)
         end
         if info.targetSegIdx then

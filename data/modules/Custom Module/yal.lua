@@ -1308,6 +1308,60 @@ local function probe_external_dataref(name, kind)
     return false
 end
 
+local function read_optional_number_dataref(ref)
+    if ref and isProperty(ref) then
+        local ok, value = pcall(get, ref)
+        if ok then
+            return tonumber(value)
+        end
+    end
+    return nil
+end
+
+function P.isZiboRaasRuntimeActive()
+    local api = P.ziboRaasRuntime
+    if not api then
+        return false
+    end
+    local version = read_optional_number_dataref(api.version) or 0
+    if version < 1 then
+        return false
+    end
+    if (read_optional_number_dataref(api.ready) or 0) ~= 1 then
+        return false
+    end
+    if (read_optional_number_dataref(api.powered) or 0) ~= 1 then
+        return false
+    end
+    if (read_optional_number_dataref(api.inhibited) or 0) ~= 0 then
+        return false
+    end
+    return true
+end
+
+function P.isZiboRaasFeatureActive(feature)
+    if not P.isZiboRaasRuntimeActive() then
+        return false
+    end
+    local settingsTable = P.ziboRaasRuntime and P.ziboRaasRuntime.settings
+    local settingRef = settingsTable and settingsTable[feature]
+    return (read_optional_number_dataref(settingRef) or 0) == 1
+end
+
+function P.logZiboRaasRuntimeApi()
+    local api = P.ziboRaasRuntime
+    local version = api and read_optional_number_dataref(api.version) or nil
+    if not version or version < 1 then
+        return
+    end
+    local key = "version=" .. tostring(math.floor(version))
+    if P.ziboRaasRuntimeApiLogKey == key then
+        return
+    end
+    P.ziboRaasRuntimeApiLogKey = key
+    helpers.logInfoTS("Zibo RAAS Runtime API connected " .. key)
+end
+
 local function bind_external_dataref(name, kind, index, silentMissing)
     if silentMissing and not probe_external_dataref(name, kind) then
         return nil, true
@@ -1502,8 +1556,37 @@ function P.bindExternalDatarefs(silentMissing)
         end
     end
 
+    local function bindZiboRaasRuntimeRefs()
+        P.ziboRaasRuntime = nil
+        if silentMissing and not probe_external_dataref("laminar/B738/raas/runtime/version") then
+            return
+        end
+
+        P.ziboRaasRuntime = {
+            version = GP("laminar/B738/raas/runtime/version"),
+            available = GP("laminar/B738/raas/runtime/available"),
+            ready = GP("laminar/B738/raas/runtime/ready"),
+            powered = GP("laminar/B738/raas/runtime/powered"),
+            inhibited = GP("laminar/B738/raas/runtime/inhibited"),
+            nd_alert_visible = GP("laminar/B738/raas/runtime/nd_alert_visible"),
+            nd_alert_text = GPS("laminar/B738/raas/runtime/nd_alert_text"),
+            settings = {
+                distance_remaining = GP("laminar/B738/raas/settings/distance_remaining"),
+                approaching_runway = GP("laminar/B738/raas/settings/approaching_runway"),
+                on_runway = GP("laminar/B738/raas/settings/on_runway"),
+                taxiway_takeoff = GP("laminar/B738/raas/settings/taxiway_takeoff"),
+                short_runway = GP("laminar/B738/raas/settings/short_runway"),
+                long_landing = GP("laminar/B738/raas/settings/long_landing"),
+                unstable_approach = GP("laminar/B738/raas/settings/unstable_approach"),
+                altimeter_setting = GP("laminar/B738/raas/settings/altimeter_setting")
+            }
+        }
+        P.logZiboRaasRuntimeApi()
+    end
+
     bindRefdataRefs()
     bindSpeakStringSinkRefs()
+    bindZiboRaasRuntimeRefs()
 
     P.simpaused = GP("sim/time/paused")
     P.simfreezed = GPFAE("sim/operation/override/override_planepath", 1)
