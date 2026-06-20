@@ -8600,7 +8600,8 @@ function P.ongoingtasks()
     local groundspeed = get(P.groundspeed) or 0
     local onDepartureRunway = P.aircraftonrwy and P.aircraftonrwy(def.DEPARTURE, 40, 20)
     local onArrivalRunway = P.aircraftonrwy and P.aircraftonrwy(def.ARRIVAL, 40, 20)
-    if (get(P.airgroundsensor) == def.ON) and (groundspeed > 45) then
+    local raasCoversTaxiwayTakeoff = P.isZiboRaasFeatureActive and P.isZiboRaasFeatureActive("taxiway_takeoff")
+    if (get(P.airgroundsensor) == def.ON) and (groundspeed > 45) and (not raasCoversTaxiwayTakeoff) then
         -- Departure taxi: warn if fast while not yet on the departure runway.
         if (P.flightstate == def.FLIGHTSTATEPREFLIGHT) and (not onDepartureRunway) then
             P.commandtableentry(def.TEXT, "Monitor Taxi Speed")
