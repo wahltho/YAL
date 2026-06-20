@@ -17,6 +17,7 @@ local S = {
 }
 
 local MAX_CIFP_LINES = 5000
+local MIN_EFFECTIVE_NAVDATA_API_VERSION = 3
 
 local STATUS_NAMES = {
     [0] = "idle",
@@ -313,6 +314,31 @@ local function categoryAvailable(name)
     return (tonumber(readNumber(cat.available)) or 0) == 1
 end
 
+local function apiVersion()
+    return tonumber(S.apiVersion) or 0
+end
+
+local function apiVersionAtLeast(minVersion)
+    return apiVersion() >= (tonumber(minVersion) or 1)
+end
+
+local function effectiveLandingNavAvailable()
+    if not categoryAvailable("landing_nav") then
+        return false
+    end
+    if apiVersionAtLeast(MIN_EFFECTIVE_NAVDATA_API_VERSION) then
+        return true
+    end
+    logOnce(
+        "landing-nav-api-version-too-low",
+        "Zibo Refdata landing_nav API requires api_version >= "
+            .. tostring(MIN_EFFECTIVE_NAVDATA_API_VERSION)
+            .. " for effective user_nav semantics; legacy Navdata Table fallback active",
+        false
+    )
+    return false
+end
+
 local function categoryConnectSummary(name)
     local cat = S.categories[name]
     if not cat then
@@ -402,6 +428,30 @@ function M.isCategoryAvailable(name)
         return false
     end
     return categoryAvailable(name)
+end
+
+function M.getApiVersion()
+    if not S.initialized then
+        return nil
+    end
+    if not ensureReady() then
+        return nil
+    end
+    return apiVersion()
+end
+
+function M.isEffectiveLandingNavAvailable()
+    if not S.initialized then
+        return false
+    end
+    if not ensureReady() then
+        return false
+    end
+    return effectiveLandingNavAvailable()
+end
+
+function M.isEffectiveNavdataAvailable()
+    return M.isEffectiveLandingNavAvailable()
 end
 
 local function nextSeq(name)
@@ -1641,6 +1691,9 @@ function M.compareLandingNavForEntry(_, entry, context)
     if not ensureReady() then
         return
     end
+    if not effectiveLandingNavAvailable() then
+        return
+    end
     compareLandingEntry(entry, context)
 end
 
@@ -1655,6 +1708,9 @@ function M.getLandingNavForApproach(context)
         return nil
     end
     if not ensureReady() then
+        return nil
+    end
+    if not effectiveLandingNavAvailable() then
         return nil
     end
 

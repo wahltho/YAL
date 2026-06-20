@@ -2939,7 +2939,8 @@ end
 --------------------------------------------------------------------------------------------------------------
 function P.prepareRefdataLegacyTables(reason)
     reason = tostring(reason or "startup")
-    local navApiReady = refdata and refdata.isCategoryAvailable and refdata.isCategoryAvailable("landing_nav") == true
+    local navApiReady = refdata and refdata.isEffectiveLandingNavAvailable
+        and refdata.isEffectiveLandingNavAvailable() == true
     local airportApiReady = refdata and refdata.isCategoryAvailable and refdata.isCategoryAvailable("apt") == true
 
     P.refdataNavApiReady = navApiReady
@@ -2947,7 +2948,7 @@ function P.prepareRefdataLegacyTables(reason)
     P.refdataLegacyTablesLatched = true
 
     if navApiReady then
-        helpers.logDebugTS("Zibo Refdata landing_nav API available; legacy Navdata Table load skipped (" .. reason .. ")")
+        helpers.logDebugTS("Zibo Refdata landing_nav API v3 available; legacy Navdata Table load skipped (" .. reason .. ")")
     else
         P.ensureLegacyNavdataTable(reason)
     end

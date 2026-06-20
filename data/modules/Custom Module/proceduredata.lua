@@ -6008,7 +6008,8 @@ function M.fillProcedureTable()
                         local selectedNavType = navTypeFromSelectedApproachId(selectedAppId)
                         local detectedNavType = detectedVariant and detectedVariant.navType or nil
                         local candidateTypes = buildSetIlsCandidateTypes(selectedNavType, detectedNavType)
-                        local landingNavApiReady = refdata and refdata.isCategoryAvailable and refdata.isCategoryAvailable("landing_nav") == true
+                        local landingNavApiReady = refdata and refdata.isEffectiveLandingNavAvailable
+                            and refdata.isEffectiveLandingNavAvailable() == true
                         if not landingNavApiReady and P.ensureLegacyNavdataTable then
                             P.ensureLegacyNavdataTable("set-ils")
                         end
@@ -6095,7 +6096,7 @@ function M.fillProcedureTable()
                         end
 
                         local localEntry = loop.navdatatableindex and P.navdatatable[loop.navdatatableindex] or nil
-                        if refdata and refdata.getLandingNavForApproach then
+                        if landingNavApiReady and refdata and refdata.getLandingNavForApproach then
                             loop.apiNavdata = refdata.getLandingNavForApproach({
                                 icao = get(P.desicao),
                                 runway = get(P.desrwy),
