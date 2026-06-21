@@ -1185,6 +1185,11 @@ function P.YalinitGlobal()
     P.routeEndsBeforeTodWarned = false
     P.todResetMcpAdviceState = { key = nil, count = 0, spoken = 0 }
     P._takeoffN140CalloutLatched = false
+    P.approachPrepTriggerKey = nil
+    P.approachPrepCompletedForKey = nil
+    P.approachPrepSelectedAppKey = nil
+    P.approachPrepSelectedAppSince = nil
+    P.approachPrepSetIlsKey = nil
 
     P.windshieldIcingStarted = false
     P.windshieldIcingApplied = false
@@ -6966,7 +6971,24 @@ function P.triggerapproachprep()
     local desIcao = get(P.desicao)
     local desRwy = get(P.desrwy)
     local validDest = helpers.isvalidicao(desIcao) and helpers.isvalidrwy(desRwy)
-    local key = validDest and (tostring(desIcao) .. "|" .. tostring(desRwy)) or nil
+    local baseKey = validDest and (tostring(desIcao) .. "|" .. tostring(desRwy)) or nil
+    local selectedAppId = nil
+    if P.fmsselectedapp and helpers.parseSelectedApproachId then
+        local selectedInfo = helpers.parseSelectedApproachId(get(P.fmsselectedapp), desRwy)
+        selectedAppId = selectedInfo and selectedInfo.id or nil
+    end
+
+    local setIlsKey = baseKey
+    if baseKey and selectedAppId and selectedAppId ~= "" then
+        setIlsKey = baseKey .. "|" .. tostring(selectedAppId)
+    end
+    local key = setIlsKey
+
+    local now = os.time()
+    if setIlsKey ~= P.approachPrepSelectedAppKey then
+        P.approachPrepSelectedAppKey = setIlsKey
+        P.approachPrepSelectedAppSince = selectedAppId and now or nil
+    end
 
     if key ~= P.approachPrepTriggerKey then
         P.approachPrepTriggerKey = key
@@ -6978,13 +7000,49 @@ function P.triggerapproachprep()
 
     local distDest = tonumber(get(P.distdest)) or 99999
     local vs = tonumber(get(P.verticalspeed)) or 0
-    if distDest > 40 or vs >= -300 then
+    local descending = vs < -300
+    local nearPrepGate = descending and distDest <= 40
+    local selectedAppStableSeconds = 0
+    if selectedAppId and P.approachPrepSelectedAppSince then
+        selectedAppStableSeconds = math.max(0, now - P.approachPrepSelectedAppSince)
+    end
+    local earlySetIlsGate = descending and selectedAppId ~= nil
+        and distDest <= 70 and selectedAppStableSeconds >= 45
+
+    local ilsProc = P.proceduretable[def.SETILSPROCEDURE]
+    if ilsProc and ilsProc.set and not P.approachPrepSetIlsKey then
+        P.approachPrepSetIlsKey = setIlsKey
+    end
+    if ilsProc and ilsProc.set and P.approachPrepSetIlsKey and setIlsKey ~= P.approachPrepSetIlsKey then
+        helpers.logInfoTS("ApproachPrepTrigger: Set ILS key changed from " .. tostring(P.approachPrepSetIlsKey)
+            .. " to " .. tostring(setIlsKey) .. "; clearing Set ILS completion flag")
+        ilsProc.set = false
+        if P.ProcSetStatusarraydr then
+            set(P.ProcSetStatusarraydr, 0, def.SETILSPROCEDURE)
+        end
+    end
+
+    local ilsDone = ilsProc and ilsProc.set and P.approachPrepSetIlsKey == setIlsKey
+    if not ilsDone then
+        if earlySetIlsGate or nearPrepGate then
+            if P.triggerprocedure(def.SETILSPROCEDURE, false) then
+                P.approachPrepSetIlsKey = setIlsKey
+                if earlySetIlsGate and not nearPrepGate then
+                    helpers.logInfoTS(string.format(
+                        "ApproachPrepTrigger: early Set ILS key=%s selectedApp=%s stable=%ds distDest=%.1f vs=%d",
+                        tostring(setIlsKey),
+                        tostring(selectedAppId),
+                        helpers.roundnumber(selectedAppStableSeconds),
+                        distDest,
+                        helpers.roundnumber(vs)
+                    ))
+                end
+            end
+        end
         return
     end
 
-    local ilsDone = P.proceduretable[def.SETILSPROCEDURE] and P.proceduretable[def.SETILSPROCEDURE].set
-    if not ilsDone then
-        P.triggerprocedure(def.SETILSPROCEDURE, false)
+    if not nearPrepGate then
         return
     end
 
