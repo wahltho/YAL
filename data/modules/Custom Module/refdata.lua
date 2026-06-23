@@ -18,6 +18,7 @@ local S = {
 
 local MAX_CIFP_LINES = 5000
 local MIN_EFFECTIVE_NAVDATA_API_VERSION = 3
+local LANDING_NAV_REJECT_SCORE = -1000000
 
 local STATUS_NAMES = {
     [0] = "idle",
@@ -1295,7 +1296,7 @@ end
 
 local function scoreLandingApiForContext(api, kind, context, selectedInfo)
     if not api then
-        return -1000000
+        return LANDING_NAV_REJECT_SCORE
     end
     local score = 0
     local fallbackEntry = context and context.fallbackEntry or nil
@@ -1305,6 +1306,17 @@ local function scoreLandingApiForContext(api, kind, context, selectedInfo)
     local apiIdent = cleanText(api.result_ident)
     local apiRunway = cleanText(api.runway)
     local apiKind = cleanText(api.kind)
+    local selectedSuffix = selectedInfo and cleanText(selectedInfo.suffix) or ""
+
+    if selectedSuffix ~= "" and selectedId ~= "" then
+        if apiAppId ~= "" then
+            if apiAppId ~= selectedId then
+                return LANDING_NAV_REJECT_SCORE
+            end
+        elseif apiIdent ~= "" and (apiKind == "LPV" or apiKind == "LP" or apiKind == "GLS") and apiIdent ~= selectedId then
+            return LANDING_NAV_REJECT_SCORE
+        end
+    end
 
     if apiKind == cleanText(kind) then
         score = score + 200
@@ -1379,6 +1391,9 @@ local function queryBestLandingForKind(context, kind, runway, selectedInfo)
                 false
             )
         end
+    end
+    if bestScore <= LANDING_NAV_REJECT_SCORE then
+        return nil, nil
     end
     return best, bestScore
 end
@@ -1725,7 +1740,7 @@ function M.getLandingNavForApproach(context)
 
     local best = nil
     local bestKind = nil
-    local bestScore = -1000000
+    local bestScore = LANDING_NAV_REJECT_SCORE
     for _, kind in ipairs(kinds) do
         local api, score = queryBestLandingForKind(context, kind, queryRunway, selectedInfo)
         if api and score and score > bestScore then

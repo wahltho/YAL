@@ -939,10 +939,10 @@ getSetIlsNavdata = function(loop)
     if loop.apiNavdata then
         return loop.apiNavdata
     end
-    if not loop.navdatatableindex then
-        return nil
+    if loop.navdatatableindex then
+        return P.navdatatable[loop.navdatatableindex]
     end
-    return P.navdatatable[loop.navdatatableindex]
+    return build_detected_approach_nav_entry(loop)
 end
 
 local function getSetIlsApproachDME(loop, navdata)
@@ -1077,7 +1077,7 @@ local function buildSetIlsPlan(loop)
                 plan.foTune = dmeTune()
             end
         end
-    elseif navType == def.NAVTYPERNAV then
+    elseif navType == def.NAVTYPERNAV and not navdata._detectedOnly then
         plan.foTune = dmeTune()
     end
 
@@ -6005,7 +6005,8 @@ function M.fillProcedureTable()
                             get(P.fmslegslon),
                             selectedAppId
                         )
-                        local selectedNavType = navTypeFromSelectedApproachId(selectedAppId)
+                        local selectedParsed = selectedAppId and parseSelectedApproachId(selectedAppId) or nil
+                        local selectedNavType = selectedParsed and selectedParsed.navType or nil
                         local detectedNavType = detectedVariant and detectedVariant.navType or nil
                         local candidateTypes = buildSetIlsCandidateTypes(selectedNavType, detectedNavType)
                         local landingNavApiReady = refdata and refdata.isEffectiveLandingNavAvailable
@@ -6015,7 +6016,7 @@ function M.fillProcedureTable()
                         end
                         local navIndices = helpers.getnavdataindices(P.navdatatable, get(P.desicao), get(P.desrwy), candidateTypes) or {}
 
-                        if selectedAppId and #navIndices > 1 then
+                        if selectedAppId and #navIndices > 0 then
                             local appMatched = {}
                             for _, idx in ipairs(navIndices) do
                                 local entry = P.navdatatable[idx]
@@ -6025,6 +6026,9 @@ function M.fillProcedureTable()
                             end
                             if #appMatched > 0 then
                                 navIndices = appMatched
+                            elseif selectedParsed and selectedParsed.suffix and selectedParsed.suffix ~= ""
+                                and (selectedParsed.navType == def.NAVTYPERNAV or selectedParsed.navType == def.NAVTYPELPV) then
+                                navIndices = {}
                             end
                         end
 
@@ -6113,6 +6117,8 @@ function M.fillProcedureTable()
                             chosenSource = "zibo_api"
                         elseif localEntry then
                             chosenSource = "yal_cache"
+                        elseif chosenEntry and chosenEntry._detectedOnly then
+                            chosenSource = "cifp_detected"
                         end
                         helpers.logDebugTS(string.format(
                             "SetIlsResolve: selectedApp=%s selectedNavType=%s detectedNavType=%s candidateTypes=%s navCount=%d source=%s chosenType=%s chosenId=%s chosenRwy=%s",
