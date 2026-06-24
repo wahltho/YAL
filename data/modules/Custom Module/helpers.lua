@@ -2075,24 +2075,72 @@ function P.decodemetar(metar)
         "FZ","MI","PR","BC","DR","BL","VC","NSW"
     }
 
-    local function is_weather_code(s)
-        local code_to_check = s
-        if string.sub(s, 1, 1) == "-" or string.sub(s, 1, 1) == "+" then
-            code_to_check = string.sub(s, 2)
-        end
-        if #code_to_check < 2 then return false end
+    local weather_code_lookup = {}
+    for _, code in ipairs(weather_codes) do
+        weather_code_lookup[code] = true
+    end
 
-        for _, code in ipairs(weather_codes) do
-            if string.find(code_to_check, code, 1, true) then
-                if code_to_check == code then return true end
+    local function is_alpha_weather_text(s)
+        if type(s) ~= "string" or s == "" then
+            return false
+        end
+        for idx = 1, #s do
+            local byte = string.byte(s, idx)
+            if not (byte and byte >= 65 and byte <= 90) then
+                return false
             end
         end
-        for _, code in ipairs(weather_codes) do
-            if string.find(s, code, 1, true) then
-                return true
-            end
+        return true
+    end
+
+    local function is_cloud_group_token(s)
+        if type(s) ~= "string" or s == "" then
+            return false
+        end
+        local token = string.upper(s)
+        if token == "SKC" or token == "CLR" or token == "NSC" or token == "NCD" then
+            return true
+        end
+        local prefix3 = string.sub(token, 1, 3)
+        if prefix3 == "FEW" or prefix3 == "SCT" or prefix3 == "BKN" or prefix3 == "OVC" then
+            local height = string.sub(token, 4, 6)
+            return (tonumber(height) ~= nil) or height == "///"
+        end
+        if string.sub(token, 1, 2) == "VV" then
+            local height = string.sub(token, 3, 5)
+            return (tonumber(height) ~= nil) or height == "///"
+        end
+        if string.sub(token, 1, 1) == "/" then
+            local suffix3 = string.sub(token, -3)
+            local suffix2 = string.sub(token, -2)
+            return suffix3 == "TCU" or suffix2 == "CB"
+                or suffix3 == "FEW" or suffix3 == "SCT" or suffix3 == "BKN" or suffix3 == "OVC"
         end
         return false
+    end
+
+    local function is_weather_code(s)
+        if is_cloud_group_token(s) then
+            return false
+        end
+        local code_to_check = string.upper(tostring(s or ""))
+        if string.sub(code_to_check, 1, 1) == "-" or string.sub(code_to_check, 1, 1) == "+" then
+            code_to_check = string.sub(code_to_check, 2)
+        end
+        if string.sub(code_to_check, 1, 2) == "RE" and #code_to_check > 2 then
+            code_to_check = string.sub(code_to_check, 3)
+        end
+        if #code_to_check < 2 or not is_alpha_weather_text(code_to_check) then return false end
+        if code_to_check == "NSW" then return true end
+        if (#code_to_check % 2) ~= 0 then return false end
+
+        for idx = 1, #code_to_check, 2 do
+            local chunk = string.sub(code_to_check, idx, idx + 1)
+            if not weather_code_lookup[chunk] then
+                return false
+            end
+        end
+        return true
     end
 
     local function parse_fraction_value(value_str)
@@ -2556,43 +2604,37 @@ function P.decodemetar(metar)
             sasl.logDebug(string.format("Parsed weather: %s (%s)", phenomenon, intensity))
             parsed = true
 
-        elseif ( (string.sub(part, 1, 3) == "FEW" or string.sub(part, 1, 3) == "SCT" or string.sub(part, 1, 3) == "BKN" or string.sub(part, 1, 3) == "OVC") and
-                 #part >= 6 and tonumber(string.sub(part, 4, 6)) ~= nil ) or
-               ( string.sub(part, 1, 2) == "VV" and #part >= 5 and tonumber(string.sub(part, 3, 5)) ~= nil ) or
-               ( part == "SKC" or part == "CLR" or part == "NSC" or part == "NCD" ) or
-               ( string.sub(part, 1, 1) == '/' and (string.find(part, "TCU$") or string.find(part, "CB$")) ) or
-               ( string.sub(part, 1, 1) == '/' and (string.find(part, "FEW$") or string.find(part, "SCT$") or string.find(part, "BKN$") or string.find(part, "OVC$")) ) or
-               ( (string.sub(part, 1, 3) == "FEW" or string.sub(part, 1, 3) == "SCT" or string.sub(part, 1, 3) == "BKN" or string.sub(part, 1, 3) == "OVC") and string.sub(part, -3) == "///" )
-        then
+        elseif is_cloud_group_token(part) then
             result.clouds = result.clouds or {}
-            if (part == "SKC" or part == "CLR" or part == "NSC" or part == "NCD") then
-                table.insert(result.clouds, { coverage = part, altitude = nil, type = "" })
-                sasl.logDebug("Parsed cloud: " .. part)
+            local cloud_part = string.upper(part)
+            if (cloud_part == "SKC" or cloud_part == "CLR" or cloud_part == "NSC" or cloud_part == "NCD") then
+                table.insert(result.clouds, { coverage = cloud_part, altitude = nil, type = "" })
+                sasl.logDebug("Parsed cloud: " .. cloud_part)
                 parsed = true
-            elseif (string.sub(part, 1, 1) == '/') then
-                 parsed = true
-            elseif (string.sub(part, -3) == "///") then
+            elseif (string.sub(cloud_part, 1, 1) == '/') then
                  parsed = true
             else
                 local coverage_code
                 local altitude_str_val
                 local altitude_idx_start
-                if string.sub(part, 1, 2) == "VV" then
+                if string.sub(cloud_part, 1, 2) == "VV" then
                     coverage_code = "VV"
                     altitude_idx_start = 3
                 else
-                    coverage_code = string.sub(part, 1, 3)
+                    coverage_code = string.sub(cloud_part, 1, 3)
                     altitude_idx_start = 4
                 end
-                altitude_str_val = string.sub(part, altitude_idx_start, altitude_idx_start + 2)
+                altitude_str_val = string.sub(cloud_part, altitude_idx_start, altitude_idx_start + 2)
                 local altitude_val = tonumber(altitude_str_val)
                 if altitude_val then
                     local cloud_significant_type = ""
-                    if #part > (altitude_idx_start + 2) then
-                        cloud_significant_type = string.sub(part, altitude_idx_start + 3)
+                    if #cloud_part > (altitude_idx_start + 2) then
+                        cloud_significant_type = string.sub(cloud_part, altitude_idx_start + 3)
                     end
                     table.insert(result.clouds, { coverage = coverage_code, altitude = altitude_val * 100, type = cloud_significant_type })
                     sasl.logDebug(string.format("Parsed cloud: %s at %d ft%s", coverage_code, altitude_val * 100, (cloud_significant_type ~= "" and (" ("..cloud_significant_type..")")) or ""))
+                    parsed = true
+                elseif altitude_str_val == "///" then
                     parsed = true
                 else
                     sasl.logError("Warning: Could not parse cloud altitude for: " .. part .. " (altitude_str: '" .. altitude_str_val .. "')")
