@@ -1190,6 +1190,8 @@ function P.YalinitGlobal()
     P.approachPrepSelectedAppKey = nil
     P.approachPrepSelectedAppSince = nil
     P.approachPrepSetIlsKey = nil
+    P.approachPrepSetVrefKey = nil
+    P.approachPrepSetWindcorrKey = nil
 
     P.windshieldIcingStarted = false
     P.windshieldIcingApplied = false
@@ -7008,6 +7010,7 @@ function P.triggerapproachprep()
     end
     local earlySetIlsGate = descending and selectedAppId ~= nil
         and distDest <= 70 and selectedAppStableSeconds >= 45
+    local stableApproachPrepGate = earlySetIlsGate or nearPrepGate
 
     local ilsProc = P.proceduretable[def.SETILSPROCEDURE]
     if ilsProc and ilsProc.set and not P.approachPrepSetIlsKey then
@@ -7024,7 +7027,7 @@ function P.triggerapproachprep()
 
     local ilsDone = ilsProc and ilsProc.set and P.approachPrepSetIlsKey == setIlsKey
     if not ilsDone then
-        if earlySetIlsGate or nearPrepGate then
+        if stableApproachPrepGate then
             if P.triggerprocedure(def.SETILSPROCEDURE, false) then
                 P.approachPrepSetIlsKey = setIlsKey
                 if earlySetIlsGate and not nearPrepGate then
@@ -7042,24 +7045,67 @@ function P.triggerapproachprep()
         return
     end
 
-    if not nearPrepGate then
-        return
-    end
-
     local requireVref = (P.configvalues[def.CONFIGVREF30SET] == def.ON)
     if requireVref then
         local vrefProc = P.proceduretable[def.SETVREFPROCEDURE]
-        local vrefDone = (vrefProc and vrefProc.set == true) or false
+        if vrefProc and vrefProc.set and not P.approachPrepSetVrefKey then
+            P.approachPrepSetVrefKey = setIlsKey
+        end
+        if vrefProc and vrefProc.set and P.approachPrepSetVrefKey and setIlsKey ~= P.approachPrepSetVrefKey then
+            helpers.logInfoTS("ApproachPrepTrigger: Set V REF key changed from " .. tostring(P.approachPrepSetVrefKey)
+                .. " to " .. tostring(setIlsKey) .. "; clearing Set V REF completion flag")
+            vrefProc.set = false
+            if P.ProcSetStatusarraydr then
+                set(P.ProcSetStatusarraydr, 0, def.SETVREFPROCEDURE)
+            end
+        end
+
+        local vrefDone = vrefProc and vrefProc.set and P.approachPrepSetVrefKey == setIlsKey
         if not vrefDone then
-            P.triggerprocedure(def.SETVREFPROCEDURE, false)
+            if stableApproachPrepGate then
+                if P.triggerprocedure(def.SETVREFPROCEDURE, false) then
+                    P.approachPrepSetVrefKey = setIlsKey
+                    if earlySetIlsGate and not nearPrepGate then
+                        helpers.logInfoTS(string.format(
+                            "ApproachPrepTrigger: early Set V REF key=%s selectedApp=%s stable=%ds distDest=%.1f vs=%d",
+                            tostring(setIlsKey),
+                            tostring(selectedAppId),
+                            helpers.roundnumber(selectedAppStableSeconds),
+                            distDest,
+                            helpers.roundnumber(vs)
+                        ))
+                    end
+                end
+            end
             return
         end
 
-        local windDone = P.proceduretable[def.SETWINDCORRPROCEDURE] and P.proceduretable[def.SETWINDCORRPROCEDURE].set
-        if not windDone then
-            P.triggerprocedure(def.SETWINDCORRPROCEDURE, false)
+        if not nearPrepGate then
             return
         end
+
+        local windProc = P.proceduretable[def.SETWINDCORRPROCEDURE]
+        if windProc and windProc.set and not P.approachPrepSetWindcorrKey then
+            P.approachPrepSetWindcorrKey = setIlsKey
+        end
+        if windProc and windProc.set and P.approachPrepSetWindcorrKey and setIlsKey ~= P.approachPrepSetWindcorrKey then
+            helpers.logInfoTS("ApproachPrepTrigger: Set Wind Correction key changed from " .. tostring(P.approachPrepSetWindcorrKey)
+                .. " to " .. tostring(setIlsKey) .. "; clearing Set Wind Correction completion flag")
+            windProc.set = false
+            if P.ProcSetStatusarraydr then
+                set(P.ProcSetStatusarraydr, 0, def.SETWINDCORRPROCEDURE)
+            end
+        end
+
+        local windDone = windProc and windProc.set and P.approachPrepSetWindcorrKey == setIlsKey
+        if not windDone then
+            if P.triggerprocedure(def.SETWINDCORRPROCEDURE, false) then
+                P.approachPrepSetWindcorrKey = setIlsKey
+            end
+            return
+        end
+    elseif not nearPrepGate then
+        return
     end
 
     P.approachPrepCompletedForKey = key
