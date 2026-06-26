@@ -1132,14 +1132,15 @@ local function buildSetIlsPlan(loop)
             ))
             if guidanceProfile then
                 helpers.logDebugTS(string.format(
-                    "SetIlsGuidance: family=%s selected=%s detected=%s expected=%s/%s current=%s ian=%s",
+                    "SetIlsGuidance: family=%s selected=%s detected=%s expected=%s/%s current=%s ian=%s facCourse=%s",
                     tostring(guidanceProfile.approachFamily),
                     tostring(guidanceProfile.selectedNavType),
                     tostring(guidanceProfile.detectedNavType),
                     tostring(guidanceProfile.expectedLateralMode),
                     tostring(guidanceProfile.expectedVerticalMode),
                     tostring(guidanceProfile.pfdModeLabel),
-                    tostring(guidanceProfile.ianInfo)
+                    tostring(guidanceProfile.ianInfo),
+                    tostring(guidanceProfile.facCourse)
                 ))
             end
         end
@@ -1231,6 +1232,22 @@ local function maybeWarnSetIlsNoLpvInstall(loop, plan)
     end
     P.commandtableentry(def.TEXT, "L P V / G L S option not installed")
     loop.noLPVInstallWarned = true
+end
+
+local function shouldManageSetIlsCourseSelectors(loop)
+    local plan = buildSetIlsPlan(loop)
+    local navdata = plan and plan.navdata or getSetIlsNavdata(loop)
+    if not navdata then
+        return false
+    end
+    local navType = (plan and plan.navType) or navdata[def.DESTNAVTYPE]
+    if isLocalizerNavType(navType) then
+        return true
+    end
+    local guidance = plan and plan.guidanceProfile
+    return navType == def.NAVTYPERNAV
+        and guidance
+        and guidance.expectedLateralMode == "FAC"
 end
 
 local function checkSetIlsCaptainTune(tune)
@@ -6416,6 +6433,9 @@ function M.fillProcedureTable()
                     nextStep = 'set_capt_course'
                 },
                 ['set_capt_course'] = {
+                    skipIf = function(loop, procData)
+                        return not shouldManageSetIlsCourseSelectors(loop)
+                    end,
                     check = function(loop, procData)
                         local pilotcoursenew = getCachedApproachCourse(loop)
                         return get(P.mcppilotcourse) == pilotcoursenew
@@ -6438,6 +6458,7 @@ function M.fillProcedureTable()
                     skipIf = function(loop, procData)
                         local navdata = getSetIlsNavdata(loop)
                         if not navdata then return true end
+                        if not shouldManageSetIlsCourseSelectors(loop) then return true end
                         if isLateralOnlyApproach(navdata) then return true end
                         if navdata[def.DESTNAVTYPE] == def.NAVTYPELPV then return true end
                         if isLocalizerNavType(navdata[def.DESTNAVTYPE]) and not navdata[def.DESTNAVDME] then return true end
