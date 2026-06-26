@@ -7080,10 +7080,6 @@ function P.triggerapproachprep()
             return
         end
 
-        if not nearPrepGate then
-            return
-        end
-
         local windProc = P.proceduretable[def.SETWINDCORRPROCEDURE]
         if windProc and windProc.set and not P.approachPrepSetWindcorrKey then
             P.approachPrepSetWindcorrKey = setIlsKey
@@ -7099,8 +7095,18 @@ function P.triggerapproachprep()
 
         local windDone = windProc and windProc.set and P.approachPrepSetWindcorrKey == setIlsKey
         if not windDone then
-            if P.triggerprocedure(def.SETWINDCORRPROCEDURE, false) then
+            if stableApproachPrepGate and P.triggerprocedure(def.SETWINDCORRPROCEDURE, false) then
                 P.approachPrepSetWindcorrKey = setIlsKey
+                if earlySetIlsGate and not nearPrepGate then
+                    helpers.logInfoTS(string.format(
+                        "ApproachPrepTrigger: early Set Wind Correction key=%s selectedApp=%s stable=%ds distDest=%.1f vs=%d",
+                        tostring(setIlsKey),
+                        tostring(selectedAppId),
+                        helpers.roundnumber(selectedAppStableSeconds),
+                        distDest,
+                        helpers.roundnumber(vs)
+                    ))
+                end
             end
             return
         end
