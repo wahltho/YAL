@@ -4376,44 +4376,6 @@ function M.fillProcedureTable()
                 ['set_view_main_2'] = {
                     skipIf = function() return P.configvalues[def.CONFIGVIEWCHANGES] ~= def.ON end,
                     view = function() return P.configvalues[def.CONFIGVIEWMAINPANEL] end,
-                    nextStep = 'set_autobrake'
-                },
-                ['set_autobrake'] = {
-                    skipIf = function() return P.configvalues[def.CONFIGVREF30SET] ~= def.ON end,
-                    check = function()
-                        local current = get(P.autobrakepos)
-                        if P.configvalues[def.CONFIGCUSTOMAPPROACHCALC] ~= def.ON then
-                            return current > def.AUTOBRAKEOFF
-                        end
-                        if current > def.AUTOBRAKEOFF then return true end
-                        local autobrake = helpers.calcautobrake(get(P.vref), get(P.totalweightkgs), getDestinationRunwayLengthM(), P.desmetar, true)
-                        return current == autobrake
-                    end,
-                    advice = function()
-                        if get(P.autobrakepos) > def.AUTOBRAKEOFF then return false end
-                        if P.configvalues[def.CONFIGCUSTOMAPPROACHCALC] ~= def.ON then
-                            return "Set Auto Brake"
-                        end
-                        local autobrake = helpers.calcautobrake(get(P.vref), get(P.totalweightkgs), getDestinationRunwayLengthM(), P.desmetar, true)
-                        if (autobrake < def.AUTOBRAKEMAX) then return "Set Auto Brake " .. tostring(autobrake - 1)
-                        else return "Set Auto Brake Maximum" end
-                    end,
-                    action = function()
-                        if get(P.autobrakepos) > def.AUTOBRAKEOFF then return end
-                        if P.configvalues[def.CONFIGCUSTOMAPPROACHCALC] ~= def.ON then
-                            return
-                        end
-                        local autobrake = helpers.calcautobrake(get(P.vref), get(P.totalweightkgs), getDestinationRunwayLengthM(), P.desmetar, true)
-                        P.setautobrake(autobrake)
-                    end,
-                    confirm = function()
-                        local current = get(P.autobrakepos)
-                        if current <= def.AUTOBRAKEOFF then
-                            return false
-                        end
-                        if (current < def.AUTOBRAKEMAX) then return "Auto Brake checked " .. tostring(current - 1)
-                        else return "Auto Brake checked Maximum" end
-                    end,
                     nextStep = 'speak_des_metar_2'
                 },
                 ['speak_des_metar_2'] = {
@@ -6909,6 +6871,59 @@ function M.fillProcedureTable()
                 },
                 ['view_main_panel'] = {
                     view = function(loop, procData) return P.configvalues[def.CONFIGVIEWMAINPANEL] end,
+                    nextStep = nil
+                }
+            }
+        },
+        [def.SETAUTOBRAKEPROCEDURE] = {
+            number = 27,
+            name = "Set Auto Brake",
+            cycable = false,
+            speakname = false,
+            set = false,
+            loop = 3,
+            prerequisite = nil,
+            allowedState = nil,
+            requiredFlightstate = { def.FLIGHTSTATECRUISE, def.FLIGHTSTATEAPPROACH, def.FLIGHTSTATEINITIALCLIMB },
+            skipCondition = nil,
+            repeatable = true,
+            startStep = 'set_autobrake',
+            steps = {
+                ['set_autobrake'] = {
+                    check = function()
+                        local current = get(P.autobrakepos)
+                        if P.configvalues[def.CONFIGCUSTOMAPPROACHCALC] ~= def.ON then
+                            return current > def.AUTOBRAKEOFF
+                        end
+                        if current > def.AUTOBRAKEOFF then return true end
+                        local autobrake = helpers.calcautobrake(get(P.vref), get(P.totalweightkgs), getDestinationRunwayLengthM(), P.desmetar, true)
+                        return current == autobrake
+                    end,
+                    advice = function()
+                        if get(P.autobrakepos) > def.AUTOBRAKEOFF then return false end
+                        if P.configvalues[def.CONFIGCUSTOMAPPROACHCALC] ~= def.ON then
+                            return "Set Auto Brake"
+                        end
+                        local autobrake = helpers.calcautobrake(get(P.vref), get(P.totalweightkgs), getDestinationRunwayLengthM(), P.desmetar, true)
+                        if (autobrake < def.AUTOBRAKEMAX) then return "Set Auto Brake " .. tostring(autobrake - 1)
+                        else return "Set Auto Brake Maximum" end
+                    end,
+                    action = function()
+                        if get(P.autobrakepos) > def.AUTOBRAKEOFF then return end
+                        if P.configvalues[def.CONFIGCUSTOMAPPROACHCALC] ~= def.ON then
+                            return
+                        end
+                        local autobrake = helpers.calcautobrake(get(P.vref), get(P.totalweightkgs), getDestinationRunwayLengthM(), P.desmetar, true)
+                        P.setautobrake(autobrake)
+                    end,
+                    confirm = function()
+                        local current = get(P.autobrakepos)
+                        if current <= def.AUTOBRAKEOFF then
+                            return false
+                        end
+                        if (current < def.AUTOBRAKEMAX) then return "Auto Brake checked " .. tostring(current - 1)
+                        else return "Auto Brake checked Maximum" end
+                    end,
                     nextStep = nil
                 }
             }

@@ -1192,6 +1192,7 @@ function P.YalinitGlobal()
     P.approachPrepSetIlsKey = nil
     P.approachPrepSetVrefKey = nil
     P.approachPrepSetWindcorrKey = nil
+    P.approachPrepSetAutobrakeKey = nil
 
     P.windshieldIcingStarted = false
     P.windshieldIcingApplied = false
@@ -2151,14 +2152,17 @@ function P.initDataref()
             local migratedValues = {}
             for idx = 1, expectedSize do migratedValues[idx] = 0 end
 
-            local insertIndex = math.min(def.PACKSRESTOREPROCEDURE or (expectedSize - currentSize + 1), expectedSize)
+            local insertIndex = nil
+            if not (currentSize == expectedSize - 1 and expectedSize == def.SETAUTOBRAKEPROCEDURE) then
+                insertIndex = math.min(def.PACKSRESTOREPROCEDURE or (expectedSize - currentSize + 1), expectedSize)
+            end
 
             for idx = 1, expectedSize do
-                if idx == insertIndex then
+                if insertIndex and idx == insertIndex then
                     migratedValues[idx] = 0
                 else
                     local sourceIndex = idx
-                    if idx > insertIndex then
+                    if insertIndex and idx > insertIndex then
                         sourceIndex = idx - 1
                     end
                     if sourceIndex >= 1 and sourceIndex <= currentSize then
@@ -7100,6 +7104,37 @@ function P.triggerapproachprep()
                 if earlySetIlsGate and not nearPrepGate then
                     helpers.logInfoTS(string.format(
                         "ApproachPrepTrigger: early Set Wind Correction key=%s selectedApp=%s stable=%ds distDest=%.1f vs=%d",
+                        tostring(setIlsKey),
+                        tostring(selectedAppId),
+                        helpers.roundnumber(selectedAppStableSeconds),
+                        distDest,
+                        helpers.roundnumber(vs)
+                    ))
+                end
+            end
+            return
+        end
+
+        local autobrakeProc = P.proceduretable[def.SETAUTOBRAKEPROCEDURE]
+        if autobrakeProc and autobrakeProc.set and not P.approachPrepSetAutobrakeKey then
+            P.approachPrepSetAutobrakeKey = setIlsKey
+        end
+        if autobrakeProc and autobrakeProc.set and P.approachPrepSetAutobrakeKey and setIlsKey ~= P.approachPrepSetAutobrakeKey then
+            helpers.logInfoTS("ApproachPrepTrigger: Set Auto Brake key changed from " .. tostring(P.approachPrepSetAutobrakeKey)
+                .. " to " .. tostring(setIlsKey) .. "; clearing Set Auto Brake completion flag")
+            autobrakeProc.set = false
+            if P.ProcSetStatusarraydr then
+                set(P.ProcSetStatusarraydr, 0, def.SETAUTOBRAKEPROCEDURE)
+            end
+        end
+
+        local autobrakeDone = autobrakeProc and autobrakeProc.set and P.approachPrepSetAutobrakeKey == setIlsKey
+        if not autobrakeDone then
+            if stableApproachPrepGate and P.triggerprocedure(def.SETAUTOBRAKEPROCEDURE, false) then
+                P.approachPrepSetAutobrakeKey = setIlsKey
+                if earlySetIlsGate and not nearPrepGate then
+                    helpers.logInfoTS(string.format(
+                        "ApproachPrepTrigger: early Set Auto Brake key=%s selectedApp=%s stable=%ds distDest=%.1f vs=%d",
                         tostring(setIlsKey),
                         tostring(selectedAppId),
                         helpers.roundnumber(selectedAppStableSeconds),
