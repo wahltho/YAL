@@ -1193,6 +1193,7 @@ function P.YalinitGlobal()
     P.approachPrepSetVrefKey = nil
     P.approachPrepSetWindcorrKey = nil
     P.approachPrepSetAutobrakeKey = nil
+    P.approachPrepSequenceActiveKey = nil
 
     P.windshieldIcingStarted = false
     P.windshieldIcingApplied = false
@@ -6999,6 +7000,7 @@ function P.triggerapproachprep()
     if key ~= P.approachPrepTriggerKey then
         P.approachPrepTriggerKey = key
         P.approachPrepCompletedForKey = nil
+        P.approachPrepSequenceActiveKey = nil
     end
     if not key or P.approachPrepCompletedForKey == key then
         return
@@ -7015,6 +7017,36 @@ function P.triggerapproachprep()
     local earlySetIlsGate = descending and selectedAppId ~= nil
         and distDest <= 70 and selectedAppStableSeconds >= 45
     local stableApproachPrepGate = earlySetIlsGate or nearPrepGate
+    local approachPrepSequenceActive = (P.approachPrepSequenceActiveKey == key)
+    local approachPrepCanAdvance = stableApproachPrepGate or approachPrepSequenceActive
+
+    local function latchApproachPrepSequence()
+        P.approachPrepSequenceActiveKey = key
+        approachPrepSequenceActive = true
+        approachPrepCanAdvance = true
+    end
+
+    local function logApproachPrepTrigger(label)
+        if earlySetIlsGate and not nearPrepGate then
+            helpers.logInfoTS(string.format(
+                "ApproachPrepTrigger: early %s key=%s selectedApp=%s stable=%ds distDest=%.1f vs=%d",
+                label,
+                tostring(setIlsKey),
+                tostring(selectedAppId),
+                helpers.roundnumber(selectedAppStableSeconds),
+                distDest,
+                helpers.roundnumber(vs)
+            ))
+        elseif approachPrepSequenceActive and not stableApproachPrepGate then
+            helpers.logInfoTS(string.format(
+                "ApproachPrepTrigger: latched %s key=%s distDest=%.1f vs=%d",
+                label,
+                tostring(setIlsKey),
+                distDest,
+                helpers.roundnumber(vs)
+            ))
+        end
+    end
 
     local ilsProc = P.proceduretable[def.SETILSPROCEDURE]
     if ilsProc and ilsProc.set and not P.approachPrepSetIlsKey then
@@ -7031,19 +7063,11 @@ function P.triggerapproachprep()
 
     local ilsDone = ilsProc and ilsProc.set and P.approachPrepSetIlsKey == setIlsKey
     if not ilsDone then
-        if stableApproachPrepGate then
+        if approachPrepCanAdvance then
             if P.triggerprocedure(def.SETILSPROCEDURE, false) then
+                latchApproachPrepSequence()
                 P.approachPrepSetIlsKey = setIlsKey
-                if earlySetIlsGate and not nearPrepGate then
-                    helpers.logInfoTS(string.format(
-                        "ApproachPrepTrigger: early Set ILS key=%s selectedApp=%s stable=%ds distDest=%.1f vs=%d",
-                        tostring(setIlsKey),
-                        tostring(selectedAppId),
-                        helpers.roundnumber(selectedAppStableSeconds),
-                        distDest,
-                        helpers.roundnumber(vs)
-                    ))
-                end
+                logApproachPrepTrigger("Set ILS")
             end
         end
         return
@@ -7066,19 +7090,11 @@ function P.triggerapproachprep()
 
         local vrefDone = vrefProc and vrefProc.set and P.approachPrepSetVrefKey == setIlsKey
         if not vrefDone then
-            if stableApproachPrepGate then
+            if approachPrepCanAdvance then
                 if P.triggerprocedure(def.SETVREFPROCEDURE, false) then
+                    latchApproachPrepSequence()
                     P.approachPrepSetVrefKey = setIlsKey
-                    if earlySetIlsGate and not nearPrepGate then
-                        helpers.logInfoTS(string.format(
-                            "ApproachPrepTrigger: early Set V REF key=%s selectedApp=%s stable=%ds distDest=%.1f vs=%d",
-                            tostring(setIlsKey),
-                            tostring(selectedAppId),
-                            helpers.roundnumber(selectedAppStableSeconds),
-                            distDest,
-                            helpers.roundnumber(vs)
-                        ))
-                    end
+                    logApproachPrepTrigger("Set V REF")
                 end
             end
             return
@@ -7099,18 +7115,10 @@ function P.triggerapproachprep()
 
         local windDone = windProc and windProc.set and P.approachPrepSetWindcorrKey == setIlsKey
         if not windDone then
-            if stableApproachPrepGate and P.triggerprocedure(def.SETWINDCORRPROCEDURE, false) then
+            if approachPrepCanAdvance and P.triggerprocedure(def.SETWINDCORRPROCEDURE, false) then
+                latchApproachPrepSequence()
                 P.approachPrepSetWindcorrKey = setIlsKey
-                if earlySetIlsGate and not nearPrepGate then
-                    helpers.logInfoTS(string.format(
-                        "ApproachPrepTrigger: early Set Wind Correction key=%s selectedApp=%s stable=%ds distDest=%.1f vs=%d",
-                        tostring(setIlsKey),
-                        tostring(selectedAppId),
-                        helpers.roundnumber(selectedAppStableSeconds),
-                        distDest,
-                        helpers.roundnumber(vs)
-                    ))
-                end
+                logApproachPrepTrigger("Set Wind Correction")
             end
             return
         end
@@ -7130,18 +7138,10 @@ function P.triggerapproachprep()
 
         local autobrakeDone = autobrakeProc and autobrakeProc.set and P.approachPrepSetAutobrakeKey == setIlsKey
         if not autobrakeDone then
-            if stableApproachPrepGate and P.triggerprocedure(def.SETAUTOBRAKEPROCEDURE, false) then
+            if approachPrepCanAdvance and P.triggerprocedure(def.SETAUTOBRAKEPROCEDURE, false) then
+                latchApproachPrepSequence()
                 P.approachPrepSetAutobrakeKey = setIlsKey
-                if earlySetIlsGate and not nearPrepGate then
-                    helpers.logInfoTS(string.format(
-                        "ApproachPrepTrigger: early Set Auto Brake key=%s selectedApp=%s stable=%ds distDest=%.1f vs=%d",
-                        tostring(setIlsKey),
-                        tostring(selectedAppId),
-                        helpers.roundnumber(selectedAppStableSeconds),
-                        distDest,
-                        helpers.roundnumber(vs)
-                    ))
-                end
+                logApproachPrepTrigger("Set Auto Brake")
             end
             return
         end
@@ -7150,6 +7150,7 @@ function P.triggerapproachprep()
     end
 
     P.approachPrepCompletedForKey = key
+    P.approachPrepSequenceActiveKey = nil
     helpers.logInfoTS(string.format("ApproachPrepTrigger: completed key=%s distDest=%.1f vs=%d", key, distDest, helpers.roundnumber(vs)))
 end
 
