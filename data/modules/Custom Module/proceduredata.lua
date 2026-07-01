@@ -1244,6 +1244,9 @@ local function shouldManageSetIlsCourseSelectors(loop)
     if isLocalizerNavType(navType) then
         return true
     end
+    if navType == def.NAVTYPEGLS then
+        return true
+    end
     local guidance = plan and plan.guidanceProfile
     return navType == def.NAVTYPERNAV
         and guidance
@@ -3622,7 +3625,7 @@ function M.fillProcedureTable()
                         if headingrounded then
                             return get(P.mcpheading) == headingrounded
                         end
-                        return true 
+                        return true
                     end,
                     advice = function() 
                         local headingrounded = nil
@@ -6421,10 +6424,15 @@ function M.fillProcedureTable()
                         local navdata = getSetIlsNavdata(loop)
                         if not navdata then return true end
                         if not shouldManageSetIlsCourseSelectors(loop) then return true end
+                        local navType = navdata[def.DESTNAVTYPE]
+                        if navType == def.NAVTYPEGLS then return false end
+                        if navType == def.NAVTYPERNAV then return true end
+                        if navType == def.NAVTYPELPV then return true end
                         if isLateralOnlyApproach(navdata) then return true end
-                        if navdata[def.DESTNAVTYPE] == def.NAVTYPELPV then return true end
-                        if isLocalizerNavType(navdata[def.DESTNAVTYPE]) and not navdata[def.DESTNAVDME] then return true end
-                        return false 
+                        if isLocalizerNavType(navType) then
+                            return not navdata[def.DESTNAVDME]
+                        end
+                        return true
                     end,
                     check = function(loop, procData)
                         return get(P.mcpcopilotcourse) == get(P.mcppilotcourse)
