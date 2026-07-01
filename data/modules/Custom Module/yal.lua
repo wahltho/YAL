@@ -1728,6 +1728,7 @@ function P.bindExternalDatarefs(silentMissing)
     P.scalepfdmodefo = GP("laminar/B738/autopilot/scale_pfd_mode_fo")
     P.fmsilsdisable = GP("laminar/B738/FMS/ils_disable")
     P.faccrs = GP("laminar/B738/fms/fac_crs")
+    P.factrk = GP("laminar/B738/fms/fac_trk")
     P.gppthalt = GP("laminar/B738/fms/gp_pth_alt")
     P.vnavgpactive = GP("laminar/B738/fms/vnav_gp_active")
 

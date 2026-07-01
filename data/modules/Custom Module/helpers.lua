@@ -5990,6 +5990,12 @@ function P.resolveApproachGuidanceCapabilities(context)
     end
     facCourse = tonumber(facCourse) or 0
     local facCoursePlausible = facCourse > 0 and facCourse <= 360
+    local facTrack = context.facTrack
+    if facTrack == nil and yal and yal.factrk then
+        facTrack = get(yal.factrk)
+    end
+    facTrack = tonumber(facTrack) or 0
+    local facTrackPlausible = facTrack > 0 and facTrack <= 360
 
     local effectiveNavType = resolvedNavType
     if effectiveNavType == def.NAVTYPERNAV and (selectedNavType == def.NAVTYPELPV or selectedNavType == def.NAVTYPEGLS) then
@@ -6008,7 +6014,7 @@ function P.resolveApproachGuidanceCapabilities(context)
     end
 
     local channelCapable = mmrInstalled and lpvInstalled
-    local facPossible = (guidanceFamily == "rnav") and ((ianInfo ~= 0) or facCoursePlausible)
+    local facPossible = (guidanceFamily == "rnav") and ((ianInfo ~= 0) or facCoursePlausible or facTrackPlausible)
     local gpPossible = facPossible and (not lateralOnly)
     local locGpPossible = (guidanceFamily == "localizer") and (ianInfo ~= 0) and (fmsIlsDisable ~= 0)
     local lpvPossible = (guidanceFamily == "lpv") and channelCapable
@@ -6088,6 +6094,8 @@ function P.resolveApproachGuidanceCapabilities(context)
         ianInfo = ianInfo,
         facCourse = facCourse,
         facCoursePlausible = facCoursePlausible,
+        facTrack = facTrack,
+        facTrackPlausible = facTrackPlausible,
         pfdMode = pfdMode,
         pfdModeLabel = pfdInfo and pfdInfo.label or nil,
         expectedLateralMode = expectedLateralMode,

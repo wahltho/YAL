@@ -1132,7 +1132,7 @@ local function buildSetIlsPlan(loop)
             ))
             if guidanceProfile then
                 helpers.logDebugTS(string.format(
-                    "SetIlsGuidance: family=%s selected=%s detected=%s expected=%s/%s current=%s ian=%s facCourse=%s",
+                    "SetIlsGuidance: family=%s selected=%s detected=%s expected=%s/%s current=%s ian=%s facCourse=%s facTrack=%s",
                     tostring(guidanceProfile.approachFamily),
                     tostring(guidanceProfile.selectedNavType),
                     tostring(guidanceProfile.detectedNavType),
@@ -1140,7 +1140,8 @@ local function buildSetIlsPlan(loop)
                     tostring(guidanceProfile.expectedVerticalMode),
                     tostring(guidanceProfile.pfdModeLabel),
                     tostring(guidanceProfile.ianInfo),
-                    tostring(guidanceProfile.facCourse)
+                    tostring(guidanceProfile.facCourse),
+                    tostring(guidanceProfile.facTrack)
                 ))
             end
         end
