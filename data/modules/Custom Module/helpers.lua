@@ -10949,10 +10949,6 @@ function P.atmoIasToTas(ias_kt, alt_ft)
 end
 
 -- CG / QuickView helpers ------------------------------------------------------
-local function get_zibo_base_path()
-    return sasl.getXPlanePath() .. def.OSSEPARATOR .. "Aircraft" .. def.OSSEPARATOR .. "B737-800X" .. def.OSSEPARATOR
-end
-
 local QV_UPDATE_STAGE_SELECT = 0
 local QV_UPDATE_STAGE_SAVE = 1
 local DEFAULT_VIEW_STAGE_NORMALIZE = 0
@@ -10962,33 +10958,190 @@ local DEFAULT_VIEW_STAGE_APPLY = 2
 P.quickViewCgUpdateJob = P.quickViewCgUpdateJob or nil
 P.defaultViewUpdateJob = P.defaultViewUpdateJob or nil
 
-local function get_current_zibo_variant()
+local function trim_trailing_separator(path)
+    local text = tostring(path or "")
+    while #text > 0 do
+        local ch = string.sub(text, -1)
+        if ch ~= "/" and ch ~= "\\" then
+            break
+        end
+        text = string.sub(text, 1, -2)
+    end
+    return text
+end
+
+local function normalize_relative_path(path)
+    local sep = def.OSSEPARATOR or "/"
+    local text = tostring(path or "")
+    text = string.gsub(text, "\\", "/")
+    if sep ~= "/" then
+        text = string.gsub(text, "/", sep)
+    end
+    return text
+end
+
+local function join_path(base, rel)
+    local sep = def.OSSEPARATOR or "/"
+    local left = trim_trailing_separator(base)
+    local right = normalize_relative_path(rel)
+    while #right > 0 do
+        local ch = string.sub(right, 1, 1)
+        if ch ~= "/" and ch ~= "\\" then
+            break
+        end
+        right = string.sub(right, 2)
+    end
+    if left == "" then
+        return right
+    end
+    if right == "" then
+        return left
+    end
+    return left .. sep .. right
+end
+
+local function split_relative_file(path)
+    local rel = tostring(path or "")
+    rel = string.gsub(rel, "\\", "/")
+    local dir, file = string.match(rel, "^(.*)/(.-)$")
+    if not file then
+        return "", rel
+    end
+    return dir or "", file
+end
+
+local function strip_acf_extension(file)
+    local name = tostring(file or "")
+    if string.sub(string.lower(name), -4) == ".acf" then
+        return string.sub(name, 1, -5)
+    end
+    return name
+end
+
+local function sanitize_settings_key_part(text)
+    local result = {}
+    local s = string.upper(tostring(text or ""))
+    for i = 1, #s do
+        local ch = string.sub(s, i, i)
+        local b = string.byte(ch)
+        local is_alpha = (b >= 65 and b <= 90)
+        local is_digit = (b >= 48 and b <= 57)
+        if is_alpha or is_digit then
+            result[#result + 1] = ch
+        else
+            result[#result + 1] = "_"
+        end
+    end
+    local key = table.concat(result)
+    while string.find(key, "__", 1, true) do
+        key = string.gsub(key, "__", "_")
+    end
+    key = string.gsub(key, "^_+", "")
+    key = string.gsub(key, "_+$", "")
+    if key == "" then
+        key = "UNKNOWN"
+    end
+    return key
+end
+
+local function file_exists(path)
+    local f = io.open(path, "rb")
+    if not f then
+        return false
+    end
+    f:close()
+    return true
+end
+
+local function build_view_variant(dir_rel, acf_name)
+    local stem = strip_acf_extension(acf_name)
+    if stem == "" then
+        return nil
+    end
+    local base = join_path(sasl.getXPlanePath(), dir_rel)
+    local stem_lower = string.lower(stem)
+    local name = stem
+    local key_y
+    local key_z
+    local xcamera = "X-Camera_" .. stem .. ".csv"
+
+    if stem_lower == "b738_4k" then
+        name = "4k"
+        key_y = "CG_BASE_4K_Y"
+        key_z = "CG_BASE_4K_Z"
+        xcamera = "X-Camera_b738_4k.csv"
+    elseif stem_lower == "b738" then
+        name = "2k"
+        key_y = "CG_BASE_2K_Y"
+        key_z = "CG_BASE_2K_Z"
+        xcamera = "X-Camera_b738.csv"
+    else
+        local safe_key = sanitize_settings_key_part(stem)
+        key_y = "CG_BASE_ACF_" .. safe_key .. "_Y"
+        key_z = "CG_BASE_ACF_" .. safe_key .. "_Z"
+    end
+
+    return {
+        name = name,
+        base = base,
+        acf = acf_name,
+        prefs = stem .. "_prefs.txt",
+        xcamera = xcamera,
+        acfPath = join_path(base, acf_name),
+        prefsPath = join_path(base, stem .. "_prefs.txt"),
+        xcameraPath = join_path(base, xcamera),
+        keyY = key_y,
+        keyZ = key_z,
+        stem = stem,
+        dirRel = dir_rel
+    }
+end
+
+local function get_current_view_variant()
     local rel = get(acf_relative_path)
     if type(rel) ~= "string" or rel == "" then
         return nil, "aircraft path not available"
     end
-    local rel_lower = string.lower(rel)
-    if string.find(rel_lower, "b738_4k.acf", 1, true) then
-        return {
-            name = "4k",
-            acf = "b738_4k.acf",
-            prefs = "b738_4k_prefs.txt",
-            xcamera = "X-Camera_b738_4k.csv",
-            keyY = "CG_BASE_4K_Y",
-            keyZ = "CG_BASE_4K_Z"
-        }
+    local dir_rel, acf_name = split_relative_file(rel)
+    if acf_name == "" or string.sub(string.lower(acf_name), -4) ~= ".acf" then
+        return nil, "unsupported aircraft path: " .. tostring(rel)
     end
-    if string.find(rel_lower, "b738.acf", 1, true) then
-        return {
-            name = "2k",
-            acf = "b738.acf",
-            prefs = "b738_prefs.txt",
-            xcamera = "X-Camera_b738.csv",
-            keyY = "CG_BASE_2K_Y",
-            keyZ = "CG_BASE_2K_Z"
-        }
+    return build_view_variant(dir_rel, acf_name)
+end
+
+local function add_variant_once(list, seen, variant)
+    if not variant or not variant.acfPath then
+        return
     end
-    return nil, "unsupported aircraft: " .. tostring(rel)
+    local key = string.lower(tostring(variant.acfPath))
+    if seen[key] then
+        return
+    end
+    seen[key] = true
+    list[#list + 1] = variant
+end
+
+local function get_startup_view_variants()
+    local current = get_current_view_variant()
+    if not current then
+        return {}
+    end
+    local list = {}
+    local seen = {}
+    add_variant_once(list, seen, current)
+
+    local stem_lower = string.lower(current.stem or "")
+    if stem_lower == "b738" or stem_lower == "b738_4k" then
+        local zibo_4k = build_view_variant(current.dirRel, "b738_4k.acf")
+        local zibo_2k = build_view_variant(current.dirRel, "b738.acf")
+        if zibo_4k and file_exists(zibo_4k.acfPath) then
+            add_variant_once(list, seen, zibo_4k)
+        end
+        if zibo_2k and file_exists(zibo_2k.acfPath) then
+            add_variant_once(list, seen, zibo_2k)
+        end
+    end
+    return list
 end
 
 local function read_acf_cg(path)
@@ -11488,16 +11641,13 @@ function P.adjustQuickViewsForCgChange()
         P.logInfoTS("QuickViews CG update already in progress")
         return
     end
-    local variant, v_err = get_current_zibo_variant()
+    local variant, v_err = get_current_view_variant()
     if not variant then
         P.logInfoTS("QuickViews CG update: " .. tostring(v_err))
         return
     end
 
-    local base = get_zibo_base_path()
-    local acf_path = base .. variant.acf
-    local prefs_path = base .. variant.prefs
-    local cg, err = read_acf_cg(acf_path)
+    local cg, err = read_acf_cg(variant.acfPath)
     if not cg then
         P.logInfoTS("QuickViews CG update: failed to read " .. variant.name .. " CG (" .. tostring(err) .. ")")
         return
@@ -11521,13 +11671,13 @@ function P.adjustQuickViewsForCgChange()
         return
     end
 
-    local indices, qv_data = read_quickview_data(prefs_path)
+    local indices, qv_data = read_quickview_data(variant.prefsPath)
     if not indices then
         P.logInfoTS("QuickViews CG update: failed to read quick views (" .. tostring(qv_data) .. ")")
         return
     end
 
-    local ok_backup, backup_or_err = backup_file(prefs_path)
+    local ok_backup, backup_or_err = backup_file(variant.prefsPath)
     if not ok_backup then
         P.logInfoTS("QuickViews CG update: backup failed (" .. tostring(backup_or_err) .. ")")
         return
@@ -11549,16 +11699,12 @@ function P.adjustQuickViewsAndXCameraForCgChange()
     if P.quickViewCgUpdateJob then
         return add_quickview_action_message(messages, "QuickViews+X-Camera CG update already in progress")
     end
-    local variant, v_err = get_current_zibo_variant()
+    local variant, v_err = get_current_view_variant()
     if not variant then
         return add_quickview_action_message(messages, "QuickViews+X-Camera CG update: " .. tostring(v_err))
     end
 
-    local base = get_zibo_base_path()
-    local acf_path = base .. variant.acf
-    local prefs_path = base .. variant.prefs
-    local xcamera_path = base .. variant.xcamera
-    local cg, err = read_acf_cg(acf_path)
+    local cg, err = read_acf_cg(variant.acfPath)
     if not cg then
         return add_quickview_action_message(messages, "QuickViews+X-Camera CG update: failed to read " .. variant.name .. " CG (" .. tostring(err) .. ")")
     end
@@ -11579,25 +11725,25 @@ function P.adjustQuickViewsAndXCameraForCgChange()
         return add_quickview_action_message(messages, "QuickViews+X-Camera CG update: no CG change for " .. variant.name)
     end
 
-    local indices, qv_data = read_quickview_data(prefs_path)
+    local indices, qv_data = read_quickview_data(variant.prefsPath)
     if not indices then
         return add_quickview_action_message(messages, "QuickViews+X-Camera CG update: failed to read quick views (" .. tostring(qv_data) .. ")")
     end
 
-    local ok_backup, backup_or_err = backup_file(prefs_path)
+    local ok_backup, backup_or_err = backup_file(variant.prefsPath)
     if not ok_backup then
         return add_quickview_action_message(messages, "QuickViews+X-Camera CG update: prefs backup failed (" .. tostring(backup_or_err) .. ")")
     end
     add_quickview_action_message(messages, "QuickViews+X-Camera CG update: prefs backup created at " .. tostring(backup_or_err))
 
-    local xcam_file = io.open(xcamera_path, "r")
+    local xcam_file = io.open(variant.xcameraPath, "r")
     if not xcam_file then
-        add_quickview_action_message(messages, "QuickViews+X-Camera CG update: X-Camera file not found (" .. tostring(xcamera_path) .. ")")
+        add_quickview_action_message(messages, "QuickViews+X-Camera CG update: X-Camera file not found (" .. tostring(variant.xcameraPath) .. ")")
         return finish_quickview_action_messages(messages)
     end
     xcam_file:close()
 
-    local ok_xcam_backup, xcam_backup_or_err = backup_file(xcamera_path)
+    local ok_xcam_backup, xcam_backup_or_err = backup_file(variant.xcameraPath)
     if not ok_xcam_backup then
         add_quickview_action_message(messages, "QuickViews+X-Camera CG update: X-Camera backup failed (" .. tostring(xcam_backup_or_err) .. ")")
         return finish_quickview_action_messages(messages)
@@ -11606,7 +11752,7 @@ function P.adjustQuickViewsAndXCameraForCgChange()
 
     local delta_m_y = delta_y * 0.3048
     local delta_m_z = delta_z * 0.3048
-    local ok_xcam, updated, used_offsets, offsets_reset = update_xcamera_cg_offsets(xcamera_path, delta_m_y, delta_m_z)
+    local ok_xcam, updated, used_offsets, offsets_reset = update_xcamera_cg_offsets(variant.xcameraPath, delta_m_y, delta_m_z)
     if not ok_xcam then
         add_quickview_action_message(messages, "QuickViews+X-Camera CG update: X-Camera update failed (" .. tostring(updated) .. ")")
         return finish_quickview_action_messages(messages)
@@ -11735,16 +11881,15 @@ function P.applyDefaultViewFromQV0()
     if P.quickViewCgUpdateJob then
         return add_quickview_action_message(messages, "Default view update blocked (QuickViews CG update in progress)")
     end
-    local variant, v_err = get_current_zibo_variant()
+    local variant, v_err = get_current_view_variant()
     if not variant then
         return add_quickview_action_message(messages, "Default view update: " .. tostring(v_err))
     end
-    local base = get_zibo_base_path()
-    local qv, qv_err = read_qv0(base .. variant.prefs)
+    local qv, qv_err = read_qv0(variant.prefsPath)
     if not qv then
         return add_quickview_action_message(messages, "Default view update failed: " .. tostring(qv_err))
     end
-    local ok, err = apply_default_view_from_qv0_data(base .. variant.acf, qv)
+    local ok, err = apply_default_view_from_qv0_data(variant.acfPath, qv)
     if ok then
         if err == "no-change" then
             add_quickview_action_message(messages, "Default view already matches QV0 (" .. variant.name .. ")")
@@ -11801,9 +11946,8 @@ function P.stepDefaultViewUpdate()
         return false
     end
 
-    local base = get_zibo_base_path()
     local did_adjust = false
-    local ok, err = apply_default_view_from_qv0_data(base .. job.variant.acf, qv)
+    local ok, err = apply_default_view_from_qv0_data(job.variant.acfPath, qv)
     if ok then
         if err == "no-change" then
             P.logInfoTS("Default view already matches QV0 (" .. job.variant.name .. ")")
@@ -11821,20 +11965,18 @@ function P.stepDefaultViewUpdate()
     return false
 end
 
-local function check_default_view_matches_qv0(variant, base)
-    local acf_path = base .. variant.acf
-    local prefs_path = base .. variant.prefs
-    local qv, qv_err = read_qv0(prefs_path)
+local function check_default_view_matches_qv0(variant)
+    local qv, qv_err = read_qv0(variant.prefsPath)
     if not qv then
         P.logInfoTS("Default view check failed (" .. variant.name .. "): " .. tostring(qv_err))
         return
     end
-    local cg, cg_err = read_acf_cg(acf_path)
+    local cg, cg_err = read_acf_cg(variant.acfPath)
     if not cg then
         P.logInfoTS("Default view check failed (" .. variant.name .. "): " .. tostring(cg_err))
         return
     end
-    local current_view, view_err = read_acf_default_view(acf_path)
+    local current_view, view_err = read_acf_default_view(variant.acfPath)
     if not current_view then
         P.logInfoTS("Default view check failed (" .. variant.name .. "): " .. tostring(view_err))
         return
@@ -11859,14 +12001,9 @@ end
 
 function P.checkCgBaselineAtStartup()
     local settings = require("settings")
-    local base = get_zibo_base_path()
-    local variants = {
-        { name = "4k", acf = "b738_4k.acf", keyY = "CG_BASE_4K_Y", keyZ = "CG_BASE_4K_Z" },
-        { name = "2k", acf = "b738.acf", keyY = "CG_BASE_2K_Y", keyZ = "CG_BASE_2K_Z" },
-    }
+    local variants = get_startup_view_variants()
     for _, v in ipairs(variants) do
-        local acf_path = base .. v.acf
-        local cg, err = read_acf_cg(acf_path)
+        local cg, err = read_acf_cg(v.acfPath)
         if not cg then
             P.logInfoTS("CG baseline check failed (" .. v.name .. "): " .. tostring(err))
         else
@@ -11892,13 +12029,9 @@ function P.checkCgBaselineAtStartup()
 end
 
 function P.checkDefaultViewAtStartup()
-    local base = get_zibo_base_path()
-    local variants = {
-        { name = "4k", acf = "b738_4k.acf", prefs = "b738_4k_prefs.txt" },
-        { name = "2k", acf = "b738.acf", prefs = "b738_prefs.txt" },
-    }
+    local variants = get_startup_view_variants()
     for _, v in ipairs(variants) do
-        check_default_view_matches_qv0(v, base)
+        check_default_view_matches_qv0(v)
     end
 end
 
