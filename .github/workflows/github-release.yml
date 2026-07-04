@@ -1,0 +1,126 @@
+name: GitHub Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      channel:
+        description: Release channel
+        required: true
+        type: choice
+        options:
+          - beta
+          - stable
+      version:
+        description: Version to release, for example 4.7b3 or 4.7
+        required: true
+        type: string
+      draft:
+        description: Create the GitHub release as draft
+        required: true
+        type: boolean
+        default: true
+      release_notes:
+        description: Optional release notes. Leave empty for a generated note.
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: github-release-${{ inputs.version }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Build and create release
+    runs-on: ubuntu-latest
+    env:
+      CHANNEL: ${{ inputs.channel }}
+      VERSION: ${{ inputs.version }}
+      DRAFT: ${{ inputs.draft }}
+      RELEASE_NOTES: ${{ inputs.release_notes }}
+      GH_TOKEN: ${{ github.token }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Lua syntax checker
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y lua5.1
+
+      - name: Verify Lua and release tooling
+        run: |
+          find data -name '*.lua' -print0 | xargs -0 luac5.1 -p
+          python3 -m py_compile .github/scripts/package_yal_release.py
+          python3 tools/check_sasl_limits.py
+          git diff --check
+
+      - name: Build release package
+        run: |
+          python3 .github/scripts/package_yal_release.py \
+            --channel "$CHANNEL" \
+            --version "$VERSION" \
+            --output-dir dist
+
+      - name: Prepare release notes
+        run: |
+          if [ -n "$RELEASE_NOTES" ]; then
+            printf '%s\n' "$RELEASE_NOTES" > dist/release-notes.md
+          else
+            {
+              printf 'YAL %s\n\n' "$VERSION"
+              printf 'Channel: %s\n' "$CHANNEL"
+              printf 'Commit: %s\n\n' "$GITHUB_SHA"
+              printf 'This GitHub release ZIP is a full-install package and includes both SkunkCrafts helper configs:\n'
+              printf '- skunkcrafts_updater.cfg\n'
+              printf '- skunkcrafts_updater_beta.cfg\n\n'
+              printf 'Bunny/SkunkCrafts depot publishing is separate and is not performed by this workflow.\n'
+            } > dist/release-notes.md
+          fi
+
+      - name: Create GitHub release
+        run: |
+          tag="v${VERSION}"
+          title="YAL ${VERSION}"
+          prerelease_flag=()
+          draft_flag=()
+
+          if [ "$CHANNEL" = "beta" ]; then
+            title="YAL ${VERSION} (Beta)"
+            prerelease_flag=(--prerelease)
+          fi
+          if [ "$DRAFT" = "true" ]; then
+            draft_flag=(--draft)
+          fi
+
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "Release $tag already exists. Delete it or choose another version before rerunning." >&2
+            exit 1
+          fi
+
+          gh release create "$tag" \
+            "dist/YAL-${VERSION}.zip#YAL-${VERSION}.zip" \
+            "dist/YAL-${VERSION}-manifest.txt#YAL-${VERSION}-manifest.txt" \
+            --target "$GITHUB_SHA" \
+            --title "$title" \
+            --notes-file dist/release-notes.md \
+            "${prerelease_flag[@]}" \
+            "${draft_flag[@]}"
+
+      - name: Summary
+        run: |
+          {
+            echo "### YAL GitHub release"
+            echo
+            echo "- Channel: \`$CHANNEL\`"
+            echo "- Version: \`$VERSION\`"
+            echo "- Package: \`dist/YAL-${VERSION}.zip\`"
+            echo "- Manifest: \`dist/YAL-${VERSION}-manifest.txt\`"
+            echo
+            echo "This workflow does not publish Bunny/SkunkCrafts depots."
+          } >> "$GITHUB_STEP_SUMMARY"
