@@ -446,8 +446,8 @@ P.XPOUTPUTPATH = sasl.getXPlanePath() .. P.OSSEPARATOR .. "Output" .. P.OSSEPARA
 P.XPCACHESPATH = P.XPOUTPUTPATH .. "caches" .. P.OSSEPARATOR
 P.YALCACHEPATH = P.XPOUTPUTPATH .. "caches" .. P.OSSEPARATOR .. P.APPNAMEPREFIX .. ".cache".. P.OSSEPARATOR
 P.ZIBO_B738_CALC_PATH = sasl.getXPlanePath() .. P.OSSEPARATOR .. "Aircraft" .. P.OSSEPARATOR .. "B737-800X" .. P.OSSEPARATOR .. "plugins" .. P.OSSEPARATOR .. "xlua" .. P.OSSEPARATOR .. "scripts" .. P.OSSEPARATOR .. "B738.calc" .. P.OSSEPARATOR .. "B738.calc.lua"
-P.YALGITHUBURL = "https://raw.githubusercontent.com/wahltho/YAL/main/data/modules/configuration/version.ini"
-P.YALBETAGITHUBURL = "https://raw.githubusercontent.com/wahltho/YAL/beta/data/modules/configuration/version.ini"
+P.YALUPDATEURL = "https://wahltho.b-cdn.net/YAL/data/modules/configuration/version.ini"
+P.YALBETAUPDATEURL = "https://wahltho.b-cdn.net/YAL%20Beta/data/modules/configuration/version.ini"
 P.ZIBOUPDATEFEEDURL = "https://skymatixva.com/tfiles/feed.xml"
 
 P.AVWEATHERFURLCSV = "https://aviationweather.gov/api/data/metar?taf=false&ids="
