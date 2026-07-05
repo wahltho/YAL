@@ -70,6 +70,9 @@ local function channelReasonText(channel)
     if reason == "installed prerelease" then
         return "Prerelease installed"
     end
+    if reason == "stable selected on prerelease" then
+        return "Stable setting"
+    end
     return "Stable setting"
 end
 
@@ -235,7 +238,9 @@ function M.newComponent(ctx)
     comp._drag = nil
     comp._onAcknowledge = ctx and ctx.onAcknowledge or nil
     comp._onIgnore = ctx and ctx.onIgnore or nil
-    comp._onSettings = ctx and ctx.onSettings or nil
+    comp._onInstall = ctx and ctx.onInstall or nil
+    comp._onConfirm = ctx and ctx.onConfirm or nil
+    comp._onCancel = ctx and ctx.onCancel or nil
 
     function comp:setWindow(win)
         self._window = win
@@ -272,16 +277,50 @@ function M.newComponent(ctx)
         local font = getSafeFont()
         local title = tostring(self._payload.title or "Update available")
         local laterLabel = tostring(self._payload.laterLabel or self._payload.okLabel or "Later")
-        local settingsLabel = tostring(self._payload.settingsLabel or "Settings")
+        local installLabel = tostring(self._payload.installLabel or "Install YAL Update")
         local yalInfo = self._payload.yal
         local ziboInfo = self._payload.zibo
         local channelInfo = self._payload.channel
         local hasStructuredPayload = yalInfo or ziboInfo or channelInfo
+        local mode = tostring(self._payload.mode or "")
 
         drawRectangle(0, 0, w, h, {0, 0, 0, 0.78})
         drawFrame(0.5, 0.5, w - 1, h - 1, {0.72, 0.72, 0.72, 0.9})
         drawRectangle(0, h - headerH, w, headerH, {0.12, 0.12, 0.13, 0.96})
         drawText(font, 9, h - headerH + 5, title, 13, TEXT_ALIGN_LEFT, {0.96, 0.96, 0.98, 1})
+
+        if mode == "confirm" or mode == "status" then
+            local lines = self._payload.lines or {}
+            local y = h - 58
+            for _, line in ipairs(lines) do
+                local wrapped = wrap_line(line, 76)
+                for _, part in ipairs(wrapped) do
+                    drawText(font, padding, y, part, 12, TEXT_ALIGN_LEFT, {0.92, 0.92, 0.96, 1})
+                    y = y - 17
+                end
+                y = y - 3
+            end
+
+            local btnH = 20
+            local gap = 10
+            local okW = 82
+            local cancelW = 92
+            local btnY = 12
+            self._buttons = {}
+            if mode == "confirm" then
+                local totalW = cancelW + gap + okW
+                local btnX = math.floor((w - totalW) * 0.5)
+                self._buttons.cancel = { x = btnX, y = btnY, w = cancelW, h = btnH }
+                self._buttons.ok = { x = btnX + cancelW + gap, y = btnY, w = okW, h = btnH }
+                drawButton(font, self._buttons.cancel, tostring(self._payload.cancelLabel or "Cancel"), false)
+                drawButton(font, self._buttons.ok, tostring(self._payload.okLabel or "OK"), true)
+            else
+                local btnX = math.floor((w - okW) * 0.5)
+                self._buttons.ok = { x = btnX, y = btnY, w = okW, h = btnH }
+                drawButton(font, self._buttons.ok, tostring(self._payload.okLabel or "OK"), true)
+            end
+            return
+        end
 
         local checked = "Checked: " .. checkedAtText(self._payload.checkedAt)
         local activeChannel = "Channel: " .. channelTitle(channelInfo)
@@ -358,11 +397,15 @@ function M.newComponent(ctx)
         local gap = 10
         local laterW = 82
         local ignoreW = 126
-        local settingsW = 112
+        local installW = 160
         local showIgnore = hasActionableUpdate(self._payload)
-        local totalW = laterW + gap + settingsW
+        local showInstall = yalInfo and yalInfo.available
+        local totalW = laterW
         if showIgnore then
             totalW = totalW + gap + ignoreW
+        end
+        if showInstall then
+            totalW = totalW + gap + installW
         end
         local btnX = math.floor((w - totalW) * 0.5)
         local btnY = 12
@@ -373,40 +416,72 @@ function M.newComponent(ctx)
             self._buttons.ignore = { x = nextX, y = btnY, w = ignoreW, h = btnH }
             nextX = nextX + ignoreW + gap
         end
-        self._buttons.settings = { x = nextX, y = btnY, w = settingsW, h = btnH }
-        drawButton(font, self._buttons.later, laterLabel, true)
+        if showInstall then
+            self._buttons.install = { x = nextX, y = btnY, w = installW, h = btnH }
+        end
+        drawButton(font, self._buttons.later, laterLabel, not showInstall)
         if showIgnore then
             drawButton(font, self._buttons.ignore, tostring(self._payload.ignoreLabel or getIgnoreLabel(self._payload)), false)
         end
-        drawButton(font, self._buttons.settings, settingsLabel, false)
+        if showInstall then
+            drawButton(font, self._buttons.install, installLabel, true)
+        end
     end
 
     function comp:onMouseDown(x, y, button)
         if not (button == MB_LEFT or button == 1) then
             return false
         end
+        local function runCallback(callback)
+            if callback then
+                local ok, result = pcall(callback, self._payload)
+                if not ok then
+                    sasl.logWarning("Update popup callback failed: " .. tostring(result))
+                elseif result == false then
+                    return false
+                end
+            end
+            return true
+        end
         local btn = self._buttons and self._buttons.later or nil
         if btn and x >= btn.x and x <= (btn.x + btn.w) and y >= btn.y and y <= (btn.y + btn.h) then
-            if self._onAcknowledge then
-                pcall(self._onAcknowledge, self._payload)
+            if runCallback(self._onAcknowledge) then
+                self:clearPayload()
             end
-            self:clearPayload()
             return true
         end
         btn = self._buttons and self._buttons.ignore or nil
         if btn and x >= btn.x and x <= (btn.x + btn.w) and y >= btn.y and y <= (btn.y + btn.h) then
-            if self._onIgnore then
-                pcall(self._onIgnore, self._payload)
+            if runCallback(self._onIgnore) then
+                self:clearPayload()
             end
-            self:clearPayload()
             return true
         end
-        btn = self._buttons and self._buttons.settings or nil
+        btn = self._buttons and self._buttons.install or nil
         if btn and x >= btn.x and x <= (btn.x + btn.w) and y >= btn.y and y <= (btn.y + btn.h) then
-            if self._onSettings then
-                pcall(self._onSettings, self._payload)
+            if runCallback(self._onInstall) then
+                self:clearPayload()
             end
-            self:clearPayload()
+            return true
+        end
+        btn = self._buttons and self._buttons.cancel or nil
+        if btn and x >= btn.x and x <= (btn.x + btn.w) and y >= btn.y and y <= (btn.y + btn.h) then
+            if runCallback(self._onCancel) then
+                self:clearPayload()
+            end
+            return true
+        end
+        btn = self._buttons and self._buttons.ok or nil
+        if btn and x >= btn.x and x <= (btn.x + btn.w) and y >= btn.y and y <= (btn.y + btn.h) then
+            if tostring(self._payload and self._payload.mode or "") == "confirm" then
+                if runCallback(self._onConfirm) then
+                    self:clearPayload()
+                end
+            else
+                if runCallback(self._onAcknowledge) then
+                    self:clearPayload()
+                end
+            end
             return true
         end
         if self._window and self._window.getPosition then

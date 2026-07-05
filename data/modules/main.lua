@@ -20,6 +20,8 @@ local updatePopupWindow
 local updatePopupInitialized = false
 local updatePopupComponent
 local remember_ignored_updates
+local show_yal_update_confirm
+local run_yal_update_install
 local startupUpdateCheckDone = false
 local startupUpdateCheckEarliest = 0
 local startupUpdateCheckPerformed = false
@@ -399,12 +401,14 @@ local function maybeInitUpdatePopupWindow()
         onIgnore = function(payload)
             remember_ignored_updates(payload)
         end,
-        onSettings = function()
-            helpers.logInfoTS("Startup update popup opened settings")
-            maybeInitSetupWindow()
-            if setupWindow then
-                setupWindow:setIsVisible(true)
-            end
+        onInstall = function(payload)
+            return show_yal_update_confirm(payload)
+        end,
+        onConfirm = function(payload)
+            return run_yal_update_install(payload)
+        end,
+        onCancel = function()
+            helpers.logInfoTS("YAL update confirmation cancelled")
         end
     })
     updatePopupComponent = comp
@@ -530,11 +534,14 @@ local function get_yal_feed_comparison(stableVersion, betaVersion)
     return "unknown"
 end
 
-local function get_update_popup_title(yalAvailable, ziboAvailable, betaUpdateAvailable)
+local function get_update_popup_title(yalAvailable, ziboAvailable, betaUpdateAvailable, yalInstallKind)
     if yalAvailable and ziboAvailable then
         return "YAL and Zibo Updates Available"
     end
     if yalAvailable then
+        if yalInstallKind == "stable" then
+            return "YAL Stable Version Available"
+        end
         if betaUpdateAvailable then
             return "YAL Beta Update Available"
         end
@@ -549,6 +556,9 @@ end
 local function choose_yal_ignore_version(yalInfo)
     if not yalInfo or not yalInfo.detectedAvailable then
         return ""
+    end
+    if yalInfo.installVersion and yalInfo.installVersion ~= "" then
+        return tostring(yalInfo.installVersion)
     end
     local candidate = ""
     if yalInfo.channelAvailable and yalInfo.latest and yalInfo.latest ~= "" then
@@ -586,6 +596,48 @@ remember_ignored_updates = function(payload)
     if changed and settings.writeSettings then
         settings.writeSettings(settings.appSettings)
     end
+end
+
+show_yal_update_confirm = function(payload)
+    local yalInfo = payload and payload.yal or nil
+    if not yalInfo or not updatePopupComponent or not updatePopupComponent.setPayload then
+        return true
+    end
+    local current = tostring(yalInfo.current or def.VERSION or "?")
+    local target = tostring(yalInfo.installVersion or yalInfo.latest or "?")
+    local verb = "update"
+    if helpers.isVersionNewer and helpers.isVersionNewer(current, target) then
+        verb = "replace"
+    end
+    updatePopupComponent:setPayload({
+        mode = "confirm",
+        title = "Confirm YAL Update",
+        lines = {
+            string.format("Do you really want to %s YAL from v%s to v%s?", verb, current, target),
+            "The update will be installed from the selected YAL depot.",
+        },
+        okLabel = "OK",
+        cancelLabel = "Cancel",
+        yal = yalInfo,
+    })
+    return false
+end
+
+run_yal_update_install = function(payload)
+    local yalInfo = payload and payload.yal or nil
+    if not yalInfo or not helpers.installYalUpdateFromDepot then
+        return true
+    end
+    local result = helpers.installYalUpdateFromDepot(yalInfo.installBeta == true)
+    if updatePopupComponent and updatePopupComponent.setPayload then
+        updatePopupComponent:setPayload({
+            mode = "status",
+            title = result and result.title or "YAL Update",
+            lines = (result and result.lines) or { "YAL update finished." },
+            okLabel = "OK",
+        })
+    end
+    return false
 end
 
 local function maybeRunStartupUpdateCheck()
@@ -639,17 +691,22 @@ local function maybeRunStartupUpdateCheck()
 
     local showBetaUpdates = tonumber(settings.appSettings[def.CONFIGSHOWBETAUPDATES] or 0) == def.ON
     local installedPrerelease = is_yal_beta_version()
-    local checkBeta = showBetaUpdates or installedPrerelease
-    local yalChannelAvailable, yalLatest = helpers.checkForUpdate(checkBeta)
+    local checkBeta = showBetaUpdates
+    local _, yalLatestRaw = helpers.checkForUpdate(checkBeta)
     local yalStableAvailable, yalStable = helpers.checkForUpdate(false)
     local yalBetaAvailable, yalBeta = helpers.checkForUpdate(true)
-    local yalDetectedAvailable = yalChannelAvailable or (checkBeta and yalStableAvailable)
+    local yalSelectedVersion = checkBeta and yalBeta or yalStable
+    if not yalSelectedVersion or yalSelectedVersion == "" then
+        yalSelectedVersion = yalLatestRaw
+    end
+    local yalSelectedDepotDiffers = yalSelectedVersion and yalSelectedVersion ~= "" and tostring(yalSelectedVersion) ~= tostring(def.VERSION or "")
+    local yalDetectedAvailable = yalSelectedDepotDiffers
     local feedComparison = get_yal_feed_comparison(yalStable, yalBeta)
     local channelReason = "stable setting"
     if showBetaUpdates then
         channelReason = "setting enabled"
     elseif installedPrerelease then
-        channelReason = "installed prerelease"
+        channelReason = "stable selected on prerelease"
     end
 
     local ziboDetectedAvailable, ziboLatest, ziboLocal = false, "", ""
@@ -668,13 +725,17 @@ local function maybeRunStartupUpdateCheck()
     local yalInfo = {
         checkBeta = checkBeta,
         detectedAvailable = yalDetectedAvailable,
-        channelAvailable = yalChannelAvailable,
+        channelAvailable = yalSelectedDepotDiffers,
         stableAvailable = yalStableAvailable,
         betaAvailable = yalBetaAvailable,
-        latest = yalLatest,
+        latest = yalSelectedVersion,
         latestStable = yalStable,
         latestBeta = yalBeta,
         current = tostring(def.VERSION or ""),
+        installBeta = checkBeta,
+        installKind = checkBeta and "beta" or "stable",
+        installVersion = yalSelectedVersion,
+        installLabel = checkBeta and "Install YAL Beta" or "Install YAL Stable",
     }
     yalInfo.ignoreVersion = choose_yal_ignore_version(yalInfo)
     yalInfo.ignored = is_ignored_update(yalInfo.ignoreVersion, ignoredYalVersion)
@@ -725,13 +786,13 @@ local function maybeRunStartupUpdateCheck()
     maybeInitUpdatePopupWindow()
     if updatePopupComponent and updatePopupComponent.setPayload then
         updatePopupComponent:setPayload({
-            title = get_update_popup_title(yalInfo.available, ziboInfo.available, checkBeta and yalChannelAvailable),
+            title = get_update_popup_title(yalInfo.available, ziboInfo.available, checkBeta and yalInfo.available, yalInfo.installKind),
             checkedAt = now,
             channel = helpers.startupUpdateInfo.channel,
             yal = helpers.startupUpdateInfo.yal,
             zibo = helpers.startupUpdateInfo.zibo,
             laterLabel = "Later",
-            settingsLabel = "Settings",
+            installLabel = yalInfo.installLabel,
         })
     end
 end

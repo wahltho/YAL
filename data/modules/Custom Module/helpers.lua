@@ -474,6 +474,8 @@ function P.checkForUpdate(showBeta)
         if is_version_newer(newVersion, currentVersion) then
             updateAvailable = true
             P.logInfoTS(string.format("New YAL version available v%s", newVersion))
+        elseif tostring(newVersion) ~= tostring(currentVersion) then
+            P.logInfoTS(string.format("YAL feed version v%s differs from current v%s", tostring(newVersion), tostring(currentVersion)))
         else
             P.logInfoTS("YAL is up to date, no new version available")
         end
@@ -7551,6 +7553,376 @@ local function xor32(a, b)
         bitval = bitval * 2
     end
     return res
+end
+
+local updater = {
+    band = (bit and bit.band) or (bit32 and bit32.band) or nil,
+    rshift = (bit and bit.rshift) or (bit32 and bit32.rshift) or nil,
+    crc32_table = nil,
+}
+
+function updater.band32(a, b)
+    if updater.band then
+        return updater.band(a, b)
+    end
+    local res = 0
+    local bitval = 1
+    local aa = math.floor(a or 0) % 4294967296
+    local bb = math.floor(b or 0) % 4294967296
+    for _ = 1, 32 do
+        local abit = aa % 2
+        local bbit = bb % 2
+        if abit == 1 and bbit == 1 then
+            res = res + bitval
+        end
+        aa = (aa - abit) / 2
+        bb = (bb - bbit) / 2
+        bitval = bitval * 2
+    end
+    return res
+end
+
+function updater.rshift32(a, n)
+    if updater.rshift then
+        return updater.rshift(a, n)
+    end
+    local v = math.floor(a or 0) % 4294967296
+    return math.floor(v / (2 ^ (tonumber(n) or 0)))
+end
+
+function updater.buildCrc32Table()
+    if updater.crc32_table then
+        return updater.crc32_table
+    end
+    updater.crc32_table = {}
+    for i = 0, 255 do
+        local c = i
+        for _ = 1, 8 do
+            if updater.band32(c, 1) ~= 0 then
+                c = xor32(updater.rshift32(c, 1), 0xEDB88320)
+            else
+                c = updater.rshift32(c, 1)
+            end
+        end
+        updater.crc32_table[i] = c
+    end
+    return updater.crc32_table
+end
+
+function updater.crc32File(path)
+    local tbl = updater.buildCrc32Table()
+    local file, err = io.open(path, "rb")
+    if not file then
+        return nil, err or "open failed"
+    end
+    local crc = 0xFFFFFFFF
+    while true do
+        local chunk = file:read(32768)
+        if not chunk then
+            break
+        end
+        for i = 1, #chunk do
+            local idx = updater.band32(xor32(crc, string.byte(chunk, i)), 0xFF)
+            crc = xor32(updater.rshift32(crc, 8), tbl[idx])
+        end
+    end
+    file:close()
+    return tostring(xor32(crc, 0xFFFFFFFF) % 4294967296)
+end
+
+function updater.trimPlain(text)
+    local s = tostring(text or "")
+    while #s > 0 and string.byte(s, 1) <= 32 do
+        s = string.sub(s, 2)
+    end
+    while #s > 0 and string.byte(s, #s) <= 32 do
+        s = string.sub(s, 1, #s - 1)
+    end
+    return s
+end
+
+function updater.parsePipeMap(text)
+    local result = {}
+    for line in tostring(text or ""):gmatch("[^\r\n]+") do
+        local cleaned = updater.trimPlain(line)
+        local sep = cleaned:find("|", 1, true)
+        if sep and sep > 1 then
+            local key = updater.trimPlain(string.sub(cleaned, 1, sep - 1))
+            local value = updater.trimPlain(string.sub(cleaned, sep + 1))
+            if key ~= "" then
+                result[key] = value
+            end
+        end
+    end
+    return result
+end
+
+function updater.safeManifestPath(rel)
+    local path = tostring(rel or ""):gsub("\\", "/")
+    if path == "" then
+        return nil
+    end
+    if string.sub(path, 1, 1) == "/" then
+        return nil
+    end
+    if path:find(":", 1, true) then
+        return nil
+    end
+    if path == ".." or path:find("../", 1, true) or path:find("/..", 1, true) then
+        return nil
+    end
+    return path
+end
+
+function updater.localJoin(root, rel)
+    local path = tostring(rel or ""):gsub("/", def.OSSEPARATOR)
+    local base = tostring(root or "")
+    if string.sub(base, -1) == def.OSSEPARATOR then
+        return base .. path
+    end
+    return base .. def.OSSEPARATOR .. path
+end
+
+function updater.parentDir(path)
+    local sep = def.OSSEPARATOR
+    local last = nil
+    for i = #path, 1, -1 do
+        if string.sub(path, i, i) == sep then
+            last = i
+            break
+        end
+    end
+    if not last or last <= 1 then
+        return nil
+    end
+    return string.sub(path, 1, last - 1)
+end
+
+function updater.writeBinaryFile(path, data)
+    local dir = updater.parentDir(path)
+    if dir and not P.check_create_path(dir) then
+        return false, "failed to create folder"
+    end
+    local file, err = io.open(path, "wb")
+    if not file then
+        return false, err or "open failed"
+    end
+    file:write(data or "")
+    file:close()
+    return true
+end
+
+function updater.copyBinaryFile(source, destination)
+    local dir = updater.parentDir(destination)
+    if dir and not P.check_create_path(dir) then
+        return false, "failed to create folder"
+    end
+    local inp, err = io.open(source, "rb")
+    if not inp then
+        return false, err or "source open failed"
+    end
+    local out, err2 = io.open(destination, "wb")
+    if not out then
+        inp:close()
+        return false, err2 or "destination open failed"
+    end
+    while true do
+        local chunk = inp:read(32768)
+        if not chunk then
+            break
+        end
+        out:write(chunk)
+    end
+    out:close()
+    inp:close()
+    return true
+end
+
+function updater.urlEncodePath(path)
+    local out = {}
+    local s = tostring(path or "")
+    for i = 1, #s do
+        local b = string.byte(s, i)
+        local keep = (b >= 48 and b <= 57)
+            or (b >= 65 and b <= 90)
+            or (b >= 97 and b <= 122)
+            or b == 45 or b == 46 or b == 95 or b == 126 or b == 47
+        if keep then
+            out[#out + 1] = string.char(b)
+        else
+            out[#out + 1] = string.format("%%%02X", b)
+        end
+    end
+    return table.concat(out)
+end
+
+function updater.endsWith(text, suffix)
+    local s = tostring(text or "")
+    local tail = tostring(suffix or "")
+    return tail ~= "" and #s >= #tail and string.sub(s, -#tail) == tail
+end
+
+function updater.isNativeSaslPath(rel)
+    local p = tostring(rel or ""):lower():gsub("\\", "/")
+    if string.sub(p, 1, 3) == "64/" or string.sub(p, 1, 9) == "liblinux/" then
+        return true
+    end
+    return updater.endsWith(p, ".xpl") or updater.endsWith(p, ".dll") or updater.endsWith(p, ".so") or updater.endsWith(p, ".dylib")
+end
+
+function updater.fetchText(url)
+    local ok, contents = sasl.net.downloadFileContentsSync(url)
+    if not ok then
+        return nil, "download failed"
+    end
+    return contents or ""
+end
+
+function P.getYalUpdateDepotBaseUrl(useBeta)
+    if useBeta then
+        return def.YALBETAUPDATEBASEURL
+    end
+    return def.YALUPDATEBASEURL
+end
+
+function P.installYalUpdateFromDepot(useBeta)
+    local baseUrl = P.getYalUpdateDepotBaseUrl(useBeta)
+    local channelName = useBeta and "Beta" or "Stable"
+    P.logInfoTS("YAL updater: checking " .. channelName .. " depot at " .. tostring(baseUrl))
+
+    local cfgText, cfgErr = updater.fetchText(baseUrl .. "/skunkcrafts_updater.cfg")
+    if not cfgText then
+        return { ok = false, code = "manifest_failed", title = "YAL Update Failed", lines = { "Could not read update depot configuration.", tostring(cfgErr or "") } }
+    end
+    local cfg = updater.parsePipeMap(cfgText)
+    if tostring(cfg.disabled or "false"):lower() == "true" then
+        return { ok = false, code = "disabled", title = "YAL Update Not Available", lines = { "The selected YAL update depot is disabled." } }
+    end
+    if tostring(cfg.locked or "false"):lower() == "true" then
+        return { ok = false, code = "locked", title = "YAL Update Not Available", lines = { "The selected YAL update depot is currently locked." } }
+    end
+
+    local targetVersion = tostring(cfg.version or "")
+    local whitelistText = updater.fetchText(baseUrl .. "/skunkcrafts_updater_whitelist.txt")
+    local sizesText = updater.fetchText(baseUrl .. "/skunkcrafts_updater_sizeslist.txt")
+    if not whitelistText or not sizesText then
+        return { ok = false, code = "manifest_failed", title = "YAL Update Failed", lines = { "Could not read update depot manifest." } }
+    end
+
+    local whitelist = updater.parsePipeMap(whitelistText)
+    local sizes = updater.parsePipeMap(sizesText)
+    local changes = {}
+    local nativeChanges = {}
+    for rel, crc in pairs(whitelist) do
+        local safeRel = updater.safeManifestPath(rel)
+        if safeRel then
+            local expectedSize = tonumber(sizes[rel] or sizes[safeRel] or "")
+            local finalPath = updater.localJoin(def.PLUGINPATH, safeRel)
+            local localSize = get_file_size(finalPath)
+            local localCrc = nil
+            if localSize ~= nil and expectedSize ~= nil and tonumber(localSize) == expectedSize then
+                local crcErr
+                localCrc, crcErr = updater.crc32File(finalPath)
+                if not localCrc then
+                    return { ok = false, code = "crc_failed", title = "YAL Update Failed", lines = { "Could not calculate local CRC32.", safeRel, tostring(crcErr or "") } }
+                end
+            end
+            if localSize == nil or expectedSize == nil or tonumber(localSize) ~= expectedSize or tostring(localCrc or "") ~= tostring(crc or "") then
+                local entry = { rel = safeRel, crc = tostring(crc or ""), size = expectedSize or -1 }
+                if updater.isNativeSaslPath(safeRel) then
+                    nativeChanges[#nativeChanges + 1] = entry
+                else
+                    changes[#changes + 1] = entry
+                end
+            end
+        end
+    end
+
+    if #nativeChanges > 0 then
+        P.logInfoTS("YAL updater: native SASL files changed; runtime update blocked")
+        return {
+            ok = false,
+            code = "native_sasl",
+            title = "YAL Update Requires Restart",
+            lines = {
+                "This update contains native SASL plugin files.",
+                "YAL cannot replace loaded plugin binaries while X-Plane is running.",
+                "Please close X-Plane and update YAL via SkunkCrafts or the full ZIP package.",
+            },
+            targetVersion = targetVersion,
+            changedFiles = #nativeChanges,
+        }
+    end
+
+    if #changes == 0 then
+        return {
+            ok = true,
+            code = "already_current",
+            title = "YAL Update",
+            lines = { "YAL already matches the selected " .. channelName .. " depot." },
+            targetVersion = targetVersion,
+            changedFiles = 0,
+        }
+    end
+
+    table.sort(changes, function(a, b)
+        if a.rel == "data/modules/configuration/version.ini" then
+            return false
+        end
+        if b.rel == "data/modules/configuration/version.ini" then
+            return true
+        end
+        return tostring(a.rel) < tostring(b.rel)
+    end)
+
+    local staging = updater.localJoin(def.YALCACHEPATH, "update_staging/" .. (useBeta and "beta" or "stable"))
+    P.remove_directory(staging)
+    if not P.check_create_path(staging) then
+        return { ok = false, code = "staging_failed", title = "YAL Update Failed", lines = { "Could not create update staging folder." } }
+    end
+
+    for _, entry in ipairs(changes) do
+        local url = baseUrl .. "/" .. updater.urlEncodePath(entry.rel)
+        local contents, err = updater.fetchText(url)
+        if not contents then
+            return { ok = false, code = "download_failed", title = "YAL Update Failed", lines = { "Could not download " .. entry.rel .. ".", tostring(err or "") } }
+        end
+        local stagedPath = updater.localJoin(staging, entry.rel)
+        local writeOk, writeErr = updater.writeBinaryFile(stagedPath, contents)
+        if not writeOk then
+            return { ok = false, code = "stage_write_failed", title = "YAL Update Failed", lines = { "Could not stage " .. entry.rel .. ".", tostring(writeErr or "") } }
+        end
+        local stagedSize = get_file_size(stagedPath)
+        local stagedCrc, stagedCrcErr = updater.crc32File(stagedPath)
+        if not stagedCrc then
+            return { ok = false, code = "crc_failed", title = "YAL Update Failed", lines = { "Could not calculate staged CRC32.", entry.rel, tostring(stagedCrcErr or "") } }
+        end
+        if tonumber(stagedSize or -1) ~= tonumber(entry.size or -2) or tostring(stagedCrc or "") ~= tostring(entry.crc or "") then
+            return { ok = false, code = "verify_failed", title = "YAL Update Failed", lines = { "Downloaded file verification failed.", entry.rel } }
+        end
+    end
+
+    for _, entry in ipairs(changes) do
+        local stagedPath = updater.localJoin(staging, entry.rel)
+        local finalPath = updater.localJoin(def.PLUGINPATH, entry.rel)
+        local copyOk, copyErr = updater.copyBinaryFile(stagedPath, finalPath)
+        if not copyOk then
+            return { ok = false, code = "copy_failed", title = "YAL Update Failed", lines = { "Could not install " .. entry.rel .. ".", tostring(copyErr or "") } }
+        end
+    end
+
+    P.logInfoTS(string.format("YAL updater: installed %d file(s) from %s depot v%s", #changes, channelName, tostring(targetVersion)))
+    return {
+        ok = true,
+        code = "installed",
+        title = "YAL Update Installed",
+        lines = {
+            string.format("YAL update to v%s installed successfully.", tostring(targetVersion ~= "" and targetVersion or "?")),
+            "Please reload YAL or restart X-Plane.",
+        },
+        targetVersion = targetVersion,
+        changedFiles = #changes,
+    }
 end
 
 local function fnv1a_update(hash, chunk)
