@@ -700,7 +700,9 @@ local function maybeRunStartupUpdateCheck()
         yalSelectedVersion = yalLatestRaw
     end
     local yalSelectedDepotDiffers = yalSelectedVersion and yalSelectedVersion ~= "" and tostring(yalSelectedVersion) ~= tostring(def.VERSION or "")
-    local yalDetectedAvailable = yalSelectedDepotDiffers
+    local yalSelectedUpdateAvailable = checkBeta and yalBetaAvailable or yalStableAvailable
+    local yalStableDowngradeAvailable = installedPrerelease and not showBetaUpdates and yalSelectedDepotDiffers
+    local yalDetectedAvailable = yalSelectedUpdateAvailable or yalStableDowngradeAvailable
     local feedComparison = get_yal_feed_comparison(yalStable, yalBeta)
     local channelReason = "stable setting"
     if showBetaUpdates then
@@ -725,7 +727,7 @@ local function maybeRunStartupUpdateCheck()
     local yalInfo = {
         checkBeta = checkBeta,
         detectedAvailable = yalDetectedAvailable,
-        channelAvailable = yalSelectedDepotDiffers,
+        channelAvailable = yalDetectedAvailable,
         stableAvailable = yalStableAvailable,
         betaAvailable = yalBetaAvailable,
         latest = yalSelectedVersion,
