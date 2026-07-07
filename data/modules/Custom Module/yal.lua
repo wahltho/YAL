@@ -1142,6 +1142,7 @@ function P.YalinitGlobal()
     P.ziboDragRequired = nil
     P.ziboDragRequiredLogged = false
     P.dragRequiredAdviceLastWarnAt = nil
+    P.dragRequiredWasActive = false
     P.gearProtectionWasAirborne = false
     P.gearProtectionArmedUntil = nil
     P.gearProtectionActiveUntil = nil
@@ -3441,6 +3442,10 @@ function P.defaultSpeakStringKey(entryType, text)
         return "advice:qnh"
     elseif starts_with_text(msg, "Set Trim ") or starts_with_text(msg, "Trim ") then
         return "advice:trim"
+    elseif msg == "Speedbrakes still extended" then
+        return "advice:speedbrake_forgotten"
+    elseif starts_with_text(msg, "Drag no longer required") then
+        return "advice:drag_no_longer_required"
     elseif starts_with_text(msg, "Drag required") then
         return "advice:drag_required"
     elseif msg == "Monitor Taxi Speed" then
@@ -8106,16 +8111,29 @@ end
 
 --------------------------------------------------------------------------------------------------------------
 local SPEEDBRAKE_FORGOTTEN_TEXT = "Speedbrakes still extended"
+local SPEEDBRAKE_FORGOTTEN_KEY = "advice:speedbrake_forgotten"
 local DRAG_REQUIRED_TEXT = "Drag required. Set speedbrakes"
 local DRAG_REQUIRED_KEY = "advice:drag_required"
+local DRAG_NO_LONGER_REQUIRED_TEXT = "Drag no longer required. Retract speedbrakes"
+local DRAG_NO_LONGER_REQUIRED_KEY = "advice:drag_no_longer_required"
 
 local function removeQueuedSpeedbrakeForgottenWarnings()
+    if P.clearYalQueuedSpeech then
+        P.clearYalQueuedSpeech(SPEEDBRAKE_FORGOTTEN_KEY)
+        return
+    end
     if type(P.commandtable) ~= "table" then
         return
     end
     for i = #P.commandtable, 1, -1 do
         local entry = P.commandtable[i]
-        if entry and entry[1] == def.TEXT and entry[2] == SPEEDBRAKE_FORGOTTEN_TEXT then
+        if entry and entry[1] == def.TEXT then
+            local entryKey = entry[3] or P.defaultSpeakStringKey(entry[1], entry[2])
+            if entryKey ~= SPEEDBRAKE_FORGOTTEN_KEY and entry[2] ~= SPEEDBRAKE_FORGOTTEN_TEXT then
+                entry = nil
+            end
+        end
+        if entry and entry[1] == def.TEXT then
             table.remove(P.commandtable, i)
         end
     end
@@ -8168,6 +8186,25 @@ local function clearQueuedDragRequiredAdvice()
     end
 end
 
+local function clearQueuedDragNoLongerRequiredAdvice()
+    if P.clearYalQueuedSpeech then
+        P.clearYalQueuedSpeech(DRAG_NO_LONGER_REQUIRED_KEY)
+        return
+    end
+    if type(P.commandtable) ~= "table" then
+        return
+    end
+    for i = #P.commandtable, 1, -1 do
+        local entry = P.commandtable[i]
+        if entry and entry[1] == def.TEXT then
+            local entryKey = entry[3] or P.defaultSpeakStringKey(entry[1], entry[2])
+            if entryKey == DRAG_NO_LONGER_REQUIRED_KEY then
+                table.remove(P.commandtable, i)
+            end
+        end
+    end
+end
+
 local function resetDragRequiredAdvice()
     if P.dragRequiredAdviceLastWarnAt ~= nil then
         clearQueuedDragRequiredAdvice()
@@ -8179,18 +8216,48 @@ function P.checkDragRequiredAdvice()
     local ref = P.ziboDragRequired
     if not (ref and isProperty(ref)) then
         resetDragRequiredAdvice()
+        clearQueuedDragNoLongerRequiredAdvice()
+        P.dragRequiredWasActive = false
         return
     end
 
     local dragRequired = (read_optional_number_dataref(ref) or 0) == 1
     local inAir = (get(P.airgroundsensor) == def.OFF)
     local speedbrakesExtended = getSpeedbrakeForgottenExtendedState()
-    if (not dragRequired) or (not inAir) or speedbrakesExtended then
+    local wasActive = P.dragRequiredWasActive == true
+
+    if not inAir then
         resetDragRequiredAdvice()
+        clearQueuedDragNoLongerRequiredAdvice()
+        P.dragRequiredWasActive = false
         return
     end
 
     local now = os.time() or 0
+
+    if not dragRequired then
+        if not speedbrakesExtended then
+            clearQueuedDragNoLongerRequiredAdvice()
+        end
+        resetDragRequiredAdvice()
+        P.dragRequiredWasActive = false
+        if wasActive and speedbrakesExtended then
+            removeQueuedSpeedbrakeForgottenWarnings()
+            P.speedbrakeForgottenLastWarnAt = now
+            P.commandtableentry(def.TEXT, DRAG_NO_LONGER_REQUIRED_TEXT, DRAG_NO_LONGER_REQUIRED_KEY)
+            helpers.logDebugTS("DragRequiredAdvice: no longer required warning queued")
+        end
+        return
+    end
+
+    P.dragRequiredWasActive = true
+    clearQueuedDragNoLongerRequiredAdvice()
+
+    if speedbrakesExtended then
+        resetDragRequiredAdvice()
+        return
+    end
+
     if (P.dragRequiredAdviceLastWarnAt == nil)
         or ((now - P.dragRequiredAdviceLastWarnAt) >= def.DRAG_REQUIRED_REPEAT_SEC) then
         P.commandtableentry(def.TEXT, DRAG_REQUIRED_TEXT, DRAG_REQUIRED_KEY)
