@@ -1139,6 +1139,9 @@ function P.YalinitGlobal()
     P.needsPostStartupDatarefRebind = false
     P.externalDatarefsPostStartupDone = false
     P.initialExternalDatarefMissingCount = 0
+    P.ziboDragRequired = nil
+    P.ziboDragRequiredLogged = false
+    P.dragRequiredAdviceLastWarnAt = nil
     P.gearProtectionWasAirborne = false
     P.gearProtectionArmedUntil = nil
     P.gearProtectionActiveUntil = nil
@@ -1593,9 +1596,23 @@ function P.bindExternalDatarefs(silentMissing)
         P.logZiboRaasRuntimeApi()
     end
 
+    local function bindZiboPortRuntimeRefs()
+        P.ziboDragRequired = nil
+        if not probe_external_dataref("zibomod/fms/drag_required") then
+            return
+        end
+
+        P.ziboDragRequired = GP("zibomod/fms/drag_required")
+        if P.ziboDragRequired and isProperty(P.ziboDragRequired) and not P.ziboDragRequiredLogged then
+            P.ziboDragRequiredLogged = true
+            helpers.logInfoTS("Zibo drag required dataref connected")
+        end
+    end
+
     bindRefdataRefs()
     bindSpeakStringSinkRefs()
     bindZiboRaasRuntimeRefs()
+    bindZiboPortRuntimeRefs()
 
     P.simpaused = GP("sim/time/paused")
     P.simfreezed = GPFAE("sim/operation/override/override_planepath", 1)
@@ -3424,6 +3441,8 @@ function P.defaultSpeakStringKey(entryType, text)
         return "advice:qnh"
     elseif starts_with_text(msg, "Set Trim ") or starts_with_text(msg, "Trim ") then
         return "advice:trim"
+    elseif starts_with_text(msg, "Drag required") then
+        return "advice:drag_required"
     elseif msg == "Monitor Taxi Speed" then
         return "advice:taxi_speed"
     elseif starts_with_text(msg, "Warning: Route") then
@@ -8087,6 +8106,8 @@ end
 
 --------------------------------------------------------------------------------------------------------------
 local SPEEDBRAKE_FORGOTTEN_TEXT = "Speedbrakes still extended"
+local DRAG_REQUIRED_TEXT = "Drag required. Set speedbrakes"
+local DRAG_REQUIRED_KEY = "advice:drag_required"
 
 local function removeQueuedSpeedbrakeForgottenWarnings()
     if type(P.commandtable) ~= "table" then
@@ -8126,6 +8147,56 @@ local function speedbrakeForgottenMonitorEligible(flightState, fmsPhase)
         or (fmsPhase == def.FMSFLIGHTPHASE_CRZ_DES)
         or (fmsPhase == def.FMSFLIGHTPHASE_DESCENT)
         or (fmsPhase == def.FMSFLIGHTPHASE_APPROACH)
+end
+
+local function clearQueuedDragRequiredAdvice()
+    if P.clearYalQueuedSpeech then
+        P.clearYalQueuedSpeech(DRAG_REQUIRED_KEY)
+        return
+    end
+    if type(P.commandtable) ~= "table" then
+        return
+    end
+    for i = #P.commandtable, 1, -1 do
+        local entry = P.commandtable[i]
+        if entry and entry[1] == def.TEXT then
+            local entryKey = entry[3] or P.defaultSpeakStringKey(entry[1], entry[2])
+            if entryKey == DRAG_REQUIRED_KEY then
+                table.remove(P.commandtable, i)
+            end
+        end
+    end
+end
+
+local function resetDragRequiredAdvice()
+    if P.dragRequiredAdviceLastWarnAt ~= nil then
+        clearQueuedDragRequiredAdvice()
+    end
+    P.dragRequiredAdviceLastWarnAt = nil
+end
+
+function P.checkDragRequiredAdvice()
+    local ref = P.ziboDragRequired
+    if not (ref and isProperty(ref)) then
+        resetDragRequiredAdvice()
+        return
+    end
+
+    local dragRequired = (read_optional_number_dataref(ref) or 0) == 1
+    local inAir = (get(P.airgroundsensor) == def.OFF)
+    local speedbrakesExtended = getSpeedbrakeForgottenExtendedState()
+    if (not dragRequired) or (not inAir) or speedbrakesExtended then
+        resetDragRequiredAdvice()
+        return
+    end
+
+    local now = os.time() or 0
+    if (P.dragRequiredAdviceLastWarnAt == nil)
+        or ((now - P.dragRequiredAdviceLastWarnAt) >= def.DRAG_REQUIRED_REPEAT_SEC) then
+        P.commandtableentry(def.TEXT, DRAG_REQUIRED_TEXT, DRAG_REQUIRED_KEY)
+        P.dragRequiredAdviceLastWarnAt = now
+        helpers.logDebugTS("DragRequiredAdvice: warning queued")
+    end
 end
 
 function P.checkSpeedbrakeForgotten()
@@ -8603,6 +8674,7 @@ function P.ongoingtasks()
     checkAutoRestart()
     checkHoppieVoiceMessages()
     ensureTrimPopupCommandHooks()
+    P.checkDragRequiredAdvice()
     P.checkSpeedbrakeForgotten()
     maybeRequestTrimAdvicePopupForGroundTrim()
 
