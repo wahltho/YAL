@@ -1259,6 +1259,7 @@ function P.YalinitGlobal()
         setonabort = false,
         lastStepName = "",
         skipConfirmForStep = nil,
+        adviceQueuedForStep = nil,
         adviceRepeatKey = nil,
         adviceRepeatCount = 0,
         adviceRepeatSpoken = 0,
@@ -2613,6 +2614,7 @@ function P.resetLoopState(loopTable)
     loopTable.triggeredmanually = cleanTemplate.triggeredmanually -- Setzt auf false (Standard)
     loopTable.triggeredat = 0
     loopTable.skipConfirmForStep = nil
+    loopTable.adviceQueuedForStep = nil
     loopTable.adviceRepeatKey = nil
     loopTable.adviceRepeatCount = 0
     loopTable.adviceRepeatSpoken = 0
@@ -9440,7 +9442,12 @@ function P.runProcedureLoop(loopIndex)
                 end
 
                 -- 5a. Step Repeat Logik
-                if stepName == loop.lastStepName then loop.steprepeat = true else loop.steprepeat = false end
+                if stepName == loop.lastStepName then
+                    loop.steprepeat = true
+                else
+                    loop.steprepeat = false
+                    loop.adviceQueuedForStep = nil
+                end
                 loop.lastStepName = stepName
                 sasl.logDebug("steprepeat=" .. tostring(loop.steprepeat))
 
@@ -9546,10 +9553,15 @@ function P.runProcedureLoop(loopIndex)
                                     sasl.logDebug("Check PASSED.")
                                     -- *** FIX FÜR msg-ERROR ANWENDEN (confirm) ***
                                     local skipConfirm = (loop.skipConfirmForStep == stepName)
+                                    local skipVoiceAdviceConfirm =
+                                        useAdviceOnly and
+                                        loop.steprepeat and
+                                        (loop.adviceQueuedForStep == stepName) and
+                                        (not step.ensureConfirmInAdviceMode)
                                     if skipConfirm then
                                         sasl.logDebug("Skipping confirmation for step '" .. tostring(stepName) .. "' due to auto action.")
                                         loop.skipConfirmForStep = nil
-                                    elseif step.confirm and (not useAdviceOnly or not loop.steprepeat or step.ensureConfirmInAdviceMode) then
+                                    elseif step.confirm and not skipVoiceAdviceConfirm then
                                         local confirm_msg_raw
                                         if type(step.confirm) == "function" then
                                             confirm_msg_raw = step.confirm(loop, procData)
@@ -9561,6 +9573,8 @@ function P.runProcedureLoop(loopIndex)
                                             P.commandtableentry(def.TEXT, confirm_msg_raw, P.procedureSpeechKey(activeProcKey, stepName, "step"), 2)
                                             sasl.logDebug("Confirmation message: " .. confirm_msg_raw)
                                         end
+                                    elseif step.confirm then
+                                        sasl.logDebug("Skipping confirmation for step '" .. tostring(stepName) .. "' after queued voice advice.")
                                     end
                                     -- Ende confirm Fix
                                     if loop.skipConfirmForStep == stepName then
@@ -9612,6 +9626,7 @@ function P.runProcedureLoop(loopIndex)
                                                     local queueAdvice, adviceReason = P.shouldQueueVoiceAdvice(loop, stepName, advice_msg_raw)
                                                     if queueAdvice then
                                                         P.commandtableentry(def.TEXT, advice_msg_raw, P.procedureSpeechKey(activeProcKey, stepName, "step"), 2)
+                                                        loop.adviceQueuedForStep = stepName
                                                         sasl.logDebug("Advice message: " .. advice_msg_raw)
                                                     elseif adviceReason == "max-reached" then
                                                         loop.procedureskipstep = true
@@ -9664,6 +9679,7 @@ function P.runProcedureLoop(loopIndex)
                                                     local queueAdvice, adviceReason = P.shouldQueueVoiceAdvice(loop, stepName, advice_msg_raw)
                                                     if queueAdvice then
                                                         P.commandtableentry(def.TEXT, advice_msg_raw, P.procedureSpeechKey(activeProcKey, stepName, "step"), 2)
+                                                        loop.adviceQueuedForStep = stepName
                                                         sasl.logDebug("Advice message: " .. advice_msg_raw)
                                                     elseif adviceReason == "max-reached" then
                                                         loop.procedureskipstep = true
