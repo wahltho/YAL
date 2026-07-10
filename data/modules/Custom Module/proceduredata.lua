@@ -1245,7 +1245,7 @@ local function shouldManageSetIlsCourseSelectors(loop)
     if isLocalizerNavType(navType) then
         return true
     end
-    if navType == def.NAVTYPEGLS then
+    if navType == def.NAVTYPEGLS or navType == def.NAVTYPELPV then
         return true
     end
     local guidance = plan and plan.guidanceProfile
