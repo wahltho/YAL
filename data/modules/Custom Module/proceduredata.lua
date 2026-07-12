@@ -752,7 +752,11 @@ local function build_zibo_course_ctx(loop)
         fmslegslon = get(P.fmslegslon),
         navdatatable = P.navdatatable,
         navIndices = loop and loop.navdatatableindices or nil,
-        appId = (loop and loop.detectedApproach and loop.detectedApproach.entry and loop.detectedApproach.entry.code) or nil
+        appId = (P.fmsselectedapp and normalizeSelectedApproachId(get(P.fmsselectedapp)))
+            or (loop and loop.detectedApproach and loop.detectedApproach.entry and loop.detectedApproach.entry.code)
+            or nil,
+        selectedCifpEntry = (loop and loop.detectedApproach and loop.detectedApproach.fromSelection == true
+            and loop.detectedApproach.entry) or nil
     }
 end
 

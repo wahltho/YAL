@@ -5484,6 +5484,48 @@ function P.calcApproachCourseZibo(entry, ctx)
         return P.calccourse(course)
     end
 
+    local function selected_cifp_rnav_course_mag()
+        if type(appId) ~= "string" or string.sub(appId, 1, 1) ~= "R" then
+            return nil
+        end
+        if navType ~= def.NAVTYPERNAV and navType ~= def.NAVTYPELPV and navType ~= def.NAVTYPEGLS then
+            return nil
+        end
+
+        local selected = ctx.selectedCifpEntry
+        if type(selected) ~= "table" then
+            return nil
+        end
+        local selectedCode = type(selected.code) == "string" and selected.code:gsub("%s+", ""):upper() or ""
+        if selectedCode ~= appId then
+            return nil
+        end
+        if runway and not matches_dest_runway(selected.runway, runway) then
+            return nil
+        end
+
+        local entryAppId = entry.app_id
+        if type(entryAppId) ~= "string" or entryAppId:gsub("%s+", "") == "" then
+            entryAppId = entry[def.DESTNAVID]
+        end
+        entryAppId = type(entryAppId) == "string" and entryAppId:gsub("%s+", ""):upper() or ""
+        if entryAppId ~= appId then
+            return nil
+        end
+        if selected.course_is_true == true then
+            return nil
+        end
+
+        local course = tonumber(selected.course_raw)
+        if course == nil then
+            course = tonumber(selected.course)
+        end
+        if course == nil or course < 0 or course >= 360 then
+            return nil
+        end
+        return P.calccourse(course)
+    end
+
     local function entry_nav_course()
         if entry.isTrueCourse and entry.truecourse then
             return "NAV_TRUE", P.calccourse(entry.truecourse + magVar)
@@ -5512,6 +5554,12 @@ function P.calcApproachCourseZibo(entry, ctx)
         end
         local serviceLevel = type(entry.serviceLevel) == "string" and entry.serviceLevel:upper() or ""
         return entry.isLateralOnly == true or serviceLevel == "LP" or serviceLevel == "LPV" or serviceLevel == "GLS"
+    end
+
+    local selectedCifpCourse = selected_cifp_rnav_course_mag()
+    if selectedCifpCourse ~= nil then
+        markSource("CIFP_SELECTED")
+        return selectedCifpCourse
     end
 
     if navType == def.NAVTYPEILS or navType == def.NAVTYPELOC
