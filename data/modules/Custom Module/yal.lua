@@ -1141,9 +1141,11 @@ function P.YalinitGlobal()
     P.initialExternalDatarefMissingCount = 0
     P.ziboDragRequired = nil
     P.ziboDragRequiredUnhandled = nil
+    P.ziboDragRequiredAssist = nil
     P.ziboDragRequiredLogged = false
     P.dragRequiredAdviceLastWarnAt = nil
     P.dragRequiredWasActive = false
+    P.dragRequiredAssistSuppressed = false
     P.gearProtectionWasAirborne = false
     P.gearProtectionArmedUntil = nil
     P.gearProtectionActiveUntil = nil
@@ -1602,9 +1604,11 @@ function P.bindExternalDatarefs(silentMissing)
     local function bindZiboPortRuntimeRefs()
         P.ziboDragRequired = nil
         P.ziboDragRequiredUnhandled = nil
+        P.ziboDragRequiredAssist = nil
 
         local dragRequiredName = "zibomod/fms/drag_required"
         local dragRequiredUnhandledName = "zibomod/fms/drag_required_unhandled"
+        local dragRequiredAssistName = "laminar/B738/effect/drag_req_speedbrake_assist"
 
         if probe_external_dataref(dragRequiredName) then
             P.ziboDragRequired = GP(dragRequiredName)
@@ -1612,14 +1616,19 @@ function P.bindExternalDatarefs(silentMissing)
         if probe_external_dataref(dragRequiredUnhandledName) then
             P.ziboDragRequiredUnhandled = GP(dragRequiredUnhandledName)
         end
+        if probe_external_dataref(dragRequiredAssistName) then
+            P.ziboDragRequiredAssist = GP(dragRequiredAssistName)
+        end
 
         local hasDragRequired = P.ziboDragRequired and isProperty(P.ziboDragRequired)
         local hasDragRequiredUnhandled = P.ziboDragRequiredUnhandled and isProperty(P.ziboDragRequiredUnhandled)
-        if (hasDragRequired or hasDragRequiredUnhandled) and not P.ziboDragRequiredLogged then
+        local hasDragRequiredAssist = P.ziboDragRequiredAssist and isProperty(P.ziboDragRequiredAssist)
+        if (hasDragRequired or hasDragRequiredUnhandled or hasDragRequiredAssist) and not P.ziboDragRequiredLogged then
             P.ziboDragRequiredLogged = true
             helpers.logInfoTS(
                 "Zibo drag required datarefs connected: raw=" .. tostring(hasDragRequired) ..
-                " unhandled=" .. tostring(hasDragRequiredUnhandled)
+                " unhandled=" .. tostring(hasDragRequiredUnhandled) ..
+                " assist=" .. tostring(hasDragRequiredAssist)
             )
         end
     end
@@ -8230,8 +8239,26 @@ end
 function P.checkDragRequiredAdvice()
     local rawRef = P.ziboDragRequired
     local unhandledRef = P.ziboDragRequiredUnhandled
+    local assistRef = P.ziboDragRequiredAssist
     local hasRawRef = rawRef and isProperty(rawRef)
     local hasUnhandledRef = unhandledRef and isProperty(unhandledRef)
+    local assistEnabled = assistRef and isProperty(assistRef)
+        and ((read_optional_number_dataref(assistRef) or 0) == 1)
+
+    if assistEnabled then
+        if not P.dragRequiredAssistSuppressed
+            or P.dragRequiredAdviceLastWarnAt ~= nil
+            or P.dragRequiredWasActive == true then
+            clearQueuedDragRequiredAdvice()
+            clearQueuedDragNoLongerRequiredAdvice()
+        end
+        P.dragRequiredAdviceLastWarnAt = nil
+        P.dragRequiredWasActive = false
+        P.dragRequiredAssistSuppressed = true
+        return
+    end
+    P.dragRequiredAssistSuppressed = false
+
     if not hasRawRef and not hasUnhandledRef then
         resetDragRequiredAdvice()
         clearQueuedDragNoLongerRequiredAdvice()
