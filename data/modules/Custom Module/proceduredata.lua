@@ -307,6 +307,17 @@ local function normalizeSelectedApproachId(selectedAppId)
     return parsed and parsed.id or nil
 end
 
+local function normalizeRawSelectedApproachId(selectedAppId)
+    if type(selectedAppId) ~= "string" then
+        return nil
+    end
+    local id = selectedAppId:gsub("%s+", ""):upper()
+    if id == "" or id == "------" then
+        return nil
+    end
+    return id
+end
+
 local function addSetIlsCandidateType(candidateTypes, seen, navType)
     if navType ~= nil and not seen[navType] then
         table.insert(candidateTypes, navType)
@@ -799,7 +810,79 @@ local function build_detected_approach_nav_entry(loop)
     return navEntry
 end
 
-local function cacheApproachCourse(loop, entry, course, selectedSource, ziboCourse, ziboSource, legacyCourse)
+local function buildApproachRefDetectedVariant(snapshot)
+    if not snapshot or not snapshot.selected or not snapshot.nav_type then
+        return nil
+    end
+
+    local procedureId = tostring(snapshot.procedure_id or "")
+    local runway = tostring(snapshot.runway or "")
+    local resolvedKind = tostring(snapshot.resolved_nav_kind or "")
+    local prefix = resolvedKind
+    if prefix == "" then
+        prefix = tostring(snapshot.procedure_type or snapshot.nav_type or "")
+    elseif prefix == "LOC_GS" then
+        prefix = "LOC"
+    end
+
+    local restStart = (procedureId:sub(1, 3) == "LDA") and 4 or 2
+    local rest = procedureId:sub(restStart)
+    local suffix = ""
+    if runway ~= "" and rest:sub(1, #runway) == runway then
+        suffix = rest:sub(#runway + 1)
+        if suffix:sub(1, 1) == "-" then
+            suffix = suffix:sub(2)
+        end
+    end
+
+    local displayName = prefix .. " " .. helpers.formatRunwayDesignator(runway)
+    if suffix ~= "" then
+        displayName = displayName .. " " .. helpers.spellNato(suffix)
+    end
+
+    local entry = {
+        code = procedureId,
+        runway = runway,
+        displayName = displayName
+    }
+    if snapshot.course_valid then
+        entry.course_raw = tonumber(snapshot.course_deg)
+        entry.course = tonumber(snapshot.course_deg)
+        entry.course_is_true = snapshot.course_reference == "TRUE"
+    end
+
+    return {
+        navType = snapshot.nav_type,
+        entry = entry,
+        displayName = displayName,
+        score = math.huge,
+        priority = 0,
+        fromSelection = true,
+        fromApproachRef = true
+    }
+end
+
+local function resetSetIlsResolutionState(loop)
+    loop.navdatatableindices = nil
+    loop.navdatatableindex = nil
+    loop.approachDME = nil
+    loop._setIlsDmeKey = nil
+    loop._setIlsDmeReady = nil
+    loop.noFODmeWarned = nil
+    loop.approachCourseMag = nil
+    loop.approachCourseMagZibo = nil
+    loop.approachCourseMagZiboSource = nil
+    loop.approachCourseMagLegacy = nil
+    loop.approachCourseSource = nil
+    loop._approachRefCourseResolved = nil
+    loop._setIlsTunePlanKey = nil
+    loop.apiNavdata = nil
+    loop.detectedApproach = nil
+    loop.approachRefAccepted = nil
+    loop.approachRefSnapshot = nil
+end
+
+local function cacheApproachCourse(loop, entry, course, selectedSource, ziboCourse, ziboSource, legacyCourse, authoritative)
     if loop then
         loop.approachCourseMag = course
         loop.approachNavType = entry and entry[def.DESTNAVTYPE] or nil
@@ -809,12 +892,12 @@ local function cacheApproachCourse(loop, entry, course, selectedSource, ziboCour
     P.approachNavType = entry and entry[def.DESTNAVTYPE] or nil
     P.approachCourseSource = selectedSource
 
-    if entry and not ziboCourse then
+    if entry and not ziboCourse and not authoritative then
         local ziboCtx = build_zibo_course_ctx(loop)
         ziboCourse = helpers.calcApproachCourseZibo(entry, ziboCtx)
         ziboSource = ziboCtx.source
     end
-    if entry and not legacyCourse then
+    if entry and not legacyCourse and not authoritative then
         legacyCourse = getNavEntryCourse(entry)
     end
     if loop then
@@ -860,6 +943,28 @@ local function getCachedApproachCourse(loop)
     if loop and loop.approachCourseMag then
         return loop.approachCourseMag
     end
+    if loop and loop.approachRefAccepted then
+        if loop._approachRefCourseResolved then
+            return loop.approachCourseMag
+        end
+        local snapshot = loop.approachRefSnapshot
+        local course = nil
+        if snapshot and snapshot.course_valid then
+            course = tonumber(snapshot.course_deg)
+        end
+        loop._approachRefCourseResolved = true
+        cacheApproachCourse(
+            loop,
+            getSetIlsNavdata(loop),
+            course,
+            "zibo_approach_ref_api",
+            course,
+            "APPROACH_REF",
+            nil,
+            true
+        )
+        return course
+    end
     local entry = getSetIlsNavdata(loop)
     if not entry then
         entry = build_detected_approach_nav_entry(loop)
@@ -900,7 +1005,7 @@ local function getCachedApproachCourse(loop)
             end
         end
     end
-    cacheApproachCourse(loop, entry, course, selectedSource, ziboCourse, ziboSource, legacyCourse)
+    cacheApproachCourse(loop, entry, course, selectedSource, ziboCourse, ziboSource, legacyCourse, false)
     return course
 end
 
@@ -940,6 +1045,9 @@ getSetIlsNavdata = function(loop)
     if not loop then
         return nil
     end
+    if loop.approachRefAccepted then
+        return loop.apiNavdata
+    end
     if loop.apiNavdata then
         return loop.apiNavdata
     end
@@ -953,7 +1061,7 @@ local function getSetIlsApproachDME(loop, navdata)
     if not loop or not navdata then
         return nil
     end
-    if navdata._source == "zibo_api" then
+    if navdata._source == "zibo_api" or navdata._source == "zibo_approach_ref_api" then
         if (tonumber(navdata[def.DESTDMEFREQ]) or 0) > 0
             or (navdata[def.DESTDMEIDENT] and navdata[def.DESTDMEIDENT] ~= "") then
             return navdata
@@ -961,7 +1069,8 @@ local function getSetIlsApproachDME(loop, navdata)
         if navdata._hasSupportNav and (tonumber(navdata._supportNavFrequency) or 0) > 0
             and navdata._supportNavIdent and navdata._supportNavIdent ~= "" then
             local supportType = def.NAVTYPEDME
-            if navdata._supportNavKind == "VOR" or navdata._supportNavKind == "VORDME" then
+            if navdata._supportNavKind == "VOR" or navdata._supportNavKind == "VORDME"
+                or navdata._supportNavKind == "VOR/DME" then
                 supportType = def.NAVTYPEVOR
             end
             return {
@@ -1004,6 +1113,7 @@ end
 
 local function buildSetIlsPlan(loop)
     local navdata = getSetIlsNavdata(loop)
+    local approachSnapshot = loop and loop.approachRefAccepted and loop.approachRefSnapshot or nil
     local selectedAppId = nil
     if P.fmsselectedapp then
         selectedAppId = get(P.fmsselectedapp)
@@ -1011,7 +1121,10 @@ local function buildSetIlsPlan(loop)
     local guidanceProfile = helpers.resolveApproachGuidanceCapabilities({
         navdata = navdata,
         detectedVariant = loop and loop.detectedApproach or nil,
-        selectedAppId = selectedAppId
+        selectedAppId = selectedAppId,
+        selectedNavType = approachSnapshot and approachSnapshot.nav_type or nil,
+        navType = approachSnapshot and approachSnapshot.nav_type or nil,
+        isLateralOnly = approachSnapshot and approachSnapshot.resolved_nav_kind == "LP" or nil
     })
     local plan = {
         navdata = navdata,
@@ -1160,8 +1273,34 @@ local function buildSetIlsSupportNavaidMessage(loop)
     end
 
     local navdata = getSetIlsNavdata(loop)
+    local approachSnapshot = loop.approachRefAccepted and loop.approachRefSnapshot or nil
+    if approachSnapshot and approachSnapshot.support_nav_valid then
+        local kind = tostring(approachSnapshot.support_nav_kind or "")
+        local kindLabel = "navaid"
+        if kind == "VOR" then
+            kindLabel = "V O R"
+        elseif kind == "VOR/DME" or kind == "VORDME" then
+            kindLabel = "V O R / D M E"
+        elseif kind == "DME" then
+            kindLabel = "D M E"
+        elseif kind == "TACAN" then
+            kindLabel = "TACAN"
+        end
+        local message = "Supporting " .. kindLabel
+            .. " for Runway " .. helpers.formatRunwayDesignator(approachSnapshot.runway or get(P.desrwy))
+            .. " is " .. helpers.spellNato(approachSnapshot.support_nav_ident or "")
+        local frequency = tonumber(approachSnapshot.support_nav_frequency_raw) or 0
+        if frequency > 0 then
+            message = message .. " with frequency " .. helpers.addspaces(helpers.formatILSFrequency(frequency))
+        end
+        return message
+    end
+
     local plan = buildSetIlsPlan(loop)
     if not plan or not plan.foTune or plan.foTune.type ~= "dme" then
+        if approachSnapshot then
+            return nil
+        end
         local selectedAppId = nil
         if P.fmsselectedapp then
             selectedAppId = normalizeSelectedApproachId(get(P.fmsselectedapp))
@@ -1241,6 +1380,22 @@ end
 
 local function shouldManageSetIlsCourseSelectors(loop)
     local plan = buildSetIlsPlan(loop)
+    local approachSnapshot = loop and loop.approachRefAccepted and loop.approachRefSnapshot or nil
+    if approachSnapshot then
+        if not approachSnapshot.course_valid then
+            return false
+        end
+        local approachNavType = approachSnapshot.nav_type
+        if isLocalizerNavType(approachNavType)
+            or approachNavType == def.NAVTYPEGLS
+            or approachNavType == def.NAVTYPELPV then
+            return true
+        end
+        local approachGuidance = plan and plan.guidanceProfile
+        return approachNavType == def.NAVTYPERNAV
+            and approachGuidance
+            and approachGuidance.expectedLateralMode == "FAC"
+    end
     local navdata = plan and plan.navdata or getSetIlsNavdata(loop)
     if not navdata then
         return false
@@ -1256,6 +1411,12 @@ local function shouldManageSetIlsCourseSelectors(loop)
     return navType == def.NAVTYPERNAV
         and guidance
         and guidance.expectedLateralMode == "FAC"
+end
+
+local function shouldContinueSetIlsCourseOnly(loop)
+    local snapshot = loop and loop.approachRefAccepted and loop.approachRefSnapshot or nil
+    return snapshot ~= nil and snapshot.selected and not snapshot.nav_valid
+        and shouldManageSetIlsCourseSelectors(loop)
 end
 
 local function checkSetIlsCaptainTune(tune)
@@ -5980,8 +6141,49 @@ function M.fillProcedureTable()
                 ['find_navdata'] = {
                     branch = function(loop, procData)
                         local selectedAppId = nil
+                        local selectedAppContextId = nil
                         if P.fmsselectedapp then
-                            selectedAppId = normalizeSelectedApproachId(get(P.fmsselectedapp))
+                            local selectedAppRaw = get(P.fmsselectedapp)
+                            selectedAppId = normalizeSelectedApproachId(selectedAppRaw)
+                            selectedAppContextId = normalizeRawSelectedApproachId(selectedAppRaw)
+                        end
+
+                        local approachSnapshot, approachNavdata, approachStatus = nil, nil, nil
+                        if refdata and refdata.getApproachRefForContext then
+                            approachSnapshot, approachNavdata, approachStatus = refdata.getApproachRefForContext({
+                                icao = get(P.desicao),
+                                runway = get(P.desrwy),
+                                selectedAppId = selectedAppContextId,
+                                requireCommitted = true
+                            })
+                        end
+                        if approachStatus == "mod_pending" then
+                            return 'find_navdata'
+                        end
+                        if approachStatus == "accepted" then
+                            resetSetIlsResolutionState(loop)
+                            loop.approachRefAccepted = true
+                            loop.approachRefSnapshot = approachSnapshot
+                            loop.apiNavdata = approachNavdata
+                            loop.navdatatableindices = {}
+                            loop.detectedApproach = buildApproachRefDetectedVariant(approachSnapshot)
+                            helpers.logDebugTS(string.format(
+                                "SetIlsResolve: selectedApp=%s source=zibo_approach_ref_api seq=%s selected=%s navValid=%s chosenType=%s chosenId=%s chosenRwy=%s courseValid=%s course=%s reference=%s",
+                                tostring(selectedAppId),
+                                tostring(approachSnapshot and approachSnapshot.update_seq or nil),
+                                tostring(approachSnapshot and approachSnapshot.selected or false),
+                                tostring(approachSnapshot and approachSnapshot.nav_valid or false),
+                                tostring(approachNavdata and approachNavdata[def.DESTNAVTYPE] or nil),
+                                tostring(approachNavdata and approachNavdata[def.DESTNAVID] or nil),
+                                tostring(approachSnapshot and approachSnapshot.runway or nil),
+                                tostring(approachSnapshot and approachSnapshot.course_valid or false),
+                                tostring(approachSnapshot and approachSnapshot.course_deg or nil),
+                                tostring(approachSnapshot and approachSnapshot.course_reference or nil)
+                            ))
+                            if approachSnapshot and approachSnapshot.nav_valid and approachNavdata then
+                                return 'announce_approach_type'
+                            end
+                            return 'announce_no_approach'
                         end
 
                         local detectedVariant = helpers.detectCIFPApproachVariant(
@@ -6029,19 +6231,9 @@ function M.fillProcedureTable()
                                 end
                             end
                         end
+                        resetSetIlsResolutionState(loop)
                         loop.navdatatableindices = navIndices
                         loop.navdatatableindex = (navIndices and navIndices[1]) or nil
-                        loop.approachDME = nil
-                        loop._setIlsDmeKey = nil
-                        loop._setIlsDmeReady = nil
-                        loop.noFODmeWarned = nil
-                        loop.approachCourseMag = nil
-                        loop.approachCourseMagZibo = nil
-                        loop.approachCourseMagZiboSource = nil
-                        loop.approachCourseMagLegacy = nil
-                        loop.approachCourseSource = nil
-                        loop._setIlsTunePlanKey = nil
-                        loop.apiNavdata = nil
                         loop.detectedApproach = detectedVariant
                         if detectedVariant and detectedVariant.navType then
                             local navType = detectedVariant.navType
@@ -6201,6 +6393,15 @@ function M.fillProcedureTable()
                         end
                     end,
                     runActionInAdviceMode = true,
+                    nextStep = 'finish_approach_course_only'
+                },
+                ['finish_approach_course_only'] = {
+                    branch = function(loop, procData)
+                        if shouldContinueSetIlsCourseOnly(loop) then
+                            return 'view_main_panel'
+                        end
+                        return false
+                    end,
                     nextStep = nil
                 },
                 ['announce_approach_type'] = {

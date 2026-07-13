@@ -1540,6 +1540,41 @@ function P.bindExternalDatarefs(silentMissing)
         end
     end
 
+    local function bindApproachRefRefs()
+        P.approachRef = nil
+        local base = "laminar/B738/fms/approach_ref/"
+        if not probe_external_dataref(base .. "api_version") then
+            return
+        end
+
+        P.approachRef = {
+            api_version = GP(base .. "api_version"),
+            update_seq = GP(base .. "update_seq"),
+            selected = GP(base .. "selected"),
+            nav_valid = GP(base .. "nav_valid"),
+            course_valid = GP(base .. "course_valid"),
+            procedure_id = GPS(base .. "procedure_id"),
+            procedure_type = GPS(base .. "procedure_type"),
+            resolved_nav_kind = GPS(base .. "resolved_nav_kind"),
+            airport = GPS(base .. "airport"),
+            runway = GPS(base .. "runway"),
+            nav_ident = GPS(base .. "nav_ident"),
+            frequency_raw = GP(base .. "frequency_raw"),
+            frequency_mhz = GPF(base .. "frequency_mhz"),
+            channel = GP(base .. "channel"),
+            course_deg = GP(base .. "course_deg"),
+            course_reference = GPS(base .. "course_reference"),
+            has_dme = GP(base .. "has_dme"),
+            dme_ident = GPS(base .. "dme_ident"),
+            dme_frequency_raw = GP(base .. "dme_frequency_raw"),
+            support_nav_valid = GP(base .. "support_nav_valid"),
+            support_nav_ident = GPS(base .. "support_nav_ident"),
+            support_nav_kind = GPS(base .. "support_nav_kind"),
+            support_nav_role = GPS(base .. "support_nav_role"),
+            support_nav_frequency_raw = GP(base .. "support_nav_frequency_raw")
+        }
+    end
+
     local function bindSpeakStringSinkRefs()
         P.speakstringSink = nil
         if silentMissing and not probe_external_dataref("laminar/B738/speakstring_sink/version") then
@@ -1634,6 +1669,7 @@ function P.bindExternalDatarefs(silentMissing)
     end
 
     bindRefdataRefs()
+    bindApproachRefRefs()
     bindSpeakStringSinkRefs()
     bindZiboRaasRuntimeRefs()
     bindZiboPortRuntimeRefs()
@@ -1986,6 +2022,10 @@ function P.bindExternalDatarefs(silentMissing)
     P.fmslegs = GP("laminar/B738/fms/legs")
     P.fmslegslat = GP("laminar/B738/fms/legs_lat")
     P.fmslegslon = GP("laminar/B738/fms/legs_lon")
+    P.fmslegsmodactive = nil
+    if probe_external_dataref("laminar/B738/fms/legs_mod_active") then
+        P.fmslegsmodactive = GP("laminar/B738/fms/legs_mod_active")
+    end
 
     P.aircraftlatpos = GP("sim/flightmodel/position/latitude")
     P.aircraftlonpos = GP("sim/flightmodel/position/longitude")

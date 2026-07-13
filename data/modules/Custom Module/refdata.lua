@@ -19,6 +19,16 @@ local S = {
 local MAX_CIFP_LINES = 5000
 local MIN_EFFECTIVE_NAVDATA_API_VERSION = 3
 local LANDING_NAV_REJECT_SCORE = -1000000
+local MIN_APPROACH_REF_API_VERSION = 1
+local APPROACH_REF_READ_ATTEMPTS = 3
+local APPROACH_REF_FIELDS = {
+    "api_version", "update_seq", "selected", "nav_valid", "course_valid",
+    "procedure_id", "procedure_type", "resolved_nav_kind", "airport", "runway", "nav_ident",
+    "frequency_raw", "frequency_mhz", "channel", "course_deg", "course_reference",
+    "has_dme", "dme_ident", "dme_frequency_raw",
+    "support_nav_valid", "support_nav_ident", "support_nav_kind", "support_nav_role",
+    "support_nav_frequency_raw"
+}
 
 local STATUS_NAMES = {
     [0] = "idle",
@@ -295,6 +305,253 @@ local function boolValue(value)
         return value
     end
     return (tonumber(value) or 0) ~= 0
+end
+
+local function approachRefBindings()
+    local refs = S.yal and S.yal.approachRef
+    if not refs then
+        return nil, "absent"
+    end
+    for _, field in ipairs(APPROACH_REF_FIELDS) do
+        if not refs[field] or not isProperty(refs[field]) then
+            return nil, "missing_" .. field
+        end
+    end
+    return refs, nil
+end
+
+local function approachRefNavType(snapshot)
+    local kind = cleanText(snapshot and snapshot.resolved_nav_kind or "")
+    if kind == "ILS" then return def.NAVTYPEILS end
+    if kind == "IGS" then return def.NAVTYPEIGS end
+    if kind == "LOC" or kind == "LOC_GS" then return def.NAVTYPELOC end
+    if kind == "LDA" then return def.NAVTYPELDA end
+    if kind == "GLS" then return def.NAVTYPEGLS end
+    if kind == "LPV" then return def.NAVTYPELPV end
+    if kind == "LP" then return def.NAVTYPERNAV end
+
+    local procedureType = cleanText(snapshot and snapshot.procedure_type or "")
+    if procedureType == "ILS" then return def.NAVTYPEILS end
+    if procedureType == "LOC" then return def.NAVTYPELOC end
+    if procedureType == "LDA" then return def.NAVTYPELDA end
+    if procedureType == "GLS" then return def.NAVTYPEGLS end
+    if procedureType == "RNAV" then return def.NAVTYPERNAV end
+    return nil
+end
+
+local function readApproachRefSnapshot(refs)
+    for _ = 1, APPROACH_REF_READ_ATTEMPTS do
+        local seqBeforeRaw = readNumber(refs.update_seq)
+        local seqBefore = seqBeforeRaw and math.floor(seqBeforeRaw + 0.5) or nil
+        if seqBefore and seqBefore >= 0 and (seqBefore % 2) == 0 then
+            local numericReadOk = true
+            local function number(field)
+                local value = readNumber(refs[field])
+                if value == nil then
+                    numericReadOk = false
+                end
+                return value
+            end
+
+            local snapshot = {
+                api_version = number("api_version"),
+                update_seq = seqBefore,
+                selected = boolValue(number("selected")),
+                nav_valid = boolValue(number("nav_valid")),
+                course_valid = boolValue(number("course_valid")),
+                procedure_id = cleanText(readString(refs.procedure_id)),
+                procedure_type = cleanText(readString(refs.procedure_type)),
+                resolved_nav_kind = cleanText(readString(refs.resolved_nav_kind)),
+                airport = cleanText(readString(refs.airport)),
+                runway = cleanText(readString(refs.runway)),
+                nav_ident = cleanText(readString(refs.nav_ident)),
+                frequency_raw = number("frequency_raw"),
+                frequency_mhz = number("frequency_mhz"),
+                channel = number("channel"),
+                course_deg = number("course_deg"),
+                course_reference = cleanText(readString(refs.course_reference)),
+                has_dme = boolValue(number("has_dme")),
+                dme_ident = cleanText(readString(refs.dme_ident)),
+                dme_frequency_raw = number("dme_frequency_raw"),
+                support_nav_valid = boolValue(number("support_nav_valid")),
+                support_nav_ident = cleanText(readString(refs.support_nav_ident)),
+                support_nav_kind = cleanText(readString(refs.support_nav_kind)),
+                support_nav_role = string.lower(tostring(readString(refs.support_nav_role) or "")):gsub("%s+", ""),
+                support_nav_frequency_raw = number("support_nav_frequency_raw")
+            }
+
+            local seqAfterRaw = readNumber(refs.update_seq)
+            local seqAfter = seqAfterRaw and math.floor(seqAfterRaw + 0.5) or nil
+            if numericReadOk and seqAfter == seqBefore and (seqAfter % 2) == 0 then
+                return snapshot, nil
+            end
+        end
+    end
+    return nil, "unstable_snapshot"
+end
+
+local function approachRefSnapshotValid(snapshot)
+    if not snapshot or (tonumber(snapshot.api_version) or 0) < MIN_APPROACH_REF_API_VERSION then
+        return false, "version"
+    end
+
+    local frequency = tonumber(snapshot.frequency_raw) or 0
+    local frequencyMhz = tonumber(snapshot.frequency_mhz) or 0
+    local channel = tonumber(snapshot.channel) or 0
+    local course = tonumber(snapshot.course_deg) or 0
+    local dmeFrequency = tonumber(snapshot.dme_frequency_raw) or 0
+    local supportFrequency = tonumber(snapshot.support_nav_frequency_raw) or 0
+
+    if not snapshot.selected then
+        if snapshot.nav_valid or snapshot.course_valid or snapshot.has_dme or snapshot.support_nav_valid
+            or snapshot.procedure_id ~= "" or snapshot.procedure_type ~= ""
+            or snapshot.resolved_nav_kind ~= "" or snapshot.airport ~= "" or snapshot.runway ~= ""
+            or snapshot.nav_ident ~= "" or frequency ~= 0 or frequencyMhz ~= 0 or channel ~= 0
+            or course ~= 0 or snapshot.course_reference ~= "" or snapshot.dme_ident ~= ""
+            or dmeFrequency ~= 0 or snapshot.support_nav_ident ~= "" or snapshot.support_nav_kind ~= ""
+            or snapshot.support_nav_role ~= "" or supportFrequency ~= 0 then
+            return false, "nonempty_unselected"
+        end
+        snapshot.nav_type = nil
+        return true, nil
+    end
+
+    if snapshot.procedure_id == "" or snapshot.procedure_type == ""
+        or not validIcao(snapshot.airport) or not validRunway(snapshot.runway) then
+        return false, "selection_context"
+    end
+
+    snapshot.nav_type = approachRefNavType(snapshot)
+    if snapshot.nav_valid then
+        local kind = snapshot.resolved_nav_kind
+        local isChannelKind = kind == "GLS" or kind == "LPV" or kind == "LP"
+        local isFrequencyKind = kind == "ILS" or kind == "IGS" or kind == "LOC"
+            or kind == "LOC_GS" or kind == "LDA"
+        if not snapshot.nav_type or snapshot.nav_ident == "" then
+            return false, "primary_identity"
+        end
+        if isChannelKind then
+            if channel <= 0 or frequency ~= 0 or frequencyMhz ~= 0 then
+                return false, "primary_channel"
+            end
+        elseif isFrequencyKind then
+            if frequency <= 0 or channel ~= 0 or math.abs(frequencyMhz - (frequency / 100)) > 0.001 then
+                return false, "primary_frequency"
+            end
+        else
+            return false, "primary_kind"
+        end
+    elseif snapshot.resolved_nav_kind ~= "" or snapshot.nav_ident ~= ""
+        or frequency ~= 0 or frequencyMhz ~= 0 or channel ~= 0 or snapshot.has_dme then
+        return false, "nonempty_invalid_primary"
+    end
+
+    if snapshot.course_valid then
+        if course < 0 or course >= 360
+            or (snapshot.course_reference ~= "MAG" and snapshot.course_reference ~= "TRUE") then
+            return false, "course"
+        end
+    elseif course ~= 0 or snapshot.course_reference ~= "" then
+        return false, "nonempty_invalid_course"
+    end
+
+    if snapshot.has_dme then
+        if not snapshot.nav_valid or snapshot.dme_ident == "" or dmeFrequency <= 0 then
+            return false, "dme"
+        end
+    elseif snapshot.dme_ident ~= "" or dmeFrequency ~= 0 then
+        return false, "nonempty_invalid_dme"
+    end
+
+    if snapshot.support_nav_valid then
+        if snapshot.support_nav_ident == "" or snapshot.support_nav_kind == ""
+            or snapshot.support_nav_role == "" or supportFrequency <= 0 then
+            return false, "support_nav"
+        end
+    elseif snapshot.support_nav_ident ~= "" or snapshot.support_nav_kind ~= ""
+        or snapshot.support_nav_role ~= "" or supportFrequency ~= 0 then
+        return false, "nonempty_invalid_support_nav"
+    end
+
+    return true, nil
+end
+
+local function approachRefContextMatches(snapshot, context)
+    context = context or {}
+    local selectedAppId = cleanText(context.selectedAppId or "")
+    if selectedAppId == "------" then
+        selectedAppId = ""
+    end
+    if snapshot.selected then
+        if selectedAppId ~= "" and selectedAppId ~= snapshot.procedure_id then
+            return false, "procedure"
+        end
+        local expectedRunway = normalizeRunwayForCompare(context.runway)
+        local snapshotRunway = normalizeRunwayForCompare(snapshot.runway)
+        if expectedRunway ~= "" and expectedRunway ~= snapshotRunway then
+            return false, "runway"
+        end
+    elseif selectedAppId ~= "" then
+        return false, "selection"
+    end
+    return true, nil
+end
+
+local function approachRefToNavEntry(snapshot)
+    if not snapshot or not snapshot.nav_valid or not snapshot.nav_type then
+        return nil
+    end
+
+    local kind = snapshot.resolved_nav_kind
+    local entry = {}
+    entry[def.DESTICAO] = snapshot.airport
+    entry[def.DESTRWY] = snapshot.runway
+    entry[def.DESTNAVTYPE] = snapshot.nav_type
+    entry[def.DESTNAVID] = snapshot.nav_ident
+    entry[def.DESTFREQ] = (kind == "GLS" or kind == "LPV" or kind == "LP")
+        and (tonumber(snapshot.channel) or 0) or (tonumber(snapshot.frequency_raw) or 0)
+    entry[def.DESTCOURSE] = snapshot.course_valid and (tonumber(snapshot.course_deg) or 0) or nil
+    entry[def.DESTNAVDME] = snapshot.has_dme == true
+    entry[def.DESTDMEIDENT] = snapshot.has_dme and snapshot.dme_ident or ""
+    entry[def.DESTDMEFREQ] = snapshot.has_dme and (tonumber(snapshot.dme_frequency_raw) or 0) or 0
+    entry.app_id = snapshot.procedure_id
+    entry.alt_id = snapshot.procedure_id
+    entry._source = "zibo_approach_ref_api"
+    entry._approachRefSnapshot = snapshot
+    entry._approachRefProcedureType = snapshot.procedure_type
+    entry._approachRefResolvedKind = snapshot.resolved_nav_kind
+    entry._hasSupportNav = snapshot.support_nav_valid == true
+    entry._supportNavIdent = snapshot.support_nav_ident
+    entry._supportNavKind = snapshot.support_nav_kind
+    entry._supportNavRole = snapshot.support_nav_role
+    entry._supportNavFrequency = tonumber(snapshot.support_nav_frequency_raw) or 0
+    if snapshot.course_reference == "TRUE" then
+        entry.isTrueCourse = true
+        entry.truecourse = tonumber(snapshot.course_deg) or 0
+    end
+    if kind == "LP" then
+        entry.isLateralOnly = true
+        entry.serviceLevel = "LP"
+    end
+    return entry
+end
+
+local function logApproachRefConnection()
+    local refs, status = approachRefBindings()
+    if not refs then
+        if status ~= "absent" then
+            logOnce("approach-ref-bindings-" .. tostring(status),
+                "Zibo Approach Ref API incomplete, legacy SETILS fallback active: " .. tostring(status), false)
+        end
+        return false
+    end
+    local version = tonumber(readNumber(refs.api_version)) or 0
+    if version >= MIN_APPROACH_REF_API_VERSION then
+        logOnce("approach-ref-connected",
+            "Zibo Approach Ref API connected version=" .. tostring(math.floor(version)), false)
+        return true
+    end
+    return false
 end
 
 local function fmt(value)
@@ -1550,6 +1807,93 @@ local function compareLandingEntry(entry, context)
 
 end
 
+function M.getApproachRefForContext(context)
+    if not S.initialized then
+        return nil, nil, "uninitialized"
+    end
+    context = context or {}
+
+    local refs, bindingStatus = approachRefBindings()
+    if not refs then
+        if bindingStatus ~= "absent" then
+            logOnce("approach-ref-bindings-" .. tostring(bindingStatus),
+                "Zibo Approach Ref API incomplete, legacy SETILS fallback active: " .. tostring(bindingStatus), false)
+        end
+        return nil, nil, bindingStatus
+    end
+
+    local version = tonumber(readNumber(refs.api_version)) or 0
+    if version < MIN_APPROACH_REF_API_VERSION then
+        return nil, nil, "not_ready"
+    end
+    logApproachRefConnection()
+
+    if context.requireCommitted and S.yal and S.yal.fmslegsmodactive
+        and isProperty(S.yal.fmslegsmodactive)
+        and (tonumber(get(S.yal.fmslegsmodactive)) or 0) ~= 0 then
+        logOnce("approach-ref-mod-pending", "ApproachRefAdapter: waiting for pending MOD/EXEC", true)
+        return nil, nil, "mod_pending"
+    end
+
+    local lastStatus = "unstable_snapshot"
+    for _ = 1, APPROACH_REF_READ_ATTEMPTS do
+        local snapshot, readStatus = readApproachRefSnapshot(refs)
+        if snapshot then
+            local valid, validationStatus = approachRefSnapshotValid(snapshot)
+            if not valid then
+                lastStatus = "invalid_" .. tostring(validationStatus)
+                logOnce("approach-ref-" .. lastStatus,
+                    "Zibo Approach Ref API snapshot rejected, legacy SETILS fallback active: " .. lastStatus, false)
+                break
+            end
+
+            local matches, contextStatus = approachRefContextMatches(snapshot, context)
+            if matches then
+                local expectedIcao = cleanText(context.icao or "")
+                if snapshot.selected and validIcao(expectedIcao) and snapshot.airport ~= expectedIcao then
+                    logOnce(
+                        "approach-ref-reference-airport-" .. expectedIcao .. "-" .. snapshot.airport,
+                        "ApproachRefAdapter: accepting reference airport " .. snapshot.airport
+                            .. " for FMC destination " .. expectedIcao,
+                        true
+                    )
+                end
+                local entry = approachRefToNavEntry(snapshot)
+                local key = table.concat({
+                    tostring(snapshot.update_seq), tostring(snapshot.selected), tostring(snapshot.nav_valid),
+                    tostring(snapshot.course_valid), snapshot.procedure_id, snapshot.airport,
+                    snapshot.runway, snapshot.resolved_nav_kind, snapshot.nav_ident
+                }, "|")
+                logOnce(
+                    "approach-ref-selected-" .. key,
+                    "ApproachRefAdapter selected seq=" .. tostring(snapshot.update_seq)
+                        .. " procedure=" .. tostring(snapshot.procedure_id)
+                        .. " airport=" .. tostring(snapshot.airport)
+                        .. " runway=" .. tostring(snapshot.runway)
+                        .. " navValid=" .. tostring(snapshot.nav_valid)
+                        .. " kind=" .. tostring(snapshot.resolved_nav_kind)
+                        .. " ident=" .. tostring(snapshot.nav_ident)
+                        .. " courseValid=" .. tostring(snapshot.course_valid)
+                        .. " course=" .. tostring(snapshot.course_deg)
+                        .. " reference=" .. tostring(snapshot.course_reference),
+                    true
+                )
+                return snapshot, entry, "accepted"
+            end
+            lastStatus = "context_" .. tostring(contextStatus)
+        else
+            lastStatus = readStatus or lastStatus
+        end
+    end
+
+    logOnce(
+        "approach-ref-fallback-" .. tostring(lastStatus),
+        "ApproachRefAdapter: legacy SETILS fallback active: " .. tostring(lastStatus),
+        true
+    )
+    return nil, nil, lastStatus
+end
+
 function M.initialize(yalRef, helpersRef)
     S.yal = yalRef
     S.helpers = helpersRef
@@ -1559,6 +1903,7 @@ function M.initialize(yalRef, helpersRef)
     S.lastActiveKey = nil
     S.adapterCache = { apt = {}, rnw = {}, cifp = {} }
     probe()
+    logApproachRefConnection()
     if S.helpers and S.helpers.configureCIFPProvider then
         S.helpers.configureCIFPProvider(function(icao)
             local data, payload = getApiCifpApproaches(icao)
