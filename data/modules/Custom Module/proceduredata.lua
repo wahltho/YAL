@@ -6365,6 +6365,14 @@ function M.fillProcedureTable()
                                 end
                             end
                         end
+
+                        local approachSnapshot = loop and loop.approachRefAccepted and loop.approachRefSnapshot or nil
+                        if approachSnapshot and approachSnapshot.selected and not approachSnapshot.nav_valid then
+                            local plan = buildSetIlsPlan(loop)
+                            if plan and plan.guidanceMessage and plan.guidanceMessage ~= "" then
+                                P.commandtableentry(def.TEXT, plan.guidanceMessage)
+                            end
+                        end
                     end,
                     runActionInAdviceMode = true, 
                     nextStep = 'announce_heading_only'
