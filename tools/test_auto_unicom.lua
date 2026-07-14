@@ -166,6 +166,11 @@ local phraseCases = {
         "departure.intersection",
         copy(base, { departure_intersection = "A" }),
         "ENAT Traffic, B738 lining up and taking off runway 09, intersection A, ATKUP1A departure"
+    },
+    {
+        "arrival.short_final",
+        base,
+        "ENSB Traffic, B738 on SHORT FINAL runway 27 - Landing is imminent"
     }
 }
 
@@ -188,6 +193,13 @@ missingText, missingReason = core.buildMessage(
 )
 assert_equal(missingText, nil, "missing arrival runway rejects phrase")
 assert_equal(missingReason, "missing_arrival_context", "missing arrival reason")
+
+missingText, missingReason = core.buildMessage(
+    "arrival.short_final",
+    copy(base, { arrival_runway = "" })
+)
+assert_equal(missingText, nil, "short final requires arrival runway")
+assert_equal(missingReason, "missing_short_final_context", "missing short final reason")
 
 assert_equal(
     core.buildMessage("departure.start_push", copy(base, {
@@ -323,6 +335,20 @@ assert_true(supersessionMailbox:enqueue({
 assert_equal(#supersessionMailbox.queue, 1, "supersession keeps only current event")
 assert_equal(supersessionMailbox.queue[1].id, "arrival.approach", "approach supersedes queued descent level")
 assert_equal(supersessionLogs[1].kind, "superseded", "supersession logged")
+assert_true(supersessionMailbox:enqueue({
+    id = "arrival.on_final",
+    text = phraseCases[6][3],
+    expires_at = 100
+}), "enqueue final supersession")
+assert_equal(#supersessionMailbox.queue, 1, "final supersedes approach")
+assert_equal(supersessionMailbox.queue[1].id, "arrival.on_final", "final remains queued")
+assert_true(supersessionMailbox:enqueue({
+    id = "arrival.short_final",
+    text = phraseCases[22][3],
+    expires_at = 100
+}), "enqueue short-final supersession")
+assert_equal(#supersessionMailbox.queue, 1, "short final supersedes final")
+assert_equal(supersessionMailbox.queue[1].id, "arrival.short_final", "short final remains queued")
 assert_true(supersessionMailbox:enqueue({
     id = "departure.taxi_runway",
     text = phraseCases[9][3],

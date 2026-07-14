@@ -15,6 +15,7 @@ M.EVENT_TTL_SEC = {
     ["arrival.on_descent"] = 120,
     ["arrival.approach"] = 180,
     ["arrival.on_final"] = 60,
+    ["arrival.short_final"] = 45,
     ["arrival.runway_vacated"] = 120
 }
 
@@ -378,6 +379,17 @@ function M.buildMessage(eventId, snapshot)
         return normalize_text(string.format("%s Traffic, %s on final runway %s", airport, ac, runway))
     end
 
+    if eventId == "arrival.short_final" then
+        local airport, runway = arrival_context(snapshot)
+        if not airport then return nil, "missing_short_final_context" end
+        return normalize_text(string.format(
+            "%s Traffic, %s on SHORT FINAL runway %s - Landing is imminent",
+            airport,
+            ac,
+            runway
+        ))
+    end
+
     if eventId == "arrival.runway_vacated" then
         local airport, runway = arrival_context(snapshot)
         if not airport then return nil, "missing_vacated_context" end
@@ -419,7 +431,8 @@ local function summarize_sources(snapshot)
         { "holdWaypoint", snapshot.hold_waypoint },
         { "holdPath", snapshot.hold_path_type },
         { "holdTarget", snapshot.hold_target_altitude_ft },
-        { "final", snapshot.final_gate and 1 or 0 }
+        { "final", snapshot.final_gate and 1 or 0 },
+        { "shortFinal", snapshot.short_final_gate and 1 or 0 }
     }
     local parts = {}
     for _, field in ipairs(fields) do
@@ -501,11 +514,18 @@ local SUPERSEDED_EVENTS = {
         ["arrival.on_descent"] = true,
         ["arrival.approach"] = true
     },
-    ["arrival.runway_vacated"] = {
+    ["arrival.short_final"] = {
         ["arrival.top_of_descent"] = true,
         ["arrival.on_descent"] = true,
         ["arrival.approach"] = true,
         ["arrival.on_final"] = true
+    },
+    ["arrival.runway_vacated"] = {
+        ["arrival.top_of_descent"] = true,
+        ["arrival.on_descent"] = true,
+        ["arrival.approach"] = true,
+        ["arrival.on_final"] = true,
+        ["arrival.short_final"] = true
     }
 }
 
@@ -530,6 +550,7 @@ local function supersedes_event(eventId, queuedId)
     end
     if eventId == "arrival.approach"
         or eventId == "arrival.on_final"
+        or eventId == "arrival.short_final"
         or eventId == "arrival.runway_vacated" then
         return is_descent_progress_event(queuedId)
     end
@@ -604,6 +625,7 @@ function Mailbox:cancelQueuedForGoAround()
             or eventId == "arrival.on_descent"
             or eventId == "arrival.approach"
             or eventId == "arrival.on_final"
+            or eventId == "arrival.short_final"
             or is_descent_progress_event(eventId)
         if cancel then
             self.queuedIds[event.id] = nil

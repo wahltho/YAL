@@ -213,7 +213,8 @@ local function build_snapshot()
         post_landing_state = y.flightstate == def.FLIGHTSTATETAXITOGATE
             or y.flightstate == def.FLIGHTSTATESHUTDOWN,
         descent_entry_kind = y.descentEntryReason,
-        final_gate = false
+        final_gate = false,
+        short_final_gate = false
     }
 
     read_approach_ref(snapshot)
@@ -236,6 +237,10 @@ local function build_snapshot()
         or (tonumber(safe_read(y.apglsloccapturedstat)) or 0) >= (def.CAPTURED or 2)
         or (tonumber(safe_read(y.apfacloccapturedstat)) or 0) >= (def.CAPTURED or 2)
     snapshot.final_gate = runwayGateOpen and (not captureRequired or captured)
+    if y.isArrivalShortFinal then
+        local ok, value = pcall(y.isArrivalShortFinal)
+        snapshot.short_final_gate = ok and value == true
+    end
 
     return snapshot
 end
@@ -260,7 +265,11 @@ local function capture_baseline_repeat_candidate(snapshot)
     local phase = tonumber(snapshot.fms_phase) or 0
     local eventId = nil
     if snapshot.descent_state == true and (phase == 6 or phase == 7) then
-        eventId = snapshot.final_gate == true and "arrival.on_final" or "arrival.approach"
+        if snapshot.short_final_gate == true then
+            eventId = "arrival.short_final"
+        else
+            eventId = snapshot.final_gate == true and "arrival.on_final" or "arrival.approach"
+        end
     elseif snapshot.descent_state == true then
         eventId = "arrival.on_descent"
     elseif snapshot.climb_state == true then

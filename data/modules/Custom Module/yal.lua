@@ -1266,7 +1266,8 @@ function P.YalinitGlobal()
         holdShortSince = nil,
         backtrackSince = nil,
         intersectionSince = nil,
-        departureIntersectionPayload = nil
+        departureIntersectionPayload = nil,
+        shortFinalSince = nil
     }
     P.approachPrepTriggerKey = nil
     P.approachPrepCompletedForKey = nil
@@ -7297,6 +7298,24 @@ function P.isArrivalFinalEstablished()
         or (get(P.apfacloccapturedstat) >= def.CAPTURED)
 end
 
+function P.isArrivalShortFinal()
+    if get(P.airgroundsensor) ~= def.OFF then return false end
+    if P.flightstate ~= def.FLIGHTSTATEAPPROACH then return false end
+    if P.apgoaround and tonumber(get(P.apgoaround)) == def.ON then return false end
+    local phase = tonumber(get(P.fmsflightphase)) or 0
+    if phase ~= def.FMSFLIGHTPHASE_APPROACH
+        and phase ~= def.FMSFLIGHTPHASE_GO_AROUND_ARMED then
+        return false
+    end
+    local radioAltitude = tonumber(get(P.radioaltitude)) or 0
+    if radioAltitude < 50 or radioAltitude > 500 then return false end
+    if (tonumber(get(P.verticalspeed)) or 0) > 100 then return false end
+    if (tonumber(get(P.groundspeed)) or 0) < 60 then return false end
+    if tonumber(get(P.gearhandlepos)) ~= def.GEARDOWN then return false end
+    if not P.isArrivalFinalEstablished() then return false end
+    return P.isArrivalRunwayRadioAltGateOpen(3, 10, 0.2)
+end
+
 function P.baselineAutoUnicomRuntimeEvents()
     local state = P.autoUnicomRuntime
     if not state or not P.airgroundsensor then return end
@@ -7309,6 +7328,7 @@ function P.baselineAutoUnicomRuntimeEvents()
     state.backtrackSince = nil
     state.intersectionSince = nil
     state.departureIntersectionPayload = nil
+    state.shortFinalSince = nil
     state.lastFmsPhase = P.fmsflightphase and tonumber(get(P.fmsflightphase)) or nil
 
     local onGround = get(P.airgroundsensor) == def.ON
@@ -7345,6 +7365,9 @@ function P.baselineAutoUnicomRuntimeEvents()
             end
             if P.isArrivalFinalEstablished() then
                 state.sent["arrival.on_final"] = true
+            end
+            if P.isArrivalShortFinal() then
+                state.sent["arrival.short_final"] = true
             end
         end
     else
@@ -7552,7 +7575,9 @@ function P.updateAutoUnicomDescentEvents()
     if phase == def.FMSFLIGHTPHASE_GO_AROUND and state.lastFmsPhase ~= phase then
         state.sent["arrival.approach"] = nil
         state.sent["arrival.on_final"] = nil
+        state.sent["arrival.short_final"] = nil
         state.finalSince = nil
+        state.shortFinalSince = nil
         P.publishRuntimeEvent("arrival.go_around")
     end
     state.lastFmsPhase = phase
@@ -7591,12 +7616,22 @@ function P.updateAutoUnicomDescentEvents()
         or phase == def.FMSFLIGHTPHASE_GO_AROUND_ARMED) and P.isArrivalFinalEstablished()
     if not finalAccepted then
         state.finalSince = nil
+        state.shortFinalSince = nil
         return
     end
     local now = os.time()
     state.finalSince = state.finalSince or now
     if now - state.finalSince >= AUTO_UNICOM_FINAL_STABLE_SEC then
         autoUnicomEventOnce("arrival.on_final", "arrival.on_final")
+    end
+
+    if not P.isArrivalShortFinal() then
+        state.shortFinalSince = nil
+        return
+    end
+    state.shortFinalSince = state.shortFinalSince or now
+    if now - state.shortFinalSince >= 2 then
+        autoUnicomEventOnce("arrival.short_final", "arrival.short_final")
     end
 end
 
