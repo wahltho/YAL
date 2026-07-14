@@ -114,6 +114,11 @@ local phraseCases = {
         "arrival.descent_level_30000",
         copy(base, { altitude_ft = 30000, pressure_altitude_ft = 30000 }),
         "ENSB Traffic, B738 NELSA3M arrival for RNAV W approach runway 27, on descent passing FL300"
+    },
+    {
+        "departure.climb_level_10000",
+        copy(base, { altitude_ft = 10000, pressure_altitude_ft = 10000 }),
+        "Traffic, B738 climbing out of ENAT on ATKUP1A departure, passing FL100 for FL370"
     }
 }
 
@@ -272,6 +277,28 @@ assert_equal(#emitted, 2, "climb emitted once after stable phase")
 engine:update(copy(base, {
     on_ground = false,
     on_runway_profile = false,
+    fms_phase = 1,
+    radio_altitude_ft = 9200,
+    altitude_ft = 9500,
+    pressure_altitude_ft = 9500,
+    vertical_speed_fpm = 1200,
+    ground_speed_kts = 250
+}), 15)
+engine:update(copy(base, {
+    on_ground = false,
+    on_runway_profile = false,
+    fms_phase = 1,
+    radio_altitude_ft = 9700,
+    altitude_ft = 10000,
+    pressure_altitude_ft = 10000,
+    vertical_speed_fpm = 1200,
+    ground_speed_kts = 250
+}), 16)
+assert_equal(#emitted, 3, "climb FL100 crossing emitted once")
+assert_equal(emitted[3].text, phraseCases[12][3], "climb crossing freezes FL100 phrase")
+engine:update(copy(base, {
+    on_ground = false,
+    on_runway_profile = false,
     fms_phase = 2,
     radio_altitude_ft = 30000,
     altitude_ft = 37000,
@@ -398,6 +425,7 @@ engine:update(copy(base, {
 local expectedEvents = {
     "departure.airborne",
     "departure.on_climb",
+    "departure.climb_level_10000",
     "arrival.top_of_descent",
     "arrival.approach",
     "arrival.on_final",
@@ -407,6 +435,57 @@ assert_equal(#emitted, #expectedEvents, "normal event count")
 for index, id in ipairs(expectedEvents) do
     assert_equal(emitted[index].id, id, "normal event order " .. tostring(index))
 end
+
+local climbReloadEvents = {}
+local climbReloadEngine = core.newEventEngine({
+    emit = function(event) table.insert(climbReloadEvents, event) return true end
+})
+local loadedAboveClimbLevel = copy(base, {
+    on_ground = false,
+    on_runway_profile = false,
+    fms_phase = 1,
+    radio_altitude_ft = 10200,
+    altitude_ft = 10500,
+    pressure_altitude_ft = 10500,
+    vertical_speed_fpm = 1000
+})
+climbReloadEngine:update(loadedAboveClimbLevel, 0)
+climbReloadEngine:update(copy(loadedAboveClimbLevel, {
+    altitude_ft = 11000,
+    pressure_altitude_ft = 11000
+}), 10)
+assert_equal(#climbReloadEvents, 0, "reload above FL100 emits no climb backfill")
+
+local climbFlightLoadEvents = {}
+local climbFlightLoadEngine = core.newEventEngine({
+    emit = function(event) table.insert(climbFlightLoadEvents, event) return true end
+})
+local climbFlightLoadBase = copy(base, {
+    on_ground = false,
+    on_runway_profile = false,
+    fms_phase = 1,
+    radio_altitude_ft = 8700,
+    altitude_ft = 9000,
+    pressure_altitude_ft = 9000,
+    vertical_speed_fpm = 1000
+})
+climbFlightLoadEngine:update(climbFlightLoadBase, 0)
+climbFlightLoadEngine:update(climbFlightLoadBase, 8)
+climbFlightLoadEngine:update(copy(climbFlightLoadBase, {
+    altitude_ft = 12000,
+    pressure_altitude_ft = 12000
+}), 9)
+climbFlightLoadEngine:update(copy(climbFlightLoadBase, {
+    altitude_ft = 9900,
+    pressure_altitude_ft = 9900,
+    vertical_speed_fpm = -800
+}), 10)
+climbFlightLoadEngine:update(copy(climbFlightLoadBase, {
+    altitude_ft = 10000,
+    pressure_altitude_ft = 10000,
+    vertical_speed_fpm = 1000
+}), 11)
+assert_equal(#climbFlightLoadEvents, 0, "flight-load altitude jump produces no FL100 climb report")
 
 local fallbackEvents = {}
 local fallbackEngine = core.newEventEngine({
@@ -772,6 +851,20 @@ assert_true(departureSupersession:enqueue({
 }), "enqueue airborne supersession")
 assert_equal(#departureSupersession.queue, 1, "airborne supersedes queued takeoff")
 assert_equal(departureSupersession.queue[1].id, "departure.airborne", "airborne remains queued")
+assert_true(departureSupersession:enqueue({
+    id = "departure.on_climb",
+    text = phraseCases[2][3],
+    expires_at = 100
+}), "enqueue initial climb supersession")
+assert_equal(#departureSupersession.queue, 1, "initial climb supersedes airborne")
+assert_equal(departureSupersession.queue[1].id, "departure.on_climb", "initial climb remains queued")
+assert_true(departureSupersession:enqueue({
+    id = "departure.climb_level_10000",
+    text = phraseCases[12][3],
+    expires_at = 100
+}), "enqueue FL100 climb supersession")
+assert_equal(#departureSupersession.queue, 1, "FL100 climb supersedes earlier departure messages")
+assert_equal(departureSupersession.queue[1].id, "departure.climb_level_10000", "FL100 climb remains queued")
 
 local uncertainWrites = 0
 local uncertainMailbox = core.newMailbox({

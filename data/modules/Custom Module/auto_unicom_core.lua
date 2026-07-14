@@ -6,6 +6,7 @@ M.EVENT_TTL_SEC = {
     ["departure.lineup_takeoff"] = 45,
     ["departure.airborne"] = 60,
     ["departure.on_climb"] = 120,
+    ["departure.climb_level_10000"] = 120,
     ["arrival.top_of_descent"] = 120,
     ["arrival.on_descent"] = 120,
     ["arrival.approach"] = 180,
@@ -40,6 +41,9 @@ local DESCENT_PROGRESS_PREFIX = "arrival.descent_level_"
 local DESCENT_PROGRESS_LEVELS_FT = { 40000, 30000, 20000, 10000 }
 local DESCENT_PROGRESS_MIN_SEPARATION_FT = 5000
 local DESCENT_PROGRESS_MAX_SAMPLE_DROP_FT = 2000
+local CLIMB_PROGRESS_EVENT = "departure.climb_level_10000"
+local CLIMB_PROGRESS_LEVEL_FT = 10000
+local CLIMB_PROGRESS_MAX_SAMPLE_RISE_FT = 2000
 
 local function is_descent_progress_event(eventId)
     return type(eventId) == "string"
@@ -201,7 +205,7 @@ function M.buildMessage(eventId, snapshot)
         return normalize_text(string.format("%s Traffic, %s airborne off runway %s, passing %s", airport, ac, runway, altitude))
     end
 
-    if eventId == "departure.on_climb" then
+    if eventId == "departure.on_climb" or eventId == CLIMB_PROGRESS_EVENT then
         local airport = clean_token(snapshot.departure_icao, false)
         local altitude = format_altitude(snapshot, false)
         if not airport or #airport ~= 4 or not altitude then return nil, "missing_climb_context" end
@@ -278,6 +282,16 @@ local function descent_altitude(snapshot)
     return pressure
 end
 
+local function climb_altitude(snapshot)
+    local indicated = tonumber(snapshot.altitude_ft)
+    local pressure = tonumber(snapshot.pressure_altitude_ft) or indicated
+    local transition = tonumber(snapshot.transition_altitude_ft) or 0
+    if indicated and transition > 0 and indicated < transition then
+        return indicated
+    end
+    return pressure
+end
+
 local function snapshot_at_altitude(snapshot, altitude)
     local frozen = {}
     for key, value in pairs(snapshot) do
@@ -344,6 +358,7 @@ function M.newEventEngine(options)
         push_since = nil,
         taxi_since = nil,
         takeoff_roll_since = nil,
+        climb_altitude_previous = nil,
         tod_previous = nil,
         tod_crossed_at = nil,
         last_positive_tod_at = nil,
@@ -368,6 +383,7 @@ function Engine:resetDepartureGroundCycle(snapshot)
     self.push_since = nil
     self.taxi_since = nil
     self.takeoff_roll_since = nil
+    self.climb_altitude_previous = climb_altitude(snapshot)
 end
 
 function Engine:activate(snapshot, now)
@@ -386,6 +402,7 @@ function Engine:activate(snapshot, now)
     self.push_since = nil
     self.taxi_since = nil
     self.takeoff_roll_since = nil
+    self.climb_altitude_previous = climb_altitude(snapshot)
     self.tod_previous = tonumber(snapshot.tod_distance_nm)
     self.tod_crossed_at = nil
     self.last_positive_tod_at = nil
@@ -401,6 +418,9 @@ function Engine:activate(snapshot, now)
         self:markSent("departure.lineup_takeoff")
         self:markSent("departure.airborne")
         self:markSent("departure.on_climb")
+        if self.climb_altitude_previous and self.climb_altitude_previous >= CLIMB_PROGRESS_LEVEL_FT then
+            self:markSent(CLIMB_PROGRESS_EVENT)
+        end
         if (self.phase or 0) >= 4 then
             self:markSent("arrival.on_descent")
             self.last_descent_report_altitude_ft = self.descent_altitude_previous
@@ -451,6 +471,7 @@ function Engine:deactivate()
     self.push_since = nil
     self.taxi_since = nil
     self.takeoff_roll_since = nil
+    self.climb_altitude_previous = nil
     self.descent_altitude_previous = nil
     self.last_descent_report_altitude_ft = nil
 end
@@ -462,6 +483,7 @@ function Engine:beginFlight(snapshot, now)
     self.push_since = nil
     self.taxi_since = nil
     self.takeoff_roll_since = nil
+    self.climb_altitude_previous = climb_altitude(snapshot)
     self.tod_previous = tonumber(snapshot.tod_distance_nm)
     self.tod_crossed_at = nil
     self.last_positive_tod_at = nil
@@ -486,6 +508,37 @@ function Engine:tryEmit(eventId, snapshot, now)
     if accepted == false then return false, "queue_rejected" end
     self.sent[eventId] = true
     return true
+end
+
+function Engine:updateClimbProgress(snapshot, phase, phaseStable, now, onGround)
+    local current = climb_altitude(snapshot)
+    local previous = self.climb_altitude_previous
+    self.climb_altitude_previous = current
+
+    if not current or not previous or onGround or not self.flight_active then return end
+    if phase ~= 1 or phaseStable < 8 then return end
+    if (tonumber(snapshot.vertical_speed_fpm) or 0) < 300 then return end
+    if self.sent[CLIMB_PROGRESS_EVENT] then return end
+
+    local sampleRise = current - previous
+    if sampleRise <= 0 then return end
+    if sampleRise > CLIMB_PROGRESS_MAX_SAMPLE_RISE_FT then
+        if previous < CLIMB_PROGRESS_LEVEL_FT and current >= CLIMB_PROGRESS_LEVEL_FT then
+            self:markSent(CLIMB_PROGRESS_EVENT)
+        end
+        return
+    end
+
+    if previous < CLIMB_PROGRESS_LEVEL_FT and current >= CLIMB_PROGRESS_LEVEL_FT then
+        local emitted = self:tryEmit(
+            CLIMB_PROGRESS_EVENT,
+            snapshot_at_altitude(snapshot, CLIMB_PROGRESS_LEVEL_FT),
+            now
+        )
+        if not emitted then
+            self:markSent(CLIMB_PROGRESS_EVENT)
+        end
+    end
 end
 
 function Engine:updateDescentProgress(snapshot, phase, phaseStable, now, onGround)
@@ -630,6 +683,8 @@ function Engine:update(snapshot, now)
         end
     end
 
+    self:updateClimbProgress(snapshot, phase, phaseStable, now, onGround)
+
     local tod = tonumber(snapshot.tod_distance_nm)
     if not onGround and tod and tod > 1 and (phase == 2 or phase == 4) then
         self.last_positive_tod_at = now
@@ -709,6 +764,13 @@ local SUPERSEDED_EVENTS = {
         ["departure.taxi_runway"] = true,
         ["departure.lineup_takeoff"] = true,
         ["departure.airborne"] = true
+    },
+    ["departure.climb_level_10000"] = {
+        ["departure.start_push"] = true,
+        ["departure.taxi_runway"] = true,
+        ["departure.lineup_takeoff"] = true,
+        ["departure.airborne"] = true,
+        ["departure.on_climb"] = true
     },
     ["arrival.approach"] = {
         ["arrival.top_of_descent"] = true,
