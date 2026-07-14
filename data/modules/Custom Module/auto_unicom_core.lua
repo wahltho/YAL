@@ -36,6 +36,16 @@ local TERMINAL_RESULTS = {
     [42] = true
 }
 
+local DESCENT_PROGRESS_PREFIX = "arrival.descent_level_"
+local DESCENT_PROGRESS_LEVELS_FT = { 40000, 30000, 20000, 10000 }
+local DESCENT_PROGRESS_MIN_SEPARATION_FT = 5000
+local DESCENT_PROGRESS_MAX_SAMPLE_DROP_FT = 2000
+
+local function is_descent_progress_event(eventId)
+    return type(eventId) == "string"
+        and eventId:sub(1, #DESCENT_PROGRESS_PREFIX) == DESCENT_PROGRESS_PREFIX
+end
+
 local function round(value)
     value = tonumber(value)
     if not value then return nil end
@@ -211,7 +221,8 @@ function M.buildMessage(eventId, snapshot)
         return normalize_text(text)
     end
 
-    if eventId == "arrival.on_descent" or eventId == "arrival.approach" then
+    if eventId == "arrival.on_descent" or eventId == "arrival.approach"
+        or is_descent_progress_event(eventId) then
         local airport, runway = arrival_context(snapshot)
         local altitude = format_altitude(snapshot, true)
         if not airport or not altitude then return nil, "missing_arrival_context" end
@@ -251,6 +262,26 @@ local function actual_descent(snapshot)
     local altitude = tonumber(snapshot.altitude_ft) or 0
     local cruise = tonumber(snapshot.planned_altitude_ft) or 0
     return vs <= -300 or (cruise > 0 and altitude < cruise - 300)
+end
+
+local function descent_altitude(snapshot)
+    local indicated = tonumber(snapshot.altitude_ft)
+    local pressure = tonumber(snapshot.pressure_altitude_ft) or indicated
+    local transition = tonumber(snapshot.transition_level_ft) or 0
+    if indicated and transition > 0 and indicated < transition then
+        return indicated
+    end
+    return pressure
+end
+
+local function snapshot_at_altitude(snapshot, altitude)
+    local frozen = {}
+    for key, value in pairs(snapshot) do
+        frozen[key] = value
+    end
+    frozen.altitude_ft = altitude
+    frozen.pressure_altitude_ft = altitude
+    return frozen
 end
 
 local Engine = {}
@@ -312,6 +343,8 @@ function M.newEventEngine(options)
         tod_previous = nil,
         tod_crossed_at = nil,
         last_positive_tod_at = nil,
+        descent_altitude_previous = nil,
+        last_descent_report_altitude_ft = nil,
         final_since = nil,
         vacated_since = nil,
         touchdown_latched = false
@@ -352,6 +385,8 @@ function Engine:activate(snapshot, now)
     self.tod_previous = tonumber(snapshot.tod_distance_nm)
     self.tod_crossed_at = nil
     self.last_positive_tod_at = nil
+    self.descent_altitude_previous = descent_altitude(snapshot)
+    self.last_descent_report_altitude_ft = nil
     self.final_since = nil
     self.vacated_since = nil
     self.touchdown_latched = false
@@ -364,6 +399,12 @@ function Engine:activate(snapshot, now)
         self:markSent("departure.on_climb")
         if (self.phase or 0) >= 4 then
             self:markSent("arrival.on_descent")
+            self.last_descent_report_altitude_ft = self.descent_altitude_previous
+            for _, level in ipairs(DESCENT_PROGRESS_LEVELS_FT) do
+                if self.descent_altitude_previous and level >= self.descent_altitude_previous then
+                    self:markSent(DESCENT_PROGRESS_PREFIX .. tostring(level))
+                end
+            end
         end
         if (self.phase or 0) >= 5 then
             self:markSent("arrival.top_of_descent")
@@ -406,6 +447,8 @@ function Engine:deactivate()
     self.push_since = nil
     self.taxi_since = nil
     self.takeoff_roll_since = nil
+    self.descent_altitude_previous = nil
+    self.last_descent_report_altitude_ft = nil
 end
 
 function Engine:beginFlight(snapshot, now)
@@ -418,6 +461,8 @@ function Engine:beginFlight(snapshot, now)
     self.tod_previous = tonumber(snapshot.tod_distance_nm)
     self.tod_crossed_at = nil
     self.last_positive_tod_at = nil
+    self.descent_altitude_previous = descent_altitude(snapshot)
+    self.last_descent_report_altitude_ft = nil
     self.final_since = nil
     self.vacated_since = nil
     self.touchdown_latched = false
@@ -437,6 +482,45 @@ function Engine:tryEmit(eventId, snapshot, now)
     if accepted == false then return false, "queue_rejected" end
     self.sent[eventId] = true
     return true
+end
+
+function Engine:updateDescentProgress(snapshot, phase, phaseStable, now, onGround)
+    local current = descent_altitude(snapshot)
+    local previous = self.descent_altitude_previous
+    self.descent_altitude_previous = current
+
+    if not current or not previous or onGround or not self.flight_active then return end
+    if phase ~= 4 and phase ~= 5 then return end
+    if phaseStable < 8 or not actual_descent(snapshot) then return end
+    if not self.last_descent_report_altitude_ft then return end
+
+    local sampleDrop = previous - current
+    if sampleDrop <= 0 then return end
+    if sampleDrop > DESCENT_PROGRESS_MAX_SAMPLE_DROP_FT then
+        for _, level in ipairs(DESCENT_PROGRESS_LEVELS_FT) do
+            if previous > level and current <= level then
+                self:markSent(DESCENT_PROGRESS_PREFIX .. tostring(level))
+            end
+        end
+        return
+    end
+
+    for _, level in ipairs(DESCENT_PROGRESS_LEVELS_FT) do
+        local eventId = DESCENT_PROGRESS_PREFIX .. tostring(level)
+        if not self.sent[eventId] and previous > level and current <= level then
+            if self.last_descent_report_altitude_ft - level >= DESCENT_PROGRESS_MIN_SEPARATION_FT then
+                local emitted = self:tryEmit(eventId, snapshot_at_altitude(snapshot, level), now)
+                if emitted then
+                    self.last_descent_report_altitude_ft = level
+                else
+                    self:markSent(eventId)
+                end
+            else
+                self:markSent(eventId)
+            end
+            return
+        end
+    end
 end
 
 function Engine:update(snapshot, now)
@@ -557,13 +641,17 @@ function Engine:update(snapshot, now)
         if phase == 5 and phaseStable >= 8
             and not self.sent["arrival.on_descent"]
             and recentTodCrossing and recentPositiveTod then
-            self:tryEmit("arrival.top_of_descent", snapshot, now)
+            local emitted = self:tryEmit("arrival.top_of_descent", snapshot, now)
+            if emitted then self.last_descent_report_altitude_ft = descent_altitude(snapshot) end
         elseif (phase == 4 or phase == 5) and phaseStable >= 8
             and not self.sent["arrival.top_of_descent"]
             and not recentTodCrossing then
-            self:tryEmit("arrival.on_descent", snapshot, now)
+            local emitted = self:tryEmit("arrival.on_descent", snapshot, now)
+            if emitted then self.last_descent_report_altitude_ft = descent_altitude(snapshot) end
         end
     end
+
+    self:updateDescentProgress(snapshot, phase, phaseStable, now, onGround)
 
     if not onGround and self.flight_active and phase == 6 and phaseStable >= 8 then
         self:tryEmit("arrival.approach", snapshot, now)
@@ -634,6 +722,22 @@ local SUPERSEDED_EVENTS = {
     }
 }
 
+local function supersedes_event(eventId, queuedId)
+    local fixed = SUPERSEDED_EVENTS[eventId]
+    if fixed and fixed[queuedId] then return true end
+    if is_descent_progress_event(eventId) then
+        return queuedId == "arrival.top_of_descent"
+            or queuedId == "arrival.on_descent"
+            or is_descent_progress_event(queuedId)
+    end
+    if eventId == "arrival.approach"
+        or eventId == "arrival.on_final"
+        or eventId == "arrival.runway_vacated" then
+        return is_descent_progress_event(queuedId)
+    end
+    return false
+end
+
 function M.newMailbox(options)
     options = options or {}
     return setmetatable({
@@ -664,19 +768,16 @@ function Mailbox:enqueue(event)
     if not text or self.queuedIds[event.id] or (self.outstanding and self.outstanding.id == event.id) then
         return false
     end
-    local superseded = SUPERSEDED_EVENTS[event.id]
-    if superseded then
-        local kept = {}
-        for _, queued in ipairs(self.queue) do
-            if superseded[queued.id] then
-                self.queuedIds[queued.id] = nil
-                self.log("superseded", queued)
-            else
-                table.insert(kept, queued)
-            end
+    local kept = {}
+    for _, queued in ipairs(self.queue) do
+        if supersedes_event(event.id, queued.id) then
+            self.queuedIds[queued.id] = nil
+            self.log("superseded", queued)
+        else
+            table.insert(kept, queued)
         end
-        self.queue = kept
     end
+    self.queue = kept
     if #self.queue >= self.maxQueue then return false end
     event.text = text
     table.insert(self.queue, event)

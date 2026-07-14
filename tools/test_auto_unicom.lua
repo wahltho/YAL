@@ -108,6 +108,11 @@ local phraseCases = {
         "departure.lineup_takeoff",
         base,
         "ENAT Traffic, B738 taking off runway 09"
+    },
+    {
+        "arrival.descent_level_30000",
+        copy(base, { altitude_ft = 30000, pressure_altitude_ft = 30000 }),
+        "ENSB Traffic, B738 NELSA3M arrival for RNAV W approach runway 27, on descent passing FL300"
     }
 }
 
@@ -451,6 +456,160 @@ fallbackEngine:update(copy(airborneCruise, {
 }), 18)
 assert_equal(#fallbackEvents, 1, "TOD does not follow on-descent fallback")
 
+local descentProgressEvents = {}
+local descentProgressEngine = core.newEventEngine({
+    emit = function(event)
+        table.insert(descentProgressEvents, event)
+        return true
+    end
+})
+local descentProgressBase = copy(base, {
+    on_ground = false,
+    on_runway_profile = false,
+    fms_phase = 2,
+    altitude_ft = 41000,
+    pressure_altitude_ft = 41000,
+    planned_altitude_ft = 41000,
+    vertical_speed_fpm = 0,
+    tod_distance_nm = 10
+})
+descentProgressEngine:update(descentProgressBase, 0)
+descentProgressEngine:update(copy(descentProgressBase, { tod_distance_nm = 2 }), 1)
+descentProgressEngine:update(copy(descentProgressBase, {
+    fms_phase = 5,
+    altitude_ft = 40900,
+    pressure_altitude_ft = 40900,
+    vertical_speed_fpm = -1000,
+    tod_distance_nm = 0
+}), 2)
+descentProgressEngine:update(copy(descentProgressBase, {
+    fms_phase = 5,
+    altitude_ft = 40500,
+    pressure_altitude_ft = 40500,
+    vertical_speed_fpm = -1000,
+    tod_distance_nm = 0
+}), 10)
+assert_equal(#descentProgressEvents, 1, "TOD anchors descent progress reports")
+assert_equal(descentProgressEvents[1].id, "arrival.top_of_descent", "descent progress TOD event")
+
+local descentNow = 10
+for altitude = 40000, 30000, -1000 do
+    descentNow = descentNow + 1
+    descentProgressEngine:update(copy(descentProgressBase, {
+        fms_phase = 5,
+        altitude_ft = altitude,
+        pressure_altitude_ft = altitude,
+        vertical_speed_fpm = -1000,
+        tod_distance_nm = 0
+    }), descentNow)
+end
+assert_equal(#descentProgressEvents, 2, "FL400 suppressed and FL300 emitted")
+assert_equal(descentProgressEvents[2].id, "arrival.descent_level_30000", "FL300 event id")
+assert_equal(descentProgressEvents[2].text, phraseCases[11][3], "FL300 frozen crossing phrase")
+
+for altitude = 29000, 20000, -1000 do
+    descentNow = descentNow + 1
+    descentProgressEngine:update(copy(descentProgressBase, {
+        fms_phase = 5,
+        altitude_ft = altitude,
+        pressure_altitude_ft = altitude,
+        vertical_speed_fpm = -1000,
+        tod_distance_nm = 0
+    }), descentNow)
+end
+assert_equal(#descentProgressEvents, 3, "FL200 emitted once")
+assert_equal(descentProgressEvents[3].id, "arrival.descent_level_20000", "FL200 event id")
+
+for altitude = 19000, 11000, -1000 do
+    descentNow = descentNow + 1
+    descentProgressEngine:update(copy(descentProgressBase, {
+        fms_phase = 5,
+        altitude_ft = altitude,
+        pressure_altitude_ft = altitude,
+        vertical_speed_fpm = -1000,
+        tod_distance_nm = 0
+    }), descentNow)
+end
+descentNow = descentNow + 1
+descentProgressEngine:update(copy(descentProgressBase, {
+    fms_phase = 6,
+    altitude_ft = 10500,
+    pressure_altitude_ft = 10500,
+    vertical_speed_fpm = -1000,
+    tod_distance_nm = 0
+}), descentNow)
+descentNow = descentNow + 8
+descentProgressEngine:update(copy(descentProgressBase, {
+    fms_phase = 6,
+    altitude_ft = 9500,
+    pressure_altitude_ft = 9500,
+    vertical_speed_fpm = -1000,
+    tod_distance_nm = 0
+}), descentNow)
+assert_equal(#descentProgressEvents, 4, "approach replaces FL100 progress report")
+assert_equal(descentProgressEvents[4].id, "arrival.approach", "approach takeover event")
+
+local descentReloadEvents = {}
+local descentReloadEngine = core.newEventEngine({
+    emit = function(event) table.insert(descentReloadEvents, event) return true end
+})
+local loadedInDescent = copy(descentProgressBase, {
+    fms_phase = 5,
+    altitude_ft = 30500,
+    pressure_altitude_ft = 30500,
+    vertical_speed_fpm = -800,
+    tod_distance_nm = 0
+})
+descentReloadEngine:update(loadedInDescent, 0)
+descentReloadEngine:update(copy(loadedInDescent, {
+    altitude_ft = 30100,
+    pressure_altitude_ft = 30100
+}), 8)
+descentReloadEngine:update(copy(loadedInDescent, {
+    altitude_ft = 29900,
+    pressure_altitude_ft = 29900
+}), 9)
+assert_equal(#descentReloadEvents, 0, "reload suppresses nearby FL300 report")
+local reloadNow = 9
+for altitude = 29000, 20000, -1000 do
+    reloadNow = reloadNow + 1
+    descentReloadEngine:update(copy(loadedInDescent, {
+        altitude_ft = altitude,
+        pressure_altitude_ft = altitude
+    }), reloadNow)
+end
+assert_equal(#descentReloadEvents, 1, "reload baseline allows later separated boundary")
+assert_equal(descentReloadEvents[1].id, "arrival.descent_level_20000", "reload later boundary event")
+
+local flightLoadEvents = {}
+local flightLoadEngine = core.newEventEngine({
+    emit = function(event) table.insert(flightLoadEvents, event) return true end
+})
+local flightLoadBase = copy(descentProgressBase, {
+    fms_phase = 4,
+    altitude_ft = 35000,
+    pressure_altitude_ft = 35000,
+    vertical_speed_fpm = -800,
+    tod_distance_nm = 20
+})
+flightLoadEngine:update(flightLoadBase, 0)
+flightLoadEngine:update(flightLoadBase, 8)
+flightLoadEngine:update(copy(flightLoadBase, {
+    altitude_ft = 19000,
+    pressure_altitude_ft = 19000
+}), 9)
+flightLoadEngine:update(copy(flightLoadBase, {
+    altitude_ft = 31000,
+    pressure_altitude_ft = 31000,
+    vertical_speed_fpm = 1000
+}), 10)
+flightLoadEngine:update(copy(flightLoadBase, {
+    altitude_ft = 29900,
+    pressure_altitude_ft = 29900,
+    vertical_speed_fpm = -800
+}), 11)
+assert_equal(#flightLoadEvents, 0, "flight-load altitude jump produces no progress report")
+
 local reloadEvents = {}
 local reloadEngine = core.newEventEngine({ emit = function(event) table.insert(reloadEvents, event) return true end })
 local loadedOnFinal = copy(base, {
@@ -525,12 +684,29 @@ assert_true(supersessionMailbox:enqueue({
     expires_at = 100
 }), "enqueue TOD before supersession")
 assert_true(supersessionMailbox:enqueue({
+    id = "arrival.descent_level_30000",
+    text = phraseCases[11][3],
+    expires_at = 100
+}), "enqueue descent level supersession")
+assert_equal(#supersessionMailbox.queue, 1, "descent level supersedes queued TOD")
+assert_equal(supersessionMailbox.queue[1].id, "arrival.descent_level_30000", "descent level remains queued")
+assert_true(supersessionMailbox:enqueue({
+    id = "arrival.descent_level_20000",
+    text = core.buildMessage("arrival.descent_level_20000", copy(base, {
+        altitude_ft = 20000,
+        pressure_altitude_ft = 20000
+    })),
+    expires_at = 100
+}), "enqueue later descent level supersession")
+assert_equal(#supersessionMailbox.queue, 1, "later descent level supersedes older level")
+assert_equal(supersessionMailbox.queue[1].id, "arrival.descent_level_20000", "later descent level remains queued")
+assert_true(supersessionMailbox:enqueue({
     id = "arrival.approach",
     text = phraseCases[5][3],
     expires_at = 100
 }), "enqueue approach supersession")
 assert_equal(#supersessionMailbox.queue, 1, "supersession keeps only current event")
-assert_equal(supersessionMailbox.queue[1].id, "arrival.approach", "approach supersedes queued TOD")
+assert_equal(supersessionMailbox.queue[1].id, "arrival.approach", "approach supersedes queued descent level")
 assert_equal(supersessionLogs[1].kind, "superseded", "supersession logged")
 
 local departureSupersession = core.newMailbox()
