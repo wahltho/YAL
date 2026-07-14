@@ -30,6 +30,8 @@ local base = {
     on_departure_runway = false,
     final_gate = false,
     preflight = false,
+    climb_state = false,
+    descent_state = false,
     before_taxi_started = false,
     before_takeoff_started = false,
     parking_brake_released = false,
@@ -293,6 +295,7 @@ engine:update(copy(base, {
     on_ground = false,
     on_runway_profile = false,
     fms_phase = 1,
+    climb_state = true,
     radio_altitude_ft = 9200,
     altitude_ft = 9500,
     pressure_altitude_ft = 9500,
@@ -303,6 +306,7 @@ engine:update(copy(base, {
     on_ground = false,
     on_runway_profile = false,
     fms_phase = 1,
+    climb_state = true,
     radio_altitude_ft = 9700,
     altitude_ft = 10000,
     pressure_altitude_ft = 10000,
@@ -315,6 +319,7 @@ engine:update(copy(base, {
     on_ground = false,
     on_runway_profile = false,
     fms_phase = 1,
+    climb_state = true,
     radio_altitude_ft = 19200,
     altitude_ft = 19500,
     pressure_altitude_ft = 19500,
@@ -325,6 +330,7 @@ engine:update(copy(base, {
     on_ground = false,
     on_runway_profile = false,
     fms_phase = 1,
+    climb_state = true,
     radio_altitude_ft = 19700,
     altitude_ft = 20000,
     pressure_altitude_ft = 20000,
@@ -337,6 +343,7 @@ engine:update(copy(base, {
     on_ground = false,
     on_runway_profile = false,
     fms_phase = 1,
+    climb_state = true,
     radio_altitude_ft = 29200,
     altitude_ft = 29500,
     pressure_altitude_ft = 29500,
@@ -347,6 +354,7 @@ engine:update(copy(base, {
     on_ground = false,
     on_runway_profile = false,
     fms_phase = 1,
+    climb_state = true,
     radio_altitude_ft = 29700,
     altitude_ft = 30000,
     pressure_altitude_ft = 30000,
@@ -379,6 +387,7 @@ engine:update(copy(base, {
     on_ground = false,
     on_runway_profile = false,
     fms_phase = 5,
+    descent_state = true,
     radio_altitude_ft = 29500,
     altitude_ft = 36500,
     pressure_altitude_ft = 36500,
@@ -389,6 +398,7 @@ engine:update(copy(base, {
     on_ground = false,
     on_runway_profile = false,
     fms_phase = 5,
+    descent_state = true,
     radio_altitude_ft = 28500,
     altitude_ft = 35500,
     pressure_altitude_ft = 35500,
@@ -399,6 +409,7 @@ engine:update(copy(base, {
     on_ground = false,
     on_runway_profile = false,
     fms_phase = 5,
+    descent_state = true,
     radio_altitude_ft = 28000,
     altitude_ft = 35000,
     pressure_altitude_ft = 35000,
@@ -409,6 +420,7 @@ engine:update(copy(base, {
     on_ground = false,
     on_runway_profile = false,
     fms_phase = 6,
+    descent_state = true,
     radio_altitude_ft = 8000,
     altitude_ft = 9000,
     pressure_altitude_ft = 9000,
@@ -419,6 +431,7 @@ engine:update(copy(base, {
     on_ground = false,
     on_runway_profile = false,
     fms_phase = 6,
+    descent_state = true,
     radio_altitude_ft = 5000,
     altitude_ft = 6000,
     pressure_altitude_ft = 6000,
@@ -430,6 +443,7 @@ engine:update(copy(base, {
     on_runway_profile = false,
     final_gate = true,
     fms_phase = 6,
+    descent_state = true,
     radio_altitude_ft = 1800,
     altitude_ft = 2000,
     pressure_altitude_ft = 2000,
@@ -441,6 +455,7 @@ engine:update(copy(base, {
     on_runway_profile = false,
     final_gate = true,
     fms_phase = 6,
+    descent_state = true,
     radio_altitude_ft = 1000,
     altitude_ft = 1200,
     pressure_altitude_ft = 1200,
@@ -505,6 +520,7 @@ local loadedAboveClimbLevel = copy(base, {
     on_ground = false,
     on_runway_profile = false,
     fms_phase = 1,
+    climb_state = true,
     radio_altitude_ft = 10200,
     altitude_ft = 10500,
     pressure_altitude_ft = 10500,
@@ -525,6 +541,7 @@ local climbFlightLoadBase = copy(base, {
     on_ground = false,
     on_runway_profile = false,
     fms_phase = 1,
+    climb_state = true,
     radio_altitude_ft = 8700,
     altitude_ft = 9000,
     pressure_altitude_ft = 9000,
@@ -548,6 +565,56 @@ climbFlightLoadEngine:update(copy(climbFlightLoadBase, {
 }), 11)
 assert_equal(#climbFlightLoadEvents, 0, "flight-load altitude jump produces no FL100 climb report")
 
+local climbStateEvents = {}
+local climbStateEngine = core.newEventEngine({
+    emit = function(event) table.insert(climbStateEvents, event) return true end
+})
+local climbStateBase = copy(base, {
+    on_ground = false,
+    on_runway_profile = false,
+    fms_phase = 2,
+    altitude_ft = 9500,
+    pressure_altitude_ft = 9500,
+    vertical_speed_fpm = 0
+})
+climbStateEngine:update(climbStateBase, 0)
+climbStateEngine:update(copy(climbStateBase, {
+    altitude_ft = 10000,
+    pressure_altitude_ft = 10000
+}), 1)
+assert_equal(#climbStateEvents, 0, "FL100 waits for accepted YAL climb state")
+climbStateEngine:update(copy(climbStateBase, {
+    climb_state = true,
+    altitude_ft = 10050,
+    pressure_altitude_ft = 10050
+}), 2)
+assert_equal(#climbStateEvents, 1, "YAL climb state emits FL100 without FMS or VS crossing gates")
+assert_equal(climbStateEvents[1].id, "departure.climb_level_10000", "YAL climb state FL100 event")
+
+local climbRetryCalls = 0
+local climbRetryEvents = {}
+local climbRetryEngine = core.newEventEngine({
+    emit = function(event)
+        climbRetryCalls = climbRetryCalls + 1
+        if climbRetryCalls == 1 then return false end
+        table.insert(climbRetryEvents, event)
+        return true
+    end
+})
+local climbAcceptedBase = copy(climbStateBase, { climb_state = true })
+climbRetryEngine:update(climbAcceptedBase, 0)
+climbRetryEngine:update(copy(climbAcceptedBase, {
+    altitude_ft = 10000,
+    pressure_altitude_ft = 10000
+}), 1)
+climbRetryEngine:update(copy(climbAcceptedBase, {
+    altitude_ft = 10050,
+    pressure_altitude_ft = 10050
+}), 2)
+assert_equal(climbRetryCalls, 2, "FL100 queue rejection is retried")
+assert_equal(#climbRetryEvents, 1, "FL100 retry eventually emits")
+assert_equal(climbRetryEvents[1].id, "departure.climb_level_10000", "FL100 retry event id")
+
 local fallbackEvents = {}
 local fallbackEngine = core.newEventEngine({
     emit = function(event)
@@ -567,6 +634,7 @@ local airborneCruise = copy(base, {
 fallbackEngine:update(airborneCruise, 0)
 fallbackEngine:update(copy(airborneCruise, {
     fms_phase = 4,
+    descent_state = true,
     altitude_ft = 36000,
     pressure_altitude_ft = 36000,
     vertical_speed_fpm = -1000,
@@ -574,6 +642,7 @@ fallbackEngine:update(copy(airborneCruise, {
 }), 1)
 fallbackEngine:update(copy(airborneCruise, {
     fms_phase = 4,
+    descent_state = true,
     altitude_ft = 35000,
     pressure_altitude_ft = 35000,
     vertical_speed_fpm = -1000,
@@ -583,6 +652,7 @@ assert_equal(#fallbackEvents, 1, "fallback event count")
 assert_equal(fallbackEvents[1].id, "arrival.on_descent", "fallback event id")
 fallbackEngine:update(copy(airborneCruise, {
     fms_phase = 5,
+    descent_state = true,
     altitude_ft = 34000,
     pressure_altitude_ft = 34000,
     vertical_speed_fpm = -1000,
@@ -590,6 +660,7 @@ fallbackEngine:update(copy(airborneCruise, {
 }), 10)
 fallbackEngine:update(copy(airborneCruise, {
     fms_phase = 5,
+    descent_state = true,
     altitude_ft = 33000,
     pressure_altitude_ft = 33000,
     vertical_speed_fpm = -1000,
@@ -618,6 +689,7 @@ descentProgressEngine:update(descentProgressBase, 0)
 descentProgressEngine:update(copy(descentProgressBase, { tod_distance_nm = 2 }), 1)
 descentProgressEngine:update(copy(descentProgressBase, {
     fms_phase = 5,
+    descent_state = true,
     altitude_ft = 40900,
     pressure_altitude_ft = 40900,
     vertical_speed_fpm = -1000,
@@ -625,6 +697,7 @@ descentProgressEngine:update(copy(descentProgressBase, {
 }), 2)
 descentProgressEngine:update(copy(descentProgressBase, {
     fms_phase = 5,
+    descent_state = true,
     altitude_ft = 40500,
     pressure_altitude_ft = 40500,
     vertical_speed_fpm = -1000,
@@ -638,6 +711,7 @@ for altitude = 40000, 30000, -1000 do
     descentNow = descentNow + 1
     descentProgressEngine:update(copy(descentProgressBase, {
         fms_phase = 5,
+        descent_state = true,
         altitude_ft = altitude,
         pressure_altitude_ft = altitude,
         vertical_speed_fpm = -1000,
@@ -652,6 +726,7 @@ for altitude = 29000, 20000, -1000 do
     descentNow = descentNow + 1
     descentProgressEngine:update(copy(descentProgressBase, {
         fms_phase = 5,
+        descent_state = true,
         altitude_ft = altitude,
         pressure_altitude_ft = altitude,
         vertical_speed_fpm = -1000,
@@ -665,6 +740,7 @@ for altitude = 19000, 11000, -1000 do
     descentNow = descentNow + 1
     descentProgressEngine:update(copy(descentProgressBase, {
         fms_phase = 5,
+        descent_state = true,
         altitude_ft = altitude,
         pressure_altitude_ft = altitude,
         vertical_speed_fpm = -1000,
@@ -674,6 +750,7 @@ end
 descentNow = descentNow + 1
 descentProgressEngine:update(copy(descentProgressBase, {
     fms_phase = 6,
+    descent_state = true,
     altitude_ft = 10500,
     pressure_altitude_ft = 10500,
     vertical_speed_fpm = -1000,
@@ -682,13 +759,15 @@ descentProgressEngine:update(copy(descentProgressBase, {
 descentNow = descentNow + 8
 descentProgressEngine:update(copy(descentProgressBase, {
     fms_phase = 6,
+    descent_state = true,
     altitude_ft = 9500,
     pressure_altitude_ft = 9500,
     vertical_speed_fpm = -1000,
     tod_distance_nm = 0
 }), descentNow)
-assert_equal(#descentProgressEvents, 4, "approach replaces FL100 progress report")
-assert_equal(descentProgressEvents[4].id, "arrival.approach", "approach takeover event")
+assert_equal(#descentProgressEvents, 5, "FL100 and approach become eligible from accepted YAL state")
+assert_equal(descentProgressEvents[4].id, "arrival.descent_level_10000", "FL100 descent event id")
+assert_equal(descentProgressEvents[5].id, "arrival.approach", "approach takeover event")
 
 local descentReloadEvents = {}
 local descentReloadEngine = core.newEventEngine({
@@ -696,6 +775,7 @@ local descentReloadEngine = core.newEventEngine({
 })
 local loadedInDescent = copy(descentProgressBase, {
     fms_phase = 5,
+    descent_state = true,
     altitude_ft = 30500,
     pressure_altitude_ft = 30500,
     vertical_speed_fpm = -800,
@@ -728,6 +808,7 @@ local flightLoadEngine = core.newEventEngine({
 })
 local flightLoadBase = copy(descentProgressBase, {
     fms_phase = 4,
+    descent_state = true,
     altitude_ft = 35000,
     pressure_altitude_ft = 35000,
     vertical_speed_fpm = -800,
@@ -750,6 +831,56 @@ flightLoadEngine:update(copy(flightLoadBase, {
     vertical_speed_fpm = -800
 }), 11)
 assert_equal(#flightLoadEvents, 0, "flight-load altitude jump produces no progress report")
+
+local descentStateEvents = {}
+local descentStateEngine = core.newEventEngine({
+    emit = function(event) table.insert(descentStateEvents, event) return true end
+})
+local descentStateBase = copy(base, {
+    on_ground = false,
+    on_runway_profile = false,
+    fms_phase = 2,
+    altitude_ft = 30500,
+    pressure_altitude_ft = 30500,
+    vertical_speed_fpm = 0
+})
+descentStateEngine:update(descentStateBase, 0)
+descentStateEngine:update(copy(descentStateBase, {
+    altitude_ft = 30000,
+    pressure_altitude_ft = 30000
+}), 1)
+assert_equal(#descentStateEvents, 0, "FL300 waits for accepted YAL descent state")
+descentStateEngine:update(copy(descentStateBase, {
+    descent_state = true,
+    altitude_ft = 29950,
+    pressure_altitude_ft = 29950
+}), 2)
+assert_equal(#descentStateEvents, 1, "YAL descent state emits FL300 without FMS or VS crossing gates")
+assert_equal(descentStateEvents[1].id, "arrival.descent_level_30000", "YAL descent state FL300 event")
+
+local descentRetryCalls = 0
+local descentRetryEvents = {}
+local descentRetryEngine = core.newEventEngine({
+    emit = function(event)
+        descentRetryCalls = descentRetryCalls + 1
+        if descentRetryCalls == 1 then return false end
+        table.insert(descentRetryEvents, event)
+        return true
+    end
+})
+local descentAcceptedBase = copy(descentStateBase, { descent_state = true })
+descentRetryEngine:update(descentAcceptedBase, 0)
+descentRetryEngine:update(copy(descentAcceptedBase, {
+    altitude_ft = 30000,
+    pressure_altitude_ft = 30000
+}), 1)
+descentRetryEngine:update(copy(descentAcceptedBase, {
+    altitude_ft = 29950,
+    pressure_altitude_ft = 29950
+}), 2)
+assert_equal(descentRetryCalls, 2, "FL300 queue rejection is retried")
+assert_equal(#descentRetryEvents, 1, "FL300 retry eventually emits")
+assert_equal(descentRetryEvents[1].id, "arrival.descent_level_30000", "FL300 retry event id")
 
 local reloadEvents = {}
 local reloadEngine = core.newEventEngine({ emit = function(event) table.insert(reloadEvents, event) return true end })
@@ -1010,6 +1141,8 @@ local baselineDef = {
     ON = 1,
     OFF = 0,
     FLIGHTSTATEPREFLIGHT = 0,
+    FLIGHTSTATECLIMB = 2,
+    FLIGHTSTATEAPPROACH = 4,
     BEFORETAXIPROCEDURE = 5,
     BEFORETAKEOFFPROCEDURE = 6,
     CAPTURED = 2

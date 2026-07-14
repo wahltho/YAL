@@ -86,6 +86,10 @@ local function event_engine_log(kind, event)
     elseif kind == "taxi_emit_rejected" then
         log("IVAO Auto-Unicom: taxi event rejected reason=" .. tostring(event.reason or "unknown")
             .. " gates={" .. tostring(event.inputs or "") .. "}")
+    elseif kind == "climb_level_rejected" or kind == "descent_level_rejected" then
+        log("IVAO Auto-Unicom: level event rejected event=" .. tostring(event.event_id or "unknown")
+            .. " reason=" .. tostring(event.reason or "unknown")
+            .. " gates={" .. tostring(event.inputs or "") .. "}")
     end
 end
 
@@ -179,6 +183,8 @@ local function build_snapshot()
         approach_id = tostring(safe_read(y.fmsselectedapp) or ""),
         aircraft_type = tostring(safe_read(sources.aircraft_icao) or ""),
         preflight = y.flightstate == def.FLIGHTSTATEPREFLIGHT,
+        climb_state = y.flightstate == def.FLIGHTSTATECLIMB,
+        descent_state = y.flightstate == def.FLIGHTSTATEAPPROACH,
         before_taxi_started = beforeTaxiStarted,
         before_taxi_source = beforeTaxiSource,
         before_takeoff_started = beforeTakeoffStarted,

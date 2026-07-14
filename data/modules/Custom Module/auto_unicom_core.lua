@@ -277,23 +277,11 @@ local function actual_descent(snapshot)
 end
 
 local function descent_altitude(snapshot)
-    local indicated = tonumber(snapshot.altitude_ft)
-    local pressure = tonumber(snapshot.pressure_altitude_ft) or indicated
-    local transition = tonumber(snapshot.transition_level_ft) or 0
-    if indicated and transition > 0 and indicated < transition then
-        return indicated
-    end
-    return pressure
+    return tonumber(snapshot.altitude_ft)
 end
 
 local function climb_altitude(snapshot)
-    local indicated = tonumber(snapshot.altitude_ft)
-    local pressure = tonumber(snapshot.pressure_altitude_ft) or indicated
-    local transition = tonumber(snapshot.transition_altitude_ft) or 0
-    if indicated and transition > 0 and indicated < transition then
-        return indicated
-    end
-    return pressure
+    return tonumber(snapshot.altitude_ft)
 end
 
 local function snapshot_at_altitude(snapshot, altitude)
@@ -314,6 +302,8 @@ local function summarize_sources(snapshot)
         { "phase", snapshot.fms_phase },
         { "onGround", snapshot.on_ground and 1 or 0 },
         { "preflight", snapshot.preflight and 1 or 0 },
+        { "climbState", snapshot.climb_state and 1 or 0 },
+        { "descentState", snapshot.descent_state and 1 or 0 },
         { "beforeTaxi", snapshot.before_taxi_started and 1 or 0 },
         { "beforeTaxiSource", snapshot.before_taxi_source },
         { "beforeTakeoff", snapshot.before_takeoff_started and 1 or 0 },
@@ -356,6 +346,7 @@ function M.newEventEngine(options)
         phase_since = nil,
         last_on_ground = nil,
         last_preflight = nil,
+        last_descent_state = nil,
         ground_since = nil,
         ground_armed = false,
         flight_active = false,
@@ -368,10 +359,12 @@ function M.newEventEngine(options)
         taxi_rejection_key = nil,
         takeoff_roll_since = nil,
         climb_altitude_previous = nil,
+        climb_rejection_key = nil,
         tod_previous = nil,
         tod_crossed_at = nil,
         last_positive_tod_at = nil,
         descent_altitude_previous = nil,
+        descent_rejection_key = nil,
         last_descent_report_altitude_ft = nil,
         final_since = nil,
         vacated_since = nil,
@@ -395,6 +388,7 @@ function Engine:resetDepartureGroundCycle(snapshot)
     self.taxi_rejection_key = nil
     self.takeoff_roll_since = nil
     self.climb_altitude_previous = climb_altitude(snapshot)
+    self.climb_rejection_key = nil
 end
 
 function Engine:activate(snapshot, now)
@@ -404,6 +398,7 @@ function Engine:activate(snapshot, now)
     self.phase_since = now
     self.last_on_ground = snapshot.on_ground == true
     self.last_preflight = snapshot.preflight == true
+    self.last_descent_state = snapshot.descent_state == true
     self.ground_since = self.last_on_ground and now or nil
     self.ground_armed = false
     self.flight_active = not self.last_on_ground
@@ -416,10 +411,12 @@ function Engine:activate(snapshot, now)
     self.taxi_rejection_key = nil
     self.takeoff_roll_since = nil
     self.climb_altitude_previous = climb_altitude(snapshot)
+    self.climb_rejection_key = nil
     self.tod_previous = tonumber(snapshot.tod_distance_nm)
     self.tod_crossed_at = nil
     self.last_positive_tod_at = nil
     self.descent_altitude_previous = descent_altitude(snapshot)
+    self.descent_rejection_key = nil
     self.last_descent_report_altitude_ft = nil
     self.final_since = nil
     self.vacated_since = nil
@@ -439,6 +436,8 @@ function Engine:activate(snapshot, now)
         if (self.phase or 0) >= 4 then
             self:markSent("arrival.on_descent")
             self.last_descent_report_altitude_ft = self.descent_altitude_previous
+        end
+        if snapshot.descent_state == true then
             for _, level in ipairs(DESCENT_PROGRESS_LEVELS_FT) do
                 if self.descent_altitude_previous and level >= self.descent_altitude_previous then
                     self:markSent(DESCENT_PROGRESS_PREFIX .. tostring(level))
@@ -489,8 +488,11 @@ function Engine:deactivate()
     self.taxi_rejection_key = nil
     self.takeoff_roll_since = nil
     self.climb_altitude_previous = nil
+    self.climb_rejection_key = nil
     self.descent_altitude_previous = nil
+    self.descent_rejection_key = nil
     self.last_descent_report_altitude_ft = nil
+    self.last_descent_state = nil
 end
 
 function Engine:beginFlight(snapshot, now)
@@ -501,11 +503,14 @@ function Engine:beginFlight(snapshot, now)
     self.taxi_since = nil
     self.takeoff_roll_since = nil
     self.climb_altitude_previous = climb_altitude(snapshot)
+    self.climb_rejection_key = nil
     self.tod_previous = tonumber(snapshot.tod_distance_nm)
     self.tod_crossed_at = nil
     self.last_positive_tod_at = nil
     self.descent_altitude_previous = descent_altitude(snapshot)
+    self.descent_rejection_key = nil
     self.last_descent_report_altitude_ft = nil
+    self.last_descent_state = snapshot.descent_state == true
     self.final_since = nil
     self.vacated_since = nil
     self.touchdown_latched = false
@@ -527,71 +532,90 @@ function Engine:tryEmit(eventId, snapshot, now)
     return true
 end
 
-function Engine:updateClimbProgress(snapshot, phase, phaseStable, now, onGround)
+function Engine:updateClimbProgress(snapshot, now, onGround)
     local current = climb_altitude(snapshot)
     local previous = self.climb_altitude_previous
     self.climb_altitude_previous = current
 
     if not current or not previous or onGround or not self.flight_active then return end
-    if phase ~= 1 or phaseStable < 8 then return end
-    if (tonumber(snapshot.vertical_speed_fpm) or 0) < 300 then return end
+    if snapshot.climb_state ~= true then return end
 
     local sampleRise = current - previous
-    if sampleRise <= 0 then return end
     if sampleRise > CLIMB_PROGRESS_MAX_SAMPLE_RISE_FT then
         for _, level in ipairs(CLIMB_PROGRESS_LEVELS_FT) do
             if previous < level and current >= level then
                 self:markSent(CLIMB_PROGRESS_PREFIX .. tostring(level))
             end
         end
+        self.climb_rejection_key = nil
         return
     end
 
     for _, level in ipairs(CLIMB_PROGRESS_LEVELS_FT) do
         local eventId = CLIMB_PROGRESS_PREFIX .. tostring(level)
-        if not self.sent[eventId] and previous < level and current >= level then
-            local emitted = self:tryEmit(eventId, snapshot_at_altitude(snapshot, level), now)
-            if not emitted then
-                self:markSent(eventId)
+        if not self.sent[eventId] and current >= level then
+            local emitted, reason = self:tryEmit(eventId, snapshot_at_altitude(snapshot, level), now)
+            if emitted then
+                self.climb_rejection_key = nil
+            else
+                local rejectionKey = eventId .. "|" .. tostring(reason or "unknown")
+                if self.climb_rejection_key ~= rejectionKey then
+                    self.climb_rejection_key = rejectionKey
+                    self.log("climb_level_rejected", {
+                        event_id = eventId,
+                        reason = reason,
+                        inputs = summarize_sources(snapshot)
+                    })
+                end
             end
             return
         end
     end
 end
 
-function Engine:updateDescentProgress(snapshot, phase, phaseStable, now, onGround)
+function Engine:updateDescentProgress(snapshot, now, onGround)
     local current = descent_altitude(snapshot)
     local previous = self.descent_altitude_previous
     self.descent_altitude_previous = current
 
     if not current or not previous or onGround or not self.flight_active then return end
-    if phase ~= 4 and phase ~= 5 then return end
-    if phaseStable < 8 or not actual_descent(snapshot) then return end
-    if not self.last_descent_report_altitude_ft then return end
+    if snapshot.descent_state ~= true then return end
 
     local sampleDrop = previous - current
-    if sampleDrop <= 0 then return end
     if sampleDrop > DESCENT_PROGRESS_MAX_SAMPLE_DROP_FT then
         for _, level in ipairs(DESCENT_PROGRESS_LEVELS_FT) do
             if previous > level and current <= level then
                 self:markSent(DESCENT_PROGRESS_PREFIX .. tostring(level))
             end
         end
+        self.descent_rejection_key = nil
         return
     end
 
     for _, level in ipairs(DESCENT_PROGRESS_LEVELS_FT) do
         local eventId = DESCENT_PROGRESS_PREFIX .. tostring(level)
-        if not self.sent[eventId] and previous > level and current <= level then
-            if self.last_descent_report_altitude_ft - level >= DESCENT_PROGRESS_MIN_SEPARATION_FT then
-                local emitted = self:tryEmit(eventId, snapshot_at_altitude(snapshot, level), now)
+        if not self.sent[eventId] and current <= level then
+            local separated = not self.last_descent_report_altitude_ft
+                or self.last_descent_report_altitude_ft - level >= DESCENT_PROGRESS_MIN_SEPARATION_FT
+            if separated then
+                local emitted, reason = self:tryEmit(eventId, snapshot_at_altitude(snapshot, level), now)
                 if emitted then
                     self.last_descent_report_altitude_ft = level
+                    self.descent_rejection_key = nil
                 else
-                    self:markSent(eventId)
+                    local rejectionKey = eventId .. "|" .. tostring(reason or "unknown")
+                    if self.descent_rejection_key ~= rejectionKey then
+                        self.descent_rejection_key = rejectionKey
+                        self.log("descent_level_rejected", {
+                            event_id = eventId,
+                            reason = reason,
+                            inputs = summarize_sources(snapshot)
+                        })
+                    end
                 end
             else
                 self:markSent(eventId)
+                self.descent_rejection_key = nil
             end
             return
         end
@@ -615,6 +639,7 @@ function Engine:update(snapshot, now)
     local phaseStable = now - self.phase_since
 
     local preflight = snapshot.preflight == true
+    local descentState = snapshot.descent_state == true
     if onGround and preflight and self.last_preflight ~= true then
         self:resetDepartureGroundCycle(snapshot)
     end
@@ -623,6 +648,16 @@ function Engine:update(snapshot, now)
     end
     if snapshot.before_takeoff_started == true then
         self.before_takeoff_seen = true
+    end
+    if descentState and self.last_descent_state ~= true then
+        local currentDescentAltitude = descent_altitude(snapshot)
+        local previousDescentAltitude = self.descent_altitude_previous
+        for _, level in ipairs(DESCENT_PROGRESS_LEVELS_FT) do
+            if currentDescentAltitude and previousDescentAltitude
+                and currentDescentAltitude < level and previousDescentAltitude < level then
+                self:markSent(DESCENT_PROGRESS_PREFIX .. tostring(level))
+            end
+        end
     end
 
     local gs = tonumber(snapshot.ground_speed_kts) or 0
@@ -719,7 +754,7 @@ function Engine:update(snapshot, now)
         end
     end
 
-    self:updateClimbProgress(snapshot, phase, phaseStable, now, onGround)
+    self:updateClimbProgress(snapshot, now, onGround)
 
     local tod = tonumber(snapshot.tod_distance_nm)
     if not onGround and tod and tod > 1 and (phase == 2 or phase == 4) then
@@ -746,7 +781,7 @@ function Engine:update(snapshot, now)
         end
     end
 
-    self:updateDescentProgress(snapshot, phase, phaseStable, now, onGround)
+    self:updateDescentProgress(snapshot, now, onGround)
 
     if not onGround and self.flight_active and is_approach_phase(phase) and phaseStable >= 8 then
         self:tryEmit("arrival.approach", snapshot, now)
@@ -777,6 +812,7 @@ function Engine:update(snapshot, now)
 
     self.last_on_ground = onGround
     self.last_preflight = preflight
+    self.last_descent_state = descentState
 end
 
 local Mailbox = {}
