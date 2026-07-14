@@ -26,7 +26,16 @@ end
 local base = {
     on_ground = true,
     on_runway_profile = true,
+    on_departure_runway = false,
     final_gate = false,
+    preflight = false,
+    before_taxi_started = false,
+    before_takeoff_started = false,
+    parking_brake_released = false,
+    wheel_speed = 0,
+    pushback_active = false,
+    eng1_n1_percent = 0,
+    eng2_n1_percent = 0,
     fms_phase = 0,
     radio_altitude_ft = 0,
     altitude_ft = 300,
@@ -84,6 +93,21 @@ local phraseCases = {
         "arrival.runway_vacated",
         base,
         "ENSB Traffic, runway 27 vacated, taxiing to gate"
+    },
+    {
+        "departure.start_push",
+        base,
+        "ENAT Traffic, B738, pushing back"
+    },
+    {
+        "departure.taxi_runway",
+        base,
+        "ENAT Traffic, B738 taxiing to holding point runway 09"
+    },
+    {
+        "departure.lineup_takeoff",
+        base,
+        "ENAT Traffic, B738 taking off runway 09"
     }
 }
 
@@ -112,6 +136,88 @@ assert_equal(
     "ENSB Traffic, B738 established on Localizer runway 27",
     "LOC final phrase"
 )
+
+local groundEvents = {}
+local groundEngine = core.newEventEngine({
+    emit = function(event)
+        table.insert(groundEvents, event)
+        return true
+    end
+})
+local groundIdle = copy(base, {
+    preflight = true,
+    parking_brake_released = true
+})
+groundEngine:update(groundIdle, 0)
+
+local pushing = copy(groundIdle, {
+    wheel_speed = -3,
+    ground_speed_kts = 2
+})
+groundEngine:update(pushing, 1)
+groundEngine:update(pushing, 2.9)
+assert_equal(#groundEvents, 0, "pushback waits for stable reverse movement")
+groundEngine:update(pushing, 3)
+assert_equal(#groundEvents, 1, "pushback emitted after stable reverse movement")
+assert_equal(groundEvents[1].id, "departure.start_push", "pushback event id")
+
+local taxiingWithoutProcedure = copy(groundIdle, {
+    wheel_speed = 6,
+    ground_speed_kts = 6
+})
+groundEngine:update(taxiingWithoutProcedure, 4)
+groundEngine:update(taxiingWithoutProcedure, 8)
+assert_equal(#groundEvents, 1, "taxi requires Before Taxi start latch")
+
+local taxiing = copy(taxiingWithoutProcedure, { before_taxi_started = true })
+groundEngine:update(taxiing, 9)
+groundEngine:update(taxiing, 11.9)
+assert_equal(#groundEvents, 1, "taxi waits for stable forward movement")
+groundEngine:update(taxiing, 12)
+assert_equal(#groundEvents, 2, "taxi emitted while Before Taxi may still be running")
+assert_equal(groundEvents[2].id, "departure.taxi_runway", "taxi event id")
+
+local takeoffOffRunway = copy(taxiing, {
+    before_takeoff_started = true,
+    wheel_speed = 20,
+    ground_speed_kts = 20,
+    eng1_n1_percent = 50,
+    eng2_n1_percent = 50
+})
+groundEngine:update(takeoffOffRunway, 13)
+groundEngine:update(takeoffOffRunway, 15)
+assert_equal(#groundEvents, 2, "takeoff requires departure runway helper")
+
+local takeoffLowN1 = copy(takeoffOffRunway, {
+    on_departure_runway = true,
+    eng1_n1_percent = 39,
+    eng2_n1_percent = 50
+})
+groundEngine:update(takeoffLowN1, 16)
+groundEngine:update(takeoffLowN1, 18)
+assert_equal(#groundEvents, 2, "takeoff requires both engines above forty percent N1")
+
+local takeoffRoll = copy(takeoffOffRunway, { on_departure_runway = true })
+groundEngine:update(takeoffRoll, 19)
+groundEngine:update(takeoffRoll, 20)
+assert_equal(#groundEvents, 3, "takeoff emitted after stable roll")
+assert_equal(groundEvents[3].id, "departure.lineup_takeoff", "takeoff event id")
+
+local groundReloadEvents = {}
+local groundReloadEngine = core.newEventEngine({
+    emit = function(event) table.insert(groundReloadEvents, event) return true end
+})
+groundReloadEngine:update(taxiing, 0)
+groundReloadEngine:update(taxiing, 10)
+assert_equal(#groundReloadEvents, 0, "taxi reload baseline emits no departure backfill")
+
+local takeoffReloadEvents = {}
+local takeoffReloadEngine = core.newEventEngine({
+    emit = function(event) table.insert(takeoffReloadEvents, event) return true end
+})
+takeoffReloadEngine:update(takeoffRoll, 0)
+takeoffReloadEngine:update(takeoffRoll, 10)
+assert_equal(#takeoffReloadEvents, 0, "takeoff reload baseline emits no departure backfill")
 
 local emitted = {}
 local engine = core.newEventEngine({
@@ -426,6 +532,34 @@ assert_true(supersessionMailbox:enqueue({
 assert_equal(#supersessionMailbox.queue, 1, "supersession keeps only current event")
 assert_equal(supersessionMailbox.queue[1].id, "arrival.approach", "approach supersedes queued TOD")
 assert_equal(supersessionLogs[1].kind, "superseded", "supersession logged")
+
+local departureSupersession = core.newMailbox()
+assert_true(departureSupersession:enqueue({
+    id = "departure.start_push",
+    text = phraseCases[8][3],
+    expires_at = 100
+}), "enqueue push before supersession")
+assert_true(departureSupersession:enqueue({
+    id = "departure.taxi_runway",
+    text = phraseCases[9][3],
+    expires_at = 100
+}), "enqueue taxi supersession")
+assert_equal(#departureSupersession.queue, 1, "taxi supersedes queued push")
+assert_equal(departureSupersession.queue[1].id, "departure.taxi_runway", "taxi remains queued")
+assert_true(departureSupersession:enqueue({
+    id = "departure.lineup_takeoff",
+    text = phraseCases[10][3],
+    expires_at = 100
+}), "enqueue takeoff supersession")
+assert_equal(#departureSupersession.queue, 1, "takeoff supersedes earlier ground messages")
+assert_equal(departureSupersession.queue[1].id, "departure.lineup_takeoff", "takeoff remains queued")
+assert_true(departureSupersession:enqueue({
+    id = "departure.airborne",
+    text = phraseCases[1][3],
+    expires_at = 100
+}), "enqueue airborne supersession")
+assert_equal(#departureSupersession.queue, 1, "airborne supersedes queued takeoff")
+assert_equal(departureSupersession.queue[1].id, "departure.airborne", "airborne remains queued")
 
 local uncertainWrites = 0
 local uncertainMailbox = core.newMailbox({

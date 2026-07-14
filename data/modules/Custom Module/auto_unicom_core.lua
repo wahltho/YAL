@@ -1,6 +1,9 @@
 local M = {}
 
 M.EVENT_TTL_SEC = {
+    ["departure.start_push"] = 60,
+    ["departure.taxi_runway"] = 120,
+    ["departure.lineup_takeoff"] = 45,
     ["departure.airborne"] = 60,
     ["departure.on_climb"] = 120,
     ["arrival.top_of_descent"] = 120,
@@ -159,6 +162,24 @@ function M.buildMessage(eventId, snapshot)
     snapshot = snapshot or {}
     local ac = aircraft_type(snapshot)
 
+    if eventId == "departure.start_push" then
+        local airport = clean_token(snapshot.departure_icao, false)
+        if not airport or #airport ~= 4 then return nil, "missing_departure_context" end
+        return normalize_text(string.format("%s Traffic, %s, pushing back", airport, ac))
+    end
+
+    if eventId == "departure.taxi_runway" then
+        local airport, runway = departure_context(snapshot)
+        if not airport then return nil, "missing_departure_context" end
+        return normalize_text(string.format("%s Traffic, %s taxiing to holding point runway %s", airport, ac, runway))
+    end
+
+    if eventId == "departure.lineup_takeoff" then
+        local airport, runway = departure_context(snapshot)
+        if not airport then return nil, "missing_departure_context" end
+        return normalize_text(string.format("%s Traffic, %s taking off runway %s", airport, ac, runway))
+    end
+
     if eventId == "departure.airborne" then
         local airport, runway = departure_context(snapshot)
         local altitude = format_altitude(snapshot, false)
@@ -239,6 +260,9 @@ local function summarize_sources(snapshot)
     local fields = {
         { "phase", snapshot.fms_phase },
         { "onGround", snapshot.on_ground and 1 or 0 },
+        { "preflight", snapshot.preflight and 1 or 0 },
+        { "beforeTaxi", snapshot.before_taxi_started and 1 or 0 },
+        { "beforeTakeoff", snapshot.before_takeoff_started and 1 or 0 },
         { "ra", snapshot.radio_altitude_ft },
         { "alt", snapshot.altitude_ft },
         { "pressureAlt", snapshot.pressure_altitude_ft },
@@ -252,6 +276,10 @@ local function summarize_sources(snapshot)
         { "star", snapshot.star },
         { "app", snapshot.approach_id },
         { "tod", snapshot.tod_distance_nm },
+        { "wheelSpeed", snapshot.wheel_speed },
+        { "onDepRwy", snapshot.on_departure_runway and 1 or 0 },
+        { "n1", tostring(snapshot.eng1_n1_percent or "") .. "/" .. tostring(snapshot.eng2_n1_percent or "") },
+        { "bpb", snapshot.pushback_active and 1 or 0 },
         { "final", snapshot.final_gate and 1 or 0 }
     }
     local parts = {}
@@ -271,10 +299,16 @@ function M.newEventEngine(options)
         phase = nil,
         phase_since = nil,
         last_on_ground = nil,
+        last_preflight = nil,
         ground_since = nil,
         ground_armed = false,
         flight_active = false,
         takeoff_at = nil,
+        before_taxi_seen = false,
+        before_takeoff_seen = false,
+        push_since = nil,
+        taxi_since = nil,
+        takeoff_roll_since = nil,
         tod_previous = nil,
         tod_crossed_at = nil,
         last_positive_tod_at = nil,
@@ -288,16 +322,33 @@ function Engine:markSent(eventId)
     self.sent[eventId] = true
 end
 
+function Engine:resetDepartureGroundCycle(snapshot)
+    self.sent["departure.start_push"] = nil
+    self.sent["departure.taxi_runway"] = nil
+    self.sent["departure.lineup_takeoff"] = nil
+    self.before_taxi_seen = snapshot.before_taxi_started == true
+    self.before_takeoff_seen = snapshot.before_takeoff_started == true
+    self.push_since = nil
+    self.taxi_since = nil
+    self.takeoff_roll_since = nil
+end
+
 function Engine:activate(snapshot, now)
     self.active = true
     self.sent = {}
     self.phase = tonumber(snapshot.fms_phase)
     self.phase_since = now
     self.last_on_ground = snapshot.on_ground == true
+    self.last_preflight = snapshot.preflight == true
     self.ground_since = self.last_on_ground and now or nil
     self.ground_armed = false
     self.flight_active = not self.last_on_ground
     self.takeoff_at = nil
+    self.before_taxi_seen = snapshot.before_taxi_started == true
+    self.before_takeoff_seen = snapshot.before_takeoff_started == true
+    self.push_since = nil
+    self.taxi_since = nil
+    self.takeoff_roll_since = nil
     self.tod_previous = tonumber(snapshot.tod_distance_nm)
     self.tod_crossed_at = nil
     self.last_positive_tod_at = nil
@@ -306,6 +357,9 @@ function Engine:activate(snapshot, now)
     self.touchdown_latched = false
 
     if not self.last_on_ground then
+        self:markSent("departure.start_push")
+        self:markSent("departure.taxi_runway")
+        self:markSent("departure.lineup_takeoff")
         self:markSent("departure.airborne")
         self:markSent("departure.on_climb")
         if (self.phase or 0) >= 4 then
@@ -320,6 +374,27 @@ function Engine:activate(snapshot, now)
         if snapshot.final_gate == true then
             self:markSent("arrival.on_final")
         end
+    else
+        local gs = tonumber(snapshot.ground_speed_kts) or 0
+        local wheelSpeed = tonumber(snapshot.wheel_speed) or 0
+        local forward = wheelSpeed > 1
+        local reverse = wheelSpeed < -1
+        local moving = math.abs(wheelSpeed) > 1
+        if moving and (snapshot.pushback_active == true or reverse) then
+            self:markSent("departure.start_push")
+        end
+        if self.before_takeoff_seen
+            or (self.before_taxi_seen and moving and gs >= 3 and forward) then
+            self:markSent("departure.start_push")
+            self:markSent("departure.taxi_runway")
+        end
+        if self.before_takeoff_seen
+            and snapshot.on_departure_runway == true
+            and moving and gs > 5 and forward
+            and (tonumber(snapshot.eng1_n1_percent) or 0) > 40
+            and (tonumber(snapshot.eng2_n1_percent) or 0) > 40 then
+            self:markSent("departure.lineup_takeoff")
+        end
     end
 end
 
@@ -328,12 +403,18 @@ function Engine:deactivate()
     self.sent = {}
     self.final_since = nil
     self.vacated_since = nil
+    self.push_since = nil
+    self.taxi_since = nil
+    self.takeoff_roll_since = nil
 end
 
 function Engine:beginFlight(snapshot, now)
     self.sent = {}
     self.flight_active = true
     self.takeoff_at = now
+    self.push_since = nil
+    self.taxi_since = nil
+    self.takeoff_roll_since = nil
     self.tod_previous = tonumber(snapshot.tod_distance_nm)
     self.tod_crossed_at = nil
     self.last_positive_tod_at = nil
@@ -373,6 +454,67 @@ function Engine:update(snapshot, now)
         self.phase_since = now
     end
     local phaseStable = now - self.phase_since
+
+    local preflight = snapshot.preflight == true
+    if onGround and preflight and self.last_preflight ~= true then
+        self:resetDepartureGroundCycle(snapshot)
+    end
+    if snapshot.before_taxi_started == true then
+        self.before_taxi_seen = true
+    end
+    if snapshot.before_takeoff_started == true then
+        self.before_takeoff_seen = true
+    end
+
+    local gs = tonumber(snapshot.ground_speed_kts) or 0
+    local wheelSpeed = tonumber(snapshot.wheel_speed) or 0
+    local forward = wheelSpeed > 1
+    local reverse = wheelSpeed < -1
+    local moving = math.abs(wheelSpeed) > 1
+    local parkingBrakeReleased = snapshot.parking_brake_released == true
+
+    local pushGate = onGround and preflight and parkingBrakeReleased
+        and moving
+        and (snapshot.pushback_active == true or reverse)
+    if pushGate and not self.sent["departure.start_push"] then
+        self.push_since = self.push_since or now
+        if now - self.push_since >= 2 then
+            self:tryEmit("departure.start_push", snapshot, now)
+        end
+    else
+        self.push_since = nil
+    end
+
+    local taxiGate = onGround and preflight and self.before_taxi_seen
+        and parkingBrakeReleased and snapshot.pushback_active ~= true
+        and moving and gs >= 3 and forward
+    if taxiGate and not self.sent["departure.taxi_runway"] then
+        self.taxi_since = self.taxi_since or now
+        if now - self.taxi_since >= 3 then
+            local emitted = self:tryEmit("departure.taxi_runway", snapshot, now)
+            if emitted then self:markSent("departure.start_push") end
+        end
+    else
+        self.taxi_since = nil
+    end
+
+    local takeoffGate = onGround and preflight and self.before_takeoff_seen
+        and parkingBrakeReleased and snapshot.on_departure_runway == true
+        and moving and gs > 5 and forward
+        and (tonumber(snapshot.eng1_n1_percent) or 0) > 40
+        and (tonumber(snapshot.eng2_n1_percent) or 0) > 40
+    if takeoffGate and not self.sent["departure.lineup_takeoff"] then
+        self.takeoff_roll_since = self.takeoff_roll_since or now
+        if now - self.takeoff_roll_since >= 1 then
+            local emitted = self:tryEmit("departure.lineup_takeoff", snapshot, now)
+            if emitted then
+                self:markSent("departure.start_push")
+                self:markSent("departure.taxi_runway")
+            end
+        end
+    else
+        self.takeoff_roll_since = nil
+    end
 
     if onGround then
         if self.last_on_ground ~= true then
@@ -450,13 +592,31 @@ function Engine:update(snapshot, now)
     end
 
     self.last_on_ground = onGround
+    self.last_preflight = preflight
 end
 
 local Mailbox = {}
 Mailbox.__index = Mailbox
 
 local SUPERSEDED_EVENTS = {
-    ["departure.on_climb"] = { ["departure.airborne"] = true },
+    ["departure.taxi_runway"] = {
+        ["departure.start_push"] = true
+    },
+    ["departure.lineup_takeoff"] = {
+        ["departure.start_push"] = true,
+        ["departure.taxi_runway"] = true
+    },
+    ["departure.airborne"] = {
+        ["departure.start_push"] = true,
+        ["departure.taxi_runway"] = true,
+        ["departure.lineup_takeoff"] = true
+    },
+    ["departure.on_climb"] = {
+        ["departure.start_push"] = true,
+        ["departure.taxi_runway"] = true,
+        ["departure.lineup_takeoff"] = true,
+        ["departure.airborne"] = true
+    },
     ["arrival.approach"] = {
         ["arrival.top_of_descent"] = true,
         ["arrival.on_descent"] = true

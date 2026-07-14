@@ -120,10 +120,22 @@ local function parse_approach_fallback(snapshot)
     end
 end
 
+local function procedure_started_or_done(y, procedureId)
+    local procedure = y.proceduretable and y.proceduretable[procedureId] or nil
+    if procedure and procedure.set == true then return true end
+
+    local loops = { y.procedureloop1, y.procedureloop2, y.procedureloop3 }
+    for _, loop in ipairs(loops) do
+        if loop and loop.lock == procedureId then return true end
+    end
+    return false
+end
+
 local function build_snapshot()
     local y = runtime.yal
     local def = runtime.def
     local sources = runtime.sources or {}
+    local wheelSpeed = tonumber(safe_read(y.tirespeed)) or 0
     local snapshot = {
         on_ground = safe_read(y.airgroundsensor) == def.ON,
         radio_altitude_ft = tonumber(safe_read(y.radioaltitude)),
@@ -131,6 +143,7 @@ local function build_snapshot()
         pressure_altitude_ft = tonumber(safe_read(sources.pressure_altitude)),
         vertical_speed_fpm = tonumber(safe_read(y.verticalspeed)),
         ground_speed_kts = tonumber(safe_read(y.groundspeed)),
+        wheel_speed = wheelSpeed,
         fms_phase = tonumber(safe_read(y.fmsflightphase)),
         tod_distance_nm = tonumber(safe_read(y.vnavtoddist)),
         transition_altitude_ft = tonumber(safe_read(y.fmctransalt)),
@@ -144,9 +157,24 @@ local function build_snapshot()
         star = tostring(safe_read(y.fmsselectedstar) or ""),
         approach_id = tostring(safe_read(y.fmsselectedapp) or ""),
         aircraft_type = tostring(safe_read(sources.aircraft_icao) or ""),
+        preflight = y.flightstate == def.FLIGHTSTATEPREFLIGHT,
+        before_taxi_started = procedure_started_or_done(y, def.BEFORETAXIPROCEDURE),
+        before_takeoff_started = procedure_started_or_done(y, def.BEFORETAKEOFFPROCEDURE),
+        parking_brake_released = (tonumber(safe_read(y.parkingbrakepos)) or 0) == def.OFF,
+        eng1_n1_percent = tonumber(safe_read(y.eng1n1percent)),
+        eng2_n1_percent = tonumber(safe_read(y.eng2n1percent)),
+        pushback_active = y.BPBStarted ~= nil
+            and tonumber(safe_read(y.BPBStarted)) == def.ON
+            and (y.BPBOpComplete == nil or tonumber(safe_read(y.BPBOpComplete)) ~= def.ON),
+        on_departure_runway = false,
         on_runway_profile = false,
         final_gate = false
     }
+
+    if y.aircraftonrwy then
+        local ok, value = pcall(y.aircraftonrwy, def.DEPARTURE, 40, 20)
+        snapshot.on_departure_runway = ok and value == true
+    end
 
     read_approach_ref(snapshot)
     parse_approach_fallback(snapshot)
