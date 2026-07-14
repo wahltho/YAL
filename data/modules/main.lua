@@ -983,10 +983,11 @@ function update()
         else
             autoUnicomRuntime.modePrerequisiteLogged = false
         end
+        local autoUnicomTransportAvailable = false
         if autoUnicomEnabled then
-            bind_auto_unicom_datarefs()
+            autoUnicomTransportAvailable = bind_auto_unicom_datarefs() == true
         end
-        autoUnicom.tick(autoUnicomEnabled == true)
+        autoUnicom.tick(autoUnicomEnabled == true and autoUnicomTransportAvailable)
         if yal and yal.updateGearProtectionFast then
             yal.updateGearProtectionFast()
         end
