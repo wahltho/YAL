@@ -822,6 +822,89 @@ local function configure_repeat_test()
     })
 end
 
+local baselineYal = {
+    airgroundsensor = "airgroundsensor",
+    radioaltitude = "radioaltitude",
+    altitude_ft = "altitude_ft",
+    altitude = "altitude_ft",
+    verticalspeed = "verticalspeed",
+    groundspeed = "groundspeed",
+    tirespeed = "tirespeed",
+    fmsflightphase = "fmsflightphase",
+    vnavtoddist = "vnavtoddist",
+    fmctransalt = "fmctransalt",
+    fmctranslvl = "fmctranslvl",
+    fmccruisealt = "fmccruisealt",
+    depicao = "depicao",
+    deprwy = "deprwy",
+    desicao = "desicao",
+    desrwy = "desrwy",
+    fmsselectedsid = "fmsselectedsid",
+    fmsselectedstar = "fmsselectedstar",
+    fmsselectedapp = "fmsselectedapp",
+    proceduretable = {},
+    flightstate = 4
+}
+local baselineDef = {
+    ON = 1,
+    OFF = 0,
+    FLIGHTSTATEPREFLIGHT = 0,
+    BEFORETAXIPROCEDURE = 5,
+    BEFORETAKEOFFPROCEDURE = 6,
+    CAPTURED = 2
+}
+local baselineValues = {
+    api_version = 1,
+    ready = 1,
+    mode = 2,
+    transport_state = 5,
+    request_text = phraseCases[3][3],
+    request_seq = 12,
+    result_seq = 12,
+    result_code = 21,
+    result_detail = "SUBMITTED_VISIBLE",
+    airgroundsensor = 0,
+    radioaltitude = 5000,
+    altitude_ft = 6000,
+    pressure_altitude = 6000,
+    verticalspeed = -800,
+    groundspeed = 180,
+    tirespeed = 0,
+    fmsflightphase = 7,
+    vnavtoddist = 0,
+    fmctransalt = 7000,
+    fmctranslvl = 7000,
+    fmccruisealt = 37000,
+    depicao = "ENAT",
+    deprwy = "09",
+    desicao = "ENSB",
+    desrwy = "27",
+    fmsselectedsid = "ATKUP1A",
+    fmsselectedstar = "NELSA3M",
+    fmsselectedapp = "R27-W",
+    aircraft_icao = "B738"
+}
+autoUnicom.configure({
+    yal = baselineYal,
+    def = baselineDef,
+    helpers = {
+        logInfoTS = function() end,
+        parseSelectedApproachId = function()
+            return { suffix = "W", navType = "RNAV" }
+        end
+    },
+    sources = {
+        pressure_altitude = "pressure_altitude",
+        aircraft_icao = "aircraft_icao"
+    },
+    getRefs = function() return repeatRefs end,
+    read = function(prop) return baselineValues[prop] end
+})
+autoUnicom.tick(true, 0)
+local repeatedBaseline, repeatedBaselineText = autoUnicom.repeatLastMessage(true)
+assert_true(repeatedBaseline, "repeat baseline candidate accepted")
+assert_equal(repeatedBaselineText, phraseCases[5][3], "repeat prefers skipped phase seven approach")
+
 configure_repeat_test()
 local repeated, repeatedText = autoUnicom.repeatLastMessage(true)
 assert_true(repeated, "repeat last accepted")

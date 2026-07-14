@@ -7,7 +7,8 @@ local mailbox = nil
 local active = false
 local lastSampleAt = nil
 local connectionLogKey = nil
-local lastMessageText = nil
+local lastIntendedMessageText = nil
+local lastCommittedMessageText = nil
 local manualRepeatCount = 0
 
 local function log(message)
@@ -50,7 +51,7 @@ end
 
 local function mailbox_log(kind, event)
     if kind == "committed" then
-        lastMessageText = event.text
+        lastCommittedMessageText = event.text
         log(string.format("IVAO Auto-Unicom: committed event=%s seq=%s text=%s",
             tostring(event.id), tostring(event.seq), tostring(event.text)))
     elseif kind == "terminal" then
@@ -70,6 +71,8 @@ local function mailbox_log(kind, event)
 end
 
 local function enqueue_event(event)
+    local intendedText = core.normalizeText(event and event.text)
+    if intendedText then lastIntendedMessageText = intendedText end
     if not mailbox or not mailbox:enqueue(event) then return false end
     log(string.format("IVAO Auto-Unicom: queued event=%s inputs={%s} text=%s",
         tostring(event.id), tostring(event.inputs or ""), tostring(event.text)))
@@ -233,6 +236,27 @@ local function read_mailbox_api()
     }
 end
 
+local function capture_baseline_repeat_candidate(snapshot)
+    if not snapshot or snapshot.on_ground == true then return end
+    local phase = tonumber(snapshot.fms_phase) or 0
+    local eventId = nil
+    if phase == 6 or phase == 7 then
+        eventId = snapshot.final_gate == true and "arrival.on_final" or "arrival.approach"
+    elseif phase == 4 or phase == 5 then
+        eventId = "arrival.on_descent"
+    elseif phase == 1 then
+        eventId = "departure.on_climb"
+    elseif phase == 0 and (tonumber(snapshot.radio_altitude_ft) or 0) > 50 then
+        eventId = "departure.airborne"
+    end
+    if not eventId then return end
+
+    local text = core.buildMessage(eventId, snapshot)
+    if not text then return end
+    lastIntendedMessageText = text
+    log(string.format("IVAO Auto-Unicom: baseline repeat candidate event=%s text=%s", eventId, text))
+end
+
 function M.repeatLastMessage(enabled)
     if enabled ~= true then
         log("IVAO Auto-Unicom: repeat last rejected reason=feature_disabled")
@@ -262,7 +286,17 @@ function M.repeatLastMessage(enabled)
     end
 
     local apiRefs = refs()
-    local text = core.normalizeText(lastMessageText or safe_read(apiRefs and apiRefs.request_text))
+    local source = "last_intended"
+    local rawText = lastIntendedMessageText
+    if not rawText then
+        source = "last_committed"
+        rawText = lastCommittedMessageText
+    end
+    if not rawText then
+        source = "api_request_text"
+        rawText = safe_read(apiRefs and apiRefs.request_text)
+    end
+    local text = core.normalizeText(rawText)
     if not text then
         log("IVAO Auto-Unicom: repeat last rejected reason=no_last_message")
         return false, "no_last_message"
@@ -273,7 +307,7 @@ function M.repeatLastMessage(enabled)
     local accepted = enqueue_event({
         id = "manual.repeat_last." .. tostring(manualRepeatCount),
         text = text,
-        inputs = "source=last_auto_unicom_message",
+        inputs = "source=" .. source,
         created_at = now,
         expires_at = now + 120
     })
@@ -281,7 +315,7 @@ function M.repeatLastMessage(enabled)
         log("IVAO Auto-Unicom: repeat last rejected reason=queue_rejected")
         return false, "queue_rejected"
     end
-    log("IVAO Auto-Unicom: repeat last accepted text=" .. text)
+    log("IVAO Auto-Unicom: repeat last accepted source=" .. source .. " text=" .. text)
     return true, text
 end
 
@@ -291,7 +325,8 @@ function M.configure(options)
     active = false
     lastSampleAt = nil
     connectionLogKey = nil
-    lastMessageText = nil
+    lastIntendedMessageText = nil
+    lastCommittedMessageText = nil
     manualRepeatCount = 0
 end
 
@@ -301,7 +336,8 @@ function M.rebaseline()
     active = false
     lastSampleAt = nil
     connectionLogKey = nil
-    lastMessageText = nil
+    lastIntendedMessageText = nil
+    lastCommittedMessageText = nil
     manualRepeatCount = 0
 end
 
@@ -333,6 +369,7 @@ function M.tick(enabled, now)
         active = true
         local snapshot = build_snapshot()
         eventEngine:activate(snapshot, now)
+        capture_baseline_repeat_candidate(snapshot)
         mailbox:clear()
         lastSampleAt = now
         log("IVAO Auto-Unicom enabled; current flight state baselined without event backfill")
