@@ -32,6 +32,7 @@ local autoUnicomRuntime = {
     refs = nil,
     nextBindAt = 0,
     unavailableLogged = false,
+    modePrerequisiteLogged = false,
     sources = {
         pressure_altitude = globalProperty("sim/flightmodel2/position/pressure_altitude"),
         aircraft_icao = globalPropertys("sim/aircraft/view/acf_ICAO")
@@ -968,8 +969,20 @@ end
 function update()
     if helpers.isZibo() then
         maybeInitDebugOverlay()
-        local autoUnicomEnabled = settings and settings.appSettings
+        local autoUnicomConfigured = settings and settings.appSettings
             and tonumber(settings.appSettings[def.CONFIGIVAOAUTOUNICOM] or 0) == def.ON
+        local virtualCopilotActive = settings and settings.appSettings
+            and (tonumber(settings.appSettings[def.CONFIGAUTOFUNCTIONS] or 0) == def.ON
+                or tonumber(settings.appSettings[def.CONFIGVOICEADVICEONLY] or 0) == def.ON)
+        local autoUnicomEnabled = autoUnicomConfigured and virtualCopilotActive
+        if autoUnicomConfigured and not virtualCopilotActive then
+            if not autoUnicomRuntime.modePrerequisiteLogged then
+                autoUnicomRuntime.modePrerequisiteLogged = true
+                helpers.logInfoTS("IVAO Auto-Unicom inactive: enable Auto Functions or Voice Advice Only")
+            end
+        else
+            autoUnicomRuntime.modePrerequisiteLogged = false
+        end
         if autoUnicomEnabled then
             bind_auto_unicom_datarefs()
         end

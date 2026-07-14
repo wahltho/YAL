@@ -4845,16 +4845,12 @@ function P.refuelAircraft(totalFuelLbs)
 end
 
 --------------------------------------------------------------------------------------------------------------
-function P.aircraftonrwy(runwayType, distMeters, headingLimit)
-
+function P.getAircraftRunwayGeometry(runwayType, distMeters, headingLimit)
     headingLimit = headingLimit or 20 -- Standard-Limit von 20 Grad
-    -- distMeters is a lateral distance from runway centerline in meters.
     local dist_m = tonumber(distMeters) or 0
     local dist_rad = dist_m / 6371000
-
     local aircraftlat = get(P.aircraftlatpos)
     local aircraftlon = get(P.aircraftlonpos)
-
     local rwystartlat, rwystartlon, rwyendlat, rwyendlon
     local runwayHeading
 
@@ -4873,27 +4869,17 @@ function P.aircraftonrwy(runwayType, distMeters, headingLimit)
         rwyendlon = runway and runway.end_lon or nil
         runwayHeading = runway and runway.course_deg_mag or nil
     else
-        return false
+        return { valid = false, reason = "invalid_runway_type" }
     end
 
     if (rwystartlat == 0) then
-        if runwayType == def.DEPARTURE then return false end
-        if runwayType == def.ARRIVAL then return true end
-        return true
+        return { valid = false, reason = "zero_runway_start" }
     end
-
     if (rwystartlat == nil) or (rwystartlon == nil) or (rwyendlat == nil) or (rwyendlon == nil) then
-        if runwayType == def.DEPARTURE then return false end
-        if runwayType == def.ARRIVAL then return false end
-        return false
+        return { valid = false, reason = "missing_runway_geometry" }
     end
     if (aircraftlat == nil) or (aircraftlon == nil) then
-        return false
-    end
-    if runwayHeading == nil then
-        if runwayType == def.DEPARTURE then return false end
-        if runwayType == def.ARRIVAL then return false end
-        return false
+        return { valid = false, reason = "missing_aircraft_position" }
     end
 
     local rwystartlatrad = math.rad(rwystartlat)
@@ -4909,7 +4895,9 @@ function P.aircraftonrwy(runwayType, distMeters, headingLimit)
     local d2 = (aircraftlonrad - rwystartlonrad) * math.cos(rwystartlatrad)
 
     local v_mag_sq = v1*v1 + v2*v2
-    if v_mag_sq == 0 then return false end
+    if v_mag_sq == 0 then
+        return { valid = false, reason = "zero_runway_length" }
+    end
 
     local s = (d2 * v1 + d1 * v2) / v_mag_sq
 
@@ -4928,34 +4916,64 @@ function P.aircraftonrwy(runwayType, distMeters, headingLimit)
     end
 
     local isOnRunwayProximity = (disttorwy_sq < (dist_rad * dist_rad))
-
     local aircraftTrack = get(P.groundtrackmag)
-    local headingDiff = helpers.headingdiff(aircraftTrack, runwayHeading)
-    local isHeadingAligned = (headingDiff < headingLimit) -- True wenn < 20 Grad
+    local headingDiff = nil
+    local isHeadingAligned = false
+    if aircraftTrack ~= nil and runwayHeading ~= nil then
+        headingDiff = helpers.headingdiff(aircraftTrack, runwayHeading)
+        isHeadingAligned = (headingDiff < headingLimit)
+    end
+
+    return {
+        valid = true,
+        heading_valid = headingDiff ~= nil,
+        is_on_surface = isOnRunwayProximity,
+        is_heading_aligned = isHeadingAligned,
+        heading_diff = headingDiff,
+        distance_m = math.sqrt(disttorwy_sq) * 6371000
+    }
+end
+
+--------------------------------------------------------------------------------------------------------------
+function P.isAircraftOnArrivalRunwaySurface(distMeters)
+    local geometry = P.getAircraftRunwayGeometry(def.ARRIVAL, distMeters or 40, 20)
+    if not geometry.valid then return nil end
+    return geometry.is_on_surface == true
+end
+
+--------------------------------------------------------------------------------------------------------------
+function P.aircraftonrwy(runwayType, distMeters, headingLimit)
+    local geometry = P.getAircraftRunwayGeometry(runwayType, distMeters, headingLimit)
+    if not geometry.valid then
+        if runwayType == def.ARRIVAL and geometry.reason == "zero_runway_start" then
+            return true
+        end
+        return false
+    end
+    if not geometry.heading_valid then return false end
 
     local result
     if runwayType == def.DEPARTURE then
-        result = isOnRunwayProximity and isHeadingAligned
+        result = geometry.is_on_surface and geometry.is_heading_aligned
     elseif runwayType == def.ARRIVAL then
-        result = (not isOnRunwayProximity) or (not isHeadingAligned)
+        result = (not geometry.is_on_surface) or (not geometry.is_heading_aligned)
     else
-        result = isOnRunwayProximity
+        result = geometry.is_on_surface
     end
 
     P._aircraftonrwy_state = P._aircraftonrwy_state or {}
     local key = (runwayType == def.DEPARTURE) and "dep" or ((runwayType == def.ARRIVAL) and "arr" or tostring(runwayType))
     if P._aircraftonrwy_state[key] ~= result then
         P._aircraftonrwy_state[key] = result
-        local dist_m = math.sqrt(disttorwy_sq) * 6371000
         helpers.logInfoTS(
             string.format(
                 "AircraftOnRwy: type=%s result=%s dist=%.1f hdgDiff=%.1f prox=%s aligned=%s",
                 tostring(key),
                 tostring(result),
-                tonumber(dist_m or 0),
-                tonumber(headingDiff or -1),
-                tostring(isOnRunwayProximity),
-                tostring(isHeadingAligned)
+                tonumber(geometry.distance_m or 0),
+                tonumber(geometry.heading_diff or -1),
+                tostring(geometry.is_on_surface),
+                tostring(geometry.is_heading_aligned)
             )
         )
     end
@@ -4963,13 +4981,15 @@ function P.aircraftonrwy(runwayType, distMeters, headingLimit)
 end
 
 --------------------------------------------------------------------------------------------------------------
-function P.isArrivalRunwayRadioAltGateOpen(maxThresholdDistanceNm, maxHeadingDiff)
+function P.isArrivalRunwayRadioAltGateOpen(maxThresholdDistanceNm, maxHeadingDiff, maxCrossTrackNm)
 
     local aircraftlat = get(P.aircraftlatpos)
     local aircraftlon = get(P.aircraftlonpos)
     local runway = P.getDestinationRunwayRefdata(true)
     local rwystartlat = runway and runway.start_lat or nil
     local rwystartlon = runway and runway.start_lon or nil
+    local rwyendlat = runway and runway.end_lat or nil
+    local rwyendlon = runway and runway.end_lon or nil
     local runwayHeading = runway and runway.course_deg_mag or nil
 
     if not aircraftlat or not aircraftlon or not rwystartlat or not rwystartlon then
@@ -4982,6 +5002,21 @@ function P.isArrivalRunwayRadioAltGateOpen(maxThresholdDistanceNm, maxHeadingDif
     local runwayDistanceNm = helpers.getdistance(aircraftlat, aircraftlon, rwystartlat, rwystartlon)
     if not runwayDistanceNm or runwayDistanceNm > maxThresholdDistanceNm then
         return false
+    end
+
+    if maxCrossTrackNm ~= nil then
+        if not rwyendlat or not rwyendlon or rwyendlat == 0 or rwyendlon == 0 then
+            return false
+        end
+        local cosLat = math.cos(math.rad(rwystartlat))
+        local runwayX = (rwyendlon - rwystartlon) * cosLat * 60
+        local runwayY = (rwyendlat - rwystartlat) * 60
+        local aircraftX = (aircraftlon - rwystartlon) * cosLat * 60
+        local aircraftY = (aircraftlat - rwystartlat) * 60
+        local runwayLengthNm = math.sqrt(runwayX * runwayX + runwayY * runwayY)
+        if runwayLengthNm <= 0 then return false end
+        local crossTrackNm = math.abs(aircraftX * runwayY - aircraftY * runwayX) / runwayLengthNm
+        if crossTrackNm > maxCrossTrackNm then return false end
     end
 
     if runwayHeading and runwayHeading ~= 0 then

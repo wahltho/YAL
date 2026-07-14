@@ -43,6 +43,9 @@ local DESCENT_PROGRESS_MAX_SAMPLE_DROP_FT = 2000
 local CLIMB_PROGRESS_PREFIX = "departure.climb_level_"
 local CLIMB_PROGRESS_LEVELS_FT = { 10000, 20000, 30000, 40000 }
 local CLIMB_PROGRESS_MAX_SAMPLE_RISE_FT = 2000
+local TAKEOFF_ROLL_SPEED_KTS = 25
+local TAKEOFF_ROLL_HOLD_SEC = 2
+local RUNWAY_VACATED_HOLD_SEC = 2
 
 local function is_climb_progress_event(eventId)
     return type(eventId) == "string"
@@ -320,6 +323,7 @@ local function summarize_sources(snapshot)
         { "wheelSpeed", snapshot.wheel_speed },
         { "onDepRwy", snapshot.on_departure_runway and 1 or 0 },
         { "bpb", snapshot.pushback_active and 1 or 0 },
+        { "arrClear", snapshot.arrival_runway_clear and 1 or 0 },
         { "final", snapshot.final_gate and 1 or 0 }
     }
     local parts = {}
@@ -333,6 +337,7 @@ function M.newEventEngine(options)
     options = options or {}
     return setmetatable({
         emit = options.emit or function() return true end,
+        cancelQueuedForGoAround = options.cancelQueuedForGoAround or function() end,
         log = options.log or function() end,
         active = false,
         sent = {},
@@ -342,13 +347,16 @@ function M.newEventEngine(options)
         before_taxi_seen = false,
         before_takeoff_seen = false,
         push_since = nil,
+        takeoff_since = nil,
+        vacated_since = nil,
         taxi_rejection_key = nil,
         climb_altitude_previous = nil,
         climb_rejection_key = nil,
         descent_altitude_previous = nil,
         descent_rejection_key = nil,
         last_descent_report_altitude_ft = nil,
-        final_since = nil
+        final_since = nil,
+        last_fms_phase = nil
     }, Engine)
 end
 
@@ -363,6 +371,7 @@ function Engine:resetDepartureGroundCycle(snapshot)
     self.before_taxi_seen = snapshot.before_taxi_started == true
     self.before_takeoff_seen = snapshot.before_takeoff_started == true
     self.push_since = nil
+    self.takeoff_since = nil
     self.taxi_rejection_key = nil
     self.climb_altitude_previous = climb_altitude(snapshot)
     self.climb_rejection_key = nil
@@ -377,6 +386,8 @@ function Engine:activate(snapshot)
     self.before_taxi_seen = snapshot.before_taxi_started == true
     self.before_takeoff_seen = snapshot.before_takeoff_started == true
     self.push_since = nil
+    self.takeoff_since = nil
+    self.vacated_since = nil
     self.taxi_rejection_key = nil
     self.climb_altitude_previous = climb_altitude(snapshot)
     self.climb_rejection_key = nil
@@ -384,6 +395,7 @@ function Engine:activate(snapshot)
     self.descent_rejection_key = nil
     self.last_descent_report_altitude_ft = nil
     self.final_since = nil
+    self.last_fms_phase = tonumber(snapshot.fms_phase) or 0
 
     if snapshot.on_ground ~= true then
         self:markSent("departure.start_push")
@@ -426,10 +438,11 @@ function Engine:activate(snapshot)
         end
         if self.before_takeoff_seen
             and snapshot.on_departure_runway == true
-            and forward then
+            and forward
+            and (tonumber(snapshot.ground_speed_kts) or 0) >= TAKEOFF_ROLL_SPEED_KTS then
             self:markSent("departure.lineup_takeoff")
         end
-        if snapshot.post_landing_state == true then
+        if snapshot.post_landing_state == true and snapshot.arrival_runway_clear == true then
             self:markSent("arrival.runway_vacated")
         end
     end
@@ -440,6 +453,8 @@ function Engine:deactivate()
     self.sent = {}
     self.final_since = nil
     self.push_since = nil
+    self.takeoff_since = nil
+    self.vacated_since = nil
     self.taxi_rejection_key = nil
     self.climb_altitude_previous = nil
     self.climb_rejection_key = nil
@@ -447,11 +462,14 @@ function Engine:deactivate()
     self.descent_rejection_key = nil
     self.last_descent_report_altitude_ft = nil
     self.last_descent_state = nil
+    self.last_fms_phase = nil
 end
 
 function Engine:beginFlight(snapshot)
     self.sent = {}
     self.push_since = nil
+    self.takeoff_since = nil
+    self.vacated_since = nil
     self.climb_altitude_previous = climb_altitude(snapshot)
     self.climb_rejection_key = nil
     self.descent_altitude_previous = descent_altitude(snapshot)
@@ -459,6 +477,7 @@ function Engine:beginFlight(snapshot)
     self.last_descent_report_altitude_ft = nil
     self.last_descent_state = snapshot.descent_state == true
     self.final_since = nil
+    self.last_fms_phase = tonumber(snapshot.fms_phase) or 0
 end
 
 function Engine:tryEmit(eventId, snapshot, now)
@@ -579,6 +598,7 @@ function Engine:update(snapshot, now)
     local climbState = snapshot.climb_state == true
     local descentState = snapshot.descent_state == true
     local postLandingState = snapshot.post_landing_state == true
+    local phase = tonumber(snapshot.fms_phase) or 0
     if onGround and preflight and self.last_preflight ~= true then
         self:resetDepartureGroundCycle(snapshot)
     end
@@ -600,6 +620,12 @@ function Engine:update(snapshot, now)
                 self:markSent(DESCENT_PROGRESS_PREFIX .. tostring(level))
             end
         end
+    end
+    if phase == 8 and self.last_fms_phase ~= 8 then
+        self.cancelQueuedForGoAround()
+        self.sent["arrival.approach"] = nil
+        self.sent["arrival.on_final"] = nil
+        self.final_since = nil
     end
 
     local wheelSpeed = tonumber(snapshot.wheel_speed) or 0
@@ -641,12 +667,18 @@ function Engine:update(snapshot, now)
 
     local takeoffGate = onGround and self.before_takeoff_seen
         and snapshot.on_departure_runway == true and forward
+        and (tonumber(snapshot.ground_speed_kts) or 0) >= TAKEOFF_ROLL_SPEED_KTS
     if takeoffGate and not self.sent["departure.lineup_takeoff"] then
-        local emitted = self:tryEmit("departure.lineup_takeoff", snapshot, now)
-        if emitted then
-            self:markSent("departure.start_push")
-            self:markSent("departure.taxi_runway")
+        self.takeoff_since = self.takeoff_since or now
+        if now - self.takeoff_since >= TAKEOFF_ROLL_HOLD_SEC then
+            local emitted = self:tryEmit("departure.lineup_takeoff", snapshot, now)
+            if emitted then
+                self:markSent("departure.start_push")
+                self:markSent("departure.taxi_runway")
+            end
         end
+    else
+        self.takeoff_since = nil
     end
 
     if not onGround and (initialClimbState or climbState)
@@ -671,7 +703,6 @@ function Engine:update(snapshot, now)
 
     self:updateDescentProgress(snapshot, now, onGround)
 
-    local phase = tonumber(snapshot.fms_phase) or 0
     if not onGround and descentState and is_approach_phase(phase) then
         local emitted = self:tryEmit("arrival.approach", snapshot, now)
         if emitted then
@@ -691,13 +722,20 @@ function Engine:update(snapshot, now)
         self.final_since = nil
     end
 
-    if onGround and postLandingState then
-        self:tryEmit("arrival.runway_vacated", snapshot, now)
+    local vacatedGate = onGround and postLandingState and snapshot.arrival_runway_clear == true
+    if vacatedGate and not self.sent["arrival.runway_vacated"] then
+        self.vacated_since = self.vacated_since or now
+        if now - self.vacated_since >= RUNWAY_VACATED_HOLD_SEC then
+            self:tryEmit("arrival.runway_vacated", snapshot, now)
+        end
+    else
+        self.vacated_since = nil
     end
 
     self.last_preflight = preflight
     self.last_initial_climb_state = initialClimbState
     self.last_descent_state = descentState
+    self.last_fms_phase = phase
 end
 
 local Mailbox = {}
@@ -818,6 +856,25 @@ function Mailbox:prune(now)
         else
             self.queuedIds[event.id] = nil
             self.log("expired", event)
+        end
+    end
+    self.queue = kept
+end
+
+function Mailbox:cancelQueuedForGoAround()
+    local kept = {}
+    for _, event in ipairs(self.queue) do
+        local eventId = tostring(event.id or "")
+        local cancel = eventId == "arrival.top_of_descent"
+            or eventId == "arrival.on_descent"
+            or eventId == "arrival.approach"
+            or eventId == "arrival.on_final"
+            or is_descent_progress_event(eventId)
+        if cancel then
+            self.queuedIds[event.id] = nil
+            self.log("cancelled_go_around", event)
+        else
+            table.insert(kept, event)
         end
     end
     self.queue = kept

@@ -61,6 +61,8 @@ local function mailbox_log(kind, event)
         log("IVAO Auto-Unicom: expired queued event=" .. tostring(event.id))
     elseif kind == "superseded" then
         log("IVAO Auto-Unicom: superseded queued event=" .. tostring(event.id))
+    elseif kind == "cancelled_go_around" then
+        log("IVAO Auto-Unicom: cancelled queued event after go-around=" .. tostring(event.id))
     elseif kind == "timeout" then
         log("IVAO Auto-Unicom: result timeout; transport blocked for session seq=" .. tostring(event.seq))
     elseif kind == "sequence_write_failed" then
@@ -99,7 +101,13 @@ local function create_state_machines()
         maxQueue = 8,
         timeoutSec = 30
     })
-    eventEngine = core.newEventEngine({ emit = enqueue_event, log = event_engine_log })
+    eventEngine = core.newEventEngine({
+        emit = enqueue_event,
+        cancelQueuedForGoAround = function()
+            if mailbox then mailbox:cancelQueuedForGoAround() end
+        end,
+        log = event_engine_log
+    })
 end
 
 local function read_approach_ref(snapshot)
@@ -197,6 +205,7 @@ local function build_snapshot()
             and tonumber(safe_read(y.BPBStarted)) == def.ON
             and (y.BPBOpComplete == nil or tonumber(safe_read(y.BPBOpComplete)) ~= def.ON),
         on_departure_runway = false,
+        arrival_runway_clear = false,
         final_gate = false
     }
 
@@ -204,13 +213,17 @@ local function build_snapshot()
         local ok, value = pcall(y.aircraftonrwy, def.DEPARTURE, 40, 20)
         snapshot.on_departure_runway = ok and value == true
     end
+    if y.isAircraftOnArrivalRunwaySurface then
+        local ok, value = pcall(y.isAircraftOnArrivalRunwaySurface, 40)
+        snapshot.arrival_runway_clear = ok and value == false
+    end
 
     read_approach_ref(snapshot)
     parse_approach_fallback(snapshot)
 
     local runwayGateOpen = false
     if y.isArrivalRunwayRadioAltGateOpen then
-        local ok, value = pcall(y.isArrivalRunwayRadioAltGateOpen, 8, 20)
+        local ok, value = pcall(y.isArrivalRunwayRadioAltGateOpen, 8, 20, 0.5)
         runwayGateOpen = ok and value == true
     end
     local procedureType = tostring(snapshot.approach_procedure_type or ""):upper()

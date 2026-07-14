@@ -27,6 +27,7 @@ end
 local base = {
     on_ground = true,
     on_departure_runway = false,
+    arrival_runway_clear = false,
     final_gate = false,
     preflight = false,
     initial_climb_state = false,
@@ -207,13 +208,24 @@ local takeoffOffRunway = copy(taxiing, {
 groundEngine:update(takeoffOffRunway, 10)
 assert_equal(#groundEvents, 2, "takeoff requires departure runway helper")
 
-local takeoffRoll = copy(takeoffOffRunway, {
+local takeoffLineup = copy(takeoffOffRunway, {
     on_departure_runway = true,
     preflight = false,
-    ground_speed_kts = 0
+    wheel_speed = 6,
+    ground_speed_kts = 6
 })
-groundEngine:update(takeoffRoll, 11)
-assert_equal(#groundEvents, 3, "takeoff uses accepted Before Takeoff, runway and forward movement only")
+groundEngine:update(takeoffLineup, 11)
+assert_equal(#groundEvents, 2, "line-up movement below takeoff-roll speed emits nothing")
+
+local takeoffRoll = copy(takeoffLineup, {
+    wheel_speed = 25,
+    ground_speed_kts = 25
+})
+groundEngine:update(takeoffRoll, 12)
+groundEngine:update(takeoffRoll, 13.9)
+assert_equal(#groundEvents, 2, "takeoff roll waits for stable speed")
+groundEngine:update(takeoffRoll, 14)
+assert_equal(#groundEvents, 3, "takeoff emits after stable takeoff roll")
 assert_equal(groundEvents[3].id, "departure.lineup_takeoff", "takeoff event id")
 
 local groundReloadEvents = {}
@@ -383,16 +395,24 @@ engine:update(copy(base, {
     vertical_speed_fpm = -600,
     tod_distance_nm = 0
 }), 18)
-engine:update(copy(base, {
+local landedOnRunway = copy(base, {
     on_ground = true,
     post_landing_state = true,
+    arrival_runway_clear = false,
     radio_altitude_ft = 0,
     altitude_ft = 400,
     pressure_altitude_ft = 400,
     vertical_speed_fpm = 0,
     ground_speed_kts = 20,
     tod_distance_nm = 0
-}), 19)
+})
+engine:update(landedOnRunway, 19)
+assert_equal(#emitted, 8, "post-landing state while on runway does not emit vacated")
+local runwayClear = copy(landedOnRunway, { arrival_runway_clear = true })
+engine:update(runwayClear, 20)
+engine:update(runwayClear, 21.9)
+assert_equal(#emitted, 8, "runway clear waits for stable state")
+engine:update(runwayClear, 22)
 
 local expectedEvents = {
     "departure.airborne",
@@ -820,6 +840,29 @@ activeGoAroundEngine:update(activeGoAround, 1)
 activeGoAroundEngine:update(activeGoAround, 10)
 assert_equal(#activeGoAroundEvents, 0, "active go-around emits no approach or final")
 
+local reapproachEvents = {}
+local goAroundQueueCancels = 0
+local reapproachEngine = core.newEventEngine({
+    emit = function(event) table.insert(reapproachEvents, event) return true end,
+    cancelQueuedForGoAround = function() goAroundQueueCancels = goAroundQueueCancels + 1 end
+})
+reapproachEngine:update(beforeArmedApproach, 0)
+reapproachEngine:update(armedApproach, 1)
+reapproachEngine:update(armedFinal, 2)
+reapproachEngine:update(armedFinal, 7)
+assert_equal(#reapproachEvents, 2, "first approach and final emit once")
+reapproachEngine:update(activeGoAround, 8)
+reapproachEngine:update(activeGoAround, 10)
+assert_equal(#reapproachEvents, 2, "active go-around itself emits nothing")
+assert_equal(goAroundQueueCancels, 1, "active go-around cancels stale local arrival queue once")
+reapproachEngine:update(armedApproach, 11)
+assert_equal(#reapproachEvents, 3, "second approach re-arms after active go-around")
+assert_equal(reapproachEvents[3].id, "arrival.approach", "second approach event")
+reapproachEngine:update(armedFinal, 12)
+reapproachEngine:update(armedFinal, 17)
+assert_equal(#reapproachEvents, 4, "second final re-arms after active go-around")
+assert_equal(reapproachEvents[4].id, "arrival.on_final", "second final event")
+
 local writes = {}
 local mailboxLogs = {}
 local mailbox = core.newMailbox({
@@ -902,6 +945,15 @@ assert_true(supersessionMailbox:enqueue({
 assert_equal(#supersessionMailbox.queue, 1, "supersession keeps only current event")
 assert_equal(supersessionMailbox.queue[1].id, "arrival.approach", "approach supersedes queued descent level")
 assert_equal(supersessionLogs[1].kind, "superseded", "supersession logged")
+assert_true(supersessionMailbox:enqueue({
+    id = "departure.taxi_runway",
+    text = phraseCases[9][3],
+    expires_at = 100
+}), "enqueue unrelated departure event before go-around cancellation")
+supersessionMailbox:cancelQueuedForGoAround()
+assert_equal(#supersessionMailbox.queue, 1, "go-around cancellation removes only queued arrival events")
+assert_equal(supersessionMailbox.queue[1].id, "departure.taxi_runway", "go-around cancellation preserves departure event")
+assert_equal(supersessionLogs[#supersessionLogs].kind, "cancelled_go_around", "go-around queue cancellation logged")
 
 local departureSupersession = core.newMailbox()
 assert_true(departureSupersession:enqueue({
@@ -1238,5 +1290,57 @@ assert_true(
     table.concat(persistentTaxiLogs, "\n"):find("beforeTaxiSource=active_loop", 1, true) ~= nil,
     "accepted Before Taxi loop source is logged"
 )
+
+local runwaySurface = true
+local runwayVacatedWrites = {}
+local runwayVacatedYal = copy(persistentTaxiYal, {
+    flightstate = baselineDef.FLIGHTSTATETAXITOGATE,
+    isAircraftOnArrivalRunwaySurface = function(distanceMeters)
+        assert_equal(distanceMeters, 40, "arrival runway surface check distance")
+        return runwaySurface
+    end,
+    isArrivalRunwayRadioAltGateOpen = function(maxDistanceNm, maxHeadingDiff, maxCrossTrackNm)
+        assert_equal(maxDistanceNm, 8, "final runway gate distance")
+        assert_equal(maxHeadingDiff, 20, "final runway gate heading")
+        assert_equal(maxCrossTrackNm, 0.5, "final runway gate cross-track")
+        return false
+    end
+})
+local runwayVacatedValues = copy(persistentTaxiValues, {
+    airgroundsensor = 1,
+    groundspeed = 15,
+    tirespeed = 15,
+    fmsflightphase = 0
+})
+autoUnicom.configure({
+    yal = runwayVacatedYal,
+    def = baselineDef,
+    helpers = { logInfoTS = function() end },
+    sources = {
+        pressure_altitude = "pressure_altitude",
+        aircraft_icao = "aircraft_icao"
+    },
+    getRefs = function() return repeatRefs end,
+    read = function(prop)
+        return runwayVacatedValues[prop] or repeatValues[prop]
+    end,
+    writeText = function(_, text)
+        table.insert(runwayVacatedWrites, { kind = "text", value = text })
+        return true
+    end,
+    writeSeq = function(_, seq)
+        table.insert(runwayVacatedWrites, { kind = "seq", value = seq })
+        return true
+    end
+})
+autoUnicom.tick(true, 0)
+autoUnicom.tick(true, 2)
+assert_equal(#runwayVacatedWrites, 0, "TAXITOGATE while on runway emits no vacated report")
+runwaySurface = false
+autoUnicom.tick(true, 3)
+autoUnicom.tick(true, 4.9)
+assert_equal(#runwayVacatedWrites, 0, "adapter runway-clear state is debounced")
+autoUnicom.tick(true, 5.9)
+assert_equal(runwayVacatedWrites[1].value, phraseCases[7][3], "adapter emits vacated after stable clear state")
 
 print("auto_unicom tests passed")
