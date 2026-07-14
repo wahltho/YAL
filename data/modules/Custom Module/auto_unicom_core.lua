@@ -6,7 +6,6 @@ M.EVENT_TTL_SEC = {
     ["departure.lineup_takeoff"] = 45,
     ["departure.airborne"] = 60,
     ["departure.on_climb"] = 120,
-    ["departure.climb_level_10000"] = 120,
     ["arrival.top_of_descent"] = 120,
     ["arrival.on_descent"] = 120,
     ["arrival.approach"] = 180,
@@ -41,9 +40,14 @@ local DESCENT_PROGRESS_PREFIX = "arrival.descent_level_"
 local DESCENT_PROGRESS_LEVELS_FT = { 40000, 30000, 20000, 10000 }
 local DESCENT_PROGRESS_MIN_SEPARATION_FT = 5000
 local DESCENT_PROGRESS_MAX_SAMPLE_DROP_FT = 2000
-local CLIMB_PROGRESS_EVENT = "departure.climb_level_10000"
-local CLIMB_PROGRESS_LEVEL_FT = 10000
+local CLIMB_PROGRESS_PREFIX = "departure.climb_level_"
+local CLIMB_PROGRESS_LEVELS_FT = { 10000, 20000, 30000, 40000 }
 local CLIMB_PROGRESS_MAX_SAMPLE_RISE_FT = 2000
+
+local function is_climb_progress_event(eventId)
+    return type(eventId) == "string"
+        and eventId:sub(1, #CLIMB_PROGRESS_PREFIX) == CLIMB_PROGRESS_PREFIX
+end
 
 local function is_descent_progress_event(eventId)
     return type(eventId) == "string"
@@ -205,7 +209,7 @@ function M.buildMessage(eventId, snapshot)
         return normalize_text(string.format("%s Traffic, %s airborne off runway %s, passing %s", airport, ac, runway, altitude))
     end
 
-    if eventId == "departure.on_climb" or eventId == CLIMB_PROGRESS_EVENT then
+    if eventId == "departure.on_climb" or is_climb_progress_event(eventId) then
         local airport = clean_token(snapshot.departure_icao, false)
         local altitude = format_altitude(snapshot, false)
         if not airport or #airport ~= 4 or not altitude then return nil, "missing_climb_context" end
@@ -418,8 +422,10 @@ function Engine:activate(snapshot, now)
         self:markSent("departure.lineup_takeoff")
         self:markSent("departure.airborne")
         self:markSent("departure.on_climb")
-        if self.climb_altitude_previous and self.climb_altitude_previous >= CLIMB_PROGRESS_LEVEL_FT then
-            self:markSent(CLIMB_PROGRESS_EVENT)
+        for _, level in ipairs(CLIMB_PROGRESS_LEVELS_FT) do
+            if self.climb_altitude_previous and self.climb_altitude_previous >= level then
+                self:markSent(CLIMB_PROGRESS_PREFIX .. tostring(level))
+            end
         end
         if (self.phase or 0) >= 4 then
             self:markSent("arrival.on_descent")
@@ -518,25 +524,26 @@ function Engine:updateClimbProgress(snapshot, phase, phaseStable, now, onGround)
     if not current or not previous or onGround or not self.flight_active then return end
     if phase ~= 1 or phaseStable < 8 then return end
     if (tonumber(snapshot.vertical_speed_fpm) or 0) < 300 then return end
-    if self.sent[CLIMB_PROGRESS_EVENT] then return end
 
     local sampleRise = current - previous
     if sampleRise <= 0 then return end
     if sampleRise > CLIMB_PROGRESS_MAX_SAMPLE_RISE_FT then
-        if previous < CLIMB_PROGRESS_LEVEL_FT and current >= CLIMB_PROGRESS_LEVEL_FT then
-            self:markSent(CLIMB_PROGRESS_EVENT)
+        for _, level in ipairs(CLIMB_PROGRESS_LEVELS_FT) do
+            if previous < level and current >= level then
+                self:markSent(CLIMB_PROGRESS_PREFIX .. tostring(level))
+            end
         end
         return
     end
 
-    if previous < CLIMB_PROGRESS_LEVEL_FT and current >= CLIMB_PROGRESS_LEVEL_FT then
-        local emitted = self:tryEmit(
-            CLIMB_PROGRESS_EVENT,
-            snapshot_at_altitude(snapshot, CLIMB_PROGRESS_LEVEL_FT),
-            now
-        )
-        if not emitted then
-            self:markSent(CLIMB_PROGRESS_EVENT)
+    for _, level in ipairs(CLIMB_PROGRESS_LEVELS_FT) do
+        local eventId = CLIMB_PROGRESS_PREFIX .. tostring(level)
+        if not self.sent[eventId] and previous < level and current >= level then
+            local emitted = self:tryEmit(eventId, snapshot_at_altitude(snapshot, level), now)
+            if not emitted then
+                self:markSent(eventId)
+            end
+            return
         end
     end
 end
@@ -765,13 +772,6 @@ local SUPERSEDED_EVENTS = {
         ["departure.lineup_takeoff"] = true,
         ["departure.airborne"] = true
     },
-    ["departure.climb_level_10000"] = {
-        ["departure.start_push"] = true,
-        ["departure.taxi_runway"] = true,
-        ["departure.lineup_takeoff"] = true,
-        ["departure.airborne"] = true,
-        ["departure.on_climb"] = true
-    },
     ["arrival.approach"] = {
         ["arrival.top_of_descent"] = true,
         ["arrival.on_descent"] = true
@@ -792,6 +792,14 @@ local SUPERSEDED_EVENTS = {
 local function supersedes_event(eventId, queuedId)
     local fixed = SUPERSEDED_EVENTS[eventId]
     if fixed and fixed[queuedId] then return true end
+    if is_climb_progress_event(eventId) then
+        return queuedId == "departure.start_push"
+            or queuedId == "departure.taxi_runway"
+            or queuedId == "departure.lineup_takeoff"
+            or queuedId == "departure.airborne"
+            or queuedId == "departure.on_climb"
+            or is_climb_progress_event(queuedId)
+    end
     if is_descent_progress_event(eventId) then
         return queuedId == "arrival.top_of_descent"
             or queuedId == "arrival.on_descent"

@@ -119,6 +119,21 @@ local phraseCases = {
         "departure.climb_level_10000",
         copy(base, { altitude_ft = 10000, pressure_altitude_ft = 10000 }),
         "Traffic, B738 climbing out of ENAT on ATKUP1A departure, passing FL100 for FL370"
+    },
+    {
+        "departure.climb_level_20000",
+        copy(base, { altitude_ft = 20000, pressure_altitude_ft = 20000 }),
+        "Traffic, B738 climbing out of ENAT on ATKUP1A departure, passing FL200 for FL370"
+    },
+    {
+        "departure.climb_level_30000",
+        copy(base, { altitude_ft = 30000, pressure_altitude_ft = 30000 }),
+        "Traffic, B738 climbing out of ENAT on ATKUP1A departure, passing FL300 for FL370"
+    },
+    {
+        "departure.climb_level_40000",
+        copy(base, { altitude_ft = 40000, pressure_altitude_ft = 40000, planned_altitude_ft = 41000 }),
+        "Traffic, B738 climbing out of ENAT on ATKUP1A departure, passing FL400 for FL410"
     }
 }
 
@@ -299,13 +314,57 @@ assert_equal(emitted[3].text, phraseCases[12][3], "climb crossing freezes FL100 
 engine:update(copy(base, {
     on_ground = false,
     on_runway_profile = false,
+    fms_phase = 1,
+    radio_altitude_ft = 19200,
+    altitude_ft = 19500,
+    pressure_altitude_ft = 19500,
+    vertical_speed_fpm = 1200,
+    ground_speed_kts = 260
+}), 17)
+engine:update(copy(base, {
+    on_ground = false,
+    on_runway_profile = false,
+    fms_phase = 1,
+    radio_altitude_ft = 19700,
+    altitude_ft = 20000,
+    pressure_altitude_ft = 20000,
+    vertical_speed_fpm = 1200,
+    ground_speed_kts = 260
+}), 18)
+assert_equal(#emitted, 4, "climb FL200 crossing emitted once")
+assert_equal(emitted[4].text, phraseCases[13][3], "climb crossing freezes FL200 phrase")
+engine:update(copy(base, {
+    on_ground = false,
+    on_runway_profile = false,
+    fms_phase = 1,
+    radio_altitude_ft = 29200,
+    altitude_ft = 29500,
+    pressure_altitude_ft = 29500,
+    vertical_speed_fpm = 1200,
+    ground_speed_kts = 270
+}), 19)
+engine:update(copy(base, {
+    on_ground = false,
+    on_runway_profile = false,
+    fms_phase = 1,
+    radio_altitude_ft = 29700,
+    altitude_ft = 30000,
+    pressure_altitude_ft = 30000,
+    vertical_speed_fpm = 1200,
+    ground_speed_kts = 270
+}), 20)
+assert_equal(#emitted, 5, "climb FL300 crossing emitted once")
+assert_equal(emitted[5].text, phraseCases[14][3], "climb crossing freezes FL300 phrase")
+engine:update(copy(base, {
+    on_ground = false,
+    on_runway_profile = false,
     fms_phase = 2,
     radio_altitude_ft = 30000,
     altitude_ft = 37000,
     pressure_altitude_ft = 37000,
     vertical_speed_fpm = 0,
     tod_distance_nm = 10
-}), 20)
+}), 21)
 engine:update(copy(base, {
     on_ground = false,
     on_runway_profile = false,
@@ -315,7 +374,7 @@ engine:update(copy(base, {
     pressure_altitude_ft = 37000,
     vertical_speed_fpm = 0,
     tod_distance_nm = 2
-}), 21)
+}), 22)
 engine:update(copy(base, {
     on_ground = false,
     on_runway_profile = false,
@@ -325,7 +384,7 @@ engine:update(copy(base, {
     pressure_altitude_ft = 36500,
     vertical_speed_fpm = -1000,
     tod_distance_nm = 0
-}), 22)
+}), 23)
 engine:update(copy(base, {
     on_ground = false,
     on_runway_profile = false,
@@ -335,7 +394,7 @@ engine:update(copy(base, {
     pressure_altitude_ft = 35500,
     vertical_speed_fpm = -1000,
     tod_distance_nm = 0
-}), 30)
+}), 31)
 engine:update(copy(base, {
     on_ground = false,
     on_runway_profile = false,
@@ -345,7 +404,7 @@ engine:update(copy(base, {
     pressure_altitude_ft = 35000,
     vertical_speed_fpm = -1000,
     tod_distance_nm = 0
-}), 31)
+}), 32)
 engine:update(copy(base, {
     on_ground = false,
     on_runway_profile = false,
@@ -426,6 +485,8 @@ local expectedEvents = {
     "departure.airborne",
     "departure.on_climb",
     "departure.climb_level_10000",
+    "departure.climb_level_20000",
+    "departure.climb_level_30000",
     "arrival.top_of_descent",
     "arrival.approach",
     "arrival.on_final",
@@ -865,6 +926,13 @@ assert_true(departureSupersession:enqueue({
 }), "enqueue FL100 climb supersession")
 assert_equal(#departureSupersession.queue, 1, "FL100 climb supersedes earlier departure messages")
 assert_equal(departureSupersession.queue[1].id, "departure.climb_level_10000", "FL100 climb remains queued")
+assert_true(departureSupersession:enqueue({
+    id = "departure.climb_level_20000",
+    text = phraseCases[13][3],
+    expires_at = 100
+}), "enqueue FL200 climb supersession")
+assert_equal(#departureSupersession.queue, 1, "FL200 climb supersedes queued FL100 report")
+assert_equal(departureSupersession.queue[1].id, "departure.climb_level_20000", "FL200 climb remains queued")
 
 local uncertainWrites = 0
 local uncertainMailbox = core.newMailbox({
