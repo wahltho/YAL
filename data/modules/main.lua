@@ -990,7 +990,8 @@ function update()
         if autoUnicomEnabled then
             autoUnicomTransportAvailable = bind_auto_unicom_datarefs() == true
         end
-        autoUnicom.tick(autoUnicomEnabled == true and autoUnicomTransportAvailable)
+        local autoUnicomOperational = autoUnicomEnabled == true and autoUnicomTransportAvailable
+        autoUnicom.tick(autoUnicomOperational)
         if yal and yal.updateGearProtectionFast then
             yal.updateGearProtectionFast()
         end
@@ -1034,6 +1035,12 @@ function update()
         elseif not helpers.isGlobalAptIndexReady() then
             helpers.requestGlobalAptIndex("update-loop")
             helpers.updateGlobalAptIndex(nil, false)
+        end
+        if taxiComponent and autoUnicomOperational
+            and yal.flightstate == def.FLIGHTSTATEPREFLIGHT
+            and yal.airgroundsensor and get(yal.airgroundsensor) == def.ON
+            and taxiComponent.updateTaxiState then
+            taxiComponent:updateTaxiState()
         end
         if taxiComponent and (autoTaxiEnabled or taxiVisible or visualTaxiEnabled) then
             taxiComponent:tick()

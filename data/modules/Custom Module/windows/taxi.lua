@@ -13287,6 +13287,65 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
         return updateTaxiState(self, map)
     end
 
+    function comp:getDepartureAutoUnicomState()
+        local result = { valid = false }
+        local route = comp._route
+        local data = route and route.data or nil
+        local path = route and route.path or nil
+        local aircraft = comp._aircraftPoint
+        if comp.mode ~= 0 or comp._routeErr or not data or not data.nodes
+            or not path or #path < 2 or not aircraft
+            or aircraft.east == nil or aircraft.north == nil then
+            return result
+        end
+
+        local yalref = comp.yal or _G.yal
+        if not yalref or not yalref.airgroundsensor or get(yalref.airgroundsensor) ~= comp._def.ON then
+            return result
+        end
+
+        result.valid = true
+        local groundSpeed = yalref.groundspeed and (tonumber(get(yalref.groundspeed)) or 0) or 0
+        local tireSpeed = yalref.tirespeed and (tonumber(get(yalref.tirespeed)) or 0) or 0
+        local onRunway = yalref.aircraftonrwy
+            and yalref.aircraftonrwy(comp._def.DEPARTURE, 40, comp._C.depThresholdHeadingLimit)
+            or false
+        local entryId = comp._selectedDepEntryId
+        local intersection = entryId and comp._depEntryLabels and comp._depEntryLabels[entryId] or ""
+        if intersection == "" and entryId and find_runway_entry_label then
+            intersection = find_runway_entry_label(data, entryId) or ""
+        end
+        intersection = tostring(intersection or "")
+        if intersection == "RAMP" or is_runway_label(intersection) then
+            intersection = ""
+        end
+        result.departure_intersection = intersection ~= "" and intersection or nil
+
+        local holdId = comp._depHoldshortNodeId or entryId
+        local holdNode = holdId and data.nodes[holdId] or nil
+        local holdDistance = nil
+        if holdNode and holdNode.east ~= nil and holdNode.north ~= nil then
+            local dx = aircraft.east - holdNode.east
+            local dy = aircraft.north - holdNode.north
+            holdDistance = math.sqrt(dx * dx + dy * dy)
+        end
+        local holdGate = math.max(35, tonumber(comp._C.depThresholdGateMeters) or 45)
+        result.hold_short = not onRunway
+            and holdDistance ~= nil and holdDistance <= holdGate
+            and groundSpeed <= 1
+
+        local backtrackRequired = comp._depBacktrackRequired == true
+        local headingDiff = comp._depThresholdState
+            and tonumber(comp._depThresholdState.heading_diff) or nil
+        local reverseHeading = 180 - (tonumber(comp._C.depThresholdHeadingLimit) or 25)
+        local forward = tireSpeed > 1 or groundSpeed > 1
+        result.backtrack = backtrackRequired and onRunway and forward
+            and headingDiff ~= nil and headingDiff >= reverseHeading
+        result.intersection = not backtrackRequired and onRunway and forward
+            and entryId ~= nil and result.departure_intersection ~= nil
+        return result
+    end
+
     function comp:getPushbackHint()
         if comp.mode ~= 0 then
             return nil

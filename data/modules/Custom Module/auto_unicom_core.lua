@@ -3,6 +3,9 @@ local M = {}
 M.EVENT_TTL_SEC = {
     ["departure.start_push"] = 60,
     ["departure.taxi_runway"] = 120,
+    ["departure.hold_short"] = 120,
+    ["departure.backtrack"] = 90,
+    ["departure.intersection"] = 60,
     ["departure.lineup_takeoff"] = 45,
     ["departure.airborne"] = 60,
     ["departure.on_climb"] = 120,
@@ -226,6 +229,17 @@ local function departure_context(snapshot)
     return airport, runway
 end
 
+local function departure_intersection(snapshot)
+    local intersection = clean_token(snapshot.departure_intersection, true)
+    if not intersection then return nil end
+    if intersection:sub(1, 13) == "INTERSECTION " then
+        intersection = intersection:sub(14)
+    end
+    intersection = trim(intersection)
+    if intersection == "" or #intersection > 24 then return nil end
+    return intersection
+end
+
 function M.buildMessage(eventId, snapshot)
     snapshot = snapshot or {}
     local ac = aircraft_type(snapshot)
@@ -244,6 +258,51 @@ function M.buildMessage(eventId, snapshot)
         local airport, runway = departure_context(snapshot)
         if not airport then return nil, "missing_departure_context" end
         return normalize_text(string.format("%s Traffic, %s taxiing to holding point runway %s", airport, ac, runway))
+    end
+
+    if eventId == "departure.hold_short" then
+        local airport, runway = departure_context(snapshot)
+        if not airport then return nil, "missing_departure_context" end
+        local intersection = departure_intersection(snapshot)
+        if intersection then
+            return normalize_text(string.format(
+                "%s Traffic, %s, holding short of intersection %s",
+                airport,
+                ac,
+                intersection
+            ))
+        end
+        return normalize_text(string.format(
+            "%s Traffic, %s, holding short of holding point runway %s",
+            airport,
+            ac,
+            runway
+        ))
+    end
+
+    if eventId == "departure.backtrack" then
+        local airport, runway = departure_context(snapshot)
+        if not airport then return nil, "missing_departure_context" end
+        local text = string.format("%s Traffic, %s backtracking runway %s", airport, ac, runway)
+        local intersection = departure_intersection(snapshot)
+        if intersection then text = text .. ", intersection " .. intersection end
+        return normalize_text(text)
+    end
+
+    if eventId == "departure.intersection" then
+        local airport, runway = departure_context(snapshot)
+        local intersection = departure_intersection(snapshot)
+        if not airport or not intersection then return nil, "missing_intersection_context" end
+        local text = string.format(
+            "%s Traffic, %s lining up and taking off runway %s, intersection %s",
+            airport,
+            ac,
+            runway,
+            intersection
+        )
+        local sid = clean_token(snapshot.sid, false)
+        if sid then text = text .. ", " .. sid .. " departure" end
+        return normalize_text(text)
     end
 
     if eventId == "departure.lineup_takeoff" then
@@ -394,18 +453,42 @@ local SUPERSEDED_EVENTS = {
     ["departure.taxi_runway"] = {
         ["departure.start_push"] = true
     },
-    ["departure.lineup_takeoff"] = {
+    ["departure.hold_short"] = {
         ["departure.start_push"] = true,
         ["departure.taxi_runway"] = true
+    },
+    ["departure.backtrack"] = {
+        ["departure.start_push"] = true,
+        ["departure.taxi_runway"] = true,
+        ["departure.hold_short"] = true
+    },
+    ["departure.intersection"] = {
+        ["departure.start_push"] = true,
+        ["departure.taxi_runway"] = true,
+        ["departure.hold_short"] = true,
+        ["departure.backtrack"] = true,
+        ["departure.lineup_takeoff"] = true
+    },
+    ["departure.lineup_takeoff"] = {
+        ["departure.start_push"] = true,
+        ["departure.taxi_runway"] = true,
+        ["departure.hold_short"] = true,
+        ["departure.backtrack"] = true
     },
     ["departure.airborne"] = {
         ["departure.start_push"] = true,
         ["departure.taxi_runway"] = true,
+        ["departure.hold_short"] = true,
+        ["departure.backtrack"] = true,
+        ["departure.intersection"] = true,
         ["departure.lineup_takeoff"] = true
     },
     ["departure.on_climb"] = {
         ["departure.start_push"] = true,
         ["departure.taxi_runway"] = true,
+        ["departure.hold_short"] = true,
+        ["departure.backtrack"] = true,
+        ["departure.intersection"] = true,
         ["departure.lineup_takeoff"] = true,
         ["departure.airborne"] = true
     },
@@ -432,6 +515,9 @@ local function supersedes_event(eventId, queuedId)
     if is_climb_progress_event(eventId) then
         return queuedId == "departure.start_push"
             or queuedId == "departure.taxi_runway"
+            or queuedId == "departure.hold_short"
+            or queuedId == "departure.backtrack"
+            or queuedId == "departure.intersection"
             or queuedId == "departure.lineup_takeoff"
             or queuedId == "departure.airborne"
             or queuedId == "departure.on_climb"
