@@ -7,6 +7,12 @@ local PD = require("proceduredata")
 local VR = require("voicereadback")
 local refdata = require("refdata")
 
+local AUTO_UNICOM_CLIMB_LEVELS_FT = { 10000, 20000, 30000, 40000 }
+local AUTO_UNICOM_DESCENT_LEVELS_FT = { 40000, 30000, 20000, 10000 }
+local AUTO_UNICOM_FINAL_STABLE_SEC = 5
+local AUTO_UNICOM_RUNWAY_CLEAR_STABLE_SEC = 2
+local AUTO_UNICOM_HOLD_PATHS = { HM = true, HA = true, HF = true }
+
 --------------------------------------------------------------------------------------------------------------
 
 local menu_master = sasl.appendMenuItem(PLUGINS_MENU_ID, def.APPNAMEPREFIXLONG)
@@ -25,6 +31,30 @@ local function anyProcedureRunning()
         end
     end
     return false
+end
+
+function P.setRuntimeEventSink(sink)
+    P.runtimeEventSink = type(sink) == "function" and sink or nil
+end
+
+function P.publishRuntimeEvent(eventId, payload)
+    if not P.runtimeEventSink or type(eventId) ~= "string" or eventId == "" then
+        return false
+    end
+    local ok, accepted = pcall(P.runtimeEventSink, eventId, payload or {})
+    if not ok then
+        helpers.logInfoTS("RuntimeEvent: sink failed event=" .. tostring(eventId) .. " error=" .. tostring(accepted))
+        return false
+    end
+    return accepted == true
+end
+
+local function autoUnicomEventOnce(key, eventId, payload)
+    local state = P.autoUnicomRuntime
+    if not state or state.sent[key] then return false end
+    state.sent[key] = true
+    P.publishRuntimeEvent(eventId, payload)
+    return true
 end
 
 local function autoRestartEnabled()
@@ -335,6 +365,7 @@ local function maybeQueueTakeoffN140Callout()
     end
     P.commandtableentry(def.TEXT, TAKEOFF_N1_40_MESSAGE)
     P._takeoffN140CalloutLatched = true
+    autoUnicomEventOnce("departure.lineup_takeoff", "departure.lineup_takeoff")
 end
 
 local function clearTrimTargetLatch()
@@ -1193,6 +1224,16 @@ function P.YalinitGlobal()
     P.routeEndsBeforeTodWarned = false
     P.todResetMcpAdviceState = { key = nil, count = 0, spoken = 0 }
     P._takeoffN140CalloutLatched = false
+    P.autoUnicomRuntime = {
+        sent = {},
+        finalSince = nil,
+        runwayClearSince = nil,
+        holdInitialized = false,
+        holdKey = nil,
+        holdPayload = nil,
+        holdExitSent = false,
+        lastFmsPhase = nil
+    }
     P.approachPrepTriggerKey = nil
     P.approachPrepCompletedForKey = nil
     P.approachPrepSelectedAppKey = nil
@@ -3106,6 +3147,8 @@ function P.initializeScript()
 
     P.readconfig()
 
+    P.baselineAutoUnicomRuntimeEvents()
+
     helpers.checkCgBaselineAtStartup()
     helpers.checkDefaultViewAtStartup()
 
@@ -3177,6 +3220,7 @@ function P.yalresetForNewFlight()
         end
     end
     set( P.ProcSetStatusarraydr, statusArray)
+    P.baselineAutoUnicomRuntimeEvents()
 
     P.prepareRefdataLegacyTables("new-flight-reset")
     P.zibocalctable = helpers.loadZiboReferenceTables() or {}
@@ -7108,6 +7152,342 @@ local my_command_engineinflightrestart = sasl.createCommand(def.APPNAMEPREFIX ..
 sasl.registerCommandHandler(my_command_engineinflightrestart, 0, P.engineinflightrestart_)
 
 --------------------------------------------------------------------------------------------------------------
+function P.isProcedureActiveOrComplete(procedureId)
+    for _, loop in ipairs(P.loopStateTables or {}) do
+        if loop and loop.lock == procedureId and (tonumber(loop.stepindex) or 0) > 0 then
+            return true
+        end
+    end
+    local procedure = P.proceduretable and P.proceduretable[procedureId] or nil
+    return procedure and procedure.set == true or false
+end
+
+local function cleanAutoUnicomHoldToken(value)
+    local text = helpers.forceCleanString(value or "")
+    text = tostring(text or ""):upper()
+    if text == "" or #text > 16 then return nil end
+    for index = 1, #text do
+        local byte = text:byte(index)
+        local valid = (byte >= 48 and byte <= 57)
+            or (byte >= 65 and byte <= 90)
+            or byte == 45
+        if not valid then return nil end
+    end
+    return text
+end
+
+local function readAutoUnicomHoldState()
+    local api = P.holdRuntime
+    if type(api) == "table" and api.api_version and (tonumber(get(api.api_version)) or 0) >= 1 then
+        for _ = 1, 3 do
+            local seqBefore = tonumber(get(api.update_seq))
+            if seqBefore and seqBefore % 2 == 0 then
+                local active = tonumber(get(api.active))
+                local exitArmed = tonumber(get(api.exit_armed))
+                local waypoint = cleanAutoUnicomHoldToken(get(api.waypoint))
+                local pathType = cleanAutoUnicomHoldToken(get(api.path_type))
+                local targetAltitude = tonumber(get(api.target_altitude_ft))
+                local targetValid = tonumber(get(api.target_altitude_valid))
+                local seqAfter = tonumber(get(api.update_seq))
+                if seqAfter == seqBefore and seqAfter % 2 == 0 and (active == 0 or active == 1) then
+                    if active == 0 then
+                        return { active = false, source = "api" }
+                    end
+                    if waypoint and AUTO_UNICOM_HOLD_PATHS[pathType] then
+                        return {
+                            active = true,
+                            source = "api",
+                            waypoint = waypoint,
+                            path_type = pathType,
+                            exit_armed = exitArmed == 1,
+                            target_altitude_ft = targetValid == 1 and targetAltitude and targetAltitude > 0
+                                and targetAltitude or nil
+                        }
+                    end
+                end
+            end
+        end
+    end
+
+    local navMode = P.fmsnavmode and tonumber(get(P.fmsnavmode)) or nil
+    local waypoint = P.fmsfplnnavid and cleanAutoUnicomHoldToken(get(P.fmsfplnnavid)) or nil
+    local pathType = P.fmsgpswptpath and cleanAutoUnicomHoldToken(get(P.fmsgpswptpath)) or nil
+    local active = navMode == 3 and waypoint ~= nil and AUTO_UNICOM_HOLD_PATHS[pathType] == true
+    return {
+        active = active,
+        source = "legacy",
+        waypoint = active and waypoint or nil,
+        path_type = active and pathType or nil,
+        exit_armed = active and P.fmsholdterm and (tonumber(get(P.fmsholdterm)) or 0) > 1 or false
+    }
+end
+
+local function autoUnicomHoldPayload(hold)
+    return {
+        hold_source = hold.source,
+        hold_waypoint = hold.waypoint,
+        hold_path_type = hold.path_type,
+        hold_target_altitude_ft = hold.target_altitude_ft
+    }
+end
+
+function P.isArrivalFinalEstablished()
+    if not P.isArrivalRunwayRadioAltGateOpen(8, 20, 0.5) then return false end
+
+    local procedureType = ""
+    local resolvedKind = ""
+    local api = P.approachRef
+    if type(api) == "table" and api.update_seq then
+        local seqBefore = tonumber(get(api.update_seq))
+        if seqBefore and seqBefore % 2 == 0 then
+            procedureType = tostring(get(api.procedure_type) or ""):upper()
+            resolvedKind = tostring(get(api.resolved_nav_kind) or ""):upper()
+            local seqAfter = tonumber(get(api.update_seq))
+            if seqAfter ~= seqBefore or seqAfter % 2 ~= 0 then
+                procedureType = ""
+                resolvedKind = ""
+            end
+        end
+    end
+
+    local captureRequired = procedureType == "ILS" or procedureType == "LOC"
+        or procedureType == "LDA" or procedureType == "GLS"
+        or resolvedKind == "ILS" or resolvedKind == "IGS" or resolvedKind == "LOC"
+        or resolvedKind == "LOC_GS" or resolvedKind == "LOC-GS" or resolvedKind == "LDA"
+        or resolvedKind == "GLS" or resolvedKind == "LPV" or resolvedKind == "LP"
+    if not captureRequired then return true end
+
+    return (get(P.aploccapturedstat) >= def.CAPTURED)
+        or (get(P.aplpvloccapturedstat) >= def.CAPTURED)
+        or (get(P.apglsloccapturedstat) >= def.CAPTURED)
+        or (get(P.apfacloccapturedstat) >= def.CAPTURED)
+end
+
+function P.baselineAutoUnicomRuntimeEvents()
+    local state = P.autoUnicomRuntime
+    if not state or not P.airgroundsensor then return end
+
+    state.sent = {}
+    state.finalSince = nil
+    state.runwayClearSince = nil
+    state.lastFmsPhase = P.fmsflightphase and tonumber(get(P.fmsflightphase)) or nil
+
+    local onGround = get(P.airgroundsensor) == def.ON
+    local altitude = tonumber(get(P.altitude)) or 0
+    if not onGround then
+        if P.flightstate >= def.FLIGHTSTATEINITIALCLIMB then
+            state.sent["departure.airborne"] = true
+            state.sent["departure.start_push"] = true
+            state.sent["departure.taxi_runway"] = true
+            state.sent["departure.lineup_takeoff"] = true
+        end
+        if P.flightstate >= def.FLIGHTSTATECLIMB then
+            state.sent["departure.on_climb"] = true
+        end
+        for _, level in ipairs(AUTO_UNICOM_CLIMB_LEVELS_FT) do
+            if altitude >= level then
+                state.sent["departure.climb_level_" .. tostring(level)] = true
+            end
+        end
+        if P.flightstate >= def.FLIGHTSTATEAPPROACH then
+            state.sent["arrival.descent_entry"] = true
+            for _, level in ipairs(AUTO_UNICOM_DESCENT_LEVELS_FT) do
+                if altitude <= level then
+                    state.sent["arrival.descent_level_" .. tostring(level)] = true
+                end
+            end
+            local phase = state.lastFmsPhase or 0
+            if altitude <= 10000 and (phase == def.FMSFLIGHTPHASE_APPROACH
+                or phase == def.FMSFLIGHTPHASE_GO_AROUND_ARMED) then
+                state.sent["arrival.approach"] = true
+            end
+            if P.isArrivalFinalEstablished() then
+                state.sent["arrival.on_final"] = true
+            end
+        end
+    else
+        local tireSpeed = P.tirespeed and (tonumber(get(P.tirespeed)) or 0) or 0
+        local bpbActive = P.BPBStarted and tonumber(get(P.BPBStarted)) == def.ON
+            and (not P.BPBOpComplete or tonumber(get(P.BPBOpComplete)) ~= def.ON)
+        if P.flightstate == def.FLIGHTSTATEPREFLIGHT then
+            if bpbActive or tireSpeed < -1 then state.sent["departure.start_push"] = true end
+            if P.isProcedureActiveOrComplete(def.BEFORETAXIPROCEDURE) and tireSpeed > 1 then
+                state.sent["departure.taxi_runway"] = true
+            end
+            if P.isProcedureActiveOrComplete(def.BEFORETAKEOFFPROCEDURE)
+                and P.aircraftonrwy(def.DEPARTURE, 40, 20)
+                and (tonumber(get(P.groundspeed)) or 0) >= 25 then
+                state.sent["departure.lineup_takeoff"] = true
+            end
+        elseif P.flightstate == def.FLIGHTSTATETAXITOGATE or P.flightstate == def.FLIGHTSTATESHUTDOWN then
+            if P.isAircraftOnArrivalRunwaySurface(40) == false then
+                state.sent["arrival.runway_vacated"] = true
+            end
+        end
+    end
+
+    local hold = readAutoUnicomHoldState()
+    state.holdInitialized = true
+    state.holdKey = hold.active and (hold.waypoint .. "|" .. hold.path_type) or nil
+    state.holdPayload = hold.active and autoUnicomHoldPayload(hold) or nil
+    state.holdExitSent = hold.active and hold.exit_armed == true or false
+end
+
+function P.updateAutoUnicomGroundEvents()
+    local state = P.autoUnicomRuntime
+    if not state or get(P.airgroundsensor) ~= def.ON then
+        if state then state.runwayClearSince = nil end
+        return
+    end
+
+    local tireSpeed = tonumber(get(P.tirespeed)) or 0
+    local bpbActive = P.BPBStarted and tonumber(get(P.BPBStarted)) == def.ON
+        and (not P.BPBOpComplete or tonumber(get(P.BPBOpComplete)) ~= def.ON)
+    if P.flightstate == def.FLIGHTSTATEPREFLIGHT then
+        if bpbActive or tireSpeed < -1 then
+            autoUnicomEventOnce("departure.start_push", "departure.start_push")
+        end
+        if P.isProcedureActiveOrComplete(def.BEFORETAXIPROCEDURE) and tireSpeed > 1 and not bpbActive then
+            autoUnicomEventOnce("departure.taxi_runway", "departure.taxi_runway")
+        end
+        if P.isProcedureActiveOrComplete(def.BEFORETAKEOFFPROCEDURE)
+            and P.aircraftonrwy(def.DEPARTURE, 40, 20)
+            and (tonumber(get(P.groundspeed)) or 0) >= 25 then
+            autoUnicomEventOnce("departure.lineup_takeoff", "departure.lineup_takeoff")
+        end
+        state.runwayClearSince = nil
+        return
+    end
+
+    if P.flightstate ~= def.FLIGHTSTATETAXITOGATE and P.flightstate ~= def.FLIGHTSTATESHUTDOWN then
+        state.runwayClearSince = nil
+        return
+    end
+    local clear = P.isAircraftOnArrivalRunwaySurface(40) == false
+    if not clear then
+        state.runwayClearSince = nil
+        return
+    end
+    local now = os.time()
+    state.runwayClearSince = state.runwayClearSince or now
+    if now - state.runwayClearSince >= AUTO_UNICOM_RUNWAY_CLEAR_STABLE_SEC then
+        autoUnicomEventOnce("arrival.runway_vacated", "arrival.runway_vacated")
+    end
+end
+
+function P.updateAutoUnicomAirborneEvent()
+    if get(P.airgroundsensor) == def.OFF and P.flightstate >= def.FLIGHTSTATEINITIALCLIMB
+        and (tonumber(get(P.radioaltitude)) or 0) > 200 then
+        autoUnicomEventOnce("departure.airborne", "departure.airborne")
+    end
+end
+
+function P.updateAutoUnicomHoldEvents()
+    local state = P.autoUnicomRuntime
+    if not state or get(P.airgroundsensor) == def.ON then return end
+    local hold = readAutoUnicomHoldState()
+    local key = hold.active and (hold.waypoint .. "|" .. hold.path_type) or nil
+    if not state.holdInitialized then
+        state.holdInitialized = true
+        state.holdKey = key
+        state.holdPayload = hold.active and autoUnicomHoldPayload(hold) or nil
+        state.holdExitSent = hold.active and hold.exit_armed == true or false
+        return
+    end
+
+    if state.holdKey and state.holdKey ~= key and not state.holdExitSent then
+        P.publishRuntimeEvent("enroute.hold_exit", state.holdPayload)
+    end
+    if key and key ~= state.holdKey then
+        state.holdKey = key
+        state.holdPayload = autoUnicomHoldPayload(hold)
+        state.holdExitSent = false
+        P.publishRuntimeEvent("enroute.hold_enter", state.holdPayload)
+    elseif not key then
+        state.holdKey = nil
+        state.holdPayload = nil
+        state.holdExitSent = false
+        return
+    end
+
+    if hold.exit_armed and not state.holdExitSent then
+        state.holdExitSent = true
+        P.publishRuntimeEvent("enroute.hold_exit", state.holdPayload)
+    end
+end
+
+function P.updateAutoUnicomClimbEvents()
+    P.updateAutoUnicomAirborneEvent()
+    autoUnicomEventOnce("departure.on_climb", "departure.on_climb")
+    local altitude = tonumber(get(P.altitude)) or 0
+    for _, level in ipairs(AUTO_UNICOM_CLIMB_LEVELS_FT) do
+        if altitude >= level then
+            autoUnicomEventOnce(
+                "departure.climb_level_" .. tostring(level),
+                "departure.climb_level_" .. tostring(level),
+                { altitude_ft = level, pressure_altitude_ft = level }
+            )
+        end
+    end
+end
+
+function P.updateAutoUnicomDescentEvents()
+    local state = P.autoUnicomRuntime
+    if not state then return end
+    local phase = tonumber(get(P.fmsflightphase)) or 0
+    local altitude = tonumber(get(P.altitude)) or 0
+    if phase == def.FMSFLIGHTPHASE_GO_AROUND and state.lastFmsPhase ~= phase then
+        state.sent["arrival.approach"] = nil
+        state.sent["arrival.on_final"] = nil
+        state.finalSince = nil
+        P.publishRuntimeEvent("arrival.go_around")
+    end
+    state.lastFmsPhase = phase
+
+    if not state.sent["arrival.descent_entry"] then
+        state.sent["arrival.descent_entry"] = true
+        for _, level in ipairs(AUTO_UNICOM_DESCENT_LEVELS_FT) do
+            if altitude <= level then
+                state.sent["arrival.descent_level_" .. tostring(level)] = true
+            end
+        end
+        local eventId = P.descentEntryReason == "tod" and "arrival.top_of_descent" or "arrival.on_descent"
+        P.publishRuntimeEvent(eventId)
+    end
+
+    for _, level in ipairs(AUTO_UNICOM_DESCENT_LEVELS_FT) do
+        local key = "arrival.descent_level_" .. tostring(level)
+        if altitude <= level and not state.sent[key] then
+            state.sent[key] = true
+            local eventId = key
+            if level == 10000 and (phase == def.FMSFLIGHTPHASE_APPROACH
+                or phase == def.FMSFLIGHTPHASE_GO_AROUND_ARMED) then
+                eventId = "arrival.approach"
+                state.sent["arrival.approach"] = true
+            end
+            P.publishRuntimeEvent(eventId, { altitude_ft = level, pressure_altitude_ft = level })
+        end
+    end
+
+    if altitude <= 10000 and (phase == def.FMSFLIGHTPHASE_APPROACH
+        or phase == def.FMSFLIGHTPHASE_GO_AROUND_ARMED) then
+        autoUnicomEventOnce("arrival.approach", "arrival.approach")
+    end
+
+    local finalAccepted = (phase == def.FMSFLIGHTPHASE_APPROACH
+        or phase == def.FMSFLIGHTPHASE_GO_AROUND_ARMED) and P.isArrivalFinalEstablished()
+    if not finalAccepted then
+        state.finalSince = nil
+        return
+    end
+    local now = os.time()
+    state.finalSince = state.finalSince or now
+    if now - state.finalSince >= AUTO_UNICOM_FINAL_STABLE_SEC then
+        autoUnicomEventOnce("arrival.on_final", "arrival.on_final")
+    end
+end
+
+--------------------------------------------------------------------------------------------------------------
 function P.duringclimb()
     local proc_to_check = def.DURINGCLIMBPROCEDURE
     local targetLoopIndex = P.proceduretable[proc_to_check].loop
@@ -7126,6 +7506,7 @@ function P.duringclimb()
         P.triggerprocedure(def.ALTITUDEA10000PROCEDURE)
     end
 
+    P.updateAutoUnicomClimbEvents()
     P.autoflapsuphandling()
 end
 
@@ -7312,6 +7693,8 @@ end
 
 --------------------------------------------------------------------------------------------------------------
 function P.duringdescent()
+
+    P.updateAutoUnicomDescentEvents()
 
     if P.pauseTodAutoDisabled then
         if get(P.pausetod) == def.OFF then
@@ -7802,6 +8185,7 @@ function P.autofunctions()
              P.inflightrestoreactions()
         end
 
+        P.baselineAutoUnicomRuntimeEvents()
         P.isReloadWithinSession = false
     end
 
@@ -8885,6 +9269,10 @@ end
 
 --------------------------------------------------------------------------------------------------------------
 function P.ongoingtasks()
+
+    P.updateAutoUnicomGroundEvents()
+    P.updateAutoUnicomAirborneEvent()
+    P.updateAutoUnicomHoldEvents()
 
     local current_level = sasl.getLogLevel()
 

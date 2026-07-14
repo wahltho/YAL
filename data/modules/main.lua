@@ -97,6 +97,9 @@ autoUnicom.configure({
     sources = autoUnicomRuntime.sources,
     getRefs = function() return autoUnicomRuntime.refs end
 })
+yal.setRuntimeEventSink(function(eventId, payload)
+    return autoUnicom.handleYalEvent(eventId, payload)
+end)
 
 autoUnicomRuntime.repeatCommand = sasl.createCommand(
     def.APPNAMEPREFIX .. "/autounicom/repeat_last",

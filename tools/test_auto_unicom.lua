@@ -217,180 +217,6 @@ local missingHoldText, missingHoldReason = core.buildMessage("enroute.hold_enter
 assert_equal(missingHoldText, nil, "hold phrase requires waypoint")
 assert_equal(missingHoldReason, "missing_hold_context", "missing hold waypoint reason")
 
-local function find_candidate(candidates, eventId)
-    for _, candidate in ipairs(candidates) do
-        if candidate.id == eventId then return candidate end
-    end
-    return nil
-end
-
-local holdIdle = copy(base, { on_ground = false })
-local holdEntering = copy(holdIdle, {
-    hold_source = "api",
-    hold_api_version = 1,
-    hold_active = true,
-    hold_exit_armed = false,
-    hold_waypoint = "BIRCO",
-    hold_path_type = "HM"
-})
-local holdCandidates = core.collectEventCandidates(holdEntering, holdIdle)
-local holdEnter = find_candidate(holdCandidates, "enroute.hold_enter")
-assert_true(holdEnter ~= nil, "active hold produces entry candidate")
-assert_equal(holdEnter.key, "enroute.hold_enter|BIRCO|HM", "hold entry dedupe uses episode")
-
-local holdExitArmed = copy(holdEntering, { hold_exit_armed = true })
-holdCandidates = core.collectEventCandidates(holdExitArmed, holdEntering)
-local holdExit = find_candidate(holdCandidates, "enroute.hold_exit")
-assert_true(holdExit ~= nil, "armed hold exit produces exit candidate")
-assert_equal(holdExit.key, "enroute.hold_exit|BIRCO|HM", "hold exit dedupe uses episode")
-
-holdCandidates = core.collectEventCandidates(holdIdle, holdEntering)
-holdExit = find_candidate(holdCandidates, "enroute.hold_exit")
-assert_true(holdExit ~= nil, "ended hold produces exit candidate")
-assert_true(holdExit.cancel_hold_entry, "ended hold cancels stale queued entry")
-assert_equal(holdExit.snapshot.hold_waypoint, "BIRCO", "ended hold keeps previous fix")
-
-local secondHold = copy(holdEntering, {
-    hold_source = "legacy",
-    hold_waypoint = "ROBUR",
-    hold_path_type = "HF"
-})
-holdCandidates = core.collectEventCandidates(secondHold, holdEntering)
-assert_true(find_candidate(holdCandidates, "enroute.hold_exit") ~= nil,
-    "hold change produces previous exit candidate")
-assert_true(find_candidate(holdCandidates, "enroute.hold_enter") ~= nil,
-    "hold change produces next entry candidate")
-
-local groundIdle = copy(base, { preflight = true })
-local pushing = copy(groundIdle, {
-    wheel_speed = -3,
-    ground_speed_kts = 2,
-    pushback_airport_icao = "ESSA",
-    pushback_parking_found = true,
-    pushback_parking_type = "gate",
-    pushback_parking_name = "Gate A12"
-})
-local groundCandidates = core.collectEventCandidates(pushing, groundIdle)
-local pushCandidate = find_candidate(groundCandidates, "departure.start_push")
-assert_true(pushCandidate ~= nil, "reverse movement produces pushback candidate")
-assert_equal(pushCandidate.stable_for, 2, "pushback uses generic two-second stability")
-local pushEvent = core.newEvent(pushCandidate.id, pushCandidate.snapshot, 3)
-assert_equal(pushEvent.text, "ESSA Traffic, B738, pushing back from gate A12",
-    "pushback candidate builds gate phrase")
-
-local bpbPush = copy(groundIdle, { pushback_active = true })
-assert_true(find_candidate(core.collectEventCandidates(bpbPush, groundIdle),
-    "departure.start_push") ~= nil, "BetterPushback active produces pushback candidate")
-
-local taxiWithoutProcedure = copy(groundIdle, { wheel_speed = 6, ground_speed_kts = 6 })
-assert_equal(find_candidate(core.collectEventCandidates(taxiWithoutProcedure, groundIdle),
-    "departure.taxi_runway"), nil, "taxi requires accepted Before Taxi")
-local taxiing = copy(taxiWithoutProcedure, { before_taxi_started = true })
-local taxiCandidate = find_candidate(core.collectEventCandidates(taxiing, groundIdle),
-    "departure.taxi_runway")
-assert_true(taxiCandidate ~= nil, "accepted Before Taxi plus movement produces taxi candidate")
-assert_equal(taxiCandidate.consumes[1], "departure.start_push",
-    "taxi closes earlier pushback event")
-
-local takeoffOffRunway = copy(taxiing, {
-    before_takeoff_started = true,
-    wheel_speed = 25,
-    ground_speed_kts = 25
-})
-assert_equal(find_candidate(core.collectEventCandidates(takeoffOffRunway, taxiing),
-    "departure.lineup_takeoff"), nil, "takeoff requires YAL runway detection")
-local takeoffRoll = copy(takeoffOffRunway, { on_departure_runway = true })
-local takeoffCandidate = find_candidate(core.collectEventCandidates(takeoffRoll, taxiing),
-    "departure.lineup_takeoff")
-assert_true(takeoffCandidate ~= nil, "accepted Before Takeoff plus runway roll produces takeoff candidate")
-assert_equal(takeoffCandidate.stable_for, 2, "takeoff uses generic two-second stability")
-
-local transientPreflight = copy(groundIdle, { on_ground = false })
-assert_equal(#core.collectEventCandidates(transientPreflight, nil), 0,
-    "preflight air-ground transient baselines no departure event")
-assert_true(find_candidate(core.collectEventCandidates(bpbPush, transientPreflight),
-    "departure.start_push") ~= nil, "confirmed ground push remains eligible after sensor transient")
-
-local airborneBeforeState = copy(base, {
-    on_ground = false,
-    radio_altitude_ft = 200,
-    altitude_ft = 300,
-    pressure_altitude_ft = 300
-})
-assert_equal(find_candidate(core.collectEventCandidates(airborneBeforeState, base),
-    "departure.airborne"), nil, "airborne waits for accepted YAL flight state")
-local initialClimb = copy(airborneBeforeState, { initial_climb_state = true })
-assert_true(find_candidate(core.collectEventCandidates(initialClimb, airborneBeforeState),
-    "departure.airborne") ~= nil, "Initial Climb produces airborne candidate")
-
-local climb = copy(airborneBeforeState, {
-    climb_state = true,
-    radio_altitude_ft = 9700,
-    altitude_ft = 10000,
-    pressure_altitude_ft = 10000
-})
-local climbCandidates = core.collectEventCandidates(climb, initialClimb)
-assert_true(find_candidate(climbCandidates, "departure.on_climb") ~= nil,
-    "YAL Climb state produces climb candidate")
-assert_true(find_candidate(climbCandidates, "departure.climb_level_10000") ~= nil,
-    "YAL Climb state and altitude produce FL100 candidate")
-assert_equal(find_candidate(climbCandidates, "departure.climb_level_20000"), nil,
-    "unreached climb level is not a candidate")
-
-local descent = copy(base, {
-    on_ground = false,
-    descent_state = true,
-    descent_entry_kind = "tod",
-    fms_phase = 5,
-    altitude_ft = 40900,
-    pressure_altitude_ft = 40900
-})
-local descentCandidates = core.collectEventCandidates(descent, climb)
-assert_true(find_candidate(descentCandidates, "arrival.top_of_descent") ~= nil,
-    "YAL TOD descent entry produces TOD candidate")
-assert_equal(find_candidate(descentCandidates, "arrival.descent_level_40000"), nil,
-    "descent level waits for current altitude")
-
-local atFl400 = copy(descent, { altitude_ft = 40000, pressure_altitude_ft = 40000 })
-assert_true(find_candidate(core.collectEventCandidates(atFl400, descent),
-    "arrival.descent_level_40000") ~= nil, "descent altitude produces FL400 candidate")
-
-local approachHigh = copy(descent, {
-    descent_entry_kind = "descent",
-    fms_phase = 6,
-    altitude_ft = 10500,
-    pressure_altitude_ft = 10500
-})
-assert_equal(find_candidate(core.collectEventCandidates(approachHigh, descent),
-    "arrival.approach"), nil, "approach report waits for FL100 preparation point")
-local approach = copy(approachHigh, { altitude_ft = 9500, pressure_altitude_ft = 9500 })
-local approachCandidates = core.collectEventCandidates(approach, approachHigh)
-assert_true(find_candidate(approachCandidates, "arrival.descent_level_10000") ~= nil,
-    "approach crossing includes FL100 report")
-assert_true(find_candidate(approachCandidates, "arrival.approach") ~= nil,
-    "approach crossing includes approach candidate")
-
-local final = copy(approach, { final_gate = true })
-local finalCandidate = find_candidate(core.collectEventCandidates(final, approach),
-    "arrival.on_final")
-assert_true(finalCandidate ~= nil, "YAL final gate produces final candidate")
-assert_equal(finalCandidate.stable_for, 5, "final uses generic five-second stability")
-local goAround = copy(final, { fms_phase = 8 })
-assert_equal(find_candidate(core.collectEventCandidates(goAround, final),
-    "arrival.approach"), nil, "active go-around produces no approach candidate")
-assert_equal(find_candidate(core.collectEventCandidates(goAround, final),
-    "arrival.on_final"), nil, "active go-around produces no final candidate")
-
-local runwayClear = copy(base, {
-    on_ground = true,
-    post_landing_state = true,
-    arrival_runway_clear = true
-})
-local vacatedCandidate = find_candidate(core.collectEventCandidates(runwayClear, final),
-    "arrival.runway_vacated")
-assert_true(vacatedCandidate ~= nil, "YAL post-landing runway-clear state produces vacated candidate")
-assert_equal(vacatedCandidate.stable_for, 2, "runway vacated uses generic two-second stability")
-
 local writes = {}
 local mailboxLogs = {}
 local mailbox = core.newMailbox({
@@ -730,131 +556,7 @@ local repeatedDisabled, repeatDisabledReason = autoUnicom.repeatLastMessage(fals
 assert_equal(repeatedDisabled, false, "repeat last requires enabled feature")
 assert_equal(repeatDisabledReason, "feature_disabled", "repeat disabled reason")
 
-local persistentTaxiLogs = {}
-local persistentTaxiWrites = {}
-local persistentTaxiValues = {
-    api_version = 1,
-    ready = 1,
-    mode = 2,
-    transport_state = 5,
-    request_seq = 20,
-    result_seq = 20,
-    result_code = 21,
-    result_detail = "SUBMITTED_VISIBLE",
-    airgroundsensor = 1,
-    radioaltitude = 0,
-    altitude_ft = 300,
-    pressure_altitude = 300,
-    verticalspeed = 0,
-    groundspeed = 0,
-    tirespeed = 0,
-    fmsflightphase = 0,
-    vnavtoddist = 100,
-    fmctransalt = 7000,
-    fmctranslvl = 7000,
-    fmccruisealt = 37000,
-    depicao = "ENAT",
-    deprwy = "09",
-    desicao = "ENSB",
-    desrwy = "27",
-    aircraft_icao = "B738",
-    parkingbrakepos = 0,
-    eng1n1percent = 20,
-    eng2n1percent = 20
-}
-local persistentTaxiYal = {
-    airgroundsensor = "airgroundsensor",
-    radioaltitude = "radioaltitude",
-    altitude_ft = "altitude_ft",
-    altitude = "altitude_ft",
-    verticalspeed = "verticalspeed",
-    groundspeed = "groundspeed",
-    tirespeed = "tirespeed",
-    fmsflightphase = "fmsflightphase",
-    vnavtoddist = "vnavtoddist",
-    fmctransalt = "fmctransalt",
-    fmctranslvl = "fmctranslvl",
-    fmccruisealt = "fmccruisealt",
-    depicao = "depicao",
-    deprwy = "deprwy",
-    desicao = "desicao",
-    desrwy = "desrwy",
-    parkingbrakepos = "parkingbrakepos",
-    eng1n1percent = "eng1n1percent",
-    eng2n1percent = "eng2n1percent",
-    proceduretable = { [5] = { set = false }, [6] = { set = false } },
-    procedureloop1 = { lock = 0 },
-    procedureloop2 = { lock = 0 },
-    procedureloop3 = { lock = 0 },
-    ProcSetStatusarraydr = "procedureset",
-    flightstate = 0
-}
-local persistentProcedureSet = 1
-local function configure_persistent_taxi_test()
-    autoUnicom.configure({
-        yal = persistentTaxiYal,
-        def = baselineDef,
-        helpers = {
-            logInfoTS = function(message) table.insert(persistentTaxiLogs, message) end
-        },
-        sources = {
-            pressure_altitude = "pressure_altitude",
-            aircraft_icao = "aircraft_icao"
-        },
-        getRefs = function() return repeatRefs end,
-        read = function(prop, index)
-            if prop == "procedureset" then
-                return index == 5 and persistentProcedureSet or 0
-            end
-            return persistentTaxiValues[prop]
-        end,
-        writeText = function(_, text)
-            table.insert(persistentTaxiWrites, { kind = "text", value = text })
-            return true
-        end,
-        writeSeq = function(_, seq)
-            table.insert(persistentTaxiWrites, { kind = "seq", value = seq })
-            return true
-        end
-    })
-end
-
-configure_persistent_taxi_test()
-autoUnicom.tick(true, 0)
-persistentTaxiValues.tirespeed = 6
-persistentTaxiValues.groundspeed = 6
-autoUnicom.tick(true, 1)
-autoUnicom.tick(true, 4)
-assert_equal(persistentTaxiWrites[1].kind, "text", "persistent Before Taxi fallback writes text")
-assert_equal(persistentTaxiWrites[1].value, phraseCases[9][3], "persistent Before Taxi fallback taxi phrase")
-assert_true(
-    table.concat(persistentTaxiLogs, "\n"):find("beforeTaxiSource=state_dataref", 1, true) ~= nil,
-    "persistent Before Taxi source is logged"
-)
-
-persistentTaxiLogs = {}
-persistentTaxiWrites = {}
-persistentProcedureSet = 0
-persistentTaxiYal.procedureloop1 = { lock = 5, stepindex = 0 }
-persistentTaxiValues.tirespeed = 0
-persistentTaxiValues.groundspeed = 0
-configure_persistent_taxi_test()
-autoUnicom.tick(true, 0)
-persistentTaxiValues.tirespeed = 6
-persistentTaxiValues.groundspeed = 6
-autoUnicom.tick(true, 1)
-autoUnicom.tick(true, 2)
-assert_equal(#persistentTaxiWrites, 0, "reserved Before Taxi loop does not trigger taxi")
-persistentTaxiYal.procedureloop1.stepindex = 1
-autoUnicom.tick(true, 3)
-autoUnicom.tick(true, 4)
-assert_equal(persistentTaxiWrites[1].value, phraseCases[9][3], "accepted Before Taxi step triggers taxi")
-assert_true(
-    table.concat(persistentTaxiLogs, "\n"):find("beforeTaxiSource=active_loop", 1, true) ~= nil,
-    "accepted Before Taxi loop source is logged"
-)
-
-local pushbackAdapterValues = {
+local eventAdapterValues = {
     api_version = 1,
     ready = 1,
     mode = 2,
@@ -879,27 +581,31 @@ local pushbackAdapterValues = {
     deprwy = "09",
     desicao = "ENSB",
     desrwy = "27",
+    fmsselectedsid = "ATKUP1A",
+    fmsselectedstar = "NELSA3M",
+    fmsselectedapp = "R27-W",
     nearesticao = "ESSA",
     aircraftlatpos = 59.6519,
     aircraftlonpos = 17.9186,
     aircraft_icao = "B738"
 }
-local pushbackAdapterYal = copy(baselineYal, {
+local eventAdapterYal = copy(baselineYal, {
     nearesticao = "nearesticao",
     aircraftlatpos = "aircraftlatpos",
     aircraftlonpos = "aircraftlonpos",
     flightstate = baselineDef.FLIGHTSTATEPREFLIGHT
 })
-local pushbackAdapterWrites = {}
+local eventAdapterWrites = {}
+local eventAdapterLogs = {}
 local pushbackRamp = { ramp_type = "misc", name = "Apron 42" }
 local pushbackDistanceSquared = 25
 local pushbackSearchAirports = {}
-local function configure_pushback_adapter_test()
+local function configure_event_adapter_test()
     autoUnicom.configure({
-        yal = pushbackAdapterYal,
+        yal = eventAdapterYal,
         def = baselineDef,
         helpers = {
-            logInfoTS = function() end,
+            logInfoTS = function(message) table.insert(eventAdapterLogs, message) end,
             forceCleanString = function(value) return tostring(value or "") end,
             extractprimaryicao = function(value) return tostring(value or "") end,
             isvalidicao = function(value) return type(value) == "string" and #value == 4 end,
@@ -909,8 +615,8 @@ local function configure_pushback_adapter_test()
             end,
             getNearestRamp = function(icao, lat, lon, opts)
                 table.insert(pushbackSearchAirports, icao)
-                assert_equal(lat, pushbackAdapterValues.aircraftlatpos, "pushback search latitude")
-                assert_equal(lon, pushbackAdapterValues.aircraftlonpos, "pushback search longitude")
+                assert_equal(lat, eventAdapterValues.aircraftlatpos, "pushback search latitude")
+                assert_equal(lon, eventAdapterValues.aircraftlonpos, "pushback search longitude")
                 assert_true(opts.filter({ ramp_type = "gate" }), "pushback search accepts gate")
                 assert_true(opts.filter({ ramp_type = "misc" }), "pushback search accepts misc")
                 assert_equal(opts.filter({ ramp_type = "hangar" }), false, "pushback search rejects other ramp")
@@ -922,246 +628,81 @@ local function configure_pushback_adapter_test()
             aircraft_icao = "aircraft_icao"
         },
         getRefs = function() return repeatRefs end,
-        read = function(prop) return pushbackAdapterValues[prop] end,
+        read = function(prop) return eventAdapterValues[prop] end,
         writeText = function(_, text)
-            table.insert(pushbackAdapterWrites, { kind = "text", value = text })
+            table.insert(eventAdapterWrites, { kind = "text", value = text })
             return true
         end,
         writeSeq = function(_, seq)
-            table.insert(pushbackAdapterWrites, { kind = "seq", value = seq })
+            table.insert(eventAdapterWrites, { kind = "seq", value = seq })
             return true
         end
     })
 end
 
-configure_pushback_adapter_test()
+configure_event_adapter_test()
 autoUnicom.tick(true, 0)
-assert_equal(#pushbackSearchAirports, 0, "preflight sensor transient does not baseline pushback")
-pushbackAdapterValues.airgroundsensor = 1
-pushbackAdapterValues.tirespeed = -3
-pushbackAdapterValues.groundspeed = 2
+assert_equal(#pushbackSearchAirports, 0, "activation does not infer a pushback event")
+assert_true(autoUnicom.handleYalEvent("departure.start_push", nil, 1), "YAL pushback event accepted")
 autoUnicom.tick(true, 1)
-autoUnicom.tick(true, 3)
 assert_equal(pushbackSearchAirports[1], "ESSA", "nearest airport drives pushback ramp search")
-assert_equal(pushbackAdapterWrites[1].value, "ESSA Traffic, B738, pushing back from stand 42",
-    "adapter uses nearest misc ramp instead of searching past it for gate")
+assert_equal(eventAdapterWrites[1].value, "ESSA Traffic, B738, pushing back from stand 42",
+    "YAL pushback event uses nearest misc ramp")
 
-pushbackAdapterWrites = {}
+eventAdapterWrites = {}
 pushbackSearchAirports = {}
-pushbackAdapterValues.nearesticao = ""
-pushbackAdapterValues.tirespeed = 0
-pushbackAdapterValues.groundspeed = 0
+eventAdapterValues.nearesticao = ""
+eventAdapterValues.request_seq = 40
+eventAdapterValues.result_seq = 40
+eventAdapterValues.result_code = 21
 pushbackRamp = { ramp_type = "gate", name = "Gate A12" }
 pushbackDistanceSquared = 81 * 81
-configure_pushback_adapter_test()
+configure_event_adapter_test()
 autoUnicom.tick(true, 0)
-pushbackAdapterValues.tirespeed = -3
-pushbackAdapterValues.groundspeed = 2
+assert_true(autoUnicom.handleYalEvent("departure.start_push", nil, 1), "generic pushback event accepted")
 autoUnicom.tick(true, 1)
-autoUnicom.tick(true, 3)
 assert_equal(pushbackSearchAirports[1], "ENAT", "departure airport is pushback search fallback")
-assert_equal(pushbackAdapterWrites[1].value, phraseCases[8][3],
+assert_equal(eventAdapterWrites[1].value, phraseCases[8][3],
     "pushback ramp beyond 80 meters keeps generic phrase")
 
-local runwaySurface = true
-local runwayVacatedWrites = {}
-local runwayVacatedYal = copy(persistentTaxiYal, {
-    flightstate = baselineDef.FLIGHTSTATETAXITOGATE,
-    isAircraftOnArrivalRunwaySurface = function(distanceMeters)
-        assert_equal(distanceMeters, 40, "arrival runway surface check distance")
-        return runwaySurface
-    end,
-    isArrivalRunwayRadioAltGateOpen = function(maxDistanceNm, maxHeadingDiff, maxCrossTrackNm)
-        assert_equal(maxDistanceNm, 8, "final runway gate distance")
-        assert_equal(maxHeadingDiff, 20, "final runway gate heading")
-        assert_equal(maxCrossTrackNm, 0.5, "final runway gate cross-track")
-        return false
-    end
-})
-local runwayVacatedValues = copy(persistentTaxiValues, {
-    airgroundsensor = 1,
-    groundspeed = 15,
-    tirespeed = 15,
-    fmsflightphase = 0
-})
-autoUnicom.configure({
-    yal = runwayVacatedYal,
-    def = baselineDef,
-    helpers = { logInfoTS = function() end },
-    sources = {
-        pressure_altitude = "pressure_altitude",
-        aircraft_icao = "aircraft_icao"
-    },
-    getRefs = function() return repeatRefs end,
-    read = function(prop)
-        return runwayVacatedValues[prop] or repeatValues[prop]
-    end,
-    writeText = function(_, text)
-        table.insert(runwayVacatedWrites, { kind = "text", value = text })
-        return true
-    end,
-    writeSeq = function(_, seq)
-        table.insert(runwayVacatedWrites, { kind = "seq", value = seq })
-        return true
-    end
-})
+eventAdapterWrites = {}
+eventAdapterValues.request_seq = 50
+eventAdapterValues.result_seq = 50
+eventAdapterValues.result_code = 21
+eventAdapterValues.transport_state = 4
+configure_event_adapter_test()
 autoUnicom.tick(true, 0)
-autoUnicom.tick(true, 2)
-assert_equal(#runwayVacatedWrites, 0, "TAXITOGATE while on runway emits no vacated report")
-runwaySurface = false
+assert_true(autoUnicom.handleYalEvent("arrival.approach", nil, 1), "YAL approach event queues")
+assert_equal(autoUnicom.getDebugState().queue_depth, 1, "YAL event is queued while transport is busy")
+assert_true(autoUnicom.handleYalEvent("arrival.go_around", nil, 2), "YAL go-around control event accepted")
+assert_equal(autoUnicom.getDebugState().queue_depth, 0, "go-around removes stale queued arrival event")
+
+eventAdapterValues.transport_state = 5
+assert_true(autoUnicom.handleYalEvent("departure.climb_level_10000", {
+    altitude_ft = 10000,
+    pressure_altitude_ft = 10000
+}, 3), "YAL altitude event accepted")
 autoUnicom.tick(true, 3)
-autoUnicom.tick(true, 4.9)
-assert_equal(#runwayVacatedWrites, 0, "adapter runway-clear state is debounced")
-autoUnicom.tick(true, 5.9)
-assert_equal(runwayVacatedWrites[1].value, phraseCases[7][3], "adapter emits vacated after stable clear state")
+assert_equal(eventAdapterWrites[1].value, phraseCases[12][3], "YAL altitude payload freezes FL100")
 
-local holdAdapterValues = copy(baselineValues, {
-    hold_api_version = 1,
-    hold_update_seq = 2,
-    hold_active = 0,
-    hold_entry_complete = 0,
-    hold_exit_armed = 0,
-    hold_waypoint = "",
-    hold_path_type = "",
-    hold_target_altitude_ft = 0,
-    hold_target_altitude_valid = 0,
-    hold_legacy_nav_mode = 3,
-    hold_legacy_path_type = "HF",
-    hold_legacy_waypoint = "ROBUR",
-    hold_legacy_phase = 0,
-    hold_legacy_term = 2
-})
-local holdAdapterYal = copy(baselineYal, {
-    holdRuntime = {
-        api_version = "hold_api_version",
-        update_seq = "hold_update_seq",
-        active = "hold_active",
-        entry_complete = "hold_entry_complete",
-        exit_armed = "hold_exit_armed",
-        waypoint = "hold_waypoint",
-        path_type = "hold_path_type",
-        target_altitude_ft = "hold_target_altitude_ft",
-        target_altitude_valid = "hold_target_altitude_valid"
-    },
-    fmsnavmode = "hold_legacy_nav_mode",
-    fmsgpswptpath = "hold_legacy_path_type",
-    fmsfplnnavid = "hold_legacy_waypoint",
-    fmsholdphase = "hold_legacy_phase",
-    fmsholdterm = "hold_legacy_term"
-})
-local holdAdapterWrites = {}
-local holdAdapterLogs = {}
-local function configure_hold_adapter(values, readOverride)
-    autoUnicom.configure({
-        yal = holdAdapterYal,
-        def = baselineDef,
-        helpers = { logInfoTS = function(message) table.insert(holdAdapterLogs, message) end },
-        sources = {
-            pressure_altitude = "pressure_altitude",
-            aircraft_icao = "aircraft_icao"
-        },
-        getRefs = function() return repeatRefs end,
-        read = readOverride or function(prop) return values[prop] end,
-        writeText = function(_, text)
-            table.insert(holdAdapterWrites, { kind = "text", value = text })
-            return true
-        end,
-        writeSeq = function(_, seq)
-            table.insert(holdAdapterWrites, { kind = "seq", value = seq })
-            return true
-        end
-    })
-end
-
-configure_hold_adapter(holdAdapterValues)
+eventAdapterWrites = {}
+eventAdapterValues.request_seq = 60
+eventAdapterValues.result_seq = 60
+eventAdapterValues.result_code = 21
+configure_event_adapter_test()
 autoUnicom.tick(true, 0)
-autoUnicom.tick(true, 1)
-assert_equal(#holdAdapterWrites, 0, "stable inactive API is authoritative over stale active legacy refs")
-holdAdapterValues.hold_update_seq = 4
-holdAdapterValues.hold_active = 1
-holdAdapterValues.hold_waypoint = "BIRCO"
-holdAdapterValues.hold_path_type = "HM"
-holdAdapterValues.hold_target_altitude_ft = 10000
-holdAdapterValues.hold_target_altitude_valid = 1
+assert_true(autoUnicom.handleYalEvent("enroute.hold_enter", {
+    hold_source = "api",
+    hold_waypoint = "BIRCO",
+    hold_path_type = "HM"
+}, 1), "YAL hold entry accepted")
+assert_true(autoUnicom.handleYalEvent("enroute.hold_exit", {
+    hold_source = "api",
+    hold_waypoint = "BIRCO",
+    hold_path_type = "HM"
+}, 2), "YAL hold exit accepted")
+assert_equal(autoUnicom.getDebugState().queue_depth, 1, "hold exit replaces queued hold entry")
 autoUnicom.tick(true, 2)
-assert_equal(holdAdapterWrites[1].value, phraseCases[16][3], "stable API snapshot emits hold entry")
-assert_true(table.concat(holdAdapterLogs, "\n"):find("holdSource=api", 1, true) ~= nil,
-    "API hold source is logged")
-holdAdapterValues.result_seq = 13
-holdAdapterValues.result_code = 21
-autoUnicom.tick(true, 3)
-holdAdapterValues.hold_update_seq = 6
-holdAdapterValues.hold_exit_armed = 1
-autoUnicom.tick(true, 4)
-assert_equal(holdAdapterWrites[3].value, phraseCases[17][3], "API exit armed emits hold exit")
-holdAdapterValues.result_seq = 14
-holdAdapterValues.hold_update_seq = 8
-holdAdapterValues.hold_active = 0
-holdAdapterValues.hold_exit_armed = 0
-holdAdapterValues.hold_waypoint = ""
-holdAdapterValues.hold_path_type = ""
-holdAdapterValues.hold_target_altitude_ft = 0
-holdAdapterValues.hold_target_altitude_valid = 0
-autoUnicom.tick(true, 5)
-assert_equal(#holdAdapterWrites, 4, "active drop does not duplicate API armed exit")
-
-local oddHoldValues = copy(holdAdapterValues, {
-    request_seq = 20,
-    result_seq = 20,
-    result_code = 21,
-    hold_update_seq = 3,
-    hold_active = 1,
-    hold_waypoint = "WRONG",
-    hold_path_type = "HM",
-    hold_legacy_nav_mode = 0,
-    hold_legacy_path_type = "",
-    hold_legacy_waypoint = "",
-    hold_legacy_term = 0
-})
-holdAdapterWrites = {}
-holdAdapterLogs = {}
-configure_hold_adapter(oddHoldValues)
-autoUnicom.tick(true, 0)
-oddHoldValues.hold_legacy_nav_mode = 3
-oddHoldValues.hold_legacy_path_type = "HA"
-oddHoldValues.hold_legacy_waypoint = "LALAD"
-autoUnicom.tick(true, 1)
-assert_equal(holdAdapterWrites[1].value, "Traffic, B738, entering a hold over LALAD",
-    "odd API sequence uses legacy hold fallback")
-assert_true(table.concat(holdAdapterLogs, "\n"):find("holdSource=legacy", 1, true) ~= nil,
-    "odd API fallback source is logged")
-oddHoldValues.result_seq = 21
-oddHoldValues.result_code = 21
-autoUnicom.tick(true, 2)
-oddHoldValues.hold_legacy_term = 2
-autoUnicom.tick(true, 3)
-assert_equal(holdAdapterWrites[3].value, "Traffic, B738, exiting hold over LALAD",
-    "legacy EXEC hold term emits hold exit")
-
-local changingHoldValues = copy(oddHoldValues, {
-    request_seq = 30,
-    result_seq = 30,
-    hold_legacy_nav_mode = 0,
-    hold_legacy_path_type = "",
-    hold_legacy_waypoint = "",
-    hold_legacy_term = 0
-})
-local changingSeq = 0
-holdAdapterWrites = {}
-holdAdapterLogs = {}
-configure_hold_adapter(changingHoldValues, function(prop)
-    if prop == "hold_update_seq" then
-        changingSeq = changingSeq + 2
-        return changingSeq
-    end
-    return changingHoldValues[prop]
-end)
-autoUnicom.tick(true, 0)
-changingHoldValues.hold_legacy_nav_mode = 3
-changingHoldValues.hold_legacy_path_type = "HF"
-changingHoldValues.hold_legacy_waypoint = "OKDIT"
-autoUnicom.tick(true, 1)
-assert_equal(holdAdapterWrites[1].value, "Traffic, B738, entering a hold over OKDIT",
-    "changing API sequence uses legacy hold fallback")
+assert_equal(eventAdapterWrites[1].value, phraseCases[17][3], "YAL hold exit text is committed")
 
 print("auto_unicom tests passed")
