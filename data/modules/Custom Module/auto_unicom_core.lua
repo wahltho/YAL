@@ -436,6 +436,7 @@ function M.newEventEngine(options)
         log = options.log or function() end,
         active = false,
         sent = {},
+        last_on_ground = nil,
         last_preflight = nil,
         last_initial_climb_state = nil,
         last_descent_state = nil,
@@ -526,6 +527,7 @@ end
 function Engine:activate(snapshot)
     self.active = true
     self.sent = {}
+    self.last_on_ground = snapshot.on_ground == true
     self.last_preflight = snapshot.preflight == true
     self.last_initial_climb_state = snapshot.initial_climb_state == true
     self.last_descent_state = snapshot.descent_state == true
@@ -547,9 +549,13 @@ function Engine:activate(snapshot)
     self:baselineHold(snapshot)
 
     if snapshot.on_ground ~= true then
-        self:markSent("departure.start_push")
-        self:markSent("departure.taxi_runway")
-        self:markSent("departure.lineup_takeoff")
+        if snapshot.preflight ~= true then
+            self:markSent("departure.start_push")
+            self:markSent("departure.taxi_runway")
+            self:markSent("departure.lineup_takeoff")
+        else
+            self.log("ground_baseline_deferred", { inputs = summarize_sources(snapshot) })
+        end
         self:markSent("departure.airborne")
         self:markSent("departure.on_climb")
         for _, level in ipairs(CLIMB_PROGRESS_LEVELS_FT) do
@@ -573,7 +579,7 @@ function Engine:activate(snapshot)
         if snapshot.final_gate == true then
             self:markSent("arrival.on_final")
         end
-    else
+    elseif snapshot.on_ground == true then
         local wheelSpeed = tonumber(snapshot.wheel_speed) or 0
         local forward = wheelSpeed > 1
         local reverse = wheelSpeed < -1
@@ -600,6 +606,7 @@ end
 function Engine:deactivate()
     self.active = false
     self.sent = {}
+    self.last_on_ground = nil
     self.final_since = nil
     self.push_since = nil
     self.pushback_origin = nil
@@ -762,8 +769,10 @@ function Engine:update(snapshot, now)
     local descentState = snapshot.descent_state == true
     local postLandingState = snapshot.post_landing_state == true
     local phase = tonumber(snapshot.fms_phase) or 0
-    if onGround and preflight and self.last_preflight ~= true then
+    if onGround and preflight
+        and (self.last_on_ground ~= true or self.last_preflight ~= true) then
         self:resetDepartureGroundCycle(snapshot)
+        self.log("ground_cycle_reset", { inputs = summarize_sources(snapshot) })
     end
     if snapshot.before_taxi_started == true then
         self.before_taxi_seen = true
@@ -795,9 +804,8 @@ function Engine:update(snapshot, now)
     local wheelSpeed = tonumber(snapshot.wheel_speed) or 0
     local forward = wheelSpeed > 1
     local reverse = wheelSpeed < -1
-    local moving = math.abs(wheelSpeed) > 1
 
-    local pushGate = onGround and preflight and moving
+    local pushGate = onGround and preflight
         and (snapshot.pushback_active == true or reverse)
     if pushGate and not self.sent["departure.start_push"] then
         self.pushback_origin = self.pushback_origin or {}
@@ -926,6 +934,7 @@ function Engine:update(snapshot, now)
         self.vacated_since = nil
     end
 
+    self.last_on_ground = onGround
     self.last_preflight = preflight
     self.last_initial_climb_state = initialClimbState
     self.last_descent_state = descentState

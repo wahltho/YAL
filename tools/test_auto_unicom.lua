@@ -323,6 +323,21 @@ assert_equal(#pushFalseStartEvents, 1, "pushback false start emits only the late
 assert_equal(pushFalseStartEvents[1].text, "EKCH Traffic, B738, pushing back from gate B14",
     "pushback false start resets airport and gate latch")
 
+local bpbPushEvents = {}
+local bpbPushEngine = core.newEventEngine({
+    emit = function(event) table.insert(bpbPushEvents, event) return true end
+})
+bpbPushEngine:update(groundIdle, 0)
+local bpbStartedWithoutWheelSpeed = copy(groundIdle, {
+    wheel_speed = 0,
+    pushback_active = true,
+    pushback_airport_icao = "ENAT"
+})
+bpbPushEngine:update(bpbStartedWithoutWheelSpeed, 1)
+bpbPushEngine:update(bpbStartedWithoutWheelSpeed, 3)
+assert_equal(#bpbPushEvents, 1, "BetterPushback started is sufficient after stable latch")
+assert_equal(bpbPushEvents[1].id, "departure.start_push", "BetterPushback push event id")
+
 local taxiingWithoutProcedure = copy(groundIdle, {
     wheel_speed = 6,
     ground_speed_kts = 6
@@ -362,6 +377,44 @@ assert_equal(#groundEvents, 2, "takeoff roll waits for stable speed")
 groundEngine:update(takeoffRoll, 14)
 assert_equal(#groundEvents, 3, "takeoff emits after stable takeoff roll")
 assert_equal(groundEvents[3].id, "departure.lineup_takeoff", "takeoff event id")
+
+local transientGroundEvents = {}
+local transientGroundLogs = {}
+local transientGroundEngine = core.newEventEngine({
+    emit = function(event) table.insert(transientGroundEvents, event) return true end,
+    log = function(kind, event)
+        table.insert(transientGroundLogs, { kind = kind, event = event })
+    end
+})
+transientGroundEngine:update(copy(groundIdle, { on_ground = false }), 0)
+assert_equal(transientGroundLogs[1].kind, "ground_baseline_deferred",
+    "preflight sensor transient defers departure baseline")
+transientGroundEngine:update(groundIdle, 1)
+assert_equal(transientGroundLogs[2].kind, "ground_cycle_reset",
+    "confirmed ground state arms departure cycle")
+transientGroundEngine:update(bpbStartedWithoutWheelSpeed, 2)
+transientGroundEngine:update(bpbStartedWithoutWheelSpeed, 4)
+assert_equal(#transientGroundEvents, 1,
+    "pushback still emits after startup air-ground sensor transient")
+assert_equal(transientGroundEvents[1].id, "departure.start_push",
+    "transient recovery pushback event id")
+transientGroundEngine:update(taxiing, 5)
+assert_equal(#transientGroundEvents, 2,
+    "taxi still emits after startup air-ground sensor transient")
+assert_equal(transientGroundEvents[2].id, "departure.taxi_runway",
+    "transient recovery taxi event id")
+local transientTakeoff = copy(taxiing, {
+    before_takeoff_started = true,
+    on_departure_runway = true,
+    wheel_speed = 25,
+    ground_speed_kts = 25
+})
+transientGroundEngine:update(transientTakeoff, 6)
+transientGroundEngine:update(transientTakeoff, 8)
+assert_equal(#transientGroundEvents, 3,
+    "takeoff still emits after startup air-ground sensor transient")
+assert_equal(transientGroundEvents[3].id, "departure.lineup_takeoff",
+    "transient recovery takeoff event id")
 
 local groundReloadEvents = {}
 local groundReloadEngine = core.newEventEngine({

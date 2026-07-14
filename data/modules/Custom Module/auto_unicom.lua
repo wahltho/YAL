@@ -95,6 +95,12 @@ local function event_engine_log(kind, event)
         log("IVAO Auto-Unicom: level event rejected event=" .. tostring(event.event_id or "unknown")
             .. " reason=" .. tostring(event.reason or "unknown")
             .. " gates={" .. tostring(event.inputs or "") .. "}")
+    elseif kind == "ground_baseline_deferred" then
+        log("IVAO Auto-Unicom: departure ground baseline deferred gates={"
+            .. tostring(event.inputs or "") .. "}")
+    elseif kind == "ground_cycle_reset" then
+        log("IVAO Auto-Unicom: departure ground cycle armed gates={"
+            .. tostring(event.inputs or "") .. "}")
     end
 end
 
@@ -297,7 +303,6 @@ end
 local function read_pushback_parking(snapshot, y)
     local wheelSpeed = tonumber(snapshot.wheel_speed) or 0
     local pushbackCandidate = snapshot.on_ground == true and snapshot.preflight == true
-        and math.abs(wheelSpeed) > 1
         and (snapshot.pushback_active == true or wheelSpeed < -1)
     if not pushbackCandidate then return end
 
