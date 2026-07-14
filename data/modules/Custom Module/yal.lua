@@ -1267,7 +1267,9 @@ function P.YalinitGlobal()
         backtrackSince = nil,
         intersectionSince = nil,
         departureIntersectionPayload = nil,
-        shortFinalSince = nil
+        shortFinalSince = nil,
+        cruiseInitialized = false,
+        cruiseWaypoint = nil
     }
     P.approachPrepTriggerKey = nil
     P.approachPrepCompletedForKey = nil
@@ -7197,7 +7199,7 @@ function P.isProcedureActiveOrComplete(procedureId)
     return procedure and procedure.set == true or false
 end
 
-local function cleanAutoUnicomHoldToken(value)
+local function cleanAutoUnicomWaypoint(value)
     local text = helpers.forceCleanString(value or "")
     text = tostring(text or ""):upper()
     if text == "" or #text > 16 then return nil end
@@ -7219,8 +7221,8 @@ local function readAutoUnicomHoldState()
             if seqBefore and seqBefore % 2 == 0 then
                 local active = tonumber(get(api.active))
                 local exitArmed = tonumber(get(api.exit_armed))
-                local waypoint = cleanAutoUnicomHoldToken(get(api.waypoint))
-                local pathType = cleanAutoUnicomHoldToken(get(api.path_type))
+                local waypoint = cleanAutoUnicomWaypoint(get(api.waypoint))
+                local pathType = cleanAutoUnicomWaypoint(get(api.path_type))
                 local targetAltitude = tonumber(get(api.target_altitude_ft))
                 local targetValid = tonumber(get(api.target_altitude_valid))
                 local seqAfter = tonumber(get(api.update_seq))
@@ -7245,8 +7247,8 @@ local function readAutoUnicomHoldState()
     end
 
     local navMode = P.fmsnavmode and tonumber(get(P.fmsnavmode)) or nil
-    local waypoint = P.fmsfplnnavid and cleanAutoUnicomHoldToken(get(P.fmsfplnnavid)) or nil
-    local pathType = P.fmsgpswptpath and cleanAutoUnicomHoldToken(get(P.fmsgpswptpath)) or nil
+    local waypoint = P.fmsfplnnavid and cleanAutoUnicomWaypoint(get(P.fmsfplnnavid)) or nil
+    local pathType = P.fmsgpswptpath and cleanAutoUnicomWaypoint(get(P.fmsgpswptpath)) or nil
     local active = navMode == 3 and waypoint ~= nil and AUTO_UNICOM_HOLD_PATHS[pathType] == true
     return {
         active = active,
@@ -7329,6 +7331,8 @@ function P.baselineAutoUnicomRuntimeEvents()
     state.intersectionSince = nil
     state.departureIntersectionPayload = nil
     state.shortFinalSince = nil
+    state.cruiseInitialized = false
+    state.cruiseWaypoint = nil
     state.lastFmsPhase = P.fmsflightphase and tonumber(get(P.fmsflightphase)) or nil
 
     local onGround = get(P.airgroundsensor) == def.ON
@@ -7345,6 +7349,12 @@ function P.baselineAutoUnicomRuntimeEvents()
         end
         if P.flightstate >= def.FLIGHTSTATECLIMB then
             state.sent["departure.on_climb"] = true
+        end
+        if P.flightstate >= def.FLIGHTSTATECRUISE then
+            state.sent["enroute.in_cruise"] = true
+            state.cruiseInitialized = true
+            state.cruiseWaypoint = P.fmsfplnnavid
+                and cleanAutoUnicomWaypoint(get(P.fmsfplnnavid)) or nil
         end
         for _, level in ipairs(AUTO_UNICOM_CLIMB_LEVELS_FT) do
             if altitude >= level then
@@ -7550,6 +7560,37 @@ function P.updateAutoUnicomHoldEvents()
         state.holdExitSent = true
         P.publishRuntimeEvent("enroute.hold_exit", state.holdPayload)
     end
+end
+
+function P.updateAutoUnicomCruiseEvent()
+    local state = P.autoUnicomRuntime
+    if not state then return end
+    if P.flightstate ~= def.FLIGHTSTATECRUISE then
+        state.cruiseInitialized = false
+        state.cruiseWaypoint = nil
+        return
+    end
+
+    local waypoint = P.fmsfplnnavid and cleanAutoUnicomWaypoint(get(P.fmsfplnnavid)) or nil
+    if not state.cruiseInitialized then
+        state.cruiseInitialized = true
+        state.cruiseWaypoint = waypoint
+        return
+    end
+    if not waypoint then return end
+    if not state.cruiseWaypoint then
+        state.cruiseWaypoint = waypoint
+        return
+    end
+    if waypoint == state.cruiseWaypoint then return end
+
+    local passedWaypoint = state.cruiseWaypoint
+    state.cruiseWaypoint = waypoint
+    autoUnicomEventOnce(
+        "enroute.in_cruise",
+        "enroute.in_cruise",
+        { cruise_waypoint = passedWaypoint }
+    )
 end
 
 function P.updateAutoUnicomClimbEvents()
@@ -9420,6 +9461,7 @@ function P.ongoingtasks()
 
     P.updateAutoUnicomGroundEvents()
     P.updateAutoUnicomAirborneEvent()
+    P.updateAutoUnicomCruiseEvent()
     P.updateAutoUnicomHoldEvents()
 
     local current_level = sasl.getLogLevel()

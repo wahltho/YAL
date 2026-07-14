@@ -9,6 +9,7 @@ M.EVENT_TTL_SEC = {
     ["departure.lineup_takeoff"] = 45,
     ["departure.airborne"] = 60,
     ["departure.on_climb"] = 120,
+    ["enroute.in_cruise"] = 120,
     ["enroute.hold_enter"] = 120,
     ["enroute.hold_exit"] = 120,
     ["arrival.top_of_descent"] = 120,
@@ -328,6 +329,18 @@ function M.buildMessage(eventId, snapshot)
         return normalize_text(string.format("Traffic, %s, exiting hold over %s", ac, waypoint))
     end
 
+    if eventId == "enroute.in_cruise" then
+        local waypoint = clean_token(snapshot.cruise_waypoint, false)
+        local altitude = format_altitude(snapshot, false)
+        if not waypoint or not altitude then return nil, "missing_cruise_context" end
+        return normalize_text(string.format(
+            "Traffic, %s passing %s, maintaining %s",
+            ac,
+            waypoint,
+            altitude
+        ))
+    end
+
     if eventId == "departure.on_climb" or is_climb_progress_event(eventId) then
         local airport = clean_token(snapshot.departure_icao, false)
         local altitude = format_altitude(snapshot, false)
@@ -431,6 +444,7 @@ local function summarize_sources(snapshot)
         { "holdWaypoint", snapshot.hold_waypoint },
         { "holdPath", snapshot.hold_path_type },
         { "holdTarget", snapshot.hold_target_altitude_ft },
+        { "cruiseWaypoint", snapshot.cruise_waypoint },
         { "final", snapshot.final_gate and 1 or 0 },
         { "shortFinal", snapshot.short_final_gate and 1 or 0 }
     }
@@ -540,6 +554,11 @@ local function supersedes_event(eventId, queuedId)
             or queuedId == "departure.intersection"
             or queuedId == "departure.lineup_takeoff"
             or queuedId == "departure.airborne"
+            or queuedId == "departure.on_climb"
+            or is_climb_progress_event(queuedId)
+    end
+    if eventId == "enroute.in_cruise" then
+        return queuedId == "departure.airborne"
             or queuedId == "departure.on_climb"
             or is_climb_progress_event(queuedId)
     end

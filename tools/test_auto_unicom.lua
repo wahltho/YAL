@@ -171,6 +171,11 @@ local phraseCases = {
         "arrival.short_final",
         base,
         "ENSB Traffic, B738 on SHORT FINAL runway 27 - Landing is imminent"
+    },
+    {
+        "enroute.in_cruise",
+        copy(base, { cruise_waypoint = "BIRCO", altitude_ft = 37000, pressure_altitude_ft = 37000 }),
+        "Traffic, B738 passing BIRCO, maintaining FL370"
     }
 }
 
@@ -248,6 +253,10 @@ assert_equal(
 local missingHoldText, missingHoldReason = core.buildMessage("enroute.hold_enter", base)
 assert_equal(missingHoldText, nil, "hold phrase requires waypoint")
 assert_equal(missingHoldReason, "missing_hold_context", "missing hold waypoint reason")
+
+local missingCruiseText, missingCruiseReason = core.buildMessage("enroute.in_cruise", base)
+assert_equal(missingCruiseText, nil, "cruise phrase requires waypoint")
+assert_equal(missingCruiseReason, "missing_cruise_context", "missing cruise waypoint reason")
 
 local missingIntersectionText, missingIntersectionReason = core.buildMessage("departure.intersection", base)
 assert_equal(missingIntersectionText, nil, "intersection takeoff requires intersection")
