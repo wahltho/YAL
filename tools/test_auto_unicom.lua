@@ -679,9 +679,36 @@ descentProgressEngine:update(copy(descentProgressBase, {
     vertical_speed_fpm = -1000,
     tod_distance_nm = 0
 }), descentNow)
-assert_equal(#descentProgressEvents, 5, "approach and FL100 become eligible from accepted YAL state")
-assert_equal(descentProgressEvents[4].id, "arrival.approach", "approach state event")
-assert_equal(descentProgressEvents[5].id, "arrival.descent_level_10000", "FL100 descent event id")
+assert_equal(#descentProgressEvents, 4, "approach merges with actual FL100 crossing")
+assert_equal(descentProgressEvents[4].id, "arrival.descent_level_10000", "merged approach FL100 event id")
+assert_equal(
+    descentProgressEvents[4].text,
+    "ENSB Traffic, B738 NELSA3M arrival for RNAV W approach runway 27, on descent passing FL100",
+    "merged approach freezes actual FL100 phrase"
+)
+
+local crossingApproachEvents = {}
+local crossingApproachEngine = core.newEventEngine({
+    emit = function(event) table.insert(crossingApproachEvents, event) return true end
+})
+local beforeCrossingApproach = copy(descentProgressBase, {
+    fms_phase = 5,
+    descent_state = true,
+    altitude_ft = 10500,
+    pressure_altitude_ft = 10500,
+    vertical_speed_fpm = -800,
+    tod_distance_nm = 0
+})
+crossingApproachEngine:update(beforeCrossingApproach, 0)
+crossingApproachEngine:update(copy(beforeCrossingApproach, {
+    fms_phase = 7,
+    altitude_ft = 9900,
+    pressure_altitude_ft = 9900
+}), 1)
+assert_equal(#crossingApproachEvents, 1, "approach starting across FL100 emits one merged event")
+assert_equal(crossingApproachEvents[1].id, "arrival.descent_level_10000", "crossing approach merged event id")
+assert_true(crossingApproachEvents[1].text:find("passing FL100", 1, true) ~= nil,
+    "crossing approach reports FL100 instead of live altitude")
 
 local descentReloadEvents = {}
 local descentReloadEngine = core.newEventEngine({

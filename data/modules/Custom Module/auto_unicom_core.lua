@@ -40,6 +40,7 @@ local DESCENT_PROGRESS_PREFIX = "arrival.descent_level_"
 local DESCENT_PROGRESS_LEVELS_FT = { 40000, 30000, 20000, 10000 }
 local DESCENT_PROGRESS_MIN_SEPARATION_FT = 5000
 local DESCENT_PROGRESS_MAX_SAMPLE_DROP_FT = 2000
+local APPROACH_MERGE_LEVEL_FT = 10000
 local CLIMB_PROGRESS_PREFIX = "departure.climb_level_"
 local CLIMB_PROGRESS_LEVELS_FT = { 10000, 20000, 30000, 40000 }
 local CLIMB_PROGRESS_MAX_SAMPLE_RISE_FT = 2000
@@ -355,6 +356,7 @@ function M.newEventEngine(options)
         descent_altitude_previous = nil,
         descent_rejection_key = nil,
         last_descent_report_altitude_ft = nil,
+        deferred_approach = false,
         final_since = nil,
         last_fms_phase = nil
     }, Engine)
@@ -375,6 +377,7 @@ function Engine:resetDepartureGroundCycle(snapshot)
     self.taxi_rejection_key = nil
     self.climb_altitude_previous = climb_altitude(snapshot)
     self.climb_rejection_key = nil
+    self.deferred_approach = false
 end
 
 function Engine:activate(snapshot)
@@ -394,6 +397,7 @@ function Engine:activate(snapshot)
     self.descent_altitude_previous = descent_altitude(snapshot)
     self.descent_rejection_key = nil
     self.last_descent_report_altitude_ft = nil
+    self.deferred_approach = false
     self.final_since = nil
     self.last_fms_phase = tonumber(snapshot.fms_phase) or 0
 
@@ -461,6 +465,7 @@ function Engine:deactivate()
     self.descent_altitude_previous = nil
     self.descent_rejection_key = nil
     self.last_descent_report_altitude_ft = nil
+    self.deferred_approach = false
     self.last_descent_state = nil
     self.last_fms_phase = nil
 end
@@ -475,6 +480,7 @@ function Engine:beginFlight(snapshot)
     self.descent_altitude_previous = descent_altitude(snapshot)
     self.descent_rejection_key = nil
     self.last_descent_report_altitude_ft = nil
+    self.deferred_approach = false
     self.last_descent_state = snapshot.descent_state == true
     self.final_since = nil
     self.last_fms_phase = tonumber(snapshot.fms_phase) or 0
@@ -559,12 +565,20 @@ function Engine:updateDescentProgress(snapshot, now, onGround)
     for _, level in ipairs(DESCENT_PROGRESS_LEVELS_FT) do
         local eventId = DESCENT_PROGRESS_PREFIX .. tostring(level)
         if not self.sent[eventId] and current <= level then
-            local separated = not self.last_descent_report_altitude_ft
+            local mergeApproach = level == APPROACH_MERGE_LEVEL_FT
+                and not self.sent["arrival.approach"]
+                and (self.deferred_approach == true
+                    or is_approach_phase(tonumber(snapshot.fms_phase) or 0))
+            local separated = mergeApproach or not self.last_descent_report_altitude_ft
                 or self.last_descent_report_altitude_ft - level >= DESCENT_PROGRESS_MIN_SEPARATION_FT
             if separated then
                 local emitted, reason = self:tryEmit(eventId, snapshot_at_altitude(snapshot, level), now)
                 if emitted then
                     self.last_descent_report_altitude_ft = level
+                    if mergeApproach then
+                        self:markSent("arrival.approach")
+                        self.deferred_approach = false
+                    end
                     self.descent_rejection_key = nil
                 else
                     local rejectionKey = eventId .. "|" .. tostring(reason or "unknown")
@@ -625,6 +639,7 @@ function Engine:update(snapshot, now)
         self.cancelQueuedForGoAround()
         self.sent["arrival.approach"] = nil
         self.sent["arrival.on_final"] = nil
+        self.deferred_approach = false
         self.final_since = nil
     end
 
@@ -704,10 +719,20 @@ function Engine:update(snapshot, now)
     self:updateDescentProgress(snapshot, now, onGround)
 
     if not onGround and descentState and is_approach_phase(phase) then
-        local emitted = self:tryEmit("arrival.approach", snapshot, now)
-        if emitted then
-            self:markSent("arrival.top_of_descent")
-            self:markSent("arrival.on_descent")
+        local fl100Event = DESCENT_PROGRESS_PREFIX .. tostring(APPROACH_MERGE_LEVEL_FT)
+        local currentAltitude = descent_altitude(snapshot)
+        local deferToFl100 = not self.sent["arrival.approach"]
+            and not self.sent[fl100Event]
+            and currentAltitude and currentAltitude > APPROACH_MERGE_LEVEL_FT
+        if deferToFl100 then
+            self.deferred_approach = true
+        else
+            local emitted = self:tryEmit("arrival.approach", snapshot, now)
+            if emitted then
+                self.deferred_approach = false
+                self:markSent("arrival.top_of_descent")
+                self:markSent("arrival.on_descent")
+            end
         end
     end
 
