@@ -1162,6 +1162,7 @@ function P.YalinitGlobal()
     P.descentTriggerRestoreHoldUntil = nil
     P.descentLastPositiveTodDistance = nil
     P.descentLastPositiveTodSeenAt = nil
+    P.descentEntryReason = nil
 
     P.savetimer = nil
 
@@ -7356,6 +7357,7 @@ function P.resetDescentTriggerState(clearTodHistory)
     if clearTodHistory then
         P.descentLastPositiveTodDistance = nil
         P.descentLastPositiveTodSeenAt = nil
+        P.descentEntryReason = nil
     end
 end
 
@@ -7472,6 +7474,7 @@ function P.shouldEnterDescentFromFms(fmsPhase, todDistance)
         ((P.descentLastPositiveTodDistance or 0) > 1)
 
     if descentEvidence or (todAtOrPast and recentTodHistory) then
+        P.descentEntryReason = (todAtOrPast and recentTodHistory) and "tod" or "descent"
         helpers.logInfoTS(string.format("DescentTrigger: accepted fmsPhase=%s tod=%.1f stable=%ds recentTod=%s lastTod=%.1f vs=%d alt=%d fmcCruise=%d",
             tostring(fmsPhase),
             tod,

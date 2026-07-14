@@ -81,9 +81,7 @@ end
 
 local function event_engine_log(kind, event)
     event = event or {}
-    if kind == "taxi_candidate" then
-        log("IVAO Auto-Unicom: taxi candidate gates={" .. tostring(event.inputs or "") .. "}")
-    elseif kind == "taxi_emit_rejected" then
+    if kind == "taxi_emit_rejected" then
         log("IVAO Auto-Unicom: taxi event rejected reason=" .. tostring(event.reason or "unknown")
             .. " gates={" .. tostring(event.inputs or "") .. "}")
     elseif kind == "climb_level_rejected" or kind == "descent_level_rejected" then
@@ -143,7 +141,9 @@ end
 local function procedure_started_or_done(y, procedureId)
     local loops = { y.procedureloop1, y.procedureloop2, y.procedureloop3 }
     for _, loop in ipairs(loops) do
-        if loop and loop.lock == procedureId then return true, "active_loop" end
+        if loop and loop.lock == procedureId and (tonumber(loop.stepindex) or 0) > 0 then
+            return true, "active_loop"
+        end
     end
 
     local procedure = y.proceduretable and y.proceduretable[procedureId] or nil
@@ -183,20 +183,20 @@ local function build_snapshot()
         approach_id = tostring(safe_read(y.fmsselectedapp) or ""),
         aircraft_type = tostring(safe_read(sources.aircraft_icao) or ""),
         preflight = y.flightstate == def.FLIGHTSTATEPREFLIGHT,
+        initial_climb_state = y.flightstate == def.FLIGHTSTATEINITIALCLIMB,
         climb_state = y.flightstate == def.FLIGHTSTATECLIMB,
         descent_state = y.flightstate == def.FLIGHTSTATEAPPROACH,
+        post_landing_state = y.flightstate == def.FLIGHTSTATETAXITOGATE
+            or y.flightstate == def.FLIGHTSTATESHUTDOWN,
+        descent_entry_kind = y.descentEntryReason,
         before_taxi_started = beforeTaxiStarted,
         before_taxi_source = beforeTaxiSource,
         before_takeoff_started = beforeTakeoffStarted,
         before_takeoff_source = beforeTakeoffSource,
-        parking_brake_released = (tonumber(safe_read(y.parkingbrakepos)) or 0) == def.OFF,
-        eng1_n1_percent = tonumber(safe_read(y.eng1n1percent)),
-        eng2_n1_percent = tonumber(safe_read(y.eng2n1percent)),
         pushback_active = y.BPBStarted ~= nil
             and tonumber(safe_read(y.BPBStarted)) == def.ON
             and (y.BPBOpComplete == nil or tonumber(safe_read(y.BPBOpComplete)) ~= def.ON),
         on_departure_runway = false,
-        on_runway_profile = false,
         final_gate = false
     }
 
@@ -208,38 +208,23 @@ local function build_snapshot()
     read_approach_ref(snapshot)
     parse_approach_fallback(snapshot)
 
-    local runway = nil
-    if y.getDestinationRunwayRefdata then
-        local ok, value = pcall(y.getDestinationRunwayRefdata, true)
-        if ok then runway = value end
+    local runwayGateOpen = false
+    if y.isArrivalRunwayRadioAltGateOpen then
+        local ok, value = pcall(y.isArrivalRunwayRadioAltGateOpen, 8, 20)
+        runwayGateOpen = ok and value == true
     end
-    local position = {
-        lat = tonumber(safe_read(y.aircraftlatpos)),
-        lon = tonumber(safe_read(y.aircraftlonpos))
-    }
-    local metrics = core.runwayMetrics(position, runway)
-    if metrics then
-        snapshot.on_runway_profile = metrics.on_profile == true
-        snapshot.runway_threshold_distance_nm = metrics.threshold_distance_nm
-        snapshot.runway_cross_track_nm = metrics.cross_track_m / 1852
-    end
-
-    local runwayCourse = runway and tonumber(runway.course_deg_mag) or nil
-    local aircraftTrack = tonumber(safe_read(y.groundtrackmag))
-    local trackDiff = nil
-    if runwayCourse and aircraftTrack and runtime.helpers and runtime.helpers.headingdiff then
-        trackDiff = runtime.helpers.headingdiff(aircraftTrack, runwayCourse)
-    end
-    snapshot.runway_track_diff_deg = trackDiff
-
     local procedureType = tostring(snapshot.approach_procedure_type or ""):upper()
-    local localizerProcedure = procedureType == "ILS" or procedureType == "LOC"
-    local localizerCaptured = (tonumber(safe_read(y.aploccapturedstat)) or 0) >= (def.CAPTURED or 2)
-    snapshot.final_gate = metrics ~= nil
-        and metrics.threshold_distance_nm <= 8
-        and metrics.cross_track_m <= (0.5 * 1852)
-        and trackDiff ~= nil and trackDiff <= 20
-        and (not localizerProcedure or localizerCaptured)
+    local resolvedKind = tostring(snapshot.approach_resolved_kind or ""):upper()
+    local captureRequired = procedureType == "ILS" or procedureType == "LOC"
+        or procedureType == "LDA" or procedureType == "GLS"
+        or resolvedKind == "ILS" or resolvedKind == "IGS" or resolvedKind == "LOC"
+        or resolvedKind == "LOC_GS" or resolvedKind == "LOC-GS" or resolvedKind == "LDA"
+        or resolvedKind == "GLS" or resolvedKind == "LPV" or resolvedKind == "LP"
+    local captured = (tonumber(safe_read(y.aploccapturedstat)) or 0) >= (def.CAPTURED or 2)
+        or (tonumber(safe_read(y.aplpvloccapturedstat)) or 0) >= (def.CAPTURED or 2)
+        or (tonumber(safe_read(y.apglsloccapturedstat)) or 0) >= (def.CAPTURED or 2)
+        or (tonumber(safe_read(y.apfacloccapturedstat)) or 0) >= (def.CAPTURED or 2)
+    snapshot.final_gate = runwayGateOpen and (not captureRequired or captured)
 
     return snapshot
 end

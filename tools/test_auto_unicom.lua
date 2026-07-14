@@ -26,19 +26,18 @@ end
 
 local base = {
     on_ground = true,
-    on_runway_profile = true,
     on_departure_runway = false,
     final_gate = false,
     preflight = false,
+    initial_climb_state = false,
     climb_state = false,
     descent_state = false,
+    post_landing_state = false,
+    descent_entry_kind = nil,
     before_taxi_started = false,
     before_takeoff_started = false,
-    parking_brake_released = false,
     wheel_speed = 0,
     pushback_active = false,
-    eng1_n1_percent = 0,
-    eng2_n1_percent = 0,
     fms_phase = 0,
     radio_altitude_ft = 0,
     altitude_ft = 300,
@@ -173,8 +172,7 @@ local groundEngine = core.newEventEngine({
     end
 })
 local groundIdle = copy(base, {
-    preflight = true,
-    parking_brake_released = true
+    preflight = true
 })
 groundEngine:update(groundIdle, 0)
 
@@ -199,36 +197,23 @@ assert_equal(#groundEvents, 1, "taxi requires Before Taxi start latch")
 
 local taxiing = copy(taxiingWithoutProcedure, { before_taxi_started = true })
 groundEngine:update(taxiing, 9)
-groundEngine:update(taxiing, 11.9)
-assert_equal(#groundEvents, 1, "taxi waits for stable forward movement")
-groundEngine:update(taxiing, 12)
-assert_equal(#groundEvents, 2, "taxi emitted while Before Taxi may still be running")
+assert_equal(#groundEvents, 2, "taxi emits from accepted Before Taxi plus forward movement")
 assert_equal(groundEvents[2].id, "departure.taxi_runway", "taxi event id")
 
 local takeoffOffRunway = copy(taxiing, {
     before_takeoff_started = true,
-    wheel_speed = 20,
-    ground_speed_kts = 20,
-    eng1_n1_percent = 50,
-    eng2_n1_percent = 50
+    wheel_speed = 20
 })
-groundEngine:update(takeoffOffRunway, 13)
-groundEngine:update(takeoffOffRunway, 15)
+groundEngine:update(takeoffOffRunway, 10)
 assert_equal(#groundEvents, 2, "takeoff requires departure runway helper")
 
-local takeoffLowN1 = copy(takeoffOffRunway, {
+local takeoffRoll = copy(takeoffOffRunway, {
     on_departure_runway = true,
-    eng1_n1_percent = 39,
-    eng2_n1_percent = 50
+    preflight = false,
+    ground_speed_kts = 0
 })
-groundEngine:update(takeoffLowN1, 16)
-groundEngine:update(takeoffLowN1, 18)
-assert_equal(#groundEvents, 2, "takeoff requires both engines above forty percent N1")
-
-local takeoffRoll = copy(takeoffOffRunway, { on_departure_runway = true })
-groundEngine:update(takeoffRoll, 19)
-groundEngine:update(takeoffRoll, 20)
-assert_equal(#groundEvents, 3, "takeoff emitted after stable roll")
+groundEngine:update(takeoffRoll, 11)
+assert_equal(#groundEvents, 3, "takeoff uses accepted Before Takeoff, runway and forward movement only")
 assert_equal(groundEvents[3].id, "departure.lineup_takeoff", "takeoff event id")
 
 local groundReloadEvents = {}
@@ -256,44 +241,32 @@ local engine = core.newEventEngine({
 })
 
 engine:update(base, 0)
-engine:update(base, 3)
-engine:update(copy(base, {
+local airborneBeforeState = copy(base, {
     on_ground = false,
-    on_runway_profile = false,
-    fms_phase = 1,
-    radio_altitude_ft = 20,
-    altitude_ft = 100,
-    pressure_altitude_ft = 100,
-    vertical_speed_fpm = 1200,
-    ground_speed_kts = 150
-}), 4)
-assert_equal(#emitted, 0, "airborne debounce before three seconds")
-engine:update(copy(base, {
-    on_ground = false,
-    on_runway_profile = false,
     fms_phase = 1,
     radio_altitude_ft = 200,
     altitude_ft = 300,
     pressure_altitude_ft = 300,
     vertical_speed_fpm = 1200,
     ground_speed_kts = 170
-}), 7)
-assert_equal(#emitted, 1, "airborne emitted after debounce")
-assert_equal(emitted[1].id, "departure.airborne", "airborne debounce event")
-engine:update(copy(base, {
-    on_ground = false,
-    on_runway_profile = false,
+})
+engine:update(airborneBeforeState, 1)
+assert_equal(#emitted, 0, "airborne waits for accepted Initial Climb state")
+engine:update(copy(airborneBeforeState, { initial_climb_state = true }), 2)
+assert_equal(#emitted, 1, "airborne emits from accepted Initial Climb state")
+assert_equal(emitted[1].id, "departure.airborne", "airborne state event")
+engine:update(copy(airborneBeforeState, {
     fms_phase = 1,
+    initial_climb_state = false,
+    climb_state = true,
     radio_altitude_ft = 1500,
     altitude_ft = 1800,
     pressure_altitude_ft = 1800,
-    vertical_speed_fpm = 1200,
     ground_speed_kts = 220
-}), 12)
-assert_equal(#emitted, 2, "climb emitted once after stable phase")
+}), 3)
+assert_equal(#emitted, 2, "climb emits from accepted Climb state")
 engine:update(copy(base, {
     on_ground = false,
-    on_runway_profile = false,
     fms_phase = 1,
     climb_state = true,
     radio_altitude_ft = 9200,
@@ -301,10 +274,9 @@ engine:update(copy(base, {
     pressure_altitude_ft = 9500,
     vertical_speed_fpm = 1200,
     ground_speed_kts = 250
-}), 15)
+}), 4)
 engine:update(copy(base, {
     on_ground = false,
-    on_runway_profile = false,
     fms_phase = 1,
     climb_state = true,
     radio_altitude_ft = 9700,
@@ -312,12 +284,11 @@ engine:update(copy(base, {
     pressure_altitude_ft = 10000,
     vertical_speed_fpm = 1200,
     ground_speed_kts = 250
-}), 16)
+}), 5)
 assert_equal(#emitted, 3, "climb FL100 crossing emitted once")
 assert_equal(emitted[3].text, phraseCases[12][3], "climb crossing freezes FL100 phrase")
 engine:update(copy(base, {
     on_ground = false,
-    on_runway_profile = false,
     fms_phase = 1,
     climb_state = true,
     radio_altitude_ft = 19200,
@@ -325,10 +296,9 @@ engine:update(copy(base, {
     pressure_altitude_ft = 19500,
     vertical_speed_fpm = 1200,
     ground_speed_kts = 260
-}), 17)
+}), 6)
 engine:update(copy(base, {
     on_ground = false,
-    on_runway_profile = false,
     fms_phase = 1,
     climb_state = true,
     radio_altitude_ft = 19700,
@@ -336,12 +306,11 @@ engine:update(copy(base, {
     pressure_altitude_ft = 20000,
     vertical_speed_fpm = 1200,
     ground_speed_kts = 260
-}), 18)
+}), 7)
 assert_equal(#emitted, 4, "climb FL200 crossing emitted once")
 assert_equal(emitted[4].text, phraseCases[13][3], "climb crossing freezes FL200 phrase")
 engine:update(copy(base, {
     on_ground = false,
-    on_runway_profile = false,
     fms_phase = 1,
     climb_state = true,
     radio_altitude_ft = 29200,
@@ -349,10 +318,9 @@ engine:update(copy(base, {
     pressure_altitude_ft = 29500,
     vertical_speed_fpm = 1200,
     ground_speed_kts = 270
-}), 19)
+}), 8)
 engine:update(copy(base, {
     on_ground = false,
-    on_runway_profile = false,
     fms_phase = 1,
     climb_state = true,
     radio_altitude_ft = 29700,
@@ -360,76 +328,31 @@ engine:update(copy(base, {
     pressure_altitude_ft = 30000,
     vertical_speed_fpm = 1200,
     ground_speed_kts = 270
-}), 20)
+}), 9)
 assert_equal(#emitted, 5, "climb FL300 crossing emitted once")
 assert_equal(emitted[5].text, phraseCases[14][3], "climb crossing freezes FL300 phrase")
 engine:update(copy(base, {
     on_ground = false,
-    on_runway_profile = false,
-    fms_phase = 2,
-    radio_altitude_ft = 30000,
-    altitude_ft = 37000,
-    pressure_altitude_ft = 37000,
-    vertical_speed_fpm = 0,
-    tod_distance_nm = 10
-}), 21)
-engine:update(copy(base, {
-    on_ground = false,
-    on_runway_profile = false,
     fms_phase = 2,
     radio_altitude_ft = 30000,
     altitude_ft = 37000,
     pressure_altitude_ft = 37000,
     vertical_speed_fpm = 0,
     tod_distance_nm = 2
-}), 22)
+}), 10)
 engine:update(copy(base, {
     on_ground = false,
-    on_runway_profile = false,
     fms_phase = 5,
     descent_state = true,
+    descent_entry_kind = "tod",
     radio_altitude_ft = 29500,
     altitude_ft = 36500,
     pressure_altitude_ft = 36500,
     vertical_speed_fpm = -1000,
     tod_distance_nm = 0
-}), 23)
+}), 11)
 engine:update(copy(base, {
     on_ground = false,
-    on_runway_profile = false,
-    fms_phase = 5,
-    descent_state = true,
-    radio_altitude_ft = 28500,
-    altitude_ft = 35500,
-    pressure_altitude_ft = 35500,
-    vertical_speed_fpm = -1000,
-    tod_distance_nm = 0
-}), 31)
-engine:update(copy(base, {
-    on_ground = false,
-    on_runway_profile = false,
-    fms_phase = 5,
-    descent_state = true,
-    radio_altitude_ft = 28000,
-    altitude_ft = 35000,
-    pressure_altitude_ft = 35000,
-    vertical_speed_fpm = -1000,
-    tod_distance_nm = 0
-}), 32)
-engine:update(copy(base, {
-    on_ground = false,
-    on_runway_profile = false,
-    fms_phase = 6,
-    descent_state = true,
-    radio_altitude_ft = 8000,
-    altitude_ft = 9000,
-    pressure_altitude_ft = 9000,
-    vertical_speed_fpm = -800,
-    tod_distance_nm = 0
-}), 40)
-engine:update(copy(base, {
-    on_ground = false,
-    on_runway_profile = false,
     fms_phase = 6,
     descent_state = true,
     radio_altitude_ft = 5000,
@@ -437,10 +360,9 @@ engine:update(copy(base, {
     pressure_altitude_ft = 6000,
     vertical_speed_fpm = -800,
     tod_distance_nm = 0
-}), 48)
+}), 12)
 engine:update(copy(base, {
     on_ground = false,
-    on_runway_profile = false,
     final_gate = true,
     fms_phase = 6,
     descent_state = true,
@@ -449,10 +371,9 @@ engine:update(copy(base, {
     pressure_altitude_ft = 2000,
     vertical_speed_fpm = -600,
     tod_distance_nm = 0
-}), 50)
+}), 13)
 engine:update(copy(base, {
     on_ground = false,
-    on_runway_profile = false,
     final_gate = true,
     fms_phase = 6,
     descent_state = true,
@@ -461,40 +382,17 @@ engine:update(copy(base, {
     pressure_altitude_ft = 1200,
     vertical_speed_fpm = -600,
     tod_distance_nm = 0
-}), 55)
+}), 18)
 engine:update(copy(base, {
     on_ground = true,
-    on_runway_profile = true,
-    fms_phase = 6,
-    radio_altitude_ft = 0,
-    altitude_ft = 400,
-    pressure_altitude_ft = 400,
-    vertical_speed_fpm = 0,
-    ground_speed_kts = 100,
-    tod_distance_nm = 0
-}), 60)
-engine:update(copy(base, {
-    on_ground = true,
-    on_runway_profile = false,
-    fms_phase = 6,
+    post_landing_state = true,
     radio_altitude_ft = 0,
     altitude_ft = 400,
     pressure_altitude_ft = 400,
     vertical_speed_fpm = 0,
     ground_speed_kts = 20,
     tod_distance_nm = 0
-}), 61)
-engine:update(copy(base, {
-    on_ground = true,
-    on_runway_profile = false,
-    fms_phase = 6,
-    radio_altitude_ft = 0,
-    altitude_ft = 400,
-    pressure_altitude_ft = 400,
-    vertical_speed_fpm = 0,
-    ground_speed_kts = 20,
-    tod_distance_nm = 0
-}), 66)
+}), 19)
 
 local expectedEvents = {
     "departure.airborne",
@@ -518,7 +416,6 @@ local climbReloadEngine = core.newEventEngine({
 })
 local loadedAboveClimbLevel = copy(base, {
     on_ground = false,
-    on_runway_profile = false,
     fms_phase = 1,
     climb_state = true,
     radio_altitude_ft = 10200,
@@ -539,7 +436,6 @@ local climbFlightLoadEngine = core.newEventEngine({
 })
 local climbFlightLoadBase = copy(base, {
     on_ground = false,
-    on_runway_profile = false,
     fms_phase = 1,
     climb_state = true,
     radio_altitude_ft = 8700,
@@ -571,7 +467,6 @@ local climbStateEngine = core.newEventEngine({
 })
 local climbStateBase = copy(base, {
     on_ground = false,
-    on_runway_profile = false,
     fms_phase = 2,
     altitude_ft = 9500,
     pressure_altitude_ft = 9500,
@@ -624,7 +519,6 @@ local fallbackEngine = core.newEventEngine({
 })
 local airborneCruise = copy(base, {
     on_ground = false,
-    on_runway_profile = false,
     fms_phase = 2,
     altitude_ft = 37000,
     pressure_altitude_ft = 37000,
@@ -677,7 +571,6 @@ local descentProgressEngine = core.newEventEngine({
 })
 local descentProgressBase = copy(base, {
     on_ground = false,
-    on_runway_profile = false,
     fms_phase = 2,
     altitude_ft = 41000,
     pressure_altitude_ft = 41000,
@@ -690,6 +583,7 @@ descentProgressEngine:update(copy(descentProgressBase, { tod_distance_nm = 2 }),
 descentProgressEngine:update(copy(descentProgressBase, {
     fms_phase = 5,
     descent_state = true,
+    descent_entry_kind = "tod",
     altitude_ft = 40900,
     pressure_altitude_ft = 40900,
     vertical_speed_fpm = -1000,
@@ -765,9 +659,9 @@ descentProgressEngine:update(copy(descentProgressBase, {
     vertical_speed_fpm = -1000,
     tod_distance_nm = 0
 }), descentNow)
-assert_equal(#descentProgressEvents, 5, "FL100 and approach become eligible from accepted YAL state")
-assert_equal(descentProgressEvents[4].id, "arrival.descent_level_10000", "FL100 descent event id")
-assert_equal(descentProgressEvents[5].id, "arrival.approach", "approach takeover event")
+assert_equal(#descentProgressEvents, 5, "approach and FL100 become eligible from accepted YAL state")
+assert_equal(descentProgressEvents[4].id, "arrival.approach", "approach state event")
+assert_equal(descentProgressEvents[5].id, "arrival.descent_level_10000", "FL100 descent event id")
 
 local descentReloadEvents = {}
 local descentReloadEngine = core.newEventEngine({
@@ -838,7 +732,6 @@ local descentStateEngine = core.newEventEngine({
 })
 local descentStateBase = copy(base, {
     on_ground = false,
-    on_runway_profile = false,
     fms_phase = 2,
     altitude_ft = 30500,
     pressure_altitude_ft = 30500,
@@ -855,8 +748,8 @@ descentStateEngine:update(copy(descentStateBase, {
     altitude_ft = 29950,
     pressure_altitude_ft = 29950
 }), 2)
-assert_equal(#descentStateEvents, 1, "YAL descent state emits FL300 without FMS or VS crossing gates")
-assert_equal(descentStateEvents[1].id, "arrival.descent_level_30000", "YAL descent state FL300 event")
+assert_equal(#descentStateEvents, 1, "YAL descent state emits descent entry without FMS or VS gates")
+assert_equal(descentStateEvents[1].id, "arrival.on_descent", "YAL descent state entry event")
 
 local descentRetryCalls = 0
 local descentRetryEvents = {}
@@ -868,25 +761,19 @@ local descentRetryEngine = core.newEventEngine({
         return true
     end
 })
+descentRetryEngine:update(descentStateBase, 0)
 local descentAcceptedBase = copy(descentStateBase, { descent_state = true })
-descentRetryEngine:update(descentAcceptedBase, 0)
-descentRetryEngine:update(copy(descentAcceptedBase, {
-    altitude_ft = 30000,
-    pressure_altitude_ft = 30000
-}), 1)
-descentRetryEngine:update(copy(descentAcceptedBase, {
-    altitude_ft = 29950,
-    pressure_altitude_ft = 29950
-}), 2)
-assert_equal(descentRetryCalls, 2, "FL300 queue rejection is retried")
-assert_equal(#descentRetryEvents, 1, "FL300 retry eventually emits")
-assert_equal(descentRetryEvents[1].id, "arrival.descent_level_30000", "FL300 retry event id")
+descentRetryEngine:update(descentAcceptedBase, 1)
+descentRetryEngine:update(descentAcceptedBase, 2)
+assert_equal(descentRetryCalls, 2, "descent entry queue rejection is retried")
+assert_equal(#descentRetryEvents, 1, "descent entry retry eventually emits")
+assert_equal(descentRetryEvents[1].id, "arrival.on_descent", "descent entry retry event id")
 
 local reloadEvents = {}
 local reloadEngine = core.newEventEngine({ emit = function(event) table.insert(reloadEvents, event) return true end })
 local loadedOnFinal = copy(base, {
     on_ground = false,
-    on_runway_profile = false,
+    descent_state = true,
     final_gate = true,
     fms_phase = 7,
     altitude_ft = 2000,
@@ -904,7 +791,7 @@ local armedApproachEngine = core.newEventEngine({
 })
 local beforeArmedApproach = copy(base, {
     on_ground = false,
-    on_runway_profile = false,
+    descent_state = true,
     fms_phase = 5,
     altitude_ft = 6000,
     pressure_altitude_ft = 6000,
@@ -1141,8 +1028,11 @@ local baselineDef = {
     ON = 1,
     OFF = 0,
     FLIGHTSTATEPREFLIGHT = 0,
+    FLIGHTSTATEINITIALCLIMB = 1,
     FLIGHTSTATECLIMB = 2,
     FLIGHTSTATEAPPROACH = 4,
+    FLIGHTSTATETAXITOGATE = 5,
+    FLIGHTSTATESHUTDOWN = 6,
     BEFORETAXIPROCEDURE = 5,
     BEFORETAKEOFFPROCEDURE = 6,
     CAPTURED = 2
@@ -1284,32 +1174,37 @@ local persistentTaxiYal = {
     ProcSetStatusarraydr = "procedureset",
     flightstate = 0
 }
-autoUnicom.configure({
-    yal = persistentTaxiYal,
-    def = baselineDef,
-    helpers = {
-        logInfoTS = function(message) table.insert(persistentTaxiLogs, message) end
-    },
-    sources = {
-        pressure_altitude = "pressure_altitude",
-        aircraft_icao = "aircraft_icao"
-    },
-    getRefs = function() return repeatRefs end,
-    read = function(prop, index)
-        if prop == "procedureset" then
-            return index == 5 and 1 or 0
+local persistentProcedureSet = 1
+local function configure_persistent_taxi_test()
+    autoUnicom.configure({
+        yal = persistentTaxiYal,
+        def = baselineDef,
+        helpers = {
+            logInfoTS = function(message) table.insert(persistentTaxiLogs, message) end
+        },
+        sources = {
+            pressure_altitude = "pressure_altitude",
+            aircraft_icao = "aircraft_icao"
+        },
+        getRefs = function() return repeatRefs end,
+        read = function(prop, index)
+            if prop == "procedureset" then
+                return index == 5 and persistentProcedureSet or 0
+            end
+            return persistentTaxiValues[prop]
+        end,
+        writeText = function(_, text)
+            table.insert(persistentTaxiWrites, { kind = "text", value = text })
+            return true
+        end,
+        writeSeq = function(_, seq)
+            table.insert(persistentTaxiWrites, { kind = "seq", value = seq })
+            return true
         end
-        return persistentTaxiValues[prop]
-    end,
-    writeText = function(_, text)
-        table.insert(persistentTaxiWrites, { kind = "text", value = text })
-        return true
-    end,
-    writeSeq = function(_, seq)
-        table.insert(persistentTaxiWrites, { kind = "seq", value = seq })
-        return true
-    end
-})
+    })
+end
+
+configure_persistent_taxi_test()
 autoUnicom.tick(true, 0)
 persistentTaxiValues.tirespeed = 6
 persistentTaxiValues.groundspeed = 6
@@ -1320,6 +1215,28 @@ assert_equal(persistentTaxiWrites[1].value, phraseCases[9][3], "persistent Befor
 assert_true(
     table.concat(persistentTaxiLogs, "\n"):find("beforeTaxiSource=state_dataref", 1, true) ~= nil,
     "persistent Before Taxi source is logged"
+)
+
+persistentTaxiLogs = {}
+persistentTaxiWrites = {}
+persistentProcedureSet = 0
+persistentTaxiYal.procedureloop1 = { lock = 5, stepindex = 0 }
+persistentTaxiValues.tirespeed = 0
+persistentTaxiValues.groundspeed = 0
+configure_persistent_taxi_test()
+autoUnicom.tick(true, 0)
+persistentTaxiValues.tirespeed = 6
+persistentTaxiValues.groundspeed = 6
+autoUnicom.tick(true, 1)
+autoUnicom.tick(true, 2)
+assert_equal(#persistentTaxiWrites, 0, "reserved Before Taxi loop does not trigger taxi")
+persistentTaxiYal.procedureloop1.stepindex = 1
+autoUnicom.tick(true, 3)
+autoUnicom.tick(true, 4)
+assert_equal(persistentTaxiWrites[1].value, phraseCases[9][3], "accepted Before Taxi step triggers taxi")
+assert_true(
+    table.concat(persistentTaxiLogs, "\n"):find("beforeTaxiSource=active_loop", 1, true) ~= nil,
+    "accepted Before Taxi loop source is logged"
 )
 
 print("auto_unicom tests passed")
