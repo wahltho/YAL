@@ -6,6 +6,8 @@ M.EVENT_TTL_SEC = {
     ["departure.lineup_takeoff"] = 45,
     ["departure.airborne"] = 60,
     ["departure.on_climb"] = 120,
+    ["enroute.hold_enter"] = 120,
+    ["enroute.hold_exit"] = 120,
     ["arrival.top_of_descent"] = 120,
     ["arrival.on_descent"] = 120,
     ["arrival.approach"] = 180,
@@ -47,6 +49,8 @@ local CLIMB_PROGRESS_MAX_SAMPLE_RISE_FT = 2000
 local TAKEOFF_ROLL_SPEED_KTS = 25
 local TAKEOFF_ROLL_HOLD_SEC = 2
 local RUNWAY_VACATED_HOLD_SEC = 2
+local HOLD_ENTER_EVENT_ID = "enroute.hold_enter"
+local HOLD_EXIT_EVENT_ID = "enroute.hold_exit"
 
 local function is_climb_progress_event(eventId)
     return type(eventId) == "string"
@@ -163,6 +167,19 @@ local function aircraft_type(snapshot)
     return clean_token(snapshot.aircraft_type, false) or "B738"
 end
 
+local function hold_episode_key(snapshot)
+    local waypoint = clean_token(snapshot.hold_waypoint, false)
+    local pathType = clean_token(snapshot.hold_path_type, false)
+    if not waypoint or (pathType ~= "HM" and pathType ~= "HA" and pathType ~= "HF") then return nil end
+    return waypoint .. "|" .. pathType, waypoint, pathType
+end
+
+local function copy_hold_snapshot(snapshot)
+    local result = {}
+    for key, value in pairs(snapshot or {}) do result[key] = value end
+    return result
+end
+
 local function format_altitude(snapshot, descent)
     local indicated = tonumber(snapshot.altitude_ft)
     local pressure = tonumber(snapshot.pressure_altitude_ft) or indicated
@@ -262,6 +279,15 @@ function M.buildMessage(eventId, snapshot)
         local altitude = format_altitude(snapshot, false)
         if not airport or not altitude then return nil, "missing_departure_context" end
         return normalize_text(string.format("%s Traffic, %s airborne off runway %s, passing %s", airport, ac, runway, altitude))
+    end
+
+    if eventId == HOLD_ENTER_EVENT_ID or eventId == HOLD_EXIT_EVENT_ID then
+        local waypoint = clean_token(snapshot.hold_waypoint, false)
+        if not waypoint then return nil, "missing_hold_context" end
+        if eventId == HOLD_ENTER_EVENT_ID then
+            return normalize_text(string.format("Traffic, %s, entering a hold over %s", ac, waypoint))
+        end
+        return normalize_text(string.format("Traffic, %s, exiting hold over %s", ac, waypoint))
     end
 
     if eventId == "departure.on_climb" or is_climb_progress_event(eventId) then
@@ -380,6 +406,17 @@ local function summarize_sources(snapshot)
         { "pushParkingType", snapshot.pushback_parking_type },
         { "pushParkingName", snapshot.pushback_parking_name },
         { "pushParkingDist", snapshot.pushback_parking_distance_m },
+        { "holdSource", snapshot.hold_source },
+        { "holdApi", snapshot.hold_api_version },
+        { "holdActive", snapshot.hold_active and 1 or 0 },
+        { "holdEntryComplete", snapshot.hold_entry_complete and 1 or 0 },
+        { "holdExitArmed", snapshot.hold_exit_armed and 1 or 0 },
+        { "holdWaypoint", snapshot.hold_waypoint },
+        { "holdPath", snapshot.hold_path_type },
+        { "holdTarget", snapshot.hold_target_altitude_ft },
+        { "holdLegacyNav", snapshot.hold_legacy_nav_mode },
+        { "holdLegacyPhase", snapshot.hold_legacy_phase },
+        { "holdLegacyTerm", snapshot.hold_legacy_term },
         { "arrClear", snapshot.arrival_runway_clear and 1 or 0 },
         { "final", snapshot.final_gate and 1 or 0 }
     }
@@ -395,6 +432,7 @@ function M.newEventEngine(options)
     return setmetatable({
         emit = options.emit or function() return true end,
         cancelQueuedForGoAround = options.cancelQueuedForGoAround or function() end,
+        cancelQueuedForHoldEnd = options.cancelQueuedForHoldEnd or function() end,
         log = options.log or function() end,
         active = false,
         sent = {},
@@ -415,12 +453,59 @@ function M.newEventEngine(options)
         last_descent_report_altitude_ft = nil,
         deferred_approach = false,
         final_since = nil,
-        last_fms_phase = nil
+        last_fms_phase = nil,
+        hold_episode = nil
     }, Engine)
 end
 
 function Engine:markSent(eventId)
     self.sent[eventId] = true
+end
+
+function Engine:baselineHold(snapshot)
+    self.hold_episode = nil
+    self.sent[HOLD_ENTER_EVENT_ID] = nil
+    self.sent[HOLD_EXIT_EVENT_ID] = nil
+    if snapshot.on_ground == true or snapshot.hold_active ~= true then return end
+
+    local key = hold_episode_key(snapshot)
+    if not key then return end
+    self.hold_episode = { key = key, snapshot = copy_hold_snapshot(snapshot) }
+    self:markSent(HOLD_ENTER_EVENT_ID)
+    if snapshot.hold_exit_armed == true then self:markSent(HOLD_EXIT_EVENT_ID) end
+end
+
+function Engine:updateHoldEvents(snapshot, now, onGround)
+    local holdActive = not onGround and snapshot.hold_active == true
+    local key = holdActive and hold_episode_key(snapshot) or nil
+
+    if holdActive and key then
+        if not self.hold_episode or self.hold_episode.key ~= key then
+            if self.hold_episode and not self.sent[HOLD_EXIT_EVENT_ID] then
+                self.cancelQueuedForHoldEnd()
+                self:tryEmit(HOLD_EXIT_EVENT_ID, self.hold_episode.snapshot, now)
+            end
+            self.sent[HOLD_ENTER_EVENT_ID] = nil
+            self.sent[HOLD_EXIT_EVENT_ID] = nil
+            self.hold_episode = { key = key, snapshot = copy_hold_snapshot(snapshot) }
+        else
+            self.hold_episode.snapshot = copy_hold_snapshot(snapshot)
+        end
+
+        self:tryEmit(HOLD_ENTER_EVENT_ID, self.hold_episode.snapshot, now)
+        if snapshot.hold_exit_armed == true then
+            self:tryEmit(HOLD_EXIT_EVENT_ID, self.hold_episode.snapshot, now)
+        end
+        return
+    end
+
+    if self.hold_episode then
+        if not self.sent[HOLD_EXIT_EVENT_ID] then
+            self.cancelQueuedForHoldEnd()
+            self:tryEmit(HOLD_EXIT_EVENT_ID, self.hold_episode.snapshot, now)
+        end
+        if self.sent[HOLD_EXIT_EVENT_ID] then self.hold_episode = nil end
+    end
 end
 
 function Engine:resetDepartureGroundCycle(snapshot)
@@ -459,6 +544,7 @@ function Engine:activate(snapshot)
     self.deferred_approach = false
     self.final_since = nil
     self.last_fms_phase = tonumber(snapshot.fms_phase) or 0
+    self:baselineHold(snapshot)
 
     if snapshot.on_ground ~= true then
         self:markSent("departure.start_push")
@@ -528,6 +614,7 @@ function Engine:deactivate()
     self.deferred_approach = false
     self.last_descent_state = nil
     self.last_fms_phase = nil
+    self.hold_episode = nil
 end
 
 function Engine:beginFlight(snapshot)
@@ -545,6 +632,7 @@ function Engine:beginFlight(snapshot)
     self.last_descent_state = snapshot.descent_state == true
     self.final_since = nil
     self.last_fms_phase = tonumber(snapshot.fms_phase) or 0
+    self:baselineHold(snapshot)
 end
 
 function Engine:tryEmit(eventId, snapshot, now)
@@ -785,6 +873,7 @@ function Engine:update(snapshot, now)
     end
 
     self:updateClimbProgress(snapshot, now, onGround)
+    self:updateHoldEvents(snapshot, now, onGround)
 
     if not onGround and descentState
         and not self.sent["arrival.top_of_descent"]
@@ -847,6 +936,9 @@ local Mailbox = {}
 Mailbox.__index = Mailbox
 
 local SUPERSEDED_EVENTS = {
+    [HOLD_EXIT_EVENT_ID] = {
+        [HOLD_ENTER_EVENT_ID] = true
+    },
     ["departure.taxi_runway"] = {
         ["departure.start_push"] = true
     },
@@ -978,6 +1070,19 @@ function Mailbox:cancelQueuedForGoAround()
         if cancel then
             self.queuedIds[event.id] = nil
             self.log("cancelled_go_around", event)
+        else
+            table.insert(kept, event)
+        end
+    end
+    self.queue = kept
+end
+
+function Mailbox:cancelQueuedForHoldEnd()
+    local kept = {}
+    for _, event in ipairs(self.queue) do
+        if event.id == HOLD_ENTER_EVENT_ID then
+            self.queuedIds[event.id] = nil
+            self.log("cancelled_hold_end", event)
         else
             table.insert(kept, event)
         end

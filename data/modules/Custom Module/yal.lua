@@ -1576,6 +1576,36 @@ function P.bindExternalDatarefs(silentMissing)
         }
     end
 
+    local function bindHoldRuntimeRefs()
+        P.holdRuntime = nil
+        local base = "laminar/B738/fms/hold_runtime/"
+        if probe_external_dataref(base .. "api_version") then
+            P.holdRuntime = {
+                api_version = GP(base .. "api_version"),
+                update_seq = GP(base .. "update_seq"),
+                active = GP(base .. "active"),
+                entry_complete = GP(base .. "entry_complete"),
+                exit_armed = GP(base .. "exit_armed"),
+                waypoint = GPS(base .. "waypoint"),
+                path_type = GPS(base .. "path_type"),
+                target_altitude_ft = GP(base .. "target_altitude_ft"),
+                target_altitude_valid = GP(base .. "target_altitude_valid")
+            }
+            local version = read_optional_number_dataref(P.holdRuntime.api_version)
+            local logKey = version and version >= 1 and tostring(math.floor(version)) or nil
+            if logKey and P.holdRuntimeApiLogKey ~= logKey then
+                P.holdRuntimeApiLogKey = logKey
+                helpers.logInfoTS("Zibo Hold Runtime API connected version=" .. logKey)
+            end
+        end
+
+        P.fmsnavmode = GP("laminar/B738/fms/nav_mode")
+        P.fmsgpswptpath = GPS("laminar/B738/fms/gps_wpt_path")
+        P.fmsfplnnavid = GPS("laminar/B738/fms/fpln_nav_id")
+        P.fmsholdphase = GP("laminar/B738/fms/hold_phase")
+        P.fmsholdterm = GP("laminar/B738/fms/hold_term")
+    end
+
     local function bindSpeakStringSinkRefs()
         P.speakstringSink = nil
         if silentMissing and not probe_external_dataref("laminar/B738/speakstring_sink/version") then
@@ -1671,6 +1701,7 @@ function P.bindExternalDatarefs(silentMissing)
 
     bindRefdataRefs()
     bindApproachRefRefs()
+    bindHoldRuntimeRefs()
     bindSpeakStringSinkRefs()
     bindZiboRaasRuntimeRefs()
     bindZiboPortRuntimeRefs()

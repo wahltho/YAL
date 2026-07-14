@@ -136,6 +136,16 @@ local phraseCases = {
         "departure.climb_level_40000",
         copy(base, { altitude_ft = 40000, pressure_altitude_ft = 40000, planned_altitude_ft = 41000 }),
         "Traffic, B738 climbing out of ENAT on ATKUP1A departure, passing FL400 for FL410"
+    },
+    {
+        "enroute.hold_enter",
+        copy(base, { hold_waypoint = "BIRCO", hold_path_type = "HM" }),
+        "Traffic, B738, entering a hold over BIRCO"
+    },
+    {
+        "enroute.hold_exit",
+        copy(base, { hold_waypoint = "BIRCO", hold_path_type = "HM" }),
+        "Traffic, B738, exiting hold over BIRCO"
     }
 }
 
@@ -202,6 +212,70 @@ assert_equal(
     "ENSB Traffic, B738 established on Localizer runway 27",
     "LOC final phrase"
 )
+
+local missingHoldText, missingHoldReason = core.buildMessage("enroute.hold_enter", base)
+assert_equal(missingHoldText, nil, "hold phrase requires waypoint")
+assert_equal(missingHoldReason, "missing_hold_context", "missing hold waypoint reason")
+
+local holdEvents = {}
+local holdQueueCancels = 0
+local holdEngine = core.newEventEngine({
+    emit = function(event) table.insert(holdEvents, event) return true end,
+    cancelQueuedForHoldEnd = function() holdQueueCancels = holdQueueCancels + 1 end
+})
+local holdIdle = copy(base, { on_ground = false })
+holdEngine:update(holdIdle, 0)
+local holdEntering = copy(holdIdle, {
+    hold_source = "api",
+    hold_api_version = 1,
+    hold_active = true,
+    hold_exit_armed = false,
+    hold_waypoint = "BIRCO",
+    hold_path_type = "HM"
+})
+holdEngine:update(holdEntering, 1)
+assert_equal(#holdEvents, 1, "active hold emits entry")
+assert_equal(holdEvents[1].id, "enroute.hold_enter", "hold entry event id")
+holdEngine:update(copy(holdEntering, { hold_source = "legacy" }), 2)
+assert_equal(#holdEvents, 1, "API to legacy fallback keeps same hold episode")
+local holdExitArmed = copy(holdEntering, { hold_exit_armed = true })
+holdEngine:update(holdExitArmed, 3)
+assert_equal(#holdEvents, 2, "armed hold exit emits once")
+assert_equal(holdEvents[2].id, "enroute.hold_exit", "hold exit event id")
+holdEngine:update(copy(holdExitArmed, { hold_active = false, hold_exit_armed = false }), 4)
+assert_equal(#holdEvents, 2, "active drop does not duplicate armed exit")
+
+local automaticHold = copy(holdEntering, {
+    hold_source = "legacy",
+    hold_waypoint = "ROBUR",
+    hold_path_type = "HF",
+    hold_exit_armed = false
+})
+holdEngine:update(automaticHold, 5)
+assert_equal(#holdEvents, 3, "second hold episode emits new entry")
+holdEngine:update(copy(automaticHold, { hold_active = false }), 6)
+assert_equal(#holdEvents, 4, "automatic active drop emits hold exit")
+assert_equal(holdEvents[4].text, "Traffic, B738, exiting hold over ROBUR", "automatic exit uses latched fix")
+assert_equal(holdQueueCancels, 1, "automatic hold end cancels stale local entry once")
+
+local holdReloadEvents = {}
+local holdReloadEngine = core.newEventEngine({
+    emit = function(event) table.insert(holdReloadEvents, event) return true end
+})
+holdReloadEngine:update(holdEntering, 0)
+holdReloadEngine:update(holdEntering, 10)
+assert_equal(#holdReloadEvents, 0, "reload in active hold emits no entry backfill")
+holdReloadEngine:update(copy(holdEntering, { hold_active = false }), 11)
+assert_equal(#holdReloadEvents, 1, "reload in hold still reports later actual exit")
+assert_equal(holdReloadEvents[1].id, "enroute.hold_exit", "reload hold exit event")
+
+local holdExitReloadEvents = {}
+local holdExitReloadEngine = core.newEventEngine({
+    emit = function(event) table.insert(holdExitReloadEvents, event) return true end
+})
+holdExitReloadEngine:update(holdExitArmed, 0)
+holdExitReloadEngine:update(copy(holdExitArmed, { hold_active = false, hold_exit_armed = false }), 10)
+assert_equal(#holdExitReloadEvents, 0, "reload with exit already armed emits no exit backfill")
 
 local groundEvents = {}
 local groundEngine = core.newEventEngine({
@@ -1043,6 +1117,41 @@ assert_equal(#supersessionMailbox.queue, 1, "go-around cancellation removes only
 assert_equal(supersessionMailbox.queue[1].id, "departure.taxi_runway", "go-around cancellation preserves departure event")
 assert_equal(supersessionLogs[#supersessionLogs].kind, "cancelled_go_around", "go-around queue cancellation logged")
 
+local holdMailboxLogs = {}
+local holdMailbox = core.newMailbox({
+    log = function(kind, event) table.insert(holdMailboxLogs, { kind = kind, event = event }) end
+})
+assert_true(holdMailbox:enqueue({
+    id = "enroute.hold_enter",
+    text = phraseCases[16][3],
+    expires_at = 100
+}), "enqueue hold entry")
+assert_true(holdMailbox:enqueue({
+    id = "enroute.hold_exit",
+    text = phraseCases[17][3],
+    expires_at = 100
+}), "enqueue hold exit supersession")
+assert_equal(#holdMailbox.queue, 1, "hold exit supersedes queued hold entry")
+assert_equal(holdMailbox.queue[1].id, "enroute.hold_exit", "hold exit remains queued")
+assert_equal(holdMailboxLogs[1].kind, "superseded", "hold supersession logged")
+holdMailbox = core.newMailbox({
+    log = function(kind, event) table.insert(holdMailboxLogs, { kind = kind, event = event }) end
+})
+assert_true(holdMailbox:enqueue({
+    id = "enroute.hold_enter",
+    text = phraseCases[16][3],
+    expires_at = 100
+}), "enqueue hold entry before cancellation")
+assert_true(holdMailbox:enqueue({
+    id = "departure.taxi_runway",
+    text = phraseCases[9][3],
+    expires_at = 100
+}), "enqueue unrelated event before hold cancellation")
+holdMailbox:cancelQueuedForHoldEnd()
+assert_equal(#holdMailbox.queue, 1, "hold cancellation removes only hold entry")
+assert_equal(holdMailbox.queue[1].id, "departure.taxi_runway", "hold cancellation preserves unrelated event")
+assert_equal(holdMailboxLogs[#holdMailboxLogs].kind, "cancelled_hold_end", "hold cancellation logged")
+
 local departureSupersession = core.newMailbox()
 assert_true(departureSupersession:enqueue({
     id = "departure.start_push",
@@ -1538,5 +1647,154 @@ autoUnicom.tick(true, 4.9)
 assert_equal(#runwayVacatedWrites, 0, "adapter runway-clear state is debounced")
 autoUnicom.tick(true, 5.9)
 assert_equal(runwayVacatedWrites[1].value, phraseCases[7][3], "adapter emits vacated after stable clear state")
+
+local holdAdapterValues = copy(baselineValues, {
+    hold_api_version = 1,
+    hold_update_seq = 2,
+    hold_active = 0,
+    hold_entry_complete = 0,
+    hold_exit_armed = 0,
+    hold_waypoint = "",
+    hold_path_type = "",
+    hold_target_altitude_ft = 0,
+    hold_target_altitude_valid = 0,
+    hold_legacy_nav_mode = 3,
+    hold_legacy_path_type = "HF",
+    hold_legacy_waypoint = "ROBUR",
+    hold_legacy_phase = 0,
+    hold_legacy_term = 2
+})
+local holdAdapterYal = copy(baselineYal, {
+    holdRuntime = {
+        api_version = "hold_api_version",
+        update_seq = "hold_update_seq",
+        active = "hold_active",
+        entry_complete = "hold_entry_complete",
+        exit_armed = "hold_exit_armed",
+        waypoint = "hold_waypoint",
+        path_type = "hold_path_type",
+        target_altitude_ft = "hold_target_altitude_ft",
+        target_altitude_valid = "hold_target_altitude_valid"
+    },
+    fmsnavmode = "hold_legacy_nav_mode",
+    fmsgpswptpath = "hold_legacy_path_type",
+    fmsfplnnavid = "hold_legacy_waypoint",
+    fmsholdphase = "hold_legacy_phase",
+    fmsholdterm = "hold_legacy_term"
+})
+local holdAdapterWrites = {}
+local holdAdapterLogs = {}
+local function configure_hold_adapter(values, readOverride)
+    autoUnicom.configure({
+        yal = holdAdapterYal,
+        def = baselineDef,
+        helpers = { logInfoTS = function(message) table.insert(holdAdapterLogs, message) end },
+        sources = {
+            pressure_altitude = "pressure_altitude",
+            aircraft_icao = "aircraft_icao"
+        },
+        getRefs = function() return repeatRefs end,
+        read = readOverride or function(prop) return values[prop] end,
+        writeText = function(_, text)
+            table.insert(holdAdapterWrites, { kind = "text", value = text })
+            return true
+        end,
+        writeSeq = function(_, seq)
+            table.insert(holdAdapterWrites, { kind = "seq", value = seq })
+            return true
+        end
+    })
+end
+
+configure_hold_adapter(holdAdapterValues)
+autoUnicom.tick(true, 0)
+autoUnicom.tick(true, 1)
+assert_equal(#holdAdapterWrites, 0, "stable inactive API is authoritative over stale active legacy refs")
+holdAdapterValues.hold_update_seq = 4
+holdAdapterValues.hold_active = 1
+holdAdapterValues.hold_waypoint = "BIRCO"
+holdAdapterValues.hold_path_type = "HM"
+holdAdapterValues.hold_target_altitude_ft = 10000
+holdAdapterValues.hold_target_altitude_valid = 1
+autoUnicom.tick(true, 2)
+assert_equal(holdAdapterWrites[1].value, phraseCases[16][3], "stable API snapshot emits hold entry")
+assert_true(table.concat(holdAdapterLogs, "\n"):find("holdSource=api", 1, true) ~= nil,
+    "API hold source is logged")
+holdAdapterValues.result_seq = 13
+holdAdapterValues.result_code = 21
+autoUnicom.tick(true, 3)
+holdAdapterValues.hold_update_seq = 6
+holdAdapterValues.hold_exit_armed = 1
+autoUnicom.tick(true, 4)
+assert_equal(holdAdapterWrites[3].value, phraseCases[17][3], "API exit armed emits hold exit")
+holdAdapterValues.result_seq = 14
+holdAdapterValues.hold_update_seq = 8
+holdAdapterValues.hold_active = 0
+holdAdapterValues.hold_exit_armed = 0
+holdAdapterValues.hold_waypoint = ""
+holdAdapterValues.hold_path_type = ""
+holdAdapterValues.hold_target_altitude_ft = 0
+holdAdapterValues.hold_target_altitude_valid = 0
+autoUnicom.tick(true, 5)
+assert_equal(#holdAdapterWrites, 4, "active drop does not duplicate API armed exit")
+
+local oddHoldValues = copy(holdAdapterValues, {
+    request_seq = 20,
+    result_seq = 20,
+    result_code = 21,
+    hold_update_seq = 3,
+    hold_active = 1,
+    hold_waypoint = "WRONG",
+    hold_path_type = "HM",
+    hold_legacy_nav_mode = 0,
+    hold_legacy_path_type = "",
+    hold_legacy_waypoint = "",
+    hold_legacy_term = 0
+})
+holdAdapterWrites = {}
+holdAdapterLogs = {}
+configure_hold_adapter(oddHoldValues)
+autoUnicom.tick(true, 0)
+oddHoldValues.hold_legacy_nav_mode = 3
+oddHoldValues.hold_legacy_path_type = "HA"
+oddHoldValues.hold_legacy_waypoint = "LALAD"
+autoUnicom.tick(true, 1)
+assert_equal(holdAdapterWrites[1].value, "Traffic, B738, entering a hold over LALAD",
+    "odd API sequence uses legacy hold fallback")
+assert_true(table.concat(holdAdapterLogs, "\n"):find("holdSource=legacy", 1, true) ~= nil,
+    "odd API fallback source is logged")
+oddHoldValues.result_seq = 21
+oddHoldValues.result_code = 21
+autoUnicom.tick(true, 2)
+oddHoldValues.hold_legacy_term = 2
+autoUnicom.tick(true, 3)
+assert_equal(holdAdapterWrites[3].value, "Traffic, B738, exiting hold over LALAD",
+    "legacy EXEC hold term emits hold exit")
+
+local changingHoldValues = copy(oddHoldValues, {
+    request_seq = 30,
+    result_seq = 30,
+    hold_legacy_nav_mode = 0,
+    hold_legacy_path_type = "",
+    hold_legacy_waypoint = "",
+    hold_legacy_term = 0
+})
+local changingSeq = 0
+holdAdapterWrites = {}
+holdAdapterLogs = {}
+configure_hold_adapter(changingHoldValues, function(prop)
+    if prop == "hold_update_seq" then
+        changingSeq = changingSeq + 2
+        return changingSeq
+    end
+    return changingHoldValues[prop]
+end)
+autoUnicom.tick(true, 0)
+changingHoldValues.hold_legacy_nav_mode = 3
+changingHoldValues.hold_legacy_path_type = "HF"
+changingHoldValues.hold_legacy_waypoint = "OKDIT"
+autoUnicom.tick(true, 1)
+assert_equal(holdAdapterWrites[1].value, "Traffic, B738, entering a hold over OKDIT",
+    "changing API sequence uses legacy hold fallback")
 
 print("auto_unicom tests passed")

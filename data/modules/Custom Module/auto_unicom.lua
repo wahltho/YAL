@@ -11,6 +11,8 @@ local lastIntendedMessageText = nil
 local lastCommittedMessageText = nil
 local manualRepeatCount = 0
 local PUSHBACK_PARKING_MAX_DISTANCE_M = 80
+local HOLD_RUNTIME_SNAPSHOT_ATTEMPTS = 3
+local HOLD_PATH_TYPES = { HM = true, HA = true, HF = true }
 
 local function log(message)
     if runtime and runtime.helpers and runtime.helpers.logInfoTS then
@@ -64,6 +66,8 @@ local function mailbox_log(kind, event)
         log("IVAO Auto-Unicom: superseded queued event=" .. tostring(event.id))
     elseif kind == "cancelled_go_around" then
         log("IVAO Auto-Unicom: cancelled queued event after go-around=" .. tostring(event.id))
+    elseif kind == "cancelled_hold_end" then
+        log("IVAO Auto-Unicom: cancelled stale queued hold event=" .. tostring(event.id))
     elseif kind == "timeout" then
         log("IVAO Auto-Unicom: result timeout; transport blocked for session seq=" .. tostring(event.seq))
     elseif kind == "sequence_write_failed" then
@@ -107,6 +111,9 @@ local function create_state_machines()
         cancelQueuedForGoAround = function()
             if mailbox then mailbox:cancelQueuedForGoAround() end
         end,
+        cancelQueuedForHoldEnd = function()
+            if mailbox then mailbox:cancelQueuedForHoldEnd() end
+        end,
         log = event_engine_log
     })
 end
@@ -134,6 +141,111 @@ local function read_approach_ref(snapshot)
     snapshot.approach_id = procedureId ~= "" and procedureId or snapshot.approach_id
     snapshot.approach_procedure_type = procedureType ~= "" and procedureType or snapshot.approach_procedure_type
     snapshot.approach_resolved_kind = resolvedKind ~= "" and resolvedKind or nil
+end
+
+local function normalize_hold_waypoint(value)
+    local text = tostring(value or ""):upper():gsub("^%s+", ""):gsub("%s+$", "")
+    if text == "" or #text > 16 then return nil end
+    for index = 1, #text do
+        local byte = text:byte(index)
+        local valid = (byte >= 48 and byte <= 57)
+            or (byte >= 65 and byte <= 90)
+            or byte == 45
+        if not valid then return nil end
+    end
+    return text
+end
+
+local function normalize_hold_path(value)
+    local path = tostring(value or ""):upper():gsub("^%s+", ""):gsub("%s+$", "")
+    if HOLD_PATH_TYPES[path] then return path end
+    return nil
+end
+
+local function is_binary_number(value)
+    return value == 0 or value == 1
+end
+
+local function read_hold_runtime_api(y)
+    local api = y and y.holdRuntime or nil
+    if type(api) ~= "table" or (tonumber(safe_read(api.api_version)) or 0) < 1 then return nil end
+
+    for _ = 1, HOLD_RUNTIME_SNAPSHOT_ATTEMPTS do
+        local seqBefore = tonumber(safe_read(api.update_seq))
+        if seqBefore and seqBefore % 2 == 0 then
+            local active = tonumber(safe_read(api.active))
+            local entryComplete = tonumber(safe_read(api.entry_complete))
+            local exitArmed = tonumber(safe_read(api.exit_armed))
+            local waypointRaw = safe_read(api.waypoint)
+            local pathRaw = safe_read(api.path_type)
+            local targetAltitude = tonumber(safe_read(api.target_altitude_ft))
+            local targetValid = tonumber(safe_read(api.target_altitude_valid))
+            local seqAfter = tonumber(safe_read(api.update_seq))
+
+            if seqAfter == seqBefore and seqAfter % 2 == 0
+                and is_binary_number(active)
+                and is_binary_number(entryComplete)
+                and is_binary_number(exitArmed)
+                and waypointRaw ~= nil and pathRaw ~= nil
+                and targetAltitude ~= nil and is_binary_number(targetValid) then
+                local waypoint = normalize_hold_waypoint(waypointRaw)
+                local pathType = normalize_hold_path(pathRaw)
+                if active == 0 or (waypoint and pathType) then
+                    return {
+                        source = "api",
+                        api_version = tonumber(safe_read(api.api_version)) or 0,
+                        active = active == 1,
+                        entry_complete = active == 1 and entryComplete == 1,
+                        exit_armed = active == 1 and exitArmed == 1,
+                        waypoint = active == 1 and waypoint or nil,
+                        path_type = active == 1 and pathType or nil,
+                        target_altitude_ft = active == 1 and targetValid == 1 and targetAltitude > 0
+                            and targetAltitude or nil,
+                        target_altitude_valid = active == 1 and targetValid == 1 and targetAltitude > 0
+                    }
+                end
+            end
+        end
+    end
+    return nil
+end
+
+local function read_hold_legacy(y)
+    local navMode = tonumber(safe_read(y and y.fmsnavmode))
+    local pathType = normalize_hold_path(safe_read(y and y.fmsgpswptpath))
+    local waypoint = normalize_hold_waypoint(safe_read(y and y.fmsfplnnavid))
+    local holdPhase = tonumber(safe_read(y and y.fmsholdphase))
+    local holdTerm = tonumber(safe_read(y and y.fmsholdterm))
+    local active = navMode == 3 and pathType ~= nil and waypoint ~= nil
+    return {
+        source = "legacy",
+        active = active,
+        entry_complete = nil,
+        exit_armed = active and holdTerm ~= nil and holdTerm > 1,
+        waypoint = active and waypoint or nil,
+        path_type = active and pathType or nil,
+        target_altitude_ft = nil,
+        target_altitude_valid = false,
+        legacy_nav_mode = navMode,
+        legacy_hold_phase = holdPhase,
+        legacy_hold_term = holdTerm
+    }
+end
+
+local function read_hold_state(snapshot, y)
+    local hold = read_hold_runtime_api(y) or read_hold_legacy(y)
+    snapshot.hold_source = hold.source
+    snapshot.hold_api_version = hold.api_version
+    snapshot.hold_active = hold.active == true
+    snapshot.hold_entry_complete = hold.entry_complete == true
+    snapshot.hold_exit_armed = hold.exit_armed == true
+    snapshot.hold_waypoint = hold.waypoint
+    snapshot.hold_path_type = hold.path_type
+    snapshot.hold_target_altitude_ft = hold.target_altitude_ft
+    snapshot.hold_target_altitude_valid = hold.target_altitude_valid == true
+    snapshot.hold_legacy_nav_mode = hold.legacy_nav_mode
+    snapshot.hold_legacy_phase = hold.legacy_hold_phase
+    snapshot.hold_legacy_term = hold.legacy_hold_term
 end
 
 local function parse_approach_fallback(snapshot)
@@ -271,6 +383,7 @@ local function build_snapshot()
     }
 
     read_pushback_parking(snapshot, y)
+    read_hold_state(snapshot, y)
 
     if y.aircraftonrwy then
         local ok, value = pcall(y.aircraftonrwy, def.DEPARTURE, 40, 20)
