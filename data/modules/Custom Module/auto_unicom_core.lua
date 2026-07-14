@@ -350,26 +350,18 @@ function M.buildMessage(eventId, snapshot)
     return nil, "unknown_event"
 end
 
-local function descent_altitude(snapshot)
-    return tonumber(snapshot.altitude_ft)
-end
-
-local function climb_altitude(snapshot)
-    return tonumber(snapshot.altitude_ft)
+local function copy_snapshot(snapshot)
+    local result = {}
+    for key, value in pairs(snapshot or {}) do result[key] = value end
+    return result
 end
 
 local function snapshot_at_altitude(snapshot, altitude)
-    local frozen = {}
-    for key, value in pairs(snapshot) do
-        frozen[key] = value
-    end
+    local frozen = copy_snapshot(snapshot)
     frozen.altitude_ft = altitude
     frozen.pressure_altitude_ft = altitude
     return frozen
 end
-
-local Engine = {}
-Engine.__index = Engine
 
 local function summarize_sources(snapshot)
     local fields = {
@@ -427,518 +419,213 @@ local function summarize_sources(snapshot)
     return table.concat(parts, " ")
 end
 
-function M.newEventEngine(options)
-    options = options or {}
-    return setmetatable({
-        emit = options.emit or function() return true end,
-        cancelQueuedForGoAround = options.cancelQueuedForGoAround or function() end,
-        cancelQueuedForHoldEnd = options.cancelQueuedForHoldEnd or function() end,
-        log = options.log or function() end,
-        active = false,
-        sent = {},
-        last_on_ground = nil,
-        last_preflight = nil,
-        last_initial_climb_state = nil,
-        last_descent_state = nil,
-        before_taxi_seen = false,
-        before_takeoff_seen = false,
-        push_since = nil,
-        pushback_origin = nil,
-        takeoff_since = nil,
-        vacated_since = nil,
-        taxi_rejection_key = nil,
-        climb_altitude_previous = nil,
-        climb_rejection_key = nil,
-        descent_altitude_previous = nil,
-        descent_rejection_key = nil,
-        last_descent_report_altitude_ft = nil,
-        deferred_approach = false,
-        final_since = nil,
-        last_fms_phase = nil,
-        hold_episode = nil
-    }, Engine)
-end
+M.summarizeSources = summarize_sources
+M.snapshotAtAltitude = snapshot_at_altitude
+M.holdEpisodeKey = hold_episode_key
+M.isApproachPhase = is_approach_phase
+M.CLIMB_PROGRESS_LEVELS_FT = CLIMB_PROGRESS_LEVELS_FT
+M.DESCENT_PROGRESS_LEVELS_FT = DESCENT_PROGRESS_LEVELS_FT
+M.DESCENT_PROGRESS_MIN_SEPARATION_FT = DESCENT_PROGRESS_MIN_SEPARATION_FT
 
-function Engine:markSent(eventId)
-    self.sent[eventId] = true
-end
-
-function Engine:baselineHold(snapshot)
-    self.hold_episode = nil
-    self.sent[HOLD_ENTER_EVENT_ID] = nil
-    self.sent[HOLD_EXIT_EVENT_ID] = nil
-    if snapshot.on_ground == true or snapshot.hold_active ~= true then return end
-
-    local key = hold_episode_key(snapshot)
-    if not key then return end
-    self.hold_episode = { key = key, snapshot = copy_hold_snapshot(snapshot) }
-    self:markSent(HOLD_ENTER_EVENT_ID)
-    if snapshot.hold_exit_armed == true then self:markSent(HOLD_EXIT_EVENT_ID) end
-end
-
-function Engine:updateHoldEvents(snapshot, now, onGround)
-    local holdActive = not onGround and snapshot.hold_active == true
-    local key = holdActive and hold_episode_key(snapshot) or nil
-
-    if holdActive and key then
-        if not self.hold_episode or self.hold_episode.key ~= key then
-            if self.hold_episode and not self.sent[HOLD_EXIT_EVENT_ID] then
-                self.cancelQueuedForHoldEnd()
-                self:tryEmit(HOLD_EXIT_EVENT_ID, self.hold_episode.snapshot, now)
-            end
-            self.sent[HOLD_ENTER_EVENT_ID] = nil
-            self.sent[HOLD_EXIT_EVENT_ID] = nil
-            self.hold_episode = { key = key, snapshot = copy_hold_snapshot(snapshot) }
-        else
-            self.hold_episode.snapshot = copy_hold_snapshot(snapshot)
-        end
-
-        self:tryEmit(HOLD_ENTER_EVENT_ID, self.hold_episode.snapshot, now)
-        if snapshot.hold_exit_armed == true then
-            self:tryEmit(HOLD_EXIT_EVENT_ID, self.hold_episode.snapshot, now)
-        end
-        return
-    end
-
-    if self.hold_episode then
-        if not self.sent[HOLD_EXIT_EVENT_ID] then
-            self.cancelQueuedForHoldEnd()
-            self:tryEmit(HOLD_EXIT_EVENT_ID, self.hold_episode.snapshot, now)
-        end
-        if self.sent[HOLD_EXIT_EVENT_ID] then self.hold_episode = nil end
-    end
-end
-
-function Engine:resetDepartureGroundCycle(snapshot)
-    self.sent["departure.start_push"] = nil
-    self.sent["departure.taxi_runway"] = nil
-    self.sent["departure.lineup_takeoff"] = nil
-    self.before_taxi_seen = snapshot.before_taxi_started == true
-    self.before_takeoff_seen = snapshot.before_takeoff_started == true
-    self.push_since = nil
-    self.pushback_origin = nil
-    self.takeoff_since = nil
-    self.taxi_rejection_key = nil
-    self.climb_altitude_previous = climb_altitude(snapshot)
-    self.climb_rejection_key = nil
-    self.deferred_approach = false
-end
-
-function Engine:activate(snapshot)
-    self.active = true
-    self.sent = {}
-    self.last_on_ground = snapshot.on_ground == true
-    self.last_preflight = snapshot.preflight == true
-    self.last_initial_climb_state = snapshot.initial_climb_state == true
-    self.last_descent_state = snapshot.descent_state == true
-    self.before_taxi_seen = snapshot.before_taxi_started == true
-    self.before_takeoff_seen = snapshot.before_takeoff_started == true
-    self.push_since = nil
-    self.pushback_origin = nil
-    self.takeoff_since = nil
-    self.vacated_since = nil
-    self.taxi_rejection_key = nil
-    self.climb_altitude_previous = climb_altitude(snapshot)
-    self.climb_rejection_key = nil
-    self.descent_altitude_previous = descent_altitude(snapshot)
-    self.descent_rejection_key = nil
-    self.last_descent_report_altitude_ft = nil
-    self.deferred_approach = false
-    self.final_since = nil
-    self.last_fms_phase = tonumber(snapshot.fms_phase) or 0
-    self:baselineHold(snapshot)
-
-    if snapshot.on_ground ~= true then
-        if snapshot.preflight ~= true then
-            self:markSent("departure.start_push")
-            self:markSent("departure.taxi_runway")
-            self:markSent("departure.lineup_takeoff")
-        else
-            self.log("ground_baseline_deferred", { inputs = summarize_sources(snapshot) })
-        end
-        self:markSent("departure.airborne")
-        self:markSent("departure.on_climb")
-        for _, level in ipairs(CLIMB_PROGRESS_LEVELS_FT) do
-            if self.climb_altitude_previous and self.climb_altitude_previous >= level then
-                self:markSent(CLIMB_PROGRESS_PREFIX .. tostring(level))
-            end
-        end
-        if snapshot.descent_state == true then
-            self:markSent("arrival.top_of_descent")
-            self:markSent("arrival.on_descent")
-            self.last_descent_report_altitude_ft = self.descent_altitude_previous
-            for _, level in ipairs(DESCENT_PROGRESS_LEVELS_FT) do
-                if self.descent_altitude_previous and level >= self.descent_altitude_previous then
-                    self:markSent(DESCENT_PROGRESS_PREFIX .. tostring(level))
-                end
-            end
-        end
-        if is_approach_phase(tonumber(snapshot.fms_phase)) then
-            self:markSent("arrival.approach")
-        end
-        if snapshot.final_gate == true then
-            self:markSent("arrival.on_final")
-        end
-    elseif snapshot.on_ground == true then
-        local wheelSpeed = tonumber(snapshot.wheel_speed) or 0
-        local forward = wheelSpeed > 1
-        local reverse = wheelSpeed < -1
-        local moving = math.abs(wheelSpeed) > 1
-        if moving and (snapshot.pushback_active == true or reverse) then
-            self:markSent("departure.start_push")
-        end
-        if self.before_takeoff_seen or (self.before_taxi_seen and forward) then
-            self:markSent("departure.start_push")
-            self:markSent("departure.taxi_runway")
-        end
-        if self.before_takeoff_seen
-            and snapshot.on_departure_runway == true
-            and forward
-            and (tonumber(snapshot.ground_speed_kts) or 0) >= TAKEOFF_ROLL_SPEED_KTS then
-            self:markSent("departure.lineup_takeoff")
-        end
-        if snapshot.post_landing_state == true and snapshot.arrival_runway_clear == true then
-            self:markSent("arrival.runway_vacated")
-        end
-    end
-end
-
-function Engine:deactivate()
-    self.active = false
-    self.sent = {}
-    self.last_on_ground = nil
-    self.final_since = nil
-    self.push_since = nil
-    self.pushback_origin = nil
-    self.takeoff_since = nil
-    self.vacated_since = nil
-    self.taxi_rejection_key = nil
-    self.climb_altitude_previous = nil
-    self.climb_rejection_key = nil
-    self.descent_altitude_previous = nil
-    self.descent_rejection_key = nil
-    self.last_descent_report_altitude_ft = nil
-    self.deferred_approach = false
-    self.last_descent_state = nil
-    self.last_fms_phase = nil
-    self.hold_episode = nil
-end
-
-function Engine:beginFlight(snapshot)
-    self.sent = {}
-    self.push_since = nil
-    self.pushback_origin = nil
-    self.takeoff_since = nil
-    self.vacated_since = nil
-    self.climb_altitude_previous = climb_altitude(snapshot)
-    self.climb_rejection_key = nil
-    self.descent_altitude_previous = descent_altitude(snapshot)
-    self.descent_rejection_key = nil
-    self.last_descent_report_altitude_ft = nil
-    self.deferred_approach = false
-    self.last_descent_state = snapshot.descent_state == true
-    self.final_since = nil
-    self.last_fms_phase = tonumber(snapshot.fms_phase) or 0
-    self:baselineHold(snapshot)
-end
-
-function Engine:tryEmit(eventId, snapshot, now)
-    if self.sent[eventId] then return false end
+function M.newEvent(eventId, snapshot, now)
     local text, reason = M.buildMessage(eventId, snapshot)
-    if not text then return false, reason end
-    local accepted = self.emit({
+    if not text then return nil, reason end
+    return {
         id = eventId,
         text = text,
         inputs = summarize_sources(snapshot),
         created_at = now,
         expires_at = now + (M.EVENT_TTL_SEC[eventId] or 120)
-    })
-    if accepted == false then return false, "queue_rejected" end
-    self.sent[eventId] = true
-    return true
+    }
 end
 
-function Engine:updateClimbProgress(snapshot, now, onGround)
-    local current = climb_altitude(snapshot)
-    local previous = self.climb_altitude_previous
-    self.climb_altitude_previous = current
-
-    if not current or not previous or onGround then return end
-    if snapshot.climb_state ~= true then return end
-
-    local sampleRise = current - previous
-    if sampleRise > CLIMB_PROGRESS_MAX_SAMPLE_RISE_FT then
-        for _, level in ipairs(CLIMB_PROGRESS_LEVELS_FT) do
-            if previous < level and current >= level then
-                self:markSent(CLIMB_PROGRESS_PREFIX .. tostring(level))
-            end
-        end
-        self.climb_rejection_key = nil
-        return
-    end
-
-    for _, level in ipairs(CLIMB_PROGRESS_LEVELS_FT) do
-        local eventId = CLIMB_PROGRESS_PREFIX .. tostring(level)
-        if not self.sent[eventId] and current >= level then
-            local emitted, reason = self:tryEmit(eventId, snapshot_at_altitude(snapshot, level), now)
-            if emitted then
-                self.climb_rejection_key = nil
-            else
-                local rejectionKey = eventId .. "|" .. tostring(reason or "unknown")
-                if self.climb_rejection_key ~= rejectionKey then
-                    self.climb_rejection_key = rejectionKey
-                    self.log("climb_level_rejected", {
-                        event_id = eventId,
-                        reason = reason,
-                        inputs = summarize_sources(snapshot)
-                    })
-                end
-            end
-            return
-        end
-    end
+local function add_candidate(candidates, eventId, snapshot, options)
+    options = options or {}
+    candidates[#candidates + 1] = {
+        id = eventId,
+        key = options.key or eventId,
+        snapshot = snapshot,
+        stable_for = tonumber(options.stable_for) or 0,
+        consumes = options.consumes,
+        report_altitude_ft = options.report_altitude_ft,
+        min_report_separation_ft = options.min_report_separation_ft,
+        cancel_hold_entry = options.cancel_hold_entry == true
+    }
 end
 
-function Engine:updateDescentProgress(snapshot, now, onGround)
-    local current = descent_altitude(snapshot)
-    local previous = self.descent_altitude_previous
-    self.descent_altitude_previous = current
-
-    if not current or not previous or onGround then return end
-    if snapshot.descent_state ~= true then return end
-
-    local sampleDrop = previous - current
-    if sampleDrop > DESCENT_PROGRESS_MAX_SAMPLE_DROP_FT then
-        for _, level in ipairs(DESCENT_PROGRESS_LEVELS_FT) do
-            if previous > level and current <= level then
-                self:markSent(DESCENT_PROGRESS_PREFIX .. tostring(level))
-            end
+local function prior_climb_events(level)
+    local consumed = {
+        "departure.start_push",
+        "departure.taxi_runway",
+        "departure.lineup_takeoff",
+        "departure.airborne",
+        "departure.on_climb"
+    }
+    for _, prior in ipairs(CLIMB_PROGRESS_LEVELS_FT) do
+        if prior < level then
+            consumed[#consumed + 1] = CLIMB_PROGRESS_PREFIX .. tostring(prior)
         end
-        self.descent_rejection_key = nil
-        return
     end
+    return consumed
+end
 
+local function prior_arrival_events(level)
+    local consumed = { "arrival.top_of_descent", "arrival.on_descent" }
+    for _, prior in ipairs(DESCENT_PROGRESS_LEVELS_FT) do
+        if prior > level then
+            consumed[#consumed + 1] = DESCENT_PROGRESS_PREFIX .. tostring(prior)
+        end
+    end
+    return consumed
+end
+
+local function all_descent_events()
+    local consumed = { "arrival.top_of_descent", "arrival.on_descent" }
     for _, level in ipairs(DESCENT_PROGRESS_LEVELS_FT) do
-        local eventId = DESCENT_PROGRESS_PREFIX .. tostring(level)
-        if not self.sent[eventId] and current <= level then
-            local mergeApproach = level == APPROACH_MERGE_LEVEL_FT
-                and not self.sent["arrival.approach"]
-                and (self.deferred_approach == true
-                    or is_approach_phase(tonumber(snapshot.fms_phase) or 0))
-            local separated = mergeApproach or not self.last_descent_report_altitude_ft
-                or self.last_descent_report_altitude_ft - level >= DESCENT_PROGRESS_MIN_SEPARATION_FT
-            if separated then
-                local emitted, reason = self:tryEmit(eventId, snapshot_at_altitude(snapshot, level), now)
-                if emitted then
-                    self.last_descent_report_altitude_ft = level
-                    if mergeApproach then
-                        self:markSent("arrival.approach")
-                        self.deferred_approach = false
-                    end
-                    self.descent_rejection_key = nil
-                else
-                    local rejectionKey = eventId .. "|" .. tostring(reason or "unknown")
-                    if self.descent_rejection_key ~= rejectionKey then
-                        self.descent_rejection_key = rejectionKey
-                        self.log("descent_level_rejected", {
-                            event_id = eventId,
-                            reason = reason,
-                            inputs = summarize_sources(snapshot)
-                        })
-                    end
-                end
-            else
-                self:markSent(eventId)
-                self.descent_rejection_key = nil
-            end
-            return
-        end
+        consumed[#consumed + 1] = DESCENT_PROGRESS_PREFIX .. tostring(level)
     end
+    return consumed
 end
 
-function Engine:update(snapshot, now)
-    if not self.active then
-        self:activate(snapshot)
-        return
-    end
-
+function M.collectEventCandidates(snapshot, previous)
+    snapshot = snapshot or {}
+    previous = previous or {}
+    local candidates = {}
     local onGround = snapshot.on_ground == true
-    local preflight = snapshot.preflight == true
-    local initialClimbState = snapshot.initial_climb_state == true
-    local climbState = snapshot.climb_state == true
-    local descentState = snapshot.descent_state == true
-    local postLandingState = snapshot.post_landing_state == true
-    local phase = tonumber(snapshot.fms_phase) or 0
-    if onGround and preflight
-        and (self.last_on_ground ~= true or self.last_preflight ~= true) then
-        self:resetDepartureGroundCycle(snapshot)
-        self.log("ground_cycle_reset", { inputs = summarize_sources(snapshot) })
-    end
-    if snapshot.before_taxi_started == true then
-        self.before_taxi_seen = true
-    end
-    if snapshot.before_takeoff_started == true then
-        self.before_takeoff_seen = true
-    end
-    if not onGround and initialClimbState and self.last_initial_climb_state ~= true then
-        self:beginFlight(snapshot)
-    end
-    if descentState and self.last_descent_state ~= true then
-        local currentDescentAltitude = descent_altitude(snapshot)
-        local previousDescentAltitude = self.descent_altitude_previous
-        for _, level in ipairs(DESCENT_PROGRESS_LEVELS_FT) do
-            if currentDescentAltitude and previousDescentAltitude
-                and currentDescentAltitude < level and previousDescentAltitude < level then
-                self:markSent(DESCENT_PROGRESS_PREFIX .. tostring(level))
-            end
-        end
-    end
-    if phase == 8 and self.last_fms_phase ~= 8 then
-        self.cancelQueuedForGoAround()
-        self.sent["arrival.approach"] = nil
-        self.sent["arrival.on_final"] = nil
-        self.deferred_approach = false
-        self.final_since = nil
-    end
-
     local wheelSpeed = tonumber(snapshot.wheel_speed) or 0
     local forward = wheelSpeed > 1
     local reverse = wheelSpeed < -1
+    local altitude = tonumber(snapshot.altitude_ft)
+    local phase = tonumber(snapshot.fms_phase) or 0
 
-    local pushGate = onGround and preflight
-        and (snapshot.pushback_active == true or reverse)
-    if pushGate and not self.sent["departure.start_push"] then
-        self.pushback_origin = self.pushback_origin or {}
-        if not self.pushback_origin.airport and snapshot.pushback_airport_icao then
-            self.pushback_origin.airport = snapshot.pushback_airport_icao
-        end
-        if self.pushback_origin.parking_found ~= true and snapshot.pushback_parking_found == true then
-            self.pushback_origin.parking_found = true
-            self.pushback_origin.parking_type = snapshot.pushback_parking_type
-            self.pushback_origin.parking_name = snapshot.pushback_parking_name
-            self.pushback_origin.parking_distance_m = snapshot.pushback_parking_distance_m
-        end
-        self.push_since = self.push_since or now
-        if now - self.push_since >= 2 then
-            local pushSnapshot = {}
-            for key, value in pairs(snapshot) do pushSnapshot[key] = value end
-            pushSnapshot.pushback_airport_icao = self.pushback_origin.airport
-                or snapshot.pushback_airport_icao
-            pushSnapshot.pushback_parking_found = self.pushback_origin.parking_found == true
-            pushSnapshot.pushback_parking_type = self.pushback_origin.parking_type
-            pushSnapshot.pushback_parking_name = self.pushback_origin.parking_name
-            pushSnapshot.pushback_parking_distance_m = self.pushback_origin.parking_distance_m
-            self:tryEmit("departure.start_push", pushSnapshot, now)
-        end
-    else
-        self.push_since = nil
-        if not self.sent["departure.start_push"] then self.pushback_origin = nil end
+    if onGround and snapshot.preflight == true
+        and (snapshot.pushback_active == true or reverse) then
+        add_candidate(candidates, "departure.start_push", snapshot, { stable_for = 2 })
     end
-
-    local taxiGate = onGround and self.before_taxi_seen and forward
-        and snapshot.pushback_active ~= true
-    if taxiGate and not self.sent["departure.taxi_runway"] then
-        local emitted, reason = self:tryEmit("departure.taxi_runway", snapshot, now)
-        if emitted then
-            self:markSent("departure.start_push")
-            self.taxi_rejection_key = nil
-        else
-            local rejectionKey = tostring(reason or "unknown") .. "|" .. summarize_sources(snapshot)
-            if self.taxi_rejection_key ~= rejectionKey then
-                self.taxi_rejection_key = rejectionKey
-                self.log("taxi_emit_rejected", {
-                    reason = reason,
-                    inputs = summarize_sources(snapshot)
-                })
-            end
-        end
-    else
-        self.taxi_rejection_key = nil
+    if onGround and snapshot.before_taxi_started == true and forward
+        and snapshot.pushback_active ~= true then
+        add_candidate(candidates, "departure.taxi_runway", snapshot, {
+            consumes = { "departure.start_push" }
+        })
     end
-
-    local takeoffGate = onGround and self.before_takeoff_seen
+    if onGround and snapshot.before_takeoff_started == true
         and snapshot.on_departure_runway == true and forward
-        and (tonumber(snapshot.ground_speed_kts) or 0) >= TAKEOFF_ROLL_SPEED_KTS
-    if takeoffGate and not self.sent["departure.lineup_takeoff"] then
-        self.takeoff_since = self.takeoff_since or now
-        if now - self.takeoff_since >= TAKEOFF_ROLL_HOLD_SEC then
-            local emitted = self:tryEmit("departure.lineup_takeoff", snapshot, now)
-            if emitted then
-                self:markSent("departure.start_push")
-                self:markSent("departure.taxi_runway")
-            end
-        end
-    else
-        self.takeoff_since = nil
+        and (tonumber(snapshot.ground_speed_kts) or 0) >= TAKEOFF_ROLL_SPEED_KTS then
+        add_candidate(candidates, "departure.lineup_takeoff", snapshot, {
+            stable_for = TAKEOFF_ROLL_HOLD_SEC,
+            consumes = { "departure.start_push", "departure.taxi_runway" }
+        })
     end
 
-    if not onGround and (initialClimbState or climbState)
+    if not onGround and (snapshot.initial_climb_state == true or snapshot.climb_state == true)
         and (tonumber(snapshot.radio_altitude_ft) or 0) > 50 then
-        self:tryEmit("departure.airborne", snapshot, now)
+        add_candidate(candidates, "departure.airborne", snapshot, {
+            consumes = {
+                "departure.start_push",
+                "departure.taxi_runway",
+                "departure.lineup_takeoff"
+            }
+        })
     end
-    if not onGround and climbState then
-        self:tryEmit("departure.on_climb", snapshot, now)
-    end
-
-    self:updateClimbProgress(snapshot, now, onGround)
-    self:updateHoldEvents(snapshot, now, onGround)
-
-    if not onGround and descentState
-        and not self.sent["arrival.top_of_descent"]
-        and not self.sent["arrival.on_descent"]
-        and not self.sent["arrival.approach"] then
-        local entryEvent = snapshot.descent_entry_kind == "tod"
-            and "arrival.top_of_descent" or "arrival.on_descent"
-        local emitted = self:tryEmit(entryEvent, snapshot, now)
-        if emitted then self.last_descent_report_altitude_ft = descent_altitude(snapshot) end
-    end
-
-    self:updateDescentProgress(snapshot, now, onGround)
-
-    if not onGround and descentState and is_approach_phase(phase) then
-        local fl100Event = DESCENT_PROGRESS_PREFIX .. tostring(APPROACH_MERGE_LEVEL_FT)
-        local currentAltitude = descent_altitude(snapshot)
-        local deferToFl100 = not self.sent["arrival.approach"]
-            and not self.sent[fl100Event]
-            and currentAltitude and currentAltitude > APPROACH_MERGE_LEVEL_FT
-        if deferToFl100 then
-            self.deferred_approach = true
-        else
-            local emitted = self:tryEmit("arrival.approach", snapshot, now)
-            if emitted then
-                self.deferred_approach = false
-                self:markSent("arrival.top_of_descent")
-                self:markSent("arrival.on_descent")
+    if not onGround and snapshot.climb_state == true then
+        add_candidate(candidates, "departure.on_climb", snapshot, {
+            consumes = {
+                "departure.start_push",
+                "departure.taxi_runway",
+                "departure.lineup_takeoff",
+                "departure.airborne"
+            }
+        })
+        if altitude then
+            for _, level in ipairs(CLIMB_PROGRESS_LEVELS_FT) do
+                if altitude >= level then
+                    add_candidate(candidates, CLIMB_PROGRESS_PREFIX .. tostring(level),
+                        snapshot_at_altitude(snapshot, level), {
+                            consumes = prior_climb_events(level)
+                        })
+                end
             end
         end
     end
 
-    local finalGate = not onGround and descentState
-        and is_approach_phase(phase) and snapshot.final_gate == true
-    if finalGate then
-        self.final_since = self.final_since or now
-        if now - self.final_since >= 5 then
-            self:tryEmit("arrival.on_final", snapshot, now)
+    local currentHoldKey = not onGround and snapshot.hold_active == true
+        and hold_episode_key(snapshot) or nil
+    local previousHoldKey = previous.on_ground ~= true and previous.hold_active == true
+        and hold_episode_key(previous) or nil
+    if previousHoldKey and previousHoldKey ~= currentHoldKey then
+        add_candidate(candidates, HOLD_EXIT_EVENT_ID, copy_hold_snapshot(previous), {
+            key = HOLD_EXIT_EVENT_ID .. "|" .. previousHoldKey,
+            consumes = { HOLD_ENTER_EVENT_ID .. "|" .. previousHoldKey },
+            cancel_hold_entry = true
+        })
+    end
+    if currentHoldKey then
+        add_candidate(candidates, HOLD_ENTER_EVENT_ID, snapshot, {
+            key = HOLD_ENTER_EVENT_ID .. "|" .. currentHoldKey
+        })
+        if snapshot.hold_exit_armed == true then
+            add_candidate(candidates, HOLD_EXIT_EVENT_ID, snapshot, {
+                key = HOLD_EXIT_EVENT_ID .. "|" .. currentHoldKey,
+                consumes = { HOLD_ENTER_EVENT_ID .. "|" .. currentHoldKey }
+            })
         end
-    else
-        self.final_since = nil
     end
 
-    local vacatedGate = onGround and postLandingState and snapshot.arrival_runway_clear == true
-    if vacatedGate and not self.sent["arrival.runway_vacated"] then
-        self.vacated_since = self.vacated_since or now
-        if now - self.vacated_since >= RUNWAY_VACATED_HOLD_SEC then
-            self:tryEmit("arrival.runway_vacated", snapshot, now)
+    if not onGround and snapshot.descent_state == true then
+        local descentEntryId = snapshot.descent_entry_kind == "tod"
+            and "arrival.top_of_descent" or "arrival.on_descent"
+        add_candidate(candidates, descentEntryId, snapshot, {
+            consumes = {
+                descentEntryId == "arrival.top_of_descent"
+                    and "arrival.on_descent" or "arrival.top_of_descent"
+            },
+            report_altitude_ft = altitude
+        })
+
+        if altitude then
+            for _, level in ipairs(DESCENT_PROGRESS_LEVELS_FT) do
+                if altitude <= level then
+                    local consumes = prior_arrival_events(level)
+                    if level == APPROACH_MERGE_LEVEL_FT and is_approach_phase(phase) then
+                        consumes[#consumes + 1] = "arrival.approach"
+                    end
+                    add_candidate(candidates, DESCENT_PROGRESS_PREFIX .. tostring(level),
+                        snapshot_at_altitude(snapshot, level), {
+                            consumes = consumes,
+                            report_altitude_ft = level,
+                            min_report_separation_ft = DESCENT_PROGRESS_MIN_SEPARATION_FT
+                        })
+                end
+            end
         end
-    else
-        self.vacated_since = nil
+
+        if is_approach_phase(phase) and altitude and altitude <= APPROACH_MERGE_LEVEL_FT then
+            add_candidate(candidates, "arrival.approach", snapshot, {
+                consumes = all_descent_events()
+            })
+        end
+        if is_approach_phase(phase) and snapshot.final_gate == true then
+            local consumes = all_descent_events()
+            consumes[#consumes + 1] = "arrival.approach"
+            add_candidate(candidates, "arrival.on_final", snapshot, {
+                stable_for = 5,
+                consumes = consumes
+            })
+        end
     end
 
-    self.last_on_ground = onGround
-    self.last_preflight = preflight
-    self.last_initial_climb_state = initialClimbState
-    self.last_descent_state = descentState
-    self.last_fms_phase = phase
+    if onGround and snapshot.post_landing_state == true
+        and snapshot.arrival_runway_clear == true then
+        local consumes = all_descent_events()
+        consumes[#consumes + 1] = "arrival.approach"
+        consumes[#consumes + 1] = "arrival.on_final"
+        add_candidate(candidates, "arrival.runway_vacated", snapshot, {
+            stable_for = RUNWAY_VACATED_HOLD_SEC,
+            consumes = consumes
+        })
+    end
+
+    return candidates
 end
 
 local Mailbox = {}

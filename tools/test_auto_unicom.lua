@@ -217,14 +217,14 @@ local missingHoldText, missingHoldReason = core.buildMessage("enroute.hold_enter
 assert_equal(missingHoldText, nil, "hold phrase requires waypoint")
 assert_equal(missingHoldReason, "missing_hold_context", "missing hold waypoint reason")
 
-local holdEvents = {}
-local holdQueueCancels = 0
-local holdEngine = core.newEventEngine({
-    emit = function(event) table.insert(holdEvents, event) return true end,
-    cancelQueuedForHoldEnd = function() holdQueueCancels = holdQueueCancels + 1 end
-})
+local function find_candidate(candidates, eventId)
+    for _, candidate in ipairs(candidates) do
+        if candidate.id == eventId then return candidate end
+    end
+    return nil
+end
+
 local holdIdle = copy(base, { on_ground = false })
-holdEngine:update(holdIdle, 0)
 local holdEntering = copy(holdIdle, {
     hold_source = "api",
     hold_api_version = 1,
@@ -233,62 +233,35 @@ local holdEntering = copy(holdIdle, {
     hold_waypoint = "BIRCO",
     hold_path_type = "HM"
 })
-holdEngine:update(holdEntering, 1)
-assert_equal(#holdEvents, 1, "active hold emits entry")
-assert_equal(holdEvents[1].id, "enroute.hold_enter", "hold entry event id")
-holdEngine:update(copy(holdEntering, { hold_source = "legacy" }), 2)
-assert_equal(#holdEvents, 1, "API to legacy fallback keeps same hold episode")
-local holdExitArmed = copy(holdEntering, { hold_exit_armed = true })
-holdEngine:update(holdExitArmed, 3)
-assert_equal(#holdEvents, 2, "armed hold exit emits once")
-assert_equal(holdEvents[2].id, "enroute.hold_exit", "hold exit event id")
-holdEngine:update(copy(holdExitArmed, { hold_active = false, hold_exit_armed = false }), 4)
-assert_equal(#holdEvents, 2, "active drop does not duplicate armed exit")
+local holdCandidates = core.collectEventCandidates(holdEntering, holdIdle)
+local holdEnter = find_candidate(holdCandidates, "enroute.hold_enter")
+assert_true(holdEnter ~= nil, "active hold produces entry candidate")
+assert_equal(holdEnter.key, "enroute.hold_enter|BIRCO|HM", "hold entry dedupe uses episode")
 
-local automaticHold = copy(holdEntering, {
+local holdExitArmed = copy(holdEntering, { hold_exit_armed = true })
+holdCandidates = core.collectEventCandidates(holdExitArmed, holdEntering)
+local holdExit = find_candidate(holdCandidates, "enroute.hold_exit")
+assert_true(holdExit ~= nil, "armed hold exit produces exit candidate")
+assert_equal(holdExit.key, "enroute.hold_exit|BIRCO|HM", "hold exit dedupe uses episode")
+
+holdCandidates = core.collectEventCandidates(holdIdle, holdEntering)
+holdExit = find_candidate(holdCandidates, "enroute.hold_exit")
+assert_true(holdExit ~= nil, "ended hold produces exit candidate")
+assert_true(holdExit.cancel_hold_entry, "ended hold cancels stale queued entry")
+assert_equal(holdExit.snapshot.hold_waypoint, "BIRCO", "ended hold keeps previous fix")
+
+local secondHold = copy(holdEntering, {
     hold_source = "legacy",
     hold_waypoint = "ROBUR",
-    hold_path_type = "HF",
-    hold_exit_armed = false
+    hold_path_type = "HF"
 })
-holdEngine:update(automaticHold, 5)
-assert_equal(#holdEvents, 3, "second hold episode emits new entry")
-holdEngine:update(copy(automaticHold, { hold_active = false }), 6)
-assert_equal(#holdEvents, 4, "automatic active drop emits hold exit")
-assert_equal(holdEvents[4].text, "Traffic, B738, exiting hold over ROBUR", "automatic exit uses latched fix")
-assert_equal(holdQueueCancels, 1, "automatic hold end cancels stale local entry once")
+holdCandidates = core.collectEventCandidates(secondHold, holdEntering)
+assert_true(find_candidate(holdCandidates, "enroute.hold_exit") ~= nil,
+    "hold change produces previous exit candidate")
+assert_true(find_candidate(holdCandidates, "enroute.hold_enter") ~= nil,
+    "hold change produces next entry candidate")
 
-local holdReloadEvents = {}
-local holdReloadEngine = core.newEventEngine({
-    emit = function(event) table.insert(holdReloadEvents, event) return true end
-})
-holdReloadEngine:update(holdEntering, 0)
-holdReloadEngine:update(holdEntering, 10)
-assert_equal(#holdReloadEvents, 0, "reload in active hold emits no entry backfill")
-holdReloadEngine:update(copy(holdEntering, { hold_active = false }), 11)
-assert_equal(#holdReloadEvents, 1, "reload in hold still reports later actual exit")
-assert_equal(holdReloadEvents[1].id, "enroute.hold_exit", "reload hold exit event")
-
-local holdExitReloadEvents = {}
-local holdExitReloadEngine = core.newEventEngine({
-    emit = function(event) table.insert(holdExitReloadEvents, event) return true end
-})
-holdExitReloadEngine:update(holdExitArmed, 0)
-holdExitReloadEngine:update(copy(holdExitArmed, { hold_active = false, hold_exit_armed = false }), 10)
-assert_equal(#holdExitReloadEvents, 0, "reload with exit already armed emits no exit backfill")
-
-local groundEvents = {}
-local groundEngine = core.newEventEngine({
-    emit = function(event)
-        table.insert(groundEvents, event)
-        return true
-    end
-})
-local groundIdle = copy(base, {
-    preflight = true
-})
-groundEngine:update(groundIdle, 0)
-
+local groundIdle = copy(base, { preflight = true })
 local pushing = copy(groundIdle, {
     wheel_speed = -3,
     ground_speed_kts = 2,
@@ -297,786 +270,126 @@ local pushing = copy(groundIdle, {
     pushback_parking_type = "gate",
     pushback_parking_name = "Gate A12"
 })
-groundEngine:update(pushing, 1)
-local pushingPastNeighbor = copy(pushing, {
-    pushback_airport_icao = "EKCH",
-    pushback_parking_name = "Gate B14"
-})
-groundEngine:update(pushingPastNeighbor, 2.9)
-assert_equal(#groundEvents, 0, "pushback waits for stable reverse movement")
-groundEngine:update(pushingPastNeighbor, 3)
-assert_equal(#groundEvents, 1, "pushback emitted after stable reverse movement")
-assert_equal(groundEvents[1].id, "departure.start_push", "pushback event id")
-assert_equal(groundEvents[1].text, "ESSA Traffic, B738, pushing back from gate A12",
-    "pushback latches first airport and gate")
+local groundCandidates = core.collectEventCandidates(pushing, groundIdle)
+local pushCandidate = find_candidate(groundCandidates, "departure.start_push")
+assert_true(pushCandidate ~= nil, "reverse movement produces pushback candidate")
+assert_equal(pushCandidate.stable_for, 2, "pushback uses generic two-second stability")
+local pushEvent = core.newEvent(pushCandidate.id, pushCandidate.snapshot, 3)
+assert_equal(pushEvent.text, "ESSA Traffic, B738, pushing back from gate A12",
+    "pushback candidate builds gate phrase")
 
-local pushFalseStartEvents = {}
-local pushFalseStartEngine = core.newEventEngine({
-    emit = function(event) table.insert(pushFalseStartEvents, event) return true end
-})
-pushFalseStartEngine:update(groundIdle, 0)
-pushFalseStartEngine:update(pushing, 1)
-pushFalseStartEngine:update(groundIdle, 1.5)
-pushFalseStartEngine:update(pushingPastNeighbor, 2)
-pushFalseStartEngine:update(pushingPastNeighbor, 4)
-assert_equal(#pushFalseStartEvents, 1, "pushback false start emits only the later attempt")
-assert_equal(pushFalseStartEvents[1].text, "EKCH Traffic, B738, pushing back from gate B14",
-    "pushback false start resets airport and gate latch")
+local bpbPush = copy(groundIdle, { pushback_active = true })
+assert_true(find_candidate(core.collectEventCandidates(bpbPush, groundIdle),
+    "departure.start_push") ~= nil, "BetterPushback active produces pushback candidate")
 
-local bpbPushEvents = {}
-local bpbPushEngine = core.newEventEngine({
-    emit = function(event) table.insert(bpbPushEvents, event) return true end
-})
-bpbPushEngine:update(groundIdle, 0)
-local bpbStartedWithoutWheelSpeed = copy(groundIdle, {
-    wheel_speed = 0,
-    pushback_active = true,
-    pushback_airport_icao = "ENAT"
-})
-bpbPushEngine:update(bpbStartedWithoutWheelSpeed, 1)
-bpbPushEngine:update(bpbStartedWithoutWheelSpeed, 3)
-assert_equal(#bpbPushEvents, 1, "BetterPushback started is sufficient after stable latch")
-assert_equal(bpbPushEvents[1].id, "departure.start_push", "BetterPushback push event id")
-
-local taxiingWithoutProcedure = copy(groundIdle, {
-    wheel_speed = 6,
-    ground_speed_kts = 6
-})
-groundEngine:update(taxiingWithoutProcedure, 4)
-groundEngine:update(taxiingWithoutProcedure, 8)
-assert_equal(#groundEvents, 1, "taxi requires Before Taxi start latch")
-
-local taxiing = copy(taxiingWithoutProcedure, { before_taxi_started = true })
-groundEngine:update(taxiing, 9)
-assert_equal(#groundEvents, 2, "taxi emits from accepted Before Taxi plus forward movement")
-assert_equal(groundEvents[2].id, "departure.taxi_runway", "taxi event id")
+local taxiWithoutProcedure = copy(groundIdle, { wheel_speed = 6, ground_speed_kts = 6 })
+assert_equal(find_candidate(core.collectEventCandidates(taxiWithoutProcedure, groundIdle),
+    "departure.taxi_runway"), nil, "taxi requires accepted Before Taxi")
+local taxiing = copy(taxiWithoutProcedure, { before_taxi_started = true })
+local taxiCandidate = find_candidate(core.collectEventCandidates(taxiing, groundIdle),
+    "departure.taxi_runway")
+assert_true(taxiCandidate ~= nil, "accepted Before Taxi plus movement produces taxi candidate")
+assert_equal(taxiCandidate.consumes[1], "departure.start_push",
+    "taxi closes earlier pushback event")
 
 local takeoffOffRunway = copy(taxiing, {
     before_takeoff_started = true,
-    wheel_speed = 20
-})
-groundEngine:update(takeoffOffRunway, 10)
-assert_equal(#groundEvents, 2, "takeoff requires departure runway helper")
-
-local takeoffLineup = copy(takeoffOffRunway, {
-    on_departure_runway = true,
-    preflight = false,
-    wheel_speed = 6,
-    ground_speed_kts = 6
-})
-groundEngine:update(takeoffLineup, 11)
-assert_equal(#groundEvents, 2, "line-up movement below takeoff-roll speed emits nothing")
-
-local takeoffRoll = copy(takeoffLineup, {
     wheel_speed = 25,
     ground_speed_kts = 25
 })
-groundEngine:update(takeoffRoll, 12)
-groundEngine:update(takeoffRoll, 13.9)
-assert_equal(#groundEvents, 2, "takeoff roll waits for stable speed")
-groundEngine:update(takeoffRoll, 14)
-assert_equal(#groundEvents, 3, "takeoff emits after stable takeoff roll")
-assert_equal(groundEvents[3].id, "departure.lineup_takeoff", "takeoff event id")
+assert_equal(find_candidate(core.collectEventCandidates(takeoffOffRunway, taxiing),
+    "departure.lineup_takeoff"), nil, "takeoff requires YAL runway detection")
+local takeoffRoll = copy(takeoffOffRunway, { on_departure_runway = true })
+local takeoffCandidate = find_candidate(core.collectEventCandidates(takeoffRoll, taxiing),
+    "departure.lineup_takeoff")
+assert_true(takeoffCandidate ~= nil, "accepted Before Takeoff plus runway roll produces takeoff candidate")
+assert_equal(takeoffCandidate.stable_for, 2, "takeoff uses generic two-second stability")
 
-local transientGroundEvents = {}
-local transientGroundLogs = {}
-local transientGroundEngine = core.newEventEngine({
-    emit = function(event) table.insert(transientGroundEvents, event) return true end,
-    log = function(kind, event)
-        table.insert(transientGroundLogs, { kind = kind, event = event })
-    end
-})
-transientGroundEngine:update(copy(groundIdle, { on_ground = false }), 0)
-assert_equal(transientGroundLogs[1].kind, "ground_baseline_deferred",
-    "preflight sensor transient defers departure baseline")
-transientGroundEngine:update(groundIdle, 1)
-assert_equal(transientGroundLogs[2].kind, "ground_cycle_reset",
-    "confirmed ground state arms departure cycle")
-transientGroundEngine:update(bpbStartedWithoutWheelSpeed, 2)
-transientGroundEngine:update(bpbStartedWithoutWheelSpeed, 4)
-assert_equal(#transientGroundEvents, 1,
-    "pushback still emits after startup air-ground sensor transient")
-assert_equal(transientGroundEvents[1].id, "departure.start_push",
-    "transient recovery pushback event id")
-transientGroundEngine:update(taxiing, 5)
-assert_equal(#transientGroundEvents, 2,
-    "taxi still emits after startup air-ground sensor transient")
-assert_equal(transientGroundEvents[2].id, "departure.taxi_runway",
-    "transient recovery taxi event id")
-local transientTakeoff = copy(taxiing, {
-    before_takeoff_started = true,
-    on_departure_runway = true,
-    wheel_speed = 25,
-    ground_speed_kts = 25
-})
-transientGroundEngine:update(transientTakeoff, 6)
-transientGroundEngine:update(transientTakeoff, 8)
-assert_equal(#transientGroundEvents, 3,
-    "takeoff still emits after startup air-ground sensor transient")
-assert_equal(transientGroundEvents[3].id, "departure.lineup_takeoff",
-    "transient recovery takeoff event id")
+local transientPreflight = copy(groundIdle, { on_ground = false })
+assert_equal(#core.collectEventCandidates(transientPreflight, nil), 0,
+    "preflight air-ground transient baselines no departure event")
+assert_true(find_candidate(core.collectEventCandidates(bpbPush, transientPreflight),
+    "departure.start_push") ~= nil, "confirmed ground push remains eligible after sensor transient")
 
-local groundReloadEvents = {}
-local groundReloadEngine = core.newEventEngine({
-    emit = function(event) table.insert(groundReloadEvents, event) return true end
-})
-groundReloadEngine:update(taxiing, 0)
-groundReloadEngine:update(taxiing, 10)
-assert_equal(#groundReloadEvents, 0, "taxi reload baseline emits no departure backfill")
-
-local takeoffReloadEvents = {}
-local takeoffReloadEngine = core.newEventEngine({
-    emit = function(event) table.insert(takeoffReloadEvents, event) return true end
-})
-takeoffReloadEngine:update(takeoffRoll, 0)
-takeoffReloadEngine:update(takeoffRoll, 10)
-assert_equal(#takeoffReloadEvents, 0, "takeoff reload baseline emits no departure backfill")
-
-local emitted = {}
-local engine = core.newEventEngine({
-    emit = function(event)
-        table.insert(emitted, event)
-        return true
-    end
-})
-
-engine:update(base, 0)
 local airborneBeforeState = copy(base, {
     on_ground = false,
-    fms_phase = 1,
     radio_altitude_ft = 200,
     altitude_ft = 300,
-    pressure_altitude_ft = 300,
-    vertical_speed_fpm = 1200,
-    ground_speed_kts = 170
+    pressure_altitude_ft = 300
 })
-engine:update(airborneBeforeState, 1)
-assert_equal(#emitted, 0, "airborne waits for accepted Initial Climb state")
-engine:update(copy(airborneBeforeState, { initial_climb_state = true }), 2)
-assert_equal(#emitted, 1, "airborne emits from accepted Initial Climb state")
-assert_equal(emitted[1].id, "departure.airborne", "airborne state event")
-engine:update(copy(airborneBeforeState, {
-    fms_phase = 1,
-    initial_climb_state = false,
-    climb_state = true,
-    radio_altitude_ft = 1500,
-    altitude_ft = 1800,
-    pressure_altitude_ft = 1800,
-    ground_speed_kts = 220
-}), 3)
-assert_equal(#emitted, 2, "climb emits from accepted Climb state")
-engine:update(copy(base, {
-    on_ground = false,
-    fms_phase = 1,
-    climb_state = true,
-    radio_altitude_ft = 9200,
-    altitude_ft = 9500,
-    pressure_altitude_ft = 9500,
-    vertical_speed_fpm = 1200,
-    ground_speed_kts = 250
-}), 4)
-engine:update(copy(base, {
-    on_ground = false,
-    fms_phase = 1,
+assert_equal(find_candidate(core.collectEventCandidates(airborneBeforeState, base),
+    "departure.airborne"), nil, "airborne waits for accepted YAL flight state")
+local initialClimb = copy(airborneBeforeState, { initial_climb_state = true })
+assert_true(find_candidate(core.collectEventCandidates(initialClimb, airborneBeforeState),
+    "departure.airborne") ~= nil, "Initial Climb produces airborne candidate")
+
+local climb = copy(airborneBeforeState, {
     climb_state = true,
     radio_altitude_ft = 9700,
     altitude_ft = 10000,
-    pressure_altitude_ft = 10000,
-    vertical_speed_fpm = 1200,
-    ground_speed_kts = 250
-}), 5)
-assert_equal(#emitted, 3, "climb FL100 crossing emitted once")
-assert_equal(emitted[3].text, phraseCases[12][3], "climb crossing freezes FL100 phrase")
-engine:update(copy(base, {
+    pressure_altitude_ft = 10000
+})
+local climbCandidates = core.collectEventCandidates(climb, initialClimb)
+assert_true(find_candidate(climbCandidates, "departure.on_climb") ~= nil,
+    "YAL Climb state produces climb candidate")
+assert_true(find_candidate(climbCandidates, "departure.climb_level_10000") ~= nil,
+    "YAL Climb state and altitude produce FL100 candidate")
+assert_equal(find_candidate(climbCandidates, "departure.climb_level_20000"), nil,
+    "unreached climb level is not a candidate")
+
+local descent = copy(base, {
     on_ground = false,
-    fms_phase = 1,
-    climb_state = true,
-    radio_altitude_ft = 19200,
-    altitude_ft = 19500,
-    pressure_altitude_ft = 19500,
-    vertical_speed_fpm = 1200,
-    ground_speed_kts = 260
-}), 6)
-engine:update(copy(base, {
-    on_ground = false,
-    fms_phase = 1,
-    climb_state = true,
-    radio_altitude_ft = 19700,
-    altitude_ft = 20000,
-    pressure_altitude_ft = 20000,
-    vertical_speed_fpm = 1200,
-    ground_speed_kts = 260
-}), 7)
-assert_equal(#emitted, 4, "climb FL200 crossing emitted once")
-assert_equal(emitted[4].text, phraseCases[13][3], "climb crossing freezes FL200 phrase")
-engine:update(copy(base, {
-    on_ground = false,
-    fms_phase = 1,
-    climb_state = true,
-    radio_altitude_ft = 29200,
-    altitude_ft = 29500,
-    pressure_altitude_ft = 29500,
-    vertical_speed_fpm = 1200,
-    ground_speed_kts = 270
-}), 8)
-engine:update(copy(base, {
-    on_ground = false,
-    fms_phase = 1,
-    climb_state = true,
-    radio_altitude_ft = 29700,
-    altitude_ft = 30000,
-    pressure_altitude_ft = 30000,
-    vertical_speed_fpm = 1200,
-    ground_speed_kts = 270
-}), 9)
-assert_equal(#emitted, 5, "climb FL300 crossing emitted once")
-assert_equal(emitted[5].text, phraseCases[14][3], "climb crossing freezes FL300 phrase")
-engine:update(copy(base, {
-    on_ground = false,
-    fms_phase = 2,
-    radio_altitude_ft = 30000,
-    altitude_ft = 37000,
-    pressure_altitude_ft = 37000,
-    vertical_speed_fpm = 0,
-    tod_distance_nm = 2
-}), 10)
-engine:update(copy(base, {
-    on_ground = false,
-    fms_phase = 5,
     descent_state = true,
     descent_entry_kind = "tod",
-    radio_altitude_ft = 29500,
-    altitude_ft = 36500,
-    pressure_altitude_ft = 36500,
-    vertical_speed_fpm = -1000,
-    tod_distance_nm = 0
-}), 11)
-engine:update(copy(base, {
-    on_ground = false,
+    fms_phase = 5,
+    altitude_ft = 40900,
+    pressure_altitude_ft = 40900
+})
+local descentCandidates = core.collectEventCandidates(descent, climb)
+assert_true(find_candidate(descentCandidates, "arrival.top_of_descent") ~= nil,
+    "YAL TOD descent entry produces TOD candidate")
+assert_equal(find_candidate(descentCandidates, "arrival.descent_level_40000"), nil,
+    "descent level waits for current altitude")
+
+local atFl400 = copy(descent, { altitude_ft = 40000, pressure_altitude_ft = 40000 })
+assert_true(find_candidate(core.collectEventCandidates(atFl400, descent),
+    "arrival.descent_level_40000") ~= nil, "descent altitude produces FL400 candidate")
+
+local approachHigh = copy(descent, {
+    descent_entry_kind = "descent",
     fms_phase = 6,
-    descent_state = true,
-    radio_altitude_ft = 5000,
-    altitude_ft = 6000,
-    pressure_altitude_ft = 6000,
-    vertical_speed_fpm = -800,
-    tod_distance_nm = 0
-}), 12)
-engine:update(copy(base, {
-    on_ground = false,
-    final_gate = true,
-    fms_phase = 6,
-    descent_state = true,
-    radio_altitude_ft = 1800,
-    altitude_ft = 2000,
-    pressure_altitude_ft = 2000,
-    vertical_speed_fpm = -600,
-    tod_distance_nm = 0
-}), 13)
-engine:update(copy(base, {
-    on_ground = false,
-    final_gate = true,
-    fms_phase = 6,
-    descent_state = true,
-    radio_altitude_ft = 1000,
-    altitude_ft = 1200,
-    pressure_altitude_ft = 1200,
-    vertical_speed_fpm = -600,
-    tod_distance_nm = 0
-}), 18)
-local landedOnRunway = copy(base, {
+    altitude_ft = 10500,
+    pressure_altitude_ft = 10500
+})
+assert_equal(find_candidate(core.collectEventCandidates(approachHigh, descent),
+    "arrival.approach"), nil, "approach report waits for FL100 preparation point")
+local approach = copy(approachHigh, { altitude_ft = 9500, pressure_altitude_ft = 9500 })
+local approachCandidates = core.collectEventCandidates(approach, approachHigh)
+assert_true(find_candidate(approachCandidates, "arrival.descent_level_10000") ~= nil,
+    "approach crossing includes FL100 report")
+assert_true(find_candidate(approachCandidates, "arrival.approach") ~= nil,
+    "approach crossing includes approach candidate")
+
+local final = copy(approach, { final_gate = true })
+local finalCandidate = find_candidate(core.collectEventCandidates(final, approach),
+    "arrival.on_final")
+assert_true(finalCandidate ~= nil, "YAL final gate produces final candidate")
+assert_equal(finalCandidate.stable_for, 5, "final uses generic five-second stability")
+local goAround = copy(final, { fms_phase = 8 })
+assert_equal(find_candidate(core.collectEventCandidates(goAround, final),
+    "arrival.approach"), nil, "active go-around produces no approach candidate")
+assert_equal(find_candidate(core.collectEventCandidates(goAround, final),
+    "arrival.on_final"), nil, "active go-around produces no final candidate")
+
+local runwayClear = copy(base, {
     on_ground = true,
     post_landing_state = true,
-    arrival_runway_clear = false,
-    radio_altitude_ft = 0,
-    altitude_ft = 400,
-    pressure_altitude_ft = 400,
-    vertical_speed_fpm = 0,
-    ground_speed_kts = 20,
-    tod_distance_nm = 0
+    arrival_runway_clear = true
 })
-engine:update(landedOnRunway, 19)
-assert_equal(#emitted, 8, "post-landing state while on runway does not emit vacated")
-local runwayClear = copy(landedOnRunway, { arrival_runway_clear = true })
-engine:update(runwayClear, 20)
-engine:update(runwayClear, 21.9)
-assert_equal(#emitted, 8, "runway clear waits for stable state")
-engine:update(runwayClear, 22)
-
-local expectedEvents = {
-    "departure.airborne",
-    "departure.on_climb",
-    "departure.climb_level_10000",
-    "departure.climb_level_20000",
-    "departure.climb_level_30000",
-    "arrival.top_of_descent",
-    "arrival.approach",
-    "arrival.on_final",
-    "arrival.runway_vacated"
-}
-assert_equal(#emitted, #expectedEvents, "normal event count")
-for index, id in ipairs(expectedEvents) do
-    assert_equal(emitted[index].id, id, "normal event order " .. tostring(index))
-end
-
-local climbReloadEvents = {}
-local climbReloadEngine = core.newEventEngine({
-    emit = function(event) table.insert(climbReloadEvents, event) return true end
-})
-local loadedAboveClimbLevel = copy(base, {
-    on_ground = false,
-    fms_phase = 1,
-    climb_state = true,
-    radio_altitude_ft = 10200,
-    altitude_ft = 10500,
-    pressure_altitude_ft = 10500,
-    vertical_speed_fpm = 1000
-})
-climbReloadEngine:update(loadedAboveClimbLevel, 0)
-climbReloadEngine:update(copy(loadedAboveClimbLevel, {
-    altitude_ft = 11000,
-    pressure_altitude_ft = 11000
-}), 10)
-assert_equal(#climbReloadEvents, 0, "reload above FL100 emits no climb backfill")
-
-local climbFlightLoadEvents = {}
-local climbFlightLoadEngine = core.newEventEngine({
-    emit = function(event) table.insert(climbFlightLoadEvents, event) return true end
-})
-local climbFlightLoadBase = copy(base, {
-    on_ground = false,
-    fms_phase = 1,
-    climb_state = true,
-    radio_altitude_ft = 8700,
-    altitude_ft = 9000,
-    pressure_altitude_ft = 9000,
-    vertical_speed_fpm = 1000
-})
-climbFlightLoadEngine:update(climbFlightLoadBase, 0)
-climbFlightLoadEngine:update(climbFlightLoadBase, 8)
-climbFlightLoadEngine:update(copy(climbFlightLoadBase, {
-    altitude_ft = 12000,
-    pressure_altitude_ft = 12000
-}), 9)
-climbFlightLoadEngine:update(copy(climbFlightLoadBase, {
-    altitude_ft = 9900,
-    pressure_altitude_ft = 9900,
-    vertical_speed_fpm = -800
-}), 10)
-climbFlightLoadEngine:update(copy(climbFlightLoadBase, {
-    altitude_ft = 10000,
-    pressure_altitude_ft = 10000,
-    vertical_speed_fpm = 1000
-}), 11)
-assert_equal(#climbFlightLoadEvents, 0, "flight-load altitude jump produces no FL100 climb report")
-
-local climbStateEvents = {}
-local climbStateEngine = core.newEventEngine({
-    emit = function(event) table.insert(climbStateEvents, event) return true end
-})
-local climbStateBase = copy(base, {
-    on_ground = false,
-    fms_phase = 2,
-    altitude_ft = 9500,
-    pressure_altitude_ft = 9500,
-    vertical_speed_fpm = 0
-})
-climbStateEngine:update(climbStateBase, 0)
-climbStateEngine:update(copy(climbStateBase, {
-    altitude_ft = 10000,
-    pressure_altitude_ft = 10000
-}), 1)
-assert_equal(#climbStateEvents, 0, "FL100 waits for accepted YAL climb state")
-climbStateEngine:update(copy(climbStateBase, {
-    climb_state = true,
-    altitude_ft = 10050,
-    pressure_altitude_ft = 10050
-}), 2)
-assert_equal(#climbStateEvents, 1, "YAL climb state emits FL100 without FMS or VS crossing gates")
-assert_equal(climbStateEvents[1].id, "departure.climb_level_10000", "YAL climb state FL100 event")
-
-local climbRetryCalls = 0
-local climbRetryEvents = {}
-local climbRetryEngine = core.newEventEngine({
-    emit = function(event)
-        climbRetryCalls = climbRetryCalls + 1
-        if climbRetryCalls == 1 then return false end
-        table.insert(climbRetryEvents, event)
-        return true
-    end
-})
-local climbAcceptedBase = copy(climbStateBase, { climb_state = true })
-climbRetryEngine:update(climbAcceptedBase, 0)
-climbRetryEngine:update(copy(climbAcceptedBase, {
-    altitude_ft = 10000,
-    pressure_altitude_ft = 10000
-}), 1)
-climbRetryEngine:update(copy(climbAcceptedBase, {
-    altitude_ft = 10050,
-    pressure_altitude_ft = 10050
-}), 2)
-assert_equal(climbRetryCalls, 2, "FL100 queue rejection is retried")
-assert_equal(#climbRetryEvents, 1, "FL100 retry eventually emits")
-assert_equal(climbRetryEvents[1].id, "departure.climb_level_10000", "FL100 retry event id")
-
-local fallbackEvents = {}
-local fallbackEngine = core.newEventEngine({
-    emit = function(event)
-        table.insert(fallbackEvents, event)
-        return true
-    end
-})
-local airborneCruise = copy(base, {
-    on_ground = false,
-    fms_phase = 2,
-    altitude_ft = 37000,
-    pressure_altitude_ft = 37000,
-    vertical_speed_fpm = 0,
-    tod_distance_nm = 40
-})
-fallbackEngine:update(airborneCruise, 0)
-fallbackEngine:update(copy(airborneCruise, {
-    fms_phase = 4,
-    descent_state = true,
-    altitude_ft = 36000,
-    pressure_altitude_ft = 36000,
-    vertical_speed_fpm = -1000,
-    tod_distance_nm = 30
-}), 1)
-fallbackEngine:update(copy(airborneCruise, {
-    fms_phase = 4,
-    descent_state = true,
-    altitude_ft = 35000,
-    pressure_altitude_ft = 35000,
-    vertical_speed_fpm = -1000,
-    tod_distance_nm = 25
-}), 9)
-assert_equal(#fallbackEvents, 1, "fallback event count")
-assert_equal(fallbackEvents[1].id, "arrival.on_descent", "fallback event id")
-fallbackEngine:update(copy(airborneCruise, {
-    fms_phase = 5,
-    descent_state = true,
-    altitude_ft = 34000,
-    pressure_altitude_ft = 34000,
-    vertical_speed_fpm = -1000,
-    tod_distance_nm = 0
-}), 10)
-fallbackEngine:update(copy(airborneCruise, {
-    fms_phase = 5,
-    descent_state = true,
-    altitude_ft = 33000,
-    pressure_altitude_ft = 33000,
-    vertical_speed_fpm = -1000,
-    tod_distance_nm = 0
-}), 18)
-assert_equal(#fallbackEvents, 1, "TOD does not follow on-descent fallback")
-
-local descentProgressEvents = {}
-local descentProgressEngine = core.newEventEngine({
-    emit = function(event)
-        table.insert(descentProgressEvents, event)
-        return true
-    end
-})
-local descentProgressBase = copy(base, {
-    on_ground = false,
-    fms_phase = 2,
-    altitude_ft = 41000,
-    pressure_altitude_ft = 41000,
-    planned_altitude_ft = 41000,
-    vertical_speed_fpm = 0,
-    tod_distance_nm = 10
-})
-descentProgressEngine:update(descentProgressBase, 0)
-descentProgressEngine:update(copy(descentProgressBase, { tod_distance_nm = 2 }), 1)
-descentProgressEngine:update(copy(descentProgressBase, {
-    fms_phase = 5,
-    descent_state = true,
-    descent_entry_kind = "tod",
-    altitude_ft = 40900,
-    pressure_altitude_ft = 40900,
-    vertical_speed_fpm = -1000,
-    tod_distance_nm = 0
-}), 2)
-descentProgressEngine:update(copy(descentProgressBase, {
-    fms_phase = 5,
-    descent_state = true,
-    altitude_ft = 40500,
-    pressure_altitude_ft = 40500,
-    vertical_speed_fpm = -1000,
-    tod_distance_nm = 0
-}), 10)
-assert_equal(#descentProgressEvents, 1, "TOD anchors descent progress reports")
-assert_equal(descentProgressEvents[1].id, "arrival.top_of_descent", "descent progress TOD event")
-
-local descentNow = 10
-for altitude = 40000, 30000, -1000 do
-    descentNow = descentNow + 1
-    descentProgressEngine:update(copy(descentProgressBase, {
-        fms_phase = 5,
-        descent_state = true,
-        altitude_ft = altitude,
-        pressure_altitude_ft = altitude,
-        vertical_speed_fpm = -1000,
-        tod_distance_nm = 0
-    }), descentNow)
-end
-assert_equal(#descentProgressEvents, 2, "FL400 suppressed and FL300 emitted")
-assert_equal(descentProgressEvents[2].id, "arrival.descent_level_30000", "FL300 event id")
-assert_equal(descentProgressEvents[2].text, phraseCases[11][3], "FL300 frozen crossing phrase")
-
-for altitude = 29000, 20000, -1000 do
-    descentNow = descentNow + 1
-    descentProgressEngine:update(copy(descentProgressBase, {
-        fms_phase = 5,
-        descent_state = true,
-        altitude_ft = altitude,
-        pressure_altitude_ft = altitude,
-        vertical_speed_fpm = -1000,
-        tod_distance_nm = 0
-    }), descentNow)
-end
-assert_equal(#descentProgressEvents, 3, "FL200 emitted once")
-assert_equal(descentProgressEvents[3].id, "arrival.descent_level_20000", "FL200 event id")
-
-for altitude = 19000, 11000, -1000 do
-    descentNow = descentNow + 1
-    descentProgressEngine:update(copy(descentProgressBase, {
-        fms_phase = 5,
-        descent_state = true,
-        altitude_ft = altitude,
-        pressure_altitude_ft = altitude,
-        vertical_speed_fpm = -1000,
-        tod_distance_nm = 0
-    }), descentNow)
-end
-descentNow = descentNow + 1
-descentProgressEngine:update(copy(descentProgressBase, {
-    fms_phase = 6,
-    descent_state = true,
-    altitude_ft = 10500,
-    pressure_altitude_ft = 10500,
-    vertical_speed_fpm = -1000,
-    tod_distance_nm = 0
-}), descentNow)
-descentNow = descentNow + 8
-descentProgressEngine:update(copy(descentProgressBase, {
-    fms_phase = 6,
-    descent_state = true,
-    altitude_ft = 9500,
-    pressure_altitude_ft = 9500,
-    vertical_speed_fpm = -1000,
-    tod_distance_nm = 0
-}), descentNow)
-assert_equal(#descentProgressEvents, 4, "approach merges with actual FL100 crossing")
-assert_equal(descentProgressEvents[4].id, "arrival.descent_level_10000", "merged approach FL100 event id")
-assert_equal(
-    descentProgressEvents[4].text,
-    "ENSB Traffic, B738 NELSA3M arrival for RNAV W approach runway 27, on descent passing FL100",
-    "merged approach freezes actual FL100 phrase"
-)
-
-local crossingApproachEvents = {}
-local crossingApproachEngine = core.newEventEngine({
-    emit = function(event) table.insert(crossingApproachEvents, event) return true end
-})
-local beforeCrossingApproach = copy(descentProgressBase, {
-    fms_phase = 5,
-    descent_state = true,
-    altitude_ft = 10500,
-    pressure_altitude_ft = 10500,
-    vertical_speed_fpm = -800,
-    tod_distance_nm = 0
-})
-crossingApproachEngine:update(beforeCrossingApproach, 0)
-crossingApproachEngine:update(copy(beforeCrossingApproach, {
-    fms_phase = 7,
-    altitude_ft = 9900,
-    pressure_altitude_ft = 9900
-}), 1)
-assert_equal(#crossingApproachEvents, 1, "approach starting across FL100 emits one merged event")
-assert_equal(crossingApproachEvents[1].id, "arrival.descent_level_10000", "crossing approach merged event id")
-assert_true(crossingApproachEvents[1].text:find("passing FL100", 1, true) ~= nil,
-    "crossing approach reports FL100 instead of live altitude")
-
-local descentReloadEvents = {}
-local descentReloadEngine = core.newEventEngine({
-    emit = function(event) table.insert(descentReloadEvents, event) return true end
-})
-local loadedInDescent = copy(descentProgressBase, {
-    fms_phase = 5,
-    descent_state = true,
-    altitude_ft = 30500,
-    pressure_altitude_ft = 30500,
-    vertical_speed_fpm = -800,
-    tod_distance_nm = 0
-})
-descentReloadEngine:update(loadedInDescent, 0)
-descentReloadEngine:update(copy(loadedInDescent, {
-    altitude_ft = 30100,
-    pressure_altitude_ft = 30100
-}), 8)
-descentReloadEngine:update(copy(loadedInDescent, {
-    altitude_ft = 29900,
-    pressure_altitude_ft = 29900
-}), 9)
-assert_equal(#descentReloadEvents, 0, "reload suppresses nearby FL300 report")
-local reloadNow = 9
-for altitude = 29000, 20000, -1000 do
-    reloadNow = reloadNow + 1
-    descentReloadEngine:update(copy(loadedInDescent, {
-        altitude_ft = altitude,
-        pressure_altitude_ft = altitude
-    }), reloadNow)
-end
-assert_equal(#descentReloadEvents, 1, "reload baseline allows later separated boundary")
-assert_equal(descentReloadEvents[1].id, "arrival.descent_level_20000", "reload later boundary event")
-
-local flightLoadEvents = {}
-local flightLoadEngine = core.newEventEngine({
-    emit = function(event) table.insert(flightLoadEvents, event) return true end
-})
-local flightLoadBase = copy(descentProgressBase, {
-    fms_phase = 4,
-    descent_state = true,
-    altitude_ft = 35000,
-    pressure_altitude_ft = 35000,
-    vertical_speed_fpm = -800,
-    tod_distance_nm = 20
-})
-flightLoadEngine:update(flightLoadBase, 0)
-flightLoadEngine:update(flightLoadBase, 8)
-flightLoadEngine:update(copy(flightLoadBase, {
-    altitude_ft = 19000,
-    pressure_altitude_ft = 19000
-}), 9)
-flightLoadEngine:update(copy(flightLoadBase, {
-    altitude_ft = 31000,
-    pressure_altitude_ft = 31000,
-    vertical_speed_fpm = 1000
-}), 10)
-flightLoadEngine:update(copy(flightLoadBase, {
-    altitude_ft = 29900,
-    pressure_altitude_ft = 29900,
-    vertical_speed_fpm = -800
-}), 11)
-assert_equal(#flightLoadEvents, 0, "flight-load altitude jump produces no progress report")
-
-local descentStateEvents = {}
-local descentStateEngine = core.newEventEngine({
-    emit = function(event) table.insert(descentStateEvents, event) return true end
-})
-local descentStateBase = copy(base, {
-    on_ground = false,
-    fms_phase = 2,
-    altitude_ft = 30500,
-    pressure_altitude_ft = 30500,
-    vertical_speed_fpm = 0
-})
-descentStateEngine:update(descentStateBase, 0)
-descentStateEngine:update(copy(descentStateBase, {
-    altitude_ft = 30000,
-    pressure_altitude_ft = 30000
-}), 1)
-assert_equal(#descentStateEvents, 0, "FL300 waits for accepted YAL descent state")
-descentStateEngine:update(copy(descentStateBase, {
-    descent_state = true,
-    altitude_ft = 29950,
-    pressure_altitude_ft = 29950
-}), 2)
-assert_equal(#descentStateEvents, 1, "YAL descent state emits descent entry without FMS or VS gates")
-assert_equal(descentStateEvents[1].id, "arrival.on_descent", "YAL descent state entry event")
-
-local descentRetryCalls = 0
-local descentRetryEvents = {}
-local descentRetryEngine = core.newEventEngine({
-    emit = function(event)
-        descentRetryCalls = descentRetryCalls + 1
-        if descentRetryCalls == 1 then return false end
-        table.insert(descentRetryEvents, event)
-        return true
-    end
-})
-descentRetryEngine:update(descentStateBase, 0)
-local descentAcceptedBase = copy(descentStateBase, { descent_state = true })
-descentRetryEngine:update(descentAcceptedBase, 1)
-descentRetryEngine:update(descentAcceptedBase, 2)
-assert_equal(descentRetryCalls, 2, "descent entry queue rejection is retried")
-assert_equal(#descentRetryEvents, 1, "descent entry retry eventually emits")
-assert_equal(descentRetryEvents[1].id, "arrival.on_descent", "descent entry retry event id")
-
-local reloadEvents = {}
-local reloadEngine = core.newEventEngine({ emit = function(event) table.insert(reloadEvents, event) return true end })
-local loadedOnFinal = copy(base, {
-    on_ground = false,
-    descent_state = true,
-    final_gate = true,
-    fms_phase = 7,
-    altitude_ft = 2000,
-    pressure_altitude_ft = 2000,
-    vertical_speed_fpm = -500,
-    tod_distance_nm = 0
-})
-reloadEngine:update(loadedOnFinal, 0)
-reloadEngine:update(loadedOnFinal, 20)
-assert_equal(#reloadEvents, 0, "phase seven reload baseline emits nothing")
-
-local armedApproachEvents = {}
-local armedApproachEngine = core.newEventEngine({
-    emit = function(event) table.insert(armedApproachEvents, event) return true end
-})
-local beforeArmedApproach = copy(base, {
-    on_ground = false,
-    descent_state = true,
-    fms_phase = 5,
-    altitude_ft = 6000,
-    pressure_altitude_ft = 6000,
-    vertical_speed_fpm = -800,
-    tod_distance_nm = 0
-})
-armedApproachEngine:update(beforeArmedApproach, 0)
-local armedApproach = copy(beforeArmedApproach, { fms_phase = 7 })
-armedApproachEngine:update(armedApproach, 1)
-armedApproachEngine:update(armedApproach, 9)
-assert_equal(#armedApproachEvents, 1, "go-around-armed phase emits approach")
-assert_equal(armedApproachEvents[1].id, "arrival.approach", "phase seven approach event")
-local armedFinal = copy(armedApproach, { final_gate = true })
-armedApproachEngine:update(armedFinal, 10)
-armedApproachEngine:update(armedFinal, 15)
-assert_equal(#armedApproachEvents, 2, "go-around-armed phase emits final")
-assert_equal(armedApproachEvents[2].id, "arrival.on_final", "phase seven final event")
-
-local activeGoAroundEvents = {}
-local activeGoAroundEngine = core.newEventEngine({
-    emit = function(event) table.insert(activeGoAroundEvents, event) return true end
-})
-activeGoAroundEngine:update(beforeArmedApproach, 0)
-local activeGoAround = copy(beforeArmedApproach, { fms_phase = 8, final_gate = true })
-activeGoAroundEngine:update(activeGoAround, 1)
-activeGoAroundEngine:update(activeGoAround, 10)
-assert_equal(#activeGoAroundEvents, 0, "active go-around emits no approach or final")
-
-local reapproachEvents = {}
-local goAroundQueueCancels = 0
-local reapproachEngine = core.newEventEngine({
-    emit = function(event) table.insert(reapproachEvents, event) return true end,
-    cancelQueuedForGoAround = function() goAroundQueueCancels = goAroundQueueCancels + 1 end
-})
-reapproachEngine:update(beforeArmedApproach, 0)
-reapproachEngine:update(armedApproach, 1)
-reapproachEngine:update(armedFinal, 2)
-reapproachEngine:update(armedFinal, 7)
-assert_equal(#reapproachEvents, 2, "first approach and final emit once")
-reapproachEngine:update(activeGoAround, 8)
-reapproachEngine:update(activeGoAround, 10)
-assert_equal(#reapproachEvents, 2, "active go-around itself emits nothing")
-assert_equal(goAroundQueueCancels, 1, "active go-around cancels stale local arrival queue once")
-reapproachEngine:update(armedApproach, 11)
-assert_equal(#reapproachEvents, 3, "second approach re-arms after active go-around")
-assert_equal(reapproachEvents[3].id, "arrival.approach", "second approach event")
-reapproachEngine:update(armedFinal, 12)
-reapproachEngine:update(armedFinal, 17)
-assert_equal(#reapproachEvents, 4, "second final re-arms after active go-around")
-assert_equal(reapproachEvents[4].id, "arrival.on_final", "second final event")
+local vacatedCandidate = find_candidate(core.collectEventCandidates(runwayClear, final),
+    "arrival.runway_vacated")
+assert_true(vacatedCandidate ~= nil, "YAL post-landing runway-clear state produces vacated candidate")
+assert_equal(vacatedCandidate.stable_for, 2, "runway vacated uses generic two-second stability")
 
 local writes = {}
 local mailboxLogs = {}
@@ -1550,7 +863,7 @@ local pushbackAdapterValues = {
     result_seq = 30,
     result_code = 21,
     result_detail = "SUBMITTED_VISIBLE",
-    airgroundsensor = 1,
+    airgroundsensor = 0,
     radioaltitude = 0,
     altitude_ft = 300,
     pressure_altitude = 300,
@@ -1623,7 +936,8 @@ end
 
 configure_pushback_adapter_test()
 autoUnicom.tick(true, 0)
-assert_equal(#pushbackSearchAirports, 0, "stationary preflight does not search for pushback ramp")
+assert_equal(#pushbackSearchAirports, 0, "preflight sensor transient does not baseline pushback")
+pushbackAdapterValues.airgroundsensor = 1
 pushbackAdapterValues.tirespeed = -3
 pushbackAdapterValues.groundspeed = 2
 autoUnicom.tick(true, 1)

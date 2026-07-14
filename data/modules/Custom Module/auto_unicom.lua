@@ -2,7 +2,7 @@ local core = require("auto_unicom_core")
 
 local M = {}
 local runtime = nil
-local eventEngine = nil
+local eventState = nil
 local mailbox = nil
 local active = false
 local lastSampleAt = nil
@@ -86,25 +86,7 @@ local function enqueue_event(event)
     return true
 end
 
-local function event_engine_log(kind, event)
-    event = event or {}
-    if kind == "taxi_emit_rejected" then
-        log("IVAO Auto-Unicom: taxi event rejected reason=" .. tostring(event.reason or "unknown")
-            .. " gates={" .. tostring(event.inputs or "") .. "}")
-    elseif kind == "climb_level_rejected" or kind == "descent_level_rejected" then
-        log("IVAO Auto-Unicom: level event rejected event=" .. tostring(event.event_id or "unknown")
-            .. " reason=" .. tostring(event.reason or "unknown")
-            .. " gates={" .. tostring(event.inputs or "") .. "}")
-    elseif kind == "ground_baseline_deferred" then
-        log("IVAO Auto-Unicom: departure ground baseline deferred gates={"
-            .. tostring(event.inputs or "") .. "}")
-    elseif kind == "ground_cycle_reset" then
-        log("IVAO Auto-Unicom: departure ground cycle armed gates={"
-            .. tostring(event.inputs or "") .. "}")
-    end
-end
-
-local function create_state_machines()
+local function create_runtime_state()
     mailbox = core.newMailbox({
         writeText = write_request_text,
         writeSeq = write_request_seq,
@@ -112,16 +94,14 @@ local function create_state_machines()
         maxQueue = 8,
         timeoutSec = 30
     })
-    eventEngine = core.newEventEngine({
-        emit = enqueue_event,
-        cancelQueuedForGoAround = function()
-            if mailbox then mailbox:cancelQueuedForGoAround() end
-        end,
-        cancelQueuedForHoldEnd = function()
-            if mailbox then mailbox:cancelQueuedForHoldEnd() end
-        end,
-        log = event_engine_log
-    })
+    eventState = {
+        sent = {},
+        stable_since = {},
+        stable_snapshot = {},
+        rejection = {},
+        previous = nil,
+        last_report_altitude_ft = nil
+    }
 end
 
 local function read_approach_ref(snapshot)
@@ -423,6 +403,140 @@ local function build_snapshot()
     return snapshot
 end
 
+local function clear_event_tracking()
+    eventState.sent = {}
+    eventState.stable_since = {}
+    eventState.stable_snapshot = {}
+    eventState.rejection = {}
+    eventState.last_report_altitude_ft = nil
+end
+
+local function mark_candidate_done(candidate)
+    eventState.sent[candidate.key] = true
+    for _, key in ipairs(candidate.consumes or {}) do
+        eventState.sent[key] = true
+        eventState.stable_since[key] = nil
+        eventState.stable_snapshot[key] = nil
+        eventState.rejection[key] = nil
+    end
+    eventState.stable_since[candidate.key] = nil
+    eventState.stable_snapshot[candidate.key] = nil
+    eventState.rejection[candidate.key] = nil
+end
+
+local function baseline_snapshot(snapshot)
+    clear_event_tracking()
+    for _, candidate in ipairs(core.collectEventCandidates(snapshot, nil)) do
+        mark_candidate_done(candidate)
+    end
+    if snapshot.descent_state == true then
+        eventState.last_report_altitude_ft = tonumber(snapshot.altitude_ft)
+    end
+    eventState.previous = snapshot
+end
+
+local function prepare_snapshot_transition(snapshot)
+    local previous = eventState.previous
+    if not previous then return end
+
+    if snapshot.on_ground == true and snapshot.preflight == true
+        and previous.preflight ~= true then
+        clear_event_tracking()
+        log("IVAO Auto-Unicom: new YAL preflight state; event dedupe reset")
+    end
+
+    local phase = tonumber(snapshot.fms_phase) or 0
+    local previousPhase = tonumber(previous.fms_phase) or 0
+    if phase == 8 and previousPhase ~= 8 then
+        if mailbox then mailbox:cancelQueuedForGoAround() end
+        eventState.sent["arrival.approach"] = nil
+        eventState.sent["arrival.on_final"] = nil
+        eventState.stable_since["arrival.approach"] = nil
+        eventState.stable_since["arrival.on_final"] = nil
+        eventState.stable_snapshot["arrival.approach"] = nil
+        eventState.stable_snapshot["arrival.on_final"] = nil
+    end
+
+    if snapshot.descent_state == true and previous.descent_state ~= true then
+        local altitude = tonumber(snapshot.altitude_ft)
+        local previousAltitude = tonumber(previous.altitude_ft)
+        if altitude and previousAltitude then
+            for _, level in ipairs(core.DESCENT_PROGRESS_LEVELS_FT) do
+                if altitude < level and previousAltitude < level then
+                    eventState.sent["arrival.descent_level_" .. tostring(level)] = true
+                end
+            end
+        end
+        eventState.last_report_altitude_ft = nil
+    end
+end
+
+local function process_snapshot(snapshot, now)
+    prepare_snapshot_transition(snapshot)
+    local candidates = core.collectEventCandidates(snapshot, eventState.previous)
+    local activeKeys = {}
+    local reportClaimed = false
+
+    for _, candidate in ipairs(candidates) do
+        activeKeys[candidate.key] = true
+        if not eventState.sent[candidate.key]
+            and not (candidate.report_altitude_ft and reportClaimed) then
+            local stableFor = tonumber(candidate.stable_for) or 0
+            if eventState.stable_since[candidate.key] == nil then
+                eventState.stable_since[candidate.key] = now
+                eventState.stable_snapshot[candidate.key] = candidate.snapshot
+            end
+
+            if now - eventState.stable_since[candidate.key] >= stableFor then
+                if candidate.report_altitude_ft then reportClaimed = true end
+                local separated = true
+                local minimum = tonumber(candidate.min_report_separation_ft)
+                local lastReport = tonumber(eventState.last_report_altitude_ft)
+                if minimum and lastReport then
+                    separated = math.abs(lastReport - candidate.report_altitude_ft) >= minimum
+                end
+
+                if not separated then
+                    mark_candidate_done(candidate)
+                else
+                    if candidate.cancel_hold_entry and mailbox then
+                        mailbox:cancelQueuedForHoldEnd()
+                    end
+                    local event, reason = core.newEvent(
+                        candidate.id,
+                        eventState.stable_snapshot[candidate.key] or candidate.snapshot,
+                        now
+                    )
+                    local accepted = event and enqueue_event(event)
+                    if accepted then
+                        mark_candidate_done(candidate)
+                        if candidate.report_altitude_ft then
+                            eventState.last_report_altitude_ft = candidate.report_altitude_ft
+                        end
+                    else
+                        local rejection = tostring(reason or "queue_rejected")
+                        if eventState.rejection[candidate.key] ~= rejection then
+                            eventState.rejection[candidate.key] = rejection
+                            log("IVAO Auto-Unicom: event rejected event=" .. tostring(candidate.id)
+                                .. " reason=" .. rejection
+                                .. " gates={" .. core.summarizeSources(candidate.snapshot) .. "}")
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    for key in pairs(eventState.stable_since) do
+        if not activeKeys[key] then
+            eventState.stable_since[key] = nil
+            eventState.stable_snapshot[key] = nil
+            eventState.rejection[key] = nil
+        end
+    end
+    eventState.previous = snapshot
+end
+
 local function read_mailbox_api()
     local api = refs()
     if type(api) ~= "table" then return {} end
@@ -442,13 +556,14 @@ local function capture_baseline_repeat_candidate(snapshot)
     if not snapshot or snapshot.on_ground == true then return end
     local phase = tonumber(snapshot.fms_phase) or 0
     local eventId = nil
-    if phase == 6 or phase == 7 then
+    if snapshot.descent_state == true and (phase == 6 or phase == 7) then
         eventId = snapshot.final_gate == true and "arrival.on_final" or "arrival.approach"
-    elseif phase == 4 or phase == 5 then
+    elseif snapshot.descent_state == true then
         eventId = "arrival.on_descent"
-    elseif phase == 1 then
+    elseif snapshot.climb_state == true then
         eventId = "departure.on_climb"
-    elseif phase == 0 and (tonumber(snapshot.radio_altitude_ft) or 0) > 50 then
+    elseif snapshot.initial_climb_state == true
+        and (tonumber(snapshot.radio_altitude_ft) or 0) > 50 then
         eventId = "departure.airborne"
     end
     if not eventId then return end
@@ -523,7 +638,7 @@ end
 
 function M.configure(options)
     runtime = options
-    create_state_machines()
+    create_runtime_state()
     active = false
     lastSampleAt = nil
     connectionLogKey = nil
@@ -534,7 +649,7 @@ end
 
 function M.rebaseline()
     if not runtime then return end
-    create_state_machines()
+    create_runtime_state()
     active = false
     lastSampleAt = nil
     connectionLogKey = nil
@@ -544,13 +659,14 @@ function M.rebaseline()
 end
 
 function M.tick(enabled, now)
-    if not runtime or not eventEngine or not mailbox then return end
+    if not runtime or not eventState or not mailbox then return end
     now = tonumber(now) or os.time()
 
     if enabled ~= true then
         if active then
-            eventEngine:deactivate()
             mailbox:clear()
+            clear_event_tracking()
+            eventState.previous = nil
         end
         active = false
         lastSampleAt = nil
@@ -570,14 +686,14 @@ function M.tick(enabled, now)
     if not active then
         active = true
         local snapshot = build_snapshot()
-        eventEngine:activate(snapshot, now)
+        baseline_snapshot(snapshot)
         capture_baseline_repeat_candidate(snapshot)
         mailbox:clear()
         lastSampleAt = now
         log("IVAO Auto-Unicom enabled; current flight state baselined without event backfill")
     elseif not lastSampleAt or now - lastSampleAt >= 1 then
         lastSampleAt = now
-        eventEngine:update(build_snapshot(), now)
+        process_snapshot(build_snapshot(), now)
     end
 
     mailbox:tick(api, now)
