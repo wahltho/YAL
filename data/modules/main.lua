@@ -2,6 +2,7 @@ local def = require("definitions")
 local settings = require("settings")
 require("helpers")
 require("yal")
+local autoUnicom = require("auto_unicom")
 
 local debugOverlayWindow
 local debugOverlayInitialized = false
@@ -27,6 +28,74 @@ local startupUpdateCheckEarliest = 0
 local startupUpdateCheckPerformed = false
 local menu_taxi = nil
 local taxiGateLastLogTime = 0
+local autoUnicomRuntime = {
+    refs = nil,
+    nextBindAt = 0,
+    unavailableLogged = false,
+    sources = {
+        pressure_altitude = globalProperty("sim/flightmodel2/position/pressure_altitude"),
+        aircraft_icao = globalPropertys("sim/aircraft/view/acf_ICAO")
+    }
+}
+
+local function auto_unicom_refs_valid(refs)
+    if type(refs) ~= "table" then return false end
+    for _, prop in pairs(refs) do
+        if not prop or not isProperty(prop) then return false end
+    end
+    return true
+end
+
+local function bind_auto_unicom_datarefs()
+    if auto_unicom_refs_valid(autoUnicomRuntime.refs) then return true end
+    autoUnicomRuntime.refs = nil
+
+    local now = os.time() or 0
+    if now < autoUnicomRuntime.nextBindAt then return false end
+    autoUnicomRuntime.nextBindAt = now + 5
+
+    local pluginId = sasl.findPluginBySignature("wahltho.ivao.monitor")
+    if pluginId == NO_PLUGIN_ID then
+        if not autoUnicomRuntime.unavailableLogged then
+            autoUnicomRuntime.unavailableLogged = true
+            helpers.logInfoTS("IVAO Auto-Unicom enabled but IVAO Monitor is not available")
+        end
+        return false
+    end
+
+    local base = "ivao_monitor/autounicom/"
+    local bound = {
+        api_version = globalProperty(base .. "api_version"),
+        ready = globalProperty(base .. "ready"),
+        mode = globalProperty(base .. "mode"),
+        transport_state = globalProperty(base .. "transport_state"),
+        request_text = globalPropertys(base .. "request_text"),
+        request_seq = globalProperty(base .. "request_seq"),
+        result_seq = globalProperty(base .. "result_seq"),
+        result_code = globalProperty(base .. "result_code"),
+        result_detail = globalPropertys(base .. "result_detail")
+    }
+    if not auto_unicom_refs_valid(bound) then
+        if not autoUnicomRuntime.unavailableLogged then
+            autoUnicomRuntime.unavailableLogged = true
+            helpers.logInfoTS("IVAO Auto-Unicom enabled but API DataRefs are not ready")
+        end
+        return false
+    end
+
+    autoUnicomRuntime.refs = bound
+    autoUnicomRuntime.unavailableLogged = false
+    helpers.logInfoTS("IVAO Auto-Unicom DataRefs bound")
+    return true
+end
+
+autoUnicom.configure({
+    yal = yal,
+    def = def,
+    helpers = helpers,
+    sources = autoUnicomRuntime.sources,
+    getRefs = function() return autoUnicomRuntime.refs end
+})
 
 local function normalize_zibo_release(raw)
     local s = helpers.forceCleanString(tostring(raw or ""))
@@ -854,6 +923,9 @@ end
 
 function onAirportLoaded(flightNumber)
     helpers.logInfoTS(string.format("Airport loaded: Flight #%s, Aircraft: %s", flightNumber, sasl.getAircraft()))
+    if autoUnicom and autoUnicom.rebaseline then
+        autoUnicom.rebaseline()
+    end
 
     if helpers.isZibo() then
         helpers.logInfoTS("Zibo Mod detected after airport load.")
@@ -882,6 +954,12 @@ end
 function update()
     if helpers.isZibo() then
         maybeInitDebugOverlay()
+        local autoUnicomEnabled = settings and settings.appSettings
+            and tonumber(settings.appSettings[def.CONFIGIVAOAUTOUNICOM] or 0) == def.ON
+        if autoUnicomEnabled then
+            bind_auto_unicom_datarefs()
+        end
+        autoUnicom.tick(autoUnicomEnabled == true)
         if yal and yal.updateGearProtectionFast then
             yal.updateGearProtectionFast()
         end
