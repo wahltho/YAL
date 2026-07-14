@@ -97,6 +97,20 @@ autoUnicom.configure({
     getRefs = function() return autoUnicomRuntime.refs end
 })
 
+autoUnicomRuntime.repeatCommand = sasl.createCommand(
+    def.APPNAMEPREFIX .. "/autounicom/repeat_last",
+    "Repeat Last IVAO Auto-Unicom Message"
+)
+sasl.registerCommandHandler(autoUnicomRuntime.repeatCommand, 0, function(phase)
+    if phase == SASL_COMMAND_BEGIN then
+        local enabled = settings and settings.appSettings
+            and tonumber(settings.appSettings[def.CONFIGIVAOAUTOUNICOM] or 0) == def.ON
+        if enabled then bind_auto_unicom_datarefs() end
+        autoUnicom.repeatLastMessage(enabled == true)
+    end
+    return 0
+end)
+
 local function normalize_zibo_release(raw)
     local s = helpers.forceCleanString(tostring(raw or ""))
     local full = s:match("(%d+%.%d+%.%d+)")

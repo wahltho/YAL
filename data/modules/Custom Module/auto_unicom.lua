@@ -7,6 +7,8 @@ local mailbox = nil
 local active = false
 local lastSampleAt = nil
 local connectionLogKey = nil
+local lastMessageText = nil
+local manualRepeatCount = 0
 
 local function log(message)
     if runtime and runtime.helpers and runtime.helpers.logInfoTS then
@@ -48,6 +50,7 @@ end
 
 local function mailbox_log(kind, event)
     if kind == "committed" then
+        lastMessageText = event.text
         log(string.format("IVAO Auto-Unicom: committed event=%s seq=%s text=%s",
             tostring(event.id), tostring(event.seq), tostring(event.text)))
     elseif kind == "terminal" then
@@ -230,12 +233,66 @@ local function read_mailbox_api()
     }
 end
 
+function M.repeatLastMessage(enabled)
+    if enabled ~= true then
+        log("IVAO Auto-Unicom: repeat last rejected reason=feature_disabled")
+        return false, "feature_disabled"
+    end
+    if not runtime or not mailbox then
+        log("IVAO Auto-Unicom: repeat last rejected reason=not_initialized")
+        return false, "not_initialized"
+    end
+
+    local api = read_mailbox_api()
+    if api.api_version ~= 1 or api.ready ~= 1 then
+        log("IVAO Auto-Unicom: repeat last rejected reason=api_unavailable")
+        return false, "api_unavailable"
+    end
+    if api.mode ~= 2 then
+        log("IVAO Auto-Unicom: repeat last rejected reason=send_mode_inactive")
+        return false, "send_mode_inactive"
+    end
+    if mailbox.blocked then
+        log("IVAO Auto-Unicom: repeat last rejected reason=transport_blocked")
+        return false, "transport_blocked"
+    end
+    if mailbox.outstanding or #mailbox.queue > 0 then
+        log("IVAO Auto-Unicom: repeat last rejected reason=request_pending")
+        return false, "request_pending"
+    end
+
+    local apiRefs = refs()
+    local text = core.normalizeText(lastMessageText or safe_read(apiRefs and apiRefs.request_text))
+    if not text then
+        log("IVAO Auto-Unicom: repeat last rejected reason=no_last_message")
+        return false, "no_last_message"
+    end
+
+    manualRepeatCount = manualRepeatCount + 1
+    local now = os.time() or 0
+    local accepted = enqueue_event({
+        id = "manual.repeat_last." .. tostring(manualRepeatCount),
+        text = text,
+        inputs = "source=last_auto_unicom_message",
+        created_at = now,
+        expires_at = now + 120
+    })
+    if not accepted then
+        log("IVAO Auto-Unicom: repeat last rejected reason=queue_rejected")
+        return false, "queue_rejected"
+    end
+    log("IVAO Auto-Unicom: repeat last accepted text=" .. text)
+    return true, text
+end
+
 function M.configure(options)
     runtime = options
     create_state_machines()
     active = false
     lastSampleAt = nil
     connectionLogKey = nil
+    lastMessageText = nil
+    manualRepeatCount = 0
 end
 
 function M.rebaseline()
@@ -244,6 +301,8 @@ function M.rebaseline()
     active = false
     lastSampleAt = nil
     connectionLogKey = nil
+    lastMessageText = nil
+    manualRepeatCount = 0
 end
 
 function M.tick(enabled, now)

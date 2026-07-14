@@ -1,6 +1,7 @@
 package.path = "data/modules/Custom Module/?.lua;" .. package.path
 
 local core = require("auto_unicom_core")
+local autoUnicom = require("auto_unicom")
 
 local function fail(message)
     error(message, 2)
@@ -790,5 +791,61 @@ uncertainMailbox:tick(api, 4)
 assert_true(uncertainMailbox.outstanding == nil, "uncertain result completes request")
 uncertainMailbox:tick(api, 5)
 assert_equal(uncertainWrites, 2, "uncertain result is never retried")
+
+local repeatRefs = {
+    api_version = "api_version",
+    ready = "ready",
+    mode = "mode",
+    transport_state = "transport_state",
+    request_text = "request_text",
+    request_seq = "request_seq",
+    result_seq = "result_seq",
+    result_code = "result_code",
+    result_detail = "result_detail"
+}
+local repeatValues = {
+    api_version = 1,
+    ready = 1,
+    mode = 2,
+    transport_state = 5,
+    request_text = phraseCases[5][3],
+    request_seq = 12,
+    result_seq = 12,
+    result_code = 21,
+    result_detail = "SUBMITTED_VISIBLE"
+}
+local function configure_repeat_test()
+    autoUnicom.configure({
+        helpers = { logInfoTS = function() end },
+        getRefs = function() return repeatRefs end,
+        read = function(prop) return repeatValues[prop] end
+    })
+end
+
+configure_repeat_test()
+local repeated, repeatedText = autoUnicom.repeatLastMessage(true)
+assert_true(repeated, "repeat last accepted")
+assert_equal(repeatedText, phraseCases[5][3], "repeat last preserves exact text")
+assert_equal(autoUnicom.getDebugState().queue_depth, 1, "repeat last queues one request")
+local repeatedAgain, repeatPendingReason = autoUnicom.repeatLastMessage(true)
+assert_equal(repeatedAgain, false, "repeat last blocks a pending duplicate")
+assert_equal(repeatPendingReason, "request_pending", "repeat pending reason")
+
+repeatValues.request_text = ""
+configure_repeat_test()
+local repeatedEmpty, repeatEmptyReason = autoUnicom.repeatLastMessage(true)
+assert_equal(repeatedEmpty, false, "repeat last rejects empty history")
+assert_equal(repeatEmptyReason, "no_last_message", "repeat empty reason")
+
+repeatValues.request_text = phraseCases[5][3]
+repeatValues.mode = 1
+configure_repeat_test()
+local repeatedDryRun, repeatDryRunReason = autoUnicom.repeatLastMessage(true)
+assert_equal(repeatedDryRun, false, "repeat last requires send mode")
+assert_equal(repeatDryRunReason, "send_mode_inactive", "repeat send mode reason")
+
+local repeatedDisabled, repeatDisabledReason = autoUnicom.repeatLastMessage(false)
+assert_equal(repeatedDisabled, false, "repeat last requires enabled feature")
+assert_equal(repeatDisabledReason, "feature_disabled", "repeat disabled reason")
 
 print("auto_unicom tests passed")
