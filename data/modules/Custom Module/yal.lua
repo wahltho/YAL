@@ -1261,6 +1261,8 @@ function P.YalinitGlobal()
         holdKey = nil,
         holdPayload = nil,
         holdExitSent = false,
+        holdEstablishedSent = false,
+        holdDescentSent = false,
         lastFmsPhase = nil,
         taxiEventsInitialized = false,
         holdShortSince = nil,
@@ -7220,6 +7222,7 @@ local function readAutoUnicomHoldState()
             local seqBefore = tonumber(get(api.update_seq))
             if seqBefore and seqBefore % 2 == 0 then
                 local active = tonumber(get(api.active))
+                local entryComplete = tonumber(get(api.entry_complete))
                 local exitArmed = tonumber(get(api.exit_armed))
                 local waypoint = cleanAutoUnicomWaypoint(get(api.waypoint))
                 local pathType = cleanAutoUnicomWaypoint(get(api.path_type))
@@ -7236,6 +7239,7 @@ local function readAutoUnicomHoldState()
                             source = "api",
                             waypoint = waypoint,
                             path_type = pathType,
+                            entry_complete = entryComplete == 1,
                             exit_armed = exitArmed == 1,
                             target_altitude_ft = targetValid == 1 and targetAltitude and targetAltitude > 0
                                 and targetAltitude or nil
@@ -7264,8 +7268,22 @@ local function autoUnicomHoldPayload(hold)
         hold_source = hold.source,
         hold_waypoint = hold.waypoint,
         hold_path_type = hold.path_type,
+        hold_entry_complete = hold.entry_complete,
         hold_target_altitude_ft = hold.target_altitude_ft
     }
+end
+
+local function autoUnicomHoldDescending(hold)
+    if not hold or not hold.active or hold.entry_complete ~= true
+        or not hold.target_altitude_ft then
+        return false
+    end
+    local altitude = P.altitude_ft and tonumber(get(P.altitude_ft))
+        or (P.altitude and tonumber(get(P.altitude)))
+    local verticalSpeed = P.verticalspeed and tonumber(get(P.verticalspeed)) or 0
+    return altitude ~= nil
+        and altitude > hold.target_altitude_ft + 100
+        and verticalSpeed < -100
 end
 
 function P.isArrivalFinalEstablished()
@@ -7406,6 +7424,8 @@ function P.baselineAutoUnicomRuntimeEvents()
     state.holdKey = hold.active and (hold.waypoint .. "|" .. hold.path_type) or nil
     state.holdPayload = hold.active and autoUnicomHoldPayload(hold) or nil
     state.holdExitSent = hold.active and hold.exit_armed == true or false
+    state.holdEstablishedSent = hold.active and hold.entry_complete == true or false
+    state.holdDescentSent = hold.active and autoUnicomHoldDescending(hold) or false
 end
 
 function P.updateAutoUnicomGroundEvents()
@@ -7538,6 +7558,8 @@ function P.updateAutoUnicomHoldEvents()
         state.holdKey = key
         state.holdPayload = hold.active and autoUnicomHoldPayload(hold) or nil
         state.holdExitSent = hold.active and hold.exit_armed == true or false
+        state.holdEstablishedSent = hold.active and hold.entry_complete == true or false
+        state.holdDescentSent = hold.active and autoUnicomHoldDescending(hold) or false
         return
     end
 
@@ -7548,12 +7570,29 @@ function P.updateAutoUnicomHoldEvents()
         state.holdKey = key
         state.holdPayload = autoUnicomHoldPayload(hold)
         state.holdExitSent = false
+        state.holdEstablishedSent = false
+        state.holdDescentSent = false
         P.publishRuntimeEvent("enroute.hold_enter", state.holdPayload)
     elseif not key then
         state.holdKey = nil
         state.holdPayload = nil
         state.holdExitSent = false
+        state.holdEstablishedSent = false
+        state.holdDescentSent = false
         return
+    end
+
+    state.holdPayload = autoUnicomHoldPayload(hold)
+
+    if not state.holdExitSent and hold.entry_complete and not state.holdEstablishedSent then
+        if P.publishRuntimeEvent("enroute.holding", state.holdPayload) then
+            state.holdEstablishedSent = true
+        end
+    end
+    if not state.holdExitSent and autoUnicomHoldDescending(hold) and not state.holdDescentSent then
+        if P.publishRuntimeEvent("enroute.hold_descending", state.holdPayload) then
+            state.holdDescentSent = true
+        end
     end
 
     if hold.exit_armed and not state.holdExitSent then

@@ -11,6 +11,8 @@ M.EVENT_TTL_SEC = {
     ["departure.on_climb"] = 120,
     ["enroute.in_cruise"] = 120,
     ["enroute.hold_enter"] = 120,
+    ["enroute.holding"] = 120,
+    ["enroute.hold_descending"] = 120,
     ["enroute.hold_exit"] = 120,
     ["arrival.top_of_descent"] = 120,
     ["arrival.on_descent"] = 120,
@@ -46,6 +48,8 @@ local TERMINAL_RESULTS = {
 local DESCENT_PROGRESS_PREFIX = "arrival.descent_level_"
 local CLIMB_PROGRESS_PREFIX = "departure.climb_level_"
 local HOLD_ENTER_EVENT_ID = "enroute.hold_enter"
+local HOLDING_EVENT_ID = "enroute.holding"
+local HOLD_DESCENDING_EVENT_ID = "enroute.hold_descending"
 local HOLD_EXIT_EVENT_ID = "enroute.hold_exit"
 
 local function is_climb_progress_event(eventId)
@@ -185,6 +189,19 @@ local function format_planned_altitude(snapshot)
     return tostring(round(planned / 100) * 100) .. "ft"
 end
 
+local function format_hold_target_altitude(snapshot)
+    local target = tonumber(snapshot.hold_target_altitude_ft)
+    if not target or target <= 0 then return nil end
+    local transition = tonumber(snapshot.transition_level_ft) or 0
+    if transition <= 0 then
+        transition = tonumber(snapshot.transition_altitude_ft) or 0
+    end
+    if transition > 0 and target >= transition then
+        return "FL" .. tostring(round(target / 100))
+    end
+    return tostring(round(target / 100) * 100) .. "ft"
+end
+
 local function approach_label(snapshot)
     local family = clean_token(snapshot.approach_procedure_type, false)
     local resolved = clean_token(snapshot.approach_resolved_kind, false)
@@ -320,11 +337,34 @@ function M.buildMessage(eventId, snapshot)
         return normalize_text(string.format("%s Traffic, %s airborne off runway %s, passing %s", airport, ac, runway, altitude))
     end
 
-    if eventId == HOLD_ENTER_EVENT_ID or eventId == HOLD_EXIT_EVENT_ID then
+    if eventId == HOLD_ENTER_EVENT_ID or eventId == HOLDING_EVENT_ID
+        or eventId == HOLD_DESCENDING_EVENT_ID or eventId == HOLD_EXIT_EVENT_ID then
         local waypoint = clean_token(snapshot.hold_waypoint, false)
         if not waypoint then return nil, "missing_hold_context" end
         if eventId == HOLD_ENTER_EVENT_ID then
             return normalize_text(string.format("Traffic, %s, entering a hold over %s", ac, waypoint))
+        end
+        if eventId == HOLDING_EVENT_ID then
+            local altitude = format_altitude(snapshot, false)
+            if not altitude then return nil, "missing_hold_context" end
+            return normalize_text(string.format(
+                "Traffic, %s maintaining %s whilst holding over %s",
+                ac,
+                altitude,
+                waypoint
+            ))
+        end
+        if eventId == HOLD_DESCENDING_EVENT_ID then
+            local altitude = format_altitude(snapshot, true)
+            local target = format_hold_target_altitude(snapshot)
+            if not altitude or not target then return nil, "missing_hold_descent_context" end
+            return normalize_text(string.format(
+                "Traffic, %s, in a hold over %s on descent passing %s for %s",
+                ac,
+                waypoint,
+                altitude,
+                target
+            ))
         end
         return normalize_text(string.format("Traffic, %s, exiting hold over %s", ac, waypoint))
     end
@@ -443,6 +483,7 @@ local function summarize_sources(snapshot)
         { "holdSource", snapshot.hold_source },
         { "holdWaypoint", snapshot.hold_waypoint },
         { "holdPath", snapshot.hold_path_type },
+        { "holdEntryComplete", snapshot.hold_entry_complete and 1 or 0 },
         { "holdTarget", snapshot.hold_target_altitude_ft },
         { "cruiseWaypoint", snapshot.cruise_waypoint },
         { "final", snapshot.final_gate and 1 or 0 },
@@ -474,8 +515,17 @@ local Mailbox = {}
 Mailbox.__index = Mailbox
 
 local SUPERSEDED_EVENTS = {
-    [HOLD_EXIT_EVENT_ID] = {
+    [HOLDING_EVENT_ID] = {
         [HOLD_ENTER_EVENT_ID] = true
+    },
+    [HOLD_DESCENDING_EVENT_ID] = {
+        [HOLD_ENTER_EVENT_ID] = true,
+        [HOLDING_EVENT_ID] = true
+    },
+    [HOLD_EXIT_EVENT_ID] = {
+        [HOLD_ENTER_EVENT_ID] = true,
+        [HOLDING_EVENT_ID] = true,
+        [HOLD_DESCENDING_EVENT_ID] = true
     },
     ["departure.taxi_runway"] = {
         ["departure.start_push"] = true
@@ -659,7 +709,8 @@ end
 function Mailbox:cancelQueuedForHoldEnd()
     local kept = {}
     for _, event in ipairs(self.queue) do
-        if event.id == HOLD_ENTER_EVENT_ID then
+        if event.id == HOLD_ENTER_EVENT_ID or event.id == HOLDING_EVENT_ID
+            or event.id == HOLD_DESCENDING_EVENT_ID then
             self.queuedIds[event.id] = nil
             self.log("cancelled_hold_end", event)
         else

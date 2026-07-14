@@ -176,6 +176,21 @@ local phraseCases = {
         "enroute.in_cruise",
         copy(base, { cruise_waypoint = "BIRCO", altitude_ft = 37000, pressure_altitude_ft = 37000 }),
         "Traffic, B738 passing BIRCO, maintaining FL370"
+    },
+    {
+        "enroute.holding",
+        copy(base, { hold_waypoint = "BIRCO", altitude_ft = 37000, pressure_altitude_ft = 37000 }),
+        "Traffic, B738 maintaining FL370 whilst holding over BIRCO"
+    },
+    {
+        "enroute.hold_descending",
+        copy(base, {
+            hold_waypoint = "BIRCO",
+            hold_target_altitude_ft = 25000,
+            altitude_ft = 37000,
+            pressure_altitude_ft = 37000
+        }),
+        "Traffic, B738, in a hold over BIRCO on descent passing FL370 for FL250"
     }
 }
 
@@ -257,6 +272,13 @@ assert_equal(missingHoldReason, "missing_hold_context", "missing hold waypoint r
 local missingCruiseText, missingCruiseReason = core.buildMessage("enroute.in_cruise", base)
 assert_equal(missingCruiseText, nil, "cruise phrase requires waypoint")
 assert_equal(missingCruiseReason, "missing_cruise_context", "missing cruise waypoint reason")
+
+local missingHoldDescentText, missingHoldDescentReason = core.buildMessage(
+    "enroute.hold_descending",
+    copy(base, { hold_waypoint = "BIRCO" })
+)
+assert_equal(missingHoldDescentText, nil, "hold descent phrase requires target altitude")
+assert_equal(missingHoldDescentReason, "missing_hold_descent_context", "missing hold descent target reason")
 
 local missingIntersectionText, missingIntersectionReason = core.buildMessage("departure.intersection", base)
 assert_equal(missingIntersectionText, nil, "intersection takeoff requires intersection")
@@ -378,28 +400,56 @@ assert_true(holdMailbox:enqueue({
     expires_at = 100
 }), "enqueue hold entry")
 assert_true(holdMailbox:enqueue({
+    id = "enroute.holding",
+    text = core.buildMessage("enroute.holding", copy(base, {
+        hold_waypoint = "BIRCO",
+        altitude_ft = 37000,
+        pressure_altitude_ft = 37000
+    })),
+    expires_at = 100
+}), "enqueue established hold supersession")
+assert_equal(#holdMailbox.queue, 1, "established hold supersedes queued hold entry")
+assert_equal(holdMailbox.queue[1].id, "enroute.holding", "established hold remains queued")
+assert_true(holdMailbox:enqueue({
+    id = "enroute.hold_descending",
+    text = core.buildMessage("enroute.hold_descending", copy(base, {
+        hold_waypoint = "BIRCO",
+        hold_target_altitude_ft = 25000,
+        altitude_ft = 37000,
+        pressure_altitude_ft = 37000
+    })),
+    expires_at = 100
+}), "enqueue descending hold supersession")
+assert_equal(#holdMailbox.queue, 1, "descending hold supersedes established hold")
+assert_equal(holdMailbox.queue[1].id, "enroute.hold_descending", "descending hold remains queued")
+assert_true(holdMailbox:enqueue({
     id = "enroute.hold_exit",
     text = phraseCases[17][3],
     expires_at = 100
 }), "enqueue hold exit supersession")
-assert_equal(#holdMailbox.queue, 1, "hold exit supersedes queued hold entry")
+assert_equal(#holdMailbox.queue, 1, "hold exit supersedes queued hold state")
 assert_equal(holdMailbox.queue[1].id, "enroute.hold_exit", "hold exit remains queued")
 assert_equal(holdMailboxLogs[1].kind, "superseded", "hold supersession logged")
 holdMailbox = core.newMailbox({
     log = function(kind, event) table.insert(holdMailboxLogs, { kind = kind, event = event }) end
 })
 assert_true(holdMailbox:enqueue({
-    id = "enroute.hold_enter",
-    text = phraseCases[16][3],
+    id = "enroute.hold_descending",
+    text = core.buildMessage("enroute.hold_descending", copy(base, {
+        hold_waypoint = "BIRCO",
+        hold_target_altitude_ft = 25000,
+        altitude_ft = 37000,
+        pressure_altitude_ft = 37000
+    })),
     expires_at = 100
-}), "enqueue hold entry before cancellation")
+}), "enqueue hold descent before cancellation")
 assert_true(holdMailbox:enqueue({
     id = "departure.taxi_runway",
     text = phraseCases[9][3],
     expires_at = 100
 }), "enqueue unrelated event before hold cancellation")
 holdMailbox:cancelQueuedForHoldEnd()
-assert_equal(#holdMailbox.queue, 1, "hold cancellation removes only hold entry")
+assert_equal(#holdMailbox.queue, 1, "hold cancellation removes only hold state")
 assert_equal(holdMailbox.queue[1].id, "departure.taxi_runway", "hold cancellation preserves unrelated event")
 assert_equal(holdMailboxLogs[#holdMailboxLogs].kind, "cancelled_hold_end", "hold cancellation logged")
 
