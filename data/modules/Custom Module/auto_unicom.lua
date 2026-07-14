@@ -10,6 +10,7 @@ local connectionLogKey = nil
 local lastIntendedMessageText = nil
 local lastCommittedMessageText = nil
 local manualRepeatCount = 0
+local PUSHBACK_PARKING_MAX_DISTANCE_M = 80
 
 local function log(message)
     if runtime and runtime.helpers and runtime.helpers.logInfoTS then
@@ -162,6 +163,66 @@ local function procedure_started_or_done(y, procedureId)
     return false, "none"
 end
 
+local function normalize_icao(value)
+    local helpers = runtime and runtime.helpers or nil
+    local text = tostring(value or "")
+    if helpers and helpers.forceCleanString then
+        text = helpers.forceCleanString(text)
+    end
+    if helpers and helpers.extractprimaryicao then
+        text = helpers.extractprimaryicao(text) or ""
+    end
+    text = tostring(text):upper():gsub("^%s+", ""):gsub("%s+$", "")
+    if #text ~= 4 then return nil end
+    for index = 1, 4 do
+        local byte = text:byte(index)
+        if not byte or byte < 65 or byte > 90 then return nil end
+    end
+    if helpers and helpers.isvalidicao and not helpers.isvalidicao(text) then return nil end
+    return text
+end
+
+local function read_pushback_parking(snapshot, y)
+    local wheelSpeed = tonumber(snapshot.wheel_speed) or 0
+    local pushbackCandidate = snapshot.on_ground == true and snapshot.preflight == true
+        and math.abs(wheelSpeed) > 1
+        and (snapshot.pushback_active == true or wheelSpeed < -1)
+    if not pushbackCandidate then return end
+
+    local helpers = runtime and runtime.helpers or nil
+    local airport = normalize_icao(safe_read(y.nearesticao))
+        or normalize_icao(snapshot.departure_icao)
+    snapshot.pushback_airport_icao = airport
+    if not airport or not helpers or not helpers.getNearestRamp or not helpers.isRampSuitableFor738 then return end
+
+    local lat = tonumber(safe_read(y.aircraftlatpos))
+    local lon = tonumber(safe_read(y.aircraftlonpos))
+    if not lat or not lon or lat < -90 or lat > 90 or lon < -180 or lon > 180
+        or (lat == 0 and lon == 0) then
+        return
+    end
+
+    local ok, ramp, distanceSquared = pcall(
+        helpers.getNearestRamp,
+        airport,
+        lat,
+        lon,
+        { filter = helpers.isRampSuitableFor738 }
+    )
+    distanceSquared = tonumber(distanceSquared)
+    if not ok or not ramp or not distanceSquared or distanceSquared < 0
+        or distanceSquared > PUSHBACK_PARKING_MAX_DISTANCE_M * PUSHBACK_PARKING_MAX_DISTANCE_M then
+        return
+    end
+
+    local rampType = tostring(ramp.ramp_type or ""):lower()
+    if rampType ~= "gate" and rampType ~= "misc" then return end
+    snapshot.pushback_parking_found = true
+    snapshot.pushback_parking_type = rampType
+    snapshot.pushback_parking_name = tostring(ramp.name or "")
+    snapshot.pushback_parking_distance_m = math.sqrt(distanceSquared)
+end
+
 local function build_snapshot()
     local y = runtime.yal
     local def = runtime.def
@@ -208,6 +269,8 @@ local function build_snapshot()
         arrival_runway_clear = false,
         final_gate = false
     }
+
+    read_pushback_parking(snapshot, y)
 
     if y.aircraftonrwy then
         local ok, value = pcall(y.aircraftonrwy, def.DEPARTURE, 40, 20)

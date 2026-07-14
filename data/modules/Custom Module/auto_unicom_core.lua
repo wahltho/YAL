@@ -109,6 +109,53 @@ local function normalize_text(value)
     return text
 end
 
+local PARKING_NAME_NOISE = {
+    GATE = true,
+    GATES = true,
+    STAND = true,
+    STANDS = true,
+    PARKING = true,
+    PARK = true,
+    RAMP = true,
+    APRON = true,
+    TERMINAL = true,
+    AIRCRAFT = true,
+    START = true,
+    POSITION = true,
+    POS = true,
+    HEAVY = true,
+    JET = true,
+    JETS = true,
+    TURBOPROP = true,
+    TURBOPROPS = true
+}
+
+local function pushback_parking_label(snapshot)
+    if snapshot.pushback_parking_found ~= true then return nil end
+    local rampType = tostring(snapshot.pushback_parking_type or ""):lower()
+    if rampType ~= "gate" and rampType ~= "misc" then return nil end
+
+    local rawName = tostring(snapshot.pushback_parking_name or "")
+        :gsub("[|/_]", " ")
+    local name = clean_token(rawName, true)
+    if not name then return nil end
+    if name == "CLASS" or name:sub(1, 6) == "CLASS "
+        or name == "AIRCRAFT" or name:sub(1, 9) == "AIRCRAFT "
+        or name == "RAMP START" or name:sub(1, 11) == "RAMP START " then
+        return nil
+    end
+    local identifier = {}
+    for token in name:gmatch("%S+") do
+        if not PARKING_NAME_NOISE[token] then
+            identifier[#identifier + 1] = token
+        end
+    end
+    if #identifier == 0 then return nil end
+    local text = table.concat(identifier, " ")
+    if #text > 24 then return nil end
+    return (rampType == "gate" and "gate " or "stand ") .. text
+end
+
 M.normalizeText = normalize_text
 M.normalizeRunway = normalize_runway
 
@@ -189,9 +236,13 @@ function M.buildMessage(eventId, snapshot)
     local ac = aircraft_type(snapshot)
 
     if eventId == "departure.start_push" then
-        local airport = clean_token(snapshot.departure_icao, false)
+        local airport = clean_token(snapshot.pushback_airport_icao, false)
+            or clean_token(snapshot.departure_icao, false)
         if not airport or #airport ~= 4 then return nil, "missing_departure_context" end
-        return normalize_text(string.format("%s Traffic, %s, pushing back", airport, ac))
+        local parking = pushback_parking_label(snapshot)
+        local text = string.format("%s Traffic, %s, pushing back", airport, ac)
+        if parking then text = text .. " from " .. parking end
+        return normalize_text(text)
     end
 
     if eventId == "departure.taxi_runway" then
@@ -324,6 +375,11 @@ local function summarize_sources(snapshot)
         { "wheelSpeed", snapshot.wheel_speed },
         { "onDepRwy", snapshot.on_departure_runway and 1 or 0 },
         { "bpb", snapshot.pushback_active and 1 or 0 },
+        { "pushAirport", snapshot.pushback_airport_icao },
+        { "pushParking", snapshot.pushback_parking_found and 1 or 0 },
+        { "pushParkingType", snapshot.pushback_parking_type },
+        { "pushParkingName", snapshot.pushback_parking_name },
+        { "pushParkingDist", snapshot.pushback_parking_distance_m },
         { "arrClear", snapshot.arrival_runway_clear and 1 or 0 },
         { "final", snapshot.final_gate and 1 or 0 }
     }
@@ -348,6 +404,7 @@ function M.newEventEngine(options)
         before_taxi_seen = false,
         before_takeoff_seen = false,
         push_since = nil,
+        pushback_origin = nil,
         takeoff_since = nil,
         vacated_since = nil,
         taxi_rejection_key = nil,
@@ -373,6 +430,7 @@ function Engine:resetDepartureGroundCycle(snapshot)
     self.before_taxi_seen = snapshot.before_taxi_started == true
     self.before_takeoff_seen = snapshot.before_takeoff_started == true
     self.push_since = nil
+    self.pushback_origin = nil
     self.takeoff_since = nil
     self.taxi_rejection_key = nil
     self.climb_altitude_previous = climb_altitude(snapshot)
@@ -389,6 +447,7 @@ function Engine:activate(snapshot)
     self.before_taxi_seen = snapshot.before_taxi_started == true
     self.before_takeoff_seen = snapshot.before_takeoff_started == true
     self.push_since = nil
+    self.pushback_origin = nil
     self.takeoff_since = nil
     self.vacated_since = nil
     self.taxi_rejection_key = nil
@@ -457,6 +516,7 @@ function Engine:deactivate()
     self.sent = {}
     self.final_since = nil
     self.push_since = nil
+    self.pushback_origin = nil
     self.takeoff_since = nil
     self.vacated_since = nil
     self.taxi_rejection_key = nil
@@ -473,6 +533,7 @@ end
 function Engine:beginFlight(snapshot)
     self.sent = {}
     self.push_since = nil
+    self.pushback_origin = nil
     self.takeoff_since = nil
     self.vacated_since = nil
     self.climb_altitude_previous = climb_altitude(snapshot)
@@ -651,12 +712,31 @@ function Engine:update(snapshot, now)
     local pushGate = onGround and preflight and moving
         and (snapshot.pushback_active == true or reverse)
     if pushGate and not self.sent["departure.start_push"] then
+        self.pushback_origin = self.pushback_origin or {}
+        if not self.pushback_origin.airport and snapshot.pushback_airport_icao then
+            self.pushback_origin.airport = snapshot.pushback_airport_icao
+        end
+        if self.pushback_origin.parking_found ~= true and snapshot.pushback_parking_found == true then
+            self.pushback_origin.parking_found = true
+            self.pushback_origin.parking_type = snapshot.pushback_parking_type
+            self.pushback_origin.parking_name = snapshot.pushback_parking_name
+            self.pushback_origin.parking_distance_m = snapshot.pushback_parking_distance_m
+        end
         self.push_since = self.push_since or now
         if now - self.push_since >= 2 then
-            self:tryEmit("departure.start_push", snapshot, now)
+            local pushSnapshot = {}
+            for key, value in pairs(snapshot) do pushSnapshot[key] = value end
+            pushSnapshot.pushback_airport_icao = self.pushback_origin.airport
+                or snapshot.pushback_airport_icao
+            pushSnapshot.pushback_parking_found = self.pushback_origin.parking_found == true
+            pushSnapshot.pushback_parking_type = self.pushback_origin.parking_type
+            pushSnapshot.pushback_parking_name = self.pushback_origin.parking_name
+            pushSnapshot.pushback_parking_distance_m = self.pushback_origin.parking_distance_m
+            self:tryEmit("departure.start_push", pushSnapshot, now)
         end
     else
         self.push_since = nil
+        if not self.sent["departure.start_push"] then self.pushback_origin = nil end
     end
 
     local taxiGate = onGround and self.before_taxi_seen and forward

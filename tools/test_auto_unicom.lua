@@ -160,6 +160,44 @@ assert_equal(missingText, nil, "missing arrival runway rejects phrase")
 assert_equal(missingReason, "missing_arrival_context", "missing arrival reason")
 
 assert_equal(
+    core.buildMessage("departure.start_push", copy(base, {
+        pushback_airport_icao = "ESSA",
+        pushback_parking_found = true,
+        pushback_parking_type = "gate",
+        pushback_parking_name = "Gate A12"
+    })),
+    "ESSA Traffic, B738, pushing back from gate A12",
+    "pushback gate phrase"
+)
+assert_equal(
+    core.buildMessage("departure.start_push", copy(base, {
+        pushback_parking_found = true,
+        pushback_parking_type = "misc",
+        pushback_parking_name = "Apron 42"
+    })),
+    "ENAT Traffic, B738, pushing back from stand 42",
+    "pushback apron stand phrase"
+)
+assert_equal(
+    core.buildMessage("departure.start_push", copy(base, {
+        pushback_parking_found = true,
+        pushback_parking_type = "gate",
+        pushback_parking_name = "Gate"
+    })),
+    phraseCases[8][3],
+    "generic pushback phrase for unnamed gate"
+)
+assert_equal(
+    core.buildMessage("departure.start_push", copy(base, {
+        pushback_parking_found = true,
+        pushback_parking_type = "misc",
+        pushback_parking_name = "Class C"
+    })),
+    phraseCases[8][3],
+    "generic pushback phrase for ramp class"
+)
+
+assert_equal(
     core.buildMessage("arrival.on_final", copy(base, { approach_procedure_type = "LOC" })),
     "ENSB Traffic, B738 established on Localizer runway 27",
     "LOC final phrase"
@@ -179,14 +217,37 @@ groundEngine:update(groundIdle, 0)
 
 local pushing = copy(groundIdle, {
     wheel_speed = -3,
-    ground_speed_kts = 2
+    ground_speed_kts = 2,
+    pushback_airport_icao = "ESSA",
+    pushback_parking_found = true,
+    pushback_parking_type = "gate",
+    pushback_parking_name = "Gate A12"
 })
 groundEngine:update(pushing, 1)
-groundEngine:update(pushing, 2.9)
+local pushingPastNeighbor = copy(pushing, {
+    pushback_airport_icao = "EKCH",
+    pushback_parking_name = "Gate B14"
+})
+groundEngine:update(pushingPastNeighbor, 2.9)
 assert_equal(#groundEvents, 0, "pushback waits for stable reverse movement")
-groundEngine:update(pushing, 3)
+groundEngine:update(pushingPastNeighbor, 3)
 assert_equal(#groundEvents, 1, "pushback emitted after stable reverse movement")
 assert_equal(groundEvents[1].id, "departure.start_push", "pushback event id")
+assert_equal(groundEvents[1].text, "ESSA Traffic, B738, pushing back from gate A12",
+    "pushback latches first airport and gate")
+
+local pushFalseStartEvents = {}
+local pushFalseStartEngine = core.newEventEngine({
+    emit = function(event) table.insert(pushFalseStartEvents, event) return true end
+})
+pushFalseStartEngine:update(groundIdle, 0)
+pushFalseStartEngine:update(pushing, 1)
+pushFalseStartEngine:update(groundIdle, 1.5)
+pushFalseStartEngine:update(pushingPastNeighbor, 2)
+pushFalseStartEngine:update(pushingPastNeighbor, 4)
+assert_equal(#pushFalseStartEvents, 1, "pushback false start emits only the later attempt")
+assert_equal(pushFalseStartEvents[1].text, "EKCH Traffic, B738, pushing back from gate B14",
+    "pushback false start resets airport and gate latch")
 
 local taxiingWithoutProcedure = copy(groundIdle, {
     wheel_speed = 6,
@@ -1317,6 +1378,114 @@ assert_true(
     table.concat(persistentTaxiLogs, "\n"):find("beforeTaxiSource=active_loop", 1, true) ~= nil,
     "accepted Before Taxi loop source is logged"
 )
+
+local pushbackAdapterValues = {
+    api_version = 1,
+    ready = 1,
+    mode = 2,
+    transport_state = 5,
+    request_seq = 30,
+    result_seq = 30,
+    result_code = 21,
+    result_detail = "SUBMITTED_VISIBLE",
+    airgroundsensor = 1,
+    radioaltitude = 0,
+    altitude_ft = 300,
+    pressure_altitude = 300,
+    verticalspeed = 0,
+    groundspeed = 0,
+    tirespeed = 0,
+    fmsflightphase = 0,
+    vnavtoddist = 100,
+    fmctransalt = 7000,
+    fmctranslvl = 7000,
+    fmccruisealt = 37000,
+    depicao = "ENAT",
+    deprwy = "09",
+    desicao = "ENSB",
+    desrwy = "27",
+    nearesticao = "ESSA",
+    aircraftlatpos = 59.6519,
+    aircraftlonpos = 17.9186,
+    aircraft_icao = "B738"
+}
+local pushbackAdapterYal = copy(baselineYal, {
+    nearesticao = "nearesticao",
+    aircraftlatpos = "aircraftlatpos",
+    aircraftlonpos = "aircraftlonpos",
+    flightstate = baselineDef.FLIGHTSTATEPREFLIGHT
+})
+local pushbackAdapterWrites = {}
+local pushbackRamp = { ramp_type = "misc", name = "Apron 42" }
+local pushbackDistanceSquared = 25
+local pushbackSearchAirports = {}
+local function configure_pushback_adapter_test()
+    autoUnicom.configure({
+        yal = pushbackAdapterYal,
+        def = baselineDef,
+        helpers = {
+            logInfoTS = function() end,
+            forceCleanString = function(value) return tostring(value or "") end,
+            extractprimaryicao = function(value) return tostring(value or "") end,
+            isvalidicao = function(value) return type(value) == "string" and #value == 4 end,
+            isRampSuitableFor738 = function(ramp)
+                local rampType = ramp and ramp.ramp_type or ""
+                return rampType == "gate" or rampType == "misc"
+            end,
+            getNearestRamp = function(icao, lat, lon, opts)
+                table.insert(pushbackSearchAirports, icao)
+                assert_equal(lat, pushbackAdapterValues.aircraftlatpos, "pushback search latitude")
+                assert_equal(lon, pushbackAdapterValues.aircraftlonpos, "pushback search longitude")
+                assert_true(opts.filter({ ramp_type = "gate" }), "pushback search accepts gate")
+                assert_true(opts.filter({ ramp_type = "misc" }), "pushback search accepts misc")
+                assert_equal(opts.filter({ ramp_type = "hangar" }), false, "pushback search rejects other ramp")
+                return pushbackRamp, pushbackDistanceSquared
+            end
+        },
+        sources = {
+            pressure_altitude = "pressure_altitude",
+            aircraft_icao = "aircraft_icao"
+        },
+        getRefs = function() return repeatRefs end,
+        read = function(prop) return pushbackAdapterValues[prop] end,
+        writeText = function(_, text)
+            table.insert(pushbackAdapterWrites, { kind = "text", value = text })
+            return true
+        end,
+        writeSeq = function(_, seq)
+            table.insert(pushbackAdapterWrites, { kind = "seq", value = seq })
+            return true
+        end
+    })
+end
+
+configure_pushback_adapter_test()
+autoUnicom.tick(true, 0)
+assert_equal(#pushbackSearchAirports, 0, "stationary preflight does not search for pushback ramp")
+pushbackAdapterValues.tirespeed = -3
+pushbackAdapterValues.groundspeed = 2
+autoUnicom.tick(true, 1)
+autoUnicom.tick(true, 3)
+assert_equal(pushbackSearchAirports[1], "ESSA", "nearest airport drives pushback ramp search")
+assert_equal(pushbackAdapterWrites[1].value, "ESSA Traffic, B738, pushing back from stand 42",
+    "adapter uses nearest misc ramp instead of searching past it for gate")
+
+pushbackAdapterWrites = {}
+pushbackSearchAirports = {}
+pushbackAdapterValues.nearesticao = ""
+pushbackAdapterValues.tirespeed = 0
+pushbackAdapterValues.groundspeed = 0
+pushbackRamp = { ramp_type = "gate", name = "Gate A12" }
+pushbackDistanceSquared = 81 * 81
+configure_pushback_adapter_test()
+autoUnicom.tick(true, 0)
+pushbackAdapterValues.tirespeed = -3
+pushbackAdapterValues.groundspeed = 2
+autoUnicom.tick(true, 1)
+autoUnicom.tick(true, 3)
+assert_equal(pushbackSearchAirports[1], "ENAT", "departure airport is pushback search fallback")
+assert_equal(pushbackAdapterWrites[1].value, phraseCases[8][3],
+    "pushback ramp beyond 80 meters keeps generic phrase")
 
 local runwaySurface = true
 local runwayVacatedWrites = {}
