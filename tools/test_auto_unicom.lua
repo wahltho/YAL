@@ -616,7 +616,7 @@ local loadedOnFinal = copy(base, {
     on_ground = false,
     on_runway_profile = false,
     final_gate = true,
-    fms_phase = 6,
+    fms_phase = 7,
     altitude_ft = 2000,
     pressure_altitude_ft = 2000,
     vertical_speed_fpm = -500,
@@ -624,7 +624,42 @@ local loadedOnFinal = copy(base, {
 })
 reloadEngine:update(loadedOnFinal, 0)
 reloadEngine:update(loadedOnFinal, 20)
-assert_equal(#reloadEvents, 0, "reload baseline emits nothing")
+assert_equal(#reloadEvents, 0, "phase seven reload baseline emits nothing")
+
+local armedApproachEvents = {}
+local armedApproachEngine = core.newEventEngine({
+    emit = function(event) table.insert(armedApproachEvents, event) return true end
+})
+local beforeArmedApproach = copy(base, {
+    on_ground = false,
+    on_runway_profile = false,
+    fms_phase = 5,
+    altitude_ft = 6000,
+    pressure_altitude_ft = 6000,
+    vertical_speed_fpm = -800,
+    tod_distance_nm = 0
+})
+armedApproachEngine:update(beforeArmedApproach, 0)
+local armedApproach = copy(beforeArmedApproach, { fms_phase = 7 })
+armedApproachEngine:update(armedApproach, 1)
+armedApproachEngine:update(armedApproach, 9)
+assert_equal(#armedApproachEvents, 1, "go-around-armed phase emits approach")
+assert_equal(armedApproachEvents[1].id, "arrival.approach", "phase seven approach event")
+local armedFinal = copy(armedApproach, { final_gate = true })
+armedApproachEngine:update(armedFinal, 10)
+armedApproachEngine:update(armedFinal, 15)
+assert_equal(#armedApproachEvents, 2, "go-around-armed phase emits final")
+assert_equal(armedApproachEvents[2].id, "arrival.on_final", "phase seven final event")
+
+local activeGoAroundEvents = {}
+local activeGoAroundEngine = core.newEventEngine({
+    emit = function(event) table.insert(activeGoAroundEvents, event) return true end
+})
+activeGoAroundEngine:update(beforeArmedApproach, 0)
+local activeGoAround = copy(beforeArmedApproach, { fms_phase = 8, final_gate = true })
+activeGoAroundEngine:update(activeGoAround, 1)
+activeGoAroundEngine:update(activeGoAround, 10)
+assert_equal(#activeGoAroundEvents, 0, "active go-around emits no approach or final")
 
 local writes = {}
 local mailboxLogs = {}

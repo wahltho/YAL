@@ -46,6 +46,10 @@ local function is_descent_progress_event(eventId)
         and eventId:sub(1, #DESCENT_PROGRESS_PREFIX) == DESCENT_PROGRESS_PREFIX
 end
 
+local function is_approach_phase(phase)
+    return phase == 6 or phase == 7
+end
+
 local function round(value)
     value = tonumber(value)
     if not value then return nil end
@@ -409,7 +413,7 @@ function Engine:activate(snapshot, now)
         if (self.phase or 0) >= 5 then
             self:markSent("arrival.top_of_descent")
         end
-        if (self.phase or 0) >= 6 then
+        if is_approach_phase(self.phase) then
             self:markSent("arrival.approach")
         end
         if snapshot.final_gate == true then
@@ -653,11 +657,12 @@ function Engine:update(snapshot, now)
 
     self:updateDescentProgress(snapshot, phase, phaseStable, now, onGround)
 
-    if not onGround and self.flight_active and phase == 6 and phaseStable >= 8 then
+    if not onGround and self.flight_active and is_approach_phase(phase) and phaseStable >= 8 then
         self:tryEmit("arrival.approach", snapshot, now)
     end
 
-    local finalGate = not onGround and self.flight_active and phase == 6 and snapshot.final_gate == true
+    local finalGate = not onGround and self.flight_active
+        and is_approach_phase(phase) and snapshot.final_gate == true
     if finalGate then
         self.final_since = self.final_since or now
         if now - self.final_since >= 5 then
