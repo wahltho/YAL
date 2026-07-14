@@ -315,7 +315,10 @@ local function summarize_sources(snapshot)
         { "onGround", snapshot.on_ground and 1 or 0 },
         { "preflight", snapshot.preflight and 1 or 0 },
         { "beforeTaxi", snapshot.before_taxi_started and 1 or 0 },
+        { "beforeTaxiSource", snapshot.before_taxi_source },
         { "beforeTakeoff", snapshot.before_takeoff_started and 1 or 0 },
+        { "beforeTakeoffSource", snapshot.before_takeoff_source },
+        { "parkingReleased", snapshot.parking_brake_released and 1 or 0 },
         { "ra", snapshot.radio_altitude_ft },
         { "alt", snapshot.altitude_ft },
         { "pressureAlt", snapshot.pressure_altitude_ft },
@@ -361,6 +364,8 @@ function M.newEventEngine(options)
         before_takeoff_seen = false,
         push_since = nil,
         taxi_since = nil,
+        taxi_candidate_active = false,
+        taxi_rejection_key = nil,
         takeoff_roll_since = nil,
         climb_altitude_previous = nil,
         tod_previous = nil,
@@ -386,6 +391,8 @@ function Engine:resetDepartureGroundCycle(snapshot)
     self.before_takeoff_seen = snapshot.before_takeoff_started == true
     self.push_since = nil
     self.taxi_since = nil
+    self.taxi_candidate_active = false
+    self.taxi_rejection_key = nil
     self.takeoff_roll_since = nil
     self.climb_altitude_previous = climb_altitude(snapshot)
 end
@@ -405,6 +412,8 @@ function Engine:activate(snapshot, now)
     self.before_takeoff_seen = snapshot.before_takeoff_started == true
     self.push_since = nil
     self.taxi_since = nil
+    self.taxi_candidate_active = false
+    self.taxi_rejection_key = nil
     self.takeoff_roll_since = nil
     self.climb_altitude_previous = climb_altitude(snapshot)
     self.tod_previous = tonumber(snapshot.tod_distance_nm)
@@ -476,6 +485,8 @@ function Engine:deactivate()
     self.vacated_since = nil
     self.push_since = nil
     self.taxi_since = nil
+    self.taxi_candidate_active = false
+    self.taxi_rejection_key = nil
     self.takeoff_roll_since = nil
     self.climb_altitude_previous = nil
     self.descent_altitude_previous = nil
@@ -620,6 +631,12 @@ function Engine:update(snapshot, now)
     local reverse = wheelSpeed < -1
     local moving = math.abs(wheelSpeed) > 1
     local parkingBrakeReleased = snapshot.parking_brake_released == true
+    local taxiCandidate = onGround and moving and gs >= 3 and forward
+
+    if taxiCandidate and not self.taxi_candidate_active then
+        self.log("taxi_candidate", { inputs = summarize_sources(snapshot) })
+    end
+    self.taxi_candidate_active = taxiCandidate
 
     local pushGate = onGround and preflight and parkingBrakeReleased
         and moving
@@ -633,17 +650,29 @@ function Engine:update(snapshot, now)
         self.push_since = nil
     end
 
-    local taxiGate = onGround and preflight and self.before_taxi_seen
+    local taxiGate = taxiCandidate and preflight and self.before_taxi_seen
         and parkingBrakeReleased and snapshot.pushback_active ~= true
-        and moving and gs >= 3 and forward
     if taxiGate and not self.sent["departure.taxi_runway"] then
         self.taxi_since = self.taxi_since or now
         if now - self.taxi_since >= 3 then
-            local emitted = self:tryEmit("departure.taxi_runway", snapshot, now)
-            if emitted then self:markSent("departure.start_push") end
+            local emitted, reason = self:tryEmit("departure.taxi_runway", snapshot, now)
+            if emitted then
+                self:markSent("departure.start_push")
+                self.taxi_rejection_key = nil
+            else
+                local rejectionKey = tostring(reason or "unknown") .. "|" .. summarize_sources(snapshot)
+                if self.taxi_rejection_key ~= rejectionKey then
+                    self.taxi_rejection_key = rejectionKey
+                    self.log("taxi_emit_rejected", {
+                        reason = reason,
+                        inputs = summarize_sources(snapshot)
+                    })
+                end
+            end
         end
     else
         self.taxi_since = nil
+        self.taxi_rejection_key = nil
     end
 
     local takeoffGate = onGround and preflight and self.before_takeoff_seen

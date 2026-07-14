@@ -24,11 +24,11 @@ local function refs()
     return runtime and runtime.refs or nil
 end
 
-local function safe_read(prop)
+local function safe_read(prop, index)
     if not prop then return nil end
     if isProperty and not isProperty(prop) then return nil end
     local reader = runtime and runtime.read or get
-    local ok, value = pcall(reader, prop)
+    local ok, value = pcall(reader, prop, index)
     if not ok then return nil end
     return value
 end
@@ -79,6 +79,16 @@ local function enqueue_event(event)
     return true
 end
 
+local function event_engine_log(kind, event)
+    event = event or {}
+    if kind == "taxi_candidate" then
+        log("IVAO Auto-Unicom: taxi candidate gates={" .. tostring(event.inputs or "") .. "}")
+    elseif kind == "taxi_emit_rejected" then
+        log("IVAO Auto-Unicom: taxi event rejected reason=" .. tostring(event.reason or "unknown")
+            .. " gates={" .. tostring(event.inputs or "") .. "}")
+    end
+end
+
 local function create_state_machines()
     mailbox = core.newMailbox({
         writeText = write_request_text,
@@ -87,7 +97,7 @@ local function create_state_machines()
         maxQueue = 8,
         timeoutSec = 30
     })
-    eventEngine = core.newEventEngine({ emit = enqueue_event })
+    eventEngine = core.newEventEngine({ emit = enqueue_event, log = event_engine_log })
 end
 
 local function read_approach_ref(snapshot)
@@ -127,14 +137,17 @@ local function parse_approach_fallback(snapshot)
 end
 
 local function procedure_started_or_done(y, procedureId)
-    local procedure = y.proceduretable and y.proceduretable[procedureId] or nil
-    if procedure and procedure.set == true then return true end
-
     local loops = { y.procedureloop1, y.procedureloop2, y.procedureloop3 }
     for _, loop in ipairs(loops) do
-        if loop and loop.lock == procedureId then return true end
+        if loop and loop.lock == procedureId then return true, "active_loop" end
     end
-    return false
+
+    local procedure = y.proceduretable and y.proceduretable[procedureId] or nil
+    if procedure and procedure.set == true then return true, "memory_set" end
+
+    local persistentStatus = tonumber(safe_read(y.ProcSetStatusarraydr, procedureId))
+    if persistentStatus == 1 then return true, "state_dataref" end
+    return false, "none"
 end
 
 local function build_snapshot()
@@ -142,6 +155,8 @@ local function build_snapshot()
     local def = runtime.def
     local sources = runtime.sources or {}
     local wheelSpeed = tonumber(safe_read(y.tirespeed)) or 0
+    local beforeTaxiStarted, beforeTaxiSource = procedure_started_or_done(y, def.BEFORETAXIPROCEDURE)
+    local beforeTakeoffStarted, beforeTakeoffSource = procedure_started_or_done(y, def.BEFORETAKEOFFPROCEDURE)
     local snapshot = {
         on_ground = safe_read(y.airgroundsensor) == def.ON,
         radio_altitude_ft = tonumber(safe_read(y.radioaltitude)),
@@ -164,8 +179,10 @@ local function build_snapshot()
         approach_id = tostring(safe_read(y.fmsselectedapp) or ""),
         aircraft_type = tostring(safe_read(sources.aircraft_icao) or ""),
         preflight = y.flightstate == def.FLIGHTSTATEPREFLIGHT,
-        before_taxi_started = procedure_started_or_done(y, def.BEFORETAXIPROCEDURE),
-        before_takeoff_started = procedure_started_or_done(y, def.BEFORETAKEOFFPROCEDURE),
+        before_taxi_started = beforeTaxiStarted,
+        before_taxi_source = beforeTaxiSource,
+        before_takeoff_started = beforeTakeoffStarted,
+        before_takeoff_source = beforeTakeoffSource,
         parking_brake_released = (tonumber(safe_read(y.parkingbrakepos)) or 0) == def.OFF,
         eng1_n1_percent = tonumber(safe_read(y.eng1n1percent)),
         eng2_n1_percent = tonumber(safe_read(y.eng2n1percent)),

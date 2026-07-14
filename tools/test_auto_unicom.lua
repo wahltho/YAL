@@ -1092,4 +1092,101 @@ local repeatedDisabled, repeatDisabledReason = autoUnicom.repeatLastMessage(fals
 assert_equal(repeatedDisabled, false, "repeat last requires enabled feature")
 assert_equal(repeatDisabledReason, "feature_disabled", "repeat disabled reason")
 
+local persistentTaxiLogs = {}
+local persistentTaxiWrites = {}
+local persistentTaxiValues = {
+    api_version = 1,
+    ready = 1,
+    mode = 2,
+    transport_state = 5,
+    request_seq = 20,
+    result_seq = 20,
+    result_code = 21,
+    result_detail = "SUBMITTED_VISIBLE",
+    airgroundsensor = 1,
+    radioaltitude = 0,
+    altitude_ft = 300,
+    pressure_altitude = 300,
+    verticalspeed = 0,
+    groundspeed = 0,
+    tirespeed = 0,
+    fmsflightphase = 0,
+    vnavtoddist = 100,
+    fmctransalt = 7000,
+    fmctranslvl = 7000,
+    fmccruisealt = 37000,
+    depicao = "ENAT",
+    deprwy = "09",
+    desicao = "ENSB",
+    desrwy = "27",
+    aircraft_icao = "B738",
+    parkingbrakepos = 0,
+    eng1n1percent = 20,
+    eng2n1percent = 20
+}
+local persistentTaxiYal = {
+    airgroundsensor = "airgroundsensor",
+    radioaltitude = "radioaltitude",
+    altitude_ft = "altitude_ft",
+    altitude = "altitude_ft",
+    verticalspeed = "verticalspeed",
+    groundspeed = "groundspeed",
+    tirespeed = "tirespeed",
+    fmsflightphase = "fmsflightphase",
+    vnavtoddist = "vnavtoddist",
+    fmctransalt = "fmctransalt",
+    fmctranslvl = "fmctranslvl",
+    fmccruisealt = "fmccruisealt",
+    depicao = "depicao",
+    deprwy = "deprwy",
+    desicao = "desicao",
+    desrwy = "desrwy",
+    parkingbrakepos = "parkingbrakepos",
+    eng1n1percent = "eng1n1percent",
+    eng2n1percent = "eng2n1percent",
+    proceduretable = { [5] = { set = false }, [6] = { set = false } },
+    procedureloop1 = { lock = 0 },
+    procedureloop2 = { lock = 0 },
+    procedureloop3 = { lock = 0 },
+    ProcSetStatusarraydr = "procedureset",
+    flightstate = 0
+}
+autoUnicom.configure({
+    yal = persistentTaxiYal,
+    def = baselineDef,
+    helpers = {
+        logInfoTS = function(message) table.insert(persistentTaxiLogs, message) end
+    },
+    sources = {
+        pressure_altitude = "pressure_altitude",
+        aircraft_icao = "aircraft_icao"
+    },
+    getRefs = function() return repeatRefs end,
+    read = function(prop, index)
+        if prop == "procedureset" then
+            return index == 5 and 1 or 0
+        end
+        return persistentTaxiValues[prop]
+    end,
+    writeText = function(_, text)
+        table.insert(persistentTaxiWrites, { kind = "text", value = text })
+        return true
+    end,
+    writeSeq = function(_, seq)
+        table.insert(persistentTaxiWrites, { kind = "seq", value = seq })
+        return true
+    end
+})
+autoUnicom.tick(true, 0)
+persistentTaxiValues.tirespeed = 6
+persistentTaxiValues.groundspeed = 6
+autoUnicom.tick(true, 1)
+autoUnicom.tick(true, 4)
+assert_equal(persistentTaxiWrites[1].kind, "text", "persistent Before Taxi fallback writes text")
+assert_equal(persistentTaxiWrites[1].value, phraseCases[9][3], "persistent Before Taxi fallback taxi phrase")
+assert_true(
+    table.concat(persistentTaxiLogs, "\n"):find("beforeTaxiSource=state_dataref", 1, true) ~= nil,
+    "persistent Before Taxi source is logged"
+)
+
 print("auto_unicom tests passed")
