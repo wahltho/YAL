@@ -35,7 +35,7 @@ local function write_request_text(text)
     local prop = api and api.request_text or nil
     if not prop or (isProperty and not isProperty(prop)) then return false end
     if runtime and runtime.writeText then return runtime.writeText(prop, text) end
-    return pcall(set, prop, text, 0, #text)
+    return pcall(set, prop, text)
 end
 
 local function write_request_seq(seq)
