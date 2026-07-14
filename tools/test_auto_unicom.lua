@@ -816,6 +816,24 @@ autoUnicom.tick(true, 3)
 assert_equal(eventAdapterWrites[1].value, phraseCases[12][3], "YAL altitude payload freezes FL100")
 
 eventAdapterWrites = {}
+eventAdapterValues.request_seq = 55
+eventAdapterValues.result_seq = 55
+eventAdapterValues.result_code = 21
+eventAdapterValues.desicao = "****"
+eventAdapterValues.desrwy = "----"
+configure_event_adapter_test()
+autoUnicom.tick(true, 0)
+assert_true(autoUnicom.handleYalEvent("arrival.runway_vacated", {
+    arrival_icao = "PAHO",
+    arrival_runway = "04"
+}, 1), "YAL runway vacated event accepts latched arrival context")
+autoUnicom.tick(true, 1)
+assert_equal(eventAdapterWrites[1].value, "PAHO Traffic, runway 04 vacated, taxiing to gate",
+    "runway vacated payload survives cleared FMC destination")
+eventAdapterValues.desicao = "ENSB"
+eventAdapterValues.desrwy = "27"
+
+eventAdapterWrites = {}
 eventAdapterValues.request_seq = 60
 eventAdapterValues.result_seq = 60
 eventAdapterValues.result_code = 21

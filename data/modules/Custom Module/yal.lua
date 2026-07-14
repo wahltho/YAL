@@ -1255,6 +1255,8 @@ function P.YalinitGlobal()
     P._takeoffN140CalloutLatched = false
     P.autoUnicomRuntime = {
         sent = {},
+        arrivalIcao = nil,
+        arrivalRunway = nil,
         finalSince = nil,
         runwayClearSince = nil,
         holdInitialized = false,
@@ -7336,10 +7338,23 @@ function P.isArrivalShortFinal()
     return P.isArrivalRunwayRadioAltGateOpen(3, 10, 0.2)
 end
 
+function P.updateAutoUnicomArrivalContext()
+    local state = P.autoUnicomRuntime
+    if not state or not P.desicao or not P.desrwy then return end
+
+    local icao = helpers.cleanstring(get(P.desicao))
+    local runway = helpers.cleanstring(get(P.desrwy))
+    if helpers.isvalidicao(icao) and helpers.isvalidrwy(runway) then
+        state.arrivalIcao = icao
+        state.arrivalRunway = runway
+    end
+end
+
 function P.baselineAutoUnicomRuntimeEvents()
     local state = P.autoUnicomRuntime
     if not state or not P.airgroundsensor then return end
 
+    P.updateAutoUnicomArrivalContext()
     state.sent = {}
     state.finalSince = nil
     state.runwayClearSince = nil
@@ -7430,6 +7445,7 @@ end
 
 function P.updateAutoUnicomGroundEvents()
     local state = P.autoUnicomRuntime
+    P.updateAutoUnicomArrivalContext()
     if not state or get(P.airgroundsensor) ~= def.ON then
         if state then state.runwayClearSince = nil end
         return
@@ -7537,7 +7553,10 @@ function P.updateAutoUnicomGroundEvents()
     local now = os.time()
     state.runwayClearSince = state.runwayClearSince or now
     if now - state.runwayClearSince >= AUTO_UNICOM_RUNWAY_CLEAR_STABLE_SEC then
-        autoUnicomEventOnce("arrival.runway_vacated", "arrival.runway_vacated")
+        autoUnicomEventOnce("arrival.runway_vacated", "arrival.runway_vacated", {
+            arrival_icao = state.arrivalIcao,
+            arrival_runway = state.arrivalRunway
+        })
     end
 end
 
