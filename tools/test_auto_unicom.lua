@@ -81,7 +81,7 @@ local phraseCases = {
     {
         "arrival.on_descent",
         copy(base, { altitude_ft = 18000, pressure_altitude_ft = 18000 }),
-        "ENSB Traffic, B738 NELSA3M arrival for RNAV W approach runway 27, on descent passing FL180"
+        "ENSB Traffic, B738 NELSA3M arrival for RNAV W approach runway 27, descent started from FL370"
     },
     {
         "arrival.approach",
@@ -238,6 +238,16 @@ for _, case in ipairs(phraseCases) do
     assert_equal(text, case[3], "phrase " .. case[1])
     assert_true(not text:lower():find(" the ", 1, true), "phrase has no 'the' " .. case[1])
 end
+
+assert_equal(
+    core.buildMessage("arrival.on_descent", copy(base, {
+        altitude_ft = 18000,
+        pressure_altitude_ft = 18000,
+        planned_altitude_ft = 0
+    })),
+    "ENSB Traffic, B738 NELSA3M arrival for RNAV W approach runway 27, descent started from FL180",
+    "descent-start phrase falls back to current altitude"
+)
 
 local missingText, missingReason = core.buildMessage(
     "departure.airborne",

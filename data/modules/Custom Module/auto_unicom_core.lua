@@ -469,8 +469,21 @@ function M.buildMessage(eventId, snapshot)
         return normalize_text(text)
     end
 
-    if eventId == "arrival.on_descent" or eventId == "arrival.approach"
-        or is_descent_progress_event(eventId) then
+    if eventId == "arrival.on_descent" then
+        local airport, runway = arrival_context(snapshot)
+        local altitude = format_planned_altitude(snapshot) or format_altitude(snapshot, true)
+        if not airport or not altitude then return nil, "missing_arrival_context" end
+        local star = clean_token(snapshot.star, false)
+        local approach = approach_label(snapshot)
+        local text = string.format("%s Traffic, %s", airport, ac)
+        if star then text = text .. " " .. star .. " arrival" end
+        text = text .. " for "
+        if approach then text = text .. approach .. " approach " end
+        text = text .. "runway " .. runway .. ", descent started from " .. altitude
+        return normalize_text(text)
+    end
+
+    if eventId == "arrival.approach" or is_descent_progress_event(eventId) then
         local airport, runway = arrival_context(snapshot)
         local altitude = format_altitude(snapshot, true)
         if not airport or not altitude then return nil, "missing_arrival_context" end
