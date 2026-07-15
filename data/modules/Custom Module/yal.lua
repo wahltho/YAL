@@ -49,6 +49,20 @@ function P.publishRuntimeEvent(eventId, payload)
     return accepted == true
 end
 
+function P.getAutoUnicomFlightPlanContext()
+    if not P.depicao or not P.desicao or not P.fmslegs then return nil end
+    local departure = helpers.extractprimaryicao(get(P.depicao) or "")
+    local destination = helpers.extractprimaryicao(get(P.desicao) or "")
+    if departure == destination
+        or not helpers.isFMSPlanLoaded(departure, destination, get(P.fmslegs)) then
+        return nil
+    end
+    return {
+        departure_icao = departure,
+        arrival_icao = destination
+    }
+end
+
 function P.getAutoUnicomNearestParkingPayload(maxDistanceMeters)
     if not helpers.getNearestRamp or not P.aircraftlatpos or not P.aircraftlonpos then return nil end
     local state = P.autoUnicomRuntime
@@ -1301,6 +1315,9 @@ function P.YalinitGlobal()
         arrivalTaxiEventsInitialized = false,
         arrivalBacktrackSince = nil,
         arrivalParkingSince = nil,
+        preflightPlanInitialized = false,
+        preflightPlanWasActive = false,
+        preflightPlanPending = nil,
         finalSince = nil,
         runwayClearSince = nil,
         holdInitialized = false,
@@ -7407,6 +7424,10 @@ function P.baselineAutoUnicomRuntimeEvents()
     state.arrivalTaxiEventsInitialized = false
     state.arrivalBacktrackSince = nil
     state.arrivalParkingSince = nil
+    local preflightPlan = P.getAutoUnicomFlightPlanContext()
+    state.preflightPlanInitialized = true
+    state.preflightPlanWasActive = preflightPlan ~= nil
+    state.preflightPlanPending = nil
     state.taxiEventsInitialized = false
     state.holdShortSince = nil
     state.backtrackSince = nil
@@ -7525,9 +7546,43 @@ function P.updateAutoUnicomGroundEvents()
     end
 
     local tireSpeed = tonumber(get(P.tirespeed)) or 0
+    local groundSpeed = tonumber(get(P.groundspeed)) or 0
     local bpbActive = P.BPBStarted and tonumber(get(P.BPBStarted)) == def.ON
         and (not P.BPBOpComplete or tonumber(get(P.BPBOpComplete)) ~= def.ON)
     if P.flightstate == def.FLIGHTSTATEPREFLIGHT then
+        local preflightPlan = P.getAutoUnicomFlightPlanContext()
+        local planActive = preflightPlan ~= nil
+        if not state.preflightPlanInitialized then
+            state.preflightPlanInitialized = true
+            state.preflightPlanWasActive = planActive
+        elseif planActive and not state.preflightPlanWasActive
+            and not state.sent["departure.flightplan_active"] then
+            state.preflightPlanPending = preflightPlan
+        elseif not planActive then
+            state.preflightPlanPending = nil
+        end
+        state.preflightPlanWasActive = planActive
+
+        if state.preflightPlanPending then
+            local beforeTaxi = P.isProcedureActiveOrComplete(def.BEFORETAXIPROCEDURE)
+            local departureStarted = beforeTaxi or bpbActive
+                or math.abs(tireSpeed) > 1 or groundSpeed > 1
+            if departureStarted then
+                state.preflightPlanPending = nil
+            else
+                local nearest = P.nearesticao
+                    and helpers.extractprimaryicao(get(P.nearesticao) or "") or ""
+                if nearest == state.preflightPlanPending.departure_icao
+                    and autoUnicomEventOnce(
+                        "departure.flightplan_active",
+                        "departure.flightplan_active",
+                        state.preflightPlanPending
+                    ) then
+                    state.preflightPlanPending = nil
+                end
+            end
+        end
+
         if bpbActive or tireSpeed < -1 then
             autoUnicomEventOnce("departure.start_push", "departure.start_push")
         end

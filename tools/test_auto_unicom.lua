@@ -206,6 +206,15 @@ local phraseCases = {
             arrival_parking_name = "Gate B7"
         }),
         "ENSB Traffic, B738 parked at gate B7"
+    },
+    {
+        "departure.flightplan_active",
+        copy(base, {
+            preflight_parking_found = true,
+            preflight_parking_type = "gate",
+            preflight_parking_name = "Gate 4"
+        }),
+        "ENAT Traffic, B738 at gate 4, preparing for departure to ENSB"
     }
 }
 
@@ -221,6 +230,18 @@ local missingText, missingReason = core.buildMessage(
 )
 assert_equal(missingText, nil, "missing departure ICAO rejects phrase")
 assert_equal(missingReason, "missing_departure_context", "missing departure reason")
+
+missingText, missingReason = core.buildMessage(
+    "departure.flightplan_active",
+    copy(base, { arrival_icao = "" })
+)
+assert_equal(missingText, nil, "missing preflight destination rejects phrase")
+assert_equal(missingReason, "missing_preflight_context", "missing preflight destination reason")
+
+local genericPreflightText = core.buildMessage("departure.flightplan_active", base)
+assert_equal(genericPreflightText,
+    "ENAT Traffic, B738 at parking position, preparing for departure to ENSB",
+    "preflight phrase falls back without ramp label")
 
 missingText, missingReason = core.buildMessage(
     "arrival.approach",
@@ -600,10 +621,17 @@ assert_equal(holdExitApproachOrder.queue[2].id, "arrival.approach", "deferred ap
 
 local departureSupersession = core.newMailbox()
 assert_true(departureSupersession:enqueue({
+    id = "departure.flightplan_active",
+    text = "ENAT Traffic, B738 at gate 4, preparing for departure to ENSB",
+    expires_at = 100
+}), "enqueue preflight before supersession")
+assert_true(departureSupersession:enqueue({
     id = "departure.start_push",
     text = phraseCases[8][3],
     expires_at = 100
 }), "enqueue push before supersession")
+assert_equal(#departureSupersession.queue, 1, "push supersedes queued preflight")
+assert_equal(departureSupersession.queue[1].id, "departure.start_push", "push remains queued")
 assert_true(departureSupersession:enqueue({
     id = "departure.taxi_runway",
     text = phraseCases[9][3],
@@ -930,6 +958,25 @@ local function configure_event_adapter_test()
     })
 end
 
+configure_event_adapter_test()
+autoUnicom.tick(true, 0)
+assert_equal(#pushbackSearchAirports, 0, "activation does not infer a preflight event")
+pushbackRamp = { ramp_type = "gate", name = "Gate 4" }
+pushbackDistanceSquared = 10 * 10
+assert_true(autoUnicom.handleYalEvent("departure.flightplan_active", {
+    departure_icao = "ENAT",
+    arrival_icao = "ENSB"
+}, 1), "YAL preflight event accepted")
+autoUnicom.tick(true, 1)
+assert_equal(pushbackSearchAirports[1], "ENAT", "departure airport drives preflight ramp search")
+assert_equal(eventAdapterWrites[1].value,
+    "ENAT Traffic, B738 at gate 4, preparing for departure to ENSB",
+    "YAL preflight event uses nearest gate")
+
+eventAdapterWrites = {}
+pushbackSearchAirports = {}
+pushbackRamp = { ramp_type = "misc", name = "Apron 42" }
+pushbackDistanceSquared = 25
 configure_event_adapter_test()
 autoUnicom.tick(true, 0)
 assert_equal(#pushbackSearchAirports, 0, "activation does not infer a pushback event")

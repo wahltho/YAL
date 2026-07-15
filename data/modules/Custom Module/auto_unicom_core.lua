@@ -1,6 +1,7 @@
 local M = {}
 
 M.EVENT_TTL_SEC = {
+    ["departure.flightplan_active"] = 120,
     ["departure.start_push"] = 60,
     ["departure.taxi_runway"] = 120,
     ["departure.hold_short"] = 120,
@@ -264,6 +265,24 @@ function M.buildMessage(eventId, snapshot)
     snapshot = snapshot or {}
     local ac = aircraft_type(snapshot)
 
+    if eventId == "departure.flightplan_active" then
+        local airport = clean_token(snapshot.departure_icao, false)
+        local destination = clean_token(snapshot.arrival_icao, false)
+        if not airport or #airport ~= 4 or airport:find("-", 1, true)
+            or not destination or #destination ~= 4 or destination:find("-", 1, true)
+            or airport == destination then
+            return nil, "missing_preflight_context"
+        end
+        local parking = parking_label(snapshot, "preflight_parking") or "parking position"
+        return normalize_text(string.format(
+            "%s Traffic, %s at %s, preparing for departure to %s",
+            airport,
+            ac,
+            parking,
+            destination
+        ))
+    end
+
     if eventId == "departure.start_push" then
         local airport = clean_token(snapshot.pushback_airport_icao, false)
             or clean_token(snapshot.departure_icao, false)
@@ -510,6 +529,10 @@ local function summarize_sources(snapshot)
         { "star", snapshot.star },
         { "app", snapshot.approach_id },
         { "tod", snapshot.tod_distance_nm },
+        { "preflightParking", snapshot.preflight_parking_found and 1 or 0 },
+        { "preflightParkingType", snapshot.preflight_parking_type },
+        { "preflightParkingName", snapshot.preflight_parking_name },
+        { "preflightParkingDist", snapshot.preflight_parking_distance_m },
         { "pushAirport", snapshot.pushback_airport_icao },
         { "pushParking", snapshot.pushback_parking_found and 1 or 0 },
         { "pushParkingType", snapshot.pushback_parking_type },
@@ -563,19 +586,26 @@ local SUPERSEDED_EVENTS = {
         [HOLDING_EVENT_ID] = true,
         [HOLD_DESCENDING_EVENT_ID] = true
     },
+    ["departure.start_push"] = {
+        ["departure.flightplan_active"] = true
+    },
     ["departure.taxi_runway"] = {
+        ["departure.flightplan_active"] = true,
         ["departure.start_push"] = true
     },
     ["departure.hold_short"] = {
+        ["departure.flightplan_active"] = true,
         ["departure.start_push"] = true,
         ["departure.taxi_runway"] = true
     },
     ["departure.backtrack"] = {
+        ["departure.flightplan_active"] = true,
         ["departure.start_push"] = true,
         ["departure.taxi_runway"] = true,
         ["departure.hold_short"] = true
     },
     ["departure.intersection"] = {
+        ["departure.flightplan_active"] = true,
         ["departure.start_push"] = true,
         ["departure.taxi_runway"] = true,
         ["departure.hold_short"] = true,
@@ -583,12 +613,14 @@ local SUPERSEDED_EVENTS = {
         ["departure.lineup_takeoff"] = true
     },
     ["departure.lineup_takeoff"] = {
+        ["departure.flightplan_active"] = true,
         ["departure.start_push"] = true,
         ["departure.taxi_runway"] = true,
         ["departure.hold_short"] = true,
         ["departure.backtrack"] = true
     },
     ["departure.airborne"] = {
+        ["departure.flightplan_active"] = true,
         ["departure.start_push"] = true,
         ["departure.taxi_runway"] = true,
         ["departure.hold_short"] = true,
@@ -597,6 +629,7 @@ local SUPERSEDED_EVENTS = {
         ["departure.lineup_takeoff"] = true
     },
     ["departure.on_climb"] = {
+        ["departure.flightplan_active"] = true,
         ["departure.start_push"] = true,
         ["departure.taxi_runway"] = true,
         ["departure.hold_short"] = true,
@@ -650,7 +683,8 @@ local function supersedes_event(eventId, queuedId)
     local fixed = SUPERSEDED_EVENTS[eventId]
     if fixed and fixed[queuedId] then return true end
     if is_climb_progress_event(eventId) then
-        return queuedId == "departure.start_push"
+        return queuedId == "departure.flightplan_active"
+            or queuedId == "departure.start_push"
             or queuedId == "departure.taxi_runway"
             or queuedId == "departure.hold_short"
             or queuedId == "departure.backtrack"
@@ -661,7 +695,8 @@ local function supersedes_event(eventId, queuedId)
             or is_climb_progress_event(queuedId)
     end
     if eventId == "enroute.in_cruise" then
-        return queuedId == "departure.airborne"
+        return queuedId == "departure.flightplan_active"
+            or queuedId == "departure.airborne"
             or queuedId == "departure.on_climb"
             or is_climb_progress_event(queuedId)
     end

@@ -8,6 +8,7 @@ local connectionLogKey = nil
 local lastIntendedMessageText = nil
 local lastCommittedMessageText = nil
 local manualRepeatCount = 0
+local PREFLIGHT_PARKING_MAX_DISTANCE_M = 35
 local PUSHBACK_PARKING_MAX_DISTANCE_M = 80
 local ARRIVAL_PARKING_MAX_DISTANCE_M = 35
 
@@ -184,6 +185,11 @@ local function read_pushback_parking(snapshot, y)
     read_nearest_parking(snapshot, y, airport, "pushback_parking", PUSHBACK_PARKING_MAX_DISTANCE_M)
 end
 
+local function read_preflight_parking(snapshot, y)
+    local airport = normalize_icao(snapshot.departure_icao)
+    read_nearest_parking(snapshot, y, airport, "preflight_parking", PREFLIGHT_PARKING_MAX_DISTANCE_M)
+end
+
 local function read_arrival_parking(snapshot, y)
     local arrivalAirport = normalize_icao(snapshot.arrival_icao)
     local searchAirport = normalize_icao(safe_read(y.nearesticao)) or arrivalAirport
@@ -307,7 +313,9 @@ function M.handleYalEvent(eventId, payload, now)
     for key, value in pairs(payload or {}) do
         snapshot[key] = value
     end
-    if eventId == "departure.start_push" then
+    if eventId == "departure.flightplan_active" then
+        read_preflight_parking(snapshot, runtime.yal)
+    elseif eventId == "departure.start_push" then
         read_pushback_parking(snapshot, runtime.yal)
     elseif eventId == "arrival.parking_position" and snapshot.arrival_parking_found ~= true then
         read_arrival_parking(snapshot, runtime.yal)
