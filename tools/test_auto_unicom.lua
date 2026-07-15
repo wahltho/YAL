@@ -166,7 +166,7 @@ local phraseCases = {
     {
         "departure.intersection",
         copy(base, { departure_intersection = "A" }),
-        "ENAT Traffic, B738 lining up and taking off runway 09, intersection A, ATKUP1A departure"
+        "ENAT Traffic, B738 lining up runway 09, intersection A"
     },
     {
         "arrival.short_final",
@@ -225,6 +225,11 @@ local phraseCases = {
         "arrival.runway_crossing",
         copy(base, { crossing_runway = "16" }),
         "ENSB Traffic, B738 crossing runway 16"
+    },
+    {
+        "departure.lining_up",
+        base,
+        "ENAT Traffic, B738 lining up runway 09"
     }
 }
 
@@ -449,8 +454,13 @@ assert_equal(missingHoldDescentText, nil, "hold descent phrase requires target a
 assert_equal(missingHoldDescentReason, "missing_hold_descent_context", "missing hold descent target reason")
 
 local missingIntersectionText, missingIntersectionReason = core.buildMessage("departure.intersection", base)
-assert_equal(missingIntersectionText, nil, "intersection takeoff requires intersection")
+assert_equal(missingIntersectionText, nil, "legacy intersection line-up requires intersection")
 assert_equal(missingIntersectionReason, "missing_intersection_context", "missing intersection reason")
+assert_equal(
+    core.buildMessage("departure.lining_up", copy(base, { departure_intersection = "Intersection A" })),
+    "ENAT Traffic, B738 lining up runway 09, intersection A",
+    "line-up phrase keeps optional intersection"
+)
 
 local writes = {}
 local mailboxLogs = {}
@@ -720,19 +730,19 @@ assert_true(departureSupersession:enqueue({
 assert_equal(#departureSupersession.queue, 1, "backtrack supersedes hold short")
 assert_equal(departureSupersession.queue[1].id, "departure.backtrack", "backtrack remains queued")
 assert_true(departureSupersession:enqueue({
+    id = "departure.lining_up",
+    text = phraseCases[#phraseCases][3],
+    expires_at = 100
+}), "enqueue line-up supersession")
+assert_equal(#departureSupersession.queue, 1, "line-up supersedes backtrack")
+assert_equal(departureSupersession.queue[1].id, "departure.lining_up", "line-up remains queued")
+assert_true(departureSupersession:enqueue({
     id = "departure.lineup_takeoff",
     text = phraseCases[10][3],
     expires_at = 100
 }), "enqueue takeoff supersession")
-assert_equal(#departureSupersession.queue, 1, "takeoff supersedes backtrack")
+assert_equal(#departureSupersession.queue, 1, "takeoff supersedes line-up")
 assert_equal(departureSupersession.queue[1].id, "departure.lineup_takeoff", "takeoff remains queued")
-assert_true(departureSupersession:enqueue({
-    id = "departure.intersection",
-    text = phraseCases[21][3],
-    expires_at = 100
-}), "enqueue intersection takeoff supersession")
-assert_equal(#departureSupersession.queue, 1, "intersection takeoff supersedes standard takeoff")
-assert_equal(departureSupersession.queue[1].id, "departure.intersection", "intersection takeoff remains queued")
 assert_true(departureSupersession:enqueue({
     id = "departure.airborne",
     text = phraseCases[1][3],

@@ -8,6 +8,7 @@ M.EVENT_TTL_SEC = {
     ["departure.hold_short"] = 120,
     ["departure.backtrack"] = 90,
     ["departure.intersection"] = 60,
+    ["departure.lining_up"] = 60,
     ["departure.lineup_takeoff"] = 45,
     ["departure.airborne"] = 60,
     ["departure.on_climb"] = 120,
@@ -352,20 +353,26 @@ function M.buildMessage(eventId, snapshot)
         return normalize_text(text)
     end
 
+    if eventId == "departure.lining_up" then
+        local airport, runway = departure_context(snapshot)
+        if not airport then return nil, "missing_departure_context" end
+        local text = string.format("%s Traffic, %s lining up runway %s", airport, ac, runway)
+        local intersection = departure_intersection(snapshot)
+        if intersection then text = text .. ", intersection " .. intersection end
+        return normalize_text(text)
+    end
+
     if eventId == "departure.intersection" then
         local airport, runway = departure_context(snapshot)
         local intersection = departure_intersection(snapshot)
         if not airport or not intersection then return nil, "missing_intersection_context" end
-        local text = string.format(
-            "%s Traffic, %s lining up and taking off runway %s, intersection %s",
+        return normalize_text(string.format(
+            "%s Traffic, %s lining up runway %s, intersection %s",
             airport,
             ac,
             runway,
             intersection
-        )
-        local sid = clean_token(snapshot.sid, false)
-        if sid then text = text .. ", " .. sid .. " departure" end
-        return normalize_text(text)
+        ))
     end
 
     if eventId == "departure.lineup_takeoff" then
@@ -641,6 +648,15 @@ local SUPERSEDED_EVENTS = {
         ["departure.hold_short"] = true,
         ["departure.runway_crossing"] = true
     },
+    ["departure.lining_up"] = {
+        ["departure.flightplan_active"] = true,
+        ["departure.start_push"] = true,
+        ["departure.taxi_runway"] = true,
+        ["departure.runway_crossing"] = true,
+        ["departure.hold_short"] = true,
+        ["departure.backtrack"] = true,
+        ["departure.intersection"] = true
+    },
     ["departure.intersection"] = {
         ["departure.flightplan_active"] = true,
         ["departure.start_push"] = true,
@@ -648,7 +664,7 @@ local SUPERSEDED_EVENTS = {
         ["departure.runway_crossing"] = true,
         ["departure.hold_short"] = true,
         ["departure.backtrack"] = true,
-        ["departure.lineup_takeoff"] = true
+        ["departure.lining_up"] = true
     },
     ["departure.lineup_takeoff"] = {
         ["departure.flightplan_active"] = true,
@@ -656,7 +672,9 @@ local SUPERSEDED_EVENTS = {
         ["departure.taxi_runway"] = true,
         ["departure.runway_crossing"] = true,
         ["departure.hold_short"] = true,
-        ["departure.backtrack"] = true
+        ["departure.backtrack"] = true,
+        ["departure.lining_up"] = true,
+        ["departure.intersection"] = true
     },
     ["departure.airborne"] = {
         ["departure.flightplan_active"] = true,
@@ -666,6 +684,7 @@ local SUPERSEDED_EVENTS = {
         ["departure.hold_short"] = true,
         ["departure.backtrack"] = true,
         ["departure.intersection"] = true,
+        ["departure.lining_up"] = true,
         ["departure.lineup_takeoff"] = true
     },
     ["departure.on_climb"] = {
@@ -676,6 +695,7 @@ local SUPERSEDED_EVENTS = {
         ["departure.hold_short"] = true,
         ["departure.backtrack"] = true,
         ["departure.intersection"] = true,
+        ["departure.lining_up"] = true,
         ["departure.lineup_takeoff"] = true,
         ["departure.airborne"] = true
     },
@@ -741,6 +761,7 @@ local function supersedes_event(eventId, queuedId)
             or queuedId == "departure.hold_short"
             or queuedId == "departure.backtrack"
             or queuedId == "departure.intersection"
+            or queuedId == "departure.lining_up"
             or queuedId == "departure.lineup_takeoff"
             or queuedId == "departure.airborne"
             or queuedId == "departure.on_climb"

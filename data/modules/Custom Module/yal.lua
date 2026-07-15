@@ -102,20 +102,6 @@ local function autoUnicomEventOnce(key, eventId, payload)
 end
 
 function P.publishAutoUnicomTakeoffEvent()
-    local state = P.autoUnicomRuntime
-    if state and state.sent["departure.intersection"] then
-        state.sent["departure.lineup_takeoff"] = true
-        return true
-    end
-    if state and state.departureIntersectionPayload then
-        local accepted = autoUnicomEventOnce(
-            "departure.intersection",
-            "departure.intersection",
-            state.departureIntersectionPayload
-        )
-        if accepted then state.sent["departure.lineup_takeoff"] = true end
-        return accepted
-    end
     return autoUnicomEventOnce("departure.lineup_takeoff", "departure.lineup_takeoff")
 end
 
@@ -152,6 +138,17 @@ function P.getAutoUnicomRunwayCrossingState(phase)
     return type(snapshot) == "table" and snapshot or nil
 end
 
+function P.getAutoUnicomDepartureLineupState()
+    local component = P.taxiComponent
+    if not component or not component.getDepartureLineupAutoUnicomState then return nil end
+    local ok, snapshot = pcall(component.getDepartureLineupAutoUnicomState, component)
+    if not ok then
+        helpers.logDebugTS("IVAO Auto-Unicom: departure line-up state unavailable error=" .. tostring(snapshot))
+        return nil
+    end
+    return type(snapshot) == "table" and snapshot or nil
+end
+
 function P.updateAutoUnicomRunwayCrossing(phase, snapshot)
     local state = P.autoUnicomRuntime
     local latches = state and state.runwayCrossings or nil
@@ -160,14 +157,14 @@ function P.updateAutoUnicomRunwayCrossing(phase, snapshot)
 
     if not latch.initialized then
         latch.initialized = true
-        latch.active = snapshot.on_runway_surface == true
+        latch.active = snapshot.crossing_episode == true or snapshot.on_runway_surface == true
         latch.runwayKey = latch.active and snapshot.runway_key or nil
         latch.clearSince = nil
         return
     end
 
     if latch.active then
-        if snapshot.on_runway_surface == true then
+        if snapshot.crossing_episode == true or snapshot.on_runway_surface == true then
             latch.clearSince = nil
             return
         end
@@ -202,6 +199,41 @@ function P.updateAutoUnicomRunwayCrossing(phase, snapshot)
         latch.runwayKey = snapshot.runway_key
         latch.clearSince = nil
     end
+end
+
+function P.updateAutoUnicomDepartureLineup(taxiState)
+    local state = P.autoUnicomRuntime
+    if not state then return end
+    local lineupState = P.getAutoUnicomDepartureLineupState()
+    if not lineupState or lineupState.valid ~= true then
+        state.lineupSince = nil
+        return
+    end
+
+    if not state.lineupInitialized then
+        state.lineupInitialized = true
+        if lineupState.lined_up == true then
+            state.sent["departure.lining_up"] = true
+        end
+        state.lineupSince = nil
+        return
+    end
+
+    local beforeTaxi = P.proceduretable and P.proceduretable[def.BEFORETAXIPROCEDURE] or nil
+    local beforeTaxiComplete = beforeTaxi and beforeTaxi.set == true or false
+    if not beforeTaxiComplete or lineupState.lined_up ~= true then
+        state.lineupSince = nil
+        return
+    end
+
+    local now = os.time()
+    state.lineupSince = state.lineupSince or now
+    if now - state.lineupSince < 1 then return end
+    local payload = nil
+    if taxiState and taxiState.departure_intersection then
+        payload = { departure_intersection = taxiState.departure_intersection }
+    end
+    autoUnicomEventOnce("departure.lining_up", "departure.lining_up", payload)
 end
 
 local function autoRestartEnabled()
@@ -1394,8 +1426,8 @@ function P.YalinitGlobal()
         taxiEventsInitialized = false,
         holdShortSince = nil,
         backtrackSince = nil,
-        intersectionSince = nil,
-        departureIntersectionPayload = nil,
+        lineupInitialized = false,
+        lineupSince = nil,
         runwayCrossings = {
             departure = { initialized = false, active = false },
             arrival = { initialized = false, active = false }
@@ -7529,9 +7561,9 @@ function P.baselineAutoUnicomRuntimeEvents()
     state.taxiEventsInitialized = false
     state.holdShortSince = nil
     state.backtrackSince = nil
-    state.intersectionSince = nil
-    state.departureIntersectionPayload = nil
     local crossingInitialized = P.isReloadWithinSession ~= true
+    state.lineupInitialized = crossingInitialized
+    state.lineupSince = nil
     state.runwayCrossings = {
         departure = { initialized = crossingInitialized, active = false },
         arrival = { initialized = crossingInitialized, active = false }
@@ -7551,6 +7583,7 @@ function P.baselineAutoUnicomRuntimeEvents()
             state.sent["departure.taxi_runway"] = true
             state.sent["departure.hold_short"] = true
             state.sent["departure.backtrack"] = true
+            state.sent["departure.lining_up"] = true
             state.sent["departure.intersection"] = true
             state.sent["departure.lineup_takeoff"] = true
         end
@@ -7699,14 +7732,9 @@ function P.updateAutoUnicomGroundEvents()
                 state.taxiEventsInitialized = true
                 if taxiState.hold_short == true then state.sent["departure.hold_short"] = true end
                 if taxiState.backtrack == true then state.sent["departure.backtrack"] = true end
-                if taxiState.intersection == true then
-                    state.sent["departure.intersection"] = true
-                    state.sent["departure.lineup_takeoff"] = true
-                end
             else
                 local now = os.time()
                 local beforeTaxi = P.isProcedureActiveOrComplete(def.BEFORETAXIPROCEDURE)
-                local beforeTakeoff = P.isProcedureActiveOrComplete(def.BEFORETAKEOFFPROCEDURE)
 
                 if beforeTaxi and taxiState.hold_short == true then
                     state.holdShortSince = state.holdShortSince or now
@@ -7733,37 +7761,14 @@ function P.updateAutoUnicomGroundEvents()
                 else
                     state.backtrackSince = nil
                 end
-
-                if beforeTakeoff and taxiState.intersection == true then
-                    state.intersectionSince = state.intersectionSince or now
-                    state.departureIntersectionPayload = {
-                        departure_intersection = taxiState.departure_intersection
-                    }
-                    if now - state.intersectionSince >= 2
-                        and autoUnicomEventOnce(
-                            "departure.intersection",
-                            "departure.intersection",
-                            state.departureIntersectionPayload
-                        ) then
-                        state.sent["departure.lineup_takeoff"] = true
-                    end
-                else
-                    state.intersectionSince = nil
-                    if not state.sent["departure.intersection"] then
-                        state.departureIntersectionPayload = nil
-                    end
-                end
             end
         else
             state.holdShortSince = nil
             state.backtrackSince = nil
-            state.intersectionSince = nil
-            if not state.sent["departure.intersection"] then
-                state.departureIntersectionPayload = nil
-            end
         end
 
         P.updateAutoUnicomRunwayCrossing("departure", P.getAutoUnicomRunwayCrossingState("departure"))
+        P.updateAutoUnicomDepartureLineup(taxiState)
 
         if P.isProcedureActiveOrComplete(def.BEFORETAKEOFFPROCEDURE)
             and P.aircraftonrwy(def.DEPARTURE, 40, 20)
