@@ -1928,7 +1928,10 @@ function M.fillProcedureTable()
                     nextStep = 'hide_efbs'
                 },
                 ['hide_efbs'] = { 
-                    skipIf = function() return P.configvalues[def.CONFIGHIDEEFBS] == def.OFF end,
+                    skipIf = function()
+                        return P.ziboPortOwnsConfig(def.CONFIGHIDEEFBS)
+                            or P.configvalues[def.CONFIGHIDEEFBS] == def.OFF
+                    end,
                     check = function() 
                         return (get(P.hidecptefb) == def.EFBHIDDEN) and (get(P.hidefoefb) == def.EFBHIDDEN) 
                     end,
@@ -1980,7 +1983,10 @@ function M.fillProcedureTable()
                     nextStep = 'set_lower_du'
                 },
                 ['set_lower_du'] = { 
-                    skipIf = function() return P.configvalues[def.CONFIGLOWERDU] == def.OFF end,
+                    skipIf = function()
+                        return P.ziboPortOwnsConfig(def.CONFIGLOWERDU)
+                            or P.configvalues[def.CONFIGLOWERDU] == def.OFF
+                    end,
                     action = function()
                         local lowerduset = false
                         if (get(P.lowerdupage) == 0) then lowerduset=true; helpers.command_once("laminar/B738/LDU_control/push_button/MFD_ENG"); helpers.command_once("laminar/B738/LDU_control/push_button/MFD_ENG")
@@ -4266,7 +4272,9 @@ function M.fillProcedureTable()
                 },
                 ['check_fms_page'] = {
                     skipIf = function()
-                        return P.configvalues[def.CONFIGSPDRESTR250] ~= def.ON or shouldSkipFmcSteps()
+                        return P.ziboPortOwnsConfig(def.CONFIGSPDRESTR250)
+                            or P.configvalues[def.CONFIGSPDRESTR250] ~= def.ON
+                            or shouldSkipFmcSteps()
                     end,
                     check = function(loop, procData)
                         return helpers.fmcHeaderContains("DES")
@@ -4282,7 +4290,10 @@ function M.fillProcedureTable()
                     nextStep = 'set_speed_restriction'
                 },
                 ['set_speed_restriction'] = {
-                    skipIf = function() return P.configvalues[def.CONFIGSPDRESTR250] ~= def.ON end,
+                    skipIf = function()
+                        return P.ziboPortOwnsConfig(def.CONFIGSPDRESTR250)
+                            or P.configvalues[def.CONFIGSPDRESTR250] ~= def.ON
+                    end,
                     check = function() 
                         local spd_num = tonumber(get(P.speedrestr))
                         return spd_num == 250 

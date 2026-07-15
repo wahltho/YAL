@@ -1603,6 +1603,11 @@ function P.logZiboRaasRuntimeApi()
     helpers.logInfoTS("Zibo RAAS Runtime API connected " .. key)
 end
 
+function P.ziboPortOwnsConfig(configKey)
+    local settingRef = P.ziboPortFeatureSettings and P.ziboPortFeatureSettings[configKey]
+    return settingRef ~= nil and isProperty(settingRef)
+end
+
 local function bind_external_dataref(name, kind, index, silentMissing)
     if silentMissing and not probe_external_dataref(name, kind) then
         return nil, true
@@ -1894,6 +1899,7 @@ function P.bindExternalDatarefs(silentMissing)
         P.ziboDragRequired = nil
         P.ziboDragRequiredUnhandled = nil
         P.ziboDragRequiredAssist = nil
+        P.ziboPortFeatureSettings = {}
 
         local dragRequiredName = "zibomod/fms/drag_required"
         local dragRequiredUnhandledName = "zibomod/fms/drag_required_unhandled"
@@ -1907,6 +1913,30 @@ function P.bindExternalDatarefs(silentMissing)
         end
         if probe_external_dataref(dragRequiredAssistName) then
             P.ziboDragRequiredAssist = GP(dragRequiredAssistName)
+        end
+
+        local featureSettings = {
+            { def.CONFIGWAKEOVERRIDE, "laminar/B738/effect/disable_xp_wake_effects" },
+            { def.CONFIGRUNWAYFRICTIONCLAMP, "laminar/B738/effect/runway_friction_clamp" },
+            { def.CONFIGLOWERDU, "laminar/B738/fms/sys_display_engine" },
+            { def.CONFIGHIDEEFBS, "laminar/B738/fms/hide_efbs" },
+            { def.CONFIGSPDRESTR250, "laminar/B738/fms/descent_speed_restriction_default" }
+        }
+        local ownedConfigs = {}
+        for _, featureSetting in ipairs(featureSettings) do
+            if probe_external_dataref(featureSetting[2]) then
+                local settingRef = GP(featureSetting[2])
+                if settingRef and isProperty(settingRef) then
+                    P.ziboPortFeatureSettings[featureSetting[1]] = settingRef
+                    ownedConfigs[#ownedConfigs + 1] = featureSetting[1]
+                end
+            end
+        end
+
+        local ownershipLogKey = table.concat(ownedConfigs, ",")
+        if ownershipLogKey ~= "" and ownershipLogKey ~= P.ziboPortFeatureOwnershipLogKey then
+            P.ziboPortFeatureOwnershipLogKey = ownershipLogKey
+            helpers.logInfoTS("Zibo settings override YAL for: " .. ownershipLogKey)
         end
 
         local hasDragRequired = P.ziboDragRequired and isProperty(P.ziboDragRequired)
@@ -3583,7 +3613,8 @@ function P.readconfig()
         set(P.hoppie.logon, logon)
     end
 
-    if P.wakeoverride and isProperty(P.wakeoverride) then
+    if not P.ziboPortOwnsConfig(def.CONFIGWAKEOVERRIDE)
+        and P.wakeoverride and isProperty(P.wakeoverride) then
         if (P.configvalues[def.CONFIGWAKEOVERRIDE] == def.ON) then
             set(P.wakeoverride, def.ON)
         else
@@ -9861,7 +9892,8 @@ function P.ongoingtasks()
         end
     end
 
-    if (P.configvalues[def.CONFIGRUNWAYFRICTIONCLAMP] == def.ON) then
+    if not P.ziboPortOwnsConfig(def.CONFIGRUNWAYFRICTIONCLAMP)
+        and (P.configvalues[def.CONFIGRUNWAYFRICTIONCLAMP] == def.ON) then
         P.applyRunwayFrictionClamp()
     elseif P.runwayFrictionAdjusted ~= nil then
         P.runwayFrictionAdjusted = nil
