@@ -141,10 +141,10 @@ function P.getAutoUnicomArrivalTaxiState()
     return type(snapshot) == "table" and snapshot or nil
 end
 
-function P.getAutoUnicomRunwayCrossingState()
+function P.getAutoUnicomRunwayCrossingState(phase)
     local component = P.taxiComponent
     if not component or not component.getRunwayCrossingAutoUnicomState then return nil end
-    local ok, snapshot = pcall(component.getRunwayCrossingAutoUnicomState, component)
+    local ok, snapshot = pcall(component.getRunwayCrossingAutoUnicomState, component, phase)
     if not ok then
         helpers.logDebugTS("IVAO Auto-Unicom: runway crossing state unavailable error=" .. tostring(snapshot))
         return nil
@@ -161,8 +161,7 @@ function P.updateAutoUnicomRunwayCrossing(phase, snapshot)
     if not latch.initialized then
         latch.initialized = true
         latch.active = snapshot.on_runway_surface == true
-        latch.routeId = latch.active and snapshot.route_id or nil
-        latch.segmentIndex = latch.active and tonumber(snapshot.segment_index) or nil
+        latch.runwayKey = latch.active and snapshot.runway_key or nil
         latch.clearSince = nil
         return
     end
@@ -172,19 +171,11 @@ function P.updateAutoUnicomRunwayCrossing(phase, snapshot)
             latch.clearSince = nil
             return
         end
-        local activeSegment = tonumber(snapshot.active_segment_index)
-        local progressed = snapshot.route_id ~= latch.routeId
-            or (activeSegment and latch.segmentIndex and activeSegment > latch.segmentIndex)
-        if not progressed then
-            latch.clearSince = nil
-            return
-        end
         local now = os.time()
         latch.clearSince = latch.clearSince or now
         if now - latch.clearSince >= 2 then
             latch.active = false
-            latch.routeId = nil
-            latch.segmentIndex = nil
+            latch.runwayKey = nil
             latch.clearSince = nil
         end
         return
@@ -200,8 +191,7 @@ function P.updateAutoUnicomRunwayCrossing(phase, snapshot)
         payload.arrival_runway = state.arrivalRunway
         if not state.sent["arrival.runway_vacated"] then
             latch.active = true
-            latch.routeId = snapshot.route_id
-            latch.segmentIndex = tonumber(snapshot.segment_index)
+            latch.runwayKey = snapshot.runway_key
             latch.clearSince = nil
             return
         end
@@ -209,8 +199,7 @@ function P.updateAutoUnicomRunwayCrossing(phase, snapshot)
 
     if P.publishRuntimeEvent(phase .. ".runway_crossing", payload) then
         latch.active = true
-        latch.routeId = snapshot.route_id
-        latch.segmentIndex = tonumber(snapshot.segment_index)
+        latch.runwayKey = snapshot.runway_key
         latch.clearSince = nil
     end
 end
@@ -7774,7 +7763,7 @@ function P.updateAutoUnicomGroundEvents()
             end
         end
 
-        P.updateAutoUnicomRunwayCrossing("departure", P.getAutoUnicomRunwayCrossingState())
+        P.updateAutoUnicomRunwayCrossing("departure", P.getAutoUnicomRunwayCrossingState("departure"))
 
         if P.isProcedureActiveOrComplete(def.BEFORETAKEOFFPROCEDURE)
             and P.aircraftonrwy(def.DEPARTURE, 40, 20)
@@ -7824,7 +7813,7 @@ function P.updateAutoUnicomGroundEvents()
         return
     end
 
-    P.updateAutoUnicomRunwayCrossing("arrival", P.getAutoUnicomRunwayCrossingState())
+    P.updateAutoUnicomRunwayCrossing("arrival", P.getAutoUnicomRunwayCrossingState("arrival"))
     local clear = P.isAircraftOnArrivalRunwaySurface(40) == false
     if not clear then
         state.runwayClearSince = nil

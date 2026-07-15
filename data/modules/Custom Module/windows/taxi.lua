@@ -5499,6 +5499,7 @@ U = {
     find_nearest_runway_entry_by_latlon = find_nearest_runway_entry_by_latlon,
     compute_runway_landing_profile = compute_runway_landing_profile,
     find_runway_crossing = find_runway_crossing,
+    runway_crossing_label = runway_crossing_label,
     runway_pair_label = runway_pair_label,
     runway_end_label = runway_end_label,
     find_nearest_runway_node = find_nearest_runway_node,
@@ -13287,20 +13288,17 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
         return updateTaxiState(self, map)
     end
 
-    function comp:getRunwayCrossingAutoUnicomState()
-        local result = { valid = false, crossing = false }
+    function comp:getRunwayCrossingAutoUnicomState(phase)
+        local result = { valid = false, crossing = false, on_runway_surface = false }
         local U = comp._U or {}
-        local route = comp._route
-        local data = route and route.data or nil
-        local path = route and route.path or nil
+        local data = comp._data
         local aircraft = comp._aircraftPoint
-        local context = comp._routeContext
-        if comp._routeErr or (comp.mode ~= 0 and comp.mode ~= 1)
-            or not data or not data.nodes or not path or #path < 2
+        if (phase ~= "departure" and phase ~= "arrival")
+            or not data or not data.runways
             or not aircraft or aircraft.east == nil or aircraft.north == nil
-            or (context and context.preview_only == true)
-            or not U.find_nearest_segment or not U.find_runway_crossing
-            or not U.is_on_runway_profile then
+            or not U.is_on_runway_profile or not U.normalize_runway_name
+            or not U.normalize_runway_pair_label or not U.runway_pair_label
+            or not U.runway_crossing_label then
             return result
         end
 
@@ -13310,91 +13308,106 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
         end
 
         result.valid = true
-        result.route_id = tostring(route)
-        local segIdx, routeDistance = U.find_nearest_segment(
-            data,
-            path,
-            aircraft.east,
-            aircraft.north
-        )
-        result.active_segment_index = segIdx
-        result.route_distance_m = routeDistance
-        local routeDistanceLimit = comp.mode == 1
-            and tonumber(comp._C.arrRerouteDriftMeters)
-            or tonumber(comp._C.rerouteDriftMeters)
-        routeDistanceLimit = math.max(20, routeDistanceLimit or 40)
-        if not segIdx or not routeDistance or routeDistance > routeDistanceLimit then
-            return result
-        end
-
-        local depRunway = comp.mode == 0 and U.normalize_runway_name(comp._runwayName or "") or ""
-        local function pair_contains_runway(pair, runway)
-            if not pair or pair == "" or not runway or runway == "" then return false end
-            for part in string.gmatch(pair, "[^/]+") do
-                if part == runway then return true end
+        local depRunway = ""
+        if phase == "departure" then
+            local rawDepRunway = yalref.deprwy and get(yalref.deprwy) or ""
+            depRunway = U.normalize_runway_name(rawDepRunway or "")
+            if depRunway == "" then
+                depRunway = U.normalize_runway_name(comp._runwayName or "")
             end
-            return false
-        end
-        local function is_departure_direct_entry(candidateIdx, runwayRecord)
-            if comp.mode ~= 0 or depRunway == "" then return false end
-            local runwayPair = U.normalize_runway_pair_label(U.runway_pair_label(runwayRecord))
-            if not pair_contains_runway(runwayPair, depRunway) then return false end
-
-            local sawDepartureRunway = false
-            for i = candidateIdx, #path - 1 do
-                local label = U.get_edge_label(data, path[i], path[i + 1]) or ""
-                if label ~= "" then
-                    local labelIsRunway = U.is_runway_label(label)
-                    local labelPair = labelIsRunway and U.normalize_runway_pair_label(label) or ""
-                    if labelIsRunway and pair_contains_runway(labelPair, depRunway) then
-                        sawDepartureRunway = true
-                    elseif sawDepartureRunway and label ~= "RAMP" and not labelIsRunway then
-                        if i < (#path - 2) then return false end
-                    end
-                end
+            if depRunway == "" then
+                result.valid = false
+                return result
             end
-            if sawDepartureRunway then return true end
-            return candidateIdx >= math.max(1, #path - 3)
         end
+        local aircraftLat = yalref.aircraftlatpos and tonumber(get(yalref.aircraftlatpos)) or nil
+        local aircraftLon = yalref.aircraftlonpos and tonumber(get(yalref.aircraftlonpos)) or nil
+        local magVar = aircraftLat and aircraftLon
+            and sasl.getMagneticVariation(aircraftLat, aircraftLon) or 0
+        local track = yalref.groundtrackmag and tonumber(get(yalref.groundtrackmag)) or nil
+        local headingDiffFn = comp._helpers and comp._helpers.headingdiff or nil
+        local bestRunway = nil
+        local bestScore = nil
+        local onSelectedDepartureRunway = false
 
-        local candidateOffsets = { 0, -1, 1 }
-        for _, offset in ipairs(candidateOffsets) do
-            local candidateIdx = segIdx + offset
-            if candidateIdx >= 1 and candidateIdx < #path then
-                local n1 = data.nodes[path[candidateIdx]]
-                local n2 = data.nodes[path[candidateIdx + 1]]
-                local rawLabel = U.get_edge_label(data, path[candidateIdx], path[candidateIdx + 1]) or ""
-                if rawLabel ~= "RAMP" and not U.is_runway_label(rawLabel) then
-                    local runwayRecord, runwayLabel = U.find_runway_crossing(data, n1, n2)
-                    if runwayRecord and runwayLabel and runwayLabel ~= ""
-                        and runwayRecord.east1 and runwayRecord.north1
-                        and runwayRecord.east2 and runwayRecord.north2 then
-                        local dx = runwayRecord.east2 - runwayRecord.east1
-                        local dy = runwayRecord.north2 - runwayRecord.north1
-                        local length = math.sqrt(dx * dx + dy * dy)
-                        if length > 1 then
-                            local profile = {
-                                threshold = { east = runwayRecord.east1, north = runwayRecord.north1 },
-                                axis = { x = dx / length, y = dy / length },
-                                length = length,
-                                width = runwayRecord.width or 0
-                            }
-                            local onSurface = U.is_on_runway_profile(profile, aircraft, 5, 3)
-                            if onSurface and not is_departure_direct_entry(candidateIdx, runwayRecord) then
-                                result.on_runway_surface = true
-                                local tireSpeed = yalref.tirespeed
-                                    and (tonumber(get(yalref.tirespeed)) or 0) or 0
-                                local groundSpeed = yalref.groundspeed
-                                    and (tonumber(get(yalref.groundspeed)) or 0) or 0
-                                result.crossing = tireSpeed > 1 or groundSpeed > 1
-                                result.segment_index = candidateIdx
-                                result.runway = runwayLabel
-                                local taxiway = U.normalize_taxiway_label(rawLabel)
-                                result.taxiway = taxiway ~= "" and taxiway or nil
-                                return result
+        for _, runwayRecord in ipairs(data.runways) do
+            local east1 = tonumber(runwayRecord.east1)
+            local north1 = tonumber(runwayRecord.north1)
+            local east2 = tonumber(runwayRecord.east2)
+            local north2 = tonumber(runwayRecord.north2)
+            if east1 and north1 and east2 and north2 then
+                local dx = east2 - east1
+                local dy = north2 - north1
+                local length = math.sqrt(dx * dx + dy * dy)
+                if length > 1 then
+                    local profile = {
+                        threshold = { east = east1, north = north1 },
+                        axis = { x = dx / length, y = dy / length },
+                        length = length,
+                        width = runwayRecord.width or 0
+                    }
+                    if U.is_on_runway_profile(profile, aircraft, 5, 3) then
+                        result.on_runway_surface = true
+                        local rwy1 = U.normalize_runway_name(runwayRecord.rwy1 or "")
+                        local rwy2 = U.normalize_runway_name(runwayRecord.rwy2 or "")
+                        local selectedDeparture = depRunway ~= ""
+                            and (rwy1 == depRunway or rwy2 == depRunway)
+                        if selectedDeparture then
+                            onSelectedDepartureRunway = true
+                        elseif track and headingDiffFn then
+                            local axisHeadingTrue = math.deg(math.atan2(dx, dy))
+                            if axisHeadingTrue < 0 then axisHeadingTrue = axisHeadingTrue + 360 end
+                            local axisHeadingMag = (axisHeadingTrue - (magVar or 0) + 360) % 360
+                            local headingDiff = headingDiffFn(track, axisHeadingMag)
+                            if headingDiff > 30 and headingDiff < 150 then
+                                local score = math.abs(headingDiff - 90)
+                                if not bestScore or score < bestScore then
+                                    bestScore = score
+                                    bestRunway = runwayRecord
+                                end
                             end
                         end
                     end
+                end
+            end
+        end
+
+        if onSelectedDepartureRunway or not bestRunway then
+            return result
+        end
+
+        local groundSpeed = yalref.groundspeed
+            and math.abs(tonumber(get(yalref.groundspeed)) or 0) or 0
+        local tireSpeed = yalref.tirespeed
+            and (tonumber(get(yalref.tirespeed)) or 0) or 0
+        if tireSpeed <= 1 or groundSpeed > 35 then
+            return result
+        end
+
+        result.runway_key = U.normalize_runway_pair_label(U.runway_pair_label(bestRunway))
+        result.runway = U.runway_crossing_label(
+            bestRunway,
+            aircraft.east,
+            aircraft.north,
+            aircraft.east,
+            aircraft.north
+        )
+        if not result.runway or result.runway == "" then
+            return result
+        end
+        result.crossing = true
+        if U.find_nearest_edge_projection and U.normalize_taxiway_label and U.is_runway_label then
+            local projection = U.find_nearest_edge_projection(
+                data,
+                aircraft.east,
+                aircraft.north,
+                { disallow_runway_edges = true }
+            )
+            if projection and projection.edge and projection.d2 and projection.d2 <= 400 then
+                local rawLabel = projection.edge.label or ""
+                if rawLabel ~= "RAMP" and not U.is_runway_label(rawLabel) then
+                    local taxiway = U.normalize_taxiway_label(rawLabel)
+                    result.taxiway = taxiway ~= "" and taxiway or nil
                 end
             end
         end
