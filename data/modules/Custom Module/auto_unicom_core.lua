@@ -20,7 +20,8 @@ M.EVENT_TTL_SEC = {
     ["arrival.on_final"] = 60,
     ["arrival.short_final"] = 45,
     ["arrival.backtrack"] = 120,
-    ["arrival.runway_vacated"] = 120
+    ["arrival.runway_vacated"] = 120,
+    ["arrival.parking_position"] = 120
 }
 
 M.RESULT_NAMES = {
@@ -135,12 +136,11 @@ local PARKING_NAME_NOISE = {
     TURBOPROPS = true
 }
 
-local function pushback_parking_label(snapshot)
-    if snapshot.pushback_parking_found ~= true then return nil end
-    local rampType = tostring(snapshot.pushback_parking_type or ""):lower()
-    if rampType ~= "gate" and rampType ~= "misc" then return nil end
+local function parking_label(snapshot, prefix)
+    if snapshot[prefix .. "_found"] ~= true then return nil end
+    local rampType = tostring(snapshot[prefix .. "_type"] or ""):lower()
 
-    local rawName = tostring(snapshot.pushback_parking_name or "")
+    local rawName = tostring(snapshot[prefix .. "_name"] or "")
         :gsub("[|/_]", " ")
     local name = clean_token(rawName, true)
     if not name then return nil end
@@ -268,7 +268,7 @@ function M.buildMessage(eventId, snapshot)
         local airport = clean_token(snapshot.pushback_airport_icao, false)
             or clean_token(snapshot.departure_icao, false)
         if not airport or #airport ~= 4 then return nil, "missing_departure_context" end
-        local parking = pushback_parking_label(snapshot)
+        local parking = parking_label(snapshot, "pushback_parking")
         local text = string.format("%s Traffic, %s, pushing back", airport, ac)
         if parking then text = text .. " from " .. parking end
         return normalize_text(text)
@@ -456,6 +456,22 @@ function M.buildMessage(eventId, snapshot)
         return normalize_text(string.format("%s Traffic, runway %s vacated, taxiing to gate", airport, runway))
     end
 
+    if eventId == "arrival.parking_position" then
+        local airport = clean_token(snapshot.arrival_parking_airport_icao, false)
+            or clean_token(snapshot.arrival_icao, false)
+        if not airport or #airport ~= 4 or snapshot.arrival_parking_found ~= true then
+            return nil, "missing_arrival_parking_context"
+        end
+        local parking = parking_label(snapshot, "arrival_parking")
+        local text = string.format("%s Traffic, %s parked", airport, ac)
+        if parking then
+            text = text .. " at " .. parking
+        else
+            text = text .. " at parking position"
+        end
+        return normalize_text(text)
+    end
+
     return nil, "unknown_event"
 end
 
@@ -605,6 +621,15 @@ local SUPERSEDED_EVENTS = {
         ["arrival.on_final"] = true,
         ["arrival.short_final"] = true,
         ["arrival.backtrack"] = true
+    },
+    ["arrival.parking_position"] = {
+        ["arrival.top_of_descent"] = true,
+        ["arrival.on_descent"] = true,
+        ["arrival.approach"] = true,
+        ["arrival.on_final"] = true,
+        ["arrival.short_final"] = true,
+        ["arrival.backtrack"] = true,
+        ["arrival.runway_vacated"] = true
     }
 }
 
@@ -636,7 +661,8 @@ local function supersedes_event(eventId, queuedId)
         or eventId == "arrival.on_final"
         or eventId == "arrival.short_final"
         or eventId == "arrival.backtrack"
-        or eventId == "arrival.runway_vacated" then
+        or eventId == "arrival.runway_vacated"
+        or eventId == "arrival.parking_position" then
         return is_descent_progress_event(queuedId)
     end
     return false

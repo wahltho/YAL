@@ -49,6 +49,36 @@ function P.publishRuntimeEvent(eventId, payload)
     return accepted == true
 end
 
+function P.getAutoUnicomNearestParkingPayload(maxDistanceMeters)
+    if not helpers.getNearestRamp or not P.aircraftlatpos or not P.aircraftlonpos then return nil end
+    local state = P.autoUnicomRuntime
+    local airport = P.nearesticao and helpers.extractprimaryicao(get(P.nearesticao) or "") or ""
+    if not helpers.isvalidicao(airport) then airport = state and state.arrivalIcao or "" end
+    if not helpers.isvalidicao(airport) then return nil end
+
+    local lat = tonumber(get(P.aircraftlatpos))
+    local lon = tonumber(get(P.aircraftlonpos))
+    if not lat or not lon or lat < -90 or lat > 90 or lon < -180 or lon > 180
+        or (lat == 0 and lon == 0) then
+        return nil
+    end
+
+    local ok, ramp, distanceSquared = pcall(helpers.getNearestRamp, airport, lat, lon)
+    distanceSquared = tonumber(distanceSquared)
+    maxDistanceMeters = tonumber(maxDistanceMeters) or 35
+    if not ok or not ramp or not distanceSquared or distanceSquared < 0
+        or distanceSquared > maxDistanceMeters * maxDistanceMeters then
+        return nil
+    end
+    return {
+        arrival_parking_found = true,
+        arrival_parking_type = tostring(ramp.ramp_type or ""):lower(),
+        arrival_parking_name = tostring(ramp.name or ""),
+        arrival_parking_distance_m = math.sqrt(distanceSquared),
+        arrival_parking_airport_icao = airport
+    }
+end
+
 local function autoUnicomEventOnce(key, eventId, payload)
     local state = P.autoUnicomRuntime
     if not state or state.sent[key] then return false end
@@ -1270,6 +1300,7 @@ function P.YalinitGlobal()
         arrivalRunway = nil,
         arrivalTaxiEventsInitialized = false,
         arrivalBacktrackSince = nil,
+        arrivalParkingSince = nil,
         finalSince = nil,
         runwayClearSince = nil,
         holdInitialized = false,
@@ -7373,6 +7404,7 @@ function P.baselineAutoUnicomRuntimeEvents()
     state.runwayClearSince = nil
     state.arrivalTaxiEventsInitialized = false
     state.arrivalBacktrackSince = nil
+    state.arrivalParkingSince = nil
     state.taxiEventsInitialized = false
     state.holdShortSince = nil
     state.backtrackSince = nil
@@ -7452,6 +7484,11 @@ function P.baselineAutoUnicomRuntimeEvents()
             end
             if P.isAircraftOnArrivalRunwaySurface(40) == false then
                 state.sent["arrival.runway_vacated"] = true
+                local parkingBrakeSet = P.parkingbrakepos and tonumber(get(P.parkingbrakepos)) == def.ON
+                local groundSpeed = P.groundspeed and math.abs(tonumber(get(P.groundspeed)) or 0) or 0
+                if parkingBrakeSet and groundSpeed < 1 and P.getAutoUnicomNearestParkingPayload(35) then
+                    state.sent["arrival.parking_position"] = true
+                end
             end
         end
     end
@@ -7469,7 +7506,10 @@ function P.updateAutoUnicomGroundEvents()
     local state = P.autoUnicomRuntime
     P.updateAutoUnicomArrivalContext()
     if not state or get(P.airgroundsensor) ~= def.ON then
-        if state then state.runwayClearSince = nil end
+        if state then
+            state.runwayClearSince = nil
+            state.arrivalParkingSince = nil
+        end
         return
     end
 
@@ -7560,12 +7600,14 @@ function P.updateAutoUnicomGroundEvents()
             P.publishAutoUnicomTakeoffEvent()
         end
         state.runwayClearSince = nil
+        state.arrivalParkingSince = nil
         return
     end
 
     if P.flightstate ~= def.FLIGHTSTATETAXITOGATE and P.flightstate ~= def.FLIGHTSTATESHUTDOWN then
         state.arrivalBacktrackSince = nil
         state.runwayClearSince = nil
+        state.arrivalParkingSince = nil
         return
     end
     local arrivalTaxiState = P.getAutoUnicomArrivalTaxiState()
@@ -7593,6 +7635,7 @@ function P.updateAutoUnicomGroundEvents()
     local clear = P.isAircraftOnArrivalRunwaySurface(40) == false
     if not clear then
         state.runwayClearSince = nil
+        state.arrivalParkingSince = nil
         return
     end
     local now = os.time()
@@ -7602,6 +7645,22 @@ function P.updateAutoUnicomGroundEvents()
             arrival_icao = state.arrivalIcao,
             arrival_runway = state.arrivalRunway
         })
+    end
+
+    local parkingBrakeSet = P.parkingbrakepos and tonumber(get(P.parkingbrakepos)) == def.ON
+    local groundSpeed = P.groundspeed and math.abs(tonumber(get(P.groundspeed)) or 0) or 0
+    if parkingBrakeSet and groundSpeed < 1 then
+        state.arrivalParkingSince = state.arrivalParkingSince or now
+        if now - state.arrivalParkingSince >= 3 then
+            local parkingPayload = P.getAutoUnicomNearestParkingPayload(35)
+            if parkingPayload then
+                parkingPayload.arrival_icao = state.arrivalIcao
+                parkingPayload.arrival_runway = state.arrivalRunway
+                autoUnicomEventOnce("arrival.parking_position", "arrival.parking_position", parkingPayload)
+            end
+        end
+    else
+        state.arrivalParkingSince = nil
     end
 end
 

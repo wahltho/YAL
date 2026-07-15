@@ -196,6 +196,15 @@ local phraseCases = {
         "arrival.backtrack",
         base,
         "ENSB Traffic, B738 backtracking runway 27"
+    },
+    {
+        "arrival.parking_position",
+        copy(base, {
+            arrival_parking_found = true,
+            arrival_parking_type = "gate",
+            arrival_parking_name = "Gate B7"
+        }),
+        "ENSB Traffic, B738 parked at gate B7"
     }
 }
 
@@ -269,6 +278,37 @@ assert_equal(
     })),
     phraseCases[8][3],
     "generic pushback phrase for ramp class"
+)
+
+assert_equal(
+    core.buildMessage("arrival.parking_position", copy(base, {
+        arrival_parking_found = true,
+        arrival_parking_type = "misc",
+        arrival_parking_name = "Apron 42"
+    })),
+    "ENSB Traffic, B738 parked at stand 42",
+    "arrival parking stand phrase"
+)
+assert_equal(
+    core.buildMessage("arrival.parking_position", copy(base, {
+        arrival_parking_found = true,
+        arrival_parking_type = "gate",
+        arrival_parking_name = "Gate"
+    })),
+    "ENSB Traffic, B738 parked at parking position",
+    "arrival unnamed parking phrase"
+)
+missingText, missingReason = core.buildMessage("arrival.parking_position", base)
+assert_equal(missingText, nil, "arrival parking requires nearby ramp")
+assert_equal(missingReason, "missing_arrival_parking_context", "missing arrival parking reason")
+assert_equal(
+    core.buildMessage("arrival.parking_position", copy(base, {
+        arrival_parking_found = true,
+        arrival_parking_type = "cargo",
+        arrival_parking_name = "Cargo 12"
+    })),
+    "ENSB Traffic, B738 parked at stand CARGO 12",
+    "arrival parking accepts unfiltered ramp type"
 )
 
 assert_equal(
@@ -401,6 +441,20 @@ supersessionMailbox:cancelQueuedForGoAround()
 assert_equal(#supersessionMailbox.queue, 1, "go-around cancellation removes only queued arrival events")
 assert_equal(supersessionMailbox.queue[1].id, "departure.taxi_runway", "go-around cancellation preserves departure event")
 assert_equal(supersessionLogs[#supersessionLogs].kind, "cancelled_go_around", "go-around queue cancellation logged")
+
+local parkingMailbox = core.newMailbox({})
+assert_true(parkingMailbox:enqueue({
+    id = "arrival.runway_vacated",
+    text = phraseCases[7][3],
+    expires_at = 100
+}), "enqueue runway vacated before parking")
+assert_true(parkingMailbox:enqueue({
+    id = "arrival.parking_position",
+    text = phraseCases[#phraseCases][3],
+    expires_at = 100
+}), "enqueue arrival parking supersession")
+assert_equal(#parkingMailbox.queue, 1, "parking supersedes queued runway-vacated report")
+assert_equal(parkingMailbox.queue[1].id, "arrival.parking_position", "parking report remains queued")
 
 local holdMailboxLogs = {}
 local holdMailbox = core.newMailbox({
@@ -772,17 +826,11 @@ local function configure_event_adapter_test()
             forceCleanString = function(value) return tostring(value or "") end,
             extractprimaryicao = function(value) return tostring(value or "") end,
             isvalidicao = function(value) return type(value) == "string" and #value == 4 end,
-            isRampSuitableFor738 = function(ramp)
-                local rampType = ramp and ramp.ramp_type or ""
-                return rampType == "gate" or rampType == "misc"
-            end,
             getNearestRamp = function(icao, lat, lon, opts)
                 table.insert(pushbackSearchAirports, icao)
                 assert_equal(lat, eventAdapterValues.aircraftlatpos, "pushback search latitude")
                 assert_equal(lon, eventAdapterValues.aircraftlonpos, "pushback search longitude")
-                assert_true(opts.filter({ ramp_type = "gate" }), "pushback search accepts gate")
-                assert_true(opts.filter({ ramp_type = "misc" }), "pushback search accepts misc")
-                assert_equal(opts.filter({ ramp_type = "hangar" }), false, "pushback search rejects other ramp")
+                assert_equal(opts, nil, "nearest ramp search has no suitability filter")
                 return pushbackRamp, pushbackDistanceSquared
             end
         },
@@ -879,6 +927,25 @@ assert_equal(eventAdapterWrites[1].value, "PAHO Traffic, B738 backtracking runwa
     "arrival backtrack payload survives cleared FMC destination")
 eventAdapterValues.desicao = "ENSB"
 eventAdapterValues.desrwy = "27"
+
+eventAdapterWrites = {}
+pushbackSearchAirports = {}
+eventAdapterValues.nearesticao = "PAHO"
+eventAdapterValues.request_seq = 58
+eventAdapterValues.result_seq = 58
+eventAdapterValues.result_code = 21
+pushbackRamp = { ramp_type = "gate", name = "Gate B7" }
+pushbackDistanceSquared = 10 * 10
+configure_event_adapter_test()
+autoUnicom.tick(true, 0)
+assert_true(autoUnicom.handleYalEvent("arrival.parking_position", {
+    arrival_icao = "PAHO",
+    arrival_runway = "04"
+}, 1), "YAL arrival parking event accepts nearest ramp")
+autoUnicom.tick(true, 1)
+assert_equal(pushbackSearchAirports[1], "PAHO", "nearest airport drives arrival parking search")
+assert_equal(eventAdapterWrites[1].value, "PAHO Traffic, B738 parked at gate B7",
+    "arrival parking uses nearest ramp without suitability filter")
 
 eventAdapterWrites = {}
 eventAdapterValues.request_seq = 60

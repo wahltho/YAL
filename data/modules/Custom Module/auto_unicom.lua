@@ -9,6 +9,7 @@ local lastIntendedMessageText = nil
 local lastCommittedMessageText = nil
 local manualRepeatCount = 0
 local PUSHBACK_PARKING_MAX_DISTANCE_M = 80
+local ARRIVAL_PARKING_MAX_DISTANCE_M = 35
 
 local function log(message)
     if runtime and runtime.helpers and runtime.helpers.logInfoTS then
@@ -147,12 +148,9 @@ local function normalize_icao(value)
     return text
 end
 
-local function read_pushback_parking(snapshot, y)
+local function read_nearest_parking(snapshot, y, airport, prefix, maxDistanceMeters)
     local helpers = runtime and runtime.helpers or nil
-    local airport = normalize_icao(safe_read(y.nearesticao))
-        or normalize_icao(snapshot.departure_icao)
-    snapshot.pushback_airport_icao = airport
-    if not airport or not helpers or not helpers.getNearestRamp or not helpers.isRampSuitableFor738 then return end
+    if not airport or not helpers or not helpers.getNearestRamp then return end
 
     local lat = tonumber(safe_read(y.aircraftlatpos))
     local lon = tonumber(safe_read(y.aircraftlonpos))
@@ -165,21 +163,32 @@ local function read_pushback_parking(snapshot, y)
         helpers.getNearestRamp,
         airport,
         lat,
-        lon,
-        { filter = helpers.isRampSuitableFor738 }
+        lon
     )
     distanceSquared = tonumber(distanceSquared)
     if not ok or not ramp or not distanceSquared or distanceSquared < 0
-        or distanceSquared > PUSHBACK_PARKING_MAX_DISTANCE_M * PUSHBACK_PARKING_MAX_DISTANCE_M then
+        or distanceSquared > maxDistanceMeters * maxDistanceMeters then
         return
     end
 
-    local rampType = tostring(ramp.ramp_type or ""):lower()
-    if rampType ~= "gate" and rampType ~= "misc" then return end
-    snapshot.pushback_parking_found = true
-    snapshot.pushback_parking_type = rampType
-    snapshot.pushback_parking_name = tostring(ramp.name or "")
-    snapshot.pushback_parking_distance_m = math.sqrt(distanceSquared)
+    snapshot[prefix .. "_found"] = true
+    snapshot[prefix .. "_type"] = tostring(ramp.ramp_type or ""):lower()
+    snapshot[prefix .. "_name"] = tostring(ramp.name or "")
+    snapshot[prefix .. "_distance_m"] = math.sqrt(distanceSquared)
+end
+
+local function read_pushback_parking(snapshot, y)
+    local airport = normalize_icao(safe_read(y.nearesticao))
+        or normalize_icao(snapshot.departure_icao)
+    snapshot.pushback_airport_icao = airport
+    read_nearest_parking(snapshot, y, airport, "pushback_parking", PUSHBACK_PARKING_MAX_DISTANCE_M)
+end
+
+local function read_arrival_parking(snapshot, y)
+    local arrivalAirport = normalize_icao(snapshot.arrival_icao)
+    local searchAirport = normalize_icao(safe_read(y.nearesticao)) or arrivalAirport
+    snapshot.arrival_parking_airport_icao = arrivalAirport or searchAirport
+    read_nearest_parking(snapshot, y, searchAirport, "arrival_parking", ARRIVAL_PARKING_MAX_DISTANCE_M)
 end
 
 local function build_snapshot()
@@ -299,6 +308,8 @@ function M.handleYalEvent(eventId, payload, now)
     end
     if eventId == "departure.start_push" then
         read_pushback_parking(snapshot, runtime.yal)
+    elseif eventId == "arrival.parking_position" and snapshot.arrival_parking_found ~= true then
+        read_arrival_parking(snapshot, runtime.yal)
     elseif eventId == "enroute.hold_exit" then
         mailbox:cancelQueuedForHoldEnd()
     end
