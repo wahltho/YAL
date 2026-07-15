@@ -7437,7 +7437,6 @@ function P.baselineAutoUnicomRuntimeEvents()
             state.cruiseInitialized = true
             state.cruiseWaypoint = P.fmsfplnnavid
                 and cleanAutoUnicomWaypoint(get(P.fmsfplnnavid)) or nil
-            state.cruiseLastReportAt = os.time()
         end
         for _, level in ipairs(AUTO_UNICOM_CLIMB_LEVELS_FT) do
             if altitude >= level then
@@ -7762,7 +7761,8 @@ function P.updateAutoUnicomCruiseEvent()
     local passedWaypoint = state.cruiseWaypoint
     state.cruiseWaypoint = waypoint
     local now = os.time()
-    if not state.cruiseLastReportAt or now - state.cruiseLastReportAt < 600 then return end
+    local firstReport = state.cruiseLastReportAt == nil
+    if not firstReport and now - state.cruiseLastReportAt < 600 then return end
 
     local payload = {
         cruise_waypoint = passedWaypoint,
