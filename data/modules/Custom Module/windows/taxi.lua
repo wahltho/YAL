@@ -13293,9 +13293,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
         local data = route and route.data or nil
         local path = route and route.path or nil
         local aircraft = comp._aircraftPoint
-        if comp.mode ~= 0 or comp._routeErr or not data or not data.nodes
-            or not path or #path < 2 or not aircraft
-            or aircraft.east == nil or aircraft.north == nil then
+        if comp.mode ~= 0 then
             return result
         end
 
@@ -13304,11 +13302,34 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
             return result
         end
 
-        result.valid = true
         local groundSpeed = yalref.groundspeed and (tonumber(get(yalref.groundspeed)) or 0) or 0
         local tireSpeed = yalref.tirespeed and (tonumber(get(yalref.tirespeed)) or 0) or 0
-        local onRunway = yalref.aircraftonrwy
-            and yalref.aircraftonrwy(comp._def.DEPARTURE, 40, comp._C.depThresholdHeadingLimit)
+        local forward = tireSpeed > 1 or groundSpeed > 1
+        local headingLimit = tonumber(comp._C.depThresholdHeadingLimit) or 25
+        local reverseHeading = 180 - headingLimit
+        local runwayGeometry = yalref.getAircraftRunwayGeometry
+            and yalref.getAircraftRunwayGeometry(comp._def.DEPARTURE, 40, headingLimit)
+            or nil
+        local runwayGeometryValid = type(runwayGeometry) == "table" and runwayGeometry.valid == true
+        local onRunwaySurface = runwayGeometryValid and runwayGeometry.is_on_surface == true
+        local headingDiff = runwayGeometryValid and runwayGeometry.heading_valid == true
+            and tonumber(runwayGeometry.heading_diff) or nil
+        result.backtrack = onRunwaySurface and forward
+            and headingDiff ~= nil and headingDiff >= reverseHeading
+
+        local routeValid = not comp._routeErr and data and data.nodes
+            and path and #path >= 2 and aircraft
+            and aircraft.east ~= nil and aircraft.north ~= nil
+        if not runwayGeometryValid and not routeValid then
+            return result
+        end
+        result.valid = true
+        if not routeValid then
+            return result
+        end
+
+        local onRunwayAligned = yalref.aircraftonrwy
+            and yalref.aircraftonrwy(comp._def.DEPARTURE, 40, headingLimit)
             or false
         local entryId = comp._selectedDepEntryId
         local intersection = entryId and comp._depEntryLabels and comp._depEntryLabels[entryId] or ""
@@ -13330,18 +13351,13 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
             holdDistance = math.sqrt(dx * dx + dy * dy)
         end
         local holdGate = math.max(35, tonumber(comp._C.depThresholdGateMeters) or 45)
-        result.hold_short = not onRunway
+        result.hold_short = not onRunwaySurface
             and holdDistance ~= nil and holdDistance <= holdGate
             and groundSpeed <= 1
 
         local backtrackRequired = comp._depBacktrackRequired == true
-        local headingDiff = comp._depThresholdState
-            and tonumber(comp._depThresholdState.heading_diff) or nil
-        local reverseHeading = 180 - (tonumber(comp._C.depThresholdHeadingLimit) or 25)
-        local forward = tireSpeed > 1 or groundSpeed > 1
-        result.backtrack = backtrackRequired and onRunway and forward
-            and headingDiff ~= nil and headingDiff >= reverseHeading
-        result.intersection = not backtrackRequired and onRunway and forward
+        result.intersection = not backtrackRequired and not result.backtrack
+            and onRunwayAligned and forward
             and entryId ~= nil and result.departure_intersection ~= nil
         return result
     end
