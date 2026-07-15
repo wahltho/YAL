@@ -7554,7 +7554,7 @@ function P.updateAutoUnicomGroundEvents()
                     state.holdShortSince = nil
                 end
 
-                if beforeTakeoff and taxiState.backtrack == true then
+                if beforeTaxi and taxiState.backtrack == true then
                     state.backtrackSince = state.backtrackSince or now
                     if now - state.backtrackSince >= 2 then
                         autoUnicomEventOnce(

@@ -389,9 +389,11 @@ function M.buildMessage(eventId, snapshot)
         local airport = clean_token(snapshot.departure_icao, false)
         local altitude = format_altitude(snapshot, false)
         if not airport or #airport ~= 4 or not altitude then return nil, "missing_climb_context" end
+        local sid = eventId == "departure.on_climb" and clean_token(snapshot.sid, false) or nil
         local nextWaypoint = clean_token(snapshot.climb_next_waypoint, false)
         local planned = format_planned_altitude(snapshot)
         local text = string.format("Traffic, %s climbing out of %s", ac, airport)
+        if sid then text = text .. " on " .. sid .. " departure" end
         text = text .. ", passing " .. altitude
         if planned then text = text .. " for " .. planned end
         if nextWaypoint then text = text .. ", " .. nextWaypoint .. " next" end

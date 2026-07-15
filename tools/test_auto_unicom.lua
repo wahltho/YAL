@@ -71,7 +71,7 @@ local phraseCases = {
     {
         "departure.on_climb",
         copy(base, { altitude_ft = 1800, pressure_altitude_ft = 1800 }),
-        "Traffic, B738 climbing out of ENAT, passing 1800ft for FL370, BIRCO next"
+        "Traffic, B738 climbing out of ENAT on ATKUP1A departure, passing 1800ft for FL370, BIRCO next"
     },
     {
         "arrival.top_of_descent",
@@ -309,8 +309,8 @@ assert_equal(
         pressure_altitude_ft = 1800,
         climb_next_waypoint = ""
     })),
-    "Traffic, B738 climbing out of ENAT, passing 1800ft for FL370",
-    "climb phrase omits stale SID and tolerates missing next waypoint"
+    "Traffic, B738 climbing out of ENAT on ATKUP1A departure, passing 1800ft for FL370",
+    "initial climb phrase retains SID and tolerates missing next waypoint"
 )
 assert_equal(
     core.buildMessage("enroute.in_cruise", copy(base, {
