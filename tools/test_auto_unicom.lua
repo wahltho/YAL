@@ -338,6 +338,33 @@ assert_equal(
 assert_equal(
     core.buildMessage("arrival.parking_position", copy(base, {
         arrival_parking_found = true,
+        arrival_parking_type = "misc",
+        arrival_parking_name = "4 SMALL"
+    })),
+    "ENSB Traffic, B738 parked at stand 4",
+    "arrival parking strips stand size suffix"
+)
+assert_equal(
+    core.buildMessage("arrival.parking_position", copy(base, {
+        arrival_parking_found = true,
+        arrival_parking_type = "gate",
+        arrival_parking_name = "HEAVY 4L"
+    })),
+    "ENSB Traffic, B738 parked at gate 4L",
+    "arrival parking keeps attached gate suffix"
+)
+assert_equal(
+    core.buildMessage("arrival.parking_position", copy(base, {
+        arrival_parking_found = true,
+        arrival_parking_type = "misc",
+        arrival_parking_name = "4 R MEDIUM"
+    })),
+    "ENSB Traffic, B738 parked at stand 4 R",
+    "arrival parking keeps separate stand suffix"
+)
+assert_equal(
+    core.buildMessage("arrival.parking_position", copy(base, {
+        arrival_parking_found = true,
         arrival_parking_type = "gate",
         arrival_parking_name = "Gate"
     })),

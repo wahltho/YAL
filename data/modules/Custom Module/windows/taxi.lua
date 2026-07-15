@@ -13478,36 +13478,30 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
 
     function comp:getArrivalAutoUnicomState()
         local result = { valid = false }
-        local aircraft = comp._aircraftPoint
-        local profile = comp._arrProfile
-        local context = comp._routeContext
-        if comp.mode ~= 1 or comp._routeErr or not aircraft or not profile or not profile.axis
-            or not context or context.preview_only == true then
-            return result
-        end
-
         local yalref = comp.yal or _G.yal
         if not yalref or not yalref.airgroundsensor or get(yalref.airgroundsensor) ~= comp._def.ON then
             return result
         end
 
+        local headingLimit = tonumber(comp._C.depThresholdHeadingLimit) or 25
+        local reverseHeading = 180 - headingLimit
+        local runwayGeometry = yalref.getAircraftRunwayGeometry
+            and yalref.getAircraftRunwayGeometry(comp._def.ARRIVAL, 40, headingLimit)
+            or nil
+        if type(runwayGeometry) ~= "table" or runwayGeometry.valid ~= true then
+            return result
+        end
+
         result.valid = true
         result.backtrack_required = comp._arrBacktrackRequired == true
-        result.on_runway = is_on_runway_profile(profile, aircraft, 60, 5)
+        result.on_runway = runwayGeometry.is_on_surface == true
+        result.heading_diff = runwayGeometry.heading_valid == true
+            and tonumber(runwayGeometry.heading_diff) or nil
         local groundSpeed = yalref.groundspeed and (tonumber(get(yalref.groundspeed)) or 0) or 0
         local tireSpeed = yalref.tirespeed and (tonumber(get(yalref.tirespeed)) or 0) or 0
-        local track = yalref.groundtrackmag and tonumber(get(yalref.groundtrackmag)) or nil
-        local axisHeadingTrue = math.deg(math.atan2(profile.axis.x, profile.axis.y))
-        if axisHeadingTrue < 0 then axisHeadingTrue = axisHeadingTrue + 360 end
-        local magVar = nil
-        if aircraft.lat and aircraft.lon then
-            magVar = sasl.getMagneticVariation(aircraft.lat, aircraft.lon)
-        end
-        local axisHeadingMag = (axisHeadingTrue - (magVar or 0) + 360) % 360
-        result.heading_diff = track and helpers.headingdiff(track, axisHeadingMag) or nil
         local forward = tireSpeed > 1 or groundSpeed > 1
-        result.backtrack = result.backtrack_required and result.on_runway and forward
-            and result.heading_diff ~= nil and result.heading_diff >= 155
+        result.backtrack = result.on_runway and forward
+            and result.heading_diff ~= nil and result.heading_diff >= reverseHeading
         return result
     end
 

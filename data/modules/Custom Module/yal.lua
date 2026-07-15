@@ -7786,7 +7786,10 @@ function P.updateAutoUnicomGroundEvents()
         return
     end
 
-    if P.flightstate ~= def.FLIGHTSTATETAXITOGATE and P.flightstate ~= def.FLIGHTSTATESHUTDOWN then
+    local arrivalApproach = P.flightstate == def.FLIGHTSTATEAPPROACH
+    local arrivalPostLanding = P.flightstate == def.FLIGHTSTATETAXITOGATE
+        or P.flightstate == def.FLIGHTSTATESHUTDOWN
+    if not arrivalApproach and not arrivalPostLanding then
         state.arrivalBacktrackSince = nil
         state.runwayClearSince = nil
         state.arrivalParkingSince = nil
@@ -7814,6 +7817,13 @@ function P.updateAutoUnicomGroundEvents()
     else
         state.arrivalBacktrackSince = nil
     end
+
+    if not arrivalPostLanding then
+        state.runwayClearSince = nil
+        state.arrivalParkingSince = nil
+        return
+    end
+
     P.updateAutoUnicomRunwayCrossing("arrival", P.getAutoUnicomRunwayCrossingState())
     local clear = P.isAircraftOnArrivalRunwaySurface(40) == false
     if not clear then
