@@ -1309,6 +1309,7 @@ function P.YalinitGlobal()
         holdExitSent = false,
         holdEstablishedSent = false,
         holdDescentSent = false,
+        holdApproachBlocked = false,
         lastFmsPhase = nil,
         taxiEventsInitialized = false,
         holdShortSince = nil,
@@ -7502,6 +7503,14 @@ function P.baselineAutoUnicomRuntimeEvents()
     state.holdExitSent = hold.active and hold.exit_armed == true or false
     state.holdEstablishedSent = hold.active and hold.entry_complete == true or false
     state.holdDescentSent = hold.active and autoUnicomHoldDescending(hold) or false
+    state.holdApproachBlocked = hold.active == true
+    if state.holdApproachBlocked then
+        state.sent["arrival.approach"] = nil
+        state.sent["arrival.on_final"] = nil
+        state.sent["arrival.short_final"] = nil
+        state.finalSince = nil
+        state.shortFinalSince = nil
+    end
 end
 
 function P.updateAutoUnicomGroundEvents()
@@ -7685,11 +7694,16 @@ function P.updateAutoUnicomHoldEvents()
         state.holdExitSent = hold.active and hold.exit_armed == true or false
         state.holdEstablishedSent = hold.active and hold.entry_complete == true or false
         state.holdDescentSent = hold.active and autoUnicomHoldDescending(hold) or false
+        state.holdApproachBlocked = hold.active == true
         return
     end
 
     if state.holdKey and state.holdKey ~= key and not state.holdExitSent then
-        P.publishRuntimeEvent("enroute.hold_exit", state.holdPayload)
+        if not P.publishRuntimeEvent("enroute.hold_exit", state.holdPayload) then
+            state.holdApproachBlocked = true
+            return
+        end
+        state.holdExitSent = true
     end
     if key and key ~= state.holdKey then
         state.holdKey = key
@@ -7697,6 +7711,12 @@ function P.updateAutoUnicomHoldEvents()
         state.holdExitSent = false
         state.holdEstablishedSent = false
         state.holdDescentSent = false
+        state.holdApproachBlocked = true
+        state.sent["arrival.approach"] = nil
+        state.sent["arrival.on_final"] = nil
+        state.sent["arrival.short_final"] = nil
+        state.finalSince = nil
+        state.shortFinalSince = nil
         P.publishRuntimeEvent("enroute.hold_enter", state.holdPayload)
     elseif not key then
         state.holdKey = nil
@@ -7704,9 +7724,11 @@ function P.updateAutoUnicomHoldEvents()
         state.holdExitSent = false
         state.holdEstablishedSent = false
         state.holdDescentSent = false
+        state.holdApproachBlocked = false
         return
     end
 
+    state.holdApproachBlocked = true
     state.holdPayload = autoUnicomHoldPayload(hold)
 
     if not state.holdExitSent and hold.entry_complete and not state.holdEstablishedSent then
@@ -7721,8 +7743,9 @@ function P.updateAutoUnicomHoldEvents()
     end
 
     if hold.exit_armed and not state.holdExitSent then
-        state.holdExitSent = true
-        P.publishRuntimeEvent("enroute.hold_exit", state.holdPayload)
+        if P.publishRuntimeEvent("enroute.hold_exit", state.holdPayload) then
+            state.holdExitSent = true
+        end
     end
 end
 
@@ -7800,6 +7823,9 @@ function P.updateAutoUnicomDescentEvents()
     if not state then return end
     local phase = tonumber(get(P.fmsflightphase)) or 0
     local altitude = tonumber(get(P.altitude)) or 0
+    local approachPhase = phase == def.FMSFLIGHTPHASE_APPROACH
+        or phase == def.FMSFLIGHTPHASE_GO_AROUND_ARMED
+    local holdBlocksApproach = state.holdApproachBlocked == true
     if phase == def.FMSFLIGHTPHASE_GO_AROUND and state.lastFmsPhase ~= phase then
         state.sent["arrival.approach"] = nil
         state.sent["arrival.on_final"] = nil
@@ -7826,8 +7852,7 @@ function P.updateAutoUnicomDescentEvents()
         if altitude <= level and not state.sent[key] then
             state.sent[key] = true
             local eventId = key
-            if level == 10000 and (phase == def.FMSFLIGHTPHASE_APPROACH
-                or phase == def.FMSFLIGHTPHASE_GO_AROUND_ARMED) then
+            if level == 10000 and approachPhase and not holdBlocksApproach then
                 eventId = "arrival.approach"
                 state.sent["arrival.approach"] = true
             end
@@ -7835,13 +7860,11 @@ function P.updateAutoUnicomDescentEvents()
         end
     end
 
-    if altitude <= 10000 and (phase == def.FMSFLIGHTPHASE_APPROACH
-        or phase == def.FMSFLIGHTPHASE_GO_AROUND_ARMED) then
+    if altitude <= 10000 and approachPhase and not holdBlocksApproach then
         autoUnicomEventOnce("arrival.approach", "arrival.approach")
     end
 
-    local finalAccepted = (phase == def.FMSFLIGHTPHASE_APPROACH
-        or phase == def.FMSFLIGHTPHASE_GO_AROUND_ARMED) and P.isArrivalFinalEstablished()
+    local finalAccepted = not holdBlocksApproach and approachPhase and P.isArrivalFinalEstablished()
     if not finalAccepted then
         state.finalSince = nil
         state.shortFinalSince = nil
@@ -9649,7 +9672,6 @@ function P.ongoingtasks()
     P.updateAutoUnicomGroundEvents()
     P.updateAutoUnicomAirborneEvent()
     P.updateAutoUnicomCruiseEvent()
-    P.updateAutoUnicomHoldEvents()
 
     local current_level = sasl.getLogLevel()
 
@@ -10815,6 +10837,7 @@ function P.do_yal()
     sasl.logDebug("ONGOINGTASKSTEPINDEX: " .. P.ongoingtaskstepindex)
 
     if ((P.configvalues[def.CONFIGAUTOFUNCTIONS] == def.ON) or (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON)) then
+        P.updateAutoUnicomHoldEvents()
         P.autofunctions()
         P.ongoingtasks()
     end

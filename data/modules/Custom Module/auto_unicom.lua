@@ -311,6 +311,9 @@ function M.handleYalEvent(eventId, payload, now)
         read_pushback_parking(snapshot, runtime.yal)
     elseif eventId == "arrival.parking_position" and snapshot.arrival_parking_found ~= true then
         read_arrival_parking(snapshot, runtime.yal)
+    elseif eventId == "enroute.hold_enter" or eventId == "enroute.holding"
+        or eventId == "enroute.hold_descending" then
+        mailbox:cancelQueuedForHoldStart()
     elseif eventId == "enroute.hold_exit" then
         mailbox:cancelQueuedForHoldEnd()
     end

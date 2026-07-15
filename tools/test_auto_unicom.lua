@@ -560,6 +560,44 @@ assert_equal(#holdMailbox.queue, 1, "hold cancellation removes only hold state")
 assert_equal(holdMailbox.queue[1].id, "departure.taxi_runway", "hold cancellation preserves unrelated event")
 assert_equal(holdMailboxLogs[#holdMailboxLogs].kind, "cancelled_hold_end", "hold cancellation logged")
 
+holdMailbox = core.newMailbox({
+    log = function(kind, event) table.insert(holdMailboxLogs, { kind = kind, event = event }) end
+})
+assert_true(holdMailbox:enqueue({
+    id = "arrival.approach",
+    text = phraseCases[5][3],
+    expires_at = 100
+}), "enqueue approach before hold start")
+assert_true(holdMailbox:enqueue({
+    id = "arrival.descent_level_10000",
+    text = core.buildMessage("arrival.descent_level_10000", copy(base, {
+        altitude_ft = 10000,
+        pressure_altitude_ft = 10000
+    })),
+    expires_at = 100
+}), "enqueue descent level before hold start")
+holdMailbox:cancelQueuedForHoldStart()
+assert_equal(#holdMailbox.queue, 1, "hold start removes only approach and final events")
+assert_equal(holdMailbox.queue[1].id, "arrival.descent_level_10000",
+    "hold start preserves ordinary descent-level event")
+assert_equal(holdMailboxLogs[#holdMailboxLogs].kind, "cancelled_hold_start",
+    "hold start cancellation logged")
+
+local holdExitApproachOrder = core.newMailbox()
+assert_true(holdExitApproachOrder:enqueue({
+    id = "enroute.hold_exit",
+    text = phraseCases[17][3],
+    expires_at = 100
+}), "enqueue hold exit before deferred approach")
+assert_true(holdExitApproachOrder:enqueue({
+    id = "arrival.approach",
+    text = phraseCases[5][3],
+    expires_at = 100
+}), "enqueue deferred approach after hold exit")
+assert_equal(#holdExitApproachOrder.queue, 2, "hold exit and deferred approach remain queued")
+assert_equal(holdExitApproachOrder.queue[1].id, "enroute.hold_exit", "hold exit remains first")
+assert_equal(holdExitApproachOrder.queue[2].id, "arrival.approach", "deferred approach remains second")
+
 local departureSupersession = core.newMailbox()
 assert_true(departureSupersession:enqueue({
     id = "departure.start_push",

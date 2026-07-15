@@ -761,6 +761,22 @@ function Mailbox:cancelQueuedForGoAround()
     self.queue = kept
 end
 
+function Mailbox:cancelQueuedForHoldStart()
+    local kept = {}
+    for _, event in ipairs(self.queue) do
+        local cancel = event.id == "arrival.approach"
+            or event.id == "arrival.on_final"
+            or event.id == "arrival.short_final"
+        if cancel then
+            self.queuedIds[event.id] = nil
+            self.log("cancelled_hold_start", event)
+        else
+            table.insert(kept, event)
+        end
+    end
+    self.queue = kept
+end
+
 function Mailbox:cancelQueuedForHoldEnd()
     local kept = {}
     for _, event in ipairs(self.queue) do
