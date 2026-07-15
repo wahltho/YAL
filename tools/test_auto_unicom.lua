@@ -55,6 +55,7 @@ local base = {
     arrival_runway = "27",
     aircraft_type = "B738",
     sid = "ATKUP1A",
+    climb_next_waypoint = "BIRCO",
     star = "NELSA3M",
     approach_id = "R27-W",
     approach_procedure_type = "RNAV",
@@ -70,7 +71,7 @@ local phraseCases = {
     {
         "departure.on_climb",
         copy(base, { altitude_ft = 1800, pressure_altitude_ft = 1800 }),
-        "Traffic, B738 climbing out of ENAT on ATKUP1A departure, passing 1800ft for FL370"
+        "Traffic, B738 climbing out of ENAT, passing 1800ft for FL370, BIRCO next"
     },
     {
         "arrival.top_of_descent",
@@ -120,22 +121,22 @@ local phraseCases = {
     {
         "departure.climb_level_10000",
         copy(base, { altitude_ft = 10000, pressure_altitude_ft = 10000 }),
-        "Traffic, B738 climbing out of ENAT on ATKUP1A departure, passing FL100 for FL370"
+        "Traffic, B738 climbing out of ENAT, passing FL100 for FL370, BIRCO next"
     },
     {
         "departure.climb_level_20000",
         copy(base, { altitude_ft = 20000, pressure_altitude_ft = 20000 }),
-        "Traffic, B738 climbing out of ENAT on ATKUP1A departure, passing FL200 for FL370"
+        "Traffic, B738 climbing out of ENAT, passing FL200 for FL370, BIRCO next"
     },
     {
         "departure.climb_level_30000",
         copy(base, { altitude_ft = 30000, pressure_altitude_ft = 30000 }),
-        "Traffic, B738 climbing out of ENAT on ATKUP1A departure, passing FL300 for FL370"
+        "Traffic, B738 climbing out of ENAT, passing FL300 for FL370, BIRCO next"
     },
     {
         "departure.climb_level_40000",
         copy(base, { altitude_ft = 40000, pressure_altitude_ft = 40000, planned_altitude_ft = 41000 }),
-        "Traffic, B738 climbing out of ENAT on ATKUP1A departure, passing FL400 for FL410"
+        "Traffic, B738 climbing out of ENAT, passing FL400 for FL410, BIRCO next"
     },
     {
         "enroute.hold_enter",
@@ -301,6 +302,16 @@ assert_equal(
 missingText, missingReason = core.buildMessage("arrival.parking_position", base)
 assert_equal(missingText, nil, "arrival parking requires nearby ramp")
 assert_equal(missingReason, "missing_arrival_parking_context", "missing arrival parking reason")
+
+assert_equal(
+    core.buildMessage("departure.on_climb", copy(base, {
+        altitude_ft = 1800,
+        pressure_altitude_ft = 1800,
+        climb_next_waypoint = ""
+    })),
+    "Traffic, B738 climbing out of ENAT, passing 1800ft for FL370",
+    "climb phrase omits stale SID and tolerates missing next waypoint"
+)
 assert_equal(
     core.buildMessage("arrival.parking_position", copy(base, {
         arrival_parking_found = true,
@@ -891,7 +902,8 @@ assert_equal(autoUnicom.getDebugState().queue_depth, 0, "go-around removes stale
 eventAdapterValues.transport_state = 5
 assert_true(autoUnicom.handleYalEvent("departure.climb_level_10000", {
     altitude_ft = 10000,
-    pressure_altitude_ft = 10000
+    pressure_altitude_ft = 10000,
+    climb_next_waypoint = "BIRCO"
 }, 3), "YAL altitude event accepted")
 autoUnicom.tick(true, 3)
 assert_equal(eventAdapterWrites[1].value, phraseCases[12][3], "YAL altitude payload freezes FL100")

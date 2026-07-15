@@ -7757,14 +7757,21 @@ end
 
 function P.updateAutoUnicomClimbEvents()
     P.updateAutoUnicomAirborneEvent()
-    autoUnicomEventOnce("departure.on_climb", "departure.on_climb")
+    local nextWaypoint = P.fmsfplnnavid and cleanAutoUnicomWaypoint(get(P.fmsfplnnavid)) or nil
+    autoUnicomEventOnce("departure.on_climb", "departure.on_climb", {
+        climb_next_waypoint = nextWaypoint
+    })
     local altitude = tonumber(get(P.altitude)) or 0
     for _, level in ipairs(AUTO_UNICOM_CLIMB_LEVELS_FT) do
         if altitude >= level then
             autoUnicomEventOnce(
                 "departure.climb_level_" .. tostring(level),
                 "departure.climb_level_" .. tostring(level),
-                { altitude_ft = level, pressure_altitude_ft = level }
+                {
+                    altitude_ft = level,
+                    pressure_altitude_ft = level,
+                    climb_next_waypoint = nextWaypoint
+                }
             )
         end
     end

@@ -212,6 +212,7 @@ local function build_snapshot()
         arrival_icao = tostring(safe_read(y.desicao) or ""),
         arrival_runway = tostring(safe_read(y.desrwy) or ""),
         sid = tostring(safe_read(y.fmsselectedsid) or ""),
+        climb_next_waypoint = tostring(safe_read(y.fmsfplnnavid) or ""),
         star = tostring(safe_read(y.fmsselectedstar) or ""),
         approach_id = tostring(safe_read(y.fmsselectedapp) or ""),
         aircraft_type = tostring(safe_read(sources.aircraft_icao) or ""),
