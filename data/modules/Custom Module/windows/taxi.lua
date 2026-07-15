@@ -13287,6 +13287,120 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
         return updateTaxiState(self, map)
     end
 
+    function comp:getRunwayCrossingAutoUnicomState()
+        local result = { valid = false, crossing = false }
+        local U = comp._U or {}
+        local route = comp._route
+        local data = route and route.data or nil
+        local path = route and route.path or nil
+        local aircraft = comp._aircraftPoint
+        local context = comp._routeContext
+        if comp._routeErr or (comp.mode ~= 0 and comp.mode ~= 1)
+            or not data or not data.nodes or not path or #path < 2
+            or not aircraft or aircraft.east == nil or aircraft.north == nil
+            or (context and context.preview_only == true)
+            or not U.find_nearest_segment or not U.find_runway_crossing
+            or not U.is_on_runway_profile then
+            return result
+        end
+
+        local yalref = comp.yal or _G.yal
+        if not yalref or not yalref.airgroundsensor or get(yalref.airgroundsensor) ~= comp._def.ON then
+            return result
+        end
+
+        result.valid = true
+        result.route_id = tostring(route)
+        local segIdx, routeDistance = U.find_nearest_segment(
+            data,
+            path,
+            aircraft.east,
+            aircraft.north
+        )
+        result.active_segment_index = segIdx
+        result.route_distance_m = routeDistance
+        local routeDistanceLimit = comp.mode == 1
+            and tonumber(comp._C.arrRerouteDriftMeters)
+            or tonumber(comp._C.rerouteDriftMeters)
+        routeDistanceLimit = math.max(20, routeDistanceLimit or 40)
+        if not segIdx or not routeDistance or routeDistance > routeDistanceLimit then
+            return result
+        end
+
+        local depRunway = comp.mode == 0 and U.normalize_runway_name(comp._runwayName or "") or ""
+        local function pair_contains_runway(pair, runway)
+            if not pair or pair == "" or not runway or runway == "" then return false end
+            for part in string.gmatch(pair, "[^/]+") do
+                if part == runway then return true end
+            end
+            return false
+        end
+        local function is_departure_direct_entry(candidateIdx, runwayRecord)
+            if comp.mode ~= 0 or depRunway == "" then return false end
+            local runwayPair = U.normalize_runway_pair_label(U.runway_pair_label(runwayRecord))
+            if not pair_contains_runway(runwayPair, depRunway) then return false end
+
+            local sawDepartureRunway = false
+            for i = candidateIdx, #path - 1 do
+                local label = U.get_edge_label(data, path[i], path[i + 1]) or ""
+                if label ~= "" then
+                    local labelIsRunway = U.is_runway_label(label)
+                    local labelPair = labelIsRunway and U.normalize_runway_pair_label(label) or ""
+                    if labelIsRunway and pair_contains_runway(labelPair, depRunway) then
+                        sawDepartureRunway = true
+                    elseif sawDepartureRunway and label ~= "RAMP" and not labelIsRunway then
+                        if i < (#path - 2) then return false end
+                    end
+                end
+            end
+            if sawDepartureRunway then return true end
+            return candidateIdx >= math.max(1, #path - 3)
+        end
+
+        local candidateOffsets = { 0, -1, 1 }
+        for _, offset in ipairs(candidateOffsets) do
+            local candidateIdx = segIdx + offset
+            if candidateIdx >= 1 and candidateIdx < #path then
+                local n1 = data.nodes[path[candidateIdx]]
+                local n2 = data.nodes[path[candidateIdx + 1]]
+                local rawLabel = U.get_edge_label(data, path[candidateIdx], path[candidateIdx + 1]) or ""
+                if rawLabel ~= "RAMP" and not U.is_runway_label(rawLabel) then
+                    local runwayRecord, runwayLabel = U.find_runway_crossing(data, n1, n2)
+                    if runwayRecord and runwayLabel and runwayLabel ~= ""
+                        and runwayRecord.east1 and runwayRecord.north1
+                        and runwayRecord.east2 and runwayRecord.north2 then
+                        local dx = runwayRecord.east2 - runwayRecord.east1
+                        local dy = runwayRecord.north2 - runwayRecord.north1
+                        local length = math.sqrt(dx * dx + dy * dy)
+                        if length > 1 then
+                            local profile = {
+                                threshold = { east = runwayRecord.east1, north = runwayRecord.north1 },
+                                axis = { x = dx / length, y = dy / length },
+                                length = length,
+                                width = runwayRecord.width or 0
+                            }
+                            local onSurface = U.is_on_runway_profile(profile, aircraft, 5, 3)
+                            if onSurface and not is_departure_direct_entry(candidateIdx, runwayRecord) then
+                                result.on_runway_surface = true
+                                local tireSpeed = yalref.tirespeed
+                                    and (tonumber(get(yalref.tirespeed)) or 0) or 0
+                                local groundSpeed = yalref.groundspeed
+                                    and (tonumber(get(yalref.groundspeed)) or 0) or 0
+                                result.crossing = tireSpeed > 1 or groundSpeed > 1
+                                result.segment_index = candidateIdx
+                                result.runway = runwayLabel
+                                local taxiway = U.normalize_taxiway_label(rawLabel)
+                                result.taxiway = taxiway ~= "" and taxiway or nil
+                                return result
+                            end
+                        end
+                    end
+                end
+            end
+        end
+        return result
+    end
+
     function comp:getDepartureAutoUnicomState()
         local result = { valid = false }
         local route = comp._route

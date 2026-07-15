@@ -215,6 +215,16 @@ local phraseCases = {
             preflight_parking_name = "Gate 4"
         }),
         "ENAT Traffic, B738 at gate 4, preparing for departure to ENSB"
+    },
+    {
+        "departure.runway_crossing",
+        copy(base, { crossing_runway = "08", crossing_taxiway = "Z" }),
+        "ENAT Traffic, B738 crossing runway 08 at taxiway Z"
+    },
+    {
+        "arrival.runway_crossing",
+        copy(base, { crossing_runway = "16" }),
+        "ENSB Traffic, B738 crossing runway 16"
     }
 }
 
@@ -237,6 +247,20 @@ missingText, missingReason = core.buildMessage(
 )
 assert_equal(missingText, nil, "missing preflight destination rejects phrase")
 assert_equal(missingReason, "missing_preflight_context", "missing preflight destination reason")
+
+missingText, missingReason = core.buildMessage(
+    "departure.runway_crossing",
+    copy(base, { crossing_runway = "" })
+)
+assert_equal(missingText, nil, "runway crossing requires runway")
+assert_equal(missingReason, "missing_runway_crossing_context", "missing crossing runway reason")
+
+missingText, missingReason = core.buildMessage(
+    "arrival.runway_crossing",
+    copy(base, { arrival_icao = "", crossing_runway = "16" })
+)
+assert_equal(missingText, nil, "arrival runway crossing requires airport")
+assert_equal(missingReason, "missing_runway_crossing_context", "missing crossing airport reason")
 
 local genericPreflightText = core.buildMessage("departure.flightplan_active", base)
 assert_equal(genericPreflightText,
@@ -514,11 +538,16 @@ assert_true(parkingMailbox:enqueue({
     expires_at = 100
 }), "enqueue runway vacated before parking")
 assert_true(parkingMailbox:enqueue({
+    id = "arrival.runway_crossing",
+    text = "ENSB Traffic, B738 crossing runway 16",
+    expires_at = 100
+}), "enqueue runway crossing before parking")
+assert_true(parkingMailbox:enqueue({
     id = "arrival.parking_position",
-    text = phraseCases[#phraseCases][3],
+    text = "ENSB Traffic, B738 parked at gate B7",
     expires_at = 100
 }), "enqueue arrival parking supersession")
-assert_equal(#parkingMailbox.queue, 1, "parking supersedes queued runway-vacated report")
+assert_equal(#parkingMailbox.queue, 1, "parking supersedes queued runway-crossing report")
 assert_equal(parkingMailbox.queue[1].id, "arrival.parking_position", "parking report remains queued")
 
 local holdMailboxLogs = {}
@@ -643,11 +672,18 @@ assert_true(departureSupersession:enqueue({
 assert_equal(#departureSupersession.queue, 1, "taxi supersedes queued push")
 assert_equal(departureSupersession.queue[1].id, "departure.taxi_runway", "taxi remains queued")
 assert_true(departureSupersession:enqueue({
+    id = "departure.runway_crossing",
+    text = "ENAT Traffic, B738 crossing runway 08 at taxiway Z",
+    expires_at = 100
+}), "enqueue departure crossing supersession")
+assert_equal(#departureSupersession.queue, 1, "crossing supersedes taxi")
+assert_equal(departureSupersession.queue[1].id, "departure.runway_crossing", "crossing remains queued")
+assert_true(departureSupersession:enqueue({
     id = "departure.hold_short",
     text = phraseCases[18][3],
     expires_at = 100
 }), "enqueue hold-short supersession")
-assert_equal(#departureSupersession.queue, 1, "hold short supersedes taxi")
+assert_equal(#departureSupersession.queue, 1, "hold short supersedes crossing")
 assert_equal(departureSupersession.queue[1].id, "departure.hold_short", "hold short remains queued")
 assert_true(departureSupersession:enqueue({
     id = "departure.backtrack",
@@ -705,6 +741,13 @@ assert_true(arrivalSupersession:enqueue({
 }), "enqueue runway vacated supersession")
 assert_equal(#arrivalSupersession.queue, 1, "runway vacated supersedes arrival backtrack")
 assert_equal(arrivalSupersession.queue[1].id, "arrival.runway_vacated", "runway vacated remains queued")
+assert_true(arrivalSupersession:enqueue({
+    id = "arrival.runway_crossing",
+    text = "ENSB Traffic, B738 crossing runway 16",
+    expires_at = 100
+}), "enqueue arrival crossing supersession")
+assert_equal(#arrivalSupersession.queue, 1, "arrival crossing supersedes runway vacated")
+assert_equal(arrivalSupersession.queue[1].id, "arrival.runway_crossing", "arrival crossing remains queued")
 assert_true(departureSupersession:enqueue({
     id = "departure.climb_level_10000",
     text = phraseCases[12][3],

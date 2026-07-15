@@ -4,6 +4,7 @@ M.EVENT_TTL_SEC = {
     ["departure.flightplan_active"] = 120,
     ["departure.start_push"] = 60,
     ["departure.taxi_runway"] = 120,
+    ["departure.runway_crossing"] = 60,
     ["departure.hold_short"] = 120,
     ["departure.backtrack"] = 90,
     ["departure.intersection"] = 60,
@@ -22,6 +23,7 @@ M.EVENT_TTL_SEC = {
     ["arrival.short_final"] = 45,
     ["arrival.backtrack"] = 120,
     ["arrival.runway_vacated"] = 120,
+    ["arrival.runway_crossing"] = 60,
     ["arrival.parking_position"] = 120
 }
 
@@ -299,6 +301,23 @@ function M.buildMessage(eventId, snapshot)
         return normalize_text(string.format("%s Traffic, %s taxiing to holding point runway %s", airport, ac, runway))
     end
 
+    if eventId == "departure.runway_crossing" or eventId == "arrival.runway_crossing" then
+        local airport = clean_token(
+            eventId == "departure.runway_crossing" and snapshot.departure_icao or snapshot.arrival_icao,
+            false
+        )
+        local runway = normalize_runway(snapshot.crossing_runway)
+        if not airport or #airport ~= 4 or not runway then
+            return nil, "missing_runway_crossing_context"
+        end
+        local text = string.format("%s Traffic, %s crossing runway %s", airport, ac, runway)
+        local taxiway = clean_token(snapshot.crossing_taxiway, true)
+        if taxiway and #taxiway <= 24 then
+            text = text .. " at taxiway " .. taxiway
+        end
+        return normalize_text(text)
+    end
+
     if eventId == "departure.hold_short" then
         local airport, runway = departure_context(snapshot)
         if not airport then return nil, "missing_departure_context" end
@@ -540,6 +559,8 @@ local function summarize_sources(snapshot)
         { "pushParkingType", snapshot.pushback_parking_type },
         { "pushParkingName", snapshot.pushback_parking_name },
         { "pushParkingDist", snapshot.pushback_parking_distance_m },
+        { "crossingRwy", snapshot.crossing_runway },
+        { "crossingTwy", snapshot.crossing_taxiway },
         { "holdSource", snapshot.hold_source },
         { "holdWaypoint", snapshot.hold_waypoint },
         { "holdPath", snapshot.hold_path_type },
@@ -595,21 +616,31 @@ local SUPERSEDED_EVENTS = {
         ["departure.flightplan_active"] = true,
         ["departure.start_push"] = true
     },
+    ["departure.runway_crossing"] = {
+        ["departure.flightplan_active"] = true,
+        ["departure.start_push"] = true,
+        ["departure.taxi_runway"] = true,
+        ["departure.hold_short"] = true,
+        ["departure.backtrack"] = true
+    },
     ["departure.hold_short"] = {
         ["departure.flightplan_active"] = true,
         ["departure.start_push"] = true,
-        ["departure.taxi_runway"] = true
+        ["departure.taxi_runway"] = true,
+        ["departure.runway_crossing"] = true
     },
     ["departure.backtrack"] = {
         ["departure.flightplan_active"] = true,
         ["departure.start_push"] = true,
         ["departure.taxi_runway"] = true,
-        ["departure.hold_short"] = true
+        ["departure.hold_short"] = true,
+        ["departure.runway_crossing"] = true
     },
     ["departure.intersection"] = {
         ["departure.flightplan_active"] = true,
         ["departure.start_push"] = true,
         ["departure.taxi_runway"] = true,
+        ["departure.runway_crossing"] = true,
         ["departure.hold_short"] = true,
         ["departure.backtrack"] = true,
         ["departure.lineup_takeoff"] = true
@@ -618,6 +649,7 @@ local SUPERSEDED_EVENTS = {
         ["departure.flightplan_active"] = true,
         ["departure.start_push"] = true,
         ["departure.taxi_runway"] = true,
+        ["departure.runway_crossing"] = true,
         ["departure.hold_short"] = true,
         ["departure.backtrack"] = true
     },
@@ -625,6 +657,7 @@ local SUPERSEDED_EVENTS = {
         ["departure.flightplan_active"] = true,
         ["departure.start_push"] = true,
         ["departure.taxi_runway"] = true,
+        ["departure.runway_crossing"] = true,
         ["departure.hold_short"] = true,
         ["departure.backtrack"] = true,
         ["departure.intersection"] = true,
@@ -634,6 +667,7 @@ local SUPERSEDED_EVENTS = {
         ["departure.flightplan_active"] = true,
         ["departure.start_push"] = true,
         ["departure.taxi_runway"] = true,
+        ["departure.runway_crossing"] = true,
         ["departure.hold_short"] = true,
         ["departure.backtrack"] = true,
         ["departure.intersection"] = true,
@@ -670,7 +704,7 @@ local SUPERSEDED_EVENTS = {
         ["arrival.short_final"] = true,
         ["arrival.backtrack"] = true
     },
-    ["arrival.parking_position"] = {
+    ["arrival.runway_crossing"] = {
         ["arrival.top_of_descent"] = true,
         ["arrival.on_descent"] = true,
         ["arrival.approach"] = true,
@@ -678,6 +712,16 @@ local SUPERSEDED_EVENTS = {
         ["arrival.short_final"] = true,
         ["arrival.backtrack"] = true,
         ["arrival.runway_vacated"] = true
+    },
+    ["arrival.parking_position"] = {
+        ["arrival.top_of_descent"] = true,
+        ["arrival.on_descent"] = true,
+        ["arrival.approach"] = true,
+        ["arrival.on_final"] = true,
+        ["arrival.short_final"] = true,
+        ["arrival.backtrack"] = true,
+        ["arrival.runway_vacated"] = true,
+        ["arrival.runway_crossing"] = true
     }
 }
 
@@ -688,6 +732,7 @@ local function supersedes_event(eventId, queuedId)
         return queuedId == "departure.flightplan_active"
             or queuedId == "departure.start_push"
             or queuedId == "departure.taxi_runway"
+            or queuedId == "departure.runway_crossing"
             or queuedId == "departure.hold_short"
             or queuedId == "departure.backtrack"
             or queuedId == "departure.intersection"
@@ -712,6 +757,7 @@ local function supersedes_event(eventId, queuedId)
         or eventId == "arrival.short_final"
         or eventId == "arrival.backtrack"
         or eventId == "arrival.runway_vacated"
+        or eventId == "arrival.runway_crossing"
         or eventId == "arrival.parking_position" then
         return is_descent_progress_event(queuedId)
     end

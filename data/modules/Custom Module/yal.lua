@@ -141,6 +141,80 @@ function P.getAutoUnicomArrivalTaxiState()
     return type(snapshot) == "table" and snapshot or nil
 end
 
+function P.getAutoUnicomRunwayCrossingState()
+    local component = P.taxiComponent
+    if not component or not component.getRunwayCrossingAutoUnicomState then return nil end
+    local ok, snapshot = pcall(component.getRunwayCrossingAutoUnicomState, component)
+    if not ok then
+        helpers.logDebugTS("IVAO Auto-Unicom: runway crossing state unavailable error=" .. tostring(snapshot))
+        return nil
+    end
+    return type(snapshot) == "table" and snapshot or nil
+end
+
+function P.updateAutoUnicomRunwayCrossing(phase, snapshot)
+    local state = P.autoUnicomRuntime
+    local latches = state and state.runwayCrossings or nil
+    local latch = latches and latches[phase] or nil
+    if not latch or not snapshot or snapshot.valid ~= true then return end
+
+    if not latch.initialized then
+        latch.initialized = true
+        latch.active = snapshot.on_runway_surface == true
+        latch.routeId = latch.active and snapshot.route_id or nil
+        latch.segmentIndex = latch.active and tonumber(snapshot.segment_index) or nil
+        latch.clearSince = nil
+        return
+    end
+
+    if latch.active then
+        if snapshot.on_runway_surface == true then
+            latch.clearSince = nil
+            return
+        end
+        local activeSegment = tonumber(snapshot.active_segment_index)
+        local progressed = snapshot.route_id ~= latch.routeId
+            or (activeSegment and latch.segmentIndex and activeSegment > latch.segmentIndex)
+        if not progressed then
+            latch.clearSince = nil
+            return
+        end
+        local now = os.time()
+        latch.clearSince = latch.clearSince or now
+        if now - latch.clearSince >= 2 then
+            latch.active = false
+            latch.routeId = nil
+            latch.segmentIndex = nil
+            latch.clearSince = nil
+        end
+        return
+    end
+
+    if snapshot.crossing ~= true then return end
+    local payload = {
+        crossing_runway = snapshot.runway,
+        crossing_taxiway = snapshot.taxiway
+    }
+    if phase == "arrival" then
+        payload.arrival_icao = state.arrivalIcao
+        payload.arrival_runway = state.arrivalRunway
+        if not state.sent["arrival.runway_vacated"] then
+            latch.active = true
+            latch.routeId = snapshot.route_id
+            latch.segmentIndex = tonumber(snapshot.segment_index)
+            latch.clearSince = nil
+            return
+        end
+    end
+
+    if P.publishRuntimeEvent(phase .. ".runway_crossing", payload) then
+        latch.active = true
+        latch.routeId = snapshot.route_id
+        latch.segmentIndex = tonumber(snapshot.segment_index)
+        latch.clearSince = nil
+    end
+end
+
 local function autoRestartEnabled()
     if not P.configvalues then
         return false
@@ -1333,6 +1407,10 @@ function P.YalinitGlobal()
         backtrackSince = nil,
         intersectionSince = nil,
         departureIntersectionPayload = nil,
+        runwayCrossings = {
+            departure = { initialized = false, active = false },
+            arrival = { initialized = false, active = false }
+        },
         shortFinalSince = nil,
         cruiseInitialized = false,
         cruiseWaypoint = nil,
@@ -7433,6 +7511,11 @@ function P.baselineAutoUnicomRuntimeEvents()
     state.backtrackSince = nil
     state.intersectionSince = nil
     state.departureIntersectionPayload = nil
+    local crossingInitialized = P.isReloadWithinSession ~= true
+    state.runwayCrossings = {
+        departure = { initialized = crossingInitialized, active = false },
+        arrival = { initialized = crossingInitialized, active = false }
+    }
     state.shortFinalSince = nil
     state.cruiseInitialized = false
     state.cruiseWaypoint = nil
@@ -7660,6 +7743,8 @@ function P.updateAutoUnicomGroundEvents()
             end
         end
 
+        P.updateAutoUnicomRunwayCrossing("departure", P.getAutoUnicomRunwayCrossingState())
+
         if P.isProcedureActiveOrComplete(def.BEFORETAKEOFFPROCEDURE)
             and P.aircraftonrwy(def.DEPARTURE, 40, 20)
             and (tonumber(get(P.groundspeed)) or 0) >= 25 then
@@ -7698,6 +7783,7 @@ function P.updateAutoUnicomGroundEvents()
     else
         state.arrivalBacktrackSince = nil
     end
+    P.updateAutoUnicomRunwayCrossing("arrival", P.getAutoUnicomRunwayCrossingState())
     local clear = P.isAircraftOnArrivalRunwaySurface(40) == false
     if not clear then
         state.runwayClearSince = nil
