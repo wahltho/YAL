@@ -1037,7 +1037,9 @@ function update()
             helpers.updateGlobalAptIndex(nil, false)
         end
         if taxiComponent and autoUnicomOperational
-            and yal.flightstate == def.FLIGHTSTATEPREFLIGHT
+            and (yal.flightstate == def.FLIGHTSTATEPREFLIGHT
+                or yal.flightstate == def.FLIGHTSTATETAXITOGATE
+                or yal.flightstate == def.FLIGHTSTATESHUTDOWN)
             and yal.airgroundsensor and get(yal.airgroundsensor) == def.ON
             and taxiComponent.updateTaxiState then
             taxiComponent:updateTaxiState()

@@ -86,6 +86,17 @@ function P.getAutoUnicomDepartureTaxiState()
     return type(snapshot) == "table" and snapshot or nil
 end
 
+function P.getAutoUnicomArrivalTaxiState()
+    local component = P.taxiComponent
+    if not component or not component.getArrivalAutoUnicomState then return nil end
+    local ok, snapshot = pcall(component.getArrivalAutoUnicomState, component)
+    if not ok then
+        helpers.logDebugTS("IVAO Auto-Unicom: arrival taxi state unavailable error=" .. tostring(snapshot))
+        return nil
+    end
+    return type(snapshot) == "table" and snapshot or nil
+end
+
 local function autoRestartEnabled()
     if not P.configvalues then
         return false
@@ -1257,6 +1268,8 @@ function P.YalinitGlobal()
         sent = {},
         arrivalIcao = nil,
         arrivalRunway = nil,
+        arrivalTaxiEventsInitialized = false,
+        arrivalBacktrackSince = nil,
         finalSince = nil,
         runwayClearSince = nil,
         holdInitialized = false,
@@ -7358,6 +7371,8 @@ function P.baselineAutoUnicomRuntimeEvents()
     state.sent = {}
     state.finalSince = nil
     state.runwayClearSince = nil
+    state.arrivalTaxiEventsInitialized = false
+    state.arrivalBacktrackSince = nil
     state.taxiEventsInitialized = false
     state.holdShortSince = nil
     state.backtrackSince = nil
@@ -7428,6 +7443,13 @@ function P.baselineAutoUnicomRuntimeEvents()
                 state.sent["departure.lineup_takeoff"] = true
             end
         elseif P.flightstate == def.FLIGHTSTATETAXITOGATE or P.flightstate == def.FLIGHTSTATESHUTDOWN then
+            local arrivalTaxiState = P.getAutoUnicomArrivalTaxiState()
+            if arrivalTaxiState and arrivalTaxiState.valid == true then
+                state.arrivalTaxiEventsInitialized = true
+                if arrivalTaxiState.backtrack == true then
+                    state.sent["arrival.backtrack"] = true
+                end
+            end
             if P.isAircraftOnArrivalRunwaySurface(40) == false then
                 state.sent["arrival.runway_vacated"] = true
             end
@@ -7542,8 +7564,31 @@ function P.updateAutoUnicomGroundEvents()
     end
 
     if P.flightstate ~= def.FLIGHTSTATETAXITOGATE and P.flightstate ~= def.FLIGHTSTATESHUTDOWN then
+        state.arrivalBacktrackSince = nil
         state.runwayClearSince = nil
         return
+    end
+    local arrivalTaxiState = P.getAutoUnicomArrivalTaxiState()
+    if arrivalTaxiState and arrivalTaxiState.valid == true then
+        if not state.arrivalTaxiEventsInitialized then
+            state.arrivalTaxiEventsInitialized = true
+            if arrivalTaxiState.backtrack == true then
+                state.sent["arrival.backtrack"] = true
+            end
+        elseif arrivalTaxiState.backtrack == true then
+            local now = os.time()
+            state.arrivalBacktrackSince = state.arrivalBacktrackSince or now
+            if now - state.arrivalBacktrackSince >= 2 then
+                autoUnicomEventOnce("arrival.backtrack", "arrival.backtrack", {
+                    arrival_icao = state.arrivalIcao,
+                    arrival_runway = state.arrivalRunway
+                })
+            end
+        else
+            state.arrivalBacktrackSince = nil
+        end
+    else
+        state.arrivalBacktrackSince = nil
     end
     local clear = P.isAircraftOnArrivalRunwaySurface(40) == false
     if not clear then

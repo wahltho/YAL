@@ -191,6 +191,11 @@ local phraseCases = {
             pressure_altitude_ft = 37000
         }),
         "Traffic, B738, in a hold over BIRCO on descent passing FL370 for FL250"
+    },
+    {
+        "arrival.backtrack",
+        base,
+        "ENSB Traffic, B738 backtracking runway 27"
     }
 }
 
@@ -220,6 +225,13 @@ missingText, missingReason = core.buildMessage(
 )
 assert_equal(missingText, nil, "short final requires arrival runway")
 assert_equal(missingReason, "missing_short_final_context", "missing short final reason")
+
+missingText, missingReason = core.buildMessage(
+    "arrival.backtrack",
+    copy(base, { arrival_runway = "" })
+)
+assert_equal(missingText, nil, "arrival backtrack requires arrival runway")
+assert_equal(missingReason, "missing_arrival_backtrack_context", "missing arrival backtrack reason")
 
 assert_equal(
     core.buildMessage("departure.start_push", copy(base, {
@@ -508,6 +520,27 @@ assert_true(departureSupersession:enqueue({
 }), "enqueue initial climb supersession")
 assert_equal(#departureSupersession.queue, 1, "initial climb supersedes airborne")
 assert_equal(departureSupersession.queue[1].id, "departure.on_climb", "initial climb remains queued")
+
+local arrivalSupersession = core.newMailbox()
+assert_true(arrivalSupersession:enqueue({
+    id = "arrival.short_final",
+    text = phraseCases[22][3],
+    expires_at = 100
+}), "enqueue short final before arrival backtrack")
+assert_true(arrivalSupersession:enqueue({
+    id = "arrival.backtrack",
+    text = "ENSB Traffic, B738 backtracking runway 27",
+    expires_at = 100
+}), "enqueue arrival backtrack supersession")
+assert_equal(#arrivalSupersession.queue, 1, "arrival backtrack supersedes short final")
+assert_equal(arrivalSupersession.queue[1].id, "arrival.backtrack", "arrival backtrack remains queued")
+assert_true(arrivalSupersession:enqueue({
+    id = "arrival.runway_vacated",
+    text = phraseCases[7][3],
+    expires_at = 100
+}), "enqueue runway vacated supersession")
+assert_equal(#arrivalSupersession.queue, 1, "runway vacated supersedes arrival backtrack")
+assert_equal(arrivalSupersession.queue[1].id, "arrival.runway_vacated", "runway vacated remains queued")
 assert_true(departureSupersession:enqueue({
     id = "departure.climb_level_10000",
     text = phraseCases[12][3],
@@ -830,6 +863,20 @@ assert_true(autoUnicom.handleYalEvent("arrival.runway_vacated", {
 autoUnicom.tick(true, 1)
 assert_equal(eventAdapterWrites[1].value, "PAHO Traffic, runway 04 vacated, taxiing to gate",
     "runway vacated payload survives cleared FMC destination")
+
+eventAdapterWrites = {}
+eventAdapterValues.request_seq = 57
+eventAdapterValues.result_seq = 57
+eventAdapterValues.result_code = 21
+configure_event_adapter_test()
+autoUnicom.tick(true, 0)
+assert_true(autoUnicom.handleYalEvent("arrival.backtrack", {
+    arrival_icao = "PAHO",
+    arrival_runway = "04"
+}, 1), "YAL arrival backtrack event accepts latched arrival context")
+autoUnicom.tick(true, 1)
+assert_equal(eventAdapterWrites[1].value, "PAHO Traffic, B738 backtracking runway 04",
+    "arrival backtrack payload survives cleared FMC destination")
 eventAdapterValues.desicao = "ENSB"
 eventAdapterValues.desrwy = "27"
 

@@ -19,6 +19,7 @@ M.EVENT_TTL_SEC = {
     ["arrival.approach"] = 180,
     ["arrival.on_final"] = 60,
     ["arrival.short_final"] = 45,
+    ["arrival.backtrack"] = 120,
     ["arrival.runway_vacated"] = 120
 }
 
@@ -443,6 +444,12 @@ function M.buildMessage(eventId, snapshot)
         ))
     end
 
+    if eventId == "arrival.backtrack" then
+        local airport, runway = arrival_context(snapshot)
+        if not airport then return nil, "missing_arrival_backtrack_context" end
+        return normalize_text(string.format("%s Traffic, %s backtracking runway %s", airport, ac, runway))
+    end
+
     if eventId == "arrival.runway_vacated" then
         local airport, runway = arrival_context(snapshot)
         if not airport then return nil, "missing_vacated_context" end
@@ -584,12 +591,20 @@ local SUPERSEDED_EVENTS = {
         ["arrival.approach"] = true,
         ["arrival.on_final"] = true
     },
-    ["arrival.runway_vacated"] = {
+    ["arrival.backtrack"] = {
         ["arrival.top_of_descent"] = true,
         ["arrival.on_descent"] = true,
         ["arrival.approach"] = true,
         ["arrival.on_final"] = true,
         ["arrival.short_final"] = true
+    },
+    ["arrival.runway_vacated"] = {
+        ["arrival.top_of_descent"] = true,
+        ["arrival.on_descent"] = true,
+        ["arrival.approach"] = true,
+        ["arrival.on_final"] = true,
+        ["arrival.short_final"] = true,
+        ["arrival.backtrack"] = true
     }
 }
 
@@ -620,6 +635,7 @@ local function supersedes_event(eventId, queuedId)
     if eventId == "arrival.approach"
         or eventId == "arrival.on_final"
         or eventId == "arrival.short_final"
+        or eventId == "arrival.backtrack"
         or eventId == "arrival.runway_vacated" then
         return is_descent_progress_event(queuedId)
     end
