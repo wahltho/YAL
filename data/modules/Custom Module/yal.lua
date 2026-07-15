@@ -1941,7 +1941,8 @@ function P.bindExternalDatarefs(silentMissing)
             { def.CONFIGRUNWAYFRICTIONCLAMP, "laminar/B738/effect/runway_friction_clamp" },
             { def.CONFIGLOWERDU, "laminar/B738/fms/sys_display_engine" },
             { def.CONFIGHIDEEFBS, "laminar/B738/fms/hide_efbs" },
-            { def.CONFIGSPDRESTR250, "laminar/B738/fms/descent_speed_restriction_default" }
+            { def.CONFIGSPDRESTR250, "laminar/B738/fms/descent_speed_restriction_default" },
+            { def.CONFIGHEADINGSYNCINTERVAL, "laminar/B738/autopilot/heading_sync_interval" }
         }
         local ownedConfigs = {}
         for _, featureSetting in ipairs(featureSettings) do
@@ -9966,7 +9967,10 @@ function P.ongoingtasks()
         P.savetimer = nil
     end
 
-    local headingSyncInterval = tonumber(P.configvalues[def.CONFIGHEADINGSYNCINTERVAL] or 0) or 0
+    local headingSyncInterval = 0
+    if not P.ziboPortOwnsConfig(def.CONFIGHEADINGSYNCINTERVAL) then
+        headingSyncInterval = tonumber(P.configvalues[def.CONFIGHEADINGSYNCINTERVAL] or 0) or 0
+    end
     if headingSyncInterval > 0 then
         if (P.headingsynctimer == nil) then
             P.headingsynctimer = sasl.createTimer()
