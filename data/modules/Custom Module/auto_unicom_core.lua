@@ -371,10 +371,16 @@ function M.buildMessage(eventId, snapshot)
     end
 
     if eventId == "enroute.in_cruise" then
-        local waypoint = clean_token(snapshot.cruise_waypoint, false)
-        local nextWaypoint = clean_token(snapshot.cruise_next_waypoint, false)
         local altitude = format_altitude(snapshot, false)
-        if not waypoint or not altitude then return nil, "missing_cruise_context" end
+        if not altitude then return nil, "missing_cruise_context" end
+        local nextWaypoint = clean_token(snapshot.cruise_next_waypoint, false)
+        if snapshot.cruise_entry == true then
+            local text = string.format("Traffic, %s level at %s", ac, altitude)
+            if nextWaypoint then text = text .. ", " .. nextWaypoint .. " next" end
+            return normalize_text(text)
+        end
+        local waypoint = clean_token(snapshot.cruise_waypoint, false)
+        if not waypoint then return nil, "missing_cruise_context" end
         local text = string.format(
             "Traffic, %s passing %s, maintaining %s",
             ac,

@@ -7432,7 +7432,8 @@ function P.baselineAutoUnicomRuntimeEvents()
         if P.flightstate >= def.FLIGHTSTATECLIMB then
             state.sent["departure.on_climb"] = true
         end
-        if P.flightstate == def.FLIGHTSTATECRUISE then
+        if P.flightstate == def.FLIGHTSTATECRUISE
+            and state.lastFmsPhase == def.FMSFLIGHTPHASE_CRUISE then
             state.cruiseInitialized = true
             state.cruiseWaypoint = P.fmsfplnnavid
                 and cleanAutoUnicomWaypoint(get(P.fmsfplnnavid)) or nil
@@ -7729,7 +7730,10 @@ end
 function P.updateAutoUnicomCruiseEvent()
     local state = P.autoUnicomRuntime
     if not state then return end
-    if P.flightstate ~= def.FLIGHTSTATECRUISE then
+    local fmsPhase = P.fmsflightphase and tonumber(get(P.fmsflightphase)) or nil
+    local cruiseActive = P.flightstate == def.FLIGHTSTATECRUISE
+        and fmsPhase == def.FMSFLIGHTPHASE_CRUISE
+    if not cruiseActive then
         state.cruiseInitialized = false
         state.cruiseWaypoint = nil
         state.cruiseLastReportAt = nil
@@ -7738,8 +7742,14 @@ function P.updateAutoUnicomCruiseEvent()
 
     local waypoint = P.fmsfplnnavid and cleanAutoUnicomWaypoint(get(P.fmsfplnnavid)) or nil
     if not state.cruiseInitialized then
-        state.cruiseInitialized = true
         state.cruiseWaypoint = waypoint
+        if P.publishRuntimeEvent("enroute.in_cruise", {
+            cruise_entry = true,
+            cruise_next_waypoint = waypoint
+        }) then
+            state.cruiseInitialized = true
+            state.cruiseLastReportAt = os.time()
+        end
         return
     end
     if not waypoint then return end
@@ -7752,11 +7762,12 @@ function P.updateAutoUnicomCruiseEvent()
     local passedWaypoint = state.cruiseWaypoint
     state.cruiseWaypoint = waypoint
     local now = os.time()
-    local firstReport = state.cruiseLastReportAt == nil
-    if not firstReport and now - state.cruiseLastReportAt < 600 then return end
+    if not state.cruiseLastReportAt or now - state.cruiseLastReportAt < 600 then return end
 
-    local payload = { cruise_waypoint = passedWaypoint }
-    if not firstReport then payload.cruise_next_waypoint = waypoint end
+    local payload = {
+        cruise_waypoint = passedWaypoint,
+        cruise_next_waypoint = waypoint
+    }
     if P.publishRuntimeEvent("enroute.in_cruise", payload) then
         state.cruiseLastReportAt = now
     end

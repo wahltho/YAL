@@ -314,6 +314,26 @@ assert_equal(
 )
 assert_equal(
     core.buildMessage("enroute.in_cruise", copy(base, {
+        cruise_entry = true,
+        cruise_next_waypoint = "BIRCO",
+        altitude_ft = 37000,
+        pressure_altitude_ft = 37000
+    })),
+    "Traffic, B738 level at FL370, BIRCO next",
+    "cruise entry phrase reports level and next waypoint"
+)
+assert_equal(
+    core.buildMessage("enroute.in_cruise", copy(base, {
+        cruise_entry = true,
+        cruise_next_waypoint = "",
+        altitude_ft = 37000,
+        pressure_altitude_ft = 37000
+    })),
+    "Traffic, B738 level at FL370",
+    "cruise entry tolerates missing next waypoint"
+)
+assert_equal(
+    core.buildMessage("enroute.in_cruise", copy(base, {
         cruise_waypoint = "BIRCO",
         cruise_next_waypoint = "SOMOR",
         altitude_ft = 37000,
