@@ -372,14 +372,17 @@ function M.buildMessage(eventId, snapshot)
 
     if eventId == "enroute.in_cruise" then
         local waypoint = clean_token(snapshot.cruise_waypoint, false)
+        local nextWaypoint = clean_token(snapshot.cruise_next_waypoint, false)
         local altitude = format_altitude(snapshot, false)
         if not waypoint or not altitude then return nil, "missing_cruise_context" end
-        return normalize_text(string.format(
+        local text = string.format(
             "Traffic, %s passing %s, maintaining %s",
             ac,
             waypoint,
             altitude
-        ))
+        )
+        if nextWaypoint then text = text .. ", " .. nextWaypoint .. " next" end
+        return normalize_text(text)
     end
 
     if eventId == "departure.on_climb" or is_climb_progress_event(eventId) then
@@ -510,6 +513,7 @@ local function summarize_sources(snapshot)
         { "holdEntryComplete", snapshot.hold_entry_complete and 1 or 0 },
         { "holdTarget", snapshot.hold_target_altitude_ft },
         { "cruiseWaypoint", snapshot.cruise_waypoint },
+        { "cruiseNext", snapshot.cruise_next_waypoint },
         { "final", snapshot.final_gate and 1 or 0 },
         { "shortFinal", snapshot.short_final_gate and 1 or 0 }
     }

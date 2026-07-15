@@ -1317,7 +1317,8 @@ function P.YalinitGlobal()
         departureIntersectionPayload = nil,
         shortFinalSince = nil,
         cruiseInitialized = false,
-        cruiseWaypoint = nil
+        cruiseWaypoint = nil,
+        cruiseLastReportAt = nil
     }
     P.approachPrepTriggerKey = nil
     P.approachPrepCompletedForKey = nil
@@ -7413,6 +7414,7 @@ function P.baselineAutoUnicomRuntimeEvents()
     state.shortFinalSince = nil
     state.cruiseInitialized = false
     state.cruiseWaypoint = nil
+    state.cruiseLastReportAt = nil
     state.lastFmsPhase = P.fmsflightphase and tonumber(get(P.fmsflightphase)) or nil
 
     local onGround = get(P.airgroundsensor) == def.ON
@@ -7430,11 +7432,11 @@ function P.baselineAutoUnicomRuntimeEvents()
         if P.flightstate >= def.FLIGHTSTATECLIMB then
             state.sent["departure.on_climb"] = true
         end
-        if P.flightstate >= def.FLIGHTSTATECRUISE then
-            state.sent["enroute.in_cruise"] = true
+        if P.flightstate == def.FLIGHTSTATECRUISE then
             state.cruiseInitialized = true
             state.cruiseWaypoint = P.fmsfplnnavid
                 and cleanAutoUnicomWaypoint(get(P.fmsfplnnavid)) or nil
+            state.cruiseLastReportAt = os.time()
         end
         for _, level in ipairs(AUTO_UNICOM_CLIMB_LEVELS_FT) do
             if altitude >= level then
@@ -7730,6 +7732,7 @@ function P.updateAutoUnicomCruiseEvent()
     if P.flightstate ~= def.FLIGHTSTATECRUISE then
         state.cruiseInitialized = false
         state.cruiseWaypoint = nil
+        state.cruiseLastReportAt = nil
         return
     end
 
@@ -7748,11 +7751,15 @@ function P.updateAutoUnicomCruiseEvent()
 
     local passedWaypoint = state.cruiseWaypoint
     state.cruiseWaypoint = waypoint
-    autoUnicomEventOnce(
-        "enroute.in_cruise",
-        "enroute.in_cruise",
-        { cruise_waypoint = passedWaypoint }
-    )
+    local now = os.time()
+    local firstReport = state.cruiseLastReportAt == nil
+    if not firstReport and now - state.cruiseLastReportAt < 600 then return end
+
+    local payload = { cruise_waypoint = passedWaypoint }
+    if not firstReport then payload.cruise_next_waypoint = waypoint end
+    if P.publishRuntimeEvent("enroute.in_cruise", payload) then
+        state.cruiseLastReportAt = now
+    end
 end
 
 function P.updateAutoUnicomClimbEvents()

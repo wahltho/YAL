@@ -313,6 +313,16 @@ assert_equal(
     "climb phrase omits stale SID and tolerates missing next waypoint"
 )
 assert_equal(
+    core.buildMessage("enroute.in_cruise", copy(base, {
+        cruise_waypoint = "BIRCO",
+        cruise_next_waypoint = "SOMOR",
+        altitude_ft = 37000,
+        pressure_altitude_ft = 37000
+    })),
+    "Traffic, B738 passing BIRCO, maintaining FL370, SOMOR next",
+    "recurring cruise phrase includes next waypoint"
+)
+assert_equal(
     core.buildMessage("arrival.parking_position", copy(base, {
         arrival_parking_found = true,
         arrival_parking_type = "cargo",
