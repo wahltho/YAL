@@ -22,6 +22,16 @@ local function clean_text(value)
     return text:match("^%s*(.-)%s*$") or ""
 end
 
+function M.normalizeDownloadedText(value)
+    local text = tostring(value or "")
+    local removed = 0
+    while #text > 0 and string.byte(text, #text) == 0 do
+        text = string.sub(text, 1, #text - 1)
+        removed = removed + 1
+    end
+    return text, removed
+end
+
 local function parse_aircraft_relative_path(raw)
     local text = clean_text(raw):gsub("\\", "/")
     if text == "" then

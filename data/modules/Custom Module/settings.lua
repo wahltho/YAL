@@ -209,7 +209,13 @@ local function checkSettings(tableTocheck)
             end
         elseif defn.type == "string" then
             local val = tableTocheck[k]
-            if type(val) ~= "string" then
+            if type(val) == "number" and k == def.CONFIGIGNOREDYALUPDATEVERSION then
+                tableTocheck[k] = "yal@" .. tostring(val)
+                result = true
+            elseif type(val) == "number" and k == def.CONFIGIGNOREDZIBOUPDATEVERSION then
+                tableTocheck[k] = "zibo@" .. tostring(val)
+                result = true
+            elseif type(val) ~= "string" then
                 sasl.logDebug("key: " .. k .. " missing or incorrect, setting value to default: " .. tostring(defn.dvalue))
                 tableTocheck[k] = defn.dvalue
                 result = true

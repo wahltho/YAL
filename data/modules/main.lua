@@ -689,8 +689,15 @@ local function choose_yal_ignore_version(yalInfo)
     return candidate
 end
 
-local function is_ignored_update(version, ignoredVersion)
-    return version and version ~= "" and ignoredVersion and ignoredVersion ~= "" and tostring(version) == tostring(ignoredVersion)
+local function update_ignore_token(kind, version)
+    if not version or version == "" then return "" end
+    return tostring(kind) .. "@" .. tostring(version)
+end
+
+local function is_ignored_update(version, ignoredVersion, kind)
+    if not version or version == "" or not ignoredVersion or ignoredVersion == "" then return false end
+    local stored = tostring(ignoredVersion)
+    return stored == tostring(version) or stored == update_ignore_token(kind, version)
 end
 
 local function read_string_property(prop)
@@ -759,7 +766,8 @@ local function download_vnav_http_200(url)
     if tonumber(responseCode) ~= 200 then
         return nil, "HTTP " .. tostring(responseCode or "unknown")
     end
-    return tostring(contents or "")
+    local normalized = vnavDescentPackage.normalizeDownloadedText(contents)
+    return normalized
 end
 
 local function log_vnav_package_status(result)
@@ -1067,13 +1075,13 @@ remember_ignored_updates = function(payload)
     local changed = false
     local yalInfo = payload.yal
     if yalInfo and yalInfo.available and yalInfo.ignoreVersion and yalInfo.ignoreVersion ~= "" then
-        settings.appSettings[def.CONFIGIGNOREDYALUPDATEVERSION] = tostring(yalInfo.ignoreVersion)
+        settings.appSettings[def.CONFIGIGNOREDYALUPDATEVERSION] = update_ignore_token("yal", yalInfo.ignoreVersion)
         changed = true
         helpers.logInfoTS("Ignored YAL update version v" .. tostring(yalInfo.ignoreVersion))
     end
     local ziboInfo = payload.zibo
     if ziboInfo and ziboInfo.available and ziboInfo.ignoreVersion and ziboInfo.ignoreVersion ~= "" then
-        settings.appSettings[def.CONFIGIGNOREDZIBOUPDATEVERSION] = tostring(ziboInfo.ignoreVersion)
+        settings.appSettings[def.CONFIGIGNOREDZIBOUPDATEVERSION] = update_ignore_token("zibo", ziboInfo.ignoreVersion)
         changed = true
         helpers.logInfoTS("Ignored Zibo update version v" .. tostring(ziboInfo.ignoreVersion))
     end
@@ -1083,7 +1091,7 @@ remember_ignored_updates = function(payload)
         helpers.logInfoTS("Ignored VNAV Descent Tables package " .. tostring(payload.ignoreToken))
     end
     if changed and settings.writeSettings then
-        settings.writeSettings(settings.appSettings)
+        settings.writeSettings(settings.appSettings, true)
     end
 end
 
@@ -1233,7 +1241,7 @@ local function maybeRunStartupUpdateCheck()
         installLabel = checkBeta and "Install YAL Beta" or "Install YAL Stable",
     }
     yalInfo.ignoreVersion = choose_yal_ignore_version(yalInfo)
-    yalInfo.ignored = is_ignored_update(yalInfo.ignoreVersion, ignoredYalVersion)
+    yalInfo.ignored = is_ignored_update(yalInfo.ignoreVersion, ignoredYalVersion, "yal")
     yalInfo.available = yalDetectedAvailable and not yalInfo.ignored
 
     local ziboInfo = {
@@ -1246,7 +1254,7 @@ local function maybeRunStartupUpdateCheck()
         levelUpFlightModel = lvlupFm,
         ignoreVersion = ziboLatest,
     }
-    ziboInfo.ignored = is_ignored_update(ziboInfo.ignoreVersion, ignoredZiboVersion)
+    ziboInfo.ignored = is_ignored_update(ziboInfo.ignoreVersion, ignoredZiboVersion, "zibo")
     ziboInfo.available = ziboDetectedAvailable and not ziboInfo.ignored
 
     if yalInfo.ignored then

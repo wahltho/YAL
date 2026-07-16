@@ -22,6 +22,13 @@ local function assert_false(value, label)
     if value ~= false then fail(label .. ": expected false") end
 end
 
+local normalizedDownload, removedNuls = packageDetector.normalizeDownloadedText("manifest\0\0")
+assert_equal(normalizedDownload, "manifest", "Trailing download NUL normalization")
+assert_equal(removedNuls, 2, "Trailing download NUL count")
+local internalNulDownload, removedInternalNuls = packageDetector.normalizeDownloadedText("a\0b\0")
+assert_equal(internalNulDownload, "a\0b", "Internal download NUL preserved")
+assert_equal(removedInternalNuls, 1, "Only trailing download NUL removed")
+
 local function detect(overrides)
     local input = {
         xplane_path = "/X-Plane 12/",
