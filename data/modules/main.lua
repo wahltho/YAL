@@ -781,7 +781,7 @@ end
 
 local function inspect_vnav_descent_package(target)
     target = target or helpers.vnavDescentPackageTarget or detect_vnav_descent_package_target()
-    if not target or target.status ~= "supported" then
+    if not target or not target.family then
         local result = {
             status = "target_not_supported",
             reason = target and target.reason or "loaded aircraft target is unavailable",
@@ -809,10 +809,32 @@ local function inspect_vnav_descent_package(target)
     local callOk, downloadOk, manifestText = pcall(sasl.net.downloadFileContentsSync, source.manifest_url)
     if not callOk or not downloadOk then
         local result = {
-            status = "manifest_unavailable",
-            reason = "could not download the authorized release manifest",
+            status = target.status == "not_applicable_no_lua" and "not_applicable_no_lua" or "manifest_unavailable",
+            reason = target.status == "not_applicable_no_lua"
+                and target.reason
+                or "could not download the authorized release manifest",
             target = target,
             manifest_url = source.manifest_url,
+            manifest_error = "could not download the authorized release manifest",
+            safe_for_future_action = false,
+        }
+        helpers.vnavDescentPackageStatus = result
+        log_vnav_package_status(result)
+        return result
+    end
+
+    if target.status ~= "supported" then
+        local manifest, manifestError = vnavDescentPackage.parseManifest(manifestText, source)
+        local result = {
+            status = target.status == "not_applicable_no_lua" and "not_applicable_no_lua" or "target_not_supported",
+            reason = target.reason,
+            target = target,
+            manifest = manifest,
+            available_version = manifest and manifest.package_version or nil,
+            manifest_url = source.manifest_url,
+            manifest_text = manifestText,
+            manifest_error = manifestError,
+            source = source,
             safe_for_future_action = false,
         }
         helpers.vnavDescentPackageStatus = result
@@ -846,6 +868,7 @@ vnavUi.statusLabels = {
     unsafe_foreign = "Foreign package markers detected",
     manifest_unavailable = "Release manifest unavailable",
     manifest_invalid = "Release manifest invalid",
+    not_applicable_no_lua = "Loaded aircraft has no XLua VNAV target",
     target_not_supported = "Loaded aircraft is not supported",
     target_read_failed = "Aircraft target could not be read",
 }
@@ -887,6 +910,10 @@ function vnavUi.payload(result, restore, manual)
     local installedText = localVersion and tostring(localVersion) or "Not installed"
     if result and result.status == "installed_current" and not localVersion then installedText = tostring(result.available_version or "Installed") end
     local backupText = restore and restore.available and "Available and verified" or tostring(restore and restore.reason or "No verified backup")
+    if result and result.status == "not_applicable_no_lua" then
+        installedText = "Not applicable"
+        backupText = "Not applicable"
+    end
     local statusText = vnavUi.statusLabels[result and result.status or ""] or tostring(result and result.reason or "Unknown")
     local actions = vnavDescentTransaction.availableActions(result, restore)
     local token = vnavUi.ignoreToken(result)
