@@ -51,11 +51,11 @@ jobs:
       - name: Install Lua syntax checker
         run: |
           sudo apt-get update
-          sudo apt-get install -y lua5.1
+          sudo apt-get install -y lua5.4
 
       - name: Verify Lua and release tooling
         run: |
-          find data -name '*.lua' -print0 | xargs -0 luac5.1 -p
+          find data -name '*.lua' -print0 | xargs -0 luac5.4 -p
           python3 -m py_compile .github/scripts/package_yal_release.py
           python3 tools/check_sasl_limits.py
           git diff --check
