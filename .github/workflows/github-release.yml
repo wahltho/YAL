@@ -77,8 +77,8 @@ jobs:
               printf 'Channel: %s\n' "$CHANNEL"
               printf 'Commit: %s\n\n' "$GITHUB_SHA"
               printf 'This GitHub release ZIP is a full-install package and includes both SkunkCrafts helper configs:\n'
-              printf '- skunkcrafts_updater.cfg\n'
-              printf '- skunkcrafts_updater_beta.cfg\n\n'
+              printf '%s\n' '- skunkcrafts_updater.cfg'
+              printf '%s\n\n' '- skunkcrafts_updater_beta.cfg'
               printf 'Bunny/SkunkCrafts depot publishing is separate and is not performed by this workflow.\n'
             } > dist/release-notes.md
           fi
