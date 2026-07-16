@@ -5,7 +5,9 @@ data/.DS_Store
 .codex.contexts.json
 tools/
 tools/course_test_data/
-Documentation/
+Documentation/*
+!Documentation/YAL Manual.md
+!Documentation/YAL_Update_Mechanism_Target.md
 agents.md
 AGENTS.md
 .vscode/
