@@ -97,6 +97,9 @@ This is the YAL equivalent of the LevelUp app/content split:
 
 - LevelUp external app updates can use VeloPack.
 - LevelUp VNAV content updates are manifest-driven.
+- Zibo custom VNAV descent table updates can use the same manifest-driven
+  content package model as LevelUp, with package-specific anchors, markers and
+  payload hashes from `X-Plane-ZIBO-Descent-Tables`.
 - YAL has no standalone external app today, so the in-plugin runtime updater is
   closer to a manifest-driven content updater.
 - If a standalone YAL updater is ever created, that app can use VeloPack, while
