@@ -119,6 +119,48 @@ local function normalize_text(value)
     return text
 end
 
+local function is_ascii_alphanumeric(byte)
+    return byte and ((byte >= 48 and byte <= 57)
+        or (byte >= 65 and byte <= 90)
+        or (byte >= 97 and byte <= 122))
+end
+
+local function sanitize_parking_name(value)
+    local raw = tostring(value or "")
+    local result = {}
+    for index = 1, #raw do
+        local byte = raw:byte(index)
+        local previousByte = index > 1 and raw:byte(index - 1) or nil
+        local nextByte = index < #raw and raw:byte(index + 1) or nil
+
+        if byte == 44 or byte == 58 or byte == 59
+            or byte == 40 or byte == 91 or byte == 123 then
+            break
+        elseif byte == 45 then
+            if is_ascii_alphanumeric(previousByte) and is_ascii_alphanumeric(nextByte) then
+                -- A-12 is a single stand identifier; normalize it to A12.
+            else
+                break
+            end
+        elseif byte == 47 then
+            if not (is_ascii_alphanumeric(previousByte) and is_ascii_alphanumeric(nextByte)) then
+                break
+            end
+            if #result > 0 and result[#result] ~= " " then
+                result[#result + 1] = " "
+            end
+        elseif is_ascii_alphanumeric(byte) then
+            if byte >= 97 and byte <= 122 then byte = byte - 32 end
+            result[#result + 1] = string.char(byte)
+        elseif #result > 0 and result[#result] ~= " " then
+            result[#result + 1] = " "
+        end
+    end
+    if result[#result] == " " then result[#result] = nil end
+    if #result == 0 then return nil end
+    return table.concat(result)
+end
+
 local PARKING_NAME_NOISE = {
     GATE = true,
     GATES = true,
@@ -149,9 +191,7 @@ local function parking_label(snapshot, prefix)
     if snapshot[prefix .. "_found"] ~= true then return nil end
     local rampType = tostring(snapshot[prefix .. "_type"] or ""):lower()
 
-    local rawName = tostring(snapshot[prefix .. "_name"] or "")
-        :gsub("[|/_]", " ")
-    local name = clean_token(rawName, true)
+    local name = sanitize_parking_name(snapshot[prefix .. "_name"])
     if not name then return nil end
     if name == "CLASS" or name:sub(1, 6) == "CLASS "
         or name == "AIRCRAFT" or name:sub(1, 9) == "AIRCRAFT "

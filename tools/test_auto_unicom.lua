@@ -323,6 +323,36 @@ assert_equal(
     "pushback apron stand phrase"
 )
 assert_equal(
+    core.buildMessage("departure.flightplan_active", copy(base, {
+        departure_icao = "EDNY",
+        arrival_icao = "EVRA",
+        preflight_parking_found = true,
+        preflight_parking_type = "tie_down",
+        preflight_parking_name = "heavy|jets Apron 1 - Terminal"
+    })),
+    "EDNY Traffic, B738 at stand 1, preparing for departure to EVRA",
+    "preflight strips EDNY ramp descriptor punctuation"
+)
+assert_equal(
+    core.buildMessage("departure.start_push", copy(base, {
+        pushback_airport_icao = "EDNY",
+        pushback_parking_found = true,
+        pushback_parking_type = "tie_down",
+        pushback_parking_name = "heavy|jets Apron 1 - Terminal"
+    })),
+    "EDNY Traffic, B738, pushing back from stand 1",
+    "pushback strips EDNY ramp descriptor punctuation"
+)
+assert_equal(
+    core.buildMessage("departure.start_push", copy(base, {
+        pushback_parking_found = true,
+        pushback_parking_type = "gate",
+        pushback_parking_name = "Gate B7, North"
+    })),
+    "ENAT Traffic, B738, pushing back from gate B7",
+    "pushback strips comma-delimited ramp descriptor"
+)
+assert_equal(
     core.buildMessage("departure.start_push", copy(base, {
         pushback_parking_found = true,
         pushback_parking_type = "gate",
@@ -330,6 +360,15 @@ assert_equal(
     })),
     phraseCases[8][3],
     "generic pushback phrase for unnamed gate"
+)
+assert_equal(
+    core.buildMessage("departure.start_push", copy(base, {
+        pushback_parking_found = true,
+        pushback_parking_type = "gate",
+        pushback_parking_name = "Gate -"
+    })),
+    phraseCases[8][3],
+    "generic pushback phrase for punctuation-only gate"
 )
 assert_equal(
     core.buildMessage("departure.start_push", copy(base, {
@@ -367,6 +406,15 @@ assert_equal(
     })),
     "ENSB Traffic, B738 parked at gate 4L",
     "arrival parking keeps attached gate suffix"
+)
+assert_equal(
+    core.buildMessage("arrival.parking_position", copy(base, {
+        arrival_parking_found = true,
+        arrival_parking_type = "gate",
+        arrival_parking_name = "Gate A-12"
+    })),
+    "ENSB Traffic, B738 parked at gate A12",
+    "arrival parking normalizes embedded punctuation"
 )
 assert_equal(
     core.buildMessage("arrival.parking_position", copy(base, {
