@@ -1228,6 +1228,7 @@ local function maybeRunStartupUpdateCheck()
         current = tostring(def.VERSION or ""),
         installBeta = checkBeta,
         installKind = checkBeta and "beta" or "stable",
+        stableSwitchAvailable = yalStableDowngradeAvailable,
         installVersion = yalSelectedVersion,
         installLabel = checkBeta and "Install YAL Beta" or "Install YAL Stable",
     }

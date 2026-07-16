@@ -37,7 +37,11 @@ local function getWindowTitle()
     local yalInfo = (type(info) == "table") and info.yal or nil
     if type(yalInfo) == "table" then
         if yalInfo.available and yalInfo.latest and yalInfo.latest ~= "" then
-            title = title .. "   " .. (messages.translation['UPDATEAVAILABLE'] or "Update") .. " v" .. tostring(yalInfo.latest)
+            if yalInfo.stableSwitchAvailable then
+                title = title .. "  •  Stable v" .. tostring(yalInfo.latest) .. " available"
+            else
+                title = title .. "   " .. (messages.translation['UPDATEAVAILABLE'] or "Update") .. " v" .. tostring(yalInfo.latest)
+            end
         end
         local checkBeta = yalInfo.checkBeta
         if checkBeta == nil then
@@ -45,8 +49,6 @@ local function getWindowTitle()
         end
         if checkBeta and yalInfo.latestStable and yalInfo.latestStable ~= "" then
             title = title .. "  •  Last Stable v" .. tostring(yalInfo.latestStable)
-        elseif (not checkBeta) and yalInfo.latestBeta and yalInfo.latestBeta ~= "" then
-            title = title .. "  •  Beta v" .. tostring(yalInfo.latestBeta)
         end
         return title
     end
