@@ -1401,7 +1401,43 @@ local function find_nearest_runway_node(data, east, north)
     return best_id
 end
 
-local function find_holdshort_node_near(data, runway_lat, runway_lon)
+local function find_holdshort_node_near(data, runway_lat, runway_lon, aircraft, profile, max_distance)
+    if data and data.nodes and data.runway_nodes and aircraft and profile
+        and aircraft.east ~= nil and aircraft.north ~= nil then
+        local adj = data.adjacency_any or data.adjacency or {}
+        local length = tonumber(profile.length) or 0
+        local corridor = runway_corridor_half_width(profile) + 10
+        local gate = tonumber(max_distance) or C.depThresholdGateMeters
+        local gate2 = gate * gate
+        local best_id = nil
+        local best_d2 = nil
+
+        for rwy_id, _ in pairs(data.runway_nodes) do
+            local rwy_node = data.nodes[rwy_id]
+            if rwy_node and rwy_node.east ~= nil and rwy_node.north ~= nil then
+                local along, perp = compute_along_perp(profile, rwy_node)
+                if along and perp and along >= -30 and along <= (length + 30) and perp <= corridor then
+                    for _, edge in ipairs(adj[rwy_id] or {}) do
+                        local nid = edge.to
+                        local node = nid and not data.runway_nodes[nid] and data.nodes[nid] or nil
+                        if node and node.east ~= nil and node.north ~= nil and not node.is_temp then
+                            local dx = aircraft.east - node.east
+                            local dy = aircraft.north - node.north
+                            local d2 = dx * dx + dy * dy
+                            if d2 <= gate2 and ((not best_d2) or d2 < best_d2) then
+                                best_id = nid
+                                best_d2 = d2
+                            end
+                        end
+                    end
+                end
+            end
+        end
+        if best_id then
+            return best_id, math.sqrt(best_d2)
+        end
+    end
+
     if not data or not is_valid_latlon(runway_lat, runway_lon) then
         return nil
     end
@@ -13521,29 +13557,40 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
         local onRunwayAligned = yalref.aircraftonrwy
             and yalref.aircraftonrwy(comp._def.DEPARTURE, 40, headingLimit)
             or false
+        local holdGate = math.max(35, tonumber(comp._C.depThresholdGateMeters) or 45)
+        local holdId, holdDistance = U.find_holdshort_node_near(
+            data,
+            nil,
+            nil,
+            aircraft,
+            comp._depProfile,
+            holdGate
+        )
         local entryId = comp._selectedDepEntryId
-        local intersection = entryId and comp._depEntryLabels and comp._depEntryLabels[entryId] or ""
-        if intersection == "" and entryId and find_runway_entry_label then
-            intersection = find_runway_entry_label(data, entryId) or ""
+        if not holdId then
+            holdId = entryId
+            if not holdId or not data.nodes[holdId] then
+                holdId = comp._depHoldshortNodeId
+            end
+            local holdNode = holdId and data.nodes[holdId] or nil
+            if holdNode and holdNode.east ~= nil and holdNode.north ~= nil then
+                local dx = aircraft.east - holdNode.east
+                local dy = aircraft.north - holdNode.north
+                holdDistance = math.sqrt(dx * dx + dy * dy)
+            end
+        end
+
+        local intersection = holdId and comp._depEntryLabels and comp._depEntryLabels[holdId] or ""
+        if intersection == "" and holdId and find_runway_entry_label then
+            intersection = find_runway_entry_label(data, holdId) or ""
         end
         intersection = tostring(intersection or "")
         if intersection == "RAMP" or is_runway_label(intersection) then
             intersection = ""
         end
         result.departure_intersection = intersection ~= "" and intersection or nil
-
-        local holdId = entryId
-        if not holdId or not data.nodes[holdId] then
-            holdId = comp._depHoldshortNodeId
-        end
-        local holdNode = holdId and data.nodes[holdId] or nil
-        local holdDistance = nil
-        if holdNode and holdNode.east ~= nil and holdNode.north ~= nil then
-            local dx = aircraft.east - holdNode.east
-            local dy = aircraft.north - holdNode.north
-            holdDistance = math.sqrt(dx * dx + dy * dy)
-        end
-        local holdGate = math.max(35, tonumber(comp._C.depThresholdGateMeters) or 45)
+        result.hold_short_node_id = holdId
+        result.hold_short_distance_m = holdDistance
         result.hold_short = not onRunwaySurface
             and holdDistance ~= nil and holdDistance <= holdGate
             and groundSpeed <= 1
