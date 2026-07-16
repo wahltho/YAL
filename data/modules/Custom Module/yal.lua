@@ -138,17 +138,6 @@ function P.getAutoUnicomRunwayCrossingState(phase)
     return type(snapshot) == "table" and snapshot or nil
 end
 
-function P.getAutoUnicomDepartureLineupState()
-    local component = P.taxiComponent
-    if not component or not component.getDepartureLineupAutoUnicomState then return nil end
-    local ok, snapshot = pcall(component.getDepartureLineupAutoUnicomState, component)
-    if not ok then
-        helpers.logDebugTS("IVAO Auto-Unicom: departure line-up state unavailable error=" .. tostring(snapshot))
-        return nil
-    end
-    return type(snapshot) == "table" and snapshot or nil
-end
-
 function P.updateAutoUnicomRunwayCrossing(phase, snapshot)
     local state = P.autoUnicomRuntime
     local latches = state and state.runwayCrossings or nil
@@ -204,31 +193,22 @@ end
 function P.updateAutoUnicomDepartureLineup(taxiState)
     local state = P.autoUnicomRuntime
     if not state then return end
-    local lineupState = P.getAutoUnicomDepartureLineupState()
-    if not lineupState or lineupState.valid ~= true then
-        state.lineupSince = nil
-        return
-    end
+    local beforeTaxi = P.proceduretable and P.proceduretable[def.BEFORETAXIPROCEDURE] or nil
+    local beforeTaxiComplete = beforeTaxi and beforeTaxi.set == true or false
+    local groundSpeed = math.abs(tonumber(get(P.groundspeed)) or 0)
+    local linedUp = beforeTaxiComplete
+        and groundSpeed < 25
+        and P.aircraftonrwy(def.DEPARTURE, 40, 20)
 
     if not state.lineupInitialized then
         state.lineupInitialized = true
-        if lineupState.lined_up == true then
+        if linedUp then
             state.sent["departure.lining_up"] = true
         end
-        state.lineupSince = nil
         return
     end
 
-    local beforeTaxi = P.proceduretable and P.proceduretable[def.BEFORETAXIPROCEDURE] or nil
-    local beforeTaxiComplete = beforeTaxi and beforeTaxi.set == true or false
-    if not beforeTaxiComplete or lineupState.lined_up ~= true then
-        state.lineupSince = nil
-        return
-    end
-
-    local now = os.time()
-    state.lineupSince = state.lineupSince or now
-    if now - state.lineupSince < 1 then return end
+    if not linedUp then return end
     local payload = nil
     if taxiState and taxiState.departure_intersection then
         payload = { departure_intersection = taxiState.departure_intersection }
@@ -1427,7 +1407,6 @@ function P.YalinitGlobal()
         holdShortSince = nil,
         backtrackSince = nil,
         lineupInitialized = false,
-        lineupSince = nil,
         runwayCrossings = {
             departure = { initialized = false, active = false },
             arrival = { initialized = false, active = false }
@@ -7564,7 +7543,6 @@ function P.baselineAutoUnicomRuntimeEvents()
     state.backtrackSince = nil
     local crossingInitialized = P.isReloadWithinSession ~= true
     state.lineupInitialized = crossingInitialized
-    state.lineupSince = nil
     state.runwayCrossings = {
         departure = { initialized = crossingInitialized, active = false },
         arrival = { initialized = crossingInitialized, active = false }

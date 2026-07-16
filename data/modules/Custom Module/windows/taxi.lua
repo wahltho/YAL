@@ -13481,33 +13481,6 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
         return result
     end
 
-    function comp:getDepartureLineupAutoUnicomState()
-        local result = { valid = false, lined_up = false }
-        local profile = comp._depProfile
-        local aircraft = comp._aircraftPoint
-        local yalref = comp.yal or _G.yal
-        local U = comp._U or {}
-        if not profile or not aircraft or not yalref
-            or not U.is_on_runway_profile or not comp._helpers or not comp._helpers.headingdiff
-            or not yalref.airgroundsensor or get(yalref.airgroundsensor) ~= comp._def.ON then
-            return result
-        end
-
-        result.valid = true
-        result.on_runway_surface = U.is_on_runway_profile(profile, aircraft, 5, 3)
-        local headingTrue = yalref.localpositionpsi and tonumber(get(yalref.localpositionpsi)) or nil
-        if headingTrue == nil then return result end
-        local axisHeadingTrue = math.deg(math.atan2(profile.axis.x, profile.axis.y))
-        if axisHeadingTrue < 0 then axisHeadingTrue = axisHeadingTrue + 360 end
-        result.heading_diff = comp._helpers.headingdiff(headingTrue, axisHeadingTrue)
-        local groundSpeed = yalref.groundspeed
-            and math.abs(tonumber(get(yalref.groundspeed)) or 0) or 0
-        result.lined_up = result.on_runway_surface
-            and result.heading_diff <= (tonumber(comp._C.depThresholdHeadingLimit) or 25)
-            and groundSpeed <= 15
-        return result
-    end
-
     function comp:getDepartureAutoUnicomState()
         local result = { valid = false }
         local route = comp._route
