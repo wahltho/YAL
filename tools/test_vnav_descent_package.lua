@@ -1,6 +1,7 @@
 package.path = "data/modules/Custom Module/?.lua;" .. package.path
 
 local packageDetector = require("vnav_descent_package")
+local transaction = require("vnav_descent_transaction")
 local sha256 = require("sha256")
 
 local function fail(message)
@@ -250,5 +251,139 @@ local invalidManifest = packageDetector.inspectInstallation({
     read_file = function() return currentTarget end,
 })
 assert_equal(invalidManifest.status, "manifest_invalid", "Manifest family guard")
+
+local function shell_quote(value)
+    return "'" .. tostring(value):gsub("'", "'\\''") .. "'"
+end
+
+local function ensure_directory(path)
+    local result = os.execute("mkdir -p " .. shell_quote(path))
+    return result == true or result == 0
+end
+
+local function remove_directory(path)
+    os.execute("rm -rf " .. shell_quote(path))
+end
+
+local function write_file(path, data)
+    local parent = path:match("^(.*)/[^/]+$")
+    if parent then ensure_directory(parent) end
+    local file = assert(io.open(path, "wb"))
+    file:write(data)
+    file:close()
+end
+
+local function read_file(path)
+    local file = io.open(path, "rb")
+    if not file then return nil end
+    local data = file:read("*a")
+    file:close()
+    return data
+end
+
+local tempRoot = "/tmp/yal-vnav-transaction-test-" .. tostring(os.time()) .. "-" .. tostring(math.floor(os.clock() * 100000))
+local aircraftRoot = tempRoot .. "/Aircraft/B737-800X"
+local liveTargetPath = aircraftRoot .. "/" .. packageDetector.TARGET_RELATIVE_PATH
+local liveTablePath = liveTargetPath:match("^(.*)/[^/]+$") .. "/" .. tableFile
+local cacheRoot = tempRoot .. "/Output/caches/YAL.cache"
+remove_directory(tempRoot)
+ensure_directory(liveTargetPath:match("^(.*)/[^/]+$"))
+
+local transactionTarget = {}
+for key, value in pairs(zibo) do transactionTarget[key] = value end
+transactionTarget.aircraft_root = aircraftRoot
+transactionTarget.aircraft_relative_path = "Aircraft/B737-800X/b738.acf"
+transactionTarget.target_path = liveTargetPath
+
+local payloadByName = {
+    [tableFile] = tableContent,
+    ["Add_dofile.txt"] = dofileFragment,
+    ["Add_to_take_alt_dist.txt"] = kiasFragment,
+    ["Add_to_take_alt_dist_mach.txt"] = machFragment,
+}
+local function download_fixture(url)
+    local filename = tostring(url):match("([^/]+)$")
+    return payloadByName[filename]
+end
+local function execute_action(action, overrides)
+    local input = {
+        action = action,
+        target = transactionTarget,
+        manifest_text = manifestText,
+        expected = manifestExpected,
+        cache_root = cacheRoot,
+        download = download_fixture,
+        ensure_directory = ensure_directory,
+        remove_directory = remove_directory,
+        yal_version = "test",
+        now = 1234567890,
+    }
+    for key, value in pairs(overrides or {}) do input[key] = value end
+    return transaction.execute(input)
+end
+local function inspect_live()
+    return packageDetector.inspectInstallation({
+        target = transactionTarget,
+        manifest_text = manifestText,
+        expected = manifestExpected,
+    })
+end
+
+local crlfBase = "\239\187\191" .. baseTarget:gsub("\n", "\r\n")
+write_file(liveTargetPath, crlfBase)
+local install = execute_action("install")
+assert_true(install.ok, "Transactional install")
+assert_equal(inspect_live().status, "installed_current", "Installed live state")
+local installedTarget = read_file(liveTargetPath)
+assert_equal(installedTarget:sub(1, 3), "\239\187\191", "Target BOM preserved")
+assert_true(installedTarget:find("\r\n", 1, true) ~= nil, "Target CRLF preserved")
+assert_true(installedTarget:gsub("\r\n", ""):find("\n", 1, true) == nil, "No bare LF introduced")
+
+local restoreAfterInstall = transaction.inspectRestore({ target = transactionTarget, cache_root = cacheRoot })
+assert_true(restoreAfterInstall.available, "Install backup restorable")
+
+local uninstall = execute_action("uninstall")
+assert_true(uninstall.ok, "Transactional uninstall")
+assert_equal(inspect_live().status, "not_installed", "Uninstalled live state")
+assert_equal(read_file(liveTablePath), nil, "Uninstall removes verified table")
+
+local restore = execute_action("restore")
+assert_true(restore.ok, "Transactional restore")
+assert_equal(inspect_live().status, "installed_current", "Restored live state")
+
+write_file(liveTargetPath, read_file(liveTargetPath):gsub("package%-version|v0%.2%.0", "package-version|v0.1.0"))
+write_file(liveTablePath, "unknown old table\n")
+assert_equal(inspect_live().status, "installed_outdated", "Pre-update live state")
+local unsafeUpdate = execute_action("update")
+assert_false(unsafeUpdate.ok, "Unknown outdated table is not overwritten")
+assert_equal(read_file(liveTablePath), "unknown old table\n", "Unknown outdated table preserved")
+write_file(liveTablePath, "-- package-id|" .. packageId .. "\n-- package-version|v0.1.0\nold table\n")
+local updateResult = execute_action("update")
+assert_true(updateResult.ok, "Transactional update")
+assert_equal(inspect_live().status, "installed_current", "Updated live state")
+
+os.remove(liveTablePath)
+assert_equal(inspect_live().status, "repair_required", "Pre-repair live state")
+local repair = execute_action("repair")
+assert_true(repair.ok, "Transactional repair")
+assert_equal(inspect_live().status, "installed_current", "Repaired live state")
+
+remove_directory(tempRoot)
+ensure_directory(liveTargetPath:match("^(.*)/[^/]+$"))
+write_file(liveTargetPath, crlfBase)
+local originalRename = os.rename
+local rollbackResult = execute_action("install", {
+    rename_file = function(source, destination)
+        if destination == liveTargetPath and tostring(source):find(".yal-vnav-stage-", 1, true) then
+            return nil, "injected target commit failure"
+        end
+        return originalRename(source, destination)
+    end,
+})
+assert_false(rollbackResult.ok, "Injected commit failure")
+assert_equal(read_file(liveTargetPath), crlfBase, "Rollback restores exact target")
+assert_equal(read_file(liveTablePath), nil, "Rollback removes newly installed table")
+
+remove_directory(tempRoot)
 
 print("VNAV descent package tests passed")

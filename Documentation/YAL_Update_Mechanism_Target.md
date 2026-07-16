@@ -149,6 +149,37 @@ markers and anchors, and record package-specific backup/install metadata.
 This must remain explicit user action. YAL should not silently modify an
 aircraft Lua file during a normal startup check.
 
+## Implemented VNAV Descent Tables Flow
+
+YAL now implements the external aircraft-content path for the currently loaded
+Upstream Zibo or LevelUp aircraft. The custom C++ port remains out of scope
+because it has no XLua `B738.a_fms.lua` target.
+
+The implemented flow:
+
+- detects only the currently loaded aircraft installation
+- downloads the authorized release manifest and all four declared payloads
+- verifies exact payload size and SHA-256 before creating a patch
+- preserves UTF-8 BOM, line-ending style, and final-newline behavior
+- stages and structurally verifies the complete patched package
+- creates a per-aircraft generation backup and transaction receipt before any
+  live replacement
+- installs the table payload before activating its hooks
+- replaces live files through adjacent temporary and rollback files
+- verifies the committed bytes and restores the previous state on failure
+- supports state-dependent `Install`, `Update`, `Repair`, `Uninstall`, and a
+  hash-guarded `Restore Backup`
+- never removes a table payload unless it still matches the published package
+  hash
+- never restores a backup over an aircraft file changed after the recorded
+  transaction
+
+The Settings window exposes `VNAV Descent Tables...` beside the existing view
+maintenance actions. It reuses the YAL Update Status window for current status,
+confirmation, operation result, `Later`, and `Ignore this version`. Every
+successful modifying action requires a full X-Plane restart; YAL does not
+trigger an aircraft or SASL reload for this package.
+
 ## Recommended Runtime Update Flow
 
 1. User allows update checks in settings.

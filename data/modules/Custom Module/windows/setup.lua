@@ -323,6 +323,7 @@ function M.newComponent(ctx)
     comp.scrollOffset = 0
     comp.scrollDrag = nil
     comp._messagePopup = nil
+    comp._onVnavDescentTables = ctx and ctx.onVnavDescentTables or nil
 
     function comp:setWindow(win)
         self._window = win
@@ -586,6 +587,14 @@ function M.newComponent(ctx)
         local btnY = 6
         layout.buttons = {
             {
+                id = "vnav_descent_tables",
+                label = "VNAV Descent Tables...",
+                x = btnX,
+                y = btnY + (buttonH + 6) * 2,
+                w = buttonW,
+                h = buttonH
+            },
+            {
                 id = "adjust_qv_xcam_cg",
                 label = "Adjust QVs + X-Camera after CG shift",
                 x = btnX,
@@ -704,7 +713,13 @@ function M.newComponent(ctx)
             end
             for _, btn in ipairs(layout.buttons or {}) do
                 if x >= btn.x and x <= (btn.x + btn.w) and y >= btn.y and y <= (btn.y + btn.h) then
-                    if btn.id == "adjust_qv_xcam_cg" then
+                    if btn.id == "vnav_descent_tables" then
+                        if self._onVnavDescentTables then
+                            local ok, err = pcall(self._onVnavDescentTables)
+                            if not ok then sasl.logWarning("VNAV Descent Tables action failed: " .. tostring(err)) end
+                        end
+                        return true
+                    elseif btn.id == "adjust_qv_xcam_cg" then
                         self:showMessagePopup(btn.label, helpers.adjustQuickViewsAndXCameraForCgChange())
                         return true
                     elseif btn.id == "apply_qv0" then

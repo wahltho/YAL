@@ -4,6 +4,7 @@ require("helpers")
 require("yal")
 local autoUnicom = require("auto_unicom")
 local vnavDescentPackage = require("vnav_descent_package")
+local vnavDescentTransaction = require("vnav_descent_transaction")
 
 local debugOverlayWindow
 local debugOverlayInitialized = false
@@ -24,6 +25,10 @@ local updatePopupComponent
 local remember_ignored_updates
 local show_yal_update_confirm
 local run_yal_update_install
+local show_vnav_descent_status
+local show_vnav_descent_confirm
+local run_vnav_descent_action
+local vnavUi = {}
 local startupUpdateCheckDone = false
 local startupUpdateCheckEarliest = 0
 local startupUpdateCheckPerformed = false
@@ -269,7 +274,14 @@ local function maybeInitSetupWindow()
         return
     end
 
-    local comp = mod.newComponent({ yal = yal, def = def, helpers = helpers })
+    local comp = mod.newComponent({
+        yal = yal,
+        def = def,
+        helpers = helpers,
+        onVnavDescentTables = function()
+            if show_vnav_descent_status then show_vnav_descent_status(true) end
+        end,
+    })
     local w, h = mod.windowSize()
     local xRoot, yRoot, wRoot, hRoot = sasl.windows.getMonitorBoundsOS(0)
     local posX = xRoot + math.max(0, (wRoot - w) / 2)
@@ -486,8 +498,12 @@ local function maybeInitUpdatePopupWindow()
         yal = yal,
         def = def,
         helpers = helpers,
-        onAcknowledge = function()
-            helpers.logInfoTS("Startup update popup snoozed")
+        onAcknowledge = function(payload)
+            if payload and payload.kind == "vnav" then
+                helpers.logInfoTS("VNAV Descent Tables status popup closed")
+            else
+                helpers.logInfoTS("Startup update popup snoozed")
+            end
         end,
         onIgnore = function(payload)
             remember_ignored_updates(payload)
@@ -496,10 +512,20 @@ local function maybeInitUpdatePopupWindow()
             return show_yal_update_confirm(payload)
         end,
         onConfirm = function(payload)
+            if payload and payload.kind == "vnav" then
+                return run_vnav_descent_action(payload)
+            end
             return run_yal_update_install(payload)
         end,
-        onCancel = function()
-            helpers.logInfoTS("YAL update confirmation cancelled")
+        onCancel = function(payload)
+            if payload and payload.kind == "vnav" then
+                helpers.logInfoTS("VNAV Descent Tables action cancelled")
+            else
+                helpers.logInfoTS("YAL update confirmation cancelled")
+            end
+        end,
+        onAction = function(payload, action)
+            return show_vnav_descent_confirm(payload, action)
         end
     })
     updatePopupComponent = comp
@@ -800,9 +826,202 @@ local function inspect_vnav_descent_package(target)
         expected = source,
     })
     result.manifest_url = source.manifest_url
+    result.manifest_text = manifestText
+    result.source = source
     helpers.vnavDescentPackageStatus = result
     log_vnav_package_status(result)
     return result
+end
+
+vnavUi.statusLabels = {
+    installed_current = "Installed and current",
+    not_installed = "Not installed",
+    installed_outdated = "Installed package is outdated",
+    installed_newer = "Installed package is newer than this release",
+    repair_required = "Repair required",
+    aircraft_update_removed = "Aircraft update removed the hooks",
+    installed_legacy = "Legacy package detected",
+    partial_damaged = "Partial or damaged installation",
+    target_changed = "Aircraft patch anchors changed",
+    unsafe_foreign = "Foreign package markers detected",
+    manifest_unavailable = "Release manifest unavailable",
+    manifest_invalid = "Release manifest invalid",
+    target_not_supported = "Loaded aircraft is not supported",
+    target_read_failed = "Aircraft target could not be read",
+}
+
+function vnavUi.familyLabel(family)
+    if family == "zibo_upstream" then return "Upstream Zibo 737-800X" end
+    if family == "levelup_737ng" then return "LevelUp 737NG" end
+    return "Unsupported aircraft"
+end
+
+function vnavUi.needsAttention(status)
+    return status == "not_installed"
+        or status == "installed_outdated"
+        or status == "repair_required"
+        or status == "aircraft_update_removed"
+        or status == "installed_legacy"
+        or status == "partial_damaged"
+        or status == "target_changed"
+        or status == "unsafe_foreign"
+end
+
+function vnavUi.ignoreToken(result)
+    local manifest = result and result.manifest or nil
+    if not manifest or not manifest.package_id or not manifest.package_version then return "" end
+    return tostring(manifest.package_id) .. "@" .. tostring(manifest.package_version)
+end
+
+function vnavUi.download(url)
+    local callOk, downloadOk, contents = pcall(sasl.net.downloadFileContentsSync, url)
+    if not callOk then return nil, tostring(downloadOk or "download call failed") end
+    if not downloadOk then return nil, "download failed" end
+    return tostring(contents or "")
+end
+
+function vnavUi.payload(result, restore, manual)
+    local target = result and result.target or nil
+    local manifest = result and result.manifest or nil
+    local localVersion = result and result.local_version or nil
+    local installedText = localVersion and tostring(localVersion) or "Not installed"
+    if result and result.status == "installed_current" and not localVersion then installedText = tostring(result.available_version or "Installed") end
+    local backupText = restore and restore.available and "Available and verified" or tostring(restore and restore.reason or "No verified backup")
+    local statusText = vnavUi.statusLabels[result and result.status or ""] or tostring(result and result.reason or "Unknown")
+    local actions = vnavDescentTransaction.availableActions(result, restore)
+    local token = vnavUi.ignoreToken(result)
+    return {
+        kind = "vnav",
+        mode = "vnav",
+        title = "VNAV Descent Tables",
+        lines = {
+            "Aircraft: " .. vnavUi.familyLabel(target and target.family),
+            "Loaded installation: " .. tostring(target and target.aircraft_relative_path or "Unknown"),
+            "Installed package: " .. installedText,
+            "Available package: " .. tostring(result and result.available_version or "Unknown"),
+            "Status: " .. statusText,
+            "Backup: " .. backupText,
+            "This aircraft modification is optional. YAL never installs or repairs it without confirmation.",
+        },
+        actions = actions,
+        manual = manual == true,
+        showIgnore = manual ~= true and vnavUi.needsAttention(result and result.status) and token ~= "",
+        ignoreLabel = "Ignore this version",
+        ignoreToken = token,
+        vnavStatus = result and result.status,
+        confirmedAircraftPath = target and target.aircraft_relative_path,
+    }
+end
+
+show_vnav_descent_status = function(manual, existingResult)
+    local result = existingResult
+    if not result then
+        local target = detect_vnav_descent_package_target()
+        result = inspect_vnav_descent_package(target)
+    end
+    local restore = vnavDescentTransaction.inspectRestore({
+        target = result and result.target,
+        cache_root = def.YALCACHEPATH,
+    })
+    local payload = vnavUi.payload(result, restore, manual)
+    if manual ~= true then
+        if not vnavUi.needsAttention(result and result.status) then return false end
+        local ignored = tostring(settings.appSettings[def.CONFIGIGNOREDVNAVTABLEPACKAGE] or "")
+        if payload.ignoreToken ~= "" and payload.ignoreToken == ignored then
+            helpers.logInfoTS("VNAV Descent Tables offer ignored for " .. payload.ignoreToken)
+            return false
+        end
+    end
+    maybeInitUpdatePopupWindow()
+    if updatePopupComponent and updatePopupComponent.setPayload then
+        updatePopupComponent:setPayload(payload)
+        return true
+    end
+    return false
+end
+
+show_vnav_descent_confirm = function(payload, action)
+    local labels = { install = "Install", update = "Update", repair = "Repair", uninstall = "Uninstall", restore = "Restore Backup" }
+    local allowed = false
+    for _, candidate in ipairs((payload and payload.actions) or {}) do
+        if candidate.id == action then allowed = true break end
+    end
+    if not allowed or not labels[action] or not updatePopupComponent or not updatePopupComponent.setPayload then return true end
+    local actionText = labels[action]
+    local detail = "YAL will create a generation backup before changing the loaded aircraft installation."
+    if action == "restore" then detail = "YAL will restore the verified previous generation and back up the state it replaces." end
+    updatePopupComponent:setPayload({
+        kind = "vnav",
+        mode = "confirm",
+        title = "Confirm VNAV Descent Tables",
+        lines = {
+            "Do you really want to " .. string.lower(actionText) .. " VNAV Descent Tables?",
+            "Aircraft: " .. tostring(payload.confirmedAircraftPath or "Unknown"),
+            detail,
+            "A full X-Plane restart is required after this operation.",
+        },
+        okLabel = actionText,
+        cancelLabel = "Cancel",
+        vnavAction = action,
+        confirmedAircraftPath = payload.confirmedAircraftPath,
+    })
+    return false
+end
+
+run_vnav_descent_action = function(payload)
+    local action = payload and payload.vnavAction or ""
+    local target = detect_vnav_descent_package_target()
+    local result
+    if not target or target.status ~= "supported" or target.aircraft_relative_path ~= payload.confirmedAircraftPath then
+        result = {
+            ok = false,
+            title = "VNAV Descent Tables",
+            lines = {
+                "The loaded aircraft changed after confirmation.",
+                "No aircraft file was changed.",
+            },
+        }
+    elseif action == "restore" then
+        result = vnavDescentTransaction.execute({
+            action = action,
+            target = target,
+            cache_root = def.YALCACHEPATH,
+            ensure_directory = helpers.check_create_path,
+            yal_version = def.VERSION,
+        })
+    else
+        local inspection = inspect_vnav_descent_package(target)
+        result = vnavDescentTransaction.execute({
+            action = action,
+            target = target,
+            manifest_text = inspection and inspection.manifest_text,
+            expected = inspection and inspection.source,
+            cache_root = def.YALCACHEPATH,
+            download = vnavUi.download,
+            ensure_directory = helpers.check_create_path,
+            remove_directory = helpers.remove_directory,
+            yal_version = def.VERSION,
+        })
+    end
+    helpers.logInfoTS(string.format(
+        "VNAV Descent Tables action: action=%s result=%s code=%s",
+        tostring(action),
+        tostring(result and result.ok == true),
+        tostring(result and result.code or "unknown")
+    ))
+    if result and result.ok then
+        inspect_vnav_descent_package(target)
+    end
+    if updatePopupComponent and updatePopupComponent.setPayload then
+        updatePopupComponent:setPayload({
+            kind = "vnav",
+            mode = "status",
+            title = result and result.title or "VNAV Descent Tables",
+            lines = result and result.lines or { "The operation did not return a status." },
+            okLabel = "OK",
+        })
+    end
+    return false
 end
 
 remember_ignored_updates = function(payload)
@@ -821,6 +1040,11 @@ remember_ignored_updates = function(payload)
         settings.appSettings[def.CONFIGIGNOREDZIBOUPDATEVERSION] = tostring(ziboInfo.ignoreVersion)
         changed = true
         helpers.logInfoTS("Ignored Zibo update version v" .. tostring(ziboInfo.ignoreVersion))
+    end
+    if payload.kind == "vnav" and payload.ignoreToken and payload.ignoreToken ~= "" then
+        settings.appSettings[def.CONFIGIGNOREDVNAVTABLEPACKAGE] = tostring(payload.ignoreToken)
+        changed = true
+        helpers.logInfoTS("Ignored VNAV Descent Tables package " .. tostring(payload.ignoreToken))
     end
     if changed and settings.writeSettings then
         settings.writeSettings(settings.appSettings)
@@ -919,7 +1143,7 @@ local function maybeRunStartupUpdateCheck()
     startupUpdateCheckDone = true
     startupUpdateCheckPerformed = true
 
-    inspect_vnav_descent_package(helpers.vnavDescentPackageTarget)
+    local vnavInspection = inspect_vnav_descent_package(helpers.vnavDescentPackageTarget)
 
     local showBetaUpdates = tonumber(settings.appSettings[def.CONFIGSHOWBETAUPDATES] or 0) == def.ON
     local installedPrerelease = is_yal_beta_version()
@@ -1014,6 +1238,7 @@ local function maybeRunStartupUpdateCheck()
         else
             helpers.logInfoTS("Startup update check: no updates available")
         end
+        show_vnav_descent_status(false, vnavInspection)
         return
     end
 

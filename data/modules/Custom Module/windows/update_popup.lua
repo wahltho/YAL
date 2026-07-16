@@ -241,6 +241,7 @@ function M.newComponent(ctx)
     comp._onInstall = ctx and ctx.onInstall or nil
     comp._onConfirm = ctx and ctx.onConfirm or nil
     comp._onCancel = ctx and ctx.onCancel or nil
+    comp._onAction = ctx and ctx.onAction or nil
 
     function comp:setWindow(win)
         self._window = win
@@ -318,6 +319,61 @@ function M.newComponent(ctx)
                 local btnX = math.floor((w - okW) * 0.5)
                 self._buttons.ok = { x = btnX, y = btnY, w = okW, h = btnH }
                 drawButton(font, self._buttons.ok, tostring(self._payload.okLabel or "OK"), true)
+            end
+            return
+        end
+
+        if mode == "vnav" then
+            local lines = self._payload.lines or {}
+            local y = h - 50
+            for _, line in ipairs(lines) do
+                local wrapped = wrap_line(line, 78)
+                for _, part in ipairs(wrapped) do
+                    drawText(font, padding, y, part, 12, TEXT_ALIGN_LEFT, {0.92, 0.92, 0.96, 1})
+                    y = y - 17
+                end
+                y = y - 2
+                if y < 52 then break end
+            end
+
+            local btnH = 20
+            local gap = 8
+            local buttonSpecs = {
+                { id = "later", label = tostring(self._payload.laterLabel or "Later"), width = 82, primary = false },
+            }
+            if self._payload.showIgnore then
+                buttonSpecs[#buttonSpecs + 1] = {
+                    id = "ignore",
+                    label = tostring(self._payload.ignoreLabel or "Ignore this version"),
+                    width = 142,
+                    primary = false,
+                }
+            end
+            for _, action in ipairs(self._payload.actions or {}) do
+                local label = tostring(action.label or action.id or "Action")
+                buttonSpecs[#buttonSpecs + 1] = {
+                    id = "action",
+                    actionId = tostring(action.id or ""),
+                    label = label,
+                    width = math.max(82, math.min(132, #label * 7 + 22)),
+                    primary = action.primary == true,
+                }
+            end
+            local totalW = 0
+            for _, spec in ipairs(buttonSpecs) do totalW = totalW + spec.width end
+            totalW = totalW + math.max(0, #buttonSpecs - 1) * gap
+            local x = math.floor((w - totalW) * 0.5)
+            local btnY = 12
+            self._buttons = { actions = {} }
+            for _, spec in ipairs(buttonSpecs) do
+                local rect = { x = x, y = btnY, w = spec.width, h = btnH }
+                drawButton(font, rect, spec.label, spec.primary)
+                if spec.id == "action" then
+                    self._buttons.actions[#self._buttons.actions + 1] = { rect = rect, id = spec.actionId }
+                else
+                    self._buttons[spec.id] = rect
+                end
+                x = x + spec.width + gap
             end
             return
         end
@@ -463,6 +519,19 @@ function M.newComponent(ctx)
                 self:clearPayload()
             end
             return true
+        end
+        for _, action in ipairs((self._buttons and self._buttons.actions) or {}) do
+            btn = action.rect
+            if btn and x >= btn.x and x <= (btn.x + btn.w) and y >= btn.y and y <= (btn.y + btn.h) then
+                local ok, result = true, nil
+                if self._onAction then ok, result = pcall(self._onAction, self._payload, action.id) end
+                if not ok then
+                    sasl.logWarning("Update popup action callback failed: " .. tostring(result))
+                elseif result ~= false then
+                    self:clearPayload()
+                end
+                return true
+            end
         end
         btn = self._buttons and self._buttons.cancel or nil
         if btn and x >= btn.x and x <= (btn.x + btn.w) and y >= btn.y and y <= (btn.y + btn.h) then
