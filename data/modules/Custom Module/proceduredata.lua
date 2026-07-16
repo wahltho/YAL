@@ -1274,6 +1274,10 @@ local function buildSetIlsSupportNavaidMessage(loop)
 
     local navdata = getSetIlsNavdata(loop)
     local approachSnapshot = loop.approachRefAccepted and loop.approachRefSnapshot or nil
+    local plan = buildSetIlsPlan(loop)
+    if plan and plan.foTune and plan.foTune.type ~= "dme" then
+        return nil
+    end
     if approachSnapshot and approachSnapshot.support_nav_valid then
         local kind = tostring(approachSnapshot.support_nav_kind or "")
         local kindLabel = "navaid"
@@ -1296,7 +1300,6 @@ local function buildSetIlsSupportNavaidMessage(loop)
         return message
     end
 
-    local plan = buildSetIlsPlan(loop)
     if not plan or not plan.foTune or plan.foTune.type ~= "dme" then
         if approachSnapshot then
             return nil
