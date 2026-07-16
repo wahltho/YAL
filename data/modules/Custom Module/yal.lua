@@ -1938,16 +1938,40 @@ function P.bindExternalDatarefs(silentMissing)
             { def.CONFIGLOWERDU, "laminar/B738/fms/sys_display_engine" },
             { def.CONFIGHIDEEFBS, "laminar/B738/fms/hide_efbs" },
             { def.CONFIGSPDRESTR250, "laminar/B738/fms/descent_speed_restriction_default" },
-            { def.CONFIGHEADINGSYNCINTERVAL, "laminar/B738/autopilot/heading_sync_interval" }
+            { def.CONFIGHEADINGSYNCINTERVAL, "laminar/B738/autopilot/heading_sync_interval" },
+            { def.CONFIGSAVETIME, {
+                "laminar/B738/fms/autosave_interval_sec",
+                "laminar/B738/fms/autosave_slot_first",
+                "laminar/B738/fms/autosave_slot_last"
+            } },
+            { def.CONFIGTRANSPONDER, "laminar/B738/fms/default_transponder_code" },
+            { def.CONFIGBANKANGLEMAX, "laminar/B738/autopilot/default_bank_angle_pos" }
         }
         local ownedConfigs = {}
         for _, featureSetting in ipairs(featureSettings) do
-            if probe_external_dataref(featureSetting[2]) then
-                local settingRef = GP(featureSetting[2])
-                if settingRef and isProperty(settingRef) then
-                    P.ziboPortFeatureSettings[featureSetting[1]] = settingRef
-                    ownedConfigs[#ownedConfigs + 1] = featureSetting[1]
+            local settingNames = featureSetting[2]
+            if type(settingNames) ~= "table" then
+                settingNames = { settingNames }
+            end
+            local settingRef = nil
+            local complete = true
+            for _, settingName in ipairs(settingNames) do
+                if not probe_external_dataref(settingName) then
+                    complete = false
+                    break
                 end
+                local currentRef = GP(settingName)
+                if not currentRef or not isProperty(currentRef) then
+                    complete = false
+                    break
+                end
+                if settingRef == nil then
+                    settingRef = currentRef
+                end
+            end
+            if complete and settingRef then
+                P.ziboPortFeatureSettings[featureSetting[1]] = settingRef
+                ownedConfigs[#ownedConfigs + 1] = featureSetting[1]
             end
         end
 
@@ -9949,7 +9973,7 @@ function P.ongoingtasks()
         P.pausetodtimer = nil
     end
 
-    if not isPeriodicAutoSaveDisabled() then
+    if not P.ziboPortOwnsConfig(def.CONFIGSAVETIME) and not isPeriodicAutoSaveDisabled() then
         if (P.savetimer == nil) then
             P.savetimer = sasl.createTimer()
             sasl.startTimer(P.savetimer)

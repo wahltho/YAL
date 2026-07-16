@@ -2381,7 +2381,10 @@ function M.fillProcedureTable()
                     nextStep = 'set_transponder_code'
                 },
                 ['set_transponder_code'] = { 
-                    skipIf = function() return P.configvalues[def.CONFIGTRANSPONDER] == def.OFF end,
+                    skipIf = function()
+                        return P.ziboPortOwnsConfig(def.CONFIGTRANSPONDER)
+                            or P.configvalues[def.CONFIGTRANSPONDER] == def.OFF
+                    end,
                     check = function() return get(P.transpondercode) == P.configvalues[def.CONFIGTRANSPONDER] end,
                     action = function() set(P.transpondercode, P.configvalues[def.CONFIGTRANSPONDER]) end,
                     advice = function() return "Set Transponder Code " .. helpers.addspaces(P.configvalues[def.CONFIGTRANSPONDER]) end,
@@ -2496,6 +2499,9 @@ function M.fillProcedureTable()
                     nextStep = 'set_bank_angle'
                 },
                 ['set_bank_angle'] = { 
+                    skipIf = function()
+                        return P.ziboPortOwnsConfig(def.CONFIGBANKANGLEMAX)
+                    end,
                     check = function() return get(P.bankanglepos) == P.configvalues[def.CONFIGBANKANGLEMAX] end,
                     action = function() P.setbankanglepos(P.configvalues[def.CONFIGBANKANGLEMAX]) end,
                     advice = function() return "Set Bank Angle " .. helpers.getbankanglestring(P.configvalues[def.CONFIGBANKANGLEMAX]) end,
