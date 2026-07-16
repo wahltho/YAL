@@ -160,6 +160,9 @@ function P.isVersionNewer(newVersion, currentVersion)
 end
 
 P.cifpCache = P.cifpCache or {}
+P.cifpSourcePathCache = P.cifpSourcePathCache or {}
+P.cifpLegacyCache = P.cifpLegacyCache or {}
+P.cifpLegacySourcePathCache = P.cifpLegacySourcePathCache or {}
 
 local ffi = require("ffi")
 local xplm_lib = {
@@ -193,8 +196,11 @@ P.isXp12 = (P.xpVersion >= 12000 and P.xpVersion < 13000)
 
 --------------------------------------------------------------------------------------------------------------
 function P.isZibo()
-    local signature = "zibomod.by.Zibo"
-    local pluginID = sasl.findPluginBySignature(signature)
+    local pluginID = sasl.findPluginBySignature("zibomod.by.Zibo")
+    if pluginID == NO_PLUGIN_ID then
+        pluginID = sasl.findPluginBySignature("wahlthomod.by.wahltho")
+    end
+
     if pluginID == NO_PLUGIN_ID then
         return false
     end
@@ -371,6 +377,11 @@ function P.logInfoTS(message)
     sasl.logInfo(string.format("%s %s", timestamp, tostring(message)))
 end
 
+function P.logDebugTS(message)
+    local timestamp = string.format("[%s]", os.date("%H:%M:%S"))
+    sasl.logDebug(string.format("%s %s", timestamp, tostring(message)))
+end
+
 local function get_flightstate()
     if not P._flightstate_dr then
         local ok, dr = pcall(globalProperty, "YAL/state/flightstate")
@@ -448,9 +459,9 @@ end
 
 --------------------------------------------------------------------------------------------------------------
 function P.checkForUpdate(showBeta)
-    local url = def.YALGITHUBURL
-    if showBeta and def.YALBETAGITHUBURL and def.YALBETAGITHUBURL ~= "" then
-        url = def.YALBETAGITHUBURL
+    local url = def.YALUPDATEURL
+    if showBeta and def.YALBETAUPDATEURL and def.YALBETAUPDATEURL ~= "" then
+        url = def.YALBETAUPDATEURL
     end
     sasl.logDebug(string.format("Checking for %s updates via %s", showBeta and "beta" or "stable", url))
     local updateAvailable = false
@@ -463,6 +474,8 @@ function P.checkForUpdate(showBeta)
         if is_version_newer(newVersion, currentVersion) then
             updateAvailable = true
             P.logInfoTS(string.format("New YAL version available v%s", newVersion))
+        elseif tostring(newVersion) ~= tostring(currentVersion) then
+            P.logInfoTS(string.format("YAL feed version v%s differs from current v%s", tostring(newVersion), tostring(currentVersion)))
         else
             P.logInfoTS("YAL is up to date, no new version available")
         end
@@ -888,11 +901,229 @@ function P.remove_directory(dirname)
 end
 
 --------------------------------------------------------------------------------------------------------------
-function P.speak(text)
+local function write_sink_string(prop, value)
+    if not prop then
+        return false
+    end
 
+    local text = tostring(value or "")
+    if #text > 511 then
+        text = string.sub(text, 1, 511)
+    end
+
+    local ok = pcall(set, prop, text)
+    if ok then
+        return true
+    end
+
+    ok = pcall(set, prop, text, 0, #text)
+    return ok == true
+end
+
+local function speak_sink_result_name(code)
+    code = tonumber(code) or 0
+    if code == 1 then return "accepted" end
+    if code == 2 then return "rejected_disabled" end
+    if code == 3 then return "rejected_empty_text" end
+    if code == 4 then return "rejected_duplicate" end
+    if code == 5 then return "accepted_replaced" end
+    if code == 6 then return "rejected_queue_full" end
+    return "none"
+end
+
+local function log_speak_sink_drop(reason, text, message_key)
+    P.speakStringSinkDropCount = (tonumber(P.speakStringSinkDropCount) or 0) + 1
+    local count = P.speakStringSinkDropCount
+    if count > 5 and (count % 20) ~= 0 then
+        return
+    end
+
+    local preview = tostring(text or "")
+    if #preview > 90 then
+        preview = string.sub(preview, 1, 90) .. "..."
+    end
+    P.logInfoTS("Zibo SpeakString Sink write failed after activation; direct fallback suppressed"
+        .. " reason=" .. tostring(reason or "unknown")
+        .. " key=" .. tostring(message_key or "")
+        .. " count=" .. tostring(count)
+        .. " text=" .. preview)
+end
+
+function P.speak(text, priority, message_key, policy)
+    if P.speakViaZiboSink then
+        local ok, reason = P.speakViaZiboSink(text, priority, message_key, policy)
+        if ok then
+            return
+        end
+        if P.speakStringSinkEverActive then
+            log_speak_sink_drop(reason, text, message_key)
+            return
+        end
+    end
+
+    text = tostring(text or "")
     local c_str = ffi.new("char[?]", #text + 1)
     ffi.copy(c_str, text)
     xplm.XPLMSpeakString(c_str)
+end
+
+function P.configureSpeakStringSink(refs)
+    P.speakStringSink = refs
+    P.speakStringSinkSeq = P.speakStringSinkSeq or 0
+    P.speakStringSinkControlSeq = P.speakStringSinkControlSeq or 0
+
+    if type(refs) ~= "table" or not refs.version or not isProperty(refs.version) then
+        return
+    end
+
+    local ok, version = pcall(get, refs.version)
+    version = ok and tonumber(version) or 0
+    if version < 1 then
+        return
+    end
+    P.speakStringSinkEverActive = true
+
+    local queueControl = version >= 4
+        and refs.request_source_id and refs.request_message_key and refs.request_policy
+        and refs.control_source_id and refs.control_message_key and refs.control_seq
+        and isProperty(refs.request_policy) and isProperty(refs.control_seq)
+    queueControl = queueControl and true or false
+    local logKey = tostring(version) .. "|" .. tostring(queueControl)
+    if P._speakStringSinkConnectLogKey ~= logKey then
+        P._speakStringSinkConnectLogKey = logKey
+        P.logInfoTS("Zibo SpeakString Sink API connected version=" .. tostring(version)
+            .. " queueControl=" .. tostring(queueControl))
+    end
+end
+
+function P.isSpeakStringSinkActive()
+    local sink = P.speakStringSink
+    if type(sink) ~= "table" or not sink.version or not isProperty(sink.version) then
+        return false
+    end
+
+    local ok, version = pcall(get, sink.version)
+    return ok and (tonumber(version) or 0) >= 1
+end
+
+function P.speakViaZiboSink(text, priority, message_key, policy)
+    local sink = P.speakStringSink
+    if type(sink) ~= "table" then
+        return false, "missing_sink_table"
+    end
+    if not (sink.version and sink.request_text and sink.request_priority and sink.request_seq) then
+        return false, "missing_required_refs"
+    end
+    if not (isProperty(sink.version) and isProperty(sink.request_text) and isProperty(sink.request_priority) and isProperty(sink.request_seq)) then
+        return false, "invalid_required_refs"
+    end
+
+    local ok, version = pcall(get, sink.version)
+    if not ok or (tonumber(version) or 0) < 1 then
+        return false, "sink_version_unavailable"
+    end
+
+    local speechText = tostring(text or "")
+    if speechText == "" then
+        return false, "empty_text"
+    end
+    if #speechText > 511 then
+        speechText = string.sub(speechText, 1, 511)
+    end
+
+    ok = write_sink_string(sink.request_text, speechText)
+    if not ok then return false, "write_text_failed" end
+
+    local requestPolicy = nil
+    if (tonumber(version) or 0) >= 4
+        and sink.request_source_id and sink.request_message_key and sink.request_policy
+        and isProperty(sink.request_policy) then
+        local key = tostring(message_key or "")
+        if #key > 511 then
+            key = string.sub(key, 1, 511)
+        end
+        if not write_sink_string(sink.request_source_id, "YAL") then return false, "write_source_failed" end
+        if not write_sink_string(sink.request_message_key, key) then return false, "write_key_failed" end
+
+        requestPolicy = 0
+        if key ~= "" then
+            requestPolicy = tonumber(policy) or 2
+        end
+    end
+
+    ok = pcall(set, sink.request_priority, tonumber(priority) or 10)
+    if not ok then
+        return false, "write_priority_failed"
+    end
+
+    if requestPolicy ~= nil then
+        ok = pcall(set, sink.request_policy, requestPolicy)
+        if not ok then return false, "write_policy_failed" end
+    end
+
+    P.speakStringSinkSeq = (tonumber(P.speakStringSinkSeq) or 0) + 1
+    if P.speakStringSinkSeq > 2147480000 then
+        P.speakStringSinkSeq = 1
+    end
+
+    ok = pcall(set, sink.request_seq, P.speakStringSinkSeq)
+    if not ok then
+        return false, "write_seq_failed"
+    end
+
+    local requestSeq = P.speakStringSinkSeq
+    if sink.accepted_seq and isProperty(sink.accepted_seq) then
+        local acceptedSeq = nil
+        ok, acceptedSeq = pcall(get, sink.accepted_seq)
+        if ok and tonumber(acceptedSeq) == requestSeq then
+            return true
+        end
+    end
+
+    if sink.request_result_seq and sink.request_result_code
+        and isProperty(sink.request_result_seq) and isProperty(sink.request_result_code) then
+        local okSeq, resultSeq = pcall(get, sink.request_result_seq)
+        local okCode, resultCode = pcall(get, sink.request_result_code)
+        resultSeq = okSeq and tonumber(resultSeq) or nil
+        resultCode = okCode and tonumber(resultCode) or 0
+        if resultSeq == requestSeq and resultCode and resultCode ~= 0 then
+            if resultCode == 1 or resultCode == 5 then
+                return true
+            end
+            return false, "sink_" .. speak_sink_result_name(resultCode)
+        end
+    end
+
+    return true
+end
+
+function P.clearSpeakStringSink(message_key)
+    local sink = P.speakStringSink
+    if type(sink) ~= "table" then
+        return false
+    end
+    if not (sink.version and sink.control_source_id and sink.control_message_key and sink.control_seq) then
+        return false
+    end
+    if not (isProperty(sink.version) and isProperty(sink.control_seq)) then
+        return false
+    end
+
+    local ok, version = pcall(get, sink.version)
+    if not ok or (tonumber(version) or 0) < 4 then
+        return false
+    end
+
+    if not write_sink_string(sink.control_source_id, "YAL") then return false end
+    if not write_sink_string(sink.control_message_key, tostring(message_key or "")) then return false end
+
+    P.speakStringSinkControlSeq = (tonumber(P.speakStringSinkControlSeq) or 0) + 1
+    if P.speakStringSinkControlSeq > 2147480000 then
+        P.speakStringSinkControlSeq = 1
+    end
+
+    ok = pcall(set, sink.control_seq, P.speakStringSinkControlSeq)
+    return ok == true
 end
 
 --------------------------------------------------------------------------------------------------------------
@@ -1505,7 +1736,7 @@ function P.convertpressure(value)
             return P.roundnumber(inches, 2)
         else
             local hpa = value * def.INCHTOPAS
-            return P.roundnumber(hpa, 0)
+            return math.floor(hpa)
         end
     end
 end
@@ -1846,24 +2077,72 @@ function P.decodemetar(metar)
         "FZ","MI","PR","BC","DR","BL","VC","NSW"
     }
 
-    local function is_weather_code(s)
-        local code_to_check = s
-        if string.sub(s, 1, 1) == "-" or string.sub(s, 1, 1) == "+" then
-            code_to_check = string.sub(s, 2)
-        end
-        if #code_to_check < 2 then return false end
+    local weather_code_lookup = {}
+    for _, code in ipairs(weather_codes) do
+        weather_code_lookup[code] = true
+    end
 
-        for _, code in ipairs(weather_codes) do
-            if string.find(code_to_check, code, 1, true) then
-                if code_to_check == code then return true end
+    local function is_alpha_weather_text(s)
+        if type(s) ~= "string" or s == "" then
+            return false
+        end
+        for idx = 1, #s do
+            local byte = string.byte(s, idx)
+            if not (byte and byte >= 65 and byte <= 90) then
+                return false
             end
         end
-        for _, code in ipairs(weather_codes) do
-            if string.find(s, code, 1, true) then
-                return true
-            end
+        return true
+    end
+
+    local function is_cloud_group_token(s)
+        if type(s) ~= "string" or s == "" then
+            return false
+        end
+        local token = string.upper(s)
+        if token == "SKC" or token == "CLR" or token == "NSC" or token == "NCD" then
+            return true
+        end
+        local prefix3 = string.sub(token, 1, 3)
+        if prefix3 == "FEW" or prefix3 == "SCT" or prefix3 == "BKN" or prefix3 == "OVC" then
+            local height = string.sub(token, 4, 6)
+            return (tonumber(height) ~= nil) or height == "///"
+        end
+        if string.sub(token, 1, 2) == "VV" then
+            local height = string.sub(token, 3, 5)
+            return (tonumber(height) ~= nil) or height == "///"
+        end
+        if string.sub(token, 1, 1) == "/" then
+            local suffix3 = string.sub(token, -3)
+            local suffix2 = string.sub(token, -2)
+            return suffix3 == "TCU" or suffix2 == "CB"
+                or suffix3 == "FEW" or suffix3 == "SCT" or suffix3 == "BKN" or suffix3 == "OVC"
         end
         return false
+    end
+
+    local function is_weather_code(s)
+        if is_cloud_group_token(s) then
+            return false
+        end
+        local code_to_check = string.upper(tostring(s or ""))
+        if string.sub(code_to_check, 1, 1) == "-" or string.sub(code_to_check, 1, 1) == "+" then
+            code_to_check = string.sub(code_to_check, 2)
+        end
+        if string.sub(code_to_check, 1, 2) == "RE" and #code_to_check > 2 then
+            code_to_check = string.sub(code_to_check, 3)
+        end
+        if #code_to_check < 2 or not is_alpha_weather_text(code_to_check) then return false end
+        if code_to_check == "NSW" then return true end
+        if (#code_to_check % 2) ~= 0 then return false end
+
+        for idx = 1, #code_to_check, 2 do
+            local chunk = string.sub(code_to_check, idx, idx + 1)
+            if not weather_code_lookup[chunk] then
+                return false
+            end
+        end
+        return true
     end
 
     local function parse_fraction_value(value_str)
@@ -2327,43 +2606,37 @@ function P.decodemetar(metar)
             sasl.logDebug(string.format("Parsed weather: %s (%s)", phenomenon, intensity))
             parsed = true
 
-        elseif ( (string.sub(part, 1, 3) == "FEW" or string.sub(part, 1, 3) == "SCT" or string.sub(part, 1, 3) == "BKN" or string.sub(part, 1, 3) == "OVC") and
-                 #part >= 6 and tonumber(string.sub(part, 4, 6)) ~= nil ) or
-               ( string.sub(part, 1, 2) == "VV" and #part >= 5 and tonumber(string.sub(part, 3, 5)) ~= nil ) or
-               ( part == "SKC" or part == "CLR" or part == "NSC" or part == "NCD" ) or
-               ( string.sub(part, 1, 1) == '/' and (string.find(part, "TCU$") or string.find(part, "CB$")) ) or
-               ( string.sub(part, 1, 1) == '/' and (string.find(part, "FEW$") or string.find(part, "SCT$") or string.find(part, "BKN$") or string.find(part, "OVC$")) ) or
-               ( (string.sub(part, 1, 3) == "FEW" or string.sub(part, 1, 3) == "SCT" or string.sub(part, 1, 3) == "BKN" or string.sub(part, 1, 3) == "OVC") and string.sub(part, -3) == "///" )
-        then
+        elseif is_cloud_group_token(part) then
             result.clouds = result.clouds or {}
-            if (part == "SKC" or part == "CLR" or part == "NSC" or part == "NCD") then
-                table.insert(result.clouds, { coverage = part, altitude = nil, type = "" })
-                sasl.logDebug("Parsed cloud: " .. part)
+            local cloud_part = string.upper(part)
+            if (cloud_part == "SKC" or cloud_part == "CLR" or cloud_part == "NSC" or cloud_part == "NCD") then
+                table.insert(result.clouds, { coverage = cloud_part, altitude = nil, type = "" })
+                sasl.logDebug("Parsed cloud: " .. cloud_part)
                 parsed = true
-            elseif (string.sub(part, 1, 1) == '/') then
-                 parsed = true
-            elseif (string.sub(part, -3) == "///") then
+            elseif (string.sub(cloud_part, 1, 1) == '/') then
                  parsed = true
             else
                 local coverage_code
                 local altitude_str_val
                 local altitude_idx_start
-                if string.sub(part, 1, 2) == "VV" then
+                if string.sub(cloud_part, 1, 2) == "VV" then
                     coverage_code = "VV"
                     altitude_idx_start = 3
                 else
-                    coverage_code = string.sub(part, 1, 3)
+                    coverage_code = string.sub(cloud_part, 1, 3)
                     altitude_idx_start = 4
                 end
-                altitude_str_val = string.sub(part, altitude_idx_start, altitude_idx_start + 2)
+                altitude_str_val = string.sub(cloud_part, altitude_idx_start, altitude_idx_start + 2)
                 local altitude_val = tonumber(altitude_str_val)
                 if altitude_val then
                     local cloud_significant_type = ""
-                    if #part > (altitude_idx_start + 2) then
-                        cloud_significant_type = string.sub(part, altitude_idx_start + 3)
+                    if #cloud_part > (altitude_idx_start + 2) then
+                        cloud_significant_type = string.sub(cloud_part, altitude_idx_start + 3)
                     end
                     table.insert(result.clouds, { coverage = coverage_code, altitude = altitude_val * 100, type = cloud_significant_type })
                     sasl.logDebug(string.format("Parsed cloud: %s at %d ft%s", coverage_code, altitude_val * 100, (cloud_significant_type ~= "" and (" ("..cloud_significant_type..")")) or ""))
+                    parsed = true
+                elseif altitude_str_val == "///" then
                     parsed = true
                 else
                     sasl.logError("Warning: Could not parse cloud altitude for: " .. part .. " (altitude_str: '" .. altitude_str_val .. "')")
@@ -2400,7 +2673,7 @@ function P.decodemetar(metar)
                 sasl.logDebug(string.format("Parsed pressure: %d hPa", result.pressure.qnh_hpa))
             elseif (string.sub(part, 1, 1) == "A") then
                 local inHg = tonumber(val_str) / 100
-                result.pressure = { qnh_hpa = math.floor(inHg * 33.8639) }
+                result.pressure = { qnh_hpa = math.floor(inHg * def.INCHTOPAS) }
                 sasl.logDebug(string.format("Parsed pressure: %.2f inHg, converted to %d hPa", inHg, result.pressure.qnh_hpa))
             end
             parsed = true
@@ -2527,6 +2800,10 @@ function P.getMetar(icaocode, metarTable)
         local tempFilePath = def.YALCACHEPATH .. icaocode .. "_metar.txt"
         metarTable.icaocode = icaocode
 
+        if not P.check_create_path(def.YALCACHEPATH) then
+            P.logInfoTS("Could not create METAR temp folder for " .. icaocode .. ". Web download skipped.")
+            return
+        end
 
         sasl.net.downloadFileAsync(metarUrl, tempFilePath, function(url, path, isOk, responseCodeOrError)
             P.onMetarDownloaded(url, path, isOk, responseCodeOrError, metarTable)
@@ -3662,14 +3939,24 @@ function P.calculateApproachWindCorrection(runwayHeadingMag, metar)
     local headwind = 0
     headwind = P.calculateWindComponents(magneticWindDirection, runwayHeading, windSpeed)
 
-    local gustIncrement = 0
-    if gust > windSpeed then
-        gustIncrement = gust - windSpeed
+    if headwind <= 0 then
+        sasl.logDebug(string.format("Approach Wind Correction: TrueWind=%s@%.0fkt G%.0f, MagVar=%.1f, MagWind=%03.0f@%.0fkt, RwyHdg=%.0f -> no headwind component (%.1f kt), no correction",
+            tostring(rawDir), windSpeed, gust, magVar, math.floor(magneticWindDirection + 0.5), windSpeed, runwayHeading, headwind))
+        return 0
     end
 
-    local additive = math.max(headwind / 2, 0) + gustIncrement
+    local gustIncrement = 0
+    if gust > windSpeed then
+        local gustHeadwind = P.calculateWindComponents(magneticWindDirection, runwayHeading, gust)
+        gustIncrement = math.max(gustHeadwind - headwind, 0)
+    end
+
+    local additive = (headwind / 2) + gustIncrement
     additive = math.max(additive, 0)
     additive = math.min(additive, 20) -- Boeing cap
+
+    sasl.logDebug(string.format("Approach Wind Correction: TrueWind=%s@%.0fkt G%.0f, MagVar=%.1f, MagWind=%03.0f@%.0fkt, RwyHdg=%.0f -> Headwind=%.1f kt, GustInc=%.1f kt, Add=%d kt",
+        tostring(rawDir), windSpeed, gust, magVar, math.floor(magneticWindDirection + 0.5), windSpeed, runwayHeading, headwind, gustIncrement, math.floor(additive + 0.5)))
 
     return math.floor(additive + 0.5)
 end
@@ -4385,41 +4672,13 @@ local function parseApproachCode(code, expectedRunway)
     }
 end
 
-function P.loadCIFP(icao)
-    if type(icao) ~= "string" or #icao < 3 then
+local function parseCIFPLines(icao, nextLine, sourceLabel)
+    if type(icao) ~= "string" or type(nextLine) ~= "function" then
         return nil
     end
 
     icao = string.upper(icao)
-    P.cifpCache = P.cifpCache or {}
-
-    if P.cifpCache[icao] ~= nil then
-        return P.cifpCache[icao] or nil
-    end
-
-    local searchPaths = {
-        string.format("Custom Data/CIFP/%s.dat", icao),
-        string.format("Resources/default data/CIFP/%s.dat", icao)
-    }
-
-    local file
-    local usedPath
-    for _, candidate in ipairs(searchPaths) do
-        local handle = io.open(candidate, "r")
-        if handle then
-            file = handle
-            usedPath = candidate
-            break
-        end
-    end
-
-    if not file then
-        sasl.logDebug(string.format("CIFP: No file for %s (checked Custom & Default)", icao))
-        P.cifpCache[icao] = false
-        return nil
-    end
-
-    sasl.logDebug(string.format("CIFP: Loaded %s from %s", icao, usedPath))
+    sourceLabel = tostring(sourceLabel or "")
 
     local approaches = {}
     local entryByCode = {}
@@ -4567,7 +4826,11 @@ function P.loadCIFP(icao)
         )
     end
 
-    for line in file:lines() do
+    while true do
+        local line = nextLine()
+        if line == nil then
+            break
+        end
         if string.sub(line, 1, 6) == "APPCH:" then
             local parts = {}
             for token in string.gmatch(line, "([^,]+)") do
@@ -4704,22 +4967,160 @@ function P.loadCIFP(icao)
         end
     end
 
-    file:close()
-
     for _, entry in pairs(entryByCode) do
         if entry.navType == def.NAVTYPELDA and not entry.registered then
             resolveLdaEntry(entry)
             if not entry.registered then
-                sasl.logDebug(string.format("CIFP: LDA approach %s missing runway; skipping.", entry.code or "?"))
+                sasl.logDebug(string.format("CIFP: LDA approach %s missing runway; skipping. source=%s", entry.code or "?", sourceLabel))
             end
         end
     end
 
-    P.cifpCache[icao] = approaches
     if approaches and next(approaches) then
         return approaches
     end
+    return nil
+end
+
+function P.parseCIFPLines(icao, lines, sourceLabel)
+    if type(lines) ~= "table" then
+        return nil
+    end
+    local index = 0
+    return parseCIFPLines(icao, function()
+        index = index + 1
+        return lines[index]
+    end, sourceLabel)
+end
+
+function P.configureCIFPProvider(provider)
+    if type(provider) == "function" then
+        P.cifpProvider = provider
+    else
+        P.cifpProvider = nil
+    end
+    P.cifpCache = {}
+    P.cifpSourcePathCache = {}
+end
+
+local function normalizeCIFPIcao(icao)
+    if type(icao) ~= "string" or #icao < 3 then
+        return nil
+    end
+    return string.upper(icao)
+end
+
+function P.getLegacyCIFPSourcePath(icao)
+    icao = normalizeCIFPIcao(icao)
+    if not icao then
+        return nil
+    end
+    P.cifpLegacySourcePathCache = P.cifpLegacySourcePathCache or {}
+    if P.cifpLegacySourcePathCache[icao] == nil then
+        P.loadLegacyCIFP(icao)
+    end
+    return P.cifpLegacySourcePathCache[icao] or nil
+end
+
+function P.getCIFPSourcePath(icao)
+    icao = normalizeCIFPIcao(icao)
+    if not icao then
+        return nil
+    end
+    P.cifpSourcePathCache = P.cifpSourcePathCache or {}
+    if P.cifpSourcePathCache[icao] == nil then
+        P.loadCIFP(icao)
+    end
+    return P.cifpSourcePathCache[icao] or nil
+end
+
+function P.loadLegacyCIFP(icao)
+    icao = normalizeCIFPIcao(icao)
+    if not icao then
+        return nil
+    end
+
+    P.cifpLegacyCache = P.cifpLegacyCache or {}
+    P.cifpLegacySourcePathCache = P.cifpLegacySourcePathCache or {}
+
+    if P.cifpLegacyCache[icao] ~= nil then
+        return P.cifpLegacyCache[icao] or nil
+    end
+
+    local searchPaths = {
+        string.format("Custom Data/CIFP/%s.dat", icao),
+        string.format("Resources/default data/CIFP/%s.dat", icao)
+    }
+
+    local file
+    local usedPath
+    for _, candidate in ipairs(searchPaths) do
+        local handle = io.open(candidate, "r")
+        if handle then
+            file = handle
+            usedPath = candidate
+            break
+        end
+    end
+
+    if not file then
+        sasl.logDebug(string.format("CIFP: No file for %s (checked Custom & Default)", icao))
+        P.cifpLegacyCache[icao] = false
+        P.cifpLegacySourcePathCache[icao] = false
+        return nil
+    end
+
+    sasl.logDebug(string.format("CIFP legacy: Loaded %s from %s", icao, usedPath))
+
+    local approaches = parseCIFPLines(icao, function()
+        return file:read("*l")
+    end, usedPath)
+    file:close()
+
+    if approaches then
+        P.cifpLegacyCache[icao] = approaches
+        P.cifpLegacySourcePathCache[icao] = usedPath
+        return approaches
+    end
+
+    P.cifpLegacyCache[icao] = false
+    P.cifpLegacySourcePathCache[icao] = usedPath or false
+    return nil
+end
+
+function P.loadCIFP(icao)
+    icao = normalizeCIFPIcao(icao)
+    if not icao then
+        return nil
+    end
+
+    P.cifpCache = P.cifpCache or {}
+    P.cifpSourcePathCache = P.cifpSourcePathCache or {}
+
+    if P.cifpCache[icao] ~= nil then
+        return P.cifpCache[icao] or nil
+    end
+
+    if type(P.cifpProvider) == "function" then
+        local ok, data, sourcePath = pcall(P.cifpProvider, icao)
+        if ok and data then
+            P.cifpCache[icao] = data
+            P.cifpSourcePathCache[icao] = sourcePath or "refdata_api"
+            return data
+        elseif not ok then
+            sasl.logDebug(string.format("CIFP API provider failed for %s: %s", icao, tostring(data)))
+        end
+    end
+
+    local legacy = P.loadLegacyCIFP(icao)
+    if legacy then
+        P.cifpCache[icao] = legacy
+        P.cifpSourcePathCache[icao] = P.getLegacyCIFPSourcePath(icao) or "legacy"
+        return legacy
+    end
+
     P.cifpCache[icao] = false
+    P.cifpSourcePathCache[icao] = false
     return nil
 end
 
@@ -5083,6 +5484,84 @@ function P.calcApproachCourseZibo(entry, ctx)
         return P.calccourse(course)
     end
 
+    local function selected_cifp_rnav_course_mag()
+        if type(appId) ~= "string" or string.sub(appId, 1, 1) ~= "R" then
+            return nil
+        end
+        if navType ~= def.NAVTYPERNAV and navType ~= def.NAVTYPELPV and navType ~= def.NAVTYPEGLS then
+            return nil
+        end
+
+        local selected = ctx.selectedCifpEntry
+        if type(selected) ~= "table" then
+            return nil
+        end
+        local selectedCode = type(selected.code) == "string" and selected.code:gsub("%s+", ""):upper() or ""
+        if selectedCode ~= appId then
+            return nil
+        end
+        if runway and not matches_dest_runway(selected.runway, runway) then
+            return nil
+        end
+
+        local entryAppId = entry.app_id
+        if type(entryAppId) ~= "string" or entryAppId:gsub("%s+", "") == "" then
+            entryAppId = entry[def.DESTNAVID]
+        end
+        entryAppId = type(entryAppId) == "string" and entryAppId:gsub("%s+", ""):upper() or ""
+        if entryAppId ~= appId then
+            return nil
+        end
+        if selected.course_is_true == true then
+            return nil
+        end
+
+        local course = tonumber(selected.course_raw)
+        if course == nil then
+            course = tonumber(selected.course)
+        end
+        if course == nil or course < 0 or course >= 360 then
+            return nil
+        end
+        return P.calccourse(course)
+    end
+
+    local function entry_nav_course()
+        if entry.isTrueCourse and entry.truecourse then
+            return "NAV_TRUE", P.calccourse(entry.truecourse + magVar)
+        end
+        local entryCourse = tonumber(entry[def.DESTCOURSE])
+        if entryCourse and entryCourse > 0 then
+            return "NAV", P.calccourse(entryCourse)
+        end
+        return nil, nil
+    end
+
+    local function is_real_rnav_landing_nav_entry()
+        if entry._detectedOnly then
+            return false
+        end
+        if navType ~= def.NAVTYPERNAV and navType ~= def.NAVTYPELPV and navType ~= def.NAVTYPEGLS then
+            return false
+        end
+        if entry._source == "zibo_api" then
+            return true
+        end
+        local recType = tostring(entry[def.DESTSRCRECTYPE] or "")
+        if recType == def.NAVDATARECTYPELPV or recType == def.NAVDATARECTYPEGLS
+            or recType == def.NAVDATARECTYPEWAAS then
+            return true
+        end
+        local serviceLevel = type(entry.serviceLevel) == "string" and entry.serviceLevel:upper() or ""
+        return entry.isLateralOnly == true or serviceLevel == "LP" or serviceLevel == "LPV" or serviceLevel == "GLS"
+    end
+
+    local selectedCifpCourse = selected_cifp_rnav_course_mag()
+    if selectedCifpCourse ~= nil then
+        markSource("CIFP_SELECTED")
+        return selectedCifpCourse
+    end
+
     if navType == def.NAVTYPEILS or navType == def.NAVTYPELOC
         or navType == def.NAVTYPELDA or navType == def.NAVTYPEIGS then
         local raw = entry[def.DESTRAWBEARING]
@@ -5125,6 +5604,13 @@ function P.calcApproachCourseZibo(entry, ctx)
                     return P.calccourse(runwayTrue + magVar)
                 end
             end
+            if is_real_rnav_landing_nav_entry() then
+                local entrySource, entryCourse = entry_nav_course()
+                if entryCourse then
+                    markSource(entrySource)
+                    return entryCourse
+                end
+            end
             local fmsMag = get_fms_final_mag_course()
             if fmsMag then
                 markSource("FMS")
@@ -5141,14 +5627,10 @@ function P.calcApproachCourseZibo(entry, ctx)
                 return P.calccourse(runwayTrue + magVar)
             end
         end
-        if entry.isTrueCourse and entry.truecourse then
-            markSource("NAV_TRUE")
-            return P.calccourse(entry.truecourse + magVar)
-        end
-        local entryCourse = tonumber(entry[def.DESTCOURSE])
-        if entryCourse and entryCourse > 0 then
-            markSource("NAV")
-            return P.calccourse(entryCourse)
+        local entrySource, entryCourse = entry_nav_course()
+        if entryCourse then
+            markSource(entrySource)
+            return entryCourse
         end
         local candidateTypes = { navType }
         if navType == def.NAVTYPELPV or navType == def.NAVTYPEGLS then
@@ -5552,6 +6034,19 @@ function P.resolveApproachGuidanceCapabilities(context)
     end
     fmsIlsDisable = tonumber(fmsIlsDisable) or 0
 
+    local facCourse = context.facCourse
+    if facCourse == nil and yal and yal.faccrs then
+        facCourse = get(yal.faccrs)
+    end
+    facCourse = tonumber(facCourse) or 0
+    local facCoursePlausible = facCourse > 0 and facCourse <= 360
+    local facTrack = context.facTrack
+    if facTrack == nil and yal and yal.factrk then
+        facTrack = get(yal.factrk)
+    end
+    facTrack = tonumber(facTrack) or 0
+    local facTrackPlausible = facTrack > 0 and facTrack <= 360
+
     local effectiveNavType = resolvedNavType
     if effectiveNavType == def.NAVTYPERNAV and (selectedNavType == def.NAVTYPELPV or selectedNavType == def.NAVTYPEGLS) then
         effectiveNavType = selectedNavType
@@ -5569,7 +6064,7 @@ function P.resolveApproachGuidanceCapabilities(context)
     end
 
     local channelCapable = mmrInstalled and lpvInstalled
-    local facPossible = (guidanceFamily == "rnav") and (ianInfo ~= 0)
+    local facPossible = (guidanceFamily == "rnav") and ((ianInfo ~= 0) or facCoursePlausible or facTrackPlausible)
     local gpPossible = facPossible and (not lateralOnly)
     local locGpPossible = (guidanceFamily == "localizer") and (ianInfo ~= 0) and (fmsIlsDisable ~= 0)
     local lpvPossible = (guidanceFamily == "lpv") and channelCapable
@@ -5647,6 +6142,10 @@ function P.resolveApproachGuidanceCapabilities(context)
         lpvPossible = lpvPossible,
         glsPossible = glsPossible,
         ianInfo = ianInfo,
+        facCourse = facCourse,
+        facCoursePlausible = facCoursePlausible,
+        facTrack = facTrack,
+        facTrackPlausible = facTrackPlausible,
         pfdMode = pfdMode,
         pfdModeLabel = pfdInfo and pfdInfo.label or nil,
         expectedLateralMode = expectedLateralMode,
@@ -5761,6 +6260,18 @@ function P.detectCIFPApproachVariant(icao, runway, legs_string, lat_array, lon_a
     return bestMatch
 end
 
+function P.withMissedApproachDiscontinuitySuppression(options, missedStartIndex, missedEndIndex)
+    local opts = options or {}
+    local startIndex = toNumber(missedStartIndex, nil)
+    if startIndex and startIndex > 1 then
+        local endIndex = toNumber(missedEndIndex, nil)
+        if (not endIndex) or endIndex <= 0 or endIndex >= startIndex then
+            opts.ignoreDiscontinuitiesAtOrAfterIndex = math.floor(startIndex + 0.5)
+        end
+    end
+    return opts
+end
+
 function P.detectFMSDiscontinuity(legs_string, lat_array, lon_array, aircraftLat, aircraftLon, options)
     if type(legs_string) ~= "string" then
         return nil
@@ -5862,6 +6373,13 @@ function P.detectFMSDiscontinuity(legs_string, lat_array, lon_array, aircraftLat
     end
 
     local maxAheadNm = options and options.maxAheadNm
+    local ignoreDiscontinuitiesAtOrAfterIndex = toNumber(options and options.ignoreDiscontinuitiesAtOrAfterIndex, nil)
+    if ignoreDiscontinuitiesAtOrAfterIndex then
+        ignoreDiscontinuitiesAtOrAfterIndex = math.floor(ignoreDiscontinuitiesAtOrAfterIndex + 0.5)
+        if ignoreDiscontinuitiesAtOrAfterIndex <= 1 or ignoreDiscontinuitiesAtOrAfterIndex > #tokens then
+            ignoreDiscontinuitiesAtOrAfterIndex = nil
+        end
+    end
 
     for idx, token in ipairs(tokens) do
         local upperToken = normalizeToken(token)
@@ -5870,6 +6388,9 @@ function P.detectFMSDiscontinuity(legs_string, lat_array, lon_array, aircraftLat
             local nextLeg = findNextUsable(idx + 1)
 
             local skip = false
+            if ignoreDiscontinuitiesAtOrAfterIndex and idx >= ignoreDiscontinuitiesAtOrAfterIndex then
+                skip = true
+            end
             if positionFilterActive and tokenDistances and distanceFromStart and prevLeg then
                 local prevIndex = idx - 1
                 while prevIndex > 0 do
@@ -7080,6 +7601,376 @@ local function xor32(a, b)
         bitval = bitval * 2
     end
     return res
+end
+
+local updater = {
+    band = (bit and bit.band) or (bit32 and bit32.band) or nil,
+    rshift = (bit and bit.rshift) or (bit32 and bit32.rshift) or nil,
+    crc32_table = nil,
+}
+
+function updater.band32(a, b)
+    if updater.band then
+        return updater.band(a, b)
+    end
+    local res = 0
+    local bitval = 1
+    local aa = math.floor(a or 0) % 4294967296
+    local bb = math.floor(b or 0) % 4294967296
+    for _ = 1, 32 do
+        local abit = aa % 2
+        local bbit = bb % 2
+        if abit == 1 and bbit == 1 then
+            res = res + bitval
+        end
+        aa = (aa - abit) / 2
+        bb = (bb - bbit) / 2
+        bitval = bitval * 2
+    end
+    return res
+end
+
+function updater.rshift32(a, n)
+    if updater.rshift then
+        return updater.rshift(a, n)
+    end
+    local v = math.floor(a or 0) % 4294967296
+    return math.floor(v / (2 ^ (tonumber(n) or 0)))
+end
+
+function updater.buildCrc32Table()
+    if updater.crc32_table then
+        return updater.crc32_table
+    end
+    updater.crc32_table = {}
+    for i = 0, 255 do
+        local c = i
+        for _ = 1, 8 do
+            if updater.band32(c, 1) ~= 0 then
+                c = xor32(updater.rshift32(c, 1), 0xEDB88320)
+            else
+                c = updater.rshift32(c, 1)
+            end
+        end
+        updater.crc32_table[i] = c
+    end
+    return updater.crc32_table
+end
+
+function updater.crc32File(path)
+    local tbl = updater.buildCrc32Table()
+    local file, err = io.open(path, "rb")
+    if not file then
+        return nil, err or "open failed"
+    end
+    local crc = 0xFFFFFFFF
+    while true do
+        local chunk = file:read(32768)
+        if not chunk then
+            break
+        end
+        for i = 1, #chunk do
+            local idx = updater.band32(xor32(crc, string.byte(chunk, i)), 0xFF)
+            crc = xor32(updater.rshift32(crc, 8), tbl[idx])
+        end
+    end
+    file:close()
+    return tostring(xor32(crc, 0xFFFFFFFF) % 4294967296)
+end
+
+function updater.trimPlain(text)
+    local s = tostring(text or "")
+    while #s > 0 and string.byte(s, 1) <= 32 do
+        s = string.sub(s, 2)
+    end
+    while #s > 0 and string.byte(s, #s) <= 32 do
+        s = string.sub(s, 1, #s - 1)
+    end
+    return s
+end
+
+function updater.parsePipeMap(text)
+    local result = {}
+    for line in tostring(text or ""):gmatch("[^\r\n]+") do
+        local cleaned = updater.trimPlain(line)
+        local sep = cleaned:find("|", 1, true)
+        if sep and sep > 1 then
+            local key = updater.trimPlain(string.sub(cleaned, 1, sep - 1))
+            local value = updater.trimPlain(string.sub(cleaned, sep + 1))
+            if key ~= "" then
+                result[key] = value
+            end
+        end
+    end
+    return result
+end
+
+function updater.safeManifestPath(rel)
+    local path = tostring(rel or ""):gsub("\\", "/")
+    if path == "" then
+        return nil
+    end
+    if string.sub(path, 1, 1) == "/" then
+        return nil
+    end
+    if path:find(":", 1, true) then
+        return nil
+    end
+    if path == ".." or path:find("../", 1, true) or path:find("/..", 1, true) then
+        return nil
+    end
+    return path
+end
+
+function updater.localJoin(root, rel)
+    local path = tostring(rel or ""):gsub("/", def.OSSEPARATOR)
+    local base = tostring(root or "")
+    if string.sub(base, -1) == def.OSSEPARATOR then
+        return base .. path
+    end
+    return base .. def.OSSEPARATOR .. path
+end
+
+function updater.parentDir(path)
+    local sep = def.OSSEPARATOR
+    local last = nil
+    for i = #path, 1, -1 do
+        if string.sub(path, i, i) == sep then
+            last = i
+            break
+        end
+    end
+    if not last or last <= 1 then
+        return nil
+    end
+    return string.sub(path, 1, last - 1)
+end
+
+function updater.writeBinaryFile(path, data)
+    local dir = updater.parentDir(path)
+    if dir and not P.check_create_path(dir) then
+        return false, "failed to create folder"
+    end
+    local file, err = io.open(path, "wb")
+    if not file then
+        return false, err or "open failed"
+    end
+    file:write(data or "")
+    file:close()
+    return true
+end
+
+function updater.copyBinaryFile(source, destination)
+    local dir = updater.parentDir(destination)
+    if dir and not P.check_create_path(dir) then
+        return false, "failed to create folder"
+    end
+    local inp, err = io.open(source, "rb")
+    if not inp then
+        return false, err or "source open failed"
+    end
+    local out, err2 = io.open(destination, "wb")
+    if not out then
+        inp:close()
+        return false, err2 or "destination open failed"
+    end
+    while true do
+        local chunk = inp:read(32768)
+        if not chunk then
+            break
+        end
+        out:write(chunk)
+    end
+    out:close()
+    inp:close()
+    return true
+end
+
+function updater.urlEncodePath(path)
+    local out = {}
+    local s = tostring(path or "")
+    for i = 1, #s do
+        local b = string.byte(s, i)
+        local keep = (b >= 48 and b <= 57)
+            or (b >= 65 and b <= 90)
+            or (b >= 97 and b <= 122)
+            or b == 45 or b == 46 or b == 95 or b == 126 or b == 47
+        if keep then
+            out[#out + 1] = string.char(b)
+        else
+            out[#out + 1] = string.format("%%%02X", b)
+        end
+    end
+    return table.concat(out)
+end
+
+function updater.endsWith(text, suffix)
+    local s = tostring(text or "")
+    local tail = tostring(suffix or "")
+    return tail ~= "" and #s >= #tail and string.sub(s, -#tail) == tail
+end
+
+function updater.isNativeSaslPath(rel)
+    local p = tostring(rel or ""):lower():gsub("\\", "/")
+    if string.sub(p, 1, 3) == "64/" or string.sub(p, 1, 9) == "liblinux/" then
+        return true
+    end
+    return updater.endsWith(p, ".xpl") or updater.endsWith(p, ".dll") or updater.endsWith(p, ".so") or updater.endsWith(p, ".dylib")
+end
+
+function updater.fetchText(url)
+    local ok, contents = sasl.net.downloadFileContentsSync(url)
+    if not ok then
+        return nil, "download failed"
+    end
+    return contents or ""
+end
+
+function P.getYalUpdateDepotBaseUrl(useBeta)
+    if useBeta then
+        return def.YALBETAUPDATEBASEURL
+    end
+    return def.YALUPDATEBASEURL
+end
+
+function P.installYalUpdateFromDepot(useBeta)
+    local baseUrl = P.getYalUpdateDepotBaseUrl(useBeta)
+    local channelName = useBeta and "Beta" or "Stable"
+    P.logInfoTS("YAL updater: checking " .. channelName .. " depot at " .. tostring(baseUrl))
+
+    local cfgText, cfgErr = updater.fetchText(baseUrl .. "/skunkcrafts_updater.cfg")
+    if not cfgText then
+        return { ok = false, code = "manifest_failed", title = "YAL Update Failed", lines = { "Could not read update depot configuration.", tostring(cfgErr or "") } }
+    end
+    local cfg = updater.parsePipeMap(cfgText)
+    if tostring(cfg.disabled or "false"):lower() == "true" then
+        return { ok = false, code = "disabled", title = "YAL Update Not Available", lines = { "The selected YAL update depot is disabled." } }
+    end
+    if tostring(cfg.locked or "false"):lower() == "true" then
+        return { ok = false, code = "locked", title = "YAL Update Not Available", lines = { "The selected YAL update depot is currently locked." } }
+    end
+
+    local targetVersion = tostring(cfg.version or "")
+    local whitelistText = updater.fetchText(baseUrl .. "/skunkcrafts_updater_whitelist.txt")
+    local sizesText = updater.fetchText(baseUrl .. "/skunkcrafts_updater_sizeslist.txt")
+    if not whitelistText or not sizesText then
+        return { ok = false, code = "manifest_failed", title = "YAL Update Failed", lines = { "Could not read update depot manifest." } }
+    end
+
+    local whitelist = updater.parsePipeMap(whitelistText)
+    local sizes = updater.parsePipeMap(sizesText)
+    local changes = {}
+    local nativeChanges = {}
+    for rel, crc in pairs(whitelist) do
+        local safeRel = updater.safeManifestPath(rel)
+        if safeRel then
+            local expectedSize = tonumber(sizes[rel] or sizes[safeRel] or "")
+            local finalPath = updater.localJoin(def.PLUGINPATH, safeRel)
+            local localSize = get_file_size(finalPath)
+            local localCrc = nil
+            if localSize ~= nil and expectedSize ~= nil and tonumber(localSize) == expectedSize then
+                local crcErr
+                localCrc, crcErr = updater.crc32File(finalPath)
+                if not localCrc then
+                    return { ok = false, code = "crc_failed", title = "YAL Update Failed", lines = { "Could not calculate local CRC32.", safeRel, tostring(crcErr or "") } }
+                end
+            end
+            if localSize == nil or expectedSize == nil or tonumber(localSize) ~= expectedSize or tostring(localCrc or "") ~= tostring(crc or "") then
+                local entry = { rel = safeRel, crc = tostring(crc or ""), size = expectedSize or -1 }
+                if updater.isNativeSaslPath(safeRel) then
+                    nativeChanges[#nativeChanges + 1] = entry
+                else
+                    changes[#changes + 1] = entry
+                end
+            end
+        end
+    end
+
+    if #nativeChanges > 0 then
+        P.logInfoTS("YAL updater: native SASL files changed; runtime update blocked")
+        return {
+            ok = false,
+            code = "native_sasl",
+            title = "YAL Update Requires Restart",
+            lines = {
+                "This update contains native SASL plugin files.",
+                "YAL cannot replace loaded plugin binaries while X-Plane is running.",
+                "Please close X-Plane and update YAL via SkunkCrafts or the full ZIP package.",
+            },
+            targetVersion = targetVersion,
+            changedFiles = #nativeChanges,
+        }
+    end
+
+    if #changes == 0 then
+        return {
+            ok = true,
+            code = "already_current",
+            title = "YAL Update",
+            lines = { "YAL already matches the selected " .. channelName .. " depot." },
+            targetVersion = targetVersion,
+            changedFiles = 0,
+        }
+    end
+
+    table.sort(changes, function(a, b)
+        if a.rel == "data/modules/configuration/version.ini" then
+            return false
+        end
+        if b.rel == "data/modules/configuration/version.ini" then
+            return true
+        end
+        return tostring(a.rel) < tostring(b.rel)
+    end)
+
+    local staging = updater.localJoin(def.YALCACHEPATH, "update_staging/" .. (useBeta and "beta" or "stable"))
+    P.remove_directory(staging)
+    if not P.check_create_path(staging) then
+        return { ok = false, code = "staging_failed", title = "YAL Update Failed", lines = { "Could not create update staging folder." } }
+    end
+
+    for _, entry in ipairs(changes) do
+        local url = baseUrl .. "/" .. updater.urlEncodePath(entry.rel)
+        local contents, err = updater.fetchText(url)
+        if not contents then
+            return { ok = false, code = "download_failed", title = "YAL Update Failed", lines = { "Could not download " .. entry.rel .. ".", tostring(err or "") } }
+        end
+        local stagedPath = updater.localJoin(staging, entry.rel)
+        local writeOk, writeErr = updater.writeBinaryFile(stagedPath, contents)
+        if not writeOk then
+            return { ok = false, code = "stage_write_failed", title = "YAL Update Failed", lines = { "Could not stage " .. entry.rel .. ".", tostring(writeErr or "") } }
+        end
+        local stagedSize = get_file_size(stagedPath)
+        local stagedCrc, stagedCrcErr = updater.crc32File(stagedPath)
+        if not stagedCrc then
+            return { ok = false, code = "crc_failed", title = "YAL Update Failed", lines = { "Could not calculate staged CRC32.", entry.rel, tostring(stagedCrcErr or "") } }
+        end
+        if tonumber(stagedSize or -1) ~= tonumber(entry.size or -2) or tostring(stagedCrc or "") ~= tostring(entry.crc or "") then
+            return { ok = false, code = "verify_failed", title = "YAL Update Failed", lines = { "Downloaded file verification failed.", entry.rel } }
+        end
+    end
+
+    for _, entry in ipairs(changes) do
+        local stagedPath = updater.localJoin(staging, entry.rel)
+        local finalPath = updater.localJoin(def.PLUGINPATH, entry.rel)
+        local copyOk, copyErr = updater.copyBinaryFile(stagedPath, finalPath)
+        if not copyOk then
+            return { ok = false, code = "copy_failed", title = "YAL Update Failed", lines = { "Could not install " .. entry.rel .. ".", tostring(copyErr or "") } }
+        end
+    end
+
+    P.logInfoTS(string.format("YAL updater: installed %d file(s) from %s depot v%s", #changes, channelName, tostring(targetVersion)))
+    return {
+        ok = true,
+        code = "installed",
+        title = "YAL Update Installed",
+        lines = {
+            string.format("YAL update to v%s installed successfully.", tostring(targetVersion ~= "" and targetVersion or "?")),
+            "Please reload YAL or restart X-Plane.",
+        },
+        targetVersion = targetVersion,
+        changedFiles = #changes,
+    }
 end
 
 local function fnv1a_update(hash, chunk)
@@ -10478,10 +11369,6 @@ function P.atmoIasToTas(ias_kt, alt_ft)
 end
 
 -- CG / QuickView helpers ------------------------------------------------------
-local function get_zibo_base_path()
-    return sasl.getXPlanePath() .. def.OSSEPARATOR .. "Aircraft" .. def.OSSEPARATOR .. "B737-800X" .. def.OSSEPARATOR
-end
-
 local QV_UPDATE_STAGE_SELECT = 0
 local QV_UPDATE_STAGE_SAVE = 1
 local DEFAULT_VIEW_STAGE_NORMALIZE = 0
@@ -10491,33 +11378,190 @@ local DEFAULT_VIEW_STAGE_APPLY = 2
 P.quickViewCgUpdateJob = P.quickViewCgUpdateJob or nil
 P.defaultViewUpdateJob = P.defaultViewUpdateJob or nil
 
-local function get_current_zibo_variant()
+local function trim_trailing_separator(path)
+    local text = tostring(path or "")
+    while #text > 0 do
+        local ch = string.sub(text, -1)
+        if ch ~= "/" and ch ~= "\\" then
+            break
+        end
+        text = string.sub(text, 1, -2)
+    end
+    return text
+end
+
+local function normalize_relative_path(path)
+    local sep = def.OSSEPARATOR or "/"
+    local text = tostring(path or "")
+    text = string.gsub(text, "\\", "/")
+    if sep ~= "/" then
+        text = string.gsub(text, "/", sep)
+    end
+    return text
+end
+
+local function join_path(base, rel)
+    local sep = def.OSSEPARATOR or "/"
+    local left = trim_trailing_separator(base)
+    local right = normalize_relative_path(rel)
+    while #right > 0 do
+        local ch = string.sub(right, 1, 1)
+        if ch ~= "/" and ch ~= "\\" then
+            break
+        end
+        right = string.sub(right, 2)
+    end
+    if left == "" then
+        return right
+    end
+    if right == "" then
+        return left
+    end
+    return left .. sep .. right
+end
+
+local function split_relative_file(path)
+    local rel = tostring(path or "")
+    rel = string.gsub(rel, "\\", "/")
+    local dir, file = string.match(rel, "^(.*)/(.-)$")
+    if not file then
+        return "", rel
+    end
+    return dir or "", file
+end
+
+local function strip_acf_extension(file)
+    local name = tostring(file or "")
+    if string.sub(string.lower(name), -4) == ".acf" then
+        return string.sub(name, 1, -5)
+    end
+    return name
+end
+
+local function sanitize_settings_key_part(text)
+    local result = {}
+    local s = string.upper(tostring(text or ""))
+    for i = 1, #s do
+        local ch = string.sub(s, i, i)
+        local b = string.byte(ch)
+        local is_alpha = (b >= 65 and b <= 90)
+        local is_digit = (b >= 48 and b <= 57)
+        if is_alpha or is_digit then
+            result[#result + 1] = ch
+        else
+            result[#result + 1] = "_"
+        end
+    end
+    local key = table.concat(result)
+    while string.find(key, "__", 1, true) do
+        key = string.gsub(key, "__", "_")
+    end
+    key = string.gsub(key, "^_+", "")
+    key = string.gsub(key, "_+$", "")
+    if key == "" then
+        key = "UNKNOWN"
+    end
+    return key
+end
+
+local function file_exists(path)
+    local f = io.open(path, "rb")
+    if not f then
+        return false
+    end
+    f:close()
+    return true
+end
+
+local function build_view_variant(dir_rel, acf_name)
+    local stem = strip_acf_extension(acf_name)
+    if stem == "" then
+        return nil
+    end
+    local base = join_path(sasl.getXPlanePath(), dir_rel)
+    local stem_lower = string.lower(stem)
+    local name = stem
+    local key_y
+    local key_z
+    local xcamera = "X-Camera_" .. stem .. ".csv"
+
+    if stem_lower == "b738_4k" then
+        name = "4k"
+        key_y = "CG_BASE_4K_Y"
+        key_z = "CG_BASE_4K_Z"
+        xcamera = "X-Camera_b738_4k.csv"
+    elseif stem_lower == "b738" then
+        name = "2k"
+        key_y = "CG_BASE_2K_Y"
+        key_z = "CG_BASE_2K_Z"
+        xcamera = "X-Camera_b738.csv"
+    else
+        local safe_key = sanitize_settings_key_part(stem)
+        key_y = "CG_BASE_ACF_" .. safe_key .. "_Y"
+        key_z = "CG_BASE_ACF_" .. safe_key .. "_Z"
+    end
+
+    return {
+        name = name,
+        base = base,
+        acf = acf_name,
+        prefs = stem .. "_prefs.txt",
+        xcamera = xcamera,
+        acfPath = join_path(base, acf_name),
+        prefsPath = join_path(base, stem .. "_prefs.txt"),
+        xcameraPath = join_path(base, xcamera),
+        keyY = key_y,
+        keyZ = key_z,
+        stem = stem,
+        dirRel = dir_rel
+    }
+end
+
+local function get_current_view_variant()
     local rel = get(acf_relative_path)
     if type(rel) ~= "string" or rel == "" then
         return nil, "aircraft path not available"
     end
-    local rel_lower = string.lower(rel)
-    if string.find(rel_lower, "b738_4k.acf", 1, true) then
-        return {
-            name = "4k",
-            acf = "b738_4k.acf",
-            prefs = "b738_4k_prefs.txt",
-            xcamera = "X-Camera_b738_4k.csv",
-            keyY = "CG_BASE_4K_Y",
-            keyZ = "CG_BASE_4K_Z"
-        }
+    local dir_rel, acf_name = split_relative_file(rel)
+    if acf_name == "" or string.sub(string.lower(acf_name), -4) ~= ".acf" then
+        return nil, "unsupported aircraft path: " .. tostring(rel)
     end
-    if string.find(rel_lower, "b738.acf", 1, true) then
-        return {
-            name = "2k",
-            acf = "b738.acf",
-            prefs = "b738_prefs.txt",
-            xcamera = "X-Camera_b738.csv",
-            keyY = "CG_BASE_2K_Y",
-            keyZ = "CG_BASE_2K_Z"
-        }
+    return build_view_variant(dir_rel, acf_name)
+end
+
+local function add_variant_once(list, seen, variant)
+    if not variant or not variant.acfPath then
+        return
     end
-    return nil, "unsupported aircraft: " .. tostring(rel)
+    local key = string.lower(tostring(variant.acfPath))
+    if seen[key] then
+        return
+    end
+    seen[key] = true
+    list[#list + 1] = variant
+end
+
+local function get_startup_view_variants()
+    local current = get_current_view_variant()
+    if not current then
+        return {}
+    end
+    local list = {}
+    local seen = {}
+    add_variant_once(list, seen, current)
+
+    local stem_lower = string.lower(current.stem or "")
+    if stem_lower == "b738" or stem_lower == "b738_4k" then
+        local zibo_4k = build_view_variant(current.dirRel, "b738_4k.acf")
+        local zibo_2k = build_view_variant(current.dirRel, "b738.acf")
+        if zibo_4k and file_exists(zibo_4k.acfPath) then
+            add_variant_once(list, seen, zibo_4k)
+        end
+        if zibo_2k and file_exists(zibo_2k.acfPath) then
+            add_variant_once(list, seen, zibo_2k)
+        end
+    end
+    return list
 end
 
 local function read_acf_cg(path)
@@ -10985,7 +12029,22 @@ local function queue_quickview_cg_job(variant, cg, delta_y, delta_z, indices, qv
         target_cg_long = cg.long,
         settings_backup_done = false
     }
-    P.logInfoTS(string.format("QuickViews CG update queued: %s (%d views, deltaY %.4f ft, deltaZ %.4f ft)", variant.name, #indices, delta_y, delta_z))
+    local message = string.format("QuickViews CG update queued: %s (%d views, deltaY %.4f ft, deltaZ %.4f ft)", variant.name, #indices, delta_y, delta_z)
+    P.logInfoTS(message)
+    return message
+end
+
+local function add_quickview_action_message(messages, message)
+    messages[#messages + 1] = message
+    P.logInfoTS(message)
+    return message
+end
+
+local function finish_quickview_action_messages(messages)
+    if #messages == 1 then
+        return messages[1]
+    end
+    return messages
 end
 
 function P.adjustQuickViewsForCgChange()
@@ -11002,16 +12061,13 @@ function P.adjustQuickViewsForCgChange()
         P.logInfoTS("QuickViews CG update already in progress")
         return
     end
-    local variant, v_err = get_current_zibo_variant()
+    local variant, v_err = get_current_view_variant()
     if not variant then
         P.logInfoTS("QuickViews CG update: " .. tostring(v_err))
         return
     end
 
-    local base = get_zibo_base_path()
-    local acf_path = base .. variant.acf
-    local prefs_path = base .. variant.prefs
-    local cg, err = read_acf_cg(acf_path)
+    local cg, err = read_acf_cg(variant.acfPath)
     if not cg then
         P.logInfoTS("QuickViews CG update: failed to read " .. variant.name .. " CG (" .. tostring(err) .. ")")
         return
@@ -11035,13 +12091,13 @@ function P.adjustQuickViewsForCgChange()
         return
     end
 
-    local indices, qv_data = read_quickview_data(prefs_path)
+    local indices, qv_data = read_quickview_data(variant.prefsPath)
     if not indices then
         P.logInfoTS("QuickViews CG update: failed to read quick views (" .. tostring(qv_data) .. ")")
         return
     end
 
-    local ok_backup, backup_or_err = backup_file(prefs_path)
+    local ok_backup, backup_or_err = backup_file(variant.prefsPath)
     if not ok_backup then
         P.logInfoTS("QuickViews CG update: backup failed (" .. tostring(backup_or_err) .. ")")
         return
@@ -11053,32 +12109,24 @@ end
 
 function P.adjustQuickViewsAndXCameraForCgChange()
     local settings = require("settings")
+    local messages = {}
     if not views_change_allowed() then
-        P.logInfoTS("QuickViews+X-Camera CG update blocked (requires preflight, on ground, parking brake set)")
-        return
+        return add_quickview_action_message(messages, "QuickViews+X-Camera CG update blocked (requires preflight, on ground, parking brake set)")
     end
     if P.defaultViewUpdateJob then
-        P.logInfoTS("QuickViews+X-Camera CG update blocked (default view update in progress)")
-        return
+        return add_quickview_action_message(messages, "QuickViews+X-Camera CG update blocked (default view update in progress)")
     end
     if P.quickViewCgUpdateJob then
-        P.logInfoTS("QuickViews+X-Camera CG update already in progress")
-        return
+        return add_quickview_action_message(messages, "QuickViews+X-Camera CG update already in progress")
     end
-    local variant, v_err = get_current_zibo_variant()
+    local variant, v_err = get_current_view_variant()
     if not variant then
-        P.logInfoTS("QuickViews+X-Camera CG update: " .. tostring(v_err))
-        return
+        return add_quickview_action_message(messages, "QuickViews+X-Camera CG update: " .. tostring(v_err))
     end
 
-    local base = get_zibo_base_path()
-    local acf_path = base .. variant.acf
-    local prefs_path = base .. variant.prefs
-    local xcamera_path = base .. variant.xcamera
-    local cg, err = read_acf_cg(acf_path)
+    local cg, err = read_acf_cg(variant.acfPath)
     if not cg then
-        P.logInfoTS("QuickViews+X-Camera CG update: failed to read " .. variant.name .. " CG (" .. tostring(err) .. ")")
-        return
+        return add_quickview_action_message(messages, "QuickViews+X-Camera CG update: failed to read " .. variant.name .. " CG (" .. tostring(err) .. ")")
     end
 
     local stored_y = tonumber(settings.appSettings[variant.keyY])
@@ -11088,59 +12136,56 @@ function P.adjustQuickViewsAndXCameraForCgChange()
         settings.appSettings[variant.keyZ] = cg.long
         backup_yal_prefs("QuickViews+X-Camera CG update")
         settings.writeSettings(settings.appSettings)
-        P.logInfoTS("QuickViews+X-Camera CG update: stored baseline for " .. variant.name .. " (no adjustment performed)")
-        return
+        return add_quickview_action_message(messages, "QuickViews+X-Camera CG update: stored baseline for " .. variant.name .. " (no adjustment performed)")
     end
 
     local delta_z = cg.long - stored_z
     local delta_y = cg.vert - stored_y
     if math.abs(delta_z) < 0.0001 and math.abs(delta_y) < 0.0001 then
-        P.logInfoTS("QuickViews+X-Camera CG update: no CG change for " .. variant.name)
-        return
+        return add_quickview_action_message(messages, "QuickViews+X-Camera CG update: no CG change for " .. variant.name)
     end
 
-    local indices, qv_data = read_quickview_data(prefs_path)
+    local indices, qv_data = read_quickview_data(variant.prefsPath)
     if not indices then
-        P.logInfoTS("QuickViews+X-Camera CG update: failed to read quick views (" .. tostring(qv_data) .. ")")
-        return
+        return add_quickview_action_message(messages, "QuickViews+X-Camera CG update: failed to read quick views (" .. tostring(qv_data) .. ")")
     end
 
-    local ok_backup, backup_or_err = backup_file(prefs_path)
+    local ok_backup, backup_or_err = backup_file(variant.prefsPath)
     if not ok_backup then
-        P.logInfoTS("QuickViews+X-Camera CG update: prefs backup failed (" .. tostring(backup_or_err) .. ")")
-        return
+        return add_quickview_action_message(messages, "QuickViews+X-Camera CG update: prefs backup failed (" .. tostring(backup_or_err) .. ")")
     end
-    P.logInfoTS("QuickViews+X-Camera CG update: prefs backup created at " .. tostring(backup_or_err))
+    add_quickview_action_message(messages, "QuickViews+X-Camera CG update: prefs backup created at " .. tostring(backup_or_err))
 
-    local xcam_file = io.open(xcamera_path, "r")
+    local xcam_file = io.open(variant.xcameraPath, "r")
     if not xcam_file then
-        P.logInfoTS("QuickViews+X-Camera CG update: X-Camera file not found (" .. tostring(xcamera_path) .. ")")
-        return
+        add_quickview_action_message(messages, "QuickViews+X-Camera CG update: X-Camera file not found (" .. tostring(variant.xcameraPath) .. ")")
+        return finish_quickview_action_messages(messages)
     end
     xcam_file:close()
 
-    local ok_xcam_backup, xcam_backup_or_err = backup_file(xcamera_path)
+    local ok_xcam_backup, xcam_backup_or_err = backup_file(variant.xcameraPath)
     if not ok_xcam_backup then
-        P.logInfoTS("QuickViews+X-Camera CG update: X-Camera backup failed (" .. tostring(xcam_backup_or_err) .. ")")
-        return
+        add_quickview_action_message(messages, "QuickViews+X-Camera CG update: X-Camera backup failed (" .. tostring(xcam_backup_or_err) .. ")")
+        return finish_quickview_action_messages(messages)
     end
-    P.logInfoTS("QuickViews+X-Camera CG update: X-Camera backup created at " .. tostring(xcam_backup_or_err))
+    add_quickview_action_message(messages, "QuickViews+X-Camera CG update: X-Camera backup created at " .. tostring(xcam_backup_or_err))
 
     local delta_m_y = delta_y * 0.3048
     local delta_m_z = delta_z * 0.3048
-    local ok_xcam, updated, used_offsets, offsets_reset = update_xcamera_cg_offsets(xcamera_path, delta_m_y, delta_m_z)
+    local ok_xcam, updated, used_offsets, offsets_reset = update_xcamera_cg_offsets(variant.xcameraPath, delta_m_y, delta_m_z)
     if not ok_xcam then
-        P.logInfoTS("QuickViews+X-Camera CG update: X-Camera update failed (" .. tostring(updated) .. ")")
-        return
+        add_quickview_action_message(messages, "QuickViews+X-Camera CG update: X-Camera update failed (" .. tostring(updated) .. ")")
+        return finish_quickview_action_messages(messages)
     end
     local mode = used_offsets and "offsets" or "positions"
     local reset_note = ""
     if offsets_reset and offsets_reset > 0 then
         reset_note = string.format(", %d offset resets", offsets_reset)
     end
-    P.logInfoTS(string.format("QuickViews+X-Camera CG update: X-Camera updated (%d views, %s, origin=0 filter%s)", updated or 0, mode, reset_note))
+    add_quickview_action_message(messages, string.format("QuickViews+X-Camera CG update: X-Camera updated (%d views, %s, origin=0 filter%s)", updated or 0, mode, reset_note))
 
-    queue_quickview_cg_job(variant, cg, delta_y, delta_z, indices, qv_data)
+    messages[#messages + 1] = queue_quickview_cg_job(variant, cg, delta_y, delta_z, indices, qv_data)
+    return finish_quickview_action_messages(messages)
 end
 
 function P.stepQuickViewsCgUpdate()
@@ -11252,32 +12297,30 @@ function P.stepQuickViewsCgUpdate()
 end
 
 function P.applyDefaultViewFromQV0()
+    local messages = {}
     if P.quickViewCgUpdateJob then
-        P.logInfoTS("Default view update blocked (QuickViews CG update in progress)")
-        return
+        return add_quickview_action_message(messages, "Default view update blocked (QuickViews CG update in progress)")
     end
-    local variant, v_err = get_current_zibo_variant()
+    local variant, v_err = get_current_view_variant()
     if not variant then
-        P.logInfoTS("Default view update: " .. tostring(v_err))
-        return
+        return add_quickview_action_message(messages, "Default view update: " .. tostring(v_err))
     end
-    local base = get_zibo_base_path()
-    local qv, qv_err = read_qv0(base .. variant.prefs)
+    local qv, qv_err = read_qv0(variant.prefsPath)
     if not qv then
-        P.logInfoTS("Default view update failed: " .. tostring(qv_err))
-        return
+        return add_quickview_action_message(messages, "Default view update failed: " .. tostring(qv_err))
     end
-    local ok, err = apply_default_view_from_qv0_data(base .. variant.acf, qv)
+    local ok, err = apply_default_view_from_qv0_data(variant.acfPath, qv)
     if ok then
         if err == "no-change" then
-            P.logInfoTS("Default view already matches QV0 (" .. variant.name .. ")")
+            add_quickview_action_message(messages, "Default view already matches QV0 (" .. variant.name .. ")")
         else
-            P.logInfoTS("Default view updated from QV0 (" .. variant.name .. ")")
-            P.logInfoTS("Default view update: ACF updated (reload not performed)")
+            add_quickview_action_message(messages, "Default view updated from QV0 (" .. variant.name .. ")")
+            add_quickview_action_message(messages, "Default view update: ACF updated (reload not performed)")
         end
     else
-        P.logInfoTS("Default view update failed (" .. variant.name .. "): " .. tostring(err))
+        add_quickview_action_message(messages, "Default view update failed (" .. variant.name .. "): " .. tostring(err))
     end
+    return finish_quickview_action_messages(messages)
 end
 
 function P.stepDefaultViewUpdate()
@@ -11323,9 +12366,8 @@ function P.stepDefaultViewUpdate()
         return false
     end
 
-    local base = get_zibo_base_path()
     local did_adjust = false
-    local ok, err = apply_default_view_from_qv0_data(base .. job.variant.acf, qv)
+    local ok, err = apply_default_view_from_qv0_data(job.variant.acfPath, qv)
     if ok then
         if err == "no-change" then
             P.logInfoTS("Default view already matches QV0 (" .. job.variant.name .. ")")
@@ -11343,20 +12385,18 @@ function P.stepDefaultViewUpdate()
     return false
 end
 
-local function check_default_view_matches_qv0(variant, base)
-    local acf_path = base .. variant.acf
-    local prefs_path = base .. variant.prefs
-    local qv, qv_err = read_qv0(prefs_path)
+local function check_default_view_matches_qv0(variant)
+    local qv, qv_err = read_qv0(variant.prefsPath)
     if not qv then
         P.logInfoTS("Default view check failed (" .. variant.name .. "): " .. tostring(qv_err))
         return
     end
-    local cg, cg_err = read_acf_cg(acf_path)
+    local cg, cg_err = read_acf_cg(variant.acfPath)
     if not cg then
         P.logInfoTS("Default view check failed (" .. variant.name .. "): " .. tostring(cg_err))
         return
     end
-    local current_view, view_err = read_acf_default_view(acf_path)
+    local current_view, view_err = read_acf_default_view(variant.acfPath)
     if not current_view then
         P.logInfoTS("Default view check failed (" .. variant.name .. "): " .. tostring(view_err))
         return
@@ -11381,14 +12421,9 @@ end
 
 function P.checkCgBaselineAtStartup()
     local settings = require("settings")
-    local base = get_zibo_base_path()
-    local variants = {
-        { name = "4k", acf = "b738_4k.acf", keyY = "CG_BASE_4K_Y", keyZ = "CG_BASE_4K_Z" },
-        { name = "2k", acf = "b738.acf", keyY = "CG_BASE_2K_Y", keyZ = "CG_BASE_2K_Z" },
-    }
+    local variants = get_startup_view_variants()
     for _, v in ipairs(variants) do
-        local acf_path = base .. v.acf
-        local cg, err = read_acf_cg(acf_path)
+        local cg, err = read_acf_cg(v.acfPath)
         if not cg then
             P.logInfoTS("CG baseline check failed (" .. v.name .. "): " .. tostring(err))
         else
@@ -11414,13 +12449,9 @@ function P.checkCgBaselineAtStartup()
 end
 
 function P.checkDefaultViewAtStartup()
-    local base = get_zibo_base_path()
-    local variants = {
-        { name = "4k", acf = "b738_4k.acf", prefs = "b738_4k_prefs.txt" },
-        { name = "2k", acf = "b738.acf", prefs = "b738_prefs.txt" },
-    }
+    local variants = get_startup_view_variants()
     for _, v in ipairs(variants) do
-        check_default_view_matches_qv0(v, base)
+        check_default_view_matches_qv0(v)
     end
 end
 

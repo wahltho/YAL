@@ -233,75 +233,61 @@ VR.config = {
 }
 
 --------------------------------------------------------------------------------------------------------------
+local function get_current_baro_inhg(P)
+    local value = nil
+    if P.getcaptainbaroinhg then
+        value = P.getcaptainbaroinhg()
+    else
+        value = get(P.baropilot)
+    end
+    return value and helpers.roundnumber(value, 4) or value
+end
+
+--------------------------------------------------------------------------------------------------------------
 local function complex_check(P)
     -- Fuel Check (with threshold)
     if (math.abs(get(P.totalfuellbs) - P.totalfuellbstemp) > 200) then
         if (get(P.totalfuellbs) ~= P.totalfuellbstemp2) then P.totalfuellbstemp2 = get(P.totalfuellbs)
         else
-            if (get(P.fuelunit) == def.LBS) then P.commandtableentry(def.TEXT, "Fuel quantity " .. tostring(get(P.totalfuellbs)) .. "L B S")
-            else P.commandtableentry(def.TEXT, "Fuel quantity " .. tostring(get(P.totalfuelkgs)) .. "K G") end
+            if (get(P.fuelunit) == def.LBS) then P.commandtableentry(def.TEXT, "Fuel quantity " .. tostring(get(P.totalfuellbs)) .. " pounds")
+            else P.commandtableentry(def.TEXT, "Fuel quantity " .. tostring(get(P.totalfuelkgs)) .. " kilograms") end
             P.totalfuellbstemp = get(P.totalfuellbs)
         end
     else P.totalfuellbstemp = get(P.totalfuellbs) end
 
     -- Baro Check (multiple dataref dependencies)
-    if ((get(P.baropilot) ~= P.baropilottemp) or (get(P.barostd) ~= P.barostdtemp)) then
-        if (get(P.baropilot) ~= P.baropilottemp2) then P.baropilottemp2 = get(P.baropilot)
+    local baro_inhg = get_current_baro_inhg(P)
+    if ((baro_inhg ~= P.baropilottemp) or (get(P.barostd) ~= P.barostdtemp)) then
+        if (baro_inhg ~= P.baropilottemp2) then P.baropilottemp2 = baro_inhg
         else
             if ((get(P.barostd) == def.ON) and (get(P.barostd) ~= P.barostdtemp)) then P.commandtableentry(def.TEXT, "Q N H Standard")
             else
                 if (get(P.baroinhpa) == def.ON) then
-                    local qnhValue = helpers.convertpressure(get(P.baropilot))
+                    local qnhValue = helpers.convertpressure(baro_inhg)
                     local qnhText = helpers.formatQnhValue(qnhValue, true)
                     if qnhText then
                         P.commandtableentry(def.TEXT, "Q N H " .. helpers.addspaces(qnhText))
                     end
                 else
-                    local qnhText = helpers.formatQnhValue(get(P.baropilot), false)
+                    local qnhText = helpers.formatQnhValue(baro_inhg, false)
                     if qnhText then
                         P.commandtableentry(def.TEXT, "Q N H " .. helpers.addspaces(qnhText))
                     end
                 end
             end
-            P.baropilottemp = get(P.baropilot); P.baropilottemp2 = get(P.baropilot); P.barostdtemp = get(P.barostd)
+            P.baropilottemp = baro_inhg; P.baropilottemp2 = baro_inhg; P.barostdtemp = get(P.barostd)
         end
     end
     
-    -- Landing Lights (variant-aware check)
-    local ledVariant = (get(P.ledlightsvariant) == def.ON)
-    local threshold = def.LEDLLIGHTSOFF or 0
-    local current1 = get(P.llights1)
-    local current2 = get(P.llights2)
-    local current3 = get(P.llights3)
-    local current4 = get(P.llights4)
-
-    local temp1 = P.llights1temp
-    local temp2 = P.llights2temp
-    local temp3 = P.llights3temp
-    local temp4 = P.llights4temp
-
-    local changed = (current1 ~= temp1) or (current2 ~= temp2) or (current3 ~= temp3) or (current4 ~= temp4)
-    if changed then
-        if ledVariant then
-            -- LED: nur 1 und 4 relevant
-            if (current1 <= threshold and current4 <= threshold) then
-                P.commandtableentry(def.TEXT, "Landing Lights Off")
-            elseif (temp1 <= threshold and temp4 <= threshold) and (current1 > threshold and current4 > threshold) then
-                P.commandtableentry(def.TEXT, "Landing Lights On")
-            end
-        else
-            -- Halogen: alle vier relevant
-            if (current1 == def.OFF and current2 == def.OFF and current3 == def.OFF and current4 == def.OFF) then
-                P.commandtableentry(def.TEXT, "Landing Lights Off")
-            elseif (temp1 == def.OFF and temp2 == def.OFF and temp3 == def.OFF and temp4 == def.OFF)
-                and (current1 ~= def.OFF and current2 ~= def.OFF and current3 ~= def.OFF and current4 ~= def.OFF) then
-                P.commandtableentry(def.TEXT, "Landing Lights On")
-            end
+    -- Landing Lights
+    local landingLightsState = P.getlandinglightsstate()
+    if (landingLightsState ~= nil) and (landingLightsState ~= P.landinglightsstatetemp) then
+        if landingLightsState == def.OFF then
+            P.commandtableentry(def.TEXT, "Landing Lights Off")
+        elseif landingLightsState == def.ON then
+            P.commandtableentry(def.TEXT, "Landing Lights On")
         end
-        P.llights1temp = current1
-        P.llights2temp = current2
-        P.llights3temp = current3
-        P.llights4temp = current4
+        P.landinglightsstatetemp = landingLightsState
     end
     
     -- Reversers Check (state transition)
@@ -532,10 +518,11 @@ function VR.initialize(P)
     -- Initialize temp vars for the legacy complex_check function
     -- Fuel & Baro
     P.totalfuellbstemp = get(P.totalfuellbs); P.totalfuellbstemp2 = get(P.totalfuellbs)
-    P.barostdtemp = get(P.barostd); P.baropilottemp = get(P.baropilot); P.baropilottemp2 = get(P.baropilot)
+    local baro_inhg = get_current_baro_inhg(P)
+    P.barostdtemp = get(P.barostd); P.baropilottemp = baro_inhg; P.baropilottemp2 = baro_inhg
 
     -- Lights
-    P.llights1temp = get(P.llights1); P.llights2temp = get(P.llights2); P.llights3temp = get(P.llights3); P.llights4temp = get(P.llights4)
+    P.landinglightsstatetemp = P.getlandinglightsstate()
 
     -- Systems
     P.reverser1postemp = get(P.reverser1pos); P.reverser2postemp = get(P.reverser2pos)

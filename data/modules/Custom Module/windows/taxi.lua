@@ -25,8 +25,8 @@ local settings = require("settings")
 local helpers = require("helpers")
 
 local function log_taxi(message)
-    if helpers and helpers.logInfoTS then
-        helpers.logInfoTS(message)
+    if helpers and helpers.logDebugTS then
+        helpers.logDebugTS(message)
     end
 end
 
@@ -358,15 +358,15 @@ end
 local function align_taxi_data_projection(data)
     local ref, ref_east, ref_north = find_projection_ref(data)
     if not ref then
-        if helpers and helpers.logInfoTS then
-            helpers.logInfoTS("TaxiProj: skip no-ref")
+        if helpers and helpers.logDebugTS then
+            helpers.logDebugTS("TaxiProj: skip no-ref")
         end
         return false, 0, 0
     end
     local cur_east, cur_north = latlon_to_local(ref.lat, ref.lon)
     if cur_east == nil or cur_north == nil then
-        if helpers and helpers.logInfoTS then
-            helpers.logInfoTS("TaxiProj: skip ref->local failed")
+        if helpers and helpers.logDebugTS then
+            helpers.logDebugTS("TaxiProj: skip ref->local failed")
         end
         return false, 0, 0
     end
@@ -375,8 +375,8 @@ local function align_taxi_data_projection(data)
     local ax = math.abs(dx)
     local ay = math.abs(dy)
     if ax < 1 and ay < 1 then
-        if helpers and helpers.logInfoTS then
-            helpers.logInfoTS(string.format("TaxiProj: skip tiny shift dx=%.2f dy=%.2f", dx, dy))
+        if helpers and helpers.logDebugTS then
+            helpers.logDebugTS(string.format("TaxiProj: skip tiny shift dx=%.2f dy=%.2f", dx, dy))
         end
         return false, dx, dy
     end
@@ -412,8 +412,8 @@ local function align_taxi_data_projection(data)
             end
         end
             if not allow then
-                if helpers and helpers.logInfoTS then
-                    helpers.logInfoTS(
+                if helpers and helpers.logDebugTS then
+                    helpers.logDebugTS(
                         string.format(
                             "TaxiProj: skip large shift reason=large dx=%.1f dy=%.1f d2_before=%s d2_after=%s",
                             dx,
@@ -2982,31 +2982,31 @@ local function log_full_route_state(comp, data, mode, icao, vals)
     end
 
     local modeLabel = (mode == 1) and "ARR" or "DEP"
-    helpers.logInfoTS("TaxiFull: ---- " .. tostring(icao) .. " " .. modeLabel .. " ----")
-    helpers.logInfoTS("TaxiFull: runway raw=" .. tostring(vals.raw_dep or vals.raw_arr or "") .. " resolved=" .. tostring(vals.runway_name))
-    helpers.logInfoTS("TaxiFull: runwayLatLon=" .. fmt_latlon(vals.runway_lat, vals.runway_lon) .. " chosen=" .. fmt_latlon(vals.chosen_lat, vals.chosen_lon))
+    helpers.logDebugTS("TaxiFull: ---- " .. tostring(icao) .. " " .. modeLabel .. " ----")
+    helpers.logDebugTS("TaxiFull: runway raw=" .. tostring(vals.raw_dep or vals.raw_arr or "") .. " resolved=" .. tostring(vals.runway_name))
+    helpers.logDebugTS("TaxiFull: runwayLatLon=" .. fmt_latlon(vals.runway_lat, vals.runway_lon) .. " chosen=" .. fmt_latlon(vals.chosen_lat, vals.chosen_lon))
     if vals.rwy1 or vals.rwy2 then
-        helpers.logInfoTS("TaxiFull: rwy entry rwy1=" .. tostring(vals.rwy1) .. " rwy2=" .. tostring(vals.rwy2) .. " side=" .. tostring(vals.rwy_side))
+        helpers.logDebugTS("TaxiFull: rwy entry rwy1=" .. tostring(vals.rwy1) .. " rwy2=" .. tostring(vals.rwy2) .. " side=" .. tostring(vals.rwy_side))
     end
     if vals.rwy_entry_lat and vals.rwy_entry_lon then
-        helpers.logInfoTS("TaxiFull: rwy entry latlon=" .. fmt_latlon(vals.rwy_entry_lat, vals.rwy_entry_lon) .. " d_to_ref_m=" .. tostring(vals.rwy_entry_dist_m or "?"))
+        helpers.logDebugTS("TaxiFull: rwy entry latlon=" .. fmt_latlon(vals.rwy_entry_lat, vals.rwy_entry_lon) .. " d_to_ref_m=" .. tostring(vals.rwy_entry_dist_m or "?"))
     end
-    helpers.logInfoTS("TaxiFull: aircraft latlon=" .. fmt_latlon(vals.aircraft_lat, vals.aircraft_lon))
-    helpers.logInfoTS("TaxiFull: aircraft local=" .. fmt_local(vals.aircraft_east, vals.aircraft_north) .. " worldToLocal=" .. fmt_local(vals.aircraft_wtl_e, vals.aircraft_wtl_n))
-    helpers.logInfoTS("TaxiFull: start=" .. fmt_latlon(vals.start_lat, vals.start_lon) .. " end=" .. fmt_latlon(vals.end_lat, vals.end_lon))
-    helpers.logInfoTS("TaxiFull: nodes start=" .. fmt_node_latlon(vals.start_node_id) .. " d=" .. tostring(vals.start_node_dist or "?") ..
+    helpers.logDebugTS("TaxiFull: aircraft latlon=" .. fmt_latlon(vals.aircraft_lat, vals.aircraft_lon))
+    helpers.logDebugTS("TaxiFull: aircraft local=" .. fmt_local(vals.aircraft_east, vals.aircraft_north) .. " worldToLocal=" .. fmt_local(vals.aircraft_wtl_e, vals.aircraft_wtl_n))
+    helpers.logDebugTS("TaxiFull: start=" .. fmt_latlon(vals.start_lat, vals.start_lon) .. " end=" .. fmt_latlon(vals.end_lat, vals.end_lon))
+    helpers.logDebugTS("TaxiFull: nodes start=" .. fmt_node_latlon(vals.start_node_id) .. " d=" .. tostring(vals.start_node_dist or "?") ..
         " end=" .. fmt_node_latlon(vals.end_node_id) .. " d=" .. tostring(vals.end_node_dist or "?"))
     if vals.start_non_runway_node_id then
-        helpers.logInfoTS("TaxiFull: start non-rwy=" .. fmt_node_latlon(vals.start_non_runway_node_id) .. " d=" .. tostring(vals.start_non_runway_node_dist or "?"))
+        helpers.logDebugTS("TaxiFull: start non-rwy=" .. fmt_node_latlon(vals.start_non_runway_node_id) .. " d=" .. tostring(vals.start_non_runway_node_dist or "?"))
     end
     if vals.dep_holdshort_id then
-        helpers.logInfoTS("TaxiFull: dep holdshort=" .. fmt_node_latlon(vals.dep_holdshort_id) .. " d_rwy_m=" .. tostring(vals.dep_holdshort_dist_m or "?"))
+        helpers.logDebugTS("TaxiFull: dep holdshort=" .. fmt_node_latlon(vals.dep_holdshort_id) .. " d_rwy_m=" .. tostring(vals.dep_holdshort_dist_m or "?"))
     end
     if vals.arr_exit_id then
-        helpers.logInfoTS("TaxiFull: arr exit=" .. fmt_node_latlon(vals.arr_exit_id))
+        helpers.logDebugTS("TaxiFull: arr exit=" .. fmt_node_latlon(vals.arr_exit_id))
     end
-    helpers.logInfoTS("TaxiFull: reroute=" .. fmt_latlon(vals.reroute_lat, vals.reroute_lon))
-    helpers.logInfoTS("TaxiFull: onGround=" .. tostring(vals.onGround) .. " gs=" .. tostring(vals.groundspeed or "?") .. " ts=" .. tostring(vals.tirespeed or "?"))
+    helpers.logDebugTS("TaxiFull: reroute=" .. fmt_latlon(vals.reroute_lat, vals.reroute_lon))
+    helpers.logDebugTS("TaxiFull: onGround=" .. tostring(vals.onGround) .. " gs=" .. tostring(vals.groundspeed or "?") .. " ts=" .. tostring(vals.tirespeed or "?"))
 end
 
 local function draw_route_L(project, n1, n2, shadowColor, mainColor)
@@ -5272,8 +5272,8 @@ local function maybe_force_global_for_quality(comp, now, icao, mode, data, helpe
                         comp._quality.distBadSince = nil
                         comp._quality.rerouteEvents = {}
                     end
-                    if helpers and helpers.logInfoTS then
-                        helpers.logInfoTS(
+                    if helpers and helpers.logDebugTS then
+                        helpers.logDebugTS(
                             string.format(
                                 "TaxiQuality: dist-only near ramp keep key=%s dist=%.1f",
                                 tostring(cand_key),
@@ -5315,8 +5315,8 @@ local function maybe_force_global_for_quality(comp, now, icao, mode, data, helpe
                         comp._quality.distBadSince = nil
                         comp._quality.rerouteEvents = {}
                     end
-                    if helpers and helpers.logInfoTS then
-                        helpers.logInfoTS(
+                    if helpers and helpers.logDebugTS then
+                        helpers.logDebugTS(
                             string.format(
                                 "TaxiQuality: dist-only retarget end-ramp key=%s dist=%.1f source=%s",
                                 tostring(cand_key),
@@ -5361,8 +5361,8 @@ local function maybe_force_global_for_quality(comp, now, icao, mode, data, helpe
             comp._quality.distBadSince = nil
             comp._quality.rerouteEvents = {}
         end
-        if helpers and helpers.logInfoTS then
-            helpers.logInfoTS("TaxiQuality: forcing global " .. log_info)
+        if helpers and helpers.logDebugTS then
+            helpers.logDebugTS("TaxiQuality: forcing global " .. log_info)
         end
         return true
     end
@@ -5375,8 +5375,8 @@ local function maybe_force_global_for_quality(comp, now, icao, mode, data, helpe
     if helpers and helpers.requestGlobalAptIndex then
         helpers.requestGlobalAptIndex("quality-fallback")
     end
-    if helpers and helpers.logInfoTS then
-        helpers.logInfoTS("TaxiQuality: global pending " .. log_info)
+    if helpers and helpers.logDebugTS then
+        helpers.logDebugTS("TaxiQuality: global pending " .. log_info)
     end
     return false
 end
@@ -5499,6 +5499,8 @@ U = {
     find_nearest_runway_entry_by_latlon = find_nearest_runway_entry_by_latlon,
     compute_runway_landing_profile = compute_runway_landing_profile,
     find_runway_crossing = find_runway_crossing,
+    runway_corridor_half_width = runway_corridor_half_width,
+    runway_crossing_label = runway_crossing_label,
     runway_pair_label = runway_pair_label,
     runway_end_label = runway_end_label,
     find_nearest_runway_node = find_nearest_runway_node,
@@ -5577,6 +5579,30 @@ U = {
     choose_departure_start_ramp = choose_departure_start_ramp,
     choose_active_arrival_retarget_ramp = choose_active_arrival_retarget_ramp,
     is_voice_enabled = is_voice_enabled,
+    is_raas_duplicate_voice_suppressed = function(comp, info)
+        if not comp or not info then
+            return false
+        end
+        local action = tostring(info.action or "")
+        if action ~= "CROSS RWY" then
+            return false
+        end
+        local yalref = comp.yal or _G.yal
+        if not (yalref and yalref.isZiboRaasFeatureActive) then
+            return false
+        end
+        if not yalref.isZiboRaasFeatureActive("approaching_runway") then
+            return false
+        end
+        local key = tostring(action) .. "|" .. tostring(info.display or info.label or info.text or "")
+        if comp._lastRaasSuppressedVoiceKey ~= key then
+            comp._lastRaasSuppressedVoiceKey = key
+            if helpers and helpers.logDebugTS then
+                helpers.logDebugTS("TaxiGuide: RAAS duplicate voice suppressed " .. tostring(info.text or ""))
+            end
+        end
+        return true
+    end,
     is_auto_taxi_guidance_enabled = is_auto_taxi_guidance_enabled,
     is_visual_taxi_guidance_enabled = is_visual_taxi_guidance_enabled,
     find_runway_entry_label = find_runway_entry_label,
@@ -5614,7 +5640,7 @@ do
     if not U.speak_guidance_text then
         U.speak_guidance_text = function(_, text)
             if helpers and helpers.speak then
-                helpers.speak(text)
+                helpers.speak(text, 20, "taxi:guidance", 2)
             end
         end
     end
@@ -5767,8 +5793,8 @@ U.update_pushback_state = function(comp, now, yal, aircraft)
                             comp._pushbackReanchorPending = true
                             comp._pushbackReanchorTime = now or 0
                         end
-                        if helpers and helpers.logInfoTS then
-                            helpers.logInfoTS(
+                        if helpers and helpers.logDebugTS then
+                            helpers.logDebugTS(
                                 string.format(
                                     "TaxiRoute: pushback release by route join gs=%.1f ts=%.1f",
                                     gs or -1,
@@ -6021,8 +6047,8 @@ local function maybe_warn_before_taxi_not_started(comp, now, mode, on_ground, in
     end
     comp._beforeTaxiVoiceWarned = true
     comp._beforeTaxiVoiceWarnAt = now or 0
-    if comp._helpers and comp._helpers.logInfoTS then
-        comp._helpers.logInfoTS(
+    if comp._helpers and comp._helpers.logDebugTS then
+        comp._helpers.logDebugTS(
             string.format(
                 "TaxiVoice: before-taxi-missing gs=%.1f ts=%.1f",
                 gs or 0,
@@ -6031,7 +6057,7 @@ local function maybe_warn_before_taxi_not_started(comp, now, mode, on_ground, in
         )
     end
     if comp._helpers and comp._helpers.speak then
-        comp._helpers.speak("Warning, before taxi procedure not started")
+        comp._helpers.speak("Warning, before taxi procedure not started", 50, "taxi:before_taxi_missing", 2)
     end
 end
 
@@ -6569,7 +6595,7 @@ local function updateTaxiState(comp, map)
     end
     local shifted, shift_dx, shift_dy = U.align_taxi_data_projection(data)
     if shifted then
-        helpers.logInfoTS(
+        helpers.logDebugTS(
             string.format(
                 "TaxiProj: icao=%s shift=%.1f/%.1f refAlign=true",
                 tostring(icao),
@@ -6749,8 +6775,8 @@ local function updateTaxiState(comp, map)
                 comp._guidanceForceInitial = true
                 if log_taxi then
                     log_taxi(string.format("TaxiRoute: pushback reattach seg=%s dist=%.1f", tostring(seg_idx), dist or 0))
-                elseif helpers and helpers.logInfoTS then
-                    helpers.logInfoTS(
+                elseif helpers and helpers.logDebugTS then
+                    helpers.logDebugTS(
                         string.format("TaxiRoute: pushback reattach seg=%s dist=%.1f", tostring(seg_idx), dist or 0)
                     )
                 end
@@ -6990,7 +7016,7 @@ local function updateTaxiState(comp, map)
                         .. "|" .. tostring(math.floor((inferred.perp or 0) + 0.5))
                     if comp._lastArrInferLogKey ~= infer_key then
                         comp._lastArrInferLogKey = infer_key
-                        helpers.logInfoTS(
+                        helpers.logDebugTS(
                             "Taxi: ARR runway inferred " .. tostring(inferred.name) ..
                             " along=" .. string.format("%.1f", inferred.along or -1) ..
                             " perp=" .. string.format("%.1f", inferred.perp or -1) ..
@@ -7019,7 +7045,7 @@ local function updateTaxiState(comp, map)
             local log_key = tostring(icao) .. "|ARR|" .. tostring(raw_desrwy) .. "|" .. tostring(comp._runwayName)
             if comp._lastRunwayLogKey ~= log_key then
                 comp._lastRunwayLogKey = log_key
-                helpers.logInfoTS(
+                helpers.logDebugTS(
                     "Taxi: ARR runway input raw=" .. tostring(raw_desrwy) .. " resolved=" .. tostring(comp._runwayName)
                 )
             end
@@ -7033,7 +7059,7 @@ local function updateTaxiState(comp, map)
                 local sel_key = log_key .. "|SEL|" .. sel
                 if comp._lastRunwaySelLogKey ~= sel_key then
                     comp._lastRunwaySelLogKey = sel_key
-                    helpers.logInfoTS("Taxi: ARR runway selected " .. tostring(sel))
+                    helpers.logDebugTS("Taxi: ARR runway selected " .. tostring(sel))
                 end
             end
             start_lat = runway_lat
@@ -7078,7 +7104,7 @@ local function updateTaxiState(comp, map)
                         if exit_node and landing_profile then
                             along, perp = U.compute_along_perp(landing_profile, exit_node)
                         end
-                        helpers.logInfoTS(
+                        helpers.logDebugTS(
                             "Taxi: ARR exit candidate id=" .. tostring(arr_exit_id) ..
                             " backtrack=" .. tostring(backtrack_required) ..
                             " along=" .. tostring(along or "?") ..
@@ -7158,7 +7184,7 @@ local function updateTaxiState(comp, map)
     local freehand_active = comp._drawFreehand and comp._routeWaypoints and (#comp._routeWaypoints > 0)
     local canRoute = data and data.can_route and (mode == 1 or hasRunwayName or freehand_active) or false
     if not canRoute and not freehand_active then
-        helpers.logInfoTS(
+        helpers.logDebugTS(
             "TaxiDiag: canRoute=false icao=" .. tostring(icao) ..
             " mode=" .. tostring(mode) ..
             " data.can_route=" .. tostring(data and data.can_route) ..
@@ -7746,8 +7772,8 @@ local function updateTaxiState(comp, map)
         end
         if cand_count == 0 and data.entry and data.entry.source == "addon" then
             if get_taxi_source_mode(comp, icao) == "addon" then
-                if helpers and helpers.logInfoTS then
-                    helpers.logInfoTS(
+                if helpers and helpers.logDebugTS then
+                    helpers.logDebugTS(
                         "TaxiDepEntries: keep addon (manual) cand=0 icao="
                         .. tostring(icao) .. " rwy=" .. tostring(comp._runwayName or "")
                     )
@@ -7757,8 +7783,8 @@ local function updateTaxiState(comp, map)
                 comp._taxiSourceByIcao = comp._taxiSourceByIcao or {}
                 comp._taxiSourceByIcao[icao] = "addon"
             elseif dep_source_lock_active(comp, icao) then
-                if helpers and helpers.logInfoTS then
-                    helpers.logInfoTS(
+                if helpers and helpers.logDebugTS then
+                    helpers.logDebugTS(
                         "TaxiDepEntries: keep addon (lock) cand=0 icao="
                         .. tostring(icao) .. " rwy=" .. tostring(comp._runwayName or "")
                     )
@@ -7799,8 +7825,8 @@ local function updateTaxiState(comp, map)
                 U.clear_visual_guidance(comp, "dep-entry-fallback")
                 comp._visualGuidanceQueue = {}
                 U.set_taxi_ref(nil)
-                if helpers and helpers.logInfoTS then
-                    helpers.logInfoTS(
+                if helpers and helpers.logDebugTS then
+                    helpers.logDebugTS(
                         "TaxiDepEntries: forcing global (cand=0) icao="
                         .. tostring(icao) .. " rwy=" .. tostring(comp._runwayName or "")
                     )
@@ -7815,9 +7841,9 @@ local function updateTaxiState(comp, map)
             if helpers and helpers.requestGlobalAptIndex then
                 helpers.requestGlobalAptIndex("dep-entry-fallback")
             end
-            if helpers and helpers.logInfoTS and comp._lastDepEntriesFallbackKey ~= fallback_key then
+            if helpers and helpers.logDebugTS and comp._lastDepEntriesFallbackKey ~= fallback_key then
                 comp._lastDepEntriesFallbackKey = fallback_key
-                helpers.logInfoTS(
+                helpers.logDebugTS(
                     "TaxiDepEntries: global pending (cand=0) icao="
                     .. tostring(icao) .. " rwy=" .. tostring(comp._runwayName or "")
                 )
@@ -8532,7 +8558,7 @@ local function updateTaxiState(comp, map)
             local arr_lat = yalref and yalref.desrwylatstartpos and get(yalref.desrwylatstartpos) or nil
             local arr_lon = yalref and yalref.desrwylonstartpos and get(yalref.desrwylonstartpos) or nil
             local src = data and data.route_source or "?"
-            helpers.logInfoTS(
+            helpers.logDebugTS(
                 "TaxiDiag: mode=" .. tostring(mode) ..
                 " icao=" .. tostring(icao) ..
                 " src=" .. tostring(src) ..
@@ -8540,12 +8566,12 @@ local function updateTaxiState(comp, map)
                 " rawDEP=" .. tostring(raw_dep) ..
                 " rawARR=" .. tostring(raw_arr)
             )
-            helpers.logInfoTS(
+            helpers.logDebugTS(
                 "TaxiDiag: runwayLatLon dep=" .. fmt_latlon(dep_lat, dep_lon) ..
                 " arr=" .. fmt_latlon(arr_lat, arr_lon) ..
                 " chosen=" .. fmt_latlon(runway_lat, runway_lon)
             )
-            helpers.logInfoTS(
+            helpers.logDebugTS(
                 "TaxiDiag: start=" .. fmt_latlon(start_lat, start_lon) ..
                 " end=" .. fmt_latlon(end_lat, end_lon) ..
                 " aircraft=" .. (aircraft and fmt_latlon(aircraft.lat, aircraft.lon) or "nil/nil") ..
@@ -8555,14 +8581,14 @@ local function updateTaxiState(comp, map)
             if dep_end_node_id then
                 dep_end_dbg = " depEnd=" .. fmt_node_latlon(dep_end_node_id) .. " d=" .. tostring(dep_end_node_dist or "?")
             end
-            helpers.logInfoTS(
+            helpers.logDebugTS(
                 "TaxiDiag: nodes start=" .. fmt_node_latlon(start_node_id) .. " d=" .. tostring(start_node_dist or "?") ..
                 " end=" .. fmt_node_latlon(end_node_id) .. " d=" .. tostring(end_node_dist or "?") ..
                 dep_end_dbg ..
                 " depHS=" .. fmt_node_latlon(dep_holdshort_id) ..
                 " arrExit=" .. fmt_node_latlon(arr_exit_id)
             )
-            helpers.logInfoTS(
+            helpers.logDebugTS(
                 "TaxiDiag: onGround=" .. tostring(onGround) .. " gs=" .. tostring(groundspeed)
             )
             local tirespeed = yalref and yalref.tirespeed and (get(yalref.tirespeed) or 0) or 0
@@ -9069,8 +9095,8 @@ local function updateTaxiState(comp, map)
                     proj_waypoint_ids,
                     route_waypoints
                 )
-                if route and helpers and helpers.logInfoTS then
-                    helpers.logInfoTS("Taxi: DEP fallback allow runway nodes")
+                if route and helpers and helpers.logDebugTS then
+                    helpers.logDebugTS("Taxi: DEP fallback allow runway nodes")
                 end
             end
             if (not route) and rerr == "no-path" and mode == 0 then
@@ -9094,8 +9120,8 @@ local function updateTaxiState(comp, map)
                     proj_waypoint_ids,
                     route_waypoints
                 )
-                if route and helpers and helpers.logInfoTS then
-                    helpers.logInfoTS("Taxi: DEP fallback allow runway crossing")
+                if route and helpers and helpers.logDebugTS then
+                    helpers.logDebugTS("Taxi: DEP fallback allow runway crossing")
                 end
             end
             if (not route) and rerr == "no-path" and mode == 0 and U.is_valid_latlon(end_lat, end_lon) then
@@ -9873,7 +9899,7 @@ local function updateTaxiState(comp, map)
             if route and route.path then
                 local rlen = #route.path
                 local src = (route.data and route.data.route_source) or "?"
-                helpers.logInfoTS(
+                helpers.logDebugTS(
                     string.format(
                         "Taxi: route %s %s mode=%d len=%d start=%s end=%s src=%s",
                         tostring(icao),
@@ -9930,7 +9956,7 @@ local function updateTaxiState(comp, map)
                     while idx <= #path_parts do
                         local last = math.min(idx + max_chunk - 1, #path_parts)
                         local chunk = table.concat(path_parts, ",", idx, last)
-                        helpers.logInfoTS(
+                        helpers.logDebugTS(
                             string.format(
                                 "TaxiPath: %s %s %d/%d %s",
                                 tostring(icao),
@@ -9944,11 +9970,11 @@ local function updateTaxiState(comp, map)
                     end
                     local labels = comp._routeLabels or U.build_route_labels(route.data, route.path)
                     if labels and #labels > 0 then
-                        helpers.logInfoTS(
+                        helpers.logDebugTS(
                             "TaxiLabels: " .. tostring(icao) .. " " .. tostring(comp._runwayName or "") .. " " .. table.concat(labels, " ")
                         )
                     else
-                        helpers.logInfoTS("TaxiLabels: " .. tostring(icao) .. " " .. tostring(comp._runwayName or "") .. " <none>")
+                        helpers.logDebugTS("TaxiLabels: " .. tostring(icao) .. " " .. tostring(comp._runwayName or "") .. " <none>")
                     end
                 end
                 if same_path then
@@ -9960,7 +9986,7 @@ local function updateTaxiState(comp, map)
                     end
                 end
                 if backtrack_applied then
-                    helpers.logInfoTS(
+                    helpers.logDebugTS(
                         "TaxiRoute: backtrack applied mode=" .. tostring(mode) ..
                         " runway=" .. tostring(comp._runwayName or "") ..
                         " node=" .. tostring((mode == 1 and arr_exit_id) or comp._selectedDepEntryId or dep_holdshort_id or dep_end_node_id or "")
@@ -10058,7 +10084,7 @@ local function updateTaxiState(comp, map)
                     local last_block = comp._depThresholdBlockedLog or 0
                     if (now - last_block) >= 5 then
                         comp._depThresholdBlockedLog = now
-                        helpers.logInfoTS(
+                        helpers.logDebugTS(
                             string.format(
                                 "TaxiDepThreshold: blocked dist=%.1f along=%.1f perp=%.1f hdgDiff=%s src=%s",
                                 state.dist or -1,
@@ -10077,7 +10103,7 @@ local function updateTaxiState(comp, map)
         end
         if comp._lastDepThresholdReached ~= comp._depThresholdReached then
             comp._lastDepThresholdReached = comp._depThresholdReached
-            helpers.logInfoTS(
+            helpers.logDebugTS(
                 string.format(
                     "TaxiDepThreshold: reached=%s dist=%.1f along=%.1f perp=%.1f hdgDiff=%s hdgOk=%s src=%s corridor=%.1f",
                     tostring(comp._depThresholdReached),
@@ -10113,7 +10139,7 @@ local function updateTaxiState(comp, map)
             if (now - comp._depOnRunwayLatchSince) >= C.depTakeoffLatchHoldSec then
                 comp._depThresholdLatched = true
                 comp._depOnRunwayLatchSince = nil
-                helpers.logInfoTS(
+                helpers.logDebugTS(
                     string.format("TaxiDepThreshold: latched=on-runway-aligned gs=%.1f", gs)
                 )
             end
@@ -10127,7 +10153,7 @@ local function updateTaxiState(comp, map)
             if (now - comp._takeoffLatchSince) >= C.depTakeoffLatchHoldSec then
                 comp._depThresholdLatched = true
                 comp._takeoffLatchSince = nil
-                helpers.logInfoTS(
+                helpers.logDebugTS(
                     string.format("TaxiDepThreshold: latched=takeoff-roll gs=%.1f", gs)
                 )
             end
@@ -10848,7 +10874,7 @@ local function updateTaxiState(comp, map)
         local log_key = tostring(comp._lastIcao or "") .. "|" .. tostring(comp.mode or "") .. "|" .. tostring(outside)
         if comp._lastBoundsLogKey ~= log_key then
             comp._lastBoundsLogKey = log_key
-            helpers.logInfoTS(
+            helpers.logDebugTS(
                 string.format(
                     "TaxiBounds: mode=%s icao=%s outside=%s bounds=[%.1f..%.1f, %.1f..%.1f] aircraft=%.1f/%.1f",
                     tostring(comp.mode),
@@ -10956,7 +10982,7 @@ local function updateTaxiState(comp, map)
         }, "|")
         if comp._lastAutoRouteLogKey ~= auto_key then
             comp._lastAutoRouteLogKey = auto_key
-            helpers.logInfoTS(
+            helpers.logDebugTS(
                 string.format(
                     "TaxiAuto: route %s %s mode=%d len=%d start=%s end=%s src=%s",
                     tostring(comp._lastIcao or ""),
@@ -12158,7 +12184,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
                 elseif b.action == "fit" then
                     fit_to_bounds(comp._fitBounds, layout.map)
                     if comp._fitBounds and comp._aircraftPoint then
-                        helpers.logInfoTS(
+                        helpers.logDebugTS(
                             string.format(
                                 "TaxiFit: mode=%s icao=%s bounds=[%.1f..%.1f, %.1f..%.1f] aircraft=%.1f/%.1f",
                                 tostring(comp.mode),
@@ -13261,6 +13287,302 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
 
     function comp:updateTaxiState(map)
         return updateTaxiState(self, map)
+    end
+
+    function comp:getRunwayCrossingAutoUnicomState(phase)
+        local result = {
+            valid = false,
+            crossing = false,
+            crossing_episode = false,
+            on_runway_surface = false
+        }
+        local U = comp._U or {}
+        local data = comp._data
+        local aircraft = comp._aircraftPoint
+        if (phase ~= "departure" and phase ~= "arrival")
+            or not data or not data.runways
+            or not aircraft or aircraft.east == nil or aircraft.north == nil
+            or not U.is_on_runway_profile or not U.normalize_runway_name
+            or not U.normalize_runway_pair_label or not U.runway_pair_label
+            or not U.runway_crossing_label or not U.runway_corridor_half_width then
+            return result
+        end
+
+        local yalref = comp.yal or _G.yal
+        if not yalref or not yalref.airgroundsensor or get(yalref.airgroundsensor) ~= comp._def.ON then
+            return result
+        end
+
+        result.valid = true
+        local depRunway = ""
+        if phase == "departure" then
+            local rawDepRunway = yalref.deprwy and get(yalref.deprwy) or ""
+            depRunway = U.normalize_runway_name(rawDepRunway or "")
+            if depRunway == "" then
+                depRunway = U.normalize_runway_name(comp._runwayName or "")
+            end
+            if depRunway == "" then
+                result.valid = false
+                return result
+            end
+        end
+        local aircraftLat = yalref.aircraftlatpos and tonumber(get(yalref.aircraftlatpos)) or nil
+        local aircraftLon = yalref.aircraftlonpos and tonumber(get(yalref.aircraftlonpos)) or nil
+        local magVar = aircraftLat and aircraftLon
+            and sasl.getMagneticVariation(aircraftLat, aircraftLon) or 0
+        local track = yalref.groundtrackmag and tonumber(get(yalref.groundtrackmag)) or nil
+        local headingDiffFn = comp._helpers and comp._helpers.headingdiff or nil
+        local bestRunway = nil
+        local bestScore = nil
+        local onSelectedDepartureRunway = false
+
+        local function runway_profile(runwayRecord)
+            local east1 = tonumber(runwayRecord and runwayRecord.east1)
+            local north1 = tonumber(runwayRecord and runwayRecord.north1)
+            local east2 = tonumber(runwayRecord and runwayRecord.east2)
+            local north2 = tonumber(runwayRecord and runwayRecord.north2)
+            if not east1 or not north1 or not east2 or not north2 then return nil end
+            local dx = east2 - east1
+            local dy = north2 - north1
+            local length = math.sqrt(dx * dx + dy * dy)
+            if length <= 1 then return nil end
+            return {
+                threshold = { east = east1, north = north1 },
+                axis = { x = dx / length, y = dy / length },
+                length = length,
+                width = runwayRecord.width or 0
+            }
+        end
+
+        local function selected_departure_runway(runwayRecord)
+            if depRunway == "" then return false end
+            local rwy1 = U.normalize_runway_name(runwayRecord and runwayRecord.rwy1 or "")
+            local rwy2 = U.normalize_runway_name(runwayRecord and runwayRecord.rwy2 or "")
+            return rwy1 == depRunway or rwy2 == depRunway
+        end
+
+        local function runway_heading_diff(profile)
+            if not profile or not track or not headingDiffFn then return nil end
+            local axisHeadingTrue = math.deg(math.atan2(profile.axis.x, profile.axis.y))
+            if axisHeadingTrue < 0 then axisHeadingTrue = axisHeadingTrue + 360 end
+            local axisHeadingMag = (axisHeadingTrue - (magVar or 0) + 360) % 360
+            return headingDiffFn(track, axisHeadingMag)
+        end
+
+        for _, runwayRecord in ipairs(data.runways) do
+            local profile = runway_profile(runwayRecord)
+            if profile and U.is_on_runway_profile(profile, aircraft, 5, 3) then
+                result.on_runway_surface = true
+                if selected_departure_runway(runwayRecord) then
+                    onSelectedDepartureRunway = true
+                else
+                    local headingDiff = runway_heading_diff(profile)
+                    if headingDiff and headingDiff > 30 and headingDiff < 150 then
+                        local score = math.abs(headingDiff - 90)
+                        if not bestScore or score < bestScore then
+                            bestScore = score
+                            bestRunway = runwayRecord
+                        end
+                    end
+                end
+            end
+        end
+        result.crossing_episode = result.on_runway_surface
+
+        if onSelectedDepartureRunway then
+            return result
+        end
+
+        local groundSpeed = yalref.groundspeed
+            and math.abs(tonumber(get(yalref.groundspeed)) or 0) or 0
+        local tireSpeed = yalref.tirespeed
+            and (tonumber(get(yalref.tirespeed)) or 0) or 0
+        local earlyRunway = nil
+        local earlyTaxiway = nil
+        if not result.on_runway_surface and data.nodes
+            and U.find_nearest_edge_projection and U.find_runway_crossing
+            and U.normalize_taxiway_label and U.is_runway_label then
+            local projection = U.find_nearest_edge_projection(
+                data,
+                aircraft.east,
+                aircraft.north,
+                { disallow_runway_edges = true }
+            )
+            if projection and projection.edge and projection.d2 and projection.d2 <= 400 then
+                local rawLabel = projection.edge.label or ""
+                local n1 = data.nodes[projection.edge.from]
+                local n2 = data.nodes[projection.edge.to]
+                if n1 and n2 and rawLabel ~= "RAMP" and not U.is_runway_label(rawLabel) then
+                    local runwayRecord = U.find_runway_crossing(data, n1, n2)
+                    local profile = runway_profile(runwayRecord)
+                    local headingDiff = runway_heading_diff(profile)
+                    if runwayRecord and profile and not selected_departure_runway(runwayRecord)
+                        and headingDiff and headingDiff > 30 and headingDiff < 150 then
+                        local relEast = aircraft.east - profile.threshold.east
+                        local relNorth = aircraft.north - profile.threshold.north
+                        local along = relEast * profile.axis.x + relNorth * profile.axis.y
+                        local signedCross = relEast * profile.axis.y - relNorth * profile.axis.x
+                        local surfaceHalfWidth = U.runway_corridor_half_width(profile) + 3
+                        local distanceOutside = math.abs(signedCross) - surfaceHalfWidth
+                        local trackTrue = ((track or 0) + (magVar or 0) + 360) % 360
+                        local trackRad = math.rad(trackTrue)
+                        local trackEast = math.sin(trackRad)
+                        local trackNorth = math.cos(trackRad)
+                        local crossRate = trackEast * profile.axis.y - trackNorth * profile.axis.x
+                        local movingToward = signedCross * crossRate < -0.05
+                        if along >= -5 and along <= profile.length + 5
+                            and distanceOutside > 0 and distanceOutside <= 15
+                            and movingToward then
+                            result.crossing_episode = true
+                            earlyRunway = runwayRecord
+                            local taxiway = U.normalize_taxiway_label(rawLabel)
+                            earlyTaxiway = taxiway ~= "" and taxiway or nil
+                        end
+                    end
+                end
+            end
+        end
+
+        if tireSpeed <= 1 or groundSpeed > 35 then
+            return result
+        end
+
+        local crossingRunway = earlyRunway or bestRunway
+        if not crossingRunway then return result end
+        result.runway_key = U.normalize_runway_pair_label(U.runway_pair_label(crossingRunway))
+        result.runway = U.runway_crossing_label(
+            crossingRunway,
+            aircraft.east,
+            aircraft.north,
+            aircraft.east,
+            aircraft.north
+        )
+        if not result.runway or result.runway == "" then
+            return result
+        end
+        result.crossing = true
+        result.taxiway = earlyTaxiway
+        if not result.taxiway and U.find_nearest_edge_projection
+            and U.normalize_taxiway_label and U.is_runway_label then
+            local projection = U.find_nearest_edge_projection(
+                data,
+                aircraft.east,
+                aircraft.north,
+                { disallow_runway_edges = true }
+            )
+            if projection and projection.edge and projection.d2 and projection.d2 <= 400 then
+                local rawLabel = projection.edge.label or ""
+                if rawLabel ~= "RAMP" and not U.is_runway_label(rawLabel) then
+                    local taxiway = U.normalize_taxiway_label(rawLabel)
+                    result.taxiway = taxiway ~= "" and taxiway or nil
+                end
+            end
+        end
+        return result
+    end
+
+    function comp:getDepartureAutoUnicomState()
+        local result = { valid = false }
+        local route = comp._route
+        local data = route and route.data or nil
+        local path = route and route.path or nil
+        local aircraft = comp._aircraftPoint
+        if comp.mode ~= 0 then
+            return result
+        end
+
+        local yalref = comp.yal or _G.yal
+        if not yalref or not yalref.airgroundsensor or get(yalref.airgroundsensor) ~= comp._def.ON then
+            return result
+        end
+
+        local groundSpeed = yalref.groundspeed and (tonumber(get(yalref.groundspeed)) or 0) or 0
+        local tireSpeed = yalref.tirespeed and (tonumber(get(yalref.tirespeed)) or 0) or 0
+        local forward = tireSpeed > 1 or groundSpeed > 1
+        local headingLimit = tonumber(comp._C.depThresholdHeadingLimit) or 25
+        local reverseHeading = 180 - headingLimit
+        local runwayGeometry = yalref.getAircraftRunwayGeometry
+            and yalref.getAircraftRunwayGeometry(comp._def.DEPARTURE, 40, headingLimit)
+            or nil
+        local runwayGeometryValid = type(runwayGeometry) == "table" and runwayGeometry.valid == true
+        local onRunwaySurface = runwayGeometryValid and runwayGeometry.is_on_surface == true
+        local headingDiff = runwayGeometryValid and runwayGeometry.heading_valid == true
+            and tonumber(runwayGeometry.heading_diff) or nil
+        result.backtrack = onRunwaySurface and forward
+            and headingDiff ~= nil and headingDiff >= reverseHeading
+
+        local routeValid = not comp._routeErr and data and data.nodes
+            and path and #path >= 2 and aircraft
+            and aircraft.east ~= nil and aircraft.north ~= nil
+        if not runwayGeometryValid and not routeValid then
+            return result
+        end
+        result.valid = true
+        if not routeValid then
+            return result
+        end
+
+        local onRunwayAligned = yalref.aircraftonrwy
+            and yalref.aircraftonrwy(comp._def.DEPARTURE, 40, headingLimit)
+            or false
+        local entryId = comp._selectedDepEntryId
+        local intersection = entryId and comp._depEntryLabels and comp._depEntryLabels[entryId] or ""
+        if intersection == "" and entryId and find_runway_entry_label then
+            intersection = find_runway_entry_label(data, entryId) or ""
+        end
+        intersection = tostring(intersection or "")
+        if intersection == "RAMP" or is_runway_label(intersection) then
+            intersection = ""
+        end
+        result.departure_intersection = intersection ~= "" and intersection or nil
+
+        local holdId = comp._depHoldshortNodeId or entryId
+        local holdNode = holdId and data.nodes[holdId] or nil
+        local holdDistance = nil
+        if holdNode and holdNode.east ~= nil and holdNode.north ~= nil then
+            local dx = aircraft.east - holdNode.east
+            local dy = aircraft.north - holdNode.north
+            holdDistance = math.sqrt(dx * dx + dy * dy)
+        end
+        local holdGate = math.max(35, tonumber(comp._C.depThresholdGateMeters) or 45)
+        result.hold_short = not onRunwaySurface
+            and holdDistance ~= nil and holdDistance <= holdGate
+            and groundSpeed <= 1
+
+        local backtrackRequired = comp._depBacktrackRequired == true
+        result.intersection = not backtrackRequired and not result.backtrack
+            and onRunwayAligned and forward
+            and entryId ~= nil and result.departure_intersection ~= nil
+        return result
+    end
+
+    function comp:getArrivalAutoUnicomState()
+        local result = { valid = false }
+        local yalref = comp.yal or _G.yal
+        if not yalref or not yalref.airgroundsensor or get(yalref.airgroundsensor) ~= comp._def.ON then
+            return result
+        end
+
+        local headingLimit = tonumber(comp._C.depThresholdHeadingLimit) or 25
+        local reverseHeading = 180 - headingLimit
+        local runwayGeometry = yalref.getAircraftRunwayGeometry
+            and yalref.getAircraftRunwayGeometry(comp._def.ARRIVAL, 40, headingLimit)
+            or nil
+        if type(runwayGeometry) ~= "table" or runwayGeometry.valid ~= true then
+            return result
+        end
+
+        result.valid = true
+        result.backtrack_required = comp._arrBacktrackRequired == true
+        result.on_runway = runwayGeometry.is_on_surface == true
+        result.heading_diff = runwayGeometry.heading_valid == true
+            and tonumber(runwayGeometry.heading_diff) or nil
+        local groundSpeed = yalref.groundspeed and (tonumber(get(yalref.groundspeed)) or 0) or 0
+        local tireSpeed = yalref.tirespeed and (tonumber(get(yalref.tirespeed)) or 0) or 0
+        local forward = tireSpeed > 1 or groundSpeed > 1
+        result.backtrack = result.on_runway and forward
+            and result.heading_diff ~= nil and result.heading_diff >= reverseHeading
+        return result
     end
 
     function comp:getPushbackHint()

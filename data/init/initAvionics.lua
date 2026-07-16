@@ -101,11 +101,9 @@ local function avProcessMouseCursor(layer, component, x, y)
     private.setOnInterceptingWindow(false)
     private.setCursorLayer(layer)
 
-    local resultCursor = 1
     processMouseMove(component, x, y)
-    if private.isOSCursorHidden() then
-        resultCursor = 2
-    end
+    local nativeCsId = private.nativeCursorId()
+    local resultCursor = (nativeCsId ~= nil) and nativeCsId or 1
     local mouseHold = component._mEv.hold
     for i = 1, #mouseHold do
         if mouseHold[i] then
@@ -167,6 +165,11 @@ local function addDeviceInterface(device)
     device.getPopoutPosition = function(self)
         return av.getAvionicsPopoutPosition(self.id)
     end
+
+    device.getBezelAmbiantColor = function(self)
+        local r, g, b = av.getAvionicsBezelAmbiant(self.id)
+        return r, g, b
+    end
 end
 
 -------------------------------------------------------------------------------
@@ -192,6 +195,7 @@ local avionicsDeviceLayer = 1000
 --- @field getPopupPosition fun(self:AvionicsDevice):number, number, number, number
 --- @field setPopoutPosition fun(self:AvionicsDevice, x:number, y:number, w:number, h:number)
 --- @field getPopoutPosition fun(self:AvionicsDevice):number, number, number, number
+--- @field getBezelAmbiantColor fun(self:AvionicsDevice):number, number, number
 --- @field destroy fun(self:AvionicsDevice)
 
 --- Creates new avionics device with attached components hierarchy
@@ -225,13 +229,7 @@ function avionicsDevice(params)
     if hasBezel then
         local bezelLayer = avionicsDeviceLayer
         avionicsDeviceLayer = avionicsDeviceLayer + 1
-        bezelC.ambiantColor = createProperty({ 0, 0, 0 })
         bezelDraw = function()
-            local ambiantColor = bezelC.ambiantColor
-            local r, g, b = av.getAvionicsBezelAmbiant(device.id)
-            ambiantColor.v[1] = r
-            ambiantColor.v[2] = g
-            ambiantColor.v[3] = b
             avProcessDraw(bezelC)
             return bezelLayer
         end

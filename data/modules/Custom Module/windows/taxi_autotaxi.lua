@@ -15,7 +15,7 @@ function M.attach(U, C, def, helpers, settings)
     local distance_sq = U.distance_sq
 
     local function auto_taxi_log(comp, msg)
-        local logger = (comp and comp._logTaxi) or (helpers and helpers.logInfoTS)
+        local logger = (comp and comp._logTaxi) or (helpers and helpers.logDebugTS)
         if logger then
             logger("AutoTaxi: " .. tostring(msg))
         end

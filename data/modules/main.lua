@@ -2,6 +2,7 @@ local def = require("definitions")
 local settings = require("settings")
 require("helpers")
 require("yal")
+local autoUnicom = require("auto_unicom")
 
 local debugOverlayWindow
 local debugOverlayInitialized = false
@@ -20,11 +21,99 @@ local updatePopupWindow
 local updatePopupInitialized = false
 local updatePopupComponent
 local remember_ignored_updates
+local show_yal_update_confirm
+local run_yal_update_install
 local startupUpdateCheckDone = false
 local startupUpdateCheckEarliest = 0
 local startupUpdateCheckPerformed = false
 local menu_taxi = nil
 local taxiGateLastLogTime = 0
+local autoUnicomRuntime = {
+    refs = nil,
+    nextBindAt = 0,
+    unavailableLogged = false,
+    modePrerequisiteLogged = false,
+    sources = {
+        pressure_altitude = globalProperty("sim/flightmodel2/position/pressure_altitude"),
+        aircraft_icao = globalPropertys("sim/aircraft/view/acf_ICAO")
+    }
+}
+
+local function auto_unicom_refs_valid(refs)
+    if type(refs) ~= "table" then return false end
+    for _, prop in pairs(refs) do
+        if not prop or not isProperty(prop) then return false end
+    end
+    return true
+end
+
+local function bind_auto_unicom_datarefs()
+    if auto_unicom_refs_valid(autoUnicomRuntime.refs) then return true end
+    autoUnicomRuntime.refs = nil
+
+    local now = os.time() or 0
+    if now < autoUnicomRuntime.nextBindAt then return false end
+    autoUnicomRuntime.nextBindAt = now + 5
+
+    local pluginId = sasl.findPluginBySignature("wahltho.ivao.monitor")
+    if pluginId == NO_PLUGIN_ID then
+        if not autoUnicomRuntime.unavailableLogged then
+            autoUnicomRuntime.unavailableLogged = true
+            helpers.logInfoTS("IVAO Auto-Unicom enabled but IVAO Monitor is not available")
+        end
+        return false
+    end
+
+    local base = "ivao_monitor/autounicom/"
+    local bound = {
+        api_version = globalProperty(base .. "api_version"),
+        ready = globalProperty(base .. "ready"),
+        mode = globalProperty(base .. "mode"),
+        transport_state = globalProperty(base .. "transport_state"),
+        request_text = globalPropertys(base .. "request_text"),
+        request_seq = globalProperty(base .. "request_seq"),
+        result_seq = globalProperty(base .. "result_seq"),
+        result_code = globalProperty(base .. "result_code"),
+        result_detail = globalPropertys(base .. "result_detail")
+    }
+    if not auto_unicom_refs_valid(bound) then
+        if not autoUnicomRuntime.unavailableLogged then
+            autoUnicomRuntime.unavailableLogged = true
+            helpers.logInfoTS("IVAO Auto-Unicom enabled but API DataRefs are not ready")
+        end
+        return false
+    end
+
+    autoUnicomRuntime.refs = bound
+    autoUnicomRuntime.unavailableLogged = false
+    helpers.logInfoTS("IVAO Auto-Unicom DataRefs bound")
+    return true
+end
+
+autoUnicom.configure({
+    yal = yal,
+    def = def,
+    helpers = helpers,
+    sources = autoUnicomRuntime.sources,
+    getRefs = function() return autoUnicomRuntime.refs end
+})
+yal.setRuntimeEventSink(function(eventId, payload)
+    return autoUnicom.handleYalEvent(eventId, payload)
+end)
+
+autoUnicomRuntime.repeatCommand = sasl.createCommand(
+    def.APPNAMEPREFIX .. "/autounicom/repeat_last",
+    "Repeat Last IVAO Auto-Unicom Message"
+)
+sasl.registerCommandHandler(autoUnicomRuntime.repeatCommand, 0, function(phase)
+    if phase == SASL_COMMAND_BEGIN then
+        local enabled = settings and settings.appSettings
+            and tonumber(settings.appSettings[def.CONFIGIVAOAUTOUNICOM] or 0) == def.ON
+        if enabled then bind_auto_unicom_datarefs() end
+        autoUnicom.repeatLastMessage(enabled == true)
+    end
+    return 0
+end)
 
 local function normalize_zibo_release(raw)
     local s = helpers.forceCleanString(tostring(raw or ""))
@@ -131,16 +220,6 @@ end
 sasl.options.setAircraftPanelRendering(false)
 sasl.options.set3DRendering(false)
 sasl.options.setInteractivity(true)
-
-if helpers.check_create_path(def.XPCACHESPATH) then
-    if not helpers.check_create_path(def.YALCACHEPATH) then
-        sasl.logWarning("Failed to create cache folder, reverting to legacy folder")
-        def.YALCACHESPATH = def.XPOUTPUTPATH
-    end
-else
-    sasl.logWarning("Failed to create cache folder, reverting to legacy folder")
-    def.YALCACHESPATH = def.XPOUTPUTPATH
-end
 
 include "keyboard_handler"
 local menu_settings = nil
@@ -409,12 +488,14 @@ local function maybeInitUpdatePopupWindow()
         onIgnore = function(payload)
             remember_ignored_updates(payload)
         end,
-        onSettings = function()
-            helpers.logInfoTS("Startup update popup opened settings")
-            maybeInitSetupWindow()
-            if setupWindow then
-                setupWindow:setIsVisible(true)
-            end
+        onInstall = function(payload)
+            return show_yal_update_confirm(payload)
+        end,
+        onConfirm = function(payload)
+            return run_yal_update_install(payload)
+        end,
+        onCancel = function()
+            helpers.logInfoTS("YAL update confirmation cancelled")
         end
     })
     updatePopupComponent = comp
@@ -540,11 +621,14 @@ local function get_yal_feed_comparison(stableVersion, betaVersion)
     return "unknown"
 end
 
-local function get_update_popup_title(yalAvailable, ziboAvailable, betaUpdateAvailable)
+local function get_update_popup_title(yalAvailable, ziboAvailable, betaUpdateAvailable, yalInstallKind)
     if yalAvailable and ziboAvailable then
         return "YAL and Zibo Updates Available"
     end
     if yalAvailable then
+        if yalInstallKind == "stable" then
+            return "YAL Stable Version Available"
+        end
         if betaUpdateAvailable then
             return "YAL Beta Update Available"
         end
@@ -559,6 +643,9 @@ end
 local function choose_yal_ignore_version(yalInfo)
     if not yalInfo or not yalInfo.detectedAvailable then
         return ""
+    end
+    if yalInfo.installVersion and yalInfo.installVersion ~= "" then
+        return tostring(yalInfo.installVersion)
     end
     local candidate = ""
     if yalInfo.channelAvailable and yalInfo.latest and yalInfo.latest ~= "" then
@@ -596,6 +683,48 @@ remember_ignored_updates = function(payload)
     if changed and settings.writeSettings then
         settings.writeSettings(settings.appSettings)
     end
+end
+
+show_yal_update_confirm = function(payload)
+    local yalInfo = payload and payload.yal or nil
+    if not yalInfo or not updatePopupComponent or not updatePopupComponent.setPayload then
+        return true
+    end
+    local current = tostring(yalInfo.current or def.VERSION or "?")
+    local target = tostring(yalInfo.installVersion or yalInfo.latest or "?")
+    local verb = "update"
+    if helpers.isVersionNewer and helpers.isVersionNewer(current, target) then
+        verb = "replace"
+    end
+    updatePopupComponent:setPayload({
+        mode = "confirm",
+        title = "Confirm YAL Update",
+        lines = {
+            string.format("Do you really want to %s YAL from v%s to v%s?", verb, current, target),
+            "The update will be installed from the selected YAL depot.",
+        },
+        okLabel = "OK",
+        cancelLabel = "Cancel",
+        yal = yalInfo,
+    })
+    return false
+end
+
+run_yal_update_install = function(payload)
+    local yalInfo = payload and payload.yal or nil
+    if not yalInfo or not helpers.installYalUpdateFromDepot then
+        return true
+    end
+    local result = helpers.installYalUpdateFromDepot(yalInfo.installBeta == true)
+    if updatePopupComponent and updatePopupComponent.setPayload then
+        updatePopupComponent:setPayload({
+            mode = "status",
+            title = result and result.title or "YAL Update",
+            lines = (result and result.lines) or { "YAL update finished." },
+            okLabel = "OK",
+        })
+    end
+    return false
 end
 
 local function maybeRunStartupUpdateCheck()
@@ -649,17 +778,24 @@ local function maybeRunStartupUpdateCheck()
 
     local showBetaUpdates = tonumber(settings.appSettings[def.CONFIGSHOWBETAUPDATES] or 0) == def.ON
     local installedPrerelease = is_yal_beta_version()
-    local checkBeta = showBetaUpdates or installedPrerelease
-    local yalChannelAvailable, yalLatest = helpers.checkForUpdate(checkBeta)
+    local checkBeta = showBetaUpdates
+    local _, yalLatestRaw = helpers.checkForUpdate(checkBeta)
     local yalStableAvailable, yalStable = helpers.checkForUpdate(false)
     local yalBetaAvailable, yalBeta = helpers.checkForUpdate(true)
-    local yalDetectedAvailable = yalChannelAvailable or (checkBeta and yalStableAvailable)
+    local yalSelectedVersion = checkBeta and yalBeta or yalStable
+    if not yalSelectedVersion or yalSelectedVersion == "" then
+        yalSelectedVersion = yalLatestRaw
+    end
+    local yalSelectedDepotDiffers = yalSelectedVersion and yalSelectedVersion ~= "" and tostring(yalSelectedVersion) ~= tostring(def.VERSION or "")
+    local yalSelectedUpdateAvailable = checkBeta and yalBetaAvailable or yalStableAvailable
+    local yalStableDowngradeAvailable = installedPrerelease and not showBetaUpdates and yalSelectedDepotDiffers
+    local yalDetectedAvailable = yalSelectedUpdateAvailable or yalStableDowngradeAvailable
     local feedComparison = get_yal_feed_comparison(yalStable, yalBeta)
     local channelReason = "stable setting"
     if showBetaUpdates then
         channelReason = "setting enabled"
     elseif installedPrerelease then
-        channelReason = "installed prerelease"
+        channelReason = "stable selected on prerelease"
     end
 
     local ziboDetectedAvailable, ziboLatest, ziboLocal = false, "", ""
@@ -678,13 +814,17 @@ local function maybeRunStartupUpdateCheck()
     local yalInfo = {
         checkBeta = checkBeta,
         detectedAvailable = yalDetectedAvailable,
-        channelAvailable = yalChannelAvailable,
+        channelAvailable = yalDetectedAvailable,
         stableAvailable = yalStableAvailable,
         betaAvailable = yalBetaAvailable,
-        latest = yalLatest,
+        latest = yalSelectedVersion,
         latestStable = yalStable,
         latestBeta = yalBeta,
         current = tostring(def.VERSION or ""),
+        installBeta = checkBeta,
+        installKind = checkBeta and "beta" or "stable",
+        installVersion = yalSelectedVersion,
+        installLabel = checkBeta and "Install YAL Beta" or "Install YAL Stable",
     }
     yalInfo.ignoreVersion = choose_yal_ignore_version(yalInfo)
     yalInfo.ignored = is_ignored_update(yalInfo.ignoreVersion, ignoredYalVersion)
@@ -735,13 +875,13 @@ local function maybeRunStartupUpdateCheck()
     maybeInitUpdatePopupWindow()
     if updatePopupComponent and updatePopupComponent.setPayload then
         updatePopupComponent:setPayload({
-            title = get_update_popup_title(yalInfo.available, ziboInfo.available, checkBeta and yalChannelAvailable),
+            title = get_update_popup_title(yalInfo.available, ziboInfo.available, checkBeta and yalInfo.available, yalInfo.installKind),
             checkedAt = now,
             channel = helpers.startupUpdateInfo.channel,
             yal = helpers.startupUpdateInfo.yal,
             zibo = helpers.startupUpdateInfo.zibo,
             laterLabel = "Later",
-            settingsLabel = "Settings",
+            installLabel = yalInfo.installLabel,
         })
     end
 end
@@ -801,6 +941,9 @@ end
 
 function onAirportLoaded(flightNumber)
     helpers.logInfoTS(string.format("Airport loaded: Flight #%s, Aircraft: %s", flightNumber, sasl.getAircraft()))
+    if autoUnicom and autoUnicom.rebaseline then
+        autoUnicom.rebaseline()
+    end
 
     if helpers.isZibo() then
         helpers.logInfoTS("Zibo Mod detected after airport load.")
@@ -829,6 +972,26 @@ end
 function update()
     if helpers.isZibo() then
         maybeInitDebugOverlay()
+        local autoUnicomConfigured = settings and settings.appSettings
+            and tonumber(settings.appSettings[def.CONFIGIVAOAUTOUNICOM] or 0) == def.ON
+        local virtualCopilotActive = settings and settings.appSettings
+            and (tonumber(settings.appSettings[def.CONFIGAUTOFUNCTIONS] or 0) == def.ON
+                or tonumber(settings.appSettings[def.CONFIGVOICEADVICEONLY] or 0) == def.ON)
+        local autoUnicomEnabled = autoUnicomConfigured and virtualCopilotActive
+        if autoUnicomConfigured and not virtualCopilotActive then
+            if not autoUnicomRuntime.modePrerequisiteLogged then
+                autoUnicomRuntime.modePrerequisiteLogged = true
+                helpers.logInfoTS("IVAO Auto-Unicom inactive: enable Auto Functions or Voice Advice Only")
+            end
+        else
+            autoUnicomRuntime.modePrerequisiteLogged = false
+        end
+        local autoUnicomTransportAvailable = false
+        if autoUnicomEnabled then
+            autoUnicomTransportAvailable = bind_auto_unicom_datarefs() == true
+        end
+        local autoUnicomOperational = autoUnicomEnabled == true and autoUnicomTransportAvailable
+        autoUnicom.tick(autoUnicomOperational)
         if yal and yal.updateGearProtectionFast then
             yal.updateGearProtectionFast()
         end
@@ -873,6 +1036,14 @@ function update()
             helpers.requestGlobalAptIndex("update-loop")
             helpers.updateGlobalAptIndex(nil, false)
         end
+        if taxiComponent and autoUnicomOperational
+            and (yal.flightstate == def.FLIGHTSTATEPREFLIGHT
+                or yal.flightstate == def.FLIGHTSTATETAXITOGATE
+                or yal.flightstate == def.FLIGHTSTATESHUTDOWN)
+            and yal.airgroundsensor and get(yal.airgroundsensor) == def.ON
+            and taxiComponent.updateTaxiState then
+            taxiComponent:updateTaxiState()
+        end
         if taxiComponent and (autoTaxiEnabled or taxiVisible or visualTaxiEnabled) then
             taxiComponent:tick()
         end
@@ -883,8 +1054,13 @@ function update()
             trimPopupComponent:tick()
         end
         local current_elapsed_time = sasl.getElapsedSeconds(oneSecTimer)
+        local forceImmediateCycle = yal and yal.forceImmediateCycle == true
 
-        if current_elapsed_time >= waitstep then
+        if current_elapsed_time >= waitstep or forceImmediateCycle then
+            if forceImmediateCycle then
+                yal.forceImmediateCycle = false
+                sasl.logDebug("UPDATE: Immediate do_yal() cycle requested.")
+            end
             sasl.startTimer(oneSecTimer)
 
             local next_recommended_wait_step = yal.do_yal()
