@@ -334,6 +334,17 @@ assert_equal(
     "preflight strips EDNY ramp descriptor punctuation"
 )
 assert_equal(
+    core.buildMessage("departure.flightplan_active", copy(base, {
+        departure_icao = "KMIA",
+        arrival_icao = "KMSY",
+        preflight_parking_found = true,
+        preflight_parking_type = "misc",
+        preflight_parking_name = "REMOTE E 28"
+    })),
+    "KMIA Traffic, B738 at stand E28, preparing for departure to KMSY",
+    "preflight extracts split stand identifier from KMIA descriptor"
+)
+assert_equal(
     core.buildMessage("departure.start_push", copy(base, {
         pushback_airport_icao = "EDNY",
         pushback_parking_found = true,
@@ -342,6 +353,16 @@ assert_equal(
     })),
     "EDNY Traffic, B738, pushing back from stand 1",
     "pushback strips EDNY ramp descriptor punctuation"
+)
+assert_equal(
+    core.buildMessage("departure.start_push", copy(base, {
+        pushback_airport_icao = "KMIA",
+        pushback_parking_found = true,
+        pushback_parking_type = "misc",
+        pushback_parking_name = "REMOTE E 28"
+    })),
+    "KMIA Traffic, B738, pushing back from stand E28",
+    "pushback extracts split stand identifier from KMIA descriptor"
 )
 assert_equal(
     core.buildMessage("departure.start_push", copy(base, {
@@ -422,8 +443,26 @@ assert_equal(
         arrival_parking_type = "misc",
         arrival_parking_name = "4 R MEDIUM"
     })),
-    "ENSB Traffic, B738 parked at stand 4 R",
-    "arrival parking keeps separate stand suffix"
+    "ENSB Traffic, B738 parked at stand 4R",
+    "arrival parking compacts separate stand suffix"
+)
+assert_equal(
+    core.buildMessage("arrival.parking_position", copy(base, {
+        arrival_parking_found = true,
+        arrival_parking_type = "misc",
+        arrival_parking_name = "REMOTE E 28"
+    })),
+    "ENSB Traffic, B738 parked at stand E28",
+    "arrival parking extracts split stand identifier from descriptor"
+)
+assert_equal(
+    core.buildMessage("arrival.parking_position", copy(base, {
+        arrival_parking_found = true,
+        arrival_parking_type = "gate",
+        arrival_parking_name = "Terminal 2 Gate E 28"
+    })),
+    "ENSB Traffic, B738 parked at gate E28",
+    "arrival parking prefers marked identifier over descriptor number"
 )
 assert_equal(
     core.buildMessage("arrival.parking_position", copy(base, {
@@ -442,6 +481,15 @@ assert_equal(
     })),
     "ENSB Traffic, B738 parked at parking position",
     "arrival unnamed parking phrase"
+)
+assert_equal(
+    core.buildMessage("arrival.parking_position", copy(base, {
+        arrival_parking_found = true,
+        arrival_parking_type = "misc",
+        arrival_parking_name = "REMOTE NORTH"
+    })),
+    "ENSB Traffic, B738 parked at parking position",
+    "arrival descriptor-only name uses generic parking phrase"
 )
 missingText, missingReason = core.buildMessage("arrival.parking_position", base)
 assert_equal(missingText, nil, "arrival parking requires nearby ramp")

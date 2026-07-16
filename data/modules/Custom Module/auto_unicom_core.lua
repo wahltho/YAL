@@ -161,7 +161,7 @@ local function sanitize_parking_name(value)
     return table.concat(result)
 end
 
-local PARKING_NAME_NOISE = {
+local PARKING_IDENTIFIER_MARKER = {
     GATE = true,
     GATES = true,
     STAND = true,
@@ -169,27 +169,84 @@ local PARKING_NAME_NOISE = {
     PARKING = true,
     PARK = true,
     RAMP = true,
-    APRON = true,
-    TERMINAL = true,
-    AIRCRAFT = true,
-    START = true,
-    POSITION = true,
-    POS = true,
-    SMALL = true,
-    MEDIUM = true,
-    LARGE = true,
-    LIGHT = true,
-    HEAVY = true,
-    SUPER = true,
-    JET = true,
-    JETS = true,
-    TURBOPROP = true,
-    TURBOPROPS = true,
-    PROP = true,
-    PROPS = true,
-    HELO = true,
-    HELOS = true
+    APRON = true
 }
+
+local function token_has_digit(token)
+    for index = 1, #token do
+        local byte = token:byte(index)
+        if byte >= 48 and byte <= 57 then return true end
+    end
+    return false
+end
+
+local function token_has_letter(token)
+    for index = 1, #token do
+        local byte = token:byte(index)
+        if byte >= 65 and byte <= 90 then return true end
+    end
+    return false
+end
+
+local function is_short_letter_token(token)
+    if type(token) ~= "string" or #token < 1 or #token > 2 then return false end
+    for index = 1, #token do
+        local byte = token:byte(index)
+        if byte < 65 or byte > 90 then return false end
+    end
+    return true
+end
+
+local function extract_parking_identifier(name)
+    local tokens = {}
+    local cargo = false
+    for token in name:gmatch("%S+") do
+        tokens[#tokens + 1] = token
+        if token == "CARGO" then cargo = true end
+    end
+
+    local bestIdentifier = nil
+    local bestScore = -1
+    for index, token in ipairs(tokens) do
+        if token_has_digit(token) then
+            local identifier = token
+            local score = token_has_letter(token) and 40 or 20
+            local markerIndex = index - 1
+
+            if not token_has_letter(token) and is_short_letter_token(tokens[index - 1])
+                and not PARKING_IDENTIFIER_MARKER[tokens[index - 1]] then
+                identifier = tokens[index - 1] .. identifier
+                markerIndex = index - 2
+                score = 40
+            end
+            if is_short_letter_token(tokens[index + 1])
+                and not PARKING_IDENTIFIER_MARKER[tokens[index + 1]] then
+                identifier = identifier .. tokens[index + 1]
+                score = 40
+            end
+            if PARKING_IDENTIFIER_MARKER[tokens[markerIndex]] then
+                score = score + 10
+            end
+
+            if #identifier <= 12 and score > bestScore then
+                bestIdentifier = identifier
+                bestScore = score
+            end
+        end
+    end
+
+    if not bestIdentifier then
+        for index, token in ipairs(tokens) do
+            if PARKING_IDENTIFIER_MARKER[token] and is_short_letter_token(tokens[index + 1]) then
+                bestIdentifier = tokens[index + 1]
+                break
+            end
+        end
+    end
+    if not bestIdentifier then return nil end
+    if cargo then return "CARGO " .. bestIdentifier end
+    return bestIdentifier
+end
 
 local function parking_label(snapshot, prefix)
     if snapshot[prefix .. "_found"] ~= true then return nil end
@@ -197,21 +254,9 @@ local function parking_label(snapshot, prefix)
 
     local name = sanitize_parking_name(snapshot[prefix .. "_name"])
     if not name then return nil end
-    if name == "CLASS" or name:sub(1, 6) == "CLASS "
-        or name == "AIRCRAFT" or name:sub(1, 9) == "AIRCRAFT "
-        or name == "RAMP START" or name:sub(1, 11) == "RAMP START " then
-        return nil
-    end
-    local identifier = {}
-    for token in name:gmatch("%S+") do
-        if not PARKING_NAME_NOISE[token] then
-            identifier[#identifier + 1] = token
-        end
-    end
-    if #identifier == 0 then return nil end
-    local text = table.concat(identifier, " ")
-    if #text > 24 then return nil end
-    return (rampType == "gate" and "gate " or "stand ") .. text
+    local identifier = extract_parking_identifier(name)
+    if not identifier then return nil end
+    return (rampType == "gate" and "gate " or "stand ") .. identifier
 end
 
 M.normalizeText = normalize_text
