@@ -28,6 +28,7 @@ local startupUpdateCheckDone = false
 local startupUpdateCheckEarliest = 0
 local startupUpdateCheckPerformed = false
 local vnavTargetLogKey = nil
+local vnavPackageStatusLogKey = nil
 local vnavAircraftRelativePath = globalPropertys("sim/aircraft/view/acf_relative_path")
 local menu_taxi = nil
 local taxiGateLastLogTime = 0
@@ -705,6 +706,105 @@ local function detect_vnav_descent_package_target()
     return result
 end
 
+local function vnav_manifest_source(family)
+    if family == "zibo_upstream" then
+        return {
+            package_id = def.ZIBOVNAVTABLEPACKAGEID,
+            aircraft_family = family,
+            repository_url = def.ZIBOVNAVTABLEREPOSITORYURL,
+            manifest_url = def.ZIBOVNAVTABLEMANIFESTURL,
+        }
+    end
+    if family == "levelup_737ng" then
+        return {
+            package_id = def.LEVELUPVNAVTABLEPACKAGEID,
+            aircraft_family = family,
+            repository_url = def.LEVELUPVNAVTABLEREPOSITORYURL,
+            manifest_url = def.LEVELUPVNAVTABLEMANIFESTURL,
+        }
+    end
+    return nil
+end
+
+local function log_vnav_package_status(result)
+    local components = result and result.components or {}
+    local logKey = table.concat({
+        tostring(result and result.status or ""),
+        tostring(result and result.local_version or ""),
+        tostring(result and result.available_version or ""),
+        tostring(components.table and components.table.state or ""),
+        tostring(components.dofile and components.dofile.state or ""),
+        tostring(components.kias and components.kias.state or ""),
+        tostring(components.mach and components.mach.state or ""),
+        tostring(result and result.reason or ""),
+    }, "|")
+    if logKey == vnavPackageStatusLogKey then return end
+    vnavPackageStatusLogKey = logKey
+    helpers.logInfoTS(string.format(
+        "VNAV Descent Tables package: status=%s local=%s available=%s components=table:%s,dofile:%s,kias:%s,mach:%s reason=%s",
+        tostring(result and result.status or "unknown"),
+        tostring(result and result.local_version or "none"),
+        tostring(result and result.available_version or "unknown"),
+        tostring(components.table and components.table.state or "n/a"),
+        tostring(components.dofile and components.dofile.state or "n/a"),
+        tostring(components.kias and components.kias.state or "n/a"),
+        tostring(components.mach and components.mach.state or "n/a"),
+        tostring(result and result.reason or "")
+    ))
+end
+
+local function inspect_vnav_descent_package(target)
+    target = target or helpers.vnavDescentPackageTarget or detect_vnav_descent_package_target()
+    if not target or target.status ~= "supported" then
+        local result = {
+            status = "target_not_supported",
+            reason = target and target.reason or "loaded aircraft target is unavailable",
+            target = target,
+            safe_for_future_action = false,
+        }
+        helpers.vnavDescentPackageStatus = result
+        log_vnav_package_status(result)
+        return result
+    end
+
+    local source = vnav_manifest_source(target.family)
+    if not source or not source.manifest_url or source.manifest_url == "" then
+        local result = {
+            status = "manifest_unavailable",
+            reason = "no authorized manifest source for the detected aircraft family",
+            target = target,
+            safe_for_future_action = false,
+        }
+        helpers.vnavDescentPackageStatus = result
+        log_vnav_package_status(result)
+        return result
+    end
+
+    local callOk, downloadOk, manifestText = pcall(sasl.net.downloadFileContentsSync, source.manifest_url)
+    if not callOk or not downloadOk then
+        local result = {
+            status = "manifest_unavailable",
+            reason = "could not download the authorized release manifest",
+            target = target,
+            manifest_url = source.manifest_url,
+            safe_for_future_action = false,
+        }
+        helpers.vnavDescentPackageStatus = result
+        log_vnav_package_status(result)
+        return result
+    end
+
+    local result = vnavDescentPackage.inspectInstallation({
+        target = target,
+        manifest_text = manifestText,
+        expected = source,
+    })
+    result.manifest_url = source.manifest_url
+    helpers.vnavDescentPackageStatus = result
+    log_vnav_package_status(result)
+    return result
+end
+
 remember_ignored_updates = function(payload)
     if not settings or not settings.appSettings or not payload then
         return
@@ -818,6 +918,8 @@ local function maybeRunStartupUpdateCheck()
 
     startupUpdateCheckDone = true
     startupUpdateCheckPerformed = true
+
+    inspect_vnav_descent_package(helpers.vnavDescentPackageTarget)
 
     local showBetaUpdates = tonumber(settings.appSettings[def.CONFIGSHOWBETAUPDATES] or 0) == def.ON
     local installedPrerelease = is_yal_beta_version()

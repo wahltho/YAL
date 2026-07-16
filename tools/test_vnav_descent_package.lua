@@ -1,6 +1,7 @@
 package.path = "data/modules/Custom Module/?.lua;" .. package.path
 
 local packageDetector = require("vnav_descent_package")
+local sha256 = require("sha256")
 
 local function fail(message)
     error(message, 2)
@@ -99,4 +100,155 @@ assert_equal(unsupported.status, "unsupported_aircraft", "Unsupported aircraft")
 local traversal = detect({ acf_relative_path = "Aircraft/../B737-800X/b738.acf" })
 assert_equal(traversal.status, "invalid_aircraft_path", "Unsafe relative path")
 
-print("VNAV descent package detection tests passed")
+assert_equal(
+    sha256.hex(""),
+    "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "SHA-256 empty vector"
+)
+assert_equal(
+    sha256.hex("abc"),
+    "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+    "SHA-256 abc vector"
+)
+
+local packageId = "test-zibo-vnav-package"
+local packageVersion = "v0.2.0"
+local repositoryUrl = "https://example.invalid/test-zibo-vnav-package"
+local tableFile = "B738.a_fms_test_tables.lua"
+local tableContent = "return { test = true }\n"
+local dofileFragment = table.concat({
+    "-- BEGIN TEST_VNAV DOFILE",
+    "-- package-id|" .. packageId,
+    "-- package-version|" .. packageVersion,
+    "dofile(\"" .. tableFile .. "\")",
+    "-- END TEST_VNAV DOFILE",
+    "",
+}, "\n")
+local kiasFragment = table.concat({
+    "\t-- BEGIN TEST_VNAV KIAS",
+    "\t-- package-id|" .. packageId,
+    "\t-- package-version|" .. packageVersion,
+    "\treturn B738_variant_test_take_alt_dist()",
+    "\t-- END TEST_VNAV KIAS",
+    "",
+}, "\n")
+local machFragment = table.concat({
+    "\t-- BEGIN TEST_VNAV MACH",
+    "\t-- package-id|" .. packageId,
+    "\t-- package-version|" .. packageVersion,
+    "\treturn B738_variant_test_take_alt_dist_mach()",
+    "\t-- END TEST_VNAV MACH",
+    "",
+}, "\n")
+
+local function payload_line(role, filename, content)
+    return string.format(
+        "payload|%s|%s|size|%d|sha256|%s",
+        role,
+        filename,
+        #content,
+        sha256.hex(content)
+    )
+end
+
+local manifestText = table.concat({
+    "schema|package-manifest|1",
+    "package|id|" .. packageId,
+    "package|version|" .. packageVersion,
+    "package|release_tag|" .. packageVersion,
+    "aircraft|family|zibo_upstream",
+    "repository|url|" .. repositoryUrl,
+    "target|relative_path|" .. packageDetector.TARGET_RELATIVE_PATH,
+    payload_line("table", tableFile, tableContent),
+    payload_line("dofile", "Add_dofile.txt", dofileFragment),
+    payload_line("kias", "Add_to_take_alt_dist.txt", kiasFragment),
+    payload_line("mach", "Add_to_take_alt_dist_mach.txt", machFragment),
+    "anchor|dofile|jit.off()",
+    "anchor|kias|function take_alt_dist(x)",
+    "anchor|mach|function take_alt_dist_mach(x)",
+    "marker|dofile|begin|-- BEGIN TEST_VNAV DOFILE",
+    "marker|dofile|end|-- END TEST_VNAV DOFILE",
+    "marker|kias|begin|-- BEGIN TEST_VNAV KIAS",
+    "marker|kias|end|-- END TEST_VNAV KIAS",
+    "marker|mach|begin|-- BEGIN TEST_VNAV MACH",
+    "marker|mach|end|-- END TEST_VNAV MACH",
+    "legacy|v0.1.0|dofile|dofile(\"" .. tableFile .. "\")",
+    "legacy|v0.1.0|kias|pcall(B738_variant_test_take_alt_dist,",
+    "legacy|v0.1.0|mach|pcall(B738_variant_test_take_alt_dist_mach,",
+    "",
+}, "\n")
+
+local manifestExpected = {
+    package_id = packageId,
+    aircraft_family = "zibo_upstream",
+    repository_url = repositoryUrl,
+}
+local targetPath = zibo.target_path
+local tablePath = targetPath:match("^(.*)/[^/]+$") .. "/" .. tableFile
+local baseTarget = table.concat({
+    "jit.off()",
+    "function take_alt_dist(x)",
+    "function take_alt_dist_mach(x)",
+    "",
+}, "\n")
+local currentTarget = table.concat({
+    "jit.off()",
+    dofileFragment:sub(1, -2),
+    "function take_alt_dist(x)",
+    kiasFragment:sub(1, -2),
+    "function take_alt_dist_mach(x)",
+    machFragment:sub(1, -2),
+    "",
+}, "\n")
+
+local function inspect(targetData, payloadData, overrides)
+    local files = { [targetPath] = targetData }
+    if payloadData ~= nil then files[tablePath] = payloadData end
+    local input = {
+        target = zibo,
+        manifest_text = manifestText,
+        expected = manifestExpected,
+        read_file = function(path) return files[path] end,
+    }
+    for key, value in pairs(overrides or {}) do input[key] = value end
+    return packageDetector.inspectInstallation(input)
+end
+
+local current = inspect(currentTarget, tableContent)
+assert_equal(current.status, "installed_current", "Current package state")
+assert_equal(current.local_version, packageVersion, "Current package version")
+assert_equal(current.components.table.state, "current", "Current table component")
+assert_equal(current.components.dofile.state, "marked_current", "Current dofile component")
+assert_true(current.safe_for_future_action, "Current package future action safety")
+
+local absent = inspect(baseTarget, nil)
+assert_equal(absent.status, "not_installed", "Absent package state")
+
+local overwritten = inspect(baseTarget, tableContent)
+assert_equal(overwritten.status, "aircraft_update_removed", "Aircraft update removed hooks")
+
+local missingTable = inspect(currentTarget, nil)
+assert_equal(missingTable.status, "repair_required", "Missing table repair state")
+
+local outdatedTarget = currentTarget:gsub("package%-version|v0%.2%.0", "package-version|v0.1.0")
+local outdated = inspect(outdatedTarget, "old table\n")
+assert_equal(outdated.status, "installed_outdated", "Outdated package state")
+assert_equal(outdated.local_version, "v0.1.0", "Outdated local version")
+
+local partialTarget = currentTarget:gsub("\t%-%- BEGIN TEST_VNAV MACH.-%-%- END TEST_VNAV MACH\n", "")
+local partial = inspect(partialTarget, tableContent)
+assert_equal(partial.status, "partial_damaged", "Partial package state")
+assert_false(partial.safe_for_future_action, "Partial package future action safety")
+
+local anchorMismatch = inspect("jit.off()\n", nil)
+assert_equal(anchorMismatch.status, "target_changed", "Anchor mismatch state")
+
+local invalidManifest = packageDetector.inspectInstallation({
+    target = zibo,
+    manifest_text = manifestText:gsub("aircraft|family|zibo_upstream", "aircraft|family|levelup_737ng"),
+    expected = manifestExpected,
+    read_file = function() return currentTarget end,
+})
+assert_equal(invalidManifest.status, "manifest_invalid", "Manifest family guard")
+
+print("VNAV descent package tests passed")
