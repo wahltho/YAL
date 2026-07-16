@@ -5,6 +5,17 @@
 
 Virtual copilot plugin for the Zibo Mod 737 in X-Plane.
 
+## License and Official Distribution
+YAL is source-available software and is not distributed as an open-source
+project. Personal, non-commercial use of official YAL releases is permitted
+under the terms in `LICENSE`.
+
+Only releases published by the copyright holder through this repository or the
+official YAL update channels are official and supported YAL releases.
+Publishing or redistributing modified or unmodified YAL versions requires prior
+written permission. Bundled third-party components remain subject to their own
+licenses, including `SASL-LICENSE.txt`.
+
 ## Installation
 1. Copy the main `YAL` folder into `X-Plane/Resources/plugins/`.
 2. Start X-Plane.
