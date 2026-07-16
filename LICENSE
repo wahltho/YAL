@@ -3,8 +3,6 @@ YAL SOURCE-AVAILABLE LICENSE 1.0
 Copyright (c) 2023-2026 Thomas Wahl (wahltho)
 All rights reserved.
 
-Effective date: 16 July 2026
-
 1. Scope
 
 This license applies to Yet Another Linda (YAL), including its source code,
@@ -45,17 +43,12 @@ supported YAL releases.
 Third-party components included with YAL remain subject to their respective
 licenses. This license does not replace, restrict, or extend those licenses.
 
-6. Earlier Versions
-
-This license does not revoke or alter permissions expressly granted with YAL
-versions published before the effective date.
-
-7. Termination
+6. Termination
 
 Any permission granted by this license terminates automatically if you fail to
 comply with its terms.
 
-8. Disclaimer
+7. Disclaimer
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
