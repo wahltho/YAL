@@ -13483,9 +13483,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
 
     function comp:getDepartureAutoUnicomState()
         local result = { valid = false }
-        local route = comp._route
-        local data = route and route.data or nil
-        local path = route and route.path or nil
+        local data = comp._data
         local aircraft = comp._aircraftPoint
         if comp.mode ~= 0 then
             return result
@@ -13511,14 +13509,12 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
         result.backtrack = onRunwaySurface and forward
             and headingDiff ~= nil and headingDiff >= reverseHeading
 
-        local routeValid = not comp._routeErr and data and data.nodes
-            and path and #path >= 2 and aircraft
-            and aircraft.east ~= nil and aircraft.north ~= nil
-        if not runwayGeometryValid and not routeValid then
+        if not runwayGeometryValid then
             return result
         end
         result.valid = true
-        if not routeValid then
+        if not data or not data.nodes or not aircraft
+            or aircraft.east == nil or aircraft.north == nil then
             return result
         end
 
@@ -13536,7 +13532,10 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
         end
         result.departure_intersection = intersection ~= "" and intersection or nil
 
-        local holdId = comp._depHoldshortNodeId or entryId
+        local holdId = entryId
+        if not holdId or not data.nodes[holdId] then
+            holdId = comp._depHoldshortNodeId
+        end
         local holdNode = holdId and data.nodes[holdId] or nil
         local holdDistance = nil
         if holdNode and holdNode.east ~= nil and holdNode.north ~= nil then

@@ -151,12 +151,12 @@ local phraseCases = {
     {
         "departure.hold_short",
         base,
-        "ENAT Traffic, B738, holding short of holding point runway 09"
+        "ENAT Traffic, B738 holding short runway 09"
     },
     {
         "departure.hold_short",
         copy(base, { departure_intersection = "Intersection A" }),
-        "ENAT Traffic, B738, holding short of intersection A"
+        "ENAT Traffic, B738 holding short runway 09 at intersection A"
     },
     {
         "departure.backtrack",

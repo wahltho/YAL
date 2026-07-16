@@ -374,14 +374,15 @@ function M.buildMessage(eventId, snapshot)
         local intersection = departure_intersection(snapshot)
         if intersection then
             return normalize_text(string.format(
-                "%s Traffic, %s, holding short of intersection %s",
+                "%s Traffic, %s holding short runway %s at intersection %s",
                 airport,
                 ac,
+                runway,
                 intersection
             ))
         end
         return normalize_text(string.format(
-            "%s Traffic, %s, holding short of holding point runway %s",
+            "%s Traffic, %s holding short runway %s",
             airport,
             ac,
             runway
