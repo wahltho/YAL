@@ -1,5 +1,5 @@
 # Yet Another Linda (YAL)
-**Version 4.7** (stable channel)
+**Version 4.8b1** (beta channel)
 
 *(C) WAHLTHO 2023-2026*
 
@@ -45,7 +45,7 @@ YAL automates or advises normal cockpit flows for the Zibo 737 and provides addi
 - Weather, METAR and runway/RVR related assistance
 - Optional update checks for YAL and Zibo
 
-## Main Features in the 4.7 Release
+## Main Features in the 4.8 Beta Build
 - Extended taxi map and taxi routing:
   - ARR/DEP planning
   - scenery/global apt source switching
