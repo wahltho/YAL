@@ -99,7 +99,8 @@ update concepts separate:
    - any package that requires X-Plane to be closed
 
 3. **External aircraft content package**
-   - package manifests downloaded from authorized GitHub Releases
+   - package manifests downloaded from the authorized repository's direct raw endpoint
+   - payloads downloaded from the immutable release tag through the direct raw endpoint
    - payload files verified by hash
    - local aircraft files patched through anchors and markers
    - package-specific install state, backup, repair and uninstall metadata
@@ -142,7 +143,7 @@ For YAL's own files, the engine uses the current Bunny/SkunkCrafts depot and
 must keep blocking native/SASL binary replacement while X-Plane is running.
 
 For Zibo custom VNAV tables, the same engine can consume the
-`X-Plane-ZIBO-Descent-Tables` release manifest, download the payload, verify
+`X-Plane-ZIBO-Descent-Tables` package manifest, download the release-tagged payload, verify
 hashes, detect a valid Zibo target, patch `B738.a_fms.lua` through the declared
 markers and anchors, and record package-specific backup/install metadata.
 
@@ -158,7 +159,8 @@ because it has no XLua `B738.a_fms.lua` target.
 The implemented flow:
 
 - detects only the currently loaded aircraft installation
-- downloads the authorized release manifest and all four declared payloads
+- downloads the authorized package manifest and all four declared payloads through
+  direct HTTP-200 raw GitHub URLs; release-tagged payload URLs are immutable
 - verifies exact payload size and SHA-256 before creating a patch
 - preserves UTF-8 BOM, line-ending style, and final-newline behavior
 - stages and structurally verifies the complete patched package

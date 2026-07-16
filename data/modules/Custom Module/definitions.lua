@@ -456,10 +456,10 @@ P.YALBETAUPDATEURL = P.YALBETAUPDATEBASEURL .. "/data/modules/configuration/vers
 P.ZIBOUPDATEFEEDURL = "https://skymatixva.com/tfiles/feed.xml"
 P.ZIBOVNAVTABLEPACKAGEID = "x-plane-zibo-vnav-descent-tables"
 P.ZIBOVNAVTABLEREPOSITORYURL = "https://github.com/wahltho/X-Plane-ZIBO-Descent-Tables"
-P.ZIBOVNAVTABLEMANIFESTURL = P.ZIBOVNAVTABLEREPOSITORYURL .. "/releases/latest/download/package-manifest.txt"
+P.ZIBOVNAVTABLEMANIFESTURL = "https://raw.githubusercontent.com/wahltho/X-Plane-ZIBO-Descent-Tables/main/package-manifest.txt"
 P.LEVELUPVNAVTABLEPACKAGEID = "x-plane-levelup-737ng-vnav-descent-tables"
 P.LEVELUPVNAVTABLEREPOSITORYURL = "https://github.com/JT8D-17/X-Plane-LevelUp-737NG-Descent-Tables"
-P.LEVELUPVNAVTABLEMANIFESTURL = P.LEVELUPVNAVTABLEREPOSITORYURL .. "/releases/latest/download/package-manifest.txt"
+P.LEVELUPVNAVTABLEMANIFESTURL = "https://raw.githubusercontent.com/JT8D-17/X-Plane-LevelUp-737NG-Descent-Tables/main/package-manifest.txt"
 
 P.AVWEATHERFURLCSV = "https://aviationweather.gov/api/data/metar?taf=false&ids="
 

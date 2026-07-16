@@ -114,7 +114,7 @@ assert_equal(
 
 local packageId = "test-zibo-vnav-package"
 local packageVersion = "v0.2.0"
-local repositoryUrl = "https://example.invalid/test-zibo-vnav-package"
+local repositoryUrl = "https://github.com/example/test-zibo-vnav-package"
 local tableFile = "B738.a_fms_test_tables.lua"
 local tableContent = "return { test = true }\n"
 local dofileFragment = table.concat({
@@ -301,7 +301,9 @@ local payloadByName = {
     ["Add_to_take_alt_dist.txt"] = kiasFragment,
     ["Add_to_take_alt_dist_mach.txt"] = machFragment,
 }
+local downloadedUrls = {}
 local function download_fixture(url)
+    downloadedUrls[#downloadedUrls + 1] = tostring(url)
     local filename = tostring(url):match("([^/]+)$")
     return payloadByName[filename]
 end
@@ -333,6 +335,11 @@ local crlfBase = "\239\187\191" .. baseTarget:gsub("\n", "\r\n")
 write_file(liveTargetPath, crlfBase)
 local install = execute_action("install")
 assert_true(install.ok, "Transactional install")
+assert_equal(
+    downloadedUrls[1],
+    "https://raw.githubusercontent.com/example/test-zibo-vnav-package/v0.2.0/B738.a_fms_test_tables.lua",
+    "Tagged raw payload URL"
+)
 assert_equal(inspect_live().status, "installed_current", "Installed live state")
 local installedTarget = read_file(liveTargetPath)
 assert_equal(installedTarget:sub(1, 3), "\239\187\191", "Target BOM preserved")

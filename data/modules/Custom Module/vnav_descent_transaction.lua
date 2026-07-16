@@ -450,15 +450,30 @@ local function table_metadata(data)
     return packageId, packageVersion, packageIdCount, packageVersionCount
 end
 
-local function release_asset_url(manifest, filename)
-    return tostring(manifest.repository_url) .. "/releases/download/" .. tostring(manifest.release_tag) .. "/" .. tostring(filename)
+local function encode_url_segment(value)
+    return (tostring(value or ""):gsub("([^%w%-%._~])", function(character)
+        return string.format("%%%02X", string.byte(character))
+    end))
+end
+
+local function tagged_payload_url(manifest, filename)
+    local owner, repository = tostring(manifest.repository_url or ""):match(
+        "^https://github%.com/([%w%._%-]+)/([%w%._%-]+)$"
+    )
+    if not owner or not repository then return nil, "unsupported GitHub repository URL" end
+    return "https://raw.githubusercontent.com/"
+        .. owner .. "/" .. repository .. "/"
+        .. encode_url_segment(manifest.release_tag) .. "/"
+        .. encode_url_segment(filename)
 end
 
 local function download_payloads(manifest, download)
     local payloads = {}
     for _, role in ipairs({ "table", "dofile", "kias", "mach" }) do
         local entry = manifest.payloads[role]
-        local data, err = download(release_asset_url(manifest, entry.filename))
+        local url, urlError = tagged_payload_url(manifest, entry.filename)
+        if not url then return nil, urlError end
+        local data, err = download(url)
         if data == nil then return nil, "could not download " .. entry.filename .. ": " .. tostring(err or "download failed") end
         payloads[role] = tostring(data)
     end

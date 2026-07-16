@@ -752,6 +752,16 @@ local function vnav_manifest_source(family)
     return nil
 end
 
+local function download_vnav_http_200(url)
+    local callOk, downloadOk, contents, responseCode = pcall(sasl.net.downloadFileContentsSync, url)
+    if not callOk then return nil, tostring(downloadOk or "download call failed") end
+    if not downloadOk then return nil, tostring(contents or "download failed") end
+    if tonumber(responseCode) ~= 200 then
+        return nil, "HTTP " .. tostring(responseCode or "unknown")
+    end
+    return tostring(contents or "")
+end
+
 local function log_vnav_package_status(result)
     local components = result and result.components or {}
     local logKey = table.concat({
@@ -763,11 +773,12 @@ local function log_vnav_package_status(result)
         tostring(components.kias and components.kias.state or ""),
         tostring(components.mach and components.mach.state or ""),
         tostring(result and result.reason or ""),
+        tostring(result and result.manifest_error or ""),
     }, "|")
     if logKey == vnavPackageStatusLogKey then return end
     vnavPackageStatusLogKey = logKey
     helpers.logInfoTS(string.format(
-        "VNAV Descent Tables package: status=%s local=%s available=%s components=table:%s,dofile:%s,kias:%s,mach:%s reason=%s",
+        "VNAV Descent Tables package: status=%s local=%s available=%s components=table:%s,dofile:%s,kias:%s,mach:%s reason=%s manifest_error=%s",
         tostring(result and result.status or "unknown"),
         tostring(result and result.local_version or "none"),
         tostring(result and result.available_version or "unknown"),
@@ -775,7 +786,8 @@ local function log_vnav_package_status(result)
         tostring(components.dofile and components.dofile.state or "n/a"),
         tostring(components.kias and components.kias.state or "n/a"),
         tostring(components.mach and components.mach.state or "n/a"),
-        tostring(result and result.reason or "")
+        tostring(result and result.reason or ""),
+        tostring(result and result.manifest_error or "none")
     ))
 end
 
@@ -806,8 +818,8 @@ local function inspect_vnav_descent_package(target)
         return result
     end
 
-    local callOk, downloadOk, manifestText = pcall(sasl.net.downloadFileContentsSync, source.manifest_url)
-    if not callOk or not downloadOk then
+    local manifestText, manifestDownloadError = download_vnav_http_200(source.manifest_url)
+    if not manifestText then
         local result = {
             status = target.status == "not_applicable_no_lua" and "not_applicable_no_lua" or "manifest_unavailable",
             reason = target.status == "not_applicable_no_lua"
@@ -815,7 +827,7 @@ local function inspect_vnav_descent_package(target)
                 or "could not download the authorized release manifest",
             target = target,
             manifest_url = source.manifest_url,
-            manifest_error = "could not download the authorized release manifest",
+            manifest_error = manifestDownloadError or "could not download the authorized release manifest",
             safe_for_future_action = false,
         }
         helpers.vnavDescentPackageStatus = result
@@ -897,10 +909,7 @@ function vnavUi.ignoreToken(result)
 end
 
 function vnavUi.download(url)
-    local callOk, downloadOk, contents = pcall(sasl.net.downloadFileContentsSync, url)
-    if not callOk then return nil, tostring(downloadOk or "download call failed") end
-    if not downloadOk then return nil, "download failed" end
-    return tostring(contents or "")
+    return download_vnav_http_200(url)
 end
 
 function vnavUi.payload(result, restore, manual)
