@@ -3,6 +3,7 @@ local settings = require("settings")
 require("helpers")
 require("yal")
 local autoUnicom = require("auto_unicom")
+local vnavDescentPackage = require("vnav_descent_package")
 
 local debugOverlayWindow
 local debugOverlayInitialized = false
@@ -26,6 +27,8 @@ local run_yal_update_install
 local startupUpdateCheckDone = false
 local startupUpdateCheckEarliest = 0
 local startupUpdateCheckPerformed = false
+local vnavTargetLogKey = nil
+local vnavAircraftRelativePath = globalPropertys("sim/aircraft/view/acf_relative_path")
 local menu_taxi = nil
 local taxiGateLastLogTime = 0
 local autoUnicomRuntime = {
@@ -663,6 +666,45 @@ local function is_ignored_update(version, ignoredVersion)
     return version and version ~= "" and ignoredVersion and ignoredVersion ~= "" and tostring(version) == tostring(ignoredVersion)
 end
 
+local function read_string_property(prop)
+    if not prop or not isProperty(prop) then return "" end
+    local ok, value = pcall(get, prop)
+    if not ok then return "" end
+    return helpers.forceCleanString(tostring(value or ""))
+end
+
+local function detect_vnav_descent_package_target()
+    local result = vnavDescentPackage.detectLoadedAircraft({
+        xplane_path = sasl.getXPlanePath(),
+        acf_relative_path = read_string_property(vnavAircraftRelativePath),
+        separator = def.OSSEPARATOR,
+        levelup_release = helpers.getLatchedLevelUpRelease(),
+        levelup_flight_model = helpers.getLatchedLevelUpFm(),
+        zibo_runtime = helpers.isZibo(),
+    })
+    helpers.vnavDescentPackageTarget = result
+
+    local logKey = table.concat({
+        tostring(result.status or ""),
+        tostring(result.family or ""),
+        tostring(result.aircraft_relative_path or ""),
+        tostring(result.target_exists == true),
+        tostring(result.reason or ""),
+    }, "|")
+    if logKey ~= vnavTargetLogKey then
+        vnavTargetLogKey = logKey
+        helpers.logInfoTS(string.format(
+            "VNAV Descent Tables target: status=%s family=%s aircraft=%s target=%s reason=%s",
+            tostring(result.status or "unknown"),
+            tostring(result.family or "none"),
+            tostring(result.aircraft_relative_path or "unknown"),
+            tostring(result.target_path or "none"),
+            tostring(result.reason or "")
+        ))
+    end
+    return result
+end
+
 remember_ignored_updates = function(payload)
     if not settings or not settings.appSettings or not payload then
         return
@@ -745,6 +787,7 @@ local function maybeRunStartupUpdateCheck()
     local lvlupRelease = helpers.getLatchedLevelUpRelease()
     local lvlupFm = helpers.getLatchedLevelUpFm()
     local isLevelUp = helpers.isLevelUp()
+    detect_vnav_descent_package_target()
     if isLevelUp then
         helpers.logInfoTS(string.format(
             "LevelUp detected (release %s, flight model %s)",
