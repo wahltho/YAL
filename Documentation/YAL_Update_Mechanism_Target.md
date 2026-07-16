@@ -7,6 +7,12 @@ This document summarizes a conservative update model for YAL. It borrows the
 useful separation from the LevelUp updater discussion, but adapts it to YAL's
 actual deployment model as an X-Plane/SASL plugin.
 
+YAL is expected to implement its own update algorithm. This is a parallel path
+to the LevelUp standalone installer, not a dependency on it. The two projects
+can share the same conservative concepts -- manifests, hashes, staging,
+dry-run, backups and install-state classification -- while remaining separate
+implementations.
+
 ## Goals
 
 - Keep the runtime update path deterministic, auditable and easy to explain.
@@ -19,6 +25,8 @@ actual deployment model as an X-Plane/SASL plugin.
   runtime.
 - Keep GitHub Releases useful for traceability, but keep Bunny/SkunkCrafts
   depot publishing as a separate distribution step unless intentionally changed.
+- Keep YAL's internal update engine reusable enough to handle both YAL runtime
+  updates and manifest-driven content packages such as Zibo custom VNAV tables.
 
 ## Current YAL Update Surfaces
 
@@ -73,7 +81,8 @@ release process is explicitly extended later.
 
 ## Ownership Model
 
-YAL should keep two update concepts separate:
+YAL owns the in-plugin update algorithm. That algorithm should keep these
+update concepts separate:
 
 1. **Runtime plugin content update**
    - Lua files
@@ -89,21 +98,56 @@ YAL should keep two update concepts separate:
    - SASL runtime files
    - any package that requires X-Plane to be closed
 
+3. **External aircraft content package**
+   - package manifests downloaded from authorized GitHub Releases
+   - payload files verified by hash
+   - local aircraft files patched through anchors and markers
+   - package-specific install state, backup, repair and uninstall metadata
+
 The runtime updater must not pretend it can safely replace loaded native files.
 If native files differ, the update should stop and direct the user to
 SkunkCrafts or the full ZIP/manual install path.
 
-This is the YAL equivalent of the LevelUp app/content split:
+This is the YAL-side equivalent of the LevelUp app/content split:
 
-- LevelUp external app updates can use VeloPack.
-- LevelUp VNAV content updates are manifest-driven.
+- LevelUp can have its own standalone VeloPack installer.
+- YAL implements its own in-plugin update engine.
+- Both implementations can use manifest-driven content packages.
 - Zibo custom VNAV descent table updates can use the same manifest-driven
-  content package model as LevelUp, with package-specific anchors, markers and
-  payload hashes from `X-Plane-ZIBO-Descent-Tables`.
-- YAL has no standalone external app today, so the in-plugin runtime updater is
-  closer to a manifest-driven content updater.
-- If a standalone YAL updater is ever created, that app can use VeloPack, while
-  YAL plugin packages remain separately versioned and manifest-driven.
+  content package model, with package-specific anchors, markers and payload
+  hashes from `X-Plane-ZIBO-Descent-Tables`.
+- VeloPack is not part of the current YAL in-plugin update algorithm. It belongs
+  to the separate LevelUp standalone installer, or to a possible future YAL
+  companion app that would still consume YAL-owned package/update metadata.
+
+## YAL-Owned Update Engine
+
+YAL should grow a reusable update engine inside the plugin instead of relying
+on the LevelUp standalone installer.
+
+The engine should expose a small set of operations:
+
+- check available package metadata
+- classify local install state
+- build a dry-run plan
+- stage downloads
+- verify sizes and hashes
+- install runtime-safe YAL files
+- patch supported external aircraft content packages
+- repair a known package state
+- uninstall package-owned blocks and payloads
+- export a diagnostic report
+
+For YAL's own files, the engine uses the current Bunny/SkunkCrafts depot and
+must keep blocking native/SASL binary replacement while X-Plane is running.
+
+For Zibo custom VNAV tables, the same engine can consume the
+`X-Plane-ZIBO-Descent-Tables` release manifest, download the payload, verify
+hashes, detect a valid Zibo target, patch `B738.a_fms.lua` through the declared
+markers and anchors, and record package-specific backup/install metadata.
+
+This must remain explicit user action. YAL should not silently modify an
+aircraft Lua file during a normal startup check.
 
 ## Recommended Runtime Update Flow
 
@@ -263,14 +307,21 @@ For each beta or stable release:
 VeloPack is useful for standalone desktop applications. It should not be forced
 inside the SASL plugin runtime.
 
-Use VeloPack only if YAL later gets a separate external updater/control app.
-In that case:
+For the current YAL target, the update algorithm is implemented inside YAL
+itself. VeloPack is therefore out of scope for the in-plugin engine.
 
-- the external updater app has its own app version and VeloPack releases
-- the YAL plugin package has its own plugin version and manifest
-- the app can download/install YAL plugin packages while X-Plane is closed
-- the app can handle native files safely
-- the in-plugin updater can remain lightweight or become a check-only notifier
+Use VeloPack only for:
+
+- the separate LevelUp standalone installer
+- a possible future YAL companion app, if YAL ever needs a desktop shell outside
+  X-Plane
+
+Even in that later companion-app case:
+
+- YAL's update/package manifest remains the source of truth
+- the YAL plugin package keeps its own plugin version and release channel
+- the companion app only provides a closed-X-Plane execution surface
+- native file replacement remains blocked from the live in-plugin path
 
 ## Open Decisions
 
@@ -283,8 +334,8 @@ In that case:
   user to reload/restart?
 - Should GitHub Releases remain traceability-only, or become an official manual
   download surface?
-- Should native/SASL changes always force full ZIP/manual install, or can an
-  external updater later handle them?
+- Should native/SASL changes always force full ZIP/manual install, or should a
+  future YAL-owned closed-X-Plane path handle them?
 
 ## Current Practical Recommendation
 
@@ -305,4 +356,4 @@ Medium term:
 - Add optional per-file backups only if rollback behavior is implemented and
   tested.
 - Move native-file updates to a closed-X-Plane path, either manual install or a
-  future external updater.
+  future YAL-owned companion path.
