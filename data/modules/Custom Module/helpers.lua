@@ -9018,25 +9018,18 @@ local function parse_taxi_data(entry)
             if lat and lon then
                 local heading = tonumber(tokens[4]) or 0
                 local ramp_type = tokens[5] or ""
+                local ramp_aircraft_types = tokens[6] or ""
                 local ramp_operation = ""
-                local name_start = 6
-                local op_token = tokens[6]
-                if op_token then
-                    local op = string.lower(op_token)
-                    if op == "airline" or op == "cargo" or op == "general_aviation" or op == "military" or op == "none" then
-                        ramp_operation = op
-                        name_start = 7
-                    end
-                end
                 local name = ""
-                if #tokens >= name_start then
-                    name = table.concat(tokens, " ", name_start)
+                if #tokens >= 7 then
+                    name = table.concat(tokens, " ", 7)
                 end
                 local ramp = {
                     lat = lat,
                     lon = lon,
                     heading = heading,
                     ramp_type = ramp_type,
+                    ramp_aircraft_types = ramp_aircraft_types,
                     ramp_operation = ramp_operation,
                     name = name
                 }

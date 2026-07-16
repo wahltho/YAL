@@ -429,6 +429,15 @@ assert_equal(
     core.buildMessage("arrival.parking_position", copy(base, {
         arrival_parking_found = true,
         arrival_parking_type = "gate",
+        arrival_parking_name = "jets|turboprops|props 216"
+    })),
+    "ENSB Traffic, B738 parked at gate 216",
+    "arrival parking strips complete EVRA aircraft class field"
+)
+assert_equal(
+    core.buildMessage("arrival.parking_position", copy(base, {
+        arrival_parking_found = true,
+        arrival_parking_type = "gate",
         arrival_parking_name = "Gate"
     })),
     "ENSB Traffic, B738 parked at parking position",
@@ -1052,12 +1061,18 @@ local eventAdapterValues = {
     nearesticao = "ESSA",
     aircraftlatpos = 59.6519,
     aircraftlonpos = 17.9186,
+    autogate_gpu = 1,
+    autogate_nearest = 10 / 1852,
+    autogate_nearest_name = "4",
     aircraft_icao = "B738"
 }
 local eventAdapterYal = copy(baselineYal, {
     nearesticao = "nearesticao",
     aircraftlatpos = "aircraftlatpos",
     aircraftlonpos = "aircraftlonpos",
+    autogategpu = "autogate_gpu",
+    autogatenearest = "autogate_nearest",
+    autogatenearestname = "autogate_nearest_name",
     flightstate = baselineDef.FLIGHTSTATEPREFLIGHT
 })
 local eventAdapterWrites = {}
@@ -1109,13 +1124,16 @@ assert_true(autoUnicom.handleYalEvent("departure.flightplan_active", {
     arrival_icao = "ENSB"
 }, 1), "YAL preflight event accepted")
 autoUnicom.tick(true, 1)
-assert_equal(pushbackSearchAirports[1], "ENAT", "departure airport drives preflight ramp search")
+assert_equal(#pushbackSearchAirports, 0, "Zibo nearest gate bypasses preflight apt.dat fallback")
 assert_equal(eventAdapterWrites[1].value,
     "ENAT Traffic, B738 at gate 4, preparing for departure to ENSB",
-    "YAL preflight event uses nearest gate")
+    "YAL preflight event uses Zibo nearest gate")
 
 eventAdapterWrites = {}
 pushbackSearchAirports = {}
+eventAdapterValues.autogate_gpu = 0
+eventAdapterValues.autogate_nearest = 5 / 1852
+eventAdapterValues.autogate_nearest_name = "42"
 pushbackRamp = { ramp_type = "misc", name = "Apron 42" }
 pushbackDistanceSquared = 25
 configure_event_adapter_test()
@@ -1123,9 +1141,9 @@ autoUnicom.tick(true, 0)
 assert_equal(#pushbackSearchAirports, 0, "activation does not infer a pushback event")
 assert_true(autoUnicom.handleYalEvent("departure.start_push", nil, 1), "YAL pushback event accepted")
 autoUnicom.tick(true, 1)
-assert_equal(pushbackSearchAirports[1], "ESSA", "nearest airport drives pushback ramp search")
+assert_equal(#pushbackSearchAirports, 0, "Zibo nearest stand bypasses pushback apt.dat fallback")
 assert_equal(eventAdapterWrites[1].value, "ESSA Traffic, B738, pushing back from stand 42",
-    "YAL pushback event uses nearest misc ramp")
+    "YAL pushback event uses Zibo nearest stand")
 
 eventAdapterWrites = {}
 pushbackSearchAirports = {}
@@ -1133,6 +1151,9 @@ eventAdapterValues.nearesticao = ""
 eventAdapterValues.request_seq = 40
 eventAdapterValues.result_seq = 40
 eventAdapterValues.result_code = 21
+eventAdapterValues.autogate_gpu = 1
+eventAdapterValues.autogate_nearest = 81 / 1852
+eventAdapterValues.autogate_nearest_name = "A12"
 pushbackRamp = { ramp_type = "gate", name = "Gate A12" }
 pushbackDistanceSquared = 81 * 81
 configure_event_adapter_test()
@@ -1202,6 +1223,9 @@ eventAdapterValues.nearesticao = "PAHO"
 eventAdapterValues.request_seq = 58
 eventAdapterValues.result_seq = 58
 eventAdapterValues.result_code = 21
+eventAdapterValues.autogate_gpu = 1
+eventAdapterValues.autogate_nearest = 10 / 1852
+eventAdapterValues.autogate_nearest_name = "B7"
 pushbackRamp = { ramp_type = "gate", name = "Gate B7" }
 pushbackDistanceSquared = 10 * 10
 configure_event_adapter_test()
@@ -1211,9 +1235,9 @@ assert_true(autoUnicom.handleYalEvent("arrival.parking_position", {
     arrival_runway = "04"
 }, 1), "YAL arrival parking event accepts nearest ramp")
 autoUnicom.tick(true, 1)
-assert_equal(pushbackSearchAirports[1], "PAHO", "nearest airport drives arrival parking search")
+assert_equal(#pushbackSearchAirports, 0, "Zibo nearest gate bypasses arrival apt.dat fallback")
 assert_equal(eventAdapterWrites[1].value, "PAHO Traffic, B738 parked at gate B7",
-    "arrival parking uses nearest ramp without suitability filter")
+    "arrival parking uses Zibo nearest gate")
 
 eventAdapterWrites = {}
 eventAdapterValues.request_seq = 60

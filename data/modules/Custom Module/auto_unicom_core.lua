@@ -184,7 +184,11 @@ local PARKING_NAME_NOISE = {
     JET = true,
     JETS = true,
     TURBOPROP = true,
-    TURBOPROPS = true
+    TURBOPROPS = true,
+    PROP = true,
+    PROPS = true,
+    HELO = true,
+    HELOS = true
 }
 
 local function parking_label(snapshot, prefix)
@@ -616,14 +620,21 @@ local function summarize_sources(snapshot)
         { "app", snapshot.approach_id },
         { "tod", snapshot.tod_distance_nm },
         { "preflightParking", snapshot.preflight_parking_found and 1 or 0 },
+        { "preflightParkingSource", snapshot.preflight_parking_source },
         { "preflightParkingType", snapshot.preflight_parking_type },
         { "preflightParkingName", snapshot.preflight_parking_name },
         { "preflightParkingDist", snapshot.preflight_parking_distance_m },
         { "pushAirport", snapshot.pushback_airport_icao },
         { "pushParking", snapshot.pushback_parking_found and 1 or 0 },
+        { "pushParkingSource", snapshot.pushback_parking_source },
         { "pushParkingType", snapshot.pushback_parking_type },
         { "pushParkingName", snapshot.pushback_parking_name },
         { "pushParkingDist", snapshot.pushback_parking_distance_m },
+        { "arrivalParking", snapshot.arrival_parking_found and 1 or 0 },
+        { "arrivalParkingSource", snapshot.arrival_parking_source },
+        { "arrivalParkingType", snapshot.arrival_parking_type },
+        { "arrivalParkingName", snapshot.arrival_parking_name },
+        { "arrivalParkingDist", snapshot.arrival_parking_distance_m },
         { "crossingRwy", snapshot.crossing_runway },
         { "crossingTwy", snapshot.crossing_taxiway },
         { "holdSource", snapshot.hold_source },

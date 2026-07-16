@@ -64,11 +64,28 @@ function P.getAutoUnicomFlightPlanContext()
 end
 
 function P.getAutoUnicomNearestParkingPayload(maxDistanceMeters)
-    if not helpers.getNearestRamp or not P.aircraftlatpos or not P.aircraftlonpos then return nil end
     local state = P.autoUnicomRuntime
     local airport = P.nearesticao and helpers.extractprimaryicao(get(P.nearesticao) or "") or ""
     if not helpers.isvalidicao(airport) then airport = state and state.arrivalIcao or "" end
     if not helpers.isvalidicao(airport) then return nil end
+
+    maxDistanceMeters = tonumber(maxDistanceMeters) or 35
+    if P.autogatenearest and P.autogatenearestname then
+        local distanceNm = tonumber(get(P.autogatenearest))
+        local name = helpers.forceCleanString(tostring(get(P.autogatenearestname) or ""))
+        if distanceNm and distanceNm >= 0 and distanceNm * 1852 <= maxDistanceMeters and name ~= "" then
+            return {
+                arrival_parking_found = true,
+                arrival_parking_type = P.autogategpu and tonumber(get(P.autogategpu)) == def.ON and "gate" or "misc",
+                arrival_parking_name = name,
+                arrival_parking_distance_m = distanceNm * 1852,
+                arrival_parking_airport_icao = airport,
+                arrival_parking_source = "zibo"
+            }
+        end
+    end
+
+    if not helpers.getNearestRamp or not P.aircraftlatpos or not P.aircraftlonpos then return nil end
 
     local lat = tonumber(get(P.aircraftlatpos))
     local lon = tonumber(get(P.aircraftlonpos))
@@ -79,7 +96,6 @@ function P.getAutoUnicomNearestParkingPayload(maxDistanceMeters)
 
     local ok, ramp, distanceSquared = pcall(helpers.getNearestRamp, airport, lat, lon)
     distanceSquared = tonumber(distanceSquared)
-    maxDistanceMeters = tonumber(maxDistanceMeters) or 35
     if not ok or not ramp or not distanceSquared or distanceSquared < 0
         or distanceSquared > maxDistanceMeters * maxDistanceMeters then
         return nil
@@ -89,7 +105,8 @@ function P.getAutoUnicomNearestParkingPayload(maxDistanceMeters)
         arrival_parking_type = tostring(ramp.ramp_type or ""):lower(),
         arrival_parking_name = tostring(ramp.name or ""),
         arrival_parking_distance_m = math.sqrt(distanceSquared),
-        arrival_parking_airport_icao = airport
+        arrival_parking_airport_icao = airport,
+        arrival_parking_source = "local"
     }
 end
 
@@ -2134,6 +2151,8 @@ function P.bindExternalDatarefs(silentMissing)
     P.gpuavailable = GP("laminar/B738/gpu_available")
     P.jetwaypoweravailable = GP("laminar/B738/jetway_power")
     P.autogategpu = GP("laminar/B738/autogate_gpu")
+    P.autogatenearest = GP("laminar/B738/autogate_nearest")
+    P.autogatenearestname = GPS("laminar/B738/autogate_nearest_name")
     P.gpuon = GP("sim/cockpit/electrical/gpu_on")
     P.engineairstart = GP("laminar/B738/engine/engine_air_start")
 

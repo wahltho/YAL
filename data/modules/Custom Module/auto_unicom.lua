@@ -11,6 +11,7 @@ local manualRepeatCount = 0
 local PREFLIGHT_PARKING_MAX_DISTANCE_M = 35
 local PUSHBACK_PARKING_MAX_DISTANCE_M = 80
 local ARRIVAL_PARKING_MAX_DISTANCE_M = 35
+local NM_TO_METERS = 1852
 
 local function log(message)
     if runtime and runtime.helpers and runtime.helpers.logInfoTS then
@@ -151,7 +152,22 @@ end
 
 local function read_nearest_parking(snapshot, y, airport, prefix, maxDistanceMeters)
     local helpers = runtime and runtime.helpers or nil
-    if not airport or not helpers or not helpers.getNearestRamp then return end
+    if not airport or not helpers then return end
+
+    local ziboDistanceNm = tonumber(safe_read(y.autogatenearest))
+    local ziboName = tostring(safe_read(y.autogatenearestname) or "")
+    if helpers.forceCleanString then ziboName = helpers.forceCleanString(ziboName) end
+    if ziboDistanceNm and ziboDistanceNm >= 0 and ziboDistanceNm * NM_TO_METERS <= maxDistanceMeters
+        and ziboName ~= "" then
+        snapshot[prefix .. "_found"] = true
+        snapshot[prefix .. "_type"] = tonumber(safe_read(y.autogategpu)) == 1 and "gate" or "misc"
+        snapshot[prefix .. "_name"] = ziboName
+        snapshot[prefix .. "_distance_m"] = ziboDistanceNm * NM_TO_METERS
+        snapshot[prefix .. "_source"] = "zibo"
+        return
+    end
+
+    if not helpers.getNearestRamp then return end
 
     local lat = tonumber(safe_read(y.aircraftlatpos))
     local lon = tonumber(safe_read(y.aircraftlonpos))
@@ -176,6 +192,7 @@ local function read_nearest_parking(snapshot, y, airport, prefix, maxDistanceMet
     snapshot[prefix .. "_type"] = tostring(ramp.ramp_type or ""):lower()
     snapshot[prefix .. "_name"] = tostring(ramp.name or "")
     snapshot[prefix .. "_distance_m"] = math.sqrt(distanceSquared)
+    snapshot[prefix .. "_source"] = "local"
 end
 
 local function read_pushback_parking(snapshot, y)
