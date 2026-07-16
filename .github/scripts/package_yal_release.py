@@ -20,8 +20,9 @@ PACKAGE_DIRS = (
 
 PACKAGE_FILES = (
     "Checklists.md",
-    "License",
+    "LICENSE",
     "README.md",
+    "SASL-LICENSE.txt",
     "YAL Manual.pdf",
     "skunkcrafts_updater.cfg",
     "skunkcrafts_updater_beta.cfg",
