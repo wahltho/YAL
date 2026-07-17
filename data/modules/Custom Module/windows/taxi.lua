@@ -13557,7 +13557,7 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
         local onRunwayAligned = yalref.aircraftonrwy
             and yalref.aircraftonrwy(comp._def.DEPARTURE, 40, headingLimit)
             or false
-        local holdGate = math.max(35, tonumber(comp._C.depThresholdGateMeters) or 45)
+        local holdGate = math.max(35, tonumber(comp._C.autoUnicomHoldShortGateMeters) or 90)
         local holdId, holdDistance = U.find_holdshort_node_near(
             data,
             nil,

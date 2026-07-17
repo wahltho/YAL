@@ -36,6 +36,7 @@ local C = {
     projectionShiftThreshold = 500,
     runwayRouteMaxSpeed = 45,
     depThresholdGateMeters = 60,
+    autoUnicomHoldShortGateMeters = 90,
     depThresholdHeadingLimit = 25,
     depTakeoffLatchSpeed = 25,
     depTakeoffLatchHoldSec = 2.0,

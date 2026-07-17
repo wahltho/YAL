@@ -81,4 +81,15 @@ id = U.find_holdshort_node_near(
 )
 assert_equal(id, nil, "parallel runway rejected")
 
+id, distance = U.find_holdshort_node_near(
+    data, nil, nil, { east = 0, north = 165 }, profile, 90
+)
+assert_equal(id, "threshold_entry", "expanded Auto-Unicom hold-short radius")
+assert_near(distance, 80, 0.001, "expanded Auto-Unicom hold-short distance")
+
+id = U.find_holdshort_node_near(
+    data, nil, nil, { east = 0, north = 165 }, profile, 60
+)
+assert_equal(id, nil, "shared departure threshold radius remains smaller")
+
 print("taxi hold-short geometry tests passed")
