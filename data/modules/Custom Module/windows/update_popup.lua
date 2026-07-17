@@ -270,13 +270,6 @@ function M.newComponent(ctx)
         return p[3] or defaultW, p[4] or defaultH
     end
 
-    local function getGlobalMousePos()
-        local mx = sasl.getCSMouseXPos and sasl.getCSMouseXPos() or nil
-        local my = sasl.getCSMouseYPos and sasl.getCSMouseYPos() or nil
-        if mx == nil or my == nil then return nil, nil end
-        return mx, my
-    end
-
     function comp:draw()
         if not self._payload then
             return
@@ -563,12 +556,9 @@ function M.newComponent(ctx)
         local _, h = getSize()
         if y < (h - headerH) or not self._window or not self._window.getPosition then return false end
         local wx, wy, ww, hh = self._window:getPosition()
-        local startMouseX, startMouseY = getGlobalMousePos()
         self._drag = {
-            startMouseX = startMouseX,
-            startMouseY = startMouseY,
-            fallbackX = x,
-            fallbackY = y,
+            startPointerX = wx + x,
+            startPointerY = wy + y,
             winX = wx,
             winY = wy,
             winW = ww,
@@ -581,15 +571,11 @@ function M.newComponent(ctx)
         if not self._drag or not self._window then
             return false
         end
-        local mouseX, mouseY = getGlobalMousePos()
-        local dx, dy
-        if mouseX ~= nil and mouseY ~= nil and self._drag.startMouseX ~= nil and self._drag.startMouseY ~= nil then
-            dx = mouseX - self._drag.startMouseX
-            dy = mouseY - self._drag.startMouseY
-        else
-            dx = x - (self._drag.fallbackX or x)
-            dy = y - (self._drag.fallbackY or y)
-        end
+        local currentWinX, currentWinY = self._window:getPosition()
+        local pointerX = currentWinX + x
+        local pointerY = currentWinY + y
+        local dx = pointerX - self._drag.startPointerX
+        local dy = pointerY - self._drag.startPointerY
         local newX = math.floor((self._drag.winX + dx) + 0.5)
         local newY = math.floor((self._drag.winY + dy) + 0.5)
         self._window:setPosition(newX, newY, self._drag.winW, self._drag.winH)
