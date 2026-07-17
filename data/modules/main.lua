@@ -28,6 +28,8 @@ local run_yal_update_install
 local show_vnav_descent_status
 local show_vnav_descent_confirm
 local run_vnav_descent_action
+local show_update_maintenance
+local maybeRunStartupUpdateCheck
 local vnavUi = {}
 local startupUpdateCheckDone = false
 local startupUpdateCheckEarliest = 0
@@ -36,6 +38,7 @@ local vnavTargetLogKey = nil
 local vnavPackageStatusLogKey = nil
 local vnavAircraftRelativePath = globalPropertys("sim/aircraft/view/acf_relative_path")
 local menu_taxi = nil
+local menu_updates = nil
 local taxiGateLastLogTime = 0
 local autoUnicomRuntime = {
     refs = nil,
@@ -274,14 +277,7 @@ local function maybeInitSetupWindow()
         return
     end
 
-    local comp = mod.newComponent({
-        yal = yal,
-        def = def,
-        helpers = helpers,
-        onVnavDescentTables = function()
-            if show_vnav_descent_status then show_vnav_descent_status(true) end
-        end,
-    })
+    local comp = mod.newComponent({ yal = yal, def = def, helpers = helpers })
     local w, h = mod.windowSize()
     local xRoot, yRoot, wRoot, hRoot = sasl.windows.getMonitorBoundsOS(0)
     local posX = xRoot + math.max(0, (wRoot - w) / 2)
@@ -475,8 +471,47 @@ local function maybeInitTaxiPopupWindow()
     helpers.logInfoTS("Taxi guidance popup initialized")
 end
 
+local function normalize_status_lines(value)
+    local lines = {}
+    local function append_value(raw)
+        local text = tostring(raw or "")
+        local startPos = 1
+        while true do
+            local breakPos = string.find(text, "\n", startPos, true)
+            if not breakPos then
+                lines[#lines + 1] = string.sub(text, startPos)
+                break
+            end
+            lines[#lines + 1] = string.sub(text, startPos, breakPos - 1)
+            startPos = breakPos + 1
+        end
+    end
+    if type(value) == "table" then
+        for _, entry in ipairs(value) do append_value(entry) end
+    elseif value ~= nil then
+        append_value(value)
+    end
+    if #lines == 0 then lines[1] = "No status message returned." end
+    return lines
+end
+
+local function toggle_update_maintenance()
+    if updatePopupWindow and updatePopupWindow:isVisible() then
+        if updatePopupComponent and updatePopupComponent.clearPayload then
+            updatePopupComponent:clearPayload()
+        else
+            updatePopupWindow:setIsVisible(false)
+        end
+        return
+    end
+    if show_update_maintenance then show_update_maintenance(true) end
+end
+
 local function maybeInitUpdatePopupWindow()
     if updatePopupInitialized then
+        if not menu_updates and yal.menu_main then
+            menu_updates = sasl.appendMenuItem(yal.menu_main, "Updates & Maintenance", toggle_update_maintenance)
+        end
         return
     end
 
@@ -499,6 +534,10 @@ local function maybeInitUpdatePopupWindow()
         def = def,
         helpers = helpers,
         onAcknowledge = function(payload)
+            if payload and payload.returnToMaintenance and show_update_maintenance then
+                show_update_maintenance(false)
+                return false
+            end
             if payload and payload.kind == "vnav" then
                 helpers.logInfoTS("VNAV Descent Tables status popup closed")
             else
@@ -507,6 +546,10 @@ local function maybeInitUpdatePopupWindow()
         end,
         onIgnore = function(payload)
             remember_ignored_updates(payload)
+            if payload and payload.mode == "maintenance" and show_update_maintenance then
+                show_update_maintenance(true)
+                return false
+            end
         end,
         onInstall = function(payload)
             return show_yal_update_confirm(payload)
@@ -518,6 +561,10 @@ local function maybeInitUpdatePopupWindow()
             return run_yal_update_install(payload)
         end,
         onCancel = function(payload)
+            if payload and payload.returnToMaintenance and show_update_maintenance then
+                show_update_maintenance(false)
+                return false
+            end
             if payload and payload.kind == "vnav" then
                 helpers.logInfoTS("VNAV Descent Tables action cancelled")
             else
@@ -526,6 +573,31 @@ local function maybeInitUpdatePopupWindow()
         end,
         onAction = function(payload, action)
             return show_vnav_descent_confirm(payload, action)
+        end,
+        onMaintenanceAction = function(_, action)
+            if action == "vnav" then
+                show_vnav_descent_status(true, nil, true)
+                return
+            end
+            local title
+            local result
+            if action == "adjust_qv" then
+                title = "Adjust QVs + X-Camera after CG shift"
+                result = helpers.adjustQuickViewsAndXCameraForCgChange()
+            elseif action == "apply_qv0" then
+                title = "Apply QV0 to Default View"
+                result = helpers.applyDefaultViewFromQV0()
+            else
+                return
+            end
+            updatePopupComponent:setPayload({
+                kind = "maintenance",
+                mode = "status",
+                title = title,
+                lines = normalize_status_lines(result),
+                okLabel = "OK",
+                returnToMaintenance = true,
+            })
         end
     })
     updatePopupComponent = comp
@@ -549,6 +621,9 @@ local function maybeInitUpdatePopupWindow()
 
     if comp.setWindow then
         comp:setWindow(updatePopupWindow)
+    end
+    if yal.menu_main and not menu_updates then
+        menu_updates = sasl.appendMenuItem(yal.menu_main, "Updates & Maintenance", toggle_update_maintenance)
     end
 
     updatePopupInitialized = true
@@ -957,7 +1032,7 @@ function vnavUi.payload(result, restore, manual)
     }
 end
 
-show_vnav_descent_status = function(manual, existingResult)
+show_vnav_descent_status = function(manual, existingResult, returnToMaintenance)
     local result = existingResult
     if not result then
         local target = detect_vnav_descent_package_target()
@@ -968,6 +1043,7 @@ show_vnav_descent_status = function(manual, existingResult)
         cache_root = def.YALCACHEPATH,
     })
     local payload = vnavUi.payload(result, restore, manual)
+    payload.returnToMaintenance = returnToMaintenance == true
     if manual ~= true then
         if not vnavUi.needsAttention(result and result.status) then return false end
         local ignored = tostring(settings.appSettings[def.CONFIGIGNOREDVNAVTABLEPACKAGE] or "")
@@ -1008,6 +1084,7 @@ show_vnav_descent_confirm = function(payload, action)
         cancelLabel = "Cancel",
         vnavAction = action,
         confirmedAircraftPath = payload.confirmedAircraftPath,
+        returnToMaintenance = payload.returnToMaintenance == true,
     })
     return false
 end
@@ -1063,6 +1140,7 @@ run_vnav_descent_action = function(payload)
             title = result and result.title or "VNAV Descent Tables",
             lines = result and result.lines or { "The operation did not return a status." },
             okLabel = "OK",
+            returnToMaintenance = payload and payload.returnToMaintenance == true,
         })
     end
     return false
@@ -1116,6 +1194,7 @@ show_yal_update_confirm = function(payload)
         okLabel = "OK",
         cancelLabel = "Cancel",
         yal = yalInfo,
+        returnToMaintenance = payload and (payload.returnToMaintenance == true or payload.mode == "maintenance"),
     })
     return false
 end
@@ -1132,23 +1211,79 @@ run_yal_update_install = function(payload)
             title = result and result.title or "YAL Update",
             lines = (result and result.lines) or { "YAL update finished." },
             okLabel = "OK",
+            returnToMaintenance = payload and payload.returnToMaintenance == true,
         })
     end
     return false
 end
 
-local function maybeRunStartupUpdateCheck()
-    if startupUpdateCheckDone then
+local function vnav_maintenance_summary(result)
+    local status = vnavUi.statusLabels[result and result.status or ""]
+        or tostring(result and result.reason or "Status unavailable")
+    local installed = result and result.local_version or nil
+    if result and result.status == "not_applicable_no_lua" then
+        installed = "not applicable"
+    elseif not installed or installed == "" then
+        installed = "not installed"
+    end
+    local available = result and result.available_version or nil
+    if not available or available == "" then available = "unknown" end
+    return string.format("VNAV: %s | installed %s | available %s", status, tostring(installed), tostring(available))
+end
+
+local function set_update_maintenance_payload(vnavInspection)
+    maybeInitUpdatePopupWindow()
+    local info = helpers.startupUpdateInfo or {}
+    local yalInfo = info.yal or {}
+    if updatePopupComponent and updatePopupComponent.setPayload then
+        updatePopupComponent:setPayload({
+            kind = "maintenance",
+            mode = "maintenance",
+            title = "Updates & Maintenance",
+            checkedAt = info.ts or (os.time() or 0),
+            channel = info.channel,
+            yal = yalInfo,
+            zibo = info.zibo,
+            vnavSummary = vnav_maintenance_summary(vnavInspection or helpers.vnavDescentPackageStatus),
+            laterLabel = "Close",
+            installLabel = yalInfo.installLabel or "Install YAL Update",
+        })
+    end
+end
+
+show_update_maintenance = function(refresh)
+    if refresh == false and helpers.startupUpdateInfo then
+        set_update_maintenance_payload(helpers.vnavDescentPackageStatus)
+        return
+    end
+    if maybeRunStartupUpdateCheck then maybeRunStartupUpdateCheck(true) end
+end
+
+maybeRunStartupUpdateCheck = function(manual)
+    manual = manual == true
+    if startupUpdateCheckDone and not manual then
         return
     end
     if not settings or not settings.appSettings then
         return
     end
     if not (yal and yal.externalDatarefsPostStartupDone) then
+        if manual then
+            maybeInitUpdatePopupWindow()
+            if updatePopupComponent and updatePopupComponent.setPayload then
+                updatePopupComponent:setPayload({
+                    kind = "maintenance",
+                    mode = "status",
+                    title = "Updates & Maintenance",
+                    lines = { "YAL is still initializing. Try again in a few seconds." },
+                    okLabel = "OK",
+                })
+            end
+        end
         return
     end
     local now = os.time() or 0
-    if startupUpdateCheckEarliest > 0 and now < startupUpdateCheckEarliest then
+    if not manual and startupUpdateCheckEarliest > 0 and now < startupUpdateCheckEarliest then
         return
     end
     local ziboRelease = helpers.getLatchedZiboRelease()
@@ -1168,7 +1303,7 @@ local function maybeRunStartupUpdateCheck()
             tostring((normalize_zibo_release(ziboRelease) ~= "") and normalize_zibo_release(ziboRelease) or "?")
         ))
     end
-    if tonumber(settings.appSettings[def.CONFIGAUTOUPDATECHECK] or 0) ~= def.ON then
+    if not manual and tonumber(settings.appSettings[def.CONFIGAUTOUPDATECHECK] or 0) ~= def.ON then
         startupUpdateCheckDone = true
         startupUpdateCheckPerformed = true
         helpers.logInfoTS("Startup update check skipped (setting OFF)")
@@ -1177,7 +1312,7 @@ local function maybeRunStartupUpdateCheck()
     if not helpers.isZibo() then
         return
     end
-    if yal and yal.isReloadWithinSession then
+    if not manual and yal and yal.isReloadWithinSession then
         startupUpdateCheckDone = true
         startupUpdateCheckPerformed = true
         helpers.logInfoTS("Startup update check skipped (SASL reload within session)")
@@ -1277,6 +1412,12 @@ local function maybeRunStartupUpdateCheck()
         zibo = ziboInfo,
     }
 
+    if manual then
+        helpers.logInfoTS("Manual update and maintenance check completed")
+        set_update_maintenance_payload(vnavInspection)
+        return
+    end
+
     if not yalInfo.available and not ziboInfo.available then
         if yalInfo.ignored or ziboInfo.ignored then
             helpers.logInfoTS("Startup update check: all available updates ignored")
@@ -1301,8 +1442,9 @@ local function maybeRunStartupUpdateCheck()
     end
 end
 
--- ensure setup window (and its command/menu) is constructed early
+-- ensure setup and maintenance windows (and their menus) are constructed early
 maybeInitSetupWindow()
+maybeInitUpdatePopupWindow()
 
 local oneSecTimer = sasl.createTimer()
 local waitstep = def.LONGWAIT
@@ -1337,6 +1479,7 @@ if helpers.isZibo() then
     maybeInitSetupWindow()
     maybeInitTaxiWindow()
     if menu_settings then sasl.enableMenuItem(yal.menu_main , menu_settings , def.ON) end
+    if menu_updates then sasl.enableMenuItem(yal.menu_main, menu_updates, def.ON) end
     yal.initializeScript()
     armStartupUpdateCheck()
     maybeInitDebugOverlay()
@@ -1345,6 +1488,7 @@ if helpers.isZibo() then
 else
     helpers.logInfoTS("No Zibo Mod detected on initial plugin load. Plugin functionality currently inactive.")
     if menu_settings then sasl.enableMenuItem(yal.menu_main , menu_settings , def.OFF) end
+    if menu_updates then sasl.enableMenuItem(yal.menu_main, menu_updates, def.OFF) end
     yal.enableMenus(def.OFF)
     sasl.stopTimer(oneSecTimer)
     if setupWindow then setupWindow:setIsVisible(false) end
@@ -1366,6 +1510,7 @@ function onAirportLoaded(flightNumber)
         maybeInitSetupWindow()
         maybeInitTaxiWindow()
         if menu_settings then sasl.enableMenuItem(yal.menu_main , menu_settings , def.ON) end
+        if menu_updates then sasl.enableMenuItem(yal.menu_main, menu_updates, def.ON) end
         yal.initializeScript()
         armStartupUpdateCheck()
         maybeInitDebugOverlay()
@@ -1374,6 +1519,7 @@ function onAirportLoaded(flightNumber)
     else
         helpers.logInfoTS("No Zibo Mod detected after airport load. Plugin functionality will remain inactive.")
         if menu_settings then sasl.enableMenuItem(yal.menu_main, menu_settings, def.OFF) end
+        if menu_updates then sasl.enableMenuItem(yal.menu_main, menu_updates, def.OFF) end
         sasl.stopTimer(oneSecTimer)
         yal.enableMenus(def.OFF)  
         if setupWindow then setupWindow:setIsVisible(false) end

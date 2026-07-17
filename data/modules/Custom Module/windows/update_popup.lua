@@ -242,6 +242,7 @@ function M.newComponent(ctx)
     comp._onConfirm = ctx and ctx.onConfirm or nil
     comp._onCancel = ctx and ctx.onCancel or nil
     comp._onAction = ctx and ctx.onAction or nil
+    comp._onMaintenanceAction = ctx and ctx.onMaintenanceAction or nil
 
     function comp:setWindow(win)
         self._window = win
@@ -284,6 +285,7 @@ function M.newComponent(ctx)
         local channelInfo = self._payload.channel
         local hasStructuredPayload = yalInfo or ziboInfo or channelInfo
         local mode = tostring(self._payload.mode or "")
+        self._buttons = {}
 
         drawRectangle(0, 0, w, h, {0, 0, 0, 0.78})
         drawFrame(0.5, 0.5, w - 1, h - 1, {0.72, 0.72, 0.72, 0.9})
@@ -431,6 +433,35 @@ function M.newComponent(ctx)
                 statusColor(ziboInfo and ziboInfo.available, ziboInfo and ziboInfo.skipped, ziboInfo and ziboInfo.ignored),
                 ziboRows
             )
+
+            if mode == "maintenance" then
+                drawText(
+                    font,
+                    padding,
+                    68,
+                    tostring(self._payload.vnavSummary or "VNAV Descent Tables: status unavailable"),
+                    11,
+                    TEXT_ALIGN_LEFT,
+                    {0.78, 0.80, 0.86, 1}
+                )
+                local actionY = 40
+                local actionGap = 8
+                local actionSpecs = {
+                    { id = "vnav", label = "VNAV Descent Tables...", width = 165 },
+                    { id = "adjust_qv", label = "Adjust QVs + X-Camera after CG shift", width = 270 },
+                    { id = "apply_qv0", label = "Apply QV0 to Default View", width = 180 },
+                }
+                local actionTotal = actionGap * (#actionSpecs - 1)
+                for _, spec in ipairs(actionSpecs) do actionTotal = actionTotal + spec.width end
+                local actionX = math.floor((w - actionTotal) * 0.5)
+                self._buttons.maintenance = {}
+                for _, spec in ipairs(actionSpecs) do
+                    local rect = { x = actionX, y = actionY, w = spec.width, h = 20 }
+                    drawButton(font, rect, spec.label, false)
+                    self._buttons.maintenance[#self._buttons.maintenance + 1] = { rect = rect, id = spec.id }
+                    actionX = actionX + spec.width + actionGap
+                end
+            end
         else
             local y = h - headerH - 12
             for _, row in ipairs(legacyRows(self._payload)) do
@@ -455,7 +486,7 @@ function M.newComponent(ctx)
         local ignoreW = 126
         local installW = 160
         local showIgnore = hasActionableUpdate(self._payload)
-        local showInstall = yalInfo and yalInfo.available
+        local showInstall = yalInfo and (yalInfo.available or (mode == "maintenance" and yalInfo.detectedAvailable))
         local totalW = laterW
         if showIgnore then
             totalW = totalW + gap + ignoreW
@@ -465,7 +496,6 @@ function M.newComponent(ctx)
         end
         local btnX = math.floor((w - totalW) * 0.5)
         local btnY = 12
-        self._buttons = {}
         self._buttons.later = { x = btnX, y = btnY, w = laterW, h = btnH }
         local nextX = btnX + laterW + gap
         if showIgnore then
@@ -498,6 +528,18 @@ function M.newComponent(ctx)
                 end
             end
             return true
+        end
+        for _, action in ipairs((self._buttons and self._buttons.maintenance) or {}) do
+            local rect = action.rect
+            if rect and x >= rect.x and x <= (rect.x + rect.w) and y >= rect.y and y <= (rect.y + rect.h) then
+                if self._onMaintenanceAction then
+                    local ok, err = pcall(self._onMaintenanceAction, self._payload, action.id)
+                    if not ok then
+                        sasl.logWarning("Maintenance action callback failed: " .. tostring(err))
+                    end
+                end
+                return true
+            end
         end
         local btn = self._buttons and self._buttons.later or nil
         if btn and x >= btn.x and x <= (btn.x + btn.w) and y >= btn.y and y <= (btn.y + btn.h) then

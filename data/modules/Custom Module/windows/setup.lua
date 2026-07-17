@@ -189,85 +189,6 @@ local function truncateTextByWidth(text, maxWidth)
     return string.sub(t, 1, maxChars) .. "..."
 end
 
-local function normalizePopupLines(value)
-    local lines = {}
-    local function addOne(text)
-        local s = tostring(text or "")
-        local startPos = 1
-        while true do
-            local breakPos = string.find(s, "\n", startPos, true)
-            if not breakPos then
-                lines[#lines + 1] = string.sub(s, startPos)
-                break
-            end
-            lines[#lines + 1] = string.sub(s, startPos, breakPos - 1)
-            startPos = breakPos + 1
-        end
-    end
-
-    if type(value) == "table" then
-        for _, entry in ipairs(value) do
-            addOne(entry)
-        end
-    elseif value ~= nil then
-        addOne(value)
-    end
-
-    if #lines == 0 then
-        lines[1] = "No status message returned."
-    end
-    return lines
-end
-
-local function trimLeadingSpaces(text)
-    local s = tostring(text or "")
-    while string.sub(s, 1, 1) == " " do
-        s = string.sub(s, 2)
-    end
-    return s
-end
-
-local function wrapPopupLines(lines, maxChars, maxLines)
-    local out = {}
-    maxChars = math.max(12, maxChars or 60)
-    maxLines = math.max(1, maxLines or 8)
-
-    local function addWrapped(text)
-        local s = tostring(text or "")
-        if s == "" then
-            out[#out + 1] = ""
-            return
-        end
-        while string.len(s) > maxChars do
-            local cut = maxChars
-            local i = maxChars
-            while i > 1 do
-                if string.sub(s, i, i) == " " then
-                    cut = i - 1
-                    break
-                end
-                i = i - 1
-            end
-            out[#out + 1] = string.sub(s, 1, cut)
-            if #out >= maxLines then
-                out[#out] = "..."
-                return
-            end
-            s = trimLeadingSpaces(string.sub(s, cut + 1))
-        end
-        out[#out + 1] = s
-    end
-
-    for _, line in ipairs(lines or {}) do
-        addWrapped(line)
-        if #out >= maxLines then
-            out[#out] = "..."
-            break
-        end
-    end
-    return out
-end
-
 local function ziboHeaderText()
     local prefix = "Zibo "
     local raw = helpers.getLatchedZiboRelease()
@@ -307,7 +228,7 @@ local function drawCheckbox(font, x, y, label, checked)
 end
 
 -- Component ------------------------------------------------------------------
-function M.newComponent(ctx)
+function M.newComponent(_)
     local comp = {}
     comp.name = "yal_setup_component"
     comp.components = {}
@@ -324,18 +245,9 @@ function M.newComponent(ctx)
     comp._window = nil
     comp.scrollOffset = 0
     comp.scrollDrag = nil
-    comp._messagePopup = nil
-    comp._onVnavDescentTables = ctx and ctx.onVnavDescentTables or nil
 
     function comp:setWindow(win)
         self._window = win
-    end
-
-    function comp:showMessagePopup(title, value)
-        self._messagePopup = {
-            title = tostring(title or "Status"),
-            lines = normalizePopupLines(value)
-        }
     end
 
     local function getSize()
@@ -354,13 +266,10 @@ function M.newComponent(ctx)
         local textBoxWidthLeft = 90
         local colHitW = w / 2 - 20
         local textBoxWidthRight = math.max(80, colHitW - rightLabelWidth - 12)
-        local buttonH = lineHeight + 2
-        local buttonW = math.max(240, colHitW - 40)
         local layout = {
             hits = {},
             close = { x = w - 80, y = h - headerH - 4, w = 80, h = headerH + 8 },
-            scroll = nil,
-            buttons = {}
+            scroll = nil
         }
 
         drawRectangle(0, 0, w, h, {0, 0, 0, 0.75})
@@ -584,41 +493,6 @@ function M.newComponent(ctx)
         drawTextLine(font, 10, headerY, titleText, color)
         drawTextLine(font, closeX, headerY, "X", color)
 
-        -- Buttons (anchored bottom-right, do not affect list layout)
-        local btnX = rightX
-        local btnY = 6
-        layout.buttons = {
-            {
-                id = "vnav_descent_tables",
-                label = "VNAV Descent Tables...",
-                x = btnX,
-                y = btnY + (buttonH + 6) * 2,
-                w = buttonW,
-                h = buttonH
-            },
-            {
-                id = "adjust_qv_xcam_cg",
-                label = "Adjust QVs + X-Camera after CG shift",
-                x = btnX,
-                y = btnY + buttonH + 6,
-                w = buttonW,
-                h = buttonH
-            },
-            {
-                id = "apply_qv0",
-                label = "Apply QV0 to Default View",
-                x = btnX,
-                y = btnY,
-                w = buttonW,
-                h = buttonH
-            },
-        }
-        for _, btn in ipairs(layout.buttons) do
-            drawRectangle(btn.x, btn.y, btn.w, btn.h, {0.12, 0.12, 0.12, 0.95})
-            drawFrame(btn.x, btn.y, btn.w, btn.h, {0.8, 0.8, 0.8, 0.9})
-            drawTextLine(font, btn.x + 6, btn.y + 2, btn.label, color)
-        end
-
         -- Draw scrollbar if needed
         if maxOffset > 0 then
             local trackHeight = scrollHeight
@@ -642,37 +516,6 @@ function M.newComponent(ctx)
             }
         end
 
-        if comp._messagePopup then
-            local popupW = math.min(w - 72, 560)
-            local textW = popupW - 32
-            local popupLines = wrapPopupLines(comp._messagePopup.lines, math.floor(textW / 7), 9)
-            local popupH = 76 + (#popupLines * 16)
-            local popupX = math.floor((w - popupW) / 2)
-            local popupY = math.floor((h - popupH) / 2)
-            local okW = 70
-            local okH = 22
-            local okX = popupX + popupW - okW - 14
-            local okY = popupY + 12
-
-            drawRectangle(0, 0, w, h, {0, 0, 0, 0.35})
-            drawRectangle(popupX, popupY, popupW, popupH, {0.07, 0.075, 0.085, 0.98})
-            drawFrame(popupX, popupY, popupW, popupH, {0.72, 0.72, 0.78, 0.95})
-            drawRectangle(popupX, popupY + popupH - 24, popupW, 24, {0.12, 0.12, 0.14, 0.98})
-            drawTextLine(font, popupX + 12, popupY + popupH - 18, comp._messagePopup.title, {0.96, 0.96, 0.98, 1})
-
-            for i, line in ipairs(popupLines) do
-                drawTextLine(font, popupX + 16, popupY + popupH - 44 - ((i - 1) * 16), line, {0.9, 0.9, 0.94, 1})
-            end
-
-            drawRectangle(okX, okY, okW, okH, {0.24, 0.31, 0.44, 0.95})
-            drawFrame(okX, okY, okW, okH, {0.72, 0.80, 0.95, 0.95})
-            sasl.gl.drawTextI(font, okX + (okW / 2), okY + 5, "OK", TEXT_ALIGN_CENTER, {0.96, 0.96, 0.98, 1})
-
-            layout.messagePopup = {
-                ok = { x = okX, y = okY, w = okW, h = okH },
-                rect = { x = popupX, y = popupY, w = popupW, h = popupH }
-            }
-        end
         comp._layout = layout
     end
 
@@ -682,14 +525,6 @@ function M.newComponent(ctx)
 
         local leftClick = (button == MB_LEFT or button == 1)
         if leftClick then
-            if self._messagePopup then
-                local popup = layout.messagePopup
-                local ok = popup and popup.ok or nil
-                if ok and x >= ok.x and x <= (ok.x + ok.w) and y >= ok.y and y <= (ok.y + ok.h) then
-                    self._messagePopup = nil
-                end
-                return true
-            end
             -- Close
             if layout.close and x >= layout.close.x and x <= (layout.close.x + layout.close.w) and y >= layout.close.y and y <= (layout.close.y + layout.close.h) then
                 if self._window then self._window:setIsVisible(false) end
@@ -711,23 +546,6 @@ function M.newComponent(ctx)
                         maxOffset = scroll.maxOffset
                     }
                     return true
-                end
-            end
-            for _, btn in ipairs(layout.buttons or {}) do
-                if x >= btn.x and x <= (btn.x + btn.w) and y >= btn.y and y <= (btn.y + btn.h) then
-                    if btn.id == "vnav_descent_tables" then
-                        if self._onVnavDescentTables then
-                            local ok, err = pcall(self._onVnavDescentTables)
-                            if not ok then sasl.logWarning("VNAV Descent Tables action failed: " .. tostring(err)) end
-                        end
-                        return true
-                    elseif btn.id == "adjust_qv_xcam_cg" then
-                        self:showMessagePopup(btn.label, helpers.adjustQuickViewsAndXCameraForCgChange())
-                        return true
-                    elseif btn.id == "apply_qv0" then
-                        self:showMessagePopup(btn.label, helpers.applyDefaultViewFromQV0())
-                        return true
-                    end
                 end
             end
             for _, hit in ipairs(layout.hits or {}) do
@@ -776,7 +594,6 @@ function M.newComponent(ctx)
     end
 
     function comp:onMouseWheel(_, _, _, clicks)
-        if self._messagePopup then return true end
         if clicks == nil then return false end
         self.scrollOffset = self.scrollOffset + (-clicks)
         if self._lastMaxOffset then
@@ -796,7 +613,6 @@ function M.newComponent(ctx)
     end
 
     function comp:onMouseMove(_, y)
-        if self._messagePopup then return true end
         if self.scrollDrag then
             local drag = self.scrollDrag
             local dy = drag.startY - y
@@ -833,12 +649,6 @@ function M.newComponent(ctx)
     end
 
     function comp:onKeyDown(char, vkey, shift, ctrl, alt)
-        if self._messagePopup then
-            if char == SASL_KEY_ESCAPE or char == SASL_KEY_RETURN then
-                self._messagePopup = nil
-            end
-            return true
-        end
         if not self._focus then return false end
         local kind = self._focus.kind or "number"
         if char == SASL_KEY_ESCAPE then
