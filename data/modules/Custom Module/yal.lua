@@ -1418,6 +1418,7 @@ function P.YalinitGlobal()
         holdExitSent = false,
         holdEstablishedSent = false,
         holdDescentSent = false,
+        holdApproachReleasedKey = nil,
         holdApproachBlocked = false,
         lastFmsPhase = nil,
         taxiEventsInitialized = false,
@@ -7679,10 +7680,14 @@ function P.baselineAutoUnicomRuntimeEvents()
     state.holdInitialized = true
     state.holdKey = hold.active and (hold.waypoint .. "|" .. hold.path_type) or nil
     state.holdPayload = hold.active and autoUnicomHoldPayload(hold) or nil
-    state.holdExitSent = hold.active and hold.exit_armed == true or false
+    local holdOperationallyReleased = hold.active
+        and (hold.exit_armed == true or P.isArrivalFinalEstablished()) or false
+    state.holdApproachReleasedKey = holdOperationallyReleased and state.holdKey or nil
+    state.holdExitSent = holdOperationallyReleased
     state.holdEstablishedSent = hold.active and hold.entry_complete == true or false
     state.holdDescentSent = hold.active and autoUnicomHoldDescending(hold) or false
     state.holdApproachBlocked = hold.active == true
+        and state.holdApproachReleasedKey ~= state.holdKey
     if state.holdApproachBlocked then
         state.sent["arrival.approach"] = nil
         state.sent["arrival.on_final"] = nil
@@ -7889,10 +7894,14 @@ function P.updateAutoUnicomHoldEvents()
         state.holdInitialized = true
         state.holdKey = key
         state.holdPayload = hold.active and autoUnicomHoldPayload(hold) or nil
-        state.holdExitSent = hold.active and hold.exit_armed == true or false
+        local holdOperationallyReleased = hold.active
+            and (hold.exit_armed == true or P.isArrivalFinalEstablished()) or false
+        state.holdApproachReleasedKey = holdOperationallyReleased and key or nil
+        state.holdExitSent = holdOperationallyReleased
         state.holdEstablishedSent = hold.active and hold.entry_complete == true or false
         state.holdDescentSent = hold.active and autoUnicomHoldDescending(hold) or false
         state.holdApproachBlocked = hold.active == true
+            and state.holdApproachReleasedKey ~= key
         return
     end
 
@@ -7909,6 +7918,7 @@ function P.updateAutoUnicomHoldEvents()
         state.holdExitSent = false
         state.holdEstablishedSent = false
         state.holdDescentSent = false
+        state.holdApproachReleasedKey = nil
         state.holdApproachBlocked = true
         state.sent["arrival.approach"] = nil
         state.sent["arrival.on_final"] = nil
@@ -7922,12 +7932,40 @@ function P.updateAutoUnicomHoldEvents()
         state.holdExitSent = false
         state.holdEstablishedSent = false
         state.holdDescentSent = false
+        state.holdApproachReleasedKey = nil
         state.holdApproachBlocked = false
         return
     end
 
-    state.holdApproachBlocked = true
     state.holdPayload = autoUnicomHoldPayload(hold)
+
+    if state.holdApproachReleasedKey == key then
+        state.holdApproachBlocked = false
+        return
+    end
+
+    local releaseReason = nil
+    if hold.exit_armed then
+        releaseReason = "exit_armed"
+    elseif P.isArrivalFinalEstablished() then
+        releaseReason = "final_established"
+    end
+    if releaseReason then
+        if not state.holdExitSent then
+            if not P.publishRuntimeEvent("enroute.hold_exit", state.holdPayload) then
+                state.holdApproachBlocked = true
+                return
+            end
+            state.holdExitSent = true
+        end
+        state.holdApproachReleasedKey = key
+        state.holdApproachBlocked = false
+        helpers.logInfoTS("IVAO Auto-Unicom: hold released key=" .. tostring(key)
+            .. " reason=" .. releaseReason)
+        return
+    end
+
+    state.holdApproachBlocked = true
 
     if not state.holdExitSent and hold.entry_complete and not state.holdEstablishedSent then
         if P.publishRuntimeEvent("enroute.holding", state.holdPayload) then
@@ -7940,11 +7978,6 @@ function P.updateAutoUnicomHoldEvents()
         end
     end
 
-    if hold.exit_armed and not state.holdExitSent then
-        if P.publishRuntimeEvent("enroute.hold_exit", state.holdPayload) then
-            state.holdExitSent = true
-        end
-    end
 end
 
 function P.updateAutoUnicomCruiseEvent()

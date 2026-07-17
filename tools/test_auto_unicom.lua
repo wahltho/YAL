@@ -802,6 +802,14 @@ assert_true(holdExitApproachOrder:enqueue({
 assert_equal(#holdExitApproachOrder.queue, 2, "hold exit and deferred approach remain queued")
 assert_equal(holdExitApproachOrder.queue[1].id, "enroute.hold_exit", "hold exit remains first")
 assert_equal(holdExitApproachOrder.queue[2].id, "arrival.approach", "deferred approach remains second")
+assert_true(holdExitApproachOrder:enqueue({
+    id = "arrival.on_final",
+    text = phraseCases[6][3],
+    expires_at = 100
+}), "enqueue final after hold exit")
+assert_equal(#holdExitApproachOrder.queue, 2, "final supersedes deferred approach after hold exit")
+assert_equal(holdExitApproachOrder.queue[1].id, "enroute.hold_exit", "hold exit remains ahead of final")
+assert_equal(holdExitApproachOrder.queue[2].id, "arrival.on_final", "final follows hold exit")
 
 local departureSupersession = core.newMailbox()
 assert_true(departureSupersession:enqueue({
