@@ -400,126 +400,11 @@ function P.clearPauseTodGuardState()
     P.pauseTodGuardConfirmUntil = nil
     P.pauseTodGuardRepauseRequested = false
     P.pauseTodGuardRepauseCount = 0
-end
-
-function P.updatePauseTodGuard()
-    if not P.simpaused or not P.pausetod or not P.vnavtoddist then return end
-
-    local now = os.time() or 0
-    local currentPaused = (tonumber(get(P.simpaused)) or 0) == def.ON
-    if P.pauseTodGuardLastPaused == nil then
-        P.pauseTodGuardLastPaused = currentPaused
-        return
-    end
-
-    if not P.pauseTodGuardEnabled() then
-        if P.pauseTodGuardProtected then
-            helpers.logInfoTS("PauseTODGuard: disabled while protected; guard cleared")
-        end
-        P.clearPauseTodGuardState()
-        P.pauseTodGuardCycleComplete = false
-        P.pauseTodGuardLastPaused = currentPaused
-        return
-    end
-
-    local pauseEdge = currentPaused and not P.pauseTodGuardLastPaused
-    local releaseEdge = (not currentPaused) and P.pauseTodGuardLastPaused
-    local todDistance = tonumber(get(P.vnavtoddist))
-    local mcpAltitude = tonumber(get(P.mcpaltitude))
-    local fmsPhase = tonumber(get(P.fmsflightphase)) or 0
-    local flightState = tonumber(P.flightstate) or def.FLIGHTSTATEPREFLIGHT
-    local airborne = (get(P.airgroundsensor) == def.OFF)
-    local inCruise = flightState == def.FLIGHTSTATECRUISE
-        and fmsPhase == def.FMSFLIGHTPHASE_CRUISE
-
-    if pauseEdge then
-        if P.pauseTodGuardProtected and P.pauseTodGuardRepauseRequested then
-            P.pauseTodGuardRepauseRequested = false
-            helpers.logInfoTS(string.format(
-                "PauseTODGuard: re-pause active tod=%.2f mcp=%.0f confirmUntil=%d",
-                todDistance or -1,
-                mcpAltitude or -1,
-                tonumber(P.pauseTodGuardConfirmUntil) or 0
-            ))
-        elseif not P.pauseTodGuardProtected and not P.pauseTodGuardCycleComplete then
-            local eligible = P.pauseTodGuard.isArmEligible({
-                monitor_active = P.pauseTodMonitorActive == true,
-                pause_setting_on = get(P.pausetod) == def.ON,
-                airborne = airborne,
-                in_cruise = inCruise,
-                tod_distance_nm = todDistance
-            })
-            if eligible then
-                P.pauseTodGuardProtected = true
-                P.pauseTodGuardMcpAlt = tonumber(P.pauseTodMcpAltAtPrompt) or mcpAltitude
-                P.pauseTodGuardPausedAt = now
-                P.pauseTodGuardConfirmUntil = nil
-                P.pauseTodGuardRepauseRequested = false
-                P.pauseTodGuardRepauseCount = 0
-                helpers.logInfoTS(string.format(
-                    "PauseTODGuard: armed actual pause tod=%.2f mcp=%.0f fmsPhase=%d flightState=%d",
-                    todDistance or -1,
-                    tonumber(P.pauseTodGuardMcpAlt) or -1,
-                    fmsPhase,
-                    flightState
-                ))
-            end
-        end
-    elseif releaseEdge and P.pauseTodGuardProtected then
-        local action, reason = P.pauseTodGuard.evaluateRelease({
-            now = now,
-            confirm_until = P.pauseTodGuardConfirmUntil,
-            pause_setting_on = get(P.pausetod) == def.ON,
-            airborne = airborne,
-            in_cruise = inCruise,
-            tod_distance_nm = todDistance,
-            baseline_mcp_ft = P.pauseTodGuardMcpAlt,
-            current_mcp_ft = mcpAltitude,
-            vertical_speed_fpm = tonumber(get(P.verticalspeed))
-        })
-        local pauseDuration = math.max(0, now - (tonumber(P.pauseTodGuardPausedAt) or now))
-
-        if action == "repause" then
-            P.pauseTodGuardRepauseCount = (tonumber(P.pauseTodGuardRepauseCount) or 0) + 1
-            P.pauseTodGuardConfirmUntil = now + P.pauseTodGuard.CONFIRM_WINDOW_SEC
-            P.pauseTodGuardRepauseRequested = true
-            helpers.logInfoTS(string.format(
-                "PauseTODGuard: ambiguous release; re-pausing reason=%s duration=%ds tod=%.2f mcp=%.0f baseline=%.0f vs=%.0f fmsPhase=%d flightState=%d attempt=%d",
-                tostring(reason),
-                pauseDuration,
-                todDistance or -1,
-                mcpAltitude or -1,
-                tonumber(P.pauseTodGuardMcpAlt) or -1,
-                tonumber(get(P.verticalspeed)) or 0,
-                fmsPhase,
-                flightState,
-                P.pauseTodGuardRepauseCount
-            ))
-            helpers.command_once("sim/operation/pause_on")
-            helpers.speak(
-                "Pause at Top of Descent restored. Release Pause again to continue.",
-                50,
-                "YAL_PAUSE_TOD_GUARD",
-                2
-            )
-        else
-            helpers.logInfoTS(string.format(
-                "PauseTODGuard: release accepted reason=%s duration=%ds tod=%.2f mcp=%.0f baseline=%.0f vs=%.0f fmsPhase=%d flightState=%d",
-                tostring(reason),
-                pauseDuration,
-                todDistance or -1,
-                mcpAltitude or -1,
-                tonumber(P.pauseTodGuardMcpAlt) or -1,
-                tonumber(get(P.verticalspeed)) or 0,
-                fmsPhase,
-                flightState
-            ))
-            P.clearPauseTodGuardState()
-            P.pauseTodGuardCycleComplete = true
-        end
-    end
-
-    P.pauseTodGuardLastPaused = currentPaused
+    P.pauseTodQuitDeadline = nil
+    P.pauseTodSaveState = nil
+    P.pauseTodSaveSlot = nil
+    P.pauseTodSaveRequestedAt = nil
+    P.pauseTodQuitRequested = false
 end
 
 local function clearTrimAdvicePopupState()
@@ -816,10 +701,10 @@ function P.isautosaveblockedbycrash()
     return false
 end
 
-local function getAutoSaveSlot()
+function P.getAutoSaveRange()
     local raw = P.configvalues and P.configvalues[def.CONFIGSAVENUMBER] or nil
     if raw == 0 or raw == "0" then
-        return 1
+        return 1, 1
     end
     local start = 1
     local finish = 1
@@ -851,6 +736,11 @@ local function getAutoSaveSlot()
     if start > finish then
         start, finish = finish, start
     end
+    return start, finish
+end
+
+function P.peekAutoSaveSlot()
+    local start, finish = P.getAutoSaveRange()
     local range_key = tostring(start) .. "-" .. tostring(finish)
     local last_slot = P.configvalues and tonumber(P.configvalues[def.CONFIGSAVELAST]) or nil
     if last_slot and (last_slot < start or last_slot > finish) then
@@ -870,7 +760,15 @@ local function getAutoSaveSlot()
     elseif not P._autosaveSlotCurrent or P._autosaveSlotCurrent < start or P._autosaveSlotCurrent > finish then
         P._autosaveSlotCurrent = last_slot or start
     end
-    local slot = P._autosaveSlotCurrent or start
+    return P._autosaveSlotCurrent or start
+end
+
+function P.commitAutoSaveSlot(slot)
+    local start, finish = P.getAutoSaveRange()
+    slot = tonumber(slot)
+    if not slot or slot < start or slot > finish then
+        return false
+    end
     if start ~= finish then
         local next_slot = slot + 1
         if next_slot > finish then
@@ -889,7 +787,271 @@ local function getAutoSaveSlot()
             end
         end
     end
+    return true
+end
+
+function P.getAutoSaveSlot()
+    local slot = P.peekAutoSaveSlot()
+    P.commitAutoSaveSlot(slot)
     return slot
+end
+
+function P.pauseTodNativeSaveAvailable()
+    local api = P.ziboLoadSaveRuntime
+    return api
+        and api.load_save and isProperty(api.load_save)
+        and api.load_save2 and isProperty(api.load_save2)
+        and api.status and isProperty(api.status)
+        and api.slot and isProperty(api.slot)
+        and api.error_code and isProperty(api.error_code)
+end
+
+function P.readPauseTodNativeSaveSnapshot()
+    local api = P.ziboLoadSaveRuntime
+    if not P.pauseTodNativeSaveAvailable() then return nil end
+    return {
+        load_save = tonumber(get(api.load_save)),
+        load_save2 = tonumber(get(api.load_save2)),
+        status = tonumber(get(api.status)),
+        status_slot = tonumber(get(api.slot)),
+        error_code = tonumber(get(api.error_code))
+    }
+end
+
+function P.requestPauseTodSave(now)
+    if P.pauseTodSaveState or P.pauseTodQuitRequested then return end
+    if P.isautosaveblockedbycrash() then
+        P.pauseTodSaveState = "crash-skip"
+        P.pauseTodQuitRequested = true
+        helpers.logInfoTS("PauseTODQuit: aircraft crash detected; skipping save and quitting")
+        helpers.command_once("sim/operation/quit")
+        return
+    end
+
+    local slot = P.peekAutoSaveSlot()
+    local nativeSave = P.pauseTodNativeSaveAvailable()
+    P.pauseTodSaveSlot = slot
+    P.pauseTodSaveRequestedAt = now
+    helpers.command_once("laminar/B738/tab/save_flight" .. tostring(slot))
+
+    if nativeSave then
+        local snapshot = P.readPauseTodNativeSaveSnapshot()
+        local latched = snapshot and P.pauseTodGuard.isNativeSaveLatched({
+            expected_slot = slot,
+            load_save = snapshot.load_save,
+            load_save2 = snapshot.load_save2
+        })
+        if not latched then
+            P.pauseTodSaveState = "failed"
+            helpers.logInfoTS(string.format(
+                "PauseTODQuit: native save request rejected slot=%d load_save=%s load_save2=%s; quit cancelled",
+                slot,
+                tostring(snapshot and snapshot.load_save),
+                tostring(snapshot and snapshot.load_save2)
+            ))
+            return
+        end
+        P.pauseTodSaveState = "native-wait"
+        helpers.logInfoTS("PauseTODQuit: native save accepted slot=" .. tostring(slot))
+        return
+    end
+
+    P.pauseTodSaveState = "fallback-wait"
+    helpers.logInfoTS("PauseTODQuit: upstream save requested slot=" .. tostring(slot) .. "; waiting 3 seconds before quit")
+end
+
+function P.finishPauseTodQuit(slot, source)
+    if P.pauseTodQuitRequested then return end
+    P.commitAutoSaveSlot(slot)
+    P.pauseTodQuitRequested = true
+    helpers.logInfoTS("PauseTODQuit: save completed via " .. tostring(source) .. "; quitting")
+    helpers.command_once("sim/operation/quit")
+end
+
+function P.updatePauseTodSave(now)
+    if P.pauseTodSaveState == "native-wait" then
+        local snapshot = P.readPauseTodNativeSaveSnapshot()
+        if not snapshot then
+            P.pauseTodSaveState = "failed"
+            helpers.logInfoTS("PauseTODQuit: native save status became unavailable; quit cancelled")
+            return
+        end
+        local action, reason = P.pauseTodGuard.evaluateNativeSave({
+            expected_slot = P.pauseTodSaveSlot,
+            requested_at = P.pauseTodSaveRequestedAt,
+            now = now,
+            timeout_sec = 10,
+            load_save = snapshot.load_save,
+            load_save2 = snapshot.load_save2,
+            status = snapshot.status,
+            status_slot = snapshot.status_slot,
+            error_code = snapshot.error_code
+        })
+        if action == "success" then
+            P.pauseTodSaveState = "complete"
+            P.finishPauseTodQuit(P.pauseTodSaveSlot, "native status")
+        elseif action == "failed" then
+            P.pauseTodSaveState = "failed"
+            helpers.logInfoTS(string.format(
+                "PauseTODQuit: native save failed reason=%s slot=%s status=%s statusSlot=%s error=%s; quit cancelled",
+                tostring(reason),
+                tostring(P.pauseTodSaveSlot),
+                tostring(snapshot.status),
+                tostring(snapshot.status_slot),
+                tostring(snapshot.error_code)
+            ))
+        end
+    elseif P.pauseTodSaveState == "fallback-wait"
+        and (now - (tonumber(P.pauseTodSaveRequestedAt) or now)) >= 3 then
+        P.pauseTodSaveState = "complete"
+        P.finishPauseTodQuit(P.pauseTodSaveSlot, "upstream grace period")
+    end
+end
+
+function P.armPauseTodRuntime(now, todDistance, mcpAltitude, fmsPhase)
+    local timeout = P.configvalues and tonumber(P.configvalues[def.CONFIGTODPAUSEQUITTIME]) or 9999
+    P.pauseTodGuardProtected = true
+    P.pauseTodGuardMcpAlt = mcpAltitude
+    P.pauseTodGuardPausedAt = now
+    P.pauseTodGuardConfirmUntil = nil
+    P.pauseTodGuardRepauseRequested = false
+    P.pauseTodGuardRepauseCount = 0
+    P.pauseTodQuitDeadline = timeout ~= 9999 and (now + math.max(0, timeout)) or nil
+    P.pauseTodSaveState = nil
+    P.pauseTodSaveSlot = nil
+    P.pauseTodSaveRequestedAt = nil
+    P.pauseTodQuitRequested = false
+    helpers.logInfoTS(string.format(
+        "PauseTODRuntime: armed actual pause tod=%.2f mcp=%.0f fmsPhase=%d autoQuit=%s",
+        todDistance or -1,
+        mcpAltitude or -1,
+        fmsPhase,
+        P.pauseTodQuitDeadline and tostring(timeout) .. "s" or "off"
+    ))
+end
+
+function P.updatePauseTodRuntime()
+    if not P.simpaused or not P.pausetod or not P.vnavtoddist
+        or not P.airgroundsensor or not P.fmsflightphase then
+        return
+    end
+
+    local now = os.time() or 0
+    local currentPaused = (tonumber(get(P.simpaused)) or 0) == def.ON
+    local previousPaused = P.pauseTodGuardLastPaused
+    local pauseEdge = currentPaused and previousPaused ~= true
+    local releaseEdge = (not currentPaused) and previousPaused == true
+    local todDistance = tonumber(get(P.vnavtoddist))
+    local mcpAltitude = P.mcpaltitude and tonumber(get(P.mcpaltitude)) or nil
+    local fmsPhase = tonumber(get(P.fmsflightphase)) or 0
+    local airborne = (get(P.airgroundsensor) == def.OFF)
+    local inCruise = fmsPhase == def.FMSFLIGHTPHASE_CRUISE
+
+    if pauseEdge then
+        if P.pauseTodGuardProtected and P.pauseTodGuardRepauseRequested then
+            P.pauseTodGuardRepauseRequested = false
+            helpers.logInfoTS(string.format(
+                "PauseTODGuard: re-pause active tod=%.2f mcp=%.0f confirmUntil=%d",
+                todDistance or -1,
+                mcpAltitude or -1,
+                tonumber(P.pauseTodGuardConfirmUntil) or 0
+            ))
+        elseif not P.pauseTodGuardProtected and not P.pauseTodGuardCycleComplete then
+            local eligible = P.pauseTodGuard.isArmEligible({
+                pause_setting_on = get(P.pausetod) == def.ON,
+                airborne = airborne,
+                in_cruise = inCruise,
+                tod_distance_nm = todDistance
+            })
+            if eligible then
+                P.armPauseTodRuntime(now, todDistance, mcpAltitude, fmsPhase)
+            end
+        end
+    elseif releaseEdge and P.pauseTodGuardProtected then
+        local action = "accept"
+        local reason = "guard-disabled"
+        if P.pauseTodGuardEnabled() then
+            action, reason = P.pauseTodGuard.evaluateRelease({
+                now = now,
+                confirm_until = P.pauseTodGuardConfirmUntil,
+                pause_setting_on = get(P.pausetod) == def.ON,
+                airborne = airborne,
+                in_cruise = inCruise,
+                tod_distance_nm = todDistance,
+                baseline_mcp_ft = P.pauseTodGuardMcpAlt,
+                current_mcp_ft = mcpAltitude,
+                vertical_speed_fpm = P.verticalspeed and tonumber(get(P.verticalspeed)) or nil
+            })
+        end
+        local pauseDuration = math.max(0, now - (tonumber(P.pauseTodGuardPausedAt) or now))
+
+        if action == "repause" then
+            P.pauseTodGuardRepauseCount = (tonumber(P.pauseTodGuardRepauseCount) or 0) + 1
+            P.pauseTodGuardConfirmUntil = now + P.pauseTodGuard.CONFIRM_WINDOW_SEC
+            P.pauseTodGuardRepauseRequested = true
+            helpers.logInfoTS(string.format(
+                "PauseTODGuard: ambiguous release; re-pausing reason=%s duration=%ds tod=%.2f mcp=%.0f baseline=%.0f vs=%.0f fmsPhase=%d attempt=%d",
+                tostring(reason),
+                pauseDuration,
+                todDistance or -1,
+                mcpAltitude or -1,
+                tonumber(P.pauseTodGuardMcpAlt) or -1,
+                P.verticalspeed and tonumber(get(P.verticalspeed)) or 0,
+                fmsPhase,
+                P.pauseTodGuardRepauseCount
+            ))
+            helpers.command_once("sim/operation/pause_on")
+            helpers.speak(
+                "Pause at Top of Descent restored. Release Pause again to continue.",
+                50,
+                "YAL_PAUSE_TOD_GUARD",
+                2
+            )
+        else
+            helpers.logInfoTS(string.format(
+                "PauseTODRuntime: release accepted reason=%s duration=%ds tod=%.2f mcp=%.0f baseline=%.0f vs=%.0f fmsPhase=%d",
+                tostring(reason),
+                pauseDuration,
+                todDistance or -1,
+                mcpAltitude or -1,
+                tonumber(P.pauseTodGuardMcpAlt) or -1,
+                P.verticalspeed and tonumber(get(P.verticalspeed)) or 0,
+                fmsPhase
+            ))
+            P.clearPauseTodGuardState()
+            P.pauseTodGuardCycleComplete = true
+        end
+    end
+
+    if currentPaused and P.pauseTodGuardProtected then
+        if P.pauseTodQuitDeadline and now >= P.pauseTodQuitDeadline and not P.pauseTodSaveState then
+            P.requestPauseTodSave(now)
+        end
+        P.updatePauseTodSave(now)
+    end
+
+    P.pauseTodGuardLastPaused = currentPaused
+end
+
+function P.updatePeriodicAutoSaveRuntime()
+    if not P.configvalues then return end
+    if P.ziboPortOwnsConfig(def.CONFIGSAVETIME) or isPeriodicAutoSaveDisabled() then
+        if P.savetimer ~= nil then
+            sasl.stopTimer(P.savetimer)
+            P.savetimer = nil
+        end
+        return
+    end
+
+    if P.savetimer == nil then
+        P.savetimer = sasl.createTimer()
+        sasl.startTimer(P.savetimer)
+    elseif sasl.getElapsedSeconds(P.savetimer) > (tonumber(P.configvalues[def.CONFIGSAVETIME]) or 0) then
+        if not P.isautosaveblockedbycrash() then
+            helpers.command_once("laminar/B738/tab/save_flight" .. tostring(P.getAutoSaveSlot()))
+        end
+        sasl.startTimer(P.savetimer)
+    end
 end
 
 P.autotaxipause = false
@@ -1464,7 +1626,6 @@ function P.YalinitGlobal()
 
     P.altitudetimer = nil
 
-    P.pausetodtimer = nil
     P.pauseTodAutoDisabled = false
     P.pauseTodMonitorActive = false
     P.pauseTodMcpAltAtPrompt = nil
@@ -2055,6 +2216,7 @@ function P.bindExternalDatarefs(silentMissing)
         P.ziboDragRequired = nil
         P.ziboDragRequiredUnhandled = nil
         P.ziboDragRequiredAssist = nil
+        P.ziboLoadSaveRuntime = nil
         P.ziboPortFeatureSettings = {}
 
         local dragRequiredName = "zibomod/fms/drag_required"
@@ -2069,6 +2231,31 @@ function P.bindExternalDatarefs(silentMissing)
         end
         if probe_external_dataref(dragRequiredAssistName) then
             P.ziboDragRequiredAssist = GP(dragRequiredAssistName)
+        end
+
+        local loadSaveNames = {
+            load_save = "laminar/B738/load_save",
+            load_save2 = "laminar/B738/load_save2",
+            status = "laminar/B738/fms/load_save_status",
+            slot = "laminar/B738/fms/load_save_slot",
+            error_code = "laminar/B738/fms/load_save_error_code"
+        }
+        local completeLoadSaveRuntime = true
+        for _, name in pairs(loadSaveNames) do
+            if not probe_external_dataref(name) then
+                completeLoadSaveRuntime = false
+                break
+            end
+        end
+        if completeLoadSaveRuntime then
+            P.ziboLoadSaveRuntime = {}
+            for field, name in pairs(loadSaveNames) do
+                P.ziboLoadSaveRuntime[field] = GP(name)
+            end
+            if not P.ziboLoadSaveRuntimeLogged then
+                P.ziboLoadSaveRuntimeLogged = true
+                helpers.logInfoTS("Zibo load/save runtime status connected")
+            end
         end
 
         local featureSettings = {
@@ -10140,48 +10327,6 @@ function P.ongoingtasks()
         P.apgoaroundtemp = get(P.apgoaround)
     end
 
-    local todDistanceQuit = get(P.vnavtoddist)
-    local todEligibleQuit =
-        (P.pauseTodMonitorActive == true) and
-        (get(P.airgroundsensor) == def.OFF) and
-        (type(todDistanceQuit) == "number") and
-        (todDistanceQuit > 0) and
-        (todDistanceQuit <= 5)
-    if ((get(P.pausetod) == def.ON) and (P.configvalues[def.CONFIGTODPAUSEQUITTIME] ~= 9999) and todEligibleQuit) then
-        if (get(P.simpaused) == def.ON) then
-            if (P.pausetodtimer == nil) then
-                P.pausetodtimer = sasl.createTimer()
-                sasl.startTimer(P.pausetodtimer)
-            elseif (sasl.getElapsedSeconds(P.pausetodtimer) > P.configvalues[def.CONFIGTODPAUSEQUITTIME]) then
-                if not P.isautosaveblockedbycrash() then
-                    helpers.command_once("laminar/B738/tab/save_flight" .. tostring(getAutoSaveSlot()))
-                end
-                helpers.command_once("sim/operation/quit")
-            end
-        elseif (P.pausetodtimer ~= nil) then
-            sasl.stopTimer(P.pausetodtimer)
-            P.pausetodtimer = nil
-        end
-    elseif (P.pausetodtimer ~= nil) then
-        sasl.stopTimer(P.pausetodtimer)
-        P.pausetodtimer = nil
-    end
-
-    if not P.ziboPortOwnsConfig(def.CONFIGSAVETIME) and not isPeriodicAutoSaveDisabled() then
-        if (P.savetimer == nil) then
-            P.savetimer = sasl.createTimer()
-            sasl.startTimer(P.savetimer)
-        elseif (sasl.getElapsedSeconds(P.savetimer) > P.configvalues[def.CONFIGSAVETIME]) then
-            if not P.isautosaveblockedbycrash() then
-                helpers.command_once("laminar/B738/tab/save_flight" .. tostring(getAutoSaveSlot()))
-            end
-            sasl.startTimer(P.savetimer)
-        end
-    elseif (P.savetimer ~= nil) then
-        sasl.stopTimer(P.savetimer)
-        P.savetimer = nil
-    end
-
     local headingSyncInterval = 0
     if not P.ziboPortOwnsConfig(def.CONFIGHEADINGSYNCINTERVAL) then
         headingSyncInterval = tonumber(P.configvalues[def.CONFIGHEADINGSYNCINTERVAL] or 0) or 0
@@ -11219,7 +11364,6 @@ function P.do_yal()
     end
 
     P.updateSharedVariables()
-    P.updatePauseTodGuard()
 
     local next_recommended_wait_step = def.STANDARDWAIT
 

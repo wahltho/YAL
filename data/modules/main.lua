@@ -1656,6 +1656,12 @@ function update()
         if trimPopupComponent and trimPopupComponent.tick then
             trimPopupComponent:tick()
         end
+        if yal and yal.updatePauseTodRuntime then
+            yal.updatePauseTodRuntime()
+        end
+        if yal and yal.updatePeriodicAutoSaveRuntime then
+            yal.updatePeriodicAutoSaveRuntime()
+        end
         local current_elapsed_time = sasl.getElapsedSeconds(oneSecTimer)
         local forceImmediateCycle = yal and yal.forceImmediateCycle == true
 
