@@ -17,6 +17,27 @@ local function assert_true(value, label)
     if not value then fail(label .. ": expected true") end
 end
 
+local function test_spell_nato(value)
+    local nato = {
+        A = "Alpha", B = "Bravo", C = "Charlie", D = "Delta", E = "Echo", F = "Foxtrot",
+        G = "Golf", H = "Hotel", I = "India", J = "Juliet", K = "Kilo", L = "Lima",
+        M = "Mike", N = "November", O = "Oscar", P = "Papa", Q = "Quebec", R = "Romeo",
+        S = "Sierra", T = "Tango", U = "Uniform", V = "Victor", W = "Whiskey", X = "X-ray",
+        Y = "Yankee", Z = "Zulu"
+    }
+    local parts = {}
+    local text = tostring(value or ""):upper()
+    for index = 1, #text do
+        local char = text:sub(index, index)
+        if nato[char] then
+            parts[#parts + 1] = nato[char]
+        elseif char:match("%d") then
+            parts[#parts + 1] = char
+        end
+    end
+    return table.concat(parts, " ")
+end
+
 local function copy(source, overrides)
     local result = {}
     for key, value in pairs(source) do result[key] = value end
@@ -239,8 +260,47 @@ for _, case in ipairs(phraseCases) do
     assert_true(not text:lower():find(" the ", 1, true), "phrase has no 'the' " .. case[1])
 end
 
-local voiceEvent = core.newEvent("departure.airborne", base, 0)
-assert_equal(voiceEvent.voice_text, voiceEvent.text, "generated event carries speakable v2 text")
+local voiceCases = {
+    {
+        "departure.airborne",
+        base,
+        "Echo November Alpha Tango Traffic, Boeing 7 3 8 airborne off runway 0 9, passing 3 0 0 feet"
+    },
+    {
+        "departure.on_climb",
+        copy(base, { altitude_ft = 1800, pressure_altitude_ft = 1800 }),
+        "Traffic, Boeing 7 3 8 climbing out of Echo November Alpha Tango on Atkup 1 Alpha departure, passing 1 8 0 0 feet for flight level 3 7 0, Birco next"
+    },
+    {
+        "arrival.approach",
+        copy(base, { altitude_ft = 6000, pressure_altitude_ft = 6000 }),
+        "Echo November Sierra Bravo Traffic, Boeing 7 3 8 Nelsa 3 Mike arrival for R N A V Whiskey approach runway 2 7, on descent passing 6 0 0 0 feet"
+    },
+    {
+        "departure.runway_crossing",
+        copy(base, { crossing_runway = "08", crossing_taxiway = "Z" }),
+        "Echo November Alpha Tango Traffic, Boeing 7 3 8 crossing runway 0 8 at taxiway Zulu"
+    },
+    {
+        "arrival.parking_position",
+        copy(base, {
+            arrival_parking_found = true,
+            arrival_parking_type = "gate",
+            arrival_parking_name = "Gate B7"
+        }),
+        "Echo November Sierra Bravo Traffic, Boeing 7 3 8 parked at gate Bravo 7"
+    }
+}
+
+for _, case in ipairs(voiceCases) do
+    local visibleText = core.buildMessage(case[1], case[2])
+    local voiceText = core.buildVoiceMessage(case[1], case[2], test_spell_nato, visibleText)
+    assert_equal(voiceText, case[3], "voice phrase " .. case[1])
+end
+
+local voiceEvent = core.newEvent("departure.airborne", base, 0, test_spell_nato)
+assert_equal(voiceEvent.text, phraseCases[1][3], "generated event keeps exact visible text")
+assert_equal(voiceEvent.voice_text, voiceCases[1][3], "generated event carries formatted v2 voice text")
 
 assert_equal(
     core.buildMessage("arrival.on_descent", copy(base, {
@@ -670,14 +730,14 @@ local v2Api = {
 assert_true(v2Mailbox:enqueue({
     id = "departure.on_climb",
     text = phraseCases[2][3],
-    voice_text = phraseCases[2][3],
+    voice_text = voiceCases[2][3],
     created_at = 0,
     expires_at = 60
 }), "v2 voice mailbox enqueue")
 v2Mailbox:tick(v2Api, 0)
 assert_equal(v2Writes[1].kind, "text", "v2 text written first")
 assert_equal(v2Writes[2].kind, "voice", "v2 voice text written after text")
-assert_equal(v2Writes[2].value, phraseCases[2][3], "v2 exact voice text")
+assert_equal(v2Writes[2].value, voiceCases[2][3], "v2 exact voice text")
 assert_equal(v2Writes[3].kind, "channels", "v2 channels written after voice text")
 assert_equal(v2Writes[3].value, 3, "v2 text plus voice mask")
 assert_equal(v2Writes[4].kind, "seq", "v2 sequence remains final write")
@@ -1162,6 +1222,7 @@ autoUnicom.configure({
     def = baselineDef,
     helpers = {
         logInfoTS = function() end,
+        spellNato = test_spell_nato,
         parseSelectedApproachId = function()
             return { suffix = "W", navType = "RNAV" }
         end
@@ -1260,6 +1321,7 @@ local function configure_event_adapter_test()
         def = baselineDef,
         helpers = {
             logInfoTS = function(message) table.insert(eventAdapterLogs, message) end,
+            spellNato = test_spell_nato,
             forceCleanString = function(value) return tostring(value or "") end,
             extractprimaryicao = function(value) return tostring(value or "") end,
             isvalidicao = function(value) return type(value) == "string" and #value == 4 end,
@@ -1453,8 +1515,22 @@ assert_true(autoUnicom.handleYalEvent("departure.airborne", nil, 1), "YAL v2 eve
 autoUnicom.tick(true, 1)
 assert_equal(eventAdapterWrites[1].kind, "text", "YAL v2 adapter writes text first")
 assert_equal(eventAdapterWrites[2].kind, "voice", "YAL v2 adapter writes voice text second")
+assert_equal(eventAdapterWrites[1].value, phraseCases[1][3], "YAL v2 adapter keeps visible text unchanged")
+assert_equal(eventAdapterWrites[2].value, voiceCases[1][3], "YAL v2 adapter writes NATO-formatted voice text")
 assert_equal(eventAdapterWrites[3].kind, "channels", "YAL v2 adapter writes channels third")
 assert_equal(eventAdapterWrites[3].value, 3, "YAL v2 adapter requests text plus voice")
 assert_equal(eventAdapterWrites[4].kind, "seq", "YAL v2 adapter commits sequence last")
+
+eventAdapterValues.result_seq = 71
+eventAdapterValues.result_code = 21
+eventAdapterValues.voice_result_seq = 71
+eventAdapterValues.voice_result_code = 20
+autoUnicom.tick(true, 2)
+eventAdapterWrites = {}
+assert_true(autoUnicom.repeatLastMessage(true), "YAL v2 repeat accepts last structured message")
+autoUnicom.tick(true, 3)
+assert_equal(eventAdapterWrites[1].value, phraseCases[1][3], "YAL v2 repeat keeps visible text unchanged")
+assert_equal(eventAdapterWrites[2].value, voiceCases[1][3], "YAL v2 repeat keeps paired NATO voice text")
+assert_equal(eventAdapterWrites[3].value, 3, "YAL v2 repeat keeps text plus voice channels")
 
 print("auto_unicom tests passed")

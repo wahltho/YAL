@@ -141,6 +141,110 @@ local function normalize_text(value)
     return text
 end
 
+local function normalize_voice_text(value)
+    local text = tostring(value or ""):gsub("%s+", " ")
+    text = trim(text)
+    if text == "" or #text > 1024 then return nil end
+    for i = 1, #text do
+        local byte = text:byte(i)
+        if byte < 32 or byte > 126 then return nil end
+    end
+    return text
+end
+
+local function is_ascii_alphanumeric_char(char)
+    if not char or char == "" then return false end
+    local byte = char:byte(1)
+    return (byte >= 48 and byte <= 57)
+        or (byte >= 65 and byte <= 90)
+        or (byte >= 97 and byte <= 122)
+end
+
+local function replace_token(text, token, replacement)
+    token = tostring(token or "")
+    replacement = tostring(replacement or "")
+    if token == "" or replacement == "" or token == replacement then return text end
+
+    local output = {}
+    local cursor = 1
+    while cursor <= #text do
+        local startPos, endPos = text:find(token, cursor, true)
+        if not startPos then
+            output[#output + 1] = text:sub(cursor)
+            break
+        end
+        local before = startPos > 1 and text:sub(startPos - 1, startPos - 1) or nil
+        local after = endPos < #text and text:sub(endPos + 1, endPos + 1) or nil
+        if not is_ascii_alphanumeric_char(before) and not is_ascii_alphanumeric_char(after) then
+            output[#output + 1] = text:sub(cursor, startPos - 1)
+            output[#output + 1] = replacement
+            cursor = endPos + 1
+        else
+            output[#output + 1] = text:sub(cursor, endPos)
+            cursor = endPos + 1
+        end
+    end
+    return table.concat(output)
+end
+
+local function spaced_digits(value)
+    local digits = tostring(value or "")
+    local parts = {}
+    for index = 1, #digits do
+        local char = digits:sub(index, index)
+        if char:match("%d") then parts[#parts + 1] = char end
+    end
+    return table.concat(parts, " ")
+end
+
+local function title_identifier_word(value)
+    local text = tostring(value or ""):lower()
+    if text == "" then return "" end
+    return text:sub(1, 1):upper() .. text:sub(2)
+end
+
+local function voice_named_identifier(value, spellNato)
+    local token = clean_token(value, false)
+    if not token then return nil end
+    if token:match("^[A-Z][A-Z][A-Z][A-Z][A-Z]$") then
+        return title_identifier_word(token)
+    end
+
+    local letters, digits, suffix = token:match("^([A-Z]+)(%d+)([A-Z]*)$")
+    if letters and digits then
+        local parts = { title_identifier_word(letters), spaced_digits(digits) }
+        if suffix ~= "" then parts[#parts + 1] = spellNato(suffix) end
+        return table.concat(parts, " ")
+    end
+    return spellNato(token)
+end
+
+local function voice_aircraft_type(value, spellNato)
+    local token = clean_token(value, false) or "B738"
+    local digits = token:match("^B(73[6-9])$")
+    if digits then return "Boeing " .. spaced_digits(digits) end
+    return spellNato(token)
+end
+
+local function voice_runway(value)
+    local runway = normalize_runway(value)
+    if not runway then return nil end
+    local digits = runway:match("^(%d%d)")
+    local suffix = runway:match("([LRC])$")
+    local suffixNames = { L = "Left", R = "Right", C = "Center" }
+    local text = spaced_digits(digits)
+    if suffix then text = text .. " " .. suffixNames[suffix] end
+    return text
+end
+
+local function add_voice_token(replacements, raw, spoken)
+    raw = tostring(raw or "")
+    spoken = tostring(spoken or "")
+    if raw ~= "" and spoken ~= "" and raw ~= spoken then
+        replacements[#replacements + 1] = { raw = raw, spoken = spoken }
+    end
+end
+
 local function is_ascii_alphanumeric(byte)
     return byte and ((byte >= 48 and byte <= 57)
         or (byte >= 65 and byte <= 90)
@@ -282,6 +386,7 @@ local function parking_label(snapshot, prefix)
 end
 
 M.normalizeText = normalize_text
+M.normalizeVoiceText = normalize_voice_text
 M.normalizeRunway = normalize_runway
 
 local function aircraft_type(snapshot)
@@ -663,6 +768,86 @@ function M.buildMessage(eventId, snapshot)
     return nil, "unknown_event"
 end
 
+function M.buildVoiceMessage(eventId, snapshot, spellNato, visibleText)
+    if type(spellNato) ~= "function" then return nil, "missing_nato_formatter" end
+    snapshot = snapshot or {}
+
+    local text, reason = visibleText, nil
+    if not text then text, reason = M.buildMessage(eventId, snapshot) end
+    if not text then return nil, reason end
+
+    text = text:gsub("FL(%d+)", function(value)
+        return "flight level " .. spaced_digits(value)
+    end)
+    text = text:gsub("(%d+)ft", function(value)
+        return spaced_digits(value) .. " feet"
+    end)
+    text = text:gsub("runway%s+(%d%d?[LRC]?)", function(value)
+        return "runway " .. (voice_runway(value) or value)
+    end)
+
+    local replacements = {}
+    add_voice_token(replacements, aircraft_type(snapshot), voice_aircraft_type(snapshot.aircraft_type, spellNato))
+
+    local airports = {
+        snapshot.departure_icao,
+        snapshot.arrival_icao,
+        snapshot.pushback_airport_icao,
+        snapshot.arrival_parking_airport_icao
+    }
+    for _, value in ipairs(airports) do
+        local token = clean_token(value, false)
+        if token and #token == 4 then add_voice_token(replacements, token, spellNato(token)) end
+    end
+
+    local namedIdentifiers = {
+        snapshot.sid,
+        snapshot.star,
+        snapshot.climb_next_waypoint,
+        snapshot.cruise_waypoint,
+        snapshot.cruise_next_waypoint,
+        snapshot.hold_waypoint
+    }
+    for _, value in ipairs(namedIdentifiers) do
+        local token = clean_token(value, false)
+        if token then add_voice_token(replacements, token, voice_named_identifier(token, spellNato)) end
+    end
+
+    local approachSuffix = clean_token(snapshot.approach_suffix, false)
+    if approachSuffix then add_voice_token(replacements, approachSuffix, spellNato(approachSuffix)) end
+
+    local taxiway = clean_token(snapshot.crossing_taxiway, true)
+    if taxiway then add_voice_token(replacements, taxiway, spellNato(taxiway)) end
+    local intersection = departure_intersection(snapshot)
+    if intersection then add_voice_token(replacements, intersection, spellNato(intersection)) end
+
+    for _, prefix in ipairs({ "preflight_parking", "pushback_parking", "arrival_parking" }) do
+        local parking = parking_label(snapshot, prefix)
+        local identifier = parking and parking:match("^%S+%s+(.+)$") or nil
+        if identifier then add_voice_token(replacements, identifier, spellNato(identifier)) end
+    end
+
+    local fixedTokens = {
+        { "TOD", "top of descent" },
+        { "RNAV", "R N A V" },
+        { "ILS", "I L S" },
+        { "GLS", "G L S" },
+        { "LPV", "L P V" },
+        { "LDA", "L D A" },
+        { "LOC", "L O C" },
+        { "LP", "L P" },
+        { "SHORT FINAL", "short final" }
+    }
+    for _, replacement in ipairs(fixedTokens) do
+        add_voice_token(replacements, replacement[1], replacement[2])
+    end
+
+    for _, replacement in ipairs(replacements) do
+        text = replace_token(text, replacement.raw, replacement.spoken)
+    end
+    return normalize_voice_text(text)
+end
+
 local function summarize_sources(snapshot)
     local fields = {
         { "phase", snapshot.fms_phase },
@@ -725,13 +910,14 @@ end
 M.summarizeSources = summarize_sources
 M.isApproachPhase = is_approach_phase
 
-function M.newEvent(eventId, snapshot, now)
+function M.newEvent(eventId, snapshot, now, spellNato)
     local text, reason = M.buildMessage(eventId, snapshot)
     if not text then return nil, reason end
+    local voiceText = M.buildVoiceMessage(eventId, snapshot, spellNato, text)
     return {
         id = eventId,
         text = text,
-        voice_text = text,
+        voice_text = voiceText,
         inputs = summarize_sources(snapshot),
         created_at = now,
         expires_at = now + (M.EVENT_TTL_SEC[eventId] or 120)
@@ -969,7 +1155,7 @@ function Mailbox:enqueue(event)
     if #self.queue >= self.maxQueue then return false end
     event.text = text
     if event.voice_text ~= nil then
-        event.voice_text = normalize_text(event.voice_text)
+        event.voice_text = normalize_voice_text(event.voice_text)
     end
     table.insert(self.queue, event)
     self.queuedIds[event.id] = true

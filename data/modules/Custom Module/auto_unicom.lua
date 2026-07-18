@@ -6,7 +6,9 @@ local mailbox = nil
 local active = false
 local connectionLogKey = nil
 local lastIntendedMessageText = nil
+local lastIntendedMessageVoiceText = nil
 local lastCommittedMessageText = nil
+local lastCommittedMessageVoiceText = nil
 local manualRepeatCount = 0
 local PREFLIGHT_PARKING_MAX_DISTANCE_M = 35
 local PUSHBACK_PARKING_MAX_DISTANCE_M = 80
@@ -70,6 +72,7 @@ end
 local function mailbox_log(kind, event)
     if kind == "committed" then
         lastCommittedMessageText = event.text
+        lastCommittedMessageVoiceText = event.voice_text
         log(string.format("IVAO Auto-Unicom: committed event=%s seq=%s channels=%s text=%s",
             tostring(event.id), tostring(event.seq), tostring(event.channels), tostring(event.text)))
     elseif kind == "terminal" then
@@ -98,7 +101,10 @@ end
 
 local function enqueue_event(event)
     local intendedText = core.normalizeText(event and event.text)
-    if intendedText then lastIntendedMessageText = intendedText end
+    if intendedText then
+        lastIntendedMessageText = intendedText
+        lastIntendedMessageVoiceText = core.normalizeVoiceText(event and event.voice_text)
+    end
     if not mailbox or not mailbox:enqueue(event) then return false end
     log(string.format("IVAO Auto-Unicom: queued event=%s inputs={%s} text=%s",
         tostring(event.id), tostring(event.inputs or ""), tostring(event.text)))
@@ -347,6 +353,12 @@ local function capture_baseline_repeat_candidate(snapshot)
     local text = core.buildMessage(eventId, snapshot)
     if not text then return end
     lastIntendedMessageText = text
+    lastIntendedMessageVoiceText = core.buildVoiceMessage(
+        eventId,
+        snapshot,
+        runtime.helpers and runtime.helpers.spellNato,
+        text
+    )
     log(string.format("IVAO Auto-Unicom: baseline repeat candidate event=%s text=%s", eventId, text))
 end
 
@@ -375,7 +387,12 @@ function M.handleYalEvent(eventId, payload, now)
     end
 
     now = tonumber(now) or os.time()
-    local event, reason = core.newEvent(eventId, snapshot, now)
+    local event, reason = core.newEvent(
+        eventId,
+        snapshot,
+        now,
+        runtime.helpers and runtime.helpers.spellNato
+    )
     if not event then
         log("IVAO Auto-Unicom: YAL event rejected event=" .. tostring(eventId)
             .. " reason=" .. tostring(reason)
@@ -420,13 +437,16 @@ function M.repeatLastMessage(enabled)
     local apiRefs = refs()
     local source = "last_intended"
     local rawText = lastIntendedMessageText
+    local rawVoiceText = lastIntendedMessageVoiceText
     if not rawText then
         source = "last_committed"
         rawText = lastCommittedMessageText
+        rawVoiceText = lastCommittedMessageVoiceText
     end
     if not rawText then
         source = "api_request_text"
         rawText = safe_read(apiRefs and apiRefs.request_text)
+        rawVoiceText = nil
     end
     local text = core.normalizeText(rawText)
     if not text then
@@ -439,7 +459,7 @@ function M.repeatLastMessage(enabled)
     local accepted = enqueue_event({
         id = "manual.repeat_last." .. tostring(manualRepeatCount),
         text = text,
-        voice_text = text,
+        voice_text = core.normalizeVoiceText(rawVoiceText),
         inputs = "source=" .. source,
         created_at = now,
         expires_at = now + 120
@@ -458,7 +478,9 @@ function M.configure(options)
     active = false
     connectionLogKey = nil
     lastIntendedMessageText = nil
+    lastIntendedMessageVoiceText = nil
     lastCommittedMessageText = nil
+    lastCommittedMessageVoiceText = nil
     manualRepeatCount = 0
 end
 
@@ -468,7 +490,9 @@ function M.rebaseline()
     active = false
     connectionLogKey = nil
     lastIntendedMessageText = nil
+    lastIntendedMessageVoiceText = nil
     lastCommittedMessageText = nil
+    lastCommittedMessageVoiceText = nil
     manualRepeatCount = 0
 end
 
