@@ -6,6 +6,7 @@ require("settings")
 local PD = require("proceduredata")
 local VR = require("voicereadback")
 local refdata = require("refdata")
+P.pauseTodGuard = require("pause_tod_guard")
 
 local AUTO_UNICOM_CLIMB_LEVELS_FT = { 10000, 20000, 30000, 40000 }
 local AUTO_UNICOM_DESCENT_LEVELS_FT = { 40000, 30000, 20000, 10000 }
@@ -385,6 +386,140 @@ function P.updateGearProtectionFast()
     end
 
     P.gearProtectionLastOnGround = onGround
+end
+
+function P.pauseTodGuardEnabled()
+    return P.configvalues
+        and (tonumber(P.configvalues[def.CONFIGTODPAUSEGUARD] or 0) == def.ON)
+end
+
+function P.clearPauseTodGuardState()
+    P.pauseTodGuardProtected = false
+    P.pauseTodGuardMcpAlt = nil
+    P.pauseTodGuardPausedAt = nil
+    P.pauseTodGuardConfirmUntil = nil
+    P.pauseTodGuardRepauseRequested = false
+    P.pauseTodGuardRepauseCount = 0
+end
+
+function P.updatePauseTodGuard()
+    if not P.simpaused or not P.pausetod or not P.vnavtoddist then return end
+
+    local now = os.time() or 0
+    local currentPaused = (tonumber(get(P.simpaused)) or 0) == def.ON
+    if P.pauseTodGuardLastPaused == nil then
+        P.pauseTodGuardLastPaused = currentPaused
+        return
+    end
+
+    if not P.pauseTodGuardEnabled() then
+        if P.pauseTodGuardProtected then
+            helpers.logInfoTS("PauseTODGuard: disabled while protected; guard cleared")
+        end
+        P.clearPauseTodGuardState()
+        P.pauseTodGuardCycleComplete = false
+        P.pauseTodGuardLastPaused = currentPaused
+        return
+    end
+
+    local pauseEdge = currentPaused and not P.pauseTodGuardLastPaused
+    local releaseEdge = (not currentPaused) and P.pauseTodGuardLastPaused
+    local todDistance = tonumber(get(P.vnavtoddist))
+    local mcpAltitude = tonumber(get(P.mcpaltitude))
+    local fmsPhase = tonumber(get(P.fmsflightphase)) or 0
+    local flightState = tonumber(P.flightstate) or def.FLIGHTSTATEPREFLIGHT
+    local airborne = (get(P.airgroundsensor) == def.OFF)
+    local inCruise = flightState == def.FLIGHTSTATECRUISE
+        and fmsPhase == def.FMSFLIGHTPHASE_CRUISE
+
+    if pauseEdge then
+        if P.pauseTodGuardProtected and P.pauseTodGuardRepauseRequested then
+            P.pauseTodGuardRepauseRequested = false
+            helpers.logInfoTS(string.format(
+                "PauseTODGuard: re-pause active tod=%.2f mcp=%.0f confirmUntil=%d",
+                todDistance or -1,
+                mcpAltitude or -1,
+                tonumber(P.pauseTodGuardConfirmUntil) or 0
+            ))
+        elseif not P.pauseTodGuardProtected and not P.pauseTodGuardCycleComplete then
+            local eligible = P.pauseTodGuard.isArmEligible({
+                monitor_active = P.pauseTodMonitorActive == true,
+                pause_setting_on = get(P.pausetod) == def.ON,
+                airborne = airborne,
+                in_cruise = inCruise,
+                tod_distance_nm = todDistance
+            })
+            if eligible then
+                P.pauseTodGuardProtected = true
+                P.pauseTodGuardMcpAlt = tonumber(P.pauseTodMcpAltAtPrompt) or mcpAltitude
+                P.pauseTodGuardPausedAt = now
+                P.pauseTodGuardConfirmUntil = nil
+                P.pauseTodGuardRepauseRequested = false
+                P.pauseTodGuardRepauseCount = 0
+                helpers.logInfoTS(string.format(
+                    "PauseTODGuard: armed actual pause tod=%.2f mcp=%.0f fmsPhase=%d flightState=%d",
+                    todDistance or -1,
+                    tonumber(P.pauseTodGuardMcpAlt) or -1,
+                    fmsPhase,
+                    flightState
+                ))
+            end
+        end
+    elseif releaseEdge and P.pauseTodGuardProtected then
+        local action, reason = P.pauseTodGuard.evaluateRelease({
+            now = now,
+            confirm_until = P.pauseTodGuardConfirmUntil,
+            pause_setting_on = get(P.pausetod) == def.ON,
+            airborne = airborne,
+            in_cruise = inCruise,
+            tod_distance_nm = todDistance,
+            baseline_mcp_ft = P.pauseTodGuardMcpAlt,
+            current_mcp_ft = mcpAltitude,
+            vertical_speed_fpm = tonumber(get(P.verticalspeed))
+        })
+        local pauseDuration = math.max(0, now - (tonumber(P.pauseTodGuardPausedAt) or now))
+
+        if action == "repause" then
+            P.pauseTodGuardRepauseCount = (tonumber(P.pauseTodGuardRepauseCount) or 0) + 1
+            P.pauseTodGuardConfirmUntil = now + P.pauseTodGuard.CONFIRM_WINDOW_SEC
+            P.pauseTodGuardRepauseRequested = true
+            helpers.logInfoTS(string.format(
+                "PauseTODGuard: ambiguous release; re-pausing reason=%s duration=%ds tod=%.2f mcp=%.0f baseline=%.0f vs=%.0f fmsPhase=%d flightState=%d attempt=%d",
+                tostring(reason),
+                pauseDuration,
+                todDistance or -1,
+                mcpAltitude or -1,
+                tonumber(P.pauseTodGuardMcpAlt) or -1,
+                tonumber(get(P.verticalspeed)) or 0,
+                fmsPhase,
+                flightState,
+                P.pauseTodGuardRepauseCount
+            ))
+            helpers.command_once("sim/operation/pause_on")
+            helpers.speak(
+                "Pause at Top of Descent restored. Release Pause again to continue.",
+                50,
+                "YAL_PAUSE_TOD_GUARD",
+                2
+            )
+        else
+            helpers.logInfoTS(string.format(
+                "PauseTODGuard: release accepted reason=%s duration=%ds tod=%.2f mcp=%.0f baseline=%.0f vs=%.0f fmsPhase=%d flightState=%d",
+                tostring(reason),
+                pauseDuration,
+                todDistance or -1,
+                mcpAltitude or -1,
+                tonumber(P.pauseTodGuardMcpAlt) or -1,
+                tonumber(get(P.verticalspeed)) or 0,
+                fmsPhase,
+                flightState
+            ))
+            P.clearPauseTodGuardState()
+            P.pauseTodGuardCycleComplete = true
+        end
+    end
+
+    P.pauseTodGuardLastPaused = currentPaused
 end
 
 local function clearTrimAdvicePopupState()
@@ -1333,6 +1468,9 @@ function P.YalinitGlobal()
     P.pauseTodAutoDisabled = false
     P.pauseTodMonitorActive = false
     P.pauseTodMcpAltAtPrompt = nil
+    P.pauseTodGuardLastPaused = nil
+    P.pauseTodGuardCycleComplete = false
+    P.clearPauseTodGuardState()
     P.autoRestartDeferred = false
     P.autoRestartSemaphorePath = def.PLUGINOUTPUTPATH .. "yal_autorestart.sem"
     if helpers and helpers.file_exists_v2 and helpers.file_exists_v2(P.autoRestartSemaphorePath) then
@@ -8329,11 +8467,14 @@ function P.duringdescent()
     if P.pauseTodAutoDisabled then
         if get(P.pausetod) == def.OFF then
             set(P.pausetod, def.ON)
+            helpers.logInfoTS("PauseTODMonitor: restored pause_td after descent start")
         end
         P.pauseTodAutoDisabled = false
     end
     P.pauseTodMonitorActive = false
     P.pauseTodMcpAltAtPrompt = nil
+    P.clearPauseTodGuardState()
+    P.pauseTodGuardCycleComplete = false
 
     local proc_to_check = def.DURINGDESCENTPROCEDURE
     local targetLoopIndex = P.proceduretable[proc_to_check].loop
@@ -9680,9 +9821,23 @@ function P.runOneMainOngoingTask()
 
         if P.pauseTodMonitorActive then
             if get(P.pausetod) ~= def.ON then
+                helpers.logInfoTS(string.format(
+                    "PauseTODMonitor: disarmed pause_td=%s tod=%.2f mcp=%.0f",
+                    tostring(get(P.pausetod)),
+                    tonumber(todDistance) or -1,
+                    tonumber(mcpAlt) or -1
+                ))
                 P.pauseTodMonitorActive = false
                 P.pauseTodMcpAltAtPrompt = nil
-            elseif (type(P.pauseTodMcpAltAtPrompt) == "number") and (math.abs(mcpAlt - P.pauseTodMcpAltAtPrompt) >= 100) then
+            elseif (type(P.pauseTodMcpAltAtPrompt) == "number")
+                and ((P.pauseTodMcpAltAtPrompt - mcpAlt) >= P.pauseTodGuard.MCP_DESCENT_DELTA_FT) then
+                helpers.logInfoTS(string.format(
+                    "PauseTODMonitor: descent MCP accepted baseline=%.0f current=%.0f delta=%.0f tod=%.2f; pause_td disabled temporarily",
+                    P.pauseTodMcpAltAtPrompt,
+                    tonumber(mcpAlt) or -1,
+                    P.pauseTodMcpAltAtPrompt - (tonumber(mcpAlt) or 0),
+                    tonumber(todDistance) or -1
+                ))
                 set(P.pausetod, def.OFF)
                 P.pauseTodAutoDisabled = true
                 P.pauseTodMonitorActive = false
@@ -9823,6 +9978,12 @@ function P.runOneMainOngoingTask()
                     if (get(P.pausetod) == def.ON) and (not P.pauseTodAutoDisabled) and (not P.pauseTodMonitorActive) then
                         P.pauseTodMonitorActive = true
                         P.pauseTodMcpAltAtPrompt = mcpAlt
+                        P.pauseTodGuardCycleComplete = false
+                        helpers.logInfoTS(string.format(
+                            "PauseTODMonitor: armed baseline=%.0f tod=%.2f",
+                            tonumber(mcpAlt) or -1,
+                            tonumber(todDistanceForMcpAdvice) or -1
+                        ))
                     end
                 elseif todAdviceReason == "max-reached" then
                     holdCurrent = true
@@ -11058,6 +11219,7 @@ function P.do_yal()
     end
 
     P.updateSharedVariables()
+    P.updatePauseTodGuard()
 
     local next_recommended_wait_step = def.STANDARDWAIT
 
