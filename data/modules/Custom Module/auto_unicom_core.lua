@@ -610,13 +610,13 @@ function M.buildMessage(eventId, snapshot)
         local waypoint = clean_token(snapshot.hold_waypoint, false)
         if not waypoint then return nil, "missing_hold_context" end
         if eventId == HOLD_ENTER_EVENT_ID then
-            return normalize_text(string.format("Traffic, %s, entering a hold over %s", ac, waypoint))
+            return normalize_text(string.format("%s entering a hold over %s", ac, waypoint))
         end
         if eventId == HOLDING_EVENT_ID then
             local altitude = format_altitude(snapshot, false)
             if not altitude then return nil, "missing_hold_context" end
             return normalize_text(string.format(
-                "Traffic, %s maintaining %s whilst holding over %s",
+                "%s maintaining %s whilst holding over %s",
                 ac,
                 altitude,
                 waypoint
@@ -627,14 +627,14 @@ function M.buildMessage(eventId, snapshot)
             local target = format_hold_target_altitude(snapshot)
             if not altitude or not target then return nil, "missing_hold_descent_context" end
             return normalize_text(string.format(
-                "Traffic, %s, in a hold over %s on descent passing %s for %s",
+                "%s in a hold over %s on descent passing %s for %s",
                 ac,
                 waypoint,
                 altitude,
                 target
             ))
         end
-        return normalize_text(string.format("Traffic, %s, exiting hold over %s", ac, waypoint))
+        return normalize_text(string.format("%s exiting hold over %s", ac, waypoint))
     end
 
     if eventId == "enroute.in_cruise" then
@@ -642,7 +642,7 @@ function M.buildMessage(eventId, snapshot)
         if snapshot.cruise_entry == true then
             local altitude = format_planned_altitude(snapshot) or format_altitude(snapshot, false)
             if not altitude then return nil, "missing_cruise_context" end
-            local text = string.format("Traffic, %s level at %s", ac, altitude)
+            local text = string.format("%s level at %s", ac, altitude)
             if nextWaypoint then text = text .. ", " .. nextWaypoint .. " next" end
             return normalize_text(text)
         end
@@ -651,7 +651,7 @@ function M.buildMessage(eventId, snapshot)
         local waypoint = clean_token(snapshot.cruise_waypoint, false)
         if not waypoint then return nil, "missing_cruise_context" end
         local text = string.format(
-            "Traffic, %s passing %s, maintaining %s",
+            "%s passing %s, maintaining %s",
             ac,
             waypoint,
             altitude
@@ -667,7 +667,7 @@ function M.buildMessage(eventId, snapshot)
         local sid = eventId == "departure.on_climb" and clean_token(snapshot.sid, false) or nil
         local nextWaypoint = clean_token(snapshot.climb_next_waypoint, false)
         local planned = format_planned_altitude(snapshot)
-        local text = string.format("Traffic, %s climbing out of %s", ac, airport)
+        local text = string.format("%s climbing out of %s", ac, airport)
         if sid then text = text .. " on " .. sid .. " departure" end
         text = text .. ", passing " .. altitude
         if planned then text = text .. " for " .. planned end

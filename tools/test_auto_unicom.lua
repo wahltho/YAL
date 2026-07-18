@@ -92,7 +92,7 @@ local phraseCases = {
     {
         "departure.on_climb",
         copy(base, { altitude_ft = 1800, pressure_altitude_ft = 1800 }),
-        "Traffic, B738 climbing out of ENAT on ATKUP1A departure, passing 1800ft for FL370, BIRCO next"
+        "B738 climbing out of ENAT on ATKUP1A departure, passing 1800ft for FL370, BIRCO next"
     },
     {
         "arrival.top_of_descent",
@@ -142,32 +142,32 @@ local phraseCases = {
     {
         "departure.climb_level_10000",
         copy(base, { altitude_ft = 10000, pressure_altitude_ft = 10000 }),
-        "Traffic, B738 climbing out of ENAT, passing FL100 for FL370, BIRCO next"
+        "B738 climbing out of ENAT, passing FL100 for FL370, BIRCO next"
     },
     {
         "departure.climb_level_20000",
         copy(base, { altitude_ft = 20000, pressure_altitude_ft = 20000 }),
-        "Traffic, B738 climbing out of ENAT, passing FL200 for FL370, BIRCO next"
+        "B738 climbing out of ENAT, passing FL200 for FL370, BIRCO next"
     },
     {
         "departure.climb_level_30000",
         copy(base, { altitude_ft = 30000, pressure_altitude_ft = 30000 }),
-        "Traffic, B738 climbing out of ENAT, passing FL300 for FL370, BIRCO next"
+        "B738 climbing out of ENAT, passing FL300 for FL370, BIRCO next"
     },
     {
         "departure.climb_level_40000",
         copy(base, { altitude_ft = 40000, pressure_altitude_ft = 40000, planned_altitude_ft = 41000 }),
-        "Traffic, B738 climbing out of ENAT, passing FL400 for FL410, BIRCO next"
+        "B738 climbing out of ENAT, passing FL400 for FL410, BIRCO next"
     },
     {
         "enroute.hold_enter",
         copy(base, { hold_waypoint = "BIRCO", hold_path_type = "HM" }),
-        "Traffic, B738, entering a hold over BIRCO"
+        "B738 entering a hold over BIRCO"
     },
     {
         "enroute.hold_exit",
         copy(base, { hold_waypoint = "BIRCO", hold_path_type = "HM" }),
-        "Traffic, B738, exiting hold over BIRCO"
+        "B738 exiting hold over BIRCO"
     },
     {
         "departure.hold_short",
@@ -197,12 +197,12 @@ local phraseCases = {
     {
         "enroute.in_cruise",
         copy(base, { cruise_waypoint = "BIRCO", altitude_ft = 37000, pressure_altitude_ft = 37000 }),
-        "Traffic, B738 passing BIRCO, maintaining FL370"
+        "B738 passing BIRCO, maintaining FL370"
     },
     {
         "enroute.holding",
         copy(base, { hold_waypoint = "BIRCO", altitude_ft = 37000, pressure_altitude_ft = 37000 }),
-        "Traffic, B738 maintaining FL370 whilst holding over BIRCO"
+        "B738 maintaining FL370 whilst holding over BIRCO"
     },
     {
         "enroute.hold_descending",
@@ -212,7 +212,7 @@ local phraseCases = {
             altitude_ft = 37000,
             pressure_altitude_ft = 37000
         }),
-        "Traffic, B738, in a hold over BIRCO on descent passing FL370 for FL250"
+        "B738 in a hold over BIRCO on descent passing FL370 for FL250"
     },
     {
         "arrival.backtrack",
@@ -269,7 +269,7 @@ local voiceCases = {
     {
         "departure.on_climb",
         copy(base, { altitude_ft = 1800, pressure_altitude_ft = 1800 }),
-        "Traffic, Boeing 7 3 8 climbing out of Echo November Alpha Tango on Atkup 1 Alpha departure, passing 1 8 0 0 feet for flight level 3 7 0, Birco next"
+        "Boeing 7 3 8 climbing out of Echo November Alpha Tango on Atkup 1 Alpha departure, passing 1 8 0 0 feet for flight level 3 7 0, Birco next"
     },
     {
         "arrival.approach",
@@ -564,7 +564,7 @@ assert_equal(
         pressure_altitude_ft = 1800,
         climb_next_waypoint = ""
     })),
-    "Traffic, B738 climbing out of ENAT on ATKUP1A departure, passing 1800ft for FL370",
+    "B738 climbing out of ENAT on ATKUP1A departure, passing 1800ft for FL370",
     "initial climb phrase retains SID and tolerates missing next waypoint"
 )
 assert_equal(
@@ -575,7 +575,7 @@ assert_equal(
         pressure_altitude_ft = 38824,
         planned_altitude_ft = 39000
     })),
-    "Traffic, B738 level at FL390, BIRCO next",
+    "B738 level at FL390, BIRCO next",
     "cruise entry phrase uses nominal FMC cruise level"
 )
 assert_equal(
@@ -586,7 +586,7 @@ assert_equal(
         pressure_altitude_ft = 37000,
         planned_altitude_ft = 0
     })),
-    "Traffic, B738 level at FL370",
+    "B738 level at FL370",
     "cruise entry falls back to live altitude and tolerates missing next waypoint"
 )
 assert_equal(
@@ -597,7 +597,7 @@ assert_equal(
         pressure_altitude_ft = 38824,
         planned_altitude_ft = 39000
     })),
-    "Traffic, B738 passing BIRCO, maintaining FL388, SOMOR next",
+    "B738 passing BIRCO, maintaining FL388, SOMOR next",
     "recurring cruise phrase keeps live pressure altitude"
 )
 assert_equal(
