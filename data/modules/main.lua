@@ -51,12 +51,37 @@ local autoUnicomRuntime = {
     }
 }
 
-local function auto_unicom_refs_valid(refs)
+local AUTO_UNICOM_BASE_REF_KEYS = {
+    "api_version", "ready", "mode", "transport_state", "request_text",
+    "request_seq", "result_seq", "result_code", "result_detail"
+}
+local AUTO_UNICOM_V2_REF_KEYS = {
+    "request_channels", "request_voice_text", "voice_state",
+    "voice_result_seq", "voice_result_code", "voice_result_detail"
+}
+
+local function auto_unicom_ref_keys_valid(refs, keys)
     if type(refs) ~= "table" then return false end
-    for _, prop in pairs(refs) do
+    for _, key in ipairs(keys) do
+        local prop = refs[key]
         if not prop or not isProperty(prop) then return false end
     end
     return true
+end
+
+local function auto_unicom_api_version(refs)
+    if not auto_unicom_ref_keys_valid(refs, { "api_version" }) then return nil end
+    local ok, version = pcall(get, refs.api_version)
+    if not ok then return nil end
+    return tonumber(version)
+end
+
+local function auto_unicom_refs_valid(refs)
+    if not auto_unicom_ref_keys_valid(refs, AUTO_UNICOM_BASE_REF_KEYS) then return false end
+    local version = auto_unicom_api_version(refs)
+    if version == 1 then return true end
+    if version == 2 then return auto_unicom_ref_keys_valid(refs, AUTO_UNICOM_V2_REF_KEYS) end
+    return false
 end
 
 local function bind_auto_unicom_datarefs()
@@ -88,7 +113,7 @@ local function bind_auto_unicom_datarefs()
         result_code = globalProperty(base .. "result_code"),
         result_detail = globalPropertys(base .. "result_detail")
     }
-    if not auto_unicom_refs_valid(bound) then
+    if not auto_unicom_ref_keys_valid(bound, AUTO_UNICOM_BASE_REF_KEYS) then
         if not autoUnicomRuntime.unavailableLogged then
             autoUnicomRuntime.unavailableLogged = true
             helpers.logInfoTS("IVAO Auto-Unicom enabled but API DataRefs are not ready")
@@ -96,9 +121,26 @@ local function bind_auto_unicom_datarefs()
         return false
     end
 
+    local apiVersion = auto_unicom_api_version(bound)
+    if apiVersion == 2 then
+        bound.request_channels = globalProperty(base .. "request_channels")
+        bound.request_voice_text = globalPropertys(base .. "request_voice_text")
+        bound.voice_state = globalProperty(base .. "voice_state")
+        bound.voice_result_seq = globalProperty(base .. "voice_result_seq")
+        bound.voice_result_code = globalProperty(base .. "voice_result_code")
+        bound.voice_result_detail = globalPropertys(base .. "voice_result_detail")
+    end
+    if not auto_unicom_refs_valid(bound) then
+        if not autoUnicomRuntime.unavailableLogged then
+            autoUnicomRuntime.unavailableLogged = true
+            helpers.logInfoTS("IVAO Auto-Unicom enabled but API version or DataRefs are not supported")
+        end
+        return false
+    end
+
     autoUnicomRuntime.refs = bound
     autoUnicomRuntime.unavailableLogged = false
-    helpers.logInfoTS("IVAO Auto-Unicom DataRefs bound")
+    helpers.logInfoTS("IVAO Auto-Unicom DataRefs bound version=" .. tostring(apiVersion))
     return true
 end
 

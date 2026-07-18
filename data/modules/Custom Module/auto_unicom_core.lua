@@ -40,9 +40,31 @@ M.RESULT_NAMES = {
     [42] = "CANCELLED"
 }
 
+M.VOICE_RESULT_NAMES = {
+    [1] = "NOT_REQUESTED",
+    [10] = "ACCEPTED",
+    [20] = "TRANSMITTED",
+    [30] = "REJECTED_TEXT",
+    [31] = "DISABLED",
+    [32] = "REJECTED_CONTEXT",
+    [40] = "FAILED_BEFORE_PTT",
+    [41] = "UNCERTAIN_AFTER_PTT",
+    [42] = "CANCELLED"
+}
+
 local TERMINAL_RESULTS = {
     [20] = true,
     [21] = true,
+    [30] = true,
+    [31] = true,
+    [32] = true,
+    [40] = true,
+    [41] = true,
+    [42] = true
+}
+
+local TERMINAL_VOICE_RESULTS = {
+    [20] = true,
     [30] = true,
     [31] = true,
     [32] = true,
@@ -709,6 +731,7 @@ function M.newEvent(eventId, snapshot, now)
     return {
         id = eventId,
         text = text,
+        voice_text = text,
         inputs = summarize_sources(snapshot),
         created_at = now,
         expires_at = now + (M.EVENT_TTL_SEC[eventId] or 120)
@@ -904,6 +927,8 @@ function M.newMailbox(options)
     options = options or {}
     return setmetatable({
         writeText = options.writeText or function() return false end,
+        writeVoiceText = options.writeVoiceText or function() return false end,
+        writeChannels = options.writeChannels or function() return false end,
         writeSeq = options.writeSeq or function() return false end,
         log = options.log or function() end,
         queue = {},
@@ -912,7 +937,8 @@ function M.newMailbox(options)
         nextSeq = nil,
         blocked = false,
         maxQueue = tonumber(options.maxQueue) or 8,
-        timeoutSec = tonumber(options.timeoutSec) or 30
+        timeoutSec = tonumber(options.timeoutSec) or 30,
+        voiceTimeoutSec = tonumber(options.voiceTimeoutSec) or 90
     }, Mailbox)
 end
 
@@ -942,6 +968,9 @@ function Mailbox:enqueue(event)
     self.queue = kept
     if #self.queue >= self.maxQueue then return false end
     event.text = text
+    if event.voice_text ~= nil then
+        event.voice_text = normalize_text(event.voice_text)
+    end
     table.insert(self.queue, event)
     self.queuedIds[event.id] = true
     return true
@@ -1017,14 +1046,40 @@ function Mailbox:tick(api, now)
     if self.outstanding then
         local resultSeq = tonumber(api.result_seq) or 0
         local resultCode = tonumber(api.result_code) or 0
-        if resultSeq == self.outstanding.seq and TERMINAL_RESULTS[resultCode] then
-            local completed = self.outstanding
-            completed.result_code = resultCode
-            completed.result_name = M.RESULT_NAMES[resultCode] or tostring(resultCode)
-            completed.result_detail = tostring(api.result_detail or "")
+        if not self.outstanding.text_terminal
+            and resultSeq == self.outstanding.seq and TERMINAL_RESULTS[resultCode] then
+            self.outstanding.result_code = resultCode
+            self.outstanding.result_name = M.RESULT_NAMES[resultCode] or tostring(resultCode)
+            self.outstanding.result_detail = tostring(api.result_detail or "")
+            self.outstanding.text_terminal = true
+            self.outstanding.text_terminal_at = now
+            self.log("terminal", self.outstanding)
+        end
+
+        if self.outstanding.channels == 3 and not self.outstanding.voice_terminal then
+            local voiceResultSeq = tonumber(api.voice_result_seq) or 0
+            local voiceResultCode = tonumber(api.voice_result_code) or 0
+            if voiceResultSeq == self.outstanding.seq and TERMINAL_VOICE_RESULTS[voiceResultCode] then
+                self.outstanding.voice_result_code = voiceResultCode
+                self.outstanding.voice_result_name = M.VOICE_RESULT_NAMES[voiceResultCode]
+                    or tostring(voiceResultCode)
+                self.outstanding.voice_result_detail = tostring(api.voice_result_detail or "")
+                self.outstanding.voice_terminal = true
+                self.log("voice_terminal", self.outstanding)
+            end
+        end
+
+        if self.outstanding.text_terminal
+            and (self.outstanding.channels ~= 3 or self.outstanding.voice_terminal) then
             self.outstanding = nil
-            self.log("terminal", completed)
-        elseif now - self.outstanding.committed_at > self.timeoutSec then
+        else
+            local timeoutStart = self.outstanding.committed_at
+            local timeoutSec = self.timeoutSec
+            if self.outstanding.channels == 3 and self.outstanding.text_terminal then
+                timeoutStart = self.outstanding.text_terminal_at or timeoutStart
+                timeoutSec = self.voiceTimeoutSec
+            end
+            if now - timeoutStart <= timeoutSec then return end
             local timedOut = self.outstanding
             self.outstanding = nil
             self.blocked = true
@@ -1034,7 +1089,8 @@ function Mailbox:tick(api, now)
     end
 
     if self.blocked or #self.queue == 0 then return end
-    if tonumber(api.api_version) ~= 1 or tonumber(api.ready) ~= 1 then return end
+    local apiVersion = tonumber(api.api_version)
+    if (apiVersion ~= 1 and apiVersion ~= 2) or tonumber(api.ready) ~= 1 then return end
     local mode = tonumber(api.mode) or 0
     if mode ~= 2 or tonumber(api.transport_state) ~= 5 then return end
 
@@ -1050,7 +1106,15 @@ function Mailbox:tick(api, now)
     end
 
     local event = self.queue[1]
+    local channels = 1
     if not self.writeText(event.text) then return end
+    if apiVersion == 2 then
+        if event.voice_text then
+            channels = 3
+            if not self.writeVoiceText(event.voice_text) then return end
+        end
+        if not self.writeChannels(channels) then return end
+    end
     if not self.writeSeq(self.nextSeq) then
         self.blocked = true
         self.log("sequence_write_failed", event)
@@ -1060,6 +1124,8 @@ function Mailbox:tick(api, now)
     table.remove(self.queue, 1)
     self.queuedIds[event.id] = nil
     event.seq = self.nextSeq
+    event.api_version = apiVersion
+    event.channels = channels
     event.committed_at = now
     self.nextSeq = self.nextSeq + 1
     self.outstanding = event

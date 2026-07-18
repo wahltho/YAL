@@ -51,14 +51,34 @@ local function write_request_seq(seq)
     return pcall(set, prop, seq)
 end
 
+local function write_request_voice_text(text)
+    local api = refs()
+    local prop = api and api.request_voice_text or nil
+    if not prop or (isProperty and not isProperty(prop)) then return false end
+    if runtime and runtime.writeText then return runtime.writeText(prop, text) end
+    return pcall(set, prop, text)
+end
+
+local function write_request_channels(channels)
+    local api = refs()
+    local prop = api and api.request_channels or nil
+    if not prop or (isProperty and not isProperty(prop)) then return false end
+    if runtime and runtime.writeChannels then return runtime.writeChannels(prop, channels) end
+    return pcall(set, prop, channels)
+end
+
 local function mailbox_log(kind, event)
     if kind == "committed" then
         lastCommittedMessageText = event.text
-        log(string.format("IVAO Auto-Unicom: committed event=%s seq=%s text=%s",
-            tostring(event.id), tostring(event.seq), tostring(event.text)))
+        log(string.format("IVAO Auto-Unicom: committed event=%s seq=%s channels=%s text=%s",
+            tostring(event.id), tostring(event.seq), tostring(event.channels), tostring(event.text)))
     elseif kind == "terminal" then
         log(string.format("IVAO Auto-Unicom: terminal event=%s seq=%s result=%s detail=%s",
             tostring(event.id), tostring(event.seq), tostring(event.result_name), tostring(event.result_detail or "")))
+    elseif kind == "voice_terminal" then
+        log(string.format("IVAO Auto-Unicom: voice terminal event=%s seq=%s result=%s detail=%s",
+            tostring(event.id), tostring(event.seq), tostring(event.voice_result_name),
+            tostring(event.voice_result_detail or "")))
     elseif kind == "expired" then
         log("IVAO Auto-Unicom: expired queued event=" .. tostring(event.id))
     elseif kind == "superseded" then
@@ -88,10 +108,13 @@ end
 local function create_runtime_state()
     mailbox = core.newMailbox({
         writeText = write_request_text,
+        writeVoiceText = write_request_voice_text,
+        writeChannels = write_request_channels,
         writeSeq = write_request_seq,
         log = mailbox_log,
         maxQueue = 8,
-        timeoutSec = 30
+        timeoutSec = 30,
+        voiceTimeoutSec = 90
     })
 end
 
@@ -281,8 +304,9 @@ end
 local function read_mailbox_api()
     local api = refs()
     if type(api) ~= "table" then return {} end
-    return {
-        api_version = tonumber(safe_read(api.api_version)),
+    local apiVersion = tonumber(safe_read(api.api_version))
+    local state = {
+        api_version = apiVersion,
         ready = tonumber(safe_read(api.ready)),
         mode = tonumber(safe_read(api.mode)),
         transport_state = tonumber(safe_read(api.transport_state)),
@@ -291,6 +315,13 @@ local function read_mailbox_api()
         result_code = tonumber(safe_read(api.result_code)),
         result_detail = tostring(safe_read(api.result_detail) or "")
     }
+    if apiVersion == 2 then
+        state.voice_state = tonumber(safe_read(api.voice_state))
+        state.voice_result_seq = tonumber(safe_read(api.voice_result_seq))
+        state.voice_result_code = tonumber(safe_read(api.voice_result_code))
+        state.voice_result_detail = tostring(safe_read(api.voice_result_detail) or "")
+    end
+    return state
 end
 
 local function capture_baseline_repeat_candidate(snapshot)
@@ -369,7 +400,7 @@ function M.repeatLastMessage(enabled)
     end
 
     local api = read_mailbox_api()
-    if api.api_version ~= 1 or api.ready ~= 1 then
+    if (api.api_version ~= 1 and api.api_version ~= 2) or api.ready ~= 1 then
         log("IVAO Auto-Unicom: repeat last rejected reason=api_unavailable")
         return false, "api_unavailable"
     end
@@ -408,6 +439,7 @@ function M.repeatLastMessage(enabled)
     local accepted = enqueue_event({
         id = "manual.repeat_last." .. tostring(manualRepeatCount),
         text = text,
+        voice_text = text,
         inputs = "source=" .. source,
         created_at = now,
         expires_at = now + 120
@@ -454,7 +486,7 @@ function M.tick(enabled, now)
     end
 
     local api = read_mailbox_api()
-    if api.api_version == 1 and api.ready == 1 then
+    if (api.api_version == 1 or api.api_version == 2) and api.ready == 1 then
         local key = tostring(api.api_version) .. "|" .. tostring(api.mode)
         if connectionLogKey ~= key then
             connectionLogKey = key

@@ -239,6 +239,9 @@ for _, case in ipairs(phraseCases) do
     assert_true(not text:lower():find(" the ", 1, true), "phrase has no 'the' " .. case[1])
 end
 
+local voiceEvent = core.newEvent("departure.airborne", base, 0)
+assert_equal(voiceEvent.voice_text, voiceEvent.text, "generated event carries speakable v2 text")
+
 assert_equal(
     core.buildMessage("arrival.on_descent", copy(base, {
         altitude_ft = 18000,
@@ -592,7 +595,13 @@ local mailbox = core.newMailbox({
         table.insert(mailboxLogs, { kind = kind, event = event })
     end
 })
-assert_true(mailbox:enqueue({ id = "departure.airborne", text = phraseCases[1][3], created_at = 0, expires_at = 60 }), "mailbox enqueue")
+assert_true(mailbox:enqueue({
+    id = "departure.airborne",
+    text = phraseCases[1][3],
+    voice_text = phraseCases[1][3],
+    created_at = 0,
+    expires_at = 60
+}), "mailbox enqueue")
 local api = {
     api_version = 1,
     ready = 1,
@@ -614,6 +623,7 @@ assert_equal(writes[1].value, phraseCases[1][3], "mailbox exact text")
 assert_equal(writes[1].length, #phraseCases[1][3], "mailbox exact length")
 assert_equal(writes[2].kind, "seq", "mailbox seq last")
 assert_equal(writes[2].value, 8, "mailbox increasing seq")
+assert_equal(#writes, 2, "v1 ignores staged voice text and stays text-only")
 api.result_seq = 8
 api.result_code = 10
 mailbox:tick(api, 1)
@@ -622,6 +632,108 @@ api.result_code = 21
 mailbox:tick(api, 2)
 assert_true(mailbox.outstanding == nil, "submitted result completes request")
 assert_equal(mailboxLogs[#mailboxLogs].kind, "terminal", "terminal result logged")
+
+local v2Writes = {}
+local v2Logs = {}
+local v2Mailbox = core.newMailbox({
+    writeText = function(text)
+        table.insert(v2Writes, { kind = "text", value = text })
+        return true
+    end,
+    writeVoiceText = function(text)
+        table.insert(v2Writes, { kind = "voice", value = text })
+        return true
+    end,
+    writeChannels = function(channels)
+        table.insert(v2Writes, { kind = "channels", value = channels })
+        return true
+    end,
+    writeSeq = function(seq)
+        table.insert(v2Writes, { kind = "seq", value = seq })
+        return true
+    end,
+    log = function(kind, event)
+        table.insert(v2Logs, { kind = kind, event = event })
+    end
+})
+local v2Api = {
+    api_version = 2,
+    ready = 1,
+    mode = 2,
+    transport_state = 5,
+    request_seq = 20,
+    result_seq = 20,
+    result_code = 21,
+    voice_result_seq = 20,
+    voice_result_code = 20
+}
+assert_true(v2Mailbox:enqueue({
+    id = "departure.on_climb",
+    text = phraseCases[2][3],
+    voice_text = phraseCases[2][3],
+    created_at = 0,
+    expires_at = 60
+}), "v2 voice mailbox enqueue")
+v2Mailbox:tick(v2Api, 0)
+assert_equal(v2Writes[1].kind, "text", "v2 text written first")
+assert_equal(v2Writes[2].kind, "voice", "v2 voice text written after text")
+assert_equal(v2Writes[2].value, phraseCases[2][3], "v2 exact voice text")
+assert_equal(v2Writes[3].kind, "channels", "v2 channels written after voice text")
+assert_equal(v2Writes[3].value, 3, "v2 text plus voice mask")
+assert_equal(v2Writes[4].kind, "seq", "v2 sequence remains final write")
+assert_equal(v2Writes[4].value, 21, "v2 increasing sequence")
+v2Api.result_seq = 21
+v2Api.result_code = 21
+v2Mailbox:tick(v2Api, 1)
+assert_true(v2Mailbox.outstanding ~= nil, "v2 text result does not hide pending voice")
+assert_equal(v2Logs[#v2Logs].kind, "terminal", "v2 text result logged separately")
+v2Api.voice_result_seq = 21
+v2Api.voice_result_code = 10
+v2Mailbox:tick(v2Api, 32)
+assert_true(v2Mailbox.outstanding ~= nil, "v2 pending voice uses separate extended timeout")
+v2Api.voice_result_code = 20
+v2Api.voice_result_detail = "VOICE_TRANSMITTED"
+v2Mailbox:tick(v2Api, 33)
+assert_true(v2Mailbox.outstanding == nil, "v2 request completes after voice result")
+assert_equal(v2Logs[#v2Logs].kind, "voice_terminal", "v2 voice result logged separately")
+assert_equal(v2Logs[#v2Logs].event.voice_result_name, "TRANSMITTED", "v2 voice result decoded")
+
+local v2TextWrites = {}
+local v2TextMailbox = core.newMailbox({
+    writeText = function(text)
+        table.insert(v2TextWrites, { kind = "text", value = text })
+        return true
+    end,
+    writeVoiceText = function(text)
+        table.insert(v2TextWrites, { kind = "voice", value = text })
+        return true
+    end,
+    writeChannels = function(channels)
+        table.insert(v2TextWrites, { kind = "channels", value = channels })
+        return true
+    end,
+    writeSeq = function(seq)
+        table.insert(v2TextWrites, { kind = "seq", value = seq })
+        return true
+    end
+})
+assert_true(v2TextMailbox:enqueue({
+    id = "departure.airborne",
+    text = phraseCases[1][3],
+    created_at = 0,
+    expires_at = 60
+}), "v2 text-only mailbox enqueue")
+v2Api.request_seq = 30
+v2Api.result_seq = 30
+v2Api.result_code = 21
+v2Api.voice_result_seq = 30
+v2Api.voice_result_code = 20
+v2TextMailbox:tick(v2Api, 0)
+assert_equal(v2TextWrites[1].kind, "text", "v2 text-only writes text first")
+assert_equal(v2TextWrites[2].kind, "channels", "v2 text-only writes channel before sequence")
+assert_equal(v2TextWrites[2].value, 1, "v2 text-only mask")
+assert_equal(v2TextWrites[3].kind, "seq", "v2 text-only sequence last")
+assert_equal(#v2TextWrites, 3, "v2 text-only never writes voice staging")
 
 local supersessionLogs = {}
 local supersessionMailbox = core.newMailbox({
@@ -951,7 +1063,13 @@ local repeatRefs = {
     request_seq = "request_seq",
     result_seq = "result_seq",
     result_code = "result_code",
-    result_detail = "result_detail"
+    result_detail = "result_detail",
+    request_channels = "request_channels",
+    request_voice_text = "request_voice_text",
+    voice_state = "voice_state",
+    voice_result_seq = "voice_result_seq",
+    voice_result_code = "voice_result_code",
+    voice_result_detail = "voice_result_detail"
 }
 local repeatValues = {
     api_version = 1,
@@ -1159,8 +1277,13 @@ local function configure_event_adapter_test()
         },
         getRefs = function() return repeatRefs end,
         read = function(prop) return eventAdapterValues[prop] end,
-        writeText = function(_, text)
-            table.insert(eventAdapterWrites, { kind = "text", value = text })
+        writeText = function(prop, text)
+            local kind = prop == repeatRefs.request_voice_text and "voice" or "text"
+            table.insert(eventAdapterWrites, { kind = kind, value = text })
+            return true
+        end,
+        writeChannels = function(_, channels)
+            table.insert(eventAdapterWrites, { kind = "channels", value = channels })
             return true
         end,
         writeSeq = function(_, seq)
@@ -1314,5 +1437,24 @@ assert_true(autoUnicom.handleYalEvent("enroute.hold_exit", {
 assert_equal(autoUnicom.getDebugState().queue_depth, 1, "hold exit replaces queued hold entry")
 autoUnicom.tick(true, 2)
 assert_equal(eventAdapterWrites[1].value, phraseCases[17][3], "YAL hold exit text is committed")
+
+eventAdapterWrites = {}
+eventAdapterValues.api_version = 2
+eventAdapterValues.request_seq = 70
+eventAdapterValues.result_seq = 70
+eventAdapterValues.result_code = 21
+eventAdapterValues.voice_state = 1
+eventAdapterValues.voice_result_seq = 70
+eventAdapterValues.voice_result_code = 20
+eventAdapterValues.voice_result_detail = "VOICE_TRANSMITTED"
+configure_event_adapter_test()
+autoUnicom.tick(true, 0)
+assert_true(autoUnicom.handleYalEvent("departure.airborne", nil, 1), "YAL v2 event accepted")
+autoUnicom.tick(true, 1)
+assert_equal(eventAdapterWrites[1].kind, "text", "YAL v2 adapter writes text first")
+assert_equal(eventAdapterWrites[2].kind, "voice", "YAL v2 adapter writes voice text second")
+assert_equal(eventAdapterWrites[3].kind, "channels", "YAL v2 adapter writes channels third")
+assert_equal(eventAdapterWrites[3].value, 3, "YAL v2 adapter requests text plus voice")
+assert_equal(eventAdapterWrites[4].kind, "seq", "YAL v2 adapter commits sequence last")
 
 print("auto_unicom tests passed")
