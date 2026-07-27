@@ -1605,6 +1605,14 @@ local function isQrhOff()
     return normalized:find("QRH OFF", 1, true) ~= nil
 end
 
+local function isTakeoffDataComplete()
+    return (tonumber(get(P.toflaps)) or 0) > 0
+        and helpers.formatcgvalue(get(P.fmccg)) ~= nil
+        and (tonumber(get(P.v1setspeed)) or 0) > 0
+        and (tonumber(get(P.vrsetspeed)) or 0) > 0
+        and (tonumber(get(P.v2setspeed)) or 0) > 0
+end
+
 local function isFmcAutomationOn()
     return P.configvalues and (P.configvalues[def.CONFIGFMCAUTOMATION] == def.ON)
 end
@@ -3520,11 +3528,61 @@ function M.fillProcedureTable()
                             return true
                         end
                         loop.vnavAutoCycle = nil
-                        return (procData.steps and procData.steps['arm_vnav'] and procData.steps['arm_vnav'].nextStep) or 'view_throttle'
+                        return (procData.steps and procData.steps['arm_vnav'] and procData.steps['arm_vnav'].nextStep) or 'ensure_takeoff_data'
                     end,
                     advice = "Arm V NAV",
                     confirm = "V NAV checked Armed",
-                    nextStep = 'view_throttle'
+                    nextStep = 'ensure_takeoff_data'
+                },
+                ['ensure_takeoff_data'] = {
+                    check = function(loop)
+                        if loop.takeoffDataChildPending then
+                            local procId = def.SETTOFLAPSPROCEDURE
+                            local child = P.proceduretable[procId]
+                            local childLoop = child and P.loopStateTables[child.loop] or nil
+                            return child and child.set == true
+                                and childLoop and childLoop.lock == def.NOPROCEDURE
+                        end
+                        return isTakeoffDataComplete()
+                    end,
+                    branch = function(loop)
+                        local childDone = false
+                        if loop.takeoffDataChildPending then
+                            local procId = def.SETTOFLAPSPROCEDURE
+                            local child = P.proceduretable[procId]
+                            local childLoop = child and P.loopStateTables[child.loop] or nil
+                            childDone = child and child.set == true
+                                and childLoop and childLoop.lock == def.NOPROCEDURE
+                        end
+                        if childDone or isTakeoffDataComplete() then
+                            loop.takeoffDataChildPending = nil
+                            return 'view_throttle'
+                        end
+                        return false
+                    end,
+                    action = function(loop, procData)
+                        if loop.takeoffDataChildPending then
+                            return
+                        end
+
+                        local procId = def.SETTOFLAPSPROCEDURE
+                        local child = P.proceduretable[procId]
+                        local childLoop = child and P.loopStateTables[child.loop] or nil
+                        if not childLoop then
+                            return
+                        end
+                        if childLoop.lock == procId then
+                            loop.takeoffDataChildPending = true
+                            return
+                        end
+                        if childLoop.lock ~= def.NOPROCEDURE then
+                            return
+                        end
+                        if P.triggerChildProcedure((procData and procData.loop) or 1, def.BEFORETAXIPROCEDURE, procId) then
+                            loop.takeoffDataChildPending = true
+                        end
+                    end,
+                    runActionInAdviceMode = true
                 },
                 ['view_throttle'] = {
                     view = function() return P.configvalues[def.CONFIGVIEWTHROTTLE] end,
@@ -7182,7 +7240,9 @@ function M.fillProcedureTable()
                     return true
                 end
                 if P.loopStateTables and P.loopStateTables[1] then
-                    return P.loopStateTables[1].lock == def.COCKPITINITPROCEDURE
+                    local parentLock = P.loopStateTables[1].lock
+                    return parentLock == def.COCKPITINITPROCEDURE
+                        or parentLock == def.BEFORETAXIPROCEDURE
                 end
                 return false
             end,
