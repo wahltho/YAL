@@ -1,6 +1,6 @@
 # YAL Update Mechanism Target
 
-Last updated: 2026-07-16
+Last updated: 2026-07-27
 Branch context: beta
 
 This document summarizes a conservative update model for YAL. It borrows the
@@ -23,8 +23,9 @@ implementations.
 - Write the installed version marker last.
 - Preserve a clean full-install path for updates that cannot be applied at
   runtime.
-- Keep GitHub Releases useful for traceability, but keep Bunny/SkunkCrafts
-  depot publishing as a separate distribution step unless intentionally changed.
+- Use official GitHub Releases for full installs through the external X-Plane
+  737NG Maintenance Toolkit, while keeping Bunny/SkunkCrafts depot publishing
+  and the in-plugin updater as a separate distribution path.
 - Keep YAL's internal update engine reusable enough to handle both YAL runtime
   updates and manifest-driven content packages such as Zibo custom VNAV tables.
 
@@ -72,9 +73,14 @@ Runtime replacement is blocked when native SASL/plugin files change.
 
 ### GitHub release workflow
 
-`.github/workflows/github-release.yml` builds a full-install ZIP and manifest
-for GitHub Releases. This is useful for review, manual download, and release
-traceability.
+`.github/workflows/github-release.yml` builds a full-install ZIP, the existing
+text file list, and a machine-readable JSON manifest for GitHub Releases.
+Stable versions are normal Releases and beta versions are Prereleases.
+
+The official GitHub assets are the source for the optional YAL component in the
+external X-Plane 737NG Maintenance Toolkit. The Toolkit operates only while
+X-Plane is closed and owns download, staging, backup, install, update, restore,
+and installed-state verification for this path.
 
 It does not publish Bunny/SkunkCrafts depots. That is intentional unless the
 release process is explicitly extended later.
@@ -104,6 +110,14 @@ update concepts separate:
    - payload files verified by hash
    - local aircraft files patched through anchors and markers
    - package-specific install state, backup, repair and uninstall metadata
+
+4. **External Toolkit full install**
+   - official YAL GitHub Release assets only
+   - complete plugin payload including native SASL files
+   - X-Plane installation target `Resources/plugins/YAL`
+   - per-file and archive SHA-256 verification
+   - preservation of declared local user data
+   - transaction, backup, restore, and verification owned by the Toolkit
 
 The runtime updater must not pretend it can safely replace loaded native files.
 If native files differ, the update should stop and direct the user to
@@ -239,34 +253,42 @@ The runtime updater should follow these rules:
 - Runtime updater may remain backup-free for now, but it should avoid claiming
   rollback support unless a backup model is actually implemented.
 
-## Suggested Manifest Direction
+## GitHub Toolkit Manifest
 
-The current SkunkCrafts metadata can remain supported. A future YAL-owned
-manifest can be added beside it when useful.
+Every GitHub release publishes `YAL-<version>-manifest.json` beside the unchanged
+full-install ZIP and text file list. The JSON is generated from the same
+authoritative file collection used to build the ZIP. Paths under `files` are
+relative to the plugin target, not to the X-Plane root and not to the ZIP's
+top-level `YAL` directory.
 
-Suggested JSON shape:
+Schema version 1:
 
 ```json
 {
   "schemaVersion": 1,
-  "packageId": "yal-plugin",
-  "packageVersion": "4.8b2",
-  "releaseTag": "v4.8b2",
-  "releaseChannel": "beta",
+  "packageId": "wahltho.yal",
+  "packageVersion": "4.8b1",
+  "releaseTag": "v4.8b1",
+  "channel": "beta",
   "repository": "https://github.com/wahltho/YAL",
-  "depotBaseUrl": "https://wahltho.b-cdn.net/YAL%20Beta",
-  "runtimeInstallAllowed": true,
+  "installScope": "xPlaneInstallation",
+  "targetPath": "Resources/plugins/YAL",
+  "supportedProducts": ["zibo-737ng", "levelup-737ng"],
   "restartRequired": true,
+  "archive": {
+    "fileName": "YAL-4.8b1.zip",
+    "rootPath": "YAL",
+    "size": 123456,
+    "sha256": "..."
+  },
+  "protectedPaths": [
+    "data/modules/configuration/configuration.ini",
+    "data/modules/configuration/wprefs.ini",
+    "data/output/**"
+  ],
   "files": [
     {
       "path": "data/modules/Custom Module/yal.lua",
-      "size": 123456,
-      "sha256": "..."
-    }
-  ],
-  "nativeFiles": [
-    {
-      "path": "64/mac.xpl",
       "size": 123456,
       "sha256": "..."
     }
@@ -274,13 +296,27 @@ Suggested JSON shape:
 }
 ```
 
-Migration path:
+Manifest rules:
 
-- Keep reading SkunkCrafts whitelist/sizes metadata.
-- Add JSON manifest support as optional stronger metadata.
-- Prefer SHA-256 in the new manifest.
-- Keep CRC32 only for SkunkCrafts compatibility.
-- If both are present, require both checks to pass.
+- The ZIP and JSON manifest must come from the same GitHub Release in the
+  allow-listed `wahltho/YAL` repository.
+- `releaseTag`, `packageVersion`, `channel`, GitHub Prerelease state, and asset
+  names must agree.
+- Stable means a normal GitHub Release with `channel=stable`; beta means a
+  GitHub Prerelease with `channel=beta`.
+- The archive size/SHA-256, exact archive member set, and every package-file
+  size/SHA-256 must match before installation.
+- Absolute paths, backslashes, empty segments, `.` and `..` are invalid.
+- Existing protected paths are preserved, never deleted, and excluded from
+  release-hash equality when verifying an installed update.
+- Protected patterns use forward-slash paths relative to `targetPath`; `**`
+  matches every descendant below that directory.
+- On a fresh install, packaged defaults for `configuration.ini` and
+  `wprefs.ini` may be written only when the files do not already exist.
+- Protected files are still verified against their release hashes in the
+  downloaded archive and staging area.
+- The JSON manifest is not consumed by the current in-plugin updater. That
+  updater continues to use the Bunny/SkunkCrafts metadata and CRC32 flow.
 
 ## UI/UX States
 
@@ -323,7 +359,8 @@ For each beta or stable release:
    - active SkunkCrafts config for the target channel
 3. Run Lua syntax checks.
 4. Run package validation.
-5. Build full-install ZIP and manifest through GitHub Actions.
+5. Build the full-install ZIP, text file list, and Toolkit JSON manifest through
+   GitHub Actions.
 6. Create GitHub Release or Pre-release.
 7. Publish Bunny/SkunkCrafts depot separately:
    - ZIP/files
@@ -335,10 +372,11 @@ For each beta or stable release:
 9. Verify install path with the selected channel.
 10. Announce with channel-specific instructions.
 
-## Boundary With VeloPack
+## Boundary With External Tools
 
 VeloPack is useful for standalone desktop applications. It should not be forced
-inside the SASL plugin runtime.
+inside the SASL plugin runtime. The X-Plane 737NG Maintenance Toolkit is the
+approved external closed-X-Plane surface for full YAL package transactions.
 
 For the current YAL target, the update algorithm is implemented inside YAL
 itself. VeloPack is therefore out of scope for the in-plugin engine.
@@ -346,14 +384,13 @@ itself. VeloPack is therefore out of scope for the in-plugin engine.
 Use VeloPack only for:
 
 - the separate LevelUp standalone installer
-- a possible future YAL companion app, if YAL ever needs a desktop shell outside
-  X-Plane
+- the Maintenance Toolkit application lifecycle, not YAL's plugin lifecycle
 
-Even in that later companion-app case:
+For Toolkit integration:
 
-- YAL's update/package manifest remains the source of truth
+- YAL's GitHub release manifest remains the package source of truth
 - the YAL plugin package keeps its own plugin version and release channel
-- the companion app only provides a closed-X-Plane execution surface
+- the Toolkit only provides a closed-X-Plane execution surface
 - native file replacement remains blocked from the live in-plugin path
 
 ## Open Decisions
@@ -365,28 +402,27 @@ Even in that later companion-app case:
 - Should runtime install be restricted to startup/on-ground/preflight states?
 - Should YAL auto-schedule reload after runtime-safe updates, or only ask the
   user to reload/restart?
-- Should GitHub Releases remain traceability-only, or become an official manual
-  download surface?
-- Should native/SASL changes always force full ZIP/manual install, or should a
-  future YAL-owned closed-X-Plane path handle them?
+- Should the in-plugin updater ever consume the GitHub Toolkit manifest as
+  additional metadata, while retaining Bunny as its payload source?
 
 ## Current Practical Recommendation
 
 Short term:
 
 - Keep SkunkCrafts/Bunny as the runtime update source.
-- Keep GitHub Releases for full ZIP traceability.
+- Use GitHub Releases as the official full-install source for the Maintenance
+  Toolkit and manual installation.
 - Keep native file changes blocked in runtime updater.
 - Keep `version.ini` as the last file copied.
 - Add clearer install progress and failure states to the update popup.
-- Consider adding an optional JSON manifest with SHA-256 hashes, while keeping
-  SkunkCrafts metadata for compatibility.
+- Publish and verify the Toolkit JSON manifest with SHA-256 hashes while keeping
+  SkunkCrafts metadata unchanged for runtime compatibility.
 
 Medium term:
 
 - Add a stricter manifest schema.
-- Add a dry-run/install plan summary.
+- Implement the Toolkit consumer with dry-run/install plan summary, exact
+  protected-path handling, and transactional backup/restore.
 - Add optional per-file backups only if rollback behavior is implemented and
-  tested.
-- Move native-file updates to a closed-X-Plane path, either manual install or a
-  future YAL-owned companion path.
+  tested for the in-plugin runtime updater.
+- Keep native-file updates in the closed-X-Plane Toolkit or manual-install path.

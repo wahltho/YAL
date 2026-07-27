@@ -57,6 +57,7 @@ jobs:
         run: |
           find data -name '*.lua' -print0 | xargs -0 luac5.4 -p
           python3 -m py_compile .github/scripts/package_yal_release.py
+          python3 .github/scripts/test_package_yal_release.py
           python3 tools/check_sasl_limits.py
           git diff --check
 
@@ -79,6 +80,8 @@ jobs:
               printf 'This GitHub release ZIP is a full-install package and includes both SkunkCrafts helper configs:\n'
               printf '%s\n' '- skunkcrafts_updater.cfg'
               printf '%s\n\n' '- skunkcrafts_updater_beta.cfg'
+              printf '%s\n\n' \
+                'A machine-readable JSON manifest for the X-Plane 737NG Maintenance Toolkit is published beside the ZIP.'
               printf 'Bunny/SkunkCrafts depot publishing is separate and is not performed by this workflow.\n'
             } > dist/release-notes.md
           fi
@@ -106,6 +109,7 @@ jobs:
           gh release create "$tag" \
             "dist/YAL-${VERSION}.zip#YAL-${VERSION}.zip" \
             "dist/YAL-${VERSION}-manifest.txt#YAL-${VERSION}-manifest.txt" \
+            "dist/YAL-${VERSION}-manifest.json#YAL-${VERSION}-manifest.json" \
             --target "$GITHUB_SHA" \
             --title "$title" \
             --notes-file dist/release-notes.md \
@@ -120,7 +124,8 @@ jobs:
             echo "- Channel: \`$CHANNEL\`"
             echo "- Version: \`$VERSION\`"
             echo "- Package: \`dist/YAL-${VERSION}.zip\`"
-            echo "- Manifest: \`dist/YAL-${VERSION}-manifest.txt\`"
+            echo "- File-list manifest: \`dist/YAL-${VERSION}-manifest.txt\`"
+            echo "- Toolkit manifest: \`dist/YAL-${VERSION}-manifest.json\`"
             echo
             echo "This workflow does not publish Bunny/SkunkCrafts depots."
           } >> "$GITHUB_STEP_SUMMARY"
