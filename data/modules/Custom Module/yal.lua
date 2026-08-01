@@ -8473,8 +8473,7 @@ function P.updateAutoUnicomGroundEvents()
                     if now - state.backtrackSince >= 2 then
                         autoUnicomEventOnce(
                             "departure.backtrack",
-                            "departure.backtrack",
-                            { departure_intersection = taxiState.departure_intersection }
+                            "departure.backtrack"
                         )
                     end
                 else

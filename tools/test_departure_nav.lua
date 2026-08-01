@@ -167,7 +167,11 @@ yal = {
 package.loaded.proceduredata = nil
 local proceduredata = require("proceduredata")
 assert(proceduredata.fillProcedureTable())
-local ensure = yal.proceduretable[def.BEFORETAKEOFFPROCEDURE].steps.ensure_departure_nav
+local beforeTakeoff = yal.proceduretable[def.BEFORETAKEOFFPROCEDURE]
+local ensure = beforeTakeoff.steps.ensure_departure_nav
+assert(beforeTakeoff.startStep == "ensure_departure_nav", "Departure NAV must be evaluated before other Before Takeoff steps")
+assert(ensure.nextStep == "view_pedestal", "Before Takeoff must continue with its established first view step")
+assert(beforeTakeoff.steps.check_takeoff_trim.nextStep == "check_mcp_speed", "trim must no longer defer Departure NAV until takeoff roll")
 assert(ensure.skipIf() == true, "disabled setting must bypass the Before Takeoff child")
 
 yal.configvalues[def.CONFIGDEPARTURENAVSETUP] = def.ON

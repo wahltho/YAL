@@ -3640,7 +3640,7 @@ function M.fillProcedureTable()
                 { condition = function() return get(P.airgroundsensor) == def.OFF end },
                 { condition = function() return get(P.groundspeed) > 45 end } 
             },
-            startStep = 'view_pedestal',
+            startStep = 'ensure_departure_nav',
             label_to_index = {},
             get_index = function(self, label) return nil end,
             steps = {
@@ -3783,7 +3783,7 @@ function M.fillProcedureTable()
                         local trimText = helpers.format_trim_quarter(target) or tostring(target)
                         return "Trim checked " .. trimText
                     end,
-                    nextStep = 'ensure_departure_nav'
+                    nextStep = 'check_mcp_speed'
                 },
                 ['ensure_departure_nav'] = {
                     skipIf = function()
@@ -3827,7 +3827,7 @@ function M.fillProcedureTable()
                         end
                     end,
                     runActionInAdviceMode = true,
-                    nextStep = 'check_mcp_speed'
+                    nextStep = 'view_pedestal'
                 },
                 ['check_mcp_speed'] = {
                     skipIf = function() return (tonumber(get(P.v2speed)) or 0) <= 0 end,

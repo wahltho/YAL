@@ -860,7 +860,7 @@ function M.buildMessage(eventId, snapshot)
         local intersection = departure_intersection(snapshot)
         if intersection then
             return normalize_text(string.format(
-                "%s holding short runway %s at intersection %s",
+                "%s holding short runway %s at taxiway %s",
                 context.prefix,
                 context.runway,
                 intersection
@@ -874,10 +874,7 @@ function M.buildMessage(eventId, snapshot)
     end
 
     if eventId == "departure.backtrack" then
-        local text = string.format("%s backtracking runway %s", context.prefix, context.runway)
-        local intersection = departure_intersection(snapshot)
-        if intersection then text = text .. ", intersection " .. intersection end
-        return normalize_text(text)
+        return normalize_text(string.format("%s backtracking runway %s", context.prefix, context.runway))
     end
 
     if eventId == "departure.lining_up" then
@@ -891,7 +888,7 @@ function M.buildMessage(eventId, snapshot)
         local intersection = departure_intersection(snapshot)
         if not intersection then return nil, "missing_intersection_context" end
         return normalize_text(string.format(
-            "%s lining up runway %s, intersection %s",
+            "%s lining up runway %s at taxiway %s",
             context.prefix,
             context.runway,
             intersection

@@ -237,17 +237,17 @@ local phraseCases = {
     {
         "departure.hold_short",
         copy(base, { departure_intersection = "Intersection A" }),
-        "ALTA Traffic, Lufthansa 3210 holding short runway 09 at intersection A"
+        "ALTA Traffic, Lufthansa 3210 holding short runway 09 at taxiway A"
     },
     {
         "departure.backtrack",
         copy(base, { departure_intersection = "A" }),
-        "ALTA Traffic, Lufthansa 3210 backtracking runway 09, intersection A"
+        "ALTA Traffic, Lufthansa 3210 backtracking runway 09"
     },
     {
         "departure.intersection",
         copy(base, { departure_intersection = "A" }),
-        "ALTA Traffic, Lufthansa 3210 lining up runway 09, intersection A"
+        "ALTA Traffic, Lufthansa 3210 lining up runway 09 at taxiway A"
     },
     {
         "arrival.short_final",
@@ -1148,6 +1148,24 @@ assert_equal(
     ),
     "Alta Traffic, Lufthansa tree two one zero lining up runway zero niner at taxiway Alpha",
     "line-up voice speaks confirmed taxiway naturally"
+)
+assert_equal(
+    core.buildVoiceMessage(
+        "departure.hold_short",
+        copy(base, { departure_intersection = "Intersection A" }),
+        test_spell_nato
+    ),
+    "Alta Traffic, Lufthansa tree two one zero holding short runway zero niner at taxiway Alpha",
+    "hold-short voice identifies confirmed taxiway naturally"
+)
+assert_equal(
+    core.buildVoiceMessage(
+        "departure.backtrack",
+        copy(base, { departure_intersection = "A" }),
+        test_spell_nato
+    ),
+    "Alta Traffic, Lufthansa tree two one zero backtracking runway zero niner",
+    "backtrack voice omits runway-entry intersection"
 )
 
 local writes = {}
