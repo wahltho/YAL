@@ -818,15 +818,15 @@ local function queryApt(icao)
     end, "APT " .. icao)
 end
 
-local function queryNav(ident, matchIndex, silentStatus)
+local function queryNav(ident, matchIndex, silentStatus, regionFilter, airportFilter)
     ident = cleanText(ident)
     if ident == "" or #ident > 8 or ident:find("[^A-Z0-9]") then
         return nil
     end
     return runQuery("nav", function(q)
         writeString(q.ident, ident)
-        writeString(q.region_filter, "")
-        writeString(q.airport_filter, "")
+        writeString(q.region_filter, cleanText(regionFilter))
+        writeString(q.airport_filter, cleanText(airportFilter))
         writeNumber(q.match_index, tonumber(matchIndex) or 0)
     end, function(q)
         return {
@@ -1080,12 +1080,9 @@ local function queryCifpLines(icao)
     }
 end
 
-local function getApiCifpApproaches(icao)
+local function getApiCifpPayload(icao)
     icao = cleanText(icao)
     if not validIcao(icao) then
-        return nil
-    end
-    if not (S.helpers and S.helpers.parseCIFPLines) then
         return nil
     end
     if not ensureReady() or not categoryAvailable("cifp") then
@@ -1095,7 +1092,7 @@ local function getApiCifpApproaches(icao)
     S.adapterCache.cifp = S.adapterCache.cifp or {}
     if S.adapterCache.cifp[icao] ~= nil then
         local cached = S.adapterCache.cifp[icao]
-        return cached and cached.data or nil, cached and cached.payload or nil
+        return cached and cached.payload or nil
     end
 
     local payload = queryCifpLines(icao)
@@ -1104,16 +1101,24 @@ local function getApiCifpApproaches(icao)
         return nil
     end
 
-    local data = S.helpers.parseCIFPLines(icao, payload.lines, payload.source_path)
-    if not data then
-        S.adapterCache.cifp[icao] = false
-        return nil, payload
+    local data = nil
+    if S.helpers and S.helpers.parseCIFPLines then
+        data = S.helpers.parseCIFPLines(icao, payload.lines, payload.source_path)
     end
-
     S.adapterCache.cifp[icao] = {
         data = data,
         payload = payload
     }
+    return payload
+end
+
+local function getApiCifpApproaches(icao)
+    local payload = getApiCifpPayload(icao)
+    if not payload then
+        return nil
+    end
+    local cached = S.adapterCache.cifp and S.adapterCache.cifp[cleanText(icao)] or nil
+    local data = cached and cached.data or nil
     return data, payload
 end
 
@@ -1966,7 +1971,7 @@ function M.initialize(yalRef, helpersRef)
     end
 end
 
-function M.getNavByIdent(ident, latitude, longitude)
+function M.getNavByIdent(ident, latitude, longitude, regionFilter, airportFilter)
     if not S.initialized then return nil end
     ident = cleanText(ident)
     if ident == "" or #ident > 8 or ident:find("[^A-Z0-9]") then return nil end
@@ -1976,7 +1981,9 @@ function M.getNavByIdent(ident, latitude, longitude)
     longitude = tonumber(longitude)
     local hasPosition = latitude ~= nil and longitude ~= nil
         and latitude >= -90 and latitude <= 90 and longitude >= -180 and longitude <= 180
-    local cacheKey = ident
+    regionFilter = cleanText(regionFilter)
+    airportFilter = cleanText(airportFilter)
+    local cacheKey = ident .. "|" .. regionFilter .. "|" .. airportFilter
     if hasPosition then
         cacheKey = cacheKey .. string.format("|%.4f|%.4f", latitude, longitude)
     end
@@ -1984,14 +1991,14 @@ function M.getNavByIdent(ident, latitude, longitude)
     local cached = S.adapterCache.nav[cacheKey]
     if cached then return cached end
 
-    local first = queryNav(ident, 0, true)
+    local first = queryNav(ident, 0, true, regionFilter, airportFilter)
     if not first then return nil end
     local matchCount = math.max(0, math.floor(tonumber(first.match_count) or 0))
     local best = first
     local bestDistance = navDistanceNm(first, latitude, longitude)
     if hasPosition then
         for index = 1, math.min(matchCount - 1, 63) do
-            local candidate = queryNav(ident, index, true)
+            local candidate = queryNav(ident, index, true, regionFilter, airportFilter)
             local distance = navDistanceNm(candidate, latitude, longitude)
             if candidate and distance and (not bestDistance or distance < bestDistance) then
                 best = candidate
@@ -2106,6 +2113,23 @@ function M.getCIFPApproaches(icao)
     end
     local data = getApiCifpApproaches(icao)
     return data
+end
+
+function M.getCIFPLines(icao)
+    if not S.initialized then
+        return nil
+    end
+    local payload = getApiCifpPayload(icao)
+    if payload and type(payload.lines) == "table" then
+        return payload.lines, payload.source_path, "zibo_api"
+    end
+    if S.helpers and S.helpers.loadLegacyCIFPLines then
+        local lines, sourcePath = S.helpers.loadLegacyCIFPLines(icao)
+        if lines then
+            return lines, sourcePath, "legacy"
+        end
+    end
+    return nil
 end
 
 function M.compareActive(force)

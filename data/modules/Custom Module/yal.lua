@@ -8,6 +8,7 @@ local VR = require("voicereadback")
 local refdata = require("refdata")
 local autoUnicomCore = require("auto_unicom_core")
 P.pauseTodGuard = require("pause_tod_guard")
+P.departureNavResolver = require("departure_nav")
 
 local AUTO_UNICOM_CLIMB_LEVELS_FT = { 10000, 20000, 30000, 40000 }
 local AUTO_UNICOM_DESCENT_LEVELS_FT = { 40000, 30000, 20000, 10000 }
@@ -1742,6 +1743,7 @@ function P.YalinitGlobal()
 
     P.approachCourseMag = nil
     P.approachNavType = nil
+    P.departureNavCompletedSignature = nil
 
     P.xluaLoggingEnabled = nil
     P.xluaJitEnabled = nil
@@ -2997,7 +2999,9 @@ function P.initDataref()
             for idx = 1, expectedSize do migratedValues[idx] = 0 end
 
             local insertIndex = nil
-            if not (currentSize == expectedSize - 1 and expectedSize == def.SETAUTOBRAKEPROCEDURE) then
+            if not (currentSize == expectedSize - 1
+                and (expectedSize == def.SETAUTOBRAKEPROCEDURE
+                    or expectedSize == def.DEPARTURENAVPROCEDURE)) then
                 insertIndex = math.min(def.PACKSRESTOREPROCEDURE or (expectedSize - currentSize + 1), expectedSize)
             end
 
@@ -3280,6 +3284,236 @@ function P.getAirportRefdata(icao)
         end
     end
     return fallbackAirportRefdata(icao, true)
+end
+
+function P.getDepartureNavContext(includeData)
+    local context = {
+        icao = P.depicao and get(P.depicao) or "",
+        runway = P.deprwy and get(P.deprwy) or "",
+        sid = P.fmsselectedsid and get(P.fmsselectedsid) or "",
+        transition = "",
+        legs = P.fmslegs and get(P.fmslegs) or ""
+    }
+    if not includeData then
+        return context
+    end
+
+    local lines, sourcePath, sourceKind = nil, nil, nil
+    if refdata and refdata.getCIFPLines then
+        lines, sourcePath, sourceKind = refdata.getCIFPLines(context.icao)
+    elseif helpers.loadLegacyCIFPLines then
+        lines, sourcePath = helpers.loadLegacyCIFPLines(context.icao)
+        sourceKind = lines and "legacy" or nil
+    end
+    context.cifpLines = lines
+    context.cifpSourcePath = sourcePath
+    context.cifpSourceKind = sourceKind
+    context.lookupNavaid = function(ident, region)
+        return P.getDepartureNavNavaid(ident, region, context.icao)
+    end
+    return context
+end
+
+function P.getDepartureNavSignature()
+    return P.departureNavResolver.contextSignature(P.getDepartureNavContext(false))
+end
+
+function P.getDepartureNavNavaid(ident, region, departureIcao)
+    local airport = P.getAirportRefdata(departureIcao)
+    local latitude = airport and tonumber(airport.latitude) or nil
+    local longitude = airport and tonumber(airport.longitude) or nil
+    local apiReady = refdata and refdata.isCategoryAvailable
+        and refdata.isCategoryAvailable("nav") == true
+    if apiReady and refdata.getNavByIdent then
+        return refdata.getNavByIdent(ident, latitude, longitude, region, "")
+    end
+
+    if not P.ensureLegacyNavdataTable("departure-nav") then
+        return nil
+    end
+    local wantedIdent = helpers.forceCleanString(tostring(ident or "")):upper()
+    local wantedRegion = helpers.forceCleanString(tostring(region or "")):upper()
+    local best = nil
+    local bestDistance = nil
+    local selectedFrequency = nil
+    for _, entry in pairs(P.navdatatable or {}) do
+        local entryIdent = helpers.forceCleanString(tostring(entry[def.DESTNAVID] or "")):upper()
+        local entryRegion = helpers.forceCleanString(tostring(entry[def.DESTICAO] or "")):upper()
+        local frequency = tonumber(entry[def.DESTFREQ])
+        if entry[def.DESTNAVTYPE] == def.NAVTYPEVOR
+            and entryIdent == wantedIdent
+            and (wantedRegion == "" or entryRegion == wantedRegion)
+            and frequency and frequency >= 10800 and frequency <= 11795 then
+            if selectedFrequency and selectedFrequency ~= frequency then
+                return nil
+            end
+            selectedFrequency = frequency
+            local distance = nil
+            if latitude and longitude then
+                distance = helpers.getdistance(
+                    latitude,
+                    longitude,
+                    tonumber(entry[def.DESTLATPOS]) or 0,
+                    tonumber(entry[def.DESTLONPOS]) or 0
+                )
+            end
+            if not best or (distance and (not bestDistance or distance < bestDistance)) then
+                best = {
+                    ident = entryIdent,
+                    region = entryRegion,
+                    frequency = frequency,
+                    type = entry[def.DESTNAVDME] and 2 or 1,
+                    _source = "legacy"
+                }
+                bestDistance = distance
+            end
+        end
+    end
+    return best
+end
+
+function P.resolveDepartureNavPlan()
+    local context = P.getDepartureNavContext(true)
+    local plan = P.departureNavResolver.resolve(context)
+    helpers.logInfoTS(string.format(
+        "DepartureNAV: status=%s icao=%s runway=%s sid=%s source=%s",
+        tostring(plan and plan.status or "error"),
+        tostring(context.icao or ""),
+        tostring(context.runway or ""),
+        tostring(context.sid or ""),
+        tostring(context.cifpSourceKind or "none")
+    ))
+    return plan
+end
+
+function P.completeDepartureNavEvaluation(planOrSignature)
+    local signature = type(planOrSignature) == "table"
+        and planOrSignature.signature or planOrSignature
+    P.departureNavCompletedSignature = signature or P.getDepartureNavSignature()
+    local proc = P.proceduretable and P.proceduretable[def.DEPARTURENAVPROCEDURE]
+    if proc then proc.set = true end
+    if P.ProcSetStatusarraydr then
+        set(P.ProcSetStatusarraydr, 1, def.DEPARTURENAVPROCEDURE)
+    end
+end
+
+function P.setDepartureNavLoopPlan(loop, plan)
+    if not loop or not plan or not plan.captain then return false end
+    loop.departureNavSignature = plan.signature
+    loop.departureNavIdent = plan.captain.ident
+    loop.departureNavFrequency = plan.captain.frequency
+    loop.departureNavCourse = plan.captain.course
+    loop.departureNavType = plan.captain.navType
+    loop.departureNavSource = plan.captain.source
+    return true
+end
+
+function P.getDepartureNavLoopPlan(loop)
+    if not loop or not loop.departureNavIdent
+        or not loop.departureNavFrequency or loop.departureNavCourse == nil then
+        return nil
+    end
+    return {
+        signature = loop.departureNavSignature,
+        status = "actionable",
+        captain = {
+            ident = loop.departureNavIdent,
+            frequency = loop.departureNavFrequency,
+            course = loop.departureNavCourse,
+            navType = loop.departureNavType,
+            source = loop.departureNavSource
+        }
+    }
+end
+
+function P.departureNavTuneMatches(plan)
+    local target = plan and plan.captain
+    if not target then return true end
+    if get(P.mmrinstalled) == def.ON then
+        return get(P.mmrcptactmode) == def.MMRVOR
+            and get(P.mmrcptactvalue) == target.frequency
+    end
+    return get(P.nav1freq) == target.frequency
+end
+
+function P.applyDepartureNavTune(plan)
+    local target = plan and plan.captain
+    if not target then return end
+    if get(P.mmrinstalled) == def.ON then
+        helpers.mmrCopyActToStby(def.MMRCAPTAIN)
+        set(P.mmrcptactmode, def.MMRVOR)
+        set(P.mmrcptactvalue, target.frequency)
+    end
+    set(P.nav1stdbyfreq, get(P.nav1freq))
+    set(P.nav1freq, target.frequency)
+end
+
+function P.departureNavTuneText(plan, confirmation)
+    local target = plan and plan.captain
+    if not target then return false end
+    local ident = helpers.spellNato(target.ident)
+    local frequency = helpers.addspaces(helpers.formatILSFrequency(target.frequency))
+    if confirmation then
+        return "Captain V O R " .. ident .. " frequency checked and " .. frequency
+    end
+    return "Set Captain V O R " .. ident .. " frequency " .. frequency
+end
+
+function P.departureNavCourseMatches(plan)
+    local target = plan and plan.captain
+    return not target or helpers.roundnumber(get(P.mcppilotcourse)) == target.course
+end
+
+function P.applyDepartureNavCourse(plan)
+    local target = plan and plan.captain
+    if target then set(P.mcppilotcourse, target.course) end
+end
+
+function P.departureNavCourseText(plan, confirmation)
+    local target = plan and plan.captain
+    if not target then return false end
+    local course = helpers.addspaces(helpers.padNumberWithZerosStrict(target.course, 3))
+    if confirmation then
+        return "Captain Course checked and " .. course
+    end
+    return "Set Captain Course " .. course
+end
+
+function P.updateDepartureNavSetup()
+    if not P.configvalues or P.configvalues[def.CONFIGDEPARTURENAVSETUP] ~= def.ON then
+        return
+    end
+    if get(P.airgroundsensor) ~= def.ON or P.flightstate ~= def.FLIGHTSTATEPREFLIGHT then
+        return
+    end
+    if (tonumber(get(P.groundspeed)) or 0) > 2 then
+        return
+    end
+    local beforeTakeoff = P.proceduretable and P.proceduretable[def.BEFORETAKEOFFPROCEDURE]
+    local departureNavProc = P.proceduretable and P.proceduretable[def.DEPARTURENAVPROCEDURE]
+    if not (beforeTakeoff and beforeTakeoff.set and departureNavProc and departureNavProc.set) then
+        return
+    end
+    if P.procedureloop1 and P.procedureloop1.lock == def.BEFORETAKEOFFPROCEDURE then
+        return
+    end
+    if not (P.procedureloop3 and P.procedureloop3.lock == def.NOPROCEDURE) then
+        return
+    end
+    local signature = P.getDepartureNavSignature()
+    if signature == P.departureNavCompletedSignature then
+        return
+    end
+    helpers.logInfoTS("DepartureNAV: departure context changed; reevaluating")
+    local plan = P.resolveDepartureNavPlan()
+    if not plan or plan.status ~= "actionable" then
+        P.completeDepartureNavEvaluation(plan or signature)
+        return
+    end
+    if P.triggerprocedure(def.DEPARTURENAVPROCEDURE, false) then
+        P.setDepartureNavLoopPlan(P.procedureloop3, plan)
+        P.saveLoopState(P.procedureloop3, 3)
+    end
 end
 
 function P.getAirportElevationFt(icao, fallbackFt)
@@ -4802,6 +5036,9 @@ sasl.registerCommandHandler(my_command_abortprocedure, 0, P.abortprocedure_)
 function P.skipprocedure()
     local loop, loopIndex = P.findMostRecentLoop()
     if loop then
+        if loop.lock == def.DEPARTURENAVPROCEDURE then
+            P.departureNavCompletedSignature = P.getDepartureNavSignature()
+        end
         P.clearYalQueuedSpeech()
         P.stopChildProceduresForParent(loopIndex, loop.lock, true)
         P.stopParentProcedureForChild(loopIndex, loop, true)
@@ -9159,7 +9396,7 @@ function P.determineFlightStateFromProcedures()
     -- 2. Find the first procedure that is NOT set
     for _, procInfo in ipairs(orderedProcs) do
         -- Skip procedures without a defined .set flag if any exist
-        if procInfo.data and procInfo.data.set ~= nil then 
+        if procInfo.data and not procInfo.data.stateNeutral and procInfo.data.set ~= nil then
             if not procInfo.data.set then
                 firstUnsetProcKey = procInfo.key
                 firstUnsetProcName = procInfo.data.name or ("ID:"..firstUnsetProcKey)
@@ -10462,6 +10699,7 @@ function P.ongoingtasks()
     P.checkDragRequiredAdvice()
     P.checkSpeedbrakeForgotten()
     maybeRequestTrimAdvicePopupForGroundTrim()
+    P.updateDepartureNavSetup()
 
     if (P.updatemetartimer == nil) then
         P.updatemetartimer = sasl.createTimer()

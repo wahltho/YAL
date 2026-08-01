@@ -48,7 +48,7 @@ function P.mmrCopyActToStby(side)
     set(stbyModeRef, actMode)
     local digits = P.mmrBuildDigits(actValue)
     if stbyArrGeneric then set(stbyArrGeneric, digits) end
-    if actMode == def.MMRILS or actMode == def.MMRLOC then
+    if actMode == def.MMRILS then
         if stbyArrILS then set(stbyArrILS, digits) end
         if stbyArrILS2 then set(stbyArrILS2, digits) end
     elseif actMode == def.MMRGLS or actMode == def.MMRLPV then
@@ -4500,6 +4500,42 @@ local function normalizeCIFPIcao(icao)
         return nil
     end
     return string.upper(icao)
+end
+
+function P.loadLegacyCIFPLines(icao)
+    icao = normalizeCIFPIcao(icao)
+    if not icao then
+        return nil
+    end
+
+    P.cifpLegacyLinesCache = P.cifpLegacyLinesCache or {}
+    P.cifpLegacySourcePathCache = P.cifpLegacySourcePathCache or {}
+    if P.cifpLegacyLinesCache[icao] ~= nil then
+        local cached = P.cifpLegacyLinesCache[icao]
+        return cached and cached.lines or nil, cached and cached.source_path or nil
+    end
+
+    local searchPaths = {
+        string.format("Custom Data/CIFP/%s.dat", icao),
+        string.format("Resources/default data/CIFP/%s.dat", icao)
+    }
+    for _, candidate in ipairs(searchPaths) do
+        local file = io.open(candidate, "r")
+        if file then
+            local lines = {}
+            for line in file:lines() do
+                lines[#lines + 1] = line
+            end
+            file:close()
+            P.cifpLegacyLinesCache[icao] = { lines = lines, source_path = candidate }
+            P.cifpLegacySourcePathCache[icao] = candidate
+            return lines, candidate
+        end
+    end
+
+    P.cifpLegacyLinesCache[icao] = false
+    P.cifpLegacySourcePathCache[icao] = false
+    return nil
 end
 
 function P.getLegacyCIFPSourcePath(icao)

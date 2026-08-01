@@ -12,6 +12,7 @@ local english = {
     VOICEREADBACK = 'Command Voice Readback',
     AUTOFUNCTIONS = 'Automatic Functions',
     FMCAUTOMATION = 'FMC Automation',
+    DEPARTURENAVSETUP = 'Departure NAV Setup',
     HEADINGSYNCINTERVAL = 'Heading Sync Interval (sec, 0=off)',
     VOICEADVICEONLY = 'Voice Advice Only',
     VOICEADVICEREPEATSKIP = 'Voice Advice Repeat Skip (0=all)',

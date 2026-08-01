@@ -3783,6 +3783,50 @@ function M.fillProcedureTable()
                         local trimText = helpers.format_trim_quarter(target) or tostring(target)
                         return "Trim checked " .. trimText
                     end,
+                    nextStep = 'ensure_departure_nav'
+                },
+                ['ensure_departure_nav'] = {
+                    skipIf = function()
+                        return P.configvalues[def.CONFIGDEPARTURENAVSETUP] ~= def.ON
+                    end,
+                    check = function(loop)
+                        local signature = P.getDepartureNavSignature()
+                        if P.departureNavCompletedSignature == signature then
+                            loop.departureNavChildPending = nil
+                            loop.departureNavPendingPlan = nil
+                            return true
+                        end
+                        if loop.departureNavChildPending then
+                            return false
+                        end
+                        if not loop.departureNavPendingPlan
+                            or loop.departureNavPendingPlan.signature ~= signature then
+                            loop.departureNavPendingPlan = P.resolveDepartureNavPlan()
+                        end
+                        if not loop.departureNavPendingPlan
+                            or loop.departureNavPendingPlan.status ~= "actionable" then
+                            P.completeDepartureNavEvaluation(loop.departureNavPendingPlan or signature)
+                            loop.departureNavPendingPlan = nil
+                            return true
+                        end
+                        return false
+                    end,
+                    action = function(loop)
+                        local childLoop = P.loopStateTables[3]
+                        if childLoop and childLoop.lock == def.DEPARTURENAVPROCEDURE then
+                            loop.departureNavChildPending = true
+                            return
+                        end
+                        if childLoop and childLoop.lock == def.NOPROCEDURE then
+                            if P.triggerChildProcedure(1, def.BEFORETAKEOFFPROCEDURE, def.DEPARTURENAVPROCEDURE, false) then
+                                loop.departureNavChildPending = true
+                                P.setDepartureNavLoopPlan(childLoop, loop.departureNavPendingPlan)
+                                P.saveLoopState(childLoop, 3)
+                                loop.departureNavPendingPlan = nil
+                            end
+                        end
+                    end,
+                    runActionInAdviceMode = true,
                     nextStep = 'check_mcp_speed'
                 },
                 ['check_mcp_speed'] = {
@@ -7139,6 +7183,76 @@ function M.fillProcedureTable()
                         end
                         if (current < def.AUTOBRAKEMAX) then return "Auto Brake checked " .. tostring(current - 1)
                         else return "Auto Brake checked Maximum" end
+                    end,
+                    nextStep = nil
+                }
+            }
+        },
+        [def.DEPARTURENAVPROCEDURE] = {
+            number = 28,
+            name = "Departure NAV Setup",
+            cycable = false,
+            speakname = false,
+            set = false,
+            loop = 3,
+            prerequisite = function()
+                if P.configvalues[def.CONFIGDEPARTURENAVSETUP] ~= def.ON then
+                    return false
+                end
+                local parentActive = P.loopStateTables and P.loopStateTables[1]
+                    and P.loopStateTables[1].lock == def.BEFORETAKEOFFPROCEDURE
+                local parentComplete = P.proceduretable[def.BEFORETAKEOFFPROCEDURE]
+                    and P.proceduretable[def.BEFORETAKEOFFPROCEDURE].set
+                return parentActive or parentComplete
+            end,
+            allowedState = def.GROUNDONLY,
+            requiredFlightstate = def.FLIGHTSTATEPREFLIGHT,
+            skipCondition = nil,
+            repeatable = true,
+            stateNeutral = true,
+            startStep = 'view_pedestal',
+            steps = {
+                ['view_pedestal'] = {
+                    view = function() return P.configvalues[def.CONFIGVIEWPEDESTAL] end,
+                    nextStep = 'set_captain_vor'
+                },
+                ['set_captain_vor'] = {
+                    check = function(loop)
+                        return P.departureNavTuneMatches(P.getDepartureNavLoopPlan(loop))
+                    end,
+                    action = function(loop)
+                        P.applyDepartureNavTune(P.getDepartureNavLoopPlan(loop))
+                    end,
+                    advice = function(loop)
+                        return P.departureNavTuneText(P.getDepartureNavLoopPlan(loop), false)
+                    end,
+                    confirm = function(loop)
+                        return P.departureNavTuneText(P.getDepartureNavLoopPlan(loop), true)
+                    end,
+                    nextStep = 'set_captain_course'
+                },
+                ['set_captain_course'] = {
+                    check = function(loop)
+                        return P.departureNavCourseMatches(P.getDepartureNavLoopPlan(loop))
+                    end,
+                    action = function(loop)
+                        P.applyDepartureNavCourse(P.getDepartureNavLoopPlan(loop))
+                    end,
+                    advice = function(loop)
+                        return P.departureNavCourseText(P.getDepartureNavLoopPlan(loop), false)
+                    end,
+                    confirm = function(loop)
+                        return P.departureNavCourseText(P.getDepartureNavLoopPlan(loop), true)
+                    end,
+                    nextStep = 'view_main_panel'
+                },
+                ['view_main_panel'] = {
+                    view = function() return P.configvalues[def.CONFIGVIEWMAINPANEL] end,
+                    nextStep = 'record_departure_nav_completion'
+                },
+                ['record_departure_nav_completion'] = {
+                    action = function(loop)
+                        P.completeDepartureNavEvaluation(loop.departureNavSignature)
                     end,
                     nextStep = nil
                 }
