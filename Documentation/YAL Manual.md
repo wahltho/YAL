@@ -168,7 +168,6 @@ The settings window allows detailed customization of all automatic features.
 ### Customising
 - Set Speed Restriction 250: Applies the standard restriction below 10,000 ft.
 - Set Approach Flaps, Vref, Autobrake: Enables automatic landing flap/VREF/autobrake handling.
-- Custom Calculation for Flaps, Vref, Autobrake: Uses YAL's custom approach calculation logic instead of the basic preset path.
 - Lower Airspace Altitude (feet): Threshold used for above/below 10,000 procedures.
 - Maximum Bank Angle (1-4): Desired bank angle selector setting.
 - Packs Restore Altitude (ft AGL): Altitude gate for restoring packs after takeoff.

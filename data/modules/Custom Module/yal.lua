@@ -1843,10 +1843,6 @@ function P.YalinitGlobal()
     P.refdataAirportApiReady = false
     P.refdataLegacyTablesLatched = false
 
-    P.zibocalctable = {}
-
-    -------------------------------------------------------------------------------------------------------------- 
-
     P.proceduretable = {}
 
     --------------------------------------------------------------------------------------------------------------
@@ -3866,7 +3862,6 @@ function P.initializeScript()
     if P.configvalues[def.CONFIGAUTOTAXIGUIDANCE] == def.ON then
         helpers.requestGlobalAptIndex("startup")
     end
-    P.zibocalctable = helpers.loadZiboReferenceTables() or {}
     if (sasl.getLogLevel() == LOG_DEBUG) then
         if P.legacyNavdataLoaded then
             helpers.writenavdatatable(P.navdatatable)
@@ -3874,7 +3869,6 @@ function P.initializeScript()
         if P.legacyAirportdataLoaded then
             helpers.writeairportdatatable(P.airportdatatable)
         end
-        helpers.writeZiboCalcTable(P.zibocalctable)
         helpers.writetaxidatatable()
     end
 
@@ -3934,7 +3928,6 @@ function P.yalresetForNewFlight()
     P.baselineAutoUnicomRuntimeEvents()
 
     P.prepareRefdataLegacyTables("new-flight-reset")
-    P.zibocalctable = helpers.loadZiboReferenceTables() or {}
     if (sasl.getLogLevel() == LOG_DEBUG) then
         if P.legacyNavdataLoaded then
             helpers.writenavdatatable(P.navdatatable)
@@ -3942,7 +3935,6 @@ function P.yalresetForNewFlight()
         if P.legacyAirportdataLoaded then
             helpers.writeairportdatatable(P.airportdatatable)
         end
-        helpers.writeZiboCalcTable(P.zibocalctable)
     end
 
     P.commandtableentry(def.TEXT, "Reset for a new flight done.")
@@ -4065,7 +4057,6 @@ function P.yalreset()
 
     -- Rest (Refdata/Legacy fallback vorbereiten etc.)
     P.prepareRefdataLegacyTables("yal-reset")
-    P.zibocalctable = helpers.loadZiboReferenceTables() or {}
     if (sasl.getLogLevel() == LOG_DEBUG) then
         if P.legacyNavdataLoaded then
             helpers.writenavdatatable(P.navdatatable)

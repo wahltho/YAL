@@ -186,13 +186,6 @@ local function getRunwayTrueFromEndpoints()
     return nil
 end
 
-local function getDepartureRunwayLengthM()
-    if P.getDepartureRunwayLengthM then
-        return P.getDepartureRunwayLengthM()
-    end
-    return get(P.deprwylen)
-end
-
 local function getDepartureRunwayHeadingMag()
     if P.getDepartureRunwayHeadingMag then
         return P.getDepartureRunwayHeadingMag()
@@ -200,25 +193,11 @@ local function getDepartureRunwayHeadingMag()
     return get(P.deprwyheading)
 end
 
-local function getDestinationRunwayLengthM()
-    if P.getDestinationRunwayLengthM then
-        return P.getDestinationRunwayLengthM()
-    end
-    return get(P.desrwylen)
-end
-
 local function getDestinationRunwayHeadingMag()
     if P.getDestinationRunwayHeadingMag then
         return P.getDestinationRunwayHeadingMag(false)
     end
     return get(P.desrwyheading)
-end
-
-local function getDepartureAirportElevationM()
-    if P.getDepartureAirportElevationM then
-        return P.getDepartureAirportElevationM()
-    end
-    return get(P.elevation)
 end
 
 local function getDepartureAirportElevationFt()
@@ -1580,32 +1559,6 @@ local function getMissedApproachAlt(loop)
         end
     end
     return alt
-end
-
-local function getTakeoffFlapsTarget(autoMode)
-    local target = get(P.toflaps)
-    if target and target > 0 then
-        return target
-    end
-    if not autoMode then
-        return nil
-    end
-    local computed = helpers.determineTakeoffFlapsSetting(
-        get(P.totalweightkgs),
-        getDepartureRunwayLengthM(),
-        getDepartureRunwayHeadingMag(),
-        getDepartureAirportElevationM(),
-        P.depmetar,
-        get(P.toflapsset) or target
-    )
-    local candidate = computed
-    if not candidate or candidate <= 0 then
-        candidate = get(P.toflapsset)
-    end
-    if not candidate or candidate <= 0 then
-        candidate = 5
-    end
-    return candidate
 end
 
 local function isQrhOff()
@@ -3599,8 +3552,7 @@ function M.fillProcedureTable()
                 },
                 ['set_flaps_takeoff'] = {
                     check = function()
-                        local autoMode = P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON
-                        local target = getTakeoffFlapsTarget(autoMode)
+                        local target = get(P.toflaps)
                         local current = helpers.convflaplevertoflappos(get(P.flapleverpos))
                         if target and target > 0 then
                             return current == target
@@ -3609,9 +3561,7 @@ function M.fillProcedureTable()
                         end
                     end,
                     action = function()
-                        local autoMode = P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON
-                        if not autoMode then return end
-                        local target = getTakeoffFlapsTarget(true)
+                        local target = get(P.toflaps)
                         if target and target > 0 then
                             helpers.command_once("laminar/B738/push_button/flaps_" .. target)
                         end
@@ -3625,8 +3575,7 @@ function M.fillProcedureTable()
                         end
                     end,
                     confirm = function()
-                        local autoMode = P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON
-                        local target = getTakeoffFlapsTarget(autoMode)
+                        local target = get(P.toflaps)
                         local current = helpers.convflaplevertoflappos(get(P.flapleverpos))
                         if target and target > 0 then
                             if current == target then
@@ -4724,8 +4673,7 @@ function M.fillProcedureTable()
                 ['check_mcp_speed_vapp'] = {
                     check = function(loop)
                         local vref = loop and loop.appvrefcalc or get(P.vref) or 0
-                        local customCalcOn = P.configvalues[def.CONFIGCUSTOMAPPROACHCALC] == def.ON
-                        local windcorr = customCalcOn and 0 or ((loop and loop.appwindcorr) or get(P.vrefapproachwindcorr) or 0)
+                        local windcorr = (loop and loop.appwindcorr) or get(P.vrefapproachwindcorr) or 0
                         local target = tonumber(vref) or 0
                         target = target + (tonumber(windcorr) or 0)
                         if target <= 0 then return true end -- nichts bekannt, weiter
@@ -4747,8 +4695,7 @@ function M.fillProcedureTable()
                     end,
                     advice = function(loop)
                         local vref = loop and loop.appvrefcalc or get(P.vref) or 0
-                        local customCalcOn = P.configvalues[def.CONFIGCUSTOMAPPROACHCALC] == def.ON
-                        local windcorr = customCalcOn and 0 or ((loop and loop.appwindcorr) or get(P.vrefapproachwindcorr) or 0)
+                        local windcorr = (loop and loop.appwindcorr) or get(P.vrefapproachwindcorr) or 0
                         local target = tonumber(vref) or 0
                         target = target + (tonumber(windcorr) or 0)
                         if target <= 0 then return "Check M C P Speed" end
@@ -4756,8 +4703,7 @@ function M.fillProcedureTable()
                     end,
                     confirm = function(loop)
                         local vref = loop and loop.appvrefcalc or get(P.vref) or 0
-                        local customCalcOn = P.configvalues[def.CONFIGCUSTOMAPPROACHCALC] == def.ON
-                        local windcorr = customCalcOn and 0 or ((loop and loop.appwindcorr) or get(P.vrefapproachwindcorr) or 0)
+                        local windcorr = (loop and loop.appwindcorr) or get(P.vrefapproachwindcorr) or 0
                         local target = tonumber(vref) or 0
                         target = target + (tonumber(windcorr) or 0)
                         if target <= 0 then return "M C P Speed check skipped" end
@@ -6791,58 +6737,18 @@ function M.fillProcedureTable()
                 },
                 ['calculate_vref'] = {
                     action = function(loop, procData)
-                        local customCalcOn = (P.configvalues[def.CONFIGCUSTOMAPPROACHCALC] == def.ON)
-                        if customCalcOn then
-                            local baseFlaps = get(P.appflaps)
-                            if not baseFlaps or baseFlaps <= 0 then baseFlaps = 30 end
-                            local baseVref = get(P.vref)
-                            local ziboVref = nil
-                            local variant = get(P.b737variant)
-                            local landingGwFmc = get(P.fmclandinggw)
-                            local landingGwKg = get(P.totalweightkgs)
-                            local fmcUnits = get(P.fuelunit) or 0
-                            if landingGwFmc and landingGwFmc > 0 then
-                                if fmcUnits == def.LBS or fmcUnits == 0 then
-                                    landingGwKg = landingGwFmc * 1000 * def.LBSTOKG
-                                else
-                                    landingGwKg = landingGwFmc * 1000
-                                end
-                            end
-                            if P.zibocalctable then
-                                ziboVref = helpers.getZiboVref(
-                                    P.zibocalctable,
-                                    variant,
-                                    baseFlaps,
-                                    landingGwKg
-                                )
-                            end
-                            local vrefInput = ziboVref or baseVref
-                            local appflapscalc, appvrefcalc = helpers.calcappflapsvref(
-                                get(P.totalweightkgs),
-                                getDestinationRunwayLengthM(),
-                                getDestinationRunwayHeadingMag(),
-                                vrefInput,
-                                P.desmetar,
-                                baseFlaps
-                            )
-                            loop.appflapscalc = appflapscalc
-                            loop.appvrefcalc = appvrefcalc
-                            loop.appflapscalcstring = tostring(appflapscalc)
-                            loop.appvrefcalcstring = tostring(appvrefcalc)
-                        else
-                            local fallbackFlaps = get(P.appflaps)
-                            if not fallbackFlaps or fallbackFlaps <= 0 then
-                                fallbackFlaps = 30
-                            end
-                            local fallbackVref = get(P.vref)
-                            if not fallbackVref or fallbackVref <= 0 then
-                                fallbackVref = get(P.vref30)
-                            end
-                            loop.appflapscalc = fallbackFlaps
-                            loop.appvrefcalc = fallbackVref
-                            loop.appflapscalcstring = helpers.padNumberWithZerosStrict(math.floor(fallbackFlaps + 0.5), 2)
-                            loop.appvrefcalcstring = tostring(math.floor(fallbackVref + 0.5))
+                        local fallbackFlaps = get(P.appflaps)
+                        if not fallbackFlaps or fallbackFlaps <= 0 then
+                            fallbackFlaps = 30
                         end
+                        local fallbackVref = get(P.vref)
+                        if not fallbackVref or fallbackVref <= 0 then
+                            fallbackVref = get(P.vref30)
+                        end
+                        loop.appflapscalc = fallbackFlaps
+                        loop.appvrefcalc = fallbackVref
+                        loop.appflapscalcstring = helpers.padNumberWithZerosStrict(math.floor(fallbackFlaps + 0.5), 2)
+                        loop.appvrefcalcstring = tostring(math.floor(fallbackVref + 0.5))
                     end,
                     runActionInAdviceMode = true, 
                     nextStep = 'branch_fmc_vref'
@@ -7011,22 +6917,19 @@ function M.fillProcedureTable()
                 },
                 ['calculate_windcorr'] = {
                     action = function(loop, procData)
-                        local customCalcOn = (P.configvalues[def.CONFIGCUSTOMAPPROACHCALC] == def.ON)
                         loop.appwindcorr = nil
                         loop.appwindcorrstring = nil
-                        if not customCalcOn then
-                            local windcorr = helpers.calculateApproachWindCorrection(getDestinationRunwayHeadingMag(), P.desmetar)
-                            if windcorr ~= nil then
-                                if windcorr <= 0 then
-                                    loop.appwindcorr = nil
-                                    loop.appwindcorrstring = nil
-                                else
-                                    if windcorr < 5 then
-                                        windcorr = 5
-                                    end
-                                    loop.appwindcorr = windcorr
-                                    loop.appwindcorrstring = helpers.padNumberWithZerosStrict(math.floor(windcorr + 0.5), 2)
+                        local windcorr = helpers.calculateApproachWindCorrection(getDestinationRunwayHeadingMag(), P.desmetar)
+                        if windcorr ~= nil then
+                            if windcorr <= 0 then
+                                loop.appwindcorr = nil
+                                loop.appwindcorrstring = nil
+                            else
+                                if windcorr < 5 then
+                                    windcorr = 5
                                 end
+                                loop.appwindcorr = windcorr
+                                loop.appwindcorrstring = helpers.padNumberWithZerosStrict(math.floor(windcorr + 0.5), 2)
                             end
                         end
                     end,
@@ -7220,29 +7123,14 @@ function M.fillProcedureTable()
                 ['set_autobrake'] = {
                     check = function()
                         local current = get(P.autobrakepos)
-                        if P.configvalues[def.CONFIGCUSTOMAPPROACHCALC] ~= def.ON then
-                            return current > def.AUTOBRAKEOFF
-                        end
-                        if current > def.AUTOBRAKEOFF then return true end
-                        local autobrake = helpers.calcautobrake(get(P.vref), get(P.totalweightkgs), getDestinationRunwayLengthM(), P.desmetar, true)
-                        return current == autobrake
+                        return current > def.AUTOBRAKEOFF
                     end,
                     advice = function()
                         if get(P.autobrakepos) > def.AUTOBRAKEOFF then return false end
-                        if P.configvalues[def.CONFIGCUSTOMAPPROACHCALC] ~= def.ON then
-                            return "Set Auto Brake"
-                        end
-                        local autobrake = helpers.calcautobrake(get(P.vref), get(P.totalweightkgs), getDestinationRunwayLengthM(), P.desmetar, true)
-                        if (autobrake < def.AUTOBRAKEMAX) then return "Set Auto Brake " .. tostring(autobrake - 1)
-                        else return "Set Auto Brake Maximum" end
+                        return "Set Auto Brake"
                     end,
                     action = function()
-                        if get(P.autobrakepos) > def.AUTOBRAKEOFF then return end
-                        if P.configvalues[def.CONFIGCUSTOMAPPROACHCALC] ~= def.ON then
-                            return
-                        end
-                        local autobrake = helpers.calcautobrake(get(P.vref), get(P.totalweightkgs), getDestinationRunwayLengthM(), P.desmetar, true)
-                        P.setautobrake(autobrake)
+                        return
                     end,
                     confirm = function()
                         local current = get(P.autobrakepos)
@@ -7287,38 +7175,13 @@ function M.fillProcedureTable()
                 },
                 ['calculate_flaps'] = {
                     action = function(loop, procData)
-                        local useCustomCalc = (P.configvalues[def.CONFIGCUSTOMAPPROACHCALC] == def.ON)
-                        local computedFlaps = nil
-                        if useCustomCalc then
-                            computedFlaps = helpers.determineTakeoffFlapsSetting(
-                                get(P.totalweightkgs),
-                                getDepartureRunwayLengthM(),
-                                getDepartureRunwayHeadingMag(),
-                                getDepartureAirportElevationM(),
-                                P.depmetar,
-                                get(P.toflaps) or get(P.toflapsset)
-                            )
-                        end
                         local existingFlaps = get(P.toflaps)
                         if existingFlaps and existingFlaps > 0 then
-                            if useCustomCalc and computedFlaps then
-                                loop.toflapscalc = computedFlaps
-                                loop.flapsPreSet = false
-                            else
-                                loop.toflapscalc = existingFlaps
-                                loop.flapsPreSet = true
-                            end
+                            loop.toflapscalc = existingFlaps
                         else
-                            local candidate = computedFlaps
-                            if not candidate or candidate <= 0 then
-                                candidate = get(P.toflapsset)
-                            end
-                            if not candidate or candidate <= 0 then
-                                candidate = 5
-                            end
-                            loop.toflapscalc = candidate
-                            loop.flapsPreSet = not useCustomCalc
+                            loop.toflapscalc = 5
                         end
+                        loop.flapsPreSet = true
                         loop.toflapscalcstring = tostring(loop.toflapscalc)
 
                         local tabletCg = helpers.formatcgvalue(get(P.tabcg))

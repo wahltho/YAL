@@ -18,7 +18,6 @@ local settingsDefinition = {
     [def.CONFIGTRIMADVICEPOPUP] = { dvalue = 0 , type = "number", min = 0, max = 1 },
     [def.CONFIGAUTOFUELING] = { dvalue = 0 , type = "number", min = 0, max = 1 },
     [def.CONFIGHOPPIEID] = { dvalue = "" , type = "string", minLen = 0, maxLen = 16 },
-    [def.CONFIGCUSTOMAPPROACHCALC] = { dvalue = 0 , type = "number", min = 0, max = 1 },
     [def.CONFIGBPBINTEGRATION] = { dvalue = 0 , type = "number", min = 0, max = 1 },
     [def.CONFIGYANSHINTEGRATION] = { dvalue = 0 , type = "number", min = 0, max = 1 },
 
@@ -186,6 +185,11 @@ local function checkSettings(tableTocheck)
         return defaultSettings, true
     end
     local result = false
+    -- Remove the retired custom performance-calculation option from existing preferences.
+    if tableTocheck.CUSTOMAPPROACHCALC ~= nil then
+        tableTocheck.CUSTOMAPPROACHCALC = nil
+        result = true
+    end
     for k, v in pairs(settingsDefinition) do
         local defn = settingsDefinition[k]
         if k == def.CONFIGSAVENUMBER then

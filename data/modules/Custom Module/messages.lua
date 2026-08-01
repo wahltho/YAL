@@ -46,7 +46,6 @@ local english = {
     CUSTOMIZE = 'Customising',
     SPEEDRESTR250 = 'Set Speed Restriction 250',
     VREF30 = 'Set Approach Flaps, Vref, Autobrake',
-    CUSTOMAPPROACHCALC = 'Custom Calculation for Flaps, Vref, Autobrake',
     LOWERAIRSPACEALT = 'Lower Airspace Altitude (feet)',
     BANKANGLEMAX = 'Maximum Bank Angle (1-4)',
     PACKSRESTOREALT = 'Packs Restore Altitude (ft AGL)',
