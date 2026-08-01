@@ -92,4 +92,25 @@ id = U.find_holdshort_node_near(
 )
 assert_equal(id, nil, "shared departure threshold radius remains smaller")
 
+assert_equal(
+    U.is_meaningful_departure_intersection(profile, { east = 100, north = 0 }, 20, 90),
+    false,
+    "near-threshold runway entry is not reported as intersection"
+)
+assert_equal(
+    U.is_meaningful_departure_intersection(profile, { east = 170, north = 0 }, 20, 90),
+    true,
+    "meaningful runway reduction with nearby labeled entry is reported"
+)
+assert_equal(
+    U.is_meaningful_departure_intersection(profile, { east = 1500, north = 0 }, 100, 90),
+    false,
+    "runway position without nearby labeled entry is not reported"
+)
+assert_equal(
+    U.is_meaningful_departure_intersection(profile, { east = 1500, north = 100 }, 20, 90),
+    false,
+    "off-runway position is not reported as intersection"
+)
+
 print("taxi hold-short geometry tests passed")

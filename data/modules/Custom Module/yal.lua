@@ -6,6 +6,7 @@ require("settings")
 local PD = require("proceduredata")
 local VR = require("voicereadback")
 local refdata = require("refdata")
+local autoUnicomCore = require("auto_unicom_core")
 P.pauseTodGuard = require("pause_tod_guard")
 
 local AUTO_UNICOM_CLIMB_LEVELS_FT = { 10000, 20000, 30000, 40000 }
@@ -228,8 +229,8 @@ function P.updateAutoUnicomDepartureLineup(taxiState)
 
     if not linedUp then return end
     local payload = nil
-    if taxiState and taxiState.departure_intersection then
-        payload = { departure_intersection = taxiState.departure_intersection }
+    if taxiState and taxiState.lineup_intersection then
+        payload = { departure_intersection = taxiState.lineup_intersection }
     end
     autoUnicomEventOnce("departure.lining_up", "departure.lining_up", payload)
 end
@@ -398,6 +399,7 @@ function P.clearPauseTodGuardState()
     P.pauseTodGuardMcpAlt = nil
     P.pauseTodGuardPausedAt = nil
     P.pauseTodGuardConfirmUntil = nil
+    P.pauseTodGuardReleasePendingUntil = nil
     P.pauseTodGuardRepauseRequested = false
     P.pauseTodGuardRepauseCount = 0
     P.pauseTodQuitDeadline = nil
@@ -914,6 +916,7 @@ function P.armPauseTodRuntime(now, todDistance, mcpAltitude, fmsPhase)
     P.pauseTodGuardMcpAlt = mcpAltitude
     P.pauseTodGuardPausedAt = now
     P.pauseTodGuardConfirmUntil = nil
+    P.pauseTodGuardReleasePendingUntil = nil
     P.pauseTodGuardRepauseRequested = false
     P.pauseTodGuardRepauseCount = 0
     P.pauseTodQuitDeadline = timeout ~= 9999 and (now + math.max(0, timeout)) or nil
@@ -930,6 +933,38 @@ function P.armPauseTodRuntime(now, todDistance, mcpAltitude, fmsPhase)
     ))
 end
 
+function P.setPauseTodAutoDisabled(active)
+    P.pauseTodAutoDisabled = active == true
+    if P.pauseTodAutoDisabledDr then
+        set(P.pauseTodAutoDisabledDr, P.pauseTodAutoDisabled and 1 or 0)
+    end
+end
+
+function P.updatePauseTodAutoDisableOwnership(fmsPhase, airborne)
+    local action = P.pauseTodGuard.autoDisableOwnershipAction({
+        owned = P.pauseTodAutoDisabled == true,
+        pause_setting_on = get(P.pausetod) == def.ON,
+        airborne = airborne,
+        flightstate = P.flightstate,
+        cruise_flightstate = def.FLIGHTSTATECRUISE,
+        fms_phase = fmsPhase,
+        cruise_fms_phase = def.FMSFLIGHTPHASE_CRUISE
+    })
+
+    if action == "restore" then
+        set(P.pausetod, def.ON)
+        P.setPauseTodAutoDisabled(false)
+        helpers.logInfoTS(string.format(
+            "PauseTODMonitor: restored pause_td after leaving cruise flightstate=%s fmsPhase=%s",
+            tostring(P.flightstate),
+            tostring(fmsPhase)
+        ))
+    elseif action == "clear" then
+        P.setPauseTodAutoDisabled(false)
+        helpers.logInfoTS("PauseTODMonitor: cleared temporary ownership; pause_td already restored")
+    end
+end
+
 function P.updatePauseTodRuntime()
     if not P.simpaused or not P.pausetod or not P.vnavtoddist
         or not P.airgroundsensor or not P.fmsflightphase then
@@ -943,9 +978,12 @@ function P.updatePauseTodRuntime()
     local releaseEdge = (not currentPaused) and previousPaused == true
     local todDistance = tonumber(get(P.vnavtoddist))
     local mcpAltitude = P.mcpaltitude and tonumber(get(P.mcpaltitude)) or nil
+    local fmcCruiseAltitude = P.fmccruisealt and tonumber(get(P.fmccruisealt)) or nil
     local fmsPhase = tonumber(get(P.fmsflightphase)) or 0
     local airborne = (get(P.airgroundsensor) == def.OFF)
     local inCruise = fmsPhase == def.FMSFLIGHTPHASE_CRUISE
+
+    P.updatePauseTodAutoDisableOwnership(fmsPhase, airborne)
 
     if pauseEdge then
         if P.pauseTodGuardProtected and P.pauseTodGuardRepauseRequested then
@@ -956,6 +994,10 @@ function P.updatePauseTodRuntime()
                 mcpAltitude or -1,
                 tonumber(P.pauseTodGuardConfirmUntil) or 0
             ))
+        elseif P.pauseTodGuardProtected and P.pauseTodGuardReleasePendingUntil then
+            P.pauseTodGuardReleasePendingUntil = nil
+            P.pauseTodGuardPausedAt = now
+            helpers.logInfoTS("PauseTODGuard: release grace cancelled by pause")
         elseif not P.pauseTodGuardProtected and not P.pauseTodGuardCycleComplete then
             local eligible = P.pauseTodGuard.isArmEligible({
                 pause_setting_on = get(P.pausetod) == def.ON,
@@ -967,35 +1009,56 @@ function P.updatePauseTodRuntime()
                 P.armPauseTodRuntime(now, todDistance, mcpAltitude, fmsPhase)
             end
         end
-    elseif releaseEdge and P.pauseTodGuardProtected then
+    elseif (not currentPaused) and P.pauseTodGuardProtected
+        and (releaseEdge or P.pauseTodGuardReleasePendingUntil) then
         local action = "accept"
         local reason = "guard-disabled"
         if P.pauseTodGuardEnabled() then
-            action, reason = P.pauseTodGuard.evaluateRelease({
+            action, reason = P.pauseTodGuard.evaluateReleaseWithGrace({
                 now = now,
                 confirm_until = P.pauseTodGuardConfirmUntil,
+                grace_until = P.pauseTodGuardReleasePendingUntil,
                 pause_setting_on = get(P.pausetod) == def.ON,
                 airborne = airborne,
                 in_cruise = inCruise,
                 tod_distance_nm = todDistance,
                 baseline_mcp_ft = P.pauseTodGuardMcpAlt,
                 current_mcp_ft = mcpAltitude,
+                cruise_altitude_ft = fmcCruiseAltitude,
                 vertical_speed_fpm = P.verticalspeed and tonumber(get(P.verticalspeed)) or nil
             })
         end
         local pauseDuration = math.max(0, now - (tonumber(P.pauseTodGuardPausedAt) or now))
 
-        if action == "repause" then
+        if action == "grace" then
+            if not P.pauseTodGuardReleasePendingUntil then
+                P.pauseTodGuardReleasePendingUntil = now + P.pauseTodGuard.RELEASE_GRACE_SEC
+                helpers.logInfoTS(string.format(
+                    "PauseTODGuard: ambiguous release; grace active reason=%s duration=%ds tod=%.2f mcp=%.0f baseline=%.0f cruise=%.0f vs=%.0f fmsPhase=%d graceUntil=%d",
+                    tostring(reason),
+                    pauseDuration,
+                    todDistance or -1,
+                    mcpAltitude or -1,
+                    tonumber(P.pauseTodGuardMcpAlt) or -1,
+                    fmcCruiseAltitude or -1,
+                    P.verticalspeed and tonumber(get(P.verticalspeed)) or 0,
+                    fmsPhase,
+                    P.pauseTodGuardReleasePendingUntil
+                ))
+            end
+        elseif action == "repause" then
+            P.pauseTodGuardReleasePendingUntil = nil
             P.pauseTodGuardRepauseCount = (tonumber(P.pauseTodGuardRepauseCount) or 0) + 1
             P.pauseTodGuardConfirmUntil = now + P.pauseTodGuard.CONFIRM_WINDOW_SEC
             P.pauseTodGuardRepauseRequested = true
             helpers.logInfoTS(string.format(
-                "PauseTODGuard: ambiguous release; re-pausing reason=%s duration=%ds tod=%.2f mcp=%.0f baseline=%.0f vs=%.0f fmsPhase=%d attempt=%d",
+                "PauseTODGuard: ambiguous release; re-pausing reason=%s duration=%ds tod=%.2f mcp=%.0f baseline=%.0f cruise=%.0f vs=%.0f fmsPhase=%d attempt=%d",
                 tostring(reason),
                 pauseDuration,
                 todDistance or -1,
                 mcpAltitude or -1,
                 tonumber(P.pauseTodGuardMcpAlt) or -1,
+                fmcCruiseAltitude or -1,
                 P.verticalspeed and tonumber(get(P.verticalspeed)) or 0,
                 fmsPhase,
                 P.pauseTodGuardRepauseCount
@@ -1008,13 +1071,15 @@ function P.updatePauseTodRuntime()
                 2
             )
         else
+            P.pauseTodGuardReleasePendingUntil = nil
             helpers.logInfoTS(string.format(
-                "PauseTODRuntime: release accepted reason=%s duration=%ds tod=%.2f mcp=%.0f baseline=%.0f vs=%.0f fmsPhase=%d",
+                "PauseTODRuntime: release accepted reason=%s duration=%ds tod=%.2f mcp=%.0f baseline=%.0f cruise=%.0f vs=%.0f fmsPhase=%d",
                 tostring(reason),
                 pauseDuration,
                 todDistance or -1,
                 mcpAltitude or -1,
                 tonumber(P.pauseTodGuardMcpAlt) or -1,
+                fmcCruiseAltitude or -1,
                 P.verticalspeed and tonumber(get(P.verticalspeed)) or 0,
                 fmsPhase
             ))
@@ -1652,6 +1717,7 @@ function P.YalinitGlobal()
     P.dragRequiredAdviceLastWarnAt = nil
     P.dragRequiredWasActive = false
     P.dragRequiredAssistSuppressed = false
+    P.speedbrakeForgottenAssistSuppressed = false
     P.gearProtectionWasAirborne = false
     P.gearProtectionArmedUntil = nil
     P.gearProtectionActiveUntil = nil
@@ -1716,6 +1782,7 @@ function P.YalinitGlobal()
         holdPayload = nil,
         holdExitSent = false,
         holdEstablishedSent = false,
+        holdEstablishedSince = nil,
         holdDescentSent = false,
         holdApproachReleasedKey = nil,
         holdApproachBlocked = false,
@@ -2027,22 +2094,39 @@ function P.bindExternalDatarefs(silentMissing)
         if probe_external_dataref("laminar/B738/refdata/api_version") then
             P.refdata.api_version = GP("laminar/B738/refdata/api_version")
         end
+        local refdataApiVersion = read_optional_number_dataref(P.refdata.api_version) or 0
         local navAvailable = GP("laminar/B738/refdata/nav/available")
+        P.refdata.nav = bindRefdataCategory(
+            "laminar/B738/refdata/nav/",
+            { "source_path" },
+            { "available", "row_count" },
+            { "ident", "region_filter", "airport_filter", "region", "airport", "name" },
+            {
+                "match_index", "request_seq", "result_seq", "status", "match_count",
+                "type", "lat", "lon", "frequency", "mag_var"
+            }
+        )
         P.refdata.nav.available = navAvailable
         if not (navAvailable and isProperty(navAvailable)) then
             return
         end
 
+        local aptQueryStrings = { "icao" }
+        local aptQueryNumbers = {
+            "request_seq", "result_seq", "status",
+            "lat", "lon", "transition_altitude_ft", "transition_level_ft",
+            "longest_runway_m", "elevation_ft", "airport_type", "has_ils", "max_rwy_ft"
+        }
+        if refdataApiVersion >= 4 then
+            aptQueryStrings[#aptQueryStrings + 1] = "station_name"
+            aptQueryNumbers[#aptQueryNumbers + 1] = "station_name_valid"
+        end
         P.refdata.apt = bindRefdataCategory(
             "laminar/B738/refdata/apt/",
             { "source_path" },
             { "available", "row_count" },
-            { "icao" },
-            {
-                "request_seq", "result_seq", "status",
-                "lat", "lon", "transition_altitude_ft", "transition_level_ft",
-                "longest_runway_m", "elevation_ft", "airport_type", "has_ils", "max_rwy_ft"
-            }
+            aptQueryStrings,
+            aptQueryNumbers
         )
         P.refdata.rnw = bindRefdataCategory(
             "laminar/B738/refdata/rnw/",
@@ -2149,6 +2233,30 @@ function P.bindExternalDatarefs(silentMissing)
         P.fmsfplnnavid = GPS("laminar/B738/fms/fpln_nav_id")
         P.fmsholdphase = GP("laminar/B738/fms/hold_phase")
         P.fmsholdterm = GP("laminar/B738/fms/hold_term")
+    end
+
+    local function bindOfpRuntimeRefs()
+        P.ofpRuntime = nil
+        local base = "laminar/B738/fms/ofp/"
+        if not probe_external_dataref(base .. "api_version") then
+            return
+        end
+
+        P.ofpRuntime = {
+            api_version = GP(base .. "api_version"),
+            update_seq = GP(base .. "update_seq"),
+            valid = GP(base .. "valid"),
+            origin_icao = GPS(base .. "origin_icao"),
+            origin_name = GPS(base .. "origin_name"),
+            destination_icao = GPS(base .. "destination_icao"),
+            destination_name = GPS(base .. "destination_name")
+        }
+        local version = read_optional_number_dataref(P.ofpRuntime.api_version)
+        local logKey = version and version >= 1 and tostring(math.floor(version)) or nil
+        if logKey and P.ofpRuntimeApiLogKey ~= logKey then
+            P.ofpRuntimeApiLogKey = logKey
+            helpers.logInfoTS("Zibo OFP Runtime API connected version=" .. logKey)
+        end
     end
 
     local function bindSpeakStringSinkRefs()
@@ -2323,6 +2431,7 @@ function P.bindExternalDatarefs(silentMissing)
     bindRefdataRefs()
     bindApproachRefRefs()
     bindHoldRuntimeRefs()
+    bindOfpRuntimeRefs()
     bindSpeakStringSinkRefs()
     bindZiboRaasRuntimeRefs()
     bindZiboPortRuntimeRefs()
@@ -2677,6 +2786,7 @@ function P.bindExternalDatarefs(silentMissing)
     P.fmslegs = GP("laminar/B738/fms/legs")
     P.fmslegslat = GP("laminar/B738/fms/legs_lat")
     P.fmslegslon = GP("laminar/B738/fms/legs_lon")
+    P.fmsvnavidx = GP("laminar/B738/fms/vnav_idx")
     P.fmslegsmodactive = nil
     if probe_external_dataref("laminar/B738/fms/legs_mod_active") then
         P.fmslegsmodactive = GP("laminar/B738/fms/legs_mod_active")
@@ -3005,6 +3115,25 @@ function P.initDataref()
     end
     P.flightstate = get(P.flightstatedr)
     helpers.logInfoTS("Flightstate restored to: " .. P.flightstate)
+
+    local pause_tod_owner_path = def.APPNAMEPREFIX .. "/state/pause_tod_auto_disabled"
+    local pause_tod_owner_handle = globalProperty(pause_tod_owner_path)
+    if not isProperty(pause_tod_owner_handle) then
+        helpers.logInfoTS("Dataref '" .. pause_tod_owner_path .. "' not found. Creating it now.")
+        P.pauseTodAutoDisabledDr = createGlobalPropertyi(pause_tod_owner_path, 0, false, true, true)
+    else
+        helpers.logInfoTS("Found existing dataref: '" .. pause_tod_owner_path .. "'")
+        P.pauseTodAutoDisabledDr = pause_tod_owner_handle
+    end
+    local stored_pause_tod_owner = tonumber(get(P.pauseTodAutoDisabledDr)) or 0
+    if stored_pause_tod_owner ~= 0 and stored_pause_tod_owner ~= 1 then
+        stored_pause_tod_owner = 0
+        set(P.pauseTodAutoDisabledDr, stored_pause_tod_owner)
+    end
+    P.pauseTodAutoDisabled = stored_pause_tod_owner == 1
+    if P.pauseTodAutoDisabled then
+        helpers.logInfoTS("PauseTODMonitor: restored temporary pause_td ownership from state dataref")
+    end
 
     P.initialExternalDatarefMissingCount = P.bindExternalDatarefs(true)
     P.needsPostStartupDatarefRebind = true
@@ -7830,6 +7959,14 @@ local function autoUnicomHoldDescending(hold)
         and verticalSpeed < -100
 end
 
+function P.autoUnicomHoldLevelStable(hold)
+    if not hold or hold.entry_complete ~= true then return false end
+    local altitude = P.altitude_ft and tonumber(get(P.altitude_ft))
+        or (P.altitude and tonumber(get(P.altitude)))
+    local verticalSpeed = P.verticalspeed and tonumber(get(P.verticalspeed)) or nil
+    return autoUnicomCore.isHoldLevelStable(altitude, verticalSpeed, hold.target_altitude_ft)
+end
+
 function P.isArrivalFinalEstablished()
     if not P.isArrivalRunwayRadioAltGateOpen(8, 20, 0.5) then return false end
 
@@ -7941,6 +8078,7 @@ function P.baselineAutoUnicomRuntimeEvents()
         if P.flightstate == def.FLIGHTSTATECRUISE
             and state.lastFmsPhase == def.FMSFLIGHTPHASE_CRUISE then
             state.cruiseInitialized = true
+            state.cruiseLastReportAt = os.time()
             state.cruiseWaypoint = P.fmsfplnnavid
                 and cleanAutoUnicomWaypoint(get(P.fmsfplnnavid)) or nil
         end
@@ -7952,7 +8090,7 @@ function P.baselineAutoUnicomRuntimeEvents()
         if P.flightstate >= def.FLIGHTSTATEAPPROACH then
             state.sent["arrival.descent_entry"] = true
             for _, level in ipairs(AUTO_UNICOM_DESCENT_LEVELS_FT) do
-                if altitude <= level then
+                if altitude <= level or autoUnicomCore.shouldSuppressProgressLevel(level, altitude) then
                     state.sent["arrival.descent_level_" .. tostring(level)] = true
                 end
             end
@@ -8010,6 +8148,7 @@ function P.baselineAutoUnicomRuntimeEvents()
     state.holdApproachReleasedKey = holdOperationallyReleased and state.holdKey or nil
     state.holdExitSent = holdOperationallyReleased
     state.holdEstablishedSent = hold.active and hold.entry_complete == true or false
+    state.holdEstablishedSince = nil
     state.holdDescentSent = hold.active and autoUnicomHoldDescending(hold) or false
     state.holdApproachBlocked = hold.active == true
         and state.holdApproachReleasedKey ~= state.holdKey
@@ -8224,6 +8363,7 @@ function P.updateAutoUnicomHoldEvents()
         state.holdApproachReleasedKey = holdOperationallyReleased and key or nil
         state.holdExitSent = holdOperationallyReleased
         state.holdEstablishedSent = hold.active and hold.entry_complete == true or false
+        state.holdEstablishedSince = nil
         state.holdDescentSent = hold.active and autoUnicomHoldDescending(hold) or false
         state.holdApproachBlocked = hold.active == true
             and state.holdApproachReleasedKey ~= key
@@ -8242,6 +8382,7 @@ function P.updateAutoUnicomHoldEvents()
         state.holdPayload = autoUnicomHoldPayload(hold)
         state.holdExitSent = false
         state.holdEstablishedSent = false
+        state.holdEstablishedSince = nil
         state.holdDescentSent = false
         state.holdApproachReleasedKey = nil
         state.holdApproachBlocked = true
@@ -8256,6 +8397,7 @@ function P.updateAutoUnicomHoldEvents()
         state.holdPayload = nil
         state.holdExitSent = false
         state.holdEstablishedSent = false
+        state.holdEstablishedSince = nil
         state.holdDescentSent = false
         state.holdApproachReleasedKey = nil
         state.holdApproachBlocked = false
@@ -8276,6 +8418,7 @@ function P.updateAutoUnicomHoldEvents()
         releaseReason = "final_established"
     end
     if releaseReason then
+        state.holdEstablishedSince = nil
         if not state.holdExitSent then
             if not P.publishRuntimeEvent("enroute.hold_exit", state.holdPayload) then
                 state.holdApproachBlocked = true
@@ -8292,10 +8435,21 @@ function P.updateAutoUnicomHoldEvents()
 
     state.holdApproachBlocked = true
 
-    if not state.holdExitSent and hold.entry_complete and not state.holdEstablishedSent then
-        if P.publishRuntimeEvent("enroute.holding", state.holdPayload) then
+    if not state.holdExitSent and not state.holdEstablishedSent
+        and P.autoUnicomHoldLevelStable(hold) then
+        local targetAltitude = tonumber(hold.target_altitude_ft)
+        if targetAltitude and targetAltitude > 0 then
+            local now = os.time()
+            state.holdEstablishedSince = state.holdEstablishedSince or now
+            if now - state.holdEstablishedSince >= 3
+                and P.publishRuntimeEvent("enroute.holding", state.holdPayload) then
+                state.holdEstablishedSent = true
+            end
+        elseif P.publishRuntimeEvent("enroute.holding", state.holdPayload) then
             state.holdEstablishedSent = true
         end
+    else
+        state.holdEstablishedSince = nil
     end
     if not state.holdExitSent and autoUnicomHoldDescending(hold) and not state.holdDescentSent then
         if P.publishRuntimeEvent("enroute.hold_descending", state.holdPayload) then
@@ -8330,23 +8484,22 @@ function P.updateAutoUnicomCruiseEvent()
         end
         return
     end
-    if not waypoint then return end
-    if not state.cruiseWaypoint then
-        state.cruiseWaypoint = waypoint
-        return
-    end
-    if waypoint == state.cruiseWaypoint then return end
-
-    local passedWaypoint = state.cruiseWaypoint
-    state.cruiseWaypoint = waypoint
     local now = os.time()
-    local firstReport = state.cruiseLastReportAt == nil
-    if not firstReport and now - state.cruiseLastReportAt < 600 then return end
+    local passedWaypoint = nil
+    if waypoint and state.cruiseWaypoint and waypoint ~= state.cruiseWaypoint then
+        passedWaypoint = state.cruiseWaypoint
+    end
+    if waypoint then state.cruiseWaypoint = waypoint end
+    if not autoUnicomCore.isCruiseReportDue(state.cruiseLastReportAt, now) then return end
 
     local payload = {
-        cruise_waypoint = passedWaypoint,
         cruise_next_waypoint = waypoint
     }
+    if passedWaypoint then
+        payload.cruise_waypoint = passedWaypoint
+    else
+        payload.cruise_periodic = true
+    end
     if P.publishRuntimeEvent("enroute.in_cruise", payload) then
         state.cruiseLastReportAt = now
     end
@@ -8359,17 +8512,20 @@ function P.updateAutoUnicomClimbEvents()
         climb_next_waypoint = nextWaypoint
     })
     local altitude = tonumber(get(P.altitude)) or 0
+    local cruiseAltitude = P.fmccruisealt and tonumber(get(P.fmccruisealt)) or nil
+    local state = P.autoUnicomRuntime
     for _, level in ipairs(AUTO_UNICOM_CLIMB_LEVELS_FT) do
         if altitude >= level then
-            autoUnicomEventOnce(
-                "departure.climb_level_" .. tostring(level),
-                "departure.climb_level_" .. tostring(level),
-                {
+            local key = "departure.climb_level_" .. tostring(level)
+            if autoUnicomCore.shouldSuppressProgressLevel(level, cruiseAltitude) then
+                if state then state.sent[key] = true end
+            else
+                autoUnicomEventOnce(key, key, {
                     altitude_ft = level,
                     pressure_altitude_ft = level,
                     climb_next_waypoint = nextWaypoint
-                }
-            )
+                })
+            end
         end
     end
 end
@@ -8395,7 +8551,7 @@ function P.updateAutoUnicomDescentEvents()
     if not state.sent["arrival.descent_entry"] then
         state.sent["arrival.descent_entry"] = true
         for _, level in ipairs(AUTO_UNICOM_DESCENT_LEVELS_FT) do
-            if altitude <= level then
+            if altitude <= level or autoUnicomCore.shouldSuppressProgressLevel(level, altitude) then
                 state.sent["arrival.descent_level_" .. tostring(level)] = true
             end
         end
@@ -8656,7 +8812,7 @@ function P.duringdescent()
             set(P.pausetod, def.ON)
             helpers.logInfoTS("PauseTODMonitor: restored pause_td after descent start")
         end
-        P.pauseTodAutoDisabled = false
+        P.setPauseTodAutoDisabled(false)
     end
     P.pauseTodMonitorActive = false
     P.pauseTodMcpAltAtPrompt = nil
@@ -9642,6 +9798,12 @@ local function speedbrakeForgottenMonitorEligible(flightState, fmsPhase)
         or (fmsPhase == def.FMSFLIGHTPHASE_APPROACH)
 end
 
+function P.isZiboSpeedbrakeAssistEnabled()
+    local assistRef = P.ziboDragRequiredAssist
+    return assistRef and isProperty(assistRef)
+        and ((read_optional_number_dataref(assistRef) or 0) == 1)
+end
+
 local function clearQueuedDragRequiredAdvice()
     if P.clearYalQueuedSpeech then
         P.clearYalQueuedSpeech(DRAG_REQUIRED_KEY)
@@ -9690,11 +9852,9 @@ end
 function P.checkDragRequiredAdvice()
     local rawRef = P.ziboDragRequired
     local unhandledRef = P.ziboDragRequiredUnhandled
-    local assistRef = P.ziboDragRequiredAssist
     local hasRawRef = rawRef and isProperty(rawRef)
     local hasUnhandledRef = unhandledRef and isProperty(unhandledRef)
-    local assistEnabled = assistRef and isProperty(assistRef)
-        and ((read_optional_number_dataref(assistRef) or 0) == 1)
+    local assistEnabled = P.isZiboSpeedbrakeAssistEnabled()
 
     if assistEnabled then
         if not P.dragRequiredAssistSuppressed
@@ -9773,6 +9933,16 @@ function P.checkDragRequiredAdvice()
 end
 
 function P.checkSpeedbrakeForgotten()
+    if P.isZiboSpeedbrakeAssistEnabled() then
+        if not P.speedbrakeForgottenAssistSuppressed then
+            resetSpeedbrakeForgottenMonitor()
+            P.speedbrakeForgottenAssistSuppressed = true
+            helpers.logDebugTS("SpeedbrakeForgotten: suppressed by Zibo speedbrake assist")
+        end
+        return
+    end
+    P.speedbrakeForgottenAssistSuppressed = false
+
     local now = os.time() or 0
     local inAir = (get(P.airgroundsensor) == def.OFF)
     local extended, lever, ratio, anim = getSpeedbrakeForgottenExtendedState()
@@ -10005,9 +10175,20 @@ function P.runOneMainOngoingTask()
                 (fmsPhase == def.FMSFLIGHTPHASE_DESCENT or fmsPhase == def.FMSFLIGHTPHASE_APPROACH) and
                 radioAltitude and (radioAltitude > def.ROUTE_ENDS_EARLY_APPROACH_MIN_RA_FT))
         local mcpAlt = get(P.mcpaltitude) or 0
+        local pauseTodCruiseContext = aircraftInAir
+            and (P.flightstate == def.FLIGHTSTATECRUISE)
+            and (fmsPhase == def.FMSFLIGHTPHASE_CRUISE)
 
         if P.pauseTodMonitorActive then
-            if get(P.pausetod) ~= def.ON then
+            if not pauseTodCruiseContext then
+                helpers.logInfoTS(string.format(
+                    "PauseTODMonitor: disarmed outside cruise flightstate=%s fmsPhase=%s",
+                    tostring(P.flightstate),
+                    tostring(fmsPhase)
+                ))
+                P.pauseTodMonitorActive = false
+                P.pauseTodMcpAltAtPrompt = nil
+            elseif get(P.pausetod) ~= def.ON then
                 helpers.logInfoTS(string.format(
                     "PauseTODMonitor: disarmed pause_td=%s tod=%.2f mcp=%.0f",
                     tostring(get(P.pausetod)),
@@ -10026,7 +10207,7 @@ function P.runOneMainOngoingTask()
                     tonumber(todDistance) or -1
                 ))
                 set(P.pausetod, def.OFF)
-                P.pauseTodAutoDisabled = true
+                P.setPauseTodAutoDisabled(true)
                 P.pauseTodMonitorActive = false
                 P.pauseTodMcpAltAtPrompt = nil
             end
@@ -10149,12 +10330,28 @@ function P.runOneMainOngoingTask()
             P.routeEndsBeforeTodWarned = false
         end
 
-        if (P.flightstate == def.FLIGHTSTATECRUISE) and (get(P.fmsflightphase) == def.FMSFLIGHTPHASE_CRUISE) and not suppressDiscoWarnings then
+        if pauseTodCruiseContext and not suppressDiscoWarnings then
             local todDistanceForMcpAdvice = tonumber(get(P.vnavtoddist)) or 0
             local fmcCruiseAlt = tonumber(get(P.fmccruisealt)) or 0
             local fmcCruiseRounded = helpers.roundnumber(fmcCruiseAlt / 100, 0) * 100
             local withinTolerance = (fmcCruiseAlt > 0) and (mcpAlt >= (fmcCruiseRounded - 100))
-            if withinTolerance and (todDistanceForMcpAdvice > 0) and (todDistanceForMcpAdvice < 20) then
+            local nearTod = (todDistanceForMcpAdvice > 0) and (todDistanceForMcpAdvice < 20)
+            local mcpDescentSelected = P.pauseTodGuard.isMcpDescentSelected(mcpAlt, fmcCruiseAlt)
+            if nearTod and mcpDescentSelected and (get(P.pausetod) == def.ON) and (not P.pauseTodAutoDisabled) then
+                helpers.logInfoTS(string.format(
+                    "PauseTODMonitor: preselected descent MCP accepted cruise=%.0f current=%.0f delta=%.0f tod=%.2f; pause_td disabled temporarily",
+                    fmcCruiseRounded,
+                    tonumber(mcpAlt) or -1,
+                    fmcCruiseRounded - (tonumber(mcpAlt) or 0),
+                    todDistanceForMcpAdvice
+                ))
+                set(P.pausetod, def.OFF)
+                P.setPauseTodAutoDisabled(true)
+                P.pauseTodMonitorActive = false
+                P.pauseTodMcpAltAtPrompt = nil
+                P.pauseTodGuardCycleComplete = false
+                resetVoiceAdviceRepeatState(P.todResetMcpAdviceState)
+            elseif withinTolerance and nearTod then
                 local queueTodAdvice, todAdviceReason = shouldQueueStandaloneVoiceAdvice(
                     P.todResetMcpAdviceState,
                     "TOD_RESET_MCP_ALTITUDE",

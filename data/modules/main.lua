@@ -59,6 +59,7 @@ local AUTO_UNICOM_V2_REF_KEYS = {
     "request_channels", "request_voice_text", "voice_state",
     "voice_result_seq", "voice_result_code", "voice_result_detail"
 }
+local AUTO_UNICOM_V3_REF_KEYS = { "effective_callsign" }
 
 local function auto_unicom_ref_keys_valid(refs, keys)
     if type(refs) ~= "table" then return false end
@@ -79,9 +80,9 @@ end
 local function auto_unicom_refs_valid(refs)
     if not auto_unicom_ref_keys_valid(refs, AUTO_UNICOM_BASE_REF_KEYS) then return false end
     local version = auto_unicom_api_version(refs)
-    if version == 1 then return true end
-    if version == 2 then return auto_unicom_ref_keys_valid(refs, AUTO_UNICOM_V2_REF_KEYS) end
-    return false
+    return version == 3
+        and auto_unicom_ref_keys_valid(refs, AUTO_UNICOM_V2_REF_KEYS)
+        and auto_unicom_ref_keys_valid(refs, AUTO_UNICOM_V3_REF_KEYS)
 end
 
 local function bind_auto_unicom_datarefs()
@@ -122,13 +123,16 @@ local function bind_auto_unicom_datarefs()
     end
 
     local apiVersion = auto_unicom_api_version(bound)
-    if apiVersion == 2 then
+    if apiVersion and apiVersion >= 2 then
         bound.request_channels = globalProperty(base .. "request_channels")
         bound.request_voice_text = globalPropertys(base .. "request_voice_text")
         bound.voice_state = globalProperty(base .. "voice_state")
         bound.voice_result_seq = globalProperty(base .. "voice_result_seq")
         bound.voice_result_code = globalProperty(base .. "voice_result_code")
         bound.voice_result_detail = globalPropertys(base .. "voice_result_detail")
+    end
+    if apiVersion == 3 then
+        bound.effective_callsign = globalPropertys(base .. "effective_callsign")
     end
     if not auto_unicom_refs_valid(bound) then
         if not autoUnicomRuntime.unavailableLogged then
@@ -148,6 +152,7 @@ autoUnicom.configure({
     yal = yal,
     def = def,
     helpers = helpers,
+    refdata = refdata,
     sources = autoUnicomRuntime.sources,
     getRefs = function() return autoUnicomRuntime.refs end
 })

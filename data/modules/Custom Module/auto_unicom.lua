@@ -5,15 +5,19 @@ local runtime = nil
 local mailbox = nil
 local active = false
 local connectionLogKey = nil
+local callsignUnavailableLogged = false
 local lastIntendedMessageText = nil
 local lastIntendedMessageVoiceText = nil
 local lastCommittedMessageText = nil
 local lastCommittedMessageVoiceText = nil
 local manualRepeatCount = 0
+local stationNameCache = {}
 local PREFLIGHT_PARKING_MAX_DISTANCE_M = 35
 local PUSHBACK_PARKING_MAX_DISTANCE_M = 80
 local ARRIVAL_PARKING_MAX_DISTANCE_M = 35
 local NM_TO_METERS = 1852
+local OFP_SNAPSHOT_READ_ATTEMPTS = 3
+local FMS_DISPLAY_IDENT_MAX_LENGTH = 6
 
 local function log(message)
     if runtime and runtime.helpers and runtime.helpers.logInfoTS then
@@ -35,6 +39,22 @@ local function safe_read(prop, index)
     local ok, value = pcall(reader, prop, index)
     if not ok then return nil end
     return value
+end
+
+local function clean_effective_callsign(value)
+    local text = tostring(value or "")
+    local nullIndex = text:find("\0", 1, true)
+    if nullIndex then text = text:sub(1, nullIndex - 1) end
+    text = text:match("^%s*(.-)%s*$"):upper()
+    if #text < 2 or #text > 7 or text:find("[^A-Z0-9]") then return "" end
+    return text
+end
+
+local function clean_data_string(value)
+    local text = tostring(value or "")
+    local nullIndex = text:find("\0", 1, true)
+    if nullIndex then text = text:sub(1, nullIndex - 1) end
+    return text
 end
 
 local function write_request_text(text)
@@ -73,8 +93,9 @@ local function mailbox_log(kind, event)
     if kind == "committed" then
         lastCommittedMessageText = event.text
         lastCommittedMessageVoiceText = event.voice_text
-        log(string.format("IVAO Auto-Unicom: committed event=%s seq=%s channels=%s text=%s",
-            tostring(event.id), tostring(event.seq), tostring(event.channels), tostring(event.text)))
+        log(string.format("IVAO Auto-Unicom: committed event=%s seq=%s channels=%s text=%s voice_text=%s",
+            tostring(event.id), tostring(event.seq), tostring(event.channels), tostring(event.text),
+            tostring(event.voice_text or "")))
     elseif kind == "terminal" then
         log(string.format("IVAO Auto-Unicom: terminal event=%s seq=%s result=%s detail=%s",
             tostring(event.id), tostring(event.seq), tostring(event.result_name), tostring(event.result_detail or "")))
@@ -106,8 +127,9 @@ local function enqueue_event(event)
         lastIntendedMessageVoiceText = core.normalizeVoiceText(event and event.voice_text)
     end
     if not mailbox or not mailbox:enqueue(event) then return false end
-    log(string.format("IVAO Auto-Unicom: queued event=%s inputs={%s} text=%s",
-        tostring(event.id), tostring(event.inputs or ""), tostring(event.text)))
+    log(string.format("IVAO Auto-Unicom: queued event=%s inputs={%s} text=%s voice_text=%s",
+        tostring(event.id), tostring(event.inputs or ""), tostring(event.text),
+        tostring(event.voice_text or "")))
     return true
 end
 
@@ -179,6 +201,39 @@ local function normalize_icao(value)
     return text
 end
 
+local function read_ofp_runtime(snapshot)
+    local api = runtime.yal and runtime.yal.ofpRuntime or nil
+    if type(api) ~= "table" or not api.api_version or not api.update_seq then return end
+
+    local apiVersion = tonumber(safe_read(api.api_version))
+    if not apiVersion or apiVersion < 1 then return end
+
+    for _ = 1, OFP_SNAPSHOT_READ_ATTEMPTS do
+        local seqBefore = tonumber(safe_read(api.update_seq))
+        if seqBefore and seqBefore % 2 == 0 then
+            local valid = tonumber(safe_read(api.valid)) or 0
+            local originIcao = clean_data_string(safe_read(api.origin_icao))
+            local originName = clean_data_string(safe_read(api.origin_name))
+            local destinationIcao = clean_data_string(safe_read(api.destination_icao))
+            local destinationName = clean_data_string(safe_read(api.destination_name))
+            local seqAfter = tonumber(safe_read(api.update_seq))
+
+            if seqAfter == seqBefore and seqAfter % 2 == 0 then
+                snapshot.ofp_api_version = math.floor(apiVersion)
+                snapshot.ofp_update_seq = seqAfter
+                snapshot.ofp_valid = valid == 1
+                if snapshot.ofp_valid then
+                    snapshot.ofp_origin_icao = normalize_icao(originIcao)
+                    snapshot.ofp_origin_name = originName
+                    snapshot.ofp_destination_icao = normalize_icao(destinationIcao)
+                    snapshot.ofp_destination_name = destinationName
+                end
+                return
+            end
+        end
+    end
+end
+
 local function read_nearest_parking(snapshot, y, airport, prefix, maxDistanceMeters)
     local helpers = runtime and runtime.helpers or nil
     if not airport or not helpers then return end
@@ -243,10 +298,185 @@ local function read_arrival_parking(snapshot, y)
     read_nearest_parking(snapshot, y, searchAirport, "arrival_parking", ARRIVAL_PARKING_MAX_DISTANCE_M)
 end
 
+local STATION_NAME_FIELDS = {
+    { "departure_icao", "departure_station_name", "departure_station_icao" },
+    { "arrival_icao", "arrival_station_name", "arrival_station_icao" },
+    { "pushback_airport_icao", "pushback_station_name", "pushback_station_icao" },
+    { "arrival_parking_airport_icao", "arrival_parking_station_name", "arrival_parking_station_icao" }
+}
+local RETAINED_ARRIVAL_STATION_FIELDS = {
+    STATION_NAME_FIELDS[2],
+    STATION_NAME_FIELDS[4]
+}
+
+local function enrich_station_names(snapshot)
+    local adapter = runtime and runtime.refdata or nil
+    if type(adapter) ~= "table" or type(adapter.getAirport) ~= "function" then return end
+    for _, fields in ipairs(STATION_NAME_FIELDS) do
+        local icao = normalize_icao(snapshot[fields[1]])
+        snapshot[fields[2]] = nil
+        snapshot[fields[3]] = nil
+        if icao then
+            local ok, airport = pcall(adapter.getAirport, icao)
+            if ok and type(airport) == "table" and airport.station_name_valid == true
+                and tostring(airport.station_name or "") ~= "" then
+                snapshot[fields[2]] = tostring(airport.station_name)
+                snapshot[fields[3]] = icao
+            end
+        end
+    end
+end
+
+local function retain_station_names(snapshot)
+    if type(core.resolveAirportLabel) ~= "function" then return end
+    for _, fields in ipairs(RETAINED_ARRIVAL_STATION_FIELDS) do
+        local icao = normalize_icao(snapshot[fields[1]])
+        if icao then
+            local label, resolvedIcao, source = core.resolveAirportLabel(snapshot, fields[1], fields[2])
+            local cached = stationNameCache[icao]
+            if resolvedIcao == icao and label and label ~= icao and source == "ofp" then
+                stationNameCache[icao] = { name = label, source = source }
+            elseif resolvedIcao == icao and label and label ~= icao and source == "refdata"
+                and (not cached or cached.source ~= "ofp") then
+                stationNameCache[icao] = { name = label, source = source }
+            elseif cached then
+                snapshot[fields[2]] = cached.name
+                snapshot[fields[3]] = icao
+            end
+        end
+    end
+end
+
+local function clean_navigation_identifier(value)
+    local text = clean_data_string(value):upper():match("^%s*(.-)%s*$") or ""
+    if text == "" or #text > 16 or text:find("[^A-Z0-9%-]") then return nil end
+    return text
+end
+
+local function route_array_value(values, index)
+    if type(values) ~= "table" then return nil end
+    return tonumber(values[index])
+end
+
+local function read_fms_route_legs(y)
+    local legsText = clean_data_string(safe_read(y.fmslegs))
+    local latitudes = safe_read(y.fmslegslat)
+    local longitudes = safe_read(y.fmslegslon)
+    if legsText == "" then return {}, nil end
+
+    local legs = {}
+    local index = 0
+    for rawIdent in legsText:gmatch("%S+") do
+        index = index + 1
+        local ident = clean_navigation_identifier(rawIdent)
+        if ident then
+            local latitude = route_array_value(latitudes, index)
+            local longitude = route_array_value(longitudes, index)
+            local positionValid = latitude ~= nil and longitude ~= nil
+                and latitude >= -90 and latitude <= 90
+                and longitude >= -180 and longitude <= 180
+                and not (latitude == 0 and longitude == 0)
+            legs[#legs + 1] = {
+                ident = ident,
+                route_index = index,
+                latitude = positionValid and latitude or nil,
+                longitude = positionValid and longitude or nil
+            }
+        end
+    end
+
+    local activeIndex = tonumber(safe_read(y.fmsvnavidx))
+    if activeIndex then activeIndex = math.floor(activeIndex + 0.5) end
+    return legs, activeIndex
+end
+
+local function route_leg_matches(legIdent, requestedIdent)
+    if legIdent == requestedIdent then return true end
+    return #requestedIdent == FMS_DISPLAY_IDENT_MAX_LENGTH
+        and #legIdent > FMS_DISPLAY_IDENT_MAX_LENGTH
+        and legIdent:sub(1, FMS_DISPLAY_IDENT_MAX_LENGTH) == requestedIdent
+end
+
+local function find_route_leg(legs, requestedIdent, preferredIndex)
+    requestedIdent = clean_navigation_identifier(requestedIdent)
+    if not requestedIdent then return nil end
+    local best = nil
+    local bestDelta = nil
+    for _, leg in ipairs(legs or {}) do
+        if route_leg_matches(leg.ident, requestedIdent) then
+            local delta = preferredIndex and math.abs(leg.route_index - preferredIndex) or leg.route_index
+            if not bestDelta or delta < bestDelta then
+                best = leg
+                bestDelta = delta
+            end
+        end
+    end
+    return best
+end
+
+local function nav_ident_for_procedure(value)
+    local ident = clean_navigation_identifier(value)
+    if not ident then return nil end
+    local prefix = ident:match("^([A-Z]+)%d+[A-Z]*$")
+    return prefix or ident
+end
+
+local function resolve_nav_name(ident, leg)
+    ident = clean_navigation_identifier(ident)
+    if not ident or #ident > 4 or ident:find("[^A-Z]") then return nil end
+    local adapter = runtime and runtime.refdata or nil
+    if type(adapter) ~= "table" or type(adapter.getNavByIdent) ~= "function" then return nil end
+    local ok, nav = pcall(
+        adapter.getNavByIdent,
+        ident,
+        leg and leg.latitude or nil,
+        leg and leg.longitude or nil
+    )
+    if not ok or type(nav) ~= "table" or tostring(nav.name or "") == "" then return nil end
+    return tostring(nav.name)
+end
+
+local function enrich_navigation_identifiers(snapshot)
+    local y = runtime and runtime.yal or nil
+    if not y then return end
+    local legs, activeIndex = read_fms_route_legs(y)
+    local waypointFields = {
+        { "climb_next_waypoint", 0 },
+        { "cruise_next_waypoint", 0 },
+        { "cruise_waypoint", -1 },
+        { "hold_waypoint", 0 }
+    }
+    for _, field in ipairs(waypointFields) do
+        local fieldName = field[1]
+        local ident = clean_navigation_identifier(snapshot[fieldName])
+        if ident then
+            local preferredIndex = activeIndex and activeIndex + field[2] or nil
+            local leg = find_route_leg(legs, ident, preferredIndex)
+            if leg then
+                ident = leg.ident
+                snapshot[fieldName] = ident
+                snapshot[fieldName .. "_latitude"] = leg.latitude
+                snapshot[fieldName .. "_longitude"] = leg.longitude
+            end
+            snapshot[fieldName .. "_nav_name"] = resolve_nav_name(ident, leg)
+        end
+    end
+
+    for _, fieldName in ipairs({ "sid", "star" }) do
+        local procedureIdent = clean_navigation_identifier(snapshot[fieldName])
+        local navIdent = nav_ident_for_procedure(procedureIdent)
+        if navIdent then
+            local leg = find_route_leg(legs, navIdent, activeIndex)
+            snapshot[fieldName .. "_nav_name"] = resolve_nav_name(navIdent, leg)
+        end
+    end
+end
+
 local function build_snapshot()
     local y = runtime.yal
     local def = runtime.def
     local sources = runtime.sources or {}
+    local api = refs()
     local snapshot = {
         on_ground = safe_read(y.airgroundsensor) == def.ON,
         radio_altitude_ft = tonumber(safe_read(y.radioaltitude)),
@@ -267,6 +497,7 @@ local function build_snapshot()
         climb_next_waypoint = tostring(safe_read(y.fmsfplnnavid) or ""),
         star = tostring(safe_read(y.fmsselectedstar) or ""),
         approach_id = tostring(safe_read(y.fmsselectedapp) or ""),
+        effective_callsign = clean_effective_callsign(safe_read(api and api.effective_callsign)),
         aircraft_type = tostring(safe_read(sources.aircraft_icao) or ""),
         preflight = y.flightstate == def.FLIGHTSTATEPREFLIGHT,
         initial_climb_state = y.flightstate == def.FLIGHTSTATEINITIALCLIMB,
@@ -279,6 +510,7 @@ local function build_snapshot()
         short_final_gate = false
     }
 
+    read_ofp_runtime(snapshot)
     read_approach_ref(snapshot)
     parse_approach_fallback(snapshot)
 
@@ -321,11 +553,14 @@ local function read_mailbox_api()
         result_code = tonumber(safe_read(api.result_code)),
         result_detail = tostring(safe_read(api.result_detail) or "")
     }
-    if apiVersion == 2 then
+    if apiVersion and apiVersion >= 2 then
         state.voice_state = tonumber(safe_read(api.voice_state))
         state.voice_result_seq = tonumber(safe_read(api.voice_result_seq))
         state.voice_result_code = tonumber(safe_read(api.voice_result_code))
         state.voice_result_detail = tostring(safe_read(api.voice_result_detail) or "")
+    end
+    if apiVersion == 3 then
+        state.effective_callsign = clean_effective_callsign(safe_read(api.effective_callsign))
     end
     return state
 end
@@ -385,6 +620,9 @@ function M.handleYalEvent(eventId, payload, now)
     elseif eventId == "enroute.hold_exit" then
         mailbox:cancelQueuedForHoldEnd()
     end
+    enrich_station_names(snapshot)
+    retain_station_names(snapshot)
+    enrich_navigation_identifiers(snapshot)
 
     now = tonumber(now) or os.time()
     local event, reason = core.newEvent(
@@ -417,7 +655,7 @@ function M.repeatLastMessage(enabled)
     end
 
     local api = read_mailbox_api()
-    if (api.api_version ~= 1 and api.api_version ~= 2) or api.ready ~= 1 then
+    if api.api_version ~= 3 or api.ready ~= 1 or tostring(api.effective_callsign or "") == "" then
         log("IVAO Auto-Unicom: repeat last rejected reason=api_unavailable")
         return false, "api_unavailable"
     end
@@ -477,11 +715,13 @@ function M.configure(options)
     create_runtime_state()
     active = false
     connectionLogKey = nil
+    callsignUnavailableLogged = false
     lastIntendedMessageText = nil
     lastIntendedMessageVoiceText = nil
     lastCommittedMessageText = nil
     lastCommittedMessageVoiceText = nil
     manualRepeatCount = 0
+    stationNameCache = {}
 end
 
 function M.rebaseline()
@@ -489,11 +729,13 @@ function M.rebaseline()
     create_runtime_state()
     active = false
     connectionLogKey = nil
+    callsignUnavailableLogged = false
     lastIntendedMessageText = nil
     lastIntendedMessageVoiceText = nil
     lastCommittedMessageText = nil
     lastCommittedMessageVoiceText = nil
     manualRepeatCount = 0
+    stationNameCache = {}
 end
 
 function M.tick(enabled, now)
@@ -506,11 +748,23 @@ function M.tick(enabled, now)
         end
         active = false
         connectionLogKey = nil
+        callsignUnavailableLogged = false
         return
     end
 
     local api = read_mailbox_api()
-    if (api.api_version == 1 or api.api_version == 2) and api.ready == 1 then
+    local apiCompatible = api.api_version == 3 and api.ready == 1
+    local callsignAvailable = tostring(api.effective_callsign or "") ~= ""
+    if apiCompatible and not callsignAvailable then
+        if not callsignUnavailableLogged then
+            callsignUnavailableLogged = true
+            log("IVAO Auto-Unicom API ready but effective callsign is unavailable")
+        end
+    else
+        callsignUnavailableLogged = false
+    end
+    local apiReady = apiCompatible and callsignAvailable
+    if apiReady then
         local key = tostring(api.api_version) .. "|" .. tostring(api.mode)
         if connectionLogKey ~= key then
             connectionLogKey = key
@@ -518,9 +772,19 @@ function M.tick(enabled, now)
         end
     end
 
+    if not apiReady then
+        if active then mailbox:clear() end
+        active = false
+        connectionLogKey = nil
+        return
+    end
+
     if not active then
         active = true
         local snapshot = build_snapshot()
+        enrich_station_names(snapshot)
+        retain_station_names(snapshot)
+        enrich_navigation_identifiers(snapshot)
         capture_baseline_repeat_candidate(snapshot)
         mailbox:clear()
         log("IVAO Auto-Unicom enabled; waiting for YAL runtime events")

@@ -47,6 +47,35 @@ assert_false(eligible, "invalid TOD value does not arm")
 eligible = guard.isArmEligible(copy(armBase, { in_cruise = false }))
 assert_false(eligible, "pause outside cruise does not arm")
 
+assert_true(guard.isMcpDescentSelected(5000, 41000), "preselected descent MCP")
+assert_true(guard.isMcpDescentSelected(40900, 41000), "MCP descent threshold is inclusive")
+assert_false(guard.isMcpDescentSelected(40901, 41000), "MCP inside descent threshold")
+assert_false(guard.isMcpDescentSelected(5000, 0), "invalid cruise altitude")
+assert_false(guard.isMcpDescentSelected(0, 41000), "invalid MCP altitude")
+
+local ownershipBase = {
+    owned = true,
+    pause_setting_on = false,
+    airborne = true,
+    flightstate = 3,
+    cruise_flightstate = 3,
+    fms_phase = 2,
+    cruise_fms_phase = 2
+}
+
+assert_equal(guard.autoDisableOwnershipAction(ownershipBase), "hold",
+    "temporary pause ownership survives reload in cruise")
+assert_equal(guard.autoDisableOwnershipAction(copy(ownershipBase, { flightstate = 4 })), "restore",
+    "temporary pause ownership restores after YAL leaves cruise")
+assert_equal(guard.autoDisableOwnershipAction(copy(ownershipBase, { fms_phase = 5 })), "restore",
+    "temporary pause ownership restores after FMS leaves cruise")
+assert_equal(guard.autoDisableOwnershipAction(copy(ownershipBase, { airborne = false })), "restore",
+    "temporary pause ownership restores on ground")
+assert_equal(guard.autoDisableOwnershipAction(copy(ownershipBase, { pause_setting_on = true })), "clear",
+    "manual pause setting restore clears ownership")
+assert_equal(guard.autoDisableOwnershipAction(copy(ownershipBase, { owned = false })), "none",
+    "unowned pause setting remains untouched")
+
 local releaseBase = {
     now = 100,
     pause_setting_on = true,
@@ -63,9 +92,37 @@ action, reason = guard.evaluateRelease(releaseBase)
 assert_equal(action, "repause", "unchanged cruise release is protected")
 assert_equal(reason, "unchanged-cruise", "unchanged cruise release reason")
 
+action, reason = guard.evaluateReleaseWithGrace(releaseBase)
+assert_equal(action, "grace", "ambiguous first release starts grace period")
+assert_equal(reason, "unchanged-cruise", "grace retains release reason")
+
+action = guard.evaluateReleaseWithGrace(copy(releaseBase, {
+    now = 109,
+    grace_until = 110
+}))
+assert_equal(action, "grace", "ambiguous release remains unpaused inside grace period")
+
+action = guard.evaluateReleaseWithGrace(copy(releaseBase, {
+    now = 110,
+    grace_until = 110
+}))
+assert_equal(action, "repause", "ambiguous release re-pauses at grace deadline")
+
+action, reason = guard.evaluateReleaseWithGrace(copy(releaseBase, {
+    now = 105,
+    grace_until = 110,
+    current_mcp_ft = 39900
+}))
+assert_equal(action, "accept", "lower MCP accepts release during grace period")
+assert_equal(reason, "mcp-lowered", "grace MCP release reason")
+
 action, reason = guard.evaluateRelease(copy(releaseBase, { confirm_until = 110 }))
 assert_equal(action, "accept", "second release inside confirmation window")
 assert_equal(reason, "confirmed-release", "confirmed release reason")
+
+action, reason = guard.evaluateReleaseWithGrace(copy(releaseBase, { confirm_until = 110 }))
+assert_equal(action, "accept", "confirmed second release bypasses grace period")
+assert_equal(reason, "confirmed-release", "confirmed grace release reason")
 
 action, reason = guard.evaluateRelease(copy(releaseBase, { current_mcp_ft = 39900 }))
 assert_equal(action, "accept", "lower MCP accepts release")
@@ -73,6 +130,17 @@ assert_equal(reason, "mcp-lowered", "lower MCP reason")
 
 action = guard.evaluateRelease(copy(releaseBase, { current_mcp_ft = 40100 }))
 assert_equal(action, "repause", "higher MCP is not descent intent")
+
+action, reason = guard.evaluateRelease(copy(releaseBase, {
+    baseline_mcp_ft = 5000,
+    current_mcp_ft = 5000,
+    cruise_altitude_ft = 41000
+}))
+assert_equal(action, "accept", "preselected descent MCP accepts first release")
+assert_equal(reason, "mcp-below-cruise", "preselected descent MCP reason")
+
+action = guard.evaluateRelease(copy(releaseBase, { cruise_altitude_ft = 0 }))
+assert_equal(action, "repause", "invalid cruise altitude does not bypass protection")
 
 action, reason = guard.evaluateRelease(copy(releaseBase, { in_cruise = false }))
 assert_equal(action, "accept", "descent phase accepts release")

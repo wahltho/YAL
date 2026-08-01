@@ -1,5 +1,7 @@
 local M = {}
 
+M.CRUISE_REPORT_INTERVAL_SEC = 600
+
 M.EVENT_TTL_SEC = {
     ["departure.flightplan_active"] = 120,
     ["departure.start_push"] = 60,
@@ -75,10 +77,22 @@ local TERMINAL_VOICE_RESULTS = {
 
 local DESCENT_PROGRESS_PREFIX = "arrival.descent_level_"
 local CLIMB_PROGRESS_PREFIX = "departure.climb_level_"
+local PROGRESS_LEVEL_BOUNDARY_GUARD_FT = 5000
+local OFP_STATION_NAME_MAX_LENGTH = 24
+local OFP_AIRPORT_DESCRIPTORS = {
+    AERODROME = true,
+    AIRPORT = true,
+    INTERNATIONAL = true,
+    INTL = true,
+    MUNICIPAL = true,
+    REGIONAL = true
+}
 local HOLD_ENTER_EVENT_ID = "enroute.hold_enter"
 local HOLDING_EVENT_ID = "enroute.holding"
 local HOLD_DESCENDING_EVENT_ID = "enroute.hold_descending"
 local HOLD_EXIT_EVENT_ID = "enroute.hold_exit"
+local HOLD_TARGET_TOLERANCE_FT = 100
+local HOLD_MAINTAINING_MAX_VS_FPM = 150
 
 local function is_climb_progress_event(eventId)
     return type(eventId) == "string"
@@ -88,6 +102,38 @@ end
 local function is_descent_progress_event(eventId)
     return type(eventId) == "string"
         and eventId:sub(1, #DESCENT_PROGRESS_PREFIX) == DESCENT_PROGRESS_PREFIX
+end
+
+function M.shouldSuppressProgressLevel(levelFt, boundaryAltitudeFt)
+    local level = tonumber(levelFt)
+    local boundary = tonumber(boundaryAltitudeFt)
+    if not level or not boundary or level <= 0 or boundary <= 0 then return false end
+    local distance = boundary - level
+    return distance >= 0 and distance < PROGRESS_LEVEL_BOUNDARY_GUARD_FT
+end
+
+function M.isCruiseReportDue(lastReportAt, now, intervalSec)
+    local current = tonumber(now)
+    if not current then return false end
+
+    local previous = tonumber(lastReportAt)
+    if not previous then return true end
+
+    local interval = tonumber(intervalSec) or M.CRUISE_REPORT_INTERVAL_SEC
+    if interval < 0 then interval = M.CRUISE_REPORT_INTERVAL_SEC end
+    return current - previous >= interval
+end
+
+function M.isHoldLevelStable(altitudeFt, verticalSpeedFpm, targetAltitudeFt)
+    local target = tonumber(targetAltitudeFt)
+    if not target or target <= 0 then return true end
+
+    local altitude = tonumber(altitudeFt)
+    local verticalSpeed = tonumber(verticalSpeedFpm)
+    if not altitude or not verticalSpeed then return false end
+
+    return math.abs(altitude - target) <= HOLD_TARGET_TOLERANCE_FT
+        and math.abs(verticalSpeed) <= HOLD_MAINTAINING_MAX_VS_FPM
 end
 
 local function is_approach_phase(phase)
@@ -197,33 +243,217 @@ local function spaced_digits(value)
     return table.concat(parts, " ")
 end
 
+local AVIATION_DIGITS = {
+    ["0"] = "zero",
+    ["1"] = "one",
+    ["2"] = "two",
+    ["3"] = "tree",
+    ["4"] = "fower",
+    ["5"] = "fife",
+    ["6"] = "six",
+    ["7"] = "seven",
+    ["8"] = "eight",
+    ["9"] = "niner"
+}
+
+local COORDINATE_DIGITS = {
+    ["0"] = "zero",
+    ["1"] = "one",
+    ["2"] = "two",
+    ["3"] = "tree",
+    ["4"] = "four",
+    ["5"] = "fife",
+    ["6"] = "six",
+    ["7"] = "seven",
+    ["8"] = "eight",
+    ["9"] = "niner"
+}
+
 local function title_identifier_word(value)
     local text = tostring(value or ""):lower()
     if text == "" then return "" end
     return text:sub(1, 1):upper() .. text:sub(2)
 end
 
-local function voice_named_identifier(value, spellNato)
+local function voice_coordinate_identifier(token)
+    local latitude, northSouth, longitude, eastWest = token:match("^(%d%d?)([NS])(%d%d?%d?)([EW])$")
+    if not latitude or tonumber(latitude) > 90 or tonumber(longitude) > 180 then return nil end
+    local parts = {}
+    for index = 1, #latitude do
+        parts[#parts + 1] = COORDINATE_DIGITS[latitude:sub(index, index)]
+    end
+    parts[#parts + 1] = northSouth == "N" and "north" or "south"
+    for index = 1, #longitude do
+        parts[#parts + 1] = COORDINATE_DIGITS[longitude:sub(index, index)]
+    end
+    parts[#parts + 1] = eastWest == "E" and "east" or "west"
+    return table.concat(parts, " ")
+end
+
+local NAV_NAME_SUFFIXES = { " VOR/DME", " VOR DME", " TACAN", " DME", " VOR", " NDB" }
+
+local function voice_navigation_name(value)
+    local text = tostring(value or "")
+    local nullIndex = text:find("\0", 1, true)
+    if nullIndex then text = text:sub(1, nullIndex - 1) end
+    text = trim(text):upper()
+    for _, suffix in ipairs(NAV_NAME_SUFFIXES) do
+        if #text > #suffix and text:sub(-#suffix) == suffix then
+            text = trim(text:sub(1, #text - #suffix))
+            break
+        end
+    end
+    if text == "" or #text > 48 then return nil end
+    for index = 1, #text do
+        local byte = text:byte(index)
+        local valid = (byte >= 48 and byte <= 57)
+            or (byte >= 65 and byte <= 90)
+            or byte == 32 or byte == 39 or byte == 45
+        if not valid then return nil end
+    end
+    local words = {}
+    for word in text:gmatch("%S+") do
+        words[#words + 1] = title_identifier_word(word)
+    end
+    return #words > 0 and table.concat(words, " ") or nil
+end
+
+local function voice_named_identifier(value, spellNato, resolvedNavName)
     local token = clean_token(value, false)
     if not token then return nil end
+    local coordinate = voice_coordinate_identifier(token)
+    if coordinate then return coordinate end
+
+    local navName = voice_navigation_name(resolvedNavName)
+    if navName then
+        local _, digits, suffix = token:match("^([A-Z]+)(%d+)([A-Z]*)$")
+        if digits then
+            local parts = { navName, spaced_digits(digits) }
+            if suffix ~= "" then parts[#parts + 1] = spellNato(suffix) end
+            return table.concat(parts, " ")
+        end
+        return navName
+    end
     if token:match("^[A-Z][A-Z][A-Z][A-Z][A-Z]$") then
         return title_identifier_word(token)
     end
 
     local letters, digits, suffix = token:match("^([A-Z]+)(%d+)([A-Z]*)$")
     if letters and digits then
-        local parts = { title_identifier_word(letters), spaced_digits(digits) }
+        local spokenLetters = #letters == 5 and title_identifier_word(letters) or spellNato(letters)
+        local parts = { spokenLetters, spaced_digits(digits) }
         if suffix ~= "" then parts[#parts + 1] = spellNato(suffix) end
         return table.concat(parts, " ")
     end
     return spellNato(token)
 end
 
-local function voice_aircraft_type(value, spellNato)
-    local token = clean_token(value, false) or "B738"
-    local digits = token:match("^B(73[6-9])$")
-    if digits then return "Boeing " .. spaced_digits(digits) end
-    return spellNato(token)
+local function clean_callsign(value)
+    local token = tostring(value or "")
+    local nullIndex = token:find("\0", 1, true)
+    if nullIndex then token = token:sub(1, nullIndex - 1) end
+    token = trim(token):upper()
+    if #token < 2 or #token > 7 or token:find("[^A-Z0-9]") then return nil end
+    return token
+end
+
+local function text_callsign(snapshot)
+    local callsign = clean_callsign(snapshot and snapshot.effective_callsign)
+    if not callsign then return nil end
+    if callsign:sub(1, 3) == "DLH" and #callsign > 3 then
+        return "Lufthansa " .. callsign:sub(4), callsign
+    end
+    return callsign, callsign
+end
+
+local function voice_callsign(snapshot, spellNato)
+    local callsign = clean_callsign(snapshot and snapshot.effective_callsign)
+    if not callsign then return nil end
+    local startIndex = 1
+    local parts = {}
+    if callsign:sub(1, 3) == "DLH" and #callsign > 3 then
+        parts[#parts + 1] = "Lufthansa"
+        startIndex = 4
+    end
+    for index = startIndex, #callsign do
+        local char = callsign:sub(index, index)
+        parts[#parts + 1] = AVIATION_DIGITS[char] or spellNato(char)
+    end
+    return table.concat(parts, " ")
+end
+
+local function dotted_initial_count(token)
+    local count = 0
+    local index = 1
+    while index <= #token do
+        local byte = token:byte(index)
+        if not byte or byte < 65 or byte > 90 or token:sub(index + 1, index + 1) ~= "." then
+            return nil
+        end
+        count = count + 1
+        index = index + 2
+    end
+    return count
+end
+
+local function strip_leading_dotted_initials(text)
+    local position = 1
+    local initialCount = 0
+    local remainderStart = 1
+
+    while position <= #text do
+        while text:sub(position, position) == " " do position = position + 1 end
+        local tokenStart = position
+        while position <= #text and text:sub(position, position) ~= " " do
+            position = position + 1
+        end
+        local count = dotted_initial_count(text:sub(tokenStart, position - 1))
+        if not count then break end
+        initialCount = initialCount + count
+        while text:sub(position, position) == " " do position = position + 1 end
+        remainderStart = position
+    end
+
+    if initialCount < 2 or remainderStart > #text then return text end
+    local remainder = text:sub(remainderStart)
+    local letterCount = 0
+    for index = 1, #remainder do
+        local byte = remainder:byte(index)
+        if byte and byte >= 65 and byte <= 90 then letterCount = letterCount + 1 end
+    end
+    if letterCount < 3 then return text end
+    return remainder
+end
+
+local function clean_station_name(value)
+    local text = trim(value):gsub("%s+", " ")
+    if text == "" or #text > 64 or text:sub(1, 1) == "." then return nil end
+    for index = 1, #text do
+        local byte = text:byte(index)
+        if byte < 32 or byte > 126 then return nil end
+    end
+    return strip_leading_dotted_initials(text:upper())
+end
+
+local function clean_ofp_station_name(value)
+    local text = trim(value)
+    local slash = text:find("/", 1, true)
+    if slash then text = trim(text:sub(1, slash - 1)) end
+    local station = clean_station_name(text)
+    if not station or #station > OFP_STATION_NAME_MAX_LENGTH then return nil end
+    local finalWord = station:match("([^ ]+)$") or ""
+    local descriptor = finalWord:gsub("[^A-Z]", "")
+    if OFP_AIRPORT_DESCRIPTORS[descriptor] then return nil end
+    return station
+end
+
+local function voice_station_name(value)
+    local station = clean_station_name(value)
+    if not station then return nil end
+    local spoken = station:lower():gsub("(%a)([%a]*)", function(first, rest)
+        return first:upper() .. rest
+    end)
+    return spoken:gsub("'S(%f[^%a])", "'s")
 end
 
 local function voice_runway(value)
@@ -389,9 +619,30 @@ M.normalizeText = normalize_text
 M.normalizeVoiceText = normalize_voice_text
 M.normalizeRunway = normalize_runway
 
-local function aircraft_type(snapshot)
-    return clean_token(snapshot.aircraft_type, false) or "B738"
+local function airport_label(snapshot, icaoField, stationField)
+    local icao = clean_token(snapshot[icaoField], false)
+    if not icao or #icao ~= 4 or icao:find("-", 1, true) then return nil end
+
+    if snapshot.ofp_valid == true or tonumber(snapshot.ofp_valid) == 1 then
+        local originIcao = clean_token(snapshot.ofp_origin_icao, false)
+        local destinationIcao = clean_token(snapshot.ofp_destination_icao, false)
+        if originIcao == icao then
+            local originName = clean_ofp_station_name(snapshot.ofp_origin_name)
+            if originName then return originName, icao, "ofp" end
+        end
+        if destinationIcao == icao then
+            local destinationName = clean_ofp_station_name(snapshot.ofp_destination_name)
+            if destinationName then return destinationName, icao, "ofp" end
+        end
+    end
+
+    local stationIcaoField = stationField:gsub("_name$", "_icao")
+    local stationIcao = clean_token(snapshot[stationIcaoField], false)
+    local station = stationIcao == icao and clean_station_name(snapshot[stationField]) or nil
+    return station or icao, icao, station and "refdata" or "icao"
 end
+
+M.resolveAirportLabel = airport_label
 
 local function format_altitude(snapshot, descent)
     local indicated = tonumber(snapshot.altitude_ft)
@@ -460,18 +711,96 @@ end
 
 M.approachLabel = approach_label
 
-local function arrival_context(snapshot)
-    local airport = clean_token(snapshot.arrival_icao, false)
-    local runway = normalize_runway(snapshot.arrival_runway)
-    if not airport or #airport ~= 4 or not runway then return nil end
-    return airport, runway
+local MESSAGE_CONTRACTS = {
+    ["departure.flightplan_active"] = { scope = "local", station = "departure", missing = "missing_preflight_context" },
+    ["departure.start_push"] = { scope = "local", station = "pushback", missing = "missing_departure_context" },
+    ["departure.taxi_runway"] = { scope = "local", station = "departure", runway = "departure", missing = "missing_departure_context" },
+    ["departure.runway_crossing"] = { scope = "local", station = "departure", runway = "crossing", missing = "missing_runway_crossing_context" },
+    ["arrival.runway_crossing"] = { scope = "local", station = "arrival", runway = "crossing", missing = "missing_runway_crossing_context" },
+    ["departure.hold_short"] = { scope = "local", station = "departure", runway = "departure", missing = "missing_departure_context" },
+    ["departure.backtrack"] = { scope = "local", station = "departure", runway = "departure", missing = "missing_departure_context" },
+    ["departure.lining_up"] = { scope = "local", station = "departure", runway = "departure", missing = "missing_departure_context" },
+    ["departure.intersection"] = { scope = "local", station = "departure", runway = "departure", missing = "missing_intersection_context" },
+    ["departure.lineup_takeoff"] = { scope = "local", station = "departure", runway = "departure", missing = "missing_departure_context" },
+    ["departure.airborne"] = { scope = "local", station = "departure", runway = "departure", missing = "missing_departure_context" },
+    ["departure.on_climb"] = { scope = "departure_enroute", station = "departure", missing = "missing_climb_context" },
+    ["departure.climb_progress"] = { scope = "departure_enroute", station = "departure", missing = "missing_climb_context" },
+    [HOLD_ENTER_EVENT_ID] = { scope = "enroute", missing = "missing_hold_context" },
+    [HOLDING_EVENT_ID] = { scope = "enroute", missing = "missing_hold_context" },
+    [HOLD_DESCENDING_EVENT_ID] = { scope = "enroute", missing = "missing_hold_descent_context" },
+    [HOLD_EXIT_EVENT_ID] = { scope = "enroute", missing = "missing_hold_context" },
+    ["enroute.in_cruise"] = { scope = "enroute", missing = "missing_cruise_context" },
+    ["arrival.top_of_descent"] = { scope = "arrival_enroute", station = "arrival", runway = "arrival", missing = "missing_tod_context" },
+    ["arrival.on_descent"] = { scope = "arrival_enroute", station = "arrival", runway = "arrival", missing = "missing_arrival_context" },
+    ["arrival.descent_progress"] = { scope = "arrival_enroute", station = "arrival", runway = "arrival", missing = "missing_arrival_context" },
+    ["arrival.approach"] = { scope = "local", station = "arrival", runway = "arrival", missing = "missing_arrival_context" },
+    ["arrival.on_final"] = { scope = "local", station = "arrival", runway = "arrival", missing = "missing_final_context" },
+    ["arrival.short_final"] = { scope = "local", station = "arrival", runway = "arrival", missing = "missing_short_final_context" },
+    ["arrival.backtrack"] = { scope = "local", station = "arrival", runway = "arrival", missing = "missing_arrival_backtrack_context" },
+    ["arrival.runway_vacated"] = { scope = "local", station = "arrival", runway = "arrival", missing = "missing_vacated_context" },
+    ["arrival.parking_position"] = { scope = "local", station = "arrival_parking", missing = "missing_arrival_parking_context" }
+}
+
+local function message_contract(eventId)
+    if is_climb_progress_event(eventId) then return MESSAGE_CONTRACTS["departure.climb_progress"] end
+    if is_descent_progress_event(eventId) then return MESSAGE_CONTRACTS["arrival.descent_progress"] end
+    return MESSAGE_CONTRACTS[eventId]
 end
 
-local function departure_context(snapshot)
-    local airport = clean_token(snapshot.departure_icao, false)
-    local runway = normalize_runway(snapshot.departure_runway)
-    if not airport or #airport ~= 4 or not runway then return nil end
-    return airport, runway
+function M.messageScope(eventId)
+    local contract = message_contract(eventId)
+    return contract and contract.scope or nil
+end
+
+local function context_station(snapshot, stationRole)
+    if stationRole == "departure" then
+        return airport_label(snapshot, "departure_icao", "departure_station_name")
+    end
+    if stationRole == "arrival" then
+        return airport_label(snapshot, "arrival_icao", "arrival_station_name")
+    end
+    if stationRole == "pushback" then
+        return airport_label(snapshot, "pushback_airport_icao", "pushback_station_name")
+            or airport_label(snapshot, "departure_icao", "departure_station_name")
+    end
+    if stationRole == "arrival_parking" then
+        return airport_label(snapshot, "arrival_parking_airport_icao", "arrival_parking_station_name")
+            or airport_label(snapshot, "arrival_icao", "arrival_station_name")
+    end
+    return nil
+end
+
+local function context_runway(snapshot, runwayRole)
+    if runwayRole == "departure" then return normalize_runway(snapshot.departure_runway) end
+    if runwayRole == "arrival" then return normalize_runway(snapshot.arrival_runway) end
+    if runwayRole == "crossing" then return normalize_runway(snapshot.crossing_runway) end
+    return nil
+end
+
+local function message_context(eventId, snapshot, callsign)
+    local contract = message_contract(eventId)
+    if not contract then return nil, "unknown_event" end
+
+    local station = contract.station and context_station(snapshot, contract.station) or nil
+    local runway = contract.runway and context_runway(snapshot, contract.runway) or nil
+    if contract.station and not station then return nil, contract.missing end
+    if contract.runway and not runway then return nil, contract.missing end
+
+    local prefix = callsign
+    if contract.scope == "local" then
+        prefix = string.format("%s Traffic, %s", station, callsign)
+    elseif contract.scope == "departure_enroute" then
+        prefix = string.format("%s climbing out of %s", callsign, station)
+    elseif contract.scope == "arrival_enroute" then
+        prefix = string.format("%s inbound %s", callsign, station)
+    end
+
+    return {
+        contract = contract,
+        prefix = prefix,
+        station = station,
+        runway = runway
+    }
 end
 
 local function departure_intersection(snapshot)
@@ -487,52 +816,39 @@ end
 
 function M.buildMessage(eventId, snapshot)
     snapshot = snapshot or {}
-    local ac = aircraft_type(snapshot)
+    local ac = text_callsign(snapshot)
+    if not ac then return nil, "missing_effective_callsign" end
+    local context, contextReason = message_context(eventId, snapshot, ac)
+    if not context then return nil, contextReason end
 
     if eventId == "departure.flightplan_active" then
-        local airport = clean_token(snapshot.departure_icao, false)
-        local destination = clean_token(snapshot.arrival_icao, false)
-        if not airport or #airport ~= 4 or airport:find("-", 1, true)
-            or not destination or #destination ~= 4 or destination:find("-", 1, true)
-            or airport == destination then
+        local airportIcao = clean_token(snapshot.departure_icao, false)
+        local destination, destinationIcao = airport_label(snapshot, "arrival_icao", "arrival_station_name")
+        if not destination or airportIcao == destinationIcao then
             return nil, "missing_preflight_context"
         end
         local parking = parking_label(snapshot, "preflight_parking") or "parking position"
         return normalize_text(string.format(
-            "%s Traffic, %s at %s, preparing for departure to %s",
-            airport,
-            ac,
+            "%s at %s, preparing for departure to %s",
+            context.prefix,
             parking,
             destination
         ))
     end
 
     if eventId == "departure.start_push" then
-        local airport = clean_token(snapshot.pushback_airport_icao, false)
-            or clean_token(snapshot.departure_icao, false)
-        if not airport or #airport ~= 4 then return nil, "missing_departure_context" end
         local parking = parking_label(snapshot, "pushback_parking")
-        local text = string.format("%s Traffic, %s, pushing back", airport, ac)
+        local text = context.prefix .. " pushing back"
         if parking then text = text .. " from " .. parking end
         return normalize_text(text)
     end
 
     if eventId == "departure.taxi_runway" then
-        local airport, runway = departure_context(snapshot)
-        if not airport then return nil, "missing_departure_context" end
-        return normalize_text(string.format("%s Traffic, %s taxiing to holding point runway %s", airport, ac, runway))
+        return normalize_text(string.format("%s taxiing to holding point runway %s", context.prefix, context.runway))
     end
 
     if eventId == "departure.runway_crossing" or eventId == "arrival.runway_crossing" then
-        local airport = clean_token(
-            eventId == "departure.runway_crossing" and snapshot.departure_icao or snapshot.arrival_icao,
-            false
-        )
-        local runway = normalize_runway(snapshot.crossing_runway)
-        if not airport or #airport ~= 4 or not runway then
-            return nil, "missing_runway_crossing_context"
-        end
-        local text = string.format("%s Traffic, %s crossing runway %s", airport, ac, runway)
+        local text = string.format("%s crossing runway %s", context.prefix, context.runway)
         local taxiway = clean_token(snapshot.crossing_taxiway, true)
         if taxiway and #taxiway <= 24 then
             text = text .. " at taxiway " .. taxiway
@@ -541,68 +857,55 @@ function M.buildMessage(eventId, snapshot)
     end
 
     if eventId == "departure.hold_short" then
-        local airport, runway = departure_context(snapshot)
-        if not airport then return nil, "missing_departure_context" end
         local intersection = departure_intersection(snapshot)
         if intersection then
             return normalize_text(string.format(
-                "%s Traffic, %s holding short runway %s at intersection %s",
-                airport,
-                ac,
-                runway,
+                "%s holding short runway %s at intersection %s",
+                context.prefix,
+                context.runway,
                 intersection
             ))
         end
         return normalize_text(string.format(
-            "%s Traffic, %s holding short runway %s",
-            airport,
-            ac,
-            runway
+            "%s holding short runway %s",
+            context.prefix,
+            context.runway
         ))
     end
 
     if eventId == "departure.backtrack" then
-        local airport, runway = departure_context(snapshot)
-        if not airport then return nil, "missing_departure_context" end
-        local text = string.format("%s Traffic, %s backtracking runway %s", airport, ac, runway)
+        local text = string.format("%s backtracking runway %s", context.prefix, context.runway)
         local intersection = departure_intersection(snapshot)
         if intersection then text = text .. ", intersection " .. intersection end
         return normalize_text(text)
     end
 
     if eventId == "departure.lining_up" then
-        local airport, runway = departure_context(snapshot)
-        if not airport then return nil, "missing_departure_context" end
-        local text = string.format("%s Traffic, %s lining up runway %s", airport, ac, runway)
+        local text = string.format("%s lining up runway %s", context.prefix, context.runway)
         local intersection = departure_intersection(snapshot)
-        if intersection then text = text .. ", intersection " .. intersection end
+        if intersection then text = text .. " at taxiway " .. intersection end
         return normalize_text(text)
     end
 
     if eventId == "departure.intersection" then
-        local airport, runway = departure_context(snapshot)
         local intersection = departure_intersection(snapshot)
-        if not airport or not intersection then return nil, "missing_intersection_context" end
+        if not intersection then return nil, "missing_intersection_context" end
         return normalize_text(string.format(
-            "%s Traffic, %s lining up runway %s, intersection %s",
-            airport,
-            ac,
-            runway,
+            "%s lining up runway %s, intersection %s",
+            context.prefix,
+            context.runway,
             intersection
         ))
     end
 
     if eventId == "departure.lineup_takeoff" then
-        local airport, runway = departure_context(snapshot)
-        if not airport then return nil, "missing_departure_context" end
-        return normalize_text(string.format("%s Traffic, %s taking off runway %s", airport, ac, runway))
+        return normalize_text(string.format("%s taking off runway %s", context.prefix, context.runway))
     end
 
     if eventId == "departure.airborne" then
-        local airport, runway = departure_context(snapshot)
         local altitude = format_altitude(snapshot, false)
-        if not airport or not altitude then return nil, "missing_departure_context" end
-        return normalize_text(string.format("%s Traffic, %s airborne off runway %s, passing %s", airport, ac, runway, altitude))
+        if not altitude then return nil, "missing_departure_context" end
+        return normalize_text(string.format("%s airborne runway %s, passing %s", context.prefix, context.runway, altitude))
     end
 
     if eventId == HOLD_ENTER_EVENT_ID or eventId == HOLDING_EVENT_ID
@@ -610,14 +913,14 @@ function M.buildMessage(eventId, snapshot)
         local waypoint = clean_token(snapshot.hold_waypoint, false)
         if not waypoint then return nil, "missing_hold_context" end
         if eventId == HOLD_ENTER_EVENT_ID then
-            return normalize_text(string.format("%s entering a hold over %s", ac, waypoint))
+            return normalize_text(string.format("%s entering a hold over %s", context.prefix, waypoint))
         end
         if eventId == HOLDING_EVENT_ID then
-            local altitude = format_altitude(snapshot, false)
+            local altitude = format_hold_target_altitude(snapshot) or format_altitude(snapshot, false)
             if not altitude then return nil, "missing_hold_context" end
             return normalize_text(string.format(
                 "%s maintaining %s whilst holding over %s",
-                ac,
+                context.prefix,
                 altitude,
                 waypoint
             ))
@@ -628,13 +931,13 @@ function M.buildMessage(eventId, snapshot)
             if not altitude or not target then return nil, "missing_hold_descent_context" end
             return normalize_text(string.format(
                 "%s in a hold over %s on descent passing %s for %s",
-                ac,
+                context.prefix,
                 waypoint,
                 altitude,
                 target
             ))
         end
-        return normalize_text(string.format("%s exiting hold over %s", ac, waypoint))
+        return normalize_text(string.format("%s exiting hold over %s", context.prefix, waypoint))
     end
 
     if eventId == "enroute.in_cruise" then
@@ -642,17 +945,22 @@ function M.buildMessage(eventId, snapshot)
         if snapshot.cruise_entry == true then
             local altitude = format_planned_altitude(snapshot) or format_altitude(snapshot, false)
             if not altitude then return nil, "missing_cruise_context" end
-            local text = string.format("%s level at %s", ac, altitude)
+            local text = string.format("%s level at %s", context.prefix, altitude)
             if nextWaypoint then text = text .. ", " .. nextWaypoint .. " next" end
             return normalize_text(text)
         end
         local altitude = format_altitude(snapshot, false)
         if not altitude then return nil, "missing_cruise_context" end
+        if snapshot.cruise_periodic == true then
+            local text = string.format("%s maintaining %s", context.prefix, altitude)
+            if nextWaypoint then text = text .. ", " .. nextWaypoint .. " next" end
+            return normalize_text(text)
+        end
         local waypoint = clean_token(snapshot.cruise_waypoint, false)
         if not waypoint then return nil, "missing_cruise_context" end
         local text = string.format(
             "%s passing %s, maintaining %s",
-            ac,
+            context.prefix,
             waypoint,
             altitude
         )
@@ -661,13 +969,12 @@ function M.buildMessage(eventId, snapshot)
     end
 
     if eventId == "departure.on_climb" or is_climb_progress_event(eventId) then
-        local airport = clean_token(snapshot.departure_icao, false)
         local altitude = format_altitude(snapshot, false)
-        if not airport or #airport ~= 4 or not altitude then return nil, "missing_climb_context" end
+        if not altitude then return nil, "missing_climb_context" end
         local sid = eventId == "departure.on_climb" and clean_token(snapshot.sid, false) or nil
         local nextWaypoint = clean_token(snapshot.climb_next_waypoint, false)
         local planned = format_planned_altitude(snapshot)
-        local text = string.format("%s climbing out of %s", ac, airport)
+        local text = context.prefix
         if sid then text = text .. " on " .. sid .. " departure" end
         text = text .. ", passing " .. altitude
         if planned then text = text .. " for " .. planned end
@@ -676,87 +983,80 @@ function M.buildMessage(eventId, snapshot)
     end
 
     if eventId == "arrival.top_of_descent" then
-        local airport, runway = arrival_context(snapshot)
         local altitude = format_altitude(snapshot, true)
-        if not airport or not altitude then return nil, "missing_tod_context" end
+        if not altitude then return nil, "missing_tod_context" end
         local star = clean_token(snapshot.star, false)
-        local text = string.format("%s Traffic, %s,", airport, ac)
-        if star then text = text .. " " .. star .. " arrival" end
-        text = text .. " at TOD, leaving " .. altitude .. ", expecting runway " .. runway
+        local text = context.prefix
+        if star then text = text .. ", " .. star .. " arrival" end
+        text = text .. ", at TOD leaving " .. altitude .. ", expecting runway " .. context.runway
         return normalize_text(text)
     end
 
     if eventId == "arrival.on_descent" then
-        local airport, runway = arrival_context(snapshot)
         local altitude = format_planned_altitude(snapshot) or format_altitude(snapshot, true)
-        if not airport or not altitude then return nil, "missing_arrival_context" end
+        if not altitude then return nil, "missing_arrival_context" end
         local star = clean_token(snapshot.star, false)
         local approach = approach_label(snapshot)
-        local text = string.format("%s Traffic, %s", airport, ac)
-        if star then text = text .. " " .. star .. " arrival" end
-        text = text .. " for "
-        if approach then text = text .. approach .. " approach " end
-        text = text .. "runway " .. runway .. ", descent started from " .. altitude
+        local text = context.prefix
+        if star then text = text .. ", " .. star .. " arrival" end
+        if approach then text = text .. ", " .. approach .. " approach" end
+        text = text .. " runway " .. context.runway .. ", descent started from " .. altitude
         return normalize_text(text)
     end
 
-    if eventId == "arrival.approach" or is_descent_progress_event(eventId) then
-        local airport, runway = arrival_context(snapshot)
+    if eventId == "arrival.approach" then
         local altitude = format_altitude(snapshot, true)
-        if not airport or not altitude then return nil, "missing_arrival_context" end
+        if not altitude then return nil, "missing_arrival_context" end
         local star = clean_token(snapshot.star, false)
         local approach = approach_label(snapshot)
-        local text = string.format("%s Traffic, %s", airport, ac)
+        local text = context.prefix
         if star then text = text .. " " .. star .. " arrival" end
         text = text .. " for "
         if approach then text = text .. approach .. " approach " end
-        text = text .. "runway " .. runway .. ", on descent passing " .. altitude
+        text = text .. "runway " .. context.runway .. ", on descent passing " .. altitude
+        return normalize_text(text)
+    end
+
+    if is_descent_progress_event(eventId) then
+        local altitude = format_altitude(snapshot, true)
+        if not altitude then return nil, "missing_arrival_context" end
+        local star = clean_token(snapshot.star, false)
+        local approach = approach_label(snapshot)
+        local text = context.prefix
+        if star then text = text .. ", " .. star .. " arrival" end
+        if approach then text = text .. ", " .. approach .. " approach" end
+        text = text .. " runway " .. context.runway .. ", on descent passing " .. altitude
         return normalize_text(text)
     end
 
     if eventId == "arrival.on_final" then
-        local airport, runway = arrival_context(snapshot)
-        if not airport then return nil, "missing_final_context" end
         local kind = clean_token(snapshot.approach_procedure_type, false)
         if kind == "ILS" then
-            return normalize_text(string.format("%s Traffic, %s established on ILS runway %s", airport, ac, runway))
+            return normalize_text(string.format("%s established on ILS runway %s", context.prefix, context.runway))
         elseif kind == "LOC" then
-            return normalize_text(string.format("%s Traffic, %s established on Localizer runway %s", airport, ac, runway))
+            return normalize_text(string.format("%s established on Localizer runway %s", context.prefix, context.runway))
         end
-        return normalize_text(string.format("%s Traffic, %s on final runway %s", airport, ac, runway))
+        return normalize_text(string.format("%s on final runway %s", context.prefix, context.runway))
     end
 
     if eventId == "arrival.short_final" then
-        local airport, runway = arrival_context(snapshot)
-        if not airport then return nil, "missing_short_final_context" end
-        return normalize_text(string.format(
-            "%s Traffic, %s on SHORT FINAL runway %s - Landing is imminent",
-            airport,
-            ac,
-            runway
-        ))
+        return normalize_text(string.format("%s short final runway %s", context.prefix, context.runway))
     end
 
     if eventId == "arrival.backtrack" then
-        local airport, runway = arrival_context(snapshot)
-        if not airport then return nil, "missing_arrival_backtrack_context" end
-        return normalize_text(string.format("%s Traffic, %s backtracking runway %s", airport, ac, runway))
+        return normalize_text(string.format("%s backtracking runway %s", context.prefix, context.runway))
     end
 
     if eventId == "arrival.runway_vacated" then
-        local airport, runway = arrival_context(snapshot)
-        if not airport then return nil, "missing_vacated_context" end
-        return normalize_text(string.format("%s Traffic, runway %s vacated, taxiing to gate", airport, runway))
+        return normalize_text(string.format("%s runway %s vacated, taxiing to gate", context.prefix, context.runway))
     end
 
     if eventId == "arrival.parking_position" then
-        local airport = clean_token(snapshot.arrival_parking_airport_icao, false)
-            or clean_token(snapshot.arrival_icao, false)
-        if not airport or #airport ~= 4 or snapshot.arrival_parking_found ~= true then
+        if snapshot.arrival_parking_found ~= true then
             return nil, "missing_arrival_parking_context"
         end
         local parking = parking_label(snapshot, "arrival_parking")
-        local text = string.format("%s Traffic, %s parked", airport, ac)
+        local text = context.prefix .. " parked"
         if parking then
             text = text .. " at " .. parking
         else
@@ -787,30 +1087,42 @@ function M.buildVoiceMessage(eventId, snapshot, spellNato, visibleText)
     end)
 
     local replacements = {}
-    add_voice_token(replacements, aircraft_type(snapshot), voice_aircraft_type(snapshot.aircraft_type, spellNato))
+    add_voice_token(replacements, text_callsign(snapshot), voice_callsign(snapshot, spellNato))
 
     local airports = {
-        snapshot.departure_icao,
-        snapshot.arrival_icao,
-        snapshot.pushback_airport_icao,
-        snapshot.arrival_parking_airport_icao
+        { "departure_icao", "departure_station_name" },
+        { "arrival_icao", "arrival_station_name" },
+        { "pushback_airport_icao", "pushback_station_name" },
+        { "arrival_parking_airport_icao", "arrival_parking_station_name" }
     }
     for _, value in ipairs(airports) do
-        local token = clean_token(value, false)
-        if token and #token == 4 then add_voice_token(replacements, token, spellNato(token)) end
+        local label, token = airport_label(snapshot, value[1], value[2])
+        if label and label ~= token then
+            add_voice_token(replacements, label, voice_station_name(label))
+        elseif token then
+            add_voice_token(replacements, token, spellNato(token))
+        end
     end
 
     local namedIdentifiers = {
-        snapshot.sid,
-        snapshot.star,
-        snapshot.climb_next_waypoint,
-        snapshot.cruise_waypoint,
-        snapshot.cruise_next_waypoint,
-        snapshot.hold_waypoint
+        { "sid", snapshot.sid },
+        { "star", snapshot.star },
+        { "climb_next_waypoint", snapshot.climb_next_waypoint },
+        { "cruise_waypoint", snapshot.cruise_waypoint },
+        { "cruise_next_waypoint", snapshot.cruise_next_waypoint },
+        { "hold_waypoint", snapshot.hold_waypoint }
     }
-    for _, value in ipairs(namedIdentifiers) do
+    for _, entry in ipairs(namedIdentifiers) do
+        local fieldName = entry[1]
+        local value = entry[2]
         local token = clean_token(value, false)
-        if token then add_voice_token(replacements, token, voice_named_identifier(token, spellNato)) end
+        if token then
+            add_voice_token(
+                replacements,
+                token,
+                voice_named_identifier(token, spellNato, snapshot[fieldName .. "_nav_name"])
+            )
+        end
     end
 
     local approachSuffix = clean_token(snapshot.approach_suffix, false)
@@ -829,7 +1141,7 @@ function M.buildVoiceMessage(eventId, snapshot, spellNato, visibleText)
 
     local fixedTokens = {
         { "TOD", "top of descent" },
-        { "RNAV", "R N A V" },
+        { "RNAV", "R NAV" },
         { "ILS", "I L S" },
         { "GLS", "G L S" },
         { "LPV", "L P V" },
@@ -845,6 +1157,7 @@ function M.buildVoiceMessage(eventId, snapshot, spellNato, visibleText)
     for _, replacement in ipairs(replacements) do
         text = replace_token(text, replacement.raw, replacement.spoken)
     end
+    text = text:gsub("%d", function(value) return AVIATION_DIGITS[value] end)
     return normalize_voice_text(text)
 end
 
@@ -863,13 +1176,25 @@ local function summarize_sources(snapshot)
         { "pressureAlt", snapshot.pressure_altitude_ft },
         { "vs", snapshot.vertical_speed_fpm },
         { "gs", snapshot.ground_speed_kts },
+        { "callsign", snapshot.effective_callsign },
         { "dep", snapshot.departure_icao },
+        { "depStation", snapshot.departure_station_name },
         { "depRwy", snapshot.departure_runway },
         { "arr", snapshot.arrival_icao },
+        { "arrStation", snapshot.arrival_station_name },
         { "arrRwy", snapshot.arrival_runway },
+        { "ofpValid", (snapshot.ofp_valid == true or tonumber(snapshot.ofp_valid) == 1) and 1 or 0 },
+        { "ofpSeq", snapshot.ofp_update_seq },
+        { "ofpOrigin", snapshot.ofp_origin_icao },
+        { "ofpOriginName", snapshot.ofp_origin_name },
+        { "ofpDestination", snapshot.ofp_destination_icao },
+        { "ofpDestinationName", snapshot.ofp_destination_name },
         { "sid", snapshot.sid },
+        { "sidNav", snapshot.sid_nav_name },
         { "climbNext", snapshot.climb_next_waypoint },
+        { "climbNextNav", snapshot.climb_next_waypoint_nav_name },
         { "star", snapshot.star },
+        { "starNav", snapshot.star_nav_name },
         { "app", snapshot.approach_id },
         { "tod", snapshot.tod_distance_nm },
         { "preflightParking", snapshot.preflight_parking_found and 1 or 0 },
@@ -892,11 +1217,15 @@ local function summarize_sources(snapshot)
         { "crossingTwy", snapshot.crossing_taxiway },
         { "holdSource", snapshot.hold_source },
         { "holdWaypoint", snapshot.hold_waypoint },
+        { "holdWaypointNav", snapshot.hold_waypoint_nav_name },
         { "holdPath", snapshot.hold_path_type },
         { "holdEntryComplete", snapshot.hold_entry_complete and 1 or 0 },
         { "holdTarget", snapshot.hold_target_altitude_ft },
+        { "cruisePeriodic", snapshot.cruise_periodic and 1 or 0 },
         { "cruiseWaypoint", snapshot.cruise_waypoint },
+        { "cruiseWaypointNav", snapshot.cruise_waypoint_nav_name },
         { "cruiseNext", snapshot.cruise_next_waypoint },
+        { "cruiseNextNav", snapshot.cruise_next_waypoint_nav_name },
         { "final", snapshot.final_gate and 1 or 0 },
         { "shortFinal", snapshot.short_final_gate and 1 or 0 }
     }
@@ -1276,7 +1605,7 @@ function Mailbox:tick(api, now)
 
     if self.blocked or #self.queue == 0 then return end
     local apiVersion = tonumber(api.api_version)
-    if (apiVersion ~= 1 and apiVersion ~= 2) or tonumber(api.ready) ~= 1 then return end
+    if (apiVersion ~= 1 and apiVersion ~= 2 and apiVersion ~= 3) or tonumber(api.ready) ~= 1 then return end
     local mode = tonumber(api.mode) or 0
     if mode ~= 2 or tonumber(api.transport_state) ~= 5 then return end
 
@@ -1294,7 +1623,7 @@ function Mailbox:tick(api, now)
     local event = self.queue[1]
     local channels = 1
     if not self.writeText(event.text) then return end
-    if apiVersion == 2 then
+    if apiVersion >= 2 then
         if event.voice_text then
             channels = 3
             if not self.writeVoiceText(event.voice_text) then return end

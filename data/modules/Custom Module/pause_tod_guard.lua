@@ -12,7 +12,31 @@ P.ARM_MIN_TOD_NM = 2
 P.ARM_MAX_TOD_NM = 8.5
 P.MCP_DESCENT_DELTA_FT = 100
 P.DESCENT_VS_FPM = -300
+P.RELEASE_GRACE_SEC = 10
 P.CONFIRM_WINDOW_SEC = 10
+
+function P.isMcpDescentSelected(currentMcpFt, cruiseAltitudeFt)
+    local currentMcp = finiteNumber(currentMcpFt)
+    local cruiseAltitude = finiteNumber(cruiseAltitudeFt)
+    if not currentMcp or currentMcp <= 0 or not cruiseAltitude or cruiseAltitude <= 0 then
+        return false
+    end
+
+    local cruiseRounded = math.floor((cruiseAltitude / 100) + 0.5) * 100
+    return (cruiseRounded - currentMcp) >= P.MCP_DESCENT_DELTA_FT
+end
+
+function P.autoDisableOwnershipAction(input)
+    input = input or {}
+    if input.owned ~= true then return "none" end
+    if input.pause_setting_on == true then return "clear" end
+    if input.airborne ~= true then return "restore" end
+    if input.flightstate ~= input.cruise_flightstate
+        or input.fms_phase ~= input.cruise_fms_phase then
+        return "restore"
+    end
+    return "hold"
+end
 
 function P.isArmEligible(input)
     input = input or {}
@@ -52,6 +76,9 @@ function P.evaluateRelease(input)
         and (baselineMcp - currentMcp) >= P.MCP_DESCENT_DELTA_FT then
         return "accept", "mcp-lowered"
     end
+    if P.isMcpDescentSelected(currentMcp, input.cruise_altitude_ft) then
+        return "accept", "mcp-below-cruise"
+    end
 
     local verticalSpeed = tonumber(input.vertical_speed_fpm)
     if verticalSpeed and verticalSpeed <= P.DESCENT_VS_FPM then
@@ -59,6 +86,19 @@ function P.evaluateRelease(input)
     end
 
     return "repause", "unchanged-cruise"
+end
+
+function P.evaluateReleaseWithGrace(input)
+    input = input or {}
+    local action, reason = P.evaluateRelease(input)
+    if action == "accept" then return action, reason end
+
+    local now = tonumber(input.now) or 0
+    local graceUntil = tonumber(input.grace_until)
+    if not graceUntil or now < graceUntil then
+        return "grace", reason
+    end
+    return "repause", reason
 end
 
 function P.isNativeSaveLatched(input)

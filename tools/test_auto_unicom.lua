@@ -45,6 +45,35 @@ local function copy(source, overrides)
     return result
 end
 
+assert_true(core.shouldSuppressProgressLevel(40000, 41000),
+    "FL400 is suppressed near FL410 phase boundary")
+assert_true(core.shouldSuppressProgressLevel(30000, 34000),
+    "progress level below 5000 feet from boundary is suppressed")
+assert_equal(core.shouldSuppressProgressLevel(30000, 35000), false,
+    "progress level exactly 5000 feet from boundary is retained")
+assert_equal(core.shouldSuppressProgressLevel(30000, 29000), false,
+    "progress level above phase boundary is retained")
+assert_equal(core.shouldSuppressProgressLevel(30000, nil), false,
+    "missing phase boundary retains progress level")
+assert_equal(core.isCruiseReportDue(1000, 1599), false,
+    "cruise report remains gated before 600 seconds")
+assert_true(core.isCruiseReportDue(1000, 1600),
+    "cruise report is due exactly at 600 seconds")
+assert_true(core.isCruiseReportDue(nil, 1600),
+    "missing prior cruise report is immediately due")
+assert_equal(core.isCruiseReportDue(1600, 1600), false,
+    "cruise reload baseline starts a fresh report interval")
+assert_equal(core.isHoldLevelStable(5177, -321, 5100), false,
+    "hold is not maintaining while still descending")
+assert_true(core.isHoldLevelStable(5105, -50, 5100),
+    "hold is maintaining near the valid target")
+assert_equal(core.isHoldLevelStable(5250, 0, 5100), false,
+    "hold is not maintaining outside target tolerance")
+assert_equal(core.isHoldLevelStable(5100, 200, 5100), false,
+    "hold is not maintaining with excessive vertical speed")
+assert_true(core.isHoldLevelStable(5177, -321, nil),
+    "hold without a valid target retains live-altitude fallback")
+
 local base = {
     on_ground = true,
     on_departure_runway = false,
@@ -71,9 +100,14 @@ local base = {
     transition_level_ft = 7000,
     planned_altitude_ft = 37000,
     departure_icao = "ENAT",
+    departure_station_name = "ALTA",
+    departure_station_icao = "ENAT",
     departure_runway = "09",
     arrival_icao = "ENSB",
+    arrival_station_name = "SVALBARD",
+    arrival_station_icao = "ENSB",
     arrival_runway = "27",
+    effective_callsign = "DLH3210",
     aircraft_type = "B738",
     sid = "ATKUP1A",
     climb_next_waypoint = "BIRCO",
@@ -83,126 +117,157 @@ local base = {
     approach_suffix = "W"
 }
 
+assert_equal(
+    core.buildMessage("enroute.holding", copy(base, {
+        hold_waypoint = "BIRCO",
+        altitude_ft = 37000,
+        pressure_altitude_ft = 37000
+    })),
+    "Lufthansa 3210 maintaining FL370 whilst holding over BIRCO",
+    "hold without target uses live altitude"
+)
+
+local function test_refdata_airport(icao)
+    local names = { ENAT = "ALTA", ENSB = "SVALBARD" }
+    local name = names[tostring(icao or ""):upper()]
+    if not name then return { station_name = "", station_name_valid = false } end
+    return { station_name = name, station_name_valid = true }
+end
+
+local function test_refdata_nav(ident)
+    local names = {
+        DCS = "DEAN CROSS DME",
+        WAL = "WALLASEY VOR/DME"
+    }
+    local name = names[tostring(ident or ""):upper()]
+    return name and { name = name } or nil
+end
+
 local phraseCases = {
     {
         "departure.airborne",
         base,
-        "ENAT Traffic, B738 airborne off runway 09, passing 300ft"
+        "ALTA Traffic, Lufthansa 3210 airborne runway 09, passing 300ft"
     },
     {
         "departure.on_climb",
         copy(base, { altitude_ft = 1800, pressure_altitude_ft = 1800 }),
-        "B738 climbing out of ENAT on ATKUP1A departure, passing 1800ft for FL370, BIRCO next"
+        "Lufthansa 3210 climbing out of ALTA on ATKUP1A departure, passing 1800ft for FL370, BIRCO next"
     },
     {
         "arrival.top_of_descent",
         copy(base, { altitude_ft = 37000, pressure_altitude_ft = 37000 }),
-        "ENSB Traffic, B738, NELSA3M arrival at TOD, leaving FL370, expecting runway 27"
+        "Lufthansa 3210 inbound SVALBARD, NELSA3M arrival, at TOD leaving FL370, expecting runway 27"
     },
     {
         "arrival.on_descent",
         copy(base, { altitude_ft = 18000, pressure_altitude_ft = 18000 }),
-        "ENSB Traffic, B738 NELSA3M arrival for RNAV W approach runway 27, descent started from FL370"
+        "Lufthansa 3210 inbound SVALBARD, NELSA3M arrival, RNAV W approach runway 27, descent started from FL370"
     },
     {
         "arrival.approach",
         copy(base, { altitude_ft = 6000, pressure_altitude_ft = 6000 }),
-        "ENSB Traffic, B738 NELSA3M arrival for RNAV W approach runway 27, on descent passing 6000ft"
+        "SVALBARD Traffic, Lufthansa 3210 NELSA3M arrival for RNAV W approach runway 27, on descent passing 6000ft"
     },
     {
         "arrival.on_final",
         copy(base, { approach_procedure_type = "ILS" }),
-        "ENSB Traffic, B738 established on ILS runway 27"
+        "SVALBARD Traffic, Lufthansa 3210 established on ILS runway 27"
     },
     {
         "arrival.runway_vacated",
         base,
-        "ENSB Traffic, runway 27 vacated, taxiing to gate"
+        "SVALBARD Traffic, Lufthansa 3210 runway 27 vacated, taxiing to gate"
     },
     {
         "departure.start_push",
         base,
-        "ENAT Traffic, B738, pushing back"
+        "ALTA Traffic, Lufthansa 3210 pushing back"
     },
     {
         "departure.taxi_runway",
         base,
-        "ENAT Traffic, B738 taxiing to holding point runway 09"
+        "ALTA Traffic, Lufthansa 3210 taxiing to holding point runway 09"
     },
     {
         "departure.lineup_takeoff",
         base,
-        "ENAT Traffic, B738 taking off runway 09"
+        "ALTA Traffic, Lufthansa 3210 taking off runway 09"
     },
     {
         "arrival.descent_level_30000",
         copy(base, { altitude_ft = 30000, pressure_altitude_ft = 30000 }),
-        "ENSB Traffic, B738 NELSA3M arrival for RNAV W approach runway 27, on descent passing FL300"
+        "Lufthansa 3210 inbound SVALBARD, NELSA3M arrival, RNAV W approach runway 27, on descent passing FL300"
     },
     {
         "departure.climb_level_10000",
         copy(base, { altitude_ft = 10000, pressure_altitude_ft = 10000 }),
-        "B738 climbing out of ENAT, passing FL100 for FL370, BIRCO next"
+        "Lufthansa 3210 climbing out of ALTA, passing FL100 for FL370, BIRCO next"
     },
     {
         "departure.climb_level_20000",
         copy(base, { altitude_ft = 20000, pressure_altitude_ft = 20000 }),
-        "B738 climbing out of ENAT, passing FL200 for FL370, BIRCO next"
+        "Lufthansa 3210 climbing out of ALTA, passing FL200 for FL370, BIRCO next"
     },
     {
         "departure.climb_level_30000",
         copy(base, { altitude_ft = 30000, pressure_altitude_ft = 30000 }),
-        "B738 climbing out of ENAT, passing FL300 for FL370, BIRCO next"
+        "Lufthansa 3210 climbing out of ALTA, passing FL300 for FL370, BIRCO next"
     },
     {
         "departure.climb_level_40000",
         copy(base, { altitude_ft = 40000, pressure_altitude_ft = 40000, planned_altitude_ft = 41000 }),
-        "B738 climbing out of ENAT, passing FL400 for FL410, BIRCO next"
+        "Lufthansa 3210 climbing out of ALTA, passing FL400 for FL410, BIRCO next"
     },
     {
         "enroute.hold_enter",
         copy(base, { hold_waypoint = "BIRCO", hold_path_type = "HM" }),
-        "B738 entering a hold over BIRCO"
+        "Lufthansa 3210 entering a hold over BIRCO"
     },
     {
         "enroute.hold_exit",
         copy(base, { hold_waypoint = "BIRCO", hold_path_type = "HM" }),
-        "B738 exiting hold over BIRCO"
+        "Lufthansa 3210 exiting hold over BIRCO"
     },
     {
         "departure.hold_short",
         base,
-        "ENAT Traffic, B738 holding short runway 09"
+        "ALTA Traffic, Lufthansa 3210 holding short runway 09"
     },
     {
         "departure.hold_short",
         copy(base, { departure_intersection = "Intersection A" }),
-        "ENAT Traffic, B738 holding short runway 09 at intersection A"
+        "ALTA Traffic, Lufthansa 3210 holding short runway 09 at intersection A"
     },
     {
         "departure.backtrack",
         copy(base, { departure_intersection = "A" }),
-        "ENAT Traffic, B738 backtracking runway 09, intersection A"
+        "ALTA Traffic, Lufthansa 3210 backtracking runway 09, intersection A"
     },
     {
         "departure.intersection",
         copy(base, { departure_intersection = "A" }),
-        "ENAT Traffic, B738 lining up runway 09, intersection A"
+        "ALTA Traffic, Lufthansa 3210 lining up runway 09, intersection A"
     },
     {
         "arrival.short_final",
         base,
-        "ENSB Traffic, B738 on SHORT FINAL runway 27 - Landing is imminent"
+        "SVALBARD Traffic, Lufthansa 3210 short final runway 27"
     },
     {
         "enroute.in_cruise",
         copy(base, { cruise_waypoint = "BIRCO", altitude_ft = 37000, pressure_altitude_ft = 37000 }),
-        "B738 passing BIRCO, maintaining FL370"
+        "Lufthansa 3210 passing BIRCO, maintaining FL370"
     },
     {
         "enroute.holding",
-        copy(base, { hold_waypoint = "BIRCO", altitude_ft = 37000, pressure_altitude_ft = 37000 }),
-        "B738 maintaining FL370 whilst holding over BIRCO"
+        copy(base, {
+            hold_waypoint = "BIRCO",
+            hold_target_altitude_ft = 5100,
+            altitude_ft = 5177,
+            pressure_altitude_ft = 5173
+        }),
+        "Lufthansa 3210 maintaining 5100ft whilst holding over BIRCO"
     },
     {
         "enroute.hold_descending",
@@ -212,12 +277,12 @@ local phraseCases = {
             altitude_ft = 37000,
             pressure_altitude_ft = 37000
         }),
-        "B738 in a hold over BIRCO on descent passing FL370 for FL250"
+        "Lufthansa 3210 in a hold over BIRCO on descent passing FL370 for FL250"
     },
     {
         "arrival.backtrack",
         base,
-        "ENSB Traffic, B738 backtracking runway 27"
+        "SVALBARD Traffic, Lufthansa 3210 backtracking runway 27"
     },
     {
         "arrival.parking_position",
@@ -226,7 +291,7 @@ local phraseCases = {
             arrival_parking_type = "gate",
             arrival_parking_name = "Gate B7"
         }),
-        "ENSB Traffic, B738 parked at gate B7"
+        "SVALBARD Traffic, Lufthansa 3210 parked at gate B7"
     },
     {
         "departure.flightplan_active",
@@ -235,22 +300,22 @@ local phraseCases = {
             preflight_parking_type = "gate",
             preflight_parking_name = "Gate 4"
         }),
-        "ENAT Traffic, B738 at gate 4, preparing for departure to ENSB"
+        "ALTA Traffic, Lufthansa 3210 at gate 4, preparing for departure to SVALBARD"
     },
     {
         "departure.runway_crossing",
         copy(base, { crossing_runway = "08", crossing_taxiway = "Z" }),
-        "ENAT Traffic, B738 crossing runway 08 at taxiway Z"
+        "ALTA Traffic, Lufthansa 3210 crossing runway 08 at taxiway Z"
     },
     {
         "arrival.runway_crossing",
         copy(base, { crossing_runway = "16" }),
-        "ENSB Traffic, B738 crossing runway 16"
+        "SVALBARD Traffic, Lufthansa 3210 crossing runway 16"
     },
     {
         "departure.lining_up",
         base,
-        "ENAT Traffic, B738 lining up runway 09"
+        "ALTA Traffic, Lufthansa 3210 lining up runway 09"
     }
 }
 
@@ -258,28 +323,148 @@ for _, case in ipairs(phraseCases) do
     local text = core.buildMessage(case[1], case[2])
     assert_equal(text, case[3], "phrase " .. case[1])
     assert_true(not text:lower():find(" the ", 1, true), "phrase has no 'the' " .. case[1])
+
+    local scope = core.messageScope(case[1])
+    assert_true(scope ~= nil, "message contract exists " .. case[1])
+    local voice = core.buildVoiceMessage(case[1], case[2], test_spell_nato, text)
+    assert_true(voice ~= nil, "paired voice message exists " .. case[1])
+    if scope == "local" then
+        assert_true(text:find(" Traffic, ", 1, true) ~= nil,
+            "local message addresses Traffic " .. case[1])
+        assert_true(voice:find(" Traffic, ", 1, true) ~= nil,
+            "local voice message keeps Traffic address " .. case[1])
+    elseif scope == "departure_enroute" then
+        assert_true(text:find("climbing out of ALTA", 1, true) ~= nil,
+            "departure enroute message retains departure station " .. case[1])
+        assert_true(voice:find("climbing out of Alta", 1, true) ~= nil,
+            "departure enroute voice retains departure station " .. case[1])
+        assert_true(text:find(" Traffic, ", 1, true) == nil,
+            "departure enroute message omits local Traffic address " .. case[1])
+    elseif scope == "arrival_enroute" then
+        assert_true(text:find("inbound SVALBARD", 1, true) ~= nil,
+            "arrival enroute message retains destination station " .. case[1])
+        assert_true(voice:find("inbound Svalbard", 1, true) ~= nil,
+            "arrival enroute voice retains destination station " .. case[1])
+        assert_true(text:find(" Traffic, ", 1, true) == nil,
+            "arrival enroute message omits local Traffic address " .. case[1])
+    elseif scope == "enroute" then
+        assert_true(text:find(" Traffic, ", 1, true) == nil,
+            "global enroute message omits local Traffic address " .. case[1])
+    else
+        fail("unknown message-contract scope " .. tostring(scope) .. " for " .. case[1])
+    end
+end
+
+assert_equal(core.messageScope("departure.climb_level_20000"), "departure_enroute",
+    "dynamic climb event uses departure-enroute contract")
+assert_equal(core.messageScope("arrival.descent_level_20000"), "arrival_enroute",
+    "dynamic descent event uses arrival-enroute contract")
+assert_equal(core.messageScope("unknown.event"), nil, "unknown event has no message contract")
+
+local pacdDescentSnapshot = copy(base, {
+    arrival_icao = "PACD",
+    arrival_station_name = "",
+    arrival_station_icao = "PACD",
+    arrival_runway = "15",
+    ofp_valid = true,
+    ofp_origin_icao = "PHLI",
+    ofp_origin_name = "LIHUE",
+    ofp_destination_icao = "PACD",
+    ofp_destination_name = "COLD BAY",
+    star = "",
+    approach_id = "I15",
+    approach_procedure_type = "ILS",
+    approach_suffix = "",
+    altitude_ft = 39976,
+    pressure_altitude_ft = 39966,
+    planned_altitude_ft = 40000
+})
+local pacdDescentText = core.buildMessage("arrival.on_descent", pacdDescentSnapshot)
+assert_equal(
+    pacdDescentText,
+    "Lufthansa 3210 inbound COLD BAY, ILS approach runway 15, descent started from FL400",
+    "descent start retains selected PACD destination label"
+)
+assert_equal(
+    core.buildVoiceMessage("arrival.on_descent", pacdDescentSnapshot, test_spell_nato, pacdDescentText),
+    "Lufthansa tree two one zero inbound Cold Bay, I L S approach runway one fife, descent started from flight level fower zero zero",
+    "descent voice retains same PACD destination semantics"
+)
+
+local normalFlightSequence = {
+    { "departure.flightplan_active", copy(base, {
+        preflight_parking_found = true,
+        preflight_parking_type = "gate",
+        preflight_parking_name = "Gate 4"
+    }), "ALTA Traffic" },
+    { "departure.start_push", base, "ALTA Traffic" },
+    { "departure.taxi_runway", base, "ALTA Traffic" },
+    { "departure.hold_short", base, "ALTA Traffic" },
+    { "departure.lining_up", base, "ALTA Traffic" },
+    { "departure.lineup_takeoff", base, "ALTA Traffic" },
+    { "departure.airborne", base, "ALTA Traffic" },
+    { "departure.on_climb", copy(base, { altitude_ft = 1800, pressure_altitude_ft = 1800 }), "climbing out of ALTA" },
+    { "departure.climb_level_10000", copy(base, { altitude_ft = 10000, pressure_altitude_ft = 10000 }), "climbing out of ALTA" },
+    { "enroute.in_cruise", copy(base, {
+        cruise_entry = true,
+        cruise_next_waypoint = "BIRCO",
+        altitude_ft = 37000,
+        pressure_altitude_ft = 37000
+    }), "level at FL370" },
+    { "arrival.top_of_descent", copy(base, { altitude_ft = 37000, pressure_altitude_ft = 37000 }), "inbound SVALBARD" },
+    { "arrival.on_descent", copy(base, { altitude_ft = 36000, pressure_altitude_ft = 36000 }), "inbound SVALBARD" },
+    { "arrival.descent_level_30000", copy(base, { altitude_ft = 30000, pressure_altitude_ft = 30000 }), "inbound SVALBARD" },
+    { "arrival.approach", copy(base, { altitude_ft = 6000, pressure_altitude_ft = 6000 }), "SVALBARD Traffic" },
+    { "arrival.on_final", copy(base, { approach_procedure_type = "ILS" }), "SVALBARD Traffic" },
+    { "arrival.short_final", base, "SVALBARD Traffic" },
+    { "arrival.runway_vacated", base, "SVALBARD Traffic" },
+    { "arrival.parking_position", copy(base, {
+        arrival_parking_found = true,
+        arrival_parking_type = "gate",
+        arrival_parking_name = "Gate B7"
+    }), "SVALBARD Traffic" }
+}
+
+for sequenceIndex, stage in ipairs(normalFlightSequence) do
+    local message = core.buildMessage(stage[1], stage[2])
+    assert_true(message ~= nil, "normal-flight stage renders " .. sequenceIndex .. " " .. stage[1])
+    assert_true(message:find(stage[3], 1, true) ~= nil,
+        "normal-flight stage keeps semantic context " .. sequenceIndex .. " " .. stage[1])
+    local voice = core.buildVoiceMessage(stage[1], stage[2], test_spell_nato, message)
+    assert_true(voice ~= nil and voice:find("Lufthansa", 1, true) ~= nil,
+        "normal-flight stage renders paired voice " .. sequenceIndex .. " " .. stage[1])
 end
 
 local voiceCases = {
     {
         "departure.airborne",
         base,
-        "Echo November Alpha Tango Traffic, Boeing 7 3 8 airborne off runway 0 9, passing 3 0 0 feet"
+        "Alta Traffic, Lufthansa tree two one zero airborne runway zero niner, passing tree zero zero feet"
     },
     {
         "departure.on_climb",
         copy(base, { altitude_ft = 1800, pressure_altitude_ft = 1800 }),
-        "Boeing 7 3 8 climbing out of Echo November Alpha Tango on Atkup 1 Alpha departure, passing 1 8 0 0 feet for flight level 3 7 0, Birco next"
+        "Lufthansa tree two one zero climbing out of Alta on Atkup one Alpha departure, passing one eight zero zero feet for flight level tree seven zero, Birco next"
+    },
+    {
+        "enroute.in_cruise",
+        copy(base, {
+            cruise_periodic = true,
+            cruise_next_waypoint = "RIGVU",
+            altitude_ft = 40000,
+            pressure_altitude_ft = 40000
+        }),
+        "Lufthansa tree two one zero maintaining flight level fower zero zero, Rigvu next"
     },
     {
         "arrival.approach",
         copy(base, { altitude_ft = 6000, pressure_altitude_ft = 6000 }),
-        "Echo November Sierra Bravo Traffic, Boeing 7 3 8 Nelsa 3 Mike arrival for R N A V Whiskey approach runway 2 7, on descent passing 6 0 0 0 feet"
+        "Svalbard Traffic, Lufthansa tree two one zero Nelsa tree Mike arrival for R NAV Whiskey approach runway two seven, on descent passing six zero zero zero feet"
     },
     {
         "departure.runway_crossing",
         copy(base, { crossing_runway = "08", crossing_taxiway = "Z" }),
-        "Echo November Alpha Tango Traffic, Boeing 7 3 8 crossing runway 0 8 at taxiway Zulu"
+        "Alta Traffic, Lufthansa tree two one zero crossing runway zero eight at taxiway Zulu"
     },
     {
         "arrival.parking_position",
@@ -288,7 +473,12 @@ local voiceCases = {
             arrival_parking_type = "gate",
             arrival_parking_name = "Gate B7"
         }),
-        "Echo November Sierra Bravo Traffic, Boeing 7 3 8 parked at gate Bravo 7"
+        "Svalbard Traffic, Lufthansa tree two one zero parked at gate Bravo seven"
+    },
+    {
+        "arrival.on_descent",
+        copy(base, { altitude_ft = 18000, pressure_altitude_ft = 18000 }),
+        "Lufthansa tree two one zero inbound Svalbard, Nelsa tree Mike arrival, R NAV Whiskey approach runway two seven, descent started from flight level tree seven zero"
     }
 }
 
@@ -298,9 +488,300 @@ for _, case in ipairs(voiceCases) do
     assert_equal(voiceText, case[3], "voice phrase " .. case[1])
 end
 
+local navCruiseSnapshot = copy(base, {
+    cruise_entry = true,
+    cruise_next_waypoint = "DCS",
+    cruise_next_waypoint_nav_name = "DEAN CROSS DME"
+})
+local navCruiseText = core.buildMessage("enroute.in_cruise", navCruiseSnapshot)
+assert_equal(
+    core.buildVoiceMessage("enroute.in_cruise", navCruiseSnapshot, test_spell_nato, navCruiseText),
+    "Lufthansa tree two one zero level at flight level tree seven zero, Dean Cross next",
+    "resolved NAV facility name is spoken without facility suffix"
+)
+
+local navFallbackSnapshot = copy(navCruiseSnapshot, { cruise_next_waypoint_nav_name = "" })
+assert_equal(
+    core.buildVoiceMessage("enroute.in_cruise", navFallbackSnapshot, test_spell_nato, navCruiseText),
+    "Lufthansa tree two one zero level at flight level tree seven zero, Delta Charlie Sierra next",
+    "missing NAV API retains conservative NATO fallback"
+)
+
+local generatedFixSnapshot = copy(navCruiseSnapshot, {
+    cruise_next_waypoint = "D268B",
+    cruise_next_waypoint_nav_name = ""
+})
+local generatedFixText = core.buildMessage("enroute.in_cruise", generatedFixSnapshot)
+assert_equal(
+    core.buildVoiceMessage("enroute.in_cruise", generatedFixSnapshot, test_spell_nato, generatedFixText),
+    "Lufthansa tree two one zero level at flight level tree seven zero, Delta two six eight Bravo next",
+    "generated alphanumeric fix uses NATO letters and aviation digits"
+)
+
+local coordinateSnapshot = copy(navCruiseSnapshot, {
+    cruise_next_waypoint = "15N154W",
+    cruise_next_waypoint_nav_name = ""
+})
+local coordinateText = core.buildMessage("enroute.in_cruise", coordinateSnapshot)
+local coordinateVoice = core.buildVoiceMessage(
+    "enroute.in_cruise",
+    coordinateSnapshot,
+    test_spell_nato,
+    coordinateText
+)
+assert_equal(
+    coordinateVoice,
+    "Lufthansa tree two one zero level at flight level tree seven zero, one fife north one fife four west next",
+    "coordinate fix uses cardinal directions and coordinate four"
+)
+assert_true(not coordinateVoice:find("fower", 1, true), "coordinate fix does not use aviation fower")
+
+local navSidSnapshot = copy(base, {
+    altitude_ft = 1800,
+    pressure_altitude_ft = 1800,
+    sid = "WAL2T",
+    sid_nav_name = "WALLASEY VOR/DME"
+})
+local navSidText = core.buildMessage("departure.on_climb", navSidSnapshot)
+assert_equal(
+    core.buildVoiceMessage("departure.on_climb", navSidSnapshot, test_spell_nato, navSidText),
+    "Lufthansa tree two one zero climbing out of Alta on Wallasey two Tango departure, passing one eight zero zero feet for flight level tree seven zero, Birco next",
+    "SID navaid prefix uses resolved facility name"
+)
+
 local voiceEvent = core.newEvent("departure.airborne", base, 0, test_spell_nato)
 assert_equal(voiceEvent.text, phraseCases[1][3], "generated event keeps exact visible text")
 assert_equal(voiceEvent.voice_text, voiceCases[1][3], "generated event carries formatted v2 voice text")
+
+local noCallsignText, noCallsignReason = core.buildMessage(
+    "departure.airborne",
+    copy(base, { effective_callsign = "" })
+)
+assert_equal(noCallsignText, nil, "missing effective callsign rejects phrase")
+assert_equal(noCallsignReason, "missing_effective_callsign", "missing effective callsign reason")
+assert_equal(
+    core.buildMessage("departure.airborne", copy(base, { effective_callsign = "DLH3210\0STALE" })),
+    phraseCases[1][3],
+    "NUL-terminated effective callsign is sanitized"
+)
+
+local rawCallsignSnapshot = copy(base, { effective_callsign = "N123AB" })
+local rawCallsignText = core.buildMessage("departure.airborne", rawCallsignSnapshot)
+assert_equal(rawCallsignText,
+    "ALTA Traffic, N123AB airborne runway 09, passing 300ft",
+    "non-DLH callsign remains raw in visible text")
+assert_equal(
+    core.buildVoiceMessage("departure.airborne", rawCallsignSnapshot, test_spell_nato, rawCallsignText),
+    "Alta Traffic, November one two tree Alpha Bravo airborne runway zero niner, passing tree zero zero feet",
+    "non-DLH callsign uses NATO and aviation digits in voice")
+
+local callsignSuffixSnapshot = copy(base, { effective_callsign = "DLH12A" })
+local callsignSuffixText = core.buildMessage("departure.airborne", callsignSuffixSnapshot)
+assert_equal(callsignSuffixText,
+    "ALTA Traffic, Lufthansa 12A airborne runway 09, passing 300ft",
+    "DLH prefix is replaced only in visible identity")
+assert_equal(
+    core.buildVoiceMessage("departure.airborne", callsignSuffixSnapshot, test_spell_nato, callsignSuffixText),
+    "Alta Traffic, Lufthansa one two Alpha airborne runway zero niner, passing tree zero zero feet",
+    "DLH suffix receives aviation voice formatting")
+
+local stationFallbackSnapshot = copy(base, { departure_station_name = "" })
+local stationFallbackText = core.buildMessage("departure.airborne", stationFallbackSnapshot)
+assert_equal(stationFallbackText,
+    "ENAT Traffic, Lufthansa 3210 airborne runway 09, passing 300ft",
+    "empty station name falls back to ICAO in visible text")
+assert_equal(
+    core.buildVoiceMessage("departure.airborne", stationFallbackSnapshot, test_spell_nato, stationFallbackText),
+    "Echo November Alpha Tango Traffic, Lufthansa tree two one zero airborne runway zero niner, passing tree zero zero feet",
+    "empty station name falls back to NATO ICAO in voice")
+
+local initialedStationSnapshot = copy(base, {
+    departure_icao = "LZIB",
+    departure_station_name = "STEFANIK",
+    departure_station_icao = "LZIB",
+    ofp_valid = true,
+    ofp_origin_icao = "LZIB",
+    ofp_origin_name = "M.R. STEFANIK"
+})
+local initialedStationText = core.buildMessage("departure.airborne", initialedStationSnapshot)
+assert_equal(
+    initialedStationText,
+    "STEFANIK Traffic, Lufthansa 3210 airborne runway 09, passing 300ft",
+    "compact leading airport-name initials are removed"
+)
+assert_equal(
+    core.buildVoiceMessage("departure.airborne", initialedStationSnapshot, test_spell_nato, initialedStationText),
+    "Stefanik Traffic, Lufthansa tree two one zero airborne runway zero niner, passing tree zero zero feet",
+    "voice uses the same station name without leading initials"
+)
+assert_equal(
+    core.resolveAirportLabel(copy(initialedStationSnapshot, {
+        ofp_origin_name = "M. R. STEFANIK"
+    }), "departure_icao", "departure_station_name"),
+    "STEFANIK",
+    "spaced leading airport-name initials are removed"
+)
+assert_equal(
+    core.resolveAirportLabel(copy(initialedStationSnapshot, {
+        ofp_origin_name = "ST. JOHN'S"
+    }), "departure_icao", "departure_station_name"),
+    "ST. JOHN'S",
+    "ordinary dotted abbreviations remain unchanged"
+)
+local apostropheStationSnapshot = copy(base, {
+    departure_icao = "CYYT",
+    departure_station_name = "ST. JOHN'S",
+    departure_station_icao = "CYYT"
+})
+local apostropheStationText = core.buildMessage("departure.airborne", apostropheStationSnapshot)
+assert_equal(
+    core.buildVoiceMessage("departure.airborne", apostropheStationSnapshot, test_spell_nato, apostropheStationText),
+    "St. John's Traffic, Lufthansa tree two one zero airborne runway zero niner, passing tree zero zero feet",
+    "possessive station-name suffix remains lowercase in voice text"
+)
+assert_equal(
+    core.resolveAirportLabel(copy(initialedStationSnapshot, {
+        ofp_origin_name = "E. MIDLANDS"
+    }), "departure_icao", "departure_station_name"),
+    "E. MIDLANDS",
+    "a single leading initial remains unchanged"
+)
+
+local staleStationSnapshot = copy(base, { departure_icao = "ESSA" })
+assert_equal(
+    core.buildMessage("departure.airborne", staleStationSnapshot),
+    "ESSA Traffic, Lufthansa 3210 airborne runway 09, passing 300ft",
+    "station name is ignored when its ICAO does not match")
+
+local ofpSnapshot = copy(base, {
+    departure_icao = "EGPE",
+    departure_station_name = "INVERNESS TOWER",
+    departure_station_icao = "EGPE",
+    arrival_icao = "ENTC",
+    arrival_station_name = "TROMSO",
+    arrival_station_icao = "ENTC",
+    ofp_valid = true,
+    ofp_origin_icao = "EGPE",
+    ofp_origin_name = "INVERNESS",
+    ofp_destination_icao = "ENTC",
+    ofp_destination_name = "LANGNES"
+})
+local ofpDepartureText = core.buildMessage("departure.airborne", ofpSnapshot)
+assert_equal(ofpDepartureText,
+    "INVERNESS Traffic, Lufthansa 3210 airborne runway 09, passing 300ft",
+    "matching OFP origin name overrides Refdata station name")
+assert_equal(
+    core.buildVoiceMessage("departure.airborne", ofpSnapshot, test_spell_nato, ofpDepartureText),
+    "Inverness Traffic, Lufthansa tree two one zero airborne runway zero niner, passing tree zero zero feet",
+    "matching OFP origin name is formatted for voice")
+assert_equal(
+    core.buildMessage("arrival.short_final", ofpSnapshot),
+    "LANGNES Traffic, Lufthansa 3210 short final runway 27",
+    "matching OFP destination name overrides Refdata station name")
+
+local slashOfpSnapshot = copy(base, {
+    departure_icao = "EDDF",
+    departure_station_name = "FRANKFURT",
+    departure_station_icao = "EDDF",
+    ofp_valid = true,
+    ofp_origin_icao = "EDDF",
+    ofp_origin_name = "FRANKFURT/MAIN"
+})
+local slashOfpText = core.buildMessage("departure.airborne", slashOfpSnapshot)
+assert_equal(slashOfpText,
+    "FRANKFURT Traffic, Lufthansa 3210 airborne runway 09, passing 300ft",
+    "OFP station name keeps only the part before slash")
+assert_equal(
+    core.buildVoiceMessage("departure.airborne", slashOfpSnapshot, test_spell_nato, slashOfpText),
+    "Frankfurt Traffic, Lufthansa tree two one zero airborne runway zero niner, passing tree zero zero feet",
+    "OFP slash normalization is shared by voice output")
+
+assert_equal(
+    core.buildMessage("departure.airborne", copy(base, {
+        departure_icao = "KCMY",
+        departure_station_name = "SPARTA/MCCOY",
+        departure_station_icao = "KCMY",
+        ofp_valid = false
+    })),
+    "SPARTA/MCCOY Traffic, Lufthansa 3210 airborne runway 09, passing 300ft",
+    "slash normalization does not alter Refdata station names")
+
+local longOfpSnapshot = copy(base, {
+    arrival_icao = "PHNL",
+    arrival_station_name = "HONOLULU",
+    arrival_station_icao = "PHNL",
+    ofp_valid = true,
+    ofp_destination_icao = "PHNL",
+    ofp_destination_name = "DANIEL K INOUYE INTL"
+})
+local longOfpText = core.buildMessage("arrival.short_final", longOfpSnapshot)
+assert_equal(longOfpText,
+    "HONOLULU Traffic, Lufthansa 3210 short final runway 27",
+    "formal OFP airport name falls back to Refdata station name")
+assert_equal(
+    core.buildVoiceMessage("arrival.short_final", longOfpSnapshot, test_spell_nato, longOfpText),
+    "Honolulu Traffic, Lufthansa tree two one zero short final runway two seven",
+    "voice uses the same Refdata fallback as visible text")
+
+local longOfpIcaoFallbackSnapshot = copy(longOfpSnapshot, {
+    arrival_station_name = "",
+    arrival_station_icao = ""
+})
+local longOfpIcaoFallbackText = core.buildMessage("arrival.short_final", longOfpIcaoFallbackSnapshot)
+assert_equal(longOfpIcaoFallbackText,
+    "PHNL Traffic, Lufthansa 3210 short final runway 27",
+    "overlong OFP airport name falls back to ICAO without Refdata station name")
+assert_equal(
+    core.buildVoiceMessage(
+        "arrival.short_final",
+        longOfpIcaoFallbackSnapshot,
+        test_spell_nato,
+        longOfpIcaoFallbackText
+    ),
+    "Papa Hotel November Lima Traffic, Lufthansa tree two one zero short final runway two seven",
+    "voice NATO-spells ICAO after formal OFP fallback")
+
+assert_equal(
+    core.buildMessage("arrival.short_final", copy(longOfpSnapshot, {
+        ofp_destination_name = "HARTSFIELD JACKSON ATLANTA"
+    })),
+    "HONOLULU Traffic, Lufthansa 3210 short final runway 27",
+    "overlong OFP airport name falls back to Refdata station name")
+
+assert_equal(
+    core.buildMessage("departure.airborne", copy(ofpSnapshot, {
+        ofp_origin_name = "INVERNESS AIRPORT"
+    })),
+    "INVERNESS TOWER Traffic, Lufthansa 3210 airborne runway 09, passing 300ft",
+    "formal OFP airport descriptor falls back even within length limit")
+
+assert_equal(
+    core.buildMessage("departure.airborne", copy(base, {
+        departure_icao = "KINL",
+        departure_station_name = "FALLS TOWER",
+        departure_station_icao = "KINL",
+        ofp_valid = true,
+        ofp_origin_icao = "KINL",
+        ofp_origin_name = "INTERNATIONAL FALLS"
+    })),
+    "INTERNATIONAL FALLS Traffic, Lufthansa 3210 airborne runway 09, passing 300ft",
+    "valid multiword OFP name is not rejected by a non-final descriptor word")
+assert_equal(
+    core.buildMessage("departure.airborne", copy(base, {
+        ofp_valid = true,
+        ofp_origin_icao = "EGPE",
+        ofp_origin_name = "INVERNESS"
+    })),
+    phraseCases[1][3],
+    "OFP origin name is ignored when its ICAO does not match")
+assert_equal(
+    core.buildMessage("departure.airborne", copy(base, {
+        ofp_valid = false,
+        ofp_origin_icao = "ENAT",
+        ofp_origin_name = "INVERNESS"
+    })),
+    phraseCases[1][3],
+    "invalid OFP snapshot retains Refdata station name")
 
 assert_equal(
     core.buildMessage("arrival.on_descent", copy(base, {
@@ -308,7 +789,7 @@ assert_equal(
         pressure_altitude_ft = 18000,
         planned_altitude_ft = 0
     })),
-    "ENSB Traffic, B738 NELSA3M arrival for RNAV W approach runway 27, descent started from FL180",
+    "Lufthansa 3210 inbound SVALBARD, NELSA3M arrival, RNAV W approach runway 27, descent started from FL180",
     "descent-start phrase falls back to current altitude"
 )
 
@@ -342,7 +823,7 @@ assert_equal(missingReason, "missing_runway_crossing_context", "missing crossing
 
 local genericPreflightText = core.buildMessage("departure.flightplan_active", base)
 assert_equal(genericPreflightText,
-    "ENAT Traffic, B738 at parking position, preparing for departure to ENSB",
+    "ALTA Traffic, Lufthansa 3210 at parking position, preparing for departure to SVALBARD",
     "preflight phrase falls back without ramp label")
 
 missingText, missingReason = core.buildMessage(
@@ -373,7 +854,7 @@ assert_equal(
         pushback_parking_type = "gate",
         pushback_parking_name = "Gate A12"
     })),
-    "ESSA Traffic, B738, pushing back from gate A12",
+    "ESSA Traffic, Lufthansa 3210 pushing back from gate A12",
     "pushback gate phrase"
 )
 assert_equal(
@@ -382,7 +863,7 @@ assert_equal(
         pushback_parking_type = "misc",
         pushback_parking_name = "Apron 42"
     })),
-    "ENAT Traffic, B738, pushing back from stand 42",
+    "ALTA Traffic, Lufthansa 3210 pushing back from stand 42",
     "pushback apron stand phrase"
 )
 assert_equal(
@@ -393,7 +874,7 @@ assert_equal(
         preflight_parking_type = "tie_down",
         preflight_parking_name = "heavy|jets Apron 1 - Terminal"
     })),
-    "EDNY Traffic, B738 at stand 1, preparing for departure to EVRA",
+    "EDNY Traffic, Lufthansa 3210 at stand 1, preparing for departure to EVRA",
     "preflight strips EDNY ramp descriptor punctuation"
 )
 assert_equal(
@@ -404,7 +885,7 @@ assert_equal(
         preflight_parking_type = "misc",
         preflight_parking_name = "REMOTE E 28"
     })),
-    "KMIA Traffic, B738 at stand E28, preparing for departure to KMSY",
+    "KMIA Traffic, Lufthansa 3210 at stand E28, preparing for departure to KMSY",
     "preflight extracts split stand identifier from KMIA descriptor"
 )
 assert_equal(
@@ -414,7 +895,7 @@ assert_equal(
         pushback_parking_type = "tie_down",
         pushback_parking_name = "heavy|jets Apron 1 - Terminal"
     })),
-    "EDNY Traffic, B738, pushing back from stand 1",
+    "EDNY Traffic, Lufthansa 3210 pushing back from stand 1",
     "pushback strips EDNY ramp descriptor punctuation"
 )
 assert_equal(
@@ -424,7 +905,7 @@ assert_equal(
         pushback_parking_type = "misc",
         pushback_parking_name = "REMOTE E 28"
     })),
-    "KMIA Traffic, B738, pushing back from stand E28",
+    "KMIA Traffic, Lufthansa 3210 pushing back from stand E28",
     "pushback extracts split stand identifier from KMIA descriptor"
 )
 assert_equal(
@@ -433,7 +914,7 @@ assert_equal(
         pushback_parking_type = "gate",
         pushback_parking_name = "Gate B7, North"
     })),
-    "ENAT Traffic, B738, pushing back from gate B7",
+    "ALTA Traffic, Lufthansa 3210 pushing back from gate B7",
     "pushback strips comma-delimited ramp descriptor"
 )
 assert_equal(
@@ -470,7 +951,7 @@ assert_equal(
         arrival_parking_type = "misc",
         arrival_parking_name = "Apron 42"
     })),
-    "ENSB Traffic, B738 parked at stand 42",
+    "SVALBARD Traffic, Lufthansa 3210 parked at stand 42",
     "arrival parking stand phrase"
 )
 assert_equal(
@@ -479,7 +960,7 @@ assert_equal(
         arrival_parking_type = "misc",
         arrival_parking_name = "4 SMALL"
     })),
-    "ENSB Traffic, B738 parked at stand 4",
+    "SVALBARD Traffic, Lufthansa 3210 parked at stand 4",
     "arrival parking strips stand size suffix"
 )
 assert_equal(
@@ -488,7 +969,7 @@ assert_equal(
         arrival_parking_type = "gate",
         arrival_parking_name = "HEAVY 4L"
     })),
-    "ENSB Traffic, B738 parked at gate 4L",
+    "SVALBARD Traffic, Lufthansa 3210 parked at gate 4L",
     "arrival parking keeps attached gate suffix"
 )
 assert_equal(
@@ -497,7 +978,7 @@ assert_equal(
         arrival_parking_type = "gate",
         arrival_parking_name = "Gate A-12"
     })),
-    "ENSB Traffic, B738 parked at gate A12",
+    "SVALBARD Traffic, Lufthansa 3210 parked at gate A12",
     "arrival parking normalizes embedded punctuation"
 )
 assert_equal(
@@ -506,7 +987,7 @@ assert_equal(
         arrival_parking_type = "misc",
         arrival_parking_name = "4 R MEDIUM"
     })),
-    "ENSB Traffic, B738 parked at stand 4R",
+    "SVALBARD Traffic, Lufthansa 3210 parked at stand 4R",
     "arrival parking compacts separate stand suffix"
 )
 assert_equal(
@@ -515,7 +996,7 @@ assert_equal(
         arrival_parking_type = "misc",
         arrival_parking_name = "REMOTE E 28"
     })),
-    "ENSB Traffic, B738 parked at stand E28",
+    "SVALBARD Traffic, Lufthansa 3210 parked at stand E28",
     "arrival parking extracts split stand identifier from descriptor"
 )
 assert_equal(
@@ -524,7 +1005,7 @@ assert_equal(
         arrival_parking_type = "gate",
         arrival_parking_name = "Terminal 2 Gate E 28"
     })),
-    "ENSB Traffic, B738 parked at gate E28",
+    "SVALBARD Traffic, Lufthansa 3210 parked at gate E28",
     "arrival parking prefers marked identifier over descriptor number"
 )
 assert_equal(
@@ -533,7 +1014,7 @@ assert_equal(
         arrival_parking_type = "gate",
         arrival_parking_name = "jets|turboprops|props 216"
     })),
-    "ENSB Traffic, B738 parked at gate 216",
+    "SVALBARD Traffic, Lufthansa 3210 parked at gate 216",
     "arrival parking strips complete EVRA aircraft class field"
 )
 assert_equal(
@@ -542,7 +1023,7 @@ assert_equal(
         arrival_parking_type = "gate",
         arrival_parking_name = "Gate"
     })),
-    "ENSB Traffic, B738 parked at parking position",
+    "SVALBARD Traffic, Lufthansa 3210 parked at parking position",
     "arrival unnamed parking phrase"
 )
 assert_equal(
@@ -551,7 +1032,7 @@ assert_equal(
         arrival_parking_type = "misc",
         arrival_parking_name = "REMOTE NORTH"
     })),
-    "ENSB Traffic, B738 parked at parking position",
+    "SVALBARD Traffic, Lufthansa 3210 parked at parking position",
     "arrival descriptor-only name uses generic parking phrase"
 )
 missingText, missingReason = core.buildMessage("arrival.parking_position", base)
@@ -564,7 +1045,7 @@ assert_equal(
         pressure_altitude_ft = 1800,
         climb_next_waypoint = ""
     })),
-    "B738 climbing out of ENAT on ATKUP1A departure, passing 1800ft for FL370",
+    "Lufthansa 3210 climbing out of ALTA on ATKUP1A departure, passing 1800ft for FL370",
     "initial climb phrase retains SID and tolerates missing next waypoint"
 )
 assert_equal(
@@ -575,7 +1056,7 @@ assert_equal(
         pressure_altitude_ft = 38824,
         planned_altitude_ft = 39000
     })),
-    "B738 level at FL390, BIRCO next",
+    "Lufthansa 3210 level at FL390, BIRCO next",
     "cruise entry phrase uses nominal FMC cruise level"
 )
 assert_equal(
@@ -586,7 +1067,7 @@ assert_equal(
         pressure_altitude_ft = 37000,
         planned_altitude_ft = 0
     })),
-    "B738 level at FL370",
+    "Lufthansa 3210 level at FL370",
     "cruise entry falls back to live altitude and tolerates missing next waypoint"
 )
 assert_equal(
@@ -597,8 +1078,28 @@ assert_equal(
         pressure_altitude_ft = 38824,
         planned_altitude_ft = 39000
     })),
-    "B738 passing BIRCO, maintaining FL388, SOMOR next",
+    "Lufthansa 3210 passing BIRCO, maintaining FL388, SOMOR next",
     "recurring cruise phrase keeps live pressure altitude"
+)
+assert_equal(
+    core.buildMessage("enroute.in_cruise", copy(base, {
+        cruise_periodic = true,
+        cruise_next_waypoint = "RIGVU",
+        altitude_ft = 40000,
+        pressure_altitude_ft = 40000
+    })),
+    "Lufthansa 3210 maintaining FL400, RIGVU next",
+    "periodic cruise phrase does not claim a stale waypoint passage"
+)
+assert_equal(
+    core.buildMessage("enroute.in_cruise", copy(base, {
+        cruise_periodic = true,
+        cruise_next_waypoint = "",
+        altitude_ft = 40000,
+        pressure_altitude_ft = 40000
+    })),
+    "Lufthansa 3210 maintaining FL400",
+    "periodic cruise phrase tolerates a missing next waypoint"
 )
 assert_equal(
     core.buildMessage("arrival.parking_position", copy(base, {
@@ -606,13 +1107,13 @@ assert_equal(
         arrival_parking_type = "cargo",
         arrival_parking_name = "Cargo 12"
     })),
-    "ENSB Traffic, B738 parked at stand CARGO 12",
+    "SVALBARD Traffic, Lufthansa 3210 parked at stand CARGO 12",
     "arrival parking accepts unfiltered ramp type"
 )
 
 assert_equal(
     core.buildMessage("arrival.on_final", copy(base, { approach_procedure_type = "LOC" })),
-    "ENSB Traffic, B738 established on Localizer runway 27",
+    "SVALBARD Traffic, Lufthansa 3210 established on Localizer runway 27",
     "LOC final phrase"
 )
 
@@ -636,8 +1137,17 @@ assert_equal(missingIntersectionText, nil, "legacy intersection line-up requires
 assert_equal(missingIntersectionReason, "missing_intersection_context", "missing intersection reason")
 assert_equal(
     core.buildMessage("departure.lining_up", copy(base, { departure_intersection = "Intersection A" })),
-    "ENAT Traffic, B738 lining up runway 09, intersection A",
-    "line-up phrase keeps optional intersection"
+    "ALTA Traffic, Lufthansa 3210 lining up runway 09 at taxiway A",
+    "line-up phrase identifies confirmed intersection as taxiway"
+)
+assert_equal(
+    core.buildVoiceMessage(
+        "departure.lining_up",
+        copy(base, { departure_intersection = "Intersection A" }),
+        test_spell_nato
+    ),
+    "Alta Traffic, Lufthansa tree two one zero lining up runway zero niner at taxiway Alpha",
+    "line-up voice speaks confirmed taxiway naturally"
 )
 
 local writes = {}
@@ -863,12 +1373,12 @@ assert_true(parkingMailbox:enqueue({
 }), "enqueue runway vacated before parking")
 assert_true(parkingMailbox:enqueue({
     id = "arrival.runway_crossing",
-    text = "ENSB Traffic, B738 crossing runway 16",
+    text = "SVALBARD Traffic, Lufthansa 3210 crossing runway 16",
     expires_at = 100
 }), "enqueue runway crossing before parking")
 assert_true(parkingMailbox:enqueue({
     id = "arrival.parking_position",
-    text = "ENSB Traffic, B738 parked at gate B7",
+    text = "SVALBARD Traffic, Lufthansa 3210 parked at gate B7",
     expires_at = 100
 }), "enqueue arrival parking supersession")
 assert_equal(#parkingMailbox.queue, 1, "parking supersedes queued runway-crossing report")
@@ -986,7 +1496,7 @@ assert_equal(holdExitApproachOrder.queue[2].id, "arrival.on_final", "final follo
 local departureSupersession = core.newMailbox()
 assert_true(departureSupersession:enqueue({
     id = "departure.flightplan_active",
-    text = "ENAT Traffic, B738 at gate 4, preparing for departure to ENSB",
+    text = "ALTA Traffic, Lufthansa 3210 at gate 4, preparing for departure to SVALBARD",
     expires_at = 100
 }), "enqueue preflight before supersession")
 assert_true(departureSupersession:enqueue({
@@ -1005,7 +1515,7 @@ assert_equal(#departureSupersession.queue, 1, "taxi supersedes queued push")
 assert_equal(departureSupersession.queue[1].id, "departure.taxi_runway", "taxi remains queued")
 assert_true(departureSupersession:enqueue({
     id = "departure.runway_crossing",
-    text = "ENAT Traffic, B738 crossing runway 08 at taxiway Z",
+    text = "ALTA Traffic, Lufthansa 3210 crossing runway 08 at taxiway Z",
     expires_at = 100
 }), "enqueue departure crossing supersession")
 assert_equal(#departureSupersession.queue, 1, "crossing supersedes taxi")
@@ -1061,7 +1571,7 @@ assert_true(arrivalSupersession:enqueue({
 }), "enqueue short final before arrival backtrack")
 assert_true(arrivalSupersession:enqueue({
     id = "arrival.backtrack",
-    text = "ENSB Traffic, B738 backtracking runway 27",
+    text = "SVALBARD Traffic, Lufthansa 3210 backtracking runway 27",
     expires_at = 100
 }), "enqueue arrival backtrack supersession")
 assert_equal(#arrivalSupersession.queue, 1, "arrival backtrack supersedes short final")
@@ -1075,7 +1585,7 @@ assert_equal(#arrivalSupersession.queue, 1, "runway vacated supersedes arrival b
 assert_equal(arrivalSupersession.queue[1].id, "arrival.runway_vacated", "runway vacated remains queued")
 assert_true(arrivalSupersession:enqueue({
     id = "arrival.runway_crossing",
-    text = "ENSB Traffic, B738 crossing runway 16",
+    text = "SVALBARD Traffic, Lufthansa 3210 crossing runway 16",
     expires_at = 100
 }), "enqueue arrival crossing supersession")
 assert_equal(#arrivalSupersession.queue, 1, "arrival crossing supersedes runway vacated")
@@ -1129,10 +1639,11 @@ local repeatRefs = {
     voice_state = "voice_state",
     voice_result_seq = "voice_result_seq",
     voice_result_code = "voice_result_code",
-    voice_result_detail = "voice_result_detail"
+    voice_result_detail = "voice_result_detail",
+    effective_callsign = "effective_callsign"
 }
 local repeatValues = {
-    api_version = 1,
+    api_version = 3,
     ready = 1,
     mode = 2,
     transport_state = 5,
@@ -1140,7 +1651,8 @@ local repeatValues = {
     request_seq = 12,
     result_seq = 12,
     result_code = 21,
-    result_detail = "SUBMITTED_VISIBLE"
+    result_detail = "SUBMITTED_VISIBLE",
+    effective_callsign = "DLH3210"
 }
 local function configure_repeat_test()
     autoUnicom.configure({
@@ -1187,7 +1699,7 @@ local baselineDef = {
     CAPTURED = 2
 }
 local baselineValues = {
-    api_version = 1,
+    api_version = 3,
     ready = 1,
     mode = 2,
     transport_state = 5,
@@ -1196,6 +1708,7 @@ local baselineValues = {
     result_seq = 12,
     result_code = 21,
     result_detail = "SUBMITTED_VISIBLE",
+    effective_callsign = "DLH3210",
     airgroundsensor = 0,
     radioaltitude = 5000,
     altitude_ft = 6000,
@@ -1231,6 +1744,7 @@ autoUnicom.configure({
         pressure_altitude = "pressure_altitude",
         aircraft_icao = "aircraft_icao"
     },
+    refdata = { getAirport = test_refdata_airport },
     getRefs = function() return repeatRefs end,
     read = function(prop) return baselineValues[prop] end
 })
@@ -1265,8 +1779,41 @@ local repeatedDisabled, repeatDisabledReason = autoUnicom.repeatLastMessage(fals
 assert_equal(repeatedDisabled, false, "repeat last requires enabled feature")
 assert_equal(repeatDisabledReason, "feature_disabled", "repeat disabled reason")
 
+repeatValues.mode = 2
+repeatValues.api_version = 2
+configure_repeat_test()
+autoUnicom.tick(true, 0)
+assert_equal(autoUnicom.getDebugState().active, false, "API v2 cannot activate identity-aware Auto-Unicom")
+local repeatedV2, repeatV2Reason = autoUnicom.repeatLastMessage(true)
+assert_equal(repeatedV2, false, "API v2 repeat is rejected")
+assert_equal(repeatV2Reason, "api_unavailable", "API v2 repeat rejection reason")
+
+repeatValues.api_version = 3
+repeatValues.effective_callsign = ""
+configure_repeat_test()
+autoUnicom.tick(true, 0)
+assert_equal(autoUnicom.getDebugState().active, false, "empty effective callsign keeps Auto-Unicom inactive")
+local repeatedNoCallsign, repeatNoCallsignReason = autoUnicom.repeatLastMessage(true)
+assert_equal(repeatedNoCallsign, false, "repeat without effective callsign is rejected")
+assert_equal(repeatNoCallsignReason, "api_unavailable", "missing callsign repeat rejection reason")
+local missingCallsignLogs = {}
+autoUnicom.configure({
+    helpers = { logInfoTS = function(message) table.insert(missingCallsignLogs, message) end },
+    getRefs = function() return repeatRefs end,
+    read = function(prop) return repeatValues[prop] end
+})
+autoUnicom.tick(true, 0)
+autoUnicom.tick(true, 1)
+assert_equal(#missingCallsignLogs, 1, "missing callsign diagnostic is latched")
+assert_equal(
+    missingCallsignLogs[1],
+    "IVAO Auto-Unicom API ready but effective callsign is unavailable",
+    "missing callsign diagnostic text"
+)
+repeatValues.effective_callsign = "DLH3210"
+
 local eventAdapterValues = {
-    api_version = 1,
+    api_version = 3,
     ready = 1,
     mode = 2,
     transport_state = 5,
@@ -1274,6 +1821,7 @@ local eventAdapterValues = {
     result_seq = 30,
     result_code = 21,
     result_detail = "SUBMITTED_VISIBLE",
+    effective_callsign = "DLH3210",
     airgroundsensor = 0,
     radioaltitude = 0,
     altitude_ft = 300,
@@ -1293,6 +1841,18 @@ local eventAdapterValues = {
     fmsselectedsid = "ATKUP1A",
     fmsselectedstar = "NELSA3M",
     fmsselectedapp = "R27-W",
+    fmsfplnnavid = "",
+    fmslegs = "",
+    fmslegslat = {},
+    fmslegslon = {},
+    fmsvnavidx = 0,
+    ofp_api_version = 1,
+    ofp_update_seq = 2,
+    ofp_valid = 0,
+    ofp_origin_icao = "",
+    ofp_origin_name = "",
+    ofp_destination_icao = "",
+    ofp_destination_name = "",
     nearesticao = "ESSA",
     aircraftlatpos = 59.6519,
     aircraftlonpos = 17.9186,
@@ -1308,14 +1868,31 @@ local eventAdapterYal = copy(baselineYal, {
     autogategpu = "autogate_gpu",
     autogatenearest = "autogate_nearest",
     autogatenearestname = "autogate_nearest_name",
+    fmsfplnnavid = "fmsfplnnavid",
+    fmslegs = "fmslegs",
+    fmslegslat = "fmslegslat",
+    fmslegslon = "fmslegslon",
+    fmsvnavidx = "fmsvnavidx",
+    ofpRuntime = {
+        api_version = "ofp_api_version",
+        update_seq = "ofp_update_seq",
+        valid = "ofp_valid",
+        origin_icao = "ofp_origin_icao",
+        origin_name = "ofp_origin_name",
+        destination_icao = "ofp_destination_icao",
+        destination_name = "ofp_destination_name"
+    },
     flightstate = baselineDef.FLIGHTSTATEPREFLIGHT
 })
 local eventAdapterWrites = {}
 local eventAdapterLogs = {}
+local ofpUpdateSeqReads = nil
+local ofpUpdateSeqReadIndex = 0
 local pushbackRamp = { ramp_type = "misc", name = "Apron 42" }
 local pushbackDistanceSquared = 25
 local pushbackSearchAirports = {}
 local function configure_event_adapter_test()
+    ofpUpdateSeqReadIndex = 0
     autoUnicom.configure({
         yal = eventAdapterYal,
         def = baselineDef,
@@ -1337,8 +1914,19 @@ local function configure_event_adapter_test()
             pressure_altitude = "pressure_altitude",
             aircraft_icao = "aircraft_icao"
         },
+        refdata = {
+            getAirport = test_refdata_airport,
+            getNavByIdent = test_refdata_nav
+        },
         getRefs = function() return repeatRefs end,
-        read = function(prop) return eventAdapterValues[prop] end,
+        read = function(prop)
+            if prop == "ofp_update_seq" and type(ofpUpdateSeqReads) == "table" then
+                ofpUpdateSeqReadIndex = ofpUpdateSeqReadIndex + 1
+                return ofpUpdateSeqReads[ofpUpdateSeqReadIndex]
+                    or ofpUpdateSeqReads[#ofpUpdateSeqReads]
+            end
+            return eventAdapterValues[prop]
+        end,
         writeText = function(prop, text)
             local kind = prop == repeatRefs.request_voice_text and "voice" or "text"
             table.insert(eventAdapterWrites, { kind = kind, value = text })
@@ -1367,7 +1955,7 @@ assert_true(autoUnicom.handleYalEvent("departure.flightplan_active", {
 autoUnicom.tick(true, 1)
 assert_equal(#pushbackSearchAirports, 0, "Zibo nearest gate bypasses preflight apt.dat fallback")
 assert_equal(eventAdapterWrites[1].value,
-    "ENAT Traffic, B738 at gate 4, preparing for departure to ENSB",
+    "ALTA Traffic, Lufthansa 3210 at gate 4, preparing for departure to SVALBARD",
     "YAL preflight event uses Zibo nearest gate")
 
 eventAdapterWrites = {}
@@ -1383,7 +1971,7 @@ assert_equal(#pushbackSearchAirports, 0, "activation does not infer a pushback e
 assert_true(autoUnicom.handleYalEvent("departure.start_push", nil, 1), "YAL pushback event accepted")
 autoUnicom.tick(true, 1)
 assert_equal(#pushbackSearchAirports, 0, "Zibo nearest stand bypasses pushback apt.dat fallback")
-assert_equal(eventAdapterWrites[1].value, "ESSA Traffic, B738, pushing back from stand 42",
+assert_equal(eventAdapterWrites[1].value, "ESSA Traffic, Lufthansa 3210 pushing back from stand 42",
     "YAL pushback event uses Zibo nearest stand")
 
 eventAdapterWrites = {}
@@ -1439,7 +2027,7 @@ assert_true(autoUnicom.handleYalEvent("arrival.runway_vacated", {
     arrival_runway = "04"
 }, 1), "YAL runway vacated event accepts latched arrival context")
 autoUnicom.tick(true, 1)
-assert_equal(eventAdapterWrites[1].value, "PAHO Traffic, runway 04 vacated, taxiing to gate",
+assert_equal(eventAdapterWrites[1].value, "PAHO Traffic, Lufthansa 3210 runway 04 vacated, taxiing to gate",
     "runway vacated payload survives cleared FMC destination")
 
 eventAdapterWrites = {}
@@ -1453,7 +2041,7 @@ assert_true(autoUnicom.handleYalEvent("arrival.backtrack", {
     arrival_runway = "04"
 }, 1), "YAL arrival backtrack event accepts latched arrival context")
 autoUnicom.tick(true, 1)
-assert_equal(eventAdapterWrites[1].value, "PAHO Traffic, B738 backtracking runway 04",
+assert_equal(eventAdapterWrites[1].value, "PAHO Traffic, Lufthansa 3210 backtracking runway 04",
     "arrival backtrack payload survives cleared FMC destination")
 eventAdapterValues.desicao = "ENSB"
 eventAdapterValues.desrwy = "27"
@@ -1477,8 +2065,96 @@ assert_true(autoUnicom.handleYalEvent("arrival.parking_position", {
 }, 1), "YAL arrival parking event accepts nearest ramp")
 autoUnicom.tick(true, 1)
 assert_equal(#pushbackSearchAirports, 0, "Zibo nearest gate bypasses arrival apt.dat fallback")
-assert_equal(eventAdapterWrites[1].value, "PAHO Traffic, B738 parked at gate B7",
+assert_equal(eventAdapterWrites[1].value, "PAHO Traffic, Lufthansa 3210 parked at gate B7",
     "arrival parking uses Zibo nearest gate")
+
+eventAdapterWrites = {}
+eventAdapterValues.request_seq = 80
+eventAdapterValues.result_seq = 80
+eventAdapterValues.result_code = 21
+eventAdapterValues.voice_result_seq = 80
+eventAdapterValues.voice_result_code = 20
+eventAdapterValues.desicao = "ENSB"
+eventAdapterValues.desrwy = "27"
+eventAdapterValues.ofp_valid = 1
+eventAdapterValues.ofp_origin_icao = "PHLI"
+eventAdapterValues.ofp_origin_name = "LIHUE"
+eventAdapterValues.ofp_destination_icao = "ENSB"
+eventAdapterValues.ofp_destination_name = "LANGNES"
+eventAdapterValues.nearesticao = "ENSB"
+configure_event_adapter_test()
+autoUnicom.tick(true, 0)
+
+local function commit_cached_arrival_event(eventId, payload, now)
+    eventAdapterWrites = {}
+    assert_true(autoUnicom.handleYalEvent(eventId, payload, now), eventId .. " accepted")
+    autoUnicom.tick(true, now)
+    local text = eventAdapterWrites[1] and eventAdapterWrites[1].value or nil
+    local voiceText = eventAdapterWrites[2] and eventAdapterWrites[2].value or nil
+    local seq = nil
+    for _, write in ipairs(eventAdapterWrites) do
+        if write.kind == "seq" then seq = write.value end
+    end
+    assert_true(seq ~= nil, eventId .. " committed")
+    eventAdapterValues.result_seq = seq
+    eventAdapterValues.result_code = 21
+    eventAdapterValues.voice_result_seq = seq
+    eventAdapterValues.voice_result_code = 20
+    autoUnicom.tick(true, now + 0.1)
+    return text, voiceText
+end
+
+commit_cached_arrival_event("arrival.approach", nil, 1)
+eventAdapterValues.desicao = "****"
+eventAdapterValues.desrwy = "----"
+eventAdapterValues.ofp_valid = 0
+eventAdapterValues.ofp_origin_icao = ""
+eventAdapterValues.ofp_origin_name = ""
+eventAdapterValues.ofp_destination_icao = ""
+eventAdapterValues.ofp_destination_name = ""
+
+local cachedBacktrackText, cachedBacktrackVoice = commit_cached_arrival_event("arrival.backtrack", {
+    arrival_icao = "ENSB",
+    arrival_runway = "27"
+}, 2)
+assert_equal(cachedBacktrackText, "LANGNES Traffic, Lufthansa 3210 backtracking runway 27",
+    "arrival backtrack retains OFP name over Refdata after FMC reset")
+assert_equal(cachedBacktrackVoice,
+    "Langnes Traffic, Lufthansa tree two one zero backtracking runway two seven",
+    "arrival backtrack voice retains OFP name after FMC reset")
+assert_equal(commit_cached_arrival_event("arrival.runway_vacated", {
+    arrival_icao = "ENSB",
+    arrival_runway = "27"
+}, 3), "LANGNES Traffic, Lufthansa 3210 runway 27 vacated, taxiing to gate",
+    "runway vacated retains station name after FMC reset")
+assert_equal(commit_cached_arrival_event("arrival.runway_crossing", {
+    arrival_icao = "ENSB",
+    crossing_runway = "22"
+}, 4), "LANGNES Traffic, Lufthansa 3210 crossing runway 22",
+    "arrival runway crossing retains station name after FMC reset")
+local cachedParkingText, cachedParkingVoice = commit_cached_arrival_event("arrival.parking_position", {
+    arrival_icao = "ENSB",
+    arrival_runway = "27",
+    arrival_parking_found = true,
+    arrival_parking_type = "gate",
+    arrival_parking_name = "B7",
+    arrival_parking_airport_icao = "ENSB"
+}, 5)
+assert_equal(cachedParkingText, "LANGNES Traffic, Lufthansa 3210 parked at gate B7",
+    "arrival parking retains station name after FMC reset")
+assert_equal(cachedParkingVoice,
+    "Langnes Traffic, Lufthansa tree two one zero parked at gate Bravo seven",
+    "arrival parking voice retains station name after FMC reset")
+assert_equal(commit_cached_arrival_event("arrival.backtrack", {
+    arrival_icao = "PANC",
+    arrival_runway = "07R"
+}, 6), "PANC Traffic, Lufthansa 3210 backtracking runway 07R",
+    "cached station name is never reused for another ICAO")
+
+eventAdapterValues.desicao = "ENSB"
+eventAdapterValues.desrwy = "27"
+eventAdapterValues.ofp_valid = 0
+eventAdapterValues.nearesticao = "PAHO"
 
 eventAdapterWrites = {}
 eventAdapterValues.request_seq = 60
@@ -1501,7 +2177,105 @@ autoUnicom.tick(true, 2)
 assert_equal(eventAdapterWrites[1].value, phraseCases[17][3], "YAL hold exit text is committed")
 
 eventAdapterWrites = {}
-eventAdapterValues.api_version = 2
+eventAdapterValues.request_seq = 65
+eventAdapterValues.result_seq = 65
+eventAdapterValues.result_code = 21
+eventAdapterValues.ofp_valid = 1
+eventAdapterValues.ofp_origin_icao = "ENAT"
+eventAdapterValues.ofp_origin_name = "INVERNESS"
+eventAdapterValues.ofp_destination_icao = "ENSB"
+eventAdapterValues.ofp_destination_name = "LANGNES"
+ofpUpdateSeqReads = nil
+configure_event_adapter_test()
+autoUnicom.tick(true, 0)
+assert_true(autoUnicom.handleYalEvent("departure.airborne", nil, 1),
+    "stable OFP Runtime snapshot event accepted")
+autoUnicom.tick(true, 1)
+assert_equal(eventAdapterWrites[1].value,
+    "INVERNESS Traffic, Lufthansa 3210 airborne runway 09, passing 300ft",
+    "adapter prefers matching OFP airport name")
+
+eventAdapterWrites = {}
+eventAdapterValues.request_seq = 66
+eventAdapterValues.result_seq = 66
+eventAdapterValues.result_code = 21
+ofpUpdateSeqReads = { 2, 4, 2, 4, 2, 4, 2, 4, 2, 4, 2, 4 }
+configure_event_adapter_test()
+autoUnicom.tick(true, 0)
+ofpUpdateSeqReadIndex = 0
+assert_true(autoUnicom.handleYalEvent("departure.airborne", nil, 1),
+    "event with unstable OFP Runtime snapshot accepted through fallback")
+autoUnicom.tick(true, 1)
+assert_equal(eventAdapterWrites[1].value, phraseCases[1][3],
+    "unstable OFP Runtime snapshot retains Refdata fallback")
+ofpUpdateSeqReads = nil
+eventAdapterValues.ofp_valid = 0
+eventAdapterValues.ofp_origin_icao = ""
+eventAdapterValues.ofp_origin_name = ""
+eventAdapterValues.ofp_destination_icao = ""
+eventAdapterValues.ofp_destination_name = ""
+
+eventAdapterWrites = {}
+eventAdapterValues.request_seq = 68
+eventAdapterValues.result_seq = 68
+eventAdapterValues.result_code = 21
+eventAdapterValues.fmslegs = "TAKIE 15N154W KOA"
+eventAdapterValues.fmslegslat = { 14.2, 15, 19.4 }
+eventAdapterValues.fmslegslon = { -151.1, -154, -155.9 }
+eventAdapterValues.fmsvnavidx = 2
+configure_event_adapter_test()
+autoUnicom.tick(true, 0)
+assert_true(autoUnicom.handleYalEvent("enroute.in_cruise", {
+    cruise_entry = true,
+    cruise_next_waypoint = "15N154",
+    planned_altitude_ft = 40000
+}, 1), "truncated coordinate waypoint event accepted")
+autoUnicom.tick(true, 1)
+assert_equal(
+    eventAdapterWrites[1].value,
+    "Lufthansa 3210 level at FL400, 15N154W next",
+    "full FMS leg restores truncated coordinate waypoint"
+)
+assert_equal(
+    eventAdapterWrites[2].value,
+    "Lufthansa tree two one zero level at flight level fower zero zero, one fife north one fife four west next",
+    "restored coordinate waypoint gets dedicated voice formatting"
+)
+
+eventAdapterWrites = {}
+eventAdapterValues.request_seq = 69
+eventAdapterValues.result_seq = 69
+eventAdapterValues.result_code = 21
+eventAdapterValues.fmslegs = "SUBUK DCS NESDI"
+eventAdapterValues.fmslegslat = { 54.1, 54.7217, 55.2 }
+eventAdapterValues.fmslegslon = { -3.3, -3.3408, -2.8 }
+eventAdapterValues.fmsvnavidx = 3
+configure_event_adapter_test()
+autoUnicom.tick(true, 0)
+assert_true(autoUnicom.handleYalEvent("enroute.in_cruise", {
+    cruise_waypoint = "DCS",
+    cruise_next_waypoint = "NESDI",
+    altitude_ft = 37000,
+    pressure_altitude_ft = 37000
+}, 1), "NAV facility waypoint event accepted")
+autoUnicom.tick(true, 1)
+assert_equal(
+    eventAdapterWrites[1].value,
+    "Lufthansa 3210 passing DCS, maintaining FL370, NESDI next",
+    "visible waypoint text retains NAV ident"
+)
+assert_equal(
+    eventAdapterWrites[2].value,
+    "Lufthansa tree two one zero passing Dean Cross, maintaining flight level tree seven zero, Nesdi next",
+    "NAV adapter enriches position report voice with facility name"
+)
+eventAdapterValues.fmslegs = ""
+eventAdapterValues.fmslegslat = {}
+eventAdapterValues.fmslegslon = {}
+eventAdapterValues.fmsvnavidx = 0
+
+eventAdapterWrites = {}
+eventAdapterValues.api_version = 3
 eventAdapterValues.request_seq = 70
 eventAdapterValues.result_seq = 70
 eventAdapterValues.result_code = 21
@@ -1509,17 +2283,32 @@ eventAdapterValues.voice_state = 1
 eventAdapterValues.voice_result_seq = 70
 eventAdapterValues.voice_result_code = 20
 eventAdapterValues.voice_result_detail = "VOICE_TRANSMITTED"
+eventAdapterLogs = {}
 configure_event_adapter_test()
 autoUnicom.tick(true, 0)
-assert_true(autoUnicom.handleYalEvent("departure.airborne", nil, 1), "YAL v2 event accepted")
+assert_true(autoUnicom.handleYalEvent("departure.airborne", nil, 1), "YAL v3 event accepted")
 autoUnicom.tick(true, 1)
-assert_equal(eventAdapterWrites[1].kind, "text", "YAL v2 adapter writes text first")
-assert_equal(eventAdapterWrites[2].kind, "voice", "YAL v2 adapter writes voice text second")
-assert_equal(eventAdapterWrites[1].value, phraseCases[1][3], "YAL v2 adapter keeps visible text unchanged")
-assert_equal(eventAdapterWrites[2].value, voiceCases[1][3], "YAL v2 adapter writes NATO-formatted voice text")
-assert_equal(eventAdapterWrites[3].kind, "channels", "YAL v2 adapter writes channels third")
-assert_equal(eventAdapterWrites[3].value, 3, "YAL v2 adapter requests text plus voice")
-assert_equal(eventAdapterWrites[4].kind, "seq", "YAL v2 adapter commits sequence last")
+assert_equal(eventAdapterWrites[1].kind, "text", "YAL v3 adapter writes text first")
+assert_equal(eventAdapterWrites[2].kind, "voice", "YAL v3 adapter writes voice text second")
+assert_equal(eventAdapterWrites[1].value, phraseCases[1][3], "YAL v3 adapter keeps visible text aligned")
+assert_equal(eventAdapterWrites[2].value, voiceCases[1][3], "YAL v3 adapter writes formatted voice text")
+assert_equal(eventAdapterWrites[3].kind, "channels", "YAL v3 adapter writes channels third")
+assert_equal(eventAdapterWrites[3].value, 3, "YAL v3 adapter requests text plus voice")
+assert_equal(eventAdapterWrites[4].kind, "seq", "YAL v3 adapter commits sequence last")
+local queuedVoiceLogged = false
+local committedVoiceLogged = false
+for _, message in ipairs(eventAdapterLogs) do
+    if message:find("IVAO Auto-Unicom: queued event=departure.airborne", 1, true)
+        and message:find("voice_text=" .. voiceCases[1][3], 1, true) then
+        queuedVoiceLogged = true
+    end
+    if message:find("IVAO Auto-Unicom: committed event=departure.airborne", 1, true)
+        and message:find("voice_text=" .. voiceCases[1][3], 1, true) then
+        committedVoiceLogged = true
+    end
+end
+assert_true(queuedVoiceLogged, "queued Auto-Unicom log includes normalized voice text")
+assert_true(committedVoiceLogged, "committed Auto-Unicom log includes exact voice payload")
 
 eventAdapterValues.result_seq = 71
 eventAdapterValues.result_code = 21
@@ -1527,10 +2316,10 @@ eventAdapterValues.voice_result_seq = 71
 eventAdapterValues.voice_result_code = 20
 autoUnicom.tick(true, 2)
 eventAdapterWrites = {}
-assert_true(autoUnicom.repeatLastMessage(true), "YAL v2 repeat accepts last structured message")
+assert_true(autoUnicom.repeatLastMessage(true), "YAL v3 repeat accepts last structured message")
 autoUnicom.tick(true, 3)
-assert_equal(eventAdapterWrites[1].value, phraseCases[1][3], "YAL v2 repeat keeps visible text unchanged")
-assert_equal(eventAdapterWrites[2].value, voiceCases[1][3], "YAL v2 repeat keeps paired NATO voice text")
-assert_equal(eventAdapterWrites[3].value, 3, "YAL v2 repeat keeps text plus voice channels")
+assert_equal(eventAdapterWrites[1].value, phraseCases[1][3], "YAL v3 repeat keeps visible text")
+assert_equal(eventAdapterWrites[2].value, voiceCases[1][3], "YAL v3 repeat keeps paired voice text")
+assert_equal(eventAdapterWrites[3].value, 3, "YAL v3 repeat keeps text plus voice channels")
 
 print("auto_unicom tests passed")

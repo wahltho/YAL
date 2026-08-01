@@ -1422,6 +1422,15 @@ local function shouldContinueSetIlsCourseOnly(loop)
         and shouldManageSetIlsCourseSelectors(loop)
 end
 
+local function isSetIlsNormalCourseOnlyRnav(loop)
+    local snapshot = loop and loop.approachRefAccepted and loop.approachRefSnapshot or nil
+    return snapshot ~= nil
+        and snapshot.selected
+        and not snapshot.nav_valid
+        and snapshot.course_valid
+        and snapshot.nav_type == def.NAVTYPERNAV
+end
+
 local function checkSetIlsCaptainTune(tune)
     if not tune then
         return true
@@ -6414,8 +6423,22 @@ function M.fillProcedureTable()
                         local selectedNavType = navTypeFromSelectedApproachId(selectedAppId)
                         local detectedNavType = loop and loop.detectedApproach and loop.detectedApproach.navType or nil
                         local requestedNavType = selectedNavType or detectedNavType
+                        local approachSnapshot = loop and loop.approachRefAccepted and loop.approachRefSnapshot or nil
+                        local normalCourseOnlyRnav = isSetIlsNormalCourseOnlyRnav(loop)
                         local noApproachText = "Runway " .. runwayFormatted .. " has no Precision Approach"
-                        if requestedNavType == def.NAVTYPERNAV
+                        if normalCourseOnlyRnav then
+                            local parsedApproach = parseSelectedApproachId(selectedAppId)
+                            local approachLabel = "R N A V"
+                            if parsedApproach and parsedApproach.suffix and parsedApproach.suffix ~= "" then
+                                approachLabel = approachLabel .. " " .. helpers.spellNato(parsedApproach.suffix)
+                            end
+                            noApproachText = approachLabel .. " Approach Runway " .. runwayFormatted
+                                .. ". F M C guidance, no frequency or channel tuning required"
+                            local plan = buildSetIlsPlan(loop)
+                            if plan and plan.guidanceMessage and plan.guidanceMessage ~= "" then
+                                noApproachText = noApproachText .. ". " .. plan.guidanceMessage
+                            end
+                        elseif requestedNavType == def.NAVTYPERNAV
                             or requestedNavType == def.NAVTYPELPV
                             or requestedNavType == def.NAVTYPEGLS then
                             noApproachText = "Runway " .. runwayFormatted .. " has no tunable approach frequency or channel"
@@ -6431,7 +6454,8 @@ function M.fillProcedureTable()
                             runwayKey = string.format("%02d", runwayRaw)
                         end
 
-                        if helpers.isvalidicao(destinationIcao) and runwayKey ~= "" then
+                        if requestedNavType ~= def.NAVTYPERNAV
+                            and helpers.isvalidicao(destinationIcao) and runwayKey ~= "" then
                             local cifpData = helpers.loadCIFP(destinationIcao)
                             if cifpData then
                                 local rnEntries = cifpData[def.NAVTYPERNAV]
@@ -6444,8 +6468,8 @@ function M.fillProcedureTable()
                             end
                         end
 
-                        local approachSnapshot = loop and loop.approachRefAccepted and loop.approachRefSnapshot or nil
-                        if approachSnapshot and approachSnapshot.selected and not approachSnapshot.nav_valid then
+                        if approachSnapshot and approachSnapshot.selected and not approachSnapshot.nav_valid
+                            and not normalCourseOnlyRnav then
                             local plan = buildSetIlsPlan(loop)
                             if plan and plan.guidanceMessage and plan.guidanceMessage ~= "" then
                                 P.commandtableentry(def.TEXT, plan.guidanceMessage)
@@ -6456,6 +6480,10 @@ function M.fillProcedureTable()
                     nextStep = 'announce_heading_only'
                 },
                 ['announce_heading_only'] = {
+                    skipIf = function(loop, procData)
+                        return isSetIlsNormalCourseOnlyRnav(loop)
+                            and shouldContinueSetIlsCourseOnly(loop)
+                    end,
                     action = function(loop, procData)
                         local course = getCachedApproachCourse(loop)
 

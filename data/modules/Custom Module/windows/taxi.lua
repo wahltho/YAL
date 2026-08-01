@@ -5543,6 +5543,22 @@ U = {
     find_holdshort_node_near = find_holdshort_node_near,
     build_runway_backtrack_segments = build_runway_backtrack_segments,
     compute_along_perp = compute_along_perp,
+    is_meaningful_departure_intersection = function(profile, aircraft, entryDistance, entryGate)
+        local along, perp = compute_along_perp(profile, aircraft)
+        local length = tonumber(profile and profile.length) or 0
+        local distance = tonumber(entryDistance)
+        local gate = tonumber(entryGate) or 0
+        if not along or not perp or length <= 0 or not distance or gate <= 0 then
+            return false
+        end
+        local minAlong = math.max(
+            tonumber(C.autoUnicomIntersectionMinMeters) or 150,
+            length * (tonumber(C.autoUnicomIntersectionMinRunwayFraction) or 0.05)
+        )
+        return along >= minAlong and along <= (length + 20)
+            and perp <= (runway_corridor_half_width(profile) + 3)
+            and distance <= gate
+    end,
     select_runway_exit_node = select_runway_exit_node,
     copy_opts = copy_opts,
     route_with_waypoints = route_with_waypoints,
@@ -13589,6 +13605,13 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
             intersection = ""
         end
         result.departure_intersection = intersection ~= "" and intersection or nil
+        result.lineup_intersection = onRunwayAligned and intersection ~= ""
+            and U.is_meaningful_departure_intersection(
+                comp._depProfile,
+                aircraft,
+                holdDistance,
+                holdGate
+            ) and intersection or nil
         result.hold_short_node_id = holdId
         result.hold_short_distance_m = holdDistance
         result.hold_short = not onRunwaySurface

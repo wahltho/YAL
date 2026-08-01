@@ -10,17 +10,21 @@ local S = {
     probeCountdown = 0,
     apiVersion = nil,
     categories = {},
-    seq = { apt = 0, rnw = 0, landing_nav = 0, cifp = 0 },
+    seq = { nav = 0, apt = 0, rnw = 0, landing_nav = 0, cifp = 0 },
     lastActiveKey = nil,
-    adapterCache = { apt = {}, rnw = {}, cifp = {} },
+    adapterCache = { nav = {}, apt = {}, rnw = {}, cifp = {} },
+    stationNameRetryAt = {},
     logged = {}
 }
 
 local MAX_CIFP_LINES = 5000
 local MIN_EFFECTIVE_NAVDATA_API_VERSION = 3
+local MIN_STATION_NAME_API_VERSION = 4
+local STATION_NAME_RETRY_SECONDS = 5
 local LANDING_NAV_REJECT_SCORE = -1000000
 local MIN_APPROACH_REF_API_VERSION = 1
 local APPROACH_REF_READ_ATTEMPTS = 3
+local NAV_WAYPOINT_MATCH_MAX_NM = 5
 local APPROACH_REF_FIELDS = {
     "api_version", "update_seq", "selected", "nav_valid", "course_valid",
     "procedure_id", "procedure_type", "resolved_nav_kind", "airport", "runway", "nav_ident",
@@ -635,6 +639,7 @@ local function probe()
         "Zibo Refdata Cache API connected version=" .. tostring(S.apiVersion or "n/a")
             .. " categories="
             .. table.concat({
+                categoryConnectSummary("nav"),
                 categoryConnectSummary("apt"),
                 categoryConnectSummary("rnw"),
                 categoryConnectSummary("landing_nav"),
@@ -642,7 +647,7 @@ local function probe()
             }, " "),
         false
     )
-    for _, name in ipairs({ "apt", "rnw", "landing_nav", "cifp" }) do
+    for _, name in ipairs({ "nav", "apt", "rnw", "landing_nav", "cifp" }) do
         local cat = S.categories[name]
         if categoryAvailable(name) then
             logOnce(
@@ -805,9 +810,55 @@ local function queryApt(icao)
             elevation_ft = readNumber(q.elevation_ft),
             airport_type = readNumber(q.airport_type),
             has_ils = readNumber(q.has_ils),
-            max_rwy_ft = readNumber(q.max_rwy_ft)
+            max_rwy_ft = readNumber(q.max_rwy_ft),
+            station_name = apiVersionAtLeast(MIN_STATION_NAME_API_VERSION) and readString(q.station_name) or "",
+            station_name_valid = apiVersionAtLeast(MIN_STATION_NAME_API_VERSION)
+                and boolValue(readNumber(q.station_name_valid)) or false
         }
     end, "APT " .. icao)
+end
+
+local function queryNav(ident, matchIndex, silentStatus)
+    ident = cleanText(ident)
+    if ident == "" or #ident > 8 or ident:find("[^A-Z0-9]") then
+        return nil
+    end
+    return runQuery("nav", function(q)
+        writeString(q.ident, ident)
+        writeString(q.region_filter, "")
+        writeString(q.airport_filter, "")
+        writeNumber(q.match_index, tonumber(matchIndex) or 0)
+    end, function(q)
+        return {
+            ident = ident,
+            match_count = readNumber(q.match_count),
+            type = readNumber(q.type),
+            lat = readNumber(q.lat),
+            lon = readNumber(q.lon),
+            frequency = readNumber(q.frequency),
+            mag_var = readNumber(q.mag_var),
+            region = readString(q.region),
+            airport = readString(q.airport),
+            name = readString(q.name)
+        }
+    end, "NAV " .. ident .. " " .. tostring(matchIndex or 0), silentStatus)
+end
+
+local function navDistanceNm(entry, latitude, longitude)
+    latitude = tonumber(latitude)
+    longitude = tonumber(longitude)
+    if not entry or not latitude or not longitude then return nil end
+    local entryLat = tonumber(entry.lat)
+    local entryLon = tonumber(entry.lon)
+    if not entryLat or not entryLon then return nil end
+    if S.helpers and S.helpers.getdistance then
+        local ok, distance = pcall(S.helpers.getdistance, entryLat, entryLon, latitude, longitude)
+        if ok then return tonumber(distance) end
+    end
+    local latScale = math.cos(math.rad((entryLat + latitude) * 0.5))
+    local dx = (entryLon - longitude) * latScale * 60
+    local dy = (entryLat - latitude) * 60
+    return math.sqrt(dx * dx + dy * dy)
 end
 
 local function queryRnw(icao, runway)
@@ -859,6 +910,8 @@ local function apiAirportEntry(icao, api)
         airport_type = tonumber(api.airport_type),
         has_ils = boolValue(api.has_ils),
         max_rwy_ft = tonumber(api.max_rwy_ft),
+        station_name = api.station_name_valid and cleanText(api.station_name) or "",
+        station_name_valid = api.station_name_valid == true and cleanText(api.station_name) ~= "",
         _source = "zibo_api"
     }
 end
@@ -1901,7 +1954,8 @@ function M.initialize(yalRef, helpersRef)
     S.available = false
     S.probeCountdown = 0
     S.lastActiveKey = nil
-    S.adapterCache = { apt = {}, rnw = {}, cifp = {} }
+    S.adapterCache = { nav = {}, apt = {}, rnw = {}, cifp = {} }
+    S.stationNameRetryAt = {}
     probe()
     logApproachRefConnection()
     if S.helpers and S.helpers.configureCIFPProvider then
@@ -1910,6 +1964,51 @@ function M.initialize(yalRef, helpersRef)
             return data, payload and payload.source_path or nil
         end)
     end
+end
+
+function M.getNavByIdent(ident, latitude, longitude)
+    if not S.initialized then return nil end
+    ident = cleanText(ident)
+    if ident == "" or #ident > 8 or ident:find("[^A-Z0-9]") then return nil end
+    if not ensureReady() or not categoryAvailable("nav") then return nil end
+
+    latitude = tonumber(latitude)
+    longitude = tonumber(longitude)
+    local hasPosition = latitude ~= nil and longitude ~= nil
+        and latitude >= -90 and latitude <= 90 and longitude >= -180 and longitude <= 180
+    local cacheKey = ident
+    if hasPosition then
+        cacheKey = cacheKey .. string.format("|%.4f|%.4f", latitude, longitude)
+    end
+    S.adapterCache.nav = S.adapterCache.nav or {}
+    local cached = S.adapterCache.nav[cacheKey]
+    if cached then return cached end
+
+    local first = queryNav(ident, 0, true)
+    if not first then return nil end
+    local matchCount = math.max(0, math.floor(tonumber(first.match_count) or 0))
+    local best = first
+    local bestDistance = navDistanceNm(first, latitude, longitude)
+    if hasPosition then
+        for index = 1, math.min(matchCount - 1, 63) do
+            local candidate = queryNav(ident, index, true)
+            local distance = navDistanceNm(candidate, latitude, longitude)
+            if candidate and distance and (not bestDistance or distance < bestDistance) then
+                best = candidate
+                bestDistance = distance
+            end
+        end
+        if not bestDistance or bestDistance > NAV_WAYPOINT_MATCH_MAX_NM then
+            return nil
+        end
+    elseif matchCount ~= 1 then
+        return nil
+    end
+
+    best.distance_nm = bestDistance
+    best._source = "zibo_api"
+    S.adapterCache.nav[cacheKey] = best
+    return best
 end
 
 function M.getAirport(icao)
@@ -1924,22 +2023,43 @@ function M.getAirport(icao)
         return nil
     end
     S.adapterCache.apt = S.adapterCache.apt or {}
+    S.stationNameRetryAt = S.stationNameRetryAt or {}
     local cached = S.adapterCache.apt[icao]
-    if cached then
+    local stationNameSupported = apiVersionAtLeast(MIN_STATION_NAME_API_VERSION)
+    if cached and (not stationNameSupported or cached.station_name_valid == true) then
         return cached
     end
+
+    local now = os.time() or 0
+    if stationNameSupported and now < (tonumber(S.stationNameRetryAt[icao]) or 0) then
+        return cached
+    end
+    if stationNameSupported then
+        S.stationNameRetryAt[icao] = now + STATION_NAME_RETRY_SECONDS
+    end
+
     local entry = apiAirportEntry(icao, queryApt(icao))
     if not entry then
-        return nil
+        return cached
     end
-    S.adapterCache.apt[icao] = entry
+    if cached then
+        cached.station_name = entry.station_name
+        cached.station_name_valid = entry.station_name_valid
+        entry = cached
+    else
+        S.adapterCache.apt[icao] = entry
+    end
+    if entry.station_name_valid == true then
+        S.stationNameRetryAt[icao] = nil
+    end
     logOnce(
         "airport-adapter-selected-" .. icao,
         "RefdataAdapter Airport selected source=zibo_api icao=" .. icao
             .. " lat=" .. tostring(entry.latitude)
             .. " lon=" .. tostring(entry.longitude)
             .. " elev_ft=" .. tostring(entry.elevation_ft)
-            .. " max_rwy_ft=" .. tostring(entry.max_rwy_ft),
+            .. " max_rwy_ft=" .. tostring(entry.max_rwy_ft)
+            .. " station_name=" .. tostring(entry.station_name_valid and entry.station_name or "n/a"),
         true
     )
     return entry
