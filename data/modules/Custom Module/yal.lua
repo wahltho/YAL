@@ -9,6 +9,7 @@ local refdata = require("refdata")
 local autoUnicomCore = require("auto_unicom_core")
 P.pauseTodGuard = require("pause_tod_guard")
 P.departureNavResolver = require("departure_nav")
+P.routeWarningGuard = require("route_warning_guard")
 
 local AUTO_UNICOM_CLIMB_LEVELS_FT = { 10000, 20000, 30000, 40000 }
 local AUTO_UNICOM_DESCENT_LEVELS_FT = { 40000, 30000, 20000, 10000 }
@@ -1765,6 +1766,11 @@ function P.YalinitGlobal()
     P.routeMayEndEarlyBadCount = 0
     P.routeMayEndEarlyLastDiff = nil
     P.routeEndsBeforeTodWarned = false
+    P.routeEndsBeforeTodTimer = nil
+    P.routeEndsBeforeTodBadCount = 0
+    P.routeEndsBeforeTodLastTod = nil
+    P.routeEndsBeforeTodLastDistDest = nil
+    P.routeEndsBeforeTodLastReference = nil
     P.todResetMcpAdviceState = { key = nil, count = 0, spoken = 0 }
     P._takeoffN140CalloutLatched = false
     P.autoUnicomRuntime = {
@@ -9955,6 +9961,48 @@ local function updateRouteMayEndEarlyCandidate(diff, distDest, remainingDistance
     end
 end
 
+function P.resetRouteEndsBeforeTodCandidate(clearWarning, clearHistory)
+    if P.routeEndsBeforeTodTimer then
+        sasl.stopTimer(P.routeEndsBeforeTodTimer)
+    end
+    P.routeEndsBeforeTodTimer = nil
+    P.routeEndsBeforeTodBadCount = 0
+    if clearWarning then
+        P.routeEndsBeforeTodWarned = false
+    end
+    if clearHistory then
+        P.routeEndsBeforeTodLastTod = nil
+        P.routeEndsBeforeTodLastDistDest = nil
+        P.routeEndsBeforeTodLastReference = nil
+    end
+end
+
+function P.updateRouteEndsBeforeTodCandidate(result, fmsPhase)
+    if not P.routeEndsBeforeTodTimer then
+        P.routeEndsBeforeTodTimer = sasl.createTimer()
+        sasl.startTimer(P.routeEndsBeforeTodTimer)
+        P.routeEndsBeforeTodBadCount = 0
+    end
+
+    P.routeEndsBeforeTodBadCount = (P.routeEndsBeforeTodBadCount or 0) + 1
+    local elapsed = sasl.getElapsedSeconds(P.routeEndsBeforeTodTimer) or 0
+    if not P.routeEndsBeforeTodWarned
+        and elapsed >= def.ROUTE_ENDS_BEFORE_TOD_STABLE_SEC
+        and P.routeEndsBeforeTodBadCount >= def.ROUTE_ENDS_BEFORE_TOD_MIN_BAD_SAMPLES then
+        P.commandtableentry(def.TEXT, "Warning: Route may end before Top of Descent, check Arrival setup")
+        P.routeEndsBeforeTodWarned = true
+        helpers.logDebugTS(
+            "RouteEndsBeforeTod warning: diff=" .. tostring(result.diff_nm) ..
+            " distDest=" .. tostring(result.destination_distance_nm) ..
+            " remaining=" .. tostring(result.reference_distance_nm) ..
+            " tod=" .. tostring(result.tod_distance_nm) ..
+            " fmsPhase=" .. tostring(fmsPhase) ..
+            " samples=" .. tostring(P.routeEndsBeforeTodBadCount) ..
+            " elapsed=" .. tostring(helpers.roundnumber(elapsed, 1))
+        )
+    end
+end
+
 local function buildFMSDiscontinuityOptions(options)
     local missedStartIndex = nil
     local missedEndIndex = nil
@@ -10508,13 +10556,7 @@ function P.runOneMainOngoingTask()
                 P.todDiscontinuityWarned10 = false
             end
 
-            local routeCheckEligible =
-                (P.flightstate == def.FLIGHTSTATECRUISE) or
-                (P.flightstate == def.FLIGHTSTATEAPPROACH)
-
-            local routeWarningTolerance = 5
-
-            if routeCheckEligible and todDistance and todDistance > routeWarningTolerance then
+            if pauseTodCruiseContext then
                 local remainingDistance, _, onRoute = helpers.getRemainingRouteDistance(
                     get(P.fmslegs),
                     get(P.fmslegslat),
@@ -10522,39 +10564,45 @@ function P.runOneMainOngoingTask()
                     get(P.aircraftlatpos),
                     get(P.aircraftlonpos)
                 )
-
-                local hasRemaining = remainingDistance and remainingDistance > 0 and onRoute == true
                 local distDest = get(P.distdest)
-                local hasDestDistance = distDest and distDest > 0
+                local result = P.routeWarningGuard.evaluatePositiveTodSample({
+                    eligible = true,
+                    tod_distance_nm = todDistance,
+                    destination_distance_nm = distDest,
+                    remaining_distance_nm = remainingDistance,
+                    on_route = onRoute == true,
+                    previous_tod_distance_nm = P.routeEndsBeforeTodLastTod,
+                    previous_destination_distance_nm = P.routeEndsBeforeTodLastDistDest,
+                    previous_reference_distance_nm = P.routeEndsBeforeTodLastReference,
+                    warning_diff_nm = def.ROUTE_ENDS_BEFORE_TOD_DIFF_NM,
+                    reset_diff_nm = def.ROUTE_ENDS_BEFORE_TOD_RESET_DIFF_NM,
+                    max_rise_nm = def.ROUTE_ENDS_BEFORE_TOD_MAX_RISE_NM
+                })
 
-                if hasRemaining then
-                    if todDistance > (remainingDistance + routeWarningTolerance) then
-                        if not P.routeEndsBeforeTodWarned then
-                            P.commandtableentry(def.TEXT, "Warning: Route may end before Top of Descent, check Arrival setup")
-                            P.routeEndsBeforeTodWarned = true
-                        end
-                    elseif P.routeEndsBeforeTodWarned and todDistance <= (remainingDistance + routeWarningTolerance * 0.2) then
-                        P.routeEndsBeforeTodWarned = false
-                    end
-                elseif hasDestDistance then
-                    if todDistance > (distDest + routeWarningTolerance) then
-                        if not P.routeEndsBeforeTodWarned then
-                            P.commandtableentry(def.TEXT, "Warning: Route may end before Top of Descent, check Arrival setup")
-                            P.routeEndsBeforeTodWarned = true
-                        end
-                    elseif P.routeEndsBeforeTodWarned and todDistance <= (distDest + routeWarningTolerance * 0.2) then
-                        P.routeEndsBeforeTodWarned = false
-                    end
+                if result.tod_distance_nm and result.destination_distance_nm and result.reference_distance_nm then
+                    P.routeEndsBeforeTodLastTod = result.tod_distance_nm
+                    P.routeEndsBeforeTodLastDistDest = result.destination_distance_nm
+                    P.routeEndsBeforeTodLastReference = result.reference_distance_nm
                 else
-                    P.routeEndsBeforeTodWarned = false
+                    P.routeEndsBeforeTodLastTod = nil
+                    P.routeEndsBeforeTodLastDistDest = nil
+                    P.routeEndsBeforeTodLastReference = nil
+                end
+
+                if result.status == "candidate" then
+                    P.updateRouteEndsBeforeTodCandidate(result, fmsPhase)
+                elseif result.status == "clear" then
+                    P.resetRouteEndsBeforeTodCandidate(true, false)
+                else
+                    P.resetRouteEndsBeforeTodCandidate(false, false)
                 end
             else
-                P.routeEndsBeforeTodWarned = false
+                P.resetRouteEndsBeforeTodCandidate(true, true)
             end
         else
             P.todDiscontinuityWarned30 = false
             P.todDiscontinuityWarned10 = false
-            P.routeEndsBeforeTodWarned = false
+            P.resetRouteEndsBeforeTodCandidate(true, true)
         end
 
         if pauseTodCruiseContext and not suppressDiscoWarnings then
