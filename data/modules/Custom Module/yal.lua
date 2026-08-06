@@ -1806,6 +1806,7 @@ function P.YalinitGlobal()
         shortFinalSince = nil,
         cruiseInitialized = false,
         cruiseWaypoint = nil,
+        cruiseVectorActive = false,
         cruiseLastReportAt = nil
     }
     P.approachPrepTriggerKey = nil
@@ -2790,6 +2791,7 @@ function P.bindExternalDatarefs(silentMissing)
     P.fmslegs = GP("laminar/B738/fms/legs")
     P.fmslegslat = GP("laminar/B738/fms/legs_lat")
     P.fmslegslon = GP("laminar/B738/fms/legs_lon")
+    P.fmslegscrsmag = GP("laminar/B738/fms/legs_crs_mag")
     P.fmsvnavidx = GP("laminar/B738/fms/vnav_idx")
     P.fmslegsmodactive = nil
     if probe_external_dataref("laminar/B738/fms/legs_mod_active") then
@@ -8122,6 +8124,24 @@ local function cleanAutoUnicomWaypoint(value)
     return text
 end
 
+function P.getAutoUnicomNavigationTarget()
+    local rawIdent = P.fmsfplnnavid and get(P.fmsfplnnavid) or nil
+    if not autoUnicomCore.isVectorLegIdentifier(rawIdent) then
+        return cleanAutoUnicomWaypoint(rawIdent), false, nil
+    end
+
+    local heading = nil
+    local activeLegIndex = P.fmsvnavidx and tonumber(get(P.fmsvnavidx)) or nil
+    if P.fmslegscrsmag and activeLegIndex then
+        activeLegIndex = math.floor(activeLegIndex + 0.5)
+        if activeLegIndex >= 1 then
+            local ok, value = pcall(get, P.fmslegscrsmag, activeLegIndex - 1)
+            if ok then heading = autoUnicomCore.normalizeVectorHeading(value) end
+        end
+    end
+    return nil, true, heading
+end
+
 local function readAutoUnicomHoldState()
     local api = P.holdRuntime
     if type(api) == "table" and api.api_version and (tonumber(get(api.api_version)) or 0) >= 1 then
@@ -8290,6 +8310,7 @@ function P.baselineAutoUnicomRuntimeEvents()
     state.shortFinalSince = nil
     state.cruiseInitialized = false
     state.cruiseWaypoint = nil
+    state.cruiseVectorActive = false
     state.cruiseLastReportAt = nil
     state.lastFmsPhase = P.fmsflightphase and tonumber(get(P.fmsflightphase)) or nil
 
@@ -8313,8 +8334,9 @@ function P.baselineAutoUnicomRuntimeEvents()
             and state.lastFmsPhase == def.FMSFLIGHTPHASE_CRUISE then
             state.cruiseInitialized = true
             state.cruiseLastReportAt = os.time()
-            state.cruiseWaypoint = P.fmsfplnnavid
-                and cleanAutoUnicomWaypoint(get(P.fmsfplnnavid)) or nil
+            local waypoint, vectorActive = P.getAutoUnicomNavigationTarget()
+            state.cruiseWaypoint = waypoint
+            state.cruiseVectorActive = vectorActive
         end
         for _, level in ipairs(AUTO_UNICOM_CLIMB_LEVELS_FT) do
             if altitude >= level then
@@ -8701,16 +8723,20 @@ function P.updateAutoUnicomCruiseEvent()
     if not cruiseActive then
         state.cruiseInitialized = false
         state.cruiseWaypoint = nil
+        state.cruiseVectorActive = false
         state.cruiseLastReportAt = nil
         return
     end
 
-    local waypoint = P.fmsfplnnavid and cleanAutoUnicomWaypoint(get(P.fmsfplnnavid)) or nil
+    local waypoint, vectorActive, vectorHeading = P.getAutoUnicomNavigationTarget()
     if not state.cruiseInitialized then
         state.cruiseWaypoint = waypoint
+        state.cruiseVectorActive = vectorActive
         if P.publishRuntimeEvent("enroute.in_cruise", {
             cruise_entry = true,
-            cruise_next_waypoint = waypoint
+            cruise_next_waypoint = waypoint,
+            navigation_vector_active = vectorActive,
+            navigation_vector_heading_deg = vectorHeading
         }) then
             state.cruiseInitialized = true
             state.cruiseLastReportAt = os.time()
@@ -8718,15 +8744,20 @@ function P.updateAutoUnicomCruiseEvent()
         return
     end
     local now = os.time()
-    local passedWaypoint = nil
-    if waypoint and state.cruiseWaypoint and waypoint ~= state.cruiseWaypoint then
-        passedWaypoint = state.cruiseWaypoint
-    end
-    if waypoint then state.cruiseWaypoint = waypoint end
+    local passedWaypoint, nextWaypointState, nextVectorState = autoUnicomCore.advanceCruiseWaypointState(
+        state.cruiseWaypoint,
+        state.cruiseVectorActive,
+        waypoint,
+        vectorActive
+    )
+    state.cruiseWaypoint = nextWaypointState
+    state.cruiseVectorActive = nextVectorState
     if not autoUnicomCore.isCruiseReportDue(state.cruiseLastReportAt, now) then return end
 
     local payload = {
-        cruise_next_waypoint = waypoint
+        cruise_next_waypoint = waypoint,
+        navigation_vector_active = vectorActive,
+        navigation_vector_heading_deg = vectorHeading
     }
     if passedWaypoint then
         payload.cruise_waypoint = passedWaypoint
@@ -8740,9 +8771,11 @@ end
 
 function P.updateAutoUnicomClimbEvents()
     P.updateAutoUnicomAirborneEvent()
-    local nextWaypoint = P.fmsfplnnavid and cleanAutoUnicomWaypoint(get(P.fmsfplnnavid)) or nil
+    local nextWaypoint, vectorActive, vectorHeading = P.getAutoUnicomNavigationTarget()
     autoUnicomEventOnce("departure.on_climb", "departure.on_climb", {
-        climb_next_waypoint = nextWaypoint
+        climb_next_waypoint = nextWaypoint,
+        navigation_vector_active = vectorActive,
+        navigation_vector_heading_deg = vectorHeading
     })
     local altitude = tonumber(get(P.altitude)) or 0
     local cruiseAltitude = P.fmccruisealt and tonumber(get(P.fmccruisealt)) or nil
@@ -8756,7 +8789,9 @@ function P.updateAutoUnicomClimbEvents()
                 autoUnicomEventOnce(key, key, {
                     altitude_ft = level,
                     pressure_altitude_ft = level,
-                    climb_next_waypoint = nextWaypoint
+                    climb_next_waypoint = nextWaypoint,
+                    navigation_vector_active = vectorActive,
+                    navigation_vector_heading_deg = vectorHeading
                 })
             end
         end

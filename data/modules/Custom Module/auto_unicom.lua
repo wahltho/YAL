@@ -477,6 +477,18 @@ local function build_snapshot()
     local def = runtime.def
     local sources = runtime.sources or {}
     local api = refs()
+    local activeNavigationId = safe_read(y.fmsfplnnavid)
+    local vectorLegActive = core.isVectorLegIdentifier(activeNavigationId)
+    local vectorHeading = nil
+    if vectorLegActive then
+        local activeLegIndex = tonumber(safe_read(y.fmsvnavidx))
+        if activeLegIndex then
+            activeLegIndex = math.floor(activeLegIndex + 0.5)
+            if activeLegIndex >= 1 then
+                vectorHeading = route_array_value(safe_read(y.fmslegscrsmag), activeLegIndex)
+            end
+        end
+    end
     local snapshot = {
         on_ground = safe_read(y.airgroundsensor) == def.ON,
         radio_altitude_ft = tonumber(safe_read(y.radioaltitude)),
@@ -494,7 +506,9 @@ local function build_snapshot()
         arrival_icao = tostring(safe_read(y.desicao) or ""),
         arrival_runway = tostring(safe_read(y.desrwy) or ""),
         sid = tostring(safe_read(y.fmsselectedsid) or ""),
-        climb_next_waypoint = tostring(safe_read(y.fmsfplnnavid) or ""),
+        climb_next_waypoint = vectorLegActive and "" or tostring(activeNavigationId or ""),
+        navigation_vector_active = vectorLegActive,
+        navigation_vector_heading_deg = vectorHeading,
         star = tostring(safe_read(y.fmsselectedstar) or ""),
         approach_id = tostring(safe_read(y.fmsselectedapp) or ""),
         effective_callsign = clean_effective_callsign(safe_read(api and api.effective_callsign)),

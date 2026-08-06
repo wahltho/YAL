@@ -131,6 +131,34 @@ function M.isCruiseLevelStable(verticalSpeedFpm)
     return math.abs(verticalSpeed) <= M.CRUISE_LEVEL_MAX_VS_FPM
 end
 
+function M.isVectorLegIdentifier(value)
+    local text = tostring(value or "")
+    local nullIndex = text:find("\0", 1, true)
+    if nullIndex then text = text:sub(1, nullIndex - 1) end
+    text = text:gsub("^%s+", ""):gsub("%s+$", ""):upper()
+    return text == "(VECTO" or text == "(VECTOR)"
+end
+
+function M.normalizeVectorHeading(value)
+    local heading = tonumber(value)
+    if not heading or heading ~= heading or heading < 0 or heading > 360 then return nil end
+    heading = math.floor(heading + 0.5) % 360
+    return heading == 0 and 360 or heading
+end
+
+function M.advanceCruiseWaypointState(previousWaypoint, previousVectorActive, waypoint, vectorActive)
+    if vectorActive == true then
+        return nil, nil, true
+    end
+
+    local passedWaypoint = nil
+    if waypoint and previousWaypoint and previousVectorActive ~= true
+        and waypoint ~= previousWaypoint then
+        passedWaypoint = previousWaypoint
+    end
+    return passedWaypoint, waypoint or previousWaypoint, false
+end
+
 function M.isHoldLevelStable(altitudeFt, verticalSpeedFpm, targetAltitudeFt)
     local target = tonumber(targetAltitudeFt)
     if not target or target <= 0 then return true end
@@ -686,6 +714,19 @@ local function format_hold_target_altitude(snapshot)
     return tostring(round(target / 100) * 100) .. "ft"
 end
 
+local function append_navigation_status(text, snapshot, nextWaypoint)
+    if snapshot.navigation_vector_active == true
+        or tonumber(snapshot.navigation_vector_active) == 1 then
+        local heading = M.normalizeVectorHeading(snapshot.navigation_vector_heading_deg)
+        if heading then
+            return text .. ", flying heading " .. string.format("%03d", heading)
+        end
+        return text
+    end
+    if nextWaypoint then return text .. ", " .. nextWaypoint .. " next" end
+    return text
+end
+
 local function approach_label(snapshot)
     local family = clean_token(snapshot.approach_procedure_type, false)
     local resolved = clean_token(snapshot.approach_resolved_kind, false)
@@ -951,14 +992,14 @@ function M.buildMessage(eventId, snapshot)
             if not altitude then return nil, "missing_cruise_context" end
             local phaseText = M.isCruiseLevelStable(snapshot.vertical_speed_fpm) and "level at" or "reaching"
             local text = string.format("%s %s %s", context.prefix, phaseText, altitude)
-            if nextWaypoint then text = text .. ", " .. nextWaypoint .. " next" end
+            text = append_navigation_status(text, snapshot, nextWaypoint)
             return normalize_text(text)
         end
         local altitude = format_altitude(snapshot, false)
         if not altitude then return nil, "missing_cruise_context" end
         if snapshot.cruise_periodic == true then
             local text = string.format("%s maintaining %s", context.prefix, altitude)
-            if nextWaypoint then text = text .. ", " .. nextWaypoint .. " next" end
+            text = append_navigation_status(text, snapshot, nextWaypoint)
             return normalize_text(text)
         end
         local waypoint = clean_token(snapshot.cruise_waypoint, false)
@@ -969,7 +1010,7 @@ function M.buildMessage(eventId, snapshot)
             waypoint,
             altitude
         )
-        if nextWaypoint then text = text .. ", " .. nextWaypoint .. " next" end
+        text = append_navigation_status(text, snapshot, nextWaypoint)
         return normalize_text(text)
     end
 
@@ -983,7 +1024,7 @@ function M.buildMessage(eventId, snapshot)
         if sid then text = text .. " on " .. sid .. " departure" end
         text = text .. ", passing " .. altitude
         if planned then text = text .. " for " .. planned end
-        if nextWaypoint then text = text .. ", " .. nextWaypoint .. " next" end
+        text = append_navigation_status(text, snapshot, nextWaypoint)
         return normalize_text(text)
     end
 
@@ -1089,6 +1130,9 @@ function M.buildVoiceMessage(eventId, snapshot, spellNato, visibleText)
     end)
     text = text:gsub("runway%s+(%d%d?[LRC]?)", function(value)
         return "runway " .. (voice_runway(value) or value)
+    end)
+    text = text:gsub("heading%s+(%d%d%d)", function(value)
+        return "heading " .. spaced_digits(value)
     end)
 
     local replacements = {}
@@ -1231,6 +1275,9 @@ local function summarize_sources(snapshot)
         { "cruiseWaypointNav", snapshot.cruise_waypoint_nav_name },
         { "cruiseNext", snapshot.cruise_next_waypoint },
         { "cruiseNextNav", snapshot.cruise_next_waypoint_nav_name },
+        { "vectorActive", (snapshot.navigation_vector_active == true
+            or tonumber(snapshot.navigation_vector_active) == 1) and 1 or 0 },
+        { "vectorHeading", snapshot.navigation_vector_heading_deg },
         { "final", snapshot.final_gate and 1 or 0 },
         { "shortFinal", snapshot.short_final_gate and 1 or 0 }
     }

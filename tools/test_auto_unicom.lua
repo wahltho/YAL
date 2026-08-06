@@ -71,6 +71,32 @@ assert_equal(core.isCruiseLevelStable(-301), false,
     "cruise entry reports reaching while still descending")
 assert_true(core.isCruiseLevelStable(nil),
     "missing vertical speed preserves the previous cruise-entry wording")
+assert_true(core.isVectorLegIdentifier("(VECTO\0"),
+    "truncated Zibo vector identifier is recognized before cleaning")
+assert_true(core.isVectorLegIdentifier("(VECTOR)"),
+    "full Zibo vector identifier is recognized")
+assert_equal(core.isVectorLegIdentifier("VECTO"), false,
+    "genuine VECTO waypoint is not treated as a vector leg")
+assert_equal(core.normalizeVectorHeading(239.6), 240,
+    "vector heading is rounded to the nearest degree")
+assert_equal(core.normalizeVectorHeading(0), 360,
+    "northbound vector heading uses aviation heading 360")
+assert_equal(core.normalizeVectorHeading(361), nil,
+    "invalid vector heading is rejected")
+local vectorPassed, vectorWaypoint, vectorActive = core.advanceCruiseWaypointState(
+    "BIRCO", false, nil, true
+)
+assert_equal(vectorPassed, nil, "entering vector does not report previous waypoint as passed")
+assert_equal(vectorWaypoint, nil, "entering vector clears tracked cruise waypoint")
+assert_true(vectorActive, "entering vector latches vector state")
+local exitPassed, exitWaypoint, exitVectorActive = core.advanceCruiseWaypointState(
+    vectorWaypoint, vectorActive, "NESDI", false
+)
+assert_equal(exitPassed, nil, "leaving vector does not report stale waypoint as passed")
+assert_equal(exitWaypoint, "NESDI", "leaving vector tracks the new waypoint")
+assert_equal(exitVectorActive, false, "leaving vector clears vector state")
+local normalPassed = core.advanceCruiseWaypointState("BIRCO", false, "NESDI", false)
+assert_equal(normalPassed, "BIRCO", "normal cruise waypoint sequencing remains unchanged")
 assert_equal(core.isHoldLevelStable(5177, -321, 5100), false,
     "hold is not maintaining while still descending")
 assert_true(core.isHoldLevelStable(5105, -50, 5100),
@@ -124,6 +150,47 @@ local base = {
     approach_procedure_type = "RNAV",
     approach_suffix = "W"
 }
+
+local vectorClimbSnapshot = copy(base, {
+    altitude_ft = 1800,
+    pressure_altitude_ft = 1800,
+    climb_next_waypoint = "VECTO",
+    navigation_vector_active = true,
+    navigation_vector_heading_deg = 240
+})
+local vectorClimbText = core.buildMessage("departure.on_climb", vectorClimbSnapshot)
+assert_equal(
+    vectorClimbText,
+    "Lufthansa 3210 climbing out of ALTA on ATKUP1A departure, passing 1800ft for FL370, flying heading 240",
+    "active vector renders its leg heading instead of a pseudo-waypoint"
+)
+assert_equal(
+    core.buildVoiceMessage("departure.on_climb", vectorClimbSnapshot, test_spell_nato, vectorClimbText),
+    "Lufthansa tree two one zero climbing out of Alta on Atkup one Alpha departure, passing one eight zero zero feet for flight level tree seven zero, flying heading two fower zero",
+    "active vector heading is spoken digit by digit"
+)
+assert_equal(
+    core.buildMessage("departure.on_climb", copy(base, {
+        altitude_ft = 1800,
+        pressure_altitude_ft = 1800,
+        climb_next_waypoint = "VECTO",
+        navigation_vector_active = false
+    })),
+    "Lufthansa 3210 climbing out of ALTA on ATKUP1A departure, passing 1800ft for FL370, VECTO next",
+    "genuine VECTO waypoint remains a normal waypoint"
+)
+assert_equal(
+    core.buildMessage("enroute.in_cruise", copy(base, {
+        cruise_periodic = true,
+        cruise_next_waypoint = "VECTO",
+        navigation_vector_active = true,
+        navigation_vector_heading_deg = nil,
+        altitude_ft = 40000,
+        pressure_altitude_ft = 40000
+    })),
+    "Lufthansa 3210 maintaining FL400",
+    "vector without a valid leg heading is omitted instead of guessed"
+)
 
 assert_equal(
     core.buildMessage("enroute.holding", copy(base, {
@@ -1890,6 +1957,7 @@ local eventAdapterValues = {
     fmslegs = "",
     fmslegslat = {},
     fmslegslon = {},
+    fmslegscrsmag = {},
     fmsvnavidx = 0,
     ofp_api_version = 1,
     ofp_update_seq = 2,
@@ -1917,6 +1985,7 @@ local eventAdapterYal = copy(baselineYal, {
     fmslegs = "fmslegs",
     fmslegslat = "fmslegslat",
     fmslegslon = "fmslegslon",
+    fmslegscrsmag = "fmslegscrsmag",
     fmsvnavidx = "fmsvnavidx",
     ofpRuntime = {
         api_version = "ofp_api_version",
@@ -2259,6 +2328,36 @@ eventAdapterValues.ofp_origin_icao = ""
 eventAdapterValues.ofp_origin_name = ""
 eventAdapterValues.ofp_destination_icao = ""
 eventAdapterValues.ofp_destination_name = ""
+
+eventAdapterWrites = {}
+eventAdapterValues.request_seq = 67
+eventAdapterValues.result_seq = 67
+eventAdapterValues.result_code = 21
+eventAdapterValues.altitude_ft = 1800
+eventAdapterValues.pressure_altitude = 1800
+eventAdapterValues.fmsfplnnavid = "(VECTO\0"
+eventAdapterValues.fmslegscrsmag = { 14, 240, 0 }
+eventAdapterValues.fmsvnavidx = 2
+configure_event_adapter_test()
+autoUnicom.tick(true, 0)
+assert_true(autoUnicom.handleYalEvent("departure.on_climb", nil, 1),
+    "raw Zibo vector event accepted")
+autoUnicom.tick(true, 1)
+assert_equal(
+    eventAdapterWrites[1].value,
+    "Lufthansa 3210 climbing out of ALTA on ATKUP1A departure, passing 1800ft for FL370, flying heading 240",
+    "adapter resolves active vector leg heading"
+)
+assert_equal(
+    eventAdapterWrites[2].value,
+    "Lufthansa tree two one zero climbing out of Alta on Atkup one Alpha departure, passing one eight zero zero feet for flight level tree seven zero, flying heading two fower zero",
+    "adapter keeps vector semantics aligned in Voice"
+)
+eventAdapterValues.altitude_ft = 300
+eventAdapterValues.pressure_altitude = 300
+eventAdapterValues.fmsfplnnavid = ""
+eventAdapterValues.fmslegscrsmag = {}
+eventAdapterValues.fmsvnavidx = 0
 
 eventAdapterWrites = {}
 eventAdapterValues.request_seq = 68
