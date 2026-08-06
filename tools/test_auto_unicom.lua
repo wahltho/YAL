@@ -63,6 +63,14 @@ assert_true(core.isCruiseReportDue(nil, 1600),
     "missing prior cruise report is immediately due")
 assert_equal(core.isCruiseReportDue(1600, 1600), false,
     "cruise reload baseline starts a fresh report interval")
+assert_true(core.isCruiseLevelStable(300),
+    "cruise entry remains level at the vertical-speed boundary")
+assert_equal(core.isCruiseLevelStable(301), false,
+    "cruise entry reports reaching while still climbing")
+assert_equal(core.isCruiseLevelStable(-301), false,
+    "cruise entry reports reaching while still descending")
+assert_true(core.isCruiseLevelStable(nil),
+    "missing vertical speed preserves the previous cruise-entry wording")
 assert_equal(core.isHoldLevelStable(5177, -321, 5100), false,
     "hold is not maintaining while still descending")
 assert_true(core.isHoldLevelStable(5105, -50, 5100),
@@ -1058,6 +1066,25 @@ assert_equal(
     })),
     "Lufthansa 3210 level at FL390, BIRCO next",
     "cruise entry phrase uses nominal FMC cruise level"
+)
+local climbingCruiseEntry = copy(base, {
+    cruise_entry = true,
+    cruise_next_waypoint = "TUDGI",
+    altitude_ft = 39860,
+    pressure_altitude_ft = 39880,
+    planned_altitude_ft = 40000,
+    vertical_speed_fpm = 1243
+})
+local climbingCruiseEntryText = core.buildMessage("enroute.in_cruise", climbingCruiseEntry)
+assert_equal(
+    climbingCruiseEntryText,
+    "Lufthansa 3210 reaching FL400, TUDGI next",
+    "cruise entry does not claim level flight while still climbing"
+)
+assert_equal(
+    core.buildVoiceMessage("enroute.in_cruise", climbingCruiseEntry, test_spell_nato, climbingCruiseEntryText),
+    "Lufthansa tree two one zero reaching flight level fower zero zero, Tudgi next",
+    "climbing cruise entry voice retains the reaching phrase"
 )
 assert_equal(
     core.buildMessage("enroute.in_cruise", copy(base, {

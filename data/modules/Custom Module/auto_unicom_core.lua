@@ -1,6 +1,7 @@
 local M = {}
 
 M.CRUISE_REPORT_INTERVAL_SEC = 600
+M.CRUISE_LEVEL_MAX_VS_FPM = 300
 
 M.EVENT_TTL_SEC = {
     ["departure.flightplan_active"] = 120,
@@ -122,6 +123,12 @@ function M.isCruiseReportDue(lastReportAt, now, intervalSec)
     local interval = tonumber(intervalSec) or M.CRUISE_REPORT_INTERVAL_SEC
     if interval < 0 then interval = M.CRUISE_REPORT_INTERVAL_SEC end
     return current - previous >= interval
+end
+
+function M.isCruiseLevelStable(verticalSpeedFpm)
+    local verticalSpeed = tonumber(verticalSpeedFpm)
+    if not verticalSpeed then return true end
+    return math.abs(verticalSpeed) <= M.CRUISE_LEVEL_MAX_VS_FPM
 end
 
 function M.isHoldLevelStable(altitudeFt, verticalSpeedFpm, targetAltitudeFt)
@@ -942,7 +949,8 @@ function M.buildMessage(eventId, snapshot)
         if snapshot.cruise_entry == true then
             local altitude = format_planned_altitude(snapshot) or format_altitude(snapshot, false)
             if not altitude then return nil, "missing_cruise_context" end
-            local text = string.format("%s level at %s", context.prefix, altitude)
+            local phaseText = M.isCruiseLevelStable(snapshot.vertical_speed_fpm) and "level at" or "reaching"
+            local text = string.format("%s %s %s", context.prefix, phaseText, altitude)
             if nextWaypoint then text = text .. ", " .. nextWaypoint .. " next" end
             return normalize_text(text)
         end
