@@ -146,6 +146,15 @@ function M.normalizeVectorHeading(value)
     return heading == 0 and 360 or heading
 end
 
+function M.vectorHeadingForIndex(values, activeLegIndex)
+    if type(values) ~= "table" then return nil end
+    local index = tonumber(activeLegIndex)
+    if not index then return nil end
+    index = math.floor(index + 0.5)
+    if index < 1 then return nil end
+    return M.normalizeVectorHeading(values[index])
+end
+
 function M.advanceCruiseWaypointState(previousWaypoint, previousVectorActive, waypoint, vectorActive)
     if vectorActive == true then
         return nil, nil, true

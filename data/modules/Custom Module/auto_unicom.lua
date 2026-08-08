@@ -482,12 +482,7 @@ local function build_snapshot()
     local vectorHeading = nil
     if vectorLegActive then
         local activeLegIndex = tonumber(safe_read(y.fmsvnavidx))
-        if activeLegIndex then
-            activeLegIndex = math.floor(activeLegIndex + 0.5)
-            if activeLegIndex >= 1 then
-                vectorHeading = route_array_value(safe_read(y.fmslegscrsmag), activeLegIndex)
-            end
-        end
+        vectorHeading = core.vectorHeadingForIndex(safe_read(y.fmslegscrsmag), activeLegIndex)
     end
     local snapshot = {
         on_ground = safe_read(y.airgroundsensor) == def.ON,

@@ -83,6 +83,10 @@ assert_equal(core.normalizeVectorHeading(0), 360,
     "northbound vector heading uses aviation heading 360")
 assert_equal(core.normalizeVectorHeading(361), nil,
     "invalid vector heading is rejected")
+assert_equal(core.vectorHeadingForIndex({ 0, 196.654266, 194, 210 }, 4), 210,
+    "one-based active leg index selects KSNA HAWWC3 vector instead of preceding runway leg")
+assert_equal(core.vectorHeadingForIndex({ 0, 196.654266, 194, 210 }, 0), nil,
+    "invalid active leg index does not select a vector heading")
 local vectorPassed, vectorWaypoint, vectorActive = core.advanceCruiseWaypointState(
     "BIRCO", false, nil, true
 )
@@ -2336,8 +2340,8 @@ eventAdapterValues.result_code = 21
 eventAdapterValues.altitude_ft = 1800
 eventAdapterValues.pressure_altitude = 1800
 eventAdapterValues.fmsfplnnavid = "(VECTO\0"
-eventAdapterValues.fmslegscrsmag = { 14, 240, 0 }
-eventAdapterValues.fmsvnavidx = 2
+eventAdapterValues.fmslegscrsmag = { 0, 196.654266, 194, 210 }
+eventAdapterValues.fmsvnavidx = 4
 configure_event_adapter_test()
 autoUnicom.tick(true, 0)
 assert_true(autoUnicom.handleYalEvent("departure.on_climb", nil, 1),
@@ -2345,12 +2349,12 @@ assert_true(autoUnicom.handleYalEvent("departure.on_climb", nil, 1),
 autoUnicom.tick(true, 1)
 assert_equal(
     eventAdapterWrites[1].value,
-    "Lufthansa 3210 climbing out of ALTA on ATKUP1A departure, passing 1800ft for FL370, flying heading 240",
-    "adapter resolves active vector leg heading"
+    "Lufthansa 3210 climbing out of ALTA on ATKUP1A departure, passing 1800ft for FL370, flying heading 210",
+    "adapter resolves KSNA active vector leg instead of preceding runway leg"
 )
 assert_equal(
     eventAdapterWrites[2].value,
-    "Lufthansa tree two one zero climbing out of Alta on Atkup one Alpha departure, passing one eight zero zero feet for flight level tree seven zero, flying heading two fower zero",
+    "Lufthansa tree two one zero climbing out of Alta on Atkup one Alpha departure, passing one eight zero zero feet for flight level tree seven zero, flying heading two one zero",
     "adapter keeps vector semantics aligned in Voice"
 )
 eventAdapterValues.altitude_ft = 300

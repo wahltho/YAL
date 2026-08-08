@@ -8133,11 +8133,8 @@ function P.getAutoUnicomNavigationTarget()
     local heading = nil
     local activeLegIndex = P.fmsvnavidx and tonumber(get(P.fmsvnavidx)) or nil
     if P.fmslegscrsmag and activeLegIndex then
-        activeLegIndex = math.floor(activeLegIndex + 0.5)
-        if activeLegIndex >= 1 then
-            local ok, value = pcall(get, P.fmslegscrsmag, activeLegIndex - 1)
-            if ok then heading = autoUnicomCore.normalizeVectorHeading(value) end
-        end
+        local ok, values = pcall(get, P.fmslegscrsmag)
+        if ok then heading = autoUnicomCore.vectorHeadingForIndex(values, activeLegIndex) end
     end
     return nil, true, heading
 end
