@@ -496,6 +496,7 @@ local function build_snapshot()
         transition_altitude_ft = tonumber(safe_read(y.fmctransalt)),
         transition_level_ft = tonumber(safe_read(y.fmctranslvl)),
         planned_altitude_ft = tonumber(safe_read(y.fmccruisealt)),
+        mcp_altitude_ft = tonumber(safe_read(y.mcpaltitude)),
         departure_icao = tostring(safe_read(y.depicao) or ""),
         departure_runway = tostring(safe_read(y.deprwy) or ""),
         arrival_icao = tostring(safe_read(y.desicao) or ""),

@@ -95,6 +95,7 @@ local HOLD_EXIT_EVENT_ID = "enroute.hold_exit"
 local HOLD_TARGET_TOLERANCE_FT = 100
 local HOLD_MAINTAINING_MAX_VS_FPM = 150
 local HOLD_DESCENDING_VS_THRESHOLD_FPM = -100
+local CLIMB_TARGET_REACHED_TOLERANCE_FT = 200
 
 local function is_climb_progress_event(eventId)
     return type(eventId) == "string"
@@ -130,6 +131,26 @@ function M.isCruiseLevelStable(verticalSpeedFpm)
     local verticalSpeed = tonumber(verticalSpeedFpm)
     if not verticalSpeed then return true end
     return math.abs(verticalSpeed) <= M.CRUISE_LEVEL_MAX_VS_FPM
+end
+
+function M.resolveClimbTargetAltitude(currentAltitudeFt, mcpAltitudeFt, cruiseAltitudeFt)
+    local current = tonumber(currentAltitudeFt)
+    local mcp = tonumber(mcpAltitudeFt)
+    local cruise = tonumber(cruiseAltitudeFt)
+    if mcp and (mcp <= 0 or mcp ~= mcp) then mcp = nil end
+    if cruise and (cruise <= 0 or cruise ~= cruise) then cruise = nil end
+
+    local target = mcp and cruise and math.min(mcp, cruise) or mcp or cruise
+    if not target then return nil end
+    if current and target < current - CLIMB_TARGET_REACHED_TOLERANCE_FT then return nil end
+    return target
+end
+
+function M.isClimbTargetReached(currentAltitudeFt, targetAltitudeFt)
+    local current = tonumber(currentAltitudeFt)
+    local target = tonumber(targetAltitudeFt)
+    return current ~= nil and target ~= nil
+        and current >= target - CLIMB_TARGET_REACHED_TOLERANCE_FT
 end
 
 function M.isVectorLegIdentifier(value)
@@ -723,6 +744,20 @@ local function format_planned_altitude(snapshot)
     return tostring(round(planned / 100) * 100) .. "ft"
 end
 
+local function format_climb_target_altitude(snapshot)
+    local target = M.resolveClimbTargetAltitude(
+        snapshot.altitude_ft,
+        snapshot.mcp_altitude_ft,
+        snapshot.planned_altitude_ft
+    )
+    if not target then return nil, nil end
+    local transition = tonumber(snapshot.transition_altitude_ft) or 0
+    if transition > 0 and target >= transition then
+        return "FL" .. tostring(round(target / 100)), target
+    end
+    return tostring(round(target / 100) * 100) .. "ft", target
+end
+
 local function format_hold_target_altitude(snapshot)
     local target = tonumber(snapshot.hold_target_altitude_ft)
     if not target or target <= 0 then return nil end
@@ -1055,11 +1090,15 @@ function M.buildMessage(eventId, snapshot)
         if not altitude then return nil, "missing_climb_context" end
         local sid = eventId == "departure.on_climb" and clean_token(snapshot.sid, false) or nil
         local nextWaypoint = clean_token(snapshot.climb_next_waypoint, false)
-        local planned = format_planned_altitude(snapshot)
+        local targetText, targetAltitude = format_climb_target_altitude(snapshot)
         local text = context.prefix
         if sid then text = text .. " on " .. sid .. " departure" end
-        text = text .. ", passing " .. altitude
-        if planned then text = text .. " for " .. planned end
+        if targetText and M.isClimbTargetReached(snapshot.altitude_ft, targetAltitude) then
+            text = text .. ", reaching " .. targetText
+        else
+            text = text .. ", passing " .. altitude
+            if targetText then text = text .. " for " .. targetText end
+        end
         text = append_navigation_status(text, snapshot, nextWaypoint)
         return normalize_text(text)
     end
@@ -1259,6 +1298,12 @@ local function summarize_sources(snapshot)
         { "ra", snapshot.radio_altitude_ft },
         { "alt", snapshot.altitude_ft },
         { "pressureAlt", snapshot.pressure_altitude_ft },
+        { "mcpAlt", snapshot.mcp_altitude_ft },
+        { "climbTarget", M.resolveClimbTargetAltitude(
+            snapshot.altitude_ft,
+            snapshot.mcp_altitude_ft,
+            snapshot.planned_altitude_ft
+        ) },
         { "vs", snapshot.vertical_speed_fpm },
         { "gs", snapshot.ground_speed_kts },
         { "callsign", snapshot.effective_callsign },

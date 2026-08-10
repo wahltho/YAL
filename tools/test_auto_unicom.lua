@@ -55,6 +55,22 @@ assert_equal(core.shouldSuppressProgressLevel(30000, 29000), false,
     "progress level above phase boundary is retained")
 assert_equal(core.shouldSuppressProgressLevel(30000, nil), false,
     "missing phase boundary retains progress level")
+assert_equal(core.resolveClimbTargetAltitude(5000, 10000, 37000), 10000,
+    "MCP restriction is the next effective climb target")
+assert_equal(core.resolveClimbTargetAltitude(5000, 40000, 37000), 37000,
+    "FMC cruise caps an MCP selection above planned cruise")
+assert_equal(core.resolveClimbTargetAltitude(5000, nil, 37000), 37000,
+    "missing MCP falls back to FMC cruise")
+assert_equal(core.resolveClimbTargetAltitude(5000, 10000, nil), 10000,
+    "missing FMC cruise falls back to MCP")
+assert_equal(core.resolveClimbTargetAltitude(12200, 12000, 37000), 12000,
+    "small level-capture overshoot retains the selected target")
+assert_equal(core.resolveClimbTargetAltitude(12300, 12000, 37000), nil,
+    "MCP materially below current climb altitude is not announced as a target")
+assert_true(core.isClimbTargetReached(11800, 12000),
+    "climb target is reaching at the tolerance boundary")
+assert_equal(core.isClimbTargetReached(11799, 12000), false,
+    "climb target remains passing below the tolerance boundary")
 assert_equal(core.isCruiseReportDue(1000, 1599), false,
     "cruise report remains gated before 600 seconds")
 assert_true(core.isCruiseReportDue(1000, 1600),
@@ -1159,6 +1175,50 @@ assert_equal(
     "initial climb phrase retains SID and tolerates missing next waypoint"
 )
 assert_equal(
+    core.buildMessage("departure.on_climb", copy(base, {
+        altitude_ft = 1800,
+        pressure_altitude_ft = 1800,
+        mcp_altitude_ft = 10000
+    })),
+    "Lufthansa 3210 climbing out of ALTA on ATKUP1A departure, passing 1800ft for FL100, BIRCO next",
+    "initial climb phrase uses intermediate MCP restriction"
+)
+local reachingMcpSnapshot = copy(base, {
+    altitude_ft = 10000,
+    pressure_altitude_ft = 10000,
+    mcp_altitude_ft = 10000
+})
+local reachingMcpText = core.buildMessage("departure.climb_level_10000", reachingMcpSnapshot)
+assert_equal(
+    reachingMcpText,
+    "Lufthansa 3210 climbing out of ALTA, reaching FL100, BIRCO next",
+    "climb progress does not say passing target for the same target"
+)
+assert_equal(
+    core.buildVoiceMessage("departure.climb_level_10000", reachingMcpSnapshot, test_spell_nato, reachingMcpText),
+    "Lufthansa tree two one zero climbing out of Alta, reaching flight level one zero zero, Birco next",
+    "reaching MCP target has paired voice text"
+)
+assert_equal(
+    core.buildMessage("departure.on_climb", copy(base, {
+        altitude_ft = 1800,
+        pressure_altitude_ft = 1800,
+        mcp_altitude_ft = 40000
+    })),
+    phraseCases[2][3],
+    "MCP above FMC cruise retains FMC cruise as effective climb target"
+)
+assert_equal(
+    core.buildMessage("departure.climb_level_10000", copy(base, {
+        altitude_ft = 12300,
+        pressure_altitude_ft = 12300,
+        mcp_altitude_ft = 12000,
+        climb_next_waypoint = ""
+    })),
+    "Lufthansa 3210 climbing out of ALTA, passing FL123",
+    "MCP materially below current altitude is omitted"
+)
+assert_equal(
     core.buildMessage("enroute.in_cruise", copy(base, {
         cruise_entry = true,
         cruise_next_waypoint = "BIRCO",
@@ -1847,6 +1907,7 @@ local baselineYal = {
     fmctransalt = "fmctransalt",
     fmctranslvl = "fmctranslvl",
     fmccruisealt = "fmccruisealt",
+    mcpaltitude = "mcpaltitude",
     depicao = "depicao",
     deprwy = "deprwy",
     desicao = "desicao",
@@ -1893,6 +1954,7 @@ local baselineValues = {
     fmctransalt = 7000,
     fmctranslvl = 7000,
     fmccruisealt = 37000,
+    mcpaltitude = 37000,
     depicao = "ENAT",
     deprwy = "09",
     desicao = "ENSB",
@@ -2006,6 +2068,7 @@ local eventAdapterValues = {
     fmctransalt = 7000,
     fmctranslvl = 7000,
     fmccruisealt = 37000,
+    mcpaltitude = 37000,
     depicao = "ENAT",
     deprwy = "09",
     desicao = "ENSB",

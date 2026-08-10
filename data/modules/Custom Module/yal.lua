@@ -1807,7 +1807,10 @@ function P.YalinitGlobal()
         cruiseInitialized = false,
         cruiseWaypoint = nil,
         cruiseVectorActive = false,
-        cruiseLastReportAt = nil
+        cruiseLastReportAt = nil,
+        climbMcpCandidate = nil,
+        climbMcpCandidateSince = nil,
+        climbMcpStable = nil
     }
     P.approachPrepTriggerKey = nil
     P.approachPrepCompletedForKey = nil
@@ -8307,6 +8310,11 @@ function P.baselineAutoUnicomRuntimeEvents()
     state.cruiseVectorActive = false
     state.cruiseLastReportAt = nil
     state.lastFmsPhase = P.fmsflightphase and tonumber(get(P.fmsflightphase)) or nil
+    local mcpAltitude = P.mcpaltitude and tonumber(get(P.mcpaltitude)) or nil
+    if not mcpAltitude or mcpAltitude <= 0 then mcpAltitude = nil end
+    state.climbMcpCandidate = mcpAltitude
+    state.climbMcpCandidateSince = os.time()
+    state.climbMcpStable = mcpAltitude
 
     local onGround = get(P.airgroundsensor) == def.ON
     local altitude = tonumber(get(P.altitude)) or 0
@@ -8761,10 +8769,44 @@ function P.updateAutoUnicomCruiseEvent()
     end
 end
 
+function P.getStableAutoUnicomMcpAltitude()
+    local state = P.autoUnicomRuntime
+    if not state then return nil, true end
+
+    local altitude = P.mcpaltitude and tonumber(get(P.mcpaltitude)) or nil
+    if not altitude or altitude <= 0 or altitude ~= altitude then
+        state.climbMcpCandidate = nil
+        state.climbMcpCandidateSince = nil
+        state.climbMcpStable = nil
+        return nil, true
+    end
+
+    local now = os.time()
+    if state.climbMcpCandidate == nil then
+        state.climbMcpCandidate = altitude
+        state.climbMcpCandidateSince = now
+        state.climbMcpStable = altitude
+        return altitude, true
+    end
+    if state.climbMcpCandidate ~= altitude then
+        state.climbMcpCandidate = altitude
+        state.climbMcpCandidateSince = now
+        return nil, false
+    end
+    if state.climbMcpStable ~= altitude then
+        if now - (state.climbMcpCandidateSince or now) < 1 then return nil, false end
+        state.climbMcpStable = altitude
+    end
+    return state.climbMcpStable, true
+end
+
 function P.updateAutoUnicomClimbEvents()
     P.updateAutoUnicomAirborneEvent()
+    local mcpAltitude, mcpStable = P.getStableAutoUnicomMcpAltitude()
+    if not mcpStable then return end
     local nextWaypoint, vectorActive, vectorHeading = P.getAutoUnicomNavigationTarget()
     autoUnicomEventOnce("departure.on_climb", "departure.on_climb", {
+        mcp_altitude_ft = mcpAltitude,
         climb_next_waypoint = nextWaypoint,
         navigation_vector_active = vectorActive,
         navigation_vector_heading_deg = vectorHeading
@@ -8781,6 +8823,7 @@ function P.updateAutoUnicomClimbEvents()
                 autoUnicomEventOnce(key, key, {
                     altitude_ft = level,
                     pressure_altitude_ft = level,
+                    mcp_altitude_ft = mcpAltitude,
                     climb_next_waypoint = nextWaypoint,
                     navigation_vector_active = vectorActive,
                     navigation_vector_heading_deg = vectorHeading
