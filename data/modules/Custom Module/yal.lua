@@ -8187,27 +8187,24 @@ local function readAutoUnicomHoldState()
     }
 end
 
-local function autoUnicomHoldPayload(hold)
+local function autoUnicomHoldPayload(hold, descending)
     return {
         hold_source = hold.source,
         hold_waypoint = hold.waypoint,
         hold_path_type = hold.path_type,
         hold_entry_complete = hold.entry_complete,
-        hold_target_altitude_ft = hold.target_altitude_ft
+        hold_target_altitude_ft = hold.target_altitude_ft,
+        hold_descending = descending == true
     }
 end
 
 local function autoUnicomHoldDescending(hold)
-    if not hold or not hold.active or hold.entry_complete ~= true
-        or not hold.target_altitude_ft then
-        return false
-    end
+    if not hold or not hold.active then return false end
+    if not hold.target_altitude_ft and hold.entry_complete ~= true then return false end
     local altitude = P.altitude_ft and tonumber(get(P.altitude_ft))
         or (P.altitude and tonumber(get(P.altitude)))
     local verticalSpeed = P.verticalspeed and tonumber(get(P.verticalspeed)) or 0
-    return altitude ~= nil
-        and altitude > hold.target_altitude_ft + 100
-        and verticalSpeed < -100
+    return autoUnicomCore.isHoldDescending(altitude, verticalSpeed, hold.target_altitude_ft)
 end
 
 function P.autoUnicomHoldLevelStable(hold)
@@ -8630,8 +8627,9 @@ function P.updateAutoUnicomHoldEvents()
         state.holdExitSent = true
     end
     if key and key ~= state.holdKey then
+        local descending = autoUnicomHoldDescending(hold)
         state.holdKey = key
-        state.holdPayload = autoUnicomHoldPayload(hold)
+        state.holdPayload = autoUnicomHoldPayload(hold, descending)
         state.holdExitSent = false
         state.holdEstablishedSent = false
         state.holdEstablishedSince = nil
@@ -8643,7 +8641,9 @@ function P.updateAutoUnicomHoldEvents()
         state.sent["arrival.short_final"] = nil
         state.finalSince = nil
         state.shortFinalSince = nil
-        P.publishRuntimeEvent("enroute.hold_enter", state.holdPayload)
+        if P.publishRuntimeEvent("enroute.hold_enter", state.holdPayload) and descending then
+            state.holdDescentSent = true
+        end
     elseif not key then
         state.holdKey = nil
         state.holdPayload = nil
@@ -8689,15 +8689,10 @@ function P.updateAutoUnicomHoldEvents()
 
     if not state.holdExitSent and not state.holdEstablishedSent
         and P.autoUnicomHoldLevelStable(hold) then
-        local targetAltitude = tonumber(hold.target_altitude_ft)
-        if targetAltitude and targetAltitude > 0 then
-            local now = os.time()
-            state.holdEstablishedSince = state.holdEstablishedSince or now
-            if now - state.holdEstablishedSince >= 3
-                and P.publishRuntimeEvent("enroute.holding", state.holdPayload) then
-                state.holdEstablishedSent = true
-            end
-        elseif P.publishRuntimeEvent("enroute.holding", state.holdPayload) then
+        local now = os.time()
+        state.holdEstablishedSince = state.holdEstablishedSince or now
+        if now - state.holdEstablishedSince >= 3
+            and P.publishRuntimeEvent("enroute.holding", state.holdPayload) then
             state.holdEstablishedSent = true
         end
     else

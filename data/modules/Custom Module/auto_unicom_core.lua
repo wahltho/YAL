@@ -94,6 +94,7 @@ local HOLD_DESCENDING_EVENT_ID = "enroute.hold_descending"
 local HOLD_EXIT_EVENT_ID = "enroute.hold_exit"
 local HOLD_TARGET_TOLERANCE_FT = 100
 local HOLD_MAINTAINING_MAX_VS_FPM = 150
+local HOLD_DESCENDING_VS_THRESHOLD_FPM = -100
 
 local function is_climb_progress_event(eventId)
     return type(eventId) == "string"
@@ -170,14 +171,26 @@ end
 
 function M.isHoldLevelStable(altitudeFt, verticalSpeedFpm, targetAltitudeFt)
     local target = tonumber(targetAltitudeFt)
-    if not target or target <= 0 then return true end
-
     local altitude = tonumber(altitudeFt)
     local verticalSpeed = tonumber(verticalSpeedFpm)
     if not altitude or not verticalSpeed then return false end
 
+    if not target or target <= 0 then
+        return math.abs(verticalSpeed) <= math.abs(HOLD_DESCENDING_VS_THRESHOLD_FPM)
+    end
+    if math.abs(verticalSpeed) > HOLD_MAINTAINING_MAX_VS_FPM then return false end
     return math.abs(altitude - target) <= HOLD_TARGET_TOLERANCE_FT
-        and math.abs(verticalSpeed) <= HOLD_MAINTAINING_MAX_VS_FPM
+end
+
+function M.isHoldDescending(altitudeFt, verticalSpeedFpm, targetAltitudeFt)
+    local altitude = tonumber(altitudeFt)
+    local verticalSpeed = tonumber(verticalSpeedFpm)
+    if not altitude or not verticalSpeed or verticalSpeed >= HOLD_DESCENDING_VS_THRESHOLD_FPM then
+        return false
+    end
+
+    local target = tonumber(targetAltitudeFt)
+    return not target or target <= 0 or altitude > target + HOLD_TARGET_TOLERANCE_FT
 end
 
 local function is_approach_phase(phase)
@@ -967,6 +980,19 @@ function M.buildMessage(eventId, snapshot)
         local waypoint = clean_token(snapshot.hold_waypoint, false)
         if not waypoint then return nil, "missing_hold_context" end
         if eventId == HOLD_ENTER_EVENT_ID then
+            if snapshot.hold_descending == true or tonumber(snapshot.hold_descending) == 1 then
+                local altitude = format_altitude(snapshot, true)
+                if not altitude then return nil, "missing_hold_descent_context" end
+                local text = string.format(
+                    "%s entering a hold over %s on descent passing %s",
+                    context.prefix,
+                    waypoint,
+                    altitude
+                )
+                local target = format_hold_target_altitude(snapshot)
+                if target then text = text .. " for " .. target end
+                return normalize_text(text)
+            end
             return normalize_text(string.format("%s entering a hold over %s", context.prefix, waypoint))
         end
         if eventId == HOLDING_EVENT_ID then
@@ -982,14 +1008,15 @@ function M.buildMessage(eventId, snapshot)
         if eventId == HOLD_DESCENDING_EVENT_ID then
             local altitude = format_altitude(snapshot, true)
             local target = format_hold_target_altitude(snapshot)
-            if not altitude or not target then return nil, "missing_hold_descent_context" end
-            return normalize_text(string.format(
-                "%s in a hold over %s on descent passing %s for %s",
+            if not altitude then return nil, "missing_hold_descent_context" end
+            local text = string.format(
+                "%s in a hold over %s on descent passing %s",
                 context.prefix,
                 waypoint,
-                altitude,
-                target
-            ))
+                altitude
+            )
+            if target then text = text .. " for " .. target end
+            return normalize_text(text)
         end
         return normalize_text(string.format("%s exiting hold over %s", context.prefix, waypoint))
     end
@@ -1279,6 +1306,8 @@ local function summarize_sources(snapshot)
         { "holdPath", snapshot.hold_path_type },
         { "holdEntryComplete", snapshot.hold_entry_complete and 1 or 0 },
         { "holdTarget", snapshot.hold_target_altitude_ft },
+        { "holdDescending", (snapshot.hold_descending == true
+            or tonumber(snapshot.hold_descending) == 1) and 1 or 0 },
         { "cruisePeriodic", snapshot.cruise_periodic and 1 or 0 },
         { "cruiseWaypoint", snapshot.cruise_waypoint },
         { "cruiseWaypointNav", snapshot.cruise_waypoint_nav_name },
@@ -1319,7 +1348,8 @@ Mailbox.__index = Mailbox
 
 local SUPERSEDED_EVENTS = {
     [HOLDING_EVENT_ID] = {
-        [HOLD_ENTER_EVENT_ID] = true
+        [HOLD_ENTER_EVENT_ID] = true,
+        [HOLD_DESCENDING_EVENT_ID] = true
     },
     [HOLD_DESCENDING_EVENT_ID] = {
         [HOLD_ENTER_EVENT_ID] = true,

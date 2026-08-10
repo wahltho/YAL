@@ -109,8 +109,20 @@ assert_equal(core.isHoldLevelStable(5250, 0, 5100), false,
     "hold is not maintaining outside target tolerance")
 assert_equal(core.isHoldLevelStable(5100, 200, 5100), false,
     "hold is not maintaining with excessive vertical speed")
-assert_true(core.isHoldLevelStable(5177, -321, nil),
-    "hold without a valid target retains live-altitude fallback")
+assert_equal(core.isHoldLevelStable(5177, -321, nil), false,
+    "targetless hold is not maintaining while still descending")
+assert_true(core.isHoldLevelStable(5177, -50, nil),
+    "targetless hold can use live altitude after vertical stabilization")
+assert_equal(core.isHoldLevelStable(5177, -120, nil), false,
+    "targetless hold cannot be descending and maintaining at the same time")
+assert_true(core.isHoldDescending(5300, -321, 5100),
+    "hold descent is detected above a valid lower target")
+assert_equal(core.isHoldDescending(5300, -50, 5100), false,
+    "minor vertical motion is not treated as hold descent")
+assert_equal(core.isHoldDescending(5177, -321, nil), true,
+    "targetless established hold can still report active descent")
+assert_equal(core.isHoldDescending(5177, -321, 5100), false,
+    "hold descent is not reported at or below the target tolerance")
 
 local base = {
     on_ground = true,
@@ -204,6 +216,25 @@ assert_equal(
     })),
     "Lufthansa 3210 maintaining FL370 whilst holding over BIRCO",
     "hold without target uses live altitude"
+)
+
+local descendingHoldEntry = copy(base, {
+    hold_waypoint = "BIRCO",
+    hold_descending = true,
+    hold_target_altitude_ft = 5100,
+    altitude_ft = 12000,
+    pressure_altitude_ft = 12000
+})
+local descendingHoldEntryText = core.buildMessage("enroute.hold_enter", descendingHoldEntry)
+assert_equal(
+    descendingHoldEntryText,
+    "Lufthansa 3210 entering a hold over BIRCO on descent passing FL120 for 5100ft",
+    "hold entry includes an already active descent"
+)
+assert_equal(
+    core.buildVoiceMessage("enroute.hold_enter", descendingHoldEntry, test_spell_nato, descendingHoldEntryText),
+    "Lufthansa tree two one zero entering a hold over Birco on descent passing flight level one two zero for fife one zero zero feet",
+    "descending hold entry has paired voice text"
 )
 
 local function test_refdata_airport(icao)
@@ -1225,10 +1256,23 @@ assert_equal(missingCruiseReason, "missing_cruise_context", "missing cruise wayp
 
 local missingHoldDescentText, missingHoldDescentReason = core.buildMessage(
     "enroute.hold_descending",
-    copy(base, { hold_waypoint = "BIRCO" })
+    copy(base, {
+        hold_waypoint = "BIRCO",
+        altitude_ft = false,
+        pressure_altitude_ft = false
+    })
 )
-assert_equal(missingHoldDescentText, nil, "hold descent phrase requires target altitude")
-assert_equal(missingHoldDescentReason, "missing_hold_descent_context", "missing hold descent target reason")
+assert_equal(missingHoldDescentText, nil, "hold descent phrase requires current altitude")
+assert_equal(missingHoldDescentReason, "missing_hold_descent_context", "missing hold descent altitude reason")
+assert_equal(
+    core.buildMessage("enroute.hold_descending", copy(base, {
+        hold_waypoint = "BIRCO",
+        altitude_ft = 12220,
+        pressure_altitude_ft = 12210
+    })),
+    "Lufthansa 3210 in a hold over BIRCO on descent passing FL122",
+    "targetless hold descent omits an invented target"
+)
 
 local missingIntersectionText, missingIntersectionReason = core.buildMessage("departure.intersection", base)
 assert_equal(missingIntersectionText, nil, "legacy intersection line-up requires intersection")
@@ -1532,6 +1576,18 @@ assert_true(holdMailbox:enqueue({
 }), "enqueue descending hold supersession")
 assert_equal(#holdMailbox.queue, 1, "descending hold supersedes established hold")
 assert_equal(holdMailbox.queue[1].id, "enroute.hold_descending", "descending hold remains queued")
+assert_true(holdMailbox:enqueue({
+    id = "enroute.holding",
+    text = core.buildMessage("enroute.holding", copy(base, {
+        hold_waypoint = "BIRCO",
+        hold_target_altitude_ft = 25000,
+        altitude_ft = 25020,
+        pressure_altitude_ft = 25010
+    })),
+    expires_at = 100
+}), "enqueue level hold after descent")
+assert_equal(#holdMailbox.queue, 1, "level hold supersedes stale queued descent")
+assert_equal(holdMailbox.queue[1].id, "enroute.holding", "level hold remains queued after descent")
 assert_true(holdMailbox:enqueue({
     id = "enroute.hold_exit",
     text = phraseCases[17][3],
