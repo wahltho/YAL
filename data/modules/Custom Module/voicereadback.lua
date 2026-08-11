@@ -243,14 +243,27 @@ local function get_current_baro_inhg(P)
     return value and helpers.roundnumber(value, 4) or value
 end
 
+local function format_fuel_quantity(value, unit)
+    local amount = tonumber(value)
+    if not amount then return nil end
+    return "Fuel quantity " .. string.format("%.0f", helpers.roundnumber(amount)) .. " " .. unit
+end
+
+VR.formatFuelQuantity = format_fuel_quantity
+
 --------------------------------------------------------------------------------------------------------------
 local function complex_check(P)
     -- Fuel Check (with threshold)
     if (math.abs(get(P.totalfuellbs) - P.totalfuellbstemp) > 200) then
         if (get(P.totalfuellbs) ~= P.totalfuellbstemp2) then P.totalfuellbstemp2 = get(P.totalfuellbs)
         else
-            if (get(P.fuelunit) == def.LBS) then P.commandtableentry(def.TEXT, "Fuel quantity " .. tostring(get(P.totalfuellbs)) .. " pounds")
-            else P.commandtableentry(def.TEXT, "Fuel quantity " .. tostring(get(P.totalfuelkgs)) .. " kilograms") end
+            local message
+            if (get(P.fuelunit) == def.LBS) then
+                message = format_fuel_quantity(get(P.totalfuellbs), "pounds")
+            else
+                message = format_fuel_quantity(get(P.totalfuelkgs), "kilograms")
+            end
+            if message then P.commandtableentry(def.TEXT, message) end
             P.totalfuellbstemp = get(P.totalfuellbs)
         end
     else P.totalfuellbstemp = get(P.totalfuellbs) end
