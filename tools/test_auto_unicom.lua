@@ -849,6 +849,78 @@ assert_equal(
     "Honolulu Traffic, Lufthansa tree two one zero short final runway two seven",
     "voice uses the same Refdata fallback as visible text")
 
+local abbreviatedRegionalSnapshot = copy(base, {
+    arrival_icao = "KTEX",
+    arrival_station_name = "",
+    arrival_station_icao = "",
+    ofp_valid = true,
+    ofp_destination_icao = "KTEX",
+    ofp_destination_name = "TELLURIDE REGL"
+})
+local abbreviatedRegionalText = core.buildMessage("arrival.short_final", abbreviatedRegionalSnapshot)
+assert_equal(
+    abbreviatedRegionalText,
+    "TELLURIDE Traffic, Lufthansa 3210 short final runway 27",
+    "abbreviated regional descriptor is removed from OFP station name"
+)
+assert_equal(
+    core.buildVoiceMessage(
+        "arrival.short_final",
+        abbreviatedRegionalSnapshot,
+        test_spell_nato,
+        abbreviatedRegionalText
+    ),
+    "Telluride Traffic, Lufthansa tree two one zero short final runway two seven",
+    "abbreviated regional descriptor is removed from voice station name"
+)
+
+local embeddedAirportDescriptorSnapshot = copy(base, {
+    departure_icao = "KSNA",
+    departure_station_name = "",
+    departure_station_icao = "",
+    ofp_valid = true,
+    ofp_origin_icao = "KSNA",
+    ofp_origin_name = "JOHN WAYNE ARPT ORANGE CO"
+})
+local embeddedAirportDescriptorText = core.buildMessage("departure.airborne", embeddedAirportDescriptorSnapshot)
+assert_equal(
+    embeddedAirportDescriptorText,
+    "JOHN WAYNE Traffic, Lufthansa 3210 airborne runway 09, passing 300ft",
+    "embedded airport descriptor removes trailing administrative name text"
+)
+assert_equal(
+    core.buildVoiceMessage(
+        "departure.airborne",
+        embeddedAirportDescriptorSnapshot,
+        test_spell_nato,
+        embeddedAirportDescriptorText
+    ),
+    "John Wayne Traffic, Lufthansa tree two one zero airborne runway zero niner, passing tree zero zero feet",
+    "embedded airport descriptor produces concise voice station name"
+)
+
+assert_equal(
+    core.resolveAirportLabel(copy(base, {
+        departure_icao = "KIPL",
+        departure_station_name = "IMPERIAL CO",
+        departure_station_icao = "KIPL",
+        ofp_valid = false
+    }), "departure_icao", "departure_station_name"),
+    "IMPERIAL",
+    "known trailing county abbreviation is removed"
+)
+
+assert_equal(
+    core.resolveAirportLabel(copy(base, {
+        departure_icao = "KAAA",
+        departure_station_name = "MOUNT PLEASANT SC",
+        departure_station_icao = "KAAA",
+        ofp_valid = false
+    }), "departure_icao", "departure_station_name"),
+    "MOUNT PLEASANT SC",
+    "unrecognized two-letter station-name token is not removed"
+)
+
 local longOfpIcaoFallbackSnapshot = copy(longOfpSnapshot, {
     arrival_station_name = "",
     arrival_station_icao = ""
@@ -878,8 +950,8 @@ assert_equal(
     core.buildMessage("departure.airborne", copy(ofpSnapshot, {
         ofp_origin_name = "INVERNESS AIRPORT"
     })),
-    "INVERNESS TOWER Traffic, Lufthansa 3210 airborne runway 09, passing 300ft",
-    "formal OFP airport descriptor falls back even within length limit")
+    "INVERNESS Traffic, Lufthansa 3210 airborne runway 09, passing 300ft",
+    "formal OFP and Refdata controller descriptors are removed")
 
 assert_equal(
     core.buildMessage("departure.airborne", copy(base, {

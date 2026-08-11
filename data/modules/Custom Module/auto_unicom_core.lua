@@ -79,14 +79,36 @@ local TERMINAL_VOICE_RESULTS = {
 local DESCENT_PROGRESS_PREFIX = "arrival.descent_level_"
 local CLIMB_PROGRESS_PREFIX = "departure.climb_level_"
 local PROGRESS_LEVEL_BOUNDARY_GUARD_FT = 5000
-local OFP_STATION_NAME_MAX_LENGTH = 24
-local OFP_AIRPORT_DESCRIPTORS = {
+local STATION_NAME_MAX_LENGTH = 20
+local STATION_NAME_MAX_WORDS = 3
+local STATION_NAME_CUT_MARKERS = {
+    AD = true,
     AERODROME = true,
     AIRPORT = true,
+    APT = true,
+    ARPT = true,
+    FIELD = true,
+    FLD = true,
     INTERNATIONAL = true,
     INTL = true,
     MUNICIPAL = true,
-    REGIONAL = true
+    MUNI = true,
+    REG = true,
+    REGIONAL = true,
+    REGL = true,
+    TOWER = true,
+    TWR = true
+}
+local STATION_NAME_TRAILING_DESCRIPTORS = {
+    CO = true,
+    COUNTY = true,
+    CNTY = true,
+    MEML = true,
+    MEMORIAL = true,
+    METRO = true,
+    METROPOLITAN = true,
+    PUB = true,
+    PUBLIC = true
 }
 local HOLD_ENTER_EVENT_ID = "enroute.hold_enter"
 local HOLDING_EVENT_ID = "enroute.holding"
@@ -513,16 +535,49 @@ local function clean_station_name(value)
     return strip_leading_dotted_initials(text:upper())
 end
 
-local function clean_ofp_station_name(value)
+local function station_descriptor(token)
+    return tostring(token or ""):gsub("[^A-Z]", "")
+end
+
+local function clean_operational_station_name(value, trimAtSlash)
     local text = trim(value)
-    local slash = text:find("/", 1, true)
-    if slash then text = trim(text:sub(1, slash - 1)) end
+    if trimAtSlash then
+        local slash = text:find("/", 1, true)
+        if slash then text = trim(text:sub(1, slash - 1)) end
+    end
+
     local station = clean_station_name(text)
-    if not station or #station > OFP_STATION_NAME_MAX_LENGTH then return nil end
-    local finalWord = station:match("([^ ]+)$") or ""
-    local descriptor = finalWord:gsub("[^A-Z]", "")
-    if OFP_AIRPORT_DESCRIPTORS[descriptor] then return nil end
-    return station
+    if not station then return nil end
+
+    local words = {}
+    for word in station:gmatch("%S+") do words[#words + 1] = word end
+
+    local keepCount = #words
+    for index, word in ipairs(words) do
+        if index > 1 and STATION_NAME_CUT_MARKERS[station_descriptor(word)] then
+            keepCount = index - 1
+            break
+        end
+    end
+    while keepCount > 0 do
+        local descriptor = station_descriptor(words[keepCount])
+        if not STATION_NAME_TRAILING_DESCRIPTORS[descriptor] then break end
+        keepCount = keepCount - 1
+    end
+    if keepCount < 1 or keepCount > STATION_NAME_MAX_WORDS then return nil end
+
+    for index = 1, keepCount do
+        local descriptor = station_descriptor(words[index])
+        if #descriptor == 1 and words[index] == descriptor then return nil end
+    end
+
+    local result = table.concat(words, " ", 1, keepCount)
+    if #result > STATION_NAME_MAX_LENGTH then return nil end
+    return result
+end
+
+local function clean_ofp_station_name(value)
+    return clean_operational_station_name(value, true)
 end
 
 local function voice_station_name(value)
@@ -716,7 +771,8 @@ local function airport_label(snapshot, icaoField, stationField)
 
     local stationIcaoField = stationField:gsub("_name$", "_icao")
     local stationIcao = clean_token(snapshot[stationIcaoField], false)
-    local station = stationIcao == icao and clean_station_name(snapshot[stationField]) or nil
+    local station = stationIcao == icao
+        and clean_operational_station_name(snapshot[stationField], false) or nil
     return station or icao, icao, station and "refdata" or "icao"
 end
 
