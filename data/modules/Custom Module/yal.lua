@@ -7180,6 +7180,13 @@ function P.updateAirborneAntiIce()
         or fmsPhase == def.FMSFLIGHTPHASE_CRUISE
         or fmsPhase == def.FMSFLIGHTPHASE_CRZ_CLB
     local climbOrCruise = yalClimbOrCruise and fmsClimbOrCruise
+    local precipitation = tonumber(get(P.aircraftprecipitation)) or 0
+    local snow = tonumber(get(P.aircraftsnow)) or 0
+    local hail = tonumber(get(P.aircrafthail)) or 0
+    local visibility = tonumber(get(P.aircraftvisibilitysm))
+    local heightAgl = tonumber(get(P.radioaltitude))
+    local iceLeft = tonumber(get(P.frameice)) or 0
+    local iceRight = tonumber(get(P.frameice2)) or 0
 
     local result
     P.antiIceRuntime, result = P.antiIceLogic.update(P.antiIceRuntime, {
@@ -7189,13 +7196,14 @@ function P.updateAirborneAntiIce()
         tat_c = get(P.tatdegc),
         sat_c = get(P.satdegc),
         climb_or_cruise = climbOrCruise,
-        precipitation_ratio = get(P.aircraftprecipitation),
-        snow_ratio = get(P.aircraftsnow),
-        hail_ratio = get(P.aircrafthail),
-        visibility_sm = get(P.aircraftvisibilitysm),
+        precipitation_ratio = precipitation,
+        snow_ratio = snow,
+        hail_ratio = hail,
+        visibility_sm = visibility,
+        height_agl_ft = heightAgl,
         in_cloud_layer = inCloudLayer,
-        frame_ice_left = get(P.frameice),
-        frame_ice_right = get(P.frameice2),
+        frame_ice_left = iceLeft,
+        frame_ice_right = iceRight,
         hold_active = hold and hold.active == true or false,
         pressure_altitude_ft = get(P.pressurealtitudeft)
     })
@@ -7215,10 +7223,12 @@ function P.updateAirborneAntiIce()
         P.clearAntiIceSpeech("engine")
         P.antiIceLastEngineCommandAt = nil
         helpers.logInfoTS(string.format(
-            "AntiIce engine demand=%s reason=%s TAT=%.1f SAT=%.1f moisture=%s source=%s",
+            "AntiIce engine demand=%s reason=%s TAT=%.1f SAT=%.1f moisture=%s source=%s visSM=%.2f cloud=%s aglFt=%.0f precip=%.4f snow=%.4f hail=%.4f iceL=%.4f iceR=%.4f",
             tostring(result.engine_demand), tostring(result.engine_reason),
             tonumber(get(P.tatdegc)) or 0, tonumber(get(P.satdegc)) or 0,
-            tostring(result.moisture_active), tostring(result.moisture_reason)
+            tostring(result.moisture_active), tostring(result.moisture_reason),
+            visibility or -1, tostring(inCloudLayer), heightAgl or -1,
+            precipitation, snow, hail, iceLeft, iceRight
         ))
     end
     if result.wing_changed then
@@ -7227,7 +7237,7 @@ function P.updateAirborneAntiIce()
         helpers.logInfoTS(string.format(
             "AntiIce wing demand=%s reason=%s iceL=%.4f iceR=%.4f hold=%s",
             tostring(result.wing_demand), tostring(result.wing_reason),
-            tonumber(get(P.frameice)) or 0, tonumber(get(P.frameice2)) or 0,
+            iceLeft, iceRight,
             tostring(hold and hold.active == true or false)
         ))
     end

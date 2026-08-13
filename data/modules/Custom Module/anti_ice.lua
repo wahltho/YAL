@@ -14,6 +14,7 @@ P.HOLD_RELEASE_STABLE_SEC = 30
 P.PRECIPITATION_THRESHOLD = 0.01
 P.CLOUD_COVERAGE_THRESHOLD = 0.5
 P.FOG_VISIBILITY_SM = 1
+P.FOG_MAX_AGL_FT = 1500
 P.MAX_TAT_C = 10
 P.MIN_CLIMB_CRUISE_SAT_C = -40
 P.HIGH_WING_ANTI_ICE_ALTITUDE_FT = 35000
@@ -92,12 +93,15 @@ function P.visibleMoisture(input)
         return true, "hail"
     end
 
-    local visibility = finiteNumber(input.visibility_sm)
-    if visibility and visibility >= 0 and visibility <= P.FOG_VISIBILITY_SM then
-        return true, "fog"
-    end
     if input.in_cloud_layer == true then
         return true, "cloud-layer"
+    end
+
+    local visibility = finiteNumber(input.visibility_sm)
+    local heightAgl = finiteNumber(input.height_agl_ft)
+    if visibility and visibility >= 0 and visibility <= P.FOG_VISIBILITY_SM
+        and heightAgl and heightAgl >= 0 and heightAgl <= P.FOG_MAX_AGL_FT then
+        return true, "fog"
     end
 
     local maxIce = maxFinite(input.frame_ice_left, input.frame_ice_right)

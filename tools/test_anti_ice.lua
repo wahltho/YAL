@@ -37,6 +37,7 @@ local base = {
     snow_ratio = 0,
     hail_ratio = 0,
     visibility_sm = 10,
+    height_agl_ft = 10000,
     in_cloud_layer = false,
     frame_ice_left = 0,
     frame_ice_right = 0,
@@ -60,7 +61,17 @@ assertTrue(moisture, "snow is visible moisture")
 moisture = antiIce.visibleMoisture(copy(base, { hail_ratio = 0.01 }))
 assertTrue(moisture, "hail is visible moisture")
 moisture = antiIce.visibleMoisture(copy(base, { visibility_sm = 1 }))
-assertTrue(moisture, "fog visibility is visible moisture")
+assertFalse(moisture, "low visibility aloft is not fog evidence")
+moisture, source = antiIce.visibleMoisture(copy(base, { visibility_sm = 1, height_agl_ft = 1500 }))
+assertTrue(moisture, "low visibility near terrain is fog evidence")
+assertEqual(source, "fog", "fog source")
+moisture, source = antiIce.visibleMoisture(copy(base, {
+    visibility_sm = 1,
+    height_agl_ft = 1000,
+    in_cloud_layer = true
+}))
+assertTrue(moisture, "cloud remains visible moisture in low visibility")
+assertEqual(source, "cloud-layer", "cloud source takes priority over fog")
 moisture = antiIce.visibleMoisture(copy(base, { in_cloud_layer = true }))
 assertTrue(moisture, "cloud layer is visible moisture")
 moisture = antiIce.visibleMoisture(copy(base, { frame_ice_right = 0.003 }))
@@ -74,6 +85,14 @@ assertEqual(result.engine_demand, nil, "dry startup remains unresolved before cl
 state, result = update(state, 30)
 assertFalse(result.engine_demand, "dry engine anti-ice demand clears after latch")
 assertFalse(result.wing_demand, "dry wing anti-ice demand clears after latch")
+
+state, result = update(nil, 0, { visibility_sm = 0.5, height_agl_ft = 18000 })
+state, result = update(state, 6, { visibility_sm = 0.5, height_agl_ft = 18000 })
+assertEqual(result.engine_demand, nil, "low reported visibility aloft does not demand engine anti-ice")
+state, result = update(nil, 0, { visibility_sm = 0.5, height_agl_ft = 1000 })
+state, result = update(state, 6, { visibility_sm = 0.5, height_agl_ft = 1000 })
+assertTrue(result.engine_demand, "stable low-altitude fog requires engine anti-ice")
+assertEqual(result.engine_reason, "fog", "low-altitude fog demand reason")
 
 state, result = update(nil, 0, { in_cloud_layer = true })
 state, result = update(state, 6, { in_cloud_layer = true })
