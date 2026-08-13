@@ -158,7 +158,7 @@ The settings window allows detailed customization of all automatic features.
 - Auto Flight Save EFB Position(s) (ignored if save is off): Save slot/EFB target used by periodic YAL flight saves.
 - Disable XP Wake Effects: Suppresses X-Plane wake effects from other aircraft.
 - XP Runway Friction Clamp: Enables runway-friction clamp logic.
-- Automatic Anti Icing: Enables wing/engine anti-ice automatically when icing is detected.
+- Automatic Anti Icing: Manages airborne engine and wing anti-ice separately. Engine anti-ice follows stable TAT/visible-moisture conditions, including the climb/cruise SAT exception below -40 C; descent remains protected. Wing anti-ice requires stable structural ice on either side or extended icing exposure (one minute in a hold or ten minutes otherwise). Activation and clearing are time-latched to reject transient weather/ice samples. Voice Advice Only uses the same criteria without moving the switches.
 - Automatic Wipers: Controls wiper speed based on rain intensity.
 - Automatic Baro Settings: Sets local QNH or standard baro where appropriate.
 - Automatic Center Tank Handling: Manages center tank pumps automatically.

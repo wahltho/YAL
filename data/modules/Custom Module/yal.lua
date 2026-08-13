@@ -7,6 +7,7 @@ local PD = require("proceduredata")
 local VR = require("voicereadback")
 local refdata = require("refdata")
 local autoUnicomCore = require("auto_unicom_core")
+P.antiIceLogic = require("anti_ice")
 P.pauseTodGuard = require("pause_tod_guard")
 P.departureNavResolver = require("departure_nav")
 P.routeWarningGuard = require("route_warning_guard")
@@ -1824,6 +1825,14 @@ function P.YalinitGlobal()
 
     P.windshieldIcingStarted = false
     P.windshieldIcingApplied = false
+    P.antiIceRuntime = P.antiIceLogic.newState()
+    P.antiIceAdviceState = {
+        engine = { key = nil, count = 0, spoken = 0, lastAt = nil },
+        wing = { key = nil, count = 0, spoken = 0, lastAt = nil }
+    }
+    P.antiIceLastEngineCommandAt = nil
+    P.antiIceLastWingCommandAt = nil
+    P.antiIceHighAltitudeWarned = false
 
     P.runwayFrictionAdjusted = nil
     P.runwayFrictionSeen = nil
@@ -2718,7 +2727,24 @@ function P.bindExternalDatarefs(silentMissing)
     P.baroregionpas = GP("sim/weather/region/qnh_pas")
 
     P.frameice = GP("sim/flightmodel/failures/frm_ice")
+    P.frameice2 = GP("sim/flightmodel/failures/frm_ice2")
     P.tatdegc = GP("laminar/B738/systems/temperature/tat_degc")
+    P.satdegc = GP("sim/weather/aircraft/temperature_ambient_deg_c")
+    P.aircraftprecipitation = GP("sim/weather/aircraft/precipitation_on_aircraft_ratio")
+    P.aircraftsnow = GP("sim/weather/aircraft/snow_on_aircraft_ratio")
+    P.aircrafthail = GP("sim/weather/aircraft/hail_on_aircraft_ratio")
+    P.aircraftvisibilitysm = GP("sim/weather/aircraft/visibility_reported_sm")
+    P.aircraftcloudcoverage1 = GPFAE("sim/weather/aircraft/cloud_coverage_percent", 1)
+    P.aircraftcloudcoverage2 = GPFAE("sim/weather/aircraft/cloud_coverage_percent", 2)
+    P.aircraftcloudcoverage3 = GPFAE("sim/weather/aircraft/cloud_coverage_percent", 3)
+    P.aircraftcloudbase1 = GPFAE("sim/weather/aircraft/cloud_base_msl_m", 1)
+    P.aircraftcloudbase2 = GPFAE("sim/weather/aircraft/cloud_base_msl_m", 2)
+    P.aircraftcloudbase3 = GPFAE("sim/weather/aircraft/cloud_base_msl_m", 3)
+    P.aircraftcloudtop1 = GPFAE("sim/weather/aircraft/cloud_tops_msl_m", 1)
+    P.aircraftcloudtop2 = GPFAE("sim/weather/aircraft/cloud_tops_msl_m", 2)
+    P.aircraftcloudtop3 = GPFAE("sim/weather/aircraft/cloud_tops_msl_m", 3)
+    P.pressurealtitudeft = GP("sim/flightmodel2/position/pressure_altitude")
+    P.totalflighttimesec = GP("sim/time/total_flight_time_sec")
 
     P.cabincruisealt = GP("sim/cockpit/pressure/max_allowable_altitude")
     P.cabinlandingalt = GP("laminar/B738/pressurization/knobs/landing_alt")
@@ -6948,6 +6974,56 @@ local my_command_toggleprobeheat = sasl.createCommand(def.APPNAMEPREFIX .. "/tog
 sasl.registerCommandHandler(my_command_toggleprobeheat, 0, P.toggleprobeheat_)
 
 --------------------------------------------------------------------------------------------------------------
+function P.setEngineAntiIce(state)
+    local changed = false
+    if state == def.ON then
+        if get(P.eng1heatpos) == def.OFF then
+            helpers.command_once("laminar/B738/toggle_switch/eng1_heat")
+            changed = true
+        end
+        if get(P.eng2heatpos) == def.OFF then
+            helpers.command_once("laminar/B738/toggle_switch/eng2_heat")
+            changed = true
+        end
+    elseif state == def.OFF then
+        if get(P.eng1heatpos) == def.ON then
+            helpers.command_once("laminar/B738/toggle_switch/eng1_heat")
+            changed = true
+        end
+        if get(P.eng2heatpos) == def.ON then
+            helpers.command_once("laminar/B738/toggle_switch/eng2_heat")
+            changed = true
+        end
+    end
+
+    if changed then
+        local text = state == def.ON and "Engine Anti Ice On" or "Engine Anti Ice Off"
+        local key = state == def.ON and "status:anti_ice:engine:on" or "status:anti_ice:engine:off"
+        P.commandtableentry(def.TEXT, text, key, 2)
+    end
+    return changed
+end
+
+--------------------------------------------------------------------------------------------------------------
+function P.setWingAntiIce(state)
+    local changed = false
+    if state == def.ON and get(P.wingheatpos) == def.OFF then
+        helpers.command_once("laminar/B738/toggle_switch/wing_heat")
+        changed = true
+    elseif state == def.OFF and get(P.wingheatpos) == def.ON then
+        helpers.command_once("laminar/B738/toggle_switch/wing_heat")
+        changed = true
+    end
+
+    if changed then
+        local text = state == def.ON and "Wing Anti Ice On" or "Wing Anti Ice Off"
+        local key = state == def.ON and "status:anti_ice:wing:on" or "status:anti_ice:wing:off"
+        P.commandtableentry(def.TEXT, text, key, 2)
+    end
+    return changed
+end
+
+--------------------------------------------------------------------------------------------------------------
 function P.iceprotection(state)
 
     local set = 0
@@ -7023,6 +7099,194 @@ end
 
 local my_command_iceprotection = sasl.createCommand(def.APPNAMEPREFIX .. "/iceprotection", "Toggle Ice Protection")
 sasl.registerCommandHandler(my_command_iceprotection, 0, P.iceprotection_)
+
+function P.resetAntiIceAdviceState(system)
+    local state = P.antiIceAdviceState and P.antiIceAdviceState[system]
+    if not state then return end
+    resetVoiceAdviceRepeatState(state)
+    state.lastAt = nil
+end
+
+function P.clearAntiIceSpeech(system)
+    P.clearYalQueuedSpeech("advice:anti_ice:" .. system .. ":on")
+    P.clearYalQueuedSpeech("advice:anti_ice:" .. system .. ":off")
+    P.clearYalQueuedSpeech("status:anti_ice:" .. system .. ":on")
+    P.clearYalQueuedSpeech("status:anti_ice:" .. system .. ":off")
+    P.resetAntiIceAdviceState(system)
+end
+
+function P.queueAntiIceAdvice(system, stateName, text, now)
+    local state = P.antiIceAdviceState and P.antiIceAdviceState[system]
+    if not state then return end
+    local key = "advice:anti_ice:" .. system .. ":" .. stateName
+    if state.key == key and state.lastAt and (now - state.lastAt) < 30 then return end
+    local shouldQueue = shouldQueueStandaloneVoiceAdvice(state, key, text)
+    state.lastAt = now
+    if shouldQueue then
+        P.commandtableentry(def.TEXT, text, key, 2)
+    end
+end
+
+function P.antiIceEngineAdvice(demand, reason)
+    if demand == true then
+        return "Icing conditions. Set engine anti ice on."
+    end
+    if reason == "tat-above-10" then
+        return "T A T above 10 degrees. Set engine anti ice off."
+    elseif reason == "sat-below-minus-40" then
+        return "Static air temperature below minus 40 degrees in climb or cruise. Set engine anti ice off."
+    end
+    return "Icing conditions clear. Set engine anti ice off."
+end
+
+function P.antiIceWingAdvice(demand, reason)
+    if demand == true then
+        if reason == "extended-hold-icing" then
+            return "Extended icing in hold. Set wing anti ice on."
+        elseif reason == "extended-icing" then
+            return "Extended icing conditions. Set wing anti ice on."
+        end
+        return "Structural icing detected. Set wing anti ice on."
+    end
+    if reason == "tat-above-10" then
+        return "T A T above 10 degrees. Set wing anti ice off."
+    end
+    return "Wing ice cleared. Set wing anti ice off."
+end
+
+function P.antiIceCommandAllowed(lastCommandAt, now)
+    return lastCommandAt == nil or (now - lastCommandAt) >= 6
+end
+
+function P.updateAirborneAntiIce()
+    local automatic = P.configvalues[def.CONFIGAUTOFUNCTIONS] == def.ON
+        and P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON
+    local adviceOnly = P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON
+    local enabled = P.configvalues[def.CONFIGAUTOANTIICE] == def.ON and (automatic or adviceOnly)
+    local airborne = get(P.airgroundsensor) == def.OFF
+    local now = tonumber(get(P.totalflighttimesec)) or 0
+    local inCloudLayer = P.antiIceLogic.isInCloudLayer(
+        get(P.elevation),
+        { get(P.aircraftcloudcoverage1), get(P.aircraftcloudcoverage2), get(P.aircraftcloudcoverage3) },
+        { get(P.aircraftcloudbase1), get(P.aircraftcloudbase2), get(P.aircraftcloudbase3) },
+        { get(P.aircraftcloudtop1), get(P.aircraftcloudtop2), get(P.aircraftcloudtop3) }
+    )
+    local hold = P.getHoldRuntimeState and P.getHoldRuntimeState() or nil
+    local yalClimbOrCruise = P.flightstate == def.FLIGHTSTATEINITIALCLIMB
+        or P.flightstate == def.FLIGHTSTATECLIMB
+        or P.flightstate == def.FLIGHTSTATECRUISE
+    local fmsPhase = tonumber(get(P.fmsflightphase))
+    local fmsClimbOrCruise = fmsPhase == def.FMSFLIGHTPHASE_CLIMB
+        or fmsPhase == def.FMSFLIGHTPHASE_CRUISE
+        or fmsPhase == def.FMSFLIGHTPHASE_CRZ_CLB
+    local climbOrCruise = yalClimbOrCruise and fmsClimbOrCruise
+
+    local result
+    P.antiIceRuntime, result = P.antiIceLogic.update(P.antiIceRuntime, {
+        now = now,
+        enabled = enabled,
+        airborne = airborne,
+        tat_c = get(P.tatdegc),
+        sat_c = get(P.satdegc),
+        climb_or_cruise = climbOrCruise,
+        precipitation_ratio = get(P.aircraftprecipitation),
+        snow_ratio = get(P.aircraftsnow),
+        hail_ratio = get(P.aircrafthail),
+        visibility_sm = get(P.aircraftvisibilitysm),
+        in_cloud_layer = inCloudLayer,
+        frame_ice_left = get(P.frameice),
+        frame_ice_right = get(P.frameice2),
+        hold_active = hold and hold.active == true or false,
+        pressure_altitude_ft = get(P.pressurealtitudeft)
+    })
+
+    if result.reset then
+        P.clearAntiIceSpeech("engine")
+        P.clearAntiIceSpeech("wing")
+        P.clearYalQueuedSpeech("caution:anti_ice:wing:high_altitude")
+        P.antiIceLastEngineCommandAt = nil
+        P.antiIceLastWingCommandAt = nil
+        P.antiIceHighAltitudeWarned = false
+        return
+    end
+    if not enabled or not airborne then return end
+
+    if result.engine_changed then
+        P.clearAntiIceSpeech("engine")
+        P.antiIceLastEngineCommandAt = nil
+        helpers.logInfoTS(string.format(
+            "AntiIce engine demand=%s reason=%s TAT=%.1f SAT=%.1f moisture=%s source=%s",
+            tostring(result.engine_demand), tostring(result.engine_reason),
+            tonumber(get(P.tatdegc)) or 0, tonumber(get(P.satdegc)) or 0,
+            tostring(result.moisture_active), tostring(result.moisture_reason)
+        ))
+    end
+    if result.wing_changed then
+        P.clearAntiIceSpeech("wing")
+        P.antiIceLastWingCommandAt = nil
+        helpers.logInfoTS(string.format(
+            "AntiIce wing demand=%s reason=%s iceL=%.4f iceR=%.4f hold=%s",
+            tostring(result.wing_demand), tostring(result.wing_reason),
+            tonumber(get(P.frameice)) or 0, tonumber(get(P.frameice2)) or 0,
+            tostring(hold and hold.active == true or false)
+        ))
+    end
+
+    local engineMismatch = result.engine_demand == true
+        and (get(P.eng1heatpos) == def.OFF or get(P.eng2heatpos) == def.OFF)
+        or result.engine_demand == false
+        and (get(P.eng1heatpos) == def.ON or get(P.eng2heatpos) == def.ON)
+    local wingMismatch = result.wing_demand == true and get(P.wingheatpos) == def.OFF
+        or result.wing_demand == false and get(P.wingheatpos) == def.ON
+
+    if automatic then
+        if engineMismatch and P.antiIceCommandAllowed(P.antiIceLastEngineCommandAt, now) then
+            if P.setEngineAntiIce(result.engine_demand and def.ON or def.OFF) then
+                P.antiIceLastEngineCommandAt = now
+            end
+        elseif not engineMismatch then
+            P.antiIceLastEngineCommandAt = nil
+        end
+        if wingMismatch and P.antiIceCommandAllowed(P.antiIceLastWingCommandAt, now) then
+            if P.setWingAntiIce(result.wing_demand and def.ON or def.OFF) then
+                P.antiIceLastWingCommandAt = now
+            end
+        elseif not wingMismatch then
+            P.antiIceLastWingCommandAt = nil
+        end
+    elseif adviceOnly then
+        if engineMismatch then
+            P.queueAntiIceAdvice("engine", result.engine_demand and "on" or "off",
+                P.antiIceEngineAdvice(result.engine_demand, result.engine_reason), now)
+        else
+            if P.antiIceAdviceState.engine.key ~= nil then
+                P.clearAntiIceSpeech("engine")
+            else
+                P.resetAntiIceAdviceState("engine")
+            end
+        end
+        if wingMismatch then
+            P.queueAntiIceAdvice("wing", result.wing_demand and "on" or "off",
+                P.antiIceWingAdvice(result.wing_demand, result.wing_reason), now)
+        else
+            if P.antiIceAdviceState.wing.key ~= nil then
+                P.clearAntiIceSpeech("wing")
+            else
+                P.resetAntiIceAdviceState("wing")
+            end
+        end
+    end
+
+    if result.high_altitude_wing_caution and not P.antiIceHighAltitudeWarned then
+        P.antiIceHighAltitudeWarned = true
+        P.commandtableentry(def.TEXT,
+            "Wing anti ice required above flight level 350. Monitor bleed air.",
+            "caution:anti_ice:wing:high_altitude", 2)
+    elseif not result.high_altitude_wing_caution and P.antiIceHighAltitudeWarned then
+        P.antiIceHighAltitudeWarned = false
+        P.clearYalQueuedSpeech("caution:anti_ice:wing:high_altitude")
+    end
+end
 
  --------------------------------------------------------------------------------------------------------------
 function P.setcockpitlights()
@@ -8142,7 +8406,7 @@ function P.getAutoUnicomNavigationTarget()
     return nil, true, heading
 end
 
-local function readAutoUnicomHoldState()
+function P.getHoldRuntimeState()
     local api = P.holdRuntime
     if type(api) == "table" and api.api_version and (tonumber(get(api.api_version)) or 0) >= 1 then
         for _ = 1, 3 do
@@ -8397,7 +8661,7 @@ function P.baselineAutoUnicomRuntimeEvents()
         end
     end
 
-    local hold = readAutoUnicomHoldState()
+    local hold = P.getHoldRuntimeState()
     state.holdInitialized = true
     state.holdKey = hold.active and (hold.waypoint .. "|" .. hold.path_type) or nil
     state.holdPayload = hold.active and autoUnicomHoldPayload(hold) or nil
@@ -8609,7 +8873,7 @@ end
 function P.updateAutoUnicomHoldEvents()
     local state = P.autoUnicomRuntime
     if not state or get(P.airgroundsensor) == def.ON then return end
-    local hold = readAutoUnicomHoldState()
+    local hold = P.getHoldRuntimeState()
     local key = hold.active and (hold.waypoint .. "|" .. hold.path_type) or nil
     if not state.holdInitialized then
         state.holdInitialized = true
@@ -9884,32 +10148,6 @@ function P.runOneCoreOngoingTask()
                     end
                 end
 
-            else
-                if (P.configvalues[def.CONFIGAUTOFUNCTIONS] == def.ON)
-                and (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
-
-                    if ((get(P.frameice) > 0.01) and (get(P.altitude) < 30000)) then
-                        P.iceprotection(def.ON)
-                    elseif ((get(P.altitude) > 30000) or (get(P.tatdegc) > 10)) then
-                        P.iceprotection(def.OFF)
-                    end
-
-                elseif (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-
-                    if ((get(P.frameice) > 0.01) and (get(P.altitude) < 30000)) then
-                        if ((get(P.eng1heatpos) == def.OFF) or (get(P.eng2heatpos) == def.OFF) or (get(P.wingheatpos) == def.OFF)) then
-                            P.commandtableentry(def.TEXT, "Caution Icing Detected, Switch Anti Icing On")
-                        end
-                    elseif (get(P.altitude) > 30000) then
-                        if ((get(P.eng1heatpos) == def.ON) or (get(P.eng2heatpos) == def.ON) or (get(P.wingheatpos) == def.ON)) then
-                            P.commandtableentry(def.TEXT, "Above 30000 Feet, Switch Anti Icing Off")
-                        end
-                    elseif (get(P.tatdegc) > 10) then
-                        if ((get(P.eng1heatpos) == def.ON) or (get(P.eng2heatpos) == def.ON) or (get(P.wingheatpos) == def.ON)) then
-                            P.commandtableentry(def.TEXT, "T A T above 10 degrees, Switch Anti Icing Off")
-                        end
-                    end
-                end
             end
         end
     elseif idx == 5 then
@@ -11919,6 +12157,8 @@ function P.do_yal()
     
     sasl.logDebug("----------------------------------------------")
     sasl.logDebug("ONGOINGTASKSTEPINDEX: " .. P.ongoingtaskstepindex)
+
+    P.updateAirborneAntiIce()
 
     if ((P.configvalues[def.CONFIGAUTOFUNCTIONS] == def.ON) or (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON)) then
         P.updateAutoUnicomHoldEvents()
