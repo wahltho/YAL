@@ -2728,6 +2728,7 @@ function P.bindExternalDatarefs(silentMissing)
 
     P.frameice = GP("sim/flightmodel/failures/frm_ice")
     P.frameice2 = GP("sim/flightmodel/failures/frm_ice2")
+    P.icedelta = GP("sim/flightmodel/failures/ice_delta")
     P.tatdegc = GP("laminar/B738/systems/temperature/tat_degc")
     P.satdegc = GP("sim/weather/aircraft/temperature_ambient_deg_c")
     P.aircraftprecipitation = GP("sim/weather/aircraft/precipitation_on_aircraft_ratio")
@@ -7187,6 +7188,7 @@ function P.updateAirborneAntiIce()
     local heightAgl = tonumber(get(P.radioaltitude))
     local iceLeft = tonumber(get(P.frameice)) or 0
     local iceRight = tonumber(get(P.frameice2)) or 0
+    local iceDelta = tonumber(get(P.icedelta)) or 0
 
     local result
     P.antiIceRuntime, result = P.antiIceLogic.update(P.antiIceRuntime, {
@@ -7204,6 +7206,7 @@ function P.updateAirborneAntiIce()
         in_cloud_layer = inCloudLayer,
         frame_ice_left = iceLeft,
         frame_ice_right = iceRight,
+        ice_delta = iceDelta,
         hold_active = hold and hold.active == true or false,
         pressure_altitude_ft = get(P.pressurealtitudeft)
     })
@@ -7223,21 +7226,21 @@ function P.updateAirborneAntiIce()
         P.clearAntiIceSpeech("engine")
         P.antiIceLastEngineCommandAt = nil
         helpers.logInfoTS(string.format(
-            "AntiIce engine demand=%s reason=%s TAT=%.1f SAT=%.1f moisture=%s source=%s visSM=%.2f cloud=%s aglFt=%.0f precip=%.4f snow=%.4f hail=%.4f iceL=%.4f iceR=%.4f",
+            "AntiIce engine demand=%s reason=%s TAT=%.1f SAT=%.1f moisture=%s source=%s visSM=%.2f cloud=%s aglFt=%.0f precip=%.4f snow=%.4f hail=%.4f iceL=%.4f iceR=%.4f iceDelta=%.7f",
             tostring(result.engine_demand), tostring(result.engine_reason),
             tonumber(get(P.tatdegc)) or 0, tonumber(get(P.satdegc)) or 0,
             tostring(result.moisture_active), tostring(result.moisture_reason),
             visibility or -1, tostring(inCloudLayer), heightAgl or -1,
-            precipitation, snow, hail, iceLeft, iceRight
+            precipitation, snow, hail, iceLeft, iceRight, iceDelta
         ))
     end
     if result.wing_changed then
         P.clearAntiIceSpeech("wing")
         P.antiIceLastWingCommandAt = nil
         helpers.logInfoTS(string.format(
-            "AntiIce wing demand=%s reason=%s iceL=%.4f iceR=%.4f hold=%s",
+            "AntiIce wing demand=%s reason=%s iceL=%.4f iceR=%.4f iceDelta=%.7f hold=%s",
             tostring(result.wing_demand), tostring(result.wing_reason),
-            iceLeft, iceRight,
+            iceLeft, iceRight, iceDelta,
             tostring(hold and hold.active == true or false)
         ))
     end

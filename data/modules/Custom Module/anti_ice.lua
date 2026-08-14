@@ -8,6 +8,7 @@ P.STRUCTURAL_ICE_CLEAR = 0.003
 P.STRUCTURAL_ICE_EVIDENCE = 0.003
 P.STRUCTURAL_ICE_ON_STABLE_SEC = 6
 P.STRUCTURAL_ICE_CLEAR_STABLE_SEC = 30
+P.ICE_DELTA_EPSILON = 0.0000001
 P.HOLD_ICING_SEC = 60
 P.EXTENDED_ICING_SEC = 600
 P.HOLD_RELEASE_STABLE_SEC = 30
@@ -104,6 +105,11 @@ function P.visibleMoisture(input)
         return true, "fog"
     end
 
+    local iceDelta = finiteNumber(input.ice_delta)
+    if iceDelta and iceDelta > P.ICE_DELTA_EPSILON then
+        return true, "active-icing"
+    end
+
     local maxIce = maxFinite(input.frame_ice_left, input.frame_ice_right)
     if maxIce >= P.STRUCTURAL_ICE_EVIDENCE then
         return true, "structural-ice"
@@ -113,6 +119,8 @@ end
 
 local function updateMoistureState(state, input, now)
     local moisture, reason = P.visibleMoisture(input)
+    local iceDelta = finiteNumber(input.ice_delta)
+    local iceRemovalActive = iceDelta and iceDelta < -P.ICE_DELTA_EPSILON
     if moisture then
         state.moisture_clear_since = nil
         if state.moisture_since == nil then state.moisture_since = now end
@@ -125,6 +133,10 @@ local function updateMoistureState(state, input, now)
                 state.icing_active_since = now
             end
         end
+    elseif iceRemovalActive then
+        -- Removing ice is not evidence that the aircraft has left the icing encounter.
+        state.moisture_since = nil
+        state.moisture_clear_since = nil
     else
         state.moisture_since = nil
         if state.moisture_clear_since == nil then state.moisture_clear_since = now end
@@ -233,7 +245,13 @@ local function resolveWingDemand(state, input, now, tat, warmStable)
     local latchHoldRelease = state.wing_demand == true
         and state.wing_reason == "extended-hold-icing"
         and state.moisture_active == true
-    if latchHoldRelease then
+    local latchStructuralEncounter = state.wing_demand == true
+        and state.wing_reason == "structural-ice"
+        and state.moisture_active == true
+    if latchStructuralEncounter then
+        state.wing_no_demand_since = nil
+        return state.wing_demand, state.wing_reason
+    elseif latchHoldRelease then
         if state.wing_no_demand_since == nil then state.wing_no_demand_since = now end
         if elapsed(now, state.wing_no_demand_since) < P.HOLD_RELEASE_STABLE_SEC then
             return state.wing_demand, state.wing_reason

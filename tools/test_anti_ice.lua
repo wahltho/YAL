@@ -41,6 +41,7 @@ local base = {
     in_cloud_layer = false,
     frame_ice_left = 0,
     frame_ice_right = 0,
+    ice_delta = 0,
     hold_active = false,
     pressure_altitude_ft = 10000
 }
@@ -74,6 +75,11 @@ assertTrue(moisture, "cloud remains visible moisture in low visibility")
 assertEqual(source, "cloud-layer", "cloud source takes priority over fog")
 moisture = antiIce.visibleMoisture(copy(base, { in_cloud_layer = true }))
 assertTrue(moisture, "cloud layer is visible moisture")
+moisture, source = antiIce.visibleMoisture(copy(base, { ice_delta = 0.0001 }))
+assertTrue(moisture, "positive ice delta is active icing evidence")
+assertEqual(source, "active-icing", "active icing source")
+moisture = antiIce.visibleMoisture(copy(base, { ice_delta = -0.0001 }))
+assertFalse(moisture, "negative ice delta is removal, not moisture evidence")
 moisture = antiIce.visibleMoisture(copy(base, { frame_ice_right = 0.003 }))
 assertTrue(moisture, "right-side structural ice is moisture evidence")
 moisture = antiIce.visibleMoisture(base)
@@ -180,6 +186,25 @@ state, result = update(state, 39)
 assertTrue(result.wing_demand, "structural ice remains latched before clear interval")
 state, result = update(state, 40)
 assertFalse(result.wing_demand, "structural wing demand clears after one clear latch")
+
+state, result = update(nil, 0, { frame_ice_left = 0.02, ice_delta = 0.0001 })
+state, result = update(state, 6, { frame_ice_left = 0.02, ice_delta = 0.0001 })
+assertTrue(result.engine_demand, "active structural icing requires engine anti-ice")
+assertTrue(result.wing_demand, "active structural icing requires wing anti-ice")
+state, result = update(state, 20, { frame_ice_left = 0.002, ice_delta = -0.0001 })
+state, result = update(state, 80, { frame_ice_left = 0, ice_delta = -0.0001 })
+assertTrue(result.engine_demand, "ice removal does not clear engine demand")
+assertTrue(result.wing_demand, "ice removal does not clear structural wing demand")
+state, result = update(state, 100, { frame_ice_left = 0, ice_delta = 0.0001 })
+assertTrue(result.engine_demand, "renewed accumulation keeps engine demand active")
+assertTrue(result.wing_demand, "renewed accumulation keeps structural wing demand active")
+state, result = update(state, 110, { frame_ice_left = 0, ice_delta = 0 })
+state, result = update(state, 139, { frame_ice_left = 0, ice_delta = 0 })
+assertTrue(result.engine_demand, "neutral ice delta remains latched before clear interval")
+assertTrue(result.wing_demand, "structural wing encounter remains latched before clear interval")
+state, result = update(state, 140, { frame_ice_left = 0, ice_delta = 0 })
+assertFalse(result.engine_demand, "engine demand clears after stable neutral ice delta")
+assertFalse(result.wing_demand, "structural wing encounter clears after stable neutral ice delta")
 
 state, result = antiIce.update(state, copy(base, { now = 41, enabled = false }))
 assertTrue(result.reset, "disabled feature resets active runtime")
