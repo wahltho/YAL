@@ -841,6 +841,30 @@ local function buildApproachRefDetectedVariant(snapshot)
     }
 end
 
+local function isSetIlsCourseOnlyNonPrecision(loop)
+    local snapshot = loop and loop.approachRefAccepted and loop.approachRefSnapshot or nil
+    if not snapshot then
+        return false
+    end
+    if refdata and refdata.isApproachRefCourseOnlyNonPrecision then
+        return refdata.isApproachRefCourseOnlyNonPrecision(snapshot)
+    end
+    return snapshot.course_only_non_precision == true
+end
+
+local function setIlsCourseOnlyProcedureLabel(loop)
+    if not isSetIlsCourseOnlyNonPrecision(loop) then
+        return nil
+    end
+    local snapshot = loop.approachRefSnapshot
+    local labels = {
+        NDB = "N D B",
+        VOR = "V O R",
+        VDM = "V O R D M E"
+    }
+    return labels[tostring(snapshot.procedure_type or "")]
+end
+
 local function resetSetIlsResolutionState(loop)
     loop.navdatatableindices = nil
     loop.navdatatableindex = nil
@@ -1268,13 +1292,20 @@ local function buildSetIlsSupportNavaidMessage(loop)
             kindLabel = "D M E"
         elseif kind == "TACAN" then
             kindLabel = "TACAN"
+        elseif kind == "NDB" then
+            kindLabel = "N D B"
         end
         local message = "Supporting " .. kindLabel
             .. " for Runway " .. helpers.formatRunwayDesignator(approachSnapshot.runway or get(P.desrwy))
             .. " is " .. helpers.spellNato(approachSnapshot.support_nav_ident or "")
         local frequency = tonumber(approachSnapshot.support_nav_frequency_raw) or 0
         if frequency > 0 then
-            message = message .. " with frequency " .. helpers.addspaces(helpers.formatILSFrequency(frequency))
+            if kind == "NDB" then
+                message = message .. " with frequency "
+                    .. helpers.addspaces(tostring(math.floor(frequency + 0.5))) .. " kilohertz"
+            else
+                message = message .. " with frequency " .. helpers.addspaces(helpers.formatILSFrequency(frequency))
+            end
         end
         return message
     end
@@ -1366,6 +1397,9 @@ local function shouldManageSetIlsCourseSelectors(loop)
     if approachSnapshot then
         if not approachSnapshot.course_valid then
             return false
+        end
+        if isSetIlsCourseOnlyNonPrecision(loop) then
+            return true
         end
         local approachNavType = approachSnapshot.nav_type
         if isLocalizerNavType(approachNavType)
@@ -6245,17 +6279,19 @@ function M.fillProcedureTable()
                             loop.navdatatableindices = {}
                             loop.detectedApproach = buildApproachRefDetectedVariant(approachSnapshot)
                             helpers.logDebugTS(string.format(
-                                "SetIlsResolve: selectedApp=%s source=zibo_approach_ref_api seq=%s selected=%s navValid=%s chosenType=%s chosenId=%s chosenRwy=%s courseValid=%s course=%s reference=%s",
+                                "SetIlsResolve: selectedApp=%s source=zibo_approach_ref_api seq=%s selected=%s navValid=%s procedureType=%s chosenType=%s chosenId=%s chosenRwy=%s courseValid=%s course=%s reference=%s courseOnlyNonPrecision=%s",
                                 tostring(selectedAppId),
                                 tostring(approachSnapshot and approachSnapshot.update_seq or nil),
                                 tostring(approachSnapshot and approachSnapshot.selected or false),
                                 tostring(approachSnapshot and approachSnapshot.nav_valid or false),
+                                tostring(approachSnapshot and approachSnapshot.procedure_type or nil),
                                 tostring(approachNavdata and approachNavdata[def.DESTNAVTYPE] or nil),
                                 tostring(approachNavdata and approachNavdata[def.DESTNAVID] or nil),
                                 tostring(approachSnapshot and approachSnapshot.runway or nil),
                                 tostring(approachSnapshot and approachSnapshot.course_valid or false),
                                 tostring(approachSnapshot and approachSnapshot.course_deg or nil),
-                                tostring(approachSnapshot and approachSnapshot.course_reference or nil)
+                                tostring(approachSnapshot and approachSnapshot.course_reference or nil),
+                                tostring(approachSnapshot and approachSnapshot.course_only_non_precision or false)
                             ))
                             if approachSnapshot and approachSnapshot.nav_valid and approachNavdata then
                                 return 'announce_approach_type'
@@ -6415,8 +6451,13 @@ function M.fillProcedureTable()
                         local requestedNavType = selectedNavType or detectedNavType
                         local approachSnapshot = loop and loop.approachRefAccepted and loop.approachRefSnapshot or nil
                         local normalCourseOnlyRnav = isSetIlsNormalCourseOnlyRnav(loop)
+                        local courseOnlyNonPrecision = isSetIlsCourseOnlyNonPrecision(loop)
+                        local courseOnlyLabel = setIlsCourseOnlyProcedureLabel(loop)
                         local noApproachText = "Runway " .. runwayFormatted .. " has no Precision Approach"
-                        if normalCourseOnlyRnav then
+                        if courseOnlyNonPrecision and courseOnlyLabel then
+                            noApproachText = "Runway " .. runwayFormatted .. " has "
+                                .. courseOnlyLabel .. " Approach"
+                        elseif normalCourseOnlyRnav then
                             local parsedApproach = parseSelectedApproachId(selectedAppId)
                             local approachLabel = "R N A V"
                             if parsedApproach and parsedApproach.suffix and parsedApproach.suffix ~= "" then
@@ -6444,7 +6485,7 @@ function M.fillProcedureTable()
                             runwayKey = string.format("%02d", runwayRaw)
                         end
 
-                        if requestedNavType ~= def.NAVTYPERNAV
+                        if not courseOnlyNonPrecision and requestedNavType ~= def.NAVTYPERNAV
                             and helpers.isvalidicao(destinationIcao) and runwayKey ~= "" then
                             local cifpData = helpers.loadCIFP(destinationIcao)
                             if cifpData then
@@ -6459,7 +6500,7 @@ function M.fillProcedureTable()
                         end
 
                         if approachSnapshot and approachSnapshot.selected and not approachSnapshot.nav_valid
-                            and not normalCourseOnlyRnav then
+                            and not normalCourseOnlyRnav and not courseOnlyNonPrecision then
                             local plan = buildSetIlsPlan(loop)
                             if plan and plan.guidanceMessage and plan.guidanceMessage ~= "" then
                                 P.commandtableentry(def.TEXT, plan.guidanceMessage)

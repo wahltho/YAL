@@ -25,6 +25,11 @@ local LANDING_NAV_REJECT_SCORE = -1000000
 local MIN_APPROACH_REF_API_VERSION = 1
 local APPROACH_REF_READ_ATTEMPTS = 3
 local NAV_WAYPOINT_MATCH_MAX_NM = 5
+local APPROACH_REF_V2_COURSE_ONLY_TYPES = {
+    NDB = true,
+    VOR = true,
+    VDM = true
+}
 local APPROACH_REF_FIELDS = {
     "api_version", "update_seq", "selected", "nav_valid", "course_valid",
     "procedure_id", "procedure_type", "resolved_nav_kind", "airport", "runway", "nav_ident",
@@ -343,6 +348,12 @@ local function approachRefNavType(snapshot)
     return nil
 end
 
+local function isApproachRefV2CourseOnlyType(snapshot)
+    local version = tonumber(snapshot and snapshot.api_version) or 0
+    local procedureType = cleanText(snapshot and snapshot.procedure_type or "")
+    return version >= 2 and APPROACH_REF_V2_COURSE_ONLY_TYPES[procedureType] == true
+end
+
 local function readApproachRefSnapshot(refs)
     for _ = 1, APPROACH_REF_READ_ATTEMPTS do
         local seqBeforeRaw = readNumber(refs.update_seq)
@@ -425,7 +436,16 @@ local function approachRefSnapshotValid(snapshot)
         return false, "selection_context"
     end
 
+    if APPROACH_REF_V2_COURSE_ONLY_TYPES[snapshot.procedure_type]
+        and (tonumber(snapshot.api_version) or 0) < 2 then
+        return false, "procedure_type_version"
+    end
+
     snapshot.nav_type = approachRefNavType(snapshot)
+    snapshot.course_only_non_precision = isApproachRefV2CourseOnlyType(snapshot)
+    if snapshot.course_only_non_precision and snapshot.nav_valid then
+        return false, "course_only_primary"
+    end
     if snapshot.nav_valid then
         local kind = snapshot.resolved_nav_kind
         local isChannelKind = kind == "GLS" or kind == "LPV" or kind == "LP"
@@ -478,6 +498,12 @@ local function approachRefSnapshotValid(snapshot)
     end
 
     return true, nil
+end
+
+function M.isApproachRefCourseOnlyNonPrecision(snapshot)
+    return isApproachRefV2CourseOnlyType(snapshot)
+        and snapshot.selected == true
+        and snapshot.nav_valid ~= true
 end
 
 local function approachRefContextMatches(snapshot, context)
@@ -1919,13 +1945,14 @@ function M.getApproachRefForContext(context)
                 local entry = approachRefToNavEntry(snapshot)
                 local key = table.concat({
                     tostring(snapshot.update_seq), tostring(snapshot.selected), tostring(snapshot.nav_valid),
-                    tostring(snapshot.course_valid), snapshot.procedure_id, snapshot.airport,
+                    tostring(snapshot.course_valid), snapshot.procedure_id, snapshot.procedure_type, snapshot.airport,
                     snapshot.runway, snapshot.resolved_nav_kind, snapshot.nav_ident
                 }, "|")
                 logOnce(
                     "approach-ref-selected-" .. key,
                     "ApproachRefAdapter selected seq=" .. tostring(snapshot.update_seq)
                         .. " procedure=" .. tostring(snapshot.procedure_id)
+                        .. " procedureType=" .. tostring(snapshot.procedure_type)
                         .. " airport=" .. tostring(snapshot.airport)
                         .. " runway=" .. tostring(snapshot.runway)
                         .. " navValid=" .. tostring(snapshot.nav_valid)
@@ -1933,7 +1960,8 @@ function M.getApproachRefForContext(context)
                         .. " ident=" .. tostring(snapshot.nav_ident)
                         .. " courseValid=" .. tostring(snapshot.course_valid)
                         .. " course=" .. tostring(snapshot.course_deg)
-                        .. " reference=" .. tostring(snapshot.course_reference),
+                        .. " reference=" .. tostring(snapshot.course_reference)
+                        .. " courseOnlyNonPrecision=" .. tostring(snapshot.course_only_non_precision),
                     true
                 )
                 return snapshot, entry, "accepted"
