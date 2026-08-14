@@ -7229,9 +7229,12 @@ function P.updateAirborneAntiIce()
     end
     if not enabled or not airborne then return end
 
-    if result.engine_changed then
+    local engineAdviceReasonChanged = result.engine_reason_changed and result.engine_demand == false
+    if result.engine_changed or engineAdviceReasonChanged then
         P.clearAntiIceSpeech("engine")
         P.antiIceLastEngineCommandAt = nil
+    end
+    if result.engine_changed or result.engine_reason_changed then
         helpers.logInfoTS(string.format(
             "AntiIce engine demand=%s reason=%s TAT=%.1f SAT=%.1f moisture=%s source=%s visSM=%.2f cloud=%s aglFt=%.0f precip=%.4f snow=%.4f hail=%.4f iceL=%.4f iceR=%.4f iceDelta=%.7f",
             tostring(result.engine_demand), tostring(result.engine_reason),

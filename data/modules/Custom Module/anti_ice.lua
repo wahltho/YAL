@@ -2,6 +2,8 @@ local P = {}
 
 P.MOISTURE_ON_STABLE_SEC = 6
 P.MOISTURE_CLEAR_STABLE_SEC = 30
+P.ENGINE_ON_STABLE_SEC = 15
+P.ENGINE_CLEAR_STABLE_SEC = 30
 P.TEMPERATURE_STABLE_SEC = 6
 P.STRUCTURAL_ICE_ON = 0.01
 P.STRUCTURAL_ICE_CLEAR = 0.003
@@ -45,6 +47,8 @@ function P.newState()
         moisture_clear_since = nil,
         moisture_active = nil,
         moisture_reason = nil,
+        engine_eligible_since = nil,
+        engine_clear_since = nil,
         structural_since = nil,
         structural_clear_since = nil,
         structural_active = nil,
@@ -129,6 +133,7 @@ local function updateMoistureState(state, input, now)
             state.moisture_reason = nil
         end
     end
+    return moisture, reason
 end
 
 local function updateStructuralState(state, input, now)
@@ -173,14 +178,51 @@ local function updateTemperatureTimers(state, input, now)
         coldSat == true and elapsed(now, state.cold_sat_since) >= P.TEMPERATURE_STABLE_SEC
 end
 
-local function resolveEngineDemand(state, tat, warmStable, coldSatStable)
+local function resolveEngineDemand(state, input, now, tat, warmStable, coldSatStable, moisture, moistureReason)
     if not tat then return state.engine_demand, state.engine_reason end
-    if warmStable then return false, "tat-above-10" end
-    if coldSatStable then return false, "sat-below-minus-40" end
-    if tat <= P.MAX_TAT_C and state.moisture_active == true then
-        return true, state.moisture_reason or "icing-conditions"
+    if warmStable then
+        state.engine_eligible_since = nil
+        state.engine_clear_since = nil
+        return false, "tat-above-10"
     end
+    if coldSatStable then
+        state.engine_eligible_since = nil
+        state.engine_clear_since = nil
+        return false, "sat-below-minus-40"
+    end
+
+    local sat = finiteNumber(input.sat_c)
+    local warm = tat > P.MAX_TAT_C
+    local coldSat = input.climb_or_cruise == true and sat and sat < P.MIN_CLIMB_CRUISE_SAT_C
+    local eligible = moisture == true and not warm and not coldSat
+    if eligible then
+        state.engine_clear_since = nil
+        if state.engine_demand == true then
+            state.engine_eligible_since = nil
+            return true, moistureReason or state.moisture_reason or "icing-conditions"
+        end
+        if state.engine_eligible_since == nil then state.engine_eligible_since = now end
+        if elapsed(now, state.engine_eligible_since) >= P.ENGINE_ON_STABLE_SEC
+            and state.moisture_active == true then
+            return true, moistureReason or state.moisture_reason or "icing-conditions"
+        end
+        return nil, "icing-conditions-confirming"
+    end
+
+    state.engine_eligible_since = nil
     if state.moisture_active == false then
+        if state.engine_demand == true then
+            if state.engine_clear_since == nil then state.engine_clear_since = now end
+            if elapsed(now, state.engine_clear_since) < P.ENGINE_CLEAR_STABLE_SEC then
+                return true, state.engine_reason
+            end
+        end
+        state.engine_clear_since = nil
+        return false, "icing-conditions-clear"
+    end
+
+    state.engine_clear_since = nil
+    if state.engine_demand == false then
         return false, "icing-conditions-clear"
     end
     return state.engine_demand, state.engine_reason
@@ -225,7 +267,7 @@ function P.update(state, input)
     state.context_active = true
     state.last_now = now
 
-    updateMoistureState(state, input, now)
+    local moisture, moistureReason = updateMoistureState(state, input, now)
     local maxIce = updateStructuralState(state, input, now)
     local tat, warmStable, coldSatStable = updateTemperatureTimers(state, input, now)
 
@@ -233,7 +275,8 @@ function P.update(state, input)
     local previousEngineReason = state.engine_reason
     local previousWing = state.wing_demand
     local previousWingReason = state.wing_reason
-    local engineDemand, engineReason = resolveEngineDemand(state, tat, warmStable, coldSatStable)
+    local engineDemand, engineReason = resolveEngineDemand(
+        state, input, now, tat, warmStable, coldSatStable, moisture, moistureReason)
     local wingDemand, wingReason = resolveWingDemand(state, input, tat)
     state.engine_demand = engineDemand
     state.engine_reason = engineReason
@@ -244,7 +287,8 @@ function P.update(state, input)
         or wingReason == "tat-above-10"
         or wingReason == "below-400-feet-agl"
     return state, {
-        engine_changed = previousEngine ~= engineDemand or previousEngineReason ~= engineReason,
+        engine_changed = previousEngine ~= engineDemand,
+        engine_reason_changed = previousEngineReason ~= engineReason,
         engine_demand = engineDemand,
         engine_reason = engineReason,
         wing_changed = previousWing ~= wingDemand or previousWingReason ~= wingReason,
