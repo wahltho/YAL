@@ -1832,7 +1832,7 @@ function P.YalinitGlobal()
     }
     P.antiIceLastEngineCommandAt = nil
     P.antiIceLastWingCommandAt = nil
-    P.antiIceHighAltitudeWarned = false
+    P.antiIceWingInhibitWarnedReason = nil
 
     P.runwayFrictionAdjusted = nil
     P.runwayFrictionSeen = nil
@@ -7142,17 +7142,25 @@ end
 
 function P.antiIceWingAdvice(demand, reason)
     if demand == true then
-        if reason == "extended-hold-icing" then
-            return "Extended icing in hold. Set wing anti ice on."
-        elseif reason == "extended-icing" then
-            return "Extended icing conditions. Set wing anti ice on."
-        end
         return "Structural icing detected. Set wing anti ice on."
     end
     if reason == "tat-above-10" then
         return "T A T above 10 degrees. Set wing anti ice off."
+    elseif reason == "altitude-above-fl350" then
+        return "Above flight level 350. Set wing anti ice off."
+    elseif reason == "below-400-feet-agl" then
+        return "Below 400 feet. Set wing anti ice off."
     end
     return "Wing ice cleared. Set wing anti ice off."
+end
+
+function P.antiIceWingInhibitAdvice(reason)
+    if reason == "tat-above-10" then
+        return "Structural icing detected with T A T above 10 degrees. Leave icing conditions."
+    elseif reason == "below-400-feet-agl" then
+        return "Structural icing detected below 400 feet. Wing anti ice is inhibited."
+    end
+    return "Structural icing detected above flight level 350. Leave icing conditions."
 end
 
 function P.antiIceCommandAllowed(lastCommandAt, now)
@@ -7172,7 +7180,6 @@ function P.updateAirborneAntiIce()
         { get(P.aircraftcloudbase1), get(P.aircraftcloudbase2), get(P.aircraftcloudbase3) },
         { get(P.aircraftcloudtop1), get(P.aircraftcloudtop2), get(P.aircraftcloudtop3) }
     )
-    local hold = P.getHoldRuntimeState and P.getHoldRuntimeState() or nil
     local yalClimbOrCruise = P.flightstate == def.FLIGHTSTATEINITIALCLIMB
         or P.flightstate == def.FLIGHTSTATECLIMB
         or P.flightstate == def.FLIGHTSTATECRUISE
@@ -7207,7 +7214,6 @@ function P.updateAirborneAntiIce()
         frame_ice_left = iceLeft,
         frame_ice_right = iceRight,
         ice_delta = iceDelta,
-        hold_active = hold and hold.active == true or false,
         pressure_altitude_ft = get(P.pressurealtitudeft)
     })
 
@@ -7215,9 +7221,10 @@ function P.updateAirborneAntiIce()
         P.clearAntiIceSpeech("engine")
         P.clearAntiIceSpeech("wing")
         P.clearYalQueuedSpeech("caution:anti_ice:wing:high_altitude")
+        P.clearYalQueuedSpeech("caution:anti_ice:wing:inhibited")
         P.antiIceLastEngineCommandAt = nil
         P.antiIceLastWingCommandAt = nil
-        P.antiIceHighAltitudeWarned = false
+        P.antiIceWingInhibitWarnedReason = nil
         return
     end
     if not enabled or not airborne then return end
@@ -7238,10 +7245,10 @@ function P.updateAirborneAntiIce()
         P.clearAntiIceSpeech("wing")
         P.antiIceLastWingCommandAt = nil
         helpers.logInfoTS(string.format(
-            "AntiIce wing demand=%s reason=%s iceL=%.4f iceR=%.4f iceDelta=%.7f hold=%s",
+            "AntiIce wing demand=%s reason=%s iceL=%.4f iceR=%.4f iceDelta=%.7f pressureAlt=%.0f TAT=%.1f structural=%s",
             tostring(result.wing_demand), tostring(result.wing_reason),
-            iceLeft, iceRight, iceDelta,
-            tostring(hold and hold.active == true or false)
+            iceLeft, iceRight, iceDelta, tonumber(get(P.pressurealtitudeft)) or 0,
+            tonumber(get(P.tatdegc)) or 0, tostring(result.structural_active)
         ))
     end
 
@@ -7290,14 +7297,16 @@ function P.updateAirborneAntiIce()
         end
     end
 
-    if result.high_altitude_wing_caution and not P.antiIceHighAltitudeWarned then
-        P.antiIceHighAltitudeWarned = true
+    if result.wing_ice_inhibited
+        and P.antiIceWingInhibitWarnedReason ~= result.wing_inhibit_reason then
+        P.clearYalQueuedSpeech("caution:anti_ice:wing:inhibited")
+        P.antiIceWingInhibitWarnedReason = result.wing_inhibit_reason
         P.commandtableentry(def.TEXT,
-            "Wing anti ice required above flight level 350. Monitor bleed air.",
-            "caution:anti_ice:wing:high_altitude", 2)
-    elseif not result.high_altitude_wing_caution and P.antiIceHighAltitudeWarned then
-        P.antiIceHighAltitudeWarned = false
-        P.clearYalQueuedSpeech("caution:anti_ice:wing:high_altitude")
+            P.antiIceWingInhibitAdvice(result.wing_inhibit_reason),
+            "caution:anti_ice:wing:inhibited", 2)
+    elseif not result.wing_ice_inhibited and P.antiIceWingInhibitWarnedReason ~= nil then
+        P.antiIceWingInhibitWarnedReason = nil
+        P.clearYalQueuedSpeech("caution:anti_ice:wing:inhibited")
     end
 end
 
