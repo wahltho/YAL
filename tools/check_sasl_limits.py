@@ -13,6 +13,13 @@ from typing import Dict, List, Optional
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 
 DEFAULT_RULES = {
+    "data/modules/Custom Module/proceduredata.lua": {
+        "functions": {
+            "fillProcedureTable": {
+                "upvalues": {"warn_at": 59, "max": 60},
+            },
+        },
+    },
     "data/modules/Custom Module/windows/taxi.lua": {
         "main": {
             "slots": {"warn_at": 200, "max": 210},
@@ -35,6 +42,9 @@ SIG_RE = re.compile(
 )
 LOCAL_FUNCTION_RE = re.compile(r"^\s*local function\s+(?P<name>[A-Za-z_][A-Za-z0-9_]*)\b")
 ASSIGN_FUNCTION_RE = re.compile(r"^\s*(?P<name>[A-Za-z_][A-Za-z0-9_]*)\s*=\s*function\b")
+TABLE_FUNCTION_RE = re.compile(
+    r"^\s*function\s+[A-Za-z_][A-Za-z0-9_]*\.(?P<name>[A-Za-z_][A-Za-z0-9_]*)\b"
+)
 
 
 @dataclass
@@ -88,7 +98,11 @@ def collect_function_lines(file_path: pathlib.Path) -> Dict[str, int]:
     found: Dict[str, int] = {}
     with file_path.open("r", encoding="utf-8") as handle:
         for lineno, line in enumerate(handle, start=1):
-            match = LOCAL_FUNCTION_RE.match(line) or ASSIGN_FUNCTION_RE.match(line)
+            match = (
+                LOCAL_FUNCTION_RE.match(line)
+                or ASSIGN_FUNCTION_RE.match(line)
+                or TABLE_FUNCTION_RE.match(line)
+            )
             if not match:
                 continue
             name = match.group("name")

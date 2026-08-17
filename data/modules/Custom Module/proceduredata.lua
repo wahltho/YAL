@@ -3,53 +3,45 @@ local helpers = require("helpers")
 local refdata = require("refdata")
 local P = yal
 
-local CLIMB_TRANSITION_ALTITUDE_MARGIN_FT = 100
-local CLIMB_TRANSITION_MIN_VS_FPM = 100
-local DESCENT_TRANSITION_LEVEL_MARGIN_FT = 100
-local DESCENT_TRANSITION_MIN_VS_FPM = 100
+local TRANSITION_MARGIN_FT = 100
+local TRANSITION_MIN_VS_FPM = 100
 
-local function isClimbingThroughTransition(loop, transitionAltitude, altitude, verticalSpeed)
+local function isCrossingTransition(loop, transitionAltitude, altitude, verticalSpeed, descending)
     transitionAltitude = tonumber(transitionAltitude)
     altitude = tonumber(altitude)
     verticalSpeed = tonumber(verticalSpeed)
-    if not transitionAltitude or transitionAltitude <= 0 or not altitude then
-        loop.climbTransitionObservedBelow = nil
+    if not transitionAltitude or transitionAltitude <= 0 or transitionAltitude > 25000 or not altitude then
+        if descending then
+            loop.descentTransitionObservedAbove = nil
+        else
+            loop.climbTransitionObservedBelow = nil
+        end
         return false
     end
 
-    local crossingAltitude = transitionAltitude + CLIMB_TRANSITION_ALTITUDE_MARGIN_FT
+    if descending then
+        local crossingAltitude = transitionAltitude - TRANSITION_MARGIN_FT
+        if altitude >= crossingAltitude then
+            loop.descentTransitionObservedAbove = true
+            return false
+        end
+        -- A restored procedure may first run after the aircraft is already below TL.
+        if loop.descentTransitionObservedAbove ~= true then
+            return true
+        end
+        return verticalSpeed ~= nil and verticalSpeed < -TRANSITION_MIN_VS_FPM
+    end
+
+    local crossingAltitude = transitionAltitude + TRANSITION_MARGIN_FT
     if altitude <= crossingAltitude then
         loop.climbTransitionObservedBelow = true
         return false
     end
-
     -- A restored procedure may first run after the aircraft is already above TA.
     if loop.climbTransitionObservedBelow ~= true then
         return true
     end
-    return verticalSpeed ~= nil and verticalSpeed > CLIMB_TRANSITION_MIN_VS_FPM
-end
-
-local function isDescendingThroughTransition(loop, transitionLevel, altitude, verticalSpeed)
-    transitionLevel = tonumber(transitionLevel)
-    altitude = tonumber(altitude)
-    verticalSpeed = tonumber(verticalSpeed)
-    if not transitionLevel or transitionLevel <= 0 or transitionLevel > 25000 or not altitude then
-        loop.descentTransitionObservedAbove = nil
-        return false
-    end
-
-    local crossingAltitude = transitionLevel - DESCENT_TRANSITION_LEVEL_MARGIN_FT
-    if altitude >= crossingAltitude then
-        loop.descentTransitionObservedAbove = true
-        return false
-    end
-
-    -- A restored procedure may first run after the aircraft is already below TL.
-    if loop.descentTransitionObservedAbove ~= true then
-        return true
-    end
-    return verticalSpeed ~= nil and verticalSpeed < -DESCENT_TRANSITION_MIN_VS_FPM
+    return verticalSpeed ~= nil and verticalSpeed > TRANSITION_MIN_VS_FPM
 end
 
 local function getTakeoffTrimAdviceTarget()
@@ -1676,8 +1668,12 @@ local function getCalcSpeedString(value)
 end
 
 local M = {}
-M.isClimbingThroughTransition = isClimbingThroughTransition
-M.isDescendingThroughTransition = isDescendingThroughTransition
+M.isClimbingThroughTransition = function(loop, transitionAltitude, altitude, verticalSpeed)
+    return isCrossingTransition(loop, transitionAltitude, altitude, verticalSpeed, false)
+end
+M.isDescendingThroughTransition = function(loop, transitionLevel, altitude, verticalSpeed)
+    return isCrossingTransition(loop, transitionLevel, altitude, verticalSpeed, true)
+end
 function M.fillProcedureTable()
     local P = yal 
     P.proceduretable = {
@@ -4281,11 +4277,12 @@ function M.fillProcedureTable()
                         end
 
                         if not loop.climbTransitionAccepted then
-                            loop.climbTransitionAccepted = isClimbingThroughTransition(
+                            loop.climbTransitionAccepted = isCrossingTransition(
                                 loop,
                                 trans_alt,
                                 get(P.altitude),
-                                get(P.verticalspeed)
+                                get(P.verticalspeed),
+                                false
                             )
                         end
                         if not loop.climbTransitionAccepted then
@@ -4609,11 +4606,12 @@ function M.fillProcedureTable()
                         end
 
                         if not loop.descentTransitionAccepted then
-                            loop.descentTransitionAccepted = isDescendingThroughTransition(
+                            loop.descentTransitionAccepted = isCrossingTransition(
                                 loop,
                                 transition_level,
                                 get(P.altitude),
-                                get(P.verticalspeed)
+                                get(P.verticalspeed),
+                                true
                             )
                         end
                         if not loop.descentTransitionAccepted then
@@ -4661,14 +4659,14 @@ function M.fillProcedureTable()
                     check = function()
                         local tl = get(P.fmctranslvl)
                         if (tl == nil) or (tl <= 0) or (tl > 25000) then return false end 
-                        if (get(P.altitude) >= (tl - DESCENT_TRANSITION_LEVEL_MARGIN_FT)) then return false end
+                        if (get(P.altitude) >= (tl - 100)) then return false end
                         local _, baropastmp = P.getlocalqnh(def.ARRIVAL)
                         return P.isbarolocalqnhset(baropastmp)
                     end,
                     advice = function()
                         local tl = get(P.fmctranslvl)
                         if (tl == nil) or (tl <= 0) or (tl > 25000) then return false end 
-                        if (get(P.altitude) >= (tl - DESCENT_TRANSITION_LEVEL_MARGIN_FT)) then return false end
+                        if (get(P.altitude) >= (tl - 100)) then return false end
                         local baroinchtmp, baropastmp = P.getlocalqnh(def.ARRIVAL)
                         if (get(P.baroinhpa) == def.ON) then
                             return "Set Q N H " .. helpers.addspaces(helpers.formatQnhValue(baropastmp, true))
@@ -4679,7 +4677,7 @@ function M.fillProcedureTable()
                     action = function()
                         local tl = get(P.fmctranslvl)
                         if (tl == nil) or (tl <= 0) or (tl > 25000) then return end 
-                        if (get(P.altitude) >= (tl - DESCENT_TRANSITION_LEVEL_MARGIN_FT)) then return end
+                        if (get(P.altitude) >= (tl - 100)) then return end
                         local baroinchtmp, _ = P.getlocalqnh(def.ARRIVAL)
                         P.setbarolocalinhg(baroinchtmp)
                     end,
