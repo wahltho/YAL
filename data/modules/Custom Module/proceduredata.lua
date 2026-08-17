@@ -5,6 +5,8 @@ local P = yal
 
 local CLIMB_TRANSITION_ALTITUDE_MARGIN_FT = 100
 local CLIMB_TRANSITION_MIN_VS_FPM = 100
+local DESCENT_TRANSITION_LEVEL_MARGIN_FT = 100
+local DESCENT_TRANSITION_MIN_VS_FPM = 100
 
 local function isClimbingThroughTransition(loop, transitionAltitude, altitude, verticalSpeed)
     transitionAltitude = tonumber(transitionAltitude)
@@ -26,6 +28,28 @@ local function isClimbingThroughTransition(loop, transitionAltitude, altitude, v
         return true
     end
     return verticalSpeed ~= nil and verticalSpeed > CLIMB_TRANSITION_MIN_VS_FPM
+end
+
+local function isDescendingThroughTransition(loop, transitionLevel, altitude, verticalSpeed)
+    transitionLevel = tonumber(transitionLevel)
+    altitude = tonumber(altitude)
+    verticalSpeed = tonumber(verticalSpeed)
+    if not transitionLevel or transitionLevel <= 0 or transitionLevel > 25000 or not altitude then
+        loop.descentTransitionObservedAbove = nil
+        return false
+    end
+
+    local crossingAltitude = transitionLevel - DESCENT_TRANSITION_LEVEL_MARGIN_FT
+    if altitude >= crossingAltitude then
+        loop.descentTransitionObservedAbove = true
+        return false
+    end
+
+    -- A restored procedure may first run after the aircraft is already below TL.
+    if loop.descentTransitionObservedAbove ~= true then
+        return true
+    end
+    return verticalSpeed ~= nil and verticalSpeed < -DESCENT_TRANSITION_MIN_VS_FPM
 end
 
 local function getTakeoffTrimAdviceTarget()
@@ -1653,6 +1677,7 @@ end
 
 local M = {}
 M.isClimbingThroughTransition = isClimbingThroughTransition
+M.isDescendingThroughTransition = isDescendingThroughTransition
 function M.fillProcedureTable()
     local P = yal 
     P.proceduretable = {
@@ -4574,41 +4599,76 @@ function M.fillProcedureTable()
                 },
                 ['wait_for_transition'] = {
                     skipIf = function() return get(P.fmccruisealt) <= get(P.fmctranslvl) end,
-                    check = function(loop) 
+                    check = function(loop)
                         local transition_level = get(P.fmctranslvl)
                         if (transition_level == nil) or (transition_level <= 0) or (transition_level > 25000) then
-                            loop.descentTransitionLevelAnnounced = false
+                            loop.descentTransitionAccepted = nil
+                            loop.descentTransitionAnnouncementQueued = nil
+                            loop.descentTransitionObservedAbove = nil
                             return false
                         end
 
-                        local below = (get(P.altitude) < transition_level)
-                        if below then
-                            if not loop.descentTransitionLevelAnnounced then
-                                loop.descentTransitionLevelAnnounced = true
-                                return true
-                            end
-                        else
-                            loop.descentTransitionLevelAnnounced = false
+                        if not loop.descentTransitionAccepted then
+                            loop.descentTransitionAccepted = isDescendingThroughTransition(
+                                loop,
+                                transition_level,
+                                get(P.altitude),
+                                get(P.verticalspeed)
+                            )
                         end
-                        return false
+                        if not loop.descentTransitionAccepted then
+                            return false
+                        end
+
+                        if not loop.descentTransitionAnnouncementQueued then
+                            P.commandtableentry(def.TEXT, "Passing Transition Level")
+                            loop.descentTransitionAnnouncementQueued = true
+                        end
+
+                        if P.configvalues[def.CONFIGAUTOBARO] ~= def.ON then return true end
+                        local _, baropastmp = P.getlocalqnh(def.ARRIVAL)
+                        return P.isbarolocalqnhset(baropastmp)
+                    end,
+                    branch = function(loop)
+                        if loop.descentTransitionAccepted then return false end
+                        return 'wait_for_transition'
+                    end,
+                    advice = function()
+                        local baroinchtmp, baropastmp = P.getlocalqnh(def.ARRIVAL)
+                        if get(P.baroinhpa) == def.ON then
+                            return "Set Q N H " .. helpers.addspaces(helpers.formatQnhValue(baropastmp, true))
+                        end
+                        return "Set Q N H " .. helpers.addspaces(helpers.formatQnhValue(baroinchtmp, false))
+                    end,
+                    action = function()
+                        local baroinchtmp, _ = P.getlocalqnh(def.ARRIVAL)
+                        P.setbarolocalinhg(baroinchtmp)
                     end,
                     ensureConfirmInAdviceMode = true,
-                    confirm = "Passing Transition Level",
-                    nextStep = 'set_qnh_local'
+                    confirm = function()
+                        if P.configvalues[def.CONFIGAUTOBARO] ~= def.ON then return nil end
+                        local baroinchtmp, baropastmp = P.getlocalqnh(def.ARRIVAL)
+                        if get(P.baroinhpa) == def.ON then
+                            return "Q N H checked and " .. helpers.addspaces(helpers.formatQnhValue(baropastmp, true))
+                        end
+                        return "Q N H checked and " .. helpers.addspaces(helpers.formatQnhValue(baroinchtmp, false))
+                    end,
+                    nextStep = nil
                 },
+                -- Kept for restoring an in-progress procedure saved by an older YAL build.
                 ['set_qnh_local'] = {
                     skipIf = function() return P.configvalues[def.CONFIGAUTOBARO] == def.OFF end,
                     check = function()
                         local tl = get(P.fmctranslvl)
                         if (tl == nil) or (tl <= 0) or (tl > 25000) then return false end 
-                        if (get(P.altitude) >= tl) then return false end 
+                        if (get(P.altitude) >= (tl - DESCENT_TRANSITION_LEVEL_MARGIN_FT)) then return false end
                         local _, baropastmp = P.getlocalqnh(def.ARRIVAL)
                         return P.isbarolocalqnhset(baropastmp)
                     end,
                     advice = function()
                         local tl = get(P.fmctranslvl)
                         if (tl == nil) or (tl <= 0) or (tl > 25000) then return false end 
-                        if (get(P.altitude) >= tl) then return false end 
+                        if (get(P.altitude) >= (tl - DESCENT_TRANSITION_LEVEL_MARGIN_FT)) then return false end
                         local baroinchtmp, baropastmp = P.getlocalqnh(def.ARRIVAL)
                         if (get(P.baroinhpa) == def.ON) then
                             return "Set Q N H " .. helpers.addspaces(helpers.formatQnhValue(baropastmp, true))
@@ -4619,7 +4679,7 @@ function M.fillProcedureTable()
                     action = function()
                         local tl = get(P.fmctranslvl)
                         if (tl == nil) or (tl <= 0) or (tl > 25000) then return end 
-                        if (get(P.altitude) >= tl) then return end 
+                        if (get(P.altitude) >= (tl - DESCENT_TRANSITION_LEVEL_MARGIN_FT)) then return end
                         local baroinchtmp, _ = P.getlocalqnh(def.ARRIVAL)
                         P.setbarolocalinhg(baroinchtmp)
                     end,
