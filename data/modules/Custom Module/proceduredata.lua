@@ -3,6 +3,31 @@ local helpers = require("helpers")
 local refdata = require("refdata")
 local P = yal
 
+local CLIMB_TRANSITION_ALTITUDE_MARGIN_FT = 100
+local CLIMB_TRANSITION_MIN_VS_FPM = 100
+
+local function isClimbingThroughTransition(loop, transitionAltitude, altitude, verticalSpeed)
+    transitionAltitude = tonumber(transitionAltitude)
+    altitude = tonumber(altitude)
+    verticalSpeed = tonumber(verticalSpeed)
+    if not transitionAltitude or transitionAltitude <= 0 or not altitude then
+        loop.climbTransitionObservedBelow = nil
+        return false
+    end
+
+    local crossingAltitude = transitionAltitude + CLIMB_TRANSITION_ALTITUDE_MARGIN_FT
+    if altitude <= crossingAltitude then
+        loop.climbTransitionObservedBelow = true
+        return false
+    end
+
+    -- A restored procedure may first run after the aircraft is already above TA.
+    if loop.climbTransitionObservedBelow ~= true then
+        return true
+    end
+    return verticalSpeed ~= nil and verticalSpeed > CLIMB_TRANSITION_MIN_VS_FPM
+end
+
 local function getTakeoffTrimAdviceTarget()
     if P.getTakeoffTrimAdviceTarget then
         return P.getTakeoffTrimAdviceTarget()
@@ -1627,6 +1652,7 @@ local function getCalcSpeedString(value)
 end
 
 local M = {}
+M.isClimbingThroughTransition = isClimbingThroughTransition
 function M.fillProcedureTable()
     local P = yal 
     P.proceduretable = {
@@ -4220,28 +4246,56 @@ function M.fillProcedureTable()
                     nextStep = 'wait_for_transition'
                 },
                 ['wait_for_transition'] = {
-                    check = function(loop) 
+                    check = function(loop)
                         local trans_alt = get(P.fmctransalt)
                         if (trans_alt == nil) or (trans_alt <= 0) then
-                            loop.altAbove10kTransitionAnnounced = false
+                            loop.climbTransitionAccepted = nil
+                            loop.climbTransitionAnnouncementQueued = nil
+                            loop.climbTransitionObservedBelow = nil
                             return false
                         end
 
-                        local above = get(P.altitude) > trans_alt
-                        if above then
-                            if not loop.altAbove10kTransitionAnnounced then
-                                loop.altAbove10kTransitionAnnounced = true
-                                return true
-                            end
-                        else
-                            loop.altAbove10kTransitionAnnounced = false
+                        if not loop.climbTransitionAccepted then
+                            loop.climbTransitionAccepted = isClimbingThroughTransition(
+                                loop,
+                                trans_alt,
+                                get(P.altitude),
+                                get(P.verticalspeed)
+                            )
                         end
-                        return false
+                        if not loop.climbTransitionAccepted then
+                            return false
+                        end
+
+                        if not loop.climbTransitionAnnouncementQueued then
+                            P.commandtableentry(def.TEXT, "Passing Transition Altitude")
+                            loop.climbTransitionAnnouncementQueued = true
+                        end
+
+                        local standardRequired = P.configvalues[def.CONFIGAUTOBARO] == def.ON
+                            and get(P.fmccruisealt) > trans_alt
+                        if not standardRequired then return true end
+                        return P.isbarostandardset()
                     end,
+                    branch = function(loop)
+                        if loop.climbTransitionAccepted then return false end
+                        return 'wait_for_transition'
+                    end,
+                    advice = "Set Q N H to Standard",
+                    action = function() P.setbarostandard() end,
                     ensureConfirmInAdviceMode = true,
-                    confirm = "Passing Transition Altitude",
-                    nextStep = 'set_qnh_standard'
+                    confirm = function()
+                        local trans_alt = get(P.fmctransalt)
+                        if P.configvalues[def.CONFIGAUTOBARO] ~= def.ON
+                            or not trans_alt or trans_alt <= 0
+                            or get(P.fmccruisealt) <= trans_alt then
+                            return nil
+                        end
+                        return "Q N H checked Standard"
+                    end,
+                    nextStep = nil
                 },
+                -- Kept for restoring an in-progress procedure saved by an older YAL build.
                 ['set_qnh_standard'] = {
                     skipIf = function() 
                         return (P.configvalues[def.CONFIGAUTOBARO] == def.OFF) or (get(P.fmccruisealt) <= get(P.fmctransalt))
