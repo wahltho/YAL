@@ -136,6 +136,7 @@ assertEqual(step.branch(loop), false, "accepted crossing enables immediate actio
 assertEqual(#queued, 1, "crossing announcement queued once")
 assertEqual(queued[1][2], "Passing Transition Altitude", "crossing announcement text")
 assertEqual(step.advice, "Set Q N H to Standard", "same-cycle advice text")
+assertEqual(step.ensureConfirmInAdviceMode, nil, "manual STD compliance suppresses follow-up confirmation")
 
 step.action()
 assertEqual(standardCommands, 1, "same-cycle automatic STD action")
@@ -162,6 +163,7 @@ assertEqual(descentStep.branch(descentLoop), false, "accepted descent crossing e
 assertEqual(#queued, queuedBeforeDescent + 1, "transition-level announcement queued once")
 assertEqual(queued[#queued][2], "Passing Transition Level", "transition-level announcement text")
 assertEqual(descentStep.advice(), "Set Q N H 1 0 1 3", "same-cycle local QNH advice")
+assertEqual(descentStep.ensureConfirmInAdviceMode, nil, "manual local QNH compliance suppresses follow-up confirmation")
 
 descentStep.action()
 assertEqual(localQnhCommands, 1, "same-cycle automatic local QNH action")

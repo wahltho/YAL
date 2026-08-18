@@ -4305,7 +4305,6 @@ function M.fillProcedureTable()
                     end,
                     advice = "Set Q N H to Standard",
                     action = function() P.setbarostandard() end,
-                    ensureConfirmInAdviceMode = true,
                     confirm = function()
                         local trans_alt = get(P.fmctransalt)
                         if P.configvalues[def.CONFIGAUTOBARO] ~= def.ON
@@ -4642,7 +4641,6 @@ function M.fillProcedureTable()
                         local baroinchtmp, _ = P.getlocalqnh(def.ARRIVAL)
                         P.setbarolocalinhg(baroinchtmp)
                     end,
-                    ensureConfirmInAdviceMode = true,
                     confirm = function()
                         if P.configvalues[def.CONFIGAUTOBARO] ~= def.ON then return nil end
                         local baroinchtmp, baropastmp = P.getlocalqnh(def.ARRIVAL)
