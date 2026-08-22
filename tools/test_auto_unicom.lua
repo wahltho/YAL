@@ -263,6 +263,7 @@ end
 local function test_refdata_nav(ident)
     local names = {
         DCS = "DEAN CROSS DME",
+        LIH = "LIHUE VOR/DME",
         WAL = "WALLASEY VOR/DME"
     }
     local name = names[tostring(ident or ""):upper()]
@@ -633,15 +634,20 @@ assert_equal(
     "missing NAV API retains conservative NATO fallback"
 )
 
-local generatedFixSnapshot = copy(navCruiseSnapshot, {
-    cruise_next_waypoint = "D268B",
-    cruise_next_waypoint_nav_name = ""
+local omittedPrivateFixSnapshot = copy(navCruiseSnapshot, {
+    cruise_entry = false,
+    cruise_periodic = false,
+    cruise_waypoint = "",
+    cruise_waypoint_omitted = true,
+    cruise_next_waypoint = "",
+    altitude_ft = 37000,
+    pressure_altitude_ft = 37000
 })
-local generatedFixText = core.buildMessage("enroute.in_cruise", generatedFixSnapshot)
+local omittedPrivateFixText = core.buildMessage("enroute.in_cruise", omittedPrivateFixSnapshot)
 assert_equal(
-    core.buildVoiceMessage("enroute.in_cruise", generatedFixSnapshot, test_spell_nato, generatedFixText),
-    "Lufthansa tree two one zero level at flight level tree seven zero, Delta two six eight Bravo next",
-    "generated alphanumeric fix uses NATO letters and aviation digits"
+    omittedPrivateFixText,
+    "Lufthansa 3210 maintaining FL370",
+    "adapter-omitted private waypoint retains a useful cruise report"
 )
 
 local coordinateSnapshot = copy(navCruiseSnapshot, {
@@ -2154,6 +2160,10 @@ local eventAdapterValues = {
     fmslegslon = {},
     fmslegscrsmag = {},
     fmsvnavidx = 0,
+    fmscustomwptnum = 0,
+    fmscustomwptid = "",
+    fmscustomwptlat = {},
+    fmscustomwptlon = {},
     ofp_api_version = 1,
     ofp_update_seq = 2,
     ofp_valid = 0,
@@ -2182,6 +2192,10 @@ local eventAdapterYal = copy(baselineYal, {
     fmslegslon = "fmslegslon",
     fmslegscrsmag = "fmslegscrsmag",
     fmsvnavidx = "fmsvnavidx",
+    fmscustomwptnum = "fmscustomwptnum",
+    fmscustomwptid = "fmscustomwptid",
+    fmscustomwptlat = "fmscustomwptlat",
+    fmscustomwptlon = "fmscustomwptlon",
     ofpRuntime = {
         api_version = "ofp_api_version",
         update_seq = "ofp_update_seq",
@@ -2200,6 +2214,8 @@ local ofpUpdateSeqReadIndex = 0
 local pushbackRamp = { ramp_type = "misc", name = "Apron 42" }
 local pushbackDistanceSquared = 25
 local pushbackSearchAirports = {}
+local eventAdapterFixApiAvailable = false
+local eventAdapterPublishedFixes = {}
 local function configure_event_adapter_test()
     ofpUpdateSeqReadIndex = 0
     autoUnicom.configure({
@@ -2225,7 +2241,13 @@ local function configure_event_adapter_test()
         },
         refdata = {
             getAirport = test_refdata_airport,
-            getNavByIdent = test_refdata_nav
+            getNavByIdent = test_refdata_nav,
+            getFixByIdent = function(ident)
+                return eventAdapterPublishedFixes[tostring(ident or ""):upper()]
+            end,
+            isCategoryAvailable = function(category)
+                return category == "fix" and eventAdapterFixApiAvailable
+            end
         },
         getRefs = function() return repeatRefs end,
         read = function(prop)
@@ -2608,18 +2630,164 @@ assert_equal(
     "Lufthansa tree two one zero passing Dean Cross, maintaining flight level tree seven zero, Nesdi next",
     "NAV adapter enriches position report voice with facility name"
 )
+
+eventAdapterWrites = {}
+eventAdapterValues.request_seq = 70
+eventAdapterValues.result_seq = 70
+eventAdapterValues.result_code = 21
+eventAdapterValues.fmslegs = "CLAWW PHL01 LIH JABDI"
+eventAdapterValues.fmslegslat = { 41.9, 42.1, 42.2, 42.3 }
+eventAdapterValues.fmslegslon = { -71.0, -71.1, -71.2, -71.3 }
+eventAdapterValues.fmsvnavidx = 2
+eventAdapterValues.fmscustomwptnum = 1
+eventAdapterValues.fmscustomwptid = "PHL01"
+eventAdapterValues.fmscustomwptlat = { 42.1 }
+eventAdapterValues.fmscustomwptlon = { -71.1 }
+configure_event_adapter_test()
+autoUnicom.tick(true, 0)
+assert_true(autoUnicom.handleYalEvent("enroute.in_cruise", {
+    cruise_entry = true,
+    cruise_next_waypoint = "PHL01",
+    planned_altitude_ft = 37000
+}, 1), "custom next waypoint event accepted")
+autoUnicom.tick(true, 1)
+assert_equal(
+    eventAdapterWrites[1].value,
+    "Lufthansa 3210 level at FL370, LIH next",
+    "custom next waypoint skips to following operational route leg"
+)
+assert_equal(
+    eventAdapterWrites[2].value,
+    "Lufthansa tree two one zero level at flight level tree seven zero, Lihue next",
+    "custom next waypoint voice uses following NAV facility name"
+)
+
+eventAdapterWrites = {}
+eventAdapterValues.request_seq = 71
+eventAdapterValues.result_seq = 71
+eventAdapterValues.result_code = 21
+eventAdapterValues.fmslegs = "CLAWW PHL01"
+eventAdapterValues.fmslegslat = { 41.9, 42.1 }
+eventAdapterValues.fmslegslon = { -71.0, -71.1 }
+eventAdapterValues.fmsvnavidx = 2
+configure_event_adapter_test()
+autoUnicom.tick(true, 0)
+assert_true(autoUnicom.handleYalEvent("enroute.in_cruise", {
+    cruise_entry = true,
+    cruise_next_waypoint = "PHL01",
+    planned_altitude_ft = 37000
+}, 1), "terminal custom next waypoint event accepted")
+autoUnicom.tick(true, 1)
+assert_equal(
+    eventAdapterWrites[1].value,
+    "Lufthansa 3210 level at FL370",
+    "terminal custom next waypoint is omitted"
+)
+assert_equal(eventAdapterWrites[1].value:find("PHL01", 1, true), nil,
+    "terminal custom next waypoint is absent from visible text")
+assert_equal(eventAdapterWrites[2].value:find("PHL01", 1, true), nil,
+    "terminal custom next waypoint is absent from voice text")
+
+eventAdapterWrites = {}
+eventAdapterValues.request_seq = 72
+eventAdapterValues.result_seq = 72
+eventAdapterValues.result_code = 21
+eventAdapterValues.fmslegs = "PHL01 LIH"
+eventAdapterValues.fmslegslat = { 42.1, 42.2 }
+eventAdapterValues.fmslegslon = { -71.1, -71.2 }
+eventAdapterValues.fmsvnavidx = 2
+configure_event_adapter_test()
+autoUnicom.tick(true, 0)
+assert_true(autoUnicom.handleYalEvent("enroute.in_cruise", {
+    cruise_waypoint = "PHL01",
+    cruise_next_waypoint = "LIH",
+    altitude_ft = 37000,
+    pressure_altitude_ft = 37000
+}, 1), "passed custom waypoint event accepted")
+autoUnicom.tick(true, 1)
+assert_equal(
+    eventAdapterWrites[1].value,
+    "Lufthansa 3210 maintaining FL370, LIH next",
+    "passed custom waypoint is omitted without losing position report"
+)
+
+eventAdapterWrites = {}
+eventAdapterValues.request_seq = 73
+eventAdapterValues.result_seq = 73
+eventAdapterValues.result_code = 21
+eventAdapterValues.fmscustomwptnum = 0
+eventAdapterValues.fmscustomwptid = ""
+eventAdapterValues.fmscustomwptlat = {}
+eventAdapterValues.fmscustomwptlon = {}
+eventAdapterValues.fmslegs = "MAARE D271V HUXEL"
+eventAdapterValues.fmslegslat = { 41.8, 42.0, 42.2 }
+eventAdapterValues.fmslegslon = { -71.0, -71.2, -71.4 }
+eventAdapterValues.fmsvnavidx = 2
+eventAdapterFixApiAvailable = true
+eventAdapterPublishedFixes = { HUXEL = { ident = "HUXEL", lat = 42.2, lon = -71.4 } }
+configure_event_adapter_test()
+autoUnicom.tick(true, 0)
+assert_true(autoUnicom.handleYalEvent("enroute.in_cruise", {
+    cruise_entry = true,
+    cruise_next_waypoint = "D271V",
+    planned_altitude_ft = 37000
+}, 1), "unpublished Refdata waypoint event accepted")
+autoUnicom.tick(true, 1)
+assert_equal(
+    eventAdapterWrites[1].value,
+    "Lufthansa 3210 level at FL370, HUXEL next",
+    "FIX API skips an unpublished generated waypoint"
+)
+
+eventAdapterWrites = {}
+eventAdapterValues.request_seq = 74
+eventAdapterValues.result_seq = 74
+eventAdapterValues.result_code = 21
+eventAdapterValues.fmslegs = "PHL01"
+eventAdapterValues.fmslegslat = { 42.0 }
+eventAdapterValues.fmslegslon = { -71.0 }
+eventAdapterValues.fmsvnavidx = 1
+eventAdapterValues.fmscustomwptnum = 1
+eventAdapterValues.fmscustomwptid = "PHL01"
+eventAdapterValues.fmscustomwptlat = { 42.0 }
+eventAdapterValues.fmscustomwptlon = { -71.0 }
+eventAdapterFixApiAvailable = false
+eventAdapterPublishedFixes = {}
+configure_event_adapter_test()
+autoUnicom.tick(true, 0)
+assert_true(autoUnicom.handleYalEvent("enroute.hold_enter", {
+    hold_waypoint = "PHL01"
+}, 1), "custom hold waypoint event accepted")
+autoUnicom.tick(true, 1)
+assert_equal(
+    eventAdapterWrites[1].value,
+    "Lufthansa 3210 entering a hold at position 4200N07100W",
+    "custom hold waypoint uses geographic position"
+)
+assert_equal(
+    eventAdapterWrites[2].value,
+    "Lufthansa tree two one zero entering a hold at position four two degrees zero zero minutes north zero seven one degrees zero zero minutes west",
+    "custom hold waypoint voice speaks geographic position"
+)
+
 eventAdapterValues.fmslegs = ""
 eventAdapterValues.fmslegslat = {}
 eventAdapterValues.fmslegslon = {}
 eventAdapterValues.fmsvnavidx = 0
+eventAdapterValues.fmscustomwptnum = 0
+eventAdapterValues.fmscustomwptid = ""
+eventAdapterValues.fmscustomwptlat = {}
+eventAdapterValues.fmscustomwptlon = {}
+eventAdapterFixApiAvailable = false
+eventAdapterPublishedFixes = {}
 
 eventAdapterWrites = {}
 eventAdapterValues.api_version = 3
-eventAdapterValues.request_seq = 70
-eventAdapterValues.result_seq = 70
+eventAdapterValues.request_seq = 75
+eventAdapterValues.result_seq = 75
 eventAdapterValues.result_code = 21
 eventAdapterValues.voice_state = 1
-eventAdapterValues.voice_result_seq = 70
+eventAdapterValues.voice_result_seq = 75
 eventAdapterValues.voice_result_code = 20
 eventAdapterValues.voice_result_detail = "VOICE_TRANSMITTED"
 eventAdapterLogs = {}
@@ -2649,9 +2817,9 @@ end
 assert_true(queuedVoiceLogged, "queued Auto-Unicom log includes normalized voice text")
 assert_true(committedVoiceLogged, "committed Auto-Unicom log includes exact voice payload")
 
-eventAdapterValues.result_seq = 71
+eventAdapterValues.result_seq = 76
 eventAdapterValues.result_code = 21
-eventAdapterValues.voice_result_seq = 71
+eventAdapterValues.voice_result_seq = 76
 eventAdapterValues.voice_result_code = 20
 autoUnicom.tick(true, 2)
 eventAdapterWrites = {}

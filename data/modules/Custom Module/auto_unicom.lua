@@ -18,6 +18,7 @@ local ARRIVAL_PARKING_MAX_DISTANCE_M = 35
 local NM_TO_METERS = 1852
 local OFP_SNAPSHOT_READ_ATTEMPTS = 3
 local FMS_DISPLAY_IDENT_MAX_LENGTH = 6
+local CUSTOM_WAYPOINT_MATCH_MAX_NM = 0.25
 
 local function log(message)
     if runtime and runtime.helpers and runtime.helpers.logInfoTS then
@@ -358,6 +359,98 @@ local function route_array_value(values, index)
     return tonumber(values[index])
 end
 
+local function valid_route_position(latitude, longitude)
+    latitude = tonumber(latitude)
+    longitude = tonumber(longitude)
+    return latitude ~= nil and longitude ~= nil
+        and latitude >= -90 and latitude <= 90
+        and longitude >= -180 and longitude <= 180
+        and not (latitude == 0 and longitude == 0)
+end
+
+local function route_distance_nm(lat1, lon1, lat2, lon2)
+    if not (valid_route_position(lat1, lon1) and valid_route_position(lat2, lon2)) then
+        return nil
+    end
+    local latScale = math.cos(math.rad((lat1 + lat2) * 0.5))
+    local dx = (lon2 - lon1) * latScale * 60
+    local dy = (lat2 - lat1) * 60
+    return math.sqrt(dx * dx + dy * dy)
+end
+
+local function read_custom_waypoint_registry(y)
+    local registry = {}
+    if not y then return registry end
+    local idsText = clean_data_string(safe_read(y.fmscustomwptid))
+    local latitudes = safe_read(y.fmscustomwptlat)
+    local longitudes = safe_read(y.fmscustomwptlon)
+    if idsText == "" or type(latitudes) ~= "table" or type(longitudes) ~= "table" then
+        return registry
+    end
+
+    local declaredCount = math.max(0, math.floor(tonumber(safe_read(y.fmscustomwptnum)) or 0))
+    local index = 0
+    for rawIdent in idsText:gmatch("%S+") do
+        index = index + 1
+        if declaredCount > 0 and index > declaredCount then break end
+        local ident = clean_navigation_identifier(rawIdent)
+        if ident then
+            local latitude = route_array_value(latitudes, index)
+            local longitude = route_array_value(longitudes, index)
+            local entry = {
+                ident = ident,
+                latitude = valid_route_position(latitude, longitude) and latitude or nil,
+                longitude = valid_route_position(latitude, longitude) and longitude or nil
+            }
+            registry[ident] = registry[ident] or {}
+            registry[ident][#registry[ident] + 1] = entry
+        end
+    end
+    return registry
+end
+
+local function match_custom_waypoint(registry, ident, leg)
+    local candidates = registry and registry[clean_navigation_identifier(ident)] or nil
+    if type(candidates) ~= "table" then return nil end
+    if not leg or not valid_route_position(leg.latitude, leg.longitude) then
+        return candidates[1]
+    end
+    local best = nil
+    local bestDistance = nil
+    for _, candidate in ipairs(candidates) do
+        local distance = route_distance_nm(
+            leg.latitude,
+            leg.longitude,
+            candidate.latitude,
+            candidate.longitude
+        )
+        if distance and (not bestDistance or distance < bestDistance) then
+            best = candidate
+            bestDistance = distance
+        end
+    end
+    if bestDistance and bestDistance <= CUSTOM_WAYPOINT_MATCH_MAX_NM then return best end
+    return nil
+end
+
+local function coordinate_position_token(latitude, longitude)
+    if not valid_route_position(latitude, longitude) then return nil end
+    local latMinutesTotal = math.floor(math.abs(latitude) * 60 + 0.5)
+    local lonMinutesTotal = math.floor(math.abs(longitude) * 60 + 0.5)
+    local latDegrees = math.floor(latMinutesTotal / 60)
+    local lonDegrees = math.floor(lonMinutesTotal / 60)
+    if latDegrees > 90 or lonDegrees > 180 then return nil end
+    return string.format(
+        "%02d%02d%s%03d%02d%s",
+        latDegrees,
+        latMinutesTotal % 60,
+        latitude >= 0 and "N" or "S",
+        lonDegrees,
+        lonMinutesTotal % 60,
+        longitude >= 0 and "E" or "W"
+    )
+end
+
 local function read_fms_route_legs(y)
     local legsText = clean_data_string(safe_read(y.fmslegs))
     local latitudes = safe_read(y.fmslegslat)
@@ -436,10 +529,68 @@ local function resolve_nav_name(ident, leg)
     return tostring(nav.name)
 end
 
+local function refdata_fix_available(adapter)
+    if type(adapter) ~= "table" or type(adapter.isCategoryAvailable) ~= "function" then
+        return false
+    end
+    local ok, available = pcall(adapter.isCategoryAvailable, "fix")
+    return ok and available == true
+end
+
+local function route_identifier_is_pseudo(ident, snapshot)
+    ident = clean_navigation_identifier(ident)
+    if not ident then return true end
+    if ident == "DISCONTINUITY" or ident == "HOLD" or core.isVectorLegIdentifier(ident) then
+        return true
+    end
+    if ident:match("^RW%d%d?[LRC]?[T]?$" ) then return true end
+    local departure = clean_navigation_identifier(snapshot and snapshot.departure_icao)
+    local arrival = clean_navigation_identifier(snapshot and snapshot.arrival_icao)
+    return ident == departure or ident == arrival
+end
+
+local function refdata_lookup_found(adapter, method, ident, leg)
+    local lookup = type(adapter) == "table" and adapter[method] or nil
+    if type(lookup) ~= "function" then return false end
+    local ok, result = pcall(
+        lookup,
+        ident,
+        leg and leg.latitude or nil,
+        leg and leg.longitude or nil
+    )
+    return ok and type(result) == "table"
+end
+
+local function route_leg_is_operational(leg, snapshot, registry, adapter, fixAvailable)
+    if not leg or route_identifier_is_pseudo(leg.ident, snapshot) then return false, "pseudo" end
+    if match_custom_waypoint(registry, leg.ident, leg) then return false, "custom" end
+    if core.isCoordinateWaypointIdentifier(leg.ident) then return true, "coordinate" end
+    if not fixAvailable then return true, "legacy" end
+    if refdata_lookup_found(adapter, "getFixByIdent", leg.ident, leg)
+        or refdata_lookup_found(adapter, "getNavByIdent", leg.ident, leg) then
+        return true, "published"
+    end
+    return false, "unpublished"
+end
+
+local function find_next_operational_leg(legs, afterIndex, snapshot, registry, adapter, fixAvailable)
+    for _, candidate in ipairs(legs or {}) do
+        if candidate.route_index > (tonumber(afterIndex) or 0) then
+            local usable = route_leg_is_operational(candidate, snapshot, registry, adapter, fixAvailable)
+            if usable then return candidate end
+        end
+    end
+    return nil
+end
+
 local function enrich_navigation_identifiers(snapshot)
     local y = runtime and runtime.yal or nil
     if not y then return end
     local legs, activeIndex = read_fms_route_legs(y)
+    local customRegistry = read_custom_waypoint_registry(y)
+    local adapter = runtime and runtime.refdata or nil
+    local fixAvailable = refdata_fix_available(adapter)
+    local resolutionLog = {}
     local waypointFields = {
         { "climb_next_waypoint", 0 },
         { "cruise_next_waypoint", 0 },
@@ -458,9 +609,57 @@ local function enrich_navigation_identifiers(snapshot)
                 snapshot[fieldName .. "_latitude"] = leg.latitude
                 snapshot[fieldName .. "_longitude"] = leg.longitude
             end
-            snapshot[fieldName .. "_nav_name"] = resolve_nav_name(ident, leg)
+            local usable, reason = route_leg_is_operational(
+                leg or { ident = ident },
+                snapshot,
+                customRegistry,
+                adapter,
+                fixAvailable
+            )
+            if not usable and (reason == "custom" or reason == "unpublished") then
+                local replacement = nil
+                if fieldName == "climb_next_waypoint" or fieldName == "cruise_next_waypoint" then
+                    replacement = find_next_operational_leg(
+                        legs,
+                        leg and leg.route_index or preferredIndex,
+                        snapshot,
+                        customRegistry,
+                        adapter,
+                        fixAvailable
+                    )
+                end
+                if replacement then
+                    snapshot[fieldName] = replacement.ident
+                    snapshot[fieldName .. "_latitude"] = replacement.latitude
+                    snapshot[fieldName .. "_longitude"] = replacement.longitude
+                    snapshot[fieldName .. "_nav_name"] = resolve_nav_name(replacement.ident, replacement)
+                    resolutionLog[#resolutionLog + 1] = fieldName .. ":" .. ident .. "->" .. replacement.ident
+                elseif fieldName == "hold_waypoint" then
+                    local custom = match_custom_waypoint(customRegistry, ident, leg)
+                    local position = coordinate_position_token(
+                        leg and leg.latitude or custom and custom.latitude,
+                        leg and leg.longitude or custom and custom.longitude
+                    )
+                    snapshot[fieldName] = position
+                    snapshot[fieldName .. "_nav_name"] = nil
+                    snapshot.hold_waypoint_is_position = position ~= nil
+                    resolutionLog[#resolutionLog + 1] = fieldName .. ":" .. ident
+                        .. (position and ("->" .. position) or "->omitted")
+                else
+                    snapshot[fieldName] = nil
+                    snapshot[fieldName .. "_nav_name"] = nil
+                    if fieldName == "cruise_waypoint" then
+                        snapshot.cruise_waypoint_omitted = true
+                    end
+                    resolutionLog[#resolutionLog + 1] = fieldName .. ":" .. ident .. "->omitted"
+                end
+            else
+                snapshot[fieldName .. "_nav_name"] = resolve_nav_name(ident, leg)
+            end
         end
     end
+    snapshot.navigation_identifier_resolution = #resolutionLog > 0
+        and table.concat(resolutionLog, ";") or nil
 
     for _, fieldName in ipairs({ "sid", "star" }) do
         local procedureIdent = clean_navigation_identifier(snapshot[fieldName])

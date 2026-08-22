@@ -2128,6 +2128,17 @@ function P.bindExternalDatarefs(silentMissing)
             return
         end
 
+        P.refdata.fix = bindRefdataCategory(
+            "laminar/B738/refdata/fix/",
+            { "source_path" },
+            { "available", "row_count" },
+            { "ident", "region_filter", "airport_filter", "region", "airport" },
+            {
+                "match_index", "request_seq", "result_seq", "status", "match_count",
+                "lat", "lon"
+            }
+        )
+
         local aptQueryStrings = { "icao" }
         local aptQueryNumbers = {
             "request_seq", "result_seq", "status",
@@ -2823,6 +2834,10 @@ function P.bindExternalDatarefs(silentMissing)
     P.fmslegslon = GP("laminar/B738/fms/legs_lon")
     P.fmslegscrsmag = GP("laminar/B738/fms/legs_crs_mag")
     P.fmsvnavidx = GP("laminar/B738/fms/vnav_idx")
+    P.fmscustomwptnum = GP("laminar/B738/fms/custom_wpt_num")
+    P.fmscustomwptid = GPS("laminar/B738/fms/custom_wpt_id")
+    P.fmscustomwptlat = GP("laminar/B738/fms/custom_wpt_lat")
+    P.fmscustomwptlon = GP("laminar/B738/fms/custom_wpt_lon")
     P.fmslegsmodactive = nil
     if probe_external_dataref("laminar/B738/fms/legs_mod_active") then
         P.fmslegsmodactive = GP("laminar/B738/fms/legs_mod_active")

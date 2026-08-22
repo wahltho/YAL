@@ -10,9 +10,9 @@ local S = {
     probeCountdown = 0,
     apiVersion = nil,
     categories = {},
-    seq = { nav = 0, apt = 0, rnw = 0, landing_nav = 0, cifp = 0 },
+    seq = { nav = 0, fix = 0, apt = 0, rnw = 0, landing_nav = 0, cifp = 0 },
     lastActiveKey = nil,
-    adapterCache = { nav = {}, apt = {}, rnw = {}, cifp = {} },
+    adapterCache = { nav = {}, fix = {}, apt = {}, rnw = {}, cifp = {} },
     stationNameRetryAt = {},
     logged = {}
 }
@@ -666,6 +666,7 @@ local function probe()
             .. " categories="
             .. table.concat({
                 categoryConnectSummary("nav"),
+                categoryConnectSummary("fix"),
                 categoryConnectSummary("apt"),
                 categoryConnectSummary("rnw"),
                 categoryConnectSummary("landing_nav"),
@@ -673,7 +674,7 @@ local function probe()
             }, " "),
         false
     )
-    for _, name in ipairs({ "nav", "apt", "rnw", "landing_nav", "cifp" }) do
+    for _, name in ipairs({ "nav", "fix", "apt", "rnw", "landing_nav", "cifp" }) do
         local cat = S.categories[name]
         if categoryAvailable(name) then
             logOnce(
@@ -868,6 +869,28 @@ local function queryNav(ident, matchIndex, silentStatus, regionFilter, airportFi
             name = readString(q.name)
         }
     end, "NAV " .. ident .. " " .. tostring(matchIndex or 0), silentStatus)
+end
+
+local function queryFix(ident, matchIndex, silentStatus, regionFilter, airportFilter)
+    ident = cleanText(ident)
+    if ident == "" or #ident > 8 or ident:find("[^A-Z0-9]") then
+        return nil
+    end
+    return runQuery("fix", function(q)
+        writeString(q.ident, ident)
+        writeString(q.region_filter, cleanText(regionFilter))
+        writeString(q.airport_filter, cleanText(airportFilter))
+        writeNumber(q.match_index, tonumber(matchIndex) or 0)
+    end, function(q)
+        return {
+            ident = ident,
+            match_count = readNumber(q.match_count),
+            lat = readNumber(q.lat),
+            lon = readNumber(q.lon),
+            region = readString(q.region),
+            airport = readString(q.airport)
+        }
+    end, "FIX " .. ident .. " " .. tostring(matchIndex or 0), silentStatus)
 end
 
 local function navDistanceNm(entry, latitude, longitude)
@@ -1987,7 +2010,7 @@ function M.initialize(yalRef, helpersRef)
     S.available = false
     S.probeCountdown = 0
     S.lastActiveKey = nil
-    S.adapterCache = { nav = {}, apt = {}, rnw = {}, cifp = {} }
+    S.adapterCache = { nav = {}, fix = {}, apt = {}, rnw = {}, cifp = {} }
     S.stationNameRetryAt = {}
     probe()
     logApproachRefConnection()
@@ -2043,6 +2066,53 @@ function M.getNavByIdent(ident, latitude, longitude, regionFilter, airportFilter
     best.distance_nm = bestDistance
     best._source = "zibo_api"
     S.adapterCache.nav[cacheKey] = best
+    return best
+end
+
+function M.getFixByIdent(ident, latitude, longitude, regionFilter, airportFilter)
+    if not S.initialized then return nil end
+    ident = cleanText(ident)
+    if ident == "" or #ident > 8 or ident:find("[^A-Z0-9]") then return nil end
+    if not ensureReady() or not categoryAvailable("fix") then return nil end
+
+    latitude = tonumber(latitude)
+    longitude = tonumber(longitude)
+    local hasPosition = latitude ~= nil and longitude ~= nil
+        and latitude >= -90 and latitude <= 90 and longitude >= -180 and longitude <= 180
+    regionFilter = cleanText(regionFilter)
+    airportFilter = cleanText(airportFilter)
+    local cacheKey = ident .. "|" .. regionFilter .. "|" .. airportFilter
+    if hasPosition then
+        cacheKey = cacheKey .. string.format("|%.4f|%.4f", latitude, longitude)
+    end
+    S.adapterCache.fix = S.adapterCache.fix or {}
+    local cached = S.adapterCache.fix[cacheKey]
+    if cached then return cached end
+
+    local first = queryFix(ident, 0, true, regionFilter, airportFilter)
+    if not first then return nil end
+    local matchCount = math.max(0, math.floor(tonumber(first.match_count) or 0))
+    local best = first
+    local bestDistance = navDistanceNm(first, latitude, longitude)
+    if hasPosition then
+        for index = 1, math.min(matchCount - 1, 63) do
+            local candidate = queryFix(ident, index, true, regionFilter, airportFilter)
+            local distance = navDistanceNm(candidate, latitude, longitude)
+            if candidate and distance and (not bestDistance or distance < bestDistance) then
+                best = candidate
+                bestDistance = distance
+            end
+        end
+        if not bestDistance or bestDistance > NAV_WAYPOINT_MATCH_MAX_NM then
+            return nil
+        end
+    elseif matchCount ~= 1 then
+        return nil
+    end
+
+    best.distance_nm = bestDistance
+    best._source = "zibo_api"
+    S.adapterCache.fix[cacheKey] = best
     return best
 end
 

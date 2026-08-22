@@ -376,6 +376,35 @@ local function title_identifier_word(value)
 end
 
 local function voice_coordinate_identifier(token)
+    local latDegrees, latMinutes, northSouth, lonDegrees, lonMinutes, eastWest =
+        token:match("^(%d%d)(%d%d)([NS])(%d%d%d)(%d%d)([EW])$")
+    if latDegrees then
+        if tonumber(latDegrees) > 90 or tonumber(latMinutes) > 59
+            or tonumber(lonDegrees) > 180 or tonumber(lonMinutes) > 59 then
+            return nil
+        end
+        local parts = {}
+        for index = 1, #latDegrees do
+            parts[#parts + 1] = COORDINATE_DIGITS[latDegrees:sub(index, index)]
+        end
+        parts[#parts + 1] = "degrees"
+        for index = 1, #latMinutes do
+            parts[#parts + 1] = COORDINATE_DIGITS[latMinutes:sub(index, index)]
+        end
+        parts[#parts + 1] = "minutes"
+        parts[#parts + 1] = northSouth == "N" and "north" or "south"
+        for index = 1, #lonDegrees do
+            parts[#parts + 1] = COORDINATE_DIGITS[lonDegrees:sub(index, index)]
+        end
+        parts[#parts + 1] = "degrees"
+        for index = 1, #lonMinutes do
+            parts[#parts + 1] = COORDINATE_DIGITS[lonMinutes:sub(index, index)]
+        end
+        parts[#parts + 1] = "minutes"
+        parts[#parts + 1] = eastWest == "E" and "east" or "west"
+        return table.concat(parts, " ")
+    end
+
     local latitude, northSouth, longitude, eastWest = token:match("^(%d%d?)([NS])(%d%d?%d?)([EW])$")
     if not latitude or tonumber(latitude) > 90 or tonumber(longitude) > 180 then return nil end
     local parts = {}
@@ -388,6 +417,10 @@ local function voice_coordinate_identifier(token)
     end
     parts[#parts + 1] = eastWest == "E" and "east" or "west"
     return table.concat(parts, " ")
+end
+
+function M.isCoordinateWaypointIdentifier(value)
+    return voice_coordinate_identifier(tostring(value or ""):upper()) ~= nil
 end
 
 local NAV_NAME_SUFFIXES = { " VOR/DME", " VOR DME", " TACAN", " DME", " VOR", " NDB" }
@@ -1070,30 +1103,33 @@ function M.buildMessage(eventId, snapshot)
         or eventId == HOLD_DESCENDING_EVENT_ID or eventId == HOLD_EXIT_EVENT_ID then
         local waypoint = clean_token(snapshot.hold_waypoint, false)
         if not waypoint then return nil, "missing_hold_context" end
+        local holdReference = (snapshot.hold_waypoint_is_position == true
+            or tonumber(snapshot.hold_waypoint_is_position) == 1)
+            and ("at position " .. waypoint) or ("over " .. waypoint)
         if eventId == HOLD_ENTER_EVENT_ID then
             if snapshot.hold_descending == true or tonumber(snapshot.hold_descending) == 1 then
                 local altitude = format_altitude(snapshot, true)
                 if not altitude then return nil, "missing_hold_descent_context" end
                 local text = string.format(
-                    "%s entering a hold over %s on descent passing %s",
+                    "%s entering a hold %s on descent passing %s",
                     context.prefix,
-                    waypoint,
+                    holdReference,
                     altitude
                 )
                 local target = format_hold_target_altitude(snapshot)
                 if target then text = text .. " for " .. target end
                 return normalize_text(text)
             end
-            return normalize_text(string.format("%s entering a hold over %s", context.prefix, waypoint))
+            return normalize_text(string.format("%s entering a hold %s", context.prefix, holdReference))
         end
         if eventId == HOLDING_EVENT_ID then
             local altitude = format_hold_target_altitude(snapshot) or format_altitude(snapshot, false)
             if not altitude then return nil, "missing_hold_context" end
             return normalize_text(string.format(
-                "%s maintaining %s whilst holding over %s",
+                "%s maintaining %s whilst holding %s",
                 context.prefix,
                 altitude,
-                waypoint
+                holdReference
             ))
         end
         if eventId == HOLD_DESCENDING_EVENT_ID then
@@ -1101,15 +1137,15 @@ function M.buildMessage(eventId, snapshot)
             local target = format_hold_target_altitude(snapshot)
             if not altitude then return nil, "missing_hold_descent_context" end
             local text = string.format(
-                "%s in a hold over %s on descent passing %s",
+                "%s in a hold %s on descent passing %s",
                 context.prefix,
-                waypoint,
+                holdReference,
                 altitude
             )
             if target then text = text .. " for " .. target end
             return normalize_text(text)
         end
-        return normalize_text(string.format("%s exiting hold over %s", context.prefix, waypoint))
+        return normalize_text(string.format("%s exiting hold %s", context.prefix, holdReference))
     end
 
     if eventId == "enroute.in_cruise" then
@@ -1130,13 +1166,21 @@ function M.buildMessage(eventId, snapshot)
             return normalize_text(text)
         end
         local waypoint = clean_token(snapshot.cruise_waypoint, false)
-        if not waypoint then return nil, "missing_cruise_context" end
-        local text = string.format(
-            "%s passing %s, maintaining %s",
-            context.prefix,
-            waypoint,
-            altitude
-        )
+        if not waypoint and snapshot.cruise_waypoint_omitted ~= true
+            and tonumber(snapshot.cruise_waypoint_omitted) ~= 1 then
+            return nil, "missing_cruise_context"
+        end
+        local text
+        if waypoint then
+            text = string.format(
+                "%s passing %s, maintaining %s",
+                context.prefix,
+                waypoint,
+                altitude
+            )
+        else
+            text = string.format("%s maintaining %s", context.prefix, altitude)
+        end
         text = append_navigation_status(text, snapshot, nextWaypoint)
         return normalize_text(text)
     end
@@ -1414,6 +1458,7 @@ local function summarize_sources(snapshot)
         { "cruiseWaypointNav", snapshot.cruise_waypoint_nav_name },
         { "cruiseNext", snapshot.cruise_next_waypoint },
         { "cruiseNextNav", snapshot.cruise_next_waypoint_nav_name },
+        { "navResolution", snapshot.navigation_identifier_resolution },
         { "vectorActive", (snapshot.navigation_vector_active == true
             or tonumber(snapshot.navigation_vector_active) == 1) and 1 or 0 },
         { "vectorHeading", snapshot.navigation_vector_heading_deg },
