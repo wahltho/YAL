@@ -1667,6 +1667,21 @@ local function getCalcSpeedString(value)
     return helpers.padNumberWithZerosStrict(math.floor(num + 0.5), 3)
 end
 
+function P.getApproachMcpSpeedTarget()
+    local vref = tonumber(get(P.approachspeed)) or 0
+    if vref <= 0 then
+        vref = tonumber(get(P.vref)) or 0
+    end
+    if vref <= 0 then
+        return nil
+    end
+
+    local vrefKts = helpers.roundnumber(vref, 0)
+    local windCorrKts = helpers.roundnumber(tonumber(get(P.vrefapproachwindcorr)) or 0, 0)
+    windCorrKts = math.max(5, math.min(20, windCorrKts))
+    return vrefKts + windCorrKts
+end
+
 local M = {}
 M.isClimbingThroughTransition = function(loop, transitionAltitude, altitude, verticalSpeed)
     return isCrossingTransition(loop, transitionAltitude, altitude, verticalSpeed, false)
@@ -4859,14 +4874,11 @@ function M.fillProcedureTable()
                     nextStep = 'check_mcp_speed_vapp'
                 },
                 ['check_mcp_speed_vapp'] = {
-                    check = function(loop)
-                        local vref = loop and loop.appvrefcalc or get(P.vref) or 0
-                        local windcorr = (loop and loop.appwindcorr) or get(P.vrefapproachwindcorr) or 0
-                        local target = tonumber(vref) or 0
-                        target = target + (tonumber(windcorr) or 0)
-                        if target <= 0 then return true end -- nichts bekannt, weiter
+                    check = function()
+                        local target = P.getApproachMcpSpeedTarget()
+                        if not target then return true end -- nichts bekannt, weiter
 
-                        local mcp = get(P.mcpspeed) or 0
+                        local mcp = helpers.roundnumber(tonumber(get(P.mcpspeed)) or 0, 0)
                         local tol = 5 -- kts oberhalb VAPP
                         if mcp <= 0 then return false end
 
@@ -4881,24 +4893,18 @@ function M.fillProcedureTable()
 
                         return false
                     end,
-                    advice = function(loop)
-                        local vref = loop and loop.appvrefcalc or get(P.vref) or 0
-                        local windcorr = (loop and loop.appwindcorr) or get(P.vrefapproachwindcorr) or 0
-                        local target = tonumber(vref) or 0
-                        target = target + (tonumber(windcorr) or 0)
-                        if target <= 0 then return "Check M C P Speed" end
-                        return "Set M C P Speed " .. helpers.addspaces(helpers.roundnumber(target))
+                    advice = function()
+                        local target = P.getApproachMcpSpeedTarget()
+                        if not target then return "Check M C P Speed" end
+                        return "Set M C P Speed " .. helpers.addspaces(target)
                     end,
-                    confirm = function(loop)
-                        local vref = loop and loop.appvrefcalc or get(P.vref) or 0
-                        local windcorr = (loop and loop.appwindcorr) or get(P.vrefapproachwindcorr) or 0
-                        local target = tonumber(vref) or 0
-                        target = target + (tonumber(windcorr) or 0)
-                        if target <= 0 then return "M C P Speed check skipped" end
-                        local mcp = get(P.mcpspeed) or 0
+                    confirm = function()
+                        local target = P.getApproachMcpSpeedTarget()
+                        if not target then return "M C P Speed check skipped" end
+                        local mcp = helpers.roundnumber(tonumber(get(P.mcpspeed)) or 0, 0)
                         local tol = 5
                         if mcp >= target and mcp <= (target + tol) then
-                            return "M C P Speed checked " .. helpers.addspaces(helpers.roundnumber(mcp))
+                            return "M C P Speed checked " .. helpers.addspaces(mcp)
                         end
                         return false
                     end,

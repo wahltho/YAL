@@ -53,6 +53,7 @@ package.loaded.refdata = {}
 
 yal = {
     appflaps = "appflaps",
+    approachspeed = "approachspeed",
     appvrefcalc = "appvrefcalc",
     autobrakepos = "autobrakepos",
     calctakeoffcg = "calctakeoffcg",
@@ -150,9 +151,31 @@ beforeTaxiFlaps.action()
 assert(commanded == "laminar/B738/push_button/flaps_10", "Before Taxi should command the FMC target")
 
 local vappStep = yal.proceduretable[def.RADIOALTITUDEB1000PROCEDURE].steps.check_mcp_speed_vapp
-values.mcpspeed = 145
-assert(vappStep.check({ appvrefcalc = 140, appwindcorr = 5 }) == true, "VAPP should include wind correction")
-values.mcpspeed = 140
-assert(vappStep.check({ appvrefcalc = 140, appwindcorr = 5 }) == false, "uncorrected VREF should not satisfy corrected VAPP")
+values.approachspeed = 125
+values.vref = 125.6
+values.vrefapproachwindcorr = 5
+values.mcpspeed = 130
+assert(yal.getApproachMcpSpeedTarget() == 130, "VAPP should use selected APP REF speed instead of generic FMS VREF")
+assert(vappStep.check() == true, "selected VREF plus wind correction should satisfy VAPP")
+assert(vappStep.advice() == "Set M C P Speed 130", "VAPP advice should match the discrete FMC values")
+
+values.approachspeed = 124.6
+values.vrefapproachwindcorr = 4.6
+values.mcpspeed = 129.9998
+assert(yal.getApproachMcpSpeedTarget() == 130, "VREF and wind correction should use FMC whole-knot rounding")
+assert(vappStep.check() == true, "MCP float noise should not create a one-knot mismatch")
+assert(vappStep.confirm() == "M C P Speed checked 130", "MCP confirmation should use the normalized whole-knot value")
+
+values.approachspeed = 0
+values.vref = 124.6
+values.vrefapproachwindcorr = 5
+assert(yal.getApproachMcpSpeedTarget() == 130, "generic FMS VREF should remain the compatibility fallback")
+
+values.approachspeed = 125
+values.mcpspeed = 129
+assert(vappStep.check() == false, "uncorrected VREF should not satisfy corrected VAPP")
+yal.configvalues[def.CONFIGVOICEADVICEONLY] = def.OFF
+assert(vappStep.check() == true, "automatic mode should set the resolved VAPP target")
+assert(values.mcpspeed == 130, "automatic mode should write the discrete FMC-equivalent VAPP target")
 
 print("test_standard_performance_setup: all checks passed")
