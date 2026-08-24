@@ -11,6 +11,7 @@ P.antiIceLogic = require("anti_ice")
 P.pauseTodGuard = require("pause_tod_guard")
 P.departureNavResolver = require("departure_nav")
 P.routeWarningGuard = require("route_warning_guard")
+P.descentStateGuard = require("descent_state_guard")
 
 local AUTO_UNICOM_CLIMB_LEVELS_FT = { 10000, 20000, 30000, 40000 }
 local AUTO_UNICOM_DESCENT_LEVELS_FT = { 40000, 30000, 20000, 10000 }
@@ -7252,8 +7253,10 @@ function P.updateAirborneAntiIce()
     end
     if result.engine_changed or result.engine_reason_changed then
         helpers.logInfoTS(string.format(
-            "AntiIce engine demand=%s reason=%s TAT=%.1f SAT=%.1f moisture=%s source=%s visSM=%.2f cloud=%s aglFt=%.0f precip=%.4f snow=%.4f hail=%.4f iceL=%.4f iceR=%.4f iceDelta=%.7f",
+            "AntiIce engine demand=%s reason=%s yalState=%s fmsPhase=%s climbCruise=%s vvi=%.0f TAT=%.1f SAT=%.1f moisture=%s source=%s visSM=%.2f cloud=%s aglFt=%.0f precip=%.4f snow=%.4f hail=%.4f iceL=%.4f iceR=%.4f iceDelta=%.7f",
             tostring(result.engine_demand), tostring(result.engine_reason),
+            tostring(P.flightstate), tostring(fmsPhase), tostring(climbOrCruise),
+            tonumber(get(P.verticalspeed)) or 0,
             tonumber(get(P.tatdegc)) or 0, tonumber(get(P.satdegc)) or 0,
             tostring(result.moisture_active), tostring(result.moisture_reason),
             visibility or -1, tostring(inCloudLayer), heightAgl or -1,
@@ -9542,40 +9545,54 @@ end
 
 --------------------------------------------------------------------------------------------------------------
 function P.clearStaleDescentRestoreState(restoredFlightState, aircraftIsOnGround)
-    if aircraftIsOnGround or restoredFlightState ~= def.FLIGHTSTATECRUISE then
+    local fmsPhase = tonumber(get(P.fmsflightphase)) or 0
+    local recovery = P.descentStateGuard.evaluateRestoreRecovery({
+        aircraft_on_ground = aircraftIsOnGround,
+        restored_flightstate = restoredFlightState,
+        cruise_flightstate = def.FLIGHTSTATECRUISE,
+        approach_flightstate = def.FLIGHTSTATEAPPROACH,
+        fms_phase = fmsPhase,
+        fms_cruise_phase = def.FMSFLIGHTPHASE_CRUISE,
+        vertical_speed_fpm = tonumber(get(P.verticalspeed)) or 0,
+        altitude_ft = tonumber(get(P.altitude)) or 0,
+        cruise_altitude_ft = tonumber(get(P.fmccruisealt)) or 0,
+        strong_descent_fpm = def.DESCENT_TRIGGER_DESCENT_VS_FPM,
+        shallow_descent_fpm = def.DESCENT_TRIGGER_BELOW_CRUISE_VS_FPM,
+        below_cruise_ft = def.DESCENT_TRIGGER_BELOW_CRUISE_FT,
+        climb_recovery_fpm = def.DESCENT_RESTORE_CLIMB_VS_FPM,
+        near_cruise_ft = def.DESCENT_TRIGGER_BELOW_CRUISE_FT,
+        near_level_fpm = def.DESCENT_RESTORE_NEAR_LEVEL_VS_FPM
+    })
+    if not recovery.recover then
         return false
     end
 
-    local fmsPhase = tonumber(get(P.fmsflightphase)) or 0
-    if fmsPhase ~= def.FMSFLIGHTPHASE_CRUISE then
-        return false
-    end
+    local evidence = recovery.evidence
+    helpers.logInfoTS(string.format(
+        "InflightRestore: stale Descent recovery accepted reason=%s restoredState=%s fmsPhase=%s vs=%d alt=%d fmcCruise=%d",
+        tostring(recovery.reason), tostring(restoredFlightState), tostring(fmsPhase),
+        evidence.vertical_speed_fpm, evidence.altitude_ft, evidence.cruise_altitude_ft))
 
     local procId = def.DURINGDESCENTPROCEDURE
-    local cleared = false
     for idx, loop in ipairs(P.loopStateTables or {}) do
         if loop and loop.lock == procId then
-            helpers.logInfoTS("InflightRestore: clearing stale During Descent loop " .. tostring(idx) .. " at step '" .. tostring(loop.currentStepName) .. "' while restored state and FMS phase are CRUISE")
+            helpers.logInfoTS("InflightRestore: clearing stale During Descent loop " .. tostring(idx) .. " at step '" .. tostring(loop.currentStepName) .. "'")
             loop.lock = def.NOPROCEDURE
             P.resetLoopState(loop)
             P.saveLoopState(loop, idx)
-            cleared = true
         end
     end
 
     if P.proceduretable[procId] and P.proceduretable[procId].set then
-        helpers.logInfoTS("InflightRestore: clearing stale During Descent set flag while restored state and FMS phase are CRUISE")
+        helpers.logInfoTS("InflightRestore: clearing stale During Descent set flag")
         P.proceduretable[procId].set = false
         if P.ProcSetStatusarraydr then
             set(P.ProcSetStatusarraydr, 0, procId)
         end
-        cleared = true
     end
 
-    if cleared then
-        P.armDescentTriggerRestoreHold("stale descent restore state cleared")
-    end
-    return cleared
+    P.armDescentTriggerRestoreHold("stale descent restore state recovered")
+    return true
 end
 
 --------------------------------------------------------------------------------------------------------------
@@ -9596,8 +9613,15 @@ function P.hasActualDescentEvidence()
     local vs = tonumber(get(P.verticalspeed)) or 0
     local altitude = tonumber(get(P.altitude)) or 0
     local fmcCruiseAlt = tonumber(get(P.fmccruisealt)) or 0
-    local belowCruise = (fmcCruiseAlt > 0) and (altitude < (fmcCruiseAlt - def.DESCENT_TRIGGER_BELOW_CRUISE_FT))
-    return (vs <= def.DESCENT_TRIGGER_DESCENT_VS_FPM) or belowCruise, vs, altitude, fmcCruiseAlt
+    local evidence = P.descentStateGuard.evaluateDescentEvidence({
+        vertical_speed_fpm = vs,
+        altitude_ft = altitude,
+        cruise_altitude_ft = fmcCruiseAlt,
+        strong_descent_fpm = def.DESCENT_TRIGGER_DESCENT_VS_FPM,
+        shallow_descent_fpm = def.DESCENT_TRIGGER_BELOW_CRUISE_VS_FPM,
+        below_cruise_ft = def.DESCENT_TRIGGER_BELOW_CRUISE_FT
+    })
+    return evidence.active, vs, altitude, fmcCruiseAlt
 end
 
 --------------------------------------------------------------------------------------------------------------
@@ -9848,16 +9872,18 @@ function P.autofunctions()
     local currentFlightState = P.flightstate
 
     if P.isReloadWithinSession then
-        if not aircraftIsOnGround and currentFlightState == def.FLIGHTSTATECRUISE then
-            local staleDescentCleared = P.clearStaleDescentRestoreState(currentFlightState, aircraftIsOnGround)
-            if not staleDescentCleared then
+        local staleDescentRecovered = false
+        if not aircraftIsOnGround and
+            (currentFlightState == def.FLIGHTSTATECRUISE or currentFlightState == def.FLIGHTSTATEAPPROACH) then
+            staleDescentRecovered = P.clearStaleDescentRestoreState(currentFlightState, aircraftIsOnGround)
+            if currentFlightState == def.FLIGHTSTATECRUISE and not staleDescentRecovered then
                 P.armDescentTriggerRestoreHold("inflight restore while CRUISE")
             end
         end
 
         local stateFromProcs = P.determineFlightStateFromProcedures()
         local stateIsPlausible = false
-        local finalState = stateFromProcs
+        local finalState = staleDescentRecovered and def.FLIGHTSTATECRUISE or stateFromProcs
 
         sasl.logDebug("State from Procs = " .. stateFromProcs .. ", On Ground = " .. tostring(aircraftIsOnGround))
         if aircraftIsOnGround then
