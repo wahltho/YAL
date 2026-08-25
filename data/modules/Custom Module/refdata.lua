@@ -38,6 +38,9 @@ local APPROACH_REF_FIELDS = {
     "support_nav_valid", "support_nav_ident", "support_nav_kind", "support_nav_role",
     "support_nav_frequency_raw"
 }
+local APPROACH_REF_V3_FIELDS = {
+    "procedure_class_valid", "rnp_ar", "ian_eligible"
+}
 
 local STATUS_NAMES = {
     [0] = "idle",
@@ -326,6 +329,14 @@ local function approachRefBindings()
             return nil, "missing_" .. field
         end
     end
+    local version = tonumber(readNumber(refs.api_version)) or 0
+    if version >= 3 then
+        for _, field in ipairs(APPROACH_REF_V3_FIELDS) do
+            if not refs[field] or not isProperty(refs[field]) then
+                return nil, "missing_" .. field
+            end
+        end
+    end
     return refs, nil
 end
 
@@ -368,8 +379,9 @@ local function readApproachRefSnapshot(refs)
                 return value
             end
 
+            local apiVersion = number("api_version")
             local snapshot = {
-                api_version = number("api_version"),
+                api_version = apiVersion,
                 update_seq = seqBefore,
                 selected = boolValue(number("selected")),
                 nav_valid = boolValue(number("nav_valid")),
@@ -394,6 +406,15 @@ local function readApproachRefSnapshot(refs)
                 support_nav_role = string.lower(tostring(readString(refs.support_nav_role) or "")):gsub("%s+", ""),
                 support_nav_frequency_raw = number("support_nav_frequency_raw")
             }
+            if (tonumber(apiVersion) or 0) >= 3 then
+                snapshot.procedure_class_valid = boolValue(number("procedure_class_valid"))
+                snapshot.rnp_ar = boolValue(number("rnp_ar"))
+                snapshot.ian_eligible = boolValue(number("ian_eligible"))
+            else
+                snapshot.procedure_class_valid = false
+                snapshot.rnp_ar = false
+                snapshot.ian_eligible = false
+            end
 
             local seqAfterRaw = readNumber(refs.update_seq)
             local seqAfter = seqAfterRaw and math.floor(seqAfterRaw + 0.5) or nil
@@ -419,6 +440,7 @@ local function approachRefSnapshotValid(snapshot)
 
     if not snapshot.selected then
         if snapshot.nav_valid or snapshot.course_valid or snapshot.has_dme or snapshot.support_nav_valid
+            or snapshot.procedure_class_valid or snapshot.rnp_ar or snapshot.ian_eligible
             or snapshot.procedure_id ~= "" or snapshot.procedure_type ~= ""
             or snapshot.resolved_nav_kind ~= "" or snapshot.airport ~= "" or snapshot.runway ~= ""
             or snapshot.nav_ident ~= "" or frequency ~= 0 or frequencyMhz ~= 0 or channel ~= 0
@@ -439,6 +461,14 @@ local function approachRefSnapshotValid(snapshot)
     if APPROACH_REF_V2_COURSE_ONLY_TYPES[snapshot.procedure_type]
         and (tonumber(snapshot.api_version) or 0) < 2 then
         return false, "procedure_type_version"
+    end
+
+    if snapshot.procedure_class_valid then
+        if snapshot.rnp_ar and snapshot.ian_eligible then
+            return false, "procedure_class_conflict"
+        end
+    elseif snapshot.rnp_ar or snapshot.ian_eligible then
+        return false, "nonempty_invalid_procedure_class"
     end
 
     snapshot.nav_type = approachRefNavType(snapshot)
@@ -1969,7 +1999,8 @@ function M.getApproachRefForContext(context)
                 local key = table.concat({
                     tostring(snapshot.update_seq), tostring(snapshot.selected), tostring(snapshot.nav_valid),
                     tostring(snapshot.course_valid), snapshot.procedure_id, snapshot.procedure_type, snapshot.airport,
-                    snapshot.runway, snapshot.resolved_nav_kind, snapshot.nav_ident
+                    snapshot.runway, snapshot.resolved_nav_kind, snapshot.nav_ident,
+                    tostring(snapshot.procedure_class_valid), tostring(snapshot.rnp_ar), tostring(snapshot.ian_eligible)
                 }, "|")
                 logOnce(
                     "approach-ref-selected-" .. key,
@@ -1984,6 +2015,9 @@ function M.getApproachRefForContext(context)
                         .. " courseValid=" .. tostring(snapshot.course_valid)
                         .. " course=" .. tostring(snapshot.course_deg)
                         .. " reference=" .. tostring(snapshot.course_reference)
+                        .. " procedureClassValid=" .. tostring(snapshot.procedure_class_valid)
+                        .. " rnpAr=" .. tostring(snapshot.rnp_ar)
+                        .. " ianEligible=" .. tostring(snapshot.ian_eligible)
                         .. " courseOnlyNonPrecision=" .. tostring(snapshot.course_only_non_precision),
                     true
                 )

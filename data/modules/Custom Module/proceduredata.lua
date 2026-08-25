@@ -1168,7 +1168,10 @@ local function buildSetIlsPlan(loop)
         selectedAppId = selectedAppId,
         selectedNavType = approachSnapshot and approachSnapshot.nav_type or nil,
         navType = approachSnapshot and approachSnapshot.nav_type or nil,
-        isLateralOnly = approachSnapshot and approachSnapshot.resolved_nav_kind == "LP" or nil
+        isLateralOnly = approachSnapshot and approachSnapshot.resolved_nav_kind == "LP" or nil,
+        procedureClassValid = approachSnapshot and approachSnapshot.procedure_class_valid == true or false,
+        rnpAr = approachSnapshot and approachSnapshot.rnp_ar == true or false,
+        ianEligible = approachSnapshot and approachSnapshot.ian_eligible == true or false
     })
     local plan = {
         navdata = navdata,
@@ -6576,6 +6579,10 @@ function M.fillProcedureTable()
                         elseif normalCourseOnlyRnav then
                             local parsedApproach = parseSelectedApproachId(selectedAppId)
                             local approachLabel = "R N A V"
+                            if approachSnapshot and approachSnapshot.procedure_class_valid
+                                and approachSnapshot.rnp_ar then
+                                approachLabel = "R N P Authorization Required"
+                            end
                             if parsedApproach and parsedApproach.suffix and parsedApproach.suffix ~= "" then
                                 approachLabel = approachLabel .. " " .. helpers.spellNato(parsedApproach.suffix)
                             end

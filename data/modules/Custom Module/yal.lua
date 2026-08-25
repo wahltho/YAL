@@ -2232,6 +2232,14 @@ function P.bindExternalDatarefs(silentMissing)
             support_nav_role = GPS(base .. "support_nav_role"),
             support_nav_frequency_raw = GP(base .. "support_nav_frequency_raw")
         }
+
+        if probe_external_dataref(base .. "procedure_class_valid")
+            and probe_external_dataref(base .. "rnp_ar")
+            and probe_external_dataref(base .. "ian_eligible") then
+            P.approachRef.procedure_class_valid = GP(base .. "procedure_class_valid")
+            P.approachRef.rnp_ar = GP(base .. "rnp_ar")
+            P.approachRef.ian_eligible = GP(base .. "ian_eligible")
+        end
     end
 
     local function bindHoldRuntimeRefs()

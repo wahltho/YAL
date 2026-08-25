@@ -5592,7 +5592,13 @@ function P.resolveApproachGuidanceCapabilities(context)
     end
 
     local channelCapable = mmrInstalled and lpvInstalled
+    local procedureClassValid = context.procedureClassValid == true
+    local rnpAr = procedureClassValid and context.rnpAr == true
+    local ianEligible = procedureClassValid and context.ianEligible == true
     local facPossible = (guidanceFamily == "rnav") and ((ianInfo ~= 0) or facCoursePlausible or facTrackPlausible)
+    if procedureClassValid and not ianEligible then
+        facPossible = false
+    end
     local gpPossible = facPossible and (not lateralOnly)
     local locGpPossible = (guidanceFamily == "localizer") and (ianInfo ~= 0) and (fmsIlsDisable ~= 0)
     local lpvPossible = (guidanceFamily == "lpv") and channelCapable
@@ -5670,6 +5676,9 @@ function P.resolveApproachGuidanceCapabilities(context)
         lpvPossible = lpvPossible,
         glsPossible = glsPossible,
         ianInfo = ianInfo,
+        procedureClassValid = procedureClassValid,
+        rnpAr = rnpAr,
+        ianEligible = ianEligible,
         facCourse = facCourse,
         facCoursePlausible = facCoursePlausible,
         facTrack = facTrack,
