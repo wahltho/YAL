@@ -163,6 +163,33 @@ ensbR09Z.ian_eligible = true
 valid, reason = validate(ensbR09Z)
 assert(valid == true and reason == nil, "API v3 ENSB R09-Z IAN-eligible snapshot must be accepted")
 
+local essaI01L = copy(lgskQ01)
+essaI01L.api_version = 3
+essaI01L.update_seq = 4
+essaI01L.procedure_id = "I01L"
+essaI01L.procedure_type = "ILS"
+essaI01L.resolved_nav_kind = "ILS"
+essaI01L.airport = "ESSA"
+essaI01L.runway = "01L"
+essaI01L.nav_valid = true
+essaI01L.nav_ident = "SSA"
+essaI01L.frequency_raw = 10990
+essaI01L.frequency_mhz = 109.90
+essaI01L.course_deg = 4
+essaI01L.has_dme = true
+essaI01L.dme_ident = "SSA"
+essaI01L.dme_frequency_raw = 10990
+essaI01L.support_nav_valid = false
+essaI01L.support_nav_ident = ""
+essaI01L.support_nav_kind = ""
+essaI01L.support_nav_role = ""
+essaI01L.support_nav_frequency_raw = 0
+essaI01L.procedure_class_valid = false
+essaI01L.rnp_ar = false
+essaI01L.ian_eligible = false
+valid, reason = validate(essaI01L)
+assert(valid == true and reason == nil, "API v3 ESSA I01L snapshot must be accepted")
+
 local invalidClass = copy(ekvgR12W)
 invalidClass.procedure_class_valid = false
 valid, reason = validate(invalidClass)
@@ -227,6 +254,7 @@ end
 
 local messages = {}
 local runwayFallbackCalls = 0
+local ilsFormatterCalls = 0
 local activeApproachFixture = lgskQ01
 local procedureRefdata = {
     getApproachRefForContext = function(context)
@@ -237,7 +265,7 @@ local procedureRefdata = {
         assert(context.selectedAppId == activeApproachFixture.procedure_id,
             "Set ILS must preserve the raw selected-approach context")
         assert(context.requireCommitted == true, "Set ILS must retain the MOD/EXEC gate")
-        return activeApproachFixture, nil, "accepted"
+        return activeApproachFixture, toNavEntry(activeApproachFixture), "accepted"
     end,
     isApproachRefCourseOnlyNonPrecision = realRefdata.isApproachRefCourseOnlyNonPrecision
 }
@@ -246,7 +274,8 @@ package.loaded.helpers = {
     addspaces = addSpaces,
     calccourse = function(value) return value end,
     formatILSFrequency = function(value)
-        error("NDB support frequency must not use the ILS formatter: " .. tostring(value))
+        ilsFormatterCalls = ilsFormatterCalls + 1
+        return realHelpers.formatILSFrequency(value)
     end,
     formatRunwayDesignator = addSpaces,
     headingdiff = function(a, b)
@@ -304,6 +333,7 @@ assert(messages[1] == "Runway 0 1 has N D B Approach", "Q01 procedure announceme
 assert(messages[2] == "Final approach course 0 0 7", "Q01 must announce the authoritative CIFP course")
 assert(messages[3] == "Supporting N D B for Runway 0 1 is Sierra Kilo Charlie with frequency 3 2 6 kilohertz",
     "Q01 supporting NDB announcement")
+assert(ilsFormatterCalls == 0, "NDB support frequency must not use the ILS formatter")
 assert(runwayFallbackCalls == 0, "accepted Q01 must never consult runway heading fallback")
 
 assert(setIls.steps.finish_approach_course_only.branch(loop) == "view_main_panel",
@@ -336,5 +366,33 @@ assert(setIls.steps.finish_approach_course_only.branch(loop) == false,
     "RNP AR must not continue into Captain Course management")
 assert(values.mcppilotcourse == 122 and values.mcpcopilotcourse == 122,
     "RNP AR must leave both Course selectors untouched")
+
+activeApproachFixture = essaI01L
+values.desicao = "ESSA"
+values.desrwy = "01L"
+values.fmsselectedapp = "I01L"
+values.mcppilotcourse = 4
+values.mcpcopilotcourse = 3
+loop = {}
+
+setIls.steps.find_navdata.branch(loop)
+assert(loop.approachRefAccepted == true, "ESSA I01L must use the accepted Approach-Ref snapshot")
+assert(setIls.steps.set_capt_course.check(loop) == true,
+    "Captain Course 004 must match the authoritative Approach-Ref target")
+assert(setIls.steps.set_capt_course.confirm(loop) == "Captain Course checked and 0 0 4",
+    "Captain confirmation must retain the authoritative target")
+assert(setIls.steps.set_fo_course.skipIf(loop) == false,
+    "ILS with DME must manage the Copilot Course")
+
+values.mcppilotcourse = 3
+assert(setIls.steps.set_fo_course.check(loop) == false,
+    "a changed live Captain selector must not replace the cached Copilot target")
+assert(setIls.steps.set_fo_course.advice(loop) == "Set Copilot Course 0 0 4",
+    "Copilot advice must use the cached Approach-Ref target")
+setIls.steps.set_fo_course.action(loop)
+assert(values.mcpcopilotcourse == 4,
+    "Copilot Course must be set to the cached Approach-Ref target")
+assert(setIls.steps.set_fo_course.confirm(loop) == "Copilot Course checked and 0 0 4",
+    "Copilot confirmation must use the cached Approach-Ref target")
 
 print("test_approach_ref_v2: API v2/v3 checks passed")

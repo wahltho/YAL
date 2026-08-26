@@ -6909,16 +6909,20 @@ function M.fillProcedureTable()
                         return true
                     end,
                     check = function(loop, procData)
-                        return get(P.mcpcopilotcourse) == get(P.mcppilotcourse)
+                        local copilotcoursenew = getCachedApproachCourse(loop)
+                        return get(P.mcpcopilotcourse) == copilotcoursenew
                     end,
                     action = function(loop, procData)
-                        set(P.mcpcopilotcourse, get(P.mcppilotcourse))
+                        local copilotcoursenew = getCachedApproachCourse(loop)
+                        set(P.mcpcopilotcourse, copilotcoursenew)
                     end,
                     advice = function(loop, procData)
-                        return "Set Copilot Course " .. helpers.addspaces(helpers.padNumberWithZerosStrict(get(P.mcppilotcourse), 3))
+                        local copilotcoursenew = getCachedApproachCourse(loop)
+                        return "Set Copilot Course " .. helpers.addspaces(helpers.padNumberWithZerosStrict(copilotcoursenew, 3))
                     end,
                     confirm = function(loop, procData)
-                        return "Copilot Course checked and " .. helpers.addspaces(helpers.padNumberWithZerosStrict(get(P.mcppilotcourse), 3))
+                        local copilotcoursenew = getCachedApproachCourse(loop)
+                        return "Copilot Course checked and " .. helpers.addspaces(helpers.padNumberWithZerosStrict(copilotcoursenew, 3))
                     end,
                     nextStep = nil 
                 }
