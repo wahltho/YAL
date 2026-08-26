@@ -1,6 +1,20 @@
 local core = require("auto_unicom_core")
 
 local M = {}
+local PROVIDER_CANDIDATES = {
+    {
+        id = "public_helper",
+        name = "YAL Auto-Unicom Helper",
+        signature = "yal.autounicomhelper",
+        namespace = "wahltho/autounicom/"
+    },
+    {
+        id = "private_monitor",
+        name = "IVAO Monitor",
+        signature = "wahltho.ivao.monitor",
+        namespace = "ivao_monitor/autounicom/"
+    }
+}
 local runtime = nil
 local mailbox = nil
 local active = false
@@ -19,6 +33,32 @@ local NM_TO_METERS = 1852
 local OFP_SNAPSHOT_READ_ATTEMPTS = 3
 local FMS_DISPLAY_IDENT_MAX_LENGTH = 6
 local CUSTOM_WAYPOINT_MATCH_MAX_NM = 0.25
+
+function M.getProviderCandidates()
+    return PROVIDER_CANDIDATES
+end
+
+function M.selectProvider(probe, lockedProviderId)
+    if type(probe) ~= "function" then return nil, {} end
+    local attempts = {}
+    for _, provider in ipairs(PROVIDER_CANDIDATES) do
+        if not lockedProviderId or provider.id == lockedProviderId then
+            local ok, providerRefs, reason = pcall(probe, provider)
+            if not ok then
+                providerRefs = nil
+                reason = "probe_error"
+            end
+            attempts[#attempts + 1] = {
+                provider = provider,
+                reason = providerRefs and "selected" or tostring(reason or "unavailable")
+            }
+            if type(providerRefs) == "table" then
+                return { provider = provider, refs = providerRefs }, attempts
+            end
+        end
+    end
+    return nil, attempts
+end
 
 local function log(message)
     if runtime and runtime.helpers and runtime.helpers.logInfoTS then

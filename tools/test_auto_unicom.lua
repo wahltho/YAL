@@ -45,6 +45,93 @@ local function copy(source, overrides)
     return result
 end
 
+local providerCandidates = autoUnicom.getProviderCandidates()
+assert_equal(#providerCandidates, 2, "Auto-Unicom provider count")
+assert_equal(providerCandidates[1].signature, "yal.autounicomhelper", "public helper signature")
+assert_equal(providerCandidates[1].namespace, "wahltho/autounicom/", "public helper namespace")
+assert_equal(providerCandidates[2].signature, "wahltho.ivao.monitor", "private monitor signature")
+assert_equal(providerCandidates[2].namespace, "ivao_monitor/autounicom/", "private monitor namespace")
+
+local function provider_test_refs(provider)
+    local base = provider.namespace
+    return {
+        request_text = base .. "request_text",
+        request_voice_text = base .. "request_voice_text",
+        request_channels = base .. "request_channels",
+        request_seq = base .. "request_seq"
+    }
+end
+
+local publicProbeOrder = {}
+local publicSelection = autoUnicom.selectProvider(function(provider)
+    publicProbeOrder[#publicProbeOrder + 1] = provider.id
+    return provider_test_refs(provider)
+end)
+assert_equal(publicSelection.provider.id, "public_helper", "public helper is preferred")
+assert_equal(#publicProbeOrder, 1, "private provider is not probed after public selection")
+
+local missingPublicSelection = autoUnicom.selectProvider(function(provider)
+    if provider.id == "public_helper" then return nil, "plugin_not_found" end
+    return provider_test_refs(provider)
+end)
+assert_equal(missingPublicSelection.provider.id, "private_monitor", "missing public helper falls back to private monitor")
+
+local incompatiblePublicSelection, incompatibleAttempts = autoUnicom.selectProvider(function(provider)
+    if provider.id == "public_helper" then return nil, "unsupported_api_version_2" end
+    return provider_test_refs(provider)
+end)
+assert_equal(incompatiblePublicSelection.provider.id, "private_monitor", "incompatible public helper falls back safely")
+assert_equal(incompatibleAttempts[1].reason, "unsupported_api_version_2", "public incompatibility reason retained")
+
+local noProviderSelection, noProviderAttempts = autoUnicom.selectProvider(function(provider)
+    return nil, provider.id == "public_helper" and "plugin_not_found" or "datarefs_incomplete"
+end)
+assert_equal(noProviderSelection, nil, "no provider leaves Auto-Unicom unbound")
+assert_equal(#noProviderAttempts, 2, "both provider candidates are checked")
+
+local lockedProbeOrder = {}
+local lockedPrivateSelection = autoUnicom.selectProvider(function(provider)
+    lockedProbeOrder[#lockedProbeOrder + 1] = provider.id
+    return provider_test_refs(provider)
+end, "private_monitor")
+assert_equal(lockedPrivateSelection.provider.id, "private_monitor", "session provider lock is retained")
+assert_equal(#lockedProbeOrder, 1, "locked provider does not probe alternatives")
+
+local providerWrites = { public_helper = 0, private_monitor = 0 }
+local function record_provider_write(prop)
+    if prop:sub(1, #providerCandidates[1].namespace) == providerCandidates[1].namespace then
+        providerWrites.public_helper = providerWrites.public_helper + 1
+    elseif prop:sub(1, #providerCandidates[2].namespace) == providerCandidates[2].namespace then
+        providerWrites.private_monitor = providerWrites.private_monitor + 1
+    else
+        fail("provider write used unknown namespace: " .. tostring(prop))
+    end
+    return true
+end
+local selectedRefs = publicSelection.refs
+local providerMailbox = core.newMailbox({
+    writeText = function() return record_provider_write(selectedRefs.request_text) end,
+    writeVoiceText = function() return record_provider_write(selectedRefs.request_voice_text) end,
+    writeChannels = function() return record_provider_write(selectedRefs.request_channels) end,
+    writeSeq = function() return record_provider_write(selectedRefs.request_seq) end
+})
+assert_true(providerMailbox:enqueue({
+    id = "provider.single_write",
+    text = "Lufthansa 3210 airborne",
+    voice_text = "Lufthansa tree two one zero airborne",
+    expires_at = 100
+}), "single-provider request queued")
+providerMailbox:tick({
+    api_version = 3,
+    ready = 1,
+    mode = 2,
+    transport_state = 5,
+    request_seq = 0,
+    result_seq = 0
+}, 1)
+assert_equal(providerWrites.public_helper, 4, "text, voice, channels and sequence use selected provider")
+assert_equal(providerWrites.private_monitor, 0, "no request write reaches fallback provider")
+
 assert_true(core.shouldSuppressProgressLevel(40000, 41000),
     "FL400 is suppressed near FL410 phase boundary")
 assert_true(core.shouldSuppressProgressLevel(30000, 34000),

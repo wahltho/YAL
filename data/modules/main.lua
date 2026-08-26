@@ -42,6 +42,7 @@ local menu_updates = nil
 local taxiGateLastLogTime = 0
 local autoUnicomRuntime = {
     refs = nil,
+    provider = nil,
     nextBindAt = 0,
     unavailableLogged = false,
     modePrerequisiteLogged = false,
@@ -85,24 +86,11 @@ local function auto_unicom_refs_valid(refs)
         and auto_unicom_ref_keys_valid(refs, AUTO_UNICOM_V3_REF_KEYS)
 end
 
-local function bind_auto_unicom_datarefs()
-    if auto_unicom_refs_valid(autoUnicomRuntime.refs) then return true end
-    autoUnicomRuntime.refs = nil
+local function bind_auto_unicom_candidate(provider)
+    local pluginId = sasl.findPluginBySignature(provider.signature)
+    if pluginId == NO_PLUGIN_ID then return nil, "plugin_not_found" end
 
-    local now = os.time() or 0
-    if now < autoUnicomRuntime.nextBindAt then return false end
-    autoUnicomRuntime.nextBindAt = now + 5
-
-    local pluginId = sasl.findPluginBySignature("wahltho.ivao.monitor")
-    if pluginId == NO_PLUGIN_ID then
-        if not autoUnicomRuntime.unavailableLogged then
-            autoUnicomRuntime.unavailableLogged = true
-            helpers.logInfoTS("IVAO Auto-Unicom enabled but IVAO Monitor is not available")
-        end
-        return false
-    end
-
-    local base = "ivao_monitor/autounicom/"
+    local base = provider.namespace
     local bound = {
         api_version = globalProperty(base .. "api_version"),
         ready = globalProperty(base .. "ready"),
@@ -112,39 +100,65 @@ local function bind_auto_unicom_datarefs()
         request_seq = globalProperty(base .. "request_seq"),
         result_seq = globalProperty(base .. "result_seq"),
         result_code = globalProperty(base .. "result_code"),
-        result_detail = globalPropertys(base .. "result_detail")
+        result_detail = globalPropertys(base .. "result_detail"),
+        request_channels = globalProperty(base .. "request_channels"),
+        request_voice_text = globalPropertys(base .. "request_voice_text"),
+        voice_state = globalProperty(base .. "voice_state"),
+        voice_result_seq = globalProperty(base .. "voice_result_seq"),
+        voice_result_code = globalProperty(base .. "voice_result_code"),
+        voice_result_detail = globalPropertys(base .. "voice_result_detail"),
+        effective_callsign = globalPropertys(base .. "effective_callsign")
     }
-    if not auto_unicom_ref_keys_valid(bound, AUTO_UNICOM_BASE_REF_KEYS) then
-        if not autoUnicomRuntime.unavailableLogged then
-            autoUnicomRuntime.unavailableLogged = true
-            helpers.logInfoTS("IVAO Auto-Unicom enabled but API DataRefs are not ready")
-        end
-        return false
+    if not auto_unicom_ref_keys_valid(bound, AUTO_UNICOM_BASE_REF_KEYS)
+        or not auto_unicom_ref_keys_valid(bound, AUTO_UNICOM_V2_REF_KEYS)
+        or not auto_unicom_ref_keys_valid(bound, AUTO_UNICOM_V3_REF_KEYS) then
+        return nil, "datarefs_incomplete"
     end
 
     local apiVersion = auto_unicom_api_version(bound)
-    if apiVersion and apiVersion >= 2 then
-        bound.request_channels = globalProperty(base .. "request_channels")
-        bound.request_voice_text = globalPropertys(base .. "request_voice_text")
-        bound.voice_state = globalProperty(base .. "voice_state")
-        bound.voice_result_seq = globalProperty(base .. "voice_result_seq")
-        bound.voice_result_code = globalProperty(base .. "voice_result_code")
-        bound.voice_result_detail = globalPropertys(base .. "voice_result_detail")
+    if apiVersion ~= 3 then
+        return nil, "unsupported_api_version_" .. tostring(apiVersion or "unavailable")
     end
-    if apiVersion == 3 then
-        bound.effective_callsign = globalPropertys(base .. "effective_callsign")
+    return bound, nil
+end
+
+local function format_auto_unicom_provider_attempts(attempts)
+    local parts = {}
+    for _, attempt in ipairs(attempts or {}) do
+        parts[#parts + 1] = tostring(attempt.provider and attempt.provider.signature or "unknown")
+            .. "=" .. tostring(attempt.reason or "unavailable")
     end
-    if not auto_unicom_refs_valid(bound) then
+    return table.concat(parts, ", ")
+end
+
+local function bind_auto_unicom_datarefs()
+    if auto_unicom_refs_valid(autoUnicomRuntime.refs) then return true end
+    autoUnicomRuntime.refs = nil
+
+    local now = os.time() or 0
+    if now < autoUnicomRuntime.nextBindAt then return false end
+    autoUnicomRuntime.nextBindAt = now + 5
+
+    local lockedProviderId = autoUnicomRuntime.provider and autoUnicomRuntime.provider.id or nil
+    local selection, attempts = autoUnicom.selectProvider(bind_auto_unicom_candidate, lockedProviderId)
+    if not selection then
         if not autoUnicomRuntime.unavailableLogged then
             autoUnicomRuntime.unavailableLogged = true
-            helpers.logInfoTS("IVAO Auto-Unicom enabled but API version or DataRefs are not supported")
+            local prefix = lockedProviderId and "selected provider unavailable" or "no compatible provider"
+            helpers.logInfoTS("YAL Auto-Unicom " .. prefix .. ": "
+                .. format_auto_unicom_provider_attempts(attempts))
         end
         return false
     end
 
-    autoUnicomRuntime.refs = bound
+    autoUnicomRuntime.refs = selection.refs
+    autoUnicomRuntime.provider = selection.provider
     autoUnicomRuntime.unavailableLogged = false
-    helpers.logInfoTS("IVAO Auto-Unicom DataRefs bound version=" .. tostring(apiVersion))
+    helpers.logInfoTS(string.format(
+        "YAL Auto-Unicom provider selected name=%s signature=%s namespace=%s api_version=%s",
+        tostring(selection.provider.name), tostring(selection.provider.signature),
+        tostring(selection.provider.namespace), tostring(auto_unicom_api_version(selection.refs))
+    ))
     return true
 end
 
