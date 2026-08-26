@@ -140,7 +140,7 @@ The settings window allows detailed customization of all automatic features.
 - Automatic Functions: Master switch for automatic procedures and background tasks.
 - FMC Automation: Allows YAL to automate FMC page changes and FMC data entries when a procedure supports it.
 - Voice Advice Only: YAL gives spoken guidance but does not perform cockpit actions automatically.
-- Departure NAV Setup: Optional and disabled by default. During Before Takeoff, YAL may set or advise a single unambiguous captain-side VOR/course assignment for a conventional SID. RNAV/FMS/vector departures and ambiguous or incomplete data remain unchanged and silent. A later departure runway, SID or route change causes the setup to be evaluated again before takeoff.
+- Departure NAV Setup: Optional and disabled by default. During Cockpit Init, YAL may set or advise a single unambiguous captain-side VOR/course assignment for a conventional SID. If the departure setup is not yet available, YAL checks it again during Before Taxi. RNAV/FMS/vector departures and ambiguous data remain unchanged and silent. A later departure runway, SID or route change causes the setup to be evaluated again before takeoff.
 - Voice Advice Repeat Skip (cycles): Only repeats the same advice every Nth cycle.
 - Voice Advice Max Repeats (0/99=off): Limits identical repeated advice for one step. When the limit is reached, the step is skipped automatically.
 - Voice Advice Trim Popup: Enables the trim popup during the takeoff trim advice step.

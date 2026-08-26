@@ -3381,6 +3381,49 @@ function P.getDepartureNavSignature()
     return P.departureNavResolver.contextSignature(P.getDepartureNavContext(false))
 end
 
+function P.checkDepartureNavParentStep(loop, parentProcId)
+    local signature = P.getDepartureNavSignature()
+    if P.departureNavCompletedSignature == signature then
+        loop.departureNavChildPending = nil
+        loop.departureNavPendingPlan = nil
+        return true
+    end
+    if loop.departureNavChildPending then
+        return false
+    end
+    if not loop.departureNavPendingPlan
+        or loop.departureNavPendingPlan.signature ~= signature then
+        loop.departureNavPendingPlan = P.resolveDepartureNavPlan()
+    end
+    local plan = loop.departureNavPendingPlan
+    if not plan or plan.status ~= "actionable" then
+        local retryAtBeforeTaxi = parentProcId == def.COCKPITINITPROCEDURE
+            and P.departureNavResolver.shouldRetryAtBeforeTaxi(plan and plan.status)
+        if not retryAtBeforeTaxi then
+            P.completeDepartureNavEvaluation(plan or signature)
+        end
+        loop.departureNavPendingPlan = nil
+        return true
+    end
+    return false
+end
+
+function P.runDepartureNavParentStep(loop, parentProcId)
+    local childLoop = P.loopStateTables[3]
+    if childLoop and childLoop.lock == def.DEPARTURENAVPROCEDURE then
+        loop.departureNavChildPending = true
+        return
+    end
+    if childLoop and childLoop.lock == def.NOPROCEDURE then
+        if P.triggerChildProcedure(1, parentProcId, def.DEPARTURENAVPROCEDURE, false) then
+            loop.departureNavChildPending = true
+            P.setDepartureNavLoopPlan(childLoop, loop.departureNavPendingPlan)
+            P.saveLoopState(childLoop, 3)
+            loop.departureNavPendingPlan = nil
+        end
+    end
+end
+
 function P.getDepartureNavNavaid(ident, region, departureIcao)
     local airport = P.getAirportRefdata(departureIcao)
     local latitude = airport and tonumber(airport.latitude) or nil
@@ -3552,12 +3595,13 @@ function P.updateDepartureNavSetup()
     if (tonumber(get(P.groundspeed)) or 0) > 2 then
         return
     end
-    local beforeTakeoff = P.proceduretable and P.proceduretable[def.BEFORETAKEOFFPROCEDURE]
-    local departureNavProc = P.proceduretable and P.proceduretable[def.DEPARTURENAVPROCEDURE]
-    if not (beforeTakeoff and beforeTakeoff.set and departureNavProc and departureNavProc.set) then
+    local beforeTaxi = P.proceduretable and P.proceduretable[def.BEFORETAXIPROCEDURE]
+    if not (beforeTaxi and beforeTaxi.set) then
         return
     end
-    if P.procedureloop1 and P.procedureloop1.lock == def.BEFORETAKEOFFPROCEDURE then
+    if P.procedureloop1
+        and (P.procedureloop1.lock == def.COCKPITINITPROCEDURE
+            or P.procedureloop1.lock == def.BEFORETAXIPROCEDURE) then
         return
     end
     if not (P.procedureloop3 and P.procedureloop3.lock == def.NOPROCEDURE) then
@@ -5099,7 +5143,8 @@ sasl.registerCommandHandler(my_command_abortprocedure, 0, P.abortprocedure_)
 function P.skipprocedure()
     local loop, loopIndex = P.findMostRecentLoop()
     if loop then
-        if loop.lock == def.DEPARTURENAVPROCEDURE then
+        if loop.lock == def.DEPARTURENAVPROCEDURE
+            and loop.parentProcId ~= def.COCKPITINITPROCEDURE then
             P.departureNavCompletedSignature = P.getDepartureNavSignature()
         end
         P.clearYalQueuedSpeech()

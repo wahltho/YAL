@@ -117,14 +117,22 @@ for key, value in pairs(base) do changedLegs[key] = value end
 changedLegs.legs = "ENAT RW11 ELSEV ATA NEWFIX"
 assert(departureNav.contextSignature(changedLegs) ~= signature, "route/transition change must invalidate context")
 
+assert(departureNav.shouldRetryAtBeforeTaxi("no_selection") == true, "missing Cockpit Init selection must retry Before Taxi")
+assert(departureNav.shouldRetryAtBeforeTaxi("data_unavailable") == true, "temporarily unavailable data must retry Before Taxi")
+assert(departureNav.shouldRetryAtBeforeTaxi("sid_not_found") == true, "an unresolved SID must retry Before Taxi")
+assert(departureNav.shouldRetryAtBeforeTaxi("no_explicit_raw_data") == true, "incomplete raw-data resolution must retry Before Taxi")
+assert(departureNav.shouldRetryAtBeforeTaxi("rnav") == false, "an authoritative RNAV no-action result must be final")
+assert(departureNav.shouldRetryAtBeforeTaxi("ambiguous_raw_data") == false, "an authoritative ambiguous result must remain silent")
+
 package.loaded.helpers = {
     formatcgvalue = function() return nil end
 }
 package.loaded.refdata = {}
+local resolvedPlan = { status = "actionable", signature = "sig-a", captain = {} }
 yal = {
     configvalues = { [def.CONFIGDEPARTURENAVSETUP] = def.OFF },
     loopStateTables = {
-        [1] = { lock = def.BEFORETAKEOFFPROCEDURE },
+        [1] = { lock = def.COCKPITINITPROCEDURE },
         [2] = { lock = def.NOPROCEDURE },
         [3] = { lock = def.NOPROCEDURE }
     },
@@ -136,7 +144,7 @@ yal = {
     end,
     saveLoopState = function() end,
     resolveDepartureNavPlan = function()
-        return { status = "actionable", signature = "sig-a", captain = {} }
+        return resolvedPlan
     end,
     completeDepartureNavEvaluation = function(plan)
         yal.departureNavCompletedSignature = type(plan) == "table" and plan.signature or plan
@@ -161,25 +169,65 @@ yal = {
                 course = loop.departureNavCourse
             }
         }
+    end,
+    checkDepartureNavParentStep = function(loop, parentProcId)
+        yal.checkedDepartureNavParent = parentProcId
+        local currentSignature = yal.getDepartureNavSignature()
+        if yal.departureNavCompletedSignature == currentSignature then
+            loop.departureNavChildPending = nil
+            loop.departureNavPendingPlan = nil
+            return true
+        end
+        if loop.departureNavChildPending then return false end
+        loop.departureNavPendingPlan = yal.resolveDepartureNavPlan()
+        local currentPlan = loop.departureNavPendingPlan
+        if not currentPlan or currentPlan.status ~= "actionable" then
+            local retryAtBeforeTaxi = parentProcId == def.COCKPITINITPROCEDURE
+                and departureNav.shouldRetryAtBeforeTaxi(currentPlan and currentPlan.status)
+            if not retryAtBeforeTaxi then
+                yal.completeDepartureNavEvaluation(currentPlan or currentSignature)
+            end
+            loop.departureNavPendingPlan = nil
+            return true
+        end
+        return false
+    end,
+    runDepartureNavParentStep = function(loop, parentProcId)
+        yal.actedDepartureNavParent = parentProcId
+        local childLoop = yal.loopStateTables[3]
+        if childLoop.lock == def.NOPROCEDURE
+            and yal.triggerChildProcedure(1, parentProcId, def.DEPARTURENAVPROCEDURE, false) then
+            loop.departureNavChildPending = true
+            yal.setDepartureNavLoopPlan(childLoop, loop.departureNavPendingPlan)
+            loop.departureNavPendingPlan = nil
+        end
     end
 }
 
 package.loaded.proceduredata = nil
 local proceduredata = require("proceduredata")
 assert(proceduredata.fillProcedureTable())
+local cockpitInit = yal.proceduretable[def.COCKPITINITPROCEDURE]
+local cockpitEnsure = cockpitInit.steps.ensure_departure_nav
+local beforeTaxi = yal.proceduretable[def.BEFORETAXIPROCEDURE]
+local beforeTaxiEnsure = beforeTaxi.steps.ensure_departure_nav
 local beforeTakeoff = yal.proceduretable[def.BEFORETAKEOFFPROCEDURE]
-local ensure = beforeTakeoff.steps.ensure_departure_nav
-assert(beforeTakeoff.startStep == "ensure_departure_nav", "Departure NAV must be evaluated before other Before Takeoff steps")
-assert(ensure.nextStep == "view_pedestal", "Before Takeoff must continue with its established first view step")
+assert(cockpitInit.steps.wait_settoflaps_done.nextStep == "ensure_departure_nav", "Cockpit Init must run Departure NAV after takeoff data")
+assert(cockpitEnsure.nextStep == "view_pedestal", "Cockpit Init must continue with its established pedestal sequence")
+assert(beforeTaxi.startStep == "ensure_departure_nav", "Before Taxi must retry Departure NAV before its established first step")
+assert(beforeTaxiEnsure.nextStep == "view_main_panel", "Before Taxi must continue with its established main-panel step")
+assert(beforeTakeoff.startStep == "view_pedestal", "Before Takeoff must retain its established first step")
+assert(beforeTakeoff.steps.ensure_departure_nav == nil, "Before Takeoff must no longer own Departure NAV")
 assert(beforeTakeoff.steps.check_takeoff_trim.nextStep == "check_mcp_speed", "trim must no longer defer Departure NAV until takeoff roll")
-assert(ensure.skipIf() == true, "disabled setting must bypass the Before Takeoff child")
+assert(cockpitEnsure.skipIf() == true and beforeTaxiEnsure.skipIf() == true, "disabled setting must bypass both Departure NAV owners")
 
 yal.configvalues[def.CONFIGDEPARTURENAVSETUP] = def.ON
-local parentLoop = {}
-assert(ensure.check(parentLoop) == false, "unhandled context should require the child")
-ensure.action(parentLoop)
+local cockpitLoop = {}
+assert(cockpitEnsure.check(cockpitLoop) == false, "actionable Cockpit Init context should require the child")
+assert(yal.checkedDepartureNavParent == def.COCKPITINITPROCEDURE, "Cockpit Init must identify itself as the child owner")
+cockpitEnsure.action(cockpitLoop)
 assert(yal.triggeredChild[1] == 1, "Departure NAV parent loop")
-assert(yal.triggeredChild[2] == def.BEFORETAKEOFFPROCEDURE, "Departure NAV parent procedure")
+assert(yal.triggeredChild[2] == def.COCKPITINITPROCEDURE, "Cockpit Init must own the first Departure NAV run")
 assert(yal.triggeredChild[3] == def.DEPARTURENAVPROCEDURE, "Departure NAV child procedure")
 
 local child = yal.proceduretable[def.DEPARTURENAVPROCEDURE]
@@ -188,17 +236,38 @@ local childLoop = yal.loopStateTables[3]
 assert(childLoop.departureNavIdent == "ATA", "resolved plan must be passed to child as persistent scalar state")
 child.steps.record_departure_nav_completion.action(childLoop)
 assert(yal.departureNavCompletedSignature == "sig-a", "completed context must be latched")
-assert(ensure.check(parentLoop) == true, "completed context should release Before Takeoff")
+assert(cockpitEnsure.check(cockpitLoop) == true, "completed context should release Cockpit Init")
+local beforeTaxiLoop = {}
+assert(beforeTaxiEnsure.check(beforeTaxiLoop) == true, "Before Taxi must not duplicate a completed Cockpit Init setup")
 
 yal.departureNavCompletedSignature = nil
 yal.proceduretable[def.DEPARTURENAVPROCEDURE].set = false
 yal.loopStateTables[3].lock = def.NOPROCEDURE
-yal.resolveDepartureNavPlan = function()
-    return { status = "rnav", signature = "sig-a" }
-end
-parentLoop = {}
-assert(ensure.check(parentLoop) == true, "RNAV decision must pass without starting a child")
+resolvedPlan = { status = "no_selection", signature = "sig-a" }
+cockpitLoop = {}
+assert(cockpitEnsure.check(cockpitLoop) == true, "Cockpit Init must continue when departure selection is not ready")
+assert(yal.departureNavCompletedSignature == nil, "a transient Cockpit Init result must not be latched")
+resolvedPlan = { status = "actionable", signature = "sig-a", captain = {} }
+beforeTaxiLoop = {}
+assert(beforeTaxiEnsure.check(beforeTaxiLoop) == false, "Before Taxi must retry a transient Cockpit Init result")
+beforeTaxiEnsure.action(beforeTaxiLoop)
+assert(yal.triggeredChild[2] == def.BEFORETAXIPROCEDURE, "Before Taxi must own the retry child")
+
+yal.departureNavCompletedSignature = nil
+yal.proceduretable[def.DEPARTURENAVPROCEDURE].set = false
+yal.loopStateTables[3].lock = def.NOPROCEDURE
+resolvedPlan = { status = "rnav", signature = "sig-a" }
+cockpitLoop = {}
+assert(cockpitEnsure.check(cockpitLoop) == true, "RNAV decision must pass without starting a child")
 assert(yal.loopStateTables[3].lock == def.NOPROCEDURE, "silent RNAV evaluation must not occupy Loop 3")
 assert(yal.proceduretable[def.DEPARTURENAVPROCEDURE].set == true, "silent evaluation must be latched for later change detection")
+
+yal.loopStateTables[1].lock = def.COCKPITINITPROCEDURE
+assert(child.prerequisite() == true, "Departure NAV child must be allowed during Cockpit Init")
+yal.loopStateTables[1].lock = def.BEFORETAXIPROCEDURE
+assert(child.prerequisite() == true, "Departure NAV child must be allowed during Before Taxi")
+yal.loopStateTables[1].lock = def.BEFORETAKEOFFPROCEDURE
+yal.proceduretable[def.BEFORETAXIPROCEDURE].set = false
+assert(child.prerequisite() == false, "Before Takeoff must not directly own Departure NAV")
 
 print("test_departure_nav: all checks passed")

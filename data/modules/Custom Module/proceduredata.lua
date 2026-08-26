@@ -1053,34 +1053,11 @@ local function getCachedApproachCourse(loop)
     return course
 end
 
-local function getCachedApproachCourseForHeading(runwayHeading)
-    local navType = P.approachNavType
-    if navType ~= def.NAVTYPERNAV and navType ~= def.NAVTYPELPV and navType ~= def.NAVTYPEGLS then
-        return nil
-    end
-    local course = P.approachCourseMag
-    if not course then
-        return nil
-    end
-    if runwayHeading then
-        local diff = helpers.headingdiff(course, runwayHeading)
-        if diff <= 10 then
-            return helpers.roundnumber(course)
-        end
-        return nil
-    end
-    return helpers.roundnumber(course)
-end
-
 local function getMcpHeadingTarget()
     local headingrounded = nil
     local destRunwayHeading = getDestinationRunwayHeadingMag()
     if (helpers.isvalidicao(get(P.desicao)) and helpers.isvalidrwy(get(P.desrwy)) and tonumber(destRunwayHeading)) then
         headingrounded = helpers.roundnumber(destRunwayHeading)
-    end
-    local cached = getCachedApproachCourseForHeading(headingrounded)
-    if cached then
-        headingrounded = cached
     end
     return headingrounded
 end
@@ -2443,6 +2420,19 @@ function M.fillProcedureTable()
                         local loopInfo = P.loopStateTables[loopIndex]
                         return P.proceduretable[procId].set == true and loopInfo and loopInfo.lock == def.NOPROCEDURE
                     end,
+                    nextStep = 'ensure_departure_nav'
+                },
+                ['ensure_departure_nav'] = {
+                    skipIf = function()
+                        return P.configvalues[def.CONFIGDEPARTURENAVSETUP] ~= def.ON
+                    end,
+                    check = function(loop)
+                        return P.checkDepartureNavParentStep(loop, def.COCKPITINITPROCEDURE)
+                    end,
+                    action = function(loop)
+                        P.runDepartureNavParentStep(loop, def.COCKPITINITPROCEDURE)
+                    end,
+                    runActionInAdviceMode = true,
                     nextStep = 'view_pedestal'
                 },
                 ['view_pedestal'] = { 
@@ -3382,8 +3372,21 @@ function M.fillProcedureTable()
                 { check = function() return P.enginesrunning(def.BOTH) end, 
                   failMsg = "Procedure aborted, Engines not running" }
             },
-            startStep = 'view_main_panel',
+            startStep = 'ensure_departure_nav',
             steps = {
+                ['ensure_departure_nav'] = {
+                    skipIf = function()
+                        return P.configvalues[def.CONFIGDEPARTURENAVSETUP] ~= def.ON
+                    end,
+                    check = function(loop)
+                        return P.checkDepartureNavParentStep(loop, def.BEFORETAXIPROCEDURE)
+                    end,
+                    action = function(loop)
+                        P.runDepartureNavParentStep(loop, def.BEFORETAXIPROCEDURE)
+                    end,
+                    runActionInAdviceMode = true,
+                    nextStep = 'view_main_panel'
+                },
                 ['view_main_panel'] = {
                     view = function() return P.configvalues[def.CONFIGVIEWMAINPANEL] end,
                     normalize = true,
@@ -3739,7 +3742,7 @@ function M.fillProcedureTable()
                 { condition = function() return get(P.airgroundsensor) == def.OFF end },
                 { condition = function() return get(P.groundspeed) > 45 end } 
             },
-            startStep = 'ensure_departure_nav',
+            startStep = 'view_pedestal',
             label_to_index = {},
             get_index = function(self, label) return nil end,
             steps = {
@@ -3883,50 +3886,6 @@ function M.fillProcedureTable()
                         return "Trim checked " .. trimText
                     end,
                     nextStep = 'check_mcp_speed'
-                },
-                ['ensure_departure_nav'] = {
-                    skipIf = function()
-                        return P.configvalues[def.CONFIGDEPARTURENAVSETUP] ~= def.ON
-                    end,
-                    check = function(loop)
-                        local signature = P.getDepartureNavSignature()
-                        if P.departureNavCompletedSignature == signature then
-                            loop.departureNavChildPending = nil
-                            loop.departureNavPendingPlan = nil
-                            return true
-                        end
-                        if loop.departureNavChildPending then
-                            return false
-                        end
-                        if not loop.departureNavPendingPlan
-                            or loop.departureNavPendingPlan.signature ~= signature then
-                            loop.departureNavPendingPlan = P.resolveDepartureNavPlan()
-                        end
-                        if not loop.departureNavPendingPlan
-                            or loop.departureNavPendingPlan.status ~= "actionable" then
-                            P.completeDepartureNavEvaluation(loop.departureNavPendingPlan or signature)
-                            loop.departureNavPendingPlan = nil
-                            return true
-                        end
-                        return false
-                    end,
-                    action = function(loop)
-                        local childLoop = P.loopStateTables[3]
-                        if childLoop and childLoop.lock == def.DEPARTURENAVPROCEDURE then
-                            loop.departureNavChildPending = true
-                            return
-                        end
-                        if childLoop and childLoop.lock == def.NOPROCEDURE then
-                            if P.triggerChildProcedure(1, def.BEFORETAKEOFFPROCEDURE, def.DEPARTURENAVPROCEDURE, false) then
-                                loop.departureNavChildPending = true
-                                P.setDepartureNavLoopPlan(childLoop, loop.departureNavPendingPlan)
-                                P.saveLoopState(childLoop, 3)
-                                loop.departureNavPendingPlan = nil
-                            end
-                        end
-                    end,
-                    runActionInAdviceMode = true,
-                    nextStep = 'view_pedestal'
                 },
                 ['check_mcp_speed'] = {
                     skipIf = function() return (tonumber(get(P.v2speed)) or 0) <= 0 end,
@@ -7367,11 +7326,13 @@ function M.fillProcedureTable()
                 if P.configvalues[def.CONFIGDEPARTURENAVSETUP] ~= def.ON then
                     return false
                 end
-                local parentActive = P.loopStateTables and P.loopStateTables[1]
-                    and P.loopStateTables[1].lock == def.BEFORETAKEOFFPROCEDURE
-                local parentComplete = P.proceduretable[def.BEFORETAKEOFFPROCEDURE]
-                    and P.proceduretable[def.BEFORETAKEOFFPROCEDURE].set
-                return parentActive or parentComplete
+                local parentLock = P.loopStateTables and P.loopStateTables[1]
+                    and P.loopStateTables[1].lock or def.NOPROCEDURE
+                local beforeTaxiComplete = P.proceduretable[def.BEFORETAXIPROCEDURE]
+                    and P.proceduretable[def.BEFORETAXIPROCEDURE].set
+                return parentLock == def.COCKPITINITPROCEDURE
+                    or parentLock == def.BEFORETAXIPROCEDURE
+                    or beforeTaxiComplete
             end,
             allowedState = def.GROUNDONLY,
             requiredFlightstate = def.FLIGHTSTATEPREFLIGHT,

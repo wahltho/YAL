@@ -31,6 +31,7 @@ assert(migratedSettings and migratedSettings.CUSTOMAPPROACHCALC == nil, "retired
 
 local commanded = nil
 local windCorrection = 3
+local runwayHeading = 270
 package.loaded.helpers = {
     addspaces = function(value) return tostring(value) end,
     calculateApproachWindCorrection = function(runwayHeading)
@@ -44,6 +45,9 @@ package.loaded.helpers = {
         if number and number > 0 then return tostring(number) end
         return nil
     end,
+    isvalidicao = function(value) return type(value) == "string" and #value == 4 end,
+    isvalidrwy = function(value) return type(value) == "string" and #value > 0 end,
+    logInfoTS = function() end,
     padNumberWithZerosStrict = function(value, length)
         return string.format("%0" .. tostring(length) .. "d", value)
     end,
@@ -57,8 +61,12 @@ yal = {
     appvrefcalc = "appvrefcalc",
     autobrakepos = "autobrakepos",
     calctakeoffcg = "calctakeoffcg",
+    desicao = "desicao",
+    desrwy = "desrwy",
     flapleverpos = "flapleverpos",
     fmccg = "fmccg",
+    aphdgselstat = "aphdgselstat",
+    mcpheading = "mcpheading",
     mcpspeed = "mcpspeed",
     tabcg = "tabcg",
     toflaps = "toflaps",
@@ -69,7 +77,7 @@ yal = {
         [def.CONFIGVOICEADVICEONLY] = def.ON,
         [def.CONFIGFMCAUTOMATION] = def.ON,
     },
-    getDestinationRunwayHeadingMag = function() return 270 end,
+    getDestinationRunwayHeadingMag = function() return runwayHeading end,
     loopStateTables = {
         [1] = { lock = def.BEFORETAXIPROCEDURE },
         [2] = { lock = def.NOPROCEDURE },
@@ -177,5 +185,19 @@ assert(vappStep.check() == false, "uncorrected VREF should not satisfy corrected
 yal.configvalues[def.CONFIGVOICEADVICEONLY] = def.OFF
 assert(vappStep.check() == true, "automatic mode should set the resolved VAPP target")
 assert(values.mcpspeed == 130, "automatic mode should write the discrete FMC-equivalent VAPP target")
+
+local headingStep = yal.proceduretable[def.RADIOALTITUDEB1000PROCEDURE].steps.set_mcp_heading
+runwayHeading = 273
+values.desicao = "ENSB"
+values.desrwy = "27"
+values.aphdgselstat = def.OFF
+values.mcpheading = 276
+yal.approachCourseMag = 276
+yal.approachNavType = def.NAVTYPERNAV
+assert(headingStep.check() == false, "final approach course must not satisfy the runway-heading check")
+assert(headingStep.advice() == "Set M C P Heading 273", "B1000 advice must use magnetic runway heading")
+headingStep.action()
+assert(values.mcpheading == 273, "automatic B1000 handling must set magnetic runway heading")
+assert(headingStep.confirm({}) == "M C P Heading checked 273", "B1000 confirmation must report runway heading")
 
 print("test_standard_performance_setup: all checks passed")

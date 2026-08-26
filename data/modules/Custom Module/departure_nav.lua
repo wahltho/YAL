@@ -62,6 +62,13 @@ function M.contextSignature(context)
     return hashText(identity)
 end
 
+function M.shouldRetryAtBeforeTaxi(status)
+    return status == "no_selection"
+        or status == "data_unavailable"
+        or status == "sid_not_found"
+        or status == "no_explicit_raw_data"
+end
+
 local function routeFamily(routeType)
     if RNAV_ROUTE_TYPES[routeType] then return "rnav" end
     if CONVENTIONAL_ROUTE_TYPES[routeType] then return "conventional" end
