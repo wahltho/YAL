@@ -2010,6 +2010,26 @@ function P.ziboPortOwnsConfig(configKey)
     return settingRef ~= nil and isProperty(settingRef)
 end
 
+function P.isHeadingSyncEnabled()
+    local settingRef = P.ziboPortFeatureSettings
+        and P.ziboPortFeatureSettings[def.CONFIGHEADINGSYNCINTERVAL]
+    if settingRef ~= nil and isProperty(settingRef) then
+        return (read_optional_number_dataref(settingRef) or 0) > 0
+    end
+    return (tonumber(P.configvalues and P.configvalues[def.CONFIGHEADINGSYNCINTERVAL]) or 0) > 0
+end
+
+function P.shouldSkipB1000McpHeadingForAutoSync()
+    if not P.isHeadingSyncEnabled() then return false end
+    if get(P.aponstat) ~= def.ON or get(P.aphdgselstat) ~= def.OFF then return false end
+
+    local finalLateralCaptured = (get(P.aploccapturedstat) >= def.CAPTURED)
+        or (get(P.aplpvloccapturedstat) >= def.CAPTURED)
+        or (get(P.apglsloccapturedstat) >= def.CAPTURED)
+        or (get(P.apfacloccapturedstat) >= def.CAPTURED)
+    return not finalLateralCaptured
+end
+
 local function bind_external_dataref(name, kind, index, silentMissing)
     if silentMissing and not probe_external_dataref(name, kind) then
         return nil, true

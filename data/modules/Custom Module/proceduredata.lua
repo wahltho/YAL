@@ -4873,6 +4873,14 @@ function M.fillProcedureTable()
                     nextStep = 'set_mcp_heading'
                 },
                 ['set_mcp_heading'] = {
+                    skipIf = function()
+                        if P.shouldSkipB1000McpHeadingForAutoSync() then
+                            helpers.logInfoTS(
+                                "set_mcp_heading: Skipping, Auto Heading Sync owns the heading bug while AP lateral guidance is active.")
+                            return true
+                        end
+                        return false
+                    end,
                     check = function()
                         local headingrounded = getMcpHeadingTarget()
                         if not headingrounded then
