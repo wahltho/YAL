@@ -6176,6 +6176,32 @@ function P.isArrivalRunwayRadioAltGateOpen(maxThresholdDistanceNm, maxHeadingDif
 end
 
 --------------------------------------------------------------------------------------------------------------
+function P.isArrivalAltitudeGateMet(heightFt, maxThresholdDistanceNm, maxHeadingDiff)
+
+    local destinationAltitude = P.getDestinationAirportElevationFt()
+    local heightAboveField = 99999
+    if destinationAltitude and destinationAltitude > -1000 then
+        heightAboveField = get(P.altitude) - destinationAltitude
+    end
+
+    if heightAboveField < heightFt then
+        return true
+    end
+
+    local radioAltitude = get(P.radioaltitude) or 99999
+    return radioAltitude < heightFt
+        and P.isArrivalRunwayRadioAltGateOpen(maxThresholdDistanceNm, maxHeadingDiff)
+end
+
+function P.isArrivalBelow2500Gate()
+    return P.isArrivalAltitudeGateMet(2500, 8, 60)
+end
+
+function P.isArrivalBelow1000Gate()
+    return P.isArrivalAltitudeGateMet(1000, 4, 40)
+end
+
+--------------------------------------------------------------------------------------------------------------
 function P.syncProceduresOnLoad()
     helpers.logInfoTS("SYNC: Resynchronizing procedure states with aircraft status...")
 
@@ -9306,7 +9332,7 @@ function P.duringclimb()
 end
 
 --------------------------------------------------------------------------------------------------------------
-function P.triggerapproachprep()
+function P.triggerapproachprep(arrivalBelow2500)
     local desIcao = get(P.desicao)
     local desRwy = get(P.desrwy)
     local validDest = helpers.isvalidicao(desIcao) and helpers.isvalidrwy(desRwy)
@@ -9334,7 +9360,23 @@ function P.triggerapproachprep()
         P.approachPrepCompletedForKey = nil
         P.approachPrepSequenceActiveKey = nil
     end
-    if not key or P.approachPrepCompletedForKey == key then
+    if not key then
+        return
+    end
+
+    if arrivalBelow2500 == nil then
+        arrivalBelow2500 = P.isArrivalBelow2500Gate()
+    end
+    if arrivalBelow2500 then
+        if P.approachPrepCompletedForKey ~= key then
+            helpers.logInfoTS("ApproachPrepTrigger: superseded at Below 2500 gate for key=" .. tostring(key))
+        end
+        P.approachPrepCompletedForKey = key
+        P.approachPrepSequenceActiveKey = nil
+        return
+    end
+
+    if P.approachPrepCompletedForKey == key then
         return
     end
 
@@ -9511,7 +9553,10 @@ function P.duringdescent()
         P.triggerprocedure(proc_to_check)
     end
 
-    P.triggerapproachprep()
+    local altitudeB2500Conditions = P.isArrivalBelow2500Gate()
+    local altitudeB1000Conditions = P.isArrivalBelow1000Gate()
+
+    P.triggerapproachprep(altitudeB2500Conditions)
 
     local lower_airspace_alt = P.configvalues[def.CONFIGLOWEAIRSPACEALT]
     local altitudeB10kConditions = (get(P.altitude) < lower_airspace_alt)
@@ -9523,17 +9568,6 @@ function P.duringdescent()
         P.triggerprocedure(procB10k)
     end
 
-    local destination_altitude = P.getDestinationAirportElevationFt()
-
-    local height_above_field = 99999
-    if destination_altitude and destination_altitude > -1000 then
-        height_above_field = get(P.altitude) - destination_altitude
-    end
-    local radio_alt = get(P.radioaltitude) or 99999
-
-    local radioAltGateB2500 = P.isArrivalRunwayRadioAltGateOpen(8, 60)
-    local radioAltGateB1000 = P.isArrivalRunwayRadioAltGateOpen(4, 40)
-    local altitudeB2500Conditions = (height_above_field < 2500) or ((radio_alt < 2500) and radioAltGateB2500)
     local prevAltitudeB2500Conditions = P.prevAltitudeB2500Conditions == true
     if altitudeB2500Conditions and not prevAltitudeB2500Conditions then
         P.pendingAltitudeB2500Trigger = true
@@ -9551,7 +9585,6 @@ function P.duringdescent()
         end
     end
 
-    local altitudeB1000Conditions = (height_above_field < 1000) or ((radio_alt < 1000) and radioAltGateB1000)
     local prevAltitudeB1000Conditions = P.prevAltitudeB1000Conditions == true
     if altitudeB1000Conditions and not prevAltitudeB1000Conditions then
         P.pendingAltitudeB1000Trigger = true
@@ -11673,11 +11706,14 @@ function P.runProcedureLoop(loopIndex)
         elseif procData.transitionConditions then
             for _, transCond in ipairs(procData.transitionConditions) do
                 if transCond.condition() then
-                    helpers.logInfoTS("Skipping '" .. procData.name .. "' due to met transition condition.")
+                    local transitionAction = transCond.silent and "Superseding" or "Skipping"
+                    helpers.logInfoTS(transitionAction .. " '" .. procData.name .. "' due to met transition condition.")
                     P.clearYalQueuedSpeech()
 
-                    local transition_message = procData.name .. " Procedure skipped."
-                    P.commandtableentry(def.TEXT, transition_message, P.procedureSpeechKey(activeProcKey, "status", "transition"), 2)
+                    if not transCond.silent then
+                        local transition_message = procData.name .. " Procedure skipped."
+                        P.commandtableentry(def.TEXT, transition_message, P.procedureSpeechKey(activeProcKey, "status", "transition"), 2)
+                    end
                     P.stopChildProceduresForParent(loopIndex, activeProcKey, true)
 
                     -- 1. Prozedur als erledigt markieren

@@ -4679,6 +4679,9 @@ function M.fillProcedureTable()
             allowedState = def.AIRONLY,
             requiredFlightstate = { def.FLIGHTSTATECRUISE, def.FLIGHTSTATEAPPROACH },
             skipCondition = nil,
+            transitionConditions = {
+                { condition = function() return P.isArrivalBelow2500Gate() end, silent = true }
+            },
             prerequisiteChecks = {
                 { check = function() return get(P.airgroundsensor) == def.OFF end, 
                   failMsg = "Procedure only available Inflight" },
@@ -4765,6 +4768,9 @@ function M.fillProcedureTable()
             allowedState = def.AIRONLY,
             requiredFlightstate = { def.FLIGHTSTATECRUISE, def.FLIGHTSTATEAPPROACH },
             skipCondition = nil,
+            transitionConditions = {
+                { condition = function() return P.isArrivalBelow1000Gate() end, silent = true }
+            },
             prerequisiteChecks = {
                 { check = function() return get(P.airgroundsensor) == def.OFF end, 
                   failMsg = "Procedure only available Inflight" }
@@ -6305,9 +6311,12 @@ function M.fillProcedureTable()
             set = false, 
             loop = 3, 
             prerequisite = nil, 
-            allowedState = nil, 
+            allowedState = def.AIRONLY,
             requiredFlightstate = { def.FLIGHTSTATECRUISE, def.FLIGHTSTATEAPPROACH, def.FLIGHTSTATEINITIALCLIMB }, 
             skipCondition = nil,
+            transitionConditions = {
+                { condition = function() return P.isArrivalBelow2500Gate() end, silent = true }
+            },
             repeatable = true, 
             startStep = 'view_fms',
             steps = {
@@ -6903,9 +6912,12 @@ function M.fillProcedureTable()
             set = false, 
             loop = 3, 
             prerequisite = nil, 
-            allowedState = nil, 
+            allowedState = def.AIRONLY,
             requiredFlightstate = { def.FLIGHTSTATECRUISE, def.FLIGHTSTATEAPPROACH, def.FLIGHTSTATEINITIALCLIMB }, 
             skipCondition = nil,
+            transitionConditions = {
+                { condition = function() return P.isArrivalBelow2500Gate() end, silent = true }
+            },
             repeatable = true, 
             startStep = 'view_fms',
             steps = {
@@ -7083,9 +7095,12 @@ function M.fillProcedureTable()
             set = false,
             loop = 3,
             prerequisite = nil,
-            allowedState = nil,
+            allowedState = def.AIRONLY,
             requiredFlightstate = { def.FLIGHTSTATECRUISE, def.FLIGHTSTATEAPPROACH, def.FLIGHTSTATEINITIALCLIMB },
             skipCondition = nil,
+            transitionConditions = {
+                { condition = function() return P.isArrivalBelow2500Gate() end, silent = true }
+            },
             repeatable = true,
             startStep = 'view_fms',
             steps = {
@@ -7293,9 +7308,12 @@ function M.fillProcedureTable()
             set = false,
             loop = 3,
             prerequisite = nil,
-            allowedState = nil,
+            allowedState = def.AIRONLY,
             requiredFlightstate = { def.FLIGHTSTATECRUISE, def.FLIGHTSTATEAPPROACH, def.FLIGHTSTATEINITIALCLIMB },
             skipCondition = nil,
+            transitionConditions = {
+                { condition = function() return P.isArrivalBelow2500Gate() end, silent = true }
+            },
             repeatable = true,
             startStep = 'set_autobrake',
             steps = {
