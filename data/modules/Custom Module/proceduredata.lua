@@ -5946,13 +5946,13 @@ function M.fillProcedureTable()
                         end
                         return "Wing Tank Fuel Pumps checked Off"
                     end,
-                    nextStep = 'hyd_pumps_off'
+                    nextStep = 'eng_hyd_pumps_on'
                 },
-                ['hyd_pumps_off'] = {
-                    check = function() return (get(P.hydro1pos) == def.OFF) and (get(P.hydro2pos) == def.OFF) end,
-                    action = function() set(P.hydro1pos, def.OFF); set(P.hydro2pos, def.OFF) end,
-                    advice = "Switch Both Engine-Driven Hydraulic Pumps Off",
-                    confirm = "Both Engine-Driven Hydraulic Pumps checked Off",
+                ['eng_hyd_pumps_on'] = {
+                    check = function() return (get(P.hydro1pos) == def.ON) and (get(P.hydro2pos) == def.ON) end,
+                    action = function() set(P.hydro1pos, def.ON); set(P.hydro2pos, def.ON) end,
+                    advice = "Set Both Engine-Driven Hydraulic Pumps On",
+                    confirm = "Both Engine-Driven Hydraulic Pumps checked On",
                     nextStep = 'elec_hyd_pumps_off'
                 },
                 ['elec_hyd_pumps_off'] = {
@@ -6072,13 +6072,13 @@ function M.fillProcedureTable()
                     end,
                     advice = "Set Wing Tank Pumps Off",
                     confirm = "Wing Tank Pumps checked Off",
-                    nextStep = 'hyd_pumps_off'
+                    nextStep = 'eng_hyd_pumps_on'
                 },
-                ['hyd_pumps_off'] = {
-                    check = function() return (get(P.hydro1pos) == def.OFF) and (get(P.hydro2pos) == def.OFF) end,
-                    action = function() set(P.hydro1pos, def.OFF); set(P.hydro2pos, def.OFF) end,
-                    advice = "Switch Both Hydraulic Pumps Off",
-                    confirm = "Both Hydraulic Pumps checked Off",
+                ['eng_hyd_pumps_on'] = {
+                    check = function() return (get(P.hydro1pos) == def.ON) and (get(P.hydro2pos) == def.ON) end,
+                    action = function() set(P.hydro1pos, def.ON); set(P.hydro2pos, def.ON) end,
+                    advice = "Set Both Engine-Driven Hydraulic Pumps On",
+                    confirm = "Both Engine-Driven Hydraulic Pumps checked On",
                     nextStep = 'elec_hyd_pumps_off'
                 },
                 ['elec_hyd_pumps_off'] = {
