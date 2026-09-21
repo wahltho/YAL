@@ -31,7 +31,7 @@ These commands can be assigned to keyboard keys or joystick buttons in the X-Pla
 
 ### Core Functions
 - Reset: Resynchronizes YAL's internal state with the current aircraft state.
-- Reset for New Flight: Completely resets procedure progress for the next leg.
+- Reset for New Flight: Resets procedure progress, PREFLIGHT state and departure taxi/pushback routing for the next leg.
 - Cycle Through Procedures: Manually triggers the next logical uncompleted procedure.
 - Step Once (Advice Only): In Voice Advice Only mode, executes the current step exactly once, then returns to advice-only behavior.
 - Skip Procedure Step: Skips the current active step in a running procedure.
@@ -94,7 +94,7 @@ Actions: Probe/window heat, starter mode, flight directors, and other standard t
 
 #### Before Takeoff Procedure
 Trigger: Aircraft is on the departure runway, aligned, and stopped.
-Actions: Position lights to STROBE, landing lights ON, taxi lights OFF, autobrake to RTO, final takeoff-trim check, MCP speed/heading checks, LNAV/VNAV/A/T checks, and wind report.
+Actions: Position lights to STROBE, landing lights ON, taxi lights OFF, autobrake to RTO, final takeoff-trim check, MCP speed/heading checks, LNAV/VNAV/A/T checks, and wind report. MCP speed normally uses V2; a deliberate pilot selection above V2 is retained for the departure, while a value below V2 is still corrected.
 
 #### After Takeoff Procedure
 Trigger: Automatically after liftoff.
@@ -140,7 +140,7 @@ The settings window allows detailed customization of all automatic features.
 - Automatic Functions: Master switch for automatic procedures and background tasks.
 - FMC Automation: Allows YAL to automate FMC page changes and FMC data entries when a procedure supports it.
 - Voice Advice Only: YAL gives spoken guidance but does not perform cockpit actions automatically.
-- Departure NAV Setup: Optional and disabled by default. During Cockpit Init, YAL may set or advise a single unambiguous captain-side VOR/course assignment for a conventional SID. If the departure setup is not yet available, YAL checks it again during Before Taxi. RNAV/FMS/vector departures and ambiguous data remain unchanged and silent. A later departure runway, SID or route change causes the setup to be evaluated again before takeoff.
+- Departure NAV Setup: Optional and disabled by default. During Cockpit Init, YAL may set or advise a single unambiguous captain-side VOR/course assignment for a conventional SID. If the departure setup is not yet available, YAL checks it again during Before Taxi. RNAV/FMS/vector departures and ambiguous data remain unchanged and silent. A later departure runway or SID change can be evaluated again before Before Takeoff starts; an ordinary FMC Legs refresh does not restart the setup. Skipping Before Taxi or its NAV child suppresses another automatic run for the same departure selection.
 - Voice Advice Repeat Skip (cycles): Only repeats the same advice every Nth cycle.
 - Voice Advice Max Repeats (0/99=off): Limits identical repeated advice for one step. When the limit is reached, the step is skipped automatically.
 - Voice Advice Trim Popup: Enables the trim popup during the takeoff trim advice step.
@@ -158,7 +158,7 @@ The settings window allows detailed customization of all automatic features.
 - Auto Flight Save EFB Position(s) (ignored if save is off): Save slot/EFB target used by periodic YAL flight saves.
 - Disable XP Wake Effects: Suppresses X-Plane wake effects from other aircraft.
 - XP Runway Friction Clamp: Enables runway-friction clamp logic.
-- Automatic Anti Icing: Manages airborne engine and wing anti-ice separately. Engine anti-ice follows stable TAT/visible-moisture conditions, including detected cloud layers, precipitation and low-visibility fog/mist near terrain, plus the climb/cruise SAT exception below -40 C; descent remains protected. Wing anti-ice requires stable structural ice on either side and is inhibited below 400 feet AGL, above 10 C TAT, and from FL350 upward. If structural ice is detected while wing anti-ice is inhibited, YAL advises leaving the icing conditions instead of switching wing anti-ice on. Activation and clearing are time-latched to reject transient weather/ice samples. Voice Advice Only uses the same criteria without moving the switches.
+- Automatic Anti Icing: Manages airborne engine and wing anti-ice separately. Engine anti-ice follows stable TAT/visible-moisture conditions, including detected cloud layers, precipitation and low-visibility fog/mist near terrain, plus the climb/cruise SAT exception below -40 C; descent remains protected. During a vertical climb or descent, YAL evaluates the local cloud and temperature profile ahead so a sustained icing layer can be anticipated; descent can look up to two minutes ahead. After a temperature-driven OFF, a cloud-only re-arm requires a sustained qualifying corridor, while current precipitation, snow, hail, fog or actual ice evidence remains actionable. The lookahead is ignored when its weather profile is incomplete. Wing anti-ice requires stable structural ice on either side and is inhibited below 400 feet AGL, above 10 C TAT, and from FL350 upward. If structural ice is detected while wing anti-ice is inhibited, YAL advises leaving the icing conditions instead of switching wing anti-ice on. Activation and clearing are time-latched to reject transient weather/ice samples. Voice Advice Only uses the same criteria without moving the switches.
 - Automatic Wipers: Controls wiper speed based on rain intensity.
 - Automatic Baro Settings: Sets local QNH or standard baro where appropriate.
 - Automatic Center Tank Handling: Manages center tank pumps automatically.

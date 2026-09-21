@@ -57,6 +57,7 @@ package.loaded.refdata = {}
 
 yal = {
     appflaps = "appflaps",
+    appflapsset = "appflapsset",
     approachspeed = "approachspeed",
     appvrefcalc = "appvrefcalc",
     autobrakepos = "autobrakepos",
@@ -185,6 +186,30 @@ assert(vappStep.check() == false, "uncorrected VREF should not satisfy corrected
 yal.configvalues[def.CONFIGVOICEADVICEONLY] = def.OFF
 assert(vappStep.check() == true, "automatic mode should set the resolved VAPP target")
 assert(values.mcpspeed == 130, "automatic mode should write the discrete FMC-equivalent VAPP target")
+
+local landingFlapsStep = yal.proceduretable[def.RADIOALTITUDEB1000PROCEDURE].steps.set_app_flaps
+local landingFlapsLoop = {}
+values.appflaps = 15
+values.appflapsset = def.OFF
+values.flapleverpos = 30
+commanded = nil
+assert(landingFlapsStep.check(landingFlapsLoop) == false, "FMC Flaps 15 must not accept actual Flaps 30")
+assert(
+    landingFlapsStep.advice() == "Landing flaps and V REF mismatch. F M C Flaps 15, actual Flaps 30",
+    "final mismatch advice should report both targets instead of requesting retraction"
+)
+landingFlapsStep.action(landingFlapsLoop)
+assert(commanded == nil, "B1000 must never retract landing flaps to a lower FMC target")
+
+local goAroundFlapsStep = yal.proceduretable[def.GOAROUNDPROCEDURE].steps.set_flaps_15
+values.flapleverpos = def.FLAPS30
+commanded = nil
+assert(goAroundFlapsStep.check() == false, "Go Around must not accept Flaps 30 as Flaps 15")
+assert(goAroundFlapsStep.advice == "Set Flaps 15", "Go Around should own the Flaps 15 advice")
+goAroundFlapsStep.action()
+assert(commanded == "laminar/B738/push_button/flaps_15", "Go Around Auto mode should command Flaps 15")
+values.flapleverpos = def.FLAPS15
+assert(goAroundFlapsStep.check() == true, "Go Around Flaps 15 step should pass only at Flaps 15")
 
 local headingStep = yal.proceduretable[def.RADIOALTITUDEB1000PROCEDURE].steps.set_mcp_heading
 runwayHeading = 273

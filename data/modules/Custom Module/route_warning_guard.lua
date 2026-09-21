@@ -83,4 +83,93 @@ function P.evaluatePositiveTodSample(input)
     return result
 end
 
+function P.evaluateArrivalSetup(input)
+    input = input or {}
+    if input.approach_source_available ~= true then
+        return { status = "unavailable", reason = "approach-source-unavailable", incomplete = false }
+    end
+
+    local missingKind = nil
+    if input.destination_valid ~= true then
+        missingKind = "destination"
+    elseif input.runway_valid ~= true then
+        missingKind = "runway"
+    elseif input.approach_selected ~= true then
+        missingKind = "approach"
+    end
+
+    if not missingKind then
+        return { status = "clear", reason = "arrival-setup-complete", incomplete = false }
+    end
+
+    local result = {
+        status = "hold",
+        reason = "outside-warning-gate",
+        incomplete = true,
+        missing_kind = missingKind
+    }
+    local missingFor = finiteNumber(input.missing_for_sec) or 0
+    local stableSec = finiteNumber(input.stable_sec) or 8
+    if missingFor < stableSec then
+        result.reason = "missing-not-stable"
+        return result
+    end
+
+    if input.post_tod_eligible == true then
+        if input.early_warned == true or input.final_warned == true then
+            result.reason = "pre-tod-warning-already-issued"
+        elseif input.fallback_warned ~= true then
+            result.status = "warning"
+            result.reason = "post-tod-fallback"
+            result.stage = "fallback"
+        else
+            result.reason = "post-tod-already-warned"
+        end
+        return result
+    end
+
+    if input.pre_tod_eligible ~= true then
+        return result
+    end
+
+    local todDistance = finiteNumber(input.tod_distance_nm)
+    if not todDistance or todDistance <= 0 then
+        result.reason = "tod-invalid"
+        return result
+    end
+    result.tod_distance_nm = todDistance
+
+    local finalTodNm = finiteNumber(input.final_tod_nm) or 30
+    if todDistance <= finalTodNm then
+        if input.final_warned ~= true then
+            result.status = "warning"
+            result.reason = "final-tod-gate"
+            result.stage = "final"
+        else
+            result.reason = "final-already-warned"
+        end
+        return result
+    end
+
+    local groundSpeed = finiteNumber(input.ground_speed_kt)
+    local earlyEligible = false
+    if groundSpeed and groundSpeed >= 100 then
+        result.time_to_tod_min = (todDistance / groundSpeed) * 60
+        earlyEligible = result.time_to_tod_min <= (finiteNumber(input.early_tod_min) or 10)
+    else
+        earlyEligible = todDistance <= (finiteNumber(input.early_tod_fallback_nm) or 75)
+    end
+
+    if earlyEligible then
+        if input.early_warned ~= true then
+            result.status = "warning"
+            result.reason = "early-tod-gate"
+            result.stage = "early"
+        else
+            result.reason = "early-already-warned"
+        end
+    end
+    return result
+end
+
 return P

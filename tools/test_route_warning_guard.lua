@@ -77,4 +77,72 @@ result = evaluate({
 assert_equal(result.status, "candidate", "destination distance remains the off-route fallback")
 assert_equal(result.reference_distance_nm, 140, "off-route fallback reference")
 
+local function evaluate_arrival_setup(overrides)
+    local input = {
+        approach_source_available = true,
+        destination_valid = true,
+        runway_valid = true,
+        approach_selected = false,
+        missing_for_sec = 10,
+        stable_sec = 8,
+        pre_tod_eligible = true,
+        post_tod_eligible = false,
+        tod_distance_nm = 75,
+        ground_speed_kt = 450,
+        early_tod_min = 10,
+        early_tod_fallback_nm = 75,
+        final_tod_nm = 30,
+        early_warned = false,
+        final_warned = false,
+        fallback_warned = false
+    }
+    for key, value in pairs(overrides or {}) do input[key] = value end
+    return guard.evaluateArrivalSetup(input)
+end
+
+result = evaluate_arrival_setup()
+assert_equal(result.status, "warning", "missing approach triggers at ten minutes to TOD")
+assert_equal(result.stage, "early", "ten-minute reminder uses early stage")
+assert_equal(result.missing_kind, "approach", "missing approach is identified directly")
+
+result = evaluate_arrival_setup({ missing_for_sec = 7 })
+assert_equal(result.status, "hold", "transient missing approach is stabilized")
+assert_equal(result.reason, "missing-not-stable", "transient selection reason")
+
+result = evaluate_arrival_setup({ tod_distance_nm = 30 })
+assert_equal(result.status, "warning", "missing approach triggers final TOD reminder")
+assert_equal(result.stage, "final", "thirty-mile reminder uses final stage")
+
+result = evaluate_arrival_setup({
+    pre_tod_eligible = false,
+    post_tod_eligible = true,
+    tod_distance_nm = 0
+})
+assert_equal(result.status, "warning", "post-TOD fallback catches a missed reminder")
+assert_equal(result.stage, "fallback", "post-TOD reminder uses fallback stage")
+
+result = evaluate_arrival_setup({
+    pre_tod_eligible = false,
+    post_tod_eligible = true,
+    tod_distance_nm = 0,
+    early_warned = true
+})
+assert_equal(result.status, "hold", "post-TOD fallback does not repeat a pre-TOD reminder")
+assert_equal(result.reason, "pre-tod-warning-already-issued", "post-TOD repeat suppression reason")
+
+result = evaluate_arrival_setup({ approach_selected = true })
+assert_equal(result.status, "clear", "selected approach completes arrival setup")
+assert_equal(result.incomplete, false, "complete setup does not suppress route checks")
+
+result = evaluate_arrival_setup({ runway_valid = false })
+assert_equal(result.missing_kind, "runway", "missing runway takes priority over approach")
+
+result = evaluate_arrival_setup({
+    approach_source_available = false,
+    destination_valid = false,
+    runway_valid = false
+})
+assert_equal(result.status, "unavailable", "missing source fails open")
+assert_equal(result.incomplete, false, "missing source does not suppress legacy route checks")
+
 print("test_route_warning_guard: all checks passed")

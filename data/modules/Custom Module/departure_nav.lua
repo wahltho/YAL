@@ -56,8 +56,7 @@ function M.contextSignature(context)
         clean(context.icao),
         normalizeRunway(context.runway),
         normalizeSelection(context.sid),
-        normalizeSelection(context.transition),
-        clean(context.legs)
+        normalizeSelection(context.transition)
     }, "|")
     return hashText(identity)
 end

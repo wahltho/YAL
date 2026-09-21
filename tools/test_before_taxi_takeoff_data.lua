@@ -58,7 +58,7 @@ values.vrsetspeed = 135
 values.v2setspeed = 140
 
 assert(ensure.check(loop) == true, "complete takeoff data should pass silently")
-assert(ensure.branch(loop) == "view_throttle", "complete data should continue to flap lever")
+assert(ensure.branch(loop) == "ensure_departure_nav", "complete data should continue to Departure NAV")
 assert(yal.lastTrigger == nil, "complete takeoff data must not trigger the child")
 
 values.v2setspeed = 0
@@ -76,7 +76,7 @@ assert(ensure.branch(loop) == false, "running child must not advance Before Taxi
 yal.proceduretable[def.SETTOFLAPSPROCEDURE].set = true
 yal.loopStateTables[3].lock = def.NOPROCEDURE
 assert(ensure.check(loop) == true, "completed child should release Before Taxi")
-assert(ensure.branch(loop) == "view_throttle", "completed child should continue to flap lever")
+assert(ensure.branch(loop) == "ensure_departure_nav", "completed child should continue to Departure NAV")
 assert(loop.takeoffDataChildPending == nil, "child wait latch should clear")
 assert(
     yal.proceduretable[def.SETTOFLAPSPROCEDURE].prerequisite() == true,

@@ -115,7 +115,15 @@ assert(departureNav.contextSignature(changedRunway) ~= signature, "runway change
 local changedLegs = {}
 for key, value in pairs(base) do changedLegs[key] = value end
 changedLegs.legs = "ENAT RW11 ELSEV ATA NEWFIX"
-assert(departureNav.contextSignature(changedLegs) ~= signature, "route/transition change must invalidate context")
+assert(departureNav.contextSignature(changedLegs) == signature, "ordinary Legs refresh must not restart Departure NAV")
+local changedSid = {}
+for key, value in pairs(base) do changedSid[key] = value end
+changedSid.sid = "NEW1A"
+assert(departureNav.contextSignature(changedSid) ~= signature, "selected SID change must invalidate context")
+local changedTransition = {}
+for key, value in pairs(base) do changedTransition[key] = value end
+changedTransition.transition = "ELSEV"
+assert(departureNav.contextSignature(changedTransition) ~= signature, "selected transition change must invalidate context")
 
 assert(departureNav.shouldRetryAtBeforeTaxi("no_selection") == true, "missing Cockpit Init selection must retry Before Taxi")
 assert(departureNav.shouldRetryAtBeforeTaxi("data_unavailable") == true, "temporarily unavailable data must retry Before Taxi")
@@ -214,8 +222,8 @@ local beforeTaxiEnsure = beforeTaxi.steps.ensure_departure_nav
 local beforeTakeoff = yal.proceduretable[def.BEFORETAKEOFFPROCEDURE]
 assert(cockpitInit.steps.wait_settoflaps_done.nextStep == "ensure_departure_nav", "Cockpit Init must run Departure NAV after takeoff data")
 assert(cockpitEnsure.nextStep == "view_pedestal", "Cockpit Init must continue with its established pedestal sequence")
-assert(beforeTaxi.startStep == "ensure_departure_nav", "Before Taxi must retry Departure NAV before its established first step")
-assert(beforeTaxiEnsure.nextStep == "view_main_panel", "Before Taxi must continue with its established main-panel step")
+assert(beforeTaxi.startStep == "view_main_panel", "Before Taxi must retain its established first step")
+assert(beforeTaxiEnsure.nextStep == "view_throttle", "Before Taxi resumes at the throttle view after NAV setup")
 assert(beforeTakeoff.startStep == "view_pedestal", "Before Takeoff must retain its established first step")
 assert(beforeTakeoff.steps.ensure_departure_nav == nil, "Before Takeoff must no longer own Departure NAV")
 assert(beforeTakeoff.steps.check_takeoff_trim.nextStep == "check_mcp_speed", "trim must no longer defer Departure NAV until takeoff roll")

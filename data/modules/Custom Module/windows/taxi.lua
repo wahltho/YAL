@@ -13341,6 +13341,29 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
         return updateTaxiState(self, map)
     end
 
+    function comp:resetForNewFlight()
+        self.mode = 0
+        self.autoMode = 0
+        self.modeOverride = false
+        self._lastMode = nil
+        self._lastUpdate = nil
+        self._route = nil
+        self._routeContext = nil
+        self._aircraftPoint = nil
+        self._lastArrivalIcao = nil
+        self._pushbackStartedEver = false
+        self._pushbackActive = false
+        self._pushbackCompleted = false
+        self._pushbackPlanSeen = false
+        self._guidancePushbackReleased = nil
+        self._pushbackReleaseAnchor = nil
+        self._pushbackReanchorPending = nil
+        self._pushbackReanchorDone = nil
+        self._pushbackReanchorTime = nil
+        clear_pushback_join_hold(self)
+        log_taxi("TaxiRoute: new flight reset to DEP mode")
+    end
+
     function comp:getRunwayCrossingAutoUnicomState(phase)
         local result = {
             valid = false,

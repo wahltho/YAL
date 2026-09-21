@@ -5360,6 +5360,19 @@ local function collectLegNameSet(legs_string, lat_array, lon_array)
     return names
 end
 
+local function normalizeRawSelectedApproachId(selectedAppId)
+    if type(selectedAppId) ~= "string" then
+        return nil
+    end
+    local id = trimString(selectedAppId):upper():gsub("%s+", "")
+    if id == "" or id == "------" then
+        return nil
+    end
+    return id
+end
+
+P.normalizeRawSelectedApproachId = normalizeRawSelectedApproachId
+
 local function parseSelectedApproachId(selectedAppId, expectedRunway)
     local parsed = parseApproachCode(selectedAppId, expectedRunway)
     if not parsed or not parsed.runway then

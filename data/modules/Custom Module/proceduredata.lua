@@ -328,6 +328,9 @@ local function normalizeSelectedApproachId(selectedAppId)
 end
 
 local function normalizeRawSelectedApproachId(selectedAppId)
+    if helpers and helpers.normalizeRawSelectedApproachId then
+        return helpers.normalizeRawSelectedApproachId(selectedAppId)
+    end
     if type(selectedAppId) ~= "string" then
         return nil
     end
@@ -2131,7 +2134,7 @@ function M.fillProcedureTable()
                 },
                 ['check_departure_airport_match'] = {
                     runActionInAdviceMode = true,
-                    action = function(loop)
+                    action = function()
                         local depIcao = string.upper(helpers.forceCleanString(get(P.depicao) or ""))
                         local nearestIcao = string.upper((helpers.forceCleanString(get(P.nearesticao) or "")):sub(1, 4))
                         if helpers.isvalidicao(depIcao) and helpers.isvalidicao(nearestIcao) then
@@ -2741,7 +2744,11 @@ function M.fillProcedureTable()
                             P._bpbNoPushbackAnnounced = nil
                         end
                         P._bpbNoPushbackAnnounced = nil
-                        return P.BPBPlanComplete and (get(P.BPBPlanComplete) == 1)
+                        local planComplete = P.BPBPlanComplete and (get(P.BPBPlanComplete) == 1)
+                        if planComplete then
+                            helpers.logInfoTS("Pushback: plan step skipped because BetterPushback already has a plan")
+                        end
+                        return planComplete
                     end,
                     action = function(loop)
                         if not loop.bpbPlannerAttempted then
@@ -2766,6 +2773,7 @@ function M.fillProcedureTable()
                         if hint and hint ~= "" then
                             return "Plan Pushback (" .. hint .. ")"
                         end
+                        helpers.logInfoTS("Pushback: no direction hint from current DEP taxi geometry")
                         return "Plan Pushback"
                     end,
                     confirm = "Plan Pushback",
@@ -3372,7 +3380,7 @@ function M.fillProcedureTable()
                 { check = function() return P.enginesrunning(def.BOTH) end, 
                   failMsg = "Procedure aborted, Engines not running" }
             },
-            startStep = 'ensure_departure_nav',
+            startStep = 'view_main_panel',
             steps = {
                 ['ensure_departure_nav'] = {
                     skipIf = function()
@@ -3385,7 +3393,7 @@ function M.fillProcedureTable()
                         P.runDepartureNavParentStep(loop, def.BEFORETAXIPROCEDURE)
                     end,
                     runActionInAdviceMode = true,
-                    nextStep = 'view_main_panel'
+                    nextStep = 'view_throttle'
                 },
                 ['view_main_panel'] = {
                     view = function() return P.configvalues[def.CONFIGVIEWMAINPANEL] end,
@@ -3620,7 +3628,7 @@ function M.fillProcedureTable()
                         end
                         if childDone or isTakeoffDataComplete() then
                             loop.takeoffDataChildPending = nil
-                            return 'view_throttle'
+                            return 'ensure_departure_nav'
                         end
                         return false
                     end,
@@ -3890,26 +3898,41 @@ function M.fillProcedureTable()
                 ['check_mcp_speed'] = {
                     skipIf = function() return (tonumber(get(P.v2speed)) or 0) <= 0 end,
                     check = function()
-                        local target = tonumber(get(P.v2speed)) or 0
+                        if P.isDepartureMcpSpeedSelectionPending() then
+                            return false
+                        end
+                        local target = P.getDepartureMcpSpeedTarget()
                         if target <= 0 then
                             return true
                         end
-                        return get(P.mcpspeed) == target
+                        local current = helpers.roundnumber(tonumber(get(P.mcpspeed)) or 0, 0)
+                        return current == target
+                    end,
+                    branch = function()
+                        if P.isDepartureMcpSpeedSelectionPending() then
+                            return true
+                        end
+                        return false
                     end,
                     action = function()
-                        if P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON then
-                            local target = tonumber(get(P.v2speed)) or 0
+                        if P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON
+                            and not P.isDepartureMcpSpeedSelectionPending() then
+                            local target = P.getDepartureMcpSpeedTarget()
                             if target > 0 then
-                                set(P.mcpspeed, target)
+                                P.setDepartureMcpSpeed(target)
                             end
                         end
                     end,
                     advice = function()
-                        local target = tonumber(get(P.v2speed)) or 0
+                        if P.isDepartureMcpSpeedSelectionPending() then
+                            return nil
+                        end
+                        local target = P.getDepartureMcpSpeedTarget()
                         return "Set M C P Speed " .. helpers.addspaces(target)
                     end,
                     confirm = function()
-                        return "M C P Speed checked " .. helpers.addspaces(get(P.mcpspeed))
+                        local current = helpers.roundnumber(tonumber(get(P.mcpspeed)) or 0, 0)
+                        return "M C P Speed checked " .. helpers.addspaces(current)
                     end,
                     nextStep = 'check_mcp_heading'
                 },
@@ -4069,6 +4092,14 @@ function M.fillProcedureTable()
                     action = function() 
                         set(P.gearhandlepos, def.GEARUP) 
                     end,
+                    nextStep = 'wait_gear_stowed'
+                },
+                ['wait_gear_stowed'] = {
+                    check = function()
+                        return P.isGearFullyRetracted()
+                    end,
+                    advice = nil,
+                    action = nil,
                     confirm = "Gear checked Up",
                     nextStep = 'set_gear_lever_off'
                 },
@@ -4077,19 +4108,13 @@ function M.fillProcedureTable()
                         return get(P.gearhandlepos) == def.GEAROFF
                     end,
                     advice = function()
-                        local gear_is_stowed = (get(P.lgeardeployed) == 0) and
-                                               (get(P.ngeardeployed) == 0) and
-                                               (get(P.rgeardeployed) == 0)
-                        if (get(P.gearhandlepos) == def.GEARUP) and gear_is_stowed then
+                        if (get(P.gearhandlepos) == def.GEARUP) and P.isGearFullyRetracted() then
                             return "Set Gear Lever Off"
                         end
                         return false
                     end,
                     action = function()
-                        local gear_is_stowed = (get(P.lgeardeployed) == 0) and
-                                               (get(P.ngeardeployed) == 0) and
-                                               (get(P.rgeardeployed) == 0)
-                        if (get(P.gearhandlepos) == def.GEARUP) and gear_is_stowed then
+                        if (get(P.gearhandlepos) == def.GEARUP) and P.isGearFullyRetracted() then
                             set(P.gearhandlepos, def.GEAROFF)
                         end
                     end,
@@ -4835,9 +4860,43 @@ function M.fillProcedureTable()
                     nextStep = 'set_app_flaps'
                 },
                 ['set_app_flaps'] = {
-                    check = function() return (get(P.appflapsset) == def.ON) or (get(P.appflaps) == 0) end,
-                    advice = function() return "Set Flaps " .. tostring(get(P.appflaps)) end,
-                    action = function() helpers.command_once("laminar/B738/push_button/flaps_" .. tostring(get(P.appflaps))) end,
+                    check = function(loop)
+                        local target = helpers.roundnumber(tonumber(get(P.appflaps)) or 0, 0)
+                        if target <= 0 then return true end
+                        local actual = helpers.convflaplevertoflappos(get(P.flapleverpos))
+                        if actual > target then
+                            local mismatchKey = tostring(target) .. "|" .. tostring(actual)
+                            if loop and loop.appFlapsMismatchKey ~= mismatchKey then
+                                helpers.logInfoTS(
+                                    "B1000 landing flaps mismatch: FMC target=" .. tostring(target) ..
+                                    " actual lever=" .. tostring(actual) ..
+                                    "; automatic flap retraction inhibited.")
+                                loop.appFlapsMismatchKey = mismatchKey
+                            end
+                            return false
+                        elseif loop then
+                            loop.appFlapsMismatchKey = nil
+                        end
+                        return get(P.appflapsset) == def.ON
+                    end,
+                    advice = function()
+                        local target = helpers.roundnumber(tonumber(get(P.appflaps)) or 0, 0)
+                        local actual = helpers.convflaplevertoflappos(get(P.flapleverpos))
+                        if target > 0 and actual > target then
+                            return "Landing flaps and V REF mismatch. F M C Flaps " ..
+                                tostring(target) .. ", actual Flaps " .. tostring(actual)
+                        end
+                        return "Set Flaps " .. tostring(target)
+                    end,
+                    action = function(loop)
+                        local target = helpers.roundnumber(tonumber(get(P.appflaps)) or 0, 0)
+                        local actual = helpers.convflaplevertoflappos(get(P.flapleverpos))
+                        if target <= 0 then return end
+                        if actual > target then
+                            return
+                        end
+                        helpers.command_once("laminar/B738/push_button/flaps_" .. tostring(target))
+                    end,
                     confirm = function() return "Flaps checked and " .. tostring(get(P.appflaps)) end,
                     nextStep = 'check_mcp_speed_vapp'
                 },
@@ -4995,7 +5054,8 @@ function M.fillProcedureTable()
             number = 24,
             name = "Go Around",
             cycable = false,
-            speakname = true,
+            speakname = false,
+            repeatable = true,
             set = false,
             loop = 2,
             prerequisite = nil,
@@ -5016,11 +5076,14 @@ function M.fillProcedureTable()
                 ['announce_goaround'] = {
                     action = function()
                         local loop1 = P.loopStateTables and P.loopStateTables[1]
+                        P.clearYalQueuedSpeech()
                         if loop1 and loop1.lock ~= def.NOPROCEDURE then
-                            helpers.logInfoTS("Go Around: aborting active procedure on Loop 1 (ID: " .. tostring(loop1.lock) .. ").")
-                            loop1.procedureabort = true
-                            loop1.procedureskipstep = false
-                            loop1.setonabort = false
+                            local abortedProcId = loop1.lock
+                            helpers.logInfoTS("Go Around: immediately stopping active procedure on Loop 1 (ID: " .. tostring(abortedProcId) .. ").")
+                            P.stopChildProceduresForParent(1, abortedProcId, false)
+                            P.resetLoopState(loop1)
+                            loop1.lock = def.NOPROCEDURE
+                            P.saveLoopState(loop1, 1)
                         end
                         if P.proceduretable[def.RADIOALTITUDEB2500PROCEDURE] then
                             P.proceduretable[def.RADIOALTITUDEB2500PROCEDURE].set = false
@@ -5028,9 +5091,12 @@ function M.fillProcedureTable()
                         if P.proceduretable[def.RADIOALTITUDEB1000PROCEDURE] then
                             P.proceduretable[def.RADIOALTITUDEB1000PROCEDURE].set = false
                         end
-                        P.commandtableentry(def.TEXT, "Go Around")
+                        P.commandtableentry(
+                            def.TEXT,
+                            "Go Around activated",
+                            P.procedureSpeechKey(def.GOAROUNDPROCEDURE, "announce_goaround", "activation"),
+                            2)
                     end,
-                    confirm = "Go Around acknowledged",
                     nextStep = 'set_goaround_speed'
                 },
                 ['set_goaround_speed'] = {
@@ -5064,7 +5130,6 @@ function M.fillProcedureTable()
                             set(P.gearhandlepos, def.GEARUP)
                         end
                     end,
-                    confirm = "Gear checked Up",
                     nextStep = 'set_missed_altitude'
                 },
                 ['set_missed_altitude'] = {
@@ -5141,10 +5206,22 @@ function M.fillProcedureTable()
                 ['set_flaps_15'] = {
                     check = function()
                         local flaps = get(P.flapleverpos)
-                        return flaps and flaps >= def.FLAPS15
+                        return flaps and flaps == def.FLAPS15
+                    end,
+                    advice = "Set Flaps 15",
+                    action = function()
+                        helpers.command_once("laminar/B738/push_button/flaps_15")
+                    end,
+                    confirm = "Flaps checked 15",
+                    nextStep = 'wait_gear_stowed'
+                },
+                ['wait_gear_stowed'] = {
+                    check = function()
+                        return P.isGearFullyRetracted()
                     end,
                     advice = nil,
-                    confirm = "Flaps checked 15",
+                    action = nil,
+                    confirm = "Gear checked Up",
                     nextStep = 'accelerate_and_cleanup'
                 },
                 ['accelerate_and_cleanup'] = {
@@ -7024,20 +7101,21 @@ function M.fillProcedureTable()
                 },
                 ['voice_vref_advice'] = {
                     skipIf = function() return P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON end,
-                    check = function(loop)
-                        local current = tonumber(get(P.vref)) or 0
-                        return current > 0
+                    check = function()
+                        local currentFlaps = tonumber(get(P.appflaps)) or 0
+                        local currentVref = tonumber(get(P.vref)) or 0
+                        return currentFlaps > 0 and currentVref > 0
                     end,
-                    advice = function(loop)
-                        local flaps = tostring(loop.appflapscalcstring or get(P.appflaps) or "")
-                        local vref = tostring(loop.appvrefcalcstring or get(P.vref) or "")
-                        return "Set V REF flaps " .. flaps .. " " .. vref
+                    advice = function()
+                        return "Set landing flaps and V REF"
                     end,
-                    confirm = function(loop)
-                        local current = tonumber(get(P.vref)) or 0
-                        if current > 0 then
-                            local currentString = helpers.padNumberWithZerosStrict(math.floor(current + 0.5), 3)
-                            return "V REF flaps " .. tostring(loop.appflapscalcstring or "") .. " checked and " .. tostring(currentString)
+                    confirm = function()
+                        local currentFlaps = tonumber(get(P.appflaps)) or 0
+                        local currentVref = tonumber(get(P.vref)) or 0
+                        if currentFlaps > 0 and currentVref > 0 then
+                            local flapsString = tostring(math.floor(currentFlaps + 0.5))
+                            local vrefString = helpers.padNumberWithZerosStrict(math.floor(currentVref + 0.5), 3)
+                            return "Landing flaps " .. flapsString .. " V REF " .. vrefString .. " checked"
                         end
                         return false
                     end,

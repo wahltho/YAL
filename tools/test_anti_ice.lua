@@ -53,6 +53,49 @@ assertTrue(antiIce.isInCloudLayer(1500, { 0.6 }, { 1000 }, { 2000 }), "inside cl
 assertFalse(antiIce.isInCloudLayer(2500, { 0.6 }, { 1000 }, { 2000 }), "above cloud layer")
 assertFalse(antiIce.isInCloudLayer(1500, { 0.49 }, { 1000 }, { 2000 }), "insufficient cloud coverage")
 
+local forecastInput = {
+    elevation_m = 3000,
+    vertical_speed_fpm = -1200,
+    tat_c = 5,
+    sat_c = -5,
+    climb_or_cruise = false,
+    cloud_coverage = { 0.8 },
+    cloud_bases_m = { 1800 },
+    cloud_tops_m = { 2800 },
+    temperature_altitudes_m = { 0, 1000, 2000, 3000, 4000, 5000 },
+    temperatures_aloft_c = { 10, 5, 0, -5, -10, -15 }
+}
+local forecast = antiIce.analyzeVerticalIcingCorridor(forecastInput)
+assertTrue(forecast.valid, "vertical icing forecast is valid")
+assertTrue(forecast.entry_sec > 0 and forecast.entry_sec <= 60,
+    "descent forecast finds the layer before entry")
+assertTrue(forecast.qualifying_duration_sec >= 120,
+    "descent forecast resolves a sustained cold-moisture corridor")
+
+local earlyDescent = copy(forecastInput, {
+    elevation_m = 1600,
+    cloud_bases_m = { 200 },
+    cloud_tops_m = { 1050 },
+    temperatures_aloft_c = { -5, -5, -5, -5, -5, -5 }
+})
+local earlyForecast = antiIce.analyzeVerticalIcingCorridor(earlyDescent)
+assertTrue(earlyForecast.valid and earlyForecast.entry_sec > 60
+    and earlyForecast.entry_sec <= 120,
+    "descent sees a sustained layer before the former sixty-second limit")
+
+local layeredDescent = copy(earlyDescent, {
+    elevation_m = 2000,
+    cloud_coverage = { 0.8, 0.8 },
+    cloud_bases_m = { 1900, 900 },
+    cloud_tops_m = { 2000, 1700 }
+})
+local layeredForecast = antiIce.analyzeVerticalIcingCorridor(layeredDescent)
+assertTrue(layeredForecast.corridors[1].qualifying_duration_sec < 45,
+    "first cloud layer is too short")
+assertTrue(layeredForecast.entry_sec > 0
+    and layeredForecast.qualifying_duration_sec >= 45,
+    "a later sustained layer is selected beyond the short layer")
+
 local moisture, source = antiIce.visibleMoisture(copy(base, { precipitation_ratio = 0.01 }))
 assertTrue(moisture, "precipitation is visible moisture")
 assertEqual(source, "precipitation", "precipitation source")
@@ -211,7 +254,83 @@ state, result = update(state, 14, { in_cloud_layer = true, tat_c = 9.6 })
 assertEqual(result.engine_demand, nil, "brief near-limit icing does not enable early")
 state, result = update(state, 15, { in_cloud_layer = true, tat_c = 10.1 })
 state, result = update(state, 21, { in_cloud_layer = true, tat_c = 10.4 })
-assertFalse(result.engine_demand, "warming through ten degrees never creates a short ON cycle")
+assertEqual(result.engine_demand, nil, "warming through ten degrees never creates a short ON cycle")
+
+local forecastBase = copy(base, forecastInput)
+state, result = antiIce.update(nil, copy(forecastBase, { now = 0 }))
+state, result = antiIce.update(state, copy(forecastBase, { now = 15 }))
+assertTrue(result.engine_demand, "sustained descent layer is anticipated before entry")
+assertEqual(result.engine_reason, "icing-layer-ahead", "anticipated layer reason")
+
+state, result = antiIce.update(nil, copy(base, copy(earlyDescent, { now = 0 })))
+state, result = antiIce.update(state, copy(base, copy(earlyDescent, { now = 15 })))
+assertTrue(result.engine_demand, "descent starts anti-ice before the former sixty-second entry window")
+
+state, result = antiIce.update(nil, copy(base, copy(layeredDescent, { now = 0 })))
+state, result = antiIce.update(state, copy(base, copy(layeredDescent, { now = 15 })))
+assertTrue(result.engine_demand, "short cloud layer does not hide the sustained layer behind it")
+
+state, result = update(nil, 0, { in_cloud_layer = true, height_agl_ft = 2000 })
+state, result = update(state, 15, { in_cloud_layer = true, height_agl_ft = 2000 })
+assertTrue(result.engine_demand, "actual icing on final remains actionable below 2500 feet")
+
+local shortLayer = copy(base, {
+    elevation_m = 2500,
+    vertical_speed_fpm = -1000,
+    tat_c = 5,
+    sat_c = -5,
+    in_cloud_layer = true,
+    cloud_coverage = { 0.8 },
+    cloud_bases_m = { 2400 },
+    cloud_tops_m = { 2600 },
+    temperature_altitudes_m = { 0, 1000, 2000, 3000, 4000, 5000 },
+    temperatures_aloft_c = { 0, -2, -4, -6, -8, -10 }
+})
+state, result = antiIce.update(nil, copy(shortLayer, { now = 0 }))
+state, result = antiIce.update(state, copy(shortLayer, { now = 15 }))
+assertEqual(result.engine_demand, nil, "short layer does not create a pointless new ON demand")
+assertEqual(result.engine_reason, "icing-corridor-short", "short layer suppression reason")
+
+local sustainedLayer = copy(base, {
+    elevation_m = 3000,
+    vertical_speed_fpm = -1000,
+    tat_c = 5,
+    sat_c = -5,
+    in_cloud_layer = true,
+    cloud_coverage = { 0.8 },
+    cloud_bases_m = { 0 },
+    cloud_tops_m = { 5000 },
+    temperature_altitudes_m = { 0, 1000, 2000, 3000, 4000, 5000 },
+    temperatures_aloft_c = { -5, -5, -5, -5, -5, -5 }
+})
+state, result = antiIce.update(nil, copy(sustainedLayer, { now = 0 }))
+state, result = antiIce.update(state, copy(sustainedLayer, { now = 15 }))
+assertTrue(result.engine_demand, "sustained same-layer fixture starts ON")
+state, result = antiIce.update(state, copy(sustainedLayer, { now = 20, tat_c = 11 }))
+state, result = antiIce.update(state, copy(sustainedLayer, { now = 26, tat_c = 11 }))
+assertFalse(result.engine_demand, "stable cockpit TAT above ten turns demand OFF")
+
+local marginalRearm = copy(sustainedLayer, {
+    tat_c = 9,
+    sat_c = 0,
+    temperatures_aloft_c = { 5, 4, 2, 0, -5, -10 }
+})
+state, result = antiIce.update(state, copy(marginalRearm, { now = 27 }))
+state, result = antiIce.update(state, copy(marginalRearm, { now = 160 }))
+assertEqual(result.engine_demand, nil, "short cold pocket in same layer stays neutral after warm OFF")
+assertEqual(result.engine_reason, "icing-corridor-short", "same-layer rearm suppression reason")
+
+state, result = antiIce.update(state, copy(sustainedLayer, { now = 161 }))
+state, result = antiIce.update(state, copy(sustainedLayer, { now = 176 }))
+assertTrue(result.engine_demand, "sustained cold corridor re-arms after confirmation")
+
+state, result = antiIce.update(nil, copy(sustainedLayer, { now = 0 }))
+state, result = antiIce.update(state, copy(sustainedLayer, { now = 15 }))
+state, result = antiIce.update(state, copy(sustainedLayer, { now = 20, tat_c = 11 }))
+state, result = antiIce.update(state, copy(sustainedLayer, { now = 26, tat_c = 11 }))
+state, result = antiIce.update(state, copy(marginalRearm, { now = 27, precipitation_ratio = 0.02 }))
+state, result = antiIce.update(state, copy(marginalRearm, { now = 42, precipitation_ratio = 0.02 }))
+assertTrue(result.engine_demand, "strong precipitation evidence bypasses layer-only rearm suppression")
 
 state, result = update(nil, 0, { in_cloud_layer = true })
 state, result = update(state, 15, { in_cloud_layer = true })
