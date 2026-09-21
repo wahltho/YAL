@@ -9,11 +9,13 @@ sasl = {
 }
 
 local values = {}
+local commands = {}
 function get(ref) return values[ref] end
 function set(ref, value) values[ref] = value end
 
 package.loaded.helpers = {
-    formatcgvalue = function(value) return tostring(value) end
+    formatcgvalue = function(value) return tostring(value) end,
+    command_once = function(command) commands[#commands + 1] = command end
 }
 package.loaded.refdata = {}
 
@@ -24,6 +26,8 @@ yal = {
     hydro2pos = "hydro2pos",
     elechydro1pos = "elechydro1pos",
     elechydro2pos = "elechydro2pos",
+    bleedair1pos = "bleedair1pos",
+    bleedair2pos = "bleedair2pos",
     configvalues = {}
 }
 
@@ -55,5 +59,30 @@ end
 
 verifyShutdownProcedure(def.TURNAROUNDENGINESHUTDOWNPROCEDURE, "Turnaround shutdown")
 verifyShutdownProcedure(def.FINALENGINESHUTDOWNPROCEDURE, "Final shutdown")
+
+local turnaroundSteps = yal.proceduretable[def.TURNAROUNDENGINESHUTDOWNPROCEDURE].steps
+local engineBleeds = turnaroundSteps.set_engine_bleeds_on
+
+assert(turnaroundSteps.verify_power_source_ready.nextStep == "view_throttle",
+    "Turnaround shutdown must not switch engine bleeds off before engine cutoff")
+assert(turnaroundSteps.set_engine_bleeds_off == nil and turnaroundSteps.set_engine_bleeds_off_final == nil,
+    "Turnaround shutdown must not retain an engine-bleed OFF path")
+assert(turnaroundSteps.ice_off.nextStep == "set_engine_bleeds_on",
+    "Turnaround shutdown should normalize engine bleeds after engine cutoff")
+assert(engineBleeds.nextStep == "center_pumps_off",
+    "Turnaround shutdown should continue after normalizing engine bleeds")
+
+values.bleedair1pos = def.OFF
+values.bleedair2pos = def.OFF
+assert(engineBleeds.check() == false, "Turnaround shutdown should reject engine bleeds OFF")
+commands = {}
+engineBleeds.action()
+assert(#commands == 2, "Turnaround shutdown should command both engine bleeds ON")
+assert(commands[1] == "laminar/B738/toggle_switch/bleed_air_1", "Engine bleed 1 command")
+assert(commands[2] == "laminar/B738/toggle_switch/bleed_air_2", "Engine bleed 2 command")
+
+values.bleedair1pos = def.ON
+values.bleedair2pos = def.ON
+assert(engineBleeds.check() == true, "Turnaround shutdown should accept engine bleeds ON")
 
 print("test_shutdown_hydraulics: all checks passed")

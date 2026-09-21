@@ -5836,18 +5836,6 @@ function M.fillProcedureTable()
                         end
                         return false
                     end,
-                    nextStep = 'set_engine_bleeds_off'
-                },
-                ['set_engine_bleeds_off'] = {
-                    check = function()
-                        return (get(P.bleedair1pos) == def.OFF) and (get(P.bleedair2pos) == def.OFF)
-                    end,
-                    action = function()
-                        if (get(P.bleedair1pos) ~= def.OFF) then helpers.command_once("laminar/B738/toggle_switch/bleed_air_1") end
-                        if (get(P.bleedair2pos) ~= def.OFF) then helpers.command_once("laminar/B738/toggle_switch/bleed_air_2") end
-                    end,
-                    advice = "Set Both Engine Bleeds Off",
-                    confirm = "Both Engine Bleeds checked Off",
                     nextStep = 'view_throttle'
                 },
                 ['view_throttle'] = {
@@ -5888,18 +5876,18 @@ function M.fillProcedureTable()
                     end,
                     action = function() P.iceprotection(def.OFF) end,
                     advice = "Set Anti Ice Off",
-                    nextStep = 'set_engine_bleeds_off_final'
+                    nextStep = 'set_engine_bleeds_on'
                 },
-                ['set_engine_bleeds_off_final'] = {
+                ['set_engine_bleeds_on'] = {
                     check = function()
-                        return (get(P.bleedair1pos) == def.OFF) and (get(P.bleedair2pos) == def.OFF)
+                        return (get(P.bleedair1pos) == def.ON) and (get(P.bleedair2pos) == def.ON)
                     end,
                     action = function()
-                        if (get(P.bleedair1pos) ~= def.OFF) then helpers.command_once("laminar/B738/toggle_switch/bleed_air_1") end
-                        if (get(P.bleedair2pos) ~= def.OFF) then helpers.command_once("laminar/B738/toggle_switch/bleed_air_2") end
+                        if (get(P.bleedair1pos) ~= def.ON) then helpers.command_once("laminar/B738/toggle_switch/bleed_air_1") end
+                        if (get(P.bleedair2pos) ~= def.ON) then helpers.command_once("laminar/B738/toggle_switch/bleed_air_2") end
                     end,
-                    advice = "Set Both Engine Bleeds Off",
-                    confirm = "Both Engine Bleeds checked Off",
+                    advice = "Set Both Engine Bleeds On",
+                    confirm = "Both Engine Bleeds checked On",
                     nextStep = 'center_pumps_off'
                 },
                 ['center_pumps_off'] = {
