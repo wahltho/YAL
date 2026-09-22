@@ -12,6 +12,7 @@ P.pauseTodGuard = require("pause_tod_guard")
 P.departureNavResolver = require("departure_nav")
 P.routeWarningGuard = require("route_warning_guard")
 P.descentStateGuard = require("descent_state_guard")
+P.takeoffReadinessGuard = require("takeoff_readiness_guard")
 
 local AUTO_UNICOM_CLIMB_LEVELS_FT = { 10000, 20000, 30000, 40000 }
 local AUTO_UNICOM_DESCENT_LEVELS_FT = { 40000, 30000, 20000, 10000 }
@@ -4715,6 +4716,16 @@ function P.clearYalQueuedSpeech(messageKey)
     end
 end
 
+function P.clearTakeoffReadinessOngoingAdvice()
+    local keys = P.takeoffReadinessGuard and P.takeoffReadinessGuard.SPEECH_KEYS or nil
+    if not keys then
+        return
+    end
+    P.clearYalQueuedSpeech(keys.trim)
+    P.clearYalQueuedSpeech(keys.mcp_speed)
+    P.clearYalQueuedSpeech(keys.mcp_heading)
+end
+
 --------------------------------------------------------------------------------------------------------------
 function P.commandtableentry(state, text, speechKey, speechPolicy)
 
@@ -5840,6 +5851,11 @@ function P.triggerprocedure(procedureKey, isManual, parentLoopIndex, parentProcI
         targetLoopObject.triggeredat = os.time()
         targetLoopObject.parentLoopIndex = parentLoopIndex
         targetLoopObject.parentProcId = parentProcId
+
+        if procedureKey == def.BEFORETAXIPROCEDURE
+            or procedureKey == def.BEFORETAKEOFFPROCEDURE then
+            P.clearTakeoffReadinessOngoingAdvice()
+        end
 
         sasl.logDebug("Loop " .. loopIndex .. " state explicitly reset upon trigger.")
 
@@ -11039,6 +11055,9 @@ function P.clearDepartureMcpSpeedAdvice()
         return
     end
     P.clearYalQueuedSpeech("advice:mcp_speed")
+    if P.takeoffReadinessGuard and P.takeoffReadinessGuard.SPEECH_KEYS then
+        P.clearYalQueuedSpeech(P.takeoffReadinessGuard.SPEECH_KEYS.mcp_speed)
+    end
     if P.procedureSpeechKey then
         P.clearYalQueuedSpeech(P.procedureSpeechKey(def.BEFORETAKEOFFPROCEDURE, "check_mcp_speed", "step"))
     end
@@ -11188,36 +11207,92 @@ function P.runOneMainOngoingTask()
     end
     local holdCurrent = false
 
-    local preflightGateOpen =
-        (get(P.airgroundsensor) == def.ON) and
-        (P.procedureloop1.lock == def.NOPROCEDURE) and
-        (get(P.battery) == def.ON) and
-        (get(P.mainbus) ~= def.OFF) and
-        (P.flightstate == def.FLIGHTSTATEPREFLIGHT) and
-        (get(P.taxilight) == def.OFF)
-
-    local takeoffReadinessGuardOpen =
-        (get(P.airgroundsensor) == def.ON) and
-        (get(P.battery) == def.ON) and
-        (get(P.mainbus) ~= def.OFF) and
-        (P.flightstate == def.FLIGHTSTATEPREFLIGHT) and
-        (get(P.groundspeed) < 45) and
-        (
-            (P.procedureloop1.lock == def.BEFORETAKEOFFPROCEDURE)
-            or ((P.proceduretable[def.BEFORETAKEOFFPROCEDURE] ~= nil) and P.proceduretable[def.BEFORETAKEOFFPROCEDURE].set)
-            or (get(P.positionlights) == def.POSLIGHTSSTROBE)
+    local beforeTaxiDone = (P.proceduretable[def.BEFORETAXIPROCEDURE] ~= nil)
+        and P.proceduretable[def.BEFORETAXIPROCEDURE].set == true
+    local beforeTakeoffDone = (P.proceduretable[def.BEFORETAKEOFFPROCEDURE] ~= nil)
+        and P.proceduretable[def.BEFORETAKEOFFPROCEDURE].set == true
+    local onGround = get(P.airgroundsensor) == def.ON
+    local powered = (get(P.battery) == def.ON) and (get(P.mainbus) ~= def.OFF)
+    local preflight = P.flightstate == def.FLIGHTSTATEPREFLIGHT
+    local slow = (tonumber(get(P.groundspeed)) or 0) < 45
+    local readinessLifecycleEligible = onGround and powered and preflight and slow
+    local takeoffContext = false
+    if readinessLifecycleEligible and beforeTakeoffDone then
+        takeoffContext = (get(P.positionlights) == def.POSLIGHTSSTROBE)
             or P.aircraftonrwy(def.DEPARTURE, 40, 20)
-        )
-    local trimAdviceGuardOpen = preflightGateOpen or takeoffReadinessGuardOpen
+    end
+    local readinessContext = P.takeoffReadinessGuard.evaluateContext({
+        on_ground = onGround,
+        powered = powered,
+        preflight = preflight,
+        slow = slow,
+        no_main_procedure = P.procedureloop1.lock == def.NOPROCEDURE,
+        before_taxi_done = beforeTaxiDone,
+        before_takeoff_done = beforeTakeoffDone,
+        taxi_light_off = get(P.taxilight) == def.OFF,
+        takeoff_context = takeoffContext
+    })
+    local trimTarget = 0
+    local trimCurrent = tonumber(get(P.trimwheel)) or 0
+    local trimMismatch = false
+    local speedTarget = 0
+    local speedCurrent = helpers.roundnumber(tonumber(get(P.mcpspeed)) or 0, 0)
+    local speedPending = false
+    local speedMismatch = false
+    local headingTarget = nil
+    local headingCurrent = helpers.roundnumber(tonumber(get(P.mcpheading)) or 0, 0)
+    local headingMismatch = false
+    local signatures = {
+        trim = "0:0",
+        mcp_speed = "0:0",
+        mcp_heading = "0:0"
+    }
 
+    if readinessContext.open or (beforeTakeoffDone and readinessLifecycleEligible) then
+        local liveTrimTarget = P.getTakeoffTrimAdviceTarget() or 0
+        trimTarget = readinessContext.open and (getLatchedTrimTarget() or liveTrimTarget) or liveTrimTarget
+        trimMismatch = (trimTarget > 0)
+            and not helpers.trimwheel_matches_trim_step(trimCurrent, trimTarget, 0.25)
+        speedTarget = P.getDepartureMcpSpeedTarget()
+        speedPending = P.isDepartureMcpSpeedSelectionPending()
+        speedMismatch = (speedTarget > 0) and (speedTarget ~= speedCurrent) and (not speedPending)
+
+        local depRunwayHeading = P.getDepartureRunwayHeadingMag()
+        if helpers.isvalidicao(get(P.depicao))
+            and helpers.isvalidrwy(get(P.deprwy))
+            and tonumber(depRunwayHeading) then
+            headingTarget = helpers.roundnumber(depRunwayHeading)
+        end
+        headingMismatch = headingTarget ~= nil and headingTarget ~= headingCurrent
+        signatures.trim = tostring(helpers.round_to_step(trimTarget, 0.25) or 0)
+            .. ":" .. tostring(helpers.round_to_step(trimCurrent, 0.25) or 0)
+        signatures.mcp_speed = tostring(speedTarget or 0) .. ":" .. tostring(speedCurrent)
+        signatures.mcp_heading = tostring(headingTarget or 0) .. ":" .. tostring(headingCurrent)
+    end
+
+    if beforeTakeoffDone and readinessLifecycleEligible then
+        P.takeoffReadinessPostState = P.takeoffReadinessGuard.updatePostCompletionState(
+            P.takeoffReadinessPostState,
+            {
+                before_takeoff_done = true,
+                signatures = signatures,
+                matched = {
+                    trim = (trimTarget <= 0) or (not trimMismatch),
+                    mcp_speed = (speedTarget <= 0) or ((not speedPending) and (not speedMismatch)),
+                    mcp_heading = (headingTarget == nil) or (not headingMismatch)
+                }
+            }
+        )
+    elseif not beforeTakeoffDone then
+        P.takeoffReadinessPostState = nil
+    end
+
+    local trimAdviceGuardOpen = readinessContext.open
     if trimAdviceGuardOpen then
         if idx == 7 then
-            local trimTarget = getLatchedTrimTarget() or 0
-            local beforeTakeoffProcedureActive = (P.procedureloop1.lock == def.BEFORETAKEOFFPROCEDURE)
             local trimPopupFeatureEnabled =
                 (P.configvalues[def.CONFIGTRIMADVICEPOPUP] == def.ON)
                 and (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON)
-            local trimMismatch = (trimTarget > 0) and (not helpers.trimwheel_matches_trim_step(get(P.trimwheel), trimTarget, 0.25) and (get(P.groundspeed) < 45))
             local trimPopupAutoActive =
                 trimPopupFeatureEnabled
                 and trimAdviceGuardOpen
@@ -11228,38 +11303,56 @@ function P.runOneMainOngoingTask()
             else
                 clearTrimAdvicePopupState()
             end
-            if trimMismatch and not beforeTakeoffProcedureActive then
+            if P.takeoffReadinessGuard.allowMismatch(
+                readinessContext.mode,
+                P.takeoffReadinessPostState,
+                "trim",
+                signatures.trim,
+                trimMismatch
+            ) then
                 if ((P.configvalues[def.CONFIGAUTOFUNCTIONS] == def.ON) and (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON)) then
                     P.settotrim(trimTarget)
                     local trimText = helpers.format_trim_quarter(trimTarget) or tostring(trimTarget)
-                    P.commandtableentry(def.TEXT, "Trim " .. trimText)
+                    P.commandtableentry(def.TEXT, "Trim " .. trimText, P.takeoffReadinessGuard.SPEECH_KEYS.trim)
                 elseif (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
                     local trimText = helpers.format_trim_quarter(trimTarget) or tostring(trimTarget)
-                    P.commandtableentry(def.TEXT, "Set Trim " .. trimText)
+                    P.commandtableentry(def.TEXT, "Set Trim " .. trimText, P.takeoffReadinessGuard.SPEECH_KEYS.trim)
                 end
             end
         elseif idx == 8 then
-            local target = P.getDepartureMcpSpeedTarget()
-            local current = helpers.roundnumber(tonumber(get(P.mcpspeed)) or 0, 0)
-            if (target > 0) and (target ~= current) and (get(P.groundspeed) < 45)
-                and (not P.isDepartureMcpSpeedSelectionPending()) then
+            if P.takeoffReadinessGuard.allowMismatch(
+                readinessContext.mode,
+                P.takeoffReadinessPostState,
+                "mcp_speed",
+                signatures.mcp_speed,
+                speedMismatch
+            ) then
                 if ((P.configvalues[def.CONFIGAUTOFUNCTIONS] == def.ON) and (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON)) then
-                    P.setDepartureMcpSpeed(target)
+                    P.setDepartureMcpSpeed(speedTarget)
                 elseif (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                    P.commandtableentry(def.TEXT, "Set M C P Speed " .. helpers.addspaces(target))
+                    P.commandtableentry(
+                        def.TEXT,
+                        "Set M C P Speed " .. helpers.addspaces(speedTarget),
+                        P.takeoffReadinessGuard.SPEECH_KEYS.mcp_speed
+                    )
                 end
             end
         elseif idx == 9 then
-            local headingrounded = nil
-            local depRunwayHeading = P.getDepartureRunwayHeadingMag()
-            if (helpers.isvalidicao(get(P.depicao)) and helpers.isvalidrwy(get(P.deprwy)) and tonumber(depRunwayHeading)) then
-                headingrounded = helpers.roundnumber(depRunwayHeading)
-            end
-            if (headingrounded and (headingrounded ~= get(P.mcpheading)) and (get(P.groundspeed) < 45)) then
+            if P.takeoffReadinessGuard.allowMismatch(
+                readinessContext.mode,
+                P.takeoffReadinessPostState,
+                "mcp_heading",
+                signatures.mcp_heading,
+                headingMismatch
+            ) then
                 if ((P.configvalues[def.CONFIGAUTOFUNCTIONS] == def.ON) and (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON)) then
-                    set(P.mcpheading, headingrounded)
+                    set(P.mcpheading, headingTarget)
                 elseif (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                    P.commandtableentry(def.TEXT, "Set M C P Heading " .. helpers.addspaces(helpers.padNumberWithZerosStrict(headingrounded, 3)))
+                    P.commandtableentry(
+                        def.TEXT,
+                        "Set M C P Heading " .. helpers.addspaces(helpers.padNumberWithZerosStrict(headingTarget, 3)),
+                        P.takeoffReadinessGuard.SPEECH_KEYS.mcp_heading
+                    )
                 end
             end
         end
@@ -11275,8 +11368,11 @@ function P.runOneMainOngoingTask()
         local popupState = P.trimAdvicePopupState
         local popupHoldUntilTs = popupState and tonumber(popupState.holdUntilTs) or 0
         local popupHoldActive = popupHoldUntilTs > getTrimPopupNowSec()
-        if ((not trimAdviceGuardOpen) or (latchedTrimTarget <= 0)) and (not popupHoldActive) then
+        if (latchedTrimTarget <= 0) and (not popupHoldActive) then
             P._trimAdvicePopupPinned = false
+            clearTrimTargetLatch()
+            clearTrimAdvicePopupState()
+        elseif (not trimAdviceGuardOpen) and (not P._trimAdvicePopupPinned) and (not popupHoldActive) then
             clearTrimTargetLatch()
             clearTrimAdvicePopupState()
         elseif (not trimPopupAllowed) and (not P._trimAdvicePopupPinned) and (not popupHoldActive) then

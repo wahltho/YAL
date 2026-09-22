@@ -3937,7 +3937,6 @@ function M.fillProcedureTable()
                     nextStep = 'check_mcp_heading'
                 },
                 ['check_mcp_heading'] = {
-                    skipIf = function() return P.configvalues[def.CONFIGVOICEADVICEONLY] == def.OFF end,
                     check = function() 
                         local headingrounded = nil
                         local depRunwayHeading = getDepartureRunwayHeadingMag()
@@ -3948,6 +3947,16 @@ function M.fillProcedureTable()
                             return get(P.mcpheading) == headingrounded
                         end
                         return true
+                    end,
+                    action = function()
+                        if P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON then
+                            local depRunwayHeading = getDepartureRunwayHeadingMag()
+                            if helpers.isvalidicao(get(P.depicao))
+                                and helpers.isvalidrwy(get(P.deprwy))
+                                and tonumber(depRunwayHeading) then
+                                set(P.mcpheading, helpers.roundnumber(depRunwayHeading))
+                            end
+                        end
                     end,
                     advice = function() 
                         local headingrounded = nil

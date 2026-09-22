@@ -32,6 +32,7 @@ assert(migratedSettings and migratedSettings.CUSTOMAPPROACHCALC == nil, "retired
 local commanded = nil
 local windCorrection = 3
 local runwayHeading = 270
+local departureRunwayHeading = 250
 package.loaded.helpers = {
     addspaces = function(value) return tostring(value) end,
     calculateApproachWindCorrection = function(runwayHeading)
@@ -62,6 +63,8 @@ yal = {
     appvrefcalc = "appvrefcalc",
     autobrakepos = "autobrakepos",
     calctakeoffcg = "calctakeoffcg",
+    depicao = "depicao",
+    deprwy = "deprwy",
     desicao = "desicao",
     desrwy = "desrwy",
     flapleverpos = "flapleverpos",
@@ -78,6 +81,7 @@ yal = {
         [def.CONFIGVOICEADVICEONLY] = def.ON,
         [def.CONFIGFMCAUTOMATION] = def.ON,
     },
+    getDepartureRunwayHeadingMag = function() return departureRunwayHeading end,
     getDestinationRunwayHeadingMag = function() return runwayHeading end,
     loopStateTables = {
         [1] = { lock = def.BEFORETAXIPROCEDURE },
@@ -158,6 +162,20 @@ values.flapleverpos = 5
 assert(beforeTaxiFlaps.check() == false, "Before Taxi should enforce a positive FMC target")
 beforeTaxiFlaps.action()
 assert(commanded == "laminar/B738/push_button/flaps_10", "Before Taxi should command the FMC target")
+
+local beforeTakeoffHeading = yal.proceduretable[def.BEFORETAKEOFFPROCEDURE].steps.check_mcp_heading
+values.depicao = "EDDF"
+values.deprwy = "25C"
+values.mcpheading = 240
+yal.configvalues[def.CONFIGVOICEADVICEONLY] = def.OFF
+assert(beforeTakeoffHeading.check() == false, "Before Takeoff must detect an incorrect MCP heading in Auto mode")
+beforeTakeoffHeading.action()
+assert(values.mcpheading == 250, "Before Takeoff must own the Auto-mode MCP heading action")
+values.mcpheading = 240
+yal.configvalues[def.CONFIGVOICEADVICEONLY] = def.ON
+beforeTakeoffHeading.action()
+assert(values.mcpheading == 240, "Voice Advice Only must not change MCP heading")
+assert(beforeTakeoffHeading.advice() == "Set M C P Heading 250", "Voice Advice Only must retain MCP heading advice")
 
 local vappStep = yal.proceduretable[def.RADIOALTITUDEB1000PROCEDURE].steps.check_mcp_speed_vapp
 values.approachspeed = 125
