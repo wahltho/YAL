@@ -8,6 +8,12 @@ VIRTUAL COPILOT PLUGIN FOR ZIBO MOD 738
 1. Copy the main YAL folder into your X-Plane 11/12 `Resources/plugins` folder.
 2. Launch X-Plane and configure YAL via the settings window at `Plugins -> Yet Another Linda -> Settings`.
 
+**Support**
+- Open `Plugins -> Yet Another Linda -> Support` to copy the official X-Plane.org support-page link or the YAL Discord invite to the clipboard.
+- X-Plane.org: https://forums.x-plane.org/files/file/91049-yet-another-linda-yal-for-zibo-mod-level-up/
+- Discord: https://discord.gg/FGAyes97M
+- For technical issues, include X-Plane `Log.txt` and YAL `SASLLog.txt`.
+
 **Requirements**
 - X-Plane 11 or 12 (Windows, Mac/Intel/Arm, Linux)
 - Primary support target: B737-800 by Zibo

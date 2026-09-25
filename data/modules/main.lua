@@ -10,6 +10,8 @@ local debugOverlayWindow
 local debugOverlayInitialized = false
 local setupWindow
 local setupInitialized = false
+local supportWindow
+local supportInitialized = false
 local taxiWindow
 local taxiInitialized = false
 local taxiComponent
@@ -39,6 +41,7 @@ local vnavPackageStatusLogKey = nil
 local vnavAircraftRelativePath = globalPropertys("sim/aircraft/view/acf_relative_path")
 local menu_taxi = nil
 local menu_updates = nil
+local menu_support = nil
 local taxiGateLastLogTime = 0
 local autoUnicomRuntime = {
     refs = nil,
@@ -397,6 +400,74 @@ local function maybeInitSetupWindow()
 
     setupInitialized = true
     helpers.logInfoTS("Settings window initialized")
+end
+
+local function maybeInitSupportWindow()
+    local function toggleSupport()
+        if supportWindow then
+            supportWindow:setIsVisible(not supportWindow:isVisible())
+        end
+    end
+
+    if supportInitialized then
+        if not menu_support and yal.menu_main then
+            menu_support = sasl.appendMenuItem(yal.menu_main, "Support", toggleSupport)
+        end
+        return
+    end
+
+    local ok, modOrErr = pcall(require, "windows.support")
+    if not ok then
+        sasl.logWarning("Support window failed to load: " .. tostring(modOrErr))
+        supportInitialized = true
+        return
+    end
+
+    local mod = modOrErr
+    if not mod or not mod.newComponent then
+        supportInitialized = true
+        sasl.logWarning("Support window module missing newComponent.")
+        return
+    end
+
+    local comp = mod.newComponent()
+    local w, h = mod.windowSize()
+    local xRoot, yRoot, wRoot, hRoot = sasl.windows.getMonitorBoundsOS(0)
+    local posX = xRoot + math.max(0, (wRoot - w) / 2)
+    local posY = yRoot + math.max(0, (hRoot - h) / 2)
+
+    supportWindow = contextWindow {
+        name = "YAL Support",
+        position = {posX, posY, w, h},
+        saveState = true,
+        visible = false,
+        noResize = true,
+        vrAuto = true,
+        noBackground = true,
+        noDecore = true,
+        proportional = false,
+        components = {comp}
+    }
+
+    if comp.setWindow then
+        comp:setWindow(supportWindow)
+    end
+
+    local cmdPath = def.APPNAMEPREFIX .. "/toggle_support_window"
+    local cmd = sasl.createCommand(cmdPath, "Toggle YAL Support Window")
+    sasl.registerCommandHandler(cmd, 0, function(phase)
+        if phase == SASL_COMMAND_BEGIN then
+            toggleSupport()
+        end
+        return 0
+    end)
+
+    if yal.menu_main and not menu_support then
+        menu_support = sasl.appendMenuItem(yal.menu_main, "Support", toggleSupport)
+    end
+
+    supportInitialized = true
+    helpers.logInfoTS("Support window initialized")
 end
 
 local function maybeInitTaxiWindow()
@@ -1506,6 +1577,7 @@ end
 -- ensure setup and maintenance windows (and their menus) are constructed early
 maybeInitSetupWindow()
 maybeInitUpdatePopupWindow()
+maybeInitSupportWindow()
 
 local oneSecTimer = sasl.createTimer()
 local waitstep = def.LONGWAIT
@@ -1541,6 +1613,7 @@ if helpers.isZibo() then
     maybeInitTaxiWindow()
     if menu_settings then sasl.enableMenuItem(yal.menu_main , menu_settings , def.ON) end
     if menu_updates then sasl.enableMenuItem(yal.menu_main, menu_updates, def.ON) end
+    if menu_support then sasl.enableMenuItem(yal.menu_main, menu_support, def.ON) end
     yal.initializeScript()
     armStartupUpdateCheck()
     maybeInitDebugOverlay()
@@ -1550,6 +1623,7 @@ else
     helpers.logInfoTS("No Zibo Mod detected on initial plugin load. Plugin functionality currently inactive.")
     if menu_settings then sasl.enableMenuItem(yal.menu_main , menu_settings , def.OFF) end
     if menu_updates then sasl.enableMenuItem(yal.menu_main, menu_updates, def.OFF) end
+    if menu_support then sasl.enableMenuItem(yal.menu_main, menu_support, def.OFF) end
     yal.enableMenus(def.OFF)
     sasl.stopTimer(oneSecTimer)
     if setupWindow then setupWindow:setIsVisible(false) end
@@ -1557,6 +1631,7 @@ else
     if taxiPopupWindow then taxiPopupWindow:setIsVisible(false) end
     if trimPopupWindow then trimPopupWindow:setIsVisible(false) end
     if updatePopupWindow then updatePopupWindow:setIsVisible(false) end
+    if supportWindow then supportWindow:setIsVisible(false) end
 end
 
 function onAirportLoaded(flightNumber)
@@ -1572,6 +1647,7 @@ function onAirportLoaded(flightNumber)
         maybeInitTaxiWindow()
         if menu_settings then sasl.enableMenuItem(yal.menu_main , menu_settings , def.ON) end
         if menu_updates then sasl.enableMenuItem(yal.menu_main, menu_updates, def.ON) end
+        if menu_support then sasl.enableMenuItem(yal.menu_main, menu_support, def.ON) end
         yal.initializeScript()
         armStartupUpdateCheck()
         maybeInitDebugOverlay()
@@ -1581,6 +1657,7 @@ function onAirportLoaded(flightNumber)
         helpers.logInfoTS("No Zibo Mod detected after airport load. Plugin functionality will remain inactive.")
         if menu_settings then sasl.enableMenuItem(yal.menu_main, menu_settings, def.OFF) end
         if menu_updates then sasl.enableMenuItem(yal.menu_main, menu_updates, def.OFF) end
+        if menu_support then sasl.enableMenuItem(yal.menu_main, menu_support, def.OFF) end
         sasl.stopTimer(oneSecTimer)
         yal.enableMenus(def.OFF)  
         if setupWindow then setupWindow:setIsVisible(false) end
@@ -1588,6 +1665,7 @@ function onAirportLoaded(flightNumber)
         if taxiPopupWindow then taxiPopupWindow:setIsVisible(false) end
         if trimPopupWindow then trimPopupWindow:setIsVisible(false) end
         if updatePopupWindow then updatePopupWindow:setIsVisible(false) end
+        if supportWindow then supportWindow:setIsVisible(false) end
     end
 end
 

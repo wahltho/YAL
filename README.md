@@ -21,6 +21,14 @@ licenses, including `SASL-LICENSE.txt`.
 2. Start X-Plane.
 3. Configure YAL via `Plugins -> Yet Another Linda -> Settings`.
 
+## Support
+Open `Plugins -> Yet Another Linda -> Support` to copy the official
+X-Plane.org support-page link or the YAL Discord invite to the clipboard.
+- X-Plane.org: https://forums.x-plane.org/files/file/91049-yet-another-linda-yal-for-zibo-mod-level-up/
+- Discord: https://discord.gg/FGAyes97M
+
+For technical issues, include X-Plane `Log.txt` and YAL `SASLLog.txt`.
+
 ## Optional: Skunkcrafts Beta Channel
 1. Copy `skunkcrafts_updater_beta.cfg` into the aircraft directory that contains the Zibo aircraft.
 2. Start X-Plane, open Skunkcrafts Updater and refresh.
