@@ -3380,6 +3380,13 @@ function M.fillProcedureTable()
                 { check = function() return P.enginesrunning(def.BOTH) end, 
                   failMsg = "Procedure aborted, Engines not running" }
             },
+            transitionConditions = {
+                { condition = function() return get(P.airgroundsensor) == def.OFF end },
+                { condition = function()
+                    return get(P.groundspeed) > 45
+                        and P.aircraftonrwy(def.DEPARTURE, 40, 20)
+                end }
+            },
             startStep = 'view_main_panel',
             steps = {
                 ['ensure_departure_nav'] = {
@@ -3748,7 +3755,10 @@ function M.fillProcedureTable()
             },
             transitionConditions = {
                 { condition = function() return get(P.airgroundsensor) == def.OFF end },
-                { condition = function() return get(P.groundspeed) > 45 end } 
+                { condition = function()
+                    return get(P.groundspeed) > 45
+                        and P.aircraftonrwy(def.DEPARTURE, 40, 20)
+                end }
             },
             startStep = 'view_pedestal',
             label_to_index = {},

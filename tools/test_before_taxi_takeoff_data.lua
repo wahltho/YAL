@@ -31,6 +31,15 @@ yal = {
     v1setspeed = "v1setspeed",
     vrsetspeed = "vrsetspeed",
     v2setspeed = "v2setspeed",
+    airgroundsensor = "airgroundsensor",
+    groundspeed = "groundspeed",
+    onDepartureRunway = false,
+    aircraftonrwy = function(runwayType, distMeters, headingLimit)
+        assert(runwayType == def.DEPARTURE, "takeoff-roll transition must use departure runway")
+        assert(distMeters == 40, "takeoff-roll transition runway distance")
+        assert(headingLimit == 20, "takeoff-roll transition heading limit")
+        return yal.onDepartureRunway
+    end,
     loopStateTables = {
         [1] = { lock = def.BEFORETAXIPROCEDURE },
         [2] = { lock = def.NOPROCEDURE },
@@ -48,8 +57,30 @@ local proceduredata = require("proceduredata")
 assert(proceduredata.fillProcedureTable())
 
 local beforeTaxi = yal.proceduretable[def.BEFORETAXIPROCEDURE]
+local beforeTakeoff = yal.proceduretable[def.BEFORETAKEOFFPROCEDURE]
 local ensure = beforeTaxi.steps.ensure_takeoff_data
 local loop = {}
+
+local function assertTakeoffRollTransitions(proc, label)
+    assert(#proc.transitionConditions == 2, label .. " transition count")
+
+    values.airgroundsensor = def.ON
+    values.groundspeed = 46
+    yal.onDepartureRunway = false
+    assert(proc.transitionConditions[1].condition() == false, label .. " remains ground-active")
+    assert(proc.transitionConditions[2].condition() == false, label .. " must not transition on taxiway")
+
+    yal.onDepartureRunway = true
+    assert(proc.transitionConditions[2].condition() == true, label .. " transitions on departure runway takeoff roll")
+
+    values.airgroundsensor = def.OFF
+    values.groundspeed = 0
+    yal.onDepartureRunway = false
+    assert(proc.transitionConditions[1].condition() == true, label .. " terminates airborne")
+end
+
+assertTakeoffRollTransitions(beforeTaxi, "Before Taxi")
+assertTakeoffRollTransitions(beforeTakeoff, "Before Takeoff")
 
 values.toflaps = 5
 values.fmccg = 24.5
