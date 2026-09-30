@@ -2,6 +2,7 @@
 -- Filesystem helpers
 -------------------------------------------------------------------------------
 
+
 local function findFileInPaths(fileName, pathsList)
     for _, v in ipairs(pathsList) do
         local f = v .. '/' .. fileName
