@@ -1,5 +1,5 @@
 # Yet Another Linda (YAL)
-**Version 4.8b3** (beta channel)
+**Version 4.8b4** (beta channel)
 
 *(C) WAHLTHO 2023-2026*
 
@@ -21,6 +21,9 @@ licenses, including `SASL-LICENSE.txt`.
 2. Start X-Plane.
 3. Configure YAL via `Plugins -> Yet Another Linda -> Settings`.
 
+Install native SASL plugin updates with X-Plane closed, then restart X-Plane.
+The internal YAL updater does not install native plugin changes.
+
 ## Support
 Open `Plugins -> Yet Another Linda -> Support` to copy the official
 X-Plane.org support-page link or the YAL Discord invite to the clipboard.
@@ -39,6 +42,7 @@ For technical issues, include X-Plane `Log.txt` and YAL `SASLLog.txt`.
 ## Requirements
 - X-Plane 11 or 12
 - Primary support target: Zibo B737-800
+- Linux: the bundled SASL runtime requires the system `libX11.so.6` library.
 - Optional: X-Camera
 - Optional: BetterPushback
 - Optional: YANSH
@@ -52,6 +56,11 @@ YAL automates or advises normal cockpit flows for the Zibo 737 and provides addi
 - Taxi map, taxi routing, taxi guidance and experimental auto taxiing
 - Weather, METAR and runway/RVR related assistance
 - Optional update checks for YAL and Zibo
+
+## Changes in 4.8b4
+- Bundled SASL Free runtime updated to 3.23.2.
+- Fixed XPLM library loading on hardened macOS hosts, including X-Plane 12.4.4 beta.
+- Before Taxi and Before Takeoff stop on a takeoff roll only when the aircraft is on the departure runway, not during fast taxiing.
 
 ## Main Features in the 4.8 Beta Build
 - Extended taxi map and taxi routing:

@@ -1,5 +1,5 @@
 # Yet Another Linda (YAL) for Zibo Mod - User Manual
-Version 4.8b3
+Version 4.8b4
 (C) WAHLTHO 2023-2026
 VIRTUAL COPILOT PLUGIN FOR ZIBO MOD 738
 
@@ -7,6 +7,9 @@ VIRTUAL COPILOT PLUGIN FOR ZIBO MOD 738
 **Installation**
 1. Copy the main YAL folder into your X-Plane 11/12 `Resources/plugins` folder.
 2. Launch X-Plane and configure YAL via the settings window at `Plugins -> Yet Another Linda -> Settings`.
+
+Install native SASL plugin updates with X-Plane closed, then restart X-Plane.
+The internal YAL updater does not install native plugin changes.
 
 **Support**
 - Open `Plugins -> Yet Another Linda -> Support` to copy the official X-Plane.org support-page link or the YAL Discord invite to the clipboard.
@@ -17,6 +20,7 @@ VIRTUAL COPILOT PLUGIN FOR ZIBO MOD 738
 **Requirements**
 - X-Plane 11 or 12 (Windows, Mac/Intel/Arm, Linux)
 - Primary support target: B737-800 by Zibo
+- Linux: the bundled SASL runtime requires the system `libX11.so.6` library.
 - Optional: X-Camera plugin (will be detected automatically)
 
 **Optional Integrations**
