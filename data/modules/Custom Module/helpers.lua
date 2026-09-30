@@ -166,9 +166,9 @@ P.cifpLegacySourcePathCache = P.cifpLegacySourcePathCache or {}
 
 local ffi = require("ffi")
 local xplm_lib = {
-    Linux = "Resources/plugins/XPLM_64.so",
+    Linux = def.XPRESSOURCESPATH .. "plugins/XPLM_64.so",
     Windows = "XPLM_64",
-    OSX = "Resources/plugins/XPLM.framework/XPLM"
+    OSX = def.XPRESSOURCESPATH .. "plugins/XPLM.framework/XPLM"
 }
 local xplm = ffi.load(xplm_lib[ffi.os])
 
