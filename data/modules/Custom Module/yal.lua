@@ -1826,7 +1826,9 @@ function P.YalinitGlobal()
         cruiseLastReportAt = nil,
         climbMcpCandidate = nil,
         climbMcpCandidateSince = nil,
-        climbMcpStable = nil
+        climbMcpStable = nil,
+        climbLevel = nil,
+        climbResumeLastAt = nil
     }
     P.approachPrepTriggerKey = nil
     P.approachPrepCompletedForKey = nil
@@ -8839,6 +8841,8 @@ function P.baselineAutoUnicomRuntimeEvents()
     state.climbMcpCandidate = mcpAltitude
     state.climbMcpCandidateSince = os.time()
     state.climbMcpStable = mcpAltitude
+    state.climbLevel = nil
+    state.climbResumeLastAt = nil
 
     local onGround = get(P.airgroundsensor) == def.ON
     local altitude = tonumber(get(P.altitude)) or 0
@@ -9324,9 +9328,84 @@ function P.getStableAutoUnicomMcpAltitude()
     return state.climbMcpStable, true
 end
 
+function P.updateAutoUnicomClimbResumeEvent(mcpAltitude, mcpStable)
+    local state = P.autoUnicomRuntime
+    local rules = autoUnicomCore.CLIMB_RESUME_RULES
+    if not state then return false end
+    if P.flightstate ~= def.FLIGHTSTATECLIMB or get(P.airgroundsensor) == def.ON then
+        state.climbLevel = nil
+        return false
+    end
+
+    local altitude = tonumber(get(P.altitude_ft or P.altitude))
+    local verticalSpeed = P.verticalspeed and tonumber(get(P.verticalspeed)) or nil
+    if not altitude or altitude <= 0 or altitude ~= altitude or altitude == math.huge
+        or not verticalSpeed or verticalSpeed ~= verticalSpeed or math.abs(verticalSpeed) == math.huge then
+        state.climbLevel = nil
+        return false
+    end
+
+    local now = os.time()
+    local level = state.climbLevel
+    if math.abs(verticalSpeed) <= rules.maxLevelVs then
+        if not level or math.abs(altitude - level.altitude) > rules.levelToleranceFt then
+            level = { altitude = altitude, since = now }
+            state.climbLevel = level
+        end
+        if not level.stable and now - level.since >= rules.levelStableSec then
+            level.stable = true
+            level.altitude = altitude
+            local pressureAltitude = P.pressurealtitudeft and tonumber(get(P.pressurealtitudeft)) or nil
+            if not pressureAltitude or pressureAltitude ~= pressureAltitude
+                or math.abs(pressureAltitude) == math.huge then pressureAltitude = altitude end
+            level.pressureAltitude = pressureAltitude
+        end
+        level.resumeSince = nil
+        return false
+    end
+
+    if not level then return false end
+    if not level.stable or verticalSpeed < -rules.maxLevelVs
+        or altitude < level.altitude - rules.levelToleranceFt then
+        state.climbLevel = nil
+        return false
+    end
+    if verticalSpeed < rules.minClimbVs then
+        level.resumeSince = nil
+        return false
+    end
+    level.resumeSince = level.resumeSince or now
+    if now - level.resumeSince > autoUnicomCore.EVENT_TTL_SEC["departure.climb_resumed"] then
+        state.climbLevel = nil
+        return false
+    end
+    if now - level.resumeSince < rules.climbStableSec
+        or altitude < level.altitude + rules.levelToleranceFt
+        or not mcpStable then return false end
+
+    local cruiseAltitude = P.fmccruisealt and tonumber(get(P.fmccruisealt)) or nil
+    local target = autoUnicomCore.resolveClimbTargetAltitude(altitude, mcpAltitude, cruiseAltitude)
+    if not target or target <= altitude or target == math.huge then return false end
+    local nextWaypoint, vectorActive, vectorHeading = P.getAutoUnicomNavigationTarget()
+    if not P.publishRuntimeEvent("departure.climb_resumed", {
+        climb_from_altitude_ft = level.altitude,
+        climb_from_pressure_altitude_ft = level.pressureAltitude,
+        altitude_ft = altitude,
+        mcp_altitude_ft = mcpAltitude,
+        climb_next_waypoint = nextWaypoint,
+        navigation_vector_active = vectorActive,
+        navigation_vector_heading_deg = vectorHeading
+    }) then return false end
+
+    state.climbLevel = nil
+    state.climbResumeLastAt = now
+    return true
+end
+
 function P.updateAutoUnicomClimbEvents()
     P.updateAutoUnicomAirborneEvent()
     local mcpAltitude, mcpStable = P.getStableAutoUnicomMcpAltitude()
+    P.updateAutoUnicomClimbResumeEvent(mcpAltitude, mcpStable)
     if not mcpStable then return end
     local nextWaypoint, vectorActive, vectorHeading = P.getAutoUnicomNavigationTarget()
     autoUnicomEventOnce("departure.on_climb", "departure.on_climb", {
@@ -9341,7 +9420,9 @@ function P.updateAutoUnicomClimbEvents()
     for _, level in ipairs(AUTO_UNICOM_CLIMB_LEVELS_FT) do
         if altitude >= level then
             local key = "departure.climb_level_" .. tostring(level)
-            if autoUnicomCore.shouldSuppressProgressLevel(level, cruiseAltitude) then
+            if autoUnicomCore.shouldSuppressProgressLevel(level, cruiseAltitude)
+                or (state and state.climbResumeLastAt
+                    and os.time() - state.climbResumeLastAt < autoUnicomCore.CLIMB_RESUME_RULES.progressQuietSec) then
                 if state then state.sent[key] = true end
             else
                 autoUnicomEventOnce(key, key, {

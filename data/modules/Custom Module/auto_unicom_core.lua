@@ -2,6 +2,14 @@ local M = {}
 
 M.CRUISE_REPORT_INTERVAL_SEC = 600
 M.CRUISE_LEVEL_MAX_VS_FPM = 300
+M.CLIMB_RESUME_RULES = {
+    levelStableSec = 5,
+    maxLevelVs = 150,
+    levelToleranceFt = 100,
+    minClimbVs = 300,
+    climbStableSec = 3,
+    progressQuietSec = 60
+}
 
 M.EVENT_TTL_SEC = {
     ["departure.flightplan_active"] = 120,
@@ -15,6 +23,7 @@ M.EVENT_TTL_SEC = {
     ["departure.lineup_takeoff"] = 45,
     ["departure.airborne"] = 60,
     ["departure.on_climb"] = 120,
+    ["departure.climb_resumed"] = 120,
     ["enroute.in_cruise"] = 120,
     ["enroute.hold_enter"] = 120,
     ["enroute.holding"] = 120,
@@ -919,6 +928,7 @@ local MESSAGE_CONTRACTS = {
     ["departure.airborne"] = { scope = "local", station = "departure", runway = "departure", missing = "missing_departure_context" },
     ["departure.on_climb"] = { scope = "departure_enroute", station = "departure", missing = "missing_climb_context" },
     ["departure.climb_progress"] = { scope = "departure_enroute", station = "departure", missing = "missing_climb_context" },
+    ["departure.climb_resumed"] = { scope = "enroute", missing = "missing_climb_resume_context" },
     [HOLD_ENTER_EVENT_ID] = { scope = "enroute", missing = "missing_hold_context" },
     [HOLDING_EVENT_ID] = { scope = "enroute", missing = "missing_hold_context" },
     [HOLD_DESCENDING_EVENT_ID] = { scope = "enroute", missing = "missing_hold_descent_context" },
@@ -1185,6 +1195,24 @@ function M.buildMessage(eventId, snapshot)
         return normalize_text(text)
     end
 
+    if eventId == "departure.climb_resumed" then
+        local fromAltitude = tonumber(snapshot.climb_from_altitude_ft)
+        local currentAltitude = tonumber(snapshot.altitude_ft)
+        local targetText, targetAltitude = format_climb_target_altitude(snapshot)
+        if not fromAltitude or fromAltitude <= 0 or fromAltitude ~= fromAltitude
+            or fromAltitude == math.huge or not currentAltitude or currentAltitude ~= currentAltitude
+            or currentAltitude <= fromAltitude or not targetText or targetAltitude <= currentAltitude
+            or targetAltitude == math.huge then return nil, "missing_climb_resume_context" end
+        local fromText = format_altitude({
+            altitude_ft = fromAltitude,
+            pressure_altitude_ft = snapshot.climb_from_pressure_altitude_ft,
+            transition_altitude_ft = snapshot.transition_altitude_ft
+        }, false)
+        local text = string.format("%s leaving %s, climbing %s", context.prefix, fromText, targetText)
+        text = append_navigation_status(text, snapshot, clean_token(snapshot.climb_next_waypoint, false))
+        return normalize_text(text)
+    end
+
     if eventId == "departure.on_climb" or is_climb_progress_event(eventId) then
         local altitude = format_altitude(snapshot, false)
         if not altitude then return nil, "missing_climb_context" end
@@ -1399,6 +1427,8 @@ local function summarize_sources(snapshot)
         { "alt", snapshot.altitude_ft },
         { "pressureAlt", snapshot.pressure_altitude_ft },
         { "mcpAlt", snapshot.mcp_altitude_ft },
+        { "climbFrom", snapshot.climb_from_altitude_ft },
+        { "climbFromPressure", snapshot.climb_from_pressure_altitude_ft },
         { "climbTarget", M.resolveClimbTargetAltitude(
             snapshot.altitude_ft,
             snapshot.mcp_altitude_ft,
@@ -1638,7 +1668,7 @@ local SUPERSEDED_EVENTS = {
 local function supersedes_event(eventId, queuedId)
     local fixed = SUPERSEDED_EVENTS[eventId]
     if fixed and fixed[queuedId] then return true end
-    if is_climb_progress_event(eventId) then
+    if is_climb_progress_event(eventId) or eventId == "departure.climb_resumed" then
         return queuedId == "departure.flightplan_active"
             or queuedId == "departure.start_push"
             or queuedId == "departure.taxi_runway"
@@ -1650,12 +1680,14 @@ local function supersedes_event(eventId, queuedId)
             or queuedId == "departure.lineup_takeoff"
             or queuedId == "departure.airborne"
             or queuedId == "departure.on_climb"
+            or queuedId == "departure.climb_resumed"
             or is_climb_progress_event(queuedId)
     end
     if eventId == "enroute.in_cruise" then
         return queuedId == "departure.flightplan_active"
             or queuedId == "departure.airborne"
             or queuedId == "departure.on_climb"
+            or queuedId == "departure.climb_resumed"
             or is_climb_progress_event(queuedId)
     end
     if is_descent_progress_event(eventId) then

@@ -1348,6 +1348,75 @@ assert_equal(
     "Lufthansa 3210 climbing out of ALTA on ATKUP1A departure, passing 1800ft for FL100, BIRCO next",
     "initial climb phrase uses intermediate MCP restriction"
 )
+do
+    local resumed = copy(base, {
+        climb_from_altitude_ft = 9000,
+        climb_from_pressure_altitude_ft = 9000,
+        altitude_ft = 9200,
+        pressure_altitude_ft = 9200,
+        mcp_altitude_ft = 37000
+    })
+    local text = "Lufthansa 3210 leaving FL90, climbing FL370, BIRCO next"
+    assert_equal(core.buildMessage("departure.climb_resumed", resumed), text, "resumed climb phrase")
+    assert_equal(core.buildVoiceMessage("departure.climb_resumed", resumed, test_spell_nato, text),
+        "Lufthansa tree two one zero leaving flight level niner zero, climbing flight level tree seven zero, Birco next",
+        "resumed climb voice uses existing aviation numbers")
+    assert_equal(core.messageScope("departure.climb_resumed"), "enroute", "no repeated departure station or SID")
+    assert_equal(core.buildMessage("departure.climb_resumed", copy(resumed, {
+        climb_from_altitude_ft = 5000,
+        climb_from_pressure_altitude_ft = 5600,
+        altitude_ft = 5200,
+        mcp_altitude_ft = 12000
+    })), "Lufthansa 3210 leaving 5000ft, climbing FL120, BIRCO next", "leaving altitude below TA")
+    assert_equal(core.buildMessage("departure.climb_resumed", copy(resumed, {
+        climb_from_pressure_altitude_ft = 8900,
+        mcp_altitude_ft = 16000
+    })), "Lufthansa 3210 leaving FL89, climbing FL160, BIRCO next", "held pressure altitude and MCP target")
+    assert_equal(core.buildMessage("departure.climb_resumed", copy(resumed, {
+        mcp_altitude_ft = 40000
+    })), text, "resumed climb target capped at FMC cruise")
+    resumed.mcp_altitude_ft = nil
+    assert_equal(core.buildMessage("departure.climb_resumed", resumed), text, "FMC climb target fallback")
+    resumed.mcp_altitude_ft = 37000
+    for _, invalid in ipairs({
+        { climb_from_altitude_ft = 0 },
+        { climb_from_altitude_ft = 0 / 0 },
+        { climb_from_altitude_ft = math.huge },
+        { altitude_ft = 9000 },
+        { mcp_altitude_ft = 9000 },
+        { mcp_altitude_ft = 9200 },
+        { mcp_altitude_ft = 0, planned_altitude_ft = 0 }
+    }) do
+        local missing, reason = core.buildMessage("departure.climb_resumed", copy(resumed, invalid))
+        assert_equal(missing, nil, "invalid resumed climb context stays silent")
+        assert_equal(reason, "missing_climb_resume_context", "resumed climb missing-input reason")
+    end
+    local event = core.newEvent("departure.climb_resumed", resumed, 10, test_spell_nato)
+    assert_equal(event.expires_at, 130, "resumed climb TTL")
+    assert_true(event.inputs:find("climbFrom=9000", 1, true), "held altitude logged")
+    assert_true(event.inputs:find("climbFromPressure=9000", 1, true), "held pressure altitude logged")
+
+    local queue = core.newMailbox()
+    assert_true(queue:enqueue(core.newEvent("departure.on_climb", base, 0)), "queue initial climb")
+    assert_true(queue:enqueue(event), "resume supersedes old initial climb")
+    assert_equal(#queue.queue, 1, "only latest resumed climb remains")
+    assert_equal(queue:enqueue(core.newEvent("departure.climb_resumed", resumed, 11)), false,
+        "same resumed climb cannot be queued twice")
+    assert_true(queue:enqueue(core.newEvent("departure.climb_level_10000", base, 70)), "queue later progress")
+    assert_equal(#queue.queue, 1, "later progress supersedes resume")
+    assert_equal(queue.queue[1].id, "departure.climb_level_10000", "latest progress retained")
+    assert_true(queue:enqueue(core.newEvent("departure.climb_resumed", resumed, 80)), "second level can resume")
+    assert_equal(#queue.queue, 1, "resume supersedes queued fixed progress")
+    assert_true(queue:enqueue(core.newEvent("enroute.in_cruise", copy(base, { cruise_entry = true }), 90)),
+        "cruise supersedes resumed climb")
+    assert_equal(#queue.queue, 1, "cruise is sole queued report")
+    assert_equal(queue.queue[1].id, "enroute.in_cruise", "cruise report retained")
+    queue.outstanding = event
+    assert_equal(queue:enqueue(core.newEvent("departure.climb_resumed", resumed, 91)), false,
+        "outstanding resumed climb retains existing dedupe")
+    assert_equal(queue.outstanding, event, "queued supersession does not cancel externalized speech")
+end
+
 local reachingMcpSnapshot = copy(base, {
     altitude_ft = 10000,
     pressure_altitude_ft = 10000,
@@ -2431,6 +2500,32 @@ assert_true(autoUnicom.handleYalEvent("departure.climb_level_10000", {
 }, 3), "YAL altitude event accepted")
 autoUnicom.tick(true, 3)
 assert_equal(eventAdapterWrites[1].value, phraseCases[12][3], "YAL altitude payload freezes FL100")
+
+do
+    eventAdapterWrites = {}
+    eventAdapterValues.request_seq = 54
+    eventAdapterValues.result_seq = 54
+    eventAdapterValues.voice_result_seq = 54
+    eventAdapterValues.voice_result_code = 20
+    configure_event_adapter_test()
+    autoUnicom.tick(true, 0)
+    assert_true(autoUnicom.handleYalEvent("departure.climb_resumed", {
+        climb_from_altitude_ft = 9000,
+        climb_from_pressure_altitude_ft = 9000,
+        altitude_ft = 9200,
+        mcp_altitude_ft = 37000,
+        climb_next_waypoint = "BIRCO"
+    }, 1), "YAL resumed climb event uses existing adapter")
+    autoUnicom.tick(true, 1)
+    assert_equal(eventAdapterWrites[1].value,
+        "Lufthansa 3210 leaving FL90, climbing FL370, BIRCO next", "adapter resumed climb text")
+    assert_equal(eventAdapterWrites[2].value,
+        "Lufthansa tree two one zero leaving flight level niner zero, climbing flight level tree seven zero, Birco next",
+        "adapter resumed climb voice")
+    assert_equal(eventAdapterWrites[3].kind, "channels", "channels precede commit")
+    assert_equal(eventAdapterWrites[3].value, 3, "existing text plus voice transport")
+    assert_equal(eventAdapterWrites[4].kind, "seq", "request sequence remains last commit step")
+end
 
 eventAdapterWrites = {}
 eventAdapterValues.request_seq = 55
