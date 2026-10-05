@@ -27,9 +27,16 @@ local proceduredata = require("proceduredata")
 
 yal.altitude = "altitude"
 yal.radioaltitude = "radio"
+yal.desicao = "icao"
+yal.desrwyalt = "runway_elevation"
 local field, geometryOpen, geometryCalls, geometryArgs
+local airportSource = "zibo_api"
 local realGeometryGate = yal.isArrivalRunwayRadioAltGateOpen
-yal.getDestinationAirportElevationFt = function() return field end
+-- Keep both elevation getters real, including their elevation/source return contract.
+yal.getAirportRefdata = function()
+    if airportSource == "fallback" then return nil end
+    return { elevation_ft = field, _source = airportSource }
+end
 yal.isArrivalRunwayRadioAltGateOpen = function(distance, heading)
     geometryCalls = geometryCalls + 1
     geometryArgs = { distance, heading }
@@ -45,6 +52,29 @@ end
 context(6550, 9555.05859375, 1900.4959716797)
 assert(yal.isArrivalBelow2500Gate() == false, "KEGE terrain RA must not override 3005 ft above field")
 assert(geometryCalls == 0, "valid field elevation never consults radio-altitude geometry")
+
+for _, source in ipairs({ "zibo_api", "yal_cache", "fallback" }) do
+    airportSource = source
+    refs.runway_elevation = 6550
+    context(6550, 9555.05859375, 1900.4959716797)
+    local elevation, returnedSource = yal.getDestinationAirportElevationFt()
+    assert(elevation == 6550 and returnedSource == source, source .. " real getter returns elevation and source")
+    assert(not yal.isArrivalBelow2500Gate() and not yal.isArrivalBelow1000Gate() and geometryCalls == 0,
+        source .. " source string must not become tonumber's optional base")
+    context(6550, 9049, nil, false)
+    assert(yal.isArrivalBelow2500Gate() and not yal.isArrivalBelow1000Gate(),
+        source .. " source metadata leaves field-height semantics unchanged")
+    refs.altitude = 7549
+    assert(yal.isArrivalBelow1000Gate(), source .. " Below1000 uses the actual getter")
+
+    refs.runway_elevation = nil
+    context(nil, 9555, 500)
+    elevation, returnedSource = yal.getDestinationAirportElevationFt()
+    assert(elevation == nil and returnedSource == "fallback", "unavailable elevation still returns source metadata")
+    assert(yal.isArrivalBelow2500Gate() and yal.isArrivalBelow1000Gate(),
+        "nil elevation plus fallback source string still permits geometry-gated radio altitude")
+end
+airportSource = "zibo_api"
 
 for _, gate in ipairs({
     { fn = yal.isArrivalBelow2500Gate, height = 2500, distance = 8, heading = 60 },

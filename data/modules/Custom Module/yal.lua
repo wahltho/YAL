@@ -6234,7 +6234,8 @@ end
 --------------------------------------------------------------------------------------------------------------
 function P.isArrivalAltitudeGateMet(heightFt, maxThresholdDistanceNm, maxHeadingDiff)
 
-    local destinationAltitude = tonumber(P.getDestinationAirportElevationFt())
+    local destinationAltitude = P.getDestinationAirportElevationFt()
+    destinationAltitude = tonumber(destinationAltitude)
     if destinationAltitude and destinationAltitude > -1000 and destinationAltitude < math.huge then
         -- Terrain-relative radio altitude must not override a known field-height gate.
         local altitude = tonumber(get(P.altitude))
