@@ -127,7 +127,7 @@ Trigger: Descending through the configured lower-airspace altitude.
 Actions: Landing lights, seatbelt sign, autobrake, and approach setup including `SET ILS` / `SET VREF` / wind-correction logic as configured.
 
 #### Below 2,500 Feet / 1,000 Feet Procedures
-Trigger: Final approach gates using a mix of radio altitude and airfield-relative logic.
+Trigger: Height above the destination airfield, using indicated altitude and known airfield elevation. Only when airfield elevation is unavailable, radio altitude with runway proximity/alignment checks is used as a fallback. Radio-altitude callouts and minima are unchanged.
 Actions: Landing gear, starter CONT, final landing configuration, lights and speedbrake checks.
 
 #### After Landing Procedure

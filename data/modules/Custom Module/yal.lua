@@ -6234,18 +6234,16 @@ end
 --------------------------------------------------------------------------------------------------------------
 function P.isArrivalAltitudeGateMet(heightFt, maxThresholdDistanceNm, maxHeadingDiff)
 
-    local destinationAltitude = P.getDestinationAirportElevationFt()
-    local heightAboveField = 99999
-    if destinationAltitude and destinationAltitude > -1000 then
-        heightAboveField = get(P.altitude) - destinationAltitude
+    local destinationAltitude = tonumber(P.getDestinationAirportElevationFt())
+    if destinationAltitude and destinationAltitude > -1000 and destinationAltitude < math.huge then
+        -- Terrain-relative radio altitude must not override a known field-height gate.
+        local altitude = tonumber(get(P.altitude))
+        return altitude ~= nil and altitude > -math.huge and altitude < math.huge
+            and altitude - destinationAltitude < heightFt
     end
 
-    if heightAboveField < heightFt then
-        return true
-    end
-
-    local radioAltitude = get(P.radioaltitude) or 99999
-    return radioAltitude < heightFt
+    local radioAltitude = tonumber(get(P.radioaltitude))
+    return radioAltitude ~= nil and radioAltitude > -math.huge and radioAltitude < heightFt
         and P.isArrivalRunwayRadioAltGateOpen(maxThresholdDistanceNm, maxHeadingDiff)
 end
 
