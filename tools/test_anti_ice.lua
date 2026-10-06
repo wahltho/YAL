@@ -352,7 +352,14 @@ state, result = update(state, 10)
 state, result = update(state, 39)
 assertTrue(result.wing_demand, "structural ice remains latched before clear interval")
 state, result = update(state, 40)
-assertFalse(result.wing_demand, "structural wing demand clears after one clear latch")
+assertFalse(result.structural_active, "structural sensor clears after thirty dry seconds")
+assertTrue(result.wing_demand, "cleared sensor alone does not release active wing protection")
+assertFalse(result.wing_changed, "sensor clearing does not reset wing advice or command state")
+state, result = update(state, 129)
+assertTrue(result.wing_demand, "wing protection holds until 120 continuous clear seconds")
+state, result = update(state, 130)
+assertFalse(result.wing_demand, "wing protection clears at 120 continuous clear seconds")
+assertTrue(result.wing_changed, "complete clear interval publishes a wing OFF transition")
 
 state, result = update(nil, 0, { frame_ice_left = 0.02, ice_delta = 0.0001 })
 state, result = update(state, 15, { frame_ice_left = 0.02, ice_delta = 0.0001 })
@@ -364,11 +371,98 @@ assertTrue(result.engine_demand, "negative ice delta remains latched only before
 assertTrue(result.wing_demand, "structural ice remains latched before clear interval")
 state, result = update(state, 50, { frame_ice_left = 0, ice_delta = -0.0001 })
 assertTrue(result.engine_demand, "engine demand starts its combined clear latch")
-assertFalse(result.wing_demand, "cleared structural ice releases wing demand")
+assertTrue(result.wing_demand, "cleared structural ice does not release wing demand early")
 state, result = update(state, 79, { frame_ice_left = 0, ice_delta = -0.0001 })
 assertTrue(result.engine_demand, "negative ice delta remains latched before combined clear interval")
 state, result = update(state, 80, { frame_ice_left = 0, ice_delta = -0.0001 })
 assertFalse(result.engine_demand, "negative ice delta cannot hold engine demand indefinitely")
+assertTrue(result.wing_demand, "wing clear interval is independent of engine demand")
+state, result = update(state, 140, { frame_ice_left = 0, ice_delta = -0.0001 })
+assertFalse(result.wing_demand, "negative ice delta does not hold wing protection indefinitely")
+
+for _, ongoing in ipairs({
+    { in_cloud_layer = true },
+    { precipitation_ratio = 0.02 },
+    { snow_ratio = 0.02 },
+    { hail_ratio = 0.02 },
+    { visibility_sm = 0.5, height_agl_ft = 1000 },
+    { ice_delta = 0.0001402 }
+}) do
+    state, result = update(nil, 0, { frame_ice_right = 0.0141 })
+    state, result = update(state, 6, { frame_ice_right = 0.0141 })
+    state, result = update(state, 7, ongoing)
+    state, result = update(state, 37, ongoing)
+    assertFalse(result.structural_active, "protection may clear the measured ice")
+    state, result = update(state, 367, ongoing)
+    assertTrue(result.wing_demand, "ongoing icing keeps wing protection after measured ice is removed")
+    assertFalse(result.wing_changed, "ongoing icing never publishes a premature Wing OFF")
+    assertEqual(state.wing_clear_since, nil, "ongoing icing prevents clear timer accumulation")
+end
+
+state, result = update(nil, 0, { frame_ice_left = 0.0141, in_cloud_layer = true })
+state, result = update(state, 6, { frame_ice_left = 0.0141, in_cloud_layer = true })
+state, result = update(state, 10)
+state, result = update(state, 100, { ice_delta = 0.0001402 })
+state, result = update(state, 101)
+state, result = update(state, 220)
+assertTrue(result.wing_demand, "renewed icing restarts the complete clear interval")
+state, result = update(state, 221)
+assertFalse(result.wing_demand, "wing clears only after a new uninterrupted 120-second interval")
+
+state, result = update(nil, 0, { frame_ice_left = 0.0141 })
+state, result = update(state, 6, { frame_ice_left = 0.0141 })
+state, result = update(state, 10)
+state, result = antiIce.update(state, copy(base, copy(earlyDescent, { now = 100 })))
+state, result = antiIce.update(state, copy(base, copy(earlyDescent, { now = 300 })))
+assertTrue(result.wing_demand, "sustained upcoming descent layer bridges an ice-free gap")
+assertEqual(state.wing_clear_since, nil, "qualifying forecast resets the wing clear interval")
+state, result = update(state, 301)
+state, result = update(state, 420)
+assertTrue(result.wing_demand, "wing remains ON before the post-corridor clear interval completes")
+state, result = update(state, 421)
+assertFalse(result.wing_demand, "wing clears once the corridor and current icing stay absent")
+
+state, result = antiIce.update(nil, copy(base, copy(earlyDescent, { now = 0 })))
+state, result = antiIce.update(state, copy(base, copy(earlyDescent, { now = 360 })))
+assertFalse(result.wing_demand, "forecast alone never starts wing protection without structural ice")
+
+for _, inhibit in ipairs({
+    { pressure_altitude_ft = 35000 },
+    { tat_c = 11 },
+    { height_agl_ft = 399 }
+}) do
+    state, result = update(nil, 0, { frame_ice_left = 0.0141 })
+    state, result = update(state, 6, { frame_ice_left = 0.0141 })
+    state, result = update(state, 10)
+    state, result = update(state, 40, inhibit)
+    assertFalse(result.wing_demand, "safety inhibit overrides the active wing clear latch immediately")
+    assertEqual(state.wing_clear_since, nil, "inhibit discards the pending clear timer")
+    state, result = update(state, 41, { in_cloud_layer = true })
+    assertFalse(result.wing_demand, "old latch cannot re-enable wing without structural ice after an inhibit")
+end
+
+state, result = update(nil, 0, { frame_ice_left = 0.0141 })
+state, result = update(state, 6, { frame_ice_left = 0.0141 })
+state, result = update(state, 10)
+local missingTemperature = copy(base, { now = 100 })
+missingTemperature.tat_c = nil
+state, result = antiIce.update(state, missingTemperature)
+assertTrue(result.wing_demand, "missing TAT preserves protection instead of releasing it")
+assertEqual(state.wing_clear_since, nil, "unknown temperature does not count as clear time")
+state, result = update(state, 101)
+state, result = update(state, 220)
+assertTrue(result.wing_demand, "valid conditions must complete a fresh interval after missing TAT")
+state, result = update(state, 221)
+assertFalse(result.wing_demand, "valid clear conditions eventually release wing protection")
+
+for _, reset in ipairs({ { enabled = false }, { airborne = false }, { now = 5 } }) do
+    state, result = update(nil, 0, { frame_ice_left = 0.0141 })
+    state, result = update(state, 6, { frame_ice_left = 0.0141 })
+    state, result = update(state, 10)
+    state, result = antiIce.update(state, copy(base, copy({ now = 100 }, reset)))
+    assertEqual(state.wing_clear_since, nil, "runtime reset discards the active wing clear interval")
+    assertEqual(result.wing_demand, nil, "runtime reset cannot carry an old wing ON demand")
+end
 
 state, result = update(nil, 0, { in_cloud_layer = true })
 state, result = update(state, 6, { in_cloud_layer = true })

@@ -10,6 +10,7 @@ P.STRUCTURAL_ICE_CLEAR = 0.003
 P.STRUCTURAL_ICE_EVIDENCE = 0.003
 P.STRUCTURAL_ICE_ON_STABLE_SEC = 6
 P.STRUCTURAL_ICE_CLEAR_STABLE_SEC = 30
+P.WING_CLEAR_STABLE_SEC = 120
 P.ICE_DELTA_EPSILON = 0.0000001
 P.PRECIPITATION_THRESHOLD = 0.01
 P.CLOUD_COVERAGE_THRESHOLD = 0.5
@@ -128,7 +129,8 @@ function P.newState()
         engine_demand = nil,
         engine_reason = nil,
         wing_demand = nil,
-        wing_reason = nil
+        wing_reason = nil,
+        wing_clear_since = nil
     }
 end
 
@@ -494,19 +496,40 @@ local function resolveEngineDemand(
     return state.engine_demand, state.engine_reason
 end
 
-local function resolveWingDemand(state, input, tat)
+local function resolveWingDemand(state, input, now, tat, moisture, lookahead)
     local pressureAltitude = finiteNumber(input.pressure_altitude_ft)
     local heightAgl = finiteNumber(input.height_agl_ft)
     if pressureAltitude and pressureAltitude >= P.HIGH_WING_ANTI_ICE_ALTITUDE_FT then
+        state.wing_clear_since = nil
         return false, "altitude-above-fl350"
     end
     if tat and tat > P.MAX_TAT_C then
+        state.wing_clear_since = nil
         return false, "tat-above-10"
     end
     if heightAgl and heightAgl < P.MIN_WING_ANTI_ICE_AGL_FT then
+        state.wing_clear_since = nil
         return false, "below-400-feet-agl"
     end
-    if not tat then return state.wing_demand, state.wing_reason end
+    if not tat then
+        state.wing_clear_since = nil
+        return state.wing_demand, state.wing_reason
+    end
+    -- Removed ice can mean protection is working, not that icing has ended.
+    if state.wing_demand == true then
+        if moisture or qualifyingCloudCorridor(lookahead, P.LOOKAHEAD_MIN_CORRIDOR_SEC, false) then
+            state.wing_clear_since = nil
+        elseif state.wing_clear_since == nil then
+            state.wing_clear_since = now
+        end
+        if state.wing_clear_since == nil
+            or elapsed(now, state.wing_clear_since) < P.WING_CLEAR_STABLE_SEC then
+            return true, state.wing_reason
+        end
+        state.wing_clear_since = nil
+        return false, "wing-anti-ice-clear"
+    end
+    state.wing_clear_since = nil
     if state.structural_active == true then
         return true, "structural-ice"
     end
@@ -550,7 +573,7 @@ function P.update(state, input)
     local engineDemand, engineReason = resolveEngineDemand(
         state, input, now, tat, displayedTat, warmStable, coldSatStable,
         moisture, moistureReason, lookahead)
-    local wingDemand, wingReason = resolveWingDemand(state, input, tat)
+    local wingDemand, wingReason = resolveWingDemand(state, input, now, tat, moisture, lookahead)
     state.engine_demand = engineDemand
     state.engine_reason = engineReason
     state.wing_demand = wingDemand
