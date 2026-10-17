@@ -7305,6 +7305,8 @@ function P.antiIceEngineAdvice(demand, reason)
     end
     if reason == "tat-above-10" then
         return "T A T above 10 degrees. Set engine anti ice off."
+    elseif reason == "oat-above-10" then
+        return "Outside air temperature above 10 degrees. Set engine anti ice off."
     elseif reason == "sat-below-minus-40" then
         return "Static air temperature below minus 40 degrees in climb or cruise. Set engine anti ice off."
     end
@@ -7338,7 +7340,7 @@ function P.antiIceCommandAllowed(lastCommandAt, now)
     return lastCommandAt == nil or (now - lastCommandAt) >= 6
 end
 
-function P.updateAirborneAntiIce()
+function P.updateAntiIce()
     local automatic = P.configvalues[def.CONFIGAUTOFUNCTIONS] == def.ON
         and P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON
     local adviceOnly = P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON
@@ -7393,6 +7395,7 @@ function P.updateAirborneAntiIce()
         now = now,
         enabled = enabled,
         airborne = airborne,
+        engines_running = airborne or P.enginesrunning(),
         tat_c = get(P.tatdegc),
         sat_c = get(P.satdegc),
         climb_or_cruise = climbOrCruise,
@@ -7425,7 +7428,14 @@ function P.updateAirborneAntiIce()
         P.antiIceWingInhibitWarnedReason = nil
         return
     end
-    if not enabled or not airborne then return end
+    if not enabled or not P.antiIceRuntime.context_active then return end
+    if result.wing_reset then
+        P.clearAntiIceSpeech("wing")
+        P.clearYalQueuedSpeech("caution:anti_ice:wing:high_altitude")
+        P.clearYalQueuedSpeech("caution:anti_ice:wing:inhibited")
+        P.antiIceLastWingCommandAt = nil
+        P.antiIceWingInhibitWarnedReason = nil
+    end
 
     if result.engine_changed then
         P.clearAntiIceSpeech("engine")
@@ -7434,8 +7444,9 @@ function P.updateAirborneAntiIce()
     if result.engine_changed or result.engine_reason_changed then
         local lookahead = result.lookahead or {}
         helpers.logInfoTS(string.format(
-            "AntiIce engine demand=%s reason=%s yalState=%s fmsPhase=%s climbCruise=%s vvi=%.0f TAT=%.1f displayTAT=%s SAT=%.1f moisture=%s source=%s visSM=%.2f cloud=%s aglFt=%.0f precip=%.4f snow=%.4f hail=%.4f iceL=%.4f iceR=%.4f iceDelta=%.7f lookahead=%s laReason=%s layer=%s corridor=%s entrySec=%.0f exitSec=%.0f durationSec=%.0f forecastTAT=%.1f..%.1f thermalEntrySec=%.0f thermalExitSec=%.0f thermalDurationSec=%.0f thermalTAT=%.1f..%.1f coverage=%.2f/%.2f/%.2f baseM=%.0f/%.0f/%.0f topM=%.0f/%.0f/%.0f",
+            "AntiIce engine demand=%s reason=%s airborne=%s yalState=%s fmsPhase=%s climbCruise=%s vvi=%.0f TAT=%.1f displayEngineTemp=%s SAT=%.1f moisture=%s source=%s visSM=%.2f cloud=%s aglFt=%.0f precip=%.4f snow=%.4f hail=%.4f iceL=%.4f iceR=%.4f iceDelta=%.7f lookahead=%s laReason=%s layer=%s corridor=%s entrySec=%.0f exitSec=%.0f durationSec=%.0f forecastTAT=%.1f..%.1f thermalEntrySec=%.0f thermalExitSec=%.0f thermalDurationSec=%.0f thermalTAT=%.1f..%.1f coverage=%.2f/%.2f/%.2f baseM=%.0f/%.0f/%.0f topM=%.0f/%.0f/%.0f",
             tostring(result.engine_demand), tostring(result.engine_reason),
+            tostring(airborne),
             tostring(P.flightstate), tostring(fmsPhase), tostring(climbOrCruise),
             tonumber(get(P.verticalspeed)) or 0,
             tonumber(get(P.tatdegc)) or 0, tostring(result.displayed_tat_c),
@@ -10435,91 +10446,8 @@ function P.runOneCoreOngoingTask()
         idx = 4
     end
 
-    if idx == 4 then
-        if (P.configvalues[def.CONFIGAUTOANTIICE] == def.ON) then
-            if (get(P.airgroundsensor) == def.ON) then
-                local apu_bleed_ok = P.apurunning() and (get(P.apubleedpos) == def.ON)
-                local eng_bleed_ok = P.enginesrunning() and ((get(P.eng1bleedpos) == def.ON) or (get(P.eng2bleedpos) == def.ON))
-                local bleed_ok = apu_bleed_ok or eng_bleed_ok
-
-                local dep_phase = (P.flightstate == def.FLIGHTSTATEPREFLIGHT)
-                local arr_afterlanding = (P.flightstate == def.FLIGHTSTATEAFTERLANDING)
-                local arr_taxi_to_gate = (P.flightstate == def.FLIGHTSTATETAXITOGATE)
-
-                local wx
-                if dep_phase then
-                    wx = P.depmetar.decodedmetar
-                else
-                    wx = P.desmetar.decodedmetar
-                end
-
-                local tat_c = get(P.tatdegc)
-                local ground_icing = helpers.isGroundIcingCondition(wx, tat_c)
-                ground_icing = not not ground_icing
-
-                local function anyAntiIceOn()
-                    return (get(P.eng1heatpos) == def.ON) or (get(P.eng2heatpos) == def.ON) or (get(P.wingheatpos) == def.ON)
-                end
-
-                local function anyAntiIceOff()
-                    return (get(P.eng1heatpos) == def.OFF) or (get(P.eng2heatpos) == def.OFF) or (get(P.wingheatpos) == def.OFF)
-                end
-
-                if dep_phase then
-                    if (P.configvalues[def.CONFIGAUTOFUNCTIONS] == def.ON) and (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
-                        if ground_icing and bleed_ok then
-                            P.iceprotection(def.ON)
-                        else
-                            P.iceprotection(def.OFF)
-                        end
-                    else
-                        if ground_icing and bleed_ok then
-                            if anyAntiIceOff() then
-                                P.commandtableentry(def.TEXT, "Ground Icing Conditions, Switch Anti Icing On")
-                            end
-                        else
-                            if anyAntiIceOn() then
-                                P.commandtableentry(def.TEXT, "No Ground Icing Conditions, Switch Anti Icing Off")
-                            end
-                        end
-                    end
-
-                elseif arr_afterlanding then
-                    if (P.configvalues[def.CONFIGAUTOFUNCTIONS] == def.ON) and (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
-                        if ground_icing and bleed_ok then
-                            P.iceprotection(def.ON)
-                        end
-                    else
-                        if ground_icing and bleed_ok then
-                            if anyAntiIceOff() then
-                                P.commandtableentry(def.TEXT, "Icing Conditions After Landing, Switch Anti Icing On")
-                            end
-                        end
-                    end
-
-                elseif arr_taxi_to_gate then
-                    if (P.configvalues[def.CONFIGAUTOFUNCTIONS] == def.ON) and (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
-                        if ground_icing and bleed_ok then
-                            P.iceprotection(def.ON)
-                        else
-                            P.iceprotection(def.OFF)
-                        end
-                    else
-                        if ground_icing and bleed_ok then
-                            if anyAntiIceOff() then
-                                P.commandtableentry(def.TEXT, "Icing Conditions Taxi In, Switch Anti Icing On")
-                            end
-                        else
-                            if anyAntiIceOn() then
-                                P.commandtableentry(def.TEXT, "No Icing Conditions Taxi In, Switch Anti Icing Off")
-                            end
-                        end
-                    end
-                end
-
-            end
-        end
-    elseif idx == 5 then
+    -- Slot 4 is reserved; updateAntiIce owns ground and airborne protection.
+    if idx == 5 then
         if (P.configvalues[def.CONFIGAUTOWIPER] == def.ON) then
             local groundspeed = get(P.groundspeed)
             local wipersOn = (get(P.lwiperpos) ~= def.WIPEROFF) or (get(P.rwiperpos) ~= def.WIPEROFF)
@@ -12916,7 +12844,7 @@ function P.do_yal()
     sasl.logDebug("----------------------------------------------")
     sasl.logDebug("ONGOINGTASKSTEPINDEX: " .. P.ongoingtaskstepindex)
 
-    P.updateAirborneAntiIce()
+    P.updateAntiIce()
 
     if ((P.configvalues[def.CONFIGAUTOFUNCTIONS] == def.ON) or (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON)) then
         P.updateAutoUnicomHoldEvents()

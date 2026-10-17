@@ -51,7 +51,8 @@ local names = {
     aircraftvisibilitysm = "visibility", radioaltitude = "agl",
     frameice = "iceleft", frameice2 = "iceright", icedelta = "icedelta",
     tatdegc = "tat", satdegc = "sat", verticalspeed = "vvi",
-    pressurealtitudeft = "pressurealt", eng1heatpos = "eng1",
+    pressurealtitudeft = "pressurealt", eng1n1percent = "n1left", eng2n1percent = "n1right",
+    eng1heatpos = "eng1",
     eng2heatpos = "eng2", wingheatpos = "wing"
 }
 for field, ref in pairs(names) do yal[field] = ref end
@@ -99,12 +100,12 @@ yal.clearYalQueuedSpeech = function() end
 yal.clearAntiIceSpeech = function() end
 
 refs.time = 0
-yal.updateAirborneAntiIce()
+yal.updateAntiIce()
 refs.time = 15
-yal.updateAirborneAntiIce()
+yal.updateAntiIce()
 assert(#commands == 2, "auto mode turns on both engine anti-ice switches before the layer")
 refs.time = 16
-yal.updateAirborneAntiIce()
+yal.updateAntiIce()
 assert(#commands == 2, "auto mode does not repeat commands once switches match")
 
 yal.configvalues[def.CONFIGAUTOFUNCTIONS] = def.OFF
@@ -120,9 +121,9 @@ yal.queueAntiIceAdvice = function(system, stateName, text)
 end
 yal.resetAntiIceAdviceState = function() end
 refs.time = 100
-yal.updateAirborneAntiIce()
+yal.updateAntiIce()
 refs.time = 115
-yal.updateAirborneAntiIce()
+yal.updateAntiIce()
 assert(#commands == 2, "voice advice mode never moves the switches")
 assert(#advice == 1 and advice[1].system == "engine" and advice[1].state == "on",
     "voice advice mode announces the anticipated icing layer")
@@ -134,9 +135,9 @@ refs.agl = 2000
 refs.base1 = 0
 refs.top1 = 1000
 refs.time = 200
-yal.updateAirborneAntiIce()
+yal.updateAntiIce()
 refs.time = 215
-yal.updateAirborneAntiIce()
+yal.updateAntiIce()
 assert(#advice == 2 and advice[2].state == "on",
     "current icing below 2500 feet remains actionable in voice mode")
 
@@ -171,7 +172,7 @@ end
 
 local function tick(now)
     refs.time = now
-    yal.updateAirborneAntiIce()
+    yal.updateAntiIce()
 end
 
 for _, adviceMode in ipairs({ false, true }) do
@@ -246,5 +247,129 @@ for _, adviceMode in ipairs({ false, true }) do
             "auto mode executes exactly one Wing ON and one final Wing OFF")
     end
 end
+
+for _, adviceMode in ipairs({ false, true }) do
+    commands, queued, history = {}, {}, {}
+    yal.antiIceRuntime = nil
+    yal.antiIceWeatherProfileAt = nil
+    yal.antiIceAdviceState = { engine = {}, wing = {} }
+    yal.antiIceLastEngineCommandAt = nil
+    yal.antiIceLastWingCommandAt = nil
+    yal.configvalues[def.CONFIGAUTOFUNCTIONS] = adviceMode and def.OFF or def.ON
+    yal.configvalues[def.CONFIGVOICEADVICEONLY] = adviceMode and def.ON or def.OFF
+    yal.flightstate = def.FLIGHTSTATEPREFLIGHT
+    refs.airground = def.ON
+    refs.n1left, refs.n1right = 0, 0
+    refs.eng1, refs.eng2, refs.wing = def.OFF, def.OFF, def.OFF
+    refs.elevation, refs.agl, refs.pressurealt = 200, -1, 650
+    refs.tat, refs.sat, refs.vvi = 15, 5, 0
+    refs.precipitation, refs.visibility = 0.1, 10
+    refs.iceleft, refs.iceright, refs.icedelta = 0, 0, 0
+    refs.coverage1 = 0
+    tick(0)
+    tick(30)
+    assert(#commands == 0 and next(queued) == nil,
+        "cold/dark and APU-only preparation never requests engine anti-ice")
+    refs.n1right = 20
+    tick(31)
+    tick(60)
+    assert(#commands == 0 and next(queued) == nil,
+        "one completed engine start does not replace the both-engines-running authority")
+
+    refs.n1left = 20
+    tick(61)
+    tick(75)
+    assert(#commands == 0 and next(queued) == nil,
+        "ground icing completes the existing ON confirmation interval")
+    tick(76)
+    assert(yal.antiIceRuntime.engine_demand == true,
+        "real adapter uses ground OAT rather than warmer TAT and needs no bleed-switch gate")
+    assert(wingCommandCount() == 0 and yal.antiIceRuntime.wing_demand == nil,
+        "ground engine protection never requests Wing anti-ice")
+    if adviceMode then
+        assert(#commands == 0 and queued["advice:anti_ice:engine:on"] ~= nil,
+            "Advice mode requests engine anti-ice before taxi without switch movement")
+        refs.eng1, refs.eng2 = def.ON, def.ON
+        tick(77)
+        assert(queued["advice:anti_ice:engine:on"] == nil,
+            "actual pilot response clears the ground Engine ON advice")
+    else
+        assert(#commands == 2 and refs.eng1 == def.ON and refs.eng2 == def.ON,
+            "Auto mode switches only both engine anti-ice systems ON before taxi")
+    end
+    refs.airground, refs.tat, refs.agl = def.OFF, 5, 100
+    refs.phase = def.FMSFLIGHTPHASE_CLIMB
+    yal.flightstate = def.FLIGHTSTATEINITIALCLIMB
+    local beforeTakeoffSpeech = #history
+    tick(78)
+    assert(yal.antiIceRuntime.engine_demand == true and #history == beforeTakeoffSpeech,
+        "takeoff keeps the established engine demand without a duplicate instruction")
+
+    refs.airground, refs.agl = def.ON, 0
+    yal.flightstate = def.FLIGHTSTATEAFTERLANDING
+    tick(100)
+    assert(yal.antiIceRuntime.engine_demand == true,
+        "actual landing does not discard required engine protection")
+    refs.precipitation = 0
+    tick(101)
+    tick(131)
+    tick(160)
+    assert(yal.antiIceRuntime.engine_demand == true,
+        "ground clear conditions cannot prematurely turn engine protection OFF")
+    queued["advice:anti_ice:engine:on"] = "obsolete engine ON"
+    tick(161)
+    assert(yal.antiIceRuntime.engine_demand == false
+        and queued["advice:anti_ice:engine:on"] == nil,
+        "ground OFF transition clears obsolete Engine ON speech")
+    if adviceMode then
+        assert(#commands == 0 and queued["advice:anti_ice:engine:off"] ~= nil,
+            "Advice mode requests OFF only after the clear latch")
+    else
+        assert(#commands == 4 and refs.eng1 == def.OFF and refs.eng2 == def.OFF,
+            "Auto mode completes one engine ON/OFF cycle without touching Wing")
+    end
+    refs.n1left, refs.n1right = 0, 0
+    tick(162)
+    assert(yal.antiIceRuntime.engine_demand == nil and next(queued) == nil,
+        "shutdown resets the shared owner and removes old ground advice")
+end
+
+commands, queued, history = {}, {}, {}
+yal.antiIceRuntime = nil
+yal.antiIceWeatherProfileAt = nil
+yal.antiIceAdviceState = { engine = {}, wing = {} }
+yal.configvalues[def.CONFIGAUTOFUNCTIONS] = def.OFF
+yal.configvalues[def.CONFIGVOICEADVICEONLY] = def.ON
+refs.airground, refs.tat, refs.sat, refs.agl = def.OFF, 5, 5, 3000
+refs.iceleft, refs.iceright, refs.icedelta = 0, 0.02, 0
+refs.eng1, refs.eng2, refs.wing = def.OFF, def.OFF, def.OFF
+refs.n1left, refs.n1right = 20, 20
+tick(200)
+tick(206)
+assert(queued["advice:anti_ice:wing:on"] ~= nil, "airborne Wing advice exists before landing")
+refs.airground, refs.agl = def.ON, 0
+tick(207)
+assert(queued["advice:anti_ice:wing:on"] == nil and #commands == 0,
+    "landing removes obsolete Wing speech without a combined ground switch command")
+refs.wing = def.ON
+yal.configvalues[def.CONFIGAUTOFUNCTIONS] = def.ON
+yal.configvalues[def.CONFIGVOICEADVICEONLY] = def.OFF
+tick(208)
+assert(refs.wing == def.ON and wingCommandCount() == 0,
+    "a manually selected ground Wing switch is outside the Engine owner's authority")
+queued["advice:anti_ice:engine:on"] = "obsolete engine ON"
+yal.configvalues[def.CONFIGAUTOANTIICE] = def.OFF
+tick(209)
+assert(next(queued) == nil and #commands == 0,
+    "disabling ground protection clears stale advice without moving any switch")
+
+-- The old rotating ground task must no longer act as a second Engine/Wing owner.
+commands, queued, history = {}, {}, {}
+yal.configvalues[def.CONFIGAUTOANTIICE] = def.ON
+yal.ongoingcoretaskindex = 4
+yal.iceprotection = function() error("obsolete combined ground anti-ice owner") end
+yal.runOneCoreOngoingTask()
+assert(yal.ongoingcoretaskindex == 5 and #commands == 0 and next(queued) == nil,
+    "reserved ground-task slot preserves the other task cadence without anti-ice actions")
 
 print("test_anti_ice_adapter: all checks passed")

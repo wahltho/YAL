@@ -477,4 +477,95 @@ state, result = update(state, 100, { in_cloud_layer = true })
 state, result = update(state, 50, { in_cloud_layer = true })
 assertEqual(result.engine_demand, nil, "time regression resets latches")
 
+local ground = {
+    airborne = false, engines_running = true, height_agl_ft = 0,
+    tat_c = 15, sat_c = 5, precipitation_ratio = 0.1
+}
+state, result = update(nil, 0, ground)
+state, result = update(state, 14, ground)
+assertEqual(result.engine_demand, nil, "ground ON waits for the existing confirmation interval")
+state, result = update(state, 15, ground)
+assertTrue(result.engine_demand, "engine anti-ice is required on cold wet ground after engine start")
+assertEqual(result.wing_demand, nil, "ground engine protection does not request Wing ON or OFF")
+assertFalse(result.lookahead.valid, "ground logic does not invent a vertical takeoff trajectory")
+state, result = update(state, 16, { precipitation_ratio = 0.1 })
+assertTrue(result.engine_demand, "liftoff preserves the ground demand without re-confirming ON")
+assertFalse(result.engine_changed, "ground-to-air transition alone does not reset engine advice")
+
+for _, moistureInput in ipairs({
+    { precipitation_ratio = 0.01 }, { snow_ratio = 0.01 }, { hail_ratio = 0.01 },
+    { in_cloud_layer = true }, { visibility_sm = 1, height_agl_ft = -1 },
+    { frame_ice_right = 0.02 }
+}) do
+    local input = copy(ground, copy({ precipitation_ratio = 0 }, moistureInput))
+    state, result = update(nil, 0, input)
+    state, result = update(state, 15, input)
+    assertTrue(result.engine_demand, "current ground moisture is actionable using the shared engine owner")
+    assertEqual(result.wing_demand, nil, "even structural ground evidence cannot activate airborne Wing logic")
+end
+
+state, result = update(nil, 0, copy(ground, { precipitation_ratio = 0, sat_c = -5 }))
+state, result = update(state, 30, copy(ground, { precipitation_ratio = 0, sat_c = -5 }))
+assertFalse(result.engine_demand, "cold dry ground does not require engine anti-ice")
+
+state, result = update(nil, 0, copy(ground, { sat_c = 10 }))
+state, result = update(state, 15, copy(ground, { sat_c = 10 }))
+assertTrue(result.engine_demand, "OAT exactly 10 C remains eligible")
+state, result = update(nil, 0, copy(ground, { tat_c = -5, sat_c = 11 }))
+state, result = update(state, 6, copy(ground, { tat_c = -5, sat_c = 11 }))
+assertFalse(result.engine_demand, "warm OAT rejects ON even with cold TAT")
+assertEqual(result.engine_reason, "oat-above-10", "ground OFF identifies OAT instead of TAT")
+state, result = update(nil, 0, copy(ground, { sat_c = 10.1 }))
+state, result = update(state, 30, copy(ground, { sat_c = 10.1 }))
+assertEqual(result.engine_demand, nil, "ground ON never rounds OAT above 10 C down into eligibility")
+
+local missingOat = copy(base, copy(ground, { now = 15 }))
+missingOat.sat_c = nil
+state, result = antiIce.update(nil, missingOat)
+assertEqual(result.engine_demand, nil, "missing OAT must not fall back to ground TAT")
+state, result = update(nil, 0, ground)
+state, result = update(state, 15, ground)
+missingOat.now = 30
+state, result = antiIce.update(state, missingOat)
+assertTrue(result.engine_demand, "missing OAT cannot remove established ground engine protection")
+
+for _, unavailable in ipairs({ false, "missing" }) do
+    local input = copy(ground, { engines_running = unavailable })
+    state, result = update(nil, 0, input)
+    state, result = update(state, 30, input)
+    assertEqual(result.engine_demand, nil, "ground engine authority is explicitly boolean and fail-closed")
+end
+state, result = update(nil, 0, copy(ground, { sat_c = -45, climb_or_cruise = true }))
+state, result = update(state, 15, copy(ground, { sat_c = -45, climb_or_cruise = true }))
+assertTrue(result.engine_demand, "airborne SAT exception cannot disable ground engine protection")
+
+state, result = update(nil, 0, { frame_ice_right = 0.02 })
+state, result = update(state, 15, { frame_ice_right = 0.02 })
+assertTrue(result.wing_demand, "airborne Wing can be active before landing")
+state, result = update(state, 16, ground)
+assertTrue(result.engine_demand, "landing preserves required Engine ON")
+assertEqual(result.wing_demand, nil, "landing clears only the airborne Wing demand")
+assertTrue(result.wing_reset, "landing asks the adapter to remove stale airborne Wing speech")
+assertEqual(state.structural_active, nil, "ground samples do not age airborne structural evidence")
+state, result = update(state, 17, copy(ground, { precipitation_ratio = 0 }))
+state, result = update(state, 47, copy(ground, { precipitation_ratio = 0 }))
+state, result = update(state, 76, copy(ground, { precipitation_ratio = 0 }))
+assertTrue(result.engine_demand, "ground clear uses the existing moisture and engine clear latches")
+state, result = update(state, 77, copy(ground, { precipitation_ratio = 0 }))
+assertFalse(result.engine_demand, "ground protection eventually clears through the shared owner")
+state, result = update(state, 78, copy(ground, { engines_running = false }))
+assertTrue(result.reset, "shutdown resets the active ground owner")
+assertEqual(result.engine_demand, nil, "shutdown cannot carry old engine demands into a new flight")
+state, result = update(state, 100, ground)
+assertEqual(result.engine_demand, nil, "new-flight engine start begins a fresh confirmation")
+state, result = update(state, 115, ground)
+assertTrue(result.engine_demand, "new-flight ground protection can activate again")
+state, result = update(state, 5, ground)
+assertEqual(result.engine_demand, nil, "ground clock regression discards the previous flight latch")
+state, result = update(state, 20, ground)
+state, result = update(state, 21, copy(ground, { enabled = false }))
+assertTrue(result.reset, "disabling anti-ice also resets an active ground owner")
+state, result = update(state, 22, ground)
+assertEqual(result.engine_demand, nil, "re-enabling ground protection starts a new confirmation")
+
 print("test_anti_ice: all checks passed")

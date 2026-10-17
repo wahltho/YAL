@@ -111,6 +111,7 @@ end
 function P.newState()
     return {
         context_active = false,
+        airborne = nil,
         last_now = nil,
         moisture_since = nil,
         moisture_clear_since = nil,
@@ -305,7 +306,7 @@ function P.visibleMoisture(input)
     end
 
     local visibility = finiteNumber(input.visibility_sm)
-    local heightAgl = finiteNumber(input.height_agl_ft)
+    local heightAgl = input.airborne == false and 0 or finiteNumber(input.height_agl_ft)
     if visibility and visibility >= 0 and visibility <= P.FOG_VISIBILITY_SM
         and heightAgl and heightAgl >= 0 and heightAgl <= P.FOG_MAX_AGL_FT then
         return true, "fog"
@@ -365,11 +366,17 @@ local function updateStructuralState(state, input, now)
 end
 
 local function updateTemperatureTimers(state, input, now)
-    local tat = finiteNumber(input.tat_c)
+    local tat
+    if input.airborne == false then
+        tat = finiteNumber(input.sat_c)
+    else
+        tat = finiteNumber(input.tat_c)
+    end
     local displayedTat = cockpitTemperature(tat)
     local sat = finiteNumber(input.sat_c)
     local warm = displayedTat and displayedTat > P.MAX_TAT_C
-    local coldSat = input.climb_or_cruise == true and sat and sat < P.MIN_CLIMB_CRUISE_SAT_C
+    local coldSat = input.airborne ~= false and input.climb_or_cruise == true
+        and sat and sat < P.MIN_CLIMB_CRUISE_SAT_C
 
     if warm then
         if state.warm_since == nil then state.warm_since = now end
@@ -423,7 +430,7 @@ local function resolveEngineDemand(
         state.engine_eligible_since = nil
         state.engine_clear_since = nil
         state.temperature_rearm_pending = moisture == true or state.moisture_active == true
-        return false, "tat-above-10"
+        return false, input.airborne == false and "oat-above-10" or "tat-above-10"
     end
     if coldSatStable then
         state.engine_eligible_since = nil
@@ -436,7 +443,8 @@ local function resolveEngineDemand(
     -- Never start above the FCOM limit; use the whole-degree cockpit value only
     -- to avoid an OFF transition the crew display cannot yet show.
     local warm = tat > P.MAX_TAT_C
-    local coldSat = input.climb_or_cruise == true and sat and sat < P.MIN_CLIMB_CRUISE_SAT_C
+    local coldSat = input.airborne ~= false and input.climb_or_cruise == true
+        and sat and sat < P.MIN_CLIMB_CRUISE_SAT_C
     local forecastEligible = lookaheadSupportsEngineOn(lookahead, P.LOOKAHEAD_MIN_CORRIDOR_SEC)
     local engineMoisture = moisture == true or forecastEligible
     local eligible = engineMoisture and not warm and not coldSat
@@ -544,7 +552,9 @@ function P.update(state, input)
     input = input or {}
     local now = finiteNumber(input.now) or 0
 
-    if input.enabled ~= true or input.airborne ~= true then
+    local airborne = input.airborne == true
+    if input.enabled ~= true
+        or (not airborne and not (input.airborne == false and input.engines_running == true)) then
         local wasActive = state.context_active == true
         state = P.newState()
         state.last_now = now
@@ -556,24 +566,41 @@ function P.update(state, input)
     state.context_active = true
     state.last_now = now
 
+    local previousWing = state.wing_demand
+    local previousWingReason = state.wing_reason
     local moisture, moistureReason = updateMoistureState(state, input, now)
-    local maxIce = updateStructuralState(state, input, now)
+    local maxIce = maxFinite(input.frame_ice_left, input.frame_ice_right)
+    if airborne then
+        maxIce = updateStructuralState(state, input, now)
+    else
+        -- Ground engine protection must not activate airborne Wing logic.
+        state.structural_since = nil
+        state.structural_clear_since = nil
+        state.structural_active = nil
+        state.wing_demand = nil
+        state.wing_reason = nil
+        state.wing_clear_since = nil
+    end
     local tat, displayedTat, warmStable, coldSatStable = updateTemperatureTimers(state, input, now)
-    if state.lookahead_updated_at == nil
+    if state.airborne ~= airborne or state.lookahead_updated_at == nil
         or elapsed(now, state.lookahead_updated_at) >= P.LOOKAHEAD_REFRESH_SEC then
-        state.lookahead = P.analyzeVerticalIcingCorridor(input)
+        state.lookahead = airborne and P.analyzeVerticalIcingCorridor(input)
+            or { valid = false, reason = "on-ground" }
         state.lookahead_updated_at = now
     end
+    state.airborne = airborne
     local lookahead = state.lookahead
 
     local previousEngine = state.engine_demand
     local previousEngineReason = state.engine_reason
-    local previousWing = state.wing_demand
-    local previousWingReason = state.wing_reason
     local engineDemand, engineReason = resolveEngineDemand(
         state, input, now, tat, displayedTat, warmStable, coldSatStable,
         moisture, moistureReason, lookahead)
-    local wingDemand, wingReason = resolveWingDemand(state, input, now, tat, moisture, lookahead)
+    local wingDemand, wingReason
+    if airborne then
+        wingDemand, wingReason = resolveWingDemand(
+            state, input, now, tat, moisture, lookahead)
+    end
     state.engine_demand = engineDemand
     state.engine_reason = engineReason
     state.wing_demand = wingDemand
@@ -587,7 +614,8 @@ function P.update(state, input)
         engine_reason_changed = previousEngineReason ~= engineReason,
         engine_demand = engineDemand,
         engine_reason = engineReason,
-        wing_changed = previousWing ~= wingDemand or previousWingReason ~= wingReason,
+        wing_reset = not airborne and previousWing ~= nil,
+        wing_changed = airborne and (previousWing ~= wingDemand or previousWingReason ~= wingReason),
         wing_demand = wingDemand,
         wing_reason = wingReason,
         moisture_active = state.moisture_active,
