@@ -1731,7 +1731,6 @@ function P.YalinitGlobal()
     P.cruiseAltMismatchKey = nil
     P.cruiseAltMismatchFirstSeenAt = nil
     P.cruiseAltMismatchLastWarnAt = nil
-    P.cruiseAltMismatchVnavAltWarned = false
     P.descentTriggerPhase = nil
     P.descentTriggerSince = nil
     P.descentTriggerHoldLogged = false
@@ -11689,6 +11688,79 @@ function P.runOneMainOngoingTask()
 end
 
 --------------------------------------------------------------------------------------------------------------
+function P.resetCruiseAltitudeGuard()
+    if P.cruiseAltMismatchKey ~= nil then
+        P.clearYalQueuedSpeech(def.CRUISE_ALT_MISMATCH_SPEECH_KEY)
+    end
+    P.cruiseAltMismatchKey = nil
+    P.cruiseAltMismatchFirstSeenAt = nil
+    P.cruiseAltMismatchLastWarnAt = nil
+end
+
+function P.updateCruiseAltitudeGuard()
+    local flightState = P.flightstate or 0
+    local fmsPhase = get(P.fmsflightphase) or 0
+    local currentAlt = tonumber(get(P.altitude)) or 0
+    local lowAirspaceAlt = tonumber(P.configvalues[def.CONFIGLOWEAIRSPACEALT]) or 0
+    local fmcCruiseAlt = helpers.roundnumber((tonumber(get(P.fmccruisealt)) or 0) / 100, 0) * 100
+    local mcpAlt = helpers.roundnumber((tonumber(get(P.mcpaltitude)) or 0) / 100, 0) * 100
+    local verticalSpeed = tonumber(get(P.verticalspeed))
+    local climbOrCruise =
+        (flightState == def.FLIGHTSTATECLIMB) or
+        (flightState == def.FLIGHTSTATECRUISE) or
+        (fmsPhase == def.FMSFLIGHTPHASE_CLIMB) or
+        (fmsPhase == def.FMSFLIGHTPHASE_CRUISE) or
+        (fmsPhase == def.FMSFLIGHTPHASE_CRZ_CLB)
+
+    -- A selected intermediate altitude is not a missed cruise level until the aircraft levels there.
+    local guardEligible = get(P.airgroundsensor) == def.OFF
+        and climbOrCruise
+        and flightState < def.FLIGHTSTATEAPPROACH
+        and fmsPhase < def.FMSFLIGHTPHASE_CRZ_DES
+        and fmcCruiseAlt > lowAirspaceAlt and fmcCruiseAlt < math.huge
+        and mcpAlt > lowAirspaceAlt and mcpAlt < math.huge
+        and currentAlt > lowAirspaceAlt
+        and (fmcCruiseAlt - mcpAlt) >= def.CRUISE_ALT_MISMATCH_MIN_GAP_FT
+        and (fmcCruiseAlt - currentAlt) >= def.CRUISE_ALT_MISMATCH_MIN_GAP_FT
+        and math.abs(currentAlt - mcpAlt) <= def.CRUISE_ALT_MISMATCH_LEVEL_BAND_FT
+        and verticalSpeed ~= nil
+        and math.abs(verticalSpeed) <= def.CRUISE_ALT_MISMATCH_MAX_VS_FPM
+
+    if not guardEligible then
+        P.resetCruiseAltitudeGuard()
+        return
+    end
+
+    local mismatchKey = tostring(fmcCruiseAlt) .. ":" .. tostring(mcpAlt)
+    local now = os.time()
+    if P.cruiseAltMismatchKey ~= mismatchKey
+        or P.cruiseAltMismatchFirstSeenAt == nil
+        or now < P.cruiseAltMismatchFirstSeenAt
+        or (P.cruiseAltMismatchLastWarnAt ~= nil and now < P.cruiseAltMismatchLastWarnAt) then
+        P.resetCruiseAltitudeGuard()
+        P.cruiseAltMismatchKey = mismatchKey
+        P.cruiseAltMismatchFirstSeenAt = now
+    end
+
+    if (now - P.cruiseAltMismatchFirstSeenAt) < def.CRUISE_ALT_MISMATCH_GRACE_SEC then
+        return
+    end
+    if P.cruiseAltMismatchLastWarnAt ~= nil
+        and (now - P.cruiseAltMismatchLastWarnAt) < def.CRUISE_ALT_MISMATCH_REPEAT_SEC then
+        return
+    end
+
+    local message = "Check M C P altitude. Planned cruise altitude is " .. helpers.addspaces(fmcCruiseAlt) .. " feet. M C P altitude is " .. helpers.addspaces(mcpAlt) .. " feet."
+    local vnavAltActive = get(P.apvnavaltmode) == def.ON
+    if vnavAltActive then
+        message = "V N A V Alt active. " .. message
+    end
+    helpers.logInfoTS(string.format("CruiseAltGuard: fmc=%d mcp=%d alt=%.0f vs=%.0f vnavAlt=%s", fmcCruiseAlt, mcpAlt, currentAlt, verticalSpeed, tostring(vnavAltActive)))
+    P.commandtableentry(def.TEXT, message, def.CRUISE_ALT_MISMATCH_SPEECH_KEY)
+    P.cruiseAltMismatchLastWarnAt = now
+end
+
+--------------------------------------------------------------------------------------------------------------
 function P.ongoingtasks()
 
     P.updateAutoUnicomGroundEvents()
@@ -11881,72 +11953,7 @@ function P.ongoingtasks()
         P.altitudetimer = nil
     end
 
-    do
-        local inAir = (get(P.airgroundsensor) == def.OFF)
-        local flightState = P.flightstate or 0
-        local fmsPhase = get(P.fmsflightphase) or 0
-        local currentAlt = get(P.altitude) or 0
-        local lowAirspaceAlt = tonumber(P.configvalues[def.CONFIGLOWEAIRSPACEALT] or 0) or 0
-        local fmcCruiseAlt = helpers.roundnumber((get(P.fmccruisealt) or 0) / 100, 0) * 100
-        local mcpAlt = helpers.roundnumber((get(P.mcpaltitude) or 0) / 100, 0) * 100
-        local cruiseGap = fmcCruiseAlt - mcpAlt
-        local likelyTypoMismatch =
-            (fmcCruiseAlt > lowAirspaceAlt) and
-            (mcpAlt > lowAirspaceAlt) and
-            (cruiseGap >= (def.CRUISE_ALT_MISMATCH_FT - def.CRUISE_ALT_MISMATCH_TOLERANCE_FT)) and
-            (cruiseGap <= (def.CRUISE_ALT_MISMATCH_FT + def.CRUISE_ALT_MISMATCH_TOLERANCE_FT))
-        local climbOrCruise =
-            (flightState == def.FLIGHTSTATECLIMB) or
-            (flightState == def.FLIGHTSTATECRUISE) or
-            (fmsPhase == def.FMSFLIGHTPHASE_CLIMB) or
-            (fmsPhase == def.FMSFLIGHTPHASE_CRUISE) or
-            (fmsPhase == def.FMSFLIGHTPHASE_CRZ_CLB)
-        local nearSelectedLevel = currentAlt >= math.max(lowAirspaceAlt, mcpAlt - def.CRUISE_ALT_MISMATCH_ARM_BAND_FT)
-        local vnavAltActive = (get(P.apvnavaltmode) == def.ON)
-        local guardEligible = inAir and climbOrCruise and likelyTypoMismatch and nearSelectedLevel
-
-        if guardEligible then
-            local mismatchKey = tostring(fmcCruiseAlt) .. ":" .. tostring(mcpAlt)
-            local now = os.time()
-            if P.cruiseAltMismatchKey ~= mismatchKey then
-                P.cruiseAltMismatchKey = mismatchKey
-                P.cruiseAltMismatchFirstSeenAt = now
-                P.cruiseAltMismatchLastWarnAt = nil
-                P.cruiseAltMismatchVnavAltWarned = false
-            elseif P.cruiseAltMismatchFirstSeenAt == nil then
-                P.cruiseAltMismatchFirstSeenAt = now
-            end
-
-            local shouldWarn = false
-            local urgentWarn = false
-            if vnavAltActive and (not P.cruiseAltMismatchVnavAltWarned) then
-                shouldWarn = true
-                urgentWarn = true
-            elseif (P.cruiseAltMismatchFirstSeenAt ~= nil) and ((now - P.cruiseAltMismatchFirstSeenAt) >= def.CRUISE_ALT_MISMATCH_GRACE_SEC) then
-                if (P.cruiseAltMismatchLastWarnAt == nil) or ((now - P.cruiseAltMismatchLastWarnAt) >= def.CRUISE_ALT_MISMATCH_REPEAT_SEC) then
-                    shouldWarn = true
-                end
-            end
-
-            if shouldWarn then
-                local message
-                if urgentWarn then
-                    message = "V N A V Alt active. Check M C P altitude. Planned cruise altitude is " .. helpers.addspaces(fmcCruiseAlt) .. " feet. M C P altitude is " .. helpers.addspaces(mcpAlt) .. " feet."
-                    P.cruiseAltMismatchVnavAltWarned = true
-                else
-                    message = "Check M C P altitude. Planned cruise altitude is " .. helpers.addspaces(fmcCruiseAlt) .. " feet. M C P altitude is " .. helpers.addspaces(mcpAlt) .. " feet."
-                end
-                helpers.logInfoTS(string.format("CruiseAltGuard: fmc=%d mcp=%d alt=%d vnavAlt=%s", fmcCruiseAlt, mcpAlt, currentAlt, tostring(vnavAltActive)))
-                P.commandtableentry(def.TEXT, message)
-                P.cruiseAltMismatchLastWarnAt = now
-            end
-        else
-            P.cruiseAltMismatchKey = nil
-            P.cruiseAltMismatchFirstSeenAt = nil
-            P.cruiseAltMismatchLastWarnAt = nil
-            P.cruiseAltMismatchVnavAltWarned = false
-        end
-    end
+    P.updateCruiseAltitudeGuard()
 
     local airGroundSensor = get(P.airgroundsensor)
     if airGroundSensor ~= nil and airGroundSensor == def.ON and P.flightstate == def.FLIGHTSTATEPREFLIGHT then
@@ -12850,6 +12857,8 @@ function P.do_yal()
         P.updateAutoUnicomHoldEvents()
         P.autofunctions()
         P.ongoingtasks()
+    else
+        P.resetCruiseAltitudeGuard()
     end
 
     if (P.configvalues[def.CONFIGVOICEREADBACK] == def.ON) then

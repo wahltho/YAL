@@ -114,6 +114,9 @@ Actions: Retracts gear above 200 ft RA and disarms autobrake.
 Trigger: During climb.
 Actions: Standard climb housekeeping, baro to standard above transition altitude, flap handling according to FMC speeds.
 
+#### Cruise Altitude Reminder
+With Automatic Functions or Voice Advice Only enabled, YAL advises checking MCP altitude after a stable level-off below the FMC cruise altitude. Above the configured lower-airspace altitude, both the MCP target and actual altitude must be at least 850 feet below FMC cruise, the aircraft within 200 feet of the MCP target, and vertical speed within 100 feet per minute for 15 seconds. The reminder is not limited to a 1,000-foot discrepancy. It repeats no more often than every five minutes and never changes MCP altitude. Climb resumption, descent, a corrected target or disabled background functions clear the warning and queued speech. A deliberate ATC intermediate level can also produce this check reminder; YAL does not know the clearance.
+
 #### Above 10,000 Feet Procedure
 Trigger: Climbing through the configured lower-airspace altitude.
 Actions: Retracts landing lights, turns off seatbelt sign, sets starters to AUTO.
