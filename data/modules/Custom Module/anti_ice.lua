@@ -13,6 +13,7 @@ P.STRUCTURAL_ICE_CLEAR_STABLE_SEC = 30
 P.WING_CLEAR_STABLE_SEC = 120
 P.ICE_DELTA_EPSILON = 0.0000001
 P.PRECIPITATION_THRESHOLD = 0.01
+P.GROUND_SNOW_CLEAR_THRESHOLD = 0.003
 P.CLOUD_COVERAGE_THRESHOLD = 0.5
 P.FOG_VISIBILITY_SM = 1
 P.FOG_MAX_AGL_FT = 1500
@@ -117,6 +118,7 @@ function P.newState()
         moisture_clear_since = nil,
         moisture_active = nil,
         moisture_reason = nil,
+        ground_snow_active = false,
         engine_eligible_since = nil,
         engine_clear_since = nil,
         structural_since = nil,
@@ -325,7 +327,22 @@ function P.visibleMoisture(input)
 end
 
 local function updateMoistureState(state, input, now)
+    -- X-Plane's snow ratio can linger around the ON threshold after landing.
+    -- Keep this ground-only sensor hysteresis inside the existing moisture owner.
+    if input.airborne == false then
+        local snow = finiteNumber(input.snow_ratio) or 0
+        if snow >= P.PRECIPITATION_THRESHOLD then
+            state.ground_snow_active = true
+        elseif snow <= P.GROUND_SNOW_CLEAR_THRESHOLD then
+            state.ground_snow_active = false
+        end
+    else
+        state.ground_snow_active = false
+    end
     local moisture, reason = P.visibleMoisture(input)
+    if not moisture and state.ground_snow_active == true then
+        moisture, reason = true, "snow"
+    end
     if moisture then
         state.moisture_clear_since = nil
         if state.moisture_since == nil then state.moisture_since = now end

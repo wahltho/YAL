@@ -568,4 +568,87 @@ assertTrue(result.reset, "disabling anti-ice also resets an active ground owner"
 state, result = update(state, 22, ground)
 assertEqual(result.engine_demand, nil, "re-enabling ground protection starts a new confirmation")
 
+local groundSnow = copy(ground, { sat_c = -4.4, precipitation_ratio = 0, snow_ratio = 0.0129 })
+state, result = update(nil, 0, groundSnow)
+state, result = update(state, 14, groundSnow)
+assertEqual(result.engine_demand, nil, "ground snow still needs the full ON confirmation")
+state, result = update(state, 15, groundSnow)
+assertTrue(result.engine_demand, "confirmed snow establishes ground engine protection")
+local snowTime = 15
+for _, ratio in ipairs({ 0.0065, 0.0101, 0.0099, 0.0107, 0.0129, 0.0054, 0.0103, 0.0118, 0.0031 }) do
+    for _, offset in ipairs({ 1, 31, 61, 90 }) do
+        state, result = update(state, snowTime + offset, copy(groundSnow, { snow_ratio = ratio }))
+        assertTrue(result.engine_demand, "recorded ground snow fluctuations must not clear engine protection")
+        assertFalse(result.engine_changed, "snow hysteresis avoids a new demand/speech cycle")
+        assertEqual(result.wing_demand, nil, "ground snow hysteresis cannot activate Wing protection")
+    end
+    snowTime = snowTime + 90
+end
+state, result = update(state, snowTime + 1, copy(groundSnow, { snow_ratio = 0.003 }))
+state, result = update(state, snowTime + 31, copy(groundSnow, { snow_ratio = 0.003 }))
+state, result = update(state, snowTime + 60, copy(groundSnow, { snow_ratio = 0.003 }))
+assertTrue(result.engine_demand, "the clear threshold does not bypass the existing OFF timers")
+state, result = update(state, snowTime + 61, copy(groundSnow, { snow_ratio = 0.003 }))
+assertFalse(result.engine_demand, "ground snow clears at the lower threshold after the full clear interval")
+state, result = update(state, snowTime + 62, copy(groundSnow, { snow_ratio = 0.0099 }))
+state, result = update(state, snowTime + 152, copy(groundSnow, { snow_ratio = 0.0099 }))
+assertFalse(result.engine_demand, "subthreshold snow cannot re-arm after a confirmed clear")
+state, result = update(state, snowTime + 153, copy(groundSnow, { snow_ratio = 0.01 }))
+state, result = update(state, snowTime + 168, copy(groundSnow, { snow_ratio = 0.01 }))
+assertTrue(result.engine_demand, "snow can re-arm at the original ON threshold")
+
+state, result = update(nil, 0, copy(groundSnow, { snow_ratio = 0.0099 }))
+state, result = update(state, 60, copy(groundSnow, { snow_ratio = 0.0099 }))
+assertFalse(result.engine_demand, "a fresh ground context cannot activate from snow inside the dead band")
+state, result = update(nil, 0, copy(groundSnow, { snow_ratio = 0.01 }))
+state, result = update(state, 5, copy(groundSnow, { snow_ratio = 0 }))
+state, result = update(state, 60, copy(groundSnow, { snow_ratio = 0 }))
+assertFalse(result.engine_demand, "a brief snow spike followed by dry conditions cannot activate protection")
+
+state, result = update(nil, 0, copy(groundSnow, { snow_ratio = 0.0054, precipitation_ratio = 0.02 }))
+state, result = update(state, 15, copy(groundSnow, { snow_ratio = 0.0054, precipitation_ratio = 0.02 }))
+state, result = update(state, 16, copy(groundSnow, { snow_ratio = 0.0054 }))
+state, result = update(state, 46, copy(groundSnow, { snow_ratio = 0.0054 }))
+state, result = update(state, 76, copy(groundSnow, { snow_ratio = 0.0054 }))
+assertFalse(result.engine_demand, "rain demand alone cannot seed the snow hysteresis")
+state, result = update(nil, 0, copy(groundSnow, { precipitation_ratio = 0.02 }))
+state, result = update(state, 15, copy(groundSnow, { precipitation_ratio = 0.02 }))
+state, result = update(state, 16, copy(groundSnow, { snow_ratio = 0.0054, precipitation_ratio = 0.02 }))
+state, result = update(state, 17, copy(groundSnow, { snow_ratio = 0.0054 }))
+state, result = update(state, 107, copy(groundSnow, { snow_ratio = 0.0054 }))
+assertTrue(result.engine_demand, "a rain-to-snow source change cannot discard previously detected snow")
+
+state, result = update(state, 108, copy(groundSnow, { snow_ratio = 0.0054, sat_c = 11 }))
+state, result = update(state, 114, copy(groundSnow, { snow_ratio = 0.0054, sat_c = 11 }))
+assertFalse(result.engine_demand, "the ground snow latch never overrides the warm OAT inhibit")
+assertEqual(result.engine_reason, "oat-above-10", "temperature remains the ground OFF authority")
+
+for _, resetInput in ipairs({
+    { engines_running = false }, { enabled = false }, { now = 0, snow_ratio = 0.0054 }
+}) do
+    state, result = update(nil, 10, groundSnow)
+    state, result = update(state, 25, groundSnow)
+    state, result = antiIce.update(state, copy(base, copy(groundSnow, copy({ now = 26 }, resetInput))))
+    state, result = update(state, 27, copy(groundSnow, { snow_ratio = 0.0054 }))
+    state, result = update(state, 87, copy(groundSnow, { snow_ratio = 0.0054 }))
+    assertFalse(result.engine_demand, "shutdown, disable and clock reset discard the snow latch")
+end
+
+state, result = update(nil, 0, groundSnow)
+state, result = update(state, 15, groundSnow)
+state, result = update(state, 16, { snow_ratio = 0.0054 })
+assertTrue(result.engine_demand, "liftoff preserves engine protection through the existing clear interval")
+state, result = update(state, 46, { snow_ratio = 0.0054 })
+state, result = update(state, 76, { snow_ratio = 0.0054 })
+assertFalse(result.engine_demand, "ground snow hysteresis does not change airborne moisture criteria")
+state, result = update(state, 77, copy(groundSnow, { snow_ratio = 0.0054 }))
+state, result = update(state, 137, copy(groundSnow, { snow_ratio = 0.0054 }))
+assertFalse(result.engine_demand, "a subsequent landing cannot reuse the previous ground snow latch")
+state, result = update(nil, 0, { snow_ratio = 0.02 })
+state, result = update(state, 15, { snow_ratio = 0.02 })
+state, result = update(state, 16, groundSnow)
+state, result = update(state, 17, copy(groundSnow, { snow_ratio = 0.0054 }))
+state, result = update(state, 107, copy(groundSnow, { snow_ratio = 0.0054 }))
+assertTrue(result.engine_demand, "snow detected after landing retains existing airborne engine protection")
+
 print("test_anti_ice: all checks passed")

@@ -334,6 +334,73 @@ for _, adviceMode in ipairs({ false, true }) do
         "shutdown resets the shared owner and removes old ground advice")
 end
 
+for _, adviceMode in ipairs({ false, true }) do
+    commands, queued, history = {}, {}, {}
+    yal.antiIceRuntime = nil
+    yal.antiIceWeatherProfileAt = nil
+    yal.antiIceAdviceState = { engine = {}, wing = {} }
+    yal.antiIceLastEngineCommandAt = nil
+    yal.antiIceLastWingCommandAt = nil
+    yal.configvalues[def.CONFIGAUTOFUNCTIONS] = adviceMode and def.OFF or def.ON
+    yal.configvalues[def.CONFIGVOICEADVICEONLY] = adviceMode and def.ON or def.OFF
+    yal.flightstate = def.FLIGHTSTATEAFTERLANDING
+    refs.airground = def.ON
+    refs.n1left, refs.n1right = 20, 20
+    refs.eng1, refs.eng2, refs.wing = def.OFF, def.OFF, def.OFF
+    refs.tat, refs.sat, refs.vvi, refs.agl = -4.4, -4.4, 0, 0
+    refs.coverage1, refs.precipitation, refs.hail = 0, 0, 0
+    refs.visibility, refs.snow = 7.41, 0.0129
+    refs.iceleft, refs.iceright, refs.icedelta = 0, 0, 0
+    tick(0)
+    tick(15)
+    assert(yal.antiIceRuntime.engine_demand == true, "snow starts ground protection through the real adapter")
+    if adviceMode then
+        assert(queued["advice:anti_ice:engine:on"] ~= nil and #commands == 0,
+            "snow ON advice follows the normal Voice Advice Only path")
+        refs.eng1, refs.eng2 = def.ON, def.ON
+        tick(16)
+    end
+    local initialCommands, initialSpeech = #commands, #history
+    for index, ratio in ipairs({ 0.0065, 0.0101, 0.0099, 0.0107, 0.0129, 0.0054, 0.0103, 0.0118 }) do
+        refs.snow = ratio
+        for _, offset in ipairs({ 1, 31, 61, 90 }) do
+            tick(16 + (index - 1) * 90 + offset)
+            assert(yal.antiIceRuntime.engine_demand == true
+                and refs.eng1 == def.ON and refs.eng2 == def.ON,
+                "recorded ground snow oscillations cannot reverse the engine demand or switches")
+            assert(#commands == initialCommands and #history == initialSpeech,
+                "matching engine switches produce no extra commands or contradictory speech")
+            assert(wingCommandCount() == 0 and yal.antiIceRuntime.wing_demand == nil,
+                "ground snow never leaks into the Wing adapter")
+        end
+    end
+    refs.snow = 0.003
+    tick(737)
+    tick(767)
+    tick(796)
+    assert(yal.antiIceRuntime.engine_demand == true, "actual adapter retains the full clear delay")
+    queued["advice:anti_ice:engine:on"] = "obsolete snow ON"
+    tick(797)
+    assert(yal.antiIceRuntime.engine_demand == false and queued["advice:anti_ice:engine:on"] == nil,
+        "one confirmed clear transition removes obsolete Engine ON speech")
+    if adviceMode then
+        assert(#commands == 0 and queued["advice:anti_ice:engine:off"] ~= nil,
+            "ground snow clearing advises OFF without moving either engine switch")
+    else
+        assert(#commands == 4 and refs.eng1 == def.OFF and refs.eng2 == def.OFF,
+            "ground snow has one ON and one final OFF command per engine")
+    end
+    refs.eng1, refs.eng2 = def.OFF, def.OFF
+    tick(798)
+    refs.snow = 0.0099
+    local afterClearCommands, afterClearSpeech = #commands, #history
+    tick(800)
+    tick(890)
+    assert(yal.antiIceRuntime.engine_demand == false
+        and #commands == afterClearCommands and #history == afterClearSpeech,
+        "post-clear snow inside the hysteresis band cannot re-trigger commands or speech")
+end
+
 commands, queued, history = {}, {}, {}
 yal.antiIceRuntime = nil
 yal.antiIceWeatherProfileAt = nil
