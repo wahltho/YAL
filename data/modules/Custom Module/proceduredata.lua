@@ -117,13 +117,12 @@ local function get_inflight_restart_context(loop)
     }
 end
 
-local function apuStarterEngaged()
-    local pos = get(P.apustarterpos)
-    return (pos == def.STARTERON) or (pos == def.STARTERPRESSED)
-end
-
 local function pressApuStarter()
-    helpers.command_once("laminar/B738/spring_toggle_switch/APU_start_pos_dn")
+    P.updateApuStartState()
+    if get(P.apustarterpos) ~= def.STARTERPRESSED then
+        helpers.command_once("laminar/B738/spring_toggle_switch/APU_start_pos_dn")
+    end
+    P.updateApuStartState()
 end
 
 local function useExternalStartAirWhenAvailable()
@@ -148,12 +147,14 @@ local function getEngineStartApuSourceStep()
     local apuState = P.apurunning()
     if apuState == def.APUOFF then
         return 'set_apu_fuel_pump_on'
-    elseif apuState == def.APUSTARTED then
+    elseif apuState == def.APUSTARTED and P.apuStartRequested() then
         return 'wait_apu_runup'
     elseif apuState == def.APUOFFBUS then
         return 'set_apu_gen'
-    elseif get(P.bleedairapupos) ~= def.ON then
+    elseif apuState == def.APUONBUS and get(P.bleedairapupos) ~= def.ON then
         return 'set_apu_bleed_on'
+    elseif apuState ~= def.APUONBUS then
+        return 'set_apu_fuel_pump_on'
     end
     return 'set_isol_valve_open'
 end
@@ -1781,14 +1782,16 @@ function M.fillProcedureTable()
                     nextStep = 'start_apu'
                 },
                 ['start_apu'] = {
-                    check = function() return apuStarterEngaged() end,
+                    check = function() return P.apuStartRequested() end,
                     action = function() pressApuStarter() end,
                     advice = "Start A P U",
                     confirm = "A P U checked and Started",
                     nextStep = 'start_apu_2'
                 },                
                 ['start_apu_2'] = {
+                    check = function() return P.apuStartRequested() end,
                     action = function() pressApuStarter() end,
+                    advice = "Start A P U",
                     nextStep = 'wait_apu_runup'
                 },          
                 ['wait_apu_runup'] = {
@@ -2897,14 +2900,16 @@ function M.fillProcedureTable()
                     nextStep = 'start_apu'
                 },
                 ['start_apu'] = {
-                    check = function() return apuStarterEngaged() end,
+                    check = function() return P.apuStartRequested() end,
                     action = function() pressApuStarter() end,
                     advice = "Start A P U",
                     confirm = "A P U checked and Started",
                     nextStep = 'start_apu_2'
                 },                
                 ['start_apu_2'] = {
+                    check = function() return P.apuStartRequested() end,
                     action = function() pressApuStarter() end,
+                    advice = "Start A P U",
                     nextStep = 'wait_apu_runup'
                 },
                 ['wait_apu_runup'] = {
@@ -3055,14 +3060,16 @@ function M.fillProcedureTable()
                     nextStep = 'start_apu'
                 },
                 ['start_apu'] = {
-                    check = function() return apuStarterEngaged() end,
+                    check = function() return P.apuStartRequested() end,
                     action = function() pressApuStarter() end,
                     advice = "Start A P U",
                     confirm = "A P U checked and Started",
                     nextStep = 'start_apu_2'
                 },
                 ['start_apu_2'] = {
+                    check = function() return P.apuStartRequested() end,
                     action = function() pressApuStarter() end,
+                    advice = "Start A P U",
                     nextStep = 'wait_apu_runup'
                 },
                 ['wait_apu_runup'] = {
@@ -5861,14 +5868,16 @@ function M.fillProcedureTable()
                     nextStep = 'verify_power_source_ready'
                 },
                 ['start_apu'] = {
-                    check = function() return apuStarterEngaged() end,
+                    check = function() return P.apuStartRequested() end,
                     action = function() pressApuStarter() end,
                     advice = "Start A P U",
                     confirm = "A P U checked and Started",
                     nextStep = 'start_apu_2'
                 },                
                 ['start_apu_2'] = {
+                    check = function() return P.apuStartRequested() end,
                     action = function() pressApuStarter() end,
+                    advice = "Start A P U",
                     nextStep = 'wait_apu_runup'
                 },          
                 ['wait_apu_runup'] = {

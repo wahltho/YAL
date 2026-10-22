@@ -77,7 +77,6 @@ VR.config = {
     { dataref = "lrecircfanpos", temp = "lrecircfanpostemp", check = simple_check, format = function(v) return v == def.ON and "Left Recirculating Fan On" or "Left Recirculating Fan Off" end },
     { dataref = "rrecircfanpos", temp = "rrecircfanpostemp", check = simple_check, format = function(v) return v == def.ON and "Right Recirculating Fan On" or "Right Recirculating Fan Off" end },
     { dataref = "bleedairapupos", temp = "bleedairapupostemp", check = simple_check, format = function(v) return v == def.ON and "A P U Bleed Air On" or "A P U Bleed Air Off" end },
-    { dataref = "apustarterpos", temp = "apustarterpostemp", check = simple_check, format = function(v, P) if P.apurunning() > def.APUOFF then return "A P U Started" else return "A P U Shutting Down" end end },
     { dataref = "gearhandlepos", temp = "gearhandlepostemp", check = simple_check, format = function(v)
         if v == def.GEARUP then return "Landing Gear Up" elseif v == def.GEAROFF then return "Landing Gear Lever Off" elseif v == def.GEARDOWN then return "Landing Gear Down" end
     end },
@@ -512,6 +511,7 @@ end
 --------------------------------------------------------------------------------------------------------------
 function VR.initialize(P)
     helpers.logInfoTS("YAL: Initializing all variables for voice readback.")
+    P.takeApuStartReadback()
     
     -- Initialize all variables from the config table
     for _, config in ipairs(VR.config) do
@@ -561,6 +561,8 @@ end
 
 --------------------------------------------------------------------------------------------------------------
 function VR.run(P)
+    local apuMessage = P.takeApuStartReadback()
+    if apuMessage then P.commandtableentry(def.TEXT, apuMessage) end
     for _, config in ipairs(VR.config) do
         if not (config.condition and not config.condition(P)) then
             if config.check == simple_check then

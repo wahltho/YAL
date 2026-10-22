@@ -1690,6 +1690,8 @@ function P.YalinitGlobal()
 
     P.needstempinit = true
 
+    P.apuStartState = nil
+
     P.aircraftwasonground = false
 
     P.updatemetartimer = nil
@@ -3310,6 +3312,8 @@ function P.initDataref()
     end
 
     P.needstempinit = true
+    P.ensureApuStartCommandHook()
+    P.updateApuStartState()
 end
 
 --------------------------------------------------------------------------------------------------------------
@@ -8166,6 +8170,64 @@ function P.enginesrunning(state)
 end
 
 --------------------------------------------------------------------------------------------------------------
+function P.updateApuStartState()
+    if not P.apustarterpos then return end
+    local pos = get(P.apustarterpos)
+    if pos == nil then return end
+    local state = P.apuStartState
+    if not state then
+        state = { position = pos, sawStart = pos == def.STARTERPRESSED, requested = false }
+        P.apuStartState = state
+    end
+
+    if pos == def.STARTEROFF then
+        if state.position ~= def.STARTEROFF then state.readback = "A P U Shutting Down" end
+        state.requested = false
+        state.sawStart = false
+    elseif pos == def.STARTERPRESSED then
+        state.sawStart = true
+    elseif pos == def.STARTERON and state.sawStart then
+        -- START must have been reached and released; ON alone is not a start.
+        if not state.requested then state.readback = "A P U Started" end
+        state.requested = true
+        state.sawStart = false
+    end
+    state.position = pos
+    if not P.configvalues or P.configvalues[def.CONFIGVOICEREADBACK] ~= def.ON then
+        state.readback = nil
+    end
+end
+
+function P.apuStartCommand_(phase)
+    -- Before END, even commandOnce still exposes the transient START position.
+    P.updateApuStartState()
+    return 1
+end
+
+function P.ensureApuStartCommandHook()
+    if P.apuStartCommandHook then return end
+    local command = sasl.findCommand("laminar/B738/spring_toggle_switch/APU_start_pos_dn")
+    if command then
+        sasl.registerCommandHandler(command, 1, P.apuStartCommand_)
+        P.apuStartCommandHook = command
+    end
+end
+
+function P.apuStartRequested()
+    P.updateApuStartState()
+    return (P.apuStartState and P.apuStartState.requested == true)
+        or P.apurunning() >= def.APUOFFBUS
+end
+
+function P.takeApuStartReadback()
+    P.updateApuStartState()
+    local state = P.apuStartState
+    if not state then return nil end
+    local message = state.readback
+    state.readback = nil
+    return message
+end
+
 function P.apurunning()
 
     local starter_pos = get(P.apustarterpos)
@@ -12837,6 +12899,8 @@ function P.do_yal()
     end
 
     P.updateSharedVariables()
+    P.ensureApuStartCommandHook()
+    P.updateApuStartState()
     P.updateDepartureMcpSpeedOwnership()
 
     local next_recommended_wait_step = def.STANDARDWAIT

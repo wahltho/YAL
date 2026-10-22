@@ -1671,6 +1671,7 @@ end
 
 function update()
     if helpers.isZibo() then
+        yal.updateApuStartState()
         maybeInitDebugOverlay()
         local autoUnicomConfigured = settings and settings.appSettings
             and tonumber(settings.appSettings[def.CONFIGIVAOAUTOUNICOM] or 0) == def.ON
