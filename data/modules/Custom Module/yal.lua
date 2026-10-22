@@ -2693,6 +2693,7 @@ function P.bindExternalDatarefs(silentMissing)
     P.engineairstart = GP("laminar/B738/engine/engine_air_start")
 
     P.apustarterpos = GP("laminar/B738/spring_toggle_switch/APU_start_pos")
+    P.apun1percent = GP("sim/cockpit2/electrical/APU_N1_percent")
     P.apupsi = GP("laminar/B738/air/apu_psi")
     P.apugenoffbus = GP("laminar/B738/annunciator/apu_gen_off_bus")
     P.apupowerbus1 = GP("laminar/B738/electrical/apu_power_bus1")
@@ -8184,11 +8185,17 @@ function P.updateApuStartState()
         if state.position ~= def.STARTEROFF then state.readback = "A P U Shutting Down" end
         state.requested = false
         state.sawStart = false
+        state.startN1 = nil
+        state.runningUp = false
+        state.runningUpAnnounced = false
     elseif pos == def.STARTERPRESSED then
         state.sawStart = true
     elseif pos == def.STARTERON and state.sawStart then
         -- START must have been reached and released; ON alone is not a start.
-        if not state.requested then state.readback = "A P U Started" end
+        if not state.requested then
+            state.readback = "A P U Started"
+            state.startN1 = P.apun1percent and tonumber(get(P.apun1percent)) or nil
+        end
         state.requested = true
         state.sawStart = false
     end
@@ -8228,34 +8235,49 @@ function P.takeApuStartReadback()
     return message
 end
 
+function P.takeApuRunupConfirmation()
+    local _, runningUp = P.apurunning()
+    if not runningUp then return nil end
+    local state = P.apuStartState
+    if state.runningUpAnnounced then return nil end
+    state.runningUpAnnounced = true
+    return "A P U Running Up"
+end
+
 function P.apurunning()
-
-    local starter_pos = get(P.apustarterpos)
-    if starter_pos == nil then
-        return def.APUOFF
+    local starter_pos = P.apustarterpos and get(P.apustarterpos) or nil
+    if starter_pos == nil then return def.APUOFF, false end
+    P.updateApuStartState()
+    local state = P.apuStartState
+    if not state or state.position == def.STARTEROFF then
+        return def.APUOFF, false
     end
 
-    if starter_pos == def.STARTEROFF then
-        return def.APUOFF
+    local n1 = P.apun1percent and tonumber(get(P.apun1percent)) or nil
+    if state.requested and n1 then
+        if not state.startN1 then state.startN1 = n1 end
+        -- START/release alone is not physical run-up; require observed rotation increase.
+        if n1 > state.startN1 + 0.5 then state.runningUp = true end
     end
-
+    -- Preserve the electrical-status return for every existing consumer.
+    local runningUp = state.runningUp == true
     local starter_is_engaged = (starter_pos == def.STARTERON) or (starter_pos == def.STARTERPRESSED)
 
     if starter_is_engaged and (get(P.apugenoffbus) == def.OFF) then
         if ((get(P.apupowerbus1) == def.ON) and (get(P.announcsourceoff1) == def.OFF) and (get(P.apupowerbus2) == def.ON) and (get(P.announcsourceoff2) == def.OFF)) then
-            return def.APUONBUS
+            return def.APUONBUS, runningUp
         else
-            return def.APUSTARTED
+            return def.APUSTARTED, runningUp
         end
     elseif starter_is_engaged and (get(P.apugenoffbus) ~= def.OFF) then
         if ((get(P.apupowerbus1) == def.ON) and (get(P.announcsourceoff1) == def.OFF) and (get(P.apupowerbus2) == def.ON) and (get(P.announcsourceoff2) == def.OFF)) then
-            return def.APUONBUS
+            return def.APUONBUS, runningUp
         else
-            return def.APUOFFBUS
+            return def.APUOFFBUS, runningUp
         end
     end
 
-    return def.APUOFF
+    return def.APUOFF, false
 end
 
 --------------------------------------------------------------------------------------------------------------

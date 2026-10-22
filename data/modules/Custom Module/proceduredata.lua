@@ -148,7 +148,7 @@ local function getEngineStartApuSourceStep()
     if apuState == def.APUOFF then
         return 'set_apu_fuel_pump_on'
     elseif apuState == def.APUSTARTED and P.apuStartRequested() then
-        return 'wait_apu_runup'
+        return 'wait_apu_spoolup'
     elseif apuState == def.APUOFFBUS then
         return 'set_apu_gen'
     elseif apuState == def.APUONBUS and get(P.bleedairapupos) ~= def.ON then
@@ -1785,18 +1785,23 @@ function M.fillProcedureTable()
                     check = function() return P.apuStartRequested() end,
                     action = function() pressApuStarter() end,
                     advice = "Start A P U",
-                    confirm = "A P U checked and Started",
                     nextStep = 'start_apu_2'
                 },                
                 ['start_apu_2'] = {
                     check = function() return P.apuStartRequested() end,
                     action = function() pressApuStarter() end,
                     advice = "Start A P U",
+                    nextStep = 'wait_apu_spoolup'
+                },
+                ['wait_apu_spoolup'] = {
+                    skipIf = function() return P.apurunning() >= def.APUOFFBUS end,
+                    check = function() local _, runningUp = P.apurunning(); return runningUp end,
+                    confirm = function() return P.takeApuRunupConfirmation() end,
                     nextStep = 'wait_apu_runup'
                 },          
                 ['wait_apu_runup'] = {
                     check = function() return P.apurunning() >= def.APUOFFBUS end,
-                    confirm = "A P U Running Up",
+                    confirm = "A P U Available",
                     nextStep = 'set_apu_gen'
                 },
                 ['set_apu_gen'] = {
@@ -2903,18 +2908,23 @@ function M.fillProcedureTable()
                     check = function() return P.apuStartRequested() end,
                     action = function() pressApuStarter() end,
                     advice = "Start A P U",
-                    confirm = "A P U checked and Started",
                     nextStep = 'start_apu_2'
                 },                
                 ['start_apu_2'] = {
                     check = function() return P.apuStartRequested() end,
                     action = function() pressApuStarter() end,
                     advice = "Start A P U",
+                    nextStep = 'wait_apu_spoolup'
+                },
+                ['wait_apu_spoolup'] = {
+                    skipIf = function() return P.apurunning() >= def.APUOFFBUS end,
+                    check = function() local _, runningUp = P.apurunning(); return runningUp end,
+                    confirm = function() return P.takeApuRunupConfirmation() end,
                     nextStep = 'wait_apu_runup'
                 },
                 ['wait_apu_runup'] = {
                     check = function() return P.apurunning() >= def.APUOFFBUS end,
-                    confirm = "A P U Running Up",
+                    confirm = "A P U Available",
                     nextStep = 'set_apu_gen'
                 },
                 ['set_apu_gen'] = {
@@ -3063,18 +3073,23 @@ function M.fillProcedureTable()
                     check = function() return P.apuStartRequested() end,
                     action = function() pressApuStarter() end,
                     advice = "Start A P U",
-                    confirm = "A P U checked and Started",
                     nextStep = 'start_apu_2'
                 },
                 ['start_apu_2'] = {
                     check = function() return P.apuStartRequested() end,
                     action = function() pressApuStarter() end,
                     advice = "Start A P U",
+                    nextStep = 'wait_apu_spoolup'
+                },
+                ['wait_apu_spoolup'] = {
+                    skipIf = function() return P.apurunning() >= def.APUOFFBUS end,
+                    check = function() local _, runningUp = P.apurunning(); return runningUp end,
+                    confirm = function() return P.takeApuRunupConfirmation() end,
                     nextStep = 'wait_apu_runup'
                 },
                 ['wait_apu_runup'] = {
                     check = function() return P.apurunning() >= def.APUOFFBUS end,
-                    confirm = "A P U Running Up",
+                    confirm = "A P U Available",
                     nextStep = 'set_apu_gen'
                 },
                 ['set_apu_gen'] = {
@@ -5871,18 +5886,23 @@ function M.fillProcedureTable()
                     check = function() return P.apuStartRequested() end,
                     action = function() pressApuStarter() end,
                     advice = "Start A P U",
-                    confirm = "A P U checked and Started",
                     nextStep = 'start_apu_2'
                 },                
                 ['start_apu_2'] = {
                     check = function() return P.apuStartRequested() end,
                     action = function() pressApuStarter() end,
                     advice = "Start A P U",
+                    nextStep = 'wait_apu_spoolup'
+                },
+                ['wait_apu_spoolup'] = {
+                    skipIf = function() return P.apurunning() >= def.APUOFFBUS end,
+                    check = function() local _, runningUp = P.apurunning(); return runningUp end,
+                    confirm = function() return P.takeApuRunupConfirmation() end,
                     nextStep = 'wait_apu_runup'
                 },          
                 ['wait_apu_runup'] = {
                     check = function() return P.apurunning() >= def.APUOFFBUS end,
-                    confirm = "A P U Running Up",
+                    confirm = "A P U Available",
                     nextStep = 'set_apu_gen'
                 },
                 ['set_apu_gen'] = {
