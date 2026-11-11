@@ -26,6 +26,8 @@ local lastCommittedMessageText = nil
 local lastCommittedMessageVoiceText = nil
 local manualRepeatCount = 0
 local stationNameCache = {}
+local flightEpoch = 0
+local allowApiRepeatFallback = true
 local PREFLIGHT_PARKING_MAX_DISTANCE_M = 35
 local PUSHBACK_PARKING_MAX_DISTANCE_M = 80
 local ARRIVAL_PARKING_MAX_DISTANCE_M = 35
@@ -158,6 +160,9 @@ local function mailbox_log(kind, event)
         log("IVAO Auto-Unicom: request_seq write failed; transport blocked for session")
     elseif kind == "sequence_exhausted" then
         log("IVAO Auto-Unicom: request sequence exhausted; transport blocked for session")
+    elseif kind == "invalidated" then
+        log("IVAO Auto-Unicom: discarded obsolete event=" .. tostring(event.id)
+            .. " reason=" .. tostring(event.invalid_reason or "context_changed"))
     end
 end
 
@@ -183,13 +188,25 @@ local function create_runtime_state()
         log = mailbox_log,
         maxQueue = 8,
         timeoutSec = 30,
-        voiceTimeoutSec = 90
+        voiceTimeoutSec = 90,
+        validate = function(event) return M.isEventCurrent(event) end
     })
 end
 
 local function read_approach_ref(snapshot)
+    local y = runtime.yal
+    if y and y.getAutoUnicomApproachContext then
+        local context = y.getAutoUnicomApproachContext()
+        snapshot.approach_id = context.approach_id
+        snapshot.approach_procedure_type = context.approach_procedure_type
+        snapshot.approach_resolved_kind = context.approach_resolved_kind
+        snapshot.approach_suffix = context.approach_suffix
+        snapshot.approach_pending = context.selection_pending == true
+        return
+    end
     local api = runtime.yal and runtime.yal.approachRef or nil
-    if type(api) ~= "table" or not api.update_seq then return end
+    if type(api) ~= "table" or not api.api_version
+        or (tonumber(safe_read(api.api_version)) or 0) < 1 or not api.update_seq then return end
     local seqBefore = tonumber(safe_read(api.update_seq))
     if not seqBefore or seqBefore % 2 ~= 0 then return end
 
@@ -656,7 +673,7 @@ local function enrich_navigation_identifiers(snapshot)
                 adapter,
                 fixAvailable
             )
-            if not usable and (reason == "custom" or reason == "unpublished") then
+            if not usable and (reason == "custom" or reason == "unpublished" or reason == "pseudo") then
                 local replacement = nil
                 if fieldName == "climb_next_waypoint" or fieldName == "cruise_next_waypoint" then
                     replacement = find_next_operational_leg(
@@ -724,6 +741,8 @@ local function build_snapshot()
         vectorHeading = core.vectorHeadingForIndex(safe_read(y.fmslegscrsmag), activeLegIndex)
     end
     local snapshot = {
+        flight_epoch = flightEpoch,
+        arrival_epoch = y.autoUnicomRuntime and y.autoUnicomRuntime.arrivalEpoch or 0,
         on_ground = safe_read(y.airgroundsensor) == def.ON,
         radio_altitude_ft = tonumber(safe_read(y.radioaltitude)),
         altitude_ft = tonumber(safe_read(y.altitude_ft)) or tonumber(safe_read(y.altitude)),
@@ -746,6 +765,7 @@ local function build_snapshot()
         navigation_vector_heading_deg = vectorHeading,
         star = tostring(safe_read(y.fmsselectedstar) or ""),
         approach_id = tostring(safe_read(y.fmsselectedapp) or ""),
+        navigation_context_id = tostring(activeNavigationId or ""),
         effective_callsign = clean_effective_callsign(safe_read(api and api.effective_callsign)),
         aircraft_type = tostring(safe_read(sources.aircraft_icao) or ""),
         preflight = y.flightstate == def.FLIGHTSTATEPREFLIGHT,
@@ -759,33 +779,43 @@ local function build_snapshot()
         short_final_gate = false
     }
 
+    local arrival = y.autoUnicomRuntime
+    if arrival and arrival.arrivalLanded then
+        snapshot.arrival_icao = arrival.arrivalIcao or snapshot.arrival_icao
+        snapshot.arrival_runway = arrival.arrivalRunway or snapshot.arrival_runway
+        snapshot.post_landing_state = snapshot.on_ground
+    end
+    snapshot.descent_from_altitude_ft = arrival and arrival.descentFromAltitude
+    snapshot.descent_from_pressure_altitude_ft = arrival and arrival.descentFromPressureAltitude
+
     read_ofp_runtime(snapshot)
     read_approach_ref(snapshot)
     parse_approach_fallback(snapshot)
 
-    local runwayGateOpen = false
-    if y.isArrivalRunwayRadioAltGateOpen then
-        local ok, value = pcall(y.isArrivalRunwayRadioAltGateOpen, 8, 20, 0.5)
-        runwayGateOpen = ok and value == true
+    if y.isArrivalFinalEstablished then
+        local ok, value = pcall(y.isArrivalFinalEstablished)
+        snapshot.final_gate = ok and value == true
     end
-    local procedureType = tostring(snapshot.approach_procedure_type or ""):upper()
-    local resolvedKind = tostring(snapshot.approach_resolved_kind or ""):upper()
-    local captureRequired = procedureType == "ILS" or procedureType == "LOC"
-        or procedureType == "LDA" or procedureType == "GLS"
-        or resolvedKind == "ILS" or resolvedKind == "IGS" or resolvedKind == "LOC"
-        or resolvedKind == "LOC_GS" or resolvedKind == "LOC-GS" or resolvedKind == "LDA"
-        or resolvedKind == "GLS" or resolvedKind == "LPV" or resolvedKind == "LP"
-    local captured = (tonumber(safe_read(y.aploccapturedstat)) or 0) >= (def.CAPTURED or 2)
-        or (tonumber(safe_read(y.aplpvloccapturedstat)) or 0) >= (def.CAPTURED or 2)
-        or (tonumber(safe_read(y.apglsloccapturedstat)) or 0) >= (def.CAPTURED or 2)
-        or (tonumber(safe_read(y.apfacloccapturedstat)) or 0) >= (def.CAPTURED or 2)
-    snapshot.final_gate = runwayGateOpen and (not captureRequired or captured)
     if y.isArrivalShortFinal then
         local ok, value = pcall(y.isArrivalShortFinal)
         snapshot.short_final_gate = ok and value == true
     end
 
     return snapshot
+end
+
+function M.isEventCurrent(event)
+    if tostring(event.id or ""):sub(1, 19) == "manual.repeat_last." then return true end
+    local snapshot = build_snapshot()
+    if event.id:sub(1, 8) == "arrival." and not snapshot.post_landing_state
+        and snapshot.approach_pending then return false, "mod_pending" end
+    local valid, reason = core.isEventSnapshotCurrent(event, snapshot)
+    if not valid then return false, reason end
+    local y = runtime.yal
+    if y.isAutoUnicomEventCurrent then
+        return y.isAutoUnicomEventCurrent(event.id, event.snapshot)
+    end
+    return false, "runtime_authority_unavailable"
 end
 
 local function read_mailbox_api()
@@ -816,9 +846,8 @@ end
 
 local function capture_baseline_repeat_candidate(snapshot)
     if not snapshot or snapshot.on_ground == true then return end
-    local phase = tonumber(snapshot.fms_phase) or 0
     local eventId = nil
-    if snapshot.descent_state == true and (phase == 6 or phase == 7) then
+    if snapshot.descent_state == true and (tonumber(snapshot.altitude_ft) or math.huge) <= 10000 then
         if snapshot.short_final_gate == true then
             eventId = "arrival.short_final"
         else
@@ -847,7 +876,22 @@ local function capture_baseline_repeat_candidate(snapshot)
 end
 
 function M.handleYalEvent(eventId, payload, now)
-    if not runtime or not mailbox or not active then return false end
+    if not runtime or not mailbox then return false end
+    if eventId == "flight.reset" then
+        flightEpoch = flightEpoch + 1
+        allowApiRepeatFallback = false
+        mailbox:clearQueued()
+        lastIntendedMessageText, lastIntendedMessageVoiceText = nil, nil
+        lastCommittedMessageText, lastCommittedMessageVoiceText = nil, nil
+        stationNameCache = {}
+        return true
+    end
+    if eventId == "departure.context_changed" or eventId == "arrival.context_changed" then
+        local prefix = eventId == "departure.context_changed" and "departure." or "arrival."
+        mailbox:clearQueued(function(event) return event.id:sub(1, #prefix) == prefix end)
+        return true
+    end
+    if not active then return false end
     if eventId == "arrival.go_around" then
         mailbox:cancelQueuedForGoAround()
         return true
@@ -857,6 +901,9 @@ function M.handleYalEvent(eventId, payload, now)
     for key, value in pairs(payload or {}) do
         snapshot[key] = value
     end
+    if eventId:sub(1, 8) == "arrival." and not snapshot.post_landing_state
+        and snapshot.approach_pending then return false end
+    snapshot.hold_context_waypoint = snapshot.hold_waypoint
     if eventId == "departure.flightplan_active" then
         read_preflight_parking(snapshot, runtime.yal)
     elseif eventId == "departure.start_push" then
@@ -930,7 +977,7 @@ function M.repeatLastMessage(enabled)
         rawText = lastCommittedMessageText
         rawVoiceText = lastCommittedMessageVoiceText
     end
-    if not rawText then
+    if not rawText and allowApiRepeatFallback then
         source = "api_request_text"
         rawText = safe_read(apiRefs and apiRefs.request_text)
         rawVoiceText = nil
@@ -961,6 +1008,8 @@ end
 
 function M.configure(options)
     runtime = options
+    flightEpoch = flightEpoch + 1
+    allowApiRepeatFallback = true
     create_runtime_state()
     active = false
     connectionLogKey = nil
@@ -975,7 +1024,9 @@ end
 
 function M.rebaseline()
     if not runtime then return end
-    create_runtime_state()
+    flightEpoch = flightEpoch + 1
+    mailbox:clearQueued()
+    allowApiRepeatFallback = false
     active = false
     connectionLogKey = nil
     callsignUnavailableLogged = false
@@ -992,9 +1043,8 @@ function M.tick(enabled, now)
     now = tonumber(now) or os.time()
 
     if enabled ~= true then
-        if active then
-            mailbox:clear()
-        end
+        mailbox:clearQueued()
+        if mailbox.outstanding then mailbox:tick(read_mailbox_api(), now) end
         active = false
         connectionLogKey = nil
         callsignUnavailableLogged = false
@@ -1022,7 +1072,8 @@ function M.tick(enabled, now)
     end
 
     if not apiReady then
-        if active then mailbox:clear() end
+        mailbox:clearQueued()
+        if mailbox.outstanding then mailbox:tick(api, now) end
         active = false
         connectionLogKey = nil
         return
@@ -1035,7 +1086,7 @@ function M.tick(enabled, now)
         retain_station_names(snapshot)
         enrich_navigation_identifiers(snapshot)
         capture_baseline_repeat_candidate(snapshot)
-        mailbox:clear()
+        mailbox:clearQueued()
         log("IVAO Auto-Unicom enabled; waiting for YAL runtime events")
     end
 

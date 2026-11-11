@@ -928,6 +928,8 @@ local function speak_sink_result_name(code)
     if code == 4 then return "rejected_duplicate" end
     if code == 5 then return "accepted_replaced" end
     if code == 6 then return "rejected_queue_full" end
+    if code == 7 then return "rejected_managed_identity" end
+    if code == 8 then return "rejected_managed_unavailable" end
     return "none"
 end
 
@@ -950,6 +952,10 @@ local function log_speak_sink_drop(reason, text, message_key)
 end
 
 function P.speak(text, priority, message_key, policy)
+    -- Managed speech must never escape into an unrecallable fallback.
+    if tonumber(policy) == 3 then
+        return P.speakConditional(text, priority, message_key, "managed")
+    end
     if P.speakViaZiboSink then
         local ok, reason = P.speakViaZiboSink(text, priority, message_key, policy)
         if ok then
@@ -996,6 +1002,45 @@ function P.configureSpeakStringSink(refs)
     end
 end
 
+function P.conditionalSpeakStringMode()
+    local sink = P.speakStringSink
+    if type(sink) ~= "table" or not sink.version or not isProperty(sink.version) then return "compat" end
+    local ok, version = pcall(get, sink.version)
+    -- v5 presence is fail-closed even if its managed handles are incomplete.
+    return ok and (tonumber(version) or 0) >= 5 and "managed" or "compat"
+end
+
+function P.managedSpeakStringSupported(requireNative)
+    local sink = P.speakStringSink
+    if type(sink) ~= "table" then return false end
+    for _, name in ipairs({ "version", "managed_capabilities", "request_text", "request_source_id",
+        "request_message_key", "request_priority", "request_policy", "request_seq",
+        "request_result_seq", "request_result_code", "control_scope", "control_source_id",
+        "control_message_key", "control_seq", "control_result_seq", "control_result_code",
+        "control_removed_count" }) do
+        if not sink[name] or not isProperty(sink[name]) then return false end
+    end
+    local okVersion, version = pcall(get, sink.version)
+    local okCaps, caps = pcall(get, sink.managed_capabilities)
+    caps = okCaps and tonumber(caps) or 0
+    return okVersion and (tonumber(version) or 0) >= 5 and caps % 2 == 1
+        and (not requireNative or math.floor(caps / 2) % 2 == 1)
+end
+
+function P.speakConditional(text, priority, message_key, mode)
+    if mode == "managed" then
+        local accepted, reason = false, "managed_unavailable"
+        if P.managedSpeakStringSupported(true) then
+            accepted, reason = P.speakViaZiboSink(text, priority, message_key, 3)
+        end
+        if not accepted then log_speak_sink_drop(reason, text, message_key) end
+        return accepted, reason
+    end
+    -- Preserve the existing, explicitly limited, legacy fallback and its activation latch.
+    P.speak(text, priority, message_key, 2)
+    return true, "compatibility_no_backend_recall"
+end
+
 function P.isSpeakStringSinkActive()
     local sink = P.speakStringSink
     if type(sink) ~= "table" or not sink.version or not isProperty(sink.version) then
@@ -1021,6 +1066,10 @@ function P.speakViaZiboSink(text, priority, message_key, policy)
     local ok, version = pcall(get, sink.version)
     if not ok or (tonumber(version) or 0) < 1 then
         return false, "sink_version_unavailable"
+    end
+    local managed = tonumber(policy) == 3
+    if managed and (not P.managedSpeakStringSupported(true) or tostring(message_key or "") == "") then
+        return false, "managed_unavailable"
     end
 
     local speechText = tostring(text or "")
@@ -1072,7 +1121,7 @@ function P.speakViaZiboSink(text, priority, message_key, policy)
     end
 
     local requestSeq = P.speakStringSinkSeq
-    if sink.accepted_seq and isProperty(sink.accepted_seq) then
+    if not managed and sink.accepted_seq and isProperty(sink.accepted_seq) then
         local acceptedSeq = nil
         ok, acceptedSeq = pcall(get, sink.accepted_seq)
         if ok and tonumber(acceptedSeq) == requestSeq then
@@ -1094,10 +1143,11 @@ function P.speakViaZiboSink(text, priority, message_key, policy)
         end
     end
 
+    if managed then return false, "managed_result_mismatch" end
     return true
 end
 
-function P.clearSpeakStringSink(message_key)
+function P.clearSpeakStringSink(message_key, scope)
     local sink = P.speakStringSink
     if type(sink) ~= "table" then
         return false
@@ -1113,9 +1163,25 @@ function P.clearSpeakStringSink(message_key)
     if not ok or (tonumber(version) or 0) < 4 then
         return false
     end
+    scope = tonumber(scope) or 0
+    -- Cancellation does not require native availability (capability bit 1).
+    if scope == 1 then
+        if (tonumber(version) or 0) < 5 then return false end
+        -- Control remains usable even after submission/native capability is lost.
+        for _, name in ipairs({ "control_scope", "control_source_id", "control_message_key",
+            "control_seq", "control_result_seq", "control_result_code", "control_removed_count" }) do
+            if not sink[name] or not isProperty(sink[name]) then return false end
+        end
+    end
 
     if not write_sink_string(sink.control_source_id, "YAL") then return false end
     if not write_sink_string(sink.control_message_key, tostring(message_key or "")) then return false end
+    if (tonumber(version) or 0) >= 5 then
+        if not sink.control_scope or not isProperty(sink.control_scope) then return false end
+        if not pcall(set, sink.control_scope, scope) then return false end
+    elseif scope ~= 0 then
+        return false
+    end
 
     P.speakStringSinkControlSeq = (tonumber(P.speakStringSinkControlSeq) or 0) + 1
     if P.speakStringSinkControlSeq > 2147480000 then
@@ -1123,6 +1189,14 @@ function P.clearSpeakStringSink(message_key)
     end
 
     ok = pcall(set, sink.control_seq, P.speakStringSinkControlSeq)
+    if scope == 1 then
+        if not ok then return false end
+        local okSeq, resultSeq = pcall(get, sink.control_result_seq)
+        local okCode, resultCode = pcall(get, sink.control_result_code)
+        local okCount, removed = pcall(get, sink.control_removed_count)
+        return okSeq and tonumber(resultSeq) == P.speakStringSinkControlSeq
+            and okCode and tonumber(resultCode) == 1 and okCount and tonumber(removed) ~= nil
+    end
     return ok == true
 end
 
@@ -4123,7 +4197,9 @@ local function parseApproachCode(code, expectedRunway)
             I = def.NAVTYPEILS,
             G = def.NAVTYPEGLS,
             L = def.NAVTYPELPV,
-            R = def.NAVTYPERNAV
+            R = def.NAVTYPERNAV,
+            Q = "NDB", N = "NDB", V = def.NAVTYPEVOR,
+            D = "VDM", S = "VDM"
         }
         navType = navTypeMap[typeChar]
         typeTag = navType and typeChar or nil
@@ -4145,7 +4221,8 @@ local function parseApproachCode(code, expectedRunway)
         if expectedRunway and string.upper(expectedRunway) ~= runwayPart then
             return nil
         end
-    elseif navType ~= def.NAVTYPELDA then
+    elseif navType ~= def.NAVTYPELDA and navType ~= "NDB"
+        and navType ~= def.NAVTYPEVOR and navType ~= "VDM" then
         return nil
     else
         suffix = rest
@@ -5375,7 +5452,9 @@ P.normalizeRawSelectedApproachId = normalizeRawSelectedApproachId
 
 local function parseSelectedApproachId(selectedAppId, expectedRunway)
     local parsed = parseApproachCode(selectedAppId, expectedRunway)
-    if not parsed or not parsed.runway then
+    if not parsed then return nil end
+    if not parsed.runway and parsed.navType ~= "NDB"
+        and parsed.navType ~= def.NAVTYPEVOR and parsed.navType ~= "VDM" then
         return nil
     end
     return parsed
@@ -6898,7 +6977,6 @@ function P.writetaxidatatable()
     for _, icao in ipairs(keys) do
         local entry = P.global_apt_index[icao]
         if entry then
-            entry.icao = icao
             write_line("")
             write_line("ICAO " .. tostring(icao))
             write_line(
@@ -7607,7 +7685,7 @@ local function global_apt_path()
         .. def.OSSEPARATOR .. "Earth nav data" .. def.OSSEPARATOR .. "apt.dat"
 end
 
-local GLOBAL_APT_INDEX_VERSION = 9
+local GLOBAL_APT_INDEX_VERSION = 10
 local GLOBAL_APT_INDEX_FILE = def.PLUGINOUTPUTPATH .. "apt_global.yalidx"
 local GLOBAL_APT_META_REFRESH_SEC = 30
 local GLOBAL_APT_INDEX_STEP_LINES = 10000
@@ -7762,7 +7840,7 @@ local function is_icao_token(token)
     return true
 end
 
-local function parse_airport_header_icao(line)
+local function parse_airport_header_id(line)
     local token, pos = next_token(line, 1)
     if token ~= "1" and token ~= "16" and token ~= "17" then
         return nil
@@ -7784,13 +7862,29 @@ local function parse_airport_header_icao(line)
     return t5
 end
 
+local function parse_airport_metadata_icao(line)
+    local token, pos = next_token(line, 1)
+    if token ~= "1302" then
+        return nil
+    end
+    local field
+    field, pos = next_token(line, pos)
+    if field ~= "icao_code" then
+        return nil
+    end
+    local icao = next_token(line, pos)
+    if is_icao_token(icao) then
+        return string.upper(icao)
+    end
+    return nil
+end
+
 local function scan_apt_for_icao(apt_path, target_icao)
     local file = io.open(apt_path, "rb")
     if not file then
         return nil, "open-failed"
     end
-    local found_offset = nil
-    local has_routes = false
+    local entry = nil
     local block_end = nil
     while true do
         local line_pos = file:seek()
@@ -7798,40 +7892,37 @@ local function scan_apt_for_icao(apt_path, target_icao)
         if not line then
             break
         end
-        local header_icao = parse_airport_header_icao(line)
-        if header_icao then
-            header_icao = string.upper(header_icao)
-            if found_offset then
+        local airport_id = parse_airport_header_id(line)
+        if airport_id then
+            airport_id = string.upper(airport_id)
+            if entry and (entry.airport_id == target_icao or entry.icao == target_icao) then
                 block_end = line_pos
                 break
             end
-            if header_icao == target_icao then
-                found_offset = line_pos
+            entry = {
+                airport_id = airport_id,
+                icao = airport_id,
+                path = apt_path,
+                offset = line_pos,
                 has_routes = false
-            end
-        elseif found_offset then
+            }
+        elseif entry then
             local code = next_token(line, 1)
             if code == "1201" or code == "1202" or code == "1206" then
-                has_routes = true
+                entry.has_routes = true
+            elseif code == "1302" then
+                entry.icao = parse_airport_metadata_icao(line) or entry.icao
             end
         end
     end
     local size = file:seek("end")
     file:close()
-    if not found_offset then
+    if not entry or (entry.airport_id ~= target_icao and entry.icao ~= target_icao) then
         return nil, "not-found"
     end
-    if not block_end then
-        block_end = size or found_offset
-    end
-    return {
-        icao = target_icao,
-        path = apt_path,
-        offset = found_offset,
-        length = block_end - found_offset,
-        size = size or 0,
-        has_routes = has_routes
-    }
+    entry.length = (block_end or size or entry.offset) - entry.offset
+    entry.size = size or 0
+    return entry
 end
 
 
@@ -7961,7 +8052,7 @@ local function parse_taxi_data(entry)
     local strict_limit = limit > entry.offset
     local allow_extend = entry.source == "global-index"
     local extended = false
-    local target_icao = entry.icao
+    local target_icao = entry.airport_id or entry.icao
     if allow_extend and entry.has_routes == false then
         strict_limit = false
         extended = true
@@ -8464,7 +8555,7 @@ local function parse_taxi_data(entry)
         if not line then
             break
         end
-        local header_icao = parse_airport_header_icao(line)
+        local header_icao = parse_airport_header_id(line)
         if header_icao then
             header_icao = string.upper(header_icao)
             if not target_icao then
@@ -9807,6 +9898,20 @@ local function meta_matches(idx_meta, cur_meta)
     return true
 end
 
+local function index_global_airport(entries, aliases, entry)
+    entries[entry.airport_id] = entry
+    local icao = entry.icao
+    if icao ~= entry.airport_id then
+        local previous = aliases[icao]
+        if previous == nil or (previous and previous.airport_id == entry.airport_id) then
+            aliases[icao] = entry
+        elseif previous and previous.airport_id ~= entry.airport_id then
+            -- Duplicate ICAO metadata must not select an arbitrary airport.
+            aliases[icao] = false
+        end
+    end
+end
+
 local function load_global_index(meta)
     local file = io.open(GLOBAL_APT_INDEX_FILE, "r")
     if not file then
@@ -9869,16 +9974,17 @@ local function load_global_index(meta)
         return nil
     end
 
-    local entries = {}
+    local entries, aliases = {}, {}
     while true do
         local line = file:read("*l")
         if not line then
             break
         end
-        local parts = split_tabs(line, 4)
-        local icao = parts[1]
-        if icao and icao ~= "" then
-            entries[icao] = {
+        local parts = split_tabs(line, 5)
+        local airport_id, icao = parts[1], parts[5]
+        if is_icao_token(airport_id) and is_icao_token(icao) then
+            index_global_airport(entries, aliases, {
+                airport_id = airport_id,
                 icao = icao,
                 path = meta.path,
                 offset = tonumber(parts[2]) or 0,
@@ -9886,11 +9992,14 @@ local function load_global_index(meta)
                 size = meta.size,
                 has_routes = tonumber(parts[4]) == 1,
                 source = "global-index"
-            }
+            })
+        else
+            file:close()
+            return nil
         end
     end
     file:close()
-    return entries
+    return entries, aliases
 end
 
 local function write_global_index(meta, entries)
@@ -9911,10 +10020,10 @@ local function write_global_index(meta, entries)
     file:write("FINGERPRINT\t", meta.fingerprint and tostring(meta.fingerprint) or "-", "\n")
     file:write("DATA\n")
 
-    for icao, entry in pairs(entries) do
-        if icao and entry and entry.offset then
+    for airport_id, entry in pairs(entries) do
+        if airport_id and entry and entry.offset then
             local has_routes = entry.has_routes and 1 or 0
-            file:write(tostring(icao), "\t", tostring(entry.offset or 0), "\t", tostring(entry.length or 0), "\t", tostring(has_routes), "\n")
+            file:write(tostring(airport_id), "\t", tostring(entry.offset or 0), "\t", tostring(entry.length or 0), "\t", tostring(has_routes), "\t", tostring(entry.icao or airport_id), "\n")
         end
     end
     file:close()
@@ -9930,21 +10039,23 @@ local function close_global_job(job)
 end
 
 local function finalize_job_airport(job, block_end)
-    if not job or not job.current_icao or not job.current_offset then
+    if not job or not job.current_airport_id or not job.current_offset then
         return
     end
     local length = (block_end or 0) - job.current_offset
     if length < 0 then
         length = 0
     end
-    job.entries[job.current_icao] = {
+    index_global_airport(job.entries, job.aliases, {
+        airport_id = job.current_airport_id,
+        icao = job.current_icao or job.current_airport_id,
         path = job.meta.path,
         offset = job.current_offset,
         length = length,
         size = job.meta.size,
         has_routes = job.current_has_routes,
         source = "global-index"
-    }
+    })
 end
 
 local function start_global_index_job(meta, reason)
@@ -9955,6 +10066,7 @@ local function start_global_index_job(meta, reason)
         return false
     end
     P.global_apt_index = {}
+    P.global_apt_aliases = {}
     P.global_apt_index_meta = meta
     P.global_apt_index_key = global_meta_key(meta)
     P.global_apt_index_ready = false
@@ -9962,6 +10074,8 @@ local function start_global_index_job(meta, reason)
         file = file,
         meta = meta,
         entries = P.global_apt_index,
+        aliases = P.global_apt_aliases,
+        current_airport_id = nil,
         current_icao = nil,
         current_offset = nil,
         current_has_routes = false,
@@ -10007,19 +10121,22 @@ local function step_global_index_job(job, max_lines, max_sec)
         lines = lines + 1
         job.lines = job.lines + 1
 
-        local header_icao = parse_airport_header_icao(line)
-        if header_icao then
-            header_icao = string.upper(header_icao)
-            if job.current_icao and job.current_offset then
+        local airport_id = parse_airport_header_id(line)
+        if airport_id then
+            airport_id = string.upper(airport_id)
+            if job.current_airport_id and job.current_offset then
                 finalize_job_airport(job, pos)
             end
-            job.current_icao = header_icao
+            job.current_airport_id = airport_id
+            job.current_icao = airport_id
             job.current_offset = pos
             job.current_has_routes = false
-        elseif job.current_icao then
+        elseif job.current_airport_id then
             local code = next_token(line, 1)
             if code == "1201" or code == "1202" or code == "1206" then
                 job.current_has_routes = true
+            elseif code == "1302" then
+                job.current_icao = parse_airport_metadata_icao(line) or job.current_icao
             else
                 -- Fallback: guard against odd whitespace or token parsing issues.
                 local i = 1
@@ -10110,6 +10227,7 @@ local function ensure_global_index(reason)
         close_global_job(P.global_apt_index_job)
         P.global_apt_index_job = nil
         P.global_apt_index = {}
+        P.global_apt_aliases = {}
         P.global_apt_index_ready = false
         P.global_apt_index_key = key
         P.global_apt_index_meta = meta
@@ -10118,9 +10236,10 @@ local function ensure_global_index(reason)
         return meta, nil
     end
     if (not P.global_apt_index_job) and (not P.global_apt_index_ready) then
-        local loaded = load_global_index(meta)
+        local loaded, aliases = load_global_index(meta)
         if loaded and next(loaded) ~= nil then
             P.global_apt_index = loaded
+            P.global_apt_aliases = aliases
             P.global_apt_index_meta = meta
             P.global_apt_index_ready = true
             helpers.logInfoTS(
@@ -10169,12 +10288,19 @@ function P.isGlobalAptIndexRunning()
     return P.global_apt_index_job ~= nil
 end
 
-local function get_global_index_entry(icao, reason)
+local function get_global_index_entry(icao, reason, airport_id)
     local meta, err = ensure_global_index(reason or "demand")
     if not meta then
         return nil, err
     end
     local entry = P.global_apt_index and P.global_apt_index[icao] or nil
+    if not entry and P.global_apt_index_ready and P.global_apt_aliases then
+        entry = P.global_apt_aliases[icao]
+    end
+    -- A renamed custom airport can still share its scenery ID with older globals.
+    if not entry and airport_id and P.global_apt_index then
+        entry = P.global_apt_index[airport_id]
+    end
     if entry then
         return entry
     end
@@ -10222,7 +10348,7 @@ function P.findAptDatForIcao(icao)
         return addon_entry
     end
 
-    local global_entry, gerr = get_global_index_entry(code, "find-icao")
+    local global_entry, gerr = get_global_index_entry(code, "find-icao", addon_entry and addon_entry.airport_id)
     if global_entry and global_entry.has_routes then
         return global_entry
     end
@@ -10251,7 +10377,7 @@ function P.findAptDatForIcaoWithPolicy(icao, policy)
 
     local pref = tostring(policy or "auto")
     local addon_entry = scan_addon_for_icao(code)
-    local global_entry, gerr = get_global_index_entry(code, "find-icao")
+    local global_entry, gerr = get_global_index_entry(code, "find-icao", addon_entry and addon_entry.airport_id)
 
     if pref == "addon" then
         if addon_entry then
@@ -10303,6 +10429,7 @@ function P.clearTaxiIndexCache()
     close_global_job(P.global_apt_index_job)
     P.global_apt_index_job = nil
     P.global_apt_index = {}
+    P.global_apt_aliases = {}
     P.global_apt_index_ready = false
     P.addon_apt_cache = {}
     if P.global_index_timer then

@@ -11,11 +11,19 @@ end
 P.ARM_MIN_TOD_NM = 2
 P.ARM_MAX_TOD_NM = 8.5
 P.MCP_DESCENT_DELTA_FT = 100
+P.CRUISE_MCP_TOLERANCE_FT = 100
 P.DESCENT_VS_FPM = -300
 P.RELEASE_GRACE_SEC = 10
 P.CONFIRM_WINDOW_SEC = 10
 
-function P.isMcpDescentSelected(currentMcpFt, cruiseAltitudeFt)
+function P.isMcpLowered(baselineMcpFt, currentMcpFt)
+    local baselineMcp = finiteNumber(baselineMcpFt)
+    local currentMcp = finiteNumber(currentMcpFt)
+    return baselineMcp ~= nil and baselineMcp > 0 and currentMcp ~= nil and currentMcp > 0
+        and (baselineMcp - currentMcp) >= P.MCP_DESCENT_DELTA_FT
+end
+
+function P.isMcpDescentSelected(currentMcpFt, cruiseAltitudeFt, baselineMcpFt)
     local currentMcp = finiteNumber(currentMcpFt)
     local cruiseAltitude = finiteNumber(cruiseAltitudeFt)
     if not currentMcp or currentMcp <= 0 or not cruiseAltitude or cruiseAltitude <= 0 then
@@ -23,17 +31,29 @@ function P.isMcpDescentSelected(currentMcpFt, cruiseAltitudeFt)
     end
 
     local cruiseRounded = math.floor((cruiseAltitude / 100) + 0.5) * 100
-    return (cruiseRounded - currentMcp) >= P.MCP_DESCENT_DELTA_FT
+    -- A static cruise-near offset is not an observed MCP lowering.
+    return (cruiseRounded - currentMcp) > P.CRUISE_MCP_TOLERANCE_FT
+        or (currentMcp < cruiseRounded and P.isMcpLowered(baselineMcpFt, currentMcp))
+end
+
+function P.needsMcpDescentReset(currentMcpFt, cruiseAltitudeFt, baselineMcpFt)
+    local currentMcp = finiteNumber(currentMcpFt)
+    local cruiseAltitude = finiteNumber(cruiseAltitudeFt)
+    return currentMcp ~= nil and currentMcp > 0 and cruiseAltitude ~= nil and cruiseAltitude > 0
+        and not P.isMcpDescentSelected(currentMcp, cruiseAltitude, baselineMcpFt)
 end
 
 function P.autoDisableOwnershipAction(input)
     input = input or {}
     if input.owned ~= true then return "none" end
     if input.pause_setting_on == true then return "clear" end
-    if input.airborne ~= true then return "restore" end
+    if input.airborne ~= true then return "restore", "not-airborne" end
     if input.flightstate ~= input.cruise_flightstate
         or input.fms_phase ~= input.cruise_fms_phase then
-        return "restore"
+        return "restore", "left-cruise"
+    end
+    if not P.isMcpDescentSelected(input.current_mcp_ft, input.cruise_altitude_ft, input.baseline_mcp_ft) then
+        return "restore", "descent-selection-withdrawn"
     end
     return "hold"
 end
@@ -70,10 +90,8 @@ function P.evaluateRelease(input)
     if todDistance <= P.ARM_MIN_TOD_NM then return "accept", "tod-context-changed" end
     if todDistance > P.ARM_MAX_TOD_NM then return "accept", "tod-context-changed" end
 
-    local baselineMcp = tonumber(input.baseline_mcp_ft)
-    local currentMcp = tonumber(input.current_mcp_ft)
-    if baselineMcp and baselineMcp > 0 and currentMcp and currentMcp > 0
-        and (baselineMcp - currentMcp) >= P.MCP_DESCENT_DELTA_FT then
+    local currentMcp = finiteNumber(input.current_mcp_ft)
+    if P.isMcpLowered(input.baseline_mcp_ft, currentMcp) then
         return "accept", "mcp-lowered"
     end
     if P.isMcpDescentSelected(currentMcp, input.cruise_altitude_ft) then

@@ -48,10 +48,27 @@ eligible = guard.isArmEligible(copy(armBase, { in_cruise = false }))
 assert_false(eligible, "pause outside cruise does not arm")
 
 assert_true(guard.isMcpDescentSelected(5000, 41000), "preselected descent MCP")
-assert_true(guard.isMcpDescentSelected(40900, 41000), "MCP descent threshold is inclusive")
+assert_false(guard.isMcpDescentSelected(40900, 41000), "static 100 ft offset remains cruise-near")
+assert_true(guard.isMcpDescentSelected(40899, 41000), "preselection outside cruise band")
 assert_false(guard.isMcpDescentSelected(40901, 41000), "MCP inside descent threshold")
 assert_false(guard.isMcpDescentSelected(5000, 0), "invalid cruise altitude")
 assert_false(guard.isMcpDescentSelected(0, 41000), "invalid MCP altitude")
+assert_false(guard.isMcpDescentSelected(38000, 38100), "reported inherited cruise offset")
+assert_true(guard.isMcpDescentSelected(38000, 38100, 38100), "observed 100 ft descent selection")
+assert_false(guard.isMcpDescentSelected(38100, 38100, 38200), "lowering to cruise is not descent")
+assert_false(guard.isMcpDescentSelected(38200, 38100, 38300), "lowering above cruise is not descent")
+assert_false(guard.isMcpLowered(math.huge, 38000), "invalid baseline cannot prove movement")
+assert_false(guard.isMcpLowered(38100, 0 / 0), "invalid current MCP cannot prove movement")
+for _, cruise in ipairs({ 20000, 38100, 41000, 41049 }) do
+    local rounded = math.floor(cruise / 100 + 0.5) * 100
+    for _, delta in ipairs({ -100, 0, 99, 100, 100.01, 101, 200, 5000 }) do
+        local mcp = rounded - delta
+        assert_true(guard.needsMcpDescentReset(mcp, cruise) ~= guard.isMcpDescentSelected(mcp, cruise),
+            "advice and preselection never overlap or leave a gap")
+    end
+end
+assert_false(guard.needsMcpDescentReset(38000, math.huge), "invalid cruise does not produce advice")
+assert_false(guard.needsMcpDescentReset(0, 38100), "invalid MCP does not produce advice")
 
 local ownershipBase = {
     owned = true,
@@ -60,7 +77,9 @@ local ownershipBase = {
     flightstate = 3,
     cruise_flightstate = 3,
     fms_phase = 2,
-    cruise_fms_phase = 2
+    cruise_fms_phase = 2,
+    current_mcp_ft = 5000,
+    cruise_altitude_ft = 41000
 }
 
 assert_equal(guard.autoDisableOwnershipAction(ownershipBase), "hold",
@@ -75,6 +94,18 @@ assert_equal(guard.autoDisableOwnershipAction(copy(ownershipBase, { pause_settin
     "manual pause setting restore clears ownership")
 assert_equal(guard.autoDisableOwnershipAction(copy(ownershipBase, { owned = false })), "none",
     "unowned pause setting remains untouched")
+assert_equal(guard.autoDisableOwnershipAction(copy(ownershipBase, {
+    current_mcp_ft = 38000, cruise_altitude_ft = 38100
+})), "restore", "legacy 100 ft false-positive ownership is restored in cruise")
+assert_equal(guard.autoDisableOwnershipAction(copy(ownershipBase, {
+    current_mcp_ft = 38000, cruise_altitude_ft = 38100, baseline_mcp_ft = 38100
+})), "hold", "observed 100 ft selection keeps ownership across reload")
+assert_equal(guard.autoDisableOwnershipAction(copy(ownershipBase, {
+    current_mcp_ft = 38100, cruise_altitude_ft = 38100, baseline_mcp_ft = 38100
+})), "restore", "returning MCP to cruise restores pause")
+assert_equal(guard.autoDisableOwnershipAction(copy(ownershipBase, {
+    current_mcp_ft = 0 / 0
+})), "restore", "invalid selection cannot retain temporary OFF ownership")
 
 local releaseBase = {
     now = 100,
@@ -138,6 +169,17 @@ action, reason = guard.evaluateRelease(copy(releaseBase, {
 }))
 assert_equal(action, "accept", "preselected descent MCP accepts first release")
 assert_equal(reason, "mcp-below-cruise", "preselected descent MCP reason")
+
+action, reason = guard.evaluateRelease(copy(releaseBase, {
+    baseline_mcp_ft = 38000, current_mcp_ft = 38000, cruise_altitude_ft = 38100
+}))
+assert_equal(action, "repause", "static 100 ft offset does not bypass release protection")
+assert_equal(reason, "unchanged-cruise", "static cruise offset release reason")
+action, reason = guard.evaluateRelease(copy(releaseBase, {
+    baseline_mcp_ft = 38100, current_mcp_ft = 38000, cruise_altitude_ft = 38100
+}))
+assert_equal(action, "accept", "observed 100 ft MCP lowering still accepts manual release")
+assert_equal(reason, "mcp-lowered", "explicit 100 ft release reason")
 
 action = guard.evaluateRelease(copy(releaseBase, { cruise_altitude_ft = 0 }))
 assert_equal(action, "repause", "invalid cruise altitude does not bypass protection")

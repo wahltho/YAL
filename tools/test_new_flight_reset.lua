@@ -67,11 +67,17 @@ yal.prepareRefdataLegacyTables = function() end
 yal.commandtableentry = function() end
 yal.YANSHisinstalled = function() return false end
 yal.BPBisinstalled = function() return false end
+local flightResetEvents = 0
+yal.setRuntimeEventSink(function(id)
+    if id == "flight.reset" then flightResetEvents = flightResetEvents + 1 end
+    return true
+end)
 
 assert(yal.yalresetForNewFlight() == true, "new-flight reset succeeds at parking")
 assert(yal.flightstate == def.FLIGHTSTATEPREFLIGHT, "new flight is PREFLIGHT in memory")
 assert(refs.flightstate == def.FLIGHTSTATEPREFLIGHT, "new flight persists PREFLIGHT")
 assert(yal.isReloadWithinSession == false, "new flight is not treated as a reload")
 assert(taxiReset, "new flight resets the persistent taxi component")
+assert(flightResetEvents == 1, "new flight also clears adapter queue/repeat history through the existing event sink")
 
 print("test_new_flight_reset: all checks passed")

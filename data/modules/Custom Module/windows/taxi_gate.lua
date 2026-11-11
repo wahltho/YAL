@@ -7,7 +7,6 @@ function M.attach(U, C, def, helpers)
     local short_ramp_label = U.short_ramp_label
     local build_visual_label = U.build_visual_label
     local is_voice_enabled = U.is_voice_enabled
-    local speak_guidance_text = U.speak_guidance_text
     local clamp = U.clamp
 
     local function ramp_frame_values(ramp, aircraft)
@@ -534,7 +533,7 @@ function M.attach(U, C, def, helpers)
         local stop_dist = use_dgs and ((C and C.gateDgsGoodZPos) or 0.2) or ((C and C.gateStopDistance) or 2)
         if dist <= stop_dist then
             if not comp._gateCalloutStop then
-                speak_guidance_text(comp, "Stop")
+                U.queue_gate_speech(comp, "Stop", 4, stop_dist)
                 comp._gateCalloutStop = true
             end
             return
@@ -543,7 +542,7 @@ function M.attach(U, C, def, helpers)
         local thresholds = { 30, 10, 5 }
         for i, threshold in ipairs(thresholds) do
             if dist <= threshold and stage < i then
-                speak_guidance_text(comp, "Gate in " .. tostring(threshold) .. " meters")
+                U.queue_gate_speech(comp, "Gate in " .. tostring(threshold) .. " meters", i, stop_dist)
                 comp._gateCalloutStage = i
             end
         end

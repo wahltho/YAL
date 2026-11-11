@@ -375,12 +375,13 @@ local phraseCases = {
     },
     {
         "arrival.on_descent",
-        copy(base, { altitude_ft = 18000, pressure_altitude_ft = 18000 }),
+        copy(base, { altitude_ft = 18000, pressure_altitude_ft = 18000,
+            descent_from_altitude_ft = 37000, descent_from_pressure_altitude_ft = 37000 }),
         "Lufthansa 3210 inbound SVALBARD, NELSA3M arrival, RNAV W approach runway 27, descent started from FL370"
     },
     {
         "arrival.approach",
-        copy(base, { altitude_ft = 6000, pressure_altitude_ft = 6000 }),
+        copy(base, { altitude_ft = 6000, pressure_altitude_ft = 6000, vertical_speed_fpm = -800 }),
         "SVALBARD Traffic, Lufthansa 3210 NELSA3M arrival for RNAV W approach runway 27, on descent passing 6000ft"
     },
     {
@@ -391,7 +392,7 @@ local phraseCases = {
     {
         "arrival.runway_vacated",
         base,
-        "SVALBARD Traffic, Lufthansa 3210 runway 27 vacated, taxiing to gate"
+        "SVALBARD Traffic, Lufthansa 3210 runway 27 vacated, taxiing to parking"
     },
     {
         "departure.start_push",
@@ -672,7 +673,7 @@ local voiceCases = {
     },
     {
         "arrival.approach",
-        copy(base, { altitude_ft = 6000, pressure_altitude_ft = 6000 }),
+        copy(base, { altitude_ft = 6000, pressure_altitude_ft = 6000, vertical_speed_fpm = -800 }),
         "Svalbard Traffic, Lufthansa tree two one zero Nelsa tree Mike arrival for R NAV Whiskey approach runway two seven, on descent passing six zero zero zero feet"
     },
     {
@@ -691,7 +692,8 @@ local voiceCases = {
     },
     {
         "arrival.on_descent",
-        copy(base, { altitude_ft = 18000, pressure_altitude_ft = 18000 }),
+        copy(base, { altitude_ft = 18000, pressure_altitude_ft = 18000,
+            descent_from_altitude_ft = 37000, descent_from_pressure_altitude_ft = 37000 }),
         "Lufthansa tree two one zero inbound Svalbard, Nelsa tree Mike arrival, R NAV Whiskey approach runway two seven, descent started from flight level tree seven zero"
     }
 }
@@ -704,6 +706,8 @@ end
 
 local navCruiseSnapshot = copy(base, {
     cruise_entry = true,
+    altitude_ft = 37000,
+    pressure_altitude_ft = 37000,
     cruise_next_waypoint = "DCS",
     cruise_next_waypoint_nav_name = "DEAN CROSS DME"
 })
@@ -1460,8 +1464,8 @@ assert_equal(
         pressure_altitude_ft = 38824,
         planned_altitude_ft = 39000
     })),
-    "Lufthansa 3210 level at FL390, BIRCO next",
-    "cruise entry phrase uses nominal FMC cruise level"
+    "Lufthansa 3210 level at FL388, BIRCO next",
+    "cruise entry reports actual pressure altitude, not an unreached FMC target"
 )
 local climbingCruiseEntry = copy(base, {
     cruise_entry = true,
@@ -1474,12 +1478,12 @@ local climbingCruiseEntry = copy(base, {
 local climbingCruiseEntryText = core.buildMessage("enroute.in_cruise", climbingCruiseEntry)
 assert_equal(
     climbingCruiseEntryText,
-    "Lufthansa 3210 reaching FL400, TUDGI next",
+    "Lufthansa 3210 reaching FL399, TUDGI next",
     "cruise entry does not claim level flight while still climbing"
 )
 assert_equal(
     core.buildVoiceMessage("enroute.in_cruise", climbingCruiseEntry, test_spell_nato, climbingCruiseEntryText),
-    "Lufthansa tree two one zero reaching flight level fower zero zero, Tudgi next",
+    "Lufthansa tree two one zero reaching flight level tree niner niner, Tudgi next",
     "climbing cruise entry voice retains the reaching phrase"
 )
 assert_equal(
@@ -2152,6 +2156,8 @@ local baselineYal = {
     proceduretable = {},
     flightstate = 4
 }
+-- This adapter fixture isolates enrichment/transport; runtime authority is tested separately.
+baselineYal.isAutoUnicomEventCurrent = function() return true end
 local baselineDef = {
     ON = 1,
     OFF = 0,
@@ -2493,6 +2499,7 @@ assert_true(autoUnicom.handleYalEvent("arrival.go_around", nil, 2), "YAL go-arou
 assert_equal(autoUnicom.getDebugState().queue_depth, 0, "go-around removes stale queued arrival event")
 
 eventAdapterValues.transport_state = 5
+eventAdapterValues.altitude_ft, eventAdapterValues.pressure_altitude = 10000, 10000
 assert_true(autoUnicom.handleYalEvent("departure.climb_level_10000", {
     altitude_ft = 10000,
     pressure_altitude_ft = 10000,
@@ -2503,6 +2510,7 @@ assert_equal(eventAdapterWrites[1].value, phraseCases[12][3], "YAL altitude payl
 
 do
     eventAdapterWrites = {}
+    eventAdapterValues.altitude_ft, eventAdapterValues.pressure_altitude = 9200, 9200
     eventAdapterValues.request_seq = 54
     eventAdapterValues.result_seq = 54
     eventAdapterValues.voice_result_seq = 54
@@ -2528,11 +2536,14 @@ do
 end
 
 eventAdapterWrites = {}
+eventAdapterValues.altitude_ft, eventAdapterValues.pressure_altitude = 300, 300
 eventAdapterValues.request_seq = 55
 eventAdapterValues.result_seq = 55
 eventAdapterValues.result_code = 21
 eventAdapterValues.desicao = "****"
 eventAdapterValues.desrwy = "----"
+eventAdapterValues.airgroundsensor = 1
+eventAdapterYal.autoUnicomRuntime = { arrivalLanded = true, arrivalIcao = "PAHO", arrivalRunway = "04" }
 configure_event_adapter_test()
 autoUnicom.tick(true, 0)
 assert_true(autoUnicom.handleYalEvent("arrival.runway_vacated", {
@@ -2540,7 +2551,7 @@ assert_true(autoUnicom.handleYalEvent("arrival.runway_vacated", {
     arrival_runway = "04"
 }, 1), "YAL runway vacated event accepts latched arrival context")
 autoUnicom.tick(true, 1)
-assert_equal(eventAdapterWrites[1].value, "PAHO Traffic, Lufthansa 3210 runway 04 vacated, taxiing to gate",
+assert_equal(eventAdapterWrites[1].value, "PAHO Traffic, Lufthansa 3210 runway 04 vacated, taxiing to parking",
     "runway vacated payload survives cleared FMC destination")
 
 eventAdapterWrites = {}
@@ -2595,6 +2606,7 @@ eventAdapterValues.ofp_origin_name = "LIHUE"
 eventAdapterValues.ofp_destination_icao = "ENSB"
 eventAdapterValues.ofp_destination_name = "LANGNES"
 eventAdapterValues.nearesticao = "ENSB"
+eventAdapterYal.autoUnicomRuntime = nil
 configure_event_adapter_test()
 autoUnicom.tick(true, 0)
 
@@ -2618,6 +2630,7 @@ local function commit_cached_arrival_event(eventId, payload, now)
 end
 
 commit_cached_arrival_event("arrival.approach", nil, 1)
+eventAdapterYal.autoUnicomRuntime = { arrivalLanded = true, arrivalIcao = "ENSB", arrivalRunway = "27" }
 eventAdapterValues.desicao = "****"
 eventAdapterValues.desrwy = "----"
 eventAdapterValues.ofp_valid = 0
@@ -2638,7 +2651,7 @@ assert_equal(cachedBacktrackVoice,
 assert_equal(commit_cached_arrival_event("arrival.runway_vacated", {
     arrival_icao = "ENSB",
     arrival_runway = "27"
-}, 3), "LANGNES Traffic, Lufthansa 3210 runway 27 vacated, taxiing to gate",
+}, 3), "LANGNES Traffic, Lufthansa 3210 runway 27 vacated, taxiing to parking",
     "runway vacated retains station name after FMC reset")
 assert_equal(commit_cached_arrival_event("arrival.runway_crossing", {
     arrival_icao = "ENSB",
@@ -2658,6 +2671,8 @@ assert_equal(cachedParkingText, "LANGNES Traffic, Lufthansa 3210 parked at gate 
 assert_equal(cachedParkingVoice,
     "Langnes Traffic, Lufthansa tree two one zero parked at gate Bravo seven",
     "arrival parking voice retains station name after FMC reset")
+eventAdapterYal.autoUnicomRuntime.arrivalIcao = "PANC"
+eventAdapterYal.autoUnicomRuntime.arrivalRunway = "07R"
 assert_equal(commit_cached_arrival_event("arrival.backtrack", {
     arrival_icao = "PANC",
     arrival_runway = "07R"
@@ -2666,6 +2681,8 @@ assert_equal(commit_cached_arrival_event("arrival.backtrack", {
 
 eventAdapterValues.desicao = "ENSB"
 eventAdapterValues.desrwy = "27"
+eventAdapterYal.autoUnicomRuntime = nil
+eventAdapterValues.airgroundsensor = 0
 eventAdapterValues.ofp_valid = 0
 eventAdapterValues.nearesticao = "PAHO"
 
@@ -2762,6 +2779,8 @@ eventAdapterWrites = {}
 eventAdapterValues.request_seq = 68
 eventAdapterValues.result_seq = 68
 eventAdapterValues.result_code = 21
+eventAdapterValues.altitude_ft, eventAdapterValues.pressure_altitude = 40000, 40000
+eventAdapterValues.fmccruisealt = 40000
 eventAdapterValues.fmslegs = "TAKIE 15N154W KOA"
 eventAdapterValues.fmslegslat = { 14.2, 15, 19.4 }
 eventAdapterValues.fmslegslon = { -151.1, -154, -155.9 }
@@ -2789,6 +2808,8 @@ eventAdapterWrites = {}
 eventAdapterValues.request_seq = 69
 eventAdapterValues.result_seq = 69
 eventAdapterValues.result_code = 21
+eventAdapterValues.altitude_ft, eventAdapterValues.pressure_altitude = 37000, 37000
+eventAdapterValues.fmccruisealt = 37000
 eventAdapterValues.fmslegs = "SUBUK DCS NESDI"
 eventAdapterValues.fmslegslat = { 54.1, 54.7217, 55.2 }
 eventAdapterValues.fmslegslon = { -3.3, -3.3408, -2.8 }
@@ -2968,6 +2989,7 @@ eventAdapterValues.api_version = 3
 eventAdapterValues.request_seq = 75
 eventAdapterValues.result_seq = 75
 eventAdapterValues.result_code = 21
+eventAdapterValues.altitude_ft, eventAdapterValues.pressure_altitude = 300, 300
 eventAdapterValues.voice_state = 1
 eventAdapterValues.voice_result_seq = 75
 eventAdapterValues.voice_result_code = 20
@@ -3010,5 +3032,36 @@ autoUnicom.tick(true, 3)
 assert_equal(eventAdapterWrites[1].value, phraseCases[1][3], "YAL v3 repeat keeps visible text")
 assert_equal(eventAdapterWrites[2].value, voiceCases[1][3], "YAL v3 repeat keeps paired voice text")
 assert_equal(eventAdapterWrites[3].value, 3, "YAL v3 repeat keeps text plus voice channels")
+
+do
+    eventAdapterWrites = {}
+    eventAdapterValues.request_seq, eventAdapterValues.result_seq = 100, 100
+    eventAdapterValues.voice_result_seq, eventAdapterValues.voice_result_code = 100, 20
+    eventAdapterValues.result_code, eventAdapterValues.transport_state = 21, 5
+    eventAdapterValues.altitude_ft, eventAdapterValues.pressure_altitude = 300, 300
+    eventAdapterValues.request_text = "Old flight history"
+    configure_event_adapter_test()
+    autoUnicom.tick(true, 0)
+    assert_true(autoUnicom.handleYalEvent("departure.airborne", nil, 1), "new event queues")
+    autoUnicom.tick(true, 1)
+    local seq = autoUnicom.getDebugState().outstanding_seq
+    assert_true(seq ~= nil, "request committed before reset")
+    assert_true(autoUnicom.handleYalEvent("flight.reset"), "new-flight control accepted")
+    assert_equal(autoUnicom.getDebugState().outstanding_seq, seq, "reset preserves committed transaction")
+    local ok, reason = autoUnicom.repeatLastMessage(true)
+    assert_equal(ok, false, "reset does not repeat prior flight")
+    assert_equal(reason, "request_pending", "old transaction is drained first")
+    eventAdapterValues.result_seq, eventAdapterValues.voice_result_seq = seq, seq
+    autoUnicom.tick(true, 2)
+    ok, reason = autoUnicom.repeatLastMessage(true)
+    assert_equal(ok, false, "old API request_text is not a new-flight repeat candidate")
+    assert_equal(reason, "no_last_message", "reset clears both local history and external history fallback")
+    eventAdapterWrites = {}
+    assert_true(autoUnicom.handleYalEvent("departure.airborne", nil, 3), "new current event queues")
+    eventAdapterValues.deprwy = "29"
+    autoUnicom.tick(true, 3)
+    assert_equal(#eventAdapterWrites, 0, "changed runway discards frozen event before all mailbox writes")
+    assert_equal(autoUnicom.getDebugState().queue_depth, 0, "invalid event is removed, not retried")
+end
 
 print("auto_unicom tests passed")

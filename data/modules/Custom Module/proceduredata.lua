@@ -1957,11 +1957,13 @@ function M.fillProcedureTable()
                     branch = function(loop) 
                         if (get(P.battery) == def.OFF) and (get(P.mainbus) == def.OFF) then
                             loop.procedurenotpossible = true
-                            P.commandtableentry(def.TEXT, P.proceduretable[def.COCKPITINITPROCEDURE].name .. " Procedure aborted, Cockpit is Cold and Dark")
+                            P.commandtableentry(def.TEXT, P.proceduretable[def.COCKPITINITPROCEDURE].name .. " Procedure aborted, Cockpit is Cold and Dark",
+                                P.procedureSpeechKey(def.COCKPITINITPROCEDURE, "check_prerequisites", "cold_dark"), 2, nil, true)
                             return nil 
                         elseif (get(P.parkingbrakepos) == def.OFF) then
                             loop.procedurenotpossible = true
-                            P.commandtableentry(def.TEXT, P.proceduretable[def.COCKPITINITPROCEDURE].name .. " Procedure not possible, Parking brake must be set")
+                            P.commandtableentry(def.TEXT, P.proceduretable[def.COCKPITINITPROCEDURE].name .. " Procedure not possible, Parking brake must be set",
+                                P.procedureSpeechKey(def.COCKPITINITPROCEDURE, "check_prerequisites", "parking_brake"), 2, nil, true)
                             return nil 
                         end
                         if (get(P.sunpitchdegrees) < 0) then
@@ -2128,7 +2130,9 @@ function M.fillProcedureTable()
                         local now = os.time() or 0
                         local lastPromptAt = loop and (tonumber(loop.activateFmcPlanPromptAt) or 0) or 0
                         if (lastPromptAt == 0) or ((now - lastPromptAt) >= 30) then
-                            P.commandtableentry(def.TEXT, "Activate Flight Plan in F M C")
+                            P.queueProcedureInstruction(loop, "instruction", "Activate Flight Plan in F M C", function()
+                                return not helpers.isFMSPlanLoaded(get(P.depicao), get(P.desicao), get(P.fmslegs))
+                            end)
                             helpers.logInfoTS(
                                 "Cockpit Init waiting for active FMC plan: dep=" .. tostring(depIcao) ..
                                 " dest=" .. tostring(destIcao) ..
@@ -2142,13 +2146,18 @@ function M.fillProcedureTable()
                 },
                 ['check_departure_airport_match'] = {
                     runActionInAdviceMode = true,
-                    action = function()
+                    action = function(loop)
                         local depIcao = string.upper(helpers.forceCleanString(get(P.depicao) or ""))
                         local nearestIcao = string.upper((helpers.forceCleanString(get(P.nearesticao) or "")):sub(1, 4))
                         if helpers.isvalidicao(depIcao) and helpers.isvalidicao(nearestIcao) then
                             if depIcao ~= nearestIcao then
                                 if not (loop and loop.nearestAirportWarned) then
-                                    P.commandtableentry(def.TEXT, "Nearest airport " .. helpers.spellNato(nearestIcao) .. " differs from departure " .. helpers.spellNato(depIcao))
+                                    P.queueProcedureInstruction(loop, "airport_mismatch",
+                                        "Nearest airport " .. helpers.spellNato(nearestIcao) .. " differs from departure " .. helpers.spellNato(depIcao), function()
+                                            return string.upper(helpers.forceCleanString(get(P.depicao) or "")) == depIcao
+                                                and string.upper((helpers.forceCleanString(get(P.nearesticao) or "")):sub(1, 4)) == nearestIcao
+                                                and depIcao ~= nearestIcao
+                                        end, true)
                                     if loop then loop.nearestAirportWarned = true end
                                 end
                             end
@@ -2340,7 +2349,7 @@ function M.fillProcedureTable()
                     nextStep = 'check_fmc_route_continuity'
                 },
                 ['check_fmc_route_continuity'] = {
-                    check = function()
+                    check = function(loop)
                         local discoOptions = buildFMSDiscontinuityOptions({ maxAheadNm = 100 })
                         local depIcao = get(P.depicao)
                         local aircraftLat = get(P.aircraftlatpos)
@@ -2390,7 +2399,11 @@ function M.fillProcedureTable()
                         else
                             message = "Discontinuity in flight plan"
                         end
-                        P.commandtableentry(def.TEXT, message)
+                        local route = P.conditionalRouteContext()
+                        P.queueProcedureInstruction(loop, "route_issue", message, function()
+                            return P.conditionalRouteContext() == route and P.probeProcedureStep(loop,
+                                P.proceduretable[loop.lock].steps[loop.currentStepName], P.proceduretable[loop.lock])
+                        end)
                         return false
                     end,
                     advice = "Resolve F M C Discontinuity before continuing",
@@ -2741,19 +2754,19 @@ function M.fillProcedureTable()
                         end
                         local state = P.getTaxiPushbackDecisionState and P.getTaxiPushbackDecisionState(120, 70) or nil
                         if state == "not_required" then
-                            if not P._bpbNoPushbackAnnounced then
+                            if not P.speechProbeActive and not P._bpbNoPushbackAnnounced then
                                 P.commandtableentry(def.TEXT, "No Pushback Required")
                                 P._bpbNoPushbackAnnounced = true
                             end
                             return true
                         end
-                        if state ~= "required" then
+                        if not P.speechProbeActive and state ~= "required" then
                             -- No reliable routing info: always open planner.
                             P._bpbNoPushbackAnnounced = nil
                         end
-                        P._bpbNoPushbackAnnounced = nil
+                        if not P.speechProbeActive then P._bpbNoPushbackAnnounced = nil end
                         local planComplete = P.BPBPlanComplete and (get(P.BPBPlanComplete) == 1)
-                        if planComplete then
+                        if planComplete and not P.speechProbeActive then
                             helpers.logInfoTS("Pushback: plan step skipped because BetterPushback already has a plan")
                         end
                         return planComplete
@@ -2781,7 +2794,7 @@ function M.fillProcedureTable()
                         if hint and hint ~= "" then
                             return "Plan Pushback (" .. hint .. ")"
                         end
-                        helpers.logInfoTS("Pushback: no direction hint from current DEP taxi geometry")
+                        if not P.speechProbeActive then helpers.logInfoTS("Pushback: no direction hint from current DEP taxi geometry") end
                         return "Plan Pushback"
                     end,
                     confirm = "Plan Pushback",
@@ -3796,7 +3809,7 @@ function M.fillProcedureTable()
                     check = function(loop)
                         local pos = get(P.transponderpos)
                         local ok = (pos == def.TARA)
-                        if helpers and helpers.logInfoTS then
+                        if not (loop and loop.speechProbe) and helpers and helpers.logInfoTS then
                             helpers.logInfoTS(string.format(
                                 "BeforeTakeoff TARA check: pos=%s expected=%s ok=%s steprepeat=%s q=%d",
                                 tostring(pos),
@@ -3810,7 +3823,7 @@ function M.fillProcedureTable()
                     end,
                     action = function(loop)
                         local pos = get(P.transponderpos)
-                        if helpers and helpers.logInfoTS then
+                        if not P.speechProbeActive and helpers and helpers.logInfoTS then
                             helpers.logInfoTS(string.format(
                                 "BeforeTakeoff TARA action: pos_before=%s steprepeat=%s",
                                 tostring(pos),
@@ -3821,7 +3834,7 @@ function M.fillProcedureTable()
                     end,
                     advice = function(loop)
                         local pos = get(P.transponderpos)
-                        if helpers and helpers.logInfoTS then
+                        if not P.speechProbeActive and helpers and helpers.logInfoTS then
                             helpers.logInfoTS(string.format(
                                 "BeforeTakeoff TARA advice queued: pos=%s expected=%s steprepeat=%s q=%d",
                                 tostring(pos),
@@ -4347,6 +4360,12 @@ function M.fillProcedureTable()
                         return 'wait_for_transition'
                     end,
                     advice = "Set Q N H to Standard",
+                    advicePending = function(loop)
+                        local ta = get(P.fmctransalt)
+                        return loop.climbTransitionAccepted == true and ta and ta > 0
+                            and P.configvalues[def.CONFIGAUTOBARO] == def.ON
+                            and get(P.fmccruisealt) > ta and not P.isbarostandardset()
+                    end,
                     action = function() P.setbarostandard() end,
                     confirm = function()
                         local trans_alt = get(P.fmctransalt)
@@ -4546,10 +4565,14 @@ function M.fillProcedureTable()
                     nextStep = 'check_rwy_suitability'
                 },
                 ['check_rwy_suitability'] = {
-                    action = function()
+                    action = function(loop)
                         if P.desmetar.metarfound then
                             if not helpers.shouldCheckRunwaySuitability(P.desmetar, get(P.desrwy), P.approachNavType) then
-                                P.commandtableentry(def.TEXT, "Check Destination Runway " .. helpers.formatRunwayDesignator(get(P.desrwy)))
+                                local runway, route = get(P.desrwy), P.conditionalRouteContext()
+                                P.queueProcedureInstruction(loop, "runway_check", "Check Destination Runway " .. helpers.formatRunwayDesignator(runway), function()
+                                    return P.conditionalRouteContext() == route and P.desmetar.metarfound
+                                        and not helpers.shouldCheckRunwaySuitability(P.desmetar, runway, P.approachNavType)
+                                end, true)
                             end
                         end
                     end,
@@ -4581,7 +4604,11 @@ function M.fillProcedureTable()
                         if not runwayValid and not hasRunwayLeg then
                             if loop and not loop.approachReminderIssued then
                                 local runwayDisplay = helpers.addspaces(destRunway)
-                                P.commandtableentry(def.TEXT, "Select Approach for Runway " .. runwayDisplay .. " at " .. helpers.spellNato(destIcao))
+                                local route = P.conditionalRouteContext()
+                                P.queueProcedureInstruction(loop, "route_issue", "Select Approach for Runway " .. runwayDisplay .. " at " .. helpers.spellNato(destIcao), function()
+                                    return P.conditionalRouteContext() == route and P.probeProcedureStep(loop,
+                                        P.proceduretable[loop.lock].steps[loop.currentStepName], P.proceduretable[loop.lock])
+                                end)
                                 loop.approachReminderIssued = true
                             end
                             return false
@@ -4607,7 +4634,11 @@ function M.fillProcedureTable()
                             end
                             local prevLeg = prevLegRaw and helpers.replaceRunwayPrefix(prevLegRaw) or ""
                             local suffix = (prevLeg ~= "") and (" after " .. prevLeg) or ""
-                            P.commandtableentry(def.TEXT, "Discontinuity" .. suffix .. " before approach")
+                            local route = P.conditionalRouteContext()
+                            P.queueProcedureInstruction(loop, "route_issue", "Discontinuity" .. suffix .. " before approach", function()
+                                return P.conditionalRouteContext() == route and P.probeProcedureStep(loop,
+                                    P.proceduretable[loop.lock].steps[loop.currentStepName], P.proceduretable[loop.lock])
+                            end)
                             return false
                         end
 
@@ -4625,7 +4656,11 @@ function M.fillProcedureTable()
 
                         if cruiseAlt and cruiseAlt > 0 and remainingDistance and remainingDistance > 0 and todDistance and todDistance > 0 then
                             if todDistance > (remainingDistance + tolerance) then
-                                P.commandtableentry(def.TEXT, "Verify F M C route extends beyond Top of Descent")
+                                local route = P.conditionalRouteContext()
+                                P.queueProcedureInstruction(loop, "route_issue", "Verify F M C route extends beyond Top of Descent", function()
+                                    return P.conditionalRouteContext() == route and P.probeProcedureStep(loop,
+                                        P.proceduretable[loop.lock].steps[loop.currentStepName], P.proceduretable[loop.lock])
+                                end)
                                 return false
                             end
                         end
@@ -4672,6 +4707,13 @@ function M.fillProcedureTable()
                     branch = function(loop)
                         if loop.descentTransitionAccepted then return false end
                         return 'wait_for_transition'
+                    end,
+                    advicePending = function(loop)
+                        local tl = get(P.fmctranslvl)
+                        if not loop.descentTransitionAccepted or not tl or tl <= 0 or tl > 25000
+                            or P.configvalues[def.CONFIGAUTOBARO] ~= def.ON then return false end
+                        local _, qnh = P.getlocalqnh(def.ARRIVAL)
+                        return not P.isbarolocalqnhset(qnh)
                     end,
                     advice = function()
                         local baroinchtmp, baropastmp = P.getlocalqnh(def.ARRIVAL)
@@ -4907,7 +4949,7 @@ function M.fillProcedureTable()
                         local actual = helpers.convflaplevertoflappos(get(P.flapleverpos))
                         if actual > target then
                             local mismatchKey = tostring(target) .. "|" .. tostring(actual)
-                            if loop and loop.appFlapsMismatchKey ~= mismatchKey then
+                            if loop and not loop.speechProbe and loop.appFlapsMismatchKey ~= mismatchKey then
                                 helpers.logInfoTS(
                                     "B1000 landing flaps mismatch: FMC target=" .. tostring(target) ..
                                     " actual lever=" .. tostring(actual) ..
@@ -4942,6 +4984,12 @@ function M.fillProcedureTable()
                     nextStep = 'check_mcp_speed_vapp'
                 },
                 ['check_mcp_speed_vapp'] = {
+                    advicePending = function()
+                        local target = P.getApproachMcpSpeedTarget()
+                        if not target then return false end
+                        local current = helpers.roundnumber(tonumber(get(P.mcpspeed)) or 0, 0)
+                        return current < target or current > target + 5
+                    end,
                     check = function()
                         local target = P.getApproachMcpSpeedTarget()
                         if not target then return true end -- nichts bekannt, weiter
@@ -4981,8 +5029,10 @@ function M.fillProcedureTable()
                 ['set_mcp_heading'] = {
                     skipIf = function()
                         if P.shouldSkipB1000McpHeadingForAutoSync() then
-                            helpers.logInfoTS(
-                                "set_mcp_heading: Skipping, Auto Heading Sync owns the heading bug while AP lateral guidance is active.")
+                            if not P.speechProbeActive then
+                                helpers.logInfoTS(
+                                    "set_mcp_heading: Skipping, Auto Heading Sync owns the heading bug while AP lateral guidance is active.")
+                            end
                             return true
                         end
                         return false
@@ -4990,11 +5040,11 @@ function M.fillProcedureTable()
                     check = function()
                         local headingrounded = getMcpHeadingTarget()
                         if not headingrounded then
-                            helpers.logInfoTS("set_mcp_heading: Skipping, no valid runway heading found to check against.")
+                            if not P.speechProbeActive then helpers.logInfoTS("set_mcp_heading: Skipping, no valid runway heading found to check against.") end
                             return true
                         end
                         if get(P.aphdgselstat) ~= def.OFF then
-                            helpers.logInfoTS("set_mcp_heading: Skipping, HDG SEL mode is active.")
+                            if not P.speechProbeActive then helpers.logInfoTS("set_mcp_heading: Skipping, HDG SEL mode is active.") end
                             return true
                         end
                         return (headingrounded == get(P.mcpheading))
@@ -5033,7 +5083,8 @@ function M.fillProcedureTable()
                             return math.abs(current - missedappalttmp) <= 100
                         else
                             if loop and not loop.missedAppAltInvalidWarned then
-                                P.commandtableentry(def.TEXT, "Missed Approach Altitude missing or invalid")
+                                P.queueProcedureInstruction(loop, "missed_altitude", "Missed Approach Altitude missing or invalid",
+                                    function() return getMissedApproachAlt(loop) <= 1000 end, true)
                                 loop.missedAppAltInvalidWarned = true
                             end
                             return true
@@ -5116,11 +5167,12 @@ function M.fillProcedureTable()
             steps = {
                 ['announce_goaround'] = {
                     action = function()
+                        P.notifyAutoUnicomGoAround()
                         local loop1 = P.loopStateTables and P.loopStateTables[1]
-                        P.clearYalQueuedSpeech()
                         if loop1 and loop1.lock ~= def.NOPROCEDURE then
                             local abortedProcId = loop1.lock
                             helpers.logInfoTS("Go Around: immediately stopping active procedure on Loop 1 (ID: " .. tostring(abortedProcId) .. ").")
+                            P.clearProcedureQueuedSpeech(loop1, "procedure")
                             P.stopChildProceduresForParent(1, abortedProcId, false)
                             P.resetLoopState(loop1)
                             loop1.lock = def.NOPROCEDURE
@@ -5141,14 +5193,16 @@ function M.fillProcedureTable()
                     nextStep = 'set_goaround_speed'
                 },
                 ['set_goaround_speed'] = {
-                    action = function()
+                    action = function(loop)
                         local vref = get(P.vref) or 0
                         local gaSpeed = vref + 20
                         if gaSpeed > 0 then
                             if (P.configvalues[def.CONFIGAUTOFUNCTIONS] == def.ON) and (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
                                 set(P.mcpspeed, gaSpeed)
                             end
-                            P.commandtableentry(def.TEXT, "Set M C P Speed " .. tostring(gaSpeed))
+                            P.queueProcedureInstruction(loop, "speed", "Set M C P Speed " .. tostring(gaSpeed), function()
+                                return (get(P.vref) or 0) + 20 == gaSpeed and get(P.mcpspeed) ~= gaSpeed
+                            end, true)
                         end
                     end,
                     confirm = function()
@@ -5181,7 +5235,8 @@ function M.fillProcedureTable()
                             return math.abs(current - missedappalttmp) <= 100
                         else
                             if loop and not loop.missedAppAltInvalidWarned then
-                                P.commandtableentry(def.TEXT, "Missed Approach Altitude missing or invalid")
+                                P.queueProcedureInstruction(loop, "missed_altitude", "Missed Approach Altitude missing or invalid",
+                                    function() return getMissedApproachAlt(loop) <= 1000 end, true)
                                 loop.missedAppAltInvalidWarned = true
                             end
                             return true
@@ -5218,7 +5273,7 @@ function M.fillProcedureTable()
                     nextStep = 'check_missed_route_discontinuity'
                 },
                                ['check_missed_route_discontinuity'] = {
-                    action = function()
+                    action = function(loop)
                         local legs = get(P.fmslegs)
                         local destRunway = get(P.desrwy)
                         if type(legs) ~= "string" or legs == "" or not helpers.isvalidrwy(destRunway) then
@@ -5239,7 +5294,9 @@ function M.fillProcedureTable()
                         end
 
                         if discoAfterRunway then
-                            P.commandtableentry(def.TEXT, "Discontinuity after runway before missed approach")
+                            P.queueProcedureInstruction(loop, "route_issue", "Discontinuity after runway before missed approach", function()
+                                return get(P.fmslegs) == legs and get(P.desrwy) == destRunway
+                            end, true)
                         end
                     end,
                     nextStep = 'set_flaps_15'

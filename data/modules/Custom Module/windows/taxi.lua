@@ -5543,6 +5543,7 @@ U = {
     find_holdshort_node_near = find_holdshort_node_near,
     build_runway_backtrack_segments = build_runway_backtrack_segments,
     compute_along_perp = compute_along_perp,
+    compute_dep_threshold_state = compute_dep_threshold_state,
     is_meaningful_departure_intersection = function(profile, aircraft, entryDistance, entryGate)
         local along, perp = compute_along_perp(profile, aircraft)
         local length = tonumber(profile and profile.length) or 0
@@ -5631,7 +5632,7 @@ U = {
     choose_departure_start_ramp = choose_departure_start_ramp,
     choose_active_arrival_retarget_ramp = choose_active_arrival_retarget_ramp,
     is_voice_enabled = is_voice_enabled,
-    is_raas_duplicate_voice_suppressed = function(comp, info)
+    is_raas_duplicate_voice_suppressed = function(comp, info, readOnly)
         if not comp or not info then
             return false
         end
@@ -5647,7 +5648,7 @@ U = {
             return false
         end
         local key = tostring(action) .. "|" .. tostring(info.display or info.label or info.text or "")
-        if comp._lastRaasSuppressedVoiceKey ~= key then
+        if not readOnly and comp._lastRaasSuppressedVoiceKey ~= key then
             comp._lastRaasSuppressedVoiceKey = key
             if helpers and helpers.logDebugTS then
                 helpers.logDebugTS("TaxiGuide: RAAS duplicate voice suppressed " .. tostring(info.text or ""))
@@ -5690,12 +5691,11 @@ do
         end
     end
     if not U.speak_guidance_text then
-        U.speak_guidance_text = function(_, text)
-            if helpers and helpers.speak then
-                helpers.speak(text, 20, "taxi:guidance", 2)
-            end
-        end
+        U.speak_guidance_text = noop
     end
+    U.queue_gate_speech = U.queue_gate_speech or noop
+    U.queue_threshold_speech = U.queue_threshold_speech or noop
+    U.queue_before_taxi_warning = U.queue_before_taxi_warning or noop
     if not U.build_visual_label then
         U.build_visual_label = function(_, display)
             return display or ""
@@ -6057,7 +6057,7 @@ U.maybe_dep_threshold_voice_callouts = function(comp, state, allow_voice)
     for i, threshold in ipairs(thresholds) do
         if dist <= threshold and stage < i then
             comp._depTerminalSequenceLock = true
-            speak_guidance_text(comp, "Threshold ahead in " .. tostring(threshold) .. " meters")
+            U.queue_threshold_speech(comp, "Threshold ahead in " .. tostring(threshold) .. " meters", i)
             comp._depThresholdCalloutStage = i
         end
     end
@@ -6108,9 +6108,7 @@ local function maybe_warn_before_taxi_not_started(comp, now, mode, on_ground, in
             )
         )
     end
-    if comp._helpers and comp._helpers.speak then
-        comp._helpers.speak("Warning, before taxi procedure not started", 50, "taxi:before_taxi_missing", 2)
-    end
+    U.queue_before_taxi_warning(comp)
 end
 
 -- Guardrail: this function sits near the SASL upvalue ceiling. Prefer U.* wrappers
@@ -13556,6 +13554,19 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
         return result
     end
 
+    function comp:getAutoUnicomRunwayWidth(icao, runway)
+        if self._lastIcao ~= icao or not self._data then return nil end
+        local name = U.normalize_runway_name(runway or "")
+        for _, record in ipairs(self._data.runways or {}) do
+            if name == U.normalize_runway_name(record.rwy1 or "")
+                or name == U.normalize_runway_name(record.rwy2 or "") then
+                local width = tonumber(record.width)
+                if width and width > 0 then return width end
+            end
+        end
+        return nil
+    end
+
     function comp:getDepartureAutoUnicomState()
         local result = { valid = false }
         local data = comp._data
@@ -13657,8 +13668,12 @@ local function newComponentImpl(ctx, def, settings, helpers, C, U)
 
         local headingLimit = tonumber(comp._C.depThresholdHeadingLimit) or 25
         local reverseHeading = 180 - headingLimit
+        local retainedRunway = yalref.getAutoUnicomArrivalRunwayRefdata
+            and yalref.getAutoUnicomArrivalRunwayRefdata() or nil
+        if yalref.getAutoUnicomArrivalRunwayRefdata and not retainedRunway then return result end
         local runwayGeometry = yalref.getAircraftRunwayGeometry
-            and yalref.getAircraftRunwayGeometry(comp._def.ARRIVAL, 40, headingLimit)
+            and yalref.getAircraftRunwayGeometry(comp._def.ARRIVAL, 40, headingLimit,
+                retainedRunway)
             or nil
         if type(runwayGeometry) ~= "table" or runwayGeometry.valid ~= true then
             return result

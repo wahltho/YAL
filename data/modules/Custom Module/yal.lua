@@ -568,7 +568,6 @@ local function maybeQueueTakeoffN140Callout()
     end
     P.commandtableentry(def.TEXT, TAKEOFF_N1_40_MESSAGE)
     P._takeoffN140CalloutLatched = true
-    P.publishAutoUnicomTakeoffEvent()
 end
 
 local function clearTrimTargetLatch()
@@ -938,31 +937,43 @@ function P.armPauseTodRuntime(now, todDistance, mcpAltitude, fmsPhase)
     ))
 end
 
-function P.setPauseTodAutoDisabled(active)
+function P.setPauseTodAutoDisabled(active, mcpBaseline)
     P.pauseTodAutoDisabled = active == true
+    local baseline = P.pauseTodAutoDisabled and tonumber(mcpBaseline) or nil
+    P.pauseTodAutoDisableMcpBaseline = baseline and baseline > 0 and baseline < math.huge and baseline or nil
+    if P.pauseTodAutoDisableMcpBaselineDr then
+        set(P.pauseTodAutoDisableMcpBaselineDr, P.pauseTodAutoDisableMcpBaseline or 0)
+    end
     if P.pauseTodAutoDisabledDr then
         set(P.pauseTodAutoDisabledDr, P.pauseTodAutoDisabled and 1 or 0)
     end
 end
 
-function P.updatePauseTodAutoDisableOwnership(fmsPhase, airborne)
-    local action = P.pauseTodGuard.autoDisableOwnershipAction({
+function P.updatePauseTodAutoDisableOwnership(fmsPhase, airborne, mcpAltitude, fmcCruiseAltitude)
+    if not P.pauseTodAutoDisabled then return end
+    local action, reason = P.pauseTodGuard.autoDisableOwnershipAction({
         owned = P.pauseTodAutoDisabled == true,
         pause_setting_on = get(P.pausetod) == def.ON,
         airborne = airborne,
         flightstate = P.flightstate,
         cruise_flightstate = def.FLIGHTSTATECRUISE,
         fms_phase = fmsPhase,
-        cruise_fms_phase = def.FMSFLIGHTPHASE_CRUISE
+        cruise_fms_phase = def.FMSFLIGHTPHASE_CRUISE,
+        current_mcp_ft = mcpAltitude,
+        cruise_altitude_ft = fmcCruiseAltitude,
+        baseline_mcp_ft = P.pauseTodAutoDisableMcpBaseline
     })
 
     if action == "restore" then
         set(P.pausetod, def.ON)
         P.setPauseTodAutoDisabled(false)
         helpers.logInfoTS(string.format(
-            "PauseTODMonitor: restored pause_td after leaving cruise flightstate=%s fmsPhase=%s",
+            "PauseTODMonitor: restored pause_td reason=%s flightstate=%s fmsPhase=%s mcp=%.0f cruise=%.0f",
+            tostring(reason),
             tostring(P.flightstate),
-            tostring(fmsPhase)
+            tostring(fmsPhase),
+            mcpAltitude or -1,
+            fmcCruiseAltitude or -1
         ))
     elseif action == "clear" then
         P.setPauseTodAutoDisabled(false)
@@ -988,7 +999,7 @@ function P.updatePauseTodRuntime()
     local airborne = (get(P.airgroundsensor) == def.OFF)
     local inCruise = fmsPhase == def.FMSFLIGHTPHASE_CRUISE
 
-    P.updatePauseTodAutoDisableOwnership(fmsPhase, airborne)
+    P.updatePauseTodAutoDisableOwnership(fmsPhase, airborne, mcpAltitude, fmcCruiseAltitude)
 
     if pauseEdge then
         if P.pauseTodGuardProtected and P.pauseTodGuardRepauseRequested then
@@ -1069,12 +1080,13 @@ function P.updatePauseTodRuntime()
                 P.pauseTodGuardRepauseCount
             ))
             helpers.command_once("sim/operation/pause_on")
-            helpers.speak(
-                "Pause at Top of Descent restored. Release Pause again to continue.",
-                50,
-                "YAL_PAUSE_TOD_GUARD",
-                2
-            )
+            P.speakConditionalNow("advice:pause_tod_restore",
+                "Pause at Top of Descent restored. Release Pause again to continue.", function()
+                    return P.configvalues[def.CONFIGTODPAUSEGUARD] == def.ON
+                        and (get(P.simpaused) == def.ON or P.pauseTodGuardRepauseRequested == true)
+                        and P.pauseTodGuardConfirmUntil ~= nil
+                        and not P.pauseTodGuard.isMcpDescentSelected(get(P.mcpaltitude), get(P.fmccruisealt))
+                end, 50)
         else
             P.pauseTodGuardReleasePendingUntil = nil
             helpers.logInfoTS(string.format(
@@ -1687,6 +1699,10 @@ function P.initDevReloadControls()
 end
 
 function P.YalinitGlobal()
+    if P.conditionalSpeech then P.conditionalSpeech:clear() end
+    if P.conditionalSpeech then P.conditionalSpeech.stopped = false end
+    P.procedureSpeechOwners = {}
+    P.procedureSpeechContext = nil
 
     P.needstempinit = true
 
@@ -1699,6 +1715,7 @@ function P.YalinitGlobal()
     P.altitudetimer = nil
 
     P.pauseTodAutoDisabled = false
+    P.pauseTodAutoDisableMcpBaseline = nil
     P.pauseTodMonitorActive = false
     P.pauseTodMcpAltAtPrompt = nil
     P.pauseTodGuardLastPaused = nil
@@ -1794,9 +1811,19 @@ function P.YalinitGlobal()
         sent = {},
         arrivalIcao = nil,
         arrivalRunway = nil,
+        arrivalEpoch = 0,
+        arrivalContextKey = nil,
+        arrivalLanded = false,
+        arrivalRunwaySnapshot = nil,
+        departureContextKey = nil,
+        descentEntryObserved = false,
+        descentFromAltitude = nil,
+        descentFromPressureAltitude = nil,
+        goAroundNotified = false,
         arrivalTaxiEventsInitialized = false,
         arrivalBacktrackSince = nil,
         arrivalParkingSince = nil,
+        arrivalGroundBaselinePending = false,
         preflightPlanInitialized = false,
         preflightPlanWasActive = false,
         preflightPlanPending = nil,
@@ -1805,6 +1832,8 @@ function P.YalinitGlobal()
         holdInitialized = false,
         holdKey = nil,
         holdPayload = nil,
+        holdEntryPending = false,
+        holdEntryObservedAt = nil,
         holdExitSent = false,
         holdEstablishedSent = false,
         holdEstablishedSince = nil,
@@ -1891,6 +1920,7 @@ function P.YalinitGlobal()
     P.ongoingpretaskindex = 1
 
     P.procedurelooptemplate = {
+        speechEpoch = 0,
         lock = def.NOPROCEDURE,
         stepindex = 0,
         currentStepName = "",
@@ -2361,6 +2391,12 @@ function P.bindExternalDatarefs(silentMissing)
             control_result_code = GP("laminar/B738/speakstring_sink/control_result_code"),
             control_removed_count = GP("laminar/B738/speakstring_sink/control_removed_count")
         }
+        if probe_external_dataref("laminar/B738/speakstring_sink/managed_capabilities") then
+            P.speakstringSink.managed_capabilities = GP("laminar/B738/speakstring_sink/managed_capabilities")
+        end
+        if probe_external_dataref("laminar/B738/speakstring_sink/control_scope") then
+            P.speakstringSink.control_scope = GP("laminar/B738/speakstring_sink/control_scope")
+        end
         if helpers.configureSpeakStringSink then
             helpers.configureSpeakStringSink(P.speakstringSink)
         end
@@ -3031,6 +3067,30 @@ function P.bindExternalDatarefs(silentMissing)
     return missingCount
 end
 
+function P.syncDebugLogLevel()
+    local current_level = sasl.getLogLevel()
+    if current_level == P.lastPolledDebugLevel then return false end
+
+    if P.debugLevelDataref and isProperty(P.debugLevelDataref)
+        and get(P.debugLevelDataref) ~= current_level then
+        set(P.debugLevelDataref, current_level)
+    end
+    local debug_enabled = current_level == LOG_DEBUG
+    local xlua_level = debug_enabled and 1 or 0
+    if P.xluaLoggingEnabled and isProperty(P.xluaLoggingEnabled)
+        and get(P.xluaLoggingEnabled) ~= xlua_level then
+        set(P.xluaLoggingEnabled, xlua_level)
+    end
+    local hop_level = debug_enabled and 3 or 1
+    if P.hoppie and P.hoppie.debug_level and isProperty(P.hoppie.debug_level)
+        and get(P.hoppie.debug_level) ~= hop_level then
+        set(P.hoppie.debug_level, hop_level)
+    end
+    P.lastPolledDebugLevel = current_level
+    sasl.logDebug("Debug level change detected by poll. Saved to dataref: " .. current_level)
+    return true
+end
+
 function P.initDataref()
 
     local debug_dataref_path = def.APPNAMEPREFIX .. "/state/debuglevel"
@@ -3060,7 +3120,7 @@ function P.initDataref()
     sasl.setLogLevel(stored_level)
     P.lastPolledDebugLevel = stored_level
     helpers.logInfoTS("Debug Log Level set to: " .. stored_level)
-    if P.xluaLoggingEnabled then
+    if P.xluaLoggingEnabled and get(P.xluaLoggingEnabled) ~= (stored_level == LOG_DEBUG and 1 or 0) then
         set(P.xluaLoggingEnabled, stored_level == LOG_DEBUG and 1 or 0)
     end
 
@@ -3243,6 +3303,16 @@ function P.initDataref()
         set(P.pauseTodAutoDisabledDr, stored_pause_tod_owner)
     end
     P.pauseTodAutoDisabled = stored_pause_tod_owner == 1
+    -- Retain observed MCP movement across reloads, separately from static preselection.
+    local pause_tod_baseline_path = def.APPNAMEPREFIX .. "/state/pause_tod_mcp_baseline"
+    local pause_tod_baseline_handle = globalProperty(pause_tod_baseline_path)
+    if not isProperty(pause_tod_baseline_handle) then
+        helpers.logInfoTS("Dataref '" .. pause_tod_baseline_path .. "' not found. Creating it now.")
+        P.pauseTodAutoDisableMcpBaselineDr = createGlobalPropertyf(pause_tod_baseline_path, 0, false, true, true)
+    else
+        P.pauseTodAutoDisableMcpBaselineDr = pause_tod_baseline_handle
+    end
+    P.setPauseTodAutoDisabled(P.pauseTodAutoDisabled, get(P.pauseTodAutoDisableMcpBaselineDr))
     if P.pauseTodAutoDisabled then
         helpers.logInfoTS("PauseTODMonitor: restored temporary pause_td ownership from state dataref")
     end
@@ -3309,7 +3379,7 @@ function P.initDataref()
 
     if P.hoppie.debug_level then
         local level = sasl.getLogLevel() == LOG_DEBUG and 3 or 1
-        set(P.hoppie.debug_level, level)
+        if get(P.hoppie.debug_level) ~= level then set(P.hoppie.debug_level, level) end
     end
 
     P.needstempinit = true
@@ -3681,10 +3751,14 @@ end
 function P.getAirportElevationFt(icao, fallbackFt)
     local airport = P.getAirportRefdata(icao)
     local elevation = validRefNumber(airport and airport.elevation_ft)
-    if elevation ~= nil then
+    if elevation ~= nil and elevation == elevation and math.abs(elevation) < math.huge then
         return elevation, airport and airport._source or nil
     end
-    return validRefNumber(fallbackFt), "fallback"
+    local fallback = validRefNumber(fallbackFt)
+    if fallback ~= nil and fallback == fallback and math.abs(fallback) < math.huge then
+        return fallback, "fallback"
+    end
+    return nil, "fallback"
 end
 
 function P.getDepartureAirportElevationFt()
@@ -3703,7 +3777,8 @@ end
 
 function P.getDestinationAirportElevationFt()
     local rwyAlt = validRefNumber(get(P.desrwyalt))
-    local fallbackFt = (rwyAlt and rwyAlt > -1000) and rwyAlt or nil
+    -- This FMS value has no validity flag: zero alone cannot prove sea level.
+    local fallbackFt = (rwyAlt and rwyAlt ~= 0 and rwyAlt > -1000) and rwyAlt or nil
     return P.getAirportElevationFt(get(P.desicao), fallbackFt)
 end
 
@@ -3836,6 +3911,7 @@ end
 -------------------------------------------------------------------------------------------------------------- 
 function P.resetLoopState(loopTable)
     if not loopTable then return end -- Safety check
+    loopTable.speechEpoch = (loopTable.speechEpoch or 0) + 1
 
     local cleanTemplate = P.procedurelooptemplate -- Use the master template
 
@@ -4331,6 +4407,7 @@ function P.yalresetForNewFlight()
     P.baselineAutoUnicomRuntimeEvents()
 
     P.prepareRefdataLegacyTables("new-flight-reset")
+    P.publishRuntimeEvent("flight.reset")
     if (sasl.getLogLevel() == LOG_DEBUG) then
         if P.legacyNavdataLoaded then
             helpers.writenavdatatable(P.navdatatable)
@@ -4707,6 +4784,10 @@ function P.defaultSpeakStringKey(entryType, text)
 end
 
 function P.clearYalQueuedSpeech(messageKey)
+    if P.conditionalSpeech then
+        if messageKey then P.conditionalSpeech:cancel(messageKey)
+        else P.conditionalSpeech:clear() end
+    end
     for i = #P.commandtable, 1, -1 do
         local entry = P.commandtable[i]
         if entry and (entry[1] == def.TEXT or entry[1] == def.TAXI) then
@@ -4717,7 +4798,8 @@ function P.clearYalQueuedSpeech(messageKey)
         end
     end
 
-    if helpers.clearSpeakStringSink then
+    if helpers.clearSpeakStringSink and not (messageKey and P.conditionalSpeech
+        and P.conditionalSpeech.modes[messageKey] == "managed") then
         helpers.clearSpeakStringSink(messageKey)
     end
 end
@@ -4733,7 +4815,11 @@ function P.clearTakeoffReadinessOngoingAdvice()
 end
 
 --------------------------------------------------------------------------------------------------------------
-function P.commandtableentry(state, text, speechKey, speechPolicy)
+function P.commandtableentry(state, text, speechKey, speechPolicy, conditional, procedureStatus)
+    if P.speechProbeActive then return end
+    if state == def.TEXT and P.procedureSpeechContext and not conditional and not procedureStatus then
+        return P.queueProcedureContent(state, text, speechKey)
+    end
 
     local index = 1
     local duplicateentryfound = false
@@ -4746,8 +4832,10 @@ function P.commandtableentry(state, text, speechKey, speechPolicy)
     if (state ~= def.COMMAND) then
         while (index <= #P.commandtable) do
             if (P.commandtable[index][1] == state)
-                and ((P.commandtable[index][2] == text)
-                    or (effectiveSpeechKey ~= nil and P.commandtable[index][3] == effectiveSpeechKey)) then
+                and ((P.commandtable[index].conditional ~= nil) == (conditional ~= nil))
+                and ((conditional and P.commandtable[index][3] == effectiveSpeechKey)
+                    or (not conditional and ((P.commandtable[index][2] == text)
+                    or (effectiveSpeechKey ~= nil and P.commandtable[index][3] == effectiveSpeechKey)))) then
                 duplicateentryfound = true
                 duplicateindex = index
             end
@@ -4762,10 +4850,12 @@ function P.commandtableentry(state, text, speechKey, speechPolicy)
         P.commandtable[newentryindex][2] = text
         P.commandtable[newentryindex][3] = effectiveSpeechKey
         P.commandtable[newentryindex][4] = speechPolicy
+        P.commandtable[newentryindex].conditional = conditional
     elseif duplicateindex ~= nil then
         P.commandtable[duplicateindex][2] = text
         if effectiveSpeechKey ~= nil then P.commandtable[duplicateindex][3] = effectiveSpeechKey end
         if speechPolicy ~= nil then P.commandtable[duplicateindex][4] = speechPolicy end
+        P.commandtable[duplicateindex].conditional = conditional
     end
 
 end
@@ -5189,7 +5279,7 @@ end
 function P.abortprocedure()
     local loop, loopIndex = P.findMostRecentLoop()
     if loop then
-        P.clearYalQueuedSpeech()
+        P.clearProcedureQueuedSpeech(loop, "family")
         P.stopChildProceduresForParent(loopIndex, loop.lock, false)
         P.stopParentProcedureForChild(loopIndex, loop, false)
         loop.procedureabort = true
@@ -5222,7 +5312,7 @@ function P.skipprocedure()
             and P.configvalues[def.CONFIGDEPARTURENAVSETUP] == def.ON then
             P.completeDepartureNavEvaluation(P.getDepartureNavSignature())
         end
-        P.clearYalQueuedSpeech()
+        P.clearProcedureQueuedSpeech(loop, "family")
         P.stopChildProceduresForParent(loopIndex, loop.lock, true)
         P.stopParentProcedureForChild(loopIndex, loop, true)
         loop.procedureabort = true
@@ -5248,7 +5338,7 @@ sasl.registerCommandHandler(my_command_skipprocedure, 0, P.skipprocedure_)
 function P.skipprocedurestep()
     local loop = P.findMostRecentLoop()
     if loop then
-        P.clearYalQueuedSpeech()
+        P.clearProcedureQueuedSpeech(loop, "step")
         loop.procedureskipstep = true
         loop.procedureabort = false
         P.forceImmediateCycle = true
@@ -5421,7 +5511,8 @@ local function get_metar_qnh_hpa_for_icao(metar, icao)
     return tonumber(metar.decodedmetar.pressure.qnh_hpa)
 end
 
-function P.getlocalqnh(deparr)
+function P.getlocalqnh(deparr, readOnly)
+    readOnly = readOnly or P.speechProbeActive
 
     local region_pas = get(P.baroregionpas)
     local localqnhraw = region_pas and (region_pas / 100) or nil
@@ -5465,7 +5556,13 @@ function P.getlocalqnh(deparr)
     end
 
     local localqnhpas = nil
-    if (deparr == def.DEPARTURE) then
+    if readOnly and deparr == def.DEPARTURE then
+        localqnhpas = stabilize_qnh_hpa(localqnhraw,
+            P.lastQnhSourceKeyDep == qnh_source_key and P.lastQnhHpaDep or nil)
+    elseif readOnly and deparr == def.ARRIVAL then
+        localqnhpas = stabilize_qnh_hpa(localqnhraw,
+            P.lastQnhSourceKeyArr == qnh_source_key and P.lastQnhHpaArr or nil)
+    elseif (deparr == def.DEPARTURE) then
         if P.lastQnhSourceKeyDep ~= qnh_source_key then
             P.lastQnhHpaDep = nil
             P.lastQnhSourceKeyDep = qnh_source_key
@@ -5485,13 +5582,13 @@ function P.getlocalqnh(deparr)
 
     local localqnhinch = localqnhpas and helpers.convertpressure(localqnhpas) or nil
 
-    if deparr == def.DEPARTURE then
+    if not readOnly and deparr == def.DEPARTURE then
         if P.lastQnhSourceDep ~= qnh_source_key then
             P.lastQnhSourceDep = qnh_source_key
             local sourceIcao = string.match(qnh_source_key, ":(.+)$")
             helpers.logInfoTS("QNH source DEP: " .. tostring(qnh_source) .. (sourceIcao and (" " .. sourceIcao) or ""))
         end
-    elseif deparr == def.ARRIVAL then
+    elseif not readOnly and deparr == def.ARRIVAL then
         if P.lastQnhSourceArr ~= qnh_source_key then
             P.lastQnhSourceArr = qnh_source_key
             local sourceIcao = string.match(qnh_source_key, ":(.+)$")
@@ -5499,7 +5596,7 @@ function P.getlocalqnh(deparr)
         end
     end
 
-    sasl.logDebug("GETLOCALQNH: INCH " .. tostring(localqnhinch) .. " PAS " .. tostring(localqnhpas))
+    if not readOnly then sasl.logDebug("GETLOCALQNH: INCH " .. tostring(localqnhinch) .. " PAS " .. tostring(localqnhpas)) end
 
     return localqnhinch, localqnhpas
 end
@@ -5739,6 +5836,17 @@ function P.canTriggerProcedureForCycle(procedureKey)
 end
 
 --------------------------------------------------------------------------------------------------------------
+function P.acceptPostLandingProcedureState(procedureKey)
+    if not P.airgroundsensor or get(P.airgroundsensor) ~= def.ON
+        or not P.battery or get(P.battery) ~= def.ON then return end
+    local target = procedureKey == def.AFTERLANDINGPROCEDURE and def.FLIGHTSTATETAXITOGATE
+        or procedureKey == def.ATPARKINGPOSITIONPROCEDURE and def.FLIGHTSTATESHUTDOWN or nil
+    if not target or P.flightstate < def.FLIGHTSTATEAPPROACH or P.flightstate >= target then return end
+    P.updateAutoUnicomArrivalContext()
+    P.flightstate = target
+    set(P.flightstatedr, target)
+end
+
 function P.triggerprocedure(procedureKey, isManual, parentLoopIndex, parentProcId)
     isManual = isManual or false -- Standardwert, falls isManual nicht übergeben wird
 
@@ -5831,6 +5939,7 @@ function P.triggerprocedure(procedureKey, isManual, parentLoopIndex, parentProcI
         else
             -- Wenn nicht wiederholbar, Überspringen wie bisher
             sasl.logDebug("Auto-trigger skipped for '" .. procedureData.name .. "'. Already set as complete and not repeatable.")
+            P.acceptPostLandingProcedureState(procedureKey)
             return true -- Nicht fehlschlagen, nur nicht erneut triggern
         end
     end
@@ -5857,6 +5966,8 @@ function P.triggerprocedure(procedureKey, isManual, parentLoopIndex, parentProcI
         targetLoopObject.triggeredat = os.time()
         targetLoopObject.parentLoopIndex = parentLoopIndex
         targetLoopObject.parentProcId = parentProcId
+        P.getProcedureSpeechOwner(targetLoopObject)
+        P.acceptPostLandingProcedureState(procedureKey)
 
         if procedureKey == def.BEFORETAXIPROCEDURE
             or procedureKey == def.BEFORETAKEOFFPROCEDURE then
@@ -6048,7 +6159,7 @@ function P.refuelAircraft(totalFuelLbs)
 end
 
 --------------------------------------------------------------------------------------------------------------
-function P.getAircraftRunwayGeometry(runwayType, distMeters, headingLimit)
+function P.getAircraftRunwayGeometry(runwayType, distMeters, headingLimit, runwayOverride)
     headingLimit = headingLimit or 20 -- Standard-Limit von 20 Grad
     local dist_m = tonumber(distMeters) or 0
     local dist_rad = dist_m / 6371000
@@ -6065,7 +6176,7 @@ function P.getAircraftRunwayGeometry(runwayType, distMeters, headingLimit)
         rwyendlon = runway and runway.end_lon or nil
         runwayHeading = runway and runway.course_deg_mag or nil
     elseif runwayType == def.ARRIVAL then
-        local runway = P.getDestinationRunwayRefdata(true)
+        local runway = runwayOverride or P.getDestinationRunwayRefdata(true)
         rwystartlat = runway and runway.start_lat or nil
         rwystartlon = runway and runway.start_lon or nil
         rwyendlat = runway and runway.end_lat or nil
@@ -6609,7 +6720,7 @@ function P.getTaxiPushbackHint()
     if not P.taxiComponent or not P.taxiComponent.getPushbackHint then
         return nil
     end
-    if P.taxiComponent.updateTaxiState then
+    if not P.speechProbeActive and P.taxiComponent.updateTaxiState then
         P.taxiComponent:updateTaxiState()
     end
     return P.taxiComponent:getPushbackHint()
@@ -6619,7 +6730,7 @@ function P.getTaxiPushbackDecision()
     if not P.taxiComponent or not P.taxiComponent.getPushbackDecision then
         return nil
     end
-    if P.taxiComponent.updateTaxiState then
+    if not P.speechProbeActive and P.taxiComponent.updateTaxiState then
         P.taxiComponent:updateTaxiState()
     end
     return P.taxiComponent:getPushbackDecision()
@@ -7284,6 +7395,7 @@ function P.resetAntiIceAdviceState(system)
 end
 
 function P.clearAntiIceSpeech(system)
+    P.clearYalQueuedSpeech("advice:anti_ice:" .. system)
     P.clearYalQueuedSpeech("advice:anti_ice:" .. system .. ":on")
     P.clearYalQueuedSpeech("advice:anti_ice:" .. system .. ":off")
     P.clearYalQueuedSpeech("status:anti_ice:" .. system .. ":on")
@@ -7299,7 +7411,11 @@ function P.queueAntiIceAdvice(system, stateName, text, now)
     local shouldQueue = shouldQueueStandaloneVoiceAdvice(state, key, text)
     state.lastAt = now
     if shouldQueue then
-        P.commandtableentry(def.TEXT, text, key, 2)
+        local result = P.antiIceSpeechResult or {}
+        P.queueOngoingAdvice("anti_ice", text, {
+            system = system, demand = stateName == "on",
+            reason = result[system .. "_reason"]
+        }, "advice:anti_ice:" .. system, "advice")
     end
 end
 
@@ -7422,6 +7538,7 @@ function P.updateAntiIce()
         pressure_altitude_ft = get(P.pressurealtitudeft)
     })
 
+    P.antiIceSpeechResult = result
     if result.reset then
         P.clearAntiIceSpeech("engine")
         P.clearAntiIceSpeech("wing")
@@ -7537,9 +7654,9 @@ function P.updateAntiIce()
         and P.antiIceWingInhibitWarnedReason ~= result.wing_inhibit_reason then
         P.clearYalQueuedSpeech("caution:anti_ice:wing:inhibited")
         P.antiIceWingInhibitWarnedReason = result.wing_inhibit_reason
-        P.commandtableentry(def.TEXT,
+        P.queueOngoingAdvice("wing_inhibit",
             P.antiIceWingInhibitAdvice(result.wing_inhibit_reason),
-            "caution:anti_ice:wing:inhibited", 2)
+            { reason = result.wing_inhibit_reason }, "caution:anti_ice:wing:inhibited")
     elseif not result.wing_ice_inhibited and P.antiIceWingInhibitWarnedReason ~= nil then
         P.antiIceWingInhibitWarnedReason = nil
         P.clearYalQueuedSpeech("caution:anti_ice:wing:inhibited")
@@ -7666,23 +7783,8 @@ local my_command_togglevoicereadback = sasl.createCommand(def.APPNAMEPREFIX .. "
 sasl.registerCommandHandler(my_command_togglevoicereadback, 0, P.togglevoicereadback_)
 
 function P.flapsuphandling()
-    local current_speed = get(P.airspeed)
     local current_flaps = get(P.flapleverpos)
-    local speed_buffer = 3
-
-    local target_flaps = current_flaps
-
-    if current_speed > (get(P.flapsupspeed) + speed_buffer) then
-        target_flaps = def.FLAPSUP
-    elseif current_speed > (get(P.flaps1speed) + speed_buffer) then
-        target_flaps = def.FLAPS1
-    elseif current_speed > (get(P.flaps5speed) + speed_buffer) then
-        target_flaps = def.FLAPS5
-    elseif current_speed > (get(P.flaps10speed) + speed_buffer) then
-        target_flaps = def.FLAPS10
-    elseif current_speed > (get(P.flaps15speed) + speed_buffer) then
-        target_flaps = def.FLAPS15
-    end
+    local target_flaps = P.getFlapsHandlingTarget("up")
 
     if current_flaps > target_flaps then
         local command_map = {
@@ -7703,7 +7805,7 @@ function P.flapsuphandling()
         if P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON then
             local adviceText = text_map[target_flaps]
             if adviceText then
-                P.commandtableentry(def.TEXT, adviceText)
+                P.queueOngoingAdvice("flaps", adviceText, { direction = "up", target = target_flaps }, "advice:flaps:up", "advice")
             end
         else
             local cmd = command_map[target_flaps]
@@ -7748,30 +7850,8 @@ end
 
 --------------------------------------------------------------------------------------------------------------
 function P.flapsdownhandling()
-    local current_speed = get(P.airspeed)
     local current_flaps = get(P.flapleverpos)
-    local speed_buffer = 5
-
-    local target_flaps = current_flaps
-
-    if current_speed < (get(P.flapsupspeed) - speed_buffer) then
-        target_flaps = def.FLAPS1
-    end
-    if current_speed < (get(P.flaps1speed) - speed_buffer) then
-        target_flaps = def.FLAPS5
-    end
-    if current_speed < (get(P.flaps5speed) - speed_buffer) then
-        target_flaps = def.FLAPS10
-    end
-    if current_speed < (get(P.flaps10speed) - speed_buffer) then
-        target_flaps = def.FLAPS15
-    end
-    if current_speed < (get(P.flaps15speed) - speed_buffer) then
-        target_flaps = def.FLAPS25
-    end
-    if current_speed < (get(P.flaps25speed) - speed_buffer) then
-        target_flaps = def.FLAPS30
-    end
+    local target_flaps = P.getFlapsHandlingTarget("down")
 
     if current_flaps < target_flaps then
         local command_map = {
@@ -7792,7 +7872,7 @@ function P.flapsdownhandling()
         }
 
         if P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON then
-            P.commandtableentry(def.TEXT, text_map[target_flaps])
+            P.queueOngoingAdvice("flaps", text_map[target_flaps], { direction = "down", target = target_flaps }, "advice:flaps:down", "advice")
         else
             local cmd = command_map[target_flaps]
             if cmd then
@@ -8837,47 +8917,98 @@ function P.autoUnicomHoldLevelStable(hold)
     return autoUnicomCore.isHoldLevelStable(altitude, verticalSpeed, hold.target_altitude_ft)
 end
 
-function P.isArrivalFinalEstablished()
-    if not P.isArrivalRunwayRadioAltGateOpen(8, 20, 0.5) then return false end
-
-    local procedureType = ""
-    local resolvedKind = ""
-    local api = P.approachRef
-    if type(api) == "table" and api.update_seq then
-        local seqBefore = tonumber(get(api.update_seq))
-        if seqBefore and seqBefore % 2 == 0 then
-            procedureType = tostring(get(api.procedure_type) or ""):upper()
-            resolvedKind = tostring(get(api.resolved_nav_kind) or ""):upper()
-            local seqAfter = tonumber(get(api.update_seq))
-            if seqAfter ~= seqBefore or seqAfter % 2 ~= 0 then
-                procedureType = ""
-                resolvedKind = ""
-            end
-        end
+function P.getAutoUnicomApproachContext()
+    local function read(prop)
+        if not prop then return nil end
+        local ok, value = pcall(get, prop)
+        return ok and value or nil
     end
+    local context = {
+        approach_id = helpers.forceCleanString(read(P.fmsselectedapp) or ""),
+        arrival_icao = helpers.forceCleanString(read(P.desicao) or ""),
+        arrival_runway = autoUnicomCore.normalizeRunway(read(P.desrwy))
+    }
+    local parsed = helpers.parseSelectedApproachId(context.approach_id, context.arrival_runway)
+    context.approach_procedure_type = parsed and parsed.navType or nil
+    context.approach_suffix = parsed and parsed.suffix or nil
+    if P.fmslegsmodactive and (tonumber(read(P.fmslegsmodactive)) or 0) ~= 0 then
+        context.selection_pending = true
+        return context
+    end
+    local snapshot, _, status = refdata.getApproachRefForContext({
+        icao = context.arrival_icao, runway = context.arrival_runway,
+        selectedAppId = context.approach_id, requireCommitted = true
+    })
+    if status == "accepted" and snapshot and snapshot.selected then
+        context.approach_procedure_type = snapshot.procedure_type
+        context.approach_resolved_kind = snapshot.resolved_nav_kind ~= "" and snapshot.resolved_nav_kind or nil
+        context.procedure_class_valid = snapshot.procedure_class_valid
+        context.rnp_ar = snapshot.rnp_ar
+        context.ian_eligible = snapshot.ian_eligible
+    end
+    context.selection_pending = status == "mod_pending"
+    return context
+end
 
-    local captureRequired = procedureType == "ILS" or procedureType == "LOC"
-        or procedureType == "LDA" or procedureType == "GLS"
-        or resolvedKind == "ILS" or resolvedKind == "IGS" or resolvedKind == "LOC"
-        or resolvedKind == "LOC_GS" or resolvedKind == "LOC-GS" or resolvedKind == "LDA"
-        or resolvedKind == "GLS" or resolvedKind == "LPV" or resolvedKind == "LP"
-    if not captureRequired then return true end
+function P.isAutoUnicomGoAroundActive()
+    if P.apgoaround and tonumber(get(P.apgoaround)) == def.ON then return true end
+    if P.fmsflightphase and tonumber(get(P.fmsflightphase)) == def.FMSFLIGHTPHASE_GO_AROUND then return true end
+    for _, loop in ipairs(P.loopStateTables or {}) do
+        if loop.lock == def.GOAROUNDPROCEDURE and (tonumber(loop.stepindex) or 0) > 0
+            and not loop.procedureabort and not loop.procedurenotpossible then return true end
+    end
+    return false
+end
 
-    return (get(P.aploccapturedstat) >= def.CAPTURED)
-        or (get(P.aplpvloccapturedstat) >= def.CAPTURED)
-        or (get(P.apglsloccapturedstat) >= def.CAPTURED)
-        or (get(P.apfacloccapturedstat) >= def.CAPTURED)
+function P.notifyAutoUnicomGoAround()
+    local state = P.autoUnicomRuntime
+    if not state or state.goAroundNotified then return end
+    state.goAroundNotified = true
+    state.arrivalEpoch = (state.arrivalEpoch or 0) + 1
+    state.sent["arrival.approach"] = nil
+    state.sent["arrival.on_final"] = nil
+    state.sent["arrival.short_final"] = nil
+    state.finalSince, state.shortFinalSince = nil, nil
+    state.arrivalLanded, state.arrivalRunwaySnapshot = nil, nil
+    P.publishRuntimeEvent("arrival.go_around")
+end
+
+function P.isArrivalFinalEstablished()
+    if get(P.airgroundsensor) ~= def.OFF or P.flightstate ~= def.FLIGHTSTATEAPPROACH
+        or P.isAutoUnicomGoAroundActive()
+        or not P.isArrivalRunwayRadioAltGateOpen(8, 20, 0.5) then return false end
+
+    local context = P.getAutoUnicomApproachContext()
+    if context.selection_pending then return false end
+    local kind = context.approach_resolved_kind or context.approach_procedure_type
+    local modes = {
+        ILS = P.aploccapturedstat, IGS = P.aploccapturedstat, LOC = P.aploccapturedstat,
+        LOC_GS = P.aploccapturedstat, ["LOC-GS"] = P.aploccapturedstat, LDA = P.aploccapturedstat,
+        GLS = P.apglsloccapturedstat, LPV = P.aplpvloccapturedstat, LP = P.aplpvloccapturedstat
+    }
+    local capture = modes[kind]
+    if capture then return (tonumber(get(capture)) or 0) >= def.CAPTURED end
+    if kind == "RNAV" then
+        local capabilities = helpers.resolveApproachGuidanceCapabilities({
+            selectedAppId = context.approach_id,
+            runway = context.arrival_runway,
+            navType = context.approach_procedure_type,
+            procedureClassValid = context.procedure_class_valid == true,
+            rnpAr = context.rnp_ar == true,
+            ianEligible = context.ian_eligible == true
+        })
+        if capabilities.expectedLateralMode == "FAC" then
+            return P.apfacloccapturedstat and (tonumber(get(P.apfacloccapturedstat)) or 0) >= def.CAPTURED or false
+        end
+        return true
+    end
+    return kind == "NDB" or kind == "VOR" or kind == "VDM" or context.approach_id == ""
 end
 
 function P.isArrivalShortFinal()
     if get(P.airgroundsensor) ~= def.OFF then return false end
     if P.flightstate ~= def.FLIGHTSTATEAPPROACH then return false end
-    if P.apgoaround and tonumber(get(P.apgoaround)) == def.ON then return false end
-    local phase = tonumber(get(P.fmsflightphase)) or 0
-    if phase ~= def.FMSFLIGHTPHASE_APPROACH
-        and phase ~= def.FMSFLIGHTPHASE_GO_AROUND_ARMED then
-        return false
-    end
+    if P.isAutoUnicomGoAroundActive() then return false end
     local radioAltitude = tonumber(get(P.radioaltitude)) or 0
     if radioAltitude < 50 or radioAltitude > 500 then return false end
     if (tonumber(get(P.verticalspeed)) or 0) > 100 then return false end
@@ -8893,9 +9024,191 @@ function P.updateAutoUnicomArrivalContext()
 
     local icao = helpers.cleanstring(get(P.desicao))
     local runway = helpers.cleanstring(get(P.desrwy))
+    local onGround = get(P.airgroundsensor) == def.ON
+    local landed = onGround and P.flightstate >= def.FLIGHTSTATEAPPROACH
+    if state.arrivalLanded then return end
+    if landed then
+        state.arrivalLanded = true
+        -- Keep the last airborne identity/geometry, even if FMC has already reset.
+        if not state.arrivalIcao and helpers.isvalidicao(icao) and helpers.isvalidrwy(runway) then
+            state.arrivalIcao, state.arrivalRunway = icao, runway
+        end
+        if not state.arrivalRunwaySnapshot and state.arrivalIcao == icao and state.arrivalRunway == runway then
+            state.arrivalRunwaySnapshot = P.getDestinationRunwayRefdata(true)
+        end
+        return
+    end
     if helpers.isvalidicao(icao) and helpers.isvalidrwy(runway) then
+        if state.arrivalIcao ~= icao or state.arrivalRunway ~= runway then
+            state.arrivalRunwaySnapshot = nil
+        end
+        local app = P.fmsselectedapp and helpers.forceCleanString(get(P.fmsselectedapp) or "") or ""
+        local star = P.fmsselectedstar and helpers.forceCleanString(get(P.fmsselectedstar) or "") or ""
+        local key = table.concat({ icao, runway, app, star }, "|")
+        if state.arrivalContextKey and state.arrivalContextKey ~= key then
+            state.arrivalEpoch = (state.arrivalEpoch or 0) + 1
+            state.sent["arrival.approach"] = nil
+            state.sent["arrival.on_final"] = nil
+            state.sent["arrival.short_final"] = nil
+            state.finalSince, state.shortFinalSince = nil, nil
+            P.publishRuntimeEvent("arrival.context_changed")
+        end
+        state.arrivalContextKey = key
         state.arrivalIcao = icao
         state.arrivalRunway = runway
+        local geometry = P.getDestinationRunwayRefdata(true)
+        if geometry and tonumber(geometry.start_lat) and geometry.start_lat ~= 0
+            and tonumber(geometry.end_lat) and geometry.end_lat ~= 0 then
+            local retained = {}
+            for field, value in pairs(geometry) do retained[field] = value end
+            local component = P.taxiComponent
+            retained.width_m = component and component.getAutoUnicomRunwayWidth
+                and component:getAutoUnicomRunwayWidth(icao, runway) or nil
+            state.arrivalRunwaySnapshot = retained
+        end
+    end
+end
+
+function P.getAutoUnicomArrivalRunwayRefdata()
+    local state = P.autoUnicomRuntime
+    if not state or not state.arrivalLanded then return P.getDestinationRunwayRefdata(true) end
+    local runway = state.arrivalRunwaySnapshot
+    if runway and not runway.width_m then
+        local component = P.taxiComponent
+        runway.width_m = component and component.getAutoUnicomRunwayWidth
+            and component:getAutoUnicomRunwayWidth(state.arrivalIcao, state.arrivalRunway) or nil
+    end
+    return runway
+end
+
+function P.isAutoUnicomArrivalRunwayClear()
+    local runway = P.getAutoUnicomArrivalRunwayRefdata()
+    local width = runway and tonumber(runway.width_m)
+    if not width or width <= 0 then return nil end
+    -- Conservative radius covers all supported 737NG variants around the aircraft reference point.
+    local geometry = P.getAircraftRunwayGeometry(def.ARRIVAL, width * 0.5 + 30, 20, runway)
+    if not geometry.valid then return nil end
+    return geometry.is_on_surface == false
+end
+
+function P.updateAutoUnicomDepartureContext()
+    local state = P.autoUnicomRuntime
+    if not state or P.flightstate ~= def.FLIGHTSTATEPREFLIGHT then return end
+    local key = table.concat({ tostring(get(P.depicao) or ""), tostring(get(P.deprwy) or ""),
+        tostring(get(P.fmsselectedsid) or "") }, "|")
+    if state.departureContextKey and state.departureContextKey ~= key then
+        for _, id in ipairs({ "departure.taxi_runway", "departure.hold_short", "departure.backtrack",
+            "departure.lining_up", "departure.lineup_takeoff" }) do state.sent[id] = nil end
+        state.holdShortSince, state.backtrackSince = nil, nil
+        P.publishRuntimeEvent("departure.context_changed")
+    end
+    state.departureContextKey = key
+end
+
+function P.isAutoUnicomEventCurrent(id, snapshot)
+    local state = P.autoUnicomRuntime
+    if not state then return false, "no_runtime" end
+    local ground = get(P.airgroundsensor) == def.ON
+    local gs = math.abs(tonumber(get(P.groundspeed)) or 0)
+    local vs = tonumber(get(P.verticalspeed)) or 0
+    local function result(valid) return valid == true, "operational_condition_changed" end
+    if id:sub(1, 10) == "departure." then
+        if id == "departure.airborne" then
+            return result(not ground and P.flightstate >= def.FLIGHTSTATEINITIALCLIMB
+                and P.flightstate <= def.FLIGHTSTATECLIMB and (tonumber(get(P.radioaltitude)) or 0) > 200)
+        end
+        if id == "departure.on_climb" or id == "departure.climb_resumed"
+            or id:sub(1, 22) == "departure.climb_level_" then
+            return result(not ground and P.flightstate == def.FLIGHTSTATECLIMB
+                and vs >= (id == "departure.climb_resumed" and autoUnicomCore.CLIMB_RESUME_RULES.minClimbVs or -150))
+        end
+        if not ground or P.flightstate ~= def.FLIGHTSTATEPREFLIGHT then return false, "not_departure_ground" end
+        local bpb = P.BPBStarted and tonumber(get(P.BPBStarted)) == def.ON
+            and (not P.BPBOpComplete or tonumber(get(P.BPBOpComplete)) ~= def.ON)
+        local tire = tonumber(get(P.tirespeed)) or 0
+        if id == "departure.flightplan_active" then
+            return result(P.getAutoUnicomFlightPlanContext() ~= nil and not bpb and math.abs(tire) <= 1
+                and gs <= 1 and not P.isProcedureActiveOrComplete(def.BEFORETAXIPROCEDURE))
+        elseif id == "departure.start_push" then
+            return result(bpb or tire < -1)
+        elseif id == "departure.taxi_runway" then
+            return result(not bpb and tire > 1 and gs < 25
+                and P.isProcedureActiveOrComplete(def.BEFORETAXIPROCEDURE)
+                and not P.aircraftonrwy(def.DEPARTURE, 40, 20))
+        elseif id == "departure.lineup_takeoff" then
+            return result(P.isProcedureActiveOrComplete(def.BEFORETAKEOFFPROCEDURE)
+                and P.aircraftonrwy(def.DEPARTURE, 40, 20) and gs >= 25)
+        elseif id == "departure.lining_up" or id == "departure.intersection" then
+            return result(P.isProcedureActiveOrComplete(def.BEFORETAXIPROCEDURE)
+                and P.aircraftonrwy(def.DEPARTURE, 40, 20) and gs < 25)
+        elseif id == "departure.hold_short" or id == "departure.backtrack" then
+            local taxi = P.getAutoUnicomDepartureTaxiState()
+            return result(taxi and taxi.valid and taxi[id == "departure.hold_short" and "hold_short" or "backtrack"])
+        end
+    elseif id == "enroute.in_cruise" then
+        local hold = P.getHoldRuntimeState()
+        return result(not ground and not hold.active and P.flightstate == def.FLIGHTSTATECRUISE
+            and tonumber(get(P.fmsflightphase)) == def.FMSFLIGHTPHASE_CRUISE)
+    elseif id:sub(1, 13) == "enroute.hold_" or id == "enroute.holding" then
+        local hold = P.getHoldRuntimeState()
+        local key = hold.active and (hold.waypoint .. "|" .. hold.path_type) or nil
+        local previous = tostring(snapshot.hold_context_waypoint or snapshot.hold_waypoint or "")
+            .. "|" .. tostring(snapshot.hold_path_type or "")
+        if ground then return false, "hold_no_longer_airborne" end
+        if id == "enroute.hold_exit" then
+            return result(not hold.active or (key == previous and state.holdApproachReleasedKey == key))
+        end
+        if key ~= previous or not state.holdApproachBlocked then return false, "hold_context_changed" end
+        if snapshot.hold_target_altitude_ft ~= hold.target_altitude_ft then return false, "hold_target_changed" end
+        if id == "enroute.holding" then return result(P.autoUnicomHoldLevelStable(hold)) end
+        if id == "enroute.hold_descending" then return result(autoUnicomHoldDescending(hold)) end
+        return result(hold.entry_complete ~= true)
+    elseif id:sub(1, 8) == "arrival." then
+        if id == "arrival.backtrack" then
+            local taxi = P.getAutoUnicomArrivalTaxiState()
+            return result(ground and taxi and taxi.valid and taxi.backtrack)
+        elseif id == "arrival.runway_vacated" then
+            return result(ground and state.arrivalLanded and P.isAutoUnicomArrivalRunwayClear() == true)
+        elseif id == "arrival.parking_position" then
+            return result(ground and state.arrivalLanded and gs < 1
+                and tonumber(get(P.parkingbrakepos)) == def.ON
+                and P.getAutoUnicomNearestParkingPayload(35) ~= nil)
+        end
+        if id ~= "arrival.runway_crossing" then
+            if ground or P.flightstate ~= def.FLIGHTSTATEAPPROACH or P.isAutoUnicomGoAroundActive() then
+                return false, "not_arrival_airborne"
+            end
+            if id == "arrival.on_final" then
+                return result(not state.holdApproachBlocked and P.isArrivalFinalEstablished())
+            elseif id == "arrival.short_final" then
+                return result(not state.holdApproachBlocked and P.isArrivalShortFinal())
+            elseif id == "arrival.approach" then
+                return result(not state.holdApproachBlocked and vs <= 150
+                    and (tonumber(get(P.altitude_ft)) or 0) <= 10000)
+            end
+            return result(vs <= 150)
+        end
+    end
+    if id == "departure.runway_crossing" or id == "arrival.runway_crossing" then
+        local crossing = P.getAutoUnicomRunwayCrossingState(id == "departure.runway_crossing" and "departure" or "arrival")
+        return result(ground and crossing and crossing.valid
+            and (crossing.crossing or crossing.on_runway_surface)
+            and autoUnicomCore.normalizeRunway(crossing.runway) == autoUnicomCore.normalizeRunway(snapshot.crossing_runway))
+    end
+    return false, "unknown_runtime_event"
+end
+
+function P.baselineAutoUnicomArrivalGroundState()
+    local state = P.autoUnicomRuntime
+    local clear = P.isAutoUnicomArrivalRunwayClear()
+    state.arrivalGroundBaselinePending = clear == nil
+    if clear == true then
+        state.sent["arrival.runway_vacated"] = true
+        if P.parkingbrakepos and tonumber(get(P.parkingbrakepos)) == def.ON
+            and P.groundspeed and math.abs(tonumber(get(P.groundspeed)) or 0) < 1
+            and P.getAutoUnicomNearestParkingPayload(35) then
+            state.sent["arrival.parking_position"] = true
+        end
     end
 end
 
@@ -8904,12 +9217,16 @@ function P.baselineAutoUnicomRuntimeEvents()
     if not state or not P.airgroundsensor then return end
 
     P.updateAutoUnicomArrivalContext()
+    P.updateAutoUnicomDepartureContext()
     state.sent = {}
+    state.descentEntryObserved = false
+    state.descentFromAltitude, state.descentFromPressureAltitude = nil, nil
     state.finalSince = nil
     state.runwayClearSince = nil
     state.arrivalTaxiEventsInitialized = false
     state.arrivalBacktrackSince = nil
     state.arrivalParkingSince = nil
+    state.arrivalGroundBaselinePending = false
     local preflightPlan = P.getAutoUnicomFlightPlanContext()
     state.preflightPlanInitialized = true
     state.preflightPlanWasActive = preflightPlan ~= nil
@@ -8973,9 +9290,7 @@ function P.baselineAutoUnicomRuntimeEvents()
                     state.sent["arrival.descent_level_" .. tostring(level)] = true
                 end
             end
-            local phase = state.lastFmsPhase or 0
-            if altitude <= 10000 and (phase == def.FMSFLIGHTPHASE_APPROACH
-                or phase == def.FMSFLIGHTPHASE_GO_AROUND_ARMED) then
+            if altitude <= 10000 then
                 state.sent["arrival.approach"] = true
             end
             if P.isArrivalFinalEstablished() then
@@ -8999,7 +9314,7 @@ function P.baselineAutoUnicomRuntimeEvents()
                 and (tonumber(get(P.groundspeed)) or 0) >= 25 then
                 state.sent["departure.lineup_takeoff"] = true
             end
-        elseif P.flightstate == def.FLIGHTSTATETAXITOGATE or P.flightstate == def.FLIGHTSTATESHUTDOWN then
+        elseif P.flightstate >= def.FLIGHTSTATEAPPROACH then
             local arrivalTaxiState = P.getAutoUnicomArrivalTaxiState()
             if arrivalTaxiState and arrivalTaxiState.valid == true then
                 state.arrivalTaxiEventsInitialized = true
@@ -9007,14 +9322,7 @@ function P.baselineAutoUnicomRuntimeEvents()
                     state.sent["arrival.backtrack"] = true
                 end
             end
-            if P.isAircraftOnArrivalRunwaySurface(40) == false then
-                state.sent["arrival.runway_vacated"] = true
-                local parkingBrakeSet = P.parkingbrakepos and tonumber(get(P.parkingbrakepos)) == def.ON
-                local groundSpeed = P.groundspeed and math.abs(tonumber(get(P.groundspeed)) or 0) or 0
-                if parkingBrakeSet and groundSpeed < 1 and P.getAutoUnicomNearestParkingPayload(35) then
-                    state.sent["arrival.parking_position"] = true
-                end
-            end
+            P.baselineAutoUnicomArrivalGroundState()
         end
     end
 
@@ -9022,6 +9330,7 @@ function P.baselineAutoUnicomRuntimeEvents()
     state.holdInitialized = true
     state.holdKey = hold.active and (hold.waypoint .. "|" .. hold.path_type) or nil
     state.holdPayload = hold.active and autoUnicomHoldPayload(hold) or nil
+    state.holdEntryPending, state.holdEntryObservedAt = false, nil
     local holdOperationallyReleased = hold.active
         and (hold.exit_armed == true or P.isArrivalFinalEstablished()) or false
     state.holdApproachReleasedKey = holdOperationallyReleased and state.holdKey or nil
@@ -9043,6 +9352,7 @@ end
 function P.updateAutoUnicomGroundEvents()
     local state = P.autoUnicomRuntime
     P.updateAutoUnicomArrivalContext()
+    P.updateAutoUnicomDepartureContext()
     if not state or get(P.airgroundsensor) ~= def.ON then
         if state then
             state.runwayClearSince = nil
@@ -9068,6 +9378,9 @@ function P.updateAutoUnicomGroundEvents()
             state.preflightPlanPending = nil
         end
         state.preflightPlanWasActive = planActive
+        if state.preflightPlanPending and preflightPlan then
+            state.preflightPlanPending = preflightPlan
+        end
 
         if state.preflightPlanPending then
             local beforeTaxi = P.isProcedureActiveOrComplete(def.BEFORETAXIPROCEDURE)
@@ -9158,6 +9471,10 @@ function P.updateAutoUnicomGroundEvents()
         state.arrivalParkingSince = nil
         return
     end
+    if state.arrivalGroundBaselinePending then
+        P.baselineAutoUnicomArrivalGroundState()
+        if state.arrivalGroundBaselinePending then return end
+    end
     local arrivalTaxiState = P.getAutoUnicomArrivalTaxiState()
     if arrivalTaxiState and arrivalTaxiState.valid == true then
         if not state.arrivalTaxiEventsInitialized then
@@ -9188,7 +9505,7 @@ function P.updateAutoUnicomGroundEvents()
     end
 
     P.updateAutoUnicomRunwayCrossing("arrival", P.getAutoUnicomRunwayCrossingState("arrival"))
-    local clear = P.isAircraftOnArrivalRunwaySurface(40) == false
+    local clear = P.isAutoUnicomArrivalRunwayClear() == true
     if not clear then
         state.runwayClearSince = nil
         state.arrivalParkingSince = nil
@@ -9260,6 +9577,8 @@ function P.updateAutoUnicomHoldEvents()
         state.holdKey = key
         state.holdPayload = autoUnicomHoldPayload(hold, descending)
         state.holdExitSent = false
+        state.holdEntryPending = true
+        state.holdEntryObservedAt = os.time()
         state.holdEstablishedSent = false
         state.holdEstablishedSince = nil
         state.holdDescentSent = false
@@ -9270,12 +9589,10 @@ function P.updateAutoUnicomHoldEvents()
         state.sent["arrival.short_final"] = nil
         state.finalSince = nil
         state.shortFinalSince = nil
-        if P.publishRuntimeEvent("enroute.hold_enter", state.holdPayload) and descending then
-            state.holdDescentSent = true
-        end
     elseif not key then
         state.holdKey = nil
         state.holdPayload = nil
+        state.holdEntryPending, state.holdEntryObservedAt = false, nil
         state.holdExitSent = false
         state.holdEstablishedSent = false
         state.holdEstablishedSince = nil
@@ -9286,6 +9603,15 @@ function P.updateAutoUnicomHoldEvents()
     end
 
     state.holdPayload = autoUnicomHoldPayload(hold)
+
+    if state.holdEntryPending then
+        if hold.entry_complete == true or os.time() - state.holdEntryObservedAt > autoUnicomCore.EVENT_TTL_SEC["enroute.hold_enter"] then
+            state.holdEntryPending = false
+        elseif P.publishRuntimeEvent("enroute.hold_enter", autoUnicomHoldPayload(hold, autoUnicomHoldDescending(hold))) then
+            state.holdEntryPending = false
+            if autoUnicomHoldDescending(hold) then state.holdDescentSent = true end
+        end
+    end
 
     if state.holdApproachReleasedKey == key then
         state.holdApproachBlocked = false
@@ -9338,6 +9664,7 @@ end
 function P.updateAutoUnicomCruiseEvent()
     local state = P.autoUnicomRuntime
     if not state then return end
+    if P.getHoldRuntimeState().active then return end
     local fmsPhase = P.fmsflightphase and tonumber(get(P.fmsflightphase)) or nil
     local cruiseActive = P.flightstate == def.FLIGHTSTATECRUISE
         and fmsPhase == def.FMSFLIGHTPHASE_CRUISE
@@ -9365,7 +9692,7 @@ function P.updateAutoUnicomCruiseEvent()
         return
     end
     local now = os.time()
-    local passedWaypoint, nextWaypointState, nextVectorState = autoUnicomCore.advanceCruiseWaypointState(
+    local _, nextWaypointState, nextVectorState = autoUnicomCore.advanceCruiseWaypointState(
         state.cruiseWaypoint,
         state.cruiseVectorActive,
         waypoint,
@@ -9380,11 +9707,8 @@ function P.updateAutoUnicomCruiseEvent()
         navigation_vector_active = vectorActive,
         navigation_vector_heading_deg = vectorHeading
     }
-    if passedWaypoint then
-        payload.cruise_waypoint = passedWaypoint
-    else
-        payload.cruise_periodic = true
-    end
+    -- An active-leg change can be Direct-To/EXEC, not a confirmed physical passage.
+    payload.cruise_periodic = true
     if P.publishRuntimeEvent("enroute.in_cruise", payload) then
         state.cruiseLastReportAt = now
     end
@@ -9519,8 +9843,6 @@ function P.updateAutoUnicomClimbEvents()
                 if state then state.sent[key] = true end
             else
                 autoUnicomEventOnce(key, key, {
-                    altitude_ft = level,
-                    pressure_altitude_ft = level,
                     mcp_altitude_ft = mcpAltitude,
                     climb_next_waypoint = nextWaypoint,
                     navigation_vector_active = vectorActive,
@@ -9535,41 +9857,51 @@ function P.updateAutoUnicomDescentEvents()
     local state = P.autoUnicomRuntime
     if not state then return end
     local phase = tonumber(get(P.fmsflightphase)) or 0
-    local altitude = tonumber(get(P.altitude)) or 0
-    local approachPhase = phase == def.FMSFLIGHTPHASE_APPROACH
-        or phase == def.FMSFLIGHTPHASE_GO_AROUND_ARMED
+    P.updateAutoUnicomArrivalContext()
+    local altitude = tonumber(get(P.altitude_ft)) or tonumber(get(P.altitude)) or 0
+    local approachPhase = get(P.airgroundsensor) == def.OFF
+        and P.flightstate == def.FLIGHTSTATEAPPROACH and not P.isAutoUnicomGoAroundActive()
     local holdBlocksApproach = state.holdApproachBlocked == true
     if phase == def.FMSFLIGHTPHASE_GO_AROUND and state.lastFmsPhase ~= phase then
-        state.sent["arrival.approach"] = nil
-        state.sent["arrival.on_final"] = nil
-        state.sent["arrival.short_final"] = nil
-        state.finalSince = nil
-        state.shortFinalSince = nil
-        P.publishRuntimeEvent("arrival.go_around")
+        P.notifyAutoUnicomGoAround()
     end
     state.lastFmsPhase = phase
+    if not P.isAutoUnicomGoAroundActive() then state.goAroundNotified = false end
+    if not approachPhase then return end
 
     if not state.sent["arrival.descent_entry"] then
-        state.sent["arrival.descent_entry"] = true
-        for _, level in ipairs(AUTO_UNICOM_DESCENT_LEVELS_FT) do
-            if altitude <= level or autoUnicomCore.shouldSuppressProgressLevel(level, altitude) then
-                state.sent["arrival.descent_level_" .. tostring(level)] = true
+        if not state.descentEntryObserved then
+            state.descentEntryObserved = true
+            state.descentFromAltitude = state.descentFromAltitude or altitude
+            state.descentFromPressureAltitude = state.descentFromPressureAltitude
+                or (P.pressurealtitudeft and tonumber(get(P.pressurealtitudeft)))
+            for _, level in ipairs(AUTO_UNICOM_DESCENT_LEVELS_FT) do
+                if altitude <= level or autoUnicomCore.shouldSuppressProgressLevel(level, altitude) then
+                    state.sent["arrival.descent_level_" .. tostring(level)] = true
+                end
             end
         end
         local eventId = P.descentEntryReason == "tod" and "arrival.top_of_descent" or "arrival.on_descent"
-        P.publishRuntimeEvent(eventId)
+        if math.abs(altitude - state.descentFromAltitude) <= 200 then
+            autoUnicomEventOnce("arrival.descent_entry", eventId)
+        else
+            state.sent["arrival.descent_entry"] = true -- expired observation, not a historical catch-up
+        end
     end
 
     for _, level in ipairs(AUTO_UNICOM_DESCENT_LEVELS_FT) do
         local key = "arrival.descent_level_" .. tostring(level)
         if altitude <= level and not state.sent[key] then
-            state.sent[key] = true
             local eventId = key
             if level == 10000 and approachPhase and not holdBlocksApproach then
                 eventId = "arrival.approach"
-                state.sent["arrival.approach"] = true
             end
-            P.publishRuntimeEvent(eventId, { altitude_ft = level, pressure_altitude_ft = level })
+            if altitude < level - 200 then
+                state.sent[key] = true -- no delayed boundary report far below its actual crossing
+            elseif P.publishRuntimeEvent(eventId) then
+                state.sent[key] = true
+                if eventId == "arrival.approach" then state.sent["arrival.approach"] = true end
+            end
         end
     end
 
@@ -9973,6 +10305,7 @@ function P.clearStaleDescentRestoreState(restoredFlightState, aircraftIsOnGround
     for idx, loop in ipairs(P.loopStateTables or {}) do
         if loop and loop.lock == procId then
             helpers.logInfoTS("InflightRestore: clearing stale During Descent loop " .. tostring(idx) .. " at step '" .. tostring(loop.currentStepName) .. "'")
+            P.clearProcedureQueuedSpeech(loop, "procedure")
             loop.lock = def.NOPROCEDURE
             P.resetLoopState(loop)
             P.saveLoopState(loop, idx)
@@ -10466,11 +10799,11 @@ function P.runOnePreOngoingTask()
             elseif (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
                 if ((get(P.centertanklbs) > 1000) and (get(P.centertanklpress) > 0) and (get(P.centertankrpress) > 0) and (get(P.centertankstat) > 0)) then
                     if ((get(P.centertanklswitch) == def.OFF) or (get(P.centertankrswitch) == def.OFF)) then
-                        P.commandtableentry(def.TEXT, "Set Center Tank Fuel Pumps On")
+                        P.queueOngoingAdvice("center_tank", "Set Center Tank Fuel Pumps On", { target = def.ON }, nil, "advice")
                     end
                 elseif ((get(P.centertanklbs) <= 1000)) or ((get(P.centertanklpress) == 0) and (get(P.centertankrpress) == 0)) then
                     if ((get(P.centertanklswitch) == def.ON) or (get(P.centertankrswitch) == def.ON)) then
-                        P.commandtableentry(def.TEXT, "Set Center Tank Fuel Pumps Off")
+                        P.queueOngoingAdvice("center_tank", "Set Center Tank Fuel Pumps Off", { target = def.OFF }, nil, "advice")
                     end
                 end
             end
@@ -10482,34 +10815,21 @@ function P.runOnePreOngoingTask()
                 if (P.configvalues[def.CONFIGAUTOFUNCTIONS] == def.ON) and (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
                     set(P.cabincruisealt, fmccruisealttmp)
                 elseif (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                    P.commandtableentry(def.TEXT, "Set Cabin Cruise Alitude " .. helpers.addspaces(fmccruisealttmp))
+                    P.queueOngoingAdvice("cabin_cruise_altitude", "Set Cabin Cruise Alitude " .. helpers.addspaces(fmccruisealttmp), { target = fmccruisealttmp }, nil, "advice")
                 end
             end
         end
     elseif idx == 3 then
         local destination_icao = string.upper(helpers.cleanstring(get(P.desicao) or ""))
         if (P.flightstate < def.FLIGHTSTATEAPPROACH) and helpers.isvalidicao(destination_icao) then
-            local deslandingalttmp = 0
-            local haslandingalt = false
-
             local airportElevationFt = P.getDestinationAirportElevationFt()
-            if airportElevationFt then
-                deslandingalttmp = helpers.roundnumber(airportElevationFt / 50) * 50
-                haslandingalt = true
-            elseif get(P.desrwyalt) > -1000 then
-                deslandingalttmp = helpers.roundnumber(get(P.desrwyalt) / 50) * 50
-                haslandingalt = true
-            end
-
-            if haslandingalt then
-                if deslandingalttmp < 0 then
-                    deslandingalttmp = 0
-                end
+            if airportElevationFt ~= nil then
+                local deslandingalttmp = math.max(0, helpers.roundnumber(airportElevationFt / 50) * 50)
                 if get(P.cabinlandingalt) ~= deslandingalttmp then
                     if (P.configvalues[def.CONFIGAUTOFUNCTIONS] == def.ON) and (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON) then
                         set(P.cabinlandingalt, deslandingalttmp)
                     elseif (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                        P.commandtableentry(def.TEXT, "Set Cabin Landing Altitude " .. helpers.addspaces(deslandingalttmp))
+                        P.queueOngoingAdvice("cabin_landing_altitude", "Set Cabin Landing Altitude " .. helpers.addspaces(deslandingalttmp), { target = deslandingalttmp }, nil, "advice")
                     end
                 end
             end
@@ -10545,7 +10865,7 @@ function P.runOneCoreOngoingTask()
                 end
             elseif (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
                 if (groundspeed > 250) and wipersOn then
-                    P.commandtableentry(def.TEXT, "Wipers On above 250 knots - set Off")
+                    P.queueOngoingAdvice("wipers", "Wipers On above 250 knots - set Off", nil, nil, "advice")
                 end
             end
         end
@@ -10593,7 +10913,7 @@ function P.runOneCoreOngoingTask()
                             qnhText = helpers.formatQnhValue(baroinchtmp, false)
                         end
                         if qnhText then
-                            P.commandtableentry(def.TEXT, "Set Q N H " .. helpers.addspaces(qnhText))
+                            P.queueOngoingAdvice("ground_qnh", "Set Q N H " .. helpers.addspaces(qnhText), { target = baropastmp, units = get(P.baroinhpa) }, nil, "advice")
                         end
                     end
                 end
@@ -10692,8 +11012,8 @@ function P.updateArrivalSetupMonitor(context)
 
     if result.status == "warning" then
         local text = P.arrivalSetupWarningText(result.missing_kind, result.stage)
-        P.commandtableentry(def.TEXT, text, def.ARRIVAL_SETUP_WARNING_KEY, 2)
         P.arrivalSetupWarningActive = true
+        P.queueOngoingAdvice("arrival_setup", text, nil, def.ARRIVAL_SETUP_WARNING_KEY)
         if result.stage == "early" then
             P.arrivalSetupEarlyWarned = true
         elseif result.stage == "final" then
@@ -10742,7 +11062,8 @@ local function updateRouteMayEndEarlyCandidate(diff, distDest, remainingDistance
     if not P.routeMayEndEarlyWarned
         and elapsed >= def.ROUTE_ENDS_EARLY_STABLE_SEC
         and P.routeMayEndEarlyBadCount >= def.ROUTE_ENDS_EARLY_MIN_BAD_SAMPLES then
-        P.commandtableentry(def.TEXT, "Warning: Route may end too early. Check Arrival / Approach setup.")
+        P.queueOngoingAdvice("route", "Warning: Route may end too early. Check Arrival / Approach setup.",
+            { kind = "early", route = P.conditionalRouteContext() }, "warning:route_ends_early")
         P.routeMayEndEarlyWarned = true
         helpers.logDebugTS(
             "RouteEndsEarly warning: diff=" .. tostring(diff) ..
@@ -10784,7 +11105,8 @@ function P.updateRouteEndsBeforeTodCandidate(result, fmsPhase)
     if not P.routeEndsBeforeTodWarned
         and elapsed >= def.ROUTE_ENDS_BEFORE_TOD_STABLE_SEC
         and P.routeEndsBeforeTodBadCount >= def.ROUTE_ENDS_BEFORE_TOD_MIN_BAD_SAMPLES then
-        P.commandtableentry(def.TEXT, "Warning: Route may end before Top of Descent, check Arrival setup")
+        P.queueOngoingAdvice("route", "Warning: Route may end before Top of Descent, check Arrival setup",
+            { kind = "before_tod", route = P.conditionalRouteContext() }, "warning:route_before_tod")
         P.routeEndsBeforeTodWarned = true
         helpers.logDebugTS(
             "RouteEndsBeforeTod warning: diff=" .. tostring(result.diff_nm) ..
@@ -10971,7 +11293,7 @@ function P.checkDragRequiredAdvice()
         if wasActive and speedbrakesExtended then
             removeQueuedSpeedbrakeForgottenWarnings()
             P.speedbrakeForgottenLastWarnAt = now
-            P.commandtableentry(def.TEXT, DRAG_NO_LONGER_REQUIRED_TEXT, DRAG_NO_LONGER_REQUIRED_KEY)
+            P.queueOngoingAdvice("drag_no_longer_required", DRAG_NO_LONGER_REQUIRED_TEXT, nil, DRAG_NO_LONGER_REQUIRED_KEY)
             helpers.logDebugTS("DragRequiredAdvice: no longer required warning queued")
         end
         return
@@ -10996,7 +11318,7 @@ function P.checkDragRequiredAdvice()
 
     if (P.dragRequiredAdviceLastWarnAt == nil)
         or ((now - P.dragRequiredAdviceLastWarnAt) >= def.DRAG_REQUIRED_REPEAT_SEC) then
-        P.commandtableentry(def.TEXT, DRAG_REQUIRED_TEXT, DRAG_REQUIRED_KEY)
+        P.queueOngoingAdvice("drag_required", DRAG_REQUIRED_TEXT, nil, DRAG_REQUIRED_KEY)
         P.dragRequiredAdviceLastWarnAt = now
         helpers.logDebugTS("DragRequiredAdvice: warning queued")
     end
@@ -11115,7 +11437,7 @@ function P.checkSpeedbrakeForgotten()
 
     if (P.speedbrakeForgottenLastWarnAt == nil)
         or ((now - P.speedbrakeForgottenLastWarnAt) >= def.SPEEDBRAKE_FORGOTTEN_REPEAT_SEC) then
-        P.commandtableentry(def.TEXT, SPEEDBRAKE_FORGOTTEN_TEXT)
+        P.queueOngoingAdvice("speedbrake_forgotten", SPEEDBRAKE_FORGOTTEN_TEXT, nil, SPEEDBRAKE_FORGOTTEN_KEY)
         P.speedbrakeForgottenLastWarnAt = now
         helpers.logInfoTS(
             "SpeedbrakeForgotten: warning reason=" .. tostring(reason) ..
@@ -11407,7 +11729,8 @@ function P.runOneMainOngoingTask()
                     P.commandtableentry(def.TEXT, "Trim " .. trimText, P.takeoffReadinessGuard.SPEECH_KEYS.trim)
                 elseif (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
                     local trimText = helpers.format_trim_quarter(trimTarget) or tostring(trimTarget)
-                    P.commandtableentry(def.TEXT, "Set Trim " .. trimText, P.takeoffReadinessGuard.SPEECH_KEYS.trim)
+                    P.queueConditionalSpeech(P.takeoffReadinessGuard.SPEECH_KEYS.trim, "Set Trim " .. trimText,
+                        function() return P.conditionalTakeoffReadinessPending("trim", trimTarget, signatures.trim) end, "advice")
                 end
             end
         elseif idx == 8 then
@@ -11421,10 +11744,10 @@ function P.runOneMainOngoingTask()
                 if ((P.configvalues[def.CONFIGAUTOFUNCTIONS] == def.ON) and (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON)) then
                     P.setDepartureMcpSpeed(speedTarget)
                 elseif (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                    P.commandtableentry(
-                        def.TEXT,
+                    P.queueConditionalSpeech(
+                        P.takeoffReadinessGuard.SPEECH_KEYS.mcp_speed,
                         "Set M C P Speed " .. helpers.addspaces(speedTarget),
-                        P.takeoffReadinessGuard.SPEECH_KEYS.mcp_speed
+                        function() return P.conditionalTakeoffReadinessPending("mcp_speed", speedTarget, signatures.mcp_speed) end, "advice"
                     )
                 end
             end
@@ -11439,10 +11762,10 @@ function P.runOneMainOngoingTask()
                 if ((P.configvalues[def.CONFIGAUTOFUNCTIONS] == def.ON) and (P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON)) then
                     set(P.mcpheading, headingTarget)
                 elseif (P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON) then
-                    P.commandtableentry(
-                        def.TEXT,
+                    P.queueConditionalSpeech(
+                        P.takeoffReadinessGuard.SPEECH_KEYS.mcp_heading,
                         "Set M C P Heading " .. helpers.addspaces(helpers.padNumberWithZerosStrict(headingTarget, 3)),
-                        P.takeoffReadinessGuard.SPEECH_KEYS.mcp_heading
+                        function() return P.conditionalTakeoffReadinessPending("mcp_heading", headingTarget, signatures.mcp_heading) end, "advice"
                     )
                 end
             end
@@ -11524,8 +11847,8 @@ function P.runOneMainOngoingTask()
                 ))
                 P.pauseTodMonitorActive = false
                 P.pauseTodMcpAltAtPrompt = nil
-            elseif (type(P.pauseTodMcpAltAtPrompt) == "number")
-                and ((P.pauseTodMcpAltAtPrompt - mcpAlt) >= P.pauseTodGuard.MCP_DESCENT_DELTA_FT) then
+            elseif P.pauseTodGuard.isMcpLowered(P.pauseTodMcpAltAtPrompt, mcpAlt)
+                and P.pauseTodGuard.isMcpDescentSelected(mcpAlt, get(P.fmccruisealt), P.pauseTodMcpAltAtPrompt) then
                 helpers.logInfoTS(string.format(
                     "PauseTODMonitor: descent MCP accepted baseline=%.0f current=%.0f delta=%.0f tod=%.2f; pause_td disabled temporarily",
                     P.pauseTodMcpAltAtPrompt,
@@ -11534,7 +11857,7 @@ function P.runOneMainOngoingTask()
                     tonumber(todDistance) or -1
                 ))
                 set(P.pausetod, def.OFF)
-                P.setPauseTodAutoDisabled(true)
+                P.setPauseTodAutoDisabled(true, P.pauseTodMcpAltAtPrompt)
                 P.pauseTodMonitorActive = false
                 P.pauseTodMcpAltAtPrompt = nil
             end
@@ -11593,10 +11916,12 @@ function P.runOneMainOngoingTask()
 
                 if (get(P.fmccruisealt) or 0) > 0 then
                     if todDistance <= 10 and not P.todDiscontinuityWarned10 then
-                        P.commandtableentry(def.TEXT, "Warning: Route still contains a Discontinuity" .. prevLegText .. " about 10 nautical miles before Top of Descent")
+                        P.queueOngoingAdvice("route", "Warning: Route still contains a Discontinuity" .. prevLegText .. " about 10 nautical miles before Top of Descent",
+                            { kind = "discontinuity", limit = 10, previous = tostring(discontinuity.previous or ""), route = P.conditionalRouteContext() }, "warning:tod_discontinuity")
                         P.todDiscontinuityWarned10 = true
                     elseif todDistance <= 30 and not P.todDiscontinuityWarned30 then
-                        P.commandtableentry(def.TEXT, "Warning: Route still contains a Discontinuity" .. prevLegText .. " about 30 nautical miles before Top of Descent")
+                        P.queueOngoingAdvice("route", "Warning: Route still contains a Discontinuity" .. prevLegText .. " about 30 nautical miles before Top of Descent",
+                            { kind = "discontinuity", limit = 30, previous = tostring(discontinuity.previous or ""), route = P.conditionalRouteContext() }, "warning:tod_discontinuity")
                         P.todDiscontinuityWarned30 = true
                     end
                 end
@@ -11663,9 +11988,10 @@ function P.runOneMainOngoingTask()
             local todDistanceForMcpAdvice = tonumber(get(P.vnavtoddist)) or 0
             local fmcCruiseAlt = tonumber(get(P.fmccruisealt)) or 0
             local fmcCruiseRounded = helpers.roundnumber(fmcCruiseAlt / 100, 0) * 100
-            local withinTolerance = (fmcCruiseAlt > 0) and (mcpAlt >= (fmcCruiseRounded - 100))
+            local mcpIntentBaseline = P.pauseTodMcpAltAtPrompt or P.pauseTodAutoDisableMcpBaseline
+            local withinTolerance = P.pauseTodGuard.needsMcpDescentReset(mcpAlt, fmcCruiseAlt, mcpIntentBaseline)
             local nearTod = (todDistanceForMcpAdvice > 0) and (todDistanceForMcpAdvice < 20)
-            local mcpDescentSelected = P.pauseTodGuard.isMcpDescentSelected(mcpAlt, fmcCruiseAlt)
+            local mcpDescentSelected = P.pauseTodGuard.isMcpDescentSelected(mcpAlt, fmcCruiseAlt, mcpIntentBaseline)
             if nearTod and mcpDescentSelected and (get(P.pausetod) == def.ON) and (not P.pauseTodAutoDisabled) then
                 helpers.logInfoTS(string.format(
                     "PauseTODMonitor: preselected descent MCP accepted cruise=%.0f current=%.0f delta=%.0f tod=%.2f; pause_td disabled temporarily",
@@ -11687,7 +12013,7 @@ function P.runOneMainOngoingTask()
                     "Approaching Top of Descent, Reset M C P Altitude"
                 )
                 if queueTodAdvice then
-                    P.commandtableentry(def.TEXT, "Approaching Top of Descent, Reset M C P Altitude")
+                    P.queueOngoingAdvice("tod_mcp_altitude", "Approaching Top of Descent, Reset M C P Altitude", { target = fmcCruiseAlt })
                     if (get(P.pausetod) == def.ON) and (not P.pauseTodAutoDisabled) and (not P.pauseTodMonitorActive) then
                         P.pauseTodMonitorActive = true
                         P.pauseTodMcpAltAtPrompt = mcpAlt
@@ -11805,7 +12131,8 @@ function P.updateCruiseAltitudeGuard()
         and mcpAlt > lowAirspaceAlt and mcpAlt < math.huge
         and currentAlt > lowAirspaceAlt
         and (fmcCruiseAlt - mcpAlt) >= def.CRUISE_ALT_MISMATCH_MIN_GAP_FT
-        and (fmcCruiseAlt - currentAlt) >= def.CRUISE_ALT_MISMATCH_MIN_GAP_FT
+        -- Small holding errors must not erase a full 100-foot target mismatch.
+        and helpers.roundnumber(currentAlt / 100, 0) * 100 < fmcCruiseAlt
         and math.abs(currentAlt - mcpAlt) <= def.CRUISE_ALT_MISMATCH_LEVEL_BAND_FT
         and verticalSpeed ~= nil
         and math.abs(verticalSpeed) <= def.CRUISE_ALT_MISMATCH_MAX_VS_FPM
@@ -11840,7 +12167,7 @@ function P.updateCruiseAltitudeGuard()
         message = "V N A V Alt active. " .. message
     end
     helpers.logInfoTS(string.format("CruiseAltGuard: fmc=%d mcp=%d alt=%.0f vs=%.0f vnavAlt=%s", fmcCruiseAlt, mcpAlt, currentAlt, verticalSpeed, tostring(vnavAltActive)))
-    P.commandtableentry(def.TEXT, message, def.CRUISE_ALT_MISMATCH_SPEECH_KEY)
+    P.queueOngoingAdvice("cruise_altitude", message, { target = fmcCruiseAlt, mcp = mcpAlt }, def.CRUISE_ALT_MISMATCH_SPEECH_KEY)
     P.cruiseAltMismatchLastWarnAt = now
 end
 
@@ -11850,22 +12177,6 @@ function P.ongoingtasks()
     P.updateAutoUnicomGroundEvents()
     P.updateAutoUnicomAirborneEvent()
     P.updateAutoUnicomCruiseEvent()
-
-    local current_level = sasl.getLogLevel()
-
-    if current_level ~= P.lastPolledDebugLevel then
-
-        set(P.debugLevelDataref, current_level)
-        if P.xluaLoggingEnabled then
-            set(P.xluaLoggingEnabled, current_level == LOG_DEBUG and 1 or 0)
-        end
-        if P.hoppie and P.hoppie.debug_level and isProperty(P.hoppie.debug_level) then
-            local hop_level = current_level == LOG_DEBUG and 3 or 1
-            set(P.hoppie.debug_level, hop_level)
-        end
-        P.lastPolledDebugLevel = current_level
-        sasl.logDebug("Debug level change detected by poll. Saved to dataref: " .. current_level)
-    end
 
     checkAutoRestart()
     checkHoppieVoiceMessages()
@@ -11913,6 +12224,7 @@ function P.ongoingtasks()
             local aircraftOnGround = (get(P.airgroundsensor) == def.ON)
             local radioAlt = get(P.radioaltitude) or 0
             if (P.flightstate == def.FLIGHTSTATEAPPROACH) and not aircraftOnGround and (radioAlt < 2500) then
+                P.notifyAutoUnicomGoAround()
                 local gaLoopIndex = P.proceduretable[def.GOAROUNDPROCEDURE].loop
                 local gaLoop = P.loopStateTables[gaLoopIndex]
                 if gaLoop and gaLoop.lock ~= def.NOPROCEDURE and gaLoop.lock ~= def.GOAROUNDPROCEDURE then
@@ -11920,6 +12232,7 @@ function P.ongoingtasks()
                     helpers.logInfoTS(
                         "Go Around: immediately stopping procedure on Loop " .. tostring(gaLoopIndex) ..
                         " (ID: " .. tostring(preemptedProcId) .. ").")
+                    P.clearProcedureQueuedSpeech(gaLoop, "family")
                     P.stopChildProceduresForParent(gaLoopIndex, preemptedProcId, false)
                     P.stopParentProcedureForChild(gaLoopIndex, gaLoop, false)
                     P.resetLoopState(gaLoop)
@@ -11999,11 +12312,11 @@ function P.ongoingtasks()
     if (get(P.airgroundsensor) == def.ON) and (groundspeed > 45) and (not raasCoversTaxiwayTakeoff) then
         -- Departure taxi: warn if fast while not yet on the departure runway.
         if (P.flightstate == def.FLIGHTSTATEPREFLIGHT) and (not onDepartureRunway) then
-            P.commandtableentry(def.TEXT, "Monitor Taxi Speed")
+            P.queueOngoingAdvice("taxi_speed", "Monitor Taxi Speed")
         end
         -- Arrival taxi: warn if fast after vacating/misaligned from the landing runway.
         if (P.flightstate == def.FLIGHTSTATETAXITOGATE) and onArrivalRunway then
-            P.commandtableentry(def.TEXT, "Monitor Taxi Speed")
+            P.queueOngoingAdvice("taxi_speed", "Monitor Taxi Speed")
         end
     end
 
@@ -12025,7 +12338,7 @@ function P.ongoingtasks()
                 elseif fmcCruiseAlt > 0 then
                     message = message .. ". Planned cruise altitude is " .. fmcCruiseAlt .. " feet."
                 end
-                P.commandtableentry(def.TEXT, message)
+                P.queueOngoingAdvice("climb_leveloff", message, { target = fmcCruiseAlt }, "warning:climb_leveloff")
                 sasl.startTimer(P.altitudetimer)
             end
         elseif (P.altitudetimer ~= nil) then
@@ -12041,80 +12354,10 @@ function P.ongoingtasks()
 
     local airGroundSensor = get(P.airgroundsensor)
     if airGroundSensor ~= nil and airGroundSensor == def.ON and P.flightstate == def.FLIGHTSTATEPREFLIGHT then
-
-        if P.procedureloop1 and P.procedureloop1.lock == def.NOPROCEDURE then
-            local voiceAdviceSetting = P.configvalues and P.configvalues[def.CONFIGVOICEADVICEONLY]
-            if voiceAdviceSetting == def.ON then
-
-                local battery = get(P.battery)
-                local posLights = get(P.positionlights)
-                local parkBrakeSet = helpers.isParkingBrakeSet()
-                local starter1 = get(P.starter1pos)
-                local starter2 = get(P.starter2pos)
-                local beaconLights = get(P.beaconlights)
-                local leftTankL = get(P.lefttanklswitch)
-                local leftTankR = get(P.lefttankrswitch)
-                local rightTankL = get(P.righttanklswitch)
-                local rightTankR = get(P.righttankrswitch)
-                local packL = get(P.packlpos)
-                local packR = get(P.packrpos)
-                local apuBleed = get(P.bleedairapupos)
-                local isolValve = get(P.isolvalvepos)
-                local eng1N2 = get(P.eng1n2percent)
-                local eng2N2 = get(P.eng2n2percent)
-                local mixture1 = get(P.mixture1pos)
-                local mixture2 = get(P.mixture2pos)
-                local apuStatus = P.apurunning()
-                local gen1 = get(P.gen1pos)
-                local gen2 = get(P.gen2pos)
-                local apuPowerBus1 = get(P.apupowerbus1)
-                local apuPowerBus2 = get(P.apupowerbus2)
-                local sourceOff1 = get(P.announcsourceoff1)
-                local sourceOff2 = get(P.announcsourceoff2)
-                local enginesRunningBoth = P.enginesrunning(P.BOTH)
-                local bleed1 = get(P.bleedair1pos)
-                local bleed2 = get(P.bleedair2pos)
-                local apuSupplyingPower = ((apuPowerBus1 == def.ON) and (sourceOff1 == def.OFF))
-                    or ((apuPowerBus2 == def.ON) and (sourceOff2 == def.OFF))
-                local normalBleedConfig = enginesRunningBoth and (bleed1 == def.ON) and (bleed2 == def.ON)
-                    and (apuBleed == def.OFF)
-                    and (isolValve == def.ISOLVALVEAUTO)
-                local engineGenPowerReady = (gen1 == def.ON) and (gen2 == def.ON)
-                local beforeTaxiDone = (P.proceduretable[def.BEFORETAXIPROCEDURE] ~= nil) and P.proceduretable[def.BEFORETAXIPROCEDURE].set
-
-                if battery == def.ON and posLights ~= nil and posLights ~= def.POSLIGHTSSTEADY and parkBrakeSet and (not beforeTaxiDone) then
-                    P.commandtableentry(def.TEXT, "Set Position Lights Steady")
-                elseif ((starter1 == def.GROUND or starter2 == def.GROUND)) and beaconLights == def.OFF then
-                    P.commandtableentry(def.TEXT, "Set Collision Lights On")
-                elseif (apuStatus ~= nil and apuStatus > def.APUOFF and leftTankL == def.OFF) then
-                    P.commandtableentry(def.TEXT, "Set Left After Fuel Pump On for A P U")
-                elseif ((starter1 == def.GROUND or starter2 == def.GROUND)) and (leftTankL == def.OFF or leftTankR == def.OFF or rightTankL == def.OFF or rightTankR == def.OFF) then
-                    P.commandtableentry(def.TEXT, "Set Wing Tank Fuel Pumps On")
-                elseif ((starter1 == def.GROUND or starter2 == def.GROUND)) and (packL ~= nil and packL ~= def.PACKOFF or packR ~= nil and packR ~= def.PACKOFF) then
-                    P.commandtableentry(def.TEXT, "Set Both Packs Off")
-                elseif ((starter1 == def.GROUND or starter2 == def.GROUND)) and apuBleed ~= nil and apuBleed ~= def.ON then
-                    P.commandtableentry(def.TEXT, "Set A P U Bleed Air On")
-                elseif starter2 == def.GROUND and isolValve ~= nil and isolValve ~= def.ISOLVALVEOPEN then
-                    P.commandtableentry(def.TEXT, "Set Isolation Valve Open")
-                elseif starter1 == def.GROUND and eng1N2 ~= nil and eng1N2 > 25 and mixture1 == def.OFF then
-                    P.commandtableentry(def.TEXT, "Engine 1 N 2 at 25 Percent")
-                elseif starter2 == def.GROUND and eng2N2 ~= nil and eng2N2 > 25 and mixture2 == def.OFF then
-                    P.commandtableentry(def.TEXT, "Engine 2 N 2 at 25 Percent")
-                elseif apuStatus ~= nil and apuStatus == def.APUOFFBUS and gen1 == def.OFF and gen2 == def.OFF then -- Corrected gen1/gen2 check
-                    P.commandtableentry(def.TEXT, "Switch A P U Generator On")
-                elseif (apuBleed == def.OFF and apuStatus ~= nil and apuStatus > def.APUSTARTED and enginesRunningBoth ~= nil and ((not enginesRunningBoth) or (enginesRunningBoth and bleed1 == def.OFF and bleed2 == def.OFF))) then
-                    P.commandtableentry(def.TEXT, "Set A P U Bleedair On")
-                elseif (isolValve ~= nil and isolValve ~= def.ISOLVALVEOPEN and apuStatus ~= nil and apuStatus > def.APUSTARTED and enginesRunningBoth ~= nil and not(enginesRunningBoth and bleed2 == def.ON)) then
-                    P.commandtableentry(def.TEXT, "Set Isolation Valve Open")
-                elseif (apuBleed == def.ON and enginesRunningBoth and (bleed1 == def.ON or bleed2 == def.ON)) then
-                    P.commandtableentry(def.TEXT, "Set A P U Bleedair Off")
-                elseif (isolValve ~= nil and isolValve ~= def.ISOLVALVEAUTO and enginesRunningBoth and (bleed1 == def.ON or bleed2 == def.ON)) then
-                    P.commandtableentry(def.TEXT, "Set Isolation Valve Auto")
-                elseif normalBleedConfig and engineGenPowerReady and apuSupplyingPower then
-                    P.commandtableentry(def.TEXT, "Set A P U Generator Off")
-                elseif normalBleedConfig and engineGenPowerReady and apuStatus ~= nil and apuStatus > def.APUOFF and not apuSupplyingPower then
-                    P.commandtableentry(def.TEXT, "Set A P U Off")
-                end
+        if P.configvalues[def.CONFIGVOICEADVICEONLY] == def.ON then
+            local action, text = P.getGroundStartupAdvice()
+            if action then
+                P.queueOngoingAdvice("ground_start", text, { action = action }, "advice:ground_start:" .. action, "advice")
             end
         end
 
@@ -12168,6 +12411,7 @@ local function viewCommandAllowedNow()
 end
 
 function P.commandtableloop()
+    P.refreshConditionalSpeech()
 
     local next_recommended_wait_step = def.STANDARDWAIT
 
@@ -12206,12 +12450,15 @@ function P.commandtableloop()
                     entry_index = last_taxi_index
                     for i = last_taxi_index - 1, 1, -1 do
                         if P.commandtable[i][1] == def.TAXI then
-                            table.remove(P.commandtable, i)
+                            if P.commandtable[i].conditional then
+                                P.conditionalSpeech:cancel(P.commandtable[i][3])
+                            else table.remove(P.commandtable, i) end
                             entry_index = entry_index - 1
                         end
                     end
                 end
             end
+            local conditional = P.commandtable[entry_index].conditional
             local entry_type = P.commandtable[entry_index][1]
             local entry_text = P.commandtable[entry_index][2]
             local entry_key = P.commandtable[entry_index][3] or P.defaultSpeakStringKey(entry_type, entry_text)
@@ -12230,7 +12477,12 @@ function P.commandtableloop()
                     else
                         helpers.logInfoTS("SpeakString TEXT: " .. tostring(entry_text))
                     end
-                    helpers.speak(entry_text, P.getSpeakStringPriority(entry_type, entry_text), entry_key, entry_policy)
+                    if conditional then
+                        -- dispatch removes the local entry before committing to the external mailbox.
+                        P.conditionalSpeech:dispatch(conditional, entry_text, P.getSpeakStringPriority(entry_type, entry_text))
+                    else
+                        helpers.speak(entry_text, P.getSpeakStringPriority(entry_type, entry_text), entry_key, entry_policy)
+                    end
                     P.lastCommandWasSpeech = true
                     local ziboSinkActive = helpers.isSpeakStringSinkActive and helpers.isSpeakStringSinkActive()
                     if not ziboSinkActive then
@@ -12243,7 +12495,8 @@ function P.commandtableloop()
                     processedentry = true
                 end
             end
-            table.remove(P.commandtable, entry_index)
+            if not conditional then table.remove(P.commandtable, entry_index) end
+            if conditional and not voice_enabled then P.conditionalSpeech:cancel(entry_key) end
         end
 
         ::continue_commandtableloop::
@@ -12305,11 +12558,11 @@ function P.runProcedureLoop(loopIndex)
                 if transCond.condition() then
                     local transitionAction = transCond.silent and "Superseding" or "Skipping"
                     helpers.logInfoTS(transitionAction .. " '" .. procData.name .. "' due to met transition condition.")
-                    P.clearYalQueuedSpeech()
+                    P.clearProcedureQueuedSpeech(loop, "procedure")
 
                     if not transCond.silent then
                         local transition_message = procData.name .. " Procedure skipped."
-                        P.commandtableentry(def.TEXT, transition_message, P.procedureSpeechKey(activeProcKey, "status", "transition"), 2)
+                        P.commandtableentry(def.TEXT, transition_message, P.procedureSpeechKey(activeProcKey, "status", "transition"), 2, nil, true)
                     end
                     P.stopChildProceduresForParent(loopIndex, activeProcKey, true)
 
@@ -12358,7 +12611,7 @@ function P.runProcedureLoop(loopIndex)
                             sasl.logDebug("Prereq #" .. i .. " FAILED.")
                              -- *** FIX msg START ***
                             if prereq.failMsg and type(prereq.failMsg) == "string" and prereq.failMsg ~= "" then
-                                P.commandtableentry(def.TEXT, prereq.failMsg, P.procedureSpeechKey(activeProcKey, "prereq" .. tostring(i), "fail"), 2)
+                                P.commandtableentry(def.TEXT, prereq.failMsg, P.procedureSpeechKey(activeProcKey, "prereq" .. tostring(i), "fail"), 2, nil, true)
                             end
                              -- *** FIX msg END ***
                             loop.procedurenotpossible = true
@@ -12391,14 +12644,12 @@ function P.runProcedureLoop(loopIndex)
                     msg_abort = "Procedure Aborted"
                 end
                 sasl.logDebug("Engine A - Handling Abort/NotPossible. Message: " .. msg_abort)
-                if loop.procedureabort then
-                    P.clearYalQueuedSpeech()
-                end
+                P.clearProcedureQueuedSpeech(loop, "procedure")
                 if loop.procedureabort then
                       -- *** FIX msg START ***
                     local abort_text = procData.name .. " " .. msg_abort
                     if type(abort_text) == "string" and abort_text ~= "" then
-                        P.commandtableentry(def.TEXT, abort_text, P.procedureSpeechKey(activeProcKey, "status", "abort"), 2)
+                        P.commandtableentry(def.TEXT, abort_text, P.procedureSpeechKey(activeProcKey, "status", "abort"), 2, nil, true)
                     end
                      -- *** FIX msg END ***
                 end
@@ -12416,8 +12667,8 @@ function P.runProcedureLoop(loopIndex)
             -- A3. SKIP-HANDLING (Benutzeraktion)
             elseif loop.procedureskipstep then
                 sasl.logDebug("Engine A - Handling Skip Step.")
-                P.clearYalQueuedSpeech()
-                P.commandtableentry(def.TEXT, "Procedure Step Skipped", P.procedureSpeechKey(activeProcKey, tostring(loop.currentStepName or "step"), "skip"), 2) -- Sicher, da String-Literal
+                P.clearProcedureQueuedSpeech(loop, "step")
+                P.commandtableentry(def.TEXT, "Procedure Step Skipped", P.procedureSpeechKey(activeProcKey, tostring(loop.currentStepName or "step"), "skip"), 2, nil, true)
                 loop.procedureskipstep = false
                 local currentStepData = procData.steps[loop.currentStepName]
                 if currentStepData and currentStepData.nextStep then
@@ -12450,6 +12701,7 @@ function P.runProcedureLoop(loopIndex)
             -- A4b. Reload-Fall (ungültiger Zustand)
             elseif loop.currentStepName == nil and loop.stepindex > 0 then
                 sasl.logWarning("Engine A - Reload detected (currentStepName == nil and stepindex > 0). Resetting loop.")
+                P.clearProcedureQueuedSpeech(loop, "procedure")
                 loop.lock = def.NOPROCEDURE
                 loop.stepindex = 0
 
@@ -12669,7 +12921,7 @@ function P.runProcedureLoop(loopIndex)
                                                 if type(advice_msg_raw) == "string" and advice_msg_raw ~= "" then
                                                     local queueAdvice, adviceReason = P.shouldQueueVoiceAdvice(loop, stepName, advice_msg_raw)
                                                     if queueAdvice then
-                                                        P.commandtableentry(def.TEXT, advice_msg_raw, P.procedureSpeechKey(activeProcKey, stepName, "step"), 2)
+                                                        P.queueProcedureAdvice(loop, activeProcKey, stepName, step, advice_msg_raw)
                                                         loop.adviceQueuedForStep = stepName
                                                         sasl.logDebug("Advice message: " .. advice_msg_raw)
                                                     elseif adviceReason == "max-reached" then
@@ -12722,7 +12974,7 @@ function P.runProcedureLoop(loopIndex)
                                                 if type(advice_msg_raw) == "string" and advice_msg_raw ~= "" then
                                                     local queueAdvice, adviceReason = P.shouldQueueVoiceAdvice(loop, stepName, advice_msg_raw)
                                                     if queueAdvice then
-                                                        P.commandtableentry(def.TEXT, advice_msg_raw, P.procedureSpeechKey(activeProcKey, stepName, "step"), 2)
+                                                        P.queueProcedureAdvice(loop, activeProcKey, stepName, step, advice_msg_raw)
                                                         loop.adviceQueuedForStep = stepName
                                                         sasl.logDebug("Advice message: " .. advice_msg_raw)
                                                     elseif adviceReason == "max-reached" then
@@ -12801,6 +13053,7 @@ function P.runProcedureLoop(loopIndex)
         -- Fallback: Ungültige Prozedurdefinition
         elseif procData then
              sasl.logDebug("Procedure " .. tostring(loop.lock) .. " has no valid 'steps' table! Aborting.")
+             P.clearProcedureQueuedSpeech(loop, "procedure")
              loop.procedureabort = true
              loop.lock = def.NOPROCEDURE
         end -- Ende if/elseif Engine A / Fallback
@@ -12810,16 +13063,16 @@ function P.runProcedureLoop(loopIndex)
     -- ==========================================================
     elseif loop.procedureabort and not transition_occurred then
         helpers.logInfoTS("Procedure aborted (likely manual or state change before engine). Resetting loop lock.") -- Bleibt Info fürs Log
-        P.clearYalQueuedSpeech()
+        P.clearProcedureQueuedSpeech(loop, "procedure")
 
         -- *** NEU: Meldung für den Benutzer hinzufügen ***
         local abort_label = loop.procedureskipped and "Procedure Skipped" or "Procedure Aborted"
         if procData and procData.name then -- Sicherstellen, dass wir einen Namen haben
              local abort_message = procData.name .. " " .. abort_label
-             P.commandtableentry(def.TEXT, abort_message, P.procedureSpeechKey(activeProcKey, "status", "abort"), 2)
+             P.commandtableentry(def.TEXT, abort_message, P.procedureSpeechKey(activeProcKey, "status", "abort"), 2, nil, true)
         else
              -- Fallback, falls procData aus irgendeinem Grund nil ist
-             P.commandtableentry(def.TEXT, abort_label, P.procedureSpeechKey(activeProcKey, "status", "abort"), 2)
+             P.commandtableentry(def.TEXT, abort_label, P.procedureSpeechKey(activeProcKey, "status", "abort"), 2, nil, true)
         end
         -- *** ENDE NEU ***
 
@@ -12839,6 +13092,7 @@ function P.runProcedureLoop(loopIndex)
     -- Der Fall transition_occurred wird implizit behandelt, da loop.lock bereits NOPROCEDURE ist
     end -- Ende if not loop.procedureabort and not transition_occurred / elseif loop.procedureabort
 
+    P.refreshConditionalSpeech()
     -- ## 3. POST-PROCESSING (History + Speichern) ##
     local function pushDebugHistory(loopTbl, fromStep, toStep, reason)
         loopTbl.debugHistory = loopTbl.debugHistory or {}
@@ -12898,6 +13152,8 @@ function P.do_yal()
         P.readconfig()
         helpers.logInfoTS("Loading new settings")
     end
+
+    P.syncDebugLogLevel()
 
     if P.needstempinit then
         P.initializeSharedVariables()
@@ -13222,5 +13478,7 @@ function P.enableMenus(enableflag)
 end
 
 -- P.YalinitGlobal()
+
+require("conditional_speech").attach(P, def, helpers, settings)
 
 return yal

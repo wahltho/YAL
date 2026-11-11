@@ -89,13 +89,8 @@ function M.attach(U, C, def, helpers, settings)
         return dist
     end
 
-    local function speak_guidance_text(comp, text)
-        local yal = comp.yal or _G.yal
-        if yal and yal.commandtableentry then
-            yal.commandtableentry(def.TAXI, text)
-            return
-        end
-        helpers.speak(text, 20, "taxi:guidance", 2)
+    local function speak_guidance_text(comp, text, info)
+        return U.queue_taxi_speech(comp, text, info)
     end
 
     local function clone_guidance_info(info)
@@ -2044,6 +2039,8 @@ function M.attach(U, C, def, helpers, settings)
             end
             return guidance_label_info(from_id, to_id, nil, nil, true)
         end
+        -- The speech handoff uses the same normalized/freehand labels as fulfillment.
+        comp._speechSegmentInfo = current_segment_info
 
         local function arm_active_instruction(info, seg_idx)
             if not info or not is_transition_instruction(info) then
@@ -2187,7 +2184,7 @@ function M.attach(U, C, def, helpers, settings)
                 local last_time = comp._lastGuidanceVoiceTime or 0
                 local cooldown = (C and C.guidanceCooldown) or 8
                 if info.text ~= last_text or (now and (now - last_time) >= cooldown) then
-                    speak_guidance_text(comp, info.text)
+                    speak_guidance_text(comp, info.text, info)
                     comp._lastGuidanceVoiceText = info.text
                     comp._lastGuidanceVoiceTime = now or 0
                     voice_queued = true
@@ -3108,7 +3105,7 @@ function M.attach(U, C, def, helpers, settings)
             helpers.logDebugTS(msg)
         end
         if allow_voice and is_voice_enabled() and not raas_duplicate_voice_suppressed(comp, info) then
-            speak_guidance_text(comp, info.text)
+            speak_guidance_text(comp, info.text, info)
         end
         if info.targetSegIdx then
             if comp._autoTaxiTargetSegIdx ~= info.targetSegIdx then
@@ -3334,6 +3331,7 @@ function M.attach(U, C, def, helpers, settings)
     U.emit_guidance = emit_guidance
     U.dep_entry_turn_from_route = dep_entry_turn_from_route
     U.dep_backtrack_lineup_turn_from_route = dep_backtrack_lineup_turn_from_route
+    require("windows.taxi_speech").attach(U, C, def, helpers)
 end
 
 return M

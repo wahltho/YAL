@@ -1635,6 +1635,7 @@ else
 end
 
 function onAirportLoaded(flightNumber)
+    if yal and yal.conditionalSpeech then yal.conditionalSpeech:clear() end
     helpers.logInfoTS(string.format("Airport loaded: Flight #%s, Aircraft: %s", flightNumber, sasl.getAircraft()))
     if autoUnicom and autoUnicom.rebaseline then
         autoUnicom.rebaseline()
@@ -1669,7 +1670,20 @@ function onAirportLoaded(flightNumber)
     end
 end
 
+function onPlaneUnloaded()
+    if yal and yal.shutdownConditionalSpeech then yal.shutdownConditionalSpeech() end
+end
+
+function onModuleShutdown()
+    if yal and yal.shutdownConditionalSpeech then yal.shutdownConditionalSpeech() end
+end
+
+function onModuleDone()
+    if yal and yal.shutdownConditionalSpeech then yal.shutdownConditionalSpeech() end
+end
+
 function update()
+    if yal and yal.refreshConditionalSpeech then yal.refreshConditionalSpeech() end
     if helpers.isZibo() then
         yal.updateApuStartState()
         maybeInitDebugOverlay()

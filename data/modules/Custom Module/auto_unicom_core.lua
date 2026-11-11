@@ -832,16 +832,6 @@ local function format_altitude(snapshot, descent)
     return tostring(round(indicated / 100) * 100) .. "ft"
 end
 
-local function format_planned_altitude(snapshot)
-    local planned = tonumber(snapshot.planned_altitude_ft)
-    if not planned or planned <= 0 then return nil end
-    local transition = tonumber(snapshot.transition_altitude_ft) or 0
-    if transition > 0 and planned >= transition then
-        return "FL" .. tostring(round(planned / 100))
-    end
-    return tostring(round(planned / 100) * 100) .. "ft"
-end
-
 local function format_climb_target_altitude(snapshot)
     local target = M.resolveClimbTargetAltitude(
         snapshot.altitude_ft,
@@ -1161,7 +1151,7 @@ function M.buildMessage(eventId, snapshot)
     if eventId == "enroute.in_cruise" then
         local nextWaypoint = clean_token(snapshot.cruise_next_waypoint, false)
         if snapshot.cruise_entry == true then
-            local altitude = format_planned_altitude(snapshot) or format_altitude(snapshot, false)
+            local altitude = format_altitude(snapshot, false)
             if not altitude then return nil, "missing_cruise_context" end
             local phaseText = M.isCruiseLevelStable(snapshot.vertical_speed_fpm) and "level at" or "reaching"
             local text = string.format("%s %s %s", context.prefix, phaseText, altitude)
@@ -1242,7 +1232,11 @@ function M.buildMessage(eventId, snapshot)
     end
 
     if eventId == "arrival.on_descent" then
-        local altitude = format_planned_altitude(snapshot) or format_altitude(snapshot, true)
+        local altitude = format_altitude({
+            altitude_ft = snapshot.descent_from_altitude_ft or snapshot.altitude_ft,
+            pressure_altitude_ft = snapshot.descent_from_pressure_altitude_ft or snapshot.pressure_altitude_ft,
+            transition_level_ft = snapshot.transition_level_ft
+        }, true)
         if not altitude then return nil, "missing_arrival_context" end
         local star = clean_token(snapshot.star, false)
         local approach = approach_label(snapshot)
@@ -1254,6 +1248,7 @@ function M.buildMessage(eventId, snapshot)
     end
 
     if eventId == "arrival.approach" then
+        if (tonumber(snapshot.vertical_speed_fpm) or 0) > 150 then return nil, "not_approach_level_or_descent" end
         local altitude = format_altitude(snapshot, true)
         if not altitude then return nil, "missing_arrival_context" end
         local star = clean_token(snapshot.star, false)
@@ -1262,7 +1257,9 @@ function M.buildMessage(eventId, snapshot)
         if star then text = text .. " " .. star .. " arrival" end
         text = text .. " for "
         if approach then text = text .. approach .. " approach " end
-        text = text .. "runway " .. context.runway .. ", on descent passing " .. altitude
+        local descending = (tonumber(snapshot.vertical_speed_fpm) or 0) < -150
+        text = text .. "runway " .. context.runway
+            .. (descending and ", on descent passing " or ", maintaining ") .. altitude
         return normalize_text(text)
     end
 
@@ -1279,7 +1276,9 @@ function M.buildMessage(eventId, snapshot)
     end
 
     if eventId == "arrival.on_final" then
-        local kind = clean_token(snapshot.approach_procedure_type, false)
+        local kind = approach_label(snapshot) or ""
+        local separator = kind:find(" ", 1, true)
+        if separator then kind = kind:sub(1, separator - 1) end
         if kind == "ILS" then
             return normalize_text(string.format("%s established on ILS runway %s", context.prefix, context.runway))
         elseif kind == "LOC" then
@@ -1297,7 +1296,7 @@ function M.buildMessage(eventId, snapshot)
     end
 
     if eventId == "arrival.runway_vacated" then
-        return normalize_text(string.format("%s runway %s vacated, taxiing to gate", context.prefix, context.runway))
+        return normalize_text(string.format("%s runway %s vacated, taxiing to parking", context.prefix, context.runway))
     end
 
     if eventId == "arrival.parking_position" then
@@ -1505,6 +1504,60 @@ end
 M.summarizeSources = summarize_sources
 M.isApproachPhase = is_approach_phase
 
+function M.isEventSnapshotCurrent(event, current)
+    local id = tostring(event.id or "")
+    if id:sub(1, 19) == "manual.repeat_last." then return true end
+    local previous = event.snapshot
+    if not previous or not current then return false, "missing_event_context" end
+    local fields = { "flight_epoch", "effective_callsign" }
+    if id:sub(1, 10) == "departure." then
+        fields[#fields + 1] = "departure_icao"
+        if id == "departure.flightplan_active" then
+            fields[#fields + 1] = "arrival_icao"
+        elseif id ~= "departure.start_push" then
+            fields[#fields + 1] = "departure_runway"
+        end
+    elseif id:sub(1, 8) == "arrival." then
+        fields[#fields + 1] = "arrival_icao"
+        fields[#fields + 1] = "arrival_runway"
+        fields[#fields + 1] = "arrival_epoch"
+        if not current.post_landing_state then
+            fields[#fields + 1] = "approach_id"
+            fields[#fields + 1] = "star"
+        end
+    end
+    local climb = id == "departure.on_climb" or id == "departure.climb_resumed" or is_climb_progress_event(id)
+    local cruise = id == "enroute.in_cruise"
+    if climb or cruise then
+        fields[#fields + 1] = "navigation_context_id"
+        fields[#fields + 1] = "navigation_vector_heading_deg"
+        fields[#fields + 1] = "planned_altitude_ft"
+        if climb then fields[#fields + 1] = "mcp_altitude_ft" end
+        if id == "departure.on_climb" then fields[#fields + 1] = "sid" end
+    end
+    for _, field in ipairs(fields) do
+        if tostring(previous[field] or "") ~= tostring(current[field] or "") then
+            return false, "changed_" .. field
+        end
+    end
+    if id == "arrival.approach" then
+        if (tonumber(current.vertical_speed_fpm) or 0) > 150 then return false, "vertical_status_changed" end
+        local beforeDescending = (tonumber(previous.vertical_speed_fpm) or 0) < -150
+        local nowDescending = (tonumber(current.vertical_speed_fpm) or 0) < -150
+        if beforeDescending ~= nowDescending then return false, "vertical_status_changed" end
+    end
+    if climb or cruise or id == "departure.airborne" or id == "arrival.top_of_descent" or id == "arrival.on_descent"
+        or id == "arrival.approach" or is_descent_progress_event(id)
+        or id == HOLD_DESCENDING_EVENT_ID or (id == HOLD_ENTER_EVENT_ID and previous.hold_descending) then
+        local before = tonumber(previous.altitude_ft)
+        local now = tonumber(current.altitude_ft)
+        if not before or not now or math.abs(before - now) > CLIMB_TARGET_REACHED_TOLERANCE_FT then
+            return false, "altitude_claim_outdated"
+        end
+    end
+    return true
+end
+
 function M.newEvent(eventId, snapshot, now, spellNato)
     local text, reason = M.buildMessage(eventId, snapshot)
     if not text then return nil, reason end
@@ -1513,6 +1566,7 @@ function M.newEvent(eventId, snapshot, now, spellNato)
         id = eventId,
         text = text,
         voice_text = voiceText,
+        snapshot = snapshot,
         inputs = summarize_sources(snapshot),
         created_at = now,
         expires_at = now + (M.EVENT_TTL_SEC[eventId] or 120)
@@ -1714,6 +1768,7 @@ function M.newMailbox(options)
         writeVoiceText = options.writeVoiceText or function() return false end,
         writeChannels = options.writeChannels or function() return false end,
         writeSeq = options.writeSeq or function() return false end,
+        validate = options.validate,
         log = options.log or function() end,
         queue = {},
         queuedIds = {},
@@ -1732,6 +1787,19 @@ function Mailbox:clear()
     self.outstanding = nil
     self.nextSeq = nil
     self.blocked = false
+end
+
+function Mailbox:clearQueued(predicate, reason)
+    local kept = {}
+    for _, event in ipairs(self.queue) do
+        if not predicate or predicate(event) then
+            self.queuedIds[event.id] = nil
+            self.log(reason or "invalidated", event)
+        else
+            kept[#kept + 1] = event
+        end
+    end
+    self.queue = kept
 end
 
 function Mailbox:enqueue(event)
@@ -1890,6 +1958,16 @@ function Mailbox:tick(api, now)
     end
 
     local event = self.queue[1]
+    while event and self.validate do
+        local ok, valid, reason = pcall(self.validate, event)
+        if ok and valid == true then break end
+        table.remove(self.queue, 1)
+        self.queuedIds[event.id] = nil
+        event.invalid_reason = ok and reason or "validation_error"
+        self.log("invalidated", event)
+        event = self.queue[1]
+    end
+    if not event then return end
     local channels = 1
     if not self.writeText(event.text) then return end
     if apiVersion >= 2 then

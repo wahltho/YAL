@@ -23,6 +23,7 @@ local now = 0
 local realTime = os.time
 os.time = function() return now end
 function get(ref) return refs[ref] end
+function isProperty(ref) return type(ref) == "string" end
 function set() error("cruise altitude reminder must never write aircraft controls") end
 helpers = {
     roundnumber = function(value) return math.floor(value + 0.5) end,
@@ -31,6 +32,12 @@ helpers = {
     clearSpeakStringSink = function(key)
         assert(key == "advice:cruise_altitude", "only this reminder's speech may be cancelled")
         sink[key] = nil
+        return true
+    end,
+    conditionalSpeakStringMode = function() return "managed" end,
+    speakConditional = function(text, priority, key)
+        sink[key] = text
+        return true
     end,
     command_once = function() error("cruise altitude reminder must never command aircraft controls") end,
     stepQuickViewsCgUpdate = function() end,
@@ -59,8 +66,10 @@ local function context(overrides)
     yal.configvalues = {
         [def.CONFIGLOWEAIRSPACEALT] = 10000,
         [def.CONFIGAUTOFUNCTIONS] = def.ON,
-        [def.CONFIGVOICEADVICEONLY] = def.OFF
+        [def.CONFIGVOICEADVICEONLY] = def.OFF,
+        [def.CONFIGVOICEREADBACK] = def.ON
     }
+    settings.appSettings = yal.configvalues
     yal.commandtable, logs, sink = {}, {}, {}
     now = 0
 end
@@ -77,7 +86,7 @@ local function assertSilent(label)
     assert(#yal.commandtable == 0 and #logs == 0, label)
 end
 
-for _, gap in ipairs({ 1000, 2000, 5000 }) do
+for _, gap in ipairs({ 100, 200, 500, 800, 1000, 2000, 5000 }) do
     for _, vnav in ipairs({ def.OFF, def.ON }) do
         context({ cruise = 39000 + gap, vnavalt = vnav })
         tick(0)
@@ -89,6 +98,8 @@ for _, gap in ipairs({ 1000, 2000, 5000 }) do
         local entry = yal.commandtable[1]
         assert(entry[1] == def.TEXT and entry[3] == def.CRUISE_ALT_MISMATCH_SPEECH_KEY,
             "reminder uses real keyed YAL speech queue")
+        assert(entry.conditional and yal.conditionalSpeech:valid(entry.conditional),
+            "live withdrawal predicate must agree with the small-gap producer")
         assert(entry[2]:find("Planned cruise altitude is " .. (39000 + gap), 1, true)
             and entry[2]:find("M C P altitude is 39000", 1, true), "reminder includes both targets")
         assert((entry[2]:find("V N A V Alt active", 1, true) ~= nil) == (vnav == def.ON),
@@ -111,12 +122,54 @@ context({ cruise = 39000, mcp = 41000 })
 assertSilent("MCP above cruise is not a failure to reach cruise")
 context({ altitude = 41000 })
 assertSilent("actual cruise reached cannot warn just because MCP is below cruise")
-context({ altitude = 38800, cruise = 39500, mcp = 39000 })
-assertSilent("sub-threshold MCP discrepancy remains suppressed")
-context({ altitude = 40200, mcp = 40200 })
-assertSilent("sub-threshold actual cruise discrepancy remains suppressed")
-context({ altitude = 39199, mcp = 39000, cruise = 40000 })
-assertSilent("both actual and selected levels must be sufficiently below cruise")
+context({ altitude = 39000, cruise = 39049, mcp = 39000 })
+assertSilent("targets in the same 100-foot detent do not create a mismatch")
+context({ altitude = 40100, mcp = 40000, cruise = 40100 })
+assertSilent("actual cruise reached stays silent even within the lower MCP level band")
+context({ altitude = 40050, mcp = 40000, cruise = 40100 })
+assertSilent("actual altitude rounded to cruise cannot produce a missed-level warning")
+context({ altitude = 39199, mcp = 39000, cruise = 39100 })
+assertSilent("actual altitude above planned cruise cannot warn of a missed climb")
+
+for _, cruise in ipairs({ 38100, 40100, 40500 }) do
+    for _, gap in ipairs({ 100, 500 }) do
+        context({ cruise = cruise, mcp = cruise - gap, altitude = cruise - gap + 0.58, vs = 2.5 })
+        tick(0)
+        refs.altitude = cruise - gap + 20
+        tick(5)
+        refs.altitude = cruise - gap - 10
+        tick(10)
+        refs.altitude = cruise - gap + 30
+        tick(15)
+        assert(#logs == 1 and #yal.commandtable == 1,
+            "small metric-level gaps survive ordinary holding fluctuations for the full grace period")
+        assert(yal.commandtable[1][2]:find("Planned cruise altitude is " .. cruise, 1, true),
+            "nonstandard planned level is retained in the spoken text")
+        assert(yal.conditionalSpeech:valid(yal.commandtable[1].conditional),
+            "queued metric-level advice remains valid through the same holding fluctuations")
+    end
+end
+
+context({ cruise = 40100, mcp = 40000, altitude = 40000.58, vs = 2.5 })
+tick(0)
+tick(15)
+local entry = yal.commandtable[1]
+assert(entry and yal.conditionalSpeech:dispatch(entry.conditional, entry[2], 10),
+    "recorded ZMCK values must survive immediate pre-handoff validation")
+assert(sink[def.CRUISE_ALT_MISMATCH_SPEECH_KEY], "small-gap warning reaches the mocked sink")
+refs.altitude = 40100
+yal.refreshConditionalSpeech()
+assert(sink[def.CRUISE_ALT_MISMATCH_SPEECH_KEY] == nil,
+    "reaching cruise recalls externalized small-gap advice before the next producer update")
+
+context({ cruise = 40500, mcp = 40000, altitude = 40000.58 })
+tick(0)
+tick(15)
+entry = yal.commandtable[1]
+refs.mcp = 40500
+assert(entry and not yal.conditionalSpeech:dispatch(entry.conditional, entry[2], 10)
+    and #yal.commandtable == 0 and sink[def.CRUISE_ALT_MISMATCH_SPEECH_KEY] == nil,
+    "corrected MCP target prevents stale submission before the next producer update")
 context({ ground = def.ON })
 assertSilent("ground cannot trigger a cruise reminder")
 context({ altitude = 10000, mcp = 10000 })

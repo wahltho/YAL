@@ -978,6 +978,13 @@ local function apiAirportEntry(icao, api)
     if not apiAirportValid(api) then
         return nil
     end
+    local airportType = tonumber(api.airport_type)
+    local elevation = tonumber(api.elevation_ft)
+    -- APT defaults to zero when header metadata is missing; sea level is valid.
+    if (airportType ~= 1 and airportType ~= 16 and airportType ~= 17)
+        or elevation == nil or elevation ~= elevation or math.abs(elevation) == math.huge then
+        elevation = nil
+    end
     return {
         icao = cleanText(icao),
         latitude = tonumber(api.lat),
@@ -985,8 +992,8 @@ local function apiAirportEntry(icao, api)
         transition_altitude_ft = tonumber(api.transition_altitude_ft),
         transition_level_ft = tonumber(api.transition_level_ft),
         longest_runway_m = tonumber(api.longest_runway_m),
-        elevation_ft = tonumber(api.elevation_ft),
-        airport_type = tonumber(api.airport_type),
+        elevation_ft = elevation,
+        airport_type = airportType,
         has_ils = boolValue(api.has_ils),
         max_rwy_ft = tonumber(api.max_rwy_ft),
         station_name = api.station_name_valid and cleanText(api.station_name) or "",

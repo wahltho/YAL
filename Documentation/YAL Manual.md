@@ -115,7 +115,7 @@ Trigger: During climb.
 Actions: Standard climb housekeeping, baro to standard above transition altitude, flap handling according to FMC speeds.
 
 #### Cruise Altitude Reminder
-With Automatic Functions or Voice Advice Only enabled, YAL advises checking MCP altitude after a stable level-off below the FMC cruise altitude. Above the configured lower-airspace altitude, both the MCP target and actual altitude must be at least 850 feet below FMC cruise, the aircraft within 200 feet of the MCP target, and vertical speed within 100 feet per minute for 15 seconds. The reminder is not limited to a 1,000-foot discrepancy. It repeats no more often than every five minutes and never changes MCP altitude. Climb resumption, descent, a corrected target or disabled background functions clear the warning and queued speech. A deliberate ATC intermediate level can also produce this check reminder; YAL does not know the clearance.
+With Automatic Functions or Voice Advice Only enabled, YAL advises checking MCP altitude after a stable level-off below the FMC cruise altitude. Above the configured lower-airspace altitude, the MCP target must be at least 100 feet below FMC cruise, the aircraft within 200 feet of the MCP target, and vertical speed within 100 feet per minute for 15 seconds. FMC, MCP and actual altitude are compared at 100-foot resolution; actual altitude must still be below cruise, but does not need to retain the full target discrepancy through small holding fluctuations. Nonstandard flight levels used with metric clearances are retained, not rounded to whole thousands of feet. It repeats no more often than every five minutes and never changes MCP altitude. Climb resumption, descent, a corrected target or disabled background functions clear the warning and queued speech. A deliberate ATC intermediate level can also produce this check reminder; YAL does not know the clearance.
 
 #### Above 10,000 Feet Procedure
 Trigger: Climbing through the configured lower-airspace altitude.
@@ -143,6 +143,9 @@ Actions: Turns off taxi lights and seatbelt signs and prepares for engine shutdo
 
 #### EEC/FADEC Check (Cockpit Init + Engine Start)
 If EEC/FADEC is OFF while engines are running, YAL prompts a check (voice-only unless Auto Functions are enabled). In Auto mode YAL sets both EECs ON. If EECs are already ON, the step is skipped.
+
+### Cabin Landing Altitude
+Before approach, YAL sets or advises the cabin landing altitude only when a valid airport elevation or usable FMS fallback is available. Missing airport-height metadata is not interpreted as sea level. Confirmed zero and negative airport elevations remain valid; the existing 50-foot rounding and minimum cabin setting of zero are unchanged. If the height is unknown, YAL leaves the setting unchanged and gives no altitude instruction.
 
 ## 4. Settings
 The settings window allows detailed customization of all automatic features.
