@@ -10694,19 +10694,25 @@ function P.autofunctions()
         local stateFromProcs = P.determineFlightStateFromProcedures()
         local stateIsPlausible = false
         local finalState = staleDescentRecovered and def.FLIGHTSTATECRUISE or stateFromProcs
+        -- An unset procedure's minimum allowed state cannot undo an established descent.
+        -- Only the existing stale-descent recovery may release the restored APPROACH state.
+        if not aircraftIsOnGround and currentFlightState == def.FLIGHTSTATEAPPROACH
+            and not staleDescentRecovered then
+            finalState = currentFlightState
+        end
 
         sasl.logDebug("State from Procs = " .. stateFromProcs .. ", On Ground = " .. tostring(aircraftIsOnGround))
         if aircraftIsOnGround then
-            if stateFromProcs == def.FLIGHTSTATEPREFLIGHT or
-               stateFromProcs == def.FLIGHTSTATETAXITOGATE or
-               stateFromProcs == def.FLIGHTSTATESHUTDOWN then
+            if finalState == def.FLIGHTSTATEPREFLIGHT or
+               finalState == def.FLIGHTSTATETAXITOGATE or
+               finalState == def.FLIGHTSTATESHUTDOWN then
                 stateIsPlausible = true
             end
         else
-            if stateFromProcs == def.FLIGHTSTATEINITIALCLIMB or
-               stateFromProcs == def.FLIGHTSTATECLIMB or
-               stateFromProcs == def.FLIGHTSTATECRUISE or
-               stateFromProcs == def.FLIGHTSTATEAPPROACH then
+            if finalState == def.FLIGHTSTATEINITIALCLIMB or
+               finalState == def.FLIGHTSTATECLIMB or
+               finalState == def.FLIGHTSTATECRUISE or
+               finalState == def.FLIGHTSTATEAPPROACH then
                 stateIsPlausible = true
             end
         end
@@ -10729,7 +10735,7 @@ function P.autofunctions()
             end
             helpers.logInfoTS("State after fallback: " .. finalState)
         else
-            sasl.logDebug("State from procedures ("..finalState..") is plausible.")
+            sasl.logDebug("Resolved restore state ("..finalState..") is plausible.")
         end
 
         if finalState ~= currentFlightState then
