@@ -139,6 +139,20 @@ local function is_descent_progress_event(eventId)
         and eventId:sub(1, #DESCENT_PROGRESS_PREFIX) == DESCENT_PROGRESS_PREFIX
 end
 
+local function progress_boundary_ft(eventId, snapshot)
+    local boundary
+    if is_climb_progress_event(eventId) then
+        boundary = tonumber(eventId:sub(#CLIMB_PROGRESS_PREFIX + 1))
+    elseif is_descent_progress_event(eventId) then
+        boundary = tonumber(eventId:sub(#DESCENT_PROGRESS_PREFIX + 1))
+    elseif eventId == "arrival.approach" and tonumber(snapshot.progress_boundary_ft) == 10000 then
+        boundary = 10000
+    end
+    if boundary and boundary >= 10000 and boundary <= 40000 and boundary % 10000 == 0 then
+        return boundary
+    end
+end
+
 function M.shouldSuppressProgressLevel(levelFt, boundaryAltitudeFt)
     local level = tonumber(levelFt)
     local boundary = tonumber(boundaryAltitudeFt)
@@ -821,10 +835,13 @@ end
 
 M.resolveAirportLabel = airport_label
 
-local function format_altitude(snapshot, descent)
+local function format_altitude(snapshot, descent, boundary)
     local indicated = tonumber(snapshot.altitude_ft)
     local pressure = tonumber(snapshot.pressure_altitude_ft) or indicated
     if not indicated or not pressure then return nil end
+
+    -- Report the crossed milestone, without replacing the measured snapshot.
+    if boundary then indicated, pressure = boundary, boundary end
 
     local transition = tonumber(descent and snapshot.transition_level_ft or snapshot.transition_altitude_ft) or 0
     if transition > 0 and indicated >= transition then
@@ -1210,7 +1227,7 @@ function M.buildMessage(eventId, snapshot)
     end
 
     if eventId == "departure.on_climb" or is_climb_progress_event(eventId) then
-        local altitude = format_altitude(snapshot, false)
+        local altitude = format_altitude(snapshot, false, progress_boundary_ft(eventId, snapshot))
         if not altitude then return nil, "missing_climb_context" end
         local sid = eventId == "departure.on_climb" and clean_token(snapshot.sid, false) or nil
         local nextWaypoint = clean_token(snapshot.climb_next_waypoint, false)
@@ -1255,7 +1272,7 @@ function M.buildMessage(eventId, snapshot)
 
     if eventId == "arrival.approach" then
         if (tonumber(snapshot.vertical_speed_fpm) or 0) > 150 then return nil, "not_approach_level_or_descent" end
-        local altitude = format_altitude(snapshot, true)
+        local altitude = format_altitude(snapshot, true, progress_boundary_ft(eventId, snapshot))
         if not altitude then return nil, "missing_arrival_context" end
         local star = clean_token(snapshot.star, false)
         local approach = approach_label(snapshot)
@@ -1270,7 +1287,7 @@ function M.buildMessage(eventId, snapshot)
     end
 
     if is_descent_progress_event(eventId) then
-        local altitude = format_altitude(snapshot, true)
+        local altitude = format_altitude(snapshot, true, progress_boundary_ft(eventId, snapshot))
         if not altitude then return nil, "missing_arrival_context" end
         local star = clean_token(snapshot.star, false)
         local approach = approach_label(snapshot)
@@ -1553,6 +1570,19 @@ function M.isEventSnapshotCurrent(event, current)
         local beforeDescending = (tonumber(previous.vertical_speed_fpm) or 0) < -150
         local nowDescending = (tonumber(current.vertical_speed_fpm) or 0) < -150
         if beforeDescending ~= nowDescending then return false, "vertical_status_changed" end
+    end
+    local boundary = progress_boundary_ft(id, previous)
+    if boundary then
+        local descent = is_descent_progress_event(id) or id == "arrival.approach"
+        local transition = tonumber(descent and previous.transition_level_ft or previous.transition_altitude_ft) or 0
+        local pressure = transition > 0 and boundary >= transition
+        for _, snapshot in ipairs({ previous, current }) do
+            local altitude = pressure and tonumber(snapshot.pressure_altitude_ft) or tonumber(snapshot.altitude_ft)
+            altitude = altitude or tonumber(snapshot.altitude_ft)
+            if not altitude or math.abs(altitude - boundary) > CLIMB_TARGET_REACHED_TOLERANCE_FT then
+                return false, "progress_boundary_outdated"
+            end
+        end
     end
     if climb or cruise or id == "departure.airborne" or id == "arrival.top_of_descent" or id == "arrival.on_descent"
         or id == "arrival.approach" or is_descent_progress_event(id)

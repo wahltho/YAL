@@ -3152,4 +3152,48 @@ do
     eventAdapterYal.getAutoUnicomApproachContext = previousContext
 end
 
+do
+    local cases = {
+        { "arrival.descent_level_30000", 29931.4765625, 29885.9375, "FL300", "tree zero zero" },
+        { "arrival.descent_level_20000", 19951.26171875, 19935.08984375, "FL200", "two zero zero" },
+        { "departure.climb_level_20000", 20065, 20084, "FL200", "two zero zero" },
+        { "departure.climb_level_30000", 30065, 30084, "FL300", "tree zero zero" }
+    }
+    for _, case in ipairs(cases) do
+        local snapshot = copy(base, {
+            altitude_ft = case[2], pressure_altitude_ft = case[3], vertical_speed_fpm = -1000
+        })
+        local event = core.newEvent(case[1], snapshot, 0, test_spell_nato)
+        assert_true(event.text:find("passing " .. case[4], 1, true) ~= nil,
+            "progress reports its crossed boundary: " .. case[1])
+        assert_true(event.voice_text:find("passing flight level " .. case[5], 1, true) ~= nil,
+            "voice reports the same crossed boundary: " .. case[1])
+        assert_equal(event.snapshot.altitude_ft, case[2], "indicated observation is not fabricated")
+        assert_equal(event.snapshot.pressure_altitude_ft, case[3], "pressure observation is not fabricated")
+        assert_true(core.isEventSnapshotCurrent(event, copy(snapshot)), "near-boundary measured context is valid")
+        local delta = case[1]:sub(1, 10) == "departure." and 190 or -190
+        local current = copy(snapshot, { altitude_ft = case[2] + delta, pressure_altitude_ft = case[3] + delta })
+        assert_equal(core.isEventSnapshotCurrent(event, current), false,
+            "combined polling and queue delay cannot stretch a boundary claim beyond 200 feet")
+    end
+    local approach = copy(base, {
+        altitude_ft = 9930, pressure_altitude_ft = 9920, vertical_speed_fpm = -1000,
+        progress_boundary_ft = 10000
+    })
+    assert_true(core.buildMessage("arrival.approach", approach):find("passing FL100", 1, true) ~= nil,
+        "10k boundary converted to approach retains its exact crossed altitude")
+    approach.progress_boundary_ft = nil
+    assert_true(core.buildMessage("arrival.approach", approach):find("passing FL99", 1, true) ~= nil,
+        "ordinary approach report retains actual pressure altitude, not an invented boundary")
+    local belowTransition = copy(base, {
+        altitude_ft = 9940, pressure_altitude_ft = 10120, transition_level_ft = 18000,
+        vertical_speed_fpm = -1000
+    })
+    assert_true(core.buildMessage("arrival.descent_level_10000", belowTransition):find("passing 10000ft", 1, true) ~= nil,
+        "below TL the crossed boundary uses indicated feet")
+    assert_true(core.buildMessage("enroute.in_cruise", copy(base, {
+        altitude_ft = 40500, pressure_altitude_ft = 40500, cruise_periodic = true
+    })):find("maintaining FL405", 1, true) ~= nil, "metric cruise flight levels are not rounded to thousands")
+end
+
 print("auto_unicom tests passed")

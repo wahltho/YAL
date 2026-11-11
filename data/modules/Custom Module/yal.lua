@@ -9906,6 +9906,7 @@ function P.updateAutoUnicomClimbEvents()
                 if state then state.sent[key] = true end
             else
                 autoUnicomEventOnce(key, key, {
+                    progress_boundary_ft = level,
                     mcp_altitude_ft = mcpAltitude,
                     climb_next_waypoint = nextWaypoint,
                     navigation_vector_active = vectorActive,
@@ -9978,7 +9979,7 @@ function P.updateAutoUnicomDescentEvents()
             end
             if altitude < level - 200 then
                 state.sent[key] = true -- no delayed boundary report far below its actual crossing
-            elseif P.publishRuntimeEvent(eventId) then
+            elseif P.publishRuntimeEvent(eventId, { progress_boundary_ft = level }) then
                 state.sent[key] = true
                 if eventId == "arrival.approach" then state.sent["arrival.approach"] = true end
             end
