@@ -743,6 +743,7 @@ local function build_snapshot()
     local snapshot = {
         flight_epoch = flightEpoch,
         arrival_epoch = y.autoUnicomRuntime and y.autoUnicomRuntime.arrivalEpoch or 0,
+        go_around_epoch = y.autoUnicomRuntime and y.autoUnicomRuntime.goAroundEpoch or 0,
         on_ground = safe_read(y.airgroundsensor) == def.ON,
         radio_altitude_ft = tonumber(safe_read(y.radioaltitude)),
         altitude_ft = tonumber(safe_read(y.altitude_ft)) or tonumber(safe_read(y.altitude)),
@@ -807,8 +808,10 @@ end
 function M.isEventCurrent(event)
     if tostring(event.id or ""):sub(1, 19) == "manual.repeat_last." then return true end
     local snapshot = build_snapshot()
-    if event.id:sub(1, 8) == "arrival." and not snapshot.post_landing_state
-        and snapshot.approach_pending then return false, "mod_pending" end
+    if event.id:sub(1, 8) == "arrival." and event.id ~= "arrival.go_around"
+        and not snapshot.post_landing_state and snapshot.approach_pending then
+        return nil, "mod_pending"
+    end
     local valid, reason = core.isEventSnapshotCurrent(event, snapshot)
     if not valid then return false, reason end
     local y = runtime.yal
@@ -888,20 +891,30 @@ function M.handleYalEvent(eventId, payload, now)
     end
     if eventId == "departure.context_changed" or eventId == "arrival.context_changed" then
         local prefix = eventId == "departure.context_changed" and "departure." or "arrival."
-        mailbox:clearQueued(function(event) return event.id:sub(1, #prefix) == prefix end)
+        mailbox:clearQueued(function(event)
+            return event.id:sub(1, #prefix) == prefix and event.id ~= "arrival.go_around"
+        end)
         return true
     end
-    if not active then return false end
-    if eventId == "arrival.go_around" then
+    if eventId == "arrival.go_around_started" then
         mailbox:cancelQueuedForGoAround()
         return true
     end
+    if eventId == "hold.context_changed" then
+        mailbox:cancelQueuedForHoldEnd()
+        return true
+    end
+    if eventId == "hold.approach_blocked" then
+        mailbox:cancelQueuedForHoldStart()
+        return true
+    end
+    if not active then return false end
 
     local snapshot = build_snapshot()
     for key, value in pairs(payload or {}) do
         snapshot[key] = value
     end
-    if eventId:sub(1, 8) == "arrival." and not snapshot.post_landing_state
+    if eventId:sub(1, 8) == "arrival." and eventId ~= "arrival.go_around" and not snapshot.post_landing_state
         and snapshot.approach_pending then return false end
     snapshot.hold_context_waypoint = snapshot.hold_waypoint
     if eventId == "departure.flightplan_active" then
@@ -921,10 +934,12 @@ function M.handleYalEvent(eventId, payload, now)
     enrich_navigation_identifiers(snapshot)
 
     now = tonumber(now) or os.time()
+    local observedAt = tonumber(snapshot.observed_at) or now
+    if now - observedAt > (core.EVENT_TTL_SEC[eventId] or 120) then return false end
     local event, reason = core.newEvent(
         eventId,
         snapshot,
-        now,
+        observedAt,
         runtime.helpers and runtime.helpers.spellNato
     )
     if not event then

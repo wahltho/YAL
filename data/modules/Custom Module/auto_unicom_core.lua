@@ -34,6 +34,7 @@ M.EVENT_TTL_SEC = {
     ["arrival.approach"] = 180,
     ["arrival.on_final"] = 60,
     ["arrival.short_final"] = 45,
+    ["arrival.go_around"] = 60,
     ["arrival.backtrack"] = 120,
     ["arrival.runway_vacated"] = 120,
     ["arrival.runway_crossing"] = 60,
@@ -930,6 +931,7 @@ local MESSAGE_CONTRACTS = {
     ["arrival.approach"] = { scope = "local", station = "arrival", runway = "arrival", missing = "missing_arrival_context" },
     ["arrival.on_final"] = { scope = "local", station = "arrival", runway = "arrival", missing = "missing_final_context" },
     ["arrival.short_final"] = { scope = "local", station = "arrival", runway = "arrival", missing = "missing_short_final_context" },
+    ["arrival.go_around"] = { scope = "local", station = "arrival", runway = "arrival", missing = "missing_go_around_context" },
     ["arrival.backtrack"] = { scope = "local", station = "arrival", runway = "arrival", missing = "missing_arrival_backtrack_context" },
     ["arrival.runway_vacated"] = { scope = "local", station = "arrival", runway = "arrival", missing = "missing_vacated_context" },
     ["arrival.parking_position"] = { scope = "local", station = "arrival_parking", missing = "missing_arrival_parking_context" }
@@ -1097,6 +1099,10 @@ function M.buildMessage(eventId, snapshot)
         local altitude = format_altitude(snapshot, false)
         if not altitude then return nil, "missing_departure_context" end
         return normalize_text(string.format("%s airborne runway %s, passing %s", context.prefix, context.runway, altitude))
+    end
+
+    if eventId == "arrival.go_around" then
+        return normalize_text(string.format("%s going around runway %s", context.prefix, context.runway))
     end
 
     if eventId == HOLD_ENTER_EVENT_ID or eventId == HOLDING_EVENT_ID
@@ -1517,6 +1523,8 @@ function M.isEventSnapshotCurrent(event, current)
         elseif id ~= "departure.start_push" then
             fields[#fields + 1] = "departure_runway"
         end
+    elseif id == "arrival.go_around" then
+        fields[#fields + 1] = "go_around_epoch"
     elseif id:sub(1, 8) == "arrival." then
         fields[#fields + 1] = "arrival_icao"
         fields[#fields + 1] = "arrival_runway"
@@ -1548,7 +1556,8 @@ function M.isEventSnapshotCurrent(event, current)
     end
     if climb or cruise or id == "departure.airborne" or id == "arrival.top_of_descent" or id == "arrival.on_descent"
         or id == "arrival.approach" or is_descent_progress_event(id)
-        or id == HOLD_DESCENDING_EVENT_ID or (id == HOLD_ENTER_EVENT_ID and previous.hold_descending) then
+        or id == HOLDING_EVENT_ID or id == HOLD_DESCENDING_EVENT_ID
+        or (id == HOLD_ENTER_EVENT_ID and previous.hold_descending) then
         local before = tonumber(previous.altitude_ft)
         local now = tonumber(current.altitude_ft)
         if not before or not now or math.abs(before - now) > CLIMB_TARGET_REACHED_TOLERANCE_FT then
@@ -1846,11 +1855,14 @@ function Mailbox:cancelQueuedForGoAround()
     for _, event in ipairs(self.queue) do
         local eventId = tostring(event.id or "")
         local cancel = eventId == "arrival.top_of_descent"
+            or eventId == "arrival.go_around"
             or eventId == "arrival.on_descent"
             or eventId == "arrival.approach"
             or eventId == "arrival.on_final"
             or eventId == "arrival.short_final"
             or is_descent_progress_event(eventId)
+            or eventId == HOLD_ENTER_EVENT_ID or eventId == HOLDING_EVENT_ID
+            or eventId == HOLD_DESCENDING_EVENT_ID or eventId == HOLD_EXIT_EVENT_ID
         if cancel then
             self.queuedIds[event.id] = nil
             self.log("cancelled_go_around", event)
@@ -1961,6 +1973,8 @@ function Mailbox:tick(api, now)
     while event and self.validate do
         local ok, valid, reason = pcall(self.validate, event)
         if ok and valid == true then break end
+        -- MOD is unresolved, not invalid. Keep FIFO and the original expiry.
+        if ok and valid == nil and reason == "mod_pending" then return end
         table.remove(self.queue, 1)
         self.queuedIds[event.id] = nil
         event.invalid_reason = ok and reason or "validation_error"

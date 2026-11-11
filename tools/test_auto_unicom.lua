@@ -2495,7 +2495,7 @@ configure_event_adapter_test()
 autoUnicom.tick(true, 0)
 assert_true(autoUnicom.handleYalEvent("arrival.approach", nil, 1), "YAL approach event queues")
 assert_equal(autoUnicom.getDebugState().queue_depth, 1, "YAL event is queued while transport is busy")
-assert_true(autoUnicom.handleYalEvent("arrival.go_around", nil, 2), "YAL go-around control event accepted")
+assert_true(autoUnicom.handleYalEvent("arrival.go_around_started", nil, 2), "YAL go-around control event accepted")
 assert_equal(autoUnicom.getDebugState().queue_depth, 0, "go-around removes stale queued arrival event")
 
 eventAdapterValues.transport_state = 5
@@ -3062,6 +3062,94 @@ do
     autoUnicom.tick(true, 3)
     assert_equal(#eventAdapterWrites, 0, "changed runway discards frozen event before all mailbox writes")
     assert_equal(autoUnicom.getDebugState().queue_depth, 0, "invalid event is removed, not retried")
+end
+
+do
+    local function deferred_mailbox(validator)
+        local output = {}
+        return core.newMailbox({
+            validate = validator,
+            writeText = function(text) output[#output + 1] = text; return true end,
+            writeSeq = function(seq) output[#output + 1] = seq; return true end
+        }), output
+    end
+    local pending, unchanged = true, true
+    local queue, output = deferred_mailbox(function()
+        if pending then return nil, "mod_pending" end
+        return unchanged, "selection_changed"
+    end)
+    local api = { api_version = 1, ready = 1, mode = 2, transport_state = 5, request_seq = 10, result_seq = 10 }
+    local event = { id = "arrival.approach", text = "Current approach", created_at = 0, expires_at = 60 }
+    assert_true(queue:enqueue(event), "MOD case queues an accepted intent")
+    queue:tick(api, 1)
+    assert_equal(#output, 0, "MOD performs no payload or sequence writes")
+    assert_true(queue.queue[1] == event and event.expires_at == 60, "MOD preserves FIFO intent and original expiry")
+    pending = false
+    queue:tick(api, 2)
+    assert_equal(output[1], "Current approach", "cancelled unchanged MOD resumes the retained intent")
+    assert_equal(output[2], 11, "deferred intent uses the ordinary single sequence commit")
+
+    pending, unchanged = true, true
+    queue, output = deferred_mailbox(function()
+        if pending then return nil, "mod_pending" end
+        return unchanged, "selection_changed"
+    end)
+    assert_true(queue:enqueue(copy(event)), "EXEC case queues")
+    queue:tick(api, 1)
+    pending, unchanged = false, false
+    queue:tick(api, 2)
+    assert_true(#output == 0 and #queue.queue == 0, "changed EXEC discards frozen intent, not stale transmission")
+    pending = true
+    assert_true(queue:enqueue(copy(event)), "expiry case queues")
+    queue:tick(api, 61)
+    assert_true(#output == 0 and #queue.queue == 0, "MOD does not extend normal expiry")
+end
+
+do
+    local previousContext = eventAdapterYal.getAutoUnicomApproachContext
+    local pending = false
+    eventAdapterYal.getAutoUnicomApproachContext = function()
+        return { selection_pending = pending, approach_procedure_type = "RNAV" }
+    end
+    eventAdapterWrites = {}
+    eventAdapterValues.request_seq, eventAdapterValues.result_seq = 200, 200
+    eventAdapterValues.transport_state, eventAdapterValues.result_code = 5, 21
+    eventAdapterValues.voice_result_seq, eventAdapterValues.voice_result_code = 200, 20
+    eventAdapterValues.desicao, eventAdapterValues.desrwy = "ENSB", "27"
+    configure_event_adapter_test()
+    autoUnicom.tick(true, 0)
+    assert_true(autoUnicom.handleYalEvent("arrival.approach", nil, 1), "adapter accepts pre-MOD intent")
+    pending = true
+    autoUnicom.tick(true, 1)
+    assert_true(#eventAdapterWrites == 0 and autoUnicom.getDebugState().queue_depth == 1,
+        "real adapter propagates tri-state MOD deferral to mailbox")
+    pending = false
+    autoUnicom.tick(true, 2)
+    assert_equal(eventAdapterWrites[4].kind, "seq", "cancelled MOD resumes normal text/voice/sequence order")
+    local committed = autoUnicom.getDebugState().outstanding_seq
+    assert_true(autoUnicom.handleYalEvent("arrival.go_around_started", nil, 3), "GA cleanup accepts control")
+    assert_equal(autoUnicom.getDebugState().outstanding_seq, committed, "GA cannot recall committed traffic")
+    eventAdapterValues.result_seq, eventAdapterValues.voice_result_seq = committed, committed
+    autoUnicom.tick(true, 3)
+    pending, eventAdapterWrites = true, {}
+    assert_true(autoUnicom.handleYalEvent("arrival.go_around", {
+        go_around_epoch = 0, arrival_icao = "ENSB", arrival_runway = "27"
+    }, 4), "actual GA is independent of a pending approach selection")
+    autoUnicom.tick(true, 4)
+    assert_equal(eventAdapterWrites[1].value, "SVALBARD Traffic, Lufthansa 3210 going around runway 27", "GA text golden")
+    assert_equal(eventAdapterWrites[2].value,
+        "Svalbard Traffic, Lufthansa tree two one zero going around runway two seven", "GA voice golden")
+    assert_equal(eventAdapterWrites[3].value, 3, "GA retains paired text/voice channels")
+    assert_equal(eventAdapterWrites[4].kind, "seq", "GA commits sequence last exactly once")
+    local old = { id = "arrival.go_around", snapshot = {
+        flight_epoch = 1, effective_callsign = "DLH3210", go_around_epoch = 1,
+        arrival_icao = "ENSB", arrival_runway = "27", approach_id = "R27-W"
+    } }
+    local current = copy(old.snapshot, { arrival_runway = "09", approach_id = "I09", arrival_epoch = 9 })
+    assert_true(core.isEventSnapshotCurrent(old, current), "new approach selection cannot rewrite the actual missed runway")
+    current.go_around_epoch = 2
+    assert_equal(core.isEventSnapshotCurrent(old, current), false, "a second GA invalidates the first episode")
+    eventAdapterYal.getAutoUnicomApproachContext = previousContext
 end
 
 print("auto_unicom tests passed")

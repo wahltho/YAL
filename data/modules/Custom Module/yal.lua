@@ -1820,6 +1820,10 @@ function P.YalinitGlobal()
         descentFromAltitude = nil,
         descentFromPressureAltitude = nil,
         goAroundNotified = false,
+        goAroundEpoch = 0,
+        goAroundReportPending = false,
+        goAroundObservedAt = nil,
+        goAroundPayload = nil,
         arrivalTaxiEventsInitialized = false,
         arrivalBacktrackSince = nil,
         arrivalParkingSince = nil,
@@ -1838,6 +1842,11 @@ function P.YalinitGlobal()
         holdEstablishedSent = false,
         holdEstablishedSince = nil,
         holdDescentSent = false,
+        holdCycle = 0,
+        holdLevelAltitude = nil,
+        holdDescentTargetAltitude = nil,
+        holdDescentSince = nil,
+        holdExitPending = nil,
         holdApproachReleasedKey = nil,
         holdApproachBlocked = false,
         lastFmsPhase = nil,
@@ -8896,6 +8905,7 @@ local function autoUnicomHoldPayload(hold, descending)
         hold_path_type = hold.path_type,
         hold_entry_complete = hold.entry_complete,
         hold_target_altitude_ft = hold.target_altitude_ft,
+        hold_cycle = P.autoUnicomRuntime and P.autoUnicomRuntime.holdCycle or 0,
         hold_descending = descending == true
     }
 end
@@ -8915,6 +8925,25 @@ function P.autoUnicomHoldLevelStable(hold)
         or (P.altitude and tonumber(get(P.altitude)))
     local verticalSpeed = P.verticalspeed and tonumber(get(P.verticalspeed)) or nil
     return autoUnicomCore.isHoldLevelStable(altitude, verticalSpeed, hold.target_altitude_ft)
+end
+
+function P.baselineAutoUnicomHoldState(hold)
+    local state = P.autoUnicomRuntime
+    state.holdInitialized = true
+    state.holdCycle = (state.holdCycle or 0) + 1
+    state.holdKey = hold.active and (hold.waypoint .. "|" .. hold.path_type) or nil
+    state.holdPayload = hold.active and autoUnicomHoldPayload(hold) or nil
+    state.holdEntryPending, state.holdEntryObservedAt = false, nil
+    state.holdExitPending = nil
+    local final = hold.active and P.isArrivalFinalEstablished()
+    state.holdApproachReleasedKey = (hold.active and (hold.exit_armed or final)) and state.holdKey or nil
+    state.holdExitSent = final == true
+    state.holdEstablishedSent = hold.active and P.autoUnicomHoldLevelStable(hold) or false
+    state.holdLevelAltitude = state.holdEstablishedSent and tonumber(get(P.altitude_ft)) or nil
+    state.holdEstablishedSince, state.holdDescentSince = nil, nil
+    state.holdDescentSent = hold.active and autoUnicomHoldDescending(hold) or false
+    state.holdDescentTargetAltitude = state.holdDescentSent and hold.target_altitude_ft or nil
+    state.holdApproachBlocked = hold.active == true and state.holdApproachReleasedKey ~= state.holdKey
 end
 
 function P.getAutoUnicomApproachContext()
@@ -8964,18 +8993,37 @@ function P.notifyAutoUnicomGoAround()
     local state = P.autoUnicomRuntime
     if not state or state.goAroundNotified then return end
     state.goAroundNotified = true
+    state.goAroundEpoch = (state.goAroundEpoch or 0) + 1
+    state.goAroundObservedAt = os.time()
+    state.goAroundPayload = {
+        go_around_epoch = state.goAroundEpoch,
+        observed_at = state.goAroundObservedAt,
+        arrival_icao = state.arrivalIcao or (P.desicao and get(P.desicao)),
+        arrival_runway = state.arrivalRunway or (P.desrwy and get(P.desrwy))
+    }
+    state.goAroundReportPending = true
+    state.holdInitialized, state.holdExitPending = false, nil
     state.arrivalEpoch = (state.arrivalEpoch or 0) + 1
     state.sent["arrival.approach"] = nil
     state.sent["arrival.on_final"] = nil
     state.sent["arrival.short_final"] = nil
     state.finalSince, state.shortFinalSince = nil, nil
     state.arrivalLanded, state.arrivalRunwaySnapshot = nil, nil
-    P.publishRuntimeEvent("arrival.go_around")
+    -- A second approach is not a second TOD or an old descent-boundary crossing.
+    state.sent["arrival.descent_entry"] = true
+    for _, level in ipairs(AUTO_UNICOM_DESCENT_LEVELS_FT) do
+        state.sent["arrival.descent_level_" .. tostring(level)] = true
+    end
+    P.publishRuntimeEvent("arrival.go_around_started")
+    if P.publishRuntimeEvent("arrival.go_around", state.goAroundPayload) then
+        state.goAroundReportPending = false
+    end
 end
 
 function P.isArrivalFinalEstablished()
     if get(P.airgroundsensor) ~= def.OFF or P.flightstate ~= def.FLIGHTSTATEAPPROACH
         or P.isAutoUnicomGoAroundActive()
+        or (P.autoUnicomRuntime and P.autoUnicomRuntime.goAroundNotified)
         or not P.isArrivalRunwayRadioAltGateOpen(8, 20, 0.5) then return false end
 
     local context = P.getAutoUnicomApproachContext()
@@ -9038,6 +9086,7 @@ function P.updateAutoUnicomArrivalContext()
         end
         return
     end
+    if not onGround and P.getAutoUnicomApproachContext().selection_pending then return end
     if helpers.isvalidicao(icao) and helpers.isvalidrwy(runway) then
         if state.arrivalIcao ~= icao or state.arrivalRunway ~= runway then
             state.arrivalRunwaySnapshot = nil
@@ -9156,15 +9205,19 @@ function P.isAutoUnicomEventCurrent(id, snapshot)
             .. "|" .. tostring(snapshot.hold_path_type or "")
         if ground then return false, "hold_no_longer_airborne" end
         if id == "enroute.hold_exit" then
-            return result(not hold.active or (key == previous and state.holdApproachReleasedKey == key))
+            return result(key ~= previous or (key == previous and P.isArrivalFinalEstablished()))
         end
         if key ~= previous or not state.holdApproachBlocked then return false, "hold_context_changed" end
+        if snapshot.hold_cycle ~= (state.holdCycle or 0) then return false, "hold_cycle_changed" end
         if snapshot.hold_target_altitude_ft ~= hold.target_altitude_ft then return false, "hold_target_changed" end
         if id == "enroute.holding" then return result(P.autoUnicomHoldLevelStable(hold)) end
         if id == "enroute.hold_descending" then return result(autoUnicomHoldDescending(hold)) end
         return result(hold.entry_complete ~= true)
     elseif id:sub(1, 8) == "arrival." then
-        if id == "arrival.backtrack" then
+        if id == "arrival.go_around" then
+            return result(not ground and state.goAroundNotified
+                and snapshot.go_around_epoch == state.goAroundEpoch)
+        elseif id == "arrival.backtrack" then
             local taxi = P.getAutoUnicomArrivalTaxiState()
             return result(ground and taxi and taxi.valid and taxi.backtrack)
         elseif id == "arrival.runway_vacated" then
@@ -9175,7 +9228,8 @@ function P.isAutoUnicomEventCurrent(id, snapshot)
                 and P.getAutoUnicomNearestParkingPayload(35) ~= nil)
         end
         if id ~= "arrival.runway_crossing" then
-            if ground or P.flightstate ~= def.FLIGHTSTATEAPPROACH or P.isAutoUnicomGoAroundActive() then
+            if ground or P.flightstate ~= def.FLIGHTSTATEAPPROACH or P.isAutoUnicomGoAroundActive()
+                or state.goAroundNotified then
                 return false, "not_arrival_airborne"
             end
             if id == "arrival.on_final" then
@@ -9246,6 +9300,8 @@ function P.baselineAutoUnicomRuntimeEvents()
     state.cruiseVectorActive = false
     state.cruiseLastReportAt = nil
     state.lastFmsPhase = P.fmsflightphase and tonumber(get(P.fmsflightphase)) or nil
+    state.goAroundNotified = get(P.airgroundsensor) == def.OFF and P.isAutoUnicomGoAroundActive()
+    state.goAroundReportPending, state.goAroundObservedAt, state.goAroundPayload = false, nil, nil
     local mcpAltitude = P.mcpaltitude and tonumber(get(P.mcpaltitude)) or nil
     if not mcpAltitude or mcpAltitude <= 0 then mcpAltitude = nil end
     state.climbMcpCandidate = mcpAltitude
@@ -9326,20 +9382,7 @@ function P.baselineAutoUnicomRuntimeEvents()
         end
     end
 
-    local hold = P.getHoldRuntimeState()
-    state.holdInitialized = true
-    state.holdKey = hold.active and (hold.waypoint .. "|" .. hold.path_type) or nil
-    state.holdPayload = hold.active and autoUnicomHoldPayload(hold) or nil
-    state.holdEntryPending, state.holdEntryObservedAt = false, nil
-    local holdOperationallyReleased = hold.active
-        and (hold.exit_armed == true or P.isArrivalFinalEstablished()) or false
-    state.holdApproachReleasedKey = holdOperationallyReleased and state.holdKey or nil
-    state.holdExitSent = holdOperationallyReleased
-    state.holdEstablishedSent = hold.active and hold.entry_complete == true or false
-    state.holdEstablishedSince = nil
-    state.holdDescentSent = hold.active and autoUnicomHoldDescending(hold) or false
-    state.holdApproachBlocked = hold.active == true
-        and state.holdApproachReleasedKey ~= state.holdKey
+    P.baselineAutoUnicomHoldState(P.getHoldRuntimeState())
     if state.holdApproachBlocked then
         state.sent["arrival.approach"] = nil
         state.sent["arrival.on_final"] = nil
@@ -9547,118 +9590,138 @@ end
 function P.updateAutoUnicomHoldEvents()
     local state = P.autoUnicomRuntime
     if not state or get(P.airgroundsensor) == def.ON then return end
+    if P.isAutoUnicomGoAroundActive() then
+        state.holdInitialized, state.holdApproachBlocked, state.holdExitPending = false, false, nil
+        return
+    end
     local hold = P.getHoldRuntimeState()
     local key = hold.active and (hold.waypoint .. "|" .. hold.path_type) or nil
     if not state.holdInitialized then
-        state.holdInitialized = true
-        state.holdKey = key
-        state.holdPayload = hold.active and autoUnicomHoldPayload(hold) or nil
-        local holdOperationallyReleased = hold.active
-            and (hold.exit_armed == true or P.isArrivalFinalEstablished()) or false
-        state.holdApproachReleasedKey = holdOperationallyReleased and key or nil
-        state.holdExitSent = holdOperationallyReleased
-        state.holdEstablishedSent = hold.active and hold.entry_complete == true or false
-        state.holdEstablishedSince = nil
-        state.holdDescentSent = hold.active and autoUnicomHoldDescending(hold) or false
-        state.holdApproachBlocked = hold.active == true
-            and state.holdApproachReleasedKey ~= key
+        P.baselineAutoUnicomHoldState(hold)
         return
     end
 
+    local now = os.time()
     if state.holdKey and state.holdKey ~= key and not state.holdExitSent then
-        if not P.publishRuntimeEvent("enroute.hold_exit", state.holdPayload) then
-            state.holdApproachBlocked = true
-            return
-        end
-        state.holdExitSent = true
+        state.holdPayload.observed_at = now
+        state.holdExitPending = { payload = state.holdPayload, observedAt = now }
     end
-    if key and key ~= state.holdKey then
-        local descending = autoUnicomHoldDescending(hold)
+    if key ~= state.holdKey then
+        state.holdCycle = (state.holdCycle or 0) + 1
+        P.publishRuntimeEvent("hold.context_changed")
         state.holdKey = key
-        state.holdPayload = autoUnicomHoldPayload(hold, descending)
-        state.holdExitSent = false
-        state.holdEntryPending = true
-        state.holdEntryObservedAt = os.time()
-        state.holdEstablishedSent = false
-        state.holdEstablishedSince = nil
-        state.holdDescentSent = false
+        state.holdPayload = hold.active and autoUnicomHoldPayload(hold) or nil
+        state.holdEntryPending, state.holdEntryObservedAt = key ~= nil, key and now or nil
+        state.holdExitSent, state.holdEstablishedSent, state.holdDescentSent = false, false, false
+        state.holdEstablishedSince, state.holdDescentSince = nil, nil
+        state.holdLevelAltitude, state.holdDescentTargetAltitude = nil, nil
         state.holdApproachReleasedKey = nil
-        state.holdApproachBlocked = true
-        state.sent["arrival.approach"] = nil
-        state.sent["arrival.on_final"] = nil
-        state.sent["arrival.short_final"] = nil
-        state.finalSince = nil
-        state.shortFinalSince = nil
-    elseif not key then
-        state.holdKey = nil
-        state.holdPayload = nil
-        state.holdEntryPending, state.holdEntryObservedAt = false, nil
-        state.holdExitSent = false
-        state.holdEstablishedSent = false
-        state.holdEstablishedSince = nil
-        state.holdDescentSent = false
-        state.holdApproachReleasedKey = nil
-        state.holdApproachBlocked = false
-        return
+        if key then
+            state.sent["arrival.approach"], state.sent["arrival.on_final"], state.sent["arrival.short_final"] = nil, nil, nil
+            state.finalSince, state.shortFinalSince = nil, nil
+        end
     end
+    state.holdApproachBlocked = key ~= nil
+
+    local pending = state.holdExitPending
+    if pending then
+        local previous = pending.payload
+        local previousKey = tostring(previous.hold_waypoint) .. "|" .. tostring(previous.hold_path_type)
+        if key == previousKey or now - pending.observedAt > autoUnicomCore.EVENT_TTL_SEC["enroute.hold_exit"]
+            or P.publishRuntimeEvent("enroute.hold_exit", previous) then
+            state.holdExitPending = nil
+        end
+    end
+    if not key then return end
 
     state.holdPayload = autoUnicomHoldPayload(hold)
 
     if state.holdEntryPending then
-        if hold.entry_complete == true or os.time() - state.holdEntryObservedAt > autoUnicomCore.EVENT_TTL_SEC["enroute.hold_enter"] then
+        if hold.entry_complete == true or now - state.holdEntryObservedAt > autoUnicomCore.EVENT_TTL_SEC["enroute.hold_enter"] then
             state.holdEntryPending = false
         elseif P.publishRuntimeEvent("enroute.hold_enter", autoUnicomHoldPayload(hold, autoUnicomHoldDescending(hold))) then
             state.holdEntryPending = false
-            if autoUnicomHoldDescending(hold) then state.holdDescentSent = true end
+            if autoUnicomHoldDescending(hold) then
+                state.holdDescentSent = true
+                state.holdDescentTargetAltitude = hold.target_altitude_ft
+            end
         end
     end
 
-    if state.holdApproachReleasedKey == key then
+    if state.holdApproachReleasedKey == key and state.holdExitSent then
         state.holdApproachBlocked = false
         return
     end
 
     local releaseReason = nil
-    if hold.exit_armed then
-        releaseReason = "exit_armed"
-    elseif P.isArrivalFinalEstablished() then
+    if P.isArrivalFinalEstablished() then
         releaseReason = "final_established"
+    elseif hold.exit_armed then
+        releaseReason = "exit_armed"
     end
     if releaseReason then
         state.holdEstablishedSince = nil
-        if not state.holdExitSent then
-            if not P.publishRuntimeEvent("enroute.hold_exit", state.holdPayload) then
-                state.holdApproachBlocked = true
-                return
-            end
-            state.holdExitSent = true
+        -- EXIT ARMED permits approach preparation, but is not a physical hold exit.
+        if releaseReason == "final_established" and not state.holdExitSent then
+            state.holdExitSent = P.publishRuntimeEvent("enroute.hold_exit", state.holdPayload)
+        end
+        if state.holdApproachReleasedKey ~= key then
+            helpers.logInfoTS("IVAO Auto-Unicom: hold released key=" .. tostring(key)
+                .. " reason=" .. releaseReason)
         end
         state.holdApproachReleasedKey = key
         state.holdApproachBlocked = false
-        helpers.logInfoTS("IVAO Auto-Unicom: hold released key=" .. tostring(key)
-            .. " reason=" .. releaseReason)
         return
     end
 
+    if state.holdApproachReleasedKey then
+        state.sent["arrival.approach"], state.sent["arrival.on_final"], state.sent["arrival.short_final"] = nil, nil, nil
+        state.finalSince, state.shortFinalSince = nil, nil
+        P.publishRuntimeEvent("hold.approach_blocked")
+    end
+    state.holdApproachReleasedKey = nil
     state.holdApproachBlocked = true
-
-    if not state.holdExitSent and not state.holdEstablishedSent
-        and P.autoUnicomHoldLevelStable(hold) then
-        local now = os.time()
+    local altitude = tonumber(get(P.altitude_ft)) or tonumber(get(P.altitude))
+    local stable = P.autoUnicomHoldLevelStable(hold)
+    local descending = autoUnicomHoldDescending(hold)
+    local levelChanged = state.holdLevelAltitude and altitude
+        and math.abs(altitude - state.holdLevelAltitude) > 100
+    if stable then
         state.holdEstablishedSince = state.holdEstablishedSince or now
-        if now - state.holdEstablishedSince >= 3
-            and P.publishRuntimeEvent("enroute.holding", state.holdPayload) then
-            state.holdEstablishedSent = true
+        state.holdDescentSince = nil
+        if now - state.holdEstablishedSince >= 3 then
+            if state.holdDescentSent or (state.holdEstablishedSent and levelChanged) then
+                state.holdCycle = (state.holdCycle or 0) + 1
+                P.publishRuntimeEvent("hold.context_changed")
+                state.holdEstablishedSent, state.holdDescentSent = false, false
+                state.holdDescentTargetAltitude = nil
+            end
+            if not state.holdEstablishedSent
+                and P.publishRuntimeEvent("enroute.holding", autoUnicomHoldPayload(hold)) then
+                state.holdEstablishedSent, state.holdLevelAltitude = true, altitude
+            end
         end
     else
         state.holdEstablishedSince = nil
-    end
-    if not state.holdExitSent and autoUnicomHoldDescending(hold) and not state.holdDescentSent then
-        if P.publishRuntimeEvent("enroute.hold_descending", state.holdPayload) then
-            state.holdDescentSent = true
+        if descending and (not state.holdLevelAltitude or (altitude and altitude < state.holdLevelAltitude - 100)) then
+            state.holdDescentSince = state.holdDescentSince or now
+            if now - state.holdDescentSince >= 3 then
+                if state.holdEstablishedSent or (state.holdDescentSent
+                    and state.holdDescentTargetAltitude ~= hold.target_altitude_ft) then
+                    state.holdCycle = (state.holdCycle or 0) + 1
+                    P.publishRuntimeEvent("hold.context_changed")
+                    state.holdEstablishedSent, state.holdDescentSent = false, false
+                end
+                if not state.holdDescentSent
+                    and P.publishRuntimeEvent("enroute.hold_descending", autoUnicomHoldPayload(hold)) then
+                    state.holdDescentSent = true
+                    state.holdDescentTargetAltitude = hold.target_altitude_ft
+                end
+            end
+        else
+            state.holdDescentSince = nil
         end
     end
-
 end
 
 function P.updateAutoUnicomCruiseEvent()
@@ -9857,16 +9920,33 @@ function P.updateAutoUnicomDescentEvents()
     local state = P.autoUnicomRuntime
     if not state then return end
     local phase = tonumber(get(P.fmsflightphase)) or 0
-    P.updateAutoUnicomArrivalContext()
     local altitude = tonumber(get(P.altitude_ft)) or tonumber(get(P.altitude)) or 0
-    local approachPhase = get(P.airgroundsensor) == def.OFF
-        and P.flightstate == def.FLIGHTSTATEAPPROACH and not P.isAutoUnicomGoAroundActive()
+    local airborne = get(P.airgroundsensor) == def.OFF
+    local goAroundActive = P.isAutoUnicomGoAroundActive()
     local holdBlocksApproach = state.holdApproachBlocked == true
-    if phase == def.FMSFLIGHTPHASE_GO_AROUND and state.lastFmsPhase ~= phase then
-        P.notifyAutoUnicomGoAround()
-    end
+    if airborne and goAroundActive then P.notifyAutoUnicomGoAround() end
+    P.updateAutoUnicomArrivalContext()
     state.lastFmsPhase = phase
-    if not P.isAutoUnicomGoAroundActive() then state.goAroundNotified = false end
+    if state.goAroundNotified and not goAroundActive
+        and (not airborne or (P.flightstate == def.FLIGHTSTATEAPPROACH
+            and phase >= def.FMSFLIGHTPHASE_DESCENT and phase < def.FMSFLIGHTPHASE_GO_AROUND
+            and (tonumber(get(P.verticalspeed)) or 0) <= 150)) then
+        state.goAroundNotified, state.goAroundReportPending = false, false
+        if airborne then
+            state.arrivalEpoch = (state.arrivalEpoch or 0) + 1
+            state.sent["arrival.approach"], state.sent["arrival.on_final"], state.sent["arrival.short_final"] = nil, nil, nil
+            state.finalSince, state.shortFinalSince = nil, nil
+            P.publishRuntimeEvent("arrival.context_changed")
+        end
+    end
+    if state.goAroundReportPending then
+        if not airborne or os.time() - state.goAroundObservedAt > autoUnicomCore.EVENT_TTL_SEC["arrival.go_around"]
+            or P.publishRuntimeEvent("arrival.go_around", state.goAroundPayload) then
+            state.goAroundReportPending = false
+        end
+    end
+    local approachPhase = airborne and P.flightstate == def.FLIGHTSTATEAPPROACH
+        and not goAroundActive and not state.goAroundNotified
     if not approachPhase then return end
 
     if not state.sent["arrival.descent_entry"] then
