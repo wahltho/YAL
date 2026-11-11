@@ -1489,14 +1489,77 @@ local climbingCruiseEntry = copy(base, {
 local climbingCruiseEntryText = core.buildMessage("enroute.in_cruise", climbingCruiseEntry)
 assert_equal(
     climbingCruiseEntryText,
-    "Lufthansa 3210 reaching FL399, TUDGI next",
-    "cruise entry does not claim level flight while still climbing"
+    "Lufthansa 3210 reaching FL400, TUDGI next",
+    "climbing cruise entry names the target rather than the current passing altitude"
 )
 assert_equal(
     core.buildVoiceMessage("enroute.in_cruise", climbingCruiseEntry, test_spell_nato, climbingCruiseEntryText),
-    "Lufthansa tree two one zero reaching flight level tree niner niner, Tudgi next",
-    "climbing cruise entry voice retains the reaching phrase"
+    "Lufthansa tree two one zero reaching flight level fower zero zero, Tudgi next",
+    "climbing cruise entry voice names the same target"
 )
+do
+    local snapshot = copy(base, {
+        cruise_entry = true,
+        cruise_next_waypoint = "74N030W",
+        altitude_ft = 40773.48046875,
+        pressure_altitude_ft = 40796.2421875,
+        planned_altitude_ft = 41000,
+        mcp_altitude_ft = 41000,
+        vertical_speed_fpm = 1528.2016601563
+    })
+    local event = core.newEvent("enroute.in_cruise", snapshot, 0, test_spell_nato)
+    assert_equal(event.text, "Lufthansa 3210 reaching FL410, 74N030W next",
+        "observed BGSF-ENSB entry reports FL410 instead of FL408")
+    assert_equal(event.voice_text,
+        "Lufthansa tree two one zero reaching flight level fower one zero, seven four north zero tree zero west next",
+        "observed cruise-entry voice uses the same FL410 target")
+    assert_equal(snapshot.altitude_ft, 40773.48046875, "cruise rendering preserves measured indicated altitude")
+    assert_equal(snapshot.pressure_altitude_ft, 40796.2421875, "cruise rendering preserves measured pressure altitude")
+    assert_true(core.isEventSnapshotCurrent(event, copy(snapshot)), "unchanged reaching intention is current")
+    assert_equal(core.isEventSnapshotCurrent(event, copy(snapshot, { mcp_altitude_ft = 40500 })), false,
+        "a lower MCP target invalidates waiting reaching text")
+    assert_equal(core.isEventSnapshotCurrent(event, copy(snapshot, { planned_altitude_ft = 42000 })), false,
+        "changed FMC target invalidates waiting reaching text")
+    assert_true(core.isEventSnapshotCurrent(event, copy(snapshot, { mcp_altitude_ft = 43000 })),
+        "a higher MCP does not invalidate an unchanged lower FMC target")
+    for _, vs in ipairs({ 0, -500 }) do
+        assert_equal(core.isEventSnapshotCurrent(event, copy(snapshot, { vertical_speed_fpm = vs })), false,
+            "level-off or reversal invalidates waiting reaching text")
+    end
+    assert_equal(core.buildMessage("enroute.in_cruise", copy(snapshot, { mcp_altitude_ft = 0 })), event.text,
+        "FMC target remains available without a valid MCP target")
+    local level = copy(snapshot, { vertical_speed_fpm = 0 })
+    assert_equal(core.buildMessage("enroute.in_cruise", level),
+        "Lufthansa 3210 level at FL408, 74N030W next", "level-at retains actual pressure altitude")
+    assert_equal(core.isEventSnapshotCurrent({ id = "enroute.in_cruise", snapshot = level }, snapshot), false,
+        "a later climb invalidates a queued level-at claim")
+    assert_equal(core.buildMessage("enroute.in_cruise", copy(snapshot, {
+        cruise_entry = false, cruise_periodic = true
+    })), "Lufthansa 3210 maintaining FL408, 74N030W next", "periodic cruise continues to report actual altitude")
+    local lowerTarget = copy(snapshot, {
+        altitude_ft = 39860, pressure_altitude_ft = 39880, mcp_altitude_ft = 40000
+    })
+    assert_equal(core.buildMessage("enroute.in_cruise", lowerTarget),
+        "Lufthansa 3210 reaching FL400, 74N030W next", "active MCP restriction takes precedence over higher cruise")
+    local metric = copy(snapshot, {
+        altitude_ft = 40380, pressure_altitude_ft = 40390, mcp_altitude_ft = 40500, planned_altitude_ft = 40500
+    })
+    local metricText = core.buildMessage("enroute.in_cruise", metric)
+    assert_equal(metricText, "Lufthansa 3210 reaching FL405, 74N030W next", "metric target is not rounded to a thousand feet")
+    assert_equal(core.buildVoiceMessage("enroute.in_cruise", metric, test_spell_nato, metricText),
+        "Lufthansa tree two one zero reaching flight level fower zero fife, seven four north zero tree zero west next",
+        "metric FL405 target survives voice formatting")
+    local belowTransition = copy(snapshot, {
+        altitude_ft = 6300, pressure_altitude_ft = 6250, mcp_altitude_ft = 6500, planned_altitude_ft = 6500
+    })
+    assert_equal(core.buildMessage("enroute.in_cruise", belowTransition),
+        "Lufthansa 3210 reaching 6500ft, 74N030W next", "below-transition reaching uses target feet")
+    assert_equal(core.buildMessage("enroute.in_cruise", copy(snapshot, {
+        planned_altitude_ft = 0, mcp_altitude_ft = 0
+    })), nil, "missing targets cannot be replaced by a fictitious reaching current altitude")
+    assert_equal(core.buildMessage("enroute.in_cruise", copy(snapshot, { vertical_speed_fpm = -1000 })), nil,
+        "a descending cruise-state snapshot is not described as reaching a climb target")
+end
 assert_equal(
     core.buildMessage("enroute.in_cruise", copy(base, {
         cruise_entry = true,

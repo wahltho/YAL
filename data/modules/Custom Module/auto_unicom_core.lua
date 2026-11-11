@@ -1174,9 +1174,18 @@ function M.buildMessage(eventId, snapshot)
     if eventId == "enroute.in_cruise" then
         local nextWaypoint = clean_token(snapshot.cruise_next_waypoint, false)
         if snapshot.cruise_entry == true then
-            local altitude = format_altitude(snapshot, false)
+            local level = M.isCruiseLevelStable(snapshot.vertical_speed_fpm)
+            local altitude
+            if level then
+                altitude = format_altitude(snapshot, false)
+            elseif (tonumber(snapshot.vertical_speed_fpm) or 0) > 0 then
+                -- Reaching describes the active target, not the current passing height.
+                altitude = format_climb_target_altitude(snapshot)
+            else
+                return nil, "not_cruise_level_or_climb"
+            end
             if not altitude then return nil, "missing_cruise_context" end
-            local phaseText = M.isCruiseLevelStable(snapshot.vertical_speed_fpm) and "level at" or "reaching"
+            local phaseText = level and "level at" or "reaching"
             local text = string.format("%s %s %s", context.prefix, phaseText, altitude)
             text = append_navigation_status(text, snapshot, nextWaypoint)
             return normalize_text(text)
@@ -1563,6 +1572,18 @@ function M.isEventSnapshotCurrent(event, current)
     for _, field in ipairs(fields) do
         if tostring(previous[field] or "") ~= tostring(current[field] or "") then
             return false, "changed_" .. field
+        end
+    end
+    if cruise and previous.cruise_entry == true then
+        local level = M.isCruiseLevelStable(previous.vertical_speed_fpm)
+        local currentLevel = M.isCruiseLevelStable(current.vertical_speed_fpm)
+        if level ~= currentLevel or (not currentLevel and (tonumber(current.vertical_speed_fpm) or 0) <= 0) then
+            return false, "vertical_status_changed"
+        end
+        if not level then
+            local _, target = format_climb_target_altitude(previous)
+            local _, currentTarget = format_climb_target_altitude(current)
+            if not target or target ~= currentTarget then return false, "changed_cruise_target" end
         end
     end
     if id == "arrival.approach" then
