@@ -1448,14 +1448,25 @@ assert_equal(
 )
 assert_equal(
     core.buildMessage("departure.climb_level_10000", copy(base, {
-        altitude_ft = 12300,
-        pressure_altitude_ft = 12300,
-        mcp_altitude_ft = 12000,
+        altitude_ft = 10000,
+        pressure_altitude_ft = 10000,
+        mcp_altitude_ft = 9700,
         climb_next_waypoint = ""
     })),
-    "Lufthansa 3210 climbing out of ALTA, passing FL123",
+    "Lufthansa 3210 climbing out of ALTA, passing FL100",
     "MCP materially below current altitude is omitted"
 )
+do
+    local snapshot = copy(base, {
+        altitude_ft = 12300, pressure_altitude_ft = 12300, mcp_altitude_ft = 12000,
+        climb_next_waypoint = "", sid = ""
+    })
+    assert_equal(core.buildMessage("departure.on_climb", snapshot),
+        "Lufthansa 3210 climbing out of ALTA, passing FL123",
+        "ordinary climb still reports actual height and omits the lower MCP target")
+    assert_equal(core.isEventSnapshotCurrent({ id = "departure.climb_level_10000", snapshot = snapshot }, snapshot),
+        false, "10k boundary cannot be dispatched at 12300ft")
+end
 assert_equal(
     core.buildMessage("enroute.in_cruise", copy(base, {
         cruise_entry = true,
