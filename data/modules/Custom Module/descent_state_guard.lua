@@ -46,6 +46,22 @@ function P.evaluateRestoreRecovery(input)
         result.reason = "on-ground"
         return result
     end
+    local climbThreshold = finiteNumber(input.climb_recovery_fpm, 100)
+    if input.restored_flightstate == input.approach_flightstate then
+        if input.go_around_active == true or input.hold_active == true then
+            result.reason = "arrival-maneuver-active"
+            return result
+        end
+        local climbPhase = input.fms_climb_phase ~= nil and input.fms_phase == input.fms_climb_phase
+        local cruiseClimbPhase = input.fms_crz_clb_phase ~= nil and input.fms_phase == input.fms_crz_clb_phase
+        -- A loaded climbing situation can retain the previous flight's persistent APPROACH.
+        if (climbPhase or cruiseClimbPhase) and evidence.vertical_speed_fpm >= climbThreshold then
+            result.recover = true
+            result.reason = "fms-climbing"
+            result.flightstate = climbPhase and input.climb_flightstate or input.cruise_flightstate
+            return result
+        end
+    end
     if input.fms_phase ~= input.fms_cruise_phase then
         result.reason = "fms-not-cruise"
         return result
@@ -64,7 +80,6 @@ function P.evaluateRestoreRecovery(input)
         return result
     end
 
-    local climbThreshold = finiteNumber(input.climb_recovery_fpm, 100)
     if evidence.vertical_speed_fpm >= climbThreshold then
         result.recover = true
         result.reason = "climbing"

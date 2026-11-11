@@ -39,10 +39,13 @@ local function evaluateRecovery(overrides)
     local input = {
         aircraft_on_ground = false,
         restored_flightstate = 4,
+        climb_flightstate = 2,
         cruise_flightstate = 3,
         approach_flightstate = 4,
         fms_phase = 2,
         fms_cruise_phase = 2,
+        fms_climb_phase = 1,
+        fms_crz_clb_phase = 3,
         vertical_speed_fpm = 362,
         altitude_ft = 26000,
         cruise_altitude_ft = 37000,
@@ -101,6 +104,18 @@ recovery = evaluateRecovery({
 assertEqual(recovery.recover, true, "existing restored-cruise cleanup remains available")
 assertEqual(recovery.reason, "restored-cruise", "restored-cruise recovery reason")
 
+for phase, state in pairs({ [1] = 2, [3] = 3 }) do
+    recovery = evaluateRecovery({ fms_phase = phase })
+    assertEqual(recovery.recover, true, "confirmed FMS climb releases stale approach")
+    assertEqual(recovery.flightstate, state, "recovery returns the matching existing flight state")
+    for _, condition in ipairs({ { hold_active = true }, { go_around_active = true },
+        { vertical_speed_fpm = 0 }, { vertical_speed_fpm = -500 }, { aircraft_on_ground = true } }) do
+        condition.fms_phase = phase
+        assertEqual(evaluateRecovery(condition).recover, false,
+            "climb phase alone cannot undo a hold, GA, level-off or descent")
+    end
+end
+
 -- Exercise both real baselines and the subsequent runtime cycles, not just the pure guard.
 do
     sasl = setmetatable({
@@ -118,12 +133,15 @@ do
         getLogLevel = function() return 0 end,
         gl = { loadFont = function() return 1 end }
     }, { __index = function() return function() end end })
-    PLUGINS_MENU_ID, LOG_DEBUG = 1, 10
+    PLUGINS_MENU_ID, LOG_DEBUG, LOG_INFO = 1, 10, 20
 
     local refs, events, baselines, finalEstablished = {}, {}, 0, false
     local realTime, now = os.time, 0
     os.time = function() return now end
-    function get(ref) return refs[ref] end
+    function get(ref, index)
+        if index then return refs[ref] and refs[ref][index] end
+        return refs[ref]
+    end
     function set(ref, value, index)
         if index then
             refs[ref] = refs[ref] or {}
@@ -132,12 +150,27 @@ do
             refs[ref] = value
         end
     end
+    function globalProperty(path) return path end
+    function isProperty(ref) return type(ref) == "string" and refs[ref] ~= nil end
+    function createGlobalPropertyi(path, value) refs[path] = value; return path end
+    createGlobalPropertyf, createGlobalPropertys = createGlobalPropertyi, createGlobalPropertyi
+    function createGlobalPropertyia(path, size)
+        local value = {}
+        for index = 1, size do value[index] = 0 end
+        refs[path] = value
+        return path
+    end
     helpers = {
         logInfoTS = function() end,
         forceCleanString = function(value) return tostring(value or "") end,
         checkCgBaselineAtStartup = function() end,
         checkDefaultViewAtStartup = function() end,
         tableToStringOrValue = function(value) return tostring(value) end,
+        shallowcopy = function(source)
+            local result = {}
+            for key, value in pairs(source or {}) do result[key] = value end
+            return result
+        end,
         roundnumber = function(value) return math.floor(value + 0.5) end
     }
     package.loaded.helpers = helpers
@@ -153,6 +186,9 @@ do
         yal.loopStateTables = { { lock = def.NOPROCEDURE }, { lock = def.NOPROCEDURE } }
         yal.resetDescentTriggerState(true)
         yal.descentTriggerRestoreHoldUntil = nil
+        yal.isReloadWithinSession = false
+        yal.procedurelooptemplate = { lock = def.NOPROCEDURE, stepindex = 0, currentStepName = "" }
+        yal.loopenginekeys = { lock = true, stepindex = true, currentStepName = true }
     end
     procedures.fillProcedureTable = function()
         yal.proceduretable = {
@@ -164,23 +200,27 @@ do
         }
     end
     yal.buildProcedureLabelMaps = function() end
-    yal.initDataref = function()
-        yal.flightstate = refs.flightstatedr
-        yal.isReloadWithinSession = true
-    end
+    -- Keep the real persistent state/loop restore; stub only external aircraft bindings.
+    yal.bindExternalDatarefs = function() return 0 end
+    yal.ensureApuStartCommandHook = function() end
+    yal.updateApuStartState = function() end
     refdata.initialize = function() end
     yal.readconfig = function() end
     yal.commandtableentry = function() end
     yal.updateAutoUnicomArrivalContext = function() end
     yal.updateAutoUnicomDepartureContext = function() end
     yal.getAutoUnicomFlightPlanContext = function() return nil end
-    yal.getHoldRuntimeState = function() return { active = false } end
+    yal.getHoldRuntimeState = function()
+        return { active = refs.hold_active == true, waypoint = "BIRCO", path_type = "HM" }
+    end
+    yal.getAutoUnicomNavigationTarget = function() return "BIRCO", false end
     yal.isArrivalFinalEstablished = function() return finalEstablished end
     yal.isArrivalShortFinal = function() return false end
     yal.resetLoopState = function(loop) loop.lock = def.NOPROCEDURE end
     yal.saveLoopState = function() end
     yal.clearProcedureQueuedSpeech = function() end
     yal.duringdescent = function() yal.updateAutoUnicomDescentEvents() end
+    yal.duringclimb = function() end
     local baseline = yal.baselineAutoUnicomRuntimeEvents
     yal.baselineAutoUnicomRuntimeEvents = function()
         baselines = baselines + 1
@@ -198,7 +238,8 @@ do
     local function initialize(state, phase, altitude, vs, adviceOnly)
         events, baselines, finalEstablished, now = {}, 0, false, 0
         refs = {
-            airgroundsensor = def.OFF, flightstatedr = state,
+            airgroundsensor = def.OFF, [def.APPNAMEPREFIX .. "/state/flightstate"] = state,
+            [def.APPNAMEPREFIX .. "/state/procedureset"] = { [def.AFTERTAKEOFFPROCEDURE] = 1 },
             fmsflightphase = phase, altitude = altitude, altitude_ft = altitude,
             pressurealtitudeft = altitude - 389, verticalspeed = vs,
             fmccruisealt = 40000, mcpaltitude = 6000, vnavtoddist = -96.9
@@ -208,6 +249,7 @@ do
             [def.CONFIGVOICEADVICEONLY] = adviceOnly and def.ON or def.OFF
         }
         yal.initializeScript()
+        assert(yal.isReloadWithinSession, "real initDataref recognizes existing persistent state")
         assertEqual(baselines, 1, "initialization establishes its baseline")
         assertEqual(yal.determineFlightStateFromProcedures(), def.FLIGHTSTATECRUISE,
             "fixture reproduces the minimum procedure-state inference")
@@ -224,7 +266,7 @@ do
         assertEqual(baselines, 2, "real restore establishes the second baseline")
         tick(22)
         assertEqual(yal.flightstate, def.FLIGHTSTATEAPPROACH, "reload retains established descent")
-        assertEqual(refs.flightstatedr, def.FLIGHTSTATEAPPROACH, "persisted state is not regressed")
+        assertEqual(refs[yal.flightstatedr], def.FLIGHTSTATEAPPROACH, "persisted state is not regressed")
         assertEqual(count("arrival.on_descent") + count("arrival.top_of_descent"), 0,
             "no false descent-start message after reload or the ten-second trigger window")
         refs.altitude, refs.altitude_ft, refs.pressurealtitudeft = 10000, 10000, 9611
@@ -234,6 +276,42 @@ do
         tick(35)
         tick(40)
         assertEqual(count("arrival.on_final"), 1, "future established-final report is retained")
+    end
+
+    for _, phase in ipairs({ def.FMSFLIGHTPHASE_CLIMB, def.FMSFLIGHTPHASE_CRZ_CLB }) do
+        for _, adviceOnly in ipairs({ false, true }) do
+            initialize(def.FLIGHTSTATEAPPROACH, phase, 26000, 362, adviceOnly)
+            yal.proceduretable[def.DURINGDESCENTPROCEDURE].set = true
+            yal.loopStateTables[2].lock = def.DURINGDESCENTPROCEDURE
+            tick(12)
+            local expected = phase == def.FMSFLIGHTPHASE_CLIMB and def.FLIGHTSTATECLIMB or def.FLIGHTSTATECRUISE
+            assertEqual(yal.flightstate, expected, "loaded climbing situation releases old approach state")
+            assertEqual(refs[yal.flightstatedr], expected, "recovered flight state is persisted")
+            assertEqual(yal.loopStateTables[2].lock, def.NOPROCEDURE, "climb recovery clears stale descent loop")
+            assertEqual(yal.proceduretable[def.DURINGDESCENTPROCEDURE].set, false, "climb recovery clears descent flag")
+            assert(not yal.autoUnicomRuntime.sent["arrival.descent_entry"], "new descent is not consumed by old arrival baseline")
+            refs.fmsflightphase, refs.verticalspeed = def.FMSFLIGHTPHASE_CRUISE, 0
+            refs.altitude, refs.altitude_ft = 40000, 40000
+            tick(20)
+            assertEqual(yal.flightstate, def.FLIGHTSTATECRUISE, "normal cruise remains reachable")
+            yal.updateAutoUnicomCruiseEvent()
+            assertEqual(count("enroute.in_cruise"), 1, "new cruise entry can be reported")
+            refs.fmsflightphase, refs.verticalspeed = def.FMSFLIGHTPHASE_DESCENT, -756
+            tick(60)
+            tick(70)
+            tick(71)
+            assertEqual(count("arrival.on_descent"), 1, "genuine later descent remains reportable once")
+        end
+        for _, protection in ipairs({ "hold_active", "go_around_active" }) do
+            initialize(def.FLIGHTSTATEAPPROACH, phase, 26000, 362)
+            if protection == "hold_active" then
+                refs.hold_active = true
+            else
+                yal.loopStateTables[1] = { lock = def.GOAROUNDPROCEDURE, stepindex = 1 }
+            end
+            tick(12)
+            assertEqual(yal.flightstate, def.FLIGHTSTATEAPPROACH, "existing hold/accepted GA retains arrival ownership")
+        end
     end
 
     for _, flightpath in ipairs({

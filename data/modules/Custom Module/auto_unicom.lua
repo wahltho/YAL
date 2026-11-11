@@ -163,6 +163,12 @@ local function mailbox_log(kind, event)
     elseif kind == "invalidated" then
         log("IVAO Auto-Unicom: discarded obsolete event=" .. tostring(event.id)
             .. " reason=" .. tostring(event.invalid_reason or "context_changed"))
+        -- Only pre-dispatch validation may rearm the current flight's producer, not bulk cleanup.
+        local y = runtime and runtime.yal
+        if event.invalid_reason and event.snapshot and event.snapshot.flight_epoch == flightEpoch
+            and y and y.onAutoUnicomQueuedEventInvalidated then
+            y.onAutoUnicomQueuedEventInvalidated(event)
+        end
     end
 end
 

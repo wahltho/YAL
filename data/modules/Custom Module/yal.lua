@@ -9724,6 +9724,14 @@ function P.updateAutoUnicomHoldEvents()
     end
 end
 
+function P.onAutoUnicomQueuedEventInvalidated(event)
+    local state = P.autoUnicomRuntime
+    if not state or event.id ~= "enroute.in_cruise"
+        or not event.snapshot or event.snapshot.cruise_entry ~= true then return end
+    state.cruiseInitialized = false
+    state.cruiseLastReportAt = nil
+end
+
 function P.updateAutoUnicomCruiseEvent()
     local state = P.autoUnicomRuntime
     if not state then return end
@@ -10358,10 +10366,15 @@ function P.clearStaleDescentRestoreState(restoredFlightState, aircraftIsOnGround
     local recovery = P.descentStateGuard.evaluateRestoreRecovery({
         aircraft_on_ground = aircraftIsOnGround,
         restored_flightstate = restoredFlightState,
+        climb_flightstate = def.FLIGHTSTATECLIMB,
         cruise_flightstate = def.FLIGHTSTATECRUISE,
         approach_flightstate = def.FLIGHTSTATEAPPROACH,
         fms_phase = fmsPhase,
         fms_cruise_phase = def.FMSFLIGHTPHASE_CRUISE,
+        fms_climb_phase = def.FMSFLIGHTPHASE_CLIMB,
+        fms_crz_clb_phase = def.FMSFLIGHTPHASE_CRZ_CLB,
+        go_around_active = P.isAutoUnicomGoAroundActive(),
+        hold_active = P.getHoldRuntimeState().active,
         vertical_speed_fpm = tonumber(get(P.verticalspeed)) or 0,
         altitude_ft = tonumber(get(P.altitude)) or 0,
         cruise_altitude_ft = tonumber(get(P.fmccruisealt)) or 0,
@@ -10402,7 +10415,7 @@ function P.clearStaleDescentRestoreState(restoredFlightState, aircraftIsOnGround
     end
 
     P.armDescentTriggerRestoreHold("stale descent restore state recovered")
-    return true
+    return true, recovery.flightstate or def.FLIGHTSTATECRUISE
 end
 
 --------------------------------------------------------------------------------------------------------------
@@ -10683,9 +10696,10 @@ function P.autofunctions()
 
     if P.isReloadWithinSession then
         local staleDescentRecovered = false
+        local recoveredFlightState
         if not aircraftIsOnGround and
             (currentFlightState == def.FLIGHTSTATECRUISE or currentFlightState == def.FLIGHTSTATEAPPROACH) then
-            staleDescentRecovered = P.clearStaleDescentRestoreState(currentFlightState, aircraftIsOnGround)
+            staleDescentRecovered, recoveredFlightState = P.clearStaleDescentRestoreState(currentFlightState, aircraftIsOnGround)
             if currentFlightState == def.FLIGHTSTATECRUISE and not staleDescentRecovered then
                 P.armDescentTriggerRestoreHold("inflight restore while CRUISE")
             end
@@ -10693,7 +10707,7 @@ function P.autofunctions()
 
         local stateFromProcs = P.determineFlightStateFromProcedures()
         local stateIsPlausible = false
-        local finalState = staleDescentRecovered and def.FLIGHTSTATECRUISE or stateFromProcs
+        local finalState = staleDescentRecovered and recoveredFlightState or stateFromProcs
         -- An unset procedure's minimum allowed state cannot undo an established descent.
         -- Only the existing stale-descent recovery may release the restored APPROACH state.
         if not aircraftIsOnGround and currentFlightState == def.FLIGHTSTATEAPPROACH
