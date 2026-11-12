@@ -292,6 +292,10 @@ tick(30)
 assert(#logs == 1, "reload into an existing level-off eventually warns")
 
 -- Exercise the actual do_yal disable branch without running unrelated procedures.
+-- Readback needs its own complete aircraft fixture, not the cruise guard's minimal refs.
+local readback = require("voicereadback")
+local realReadbackRun = readback.run
+readback.run = function() end
 settings.newSettingsAvailable = false
 yal.needstempinit = false
 yal.updateSharedVariables = function() end
@@ -327,5 +331,6 @@ for _, adviceOnly in ipairs({ false, true }) do
         "actual background dispatch cancels pending advice when both modes are off")
 end
 
+readback.run = realReadbackRun
 os.time = realTime
 print("test_cruise_altitude_guard: all checks passed")
