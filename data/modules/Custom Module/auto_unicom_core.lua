@@ -1260,6 +1260,7 @@ function M.buildMessage(eventId, snapshot)
         local text = context.prefix
         if star then text = text .. ", " .. star .. " arrival" end
         text = text .. ", at TOD leaving " .. altitude .. ", expecting runway " .. context.runway
+        text = append_navigation_status(text, snapshot, clean_token(snapshot.descent_next_waypoint, false))
         return normalize_text(text)
     end
 
@@ -1276,6 +1277,7 @@ function M.buildMessage(eventId, snapshot)
         if star then text = text .. ", " .. star .. " arrival" end
         if approach then text = text .. ", " .. approach .. " approach" end
         text = text .. " runway " .. context.runway .. ", descent started from " .. altitude
+        text = append_navigation_status(text, snapshot, clean_token(snapshot.descent_next_waypoint, false))
         return normalize_text(text)
     end
 
@@ -1283,27 +1285,21 @@ function M.buildMessage(eventId, snapshot)
         if (tonumber(snapshot.vertical_speed_fpm) or 0) > 150 then return nil, "not_approach_level_or_descent" end
         local altitude = format_altitude(snapshot, true, progress_boundary_ft(eventId, snapshot))
         if not altitude then return nil, "missing_arrival_context" end
-        local star = clean_token(snapshot.star, false)
         local approach = approach_label(snapshot)
-        local text = context.prefix
-        if star then text = text .. " " .. star .. " arrival" end
-        text = text .. " for "
+        local text = context.prefix .. " for "
         if approach then text = text .. approach .. " approach " end
         local descending = (tonumber(snapshot.vertical_speed_fpm) or 0) < -150
         text = text .. "runway " .. context.runway
             .. (descending and ", on descent passing " or ", maintaining ") .. altitude
+        text = append_navigation_status(text, snapshot, clean_token(snapshot.descent_next_waypoint, false))
         return normalize_text(text)
     end
 
     if is_descent_progress_event(eventId) then
         local altitude = format_altitude(snapshot, true, progress_boundary_ft(eventId, snapshot))
         if not altitude then return nil, "missing_arrival_context" end
-        local star = clean_token(snapshot.star, false)
-        local approach = approach_label(snapshot)
-        local text = context.prefix
-        if star then text = text .. ", " .. star .. " arrival" end
-        if approach then text = text .. ", " .. approach .. " approach" end
-        text = text .. " runway " .. context.runway .. ", on descent passing " .. altitude
+        local text = context.prefix .. ", on descent passing " .. altitude
+        text = append_navigation_status(text, snapshot, clean_token(snapshot.descent_next_waypoint, false))
         return normalize_text(text)
     end
 
@@ -1393,6 +1389,7 @@ function M.buildVoiceMessage(eventId, snapshot, spellNato, visibleText)
         { "climb_next_waypoint", snapshot.climb_next_waypoint },
         { "cruise_waypoint", snapshot.cruise_waypoint },
         { "cruise_next_waypoint", snapshot.cruise_next_waypoint },
+        { "descent_next_waypoint", snapshot.descent_next_waypoint },
         { "hold_waypoint", snapshot.hold_waypoint }
     }
     for _, entry in ipairs(namedIdentifiers) do
@@ -1484,6 +1481,8 @@ local function summarize_sources(snapshot)
         { "sidNav", snapshot.sid_nav_name },
         { "climbNext", snapshot.climb_next_waypoint },
         { "climbNextNav", snapshot.climb_next_waypoint_nav_name },
+        { "descentNext", snapshot.descent_next_waypoint },
+        { "descentNextNav", snapshot.descent_next_waypoint_nav_name },
         { "star", snapshot.star },
         { "starNav", snapshot.star_nav_name },
         { "app", snapshot.approach_id },
@@ -1562,9 +1561,14 @@ function M.isEventSnapshotCurrent(event, current)
     end
     local climb = id == "departure.on_climb" or id == "departure.climb_resumed" or is_climb_progress_event(id)
     local cruise = id == "enroute.in_cruise"
-    if climb or cruise then
+    local descentNavigation = id == "arrival.top_of_descent" or id == "arrival.on_descent"
+        or id == "arrival.approach" or is_descent_progress_event(id)
+    if climb or cruise or descentNavigation then
         fields[#fields + 1] = "navigation_context_id"
         fields[#fields + 1] = "navigation_vector_heading_deg"
+        if descentNavigation then fields[#fields + 1] = "navigation_vector_active" end
+    end
+    if climb or cruise then
         fields[#fields + 1] = "planned_altitude_ft"
         if climb then fields[#fields + 1] = "mcp_altitude_ft" end
         if id == "departure.on_climb" then fields[#fields + 1] = "sid" end

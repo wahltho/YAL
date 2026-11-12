@@ -382,7 +382,7 @@ local phraseCases = {
     {
         "arrival.approach",
         copy(base, { altitude_ft = 6000, pressure_altitude_ft = 6000, vertical_speed_fpm = -800 }),
-        "SVALBARD Traffic, Lufthansa 3210 NELSA3M arrival for RNAV W approach runway 27, on descent passing 6000ft"
+        "SVALBARD Traffic, Lufthansa 3210 for RNAV W approach runway 27, on descent passing 6000ft"
     },
     {
         "arrival.on_final",
@@ -412,7 +412,7 @@ local phraseCases = {
     {
         "arrival.descent_level_30000",
         copy(base, { altitude_ft = 30000, pressure_altitude_ft = 30000 }),
-        "Lufthansa 3210 inbound SVALBARD, NELSA3M arrival, RNAV W approach runway 27, on descent passing FL300"
+        "Lufthansa 3210 inbound SVALBARD, on descent passing FL300"
     },
     {
         "departure.climb_level_10000",
@@ -674,7 +674,7 @@ local voiceCases = {
     {
         "arrival.approach",
         copy(base, { altitude_ft = 6000, pressure_altitude_ft = 6000, vertical_speed_fpm = -800 }),
-        "Svalbard Traffic, Lufthansa tree two one zero Nelsa tree Mike arrival for R NAV Whiskey approach runway two seven, on descent passing six zero zero zero feet"
+        "Svalbard Traffic, Lufthansa tree two one zero for R NAV Whiskey approach runway two seven, on descent passing six zero zero zero feet"
     },
     {
         "departure.runway_crossing",
@@ -3268,6 +3268,157 @@ do
     assert_true(core.buildMessage("enroute.in_cruise", copy(base, {
         altitude_ft = 40500, pressure_altitude_ft = 40500, cruise_periodic = true
     })):find("maintaining FL405", 1, true) ~= nil, "metric cruise flight levels are not rounded to thousands")
+end
+
+do
+    local cases = {
+        { "arrival.top_of_descent", 37000,
+            "Lufthansa 3210 inbound SVALBARD, NELSA3M arrival, at TOD leaving FL370, expecting runway 27",
+            "Lufthansa tree two one zero inbound Svalbard, Nelsa tree Mike arrival, at top of descent leaving flight level tree seven zero, expecting runway two seven" },
+        { "arrival.on_descent", 36000,
+            "Lufthansa 3210 inbound SVALBARD, NELSA3M arrival, RNAV W approach runway 27, descent started from FL370",
+            "Lufthansa tree two one zero inbound Svalbard, Nelsa tree Mike arrival, R NAV Whiskey approach runway two seven, descent started from flight level tree seven zero" },
+        { "arrival.descent_level_40000", 40000,
+            "Lufthansa 3210 inbound SVALBARD, on descent passing FL400",
+            "Lufthansa tree two one zero inbound Svalbard, on descent passing flight level fower zero zero" },
+        { "arrival.descent_level_30000", 30000,
+            "Lufthansa 3210 inbound SVALBARD, on descent passing FL300",
+            "Lufthansa tree two one zero inbound Svalbard, on descent passing flight level tree zero zero" },
+        { "arrival.descent_level_20000", 20000,
+            "Lufthansa 3210 inbound SVALBARD, on descent passing FL200",
+            "Lufthansa tree two one zero inbound Svalbard, on descent passing flight level two zero zero" },
+        { "arrival.descent_level_10000", 10000,
+            "Lufthansa 3210 inbound SVALBARD, on descent passing FL100",
+            "Lufthansa tree two one zero inbound Svalbard, on descent passing flight level one zero zero" },
+        { "arrival.approach", 6000,
+            "SVALBARD Traffic, Lufthansa 3210 for RNAV W approach runway 27, on descent passing 6000ft",
+            "Svalbard Traffic, Lufthansa tree two one zero for R NAV Whiskey approach runway two seven, on descent passing six zero zero zero feet" }
+    }
+    for _, case in ipairs(cases) do
+        local snapshot = copy(base, {
+            altitude_ft = case[2], pressure_altitude_ft = case[2], vertical_speed_fpm = -1000,
+            descent_from_altitude_ft = 37000, descent_from_pressure_altitude_ft = 37000,
+            descent_next_waypoint = "BIRCO", navigation_context_id = "BIRCO",
+            navigation_vector_active = false
+        })
+        local event = core.newEvent(case[1], snapshot, 0, test_spell_nato)
+        assert_equal(event.text, case[3] .. ", BIRCO next", "descent next text " .. case[1])
+        assert_equal(event.voice_text, case[4] .. ", Birco next", "descent next voice " .. case[1])
+        assert_true(core.isEventSnapshotCurrent(event, copy(snapshot)), "current descent navigation " .. case[1])
+        assert_equal(core.isEventSnapshotCurrent(event, copy(snapshot, { navigation_context_id = "NESDI" })),
+            false, "changed descent next is stale " .. case[1])
+        assert_true(core.isEventSnapshotCurrent(event, copy(snapshot, {
+            planned_altitude_ft = 41000, mcp_altitude_ft = 5000
+        })), "climb target checks do not leak into descent " .. case[1])
+
+        local noWaypoint = copy(snapshot, { descent_next_waypoint = "" })
+        assert_equal(core.buildMessage(case[1], noWaypoint), case[3], "missing next retains descent " .. case[1])
+        local vector = copy(snapshot, { navigation_vector_active = true, navigation_vector_heading_deg = 221 })
+        local vectorEvent = core.newEvent(case[1], vector, 0, test_spell_nato)
+        assert_equal(vectorEvent.text, case[3] .. ", flying heading 221", "descent vector text " .. case[1])
+        assert_equal(vectorEvent.voice_text, case[4] .. ", flying heading two two one",
+            "descent vector voice " .. case[1])
+        assert_equal(core.isEventSnapshotCurrent(vectorEvent, copy(vector, { navigation_vector_heading_deg = 230 })),
+            false, "changed descent vector is stale " .. case[1])
+        assert_equal(core.isEventSnapshotCurrent(vectorEvent, copy(vector, { navigation_vector_active = false })),
+            false, "ended descent vector is stale " .. case[1])
+        assert_equal(core.buildMessage(case[1], copy(vector, { navigation_vector_heading_deg = 999 })), case[3],
+            "invalid vector heading never invents a next fix " .. case[1])
+    end
+    local levelApproach = copy(base, { altitude_ft = 6000, pressure_altitude_ft = 6000,
+        vertical_speed_fpm = 0, descent_next_waypoint = "BIRCO" })
+    assert_equal(core.buildMessage("arrival.approach", levelApproach),
+        "SVALBARD Traffic, Lufthansa 3210 for RNAV W approach runway 27, maintaining 6000ft, BIRCO next",
+        "level-off approach retains actual vertical status")
+    for _, id in ipairs({ "arrival.on_final", "arrival.short_final", "arrival.go_around" }) do
+        local snapshot = copy(base, { descent_next_waypoint = "BIRCO", navigation_context_id = "BIRCO" })
+        assert_equal(core.buildMessage(id, snapshot), core.buildMessage(id, base),
+            "final/GA wording is unchanged " .. id)
+        assert_true(core.isEventSnapshotCurrent({ id = id, snapshot = snapshot },
+            copy(snapshot, { navigation_context_id = "NESDI", navigation_vector_heading_deg = 221 })),
+            "final/GA has no extra navigation gate " .. id)
+    end
+end
+
+do
+    local savedValues, savedState = copy(eventAdapterValues), eventAdapterYal.flightstate
+    local savedContext, savedAuthority = eventAdapterYal.getAutoUnicomApproachContext,
+        eventAdapterYal.isAutoUnicomEventCurrent
+    eventAdapterYal.flightstate = baselineDef.FLIGHTSTATEAPPROACH
+    eventAdapterYal.getAutoUnicomApproachContext = nil
+    eventAdapterYal.isAutoUnicomEventCurrent = function() return true end
+    eventAdapterValues = copy(eventAdapterValues, {
+        api_version = 3, ready = 1, mode = 2, transport_state = 5,
+        request_seq = 300, result_seq = 300, result_code = 21,
+        voice_result_seq = 300, voice_result_code = 20,
+        altitude_ft = 20000, pressure_altitude = 20000, verticalspeed = -1000,
+        desicao = "ENSB", desrwy = "27", fmsselectedapp = "R27-W", fmsselectedstar = "NELSA3M",
+        fmsfplnnavid = "BIRCO", fmslegs = "BIRCO NESDI", fmsvnavidx = 1,
+        fmslegslat = { 78.0, 78.1 }, fmslegslon = { 15.0, 15.1 },
+        fmscustomwptnum = 0, fmscustomwptid = "", fmscustomwptlat = {}, fmscustomwptlon = {}
+    })
+    eventAdapterFixApiAvailable, eventAdapterPublishedFixes = false, {}
+    local function report(expectedText, expectedVoice, eventId)
+        eventAdapterWrites = {}
+        configure_event_adapter_test()
+        autoUnicom.tick(true, 0)
+        assert_equal(#eventAdapterWrites, 0, "activation alone does not generate descent traffic")
+        assert_true(autoUnicom.handleYalEvent(eventId or "arrival.descent_level_20000", nil, 1),
+            "existing descent event accepted")
+        autoUnicom.tick(true, 1)
+        assert_equal(eventAdapterWrites[1].value, expectedText, "adapter descent text")
+        assert_equal(eventAdapterWrites[2].value, expectedVoice, "adapter descent voice")
+        assert_equal(eventAdapterWrites[3].value, 3, "descent keeps paired channel protocol")
+        assert_equal(eventAdapterWrites[4].kind, "seq", "descent commits sequence last")
+    end
+    local text = "Lufthansa 3210 inbound SVALBARD, on descent passing FL200"
+    local voice = "Lufthansa tree two one zero inbound Svalbard, on descent passing flight level two zero zero"
+    report(text .. ", BIRCO next", voice .. ", Birco next")
+
+    eventAdapterValues.fmsfplnnavid = "(VECTO\0"
+    eventAdapterValues.fmslegscrsmag = { 175, 221 }
+    eventAdapterValues.fmsvnavidx = 2
+    report(text .. ", flying heading 221", voice .. ", flying heading two two one")
+
+    eventAdapterValues.fmsfplnnavid = "15N154"
+    eventAdapterValues.fmslegs = "TAKIE 15N154W KOA"
+    eventAdapterValues.fmslegslat, eventAdapterValues.fmslegslon = { 14.2, 15, 19.4 }, { -151.1, -154, -155.9 }
+    report(text .. ", 15N154W next", voice .. ", one fife north one fife four west next")
+
+    eventAdapterValues.fmsfplnnavid = "PHL01"
+    eventAdapterValues.fmslegs = "CLAWW PHL01 LIH JABDI"
+    eventAdapterValues.fmslegslat, eventAdapterValues.fmslegslon = { 41.9, 42.1, 42.2, 42.3 }, { -71, -71.1, -71.2, -71.3 }
+    eventAdapterValues.fmscustomwptnum, eventAdapterValues.fmscustomwptid = 1, "PHL01"
+    eventAdapterValues.fmscustomwptlat, eventAdapterValues.fmscustomwptlon = { 42.1 }, { -71.1 }
+    report(text .. ", LIH next", voice .. ", Lihue next")
+
+    eventAdapterValues.fmslegs = "CLAWW PHL01"
+    report(text, voice)
+    eventAdapterValues.fmscustomwptnum, eventAdapterValues.fmscustomwptid = 0, ""
+    eventAdapterValues.fmsfplnnavid, eventAdapterValues.fmslegs = "D271V", "MAARE D271V HUXEL"
+    eventAdapterValues.fmslegslat, eventAdapterValues.fmslegslon = { 41.8, 42, 42.2 }, { -71, -71.2, -71.4 }
+    eventAdapterFixApiAvailable = true
+    eventAdapterPublishedFixes = { HUXEL = { ident = "HUXEL", lat = 42.2, lon = -71.4 } }
+    report(text .. ", HUXEL next", voice .. ", Huxel next")
+    eventAdapterFixApiAvailable = false
+    eventAdapterValues.fmsfplnnavid, eventAdapterValues.fmslegs = "", ""
+    report(text, voice)
+
+    eventAdapterValues.fmsfplnnavid, eventAdapterValues.fmslegs = "BIRCO", "BIRCO NESDI"
+    eventAdapterValues.fmsvnavidx, eventAdapterValues.transport_state = 1, 4
+    eventAdapterWrites = {}
+    configure_event_adapter_test()
+    autoUnicom.tick(true, 0)
+    assert_true(autoUnicom.handleYalEvent("arrival.descent_level_20000", nil, 1), "busy transport queues descent")
+    autoUnicom.tick(true, 1)
+    eventAdapterValues.fmsfplnnavid, eventAdapterValues.transport_state = "NESDI", 5
+    autoUnicom.tick(true, 2)
+    assert_equal(#eventAdapterWrites, 0, "old descent next is discarded before any mailbox write")
+    assert_equal(autoUnicom.getDebugState().queue_depth, 0, "invalid descent navigation cannot return from queue")
+    eventAdapterValues = savedValues
+    eventAdapterYal.flightstate, eventAdapterYal.getAutoUnicomApproachContext = savedState, savedContext
+    eventAdapterYal.isAutoUnicomEventCurrent = savedAuthority
+    eventAdapterFixApiAvailable, eventAdapterPublishedFixes = false, {}
 end
 
 print("auto_unicom tests passed")

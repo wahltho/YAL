@@ -657,6 +657,7 @@ local function enrich_navigation_identifiers(snapshot)
     local waypointFields = {
         { "climb_next_waypoint", 0 },
         { "cruise_next_waypoint", 0 },
+        { "descent_next_waypoint", 0 },
         { "cruise_waypoint", -1 },
         { "hold_waypoint", 0 }
     }
@@ -681,7 +682,8 @@ local function enrich_navigation_identifiers(snapshot)
             )
             if not usable and (reason == "custom" or reason == "unpublished" or reason == "pseudo") then
                 local replacement = nil
-                if fieldName == "climb_next_waypoint" or fieldName == "cruise_next_waypoint" then
+                if fieldName == "climb_next_waypoint" or fieldName == "cruise_next_waypoint"
+                    or fieldName == "descent_next_waypoint" then
                     replacement = find_next_operational_leg(
                         legs,
                         leg and leg.route_index or preferredIndex,
@@ -768,6 +770,7 @@ local function build_snapshot()
         arrival_runway = tostring(safe_read(y.desrwy) or ""),
         sid = tostring(safe_read(y.fmsselectedsid) or ""),
         climb_next_waypoint = vectorLegActive and "" or tostring(activeNavigationId or ""),
+        descent_next_waypoint = vectorLegActive and "" or tostring(activeNavigationId or ""),
         navigation_vector_active = vectorLegActive,
         navigation_vector_heading_deg = vectorHeading,
         star = tostring(safe_read(y.fmsselectedstar) or ""),
