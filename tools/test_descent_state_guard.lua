@@ -108,6 +108,10 @@ for phase, state in pairs({ [1] = 2, [3] = 3 }) do
     recovery = evaluateRecovery({ fms_phase = phase })
     assertEqual(recovery.recover, true, "confirmed FMS climb releases stale approach")
     assertEqual(recovery.flightstate, state, "recovery returns the matching existing flight state")
+    local pending = evaluateRecovery({ fms_phase = phase, vertical_speed_fpm = 0 })
+    assertEqual(pending.pending, true, "climb level-off leaves existing recovery pending")
+    assertEqual(evaluateRecovery({ fms_phase = phase, vertical_speed_fpm = -500 }).pending,
+        false, "actual descent cannot retain a climb-recovery retry")
     for _, condition in ipairs({ { hold_active = true }, { go_around_active = true },
         { vertical_speed_fpm = 0 }, { vertical_speed_fpm = -500 }, { aircraft_on_ground = true } }) do
         condition.fms_phase = phase
@@ -312,6 +316,51 @@ do
             tick(12)
             assertEqual(yal.flightstate, def.FLIGHTSTATEAPPROACH, "existing hold/accepted GA retains arrival ownership")
         end
+    end
+
+    for _, phase in ipairs({ def.FMSFLIGHTPHASE_CLIMB, def.FMSFLIGHTPHASE_CRZ_CLB }) do
+        for _, adviceOnly in ipairs({ false, true }) do
+            initialize(def.FLIGHTSTATEAPPROACH, phase, 26000, 0, adviceOnly)
+            tick(12)
+            assertEqual(yal.flightstate, def.FLIGHTSTATEAPPROACH, "level-off alone does not release arrival ownership")
+            assertEqual(yal.staleDescentRestorePending, true, "existing recovery waits for confirmed climb")
+            assertEqual(yal.isReloadWithinSession, false, "full restore still runs only once")
+            tick(20)
+            assertEqual(baselines, 2, "waiting does not repeat restore or baseline")
+            refs.verticalspeed = 800
+            refs.altitude, refs.altitude_ft = 26100, 26100
+            tick(22)
+            local expected = phase == def.FMSFLIGHTPHASE_CLIMB and def.FLIGHTSTATECLIMB or def.FLIGHTSTATECRUISE
+            assertEqual(yal.flightstate, expected, "resumed climb resolves the pending restored state")
+            assertEqual(refs[yal.flightstatedr], expected, "delayed recovery is persisted")
+            assertEqual(yal.staleDescentRestorePending, false, "successful retry retires restore ownership")
+            assertEqual(baselines, 3, "resolved climb replaces the historical arrival baseline once")
+            assert(not yal.autoUnicomRuntime.sent["arrival.descent_entry"], "future descent remains available")
+            tick(23)
+            assertEqual(baselines, 3, "resolved restore does not run again")
+            refs.fmsflightphase, refs.verticalspeed = def.FMSFLIGHTPHASE_CRUISE, 0
+            refs.altitude, refs.altitude_ft = 40000, 40000
+            tick(30)
+            assertEqual(yal.flightstate, def.FLIGHTSTATECRUISE, "cruise is reachable after level-off recovery")
+            refs.fmsflightphase, refs.verticalspeed = def.FMSFLIGHTPHASE_DESCENT, -800
+            tick(60)
+            tick(70)
+            tick(71)
+            assertEqual(count("arrival.on_descent"), 1, "later real descent is neither consumed nor replayed")
+        end
+    end
+    for _, protection in ipairs({ "hold", "go-around", "descent" }) do
+        initialize(def.FLIGHTSTATEAPPROACH, def.FMSFLIGHTPHASE_CLIMB, 26000, 0)
+        tick(12)
+        assert(yal.staleDescentRestorePending, "fixture starts with an unresolved climb level-off")
+        refs.verticalspeed = 800
+        if protection == "hold" then refs.hold_active = true
+        elseif protection == "go-around" then
+            yal.loopStateTables[1] = { lock = def.GOAROUNDPROCEDURE, stepindex = 1 }
+        else refs.fmsflightphase, refs.verticalspeed = def.FMSFLIGHTPHASE_DESCENT, -800 end
+        tick(20)
+        assertEqual(yal.staleDescentRestorePending, false, "definite arrival owner cancels pending recovery: " .. protection)
+        assertEqual(yal.flightstate, def.FLIGHTSTATEAPPROACH, "existing arrival authority is preserved: " .. protection)
     end
 
     for _, flightpath in ipairs({

@@ -1567,6 +1567,12 @@ function M.isEventSnapshotCurrent(event, current)
         fields[#fields + 1] = "navigation_context_id"
         fields[#fields + 1] = "navigation_vector_heading_deg"
         if descentNavigation then fields[#fields + 1] = "navigation_vector_active" end
+        if previous.navigation_identifiers_resolved == true then
+            local waypointField = climb and "climb_next_waypoint"
+                or (cruise and "cruise_next_waypoint" or "descent_next_waypoint")
+            fields[#fields + 1] = waypointField
+            fields[#fields + 1] = waypointField .. "_nav_name"
+        end
     end
     if climb or cruise then
         fields[#fields + 1] = "planned_altitude_ft"

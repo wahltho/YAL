@@ -61,6 +61,7 @@ function P.evaluateRestoreRecovery(input)
             result.flightstate = climbPhase and input.climb_flightstate or input.cruise_flightstate
             return result
         end
+        result.pending = (climbPhase or cruiseClimbPhase) and not evidence.active
     end
     if input.fms_phase ~= input.fms_cruise_phase then
         result.reason = "fms-not-cruise"

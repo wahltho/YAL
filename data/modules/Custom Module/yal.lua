@@ -1807,6 +1807,7 @@ function P.YalinitGlobal()
     P.arrivalSetupWarningActive = false
     P.todResetMcpAdviceState = { key = nil, count = 0, spoken = 0 }
     P._takeoffN140CalloutLatched = false
+    P.staleDescentRestorePending = false
     P.autoUnicomRuntime = {
         sent = {},
         arrivalIcao = nil,
@@ -9727,10 +9728,24 @@ end
 
 function P.onAutoUnicomQueuedEventInvalidated(event)
     local state = P.autoUnicomRuntime
-    if not state or event.id ~= "enroute.in_cruise"
-        or not event.snapshot or event.snapshot.cruise_entry ~= true then return end
-    state.cruiseInitialized = false
-    state.cruiseLastReportAt = nil
+    if not state or not event.snapshot then return end
+    if event.id == "enroute.in_cruise" and event.snapshot.cruise_entry == true then
+        state.cruiseInitialized = false
+        state.cruiseLastReportAt = nil
+    elseif event.id == "arrival.top_of_descent" or event.id == "arrival.on_descent" then
+        state.sent["arrival.descent_entry"] = nil
+    elseif event.id == "arrival.approach" or event.id == "arrival.on_final"
+        or event.id == "arrival.short_final" then
+        state.sent[event.id] = nil
+        if event.id == "arrival.approach" and event.snapshot.progress_boundary_ft == 10000 then
+            state.sent["arrival.descent_level_10000"] = nil
+        end
+    else
+        for _, level in ipairs(AUTO_UNICOM_DESCENT_LEVELS_FT) do
+            local key = "arrival.descent_level_" .. tostring(level)
+            if event.id == key then state.sent[key] = nil; break end
+        end
+    end
 end
 
 function P.updateAutoUnicomCruiseEvent()
@@ -10387,7 +10402,7 @@ function P.clearStaleDescentRestoreState(restoredFlightState, aircraftIsOnGround
         near_level_fpm = def.DESCENT_RESTORE_NEAR_LEVEL_VS_FPM
     })
     if not recovery.recover then
-        return false
+        return false, nil, recovery.pending == true
     end
 
     local evidence = recovery.evidence
@@ -10698,9 +10713,11 @@ function P.autofunctions()
     if P.isReloadWithinSession then
         local staleDescentRecovered = false
         local recoveredFlightState
+        P.staleDescentRestorePending = false
         if not aircraftIsOnGround and
             (currentFlightState == def.FLIGHTSTATECRUISE or currentFlightState == def.FLIGHTSTATEAPPROACH) then
-            staleDescentRecovered, recoveredFlightState = P.clearStaleDescentRestoreState(currentFlightState, aircraftIsOnGround)
+            staleDescentRecovered, recoveredFlightState, P.staleDescentRestorePending =
+                P.clearStaleDescentRestoreState(currentFlightState, aircraftIsOnGround)
             if currentFlightState == def.FLIGHTSTATECRUISE and not staleDescentRecovered then
                 P.armDescentTriggerRestoreHold("inflight restore while CRUISE")
             end
@@ -10766,6 +10783,15 @@ function P.autofunctions()
 
         P.baselineAutoUnicomRuntimeEvents()
         P.isReloadWithinSession = false
+    elseif P.staleDescentRestorePending then
+        local recovered, recoveredState, pending = P.clearStaleDescentRestoreState(
+            currentFlightState, aircraftIsOnGround)
+        P.staleDescentRestorePending = pending == true
+        if recovered then
+            P.flightstate = recoveredState
+            flightStateChanged = true
+            P.baselineAutoUnicomRuntimeEvents()
+        end
     end
 
     currentFlightState = P.flightstate

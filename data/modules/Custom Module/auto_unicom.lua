@@ -664,9 +664,10 @@ local function enrich_navigation_identifiers(snapshot)
     for _, field in ipairs(waypointFields) do
         local fieldName = field[1]
         local ident = clean_navigation_identifier(snapshot[fieldName])
-        if ident then
+        if ident or (snapshot[fieldName] ~= nil and snapshot[fieldName] ~= "") then
             local preferredIndex = activeIndex and activeIndex + field[2] or nil
-            local leg = find_route_leg(legs, ident, preferredIndex)
+            local leg = ident and find_route_leg(legs, ident, preferredIndex) or nil
+            local originalIdent = ident or tostring(snapshot[fieldName])
             if leg then
                 ident = leg.ident
                 snapshot[fieldName] = ident
@@ -674,7 +675,7 @@ local function enrich_navigation_identifiers(snapshot)
                 snapshot[fieldName .. "_longitude"] = leg.longitude
             end
             local usable, reason = route_leg_is_operational(
-                leg or { ident = ident },
+                leg or (ident and { ident = ident }),
                 snapshot,
                 customRegistry,
                 adapter,
@@ -698,7 +699,7 @@ local function enrich_navigation_identifiers(snapshot)
                     snapshot[fieldName .. "_latitude"] = replacement.latitude
                     snapshot[fieldName .. "_longitude"] = replacement.longitude
                     snapshot[fieldName .. "_nav_name"] = resolve_nav_name(replacement.ident, replacement)
-                    resolutionLog[#resolutionLog + 1] = fieldName .. ":" .. ident .. "->" .. replacement.ident
+                    resolutionLog[#resolutionLog + 1] = fieldName .. ":" .. originalIdent .. "->" .. replacement.ident
                 elseif fieldName == "hold_waypoint" then
                     local custom = match_custom_waypoint(customRegistry, ident, leg)
                     local position = coordinate_position_token(
@@ -708,15 +709,16 @@ local function enrich_navigation_identifiers(snapshot)
                     snapshot[fieldName] = position
                     snapshot[fieldName .. "_nav_name"] = nil
                     snapshot.hold_waypoint_is_position = position ~= nil
-                    resolutionLog[#resolutionLog + 1] = fieldName .. ":" .. ident
+                    resolutionLog[#resolutionLog + 1] = fieldName .. ":" .. originalIdent
                         .. (position and ("->" .. position) or "->omitted")
                 else
                     snapshot[fieldName] = nil
                     snapshot[fieldName .. "_nav_name"] = nil
+                    snapshot[fieldName .. "_latitude"], snapshot[fieldName .. "_longitude"] = nil, nil
                     if fieldName == "cruise_waypoint" then
                         snapshot.cruise_waypoint_omitted = true
                     end
-                    resolutionLog[#resolutionLog + 1] = fieldName .. ":" .. ident .. "->omitted"
+                    resolutionLog[#resolutionLog + 1] = fieldName .. ":" .. originalIdent .. "->omitted"
                 end
             else
                 snapshot[fieldName .. "_nav_name"] = resolve_nav_name(ident, leg)
@@ -725,6 +727,7 @@ local function enrich_navigation_identifiers(snapshot)
     end
     snapshot.navigation_identifier_resolution = #resolutionLog > 0
         and table.concat(resolutionLog, ";") or nil
+    snapshot.navigation_identifiers_resolved = true
 
     for _, fieldName in ipairs({ "sid", "star" }) do
         local procedureIdent = clean_navigation_identifier(snapshot[fieldName])
@@ -770,6 +773,7 @@ local function build_snapshot()
         arrival_runway = tostring(safe_read(y.desrwy) or ""),
         sid = tostring(safe_read(y.fmsselectedsid) or ""),
         climb_next_waypoint = vectorLegActive and "" or tostring(activeNavigationId or ""),
+        cruise_next_waypoint = vectorLegActive and "" or tostring(activeNavigationId or ""),
         descent_next_waypoint = vectorLegActive and "" or tostring(activeNavigationId or ""),
         navigation_vector_active = vectorLegActive,
         navigation_vector_heading_deg = vectorHeading,
@@ -820,6 +824,9 @@ function M.isEventCurrent(event)
     if event.id:sub(1, 8) == "arrival." and event.id ~= "arrival.go_around"
         and not snapshot.post_landing_state and snapshot.approach_pending then
         return nil, "mod_pending"
+    end
+    if event.snapshot and event.snapshot.navigation_identifiers_resolved then
+        enrich_navigation_identifiers(snapshot)
     end
     local valid, reason = core.isEventSnapshotCurrent(event, snapshot)
     if not valid then return false, reason end
@@ -901,7 +908,11 @@ function M.handleYalEvent(eventId, payload, now)
     if eventId == "departure.context_changed" or eventId == "arrival.context_changed" then
         local prefix = eventId == "departure.context_changed" and "departure." or "arrival."
         mailbox:clearQueued(function(event)
-            return event.id:sub(1, #prefix) == prefix and event.id ~= "arrival.go_around"
+            local matches = event.id:sub(1, #prefix) == prefix and event.id ~= "arrival.go_around"
+            if matches and prefix == "arrival." then
+                event.invalid_reason = "changed_arrival_context"
+            end
+            return matches
         end)
         return true
     end

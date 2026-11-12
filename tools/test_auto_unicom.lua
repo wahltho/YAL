@@ -2574,6 +2574,7 @@ assert_equal(autoUnicom.getDebugState().queue_depth, 0, "go-around removes stale
 
 eventAdapterValues.transport_state = 5
 eventAdapterValues.altitude_ft, eventAdapterValues.pressure_altitude = 10000, 10000
+eventAdapterValues.fmsfplnnavid = "BIRCO"
 assert_true(autoUnicom.handleYalEvent("departure.climb_level_10000", {
     altitude_ft = 10000,
     pressure_altitude_ft = 10000,
@@ -2581,10 +2582,12 @@ assert_true(autoUnicom.handleYalEvent("departure.climb_level_10000", {
 }, 3), "YAL altitude event accepted")
 autoUnicom.tick(true, 3)
 assert_equal(eventAdapterWrites[1].value, phraseCases[12][3], "YAL altitude payload freezes FL100")
+eventAdapterValues.fmsfplnnavid = ""
 
 do
     eventAdapterWrites = {}
     eventAdapterValues.altitude_ft, eventAdapterValues.pressure_altitude = 9200, 9200
+    eventAdapterValues.fmsfplnnavid = "BIRCO"
     eventAdapterValues.request_seq = 54
     eventAdapterValues.result_seq = 54
     eventAdapterValues.voice_result_seq = 54
@@ -2607,6 +2610,7 @@ do
     assert_equal(eventAdapterWrites[3].kind, "channels", "channels precede commit")
     assert_equal(eventAdapterWrites[3].value, 3, "existing text plus voice transport")
     assert_equal(eventAdapterWrites[4].kind, "seq", "request sequence remains last commit step")
+    eventAdapterValues.fmsfplnnavid = ""
 end
 
 eventAdapterWrites = {}
@@ -2856,6 +2860,7 @@ eventAdapterValues.result_code = 21
 eventAdapterValues.altitude_ft, eventAdapterValues.pressure_altitude = 40000, 40000
 eventAdapterValues.fmccruisealt = 40000
 eventAdapterValues.fmslegs = "TAKIE 15N154W KOA"
+eventAdapterValues.fmsfplnnavid = "15N154"
 eventAdapterValues.fmslegslat = { 14.2, 15, 19.4 }
 eventAdapterValues.fmslegslon = { -151.1, -154, -155.9 }
 eventAdapterValues.fmsvnavidx = 2
@@ -2885,6 +2890,7 @@ eventAdapterValues.result_code = 21
 eventAdapterValues.altitude_ft, eventAdapterValues.pressure_altitude = 37000, 37000
 eventAdapterValues.fmccruisealt = 37000
 eventAdapterValues.fmslegs = "SUBUK DCS NESDI"
+eventAdapterValues.fmsfplnnavid = "NESDI"
 eventAdapterValues.fmslegslat = { 54.1, 54.7217, 55.2 }
 eventAdapterValues.fmslegslon = { -3.3, -3.3408, -2.8 }
 eventAdapterValues.fmsvnavidx = 3
@@ -2913,6 +2919,7 @@ eventAdapterValues.request_seq = 70
 eventAdapterValues.result_seq = 70
 eventAdapterValues.result_code = 21
 eventAdapterValues.fmslegs = "CLAWW PHL01 LIH JABDI"
+eventAdapterValues.fmsfplnnavid = "PHL01"
 eventAdapterValues.fmslegslat = { 41.9, 42.1, 42.2, 42.3 }
 eventAdapterValues.fmslegslon = { -71.0, -71.1, -71.2, -71.3 }
 eventAdapterValues.fmsvnavidx = 2
@@ -2970,6 +2977,7 @@ eventAdapterValues.request_seq = 72
 eventAdapterValues.result_seq = 72
 eventAdapterValues.result_code = 21
 eventAdapterValues.fmslegs = "PHL01 LIH"
+eventAdapterValues.fmsfplnnavid = "LIH"
 eventAdapterValues.fmslegslat = { 42.1, 42.2 }
 eventAdapterValues.fmslegslon = { -71.1, -71.2 }
 eventAdapterValues.fmsvnavidx = 2
@@ -2997,6 +3005,7 @@ eventAdapterValues.fmscustomwptid = ""
 eventAdapterValues.fmscustomwptlat = {}
 eventAdapterValues.fmscustomwptlon = {}
 eventAdapterValues.fmslegs = "MAARE D271V HUXEL"
+eventAdapterValues.fmsfplnnavid = "D271V"
 eventAdapterValues.fmslegslat = { 41.8, 42.0, 42.2 }
 eventAdapterValues.fmslegslon = { -71.0, -71.2, -71.4 }
 eventAdapterValues.fmsvnavidx = 2
@@ -3021,6 +3030,7 @@ eventAdapterValues.request_seq = 74
 eventAdapterValues.result_seq = 74
 eventAdapterValues.result_code = 21
 eventAdapterValues.fmslegs = "PHL01"
+eventAdapterValues.fmsfplnnavid = "PHL01"
 eventAdapterValues.fmslegslat = { 42.0 }
 eventAdapterValues.fmslegslon = { -71.0 }
 eventAdapterValues.fmsvnavidx = 1
@@ -3055,6 +3065,7 @@ eventAdapterValues.fmscustomwptnum = 0
 eventAdapterValues.fmscustomwptid = ""
 eventAdapterValues.fmscustomwptlat = {}
 eventAdapterValues.fmscustomwptlon = {}
+eventAdapterValues.fmsfplnnavid = ""
 eventAdapterFixApiAvailable = false
 eventAdapterPublishedFixes = {}
 
@@ -3268,6 +3279,30 @@ do
     assert_true(core.buildMessage("enroute.in_cruise", copy(base, {
         altitude_ft = 40500, pressure_altitude_ft = 40500, cruise_periodic = true
     })):find("maintaining FL405", 1, true) ~= nil, "metric cruise flight levels are not rounded to thousands")
+    for _, case in ipairs({
+        { "departure.on_climb", "climb_next_waypoint" },
+        { "departure.climb_resumed", "climb_next_waypoint" },
+        { "departure.climb_level_20000", "climb_next_waypoint" },
+        { "enroute.in_cruise", "cruise_next_waypoint" },
+        { "arrival.on_descent", "descent_next_waypoint" },
+        { "arrival.descent_level_20000", "descent_next_waypoint" },
+        { "arrival.approach", "descent_next_waypoint" }
+    }) do
+        local snapshot = copy(base, { altitude_ft = 20000, pressure_altitude_ft = 20000,
+            vertical_speed_fpm = -1000, navigation_context_id = "PHL01",
+            navigation_identifiers_resolved = true })
+        snapshot[case[2]], snapshot[case[2] .. "_nav_name"] = "LIH", "Lihue"
+        local event = { id = case[1], snapshot = snapshot }
+        assert_true(core.isEventSnapshotCurrent(event, copy(snapshot)), "unchanged resolved target is valid: " .. case[1])
+        local changed = copy(snapshot)
+        changed[case[2]], changed[case[2] .. "_nav_name"] = "HUXEL", "Huxel"
+        assert_equal(core.isEventSnapshotCurrent(event, changed), false,
+            "same raw identifier cannot hide a replacement change: " .. case[1])
+        changed = copy(snapshot)
+        changed[case[2] .. "_nav_name"] = "Changed facility name"
+        assert_equal(core.isEventSnapshotCurrent(event, changed), false,
+            "voice facility name is revalidated too: " .. case[1])
+    end
 end
 
 do
@@ -3415,6 +3450,70 @@ do
     autoUnicom.tick(true, 2)
     assert_equal(#eventAdapterWrites, 0, "old descent next is discarded before any mailbox write")
     assert_equal(autoUnicom.getDebugState().queue_depth, 0, "invalid descent navigation cannot return from queue")
+    for _, fixAvailable in ipairs({ false, true }) do
+        eventAdapterFixApiAvailable = fixAvailable
+        eventAdapterPublishedFixes = { HUXEL = { ident = "HUXEL" }, JABDI = { ident = "JABDI" } }
+        eventAdapterValues.fmslegslat, eventAdapterValues.fmslegslon =
+            { 41.9, 42.1, 42.2, 42.3 }, { -71, -71.1, -71.2, -71.3 }
+        eventAdapterValues.fmsfplnnavid, eventAdapterValues.fmslegs = "(INTC)", "CLAWW (INTC) HUXEL JABDI"
+        eventAdapterValues.fmsvnavidx, eventAdapterValues.transport_state = 2, 5
+        report(text .. ", HUXEL next", voice .. ", Huxel next")
+        eventAdapterValues.fmslegs = "CLAWW (INTC)"
+        report(text, voice)
+
+        eventAdapterValues.fmsfplnnavid, eventAdapterValues.fmslegs = "PHL01", "CLAWW PHL01 LIH JABDI"
+        eventAdapterValues.fmscustomwptnum, eventAdapterValues.fmscustomwptid = 1, "PHL01"
+        eventAdapterValues.fmscustomwptlat, eventAdapterValues.fmscustomwptlon = { 42.1 }, { -71.1 }
+        eventAdapterWrites = {}
+        local pending, invalidated = false, {}
+        eventAdapterYal.getAutoUnicomApproachContext = function()
+            return { selection_pending = pending, approach_procedure_type = "RNAV" }
+        end
+        local previousCallback = eventAdapterYal.onAutoUnicomQueuedEventInvalidated
+        eventAdapterYal.onAutoUnicomQueuedEventInvalidated = function(event)
+            invalidated[#invalidated + 1] = event
+        end
+        configure_event_adapter_test()
+        autoUnicom.tick(true, 0)
+        assert_true(autoUnicom.handleYalEvent("arrival.descent_level_20000", nil, 1), "resolved target queues")
+        pending = true
+        autoUnicom.tick(true, 1)
+        assert_equal(#eventAdapterWrites, 0, "MOD blocks payloads while replacement is unresolved")
+        eventAdapterValues.fmslegs = "CLAWW PHL01 HUXEL JABDI"
+        pending = false
+        autoUnicom.tick(true, 2)
+        assert_equal(#eventAdapterWrites, 0, "same raw fix cannot dispatch an obsolete replacement")
+        assert_equal(#invalidated, 1, "pre-commit replacement change notifies the existing producer")
+        assert_equal(invalidated[1].invalid_reason, "changed_descent_next_waypoint", "resolved fix is compared, not just raw identity")
+        assert_true(autoUnicom.handleYalEvent("arrival.descent_level_20000", nil, 3), "current replacement can be queued")
+        autoUnicom.tick(true, 3)
+        assert_equal(eventAdapterWrites[1].value, text .. ", HUXEL next", "replacement is rebuilt from live route")
+        assert_equal(eventAdapterWrites[2].value, voice .. ", Huxel next", "voice uses the same rebuilt replacement")
+        local committed = autoUnicom.getDebugState().outstanding_seq
+        autoUnicom.handleYalEvent("arrival.context_changed", nil, 4)
+        assert_equal(autoUnicom.getDebugState().outstanding_seq, committed, "EXEC cannot recall a committed message")
+        assert_equal(#invalidated, 1, "committed events are not rearmed")
+
+        configure_event_adapter_test()
+        eventAdapterValues.transport_state = 4
+        autoUnicom.tick(true, 0)
+        for _, id in ipairs({ "arrival.on_descent", "arrival.descent_level_20000", "arrival.approach" }) do
+            assert_true(autoUnicom.handleYalEvent(id, nil, 1), "arrival context cleanup fixture queues " .. id)
+        end
+        invalidated = {}
+        autoUnicom.handleYalEvent("arrival.context_changed", nil, 2)
+        assert_true(#invalidated > 0 and autoUnicom.getDebugState().queue_depth == 0, "EXEC notifies producer for cleared local arrivals")
+        for _, event in ipairs(invalidated) do
+            assert_equal(event.invalid_reason, "changed_arrival_context", "bulk cleanup supplies explicit pre-commit invalidation")
+        end
+        invalidated = {}
+        assert_true(autoUnicom.handleYalEvent("arrival.approach", nil, 3), "reset cleanup fixture queues")
+        autoUnicom.handleYalEvent("flight.reset", nil, 4)
+        assert_equal(#invalidated, 0, "new-flight reset does not rearm old producer events")
+        eventAdapterYal.onAutoUnicomQueuedEventInvalidated = previousCallback
+        eventAdapterYal.getAutoUnicomApproachContext = nil
+        eventAdapterValues.fmscustomwptnum, eventAdapterValues.fmscustomwptid = 0, ""
+    end
     eventAdapterValues = savedValues
     eventAdapterYal.flightstate, eventAdapterYal.getAutoUnicomApproachContext = savedState, savedContext
     eventAdapterYal.isAutoUnicomEventCurrent = savedAuthority
