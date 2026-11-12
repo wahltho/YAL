@@ -8955,7 +8955,8 @@ function P.getAutoUnicomApproachContext()
     local context = {
         approach_id = helpers.forceCleanString(read(P.fmsselectedapp) or ""),
         arrival_icao = helpers.forceCleanString(read(P.desicao) or ""),
-        arrival_runway = autoUnicomCore.normalizeRunway(read(P.desrwy))
+        -- Keep the FMC identity (including T); radio-text normalization is presentation only.
+        arrival_runway = cleanRefRunway(read(P.desrwy))
     }
     local parsed = helpers.parseSelectedApproachId(context.approach_id, context.arrival_runway)
     context.approach_procedure_type = parsed and parsed.navType or nil
