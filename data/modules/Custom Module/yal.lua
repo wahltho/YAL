@@ -9450,7 +9450,7 @@ function P.updateAutoUnicomGroundEvents()
         if bpbActive or tireSpeed < -1 then
             autoUnicomEventOnce("departure.start_push", "departure.start_push")
         end
-        if P.isProcedureActiveOrComplete(def.BEFORETAXIPROCEDURE) and tireSpeed > 1 and not bpbActive then
+        if P.isAutoUnicomEventCurrent("departure.taxi_runway", {}) then
             autoUnicomEventOnce("departure.taxi_runway", "departure.taxi_runway")
         end
 
@@ -9729,7 +9729,9 @@ end
 function P.onAutoUnicomQueuedEventInvalidated(event)
     local state = P.autoUnicomRuntime
     if not state or not event.snapshot then return end
-    if event.id == "enroute.in_cruise" and event.snapshot.cruise_entry == true then
+    if event.id == "departure.taxi_runway" then
+        state.sent[event.id] = nil
+    elseif event.id == "enroute.in_cruise" and event.snapshot.cruise_entry == true then
         state.cruiseInitialized = false
         state.cruiseLastReportAt = nil
     elseif event.id == "arrival.top_of_descent" or event.id == "arrival.on_descent" then

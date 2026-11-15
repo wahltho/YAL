@@ -435,7 +435,128 @@ do
     yal.updateAutoUnicomCruiseEvent()
     assert(not yal.autoUnicomRuntime.cruiseInitialized and autoUnicom.getDebugState().queue_depth == 0,
         "upstream without an Auto-Unicom provider cannot consume or transmit an entry")
+
+    -- Use the same real producer/adapter/mailbox chain for departure taxi eligibility.
+    for _, name in ipairs({ "groundspeed", "tirespeed", "BPBStarted", "BPBOpComplete",
+        "depicao", "deprwy", "fmsselectedsid" }) do yal[name] = name end
+    yal.aircraftonrwy = function() return refs.on_runway == true end
+    local function setupGround(speed)
+        setup(false)
+        autoUnicom.rebaseline()
+        yal.autoUnicomRuntime = { sent = {} }
+        yal.flightstate = def.FLIGHTSTATEPREFLIGHT
+        yal.loopStateTables = { { lock = def.BEFORETAXIPROCEDURE, stepindex = 1 } }
+        yal.proceduretable = {
+            [def.BEFORETAXIPROCEDURE] = { loop = 1, set = false },
+            [def.BEFORETAKEOFFPROCEDURE] = { loop = 2, set = false }
+        }
+        refs.ground, refs.groundspeed, refs.tirespeed = def.ON, speed or 10, 10
+        refs.BPBStarted, refs.BPBOpComplete, refs.on_runway = def.OFF, def.OFF, false
+        refs.depicao, refs.deprwy, refs.fmsselectedsid = "BGGH", "22", ""
+        autoUnicom.tick(true, now)
+    end
+    local function taxiTick(time)
+        now = time
+        yal.updateAutoUnicomGroundEvents()
+        autoUnicom.tick(true, now)
+    end
+    local function assertTaxiSentOnce(label)
+        assert(#writes == 3 and writes[1].prop == "request_text"
+            and writes[1].value == "BGGH Traffic, Lufthansa 3210 taxiing to holding point runway 22"
+            and writes[2].value == 1 and writes[3].prop == "request_seq", label)
+        complete()
+        taxiTick(now + 1)
+        assert(#writes == 3, "committed taxi event does not repeat: " .. label)
+    end
+
+    for _, speed in ipairs({ 27.737991333008, 28.032413, 25 }) do
+        setupGround(speed)
+        refs.transport_state = 5
+        now = 2
+        yal.updateAutoUnicomGroundEvents()
+        assert(#writes == 0 and autoUnicom.getDebugState().queue_depth == 0
+            and not yal.autoUnicomRuntime.sent["departure.taxi_runway"],
+            "ineligible speed cannot even queue or consume taxi event: " .. speed)
+        autoUnicom.tick(true, now)
+        refs.groundspeed = 24.9
+        taxiTick(3)
+        assertTaxiSentOnce("valid lower speed after " .. speed)
+    end
+
+    for _, change in ipairs({ "speed", "stopped", "runway", "takeoff", "airborne", "procedure", "bpb" }) do
+        setupGround()
+        taxiTick(2)
+        assert(autoUnicom.getDebugState().queue_depth == 1 and yal.autoUnicomRuntime.sent["departure.taxi_runway"],
+            "valid taxi event waits locally while transport is unavailable")
+        if change == "speed" then refs.groundspeed = 28
+        elseif change == "stopped" then refs.tirespeed = 0
+        elseif change == "runway" then refs.on_runway = true
+        elseif change == "takeoff" then refs.on_runway, refs.groundspeed = true, 80
+        elseif change == "airborne" then refs.ground, yal.flightstate = def.OFF, def.FLIGHTSTATEINITIALCLIMB
+        elseif change == "procedure" then yal.loopStateTables[1].stepindex = 0
+        else refs.BPBStarted = def.ON end
+        refs.transport_state, now = 5, 3
+        autoUnicom.tick(true, now)
+        assert(#writes == 0 and autoUnicom.getDebugState().queue_depth == 0
+            and not yal.autoUnicomRuntime.sent["departure.taxi_runway"],
+            "invalidated uncommitted taxi event rearms without a write: " .. change)
+        taxiTick(4)
+        assert(not yal.autoUnicomRuntime.sent["departure.taxi_runway"],
+            "rearmed event stays silent while condition remains invalid: " .. change)
+        if change == "speed" or change == "stopped" then
+            refs.groundspeed, refs.tirespeed = 10, 10
+            taxiTick(5)
+            assertTaxiSentOnce("fresh taxi movement after local invalidation: " .. change)
+        end
+    end
+
+    setupGround()
+    refs.transport_state = 5
+    taxiTick(2)
+    refs.result_code, refs.groundspeed, refs.tirespeed = 10, 28, 0
+    taxiTick(3)
+    assert(yal.autoUnicomRuntime.sent["departure.taxi_runway"] and #writes == 3,
+        "externalized taxi event is not rearmed by operational changes")
+    complete()
+    refs.groundspeed, refs.tirespeed = 10, 10
+    taxiTick(4)
+    assert(#writes == 3, "accepted/completed taxi message cannot be sent again")
+
+    setupGround()
+    taxiTick(2)
+    refs.deprwy = "04"
+    taxiTick(3)
+    assert(autoUnicom.getDebugState().queue_depth == 1, "runway change replaces only the pending taxi context")
+    refs.transport_state = 5
+    taxiTick(4)
+    assert(#writes == 3 and writes[1].value:find("holding point runway 04", 1, true),
+        "only the current departure runway reaches the provider")
+
+    setupGround()
+    yal.baselineAutoUnicomRuntimeEvents()
+    refs.transport_state = 5
+    taxiTick(2)
+    assert(#writes == 0 and yal.autoUnicomRuntime.sent["departure.taxi_runway"],
+        "reload during taxi retains the existing no-historical-replay baseline")
+
+    for _, clear in ipairs({ "disabled", "rebaseline", "reset" }) do
+        setupGround()
+        taxiTick(2)
+        if clear == "disabled" then autoUnicom.tick(false, 3)
+        elseif clear == "rebaseline" then autoUnicom.rebaseline()
+        else autoUnicom.handleYalEvent("flight.reset", {}, 3) end
+        assert(yal.autoUnicomRuntime.sent["departure.taxi_runway"] and #writes == 0
+            and autoUnicom.getDebugState().queue_depth == 0,
+            "bulk lifecycle cleanup must not rearm an old taxi event: " .. clear)
+    end
+
+    setupGround()
+    autoUnicom.configure({ yal = yal, def = def, refs = {}, read = function(prop) return refs[prop] end })
+    autoUnicom.tick(true, 2)
+    taxiTick(3)
+    assert(#writes == 0 and not yal.autoUnicomRuntime.sent["departure.taxi_runway"],
+        "upstream without a provider cannot consume or transmit a taxi event")
 end
 
 os.time = realTime
-print("Auto-Unicom climb runtime tests PASS")
+print("Auto-Unicom climb and departure taxi runtime tests PASS")
