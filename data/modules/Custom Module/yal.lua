@@ -10746,6 +10746,10 @@ function P.autofunctions()
         if not aircraftIsOnGround and currentFlightState == def.FLIGHTSTATEAPPROACH
             and not staleDescentRecovered then
             finalState = currentFlightState
+        elseif not aircraftIsOnGround and currentFlightState == def.FLIGHTSTATECLIMB
+            and finalState == def.FLIGHTSTATECRUISE and get(P.fmsflightphase) == def.FMSFLIGHTPHASE_CLIMB then
+            -- A procedure's minimum state is not a cruise transition, even during a level-off.
+            finalState = currentFlightState
         end
 
         sasl.logDebug("State from Procs = " .. stateFromProcs .. ", On Ground = " .. tostring(aircraftIsOnGround))

@@ -264,6 +264,26 @@ do
     end
 
     for _, adviceOnly in ipairs({ false, true }) do
+        for _, sample in ipairs({ {32400, 1944}, {40000, 0} }) do
+            initialize(def.FLIGHTSTATECLIMB, def.FMSFLIGHTPHASE_CLIMB, sample[1], sample[2], adviceOnly)
+            refs.fmccruisealt, refs.mcpaltitude = 41000, 40000
+            tick(12)
+            assertEqual(yal.flightstate, def.FLIGHTSTATECLIMB, "reload preserves FMC-confirmed climb")
+            refs.altitude, refs.altitude_ft, refs.verticalspeed = 40000, 40000, 0
+            tick(22)
+            assertEqual(refs[yal.flightstatedr], def.FLIGHTSTATECLIMB, "intermediate level-off is not cruise")
+            assertEqual(#events, 0, "restore and level-off do not replay reports")
+            refs.altitude, refs.altitude_ft, refs.mcpaltitude = 41000, 41000, 41000
+            refs.fmsflightphase = def.FMSFLIGHTPHASE_CRUISE
+            tick(32)
+            assertEqual(yal.flightstate, def.FLIGHTSTATECRUISE, "genuine cruise still transitions")
+            yal.updateAutoUnicomCruiseEvent()
+            yal.updateAutoUnicomCruiseEvent()
+            assertEqual(count("enroute.in_cruise"), 1, "genuine cruise entry is reportable once")
+        end
+    end
+
+    for _, adviceOnly in ipairs({ false, true }) do
         initialize(def.FLIGHTSTATEAPPROACH, def.FMSFLIGHTPHASE_DESCENT, 11948.436523438, -756, adviceOnly)
         assert(yal.autoUnicomRuntime.sent["arrival.descent_entry"], "startup baseline consumes historical descent")
         tick(12)
