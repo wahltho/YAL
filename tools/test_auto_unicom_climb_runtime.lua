@@ -250,6 +250,68 @@ hold(16000, 20)
 resume(16050, 26)
 assert(events[#events].id == "departure.climb_resumed", "new level after reload can report")
 
+-- LP uses lateral capture from the effective receiver, never a stale status from another mode.
+do
+    reset()
+    local oldGate, oldContext, oldProperty = yal.isArrivalRunwayRadioAltGateOpen, yal.getAutoUnicomApproachContext, isProperty
+    local onFinal, pending = true, false
+    isProperty = function(ref) return refs[ref] ~= nil end
+    yal.isArrivalRunwayRadioAltGateOpen = function() return onFinal end
+    yal.getAutoUnicomApproachContext = function()
+        return { approach_id = "R08", approach_resolved_kind = "LP", selection_pending = pending }
+    end
+    yal.flightstate, refs.phase = def.FLIGHTSTATEAPPROACH, def.FMSFLIGHTPHASE_DESCENT
+    yal.navmmractmode, yal.navmmrtype, yal.iannotinstalled = "mode", "mmrType", "noIan"
+    yal.aplpvnavcapturedstat, yal.aplpvloccapturedstat, yal.apfacloccapturedstat = "nav", "app", "fac"
+    refs.mode, refs.mmrType, refs.noIan = def.MMRLPV, 2, 0
+    refs.nav, refs.app, refs.fac = def.ARMED, def.ARMED, def.CAPTURED
+    assert(not yal.isArrivalFinalEstablished(), "armed LP plus stale FAC cannot establish")
+    refs.nav = def.CAPTURED
+    assert(yal.isArrivalFinalEstablished(), "LP NAV capture alone establishes without GP")
+    refs.nav, refs.app = def.ARMED, def.CAPTURED
+    assert(yal.isArrivalFinalEstablished(), "LP APP lateral capture also establishes")
+    refs.mmrType = 1
+    assert(not yal.isArrivalFinalEstablished(), "wrong tuned FAS type cannot establish LP")
+    for _, mode in ipairs({ def.MMRGLS, def.MMRILS, -1 }) do
+        refs.mode = mode
+        assert(not yal.isArrivalFinalEstablished(), "other active mode cannot borrow LP or FAC capture")
+    end
+    refs.mode = nil
+    assert(not yal.isArrivalFinalEstablished(), "unknown effective receiver cannot default to FAC")
+    refs.mode, refs.fac = def.MMRVOR, def.ARMED
+    assert(not yal.isArrivalFinalEstablished(), "IAN must not borrow LP APP capture")
+    refs.fac, refs.noIan = def.CAPTURED, 1
+    assert(not yal.isArrivalFinalEstablished(), "FAC is not eligible without installed IAN")
+    refs.noIan = 0
+    assert(yal.isArrivalFinalEstablished(), "active FAC capture alone establishes in IAN mode")
+    onFinal = false
+    assert(not yal.isArrivalFinalEstablished(), "capture does not bypass final geometry")
+    onFinal, pending = true, true
+    assert(not yal.isArrivalFinalEstablished(), "pending MOD blocks established LP")
+    pending = false
+    local function finalTick(time)
+        now = time
+        yal.updateAutoUnicomDescentEvents()
+    end
+    finalTick(0)
+    finalTick(4)
+    assert(not yal.autoUnicomRuntime.sent["arrival.on_final"], "capture needs five stable seconds")
+    refs.fac = def.ARMED
+    finalTick(5)
+    refs.fac = def.CAPTURED
+    finalTick(6)
+    finalTick(10)
+    assert(not yal.autoUnicomRuntime.sent["arrival.on_final"], "loss of capture restarts stability timer")
+    finalTick(11)
+    finalTick(12)
+    local finals = 0
+    for _, event in ipairs(events) do if event.id == "arrival.on_final" then finals = finals + 1 end end
+    assert(finals == 1, "sustained LP capture generates one final")
+    refs.mode = def.MMRGLS
+    assert(not yal.isAutoUnicomEventCurrent("arrival.on_final", {}), "dispatch rejects wrong current capture mode")
+    yal.isArrivalRunwayRadioAltGateOpen, yal.getAutoUnicomApproachContext, isProperty = oldGate, oldContext, oldProperty
+end
+
 -- Drive the real producer, adapter, mailbox validation and commit order together.
 do
     local autoUnicom = require("auto_unicom")

@@ -1307,8 +1307,8 @@ function M.buildMessage(eventId, snapshot)
         local kind = approach_label(snapshot) or ""
         local separator = kind:find(" ", 1, true)
         if separator then kind = kind:sub(1, separator - 1) end
-        if kind == "ILS" then
-            return normalize_text(string.format("%s established on ILS runway %s", context.prefix, context.runway))
+        if kind == "ILS" or kind == "LP" then
+            return normalize_text(string.format("%s established on %s runway %s", context.prefix, kind, context.runway))
         elseif kind == "LOC" then
             return normalize_text(string.format("%s established on Localizer runway %s", context.prefix, context.runway))
         end
@@ -1557,6 +1557,10 @@ function M.isEventSnapshotCurrent(event, current)
         if not current.post_landing_state then
             fields[#fields + 1] = "approach_id"
             fields[#fields + 1] = "star"
+            if id == "arrival.on_final" and (previous.approach_resolved_kind == "LP"
+                or current.approach_resolved_kind == "LP") then
+                fields[#fields + 1] = "approach_resolved_kind"
+            end
         end
     end
     local climb = id == "departure.on_climb" or id == "departure.climb_resumed" or is_climb_progress_event(id)

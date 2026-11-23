@@ -1618,6 +1618,24 @@ assert_equal(
     "LOC final phrase"
 )
 
+do
+    local lp = copy(base, { arrival_icao = "KAST", arrival_station_icao = "KAST",
+        arrival_station_name = "ASTORIA", arrival_runway = "08", approach_id = "R08",
+        approach_suffix = "", approach_resolved_kind = "LP" })
+    local id = "arrival.on_final"
+    assert_equal(core.buildMessage(id, lp),
+        "ASTORIA Traffic, Lufthansa 3210 established on LP runway 08", "KAST LP final text")
+    assert_equal(core.buildVoiceMessage(id, lp, test_spell_nato),
+        "Astoria Traffic, Lufthansa tree two one zero established on L P runway zero eight", "KAST LP final voice")
+    for _, other in ipairs({ "LPV", "" }) do
+        local changed = copy(lp, { approach_resolved_kind = other })
+        assert_equal(core.buildMessage(id, changed), "ASTORIA Traffic, Lufthansa 3210 on final runway 08",
+            "LPV and unresolved upstream RNAV retain their wording")
+        assert_equal(core.isEventSnapshotCurrent({ id = id, snapshot = lp }, changed), false,
+            "unchanged FMC ID cannot replay an obsolete LP claim")
+    end
+end
+
 local missingHoldText, missingHoldReason = core.buildMessage("enroute.hold_enter", base)
 assert_equal(missingHoldText, nil, "hold phrase requires waypoint")
 assert_equal(missingHoldReason, "missing_hold_context", "missing hold waypoint reason")

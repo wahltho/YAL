@@ -2645,6 +2645,9 @@ function P.bindExternalDatarefs(silentMissing)
 
     P.mmrinstalled = GP("laminar/B738/fms/mmr")
     P.lpvinstalled = GP("laminar/B738/lpv_install")
+    P.navmmractmode = GP("laminar/B738/nav/mmr_act_mode")
+    P.navmmrtype = GP("laminar/B738/nav/mmr_type")
+    P.iannotinstalled = GP("laminar/B738/ian_install")
     P.mmrcptactmode = GP("laminar/B738/mmr/cpt/act_mode")
     P.mmrcptactvalue = GP("laminar/B738/mmr/cpt/act_value")
     P.mmrcptstdbymode = GP("laminar/B738/mmr/cpt/stby_mode")
@@ -9031,10 +9034,20 @@ function P.isArrivalFinalEstablished()
     local context = P.getAutoUnicomApproachContext()
     if context.selection_pending then return false end
     local kind = context.approach_resolved_kind or context.approach_procedure_type
+    if kind == "LP" then
+        -- Use the routed receiver, which need not be the Captain's tuning panel.
+        local mode = read_optional_number_dataref(P.navmmractmode)
+        if mode == def.MMRLPV and read_optional_number_dataref(P.navmmrtype) == 2 then -- LP, lateral only
+            return read_optional_number_dataref(P.aplpvnavcapturedstat) == def.CAPTURED
+                or read_optional_number_dataref(P.aplpvloccapturedstat) == def.CAPTURED
+        end
+        return mode == def.MMRVOR and read_optional_number_dataref(P.iannotinstalled) == 0
+            and read_optional_number_dataref(P.apfacloccapturedstat) == def.CAPTURED
+    end
     local modes = {
         ILS = P.aploccapturedstat, IGS = P.aploccapturedstat, LOC = P.aploccapturedstat,
         LOC_GS = P.aploccapturedstat, ["LOC-GS"] = P.aploccapturedstat, LDA = P.aploccapturedstat,
-        GLS = P.apglsloccapturedstat, LPV = P.aplpvloccapturedstat, LP = P.aplpvloccapturedstat
+        GLS = P.apglsloccapturedstat, LPV = P.aplpvloccapturedstat
     }
     local capture = modes[kind]
     if capture then return (tonumber(get(capture)) or 0) >= def.CAPTURED end
