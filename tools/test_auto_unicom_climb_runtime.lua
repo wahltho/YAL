@@ -254,11 +254,11 @@ assert(events[#events].id == "departure.climb_resumed", "new level after reload 
 do
     reset()
     local oldGate, oldContext, oldProperty = yal.isArrivalRunwayRadioAltGateOpen, yal.getAutoUnicomApproachContext, isProperty
-    local onFinal, pending = true, false
+    local onFinal, pending, kind = true, false, "LP"
     isProperty = function(ref) return refs[ref] ~= nil end
     yal.isArrivalRunwayRadioAltGateOpen = function() return onFinal end
     yal.getAutoUnicomApproachContext = function()
-        return { approach_id = "R08", approach_resolved_kind = "LP", selection_pending = pending }
+        return { approach_id = "R08", approach_resolved_kind = kind, selection_pending = pending }
     end
     yal.flightstate, refs.phase = def.FLIGHTSTATEAPPROACH, def.FMSFLIGHTPHASE_DESCENT
     yal.navmmractmode, yal.navmmrtype, yal.iannotinstalled = "mode", "mmrType", "noIan"
@@ -309,6 +309,34 @@ do
     assert(finals == 1, "sustained LP capture generates one final")
     refs.mode = def.MMRGLS
     assert(not yal.isAutoUnicomEventCurrent("arrival.on_final", {}), "dispatch rejects wrong current capture mode")
+    yal.apglsnavcapturedstat, yal.apglsloccapturedstat = "glsNav", "glsApp"
+    for _, family in ipairs({ "LPV", "GLS" }) do
+        kind = family
+        local lpv = family == "LPV"
+        local nav, app = lpv and "nav" or "glsNav", lpv and "app" or "glsApp"
+        refs.mode, refs.mmrType = lpv and def.MMRLPV or def.MMRGLS, 1
+        refs.nav, refs.app, refs.glsNav, refs.glsApp = def.CAPTURED, def.CAPTURED, def.CAPTURED, def.CAPTURED
+        refs[nav], refs[app] = def.ARMED, def.ARMED
+        assert(not yal.isArrivalFinalEstablished(), family .. " cannot borrow the other family's capture or FAC")
+        refs[nav] = def.CAPTURED
+        assert(yal.isArrivalFinalEstablished(), family .. " NAV capture establishes without vertical capture")
+        refs[nav], refs[app] = def.ARMED, def.CAPTURED
+        assert(yal.isArrivalFinalEstablished(), family .. " lateral APP capture establishes")
+        if lpv then
+            for _, subtype in ipairs({ 0, 2, -1 }) do
+                refs.mmrType = subtype
+                assert(not yal.isArrivalFinalEstablished(), "non-LPV tuned type must not establish LPV")
+            end
+            refs.mmrType = nil
+            assert(not yal.isArrivalFinalEstablished(), "unavailable tuned type cannot establish LPV")
+            refs.mmrType = 1
+        end
+        refs.mode = def.MMRVOR
+        assert(not yal.isAutoUnicomEventCurrent("arrival.on_final", {}), family .. " cannot use FAC before send")
+        refs.mode = lpv and def.MMRLPV or def.MMRGLS
+        refs[app] = def.ARMED
+        assert(not yal.isAutoUnicomEventCurrent("arrival.on_final", {}), family .. " capture loss blocks send")
+    end
     yal.isArrivalRunwayRadioAltGateOpen, yal.getAutoUnicomApproachContext, isProperty = oldGate, oldContext, oldProperty
 end
 

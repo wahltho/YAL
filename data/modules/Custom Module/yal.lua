@@ -9034,20 +9034,23 @@ function P.isArrivalFinalEstablished()
     local context = P.getAutoUnicomApproachContext()
     if context.selection_pending then return false end
     local kind = context.approach_resolved_kind or context.approach_procedure_type
-    if kind == "LP" then
+    if kind == "LP" or kind == "LPV" or kind == "GLS" then
         -- Use the routed receiver, which need not be the Captain's tuning panel.
         local mode = read_optional_number_dataref(P.navmmractmode)
-        if mode == def.MMRLPV and read_optional_number_dataref(P.navmmrtype) == 2 then -- LP, lateral only
+        if kind == "GLS" then
+            return mode == def.MMRGLS and (read_optional_number_dataref(P.apglsnavcapturedstat) == def.CAPTURED
+                or read_optional_number_dataref(P.apglsloccapturedstat) == def.CAPTURED)
+        end
+        if mode == def.MMRLPV and read_optional_number_dataref(P.navmmrtype) == (kind == "LP" and 2 or 1) then
             return read_optional_number_dataref(P.aplpvnavcapturedstat) == def.CAPTURED
                 or read_optional_number_dataref(P.aplpvloccapturedstat) == def.CAPTURED
         end
-        return mode == def.MMRVOR and read_optional_number_dataref(P.iannotinstalled) == 0
+        return kind == "LP" and mode == def.MMRVOR and read_optional_number_dataref(P.iannotinstalled) == 0
             and read_optional_number_dataref(P.apfacloccapturedstat) == def.CAPTURED
     end
     local modes = {
         ILS = P.aploccapturedstat, IGS = P.aploccapturedstat, LOC = P.aploccapturedstat,
-        LOC_GS = P.aploccapturedstat, ["LOC-GS"] = P.aploccapturedstat, LDA = P.aploccapturedstat,
-        GLS = P.apglsloccapturedstat, LPV = P.aplpvloccapturedstat
+        LOC_GS = P.aploccapturedstat, ["LOC-GS"] = P.aploccapturedstat, LDA = P.aploccapturedstat
     }
     local capture = modes[kind]
     if capture then return (tonumber(get(capture)) or 0) >= def.CAPTURED end

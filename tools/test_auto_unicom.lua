@@ -1627,12 +1627,28 @@ do
         "ASTORIA Traffic, Lufthansa 3210 established on LP runway 08", "KAST LP final text")
     assert_equal(core.buildVoiceMessage(id, lp, test_spell_nato),
         "Astoria Traffic, Lufthansa tree two one zero established on L P runway zero eight", "KAST LP final voice")
-    for _, other in ipairs({ "LPV", "" }) do
-        local changed = copy(lp, { approach_resolved_kind = other })
-        assert_equal(core.buildMessage(id, changed), "ASTORIA Traffic, Lufthansa 3210 on final runway 08",
-            "LPV and unresolved upstream RNAV retain their wording")
-        assert_equal(core.isEventSnapshotCurrent({ id = id, snapshot = lp }, changed), false,
-            "unchanged FMC ID cannot replay an obsolete LP claim")
+    local generic = copy(lp, { approach_resolved_kind = "" })
+    assert_equal(core.buildMessage(id, generic), "ASTORIA Traffic, Lufthansa 3210 on final runway 08",
+        "unresolved upstream RNAV retains generic final")
+    for _, kind in ipairs({ "LP", "LPV", "GLS" }) do
+        local selected = copy(lp, { approach_procedure_type = kind == "GLS" and "GLS" or "RNAV",
+            approach_resolved_kind = kind })
+        local spoken = ({ LP = "L P", LPV = "L P V", GLS = "G L S" })[kind]
+        assert_equal(core.buildMessage(id, selected), "ASTORIA Traffic, Lufthansa 3210 established on "
+            .. kind .. " runway 08", kind .. " established text")
+        assert_equal(core.buildVoiceMessage(id, selected, test_spell_nato),
+            "Astoria Traffic, Lufthansa tree two one zero established on " .. spoken .. " runway zero eight",
+            kind .. " established voice")
+        assert_equal(core.isEventSnapshotCurrent({ id = id, snapshot = selected }, generic), false,
+            "unchanged FMC ID cannot replay an obsolete " .. kind .. " claim")
+        assert_equal(core.isEventSnapshotCurrent({ id = id, snapshot = generic }, selected), false,
+            "new classification invalidates queued generic final")
+        if kind ~= "LP" then
+            local upstream = copy(selected, { approach_procedure_type = kind, approach_resolved_kind = "" })
+            assert_equal(core.buildMessage(id, upstream), core.buildMessage(id, selected), "known upstream family")
+            assert_equal(core.isEventSnapshotCurrent({ id = id, snapshot = selected }, upstream), true,
+                "same identified family does not require optional API")
+        end
     end
 end
 

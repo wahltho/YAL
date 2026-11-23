@@ -890,10 +890,9 @@ local function append_navigation_status(text, snapshot, nextWaypoint)
     return text
 end
 
-local function approach_label(snapshot)
+local function approach_family(snapshot)
     local family = clean_token(snapshot.approach_procedure_type, false)
     local resolved = clean_token(snapshot.approach_resolved_kind, false)
-    local suffix = clean_token(snapshot.approach_suffix, false)
 
     if not family then
         local raw = clean_token(snapshot.approach_id, false)
@@ -915,12 +914,20 @@ local function approach_label(snapshot)
         family = "LPV"
     end
 
+    return family
+end
+
+local function approach_label(snapshot)
+    local family = approach_family(snapshot)
     if not family then return nil end
+    local suffix = clean_token(snapshot.approach_suffix, false)
     if suffix then return family .. " " .. suffix end
     return family
 end
 
 M.approachLabel = approach_label
+
+local named_mmr_final = { LP = true, LPV = true, GLS = true }
 
 local MESSAGE_CONTRACTS = {
     ["departure.flightplan_active"] = { scope = "local", station = "departure", missing = "missing_preflight_context" },
@@ -1304,10 +1311,8 @@ function M.buildMessage(eventId, snapshot)
     end
 
     if eventId == "arrival.on_final" then
-        local kind = approach_label(snapshot) or ""
-        local separator = kind:find(" ", 1, true)
-        if separator then kind = kind:sub(1, separator - 1) end
-        if kind == "ILS" or kind == "LP" then
+        local kind = approach_family(snapshot)
+        if kind == "ILS" or named_mmr_final[kind] then
             return normalize_text(string.format("%s established on %s runway %s", context.prefix, kind, context.runway))
         elseif kind == "LOC" then
             return normalize_text(string.format("%s established on Localizer runway %s", context.prefix, context.runway))
@@ -1557,9 +1562,11 @@ function M.isEventSnapshotCurrent(event, current)
         if not current.post_landing_state then
             fields[#fields + 1] = "approach_id"
             fields[#fields + 1] = "star"
-            if id == "arrival.on_final" and (previous.approach_resolved_kind == "LP"
-                or current.approach_resolved_kind == "LP") then
-                fields[#fields + 1] = "approach_resolved_kind"
+            if id == "arrival.on_final" then
+                local before, after = approach_family(previous), approach_family(current)
+                if before ~= after and (named_mmr_final[before] or named_mmr_final[after]) then
+                    return false, "changed_approach_resolved_kind"
+                end
             end
         end
     end
