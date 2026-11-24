@@ -3301,6 +3301,12 @@ function P.initDataref()
     P.flightstate = get(P.flightstatedr)
     helpers.logInfoTS("Flightstate restored to: " .. P.flightstate)
 
+    local departureAltPath = def.APPNAMEPREFIX .. "/state/departure_mcp_altitude_reviewed"
+    P.departureMcpAltitudeReviewedDr = globalProperty(departureAltPath)
+    if not isProperty(P.departureMcpAltitudeReviewedDr) then
+        P.departureMcpAltitudeReviewedDr = createGlobalPropertyi(departureAltPath, 0, false, true, true)
+    end
+
     local pause_tod_owner_path = def.APPNAMEPREFIX .. "/state/pause_tod_auto_disabled"
     local pause_tod_owner_handle = globalProperty(pause_tod_owner_path)
     if not isProperty(pause_tod_owner_handle) then
@@ -4385,6 +4391,7 @@ function P.yalresetForNewFlight()
 
     P.flightstate = def.FLIGHTSTATEPREFLIGHT
     set(P.flightstatedr, P.flightstate)
+    set(P.departureMcpAltitudeReviewedDr, 0)
     P.isReloadWithinSession = false
     if P.taxiComponent and P.taxiComponent.resetForNewFlight then
         P.taxiComponent:resetForNewFlight()

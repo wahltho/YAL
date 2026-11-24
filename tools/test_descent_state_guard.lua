@@ -263,6 +263,12 @@ do
         yal.autofunctions()
     end
 
+    initialize(def.FLIGHTSTATECLIMB, def.FMSFLIGHTPHASE_CLIMB, 32400, 1900)
+    assertEqual(get(yal.departureMcpAltitudeReviewedDr), 0, "first bind arms the departure recheck")
+    set(yal.departureMcpAltitudeReviewedDr, 1)
+    yal.initializeScript()
+    assertEqual(get(yal.departureMcpAltitudeReviewedDr), 1, "script reload preserves completed MCP review")
+
     for _, adviceOnly in ipairs({ false, true }) do
         for _, sample in ipairs({ {32400, 1944}, {40000, 0} }) do
             initialize(def.FLIGHTSTATECLIMB, def.FMSFLIGHTPHASE_CLIMB, sample[1], sample[2], adviceOnly)

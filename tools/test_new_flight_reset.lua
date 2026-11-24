@@ -42,6 +42,7 @@ refs.battery = def.OFF
 refs.gpu = def.OFF
 refs.fmsphase = 0
 refs.flightstate = def.FLIGHTSTATESHUTDOWN
+refs.reviewed = 1
 
 local taxiReset = false
 yal.taxiComponent = {
@@ -54,6 +55,7 @@ end
 yal.buildProcedureLabelMaps = function() end
 yal.initDataref = function()
     yal.flightstatedr = "flightstate"
+    yal.departureMcpAltitudeReviewedDr = "reviewed"
     yal.flightstate = refs.flightstate
     yal.isReloadWithinSession = true
 end
@@ -76,6 +78,7 @@ end)
 assert(yal.yalresetForNewFlight() == true, "new-flight reset succeeds at parking")
 assert(yal.flightstate == def.FLIGHTSTATEPREFLIGHT, "new flight is PREFLIGHT in memory")
 assert(refs.flightstate == def.FLIGHTSTATEPREFLIGHT, "new flight persists PREFLIGHT")
+assert(refs.reviewed == 0, "new flight re-arms departure MCP altitude recheck")
 assert(yal.isReloadWithinSession == false, "new flight is not treated as a reload")
 assert(taxiReset, "new flight resets the persistent taxi component")
 assert(flightResetEvents == 1, "new flight also clears adapter queue/repeat history through the existing event sink")

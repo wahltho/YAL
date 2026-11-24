@@ -89,7 +89,7 @@ values.vrsetspeed = 135
 values.v2setspeed = 140
 
 assert(ensure.check(loop) == true, "complete takeoff data should pass silently")
-assert(ensure.branch(loop) == "ensure_departure_nav", "complete data should continue to Departure NAV")
+assert(ensure.branch(loop) == "recheck_mcp_altitude", "complete data should continue to MCP recheck")
 assert(yal.lastTrigger == nil, "complete takeoff data must not trigger the child")
 
 values.v2setspeed = 0
@@ -107,11 +107,46 @@ assert(ensure.branch(loop) == false, "running child must not advance Before Taxi
 yal.proceduretable[def.SETTOFLAPSPROCEDURE].set = true
 yal.loopStateTables[3].lock = def.NOPROCEDURE
 assert(ensure.check(loop) == true, "completed child should release Before Taxi")
-assert(ensure.branch(loop) == "ensure_departure_nav", "completed child should continue to Departure NAV")
+assert(ensure.branch(loop) == "recheck_mcp_altitude", "completed child should continue to MCP recheck")
 assert(loop.takeoffDataChildPending == nil, "child wait latch should clear")
 assert(
     yal.proceduretable[def.SETTOFLAPSPROCEDURE].prerequisite() == true,
     "Set Takeoff Flaps should be allowed while Before Taxi is active"
 )
+
+local recheck = beforeTaxi.steps.recheck_mcp_altitude
+local init = yal.proceduretable[def.COCKPITINITPROCEDURE].steps.set_mcp_altitude
+assert(not recheck.check and recheck.nextStep == "ensure_departure_nav", "non-blocking in both modes")
+yal.mcpaltitude, yal.fmccruisealt, yal.departureMcpAltitudeReviewedDr = "mcp", "cruise", "reviewed"
+yal.configvalues[def.CONFIGLOWEAIRSPACEALT] = 10000
+yal.procedureSpeechKey = function(proc, step, role)
+    assert(proc == def.BEFORETAXIPROCEDURE and step == "recheck_mcp_altitude" and role == "step")
+    return "test-key"
+end
+local messages = {}
+yal.commandtableentry = function(state, message, key)
+    assert(state == def.TEXT and key == "test-key")
+    messages[#messages+1] = message
+end
+for _, advice in ipairs({ def.OFF, def.ON }) do
+    yal.configvalues[def.CONFIGVOICEADVICEONLY] = advice
+    messages = {}
+    values.mcp, values.cruise, values.reviewed = 5000, 8000, 0
+    assert(not init.check() and init.branch() == false and values.reviewed == 0)
+    recheck.action()
+    assert(values.mcp == 5000 and messages[1] == "Verify initial climb altitude. M C P set to 5000 feet")
+    recheck.action()
+    assert(#messages == 1 and values.reviewed == 1, "only one reminder per flight")
+    values.mcp, values.reviewed = 8000, 0
+    recheck.action()
+    assert(#messages == 1 and values.reviewed == 1, "correct lower FMC cruise target is silent")
+    values.cruise, values.reviewed = 0, 0
+    init.action()
+    assert(values.mcp == 10000 and values.reviewed == 0, "auto write alone is not a passed check")
+    assert(init.check() and init.branch() == "set_bank_angle" and values.reviewed == 1)
+    values.mcp = 4500
+    recheck.action()
+    assert(values.mcp == 4500 and #messages == 1, "later clearance is left alone after successful init")
+end
 
 print("test_before_taxi_takeoff_data: all checks passed")

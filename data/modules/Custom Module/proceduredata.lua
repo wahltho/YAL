@@ -1634,6 +1634,12 @@ local function isTakeoffDataComplete()
         and (tonumber(get(P.v2setspeed)) or 0) > 0
 end
 
+local function departureMcpAltitudeTarget()
+    local target = P.configvalues[def.CONFIGLOWEAIRSPACEALT]
+    local cruise = get(P.fmccruisealt) or 0
+    return cruise > 0 and math.min(target, cruise) or target
+end
+
 local function isFmcAutomationOn()
     return P.configvalues and (P.configvalues[def.CONFIGFMCAUTOMATION] == def.ON)
 end
@@ -2547,37 +2553,23 @@ function M.fillProcedureTable()
                 },
                 ['set_mcp_altitude'] = { 
                     check = function()
-                        local target = P.configvalues[def.CONFIGLOWEAIRSPACEALT]
-                        local fmcAlt = get(P.fmccruisealt) or 0
-                        if fmcAlt > 0 then
-                            target = math.min(target, fmcAlt)
-                        end
-                        return get(P.mcpaltitude) == target
+                        return get(P.mcpaltitude) == departureMcpAltitudeTarget()
                     end,
                     action = function()
-                        local target = P.configvalues[def.CONFIGLOWEAIRSPACEALT]
-                        local fmcAlt = get(P.fmccruisealt) or 0
-                        if fmcAlt > 0 then
-                            target = math.min(target, fmcAlt)
-                        end
-                        set(P.mcpaltitude, target)
+                        set(P.mcpaltitude, departureMcpAltitudeTarget())
                     end,
                     advice = function()
-                        local target = P.configvalues[def.CONFIGLOWEAIRSPACEALT]
-                        local fmcAlt = get(P.fmccruisealt) or 0
-                        if fmcAlt > 0 then
-                            target = math.min(target, fmcAlt)
-                        end
-                        return "Set M C P ALtitude " .. tostring(target)
+                        return "Set M C P ALtitude " .. tostring(departureMcpAltitudeTarget())
                     end,
                     confirm = function()
-                        local target = P.configvalues[def.CONFIGLOWEAIRSPACEALT]
-                        local fmcAlt = get(P.fmccruisealt) or 0
-                        if fmcAlt > 0 then
-                            target = math.min(target, fmcAlt)
-                        end
+                        local target = departureMcpAltitudeTarget()
                         if get(P.mcpaltitude) ~= target then return false end
                         return "M C P ALtitude checked and " .. tostring(target)
+                    end,
+                    branch = function()
+                        if get(P.mcpaltitude) ~= departureMcpAltitudeTarget() then return false end
+                        set(P.departureMcpAltitudeReviewedDr, 1)
+                        return 'set_bank_angle'
                     end,
                     nextStep = 'set_bank_angle'
                 },
@@ -3670,7 +3662,7 @@ function M.fillProcedureTable()
                         end
                         if childDone or isTakeoffDataComplete() then
                             loop.takeoffDataChildPending = nil
-                            return 'ensure_departure_nav'
+                            return 'recheck_mcp_altitude'
                         end
                         return false
                     end,
@@ -3697,6 +3689,20 @@ function M.fillProcedureTable()
                         end
                     end,
                     runActionInAdviceMode = true
+                },
+                ['recheck_mcp_altitude'] = {
+                    action = function()
+                        if get(P.departureMcpAltitudeReviewedDr) == 1 then return end
+                        local current = tonumber(get(P.mcpaltitude))
+                        if current ~= departureMcpAltitudeTarget() then
+                            local message = "Verify initial climb altitude"
+                            if current then message = message .. ". M C P set to " .. string.format("%.0f feet", current) end
+                            P.commandtableentry(def.TEXT, message,
+                                P.procedureSpeechKey(def.BEFORETAXIPROCEDURE, "recheck_mcp_altitude", "step"), 2)
+                        end
+                        set(P.departureMcpAltitudeReviewedDr, 1)
+                    end,
+                    nextStep = 'ensure_departure_nav'
                 },
                 ['view_throttle'] = {
                     view = function() return P.configvalues[def.CONFIGVIEWTHROTTLE] end,
