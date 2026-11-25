@@ -250,6 +250,43 @@ hold(16000, 20)
 resume(16050, 26)
 assert(events[#events].id == "departure.climb_resumed", "new level after reload can report")
 
+-- ENSB: arming the exit at LALAD does not mean the aircraft has left the hold.
+do
+    local oldHold, oldFinal = yal.getHoldRuntimeState, yal.isArrivalFinalEstablished
+    for _, alreadyArmed in ipairs({false, true}) do
+        reset()
+        local holdState = { active = true, waypoint = "LALAD", path_type = "HM",
+            entry_complete = true, exit_armed = alreadyArmed }
+        yal.getHoldRuntimeState = function() return holdState end
+        yal.isArrivalFinalEstablished = function() return false end
+        yal.flightstate, refs.phase, refs.altitude = def.FLIGHTSTATEAPPROACH, def.FMSFLIGHTPHASE_GO_AROUND_ARMED, 4200
+        yal.autoUnicomRuntime.sent["arrival.descent_entry"] = true
+        local function cycle()
+            yal.updateAutoUnicomHoldEvents()
+            yal.updateAutoUnicomDescentEvents()
+        end
+        cycle() -- baseline, including reload with an armed exit
+        for _, armed in ipairs({true, false, true}) do
+            holdState.exit_armed = armed
+            now = now + 60
+            cycle()
+            assert(yal.autoUnicomRuntime.holdApproachBlocked and #events == 0,
+                "arming, cancelling or rearming exit must not release approach")
+        end
+        holdState.active = false
+        cycle()
+        cycle()
+        local reports = {}
+        for _, event in ipairs(events) do
+            if event.id ~= "hold.context_changed" then reports[#reports + 1] = event end
+        end
+        assert(#reports == 2 and reports[1].id == "enroute.hold_exit"
+            and reports[1].payload.hold_waypoint == "LALAD" and reports[2].id == "arrival.approach",
+            "physical exit publishes LALAD exit first, then approach, each once")
+    end
+    yal.getHoldRuntimeState, yal.isArrivalFinalEstablished = oldHold, oldFinal
+end
+
 -- LP uses lateral capture from the effective receiver, never a stale status from another mode.
 do
     reset()

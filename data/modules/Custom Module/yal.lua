@@ -8947,7 +8947,7 @@ function P.baselineAutoUnicomHoldState(hold)
     state.holdEntryPending, state.holdEntryObservedAt = false, nil
     state.holdExitPending = nil
     local final = hold.active and P.isArrivalFinalEstablished()
-    state.holdApproachReleasedKey = (hold.active and (hold.exit_armed or final)) and state.holdKey or nil
+    state.holdApproachReleasedKey = final and state.holdKey or nil
     state.holdExitSent = final == true
     state.holdEstablishedSent = hold.active and P.autoUnicomHoldLevelStable(hold) or false
     state.holdLevelAltitude = state.holdEstablishedSent and tonumber(get(P.altitude_ft)) or nil
@@ -9678,21 +9678,14 @@ function P.updateAutoUnicomHoldEvents()
         return
     end
 
-    local releaseReason = nil
     if P.isArrivalFinalEstablished() then
-        releaseReason = "final_established"
-    elseif hold.exit_armed then
-        releaseReason = "exit_armed"
-    end
-    if releaseReason then
         state.holdEstablishedSince = nil
-        -- EXIT ARMED permits approach preparation, but is not a physical hold exit.
-        if releaseReason == "final_established" and not state.holdExitSent then
+        if not state.holdExitSent then
             state.holdExitSent = P.publishRuntimeEvent("enroute.hold_exit", state.holdPayload)
         end
         if state.holdApproachReleasedKey ~= key then
             helpers.logInfoTS("IVAO Auto-Unicom: hold released key=" .. tostring(key)
-                .. " reason=" .. releaseReason)
+                .. " reason=final_established")
         end
         state.holdApproachReleasedKey = key
         state.holdApproachBlocked = false
@@ -9706,6 +9699,11 @@ function P.updateAutoUnicomHoldEvents()
     end
     state.holdApproachReleasedKey = nil
     state.holdApproachBlocked = true
+    -- Exit is planned, but LNAV is still flying the hold until the fix sequences.
+    if hold.exit_armed then
+        state.holdEstablishedSince = nil
+        return
+    end
     local altitude = tonumber(get(P.altitude_ft)) or tonumber(get(P.altitude))
     local stable = P.autoUnicomHoldLevelStable(hold)
     local descending = autoUnicomHoldDescending(hold)
