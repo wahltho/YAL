@@ -3694,7 +3694,9 @@ function M.fillProcedureTable()
                     action = function()
                         if get(P.departureMcpAltitudeReviewedDr) == 1 then return end
                         local current = tonumber(get(P.mcpaltitude))
-                        if current ~= departureMcpAltitudeTarget() then
+                        local cruise = tonumber(get(P.fmccruisealt)) or 0
+                        local atCruise = cruise > 0 and current == cruise
+                        if current ~= P.configvalues[def.CONFIGLOWEAIRSPACEALT] and not atCruise then
                             local message = "Verify initial climb altitude"
                             if current then message = message .. ". M C P set to " .. string.format("%.0f feet", current) end
                             P.commandtableentry(def.TEXT, message,

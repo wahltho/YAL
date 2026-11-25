@@ -147,6 +147,19 @@ for _, advice in ipairs({ def.OFF, def.ON }) do
     values.mcp = 4500
     recheck.action()
     assert(values.mcp == 4500 and #messages == 1, "later clearance is left alone after successful init")
+
+    for _, case in ipairs({
+        {mcp=39000, cruise=39000}, {mcp=10000, cruise=39000}, {mcp=10000, cruise=8000},
+        {mcp=10000, cruise=0}, {mcp=10000}, {mcp=0, cruise=0, warn=true}, {mcp=5000, warn=true}
+    }) do
+        values.mcp, values.cruise, values.reviewed = case.mcp, case.cruise, 0
+        messages = {}
+        recheck.action()
+        recheck.action()
+        assert(#messages == (case.warn and 1 or 0), "unexpected Before Taxi advice for MCP "
+            .. case.mcp .. " / cruise " .. tostring(case.cruise))
+        assert(values.mcp == case.mcp and values.reviewed == 1)
+    end
 end
 
 print("test_before_taxi_takeoff_data: all checks passed")
