@@ -268,7 +268,8 @@ function M.attach(P, def, helpers, settings)
     end
     guards.anti_ice = function(c)
         local result = P.antiIceSpeechResult
-        if not result or cfg(def.CONFIGAUTOANTIICE) ~= def.ON then return false end
+        if not result or cfg(def.CONFIGAUTOANTIICE) ~= def.ON or P.isAntiIceSpeechQuiet()
+            or get(P.airgroundsensor) ~= c.ground then return false end
         if c.system == "engine" then
             if not P.enginesrunning(def.BOTH) then return false end
             if result.engine_demand ~= c.demand or result.engine_reason ~= c.reason then return false end
@@ -280,7 +281,7 @@ function M.attach(P, def, helpers, settings)
     end
     guards.wing_inhibit = function(c)
         local result = P.antiIceSpeechResult
-        return air() and cfg(def.CONFIGAUTOANTIICE) == def.ON and result and result.wing_ice_inhibited == true
+        return air() and not P.isAntiIceSpeechQuiet() and cfg(def.CONFIGAUTOANTIICE) == def.ON and result and result.wing_ice_inhibited == true
             and result.wing_inhibit_reason == c.reason
     end
     guards.flaps = function(c)

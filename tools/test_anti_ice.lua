@@ -83,6 +83,28 @@ assertTrue(earlyForecast.valid and earlyForecast.entry_sec > 60
     and earlyForecast.entry_sec <= 120,
     "descent sees a sustained layer before the former sixty-second limit")
 
+do
+    local distant = copy(earlyDescent, { elevation_m = 2500 })
+    local fresh
+    fresh = update(fresh, 0, distant)
+    fresh = update(fresh, 60, distant)
+    assert(fresh.lookahead.entry_sec > 120 and fresh.engine_demand ~= true,
+        "distant corridor does not start engine protection")
+    local held = update(nil, 0, earlyDescent)
+    held = update(held, 15, earlyDescent)
+    for _, t in ipairs({16, 46, 106}) do
+        held = update(held, t, distant)
+        assertTrue(held.engine_demand, "already ON bridges the same distant layer")
+    end
+    local invalid = copy(distant, { temperature_altitudes_m = {} })
+    for t = 107, 196 do
+        held = update(held, t, invalid)
+        assertTrue(held.engine_demand, "forecast loss grace then stable-clear interval")
+    end
+    held = update(held, 197, invalid)
+    assertFalse(held.engine_demand, "permanently unavailable forecast cannot hold protection forever")
+end
+
 local layeredDescent = copy(earlyDescent, {
     elevation_m = 2000,
     cloud_coverage = { 0.8, 0.8 },

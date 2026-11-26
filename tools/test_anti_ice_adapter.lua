@@ -18,11 +18,14 @@ PLUGINS_MENU_ID = 1
 
 local refs = {}
 function get(ref) return refs[ref] end
+function isProperty(ref) return refs[ref] ~= nil end
 function set(ref, value) refs[ref] = value end
 
 local commands = {}
 helpers = {
     logInfoTS = function() end,
+    conditionalSpeakStringMode = function() return "legacy" end,
+    clearSpeakStringSink = function() return true end,
     command_once = function(command)
         commands[#commands + 1] = command
         if command == "laminar/B738/toggle_switch/eng1_heat" then refs.eng1 = 1 - refs.eng1 end
@@ -33,6 +36,8 @@ helpers = {
 package.loaded.helpers = helpers
 local def = require("definitions")
 local yal = require("yal")
+require("conditional_speech").attach(yal, def, helpers)
+require("conditional_advice").attach(yal, def, helpers)
 local antiIceCallbacks = {
     queue = yal.queueAntiIceAdvice,
     clear = yal.clearAntiIceSpeech,
@@ -150,7 +155,10 @@ yal.commandtableentry = function(_, text, key)
     queued[key] = text
     history[#history + 1] = { key = key, text = text }
 end
-yal.clearYalQueuedSpeech = function(key) queued[key] = nil end
+yal.clearYalQueuedSpeech = function(key)
+    yal.conditionalSpeech:cancel(key)
+    queued[key] = nil
+end
 
 local function wingCommandCount()
     local count = 0
@@ -163,7 +171,8 @@ end
 local function wingOffSpeechCount()
     local count = 0
     for _, entry in ipairs(history) do
-        if entry.key == "advice:anti_ice:wing:off" or entry.key == "status:anti_ice:wing:off" then
+        if (entry.key == "advice:anti_ice:wing" and entry.text == "Wing ice cleared. Set wing anti ice off.")
+            or entry.key == "status:anti_ice:wing:off" then
             count = count + 1
         end
     end
@@ -176,6 +185,7 @@ local function tick(now)
 end
 
 for _, adviceMode in ipairs({ false, true }) do
+    yal.configvalues[def.CONFIGVOICEREADBACK] = def.ON
     commands, queued, history = {}, {}, {}
     yal.antiIceRuntime = nil
     yal.antiIceWeatherProfileAt = nil
@@ -201,11 +211,11 @@ for _, adviceMode in ipairs({ false, true }) do
     tick(6)
     assert(yal.antiIceRuntime.wing_demand == true, "adapter publishes confirmed structural Wing ON")
     if adviceMode then
-        assert(wingCommandCount() == 0 and queued["advice:anti_ice:wing:on"] ~= nil,
+        assert(wingCommandCount() == 0 and queued["advice:anti_ice:wing"] ~= nil,
             "real advice path queues Wing ON without moving the switch")
         refs.wing = def.ON
         tick(8)
-        assert(queued["advice:anti_ice:wing:on"] == nil,
+        assert(queued["advice:anti_ice:wing"] == nil,
             "pilot response clears the satisfied Wing ON advice")
     else
         assert(wingCommandCount() == 1 and refs.wing == def.ON,
@@ -240,7 +250,7 @@ for _, adviceMode in ipairs({ false, true }) do
         "OFF transition removes obsolete keyed Wing ON speech")
     if adviceMode then
         assert(wingCommandCount() == 0 and refs.wing == def.ON
-            and queued["advice:anti_ice:wing:off"] == "Wing ice cleared. Set wing anti ice off.",
+            and queued["advice:anti_ice:wing"] == "Wing ice cleared. Set wing anti ice off.",
             "real voice mode requests Wing OFF without executing it")
     else
         assert(wingCommandCount() == 2 and refs.wing == def.OFF,
@@ -287,11 +297,11 @@ for _, adviceMode in ipairs({ false, true }) do
     assert(wingCommandCount() == 0 and yal.antiIceRuntime.wing_demand == nil,
         "ground engine protection never requests Wing anti-ice")
     if adviceMode then
-        assert(#commands == 0 and queued["advice:anti_ice:engine:on"] ~= nil,
+        assert(#commands == 0 and queued["advice:anti_ice:engine"] ~= nil,
             "Advice mode requests engine anti-ice before taxi without switch movement")
         refs.eng1, refs.eng2 = def.ON, def.ON
         tick(77)
-        assert(queued["advice:anti_ice:engine:on"] == nil,
+        assert(queued["advice:anti_ice:engine"] == nil,
             "actual pilot response clears the ground Engine ON advice")
     else
         assert(#commands == 2 and refs.eng1 == def.ON and refs.eng2 == def.ON,
@@ -322,7 +332,7 @@ for _, adviceMode in ipairs({ false, true }) do
         and queued["advice:anti_ice:engine:on"] == nil,
         "ground OFF transition clears obsolete Engine ON speech")
     if adviceMode then
-        assert(#commands == 0 and queued["advice:anti_ice:engine:off"] ~= nil,
+        assert(#commands == 0 and queued["advice:anti_ice:engine"] ~= nil,
             "Advice mode requests OFF only after the clear latch")
     else
         assert(#commands == 4 and refs.eng1 == def.OFF and refs.eng2 == def.OFF,
@@ -355,7 +365,7 @@ for _, adviceMode in ipairs({ false, true }) do
     tick(15)
     assert(yal.antiIceRuntime.engine_demand == true, "snow starts ground protection through the real adapter")
     if adviceMode then
-        assert(queued["advice:anti_ice:engine:on"] ~= nil and #commands == 0,
+        assert(queued["advice:anti_ice:engine"] ~= nil and #commands == 0,
             "snow ON advice follows the normal Voice Advice Only path")
         refs.eng1, refs.eng2 = def.ON, def.ON
         tick(16)
@@ -384,7 +394,7 @@ for _, adviceMode in ipairs({ false, true }) do
     assert(yal.antiIceRuntime.engine_demand == false and queued["advice:anti_ice:engine:on"] == nil,
         "one confirmed clear transition removes obsolete Engine ON speech")
     if adviceMode then
-        assert(#commands == 0 and queued["advice:anti_ice:engine:off"] ~= nil,
+        assert(#commands == 0 and queued["advice:anti_ice:engine"] ~= nil,
             "ground snow clearing advises OFF without moving either engine switch")
     else
         assert(#commands == 4 and refs.eng1 == def.OFF and refs.eng2 == def.OFF,
@@ -413,10 +423,10 @@ refs.eng1, refs.eng2, refs.wing = def.OFF, def.OFF, def.OFF
 refs.n1left, refs.n1right = 20, 20
 tick(200)
 tick(206)
-assert(queued["advice:anti_ice:wing:on"] ~= nil, "airborne Wing advice exists before landing")
+assert(queued["advice:anti_ice:wing"] ~= nil, "airborne Wing advice exists before landing")
 refs.airground, refs.agl = def.ON, 0
 tick(207)
-assert(queued["advice:anti_ice:wing:on"] == nil and #commands == 0,
+assert(queued["advice:anti_ice:wing"] == nil and #commands == 0,
     "landing removes obsolete Wing speech without a combined ground switch command")
 refs.wing = def.ON
 yal.configvalues[def.CONFIGAUTOFUNCTIONS] = def.ON
@@ -439,4 +449,65 @@ yal.runOneCoreOngoingTask()
 assert(yal.ongoingcoretaskindex == 5 and #commands == 0 and next(queued) == nil,
     "reserved ground-task slot preserves the other task cadence without anti-ice actions")
 
+-- A dry release is one report per episode, not one per minute or switch movement.
+commands, queued, history = {}, {}, {}
+yal.antiIceRuntime, yal.antiIceWeatherProfileAt = nil, nil
+yal.antiIceAdviceState = { engine = {}, wing = {} }
+yal.flightstate = def.FLIGHTSTATEAPPROACH
+yal.configvalues[def.CONFIGVOICEADVICEONLY] = def.ON
+refs.n1left, refs.n1right = 20, 20
+refs.airground, refs.phase, refs.agl = def.OFF, def.FMSFLIGHTPHASE_APPROACH, 1600
+refs.eng1, refs.eng2, refs.wing = def.ON, def.ON, def.OFF
+refs.tat, refs.sat, refs.vvi = 5, 3, -600
+refs.coverage1, refs.snow, refs.precipitation, refs.iceright = 0, 0, 0, 0
+tick(0)
+tick(30)
+tick(90)
+refs.eng1, refs.eng2 = def.OFF, def.OFF
+tick(91)
+refs.eng1, refs.eng2 = def.ON, def.ON
+tick(151)
+assert(#history == 1 and history[1].text == "Icing conditions clear. Set engine anti ice off.")
+refs.precipitation = 0.2
+tick(152)
+tick(167)
+refs.precipitation = 0
+tick(168)
+tick(198)
+tick(228)
+assert(#history == 2, "a genuine new icing episode re-arms the clear advice")
+refs.tat = 15
+tick(230)
+tick(236)
+tick(300)
+assert(#history == 4 and history[4].text == "T A T above 10 degrees. Set engine anti ice off.",
+    "temperature OFF advice retains its repeat cadence")
+
+local pending = yal.conditionalSpeech.records["advice:anti_ice:engine"]
+refs.agl = 1000
+assert(not yal.conditionalSpeech:valid(pending), "queued advice invalid before the next weather tick")
+tick(301)
+assert(next(queued) == nil, "entering quiet final removes pending speech")
+refs.agl = 1050
+tick(361)
+assert(#history == 4, "RA fluctuations cannot unmute approach")
+refs.airground, refs.agl = def.ON, 0
+refs.sat = 12
+tick(362)
+tick(422)
+assert(#history == 4, "no touchdown replay of unanswered final advice")
+
+-- Auto keeps switching on final, but neither routine status nor inhibit speech may distract.
+yal.configvalues[def.CONFIGVOICEADVICEONLY] = def.OFF
+yal.configvalues[def.CONFIGAUTOFUNCTIONS] = def.ON
+refs.airground, refs.agl = def.OFF, 300
+refs.iceright, refs.wing = 0.02, def.ON
+tick(425)
+tick(431)
+assert(refs.eng1 == def.OFF and refs.eng2 == def.OFF and refs.wing == def.OFF
+    and #history == 4, "quiet speech does not inhibit automatic commands")
+refs.phase = def.FMSFLIGHTPHASE_GO_AROUND
+tick(432)
+assert(not yal.isAntiIceSpeechQuiet(), "actual go-around immediately releases final-only speech inhibition")
+assert(queued["caution:anti_ice:wing:inhibited"], "go-around evaluates current icing instead of replaying final advice")
 print("test_anti_ice_adapter: all checks passed")

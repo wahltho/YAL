@@ -1883,6 +1883,7 @@ function P.YalinitGlobal()
     P.windshieldIcingStarted = false
     P.windshieldIcingApplied = false
     P.antiIceRuntime = P.antiIceLogic.newState()
+    P.antiIceFinalQuiet, P.antiIceLandingCarry, P.antiIceClearOffReported = false, nil, false
     P.antiIceAdviceState = {
         engine = { key = nil, count = 0, spoken = 0, lastAt = nil },
         wing = { key = nil, count = 0, spoken = 0, lastAt = nil }
@@ -7281,6 +7282,21 @@ local my_command_toggleprobeheat = sasl.createCommand(def.APPNAMEPREFIX .. "/tog
 sasl.registerCommandHandler(my_command_toggleprobeheat, 0, P.toggleprobeheat_)
 
 --------------------------------------------------------------------------------------------------------------
+function P.isAntiIceSpeechQuiet()
+    if get(P.airgroundsensor) ~= def.OFF or P.flightstate ~= def.FLIGHTSTATEAPPROACH then return false end
+    local ra = tonumber(get(P.radioaltitude))
+    return (P.antiIceFinalQuiet == true or (ra ~= nil and ra >= 0 and ra <= 1000))
+        and not P.isAutoUnicomGoAroundActive()
+end
+
+function P.queueAntiIceStatus(text, key)
+    if P.isAntiIceSpeechQuiet() then return end
+    local ground = get(P.airgroundsensor)
+    P.queueConditionalSpeech(key, text, function()
+        return get(P.airgroundsensor) == ground and not P.isAntiIceSpeechQuiet()
+    end, "voice")
+end
+
 function P.setEngineAntiIce(state)
     local changed = false
     if state == def.ON then
@@ -7306,7 +7322,7 @@ function P.setEngineAntiIce(state)
     if changed then
         local text = state == def.ON and "Engine Anti Ice On" or "Engine Anti Ice Off"
         local key = state == def.ON and "status:anti_ice:engine:on" or "status:anti_ice:engine:off"
-        P.commandtableentry(def.TEXT, text, key, 2)
+        P.queueAntiIceStatus(text, key)
     end
     return changed
 end
@@ -7325,7 +7341,7 @@ function P.setWingAntiIce(state)
     if changed then
         local text = state == def.ON and "Wing Anti Ice On" or "Wing Anti Ice Off"
         local key = state == def.ON and "status:anti_ice:wing:on" or "status:anti_ice:wing:off"
-        P.commandtableentry(def.TEXT, text, key, 2)
+        P.queueAntiIceStatus(text, key)
     end
     return changed
 end
@@ -7388,9 +7404,9 @@ function P.iceprotection(state)
     end
 
     if (set == 1) then
-        P.commandtableentry(def.TEXT, "Wing and Engine Anti Ice On")
+        P.queueAntiIceStatus("Wing and Engine Anti Ice On", "status:anti_ice:combined")
     elseif (set == 2) then
-        P.commandtableentry(def.TEXT, "Wing and Engine Anti Ice Off")
+        P.queueAntiIceStatus("Wing and Engine Anti Ice Off", "status:anti_ice:combined")
     end
 
     return true
@@ -7427,15 +7443,22 @@ function P.queueAntiIceAdvice(system, stateName, text, now)
     local state = P.antiIceAdviceState and P.antiIceAdviceState[system]
     if not state then return end
     local key = "advice:anti_ice:" .. system .. ":" .. stateName
+    local result = P.antiIceSpeechResult or {}
+    local clearOff = system == "engine" and stateName == "off" and result.engine_reason == "icing-conditions-clear"
+    if clearOff then
+        if P.antiIceClearOffReported then return end
+        key = key .. ":clear"
+    end
     if state.key == key and state.lastAt and (now - state.lastAt) < 30 then return end
     local shouldQueue = shouldQueueStandaloneVoiceAdvice(state, key, text)
     state.lastAt = now
     if shouldQueue then
-        local result = P.antiIceSpeechResult or {}
-        P.queueOngoingAdvice("anti_ice", text, {
+        local queued = P.queueOngoingAdvice("anti_ice", text, {
             system = system, demand = stateName == "on",
+            ground = get(P.airgroundsensor),
             reason = result[system .. "_reason"]
         }, "advice:anti_ice:" .. system, "advice")
+        if queued and clearOff then P.antiIceClearOffReported = true end
     end
 end
 
@@ -7559,7 +7582,17 @@ function P.updateAntiIce()
     })
 
     P.antiIceSpeechResult = result
+    if result.reset or result.engine_demand == true then P.antiIceClearOffReported = false end
+    local quiet = P.isAntiIceSpeechQuiet()
+    if quiet and not P.antiIceFinalQuiet then
+        P.clearAntiIceSpeech("engine")
+        P.clearAntiIceSpeech("wing")
+        P.clearYalQueuedSpeech("caution:anti_ice:wing:inhibited")
+        P.clearYalQueuedSpeech("status:anti_ice:combined")
+    end
+    P.antiIceFinalQuiet = quiet
     if result.reset then
+        P.antiIceLandingCarry = nil
         P.clearAntiIceSpeech("engine")
         P.clearAntiIceSpeech("wing")
         P.clearYalQueuedSpeech("caution:anti_ice:wing:high_altitude")
@@ -7632,6 +7665,13 @@ function P.updateAntiIce()
     local wingMismatch = result.wing_demand == true and get(P.wingheatpos) == def.OFF
         or result.wing_demand == false and get(P.wingheatpos) == def.ON
 
+    -- Do not replay the last unanswered final instruction on touchdown.
+    if quiet and engineMismatch then
+        P.antiIceLandingCarry = result.engine_demand
+    elseif airborne or not engineMismatch or result.engine_demand ~= P.antiIceLandingCarry then
+        P.antiIceLandingCarry = nil
+    end
+
     if automatic then
         if engineMismatch and P.antiIceCommandAllowed(P.antiIceLastEngineCommandAt, now) then
             if P.setEngineAntiIce(result.engine_demand and def.ON or def.OFF) then
@@ -7647,8 +7687,8 @@ function P.updateAntiIce()
         elseif not wingMismatch then
             P.antiIceLastWingCommandAt = nil
         end
-    elseif adviceOnly then
-        if engineMismatch then
+    elseif adviceOnly and not quiet then
+        if engineMismatch and P.antiIceLandingCarry == nil then
             P.queueAntiIceAdvice("engine", result.engine_demand and "on" or "off",
                 P.antiIceEngineAdvice(result.engine_demand, result.engine_reason), now)
         else
@@ -7670,7 +7710,7 @@ function P.updateAntiIce()
         end
     end
 
-    if result.wing_ice_inhibited
+    if not quiet and result.wing_ice_inhibited
         and P.antiIceWingInhibitWarnedReason ~= result.wing_inhibit_reason then
         P.clearYalQueuedSpeech("caution:anti_ice:wing:inhibited")
         P.antiIceWingInhibitWarnedReason = result.wing_inhibit_reason

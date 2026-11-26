@@ -29,6 +29,7 @@ P.LOOKAHEAD_MAX_ENTRY_SEC = 60
 P.LOOKAHEAD_DESCENT_MAX_ENTRY_SEC = 120
 P.LOOKAHEAD_MIN_CORRIDOR_SEC = 45
 P.LOOKAHEAD_REARM_MIN_CORRIDOR_SEC = 120
+P.LOOKAHEAD_LOSS_GRACE_SEC = 60
 
 local function finiteNumber(value)
     local number = tonumber(value)
@@ -416,9 +417,9 @@ local function hasActualIcingEvidence(input)
     return maxFinite(input.frame_ice_left, input.frame_ice_right) >= P.STRUCTURAL_ICE_EVIDENCE
 end
 
-local function qualifyingCloudCorridor(lookahead, minimumDuration, currentOnly)
+local function qualifyingCloudCorridor(lookahead, minimumDuration, currentOnly, maxEntry)
     if type(lookahead) ~= "table" or lookahead.valid ~= true then return false end
-    local maxEntry = finiteNumber(lookahead.max_entry_sec) or P.LOOKAHEAD_MAX_ENTRY_SEC
+    maxEntry = maxEntry or finiteNumber(lookahead.max_entry_sec) or P.LOOKAHEAD_MAX_ENTRY_SEC
     local corridors = lookahead.corridors
     if type(corridors) ~= "table" then corridors = { lookahead } end
     for _, corridor in ipairs(corridors) do
@@ -502,10 +503,21 @@ local function resolveEngineDemand(
     end
 
     state.engine_eligible_since = nil
+    if input.airborne and state.engine_demand == true and qualifyingCloudCorridor(
+        lookahead, P.LOOKAHEAD_MIN_CORRIDOR_SEC, false, P.LOOKAHEAD_HORIZON_SEC) then
+        state.engine_clear_since = nil
+        return true, state.engine_reason
+    end
     if state.moisture_active == false then
         if state.engine_demand == true then
             if state.engine_clear_since == nil then state.engine_clear_since = now end
-            if elapsed(now, state.engine_clear_since) < P.ENGINE_CLEAR_STABLE_SEC then
+            local delay = P.ENGINE_CLEAR_STABLE_SEC
+            -- A missing forecast can extend this dry interval, never restart its clock.
+            if input.airborne and not lookahead.valid and state.last_valid_forecast_at
+                and state.last_valid_forecast_at >= state.engine_clear_since - P.LOOKAHEAD_LOSS_GRACE_SEC then
+                delay = delay + P.LOOKAHEAD_LOSS_GRACE_SEC
+            end
+            if elapsed(now, state.engine_clear_since) < delay then
                 return true, state.engine_reason
             end
         end
@@ -607,6 +619,8 @@ function P.update(state, input)
     end
     state.airborne = airborne
     local lookahead = state.lookahead
+    if not airborne then state.last_valid_forecast_at = nil
+    elseif lookahead.valid then state.last_valid_forecast_at = now end
 
     local previousEngine = state.engine_demand
     local previousEngineReason = state.engine_reason
