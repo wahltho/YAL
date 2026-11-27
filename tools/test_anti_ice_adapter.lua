@@ -510,4 +510,55 @@ refs.phase = def.FMSFLIGHTPHASE_GO_AROUND
 tick(432)
 assert(not yal.isAntiIceSpeechQuiet(), "actual go-around immediately releases final-only speech inhibition")
 assert(queued["caution:anti_ice:wing:inhibited"], "go-around evaluates current icing instead of replaying final advice")
+-- CYVR: wet climb through a transient warm TAT, without delaying switch commands.
+for _, scenario in ipairs({ "recovers", "stays warm", "forecast lost", "no forecast", "descent", "auto" }) do
+    commands, queued, history = {}, {}, {}
+    yal.antiIceRuntime, yal.antiIceWeatherProfileAt = nil, nil
+    yal.antiIceAdviceState = { engine = {}, wing = {} }
+    yal.flightstate = scenario == "descent" and def.FLIGHTSTATEAPPROACH or def.FLIGHTSTATEINITIALCLIMB
+    yal.configvalues[def.CONFIGVOICEADVICEONLY] = scenario == "auto" and def.OFF or def.ON
+    yal.configvalues[def.CONFIGAUTOFUNCTIONS] = scenario == "auto" and def.ON or def.OFF
+    refs.airground, refs.phase = def.OFF, def.FMSFLIGHTPHASE_TAKEOFF
+    refs.eng1, refs.eng2, refs.wing = def.ON, def.ON, def.OFF
+    refs.snow, refs.hail, refs.iceleft, refs.iceright, refs.icedelta = 0, 0, 0, 0, 0
+    refs.agl, refs.elevation, refs.vvi = 1500, 500, 3230
+    refs.precipitation, refs.coverage1 = 0.0325, 0
+    for i = 1, 6 do refs["temp" .. i] = 10 - (i-1) * 6 end
+    if scenario == "no forecast" then refs.vvi = 0 end
+    refs.sat, refs.tat = 8.8, 9.5
+    tick(0)
+    tick(15)
+    refs.tat = 12.1
+    tick(16)
+    tick(22)
+    assert(yal.antiIceRuntime.engine_demand == false and yal.antiIceRuntime.engine_reason == "tat-above-10")
+    local key = "advice:anti_ice:engine"
+    if scenario == "auto" then
+        assert(#commands == 2 and refs.eng1 == def.OFF and refs.eng2 == def.OFF, "Auto switches OFF immediately")
+    elseif scenario == "no forecast" or scenario == "descent" then
+        assert(queued[key] == "T A T above 10 degrees. Set engine anti ice off.", "no deferral: " .. scenario)
+    else
+        assert(yal.antiIceRuntime.lookahead.thermal_entry_sec == 25 and not queued[key], "CYVR forecast holds advice")
+        if scenario == "recovers" then
+            refs.tat = 10.3
+            tick(38)
+            assert(yal.antiIceRuntime.engine_reason == "tat-above-10" and not queued[key],
+                "wet at raw TAT 10.3 must not be called icing clear")
+            refs.tat = 9.9
+            tick(41)
+            tick(56)
+            assert(yal.antiIceRuntime.engine_demand and #history == 0, "no OFF or redundant ON during recovery")
+        elseif scenario == "stays warm" then
+            tick(51)
+            assert(not queued[key], "wait has not expired")
+            tick(52)
+            assert(queued[key] == "T A T above 10 degrees. Set engine anti ice off.", "absolute 30-second limit")
+        else
+            refs.vvi = 0
+            tick(24)
+            assert(queued[key] == "T A T above 10 degrees. Set engine anti ice off.", "lost forecast releases now")
+        end
+        assert(#commands == 0, "advice mode never switches engines")
+    end
+end
 print("test_anti_ice_adapter: all checks passed")

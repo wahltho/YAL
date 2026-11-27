@@ -13,7 +13,8 @@ P.STRUCTURAL_ICE_CLEAR_STABLE_SEC = 30
 P.WING_CLEAR_STABLE_SEC = 120
 P.ICE_DELTA_EPSILON = 0.0000001
 P.PRECIPITATION_THRESHOLD = 0.01
-P.GROUND_SNOW_CLEAR_THRESHOLD = 0.003
+P.GROUND_PRECIP_CLEAR_THRESHOLD = 0.003
+P.WARM_OFF_ADVICE_MAX_WAIT_SEC = 30
 P.CLOUD_COVERAGE_THRESHOLD = 0.5
 P.FOG_VISIBILITY_SM = 1
 P.FOG_MAX_AGL_FT = 1500
@@ -120,6 +121,7 @@ function P.newState()
         moisture_active = nil,
         moisture_reason = nil,
         ground_snow_active = false,
+        ground_rain_active = false,
         engine_eligible_since = nil,
         engine_clear_since = nil,
         structural_since = nil,
@@ -327,21 +329,19 @@ function P.visibleMoisture(input)
     return false, nil
 end
 
+local function groundPrecipActive(ratio, previous)
+    ratio = finiteNumber(ratio) or 0
+    return ratio >= P.PRECIPITATION_THRESHOLD or (previous and ratio > P.GROUND_PRECIP_CLEAR_THRESHOLD)
+end
+
 local function updateMoistureState(state, input, now)
-    -- X-Plane's snow ratio can linger around the ON threshold after landing.
-    -- Keep this ground-only sensor hysteresis inside the existing moisture owner.
-    if input.airborne == false then
-        local snow = finiteNumber(input.snow_ratio) or 0
-        if snow >= P.PRECIPITATION_THRESHOLD then
-            state.ground_snow_active = true
-        elseif snow <= P.GROUND_SNOW_CLEAR_THRESHOLD then
-            state.ground_snow_active = false
-        end
-    else
-        state.ground_snow_active = false
-    end
+    local ground = input.airborne == false
+    state.ground_rain_active = ground and groundPrecipActive(input.precipitation_ratio, state.ground_rain_active)
+    state.ground_snow_active = ground and groundPrecipActive(input.snow_ratio, state.ground_snow_active)
     local moisture, reason = P.visibleMoisture(input)
-    if not moisture and state.ground_snow_active == true then
+    if not moisture and state.ground_rain_active then
+        moisture, reason = true, "precipitation"
+    elseif not moisture and state.ground_snow_active then
         moisture, reason = true, "snow"
     end
     if moisture then
@@ -503,6 +503,11 @@ local function resolveEngineDemand(
     end
 
     state.engine_eligible_since = nil
+    -- The display can already read 10 while raw TAT is still too warm to re-arm.
+    if warm and moisture and input.airborne and state.engine_demand == false
+        and state.engine_reason == "tat-above-10" then
+        return false, state.engine_reason
+    end
     if input.airborne and state.engine_demand == true and qualifyingCloudCorridor(
         lookahead, P.LOOKAHEAD_MIN_CORRIDOR_SEC, false, P.LOOKAHEAD_HORIZON_SEC) then
         state.engine_clear_since = nil
@@ -627,6 +632,16 @@ function P.update(state, input)
     local engineDemand, engineReason = resolveEngineDemand(
         state, input, now, tat, displayedTat, warmStable, coldSatStable,
         moisture, moistureReason, lookahead)
+    -- Only the spoken instruction waits. Recomputing the forecast cannot move its deadline.
+    local entry = lookahead.thermal_entry_sec
+    if engineReason ~= "tat-above-10" or not airborne or not input.climbing or not moisture
+        or (finiteNumber(input.vertical_speed_fpm) or 0) < P.LOOKAHEAD_MIN_VERTICAL_SPEED_FPM
+        or not lookahead.valid or not entry or entry > P.WARM_OFF_ADVICE_MAX_WAIT_SEC
+        or (lookahead.thermal_duration_sec or 0) < P.ENGINE_ON_STABLE_SEC then
+        state.warm_off_advice_until = nil
+    elseif previousEngineReason ~= engineReason then
+        state.warm_off_advice_until = now + P.WARM_OFF_ADVICE_MAX_WAIT_SEC
+    end
     local wingDemand, wingReason
     if airborne then
         wingDemand, wingReason = resolveWingDemand(
@@ -645,6 +660,7 @@ function P.update(state, input)
         engine_reason_changed = previousEngineReason ~= engineReason,
         engine_demand = engineDemand,
         engine_reason = engineReason,
+        defer_engine_off_advice = state.warm_off_advice_until ~= nil and now < state.warm_off_advice_until,
         wing_reset = not airborne and previousWing ~= nil,
         wing_changed = airborne and (previousWing ~= wingDemand or previousWingReason ~= wingReason),
         wing_demand = wingDemand,

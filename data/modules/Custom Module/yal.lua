@@ -7562,6 +7562,8 @@ function P.updateAntiIce()
         tat_c = get(P.tatdegc),
         sat_c = get(P.satdegc),
         climb_or_cruise = climbOrCruise,
+        climbing = P.flightstate == def.FLIGHTSTATEINITIALCLIMB or P.flightstate == def.FLIGHTSTATECLIMB
+            or fmsPhase == def.FMSFLIGHTPHASE_CRZ_CLB,
         precipitation_ratio = precipitation,
         snow_ratio = snow,
         hail_ratio = hail,
@@ -7688,7 +7690,7 @@ function P.updateAntiIce()
             P.antiIceLastWingCommandAt = nil
         end
     elseif adviceOnly and not quiet then
-        if engineMismatch and P.antiIceLandingCarry == nil then
+        if engineMismatch and P.antiIceLandingCarry == nil and not result.defer_engine_off_advice then
             P.queueAntiIceAdvice("engine", result.engine_demand and "on" or "off",
                 P.antiIceEngineAdvice(result.engine_demand, result.engine_reason), now)
         else

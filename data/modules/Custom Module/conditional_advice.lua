@@ -271,6 +271,7 @@ function M.attach(P, def, helpers, settings)
         if not result or cfg(def.CONFIGAUTOANTIICE) ~= def.ON or P.isAntiIceSpeechQuiet()
             or get(P.airgroundsensor) ~= c.ground then return false end
         if c.system == "engine" then
+            if result.defer_engine_off_advice and not c.demand then return false end
             if not P.enginesrunning(def.BOTH) then return false end
             if result.engine_demand ~= c.demand or result.engine_reason ~= c.reason then return false end
             return c.demand == true and (n("eng1heatpos") == def.OFF or n("eng2heatpos") == def.OFF)

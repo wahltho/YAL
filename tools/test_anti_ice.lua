@@ -673,4 +673,28 @@ state, result = update(state, 17, copy(groundSnow, { snow_ratio = 0.0054 }))
 state, result = update(state, 107, copy(groundSnow, { snow_ratio = 0.0054 }))
 assertTrue(result.engine_demand, "snow detected after landing retains existing airborne engine protection")
 
+do
+    -- CYVR taxi: no OFF during the 0.0033 dip, and no ON merely inside the band.
+    local function rain(s, t, ratio)
+        return update(s, t, { airborne = false, engines_running = true, sat_c = 9.5,
+            precipitation_ratio = ratio })
+    end
+    local s = rain(nil, 0, 0.009)
+    s = rain(s, 60, 0.009)
+    assertFalse(s.engine_demand, "subthreshold ground rain cannot initiate ON")
+    for _, sample in ipairs({{61,0.0457}, {76,0.0457}, {77,0.0033}, {107,0.0033},
+        {137,0.0033}, {291,0.0033}, {321,0.0175}}) do
+        s = rain(s, sample[1], sample[2])
+        if sample[1] >= 76 then assertTrue(s.engine_demand, "ground rain gap does not cycle demand") end
+    end
+    s = rain(s, 322, 0.003)
+    s = rain(s, 352, 0.003)
+    s = rain(s, 381, 0.003)
+    assertTrue(s.engine_demand, "rain release still observes dry timers")
+    s = rain(s, 382, 0.003)
+    assertFalse(s.engine_demand, "sustained dry eventually releases rain demand")
+    s = rain(s, 383, 0.0099)
+    assertFalse(s.engine_demand, "rain does not rearm inside hysteresis band")
+end
+
 print("test_anti_ice: all checks passed")
