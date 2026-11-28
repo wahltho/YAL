@@ -928,6 +928,7 @@ local function resetSetIlsResolutionState(loop)
     loop.detectedApproach = nil
     loop.approachRefAccepted = nil
     loop.approachRefSnapshot = nil
+    loop._scatCaptainSequence, loop._scatFoSequence = nil, nil
 end
 
 local function cacheApproachCourse(loop, entry, course, selectedSource, ziboCourse, ziboSource, legacyCourse, authoritative)
@@ -988,6 +989,14 @@ end
 local getSetIlsNavdata
 
 local function getCachedApproachCourse(loop)
+    if loop and loop.approachRefSnapshot and loop.approachRefSnapshot.procedure_type == "SCAT-I" then
+        local navdata = getSetIlsNavdata(loop)
+        local course = navdata and navdata[def.DESTCOURSE] or nil
+        if course then
+            cacheApproachCourse(loop, navdata, course, "zibo_approach_ref_api", course, "APPROACH_REF", nil, true)
+        end
+        return course
+    end
     if loop and loop.approachCourseMag then
         return loop.approachCourseMag
     end
@@ -1071,6 +1080,20 @@ getSetIlsNavdata = function(loop)
         return nil
     end
     if loop.approachRefAccepted then
+        if loop.approachRefSnapshot and loop.approachRefSnapshot.procedure_type == "SCAT-I" then
+            local snapshot, entry, status = refdata.getApproachRefForContext({
+                icao = get(P.desicao), runway = get(P.desrwy),
+                selectedAppId = get(P.fmsselectedapp), requireCommitted = true
+            })
+            local previous = loop.approachRefSnapshot
+            if status ~= "accepted" or not snapshot or snapshot.procedure_type ~= "SCAT-I"
+                or snapshot.procedure_id ~= previous.procedure_id or snapshot.airport ~= previous.airport
+                or snapshot.runway ~= previous.runway or not snapshot.scat_available then
+                loop.apiNavdata = nil
+                return nil
+            end
+            loop.approachRefSnapshot, loop.apiNavdata = snapshot, entry
+        end
         return loop.apiNavdata
     end
     if loop.apiNavdata then
@@ -1196,8 +1219,9 @@ local function buildSetIlsPlan(loop)
 
     if guidanceProfile and guidanceProfile.approachFamily == "gls" then
         if lpvCapable and channelValue then
-            plan.captTune = { type = "mmr", value = channelValue, mode = def.MMRGLS }
-            plan.foTune = { type = "mmr", value = channelValue, mode = def.MMRGLS }
+            local tuneType = navdata.isScatI and "scat" or "mmr"
+            plan.captTune = { type = tuneType, value = channelValue, mode = def.MMRGLS }
+            plan.foTune = { type = tuneType, value = channelValue, mode = def.MMRGLS }
         end
     elseif guidanceProfile and guidanceProfile.approachFamily == "lpv" then
         if lpvCapable and channelValue then
@@ -1230,7 +1254,8 @@ local function buildSetIlsPlan(loop)
         plan.primaryTuneMessage = "Frequency " .. helpers.addspaces(helpers.formatILSFrequency(localizerFreq))
     elseif navType == def.NAVTYPEGLS or navType == def.NAVTYPELPV or isLP then
         if channelValue then
-            plan.primaryTuneMessage = "Channel " .. helpers.addspaces(channelValue)
+            plan.primaryTuneMessage = "Channel " .. helpers.addspaces(navdata.isScatI
+                and string.format("%05d", channelValue) or channelValue)
         end
     elseif plan.foTune and plan.foTune.type == "dme" and plan.foTune.value then
         local identText = (plan.foTune.ident and plan.foTune.ident ~= "")
@@ -1420,6 +1445,9 @@ local function shouldManageSetIlsCourseSelectors(loop)
     local plan = buildSetIlsPlan(loop)
     local approachSnapshot = loop and loop.approachRefAccepted and loop.approachRefSnapshot or nil
     if approachSnapshot then
+        if approachSnapshot.procedure_type == "SCAT-I" then
+            return plan.navdata ~= nil and get(P.mmrinstalled) == def.ON
+        end
         if not approachSnapshot.course_valid then
             return false
         end
@@ -1479,7 +1507,7 @@ local function checkSetIlsCaptainTune(tune)
         end
         return get(P.nav1freq) == tune.value
     end
-    if tune.type == "mmr" then
+    if tune.type == "mmr" or tune.type == "scat" then
         return (get(P.mmrcptactvalue) == tune.value) and (get(P.mmrcptactmode) == tune.mode)
     end
     return true
@@ -1488,6 +1516,9 @@ end
 local function applySetIlsCaptainTune(tune)
     if not tune then
         return
+    end
+    if tune.type == "scat" then
+        return helpers.tuneScatMmr(def.MMRCAPTAIN, tune.value)
     end
     if tune.type == "localizer" then
         if get(P.mmrinstalled) == def.ON then
@@ -1513,7 +1544,8 @@ local function captainTuneAdviceText(tune)
     if tune.type == "localizer" then
         return "Set Captain Frequency " .. helpers.addspaces(helpers.formatILSFrequency(tune.value))
     end
-    return "Set Captain Channel " .. helpers.addspaces(tune.value)
+    return "Set Captain Channel " .. helpers.addspaces(tune.type == "scat"
+        and string.format("%05d", tune.value) or tune.value)
 end
 
 local function captainTuneConfirmText(tune)
@@ -1523,7 +1555,8 @@ local function captainTuneConfirmText(tune)
     if tune.type == "localizer" then
         return "Captain Frequency checked and " .. helpers.addspaces(helpers.formatILSFrequency(tune.value))
     end
-    return "Captain Channel checked and " .. helpers.addspaces(tune.value)
+    return "Captain Channel checked and " .. helpers.addspaces(tune.type == "scat"
+        and string.format("%05d", tune.value) or tune.value)
 end
 
 local function checkSetIlsFoTune(tune)
@@ -1539,7 +1572,7 @@ local function checkSetIlsFoTune(tune)
     if tune.type == "dme" then
         return get(P.nav2freq) == tune.value
     end
-    if tune.type == "mmr" and get(P.mmrinstalled) == def.ON then
+    if (tune.type == "mmr" or tune.type == "scat") and get(P.mmrinstalled) == def.ON then
         return (get(P.mmrfoactvalue) == tune.value) and (get(P.mmrfoactmode) == tune.mode)
     end
     return true
@@ -1548,6 +1581,9 @@ end
 local function applySetIlsFoTune(tune)
     if not tune then
         return
+    end
+    if tune.type == "scat" then
+        return helpers.tuneScatMmr(def.MMRFO, tune.value)
     end
     if tune.type == "localizer" then
         if get(P.mmrinstalled) == def.ON then
@@ -1582,7 +1618,8 @@ local function foTuneAdviceText(tune)
         local identText = (tune.ident and tune.ident ~= "") and (" (" .. helpers.spellNato(tune.ident) .. ")") or ""
         return "Set Copilot D M E Frequency " .. helpers.addspaces(helpers.formatILSFrequency(tune.value)) .. identText
     end
-    return "Set Copilot Channel " .. helpers.addspaces(tune.value)
+    return "Set Copilot Channel " .. helpers.addspaces(tune.type == "scat"
+        and string.format("%05d", tune.value) or tune.value)
 end
 
 local function foTuneConfirmText(tune)
@@ -1596,7 +1633,8 @@ local function foTuneConfirmText(tune)
         local identText = (tune.ident and tune.ident ~= "") and (" (" .. helpers.spellNato(tune.ident) .. ")") or ""
         return "Copilot D M E Frequency checked and " .. helpers.addspaces(helpers.formatILSFrequency(tune.value)) .. identText
     end
-    return "Copilot Channel checked and " .. helpers.addspaces(tune.value)
+    return "Copilot Channel checked and " .. helpers.addspaces(tune.type == "scat"
+        and string.format("%05d", tune.value) or tune.value)
 end
 
 local function getMissedApproachAlt(loop)
@@ -6566,8 +6604,12 @@ function M.fillProcedureTable()
                                 tostring(approachSnapshot and approachSnapshot.course_reference or nil),
                                 tostring(approachSnapshot and approachSnapshot.course_only_non_precision or false)
                             ))
-                            if approachSnapshot and approachSnapshot.nav_valid and approachNavdata then
+                            if approachSnapshot and (approachSnapshot.nav_valid or approachSnapshot.scat_available)
+                                and approachNavdata then
                                 return 'announce_approach_type'
+                            end
+                            if approachSnapshot and approachSnapshot.procedure_type == "SCAT-I" then
+                                return 'announce_scat_unavailable'
                             end
                             return 'announce_no_approach'
                         end
@@ -6711,6 +6753,13 @@ function M.fillProcedureTable()
                             return 'announce_no_approach'
                         end
                     end
+                },
+                ['announce_scat_unavailable'] = {
+                    action = function(loop, procData)
+                        P.commandtableentry(def.TEXT, "S C A T One approach unavailable. Check S C A T One tablet option and approach data")
+                    end,
+                    runActionInAdviceMode = true,
+                    nextStep = nil
                 },
                 ['announce_no_approach'] = {
                     action = function(loop, procData) 
@@ -6865,6 +6914,9 @@ function M.fillProcedureTable()
                         if isLP then
                             approachDescriptor = "RNAV (LP) Approach"
                         end
+                        if navdata.isScatI then
+                            approachDescriptor = "S C A T One Approach"
+                        end
                         if isLocalizerNavType(navtype) and navdata[def.DESTNAVDME] then
                             approachDescriptor = approachDescriptor .. " with DME"
                         end
@@ -6979,11 +7031,18 @@ function M.fillProcedureTable()
                     end,
                     check = function(loop, procData)
                         local plan = buildSetIlsPlan(loop)
+                        if plan.captTune and plan.captTune.type == "scat"
+                            and P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON
+                            and loop._scatCaptainSequence ~= loop.approachRefSnapshot.update_seq then
+                            return false
+                        end
                         return checkSetIlsCaptainTune(plan.captTune)
                     end,
                     action = function(loop, procData)
                         local plan = buildSetIlsPlan(loop)
-                        applySetIlsCaptainTune(plan.captTune)
+                        if applySetIlsCaptainTune(plan.captTune) and plan.captTune.type == "scat" then
+                            loop._scatCaptainSequence = loop.approachRefSnapshot.update_seq
+                        end
                     end,
                     advice = function(loop, procData)
                         local plan = buildSetIlsPlan(loop)
@@ -7005,11 +7064,18 @@ function M.fillProcedureTable()
                     end,
                     check = function(loop, procData)
                         local plan = buildSetIlsPlan(loop)
+                        if plan.foTune and plan.foTune.type == "scat"
+                            and P.configvalues[def.CONFIGVOICEADVICEONLY] ~= def.ON
+                            and loop._scatFoSequence ~= loop.approachRefSnapshot.update_seq then
+                            return false
+                        end
                         return checkSetIlsFoTune(plan.foTune)
                     end,
                     action = function(loop, procData)
                         local plan = buildSetIlsPlan(loop)
-                        applySetIlsFoTune(plan.foTune)
+                        if applySetIlsFoTune(plan.foTune) and plan.foTune.type == "scat" then
+                            loop._scatFoSequence = loop.approachRefSnapshot.update_seq
+                        end
                     end,
                     advice = function(loop, procData)
                         local plan = buildSetIlsPlan(loop)

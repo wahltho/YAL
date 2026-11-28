@@ -41,6 +41,9 @@ local APPROACH_REF_FIELDS = {
 local APPROACH_REF_V3_FIELDS = {
     "procedure_class_valid", "rnp_ar", "ian_eligible"
 }
+local APPROACH_REF_SCAT_FIELDS = {
+    "scat_selected", "scat_available", "scat_ident", "scat_channel", "scat_course_mag"
+}
 
 local STATUS_NAMES = {
     [0] = "idle",
@@ -355,6 +358,7 @@ local function approachRefNavType(snapshot)
     if procedureType == "LOC" then return def.NAVTYPELOC end
     if procedureType == "LDA" then return def.NAVTYPELDA end
     if procedureType == "GLS" then return def.NAVTYPEGLS end
+    if procedureType == "SCAT-I" then return def.NAVTYPEGLS end
     if procedureType == "RNAV" then return def.NAVTYPERNAV end
     return nil
 end
@@ -415,6 +419,21 @@ local function readApproachRefSnapshot(refs)
                 snapshot.rnp_ar = false
                 snapshot.ian_eligible = false
             end
+            snapshot.scat_fields_available = (tonumber(apiVersion) or 0) >= 3
+            for _, field in ipairs(APPROACH_REF_SCAT_FIELDS) do
+                if not refs[field] or not isProperty(refs[field]) then
+                    snapshot.scat_fields_available = false
+                end
+            end
+            snapshot.scat_selected, snapshot.scat_available = false, false
+            snapshot.scat_ident, snapshot.scat_channel, snapshot.scat_course_mag = "", 0, 0
+            if snapshot.scat_fields_available then
+                snapshot.scat_selected = boolValue(number("scat_selected"))
+                snapshot.scat_available = boolValue(number("scat_available"))
+                snapshot.scat_ident = cleanText(readString(refs.scat_ident))
+                snapshot.scat_channel = number("scat_channel")
+                snapshot.scat_course_mag = number("scat_course_mag")
+            end
 
             local seqAfterRaw = readNumber(refs.update_seq)
             local seqAfter = seqAfterRaw and math.floor(seqAfterRaw + 0.5) or nil
@@ -437,6 +456,23 @@ local function approachRefSnapshotValid(snapshot)
     local course = tonumber(snapshot.course_deg) or 0
     local dmeFrequency = tonumber(snapshot.dme_frequency_raw) or 0
     local supportFrequency = tonumber(snapshot.support_nav_frequency_raw) or 0
+    local scatChannel = tonumber(snapshot.scat_channel) or 0
+    local scatCourse = tonumber(snapshot.scat_course_mag) or 0
+    local scatIdent = snapshot.scat_ident or ""
+    if snapshot.scat_available then
+        if not snapshot.scat_fields_available or not snapshot.scat_selected
+            or not snapshot.selected or snapshot.procedure_type ~= "SCAT-I"
+            or not snapshot.procedure_class_valid or (tonumber(snapshot.api_version) or 0) < 3
+            or scatIdent == "" or scatChannel < 1000 or scatChannel > 9999
+            or scatChannel % 1 ~= 0 or scatCourse < 0 or scatCourse >= 360 or scatCourse % 1 ~= 0 then
+            return false, "scat_target"
+        end
+    elseif scatIdent ~= "" or scatChannel ~= 0 or scatCourse ~= 0 then
+        return false, "nonempty_unavailable_scat"
+    end
+    if snapshot.scat_selected and (not snapshot.selected or snapshot.procedure_type ~= "SCAT-I") then
+        return false, "scat_selection"
+    end
 
     if not snapshot.selected then
         if snapshot.nav_valid or snapshot.course_valid or snapshot.has_dme or snapshot.support_nav_valid
@@ -558,7 +594,8 @@ local function approachRefContextMatches(snapshot, context)
 end
 
 local function approachRefToNavEntry(snapshot)
-    if not snapshot or not snapshot.nav_valid or not snapshot.nav_type then
+    local scat = snapshot and snapshot.scat_available == true
+    if not snapshot or (not snapshot.nav_valid and not scat) or not snapshot.nav_type then
         return nil
     end
 
@@ -567,10 +604,13 @@ local function approachRefToNavEntry(snapshot)
     entry[def.DESTICAO] = snapshot.airport
     entry[def.DESTRWY] = snapshot.runway
     entry[def.DESTNAVTYPE] = snapshot.nav_type
-    entry[def.DESTNAVID] = snapshot.nav_ident
-    entry[def.DESTFREQ] = (kind == "GLS" or kind == "LPV" or kind == "LP")
-        and (tonumber(snapshot.channel) or 0) or (tonumber(snapshot.frequency_raw) or 0)
-    entry[def.DESTCOURSE] = snapshot.course_valid and (tonumber(snapshot.course_deg) or 0) or nil
+    entry[def.DESTNAVID] = scat and snapshot.scat_ident or snapshot.nav_ident
+    entry[def.DESTFREQ] = scat and snapshot.scat_channel
+        or ((kind == "GLS" or kind == "LPV" or kind == "LP")
+            and (tonumber(snapshot.channel) or 0) or (tonumber(snapshot.frequency_raw) or 0))
+    entry[def.DESTCOURSE] = scat and snapshot.scat_course_mag
+        or snapshot.course_valid and (tonumber(snapshot.course_deg) or 0) or nil
+    entry.isScatI = scat
     entry[def.DESTNAVDME] = snapshot.has_dme == true
     entry[def.DESTDMEIDENT] = snapshot.has_dme and snapshot.dme_ident or ""
     entry[def.DESTDMEFREQ] = snapshot.has_dme and (tonumber(snapshot.dme_frequency_raw) or 0) or 0
@@ -2025,7 +2065,10 @@ function M.getApproachRefForContext(context)
                         .. " procedureClassValid=" .. tostring(snapshot.procedure_class_valid)
                         .. " rnpAr=" .. tostring(snapshot.rnp_ar)
                         .. " ianEligible=" .. tostring(snapshot.ian_eligible)
-                        .. " courseOnlyNonPrecision=" .. tostring(snapshot.course_only_non_precision),
+                        .. " courseOnlyNonPrecision=" .. tostring(snapshot.course_only_non_precision)
+                        .. " scatAvailable=" .. tostring(snapshot.scat_available)
+                        .. " scatChannel=" .. tostring(snapshot.scat_channel)
+                        .. " scatCourse=" .. tostring(snapshot.scat_course_mag),
                     true
                 )
                 return snapshot, entry, "accepted"

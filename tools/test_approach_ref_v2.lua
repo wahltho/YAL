@@ -23,6 +23,7 @@ function globalProperty(name) return name end
 local values = {}
 function get(ref) return values[ref] end
 function set(ref, value) values[ref] = value end
+function isProperty(ref) return ref ~= nil and values[ref] ~= nil end
 
 local def = require("definitions")
 local realRefdata = require("refdata")
@@ -291,7 +292,9 @@ package.loaded.helpers = {
     end,
     parseSelectedApproachId = realHelpers.parseSelectedApproachId,
     resolveApproachGuidanceCapabilities = realHelpers.resolveApproachGuidanceCapabilities,
-    spellNato = realHelpers.spellNato
+    spellNato = realHelpers.spellNato,
+    tuneScatMmr = realHelpers.tuneScatMmr,
+    mmrCopyActToStby = realHelpers.mmrCopyActToStby
 }
 package.loaded.refdata = procedureRefdata
 
@@ -395,4 +398,160 @@ assert(values.mcpcopilotcourse == 4,
 assert(setIls.steps.set_fo_course.confirm(loop) == "Copilot Course checked and 0 0 4",
     "Copilot confirmation must use the cached Approach-Ref target")
 
-print("test_approach_ref_v2: API v2/v3 checks passed")
+local scat = copy(ekvgR12W)
+scat.airport, scat.runway, scat.procedure_id, scat.procedure_type = "ENHF", "22", "J22-Z", "SCAT-I"
+scat.course_valid, scat.course_deg, scat.course_reference = false, 0, ""
+scat.rnp_ar, scat.ian_eligible = false, false
+scat.scat_fields_available, scat.scat_selected, scat.scat_available = true, true, true
+scat.scat_ident, scat.scat_channel, scat.scat_course_mag = "G22A", 8870, 222
+assert(validate(scat), "SCAT available snapshot must be valid without primary Landing NAV or generic course")
+local scatEntry = toNavEntry(scat)
+assert(scatEntry.isScatI and scatEntry[def.DESTFREQ] == 8870 and scatEntry[def.DESTCOURSE] == 222,
+    "SCAT adapter uses dedicated target, not zero generic primary fields")
+assert(scat.nav_valid == false and scat.course_valid == false, "SCAT must not change primary NAV semantics")
+for _, channel in ipairs({ 999, 10000, 8870.5 }) do
+    local invalid = copy(scat)
+    invalid.scat_channel = channel
+    assert(not validate(invalid), "invalid SCAT channel rejected")
+end
+local invalid = copy(scat)
+invalid.scat_selected = false
+assert(not validate(invalid), "availability cannot bypass exact SCAT selection")
+invalid = copy(scat)
+invalid.scat_fields_available = false
+assert(not validate(invalid), "partial API cannot authorize SCAT")
+
+local scatRefs = {}
+for field, value in pairs(scat) do
+    local ref = "scat/" .. field
+    scatRefs[field] = ref
+    values[ref] = type(value) == "boolean" and (value and 1 or 0) or value
+end
+local atomicScat = assert(readSnapshot(scatRefs))
+assert(atomicScat.scat_available and atomicScat.scat_channel == 8870 and validate(atomicScat),
+    "dedicated SCAT fields included in same atomic snapshot")
+values[scatRefs.update_seq] = 3
+assert(readSnapshot(scatRefs) == nil, "odd SCAT snapshot cannot authorize an action")
+values[scatRefs.update_seq] = 2
+scatRefs.scat_ident = nil
+local incomplete = assert(readSnapshot(scatRefs))
+assert(not incomplete.scat_available and toNavEntry(incomplete) == nil,
+    "missing extension field fails closed without breaking old Approach Ref API")
+
+activeApproachFixture = scat
+values.desicao, values.desrwy, values.fmsselectedapp = "ENHF", "22", "J22-Z"
+yal.mmrinstalled, yal.lpvinstalled = "mmr", "lpv"
+yal.mmrcptactmode, yal.mmrcptactvalue, yal.mmrcptstdbymode = "captMode", "captValue", "captStbyMode"
+yal.mmrfoactmode, yal.mmrfoactvalue, yal.mmrfostdbymode = "foMode", "foValue", "foStbyMode"
+values.mmr, values.lpv = 1, 0
+values.captMode, values.captValue, values.captStbyMode = def.MMRGLS, 8870, 0
+values.foMode, values.foValue, values.foStbyMode = def.MMRGLS, 8870, 1
+messages, loop = {}, {}
+assert(setIls.steps.find_navdata.branch(loop) == "announce_approach_type", "available SCAT uses existing tuning flow")
+setIls.steps.announce_approach_type.action(loop)
+assert(messages[1]:find("S C A T One Approach", 1, true)
+    and messages[1]:find("Channel 0 8 8 7 0", 1, true), "SCAT announcement keeps leading zero")
+assert(setIls.steps.set_capt_freq.advice(loop) == "Set Captain Channel 0 8 8 7 0", "Captain advice pads to five digits")
+assert(setIls.steps.set_fo_freq.advice(loop) == "Set Copilot Channel 0 8 8 7 0", "FO advice pads to five digits")
+assert(not setIls.steps.set_capt_freq.skipIf(loop), "SCAT requires MMR but not unrelated LPV option")
+assert(not setIls.steps.set_capt_freq.check(loop), "Auto mode must establish receiver authority even if raw channel already matches")
+
+local commands, drafts, cursors = {}, { capt = "", fo = "" }, { capt = 5, fo = 5 }
+sasl.findCommand = function(name) return name end
+sasl.commandOnce = function(name)
+    commands[#commands + 1] = name
+    local receiver, suffix = name:match("mmr([12])_(.+)$")
+    local side = receiver == "1" and "capt" or "fo"
+    if suffix == "mode_up" then
+        values[side .. "StbyMode"] = values[side .. "StbyMode"] + 1
+    elseif suffix == "clr" then
+        cursors[side] = math.min(5, cursors[side] + 1)
+        drafts[side] = ""
+    elseif suffix == "act_stby" then
+        assert(drafts[side] == "08870" and cursors[side] == 0, "transfer requires all five typed digits")
+        values[side .. "Mode"], values[side .. "Value"] = def.MMRGLS, tonumber(drafts[side])
+    else
+        assert(#suffix == 1 and suffix:match("%d"), "only real MMR keypad commands")
+        drafts[side] = drafts[side] .. suffix
+        cursors[side] = cursors[side] - 1
+    end
+end
+local writes, originalSet = 0, set
+set = function(ref, value)
+    if ref == "captMode" or ref == "captValue" or ref == "foMode" or ref == "foValue" then writes = writes + 1 end
+    originalSet(ref, value)
+end
+setIls.steps.set_capt_freq.action(loop)
+setIls.steps.set_fo_freq.action(loop)
+assert(setIls.steps.set_capt_freq.check(loop) and setIls.steps.set_fo_freq.check(loop), "Auto command-path tuning completes on both sides")
+assert(writes == 0 and drafts.capt == "08870" and drafts.fo == "08870", "never write active MMR fields for SCAT")
+assert(setIls.steps.set_capt_freq.confirm(loop) == "Captain Channel checked and 0 8 8 7 0", "Captain confirmation retains zero")
+assert(setIls.steps.set_fo_freq.confirm(loop) == "Copilot Channel checked and 0 8 8 7 0", "FO confirmation retains zero")
+assert(not setIls.steps.set_capt_course.skipIf(loop) and not setIls.steps.set_fo_course.skipIf(loop), "manage both SCAT courses")
+setIls.steps.set_capt_course.action(loop)
+setIls.steps.set_fo_course.action(loop)
+assert(values.mcppilotcourse == 222 and values.mcpcopilotcourse == 222, "SCAT course is authoritative despite generic course_valid=0")
+
+local prior = #commands
+yal.configvalues[def.CONFIGVOICEADVICEONLY] = def.ON
+loop = {}
+setIls.steps.find_navdata.branch(loop)
+assert(setIls.steps.set_capt_freq.check(loop), "Advice can accept a manually set matching receiver")
+assert(not setIls.steps.set_capt_freq.runActionInAdviceMode and #commands == prior, "Advice does not run MMR actions")
+
+local changed = copy(scat)
+changed.procedure_id = "J22-Y"
+activeApproachFixture, values.fmsselectedapp = changed, changed.procedure_id
+assert(setIls.steps.set_capt_freq.skipIf(loop) and setIls.steps.set_capt_course.skipIf(loop),
+    "changed procedure cannot reuse old SCAT plan, even with the same channel")
+setIls.steps.set_capt_freq.action(loop)
+assert(#commands == prior, "changed selection emits no stale MMR command")
+activeApproachFixture, values.fmsselectedapp = scat, scat.procedure_id
+values.mmr = 0
+assert(not realHelpers.tuneScatMmr(def.MMRCAPTAIN, 8870) and #commands == prior,
+    "missing MMR prevents keypad entry")
+values.mmr = 1
+local findCommand = sasl.findCommand
+sasl.findCommand = function(name)
+    if name:find("act_stby", 1, true) then return nil end
+    return name
+end
+assert(not realHelpers.tuneScatMmr(def.MMRCAPTAIN, 8870) and #commands == prior,
+    "incomplete command surface cannot partially edit a receiver")
+sasl.findCommand = findCommand
+assert(not realHelpers.tuneScatMmr(def.MMRCAPTAIN, 20000) and #commands == prior,
+    "native GLS never enters the special SCAT command path")
+
+local disabled = copy(scat)
+disabled.scat_available, disabled.scat_ident, disabled.scat_channel, disabled.scat_course_mag = false, "", 0, 0
+assert(validate(disabled) and toNavEntry(disabled) == nil, "tablet OFF recognizes selection but offers no target")
+activeApproachFixture = disabled
+assert(setIls.steps.set_capt_freq.skipIf(loop) and setIls.steps.set_fo_freq.skipIf(loop), "tablet OFF during procedure removes both tuning plans")
+assert(setIls.steps.set_capt_course.skipIf(loop) and setIls.steps.set_fo_course.skipIf(loop), "tablet OFF removes both course plans")
+setIls.steps.set_capt_freq.action(loop)
+setIls.steps.set_fo_freq.action(loop)
+assert(#commands == prior, "no stale action after tablet OFF")
+loop, messages = {}, {}
+assert(setIls.steps.find_navdata.branch(loop) == "announce_scat_unavailable", "disabled SCAT never enters legacy GLS fallback")
+setIls.steps.announce_scat_unavailable.action(loop)
+assert(messages[1]:find("tablet option", 1, true) and setIls.steps.announce_scat_unavailable.nextStep == nil,
+    "disabled SCAT explains unavailability and ends without fake frequency/course")
+
+activeApproachFixture = scat
+values.lpv, values.captMode, values.captValue = 1, def.MMRVOR, 0
+yal.configvalues[def.CONFIGVOICEADVICEONLY] = def.OFF
+local nativeGls = copy(scat)
+nativeGls.procedure_type, nativeGls.nav_valid = "GLS", true
+nativeGls.resolved_nav_kind, nativeGls.nav_ident, nativeGls.channel = "GLS", "TEST", 20591
+nativeGls.scat_selected, nativeGls.scat_available = false, false
+nativeGls.scat_ident, nativeGls.scat_channel, nativeGls.scat_course_mag = "", 0, 0
+nativeGls.course_valid, nativeGls.course_deg, nativeGls.course_reference = true, 222, "MAG"
+assert(validate(nativeGls))
+activeApproachFixture = nativeGls
+loop = {}
+assert(setIls.steps.find_navdata.branch(loop) == "announce_approach_type", "native GLS keeps old flow")
+setIls.steps.set_capt_freq.action(loop)
+assert(values.captMode == def.MMRGLS and values.captValue == 20591 and #commands == prior,
+    "native GLS retains existing direct tuning, never SCAT keypad commands")
+
+print("test_approach_ref_v2: API v2/v3 and optional SCAT checks passed")

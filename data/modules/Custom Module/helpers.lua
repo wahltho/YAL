@@ -59,6 +59,33 @@ function P.mmrCopyActToStby(side)
     end
 end
 
+function P.tuneScatMmr(side, channel)
+    local yal = _G.yal
+    if not yal or not yal.mmrinstalled or get(yal.mmrinstalled) ~= def.ON then return false end
+    local value = tonumber(channel)
+    if not value or value < 1000 or value > 9999 or value % 1 ~= 0 then return false end
+    local prefix = "laminar/B738/push_button/mmr" .. (side == def.MMRCAPTAIN and "1_" or "2_")
+    local digits = string.format("%05d", value)
+    -- SCAT receiver authority is established by keypad entry and ACT/STBY,
+    -- not by writing the active channel DataRef.
+    for _, suffix in ipairs({ "mode_up", "clr", "act_stby",
+        digits:sub(1, 1), digits:sub(2, 2), digits:sub(3, 3), digits:sub(4, 4), digits:sub(5, 5) }) do
+        if not sasl.findCommand(prefix .. suffix) then return false end
+    end
+    local modeRef = side == def.MMRCAPTAIN and yal.mmrcptstdbymode or yal.mmrfostdbymode
+    for _ = 1, 2 do
+        if (tonumber(get(modeRef)) or 0) >= def.MMRGLS then break end
+        P.command_once(prefix .. "mode_up")
+    end
+    if (tonumber(get(modeRef)) or 0) < def.MMRGLS then return false end
+    for _ = 1, 5 do P.command_once(prefix .. "clr") end
+    for i = 1, 5 do P.command_once(prefix .. digits:sub(i, i)) end
+    P.command_once(prefix .. "act_stby")
+    local mode = side == def.MMRCAPTAIN and yal.mmrcptactmode or yal.mmrfoactmode
+    local active = side == def.MMRCAPTAIN and yal.mmrcptactvalue or yal.mmrfoactvalue
+    return get(mode) == def.MMRGLS and get(active) == value
+end
+
 local function parse_version_string(str)
     str = tostring(str or "")
     str = str:match("^%s*(.-)%s*$") or ""
@@ -5606,6 +5633,7 @@ function P.resolveApproachGuidanceCapabilities(context)
 
     local yal = _G.yal
     local navdata = context.navdata
+    local scat = navdata and navdata.isScatI == true
     local detectedVariant = context.detectedVariant
     local selectedAppId = context.selectedAppId
     if selectedAppId == nil and yal and yal.fmsselectedapp then
@@ -5683,7 +5711,7 @@ function P.resolveApproachGuidanceCapabilities(context)
         guidanceFamily = "localizer"
     end
 
-    local channelCapable = mmrInstalled and lpvInstalled
+    local channelCapable = mmrInstalled and (scat or lpvInstalled)
     local procedureClassValid = context.procedureClassValid == true
     local rnpAr = procedureClassValid and context.rnpAr == true
     local ianEligible = procedureClassValid and context.ianEligible == true
@@ -5719,7 +5747,7 @@ function P.resolveApproachGuidanceCapabilities(context)
         expectedVerticalMode = "GP"
         tuningKind = "mmr"
         captainTuneMode = def.MMRGLS
-        guidanceSummary = "Expected G L S guidance"
+        guidanceSummary = scat and "Expected S C A T One guidance" or "Expected G L S guidance"
     elseif guidanceFamily == "lpv" then
         expectedLateralMode = "LPV"
         expectedVerticalMode = lateralOnly and "NONE" or "GP"

@@ -2318,6 +2318,17 @@ function P.bindExternalDatarefs(silentMissing)
             P.approachRef.rnp_ar = GP(base .. "rnp_ar")
             P.approachRef.ian_eligible = GP(base .. "ian_eligible")
         end
+        if probe_external_dataref(base .. "scat_selected")
+            and probe_external_dataref(base .. "scat_available")
+            and probe_external_dataref(base .. "scat_ident")
+            and probe_external_dataref(base .. "scat_channel")
+            and probe_external_dataref(base .. "scat_course_mag") then
+            P.approachRef.scat_selected = GP(base .. "scat_selected")
+            P.approachRef.scat_available = GP(base .. "scat_available")
+            P.approachRef.scat_ident = GPS(base .. "scat_ident")
+            P.approachRef.scat_channel = GP(base .. "scat_channel")
+            P.approachRef.scat_course_mag = GP(base .. "scat_course_mag")
+        end
     end
 
     local function bindHoldRuntimeRefs()
@@ -9028,6 +9039,7 @@ function P.getAutoUnicomApproachContext()
         context.procedure_class_valid = snapshot.procedure_class_valid
         context.rnp_ar = snapshot.rnp_ar
         context.ian_eligible = snapshot.ian_eligible
+        context.scat_available = snapshot.scat_available == true
     end
     context.selection_pending = status == "mod_pending"
     return context
@@ -9083,10 +9095,11 @@ function P.isArrivalFinalEstablished()
     local context = P.getAutoUnicomApproachContext()
     if context.selection_pending then return false end
     local kind = context.approach_resolved_kind or context.approach_procedure_type
-    if kind == "LP" or kind == "LPV" or kind == "GLS" then
+    if kind == "LP" or kind == "LPV" or kind == "GLS" or kind == "SCAT-I" then
+        if kind == "SCAT-I" and not context.scat_available then return false end
         -- Use the routed receiver, which need not be the Captain's tuning panel.
         local mode = read_optional_number_dataref(P.navmmractmode)
-        if kind == "GLS" then
+        if kind == "GLS" or kind == "SCAT-I" then
             return mode == def.MMRGLS and (read_optional_number_dataref(P.apglsnavcapturedstat) == def.CAPTURED
                 or read_optional_number_dataref(P.apglsloccapturedstat) == def.CAPTURED)
         end

@@ -927,7 +927,7 @@ end
 
 M.approachLabel = approach_label
 
-local named_mmr_final = { LP = true, LPV = true, GLS = true }
+local named_mmr_final = { LP = true, LPV = true, GLS = true, ["SCAT-I"] = true }
 
 local MESSAGE_CONTRACTS = {
     ["departure.flightplan_active"] = { scope = "local", station = "departure", missing = "missing_preflight_context" },
@@ -1425,6 +1425,7 @@ function M.buildVoiceMessage(eventId, snapshot, spellNato, visibleText)
     end
 
     local fixedTokens = {
+        { "SCAT-I", "S C A T One" },
         { "TOD", "top of descent" },
         { "RNAV", "R NAV" },
         { "ILS", "I L S" },

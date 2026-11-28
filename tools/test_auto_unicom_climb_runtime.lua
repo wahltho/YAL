@@ -291,11 +291,12 @@ end
 do
     reset()
     local oldGate, oldContext, oldProperty = yal.isArrivalRunwayRadioAltGateOpen, yal.getAutoUnicomApproachContext, isProperty
-    local onFinal, pending, kind = true, false, "LP"
+    local onFinal, pending, kind, scatAvailable = true, false, "LP", true
     isProperty = function(ref) return refs[ref] ~= nil end
     yal.isArrivalRunwayRadioAltGateOpen = function() return onFinal end
     yal.getAutoUnicomApproachContext = function()
-        return { approach_id = "R08", approach_resolved_kind = kind, selection_pending = pending }
+        return { approach_id = "R08", approach_resolved_kind = kind, selection_pending = pending,
+            scat_available = scatAvailable }
     end
     yal.flightstate, refs.phase = def.FLIGHTSTATEAPPROACH, def.FMSFLIGHTPHASE_DESCENT
     yal.navmmractmode, yal.navmmrtype, yal.iannotinstalled = "mode", "mmrType", "noIan"
@@ -347,7 +348,7 @@ do
     refs.mode = def.MMRGLS
     assert(not yal.isAutoUnicomEventCurrent("arrival.on_final", {}), "dispatch rejects wrong current capture mode")
     yal.apglsnavcapturedstat, yal.apglsloccapturedstat = "glsNav", "glsApp"
-    for _, family in ipairs({ "LPV", "GLS" }) do
+    for _, family in ipairs({ "LPV", "GLS", "SCAT-I" }) do
         kind = family
         local lpv = family == "LPV"
         local nav, app = lpv and "nav" or "glsNav", lpv and "app" or "glsApp"
@@ -357,6 +358,12 @@ do
         assert(not yal.isArrivalFinalEstablished(), family .. " cannot borrow the other family's capture or FAC")
         refs[nav] = def.CAPTURED
         assert(yal.isArrivalFinalEstablished(), family .. " NAV capture establishes without vertical capture")
+        if family == "SCAT-I" then
+            scatAvailable = false
+            assert(not yal.isArrivalFinalEstablished(), "SCAT tablet OFF cannot borrow existing GLS capture")
+            assert(not yal.isAutoUnicomEventCurrent("arrival.on_final", {}), "SCAT unavailable blocks queued final")
+            scatAvailable = true
+        end
         refs[nav], refs[app] = def.ARMED, def.CAPTURED
         assert(yal.isArrivalFinalEstablished(), family .. " lateral APP capture establishes")
         if lpv then

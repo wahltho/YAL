@@ -286,6 +286,8 @@ YAL supports ILS, LOC, LDA, IGS, GLS, LPV and RNAV approach setup.
 
 In Auto mode, YAL can set the relevant frequencies, channels and courses automatically. In Voice Advice Only mode, YAL announces the targets for manual entry. A one-time FMC page reminder may still be given where useful, but the procedure no longer depends on the FMC page staying open.
 
+The optional custom-port SCAT-I simulation is supported only when its Approach Ref API reports the selected procedure as available. This requires both the SCAT-I tablet option and valid approach data. YAL preserves the five-digit channel, including its leading zero (for example, `08870`), and Auto mode enters it through the MMR keypad and ACT/STBY on both sides. Courses come from the dedicated SCAT-I snapshot. Auto-Unicom reports established SCAT-I only after actual lateral GLS-family capture on the routed receiver, not from static availability. Upstream Zibo and older APIs retain their existing behavior.
+
 Not every approach has a tunable frequency or channel. For RNAV approaches, YAL may explicitly report that no tunable approach frequency/channel exists and then announce the final approach course instead.
 
 ### Approach Course Handling
